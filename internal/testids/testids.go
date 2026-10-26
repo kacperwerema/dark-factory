@@ -494,7 +494,7 @@ var IDs = []string{
 	"lead_chat.pane",
 	"lead_chat.form",
 	"lead_chat.text",
-	"lead_chat.send",
+	"lead_chat.send", 	"lead_chat.send_now",
 	"lead_chat.key.*",
 	"lead_chat.status",
 	"lead_chat.waiting",

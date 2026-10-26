@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -269,6 +270,56 @@ func TestLeadChatKeyError(t *testing.T) {
 	defer ts.Close()
 	if code, _ := leadChatPost(t, ts.URL+"/p/agents/lead/key", "application/json", `{"key":"Escape"}`); code != http.StatusBadGateway {
 		t.Errorf("failed send-keys: %d, want 502", code)
+	}
+}
+
+func TestLeadChatKeyChord(t *testing.T) {
+	proj := setupAgentsProject(t)
+	st := stubLeadChat(t, true)
+	orig := leadChatChordGap
+	leadChatChordGap = 0
+	t.Cleanup(func() { leadChatChordGap = orig })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	url := ts.URL + "/p/agents/lead/key"
+
+	for _, key := range []string{"SendNow", "Expand", "Background"} {
+		b, _ := json.Marshal(map[string]string{"key": key})
+		if code, out := leadChatPost(t, url, "application/json", string(b)); code != 200 || out["key"] != key {
+			t.Fatalf("%s: %d %v", key, code, out)
+		}
+	}
+	want := "lead-agents C-x,lead-agents C-s,lead-agents C-o,lead-agents C-b,lead-agents C-b"
+	if got := strings.Join(st.keys, ","); got != want {
+		t.Errorf("pressed %s, want %s", got, want)
+	}
+}
+
+func TestLeadChatCtrlCGuard(t *testing.T) {
+	proj := setupAgentsProject(t)
+	st := stubLeadChat(t, true)
+	leadChatCtrlCMu.Lock()
+	leadChatLastCtrlC = map[string]time.Time{}
+	leadChatCtrlCMu.Unlock()
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	url := ts.URL + "/p/agents/lead/key"
+
+	if code, out := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`); code != 200 || out["status"] != "sent" {
+		t.Fatalf("first Ctrl+C: %d %v", code, out)
+	}
+	// A second one right after would close Claude Code: refused, nothing pressed.
+	if code, out := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`); code != http.StatusTooManyRequests || out["status"] != "too-soon" {
+		t.Errorf("second Ctrl+C: %d %v, want 429 too-soon", code, out)
+	}
+	if got := strings.Join(st.keys, ","); got != "lead-agents C-c" {
+		t.Errorf("pressed %s, want one C-c", got)
+	}
+	if !leadChatCtrlCAllowed("lead-other", time.Now()) {
+		t.Error("the guard is per lead: another lead's Ctrl+C must pass")
+	}
+	if !leadChatCtrlCAllowed("lead-agents", time.Now().Add(leadChatCtrlCGap+time.Second)) {
+		t.Error("Ctrl+C after the gap must pass")
 	}
 }
 

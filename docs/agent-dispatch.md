@@ -44,7 +44,7 @@ Every place the engine pastes into or starts a session, and what starts it:
 | Body editor | `nvim` in a tmux window (not an agent) | your click |
 | `issue-cli lead message` | `agentrun.Paste` | the lead; Codex sessions only |
 | [Lead chat](#lead-chat): message | `agentrun.Paste` via `POST …/lead/send` | your words, typed and sent in the page |
-| Lead chat: Esc, ↑ ↓ 1 2 3 ⏎ | `agentrun.SendKey` via `POST …/lead/key` | your click |
+| Lead chat: Esc, Ctrl+C, ↑ ↓ 1 2 3 ⏎, Claude Code shortcuts (ctrl+x ctrl+s, ctrl+o, ctrl+b ctrl+b) | `agentrun.SendKey` via `POST …/lead/key` | your click |
 
 Nothing runs on a timer that reaches a session. The viewer's timers (local CI's watcher, the daily health snapshot) run `make` and `git` and write files; they never paste into or prompt a session. Local CI reports to the Status page, `status.md`, the `ci-red` markers and `ci:` comments, and the lead reads `issue-cli ci status` when you ask.
 
@@ -316,7 +316,7 @@ See [The lead session](patterns/lead-session.md) for roles, routing and authorit
 
 - **The pane.** The page shows `tmux capture-pane -p -J -S -2000` of `lead-<project>` (its window in `tmux_session` mode), escape sequences stripped, refreshed every 1.5 s from `GET …/lead.json` while the tab is visible. It follows the bottom unless you have scrolled up.
 - **The message box.** Enter sends, Shift+Enter adds a line. The text goes in like Re-send prompt: `agentrun.Paste` loads it into a tmux buffer named after the session, pastes it as one bracketed paste and presses Enter, then checks its last line shows up in the pane. Nothing passes through a shell. Control characters other than newline and tab are dropped (so a message can't close the bracketed paste and press keys), a message is at most 20 KB, and a copy is kept in `.agent-logs/lead-<project>/chat/`.
-- **Keys.** **Esc** interrupts the lead. ↑ ↓ 1 2 3 ⏎ answer its menus (permission prompts, choices). Only these keys are accepted.
+- **Keys.** **Esc** interrupts the lead. **Ctrl+C** interrupts it too, after a confirm; a second Ctrl+C within 5 s is refused (429), because Claude Code exits on two. ↑ ↓ 1 2 3 ⏎ answer its menus (permission prompts, choices). The Claude Code shortcuts are buttons too: **send queued** presses ctrl+x ctrl+s (a message queued while the lead works goes in now), **ctrl+o** expands output, **bg** presses ctrl+b ctrl+b (run the command in the background). **Send now** sends the message and then presses ctrl+x ctrl+s. A chord's keys go 60 ms apart. Only these keys are accepted.
 - **Spawn lead** shows when the lead isn't running. It is the sidebar's button (`POST …/lead/spawn`).
 - **Side panel.** *Waiting on you* is the Status page's list for the project (gates link to the issue's approve button, `#approve-<status>`; playtests, check scripts and `question:` comments link to the issue), refreshed every 15 s. *The lead's latest questions* are the newest lines in its pane that end in `?`, without the lines you typed.
 
@@ -324,7 +324,7 @@ What you send there is you typing in the lead's chat, so it counts as your words
 
 Before this page the agents canvas deliberately showed no pane and no message box (UI decision D-12); the lead chat is the owner's request to have both, for the lead only. Workers are still reached in tmux.
 
-Limits: the pane is plain text, so colours and the TUI's layout are lost, and Claude Code's live areas (the spinner, the prompt box) are captured as they were drawn at that moment. A long paste shows as `[Pasted text …]` in Claude Code's prompt until it is sent. Keys the page doesn't offer (Ctrl+C, Shift+Tab) still need tmux.
+Limits: the pane is plain text, so colours and the TUI's layout are lost, and Claude Code's live areas (the spinner, the prompt box) are captured as they were drawn at that moment. A long paste shows as `[Pasted text …]` in Claude Code's prompt until it is sent. Keys the page doesn't offer (Shift+Tab, a second Ctrl+C) still need tmux.
 
 ## Local CI and dispatched agents
 

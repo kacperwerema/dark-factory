@@ -36,17 +36,49 @@ const (
 )
 
 // leadChatKeys are the keys the page may press in the lead's pane, by the
-// name the page sends, mapped to the tmux key name. Only these: the request
-// never carries text that reaches send-keys.
-var leadChatKeys = map[string]string{
-	"Escape": "Escape",
-	"Enter":  "Enter",
-	"Up":     "Up",
-	"Down":   "Down",
-	"1":      "1",
-	"2":      "2",
-	"3":      "3",
+// name the page sends, mapped to the tmux keys pressed in order (a chord such
+// as Claude Code's ctrl+x ctrl+s is two). Only these: the request never
+// carries text that reaches send-keys.
+var leadChatKeys = map[string][]string{
+	"Escape":     {"Escape"},
+	"Enter":      {"Enter"},
+	"Up":         {"Up"},
+	"Down":       {"Down"},
+	"1":          {"1"},
+	"2":          {"2"},
+	"3":          {"3"},
+	"SendNow":    {"C-x", "C-s"},
+	"Expand":     {"C-o"},
+	"Background": {"C-b", "C-b"},
+	"CtrlC":      {"C-c"},
 }
+
+// leadChatKeyNames lists leadChatKeys for error messages, in a fixed order.
+const leadChatKeyNames = "Escape, Enter, Up, Down, 1, 2, 3, SendNow, Expand, Background, CtrlC"
+
+// leadChatCtrlCGap is how long after one Ctrl+C a second is refused: Claude
+// Code exits on Ctrl+C pressed twice, which would end the lead.
+var leadChatCtrlCGap = 5 * time.Second
+
+var (
+	leadChatCtrlCMu   sync.Mutex
+	leadChatLastCtrlC = map[string]time.Time{}
+)
+
+// leadChatCtrlCAllowed reports whether a Ctrl+C may go to target now, and
+// records it when it may.
+func leadChatCtrlCAllowed(target string, now time.Time) bool {
+	leadChatCtrlCMu.Lock()
+	defer leadChatCtrlCMu.Unlock()
+	if last, ok := leadChatLastCtrlC[target]; ok && now.Sub(last) < leadChatCtrlCGap {
+		return false
+	}
+	leadChatLastCtrlC[target] = now
+	return true
+}
+
+// leadChatChordGap separates the keys of a chord so the TUI reads them as one.
+var leadChatChordGap = 60 * time.Millisecond
 
 // leadChatPaste delivers a message into the live lead; a seam for tests.
 var leadChatPaste = agentrun.Paste
@@ -353,9 +385,9 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 	if !decodeLeadChatBody(w, r, 1024, &body) {
 		return
 	}
-	key, ok := leadChatKeys[body.Key]
+	keys, ok := leadChatKeys[body.Key]
 	if !ok {
-		leadChatError(w, http.StatusBadRequest, "error", "key must be one of Escape, Enter, Up, Down, 1, 2, 3")
+		leadChatError(w, http.StatusBadRequest, "error", "key must be one of "+leadChatKeyNames)
 		return
 	}
 	name := tracker.LeadSessionName(proj)
@@ -364,13 +396,22 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 		leadChatError(w, http.StatusConflict, "no-session", agentDisplayName(proj, name)+" is not running")
 		return
 	}
-	defer leadChatLock(target)()
-	if err := agentrun.SendKey(target, key); err != nil {
-		leadChatError(w, http.StatusBadGateway, "error", err.Error())
+	if body.Key == "CtrlC" && !leadChatCtrlCAllowed(target, time.Now()) {
+		leadChatError(w, http.StatusTooManyRequests, "too-soon", "a second Ctrl+C within a few seconds would close the lead; wait and try again")
 		return
 	}
+	defer leadChatLock(target)()
+	for i, key := range keys {
+		if i > 0 {
+			time.Sleep(leadChatChordGap)
+		}
+		if err := agentrun.SendKey(target, key); err != nil {
+			leadChatError(w, http.StatusBadGateway, "error", err.Error())
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "sent", "key": key, "session": agentDisplayName(proj, name)})
+	json.NewEncoder(w).Encode(map[string]string{"status": "sent", "key": body.Key, "session": agentDisplayName(proj, name)})
 }
 
 // LeadRow is one project on /leads.
