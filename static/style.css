@@ -4431,3 +4431,52 @@ a:hover > .chart-seg, a:focus > .chart-seg { opacity: .8; }
 .updates { padding-bottom: 48px; }
 .updates-details, .updates-install { min-width: 0; }
 .updates-cat-lifecycle, .updates-cat-actions, .updates-cat-board, .updates-cat-conventions { color: var(--text-nav); }
+
+/* Lead chat (/p/<project>/lead): the lead's pane, the message box, and a
+   side column with what waits on the owner. */
+.lead-chat-page { padding-bottom: 24px; }
+.lead-chat-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.lead-chat-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lead-chat-pane {
+    margin: 0;
+    height: calc(100vh - 290px);
+    min-height: 320px;
+    overflow: auto;
+    padding: 12px 14px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.lead-chat-not-live { padding: 18px; display: flex; align-items: center; gap: 14px; }
+.lead-chat-not-live[hidden], .lead-chat-pane[hidden] { display: none; }
+.lead-chat-form { display: flex; flex-direction: column; gap: 8px; }
+.lead-chat-form textarea {
+    width: 100%;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text);
+    resize: vertical;
+}
+.lead-chat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lead-chat-keys { display: inline-flex; gap: 4px; }
+.lead-chat-status { color: var(--text-secondary); font-size: 13px; }
+.lead-chat-side { display: flex; flex-direction: column; gap: 12px; }
+.lead-chat-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.lead-chat-card h2 { display: flex; align-items: center; gap: 8px; }
+.lead-chat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lead-chat-row-text { display: flex; flex-direction: column; min-width: 0; }
+.lead-chat-questions { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.lead-chat-hint { font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+    .lead-chat-body { grid-template-columns: minmax(0, 1fr); }
+}

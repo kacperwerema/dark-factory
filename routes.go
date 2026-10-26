@@ -85,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/p/", s.handleProjectRoutes)
 	mux.HandleFunc("/stats", s.handleStatsOverview)
 	mux.HandleFunc("/updates", s.handleUpdatesOverview)
+	mux.HandleFunc("/leads", s.handleLeads)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	return hostAllowed(s.allowedHosts, sameOriginOnly(mux))
@@ -158,6 +159,14 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleAgentOpen(w, r, proj, prefix)
 	case rest == "lead/spawn" && r.Method == http.MethodPost:
 		s.handleLeadSpawn(w, r, proj, prefix)
+	case rest == "lead" && r.Method == http.MethodGet:
+		s.handleLeadChat(w, r, proj, prefix)
+	case rest == "lead.json" && r.Method == http.MethodGet:
+		s.handleLeadChatJSON(w, r, proj, prefix)
+	case rest == "lead/send" && r.Method == http.MethodPost:
+		s.handleLeadChatSend(w, r, proj, prefix)
+	case rest == "lead/key" && r.Method == http.MethodPost:
+		s.handleLeadChatKey(w, r, proj, prefix)
 	case rest == "retros":
 		s.handleRetros(w, r, proj, prefix)
 	case rest == "retros/review" && r.Method == http.MethodPost:

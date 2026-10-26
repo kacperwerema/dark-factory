@@ -26,6 +26,7 @@ func TestProjectPagesRenderSidebar(t *testing.T) {
 		"/graph":                "graph",
 		"/canvas":               "canvas",
 		"/agents":               "agents",
+		"/lead":                 "lead",
 		"/docs":                 "docs",
 		"/docs/getting-started": "docs",
 		"/retros":               "retros",
@@ -96,7 +97,7 @@ func TestSidebarNav(t *testing.T) {
 	}
 	// Systems shows because the issues have systems (ui/workbench-sidebar-and-system-pages#D-2);
 	// Updates because the project shares the repo's template-based workflow.yaml.
-	if got := keys(nav.Main); got != "status,systems,workboard,list,decisions,updates,docs" {
+	if got := keys(nav.Main); got != "status,lead,systems,workboard,list,decisions,updates,docs" {
 		t.Errorf("main = %s (Status first; Balance needs workbench.balance)", got)
 	}
 	if got := keys(nav.More); got != "board,graph,canvas,agents,retros,stats" {

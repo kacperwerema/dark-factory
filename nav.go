@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -28,6 +29,8 @@ type navView struct {
 // the issues.
 var navViews = []navView{
 	{Key: "status", Label: "Status", Path: "/status"},
+	// Lead chat: the project lead's pane, a message box and what waits on you.
+	{Key: "lead", Label: "Lead chat", Path: "/lead"},
 	{Key: "health", Label: "Health", Path: "/health", Show: func(s *Server, p *tracker.Project) bool {
 		return isGitCheckout(projectRoot(p))
 	}},
@@ -190,6 +193,10 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 			item.Note = fmt.Sprint(len(systemNames))
 		case "list":
 			item.Note = fmt.Sprint(open)
+		case "lead":
+			if leadListed(proj) {
+				item.Note, item.Live = "live", true
+			}
 		case "agents":
 			if activeBots > 0 {
 				item.Note, item.Live = fmt.Sprintf("%d running", activeBots), true
@@ -220,6 +227,18 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 		nav.Systems = systemsPanel(prefix, active, issues, proj.LoadWorkflow())
 	}
 	return nav
+}
+
+// leadListed reports whether the project lead is among the project's listed
+// tmux sessions (listTmuxSessions, so tests stub it with the rest).
+func leadListed(proj *tracker.Project) bool {
+	name := tracker.LeadSessionName(proj)
+	for _, sess := range projectSessions(proj) {
+		if agentrun.BareName(sess.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // systemCounts lists systems by open count (most first), each linking to

@@ -22,6 +22,10 @@ renames `## Unreleased` to `## vX.Y.Z — YYYY-MM-DD` and pushes, and the
 release-marker Action tags and builds it. Pushes with `## Unreleased` on top
 release nothing.
 
+## Unreleased
+
+- **Lead chat: talk to the project lead from the board.** **Lead chat** in the sidebar (`/p/<project>/lead`) shows the lead's tmux pane (2000 lines of scrollback, refreshed every 1.5 s, following the bottom unless you scroll up) with a message box under it: Enter sends, Shift+Enter adds a line, and the text goes in as one bracketed paste plus Enter, the way Re-send prompt delivers a briefing. **Esc** interrupts the lead; ↑ ↓ 1 2 3 ⏎ answer its menus. **Spawn lead** shows when it isn't running. The side panel lists what waits on you in the project (gates link straight to the approve button) and the lead's latest questions from its pane. **Leads** on the projects page (`/leads`) lists every project's lead, live or not, with its waiting count and a link to its chat. What you send is you typing in the lead's chat; the page sends nothing by itself. The writes are `POST …/lead/send` (JSON, 20 KB at most, control characters dropped) and `POST …/lead/key` (an allowlist of keys), behind the usual origin check, and the tmux target always comes from the project. See docs/agent-dispatch.md, Lead chat.
+
 ## v0.54.1 — 2026-10-24
 
 - **The release Action writes its notes again (fix).** v0.54.0's run failed after tagging (exit 141): the step piped `git show` of the CHANGELOG into an `awk` that stops at the next heading, so `git show` died of SIGPIPE under `pipefail` and no release or binaries were made. It now reads the file first.

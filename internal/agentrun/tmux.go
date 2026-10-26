@@ -32,6 +32,8 @@ var (
 	SendKeys        = defaultSendKeys
 	ListSessions    = defaultListSessions
 	CapturePane     = defaultCapturePane
+	CaptureHistory  = defaultCaptureHistory
+	SendKey         = defaultSendKey
 )
 
 // PromptDeliveryTimeout bounds how long a dispatch or reprompt waits for the
@@ -355,6 +357,20 @@ func BareName(listed string) string {
 func defaultCapturePane(target string) (string, error) {
 	out, err := exec.Command("tmux", "capture-pane", "-p", "-J", "-t", target).Output()
 	return string(out), err
+}
+
+// defaultCaptureHistory is the pane's text with up to lines of scrollback
+// above the visible screen, wrapped lines joined and no escape sequences (no
+// -e), so it is plain text.
+func defaultCaptureHistory(target string, lines int) (string, error) {
+	out, err := exec.Command("tmux", "capture-pane", "-p", "-J", "-S", "-"+strconv.Itoa(lines), "-t", target).Output()
+	return string(out), err
+}
+
+// defaultSendKey presses one tmux key (a key name such as Escape, never
+// literal text) in target.
+func defaultSendKey(target, key string) error {
+	return exec.Command("tmux", "send-keys", "-t", target, key).Run()
 }
 
 // PromptDeliveryStep polls the agent's pane until the prompt's delivery

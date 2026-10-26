@@ -70,6 +70,7 @@ stats_overview.go           — /stats without a project: every project compared
 updates.go                  — the Updates tab (/updates): workflow features to adopt, Decline / Re-open / Install with an agent, /updates across projects
 handlers_checks.go          — ▶ Run checks: POST …/check-script opens tmux window check-script-<slug> running the issue's guided check scripts
 handlers_agents.go          — /agents canvas, agents.json, agent detail, open-in-tmux and lead spawn endpoints
+handlers_lead_chat.go       — /lead chat (the lead's pane, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads across projects
 handlers_systems.go         — /systems index and system / family pages (model in systems.go, design-doc panel in docsections.go)
 handlers_metrics.go         — /metrics view (guard metrics, knobs, branches), metrics.json; handlers_metrics_panels.go feeds the system-page partials
 handlers_status.go          — /status page and /status.md (model in status.go: buildStatus, statusMarkdown)
@@ -195,7 +196,7 @@ Detailed documentation lives in `docs/` and is viewable at `/docs` in the web UI
 - [Workflow](docs/workflow.md) — lifecycle, prompts, side-effects, system overlays
 - [Agent Workflow Flow](docs/agent-workflow-flow.md) — full dispatch-to-done agent flow
 - [Board Configuration](docs/board-configuration.md) — columns, card fields
-- [Agent Dispatch](docs/agent-dispatch.md) — a human starts the work (the disclaimer: `dispatch --quote`, no unattended runs, every paste into a session and what starts it); terminal config, `lead_terminal` (leads as tabs in your own session), approval notifications, the lead session, worktrees; `issue-cli dispatch` / `status`, the waiting-on-gate refusal, `viewer_url`
+- [Agent Dispatch](docs/agent-dispatch.md) — a human starts the work (the disclaimer: `dispatch --quote`, no unattended runs, every paste into a session and what starts it); terminal config, `lead_terminal` (leads as tabs in your own session), approval notifications, the lead session, worktrees; `issue-cli dispatch` / `status`, the waiting-on-gate refusal, `viewer_url`; the Lead chat page (`/p/<project>/lead`, `/leads`)
 - [GitHub Integration](docs/github-integration.md) — sync, issue reference, auto-close
 - [Per-issue Data Store](docs/data-store.md) — sidecar JSON, `<!-- data -->` marker, `issue-cli data` commands
 - [Workbench Files](docs/workbench-files.md) — metric runs, targets and knob exports the Metrics view reads, branch matching, hot files, `depends_on`; project pages (`status_page`, `pages`: sandboxed HTML, postMessage status); health snapshots (`.health/snapshots/`, `health:` config, `limits` and `score`, metric names, the tests and shape families, the derived score, the agent opinion and `issue-cli health review`, `issue-cli health backfill`, the lint family and `issue-cli health lint`, adding a family)
