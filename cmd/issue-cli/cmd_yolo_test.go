@@ -285,3 +285,23 @@ func TestYOLOReleaseAndDecide(t *testing.T) {
 		t.Fatalf("decision not tagged YOLO:\n%s", body)
 	}
 }
+
+func TestYOLOHeaderLine(t *testing.T) {
+	proj := makeYOLOProject(t)
+	now := time.Now()
+	show := func() string {
+		ctx, out, _ := newTestContext(proj, false)
+		ctx.Now = func() time.Time { return now }
+		if err := runShow(ctx, []string{"design"}); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if strings.Contains(show(), "YOLO:") {
+		t.Fatal("YOLO line while off")
+	}
+	yoloOn(t, proj, now, time.Hour)
+	if out := show(); !strings.Contains(out, "YOLO: on until ") || !strings.Contains(out, "issue-cli --project proj check-script <slug> --yes") {
+		t.Fatalf("show lacks the YOLO line:\n%s", out)
+	}
+}
