@@ -20,6 +20,15 @@ templates/report.html composes them.
   wb/health        Code health                               data: WbHealth
   wb/unlock-item   one thing to enable                       data: WbUnlockItem
   wb/unlock        To unlock                                 data: WbUnlock
+  wb/check-mark    a met / not-met mark                      data: bool
+  wb/release       Waiting for release: milestone, checks,   data: *StatusModel
+                   release candidate, next steps, open
+                   issues, ## Unreleased, unpushed commits
+  wb/ci            Local CI: state, last runs, what failed   data: *StatusModel
+
+wb/release and wb/ci read the classic Status page's model (ReleaseWait,
+CI) and keep its status.release_wait.* and status.ci.* test ids, so the
+release flow reads the same on both pages.
 */}}
 
 {{define "wb/view-toggle"}}<div class="wb-toggle" role="group" aria-label="Project view">{{range .}}{{if .Current}}<span class="wb-toggle-on" aria-current="page" data-testid="view.{{.TestID}}">{{.Label}}</span>{{else}}<a href="{{.URL}}" data-testid="view.{{.TestID}}">{{.Label}}</a>{{end}}{{end}}</div>{{end}}
@@ -146,3 +155,160 @@ templates/report.html composes them.
     {{range .Items}}{{template "wb/unlock-item" .}}{{end}}
 </section>
 {{end}}
+
+{{define "wb/check-mark"}}{{if .}}<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" role="img" aria-label="met"><path d="M3 8.5l3.2 3L13 4.5"/></svg>{{else}}<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" role="img" aria-label="not met"><path d="M4 4l8 8M12 4l-8 8"/></svg>{{end}}{{end}}
+
+{{define "wb/release"}}{{with .ReleaseWait}}
+<section class="wb-rcard" id="release" aria-labelledby="release-h" data-testid="status.release_wait">
+    <div class="wb-rcard-head">
+        <h2 class="wb-rcard-h" id="release-h">Waiting for release</h2>
+        {{with .Milestone}}{{if .RC}}<span class="wb-chip {{if or .CutNext .Soaking}}wb-chip--green{{else}}wb-chip--you{{end}}" data-testid="status.release_wait.state">{{if .CutNext}}ready to cut {{.CutNext}}{{else if .Soaking}}{{.Candidate.Tag}} soaking{{else}}{{.Cut}} not ready{{end}}</span>{{else}}<span class="wb-chip {{if .Ready}}wb-chip--green{{else}}wb-chip--you{{end}}" data-testid="status.release_wait.state">{{if .Ready}}ready to cut{{else}}{{.Cut}} not ready{{end}}</span>{{end}}{{end}}
+    </div>
+    {{with $.Candidate}}<a class="wb-rc-badge" href="#release-h" data-testid="status.rc_badge" title="A release candidate runs on this machine's projects; it is released only on the owner's ok">{{.Tag}} · release candidate · soaking {{$.AgeOf .CutAt}}</a>{{end}}
+    {{with .Milestone}}
+    <div class="wb-rbar wb-rbar--current" data-testid="status.release_wait.milestone">
+        <div class="wb-rbar-row"><span class="wb-rbar-label">Milestone {{.Version}}</span><span class="wb-rbar-num">{{.Progress.Done}}/{{.Progress.Total}} <span>done</span></span></div>
+        <div class="wb-rbar-track"><div style="width:{{.Progress.Pct}}%"></div></div>
+    </div>
+    <div class="wb-rel-list" data-testid="status.release_wait.checks">
+        <div class="wb-rsub">{{if .RC}}{{.Cut}} is published when{{else}}Ready to cut {{.Cut}} when{{end}}</div>
+        {{range .Checks}}
+        <div class="wb-rel-check {{if .OK}}wb-rel-check--ok{{else}}wb-rel-check--no{{end}}" data-testid="status.release_wait.check.{{.Key}}" data-ok="{{.OK}}">
+            {{template "wb/check-mark" .OK}}
+            <div class="wb-rel-stack"><span>{{.Text}}</span>{{if .Detail}}<span class="wb-rel-detail">{{.Detail}}</span>{{end}}</div>
+            {{if and (eq .Key "ci") (not .OK)}}<a class="wb-rlink" href="#ci-h">Local CI</a>{{else}}<span class="wb-rel-meta">{{.Meta}}</span>{{end}}
+        </div>
+        {{end}}
+    </div>
+    {{with .Candidate}}
+    {{$stale := or .ViewerStale .CLIStale}}
+    <div class="wb-rel-list" data-testid="status.release_wait.candidate">
+        <div class="wb-rsub">Release candidate</div>
+        <details class="wb-rel-fold" data-testid="status.release_wait.candidate.fold">
+            <summary data-testid="status.release_wait.candidate.summary"><span class="wb-mono-inline">{{.Tag}}</span> · cut {{$.AgeOf .CutAt}} ago · {{if not .SinceKnown}}commits since unknown{{else if .Since}}{{plural .Since "commit" "commits"}} since{{else}}nothing merged since{{end}}{{with .Soak}} · ran by {{len .Ran}} of {{len .Projects}}{{if .Reports}} · {{plural (len .Reports) "open report" "open reports"}}{{end}}{{end}}{{if $stale}} · <span class="wb-rel-detail">not the candidate</span>{{end}}</summary>
+            <div class="wb-rel-row" data-testid="status.release_wait.candidate.tag"><b class="wb-mono-inline">{{.Tag}}</b><span class="wb-rel-meta">{{if not .SinceKnown}}commits since unknown{{else if .Since}}{{plural .Since "commit" "commits"}} since: they soak in {{.Next}}{{else}}nothing merged since{{end}}</span></div>
+            {{with .Soak}}
+            <div class="wb-rel-stack" data-testid="status.release_wait.candidate.running" data-stale="{{$stale}}">
+                <span>Running: viewer <code class="wb-code">{{.Viewer}}</code>, issue-cli <code class="wb-code">{{if .CLI}}{{.CLI}}{{else}}unknown{{end}}</code></span>
+                {{if $stale}}<span class="wb-rel-detail">not the candidate: install {{$.ReleaseWait.Milestone.Candidate.Tag}} and restart the viewer</span>{{end}}
+            </div>
+            <div class="wb-rel-stack" data-testid="status.release_wait.candidate.projects">
+                <div class="wb-rsub">Ran {{$.ReleaseWait.Milestone.Candidate.Tag}} · {{len .Ran}} of {{len .Projects}}</div>
+                {{range .Ran}}<div class="wb-rel-row" data-testid="status.release_wait.candidate.project.{{tid .Slug}}"><span>{{.Name}}</span><span class="wb-rel-meta">{{plural .Calls "call" "calls"}}, last {{$.AgeOf .Last}} ago</span></div>{{end}}
+                {{with .NotYet}}<span class="wb-rel-meta">Not yet: {{range $i, $p := .}}{{if $i}}, {{end}}{{$p.Name}}{{end}}</span>{{end}}
+                {{with .NoLog}}<span class="wb-rel-meta">No usage log: {{range $i, $p := .}}{{if $i}}, {{end}}{{$p.Name}}{{end}}</span>{{end}}
+            </div>
+            {{if .Reports}}
+            <div class="wb-rel-stack" data-testid="status.release_wait.candidate.reports">
+                <div class="wb-rsub">Open reports · {{len .Reports}}</div>
+                {{range .Reports}}<div class="wb-rel-row" data-testid="status.release_wait.candidate.report.{{tid .Issue.Slug}}"><a class="wb-rel-title" href="{{$.IssueURL .Issue.Slug}}">{{.Issue.Title}}</a><span class="wb-rel-meta">{{.Found}} · {{.Issue.Status}}</span></div>{{end}}
+            </div>
+            {{end}}
+            {{if .Fixed}}
+            <div class="wb-rel-stack" data-testid="status.release_wait.candidate.fixed">
+                <div class="wb-rsub">Fixed since {{$.ReleaseWait.Milestone.Candidate.Tag}}: soak in {{$.ReleaseWait.Milestone.Candidate.Next}}</div>
+                {{range .Fixed}}<a class="wb-rel-title" href="{{$.IssueURL .Issue.Slug}}">{{.Issue.Title}}</a>{{end}}
+            </div>
+            {{end}}
+            {{end}}
+        </details>
+    </div>
+    {{end}}
+    {{if .CutNext}}
+    <div class="wb-rel-next" data-testid="status.release_wait.cut_rc">
+        <b>Ready to cut release candidate {{.CutNext}}</b>
+        <ol>
+            <li>Cut it: <code class="wb-code">issue-cli release cut {{.Cut}}</code>. {{if .Branch}}It tags {{.CutNext}} on <code class="wb-code">{{.Branch}}</code>{{else}}It creates <code class="wb-code">{{releaseBranch .Cut}}</code> from main and its worktree, and tags {{.CutNext}} there{{end}}; the candidate tag is never pushed. Main moves on; fixes land on main and are picked onto the branch (<code class="wb-code">issue-cli release pick &lt;slug&gt;</code>).</li>
+            <li>Install that build from the release worktree and restart what runs it (issue-viewer: <code class="wb-code">make install</code> there, then restart the viewer).</li>
+            <li>Tell the leads of the projects that run it; they report problems with <code class="wb-code">issue-cli report-bug</code>, and those bugs join {{.Version}}.</li>
+        </ol>
+    </div>
+    {{else if .Soaking}}
+    <div class="wb-rel-next" data-testid="status.release_wait.publish">
+        <b>{{.Candidate.Tag}} soaking: publish {{.Cut}} only on the owner's ok</b>
+        <ol>
+            <li>Ask the owner whether the soak is enough. Never publish without their ok.</li>
+            {{if .Snapshots}}<li>From the release worktree: <code class="wb-code">cd {{.Worktree}} &amp;&amp; issue-cli release publish {{.Cut}}</code>. It names the changelog heading on the branch, pushes one <code class="wb-code">{{.Cut}}</code> commit to the public repo (whose Action tags and builds it), tags {{.Cut}} on <code class="wb-code">{{.Branch}}</code> and moves the released lines on main.</li>
+            <li>Then <code class="wb-code">make install</code> from main.</li>
+            {{else}}{{if $.ReleaseWait.Changelog}}<li>In <code class="wb-code">{{$.ReleaseWait.Changelog}}</code>, rename <code class="wb-code">## Unreleased</code> to <code class="wb-code">## {{.Cut}} — {{.Today}}</code> and add a one-line focus summary.</li>{{end}}
+            <li>Push {{if $.ReleaseWait.Unpushed}}{{$.ReleaseWait.Unpushed.Branch}} to {{$.ReleaseWait.Unpushed.Upstream}}{{else}}the branch{{end}}. A release Action tags {{.Cut}}; without one, tag it yourself. Then fetch the tag and install the release build.</li>{{end}}
+        </ol>
+    </div>
+    {{else if and .Ready (not .RC)}}
+    <div class="wb-rel-next" data-testid="status.release_wait.ready">
+        <b>Ready to cut {{.Cut}}</b>
+        <ol>
+            {{if $.ReleaseWait.Changelog}}<li>In <code class="wb-code">{{$.ReleaseWait.Changelog}}</code>, rename <code class="wb-code">## Unreleased</code> to <code class="wb-code">## {{.Cut}} — {{.Today}}</code> and add a one-line focus summary.</li>{{end}}
+            <li>With the owner's go-ahead, push {{if $.ReleaseWait.Unpushed}}{{$.ReleaseWait.Unpushed.Branch}} to {{$.ReleaseWait.Unpushed.Upstream}}{{else}}the branch{{end}}. A release Action tags {{.Cut}}; without one, tag it yourself.</li>
+        </ol>
+    </div>
+    {{end}}
+    {{if .Open}}
+    {{$rest := rest $.Cap.Open .Open}}
+    <div class="wb-rel-list" data-testid="status.release_wait.open">
+        <div class="wb-rsub">Open in {{.Version}} · {{len .Open}}</div>
+        {{range $i, $o := .Open}}{{if eq $i $.Cap.Open}}<details class="wb-rel-fold" data-testid="status.release_wait.open.more"><summary>+{{len $rest}} more</summary>{{end}}
+        <div class="wb-rel-row" data-testid="status.release_wait.open.row.{{tid .Slug}}">
+            <div class="wb-rel-stack"><a class="wb-rel-title" href="{{$.IssueURL .Slug}}">{{.Title}}</a><span class="wb-rel-meta">{{if .Assignee}}{{.Assignee}}{{else}}no assignee{{end}}</span></div>
+            {{if index $.ReleaseWait.Milestone.Epic .Slug}}<span class="wb-chip wb-chip--agent" data-testid="status.release_wait.open.epic.{{tid .Slug}}" title="An epic: it closes when you move it to done">epic</span>{{end}}
+            <span class="wb-chip wb-chip--idle">{{.Status}}</span>
+        </div>
+        {{end}}{{if $rest}}</details>{{end}}
+    </div>
+    {{end}}
+    {{end}}
+    {{if .Changelog}}
+    <div class="wb-rel-list" data-testid="status.release_wait.unreleased">
+        <div class="wb-rel-row"><div class="wb-rsub">Unreleased · {{len .Unreleased}}</div><span class="wb-rel-meta">{{.Changelog}}</span></div>
+        {{range head $.Cap.Unreleased .Unreleased}}<div class="wb-rel-entry">{{inlineMarkdown .}}</div>{{else}}<span class="wb-rel-meta">Nothing under <code class="wb-code">## Unreleased</code>. Shipped issues add their entry there.</span>{{end}}
+        {{with rest $.Cap.Unreleased .Unreleased}}<details class="wb-rel-fold" data-testid="status.release_wait.unreleased.more"><summary>+{{len .}} more</summary>{{range .}}<div class="wb-rel-entry">{{inlineMarkdown .}}</div>{{end}}</details>{{end}}
+    </div>
+    {{end}}
+    {{with .Unpushed}}
+    <div class="wb-rel-list" data-testid="status.release_wait.unpushed">
+        <div class="wb-rsub">Not pushed</div>
+        {{if .Count}}<div class="wb-rel-row"><span>{{plural .Count "commit" "commits"}} on {{.Branch}} not on {{.Upstream}}</span><span class="wb-rel-meta">{{$age := $.AgeOf .NewestAt}}{{if eq $age "now"}}newest just now{{else}}newest {{$age}} ago{{end}}</span></div>{{else}}<span class="wb-rel-meta">Nothing: {{.Branch}} matches {{.Upstream}}</span>{{end}}
+    </div>
+    {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/ci"}}{{with .CI}}
+<section class="wb-rcard" id="ci" aria-labelledby="ci-h" data-testid="status.ci">
+    <div class="wb-rcard-head">
+        <h2 class="wb-rcard-h" id="ci-h">Local CI</h2>
+        <span class="wb-chip {{if eq .State "green"}}wb-chip--green{{else if eq .State "red"}}wb-chip--red{{else if eq .State "error"}}wb-chip--you{{else}}wb-chip--idle{{end}}" data-testid="status.ci.state">{{if .State}}{{.State}}{{else}}no run yet{{end}}</span>
+    </div>
+    <code class="wb-code" data-testid="status.ci.line">{{.Line}}</code>
+    {{if .Runs}}
+    <div class="wb-rel-list">
+        <div class="wb-rsub">Last runs</div>
+        <div class="wb-ci-runs" data-testid="status.ci.runs" role="list" aria-label="Last CI runs, oldest first">{{range .Runs}}<span class="wb-ci-run wb-ci-run--{{.State}}" role="listitem" data-testid="status.ci.run.{{.Sha}}" data-state="{{.State}}" title="{{.Title}}" aria-label="{{.Title}}"></span>{{end}}</div>
+    </div>
+    {{end}}
+    {{if .Red}}
+    <div class="wb-rel-list" data-testid="status.ci.failed">
+        <div class="wb-rsub">Failing</div>
+        <code class="wb-code">{{.Failed}}</code>
+        {{if .Failures}}<span class="wb-rel-meta">{{.Failures}}</span>{{end}}
+    </div>
+    <div class="wb-rel-list" data-testid="status.ci.blamed">
+        <div class="wb-rsub">Landed since the last green run</div>
+        {{range .Blamed}}<a class="wb-rel-title" href="{{$.IssueURL .Slug}}">{{.Title}}</a>{{else}}<span class="wb-rel-meta">No issue matched{{if .Others}}; see <code class="wb-code">issue-cli ci status</code>{{end}}</span>{{end}}
+        {{if and .Blamed .Others}}<span class="wb-rel-meta">and {{plural .Others "commit" "commits"}} without an issue</span>{{end}}
+        {{with .RedIssue}}<span class="wb-rel-meta">Fix tracked in <a href="{{$.IssueURL .Slug}}">{{.Title}}</a></span>{{end}}
+    </div>
+    {{else if eq .State "error"}}
+    <div class="wb-empty" data-testid="status.ci.error">CI could not run: {{.Error}}. Fix it, or run <code class="wb-code">issue-cli ci reset</code> to rebuild the CI worktree.</div>
+    {{else if not .State}}
+    <div class="wb-empty">The first run starts when the viewer sees the branch, or with <code class="wb-code">issue-cli ci run</code>.</div>
+    {{end}}
+    {{if .LogTail}}
+    <details class="wb-rel-fold" data-testid="status.ci.log">
+        <summary>Log tail <span class="wb-rel-meta">{{.Log}}</span></summary>
+        <pre class="wb-ci-log">{{range .LogTail}}{{.}}
+{{end}}</pre>
+    </details>
+    {{end}}
+</section>
+{{end}}{{end}}

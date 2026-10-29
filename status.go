@@ -207,6 +207,9 @@ func (m *StatusModel) WaitingCount() int {
 // AgeOf is how long ago t was, as of the page: 25m, 1h 30m, 13d.
 func (m *StatusModel) AgeOf(t time.Time) string { return shortDuration(m.AsOf.Sub(t)) }
 
+// IssueURL is an issue's page, for the Report's release and CI cards.
+func (m *StatusModel) IssueURL(slug string) string { return m.Prefix + "/issue/" + slug }
+
 // Candidate is the release candidate being soaked (silver on the Waiting
 // for release card, waiting to be released); nil without one.
 func (m *StatusModel) Candidate() *CandidateRow {

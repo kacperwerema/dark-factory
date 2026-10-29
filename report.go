@@ -55,6 +55,9 @@ type ReportData struct {
 	Shipped    WbShipped
 	Health     WbHealth
 	Unlock     WbUnlock
+	// Status is the model the classic Status page renders; wb/release and
+	// wb/ci read its ReleaseWait and CI (the release flow).
+	Status *StatusModel
 }
 
 // WbViewTab is one side of a segmented toggle (Board | Report).
@@ -294,6 +297,7 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 	d.Shipped = reportShipped(m, prefix)
 	d.Health = reportHealth(m, p, prefix)
 	d.Unlock = reportUnlock(m, p, issues, prefix)
+	d.Status = m
 	return d
 }
 

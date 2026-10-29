@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/ci"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -132,10 +136,145 @@ func TestReportComponentsStandAlone(t *testing.T) {
 		"wb/health":       WbHealth{Weakest: &HealthWeakest{Name: "big files", Score: 30}},
 		"wb/unlock-item":  WbUnlockItem{Key: "epics", Title: "Epics", Action: WbAction{Label: "Copy", Copy: "x"}},
 		"wb/unlock":       WbUnlock{Total: 1, Items: []WbUnlockItem{{Key: "review", Title: "Review", On: true}}},
+		"wb/check-mark":   true,
+		"wb/release":      &StatusModel{ReleaseWait: &ReleaseWait{Changelog: "CHANGELOG.md"}},
+		"wb/ci":           &StatusModel{CI: &CIRow{Line: "main green at abc1234"}},
 	} {
 		var b strings.Builder
 		if err := srv.tmpl.ExecuteTemplate(&b, name, data); err != nil || strings.TrimSpace(b.String()) == "" {
 			t.Errorf("%s: %v (output %q)", name, err, b.String())
 		}
 	}
+}
+
+// getReport is the Report (/status, the Workshop Board look) for proj.
+func getReport(t *testing.T, proj tracker.Project) string {
+	t.Helper()
+	withMockTmuxSessions(t, nil)
+	stubAgentsGit(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	resp, page := getResp(t, ts.URL+"/p/"+proj.Slug+"/status")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d:\n%s", resp.StatusCode, page)
+	}
+	if !strings.Contains(page, `data-testid="report.page"`) {
+		t.Fatal("/status is not the Report")
+	}
+	return page
+}
+
+// TestReportWaitingForRelease: the Report carries the classic page's
+// Waiting for release card: milestone readiness, a link per open issue,
+// ## Unreleased and unpushed commits.
+func TestReportWaitingForRelease(t *testing.T) {
+	proj := releaseProject(t, releaseFixture{
+		changelog: releaseChangelog, ciBlock: ciBlockOn, versions: true,
+		ciState:  &ci.State{Branch: "main", State: ci.Green, GreenSha: "d89c1b3000", GreenAt: time.Now()},
+		statuses: map[string]string{"shipped": "done", "busy": "in progress", "fresh": "idea", "shelved": "parked"},
+	})
+	stubBranchState(t, &BranchState{Branch: "main", Upstream: "origin/main", Ahead: 14, Head: "7c41e0a0000", HeadAt: time.Now().Add(-17 * time.Minute)})
+	page := getReport(t, proj)
+
+	wantAll(t, "report", page,
+		`data-testid="status.release_wait"`,
+		`data-testid="status.release_wait.state">v0.53.0 not ready</span>`,
+		`<span class="wb-rbar-label">Milestone 0.53</span><span class="wb-rbar-num">1/3 <span>done</span>`,
+		`data-testid="status.release_wait.check.issues" data-ok="false"`,
+		`data-testid="status.release_wait.check.ci" data-ok="false"`,
+		`<a class="wb-rlink" href="#ci-h">Local CI</a>`,
+		`data-testid="status.release_wait.check.changelog" data-ok="true"`,
+		`data-testid="status.release_wait.open.row.ui/busy"`,
+		`<a class="wb-rel-title" href="/p/rel/issue/ui/busy">Busy</a>`,
+		`agent-busy`,
+		`Unreleased · 2`,
+		`<strong>Local CI.</strong> Runs on every merge, wrapped onto a second line.`,
+		`data-testid="status.release_wait.unpushed"`,
+		`14 commits on main not on origin/main`,
+		`newest 17m ago`,
+		// The Local CI card is there for the check's link.
+		`id="ci-h">Local CI</h2>`,
+		`data-testid="status.ci.state">green</span>`,
+	)
+	wantNone(t, "report", page, `status.release_wait.ready"`, `open.row.ui/shelved`)
+}
+
+func TestReportReadyToCut(t *testing.T) {
+	head := "7c41e0a0000"
+	proj := releaseProject(t, releaseFixture{
+		changelog: releaseChangelog, ciBlock: ciBlockOn, versions: true,
+		ciState:  &ci.State{Branch: "main", State: ci.Green, GreenSha: head, GreenAt: time.Now()},
+		statuses: map[string]string{"shipped": "done", "busy": "done", "shelved": "parked"},
+	})
+	stubBranchState(t, &BranchState{Branch: "main", Upstream: "origin/main", Head: head, HeadAt: time.Now()})
+	page := getReport(t, proj)
+	wantAll(t, "report", page,
+		`data-testid="status.release_wait.state">ready to cut</span>`,
+		`data-testid="status.release_wait.ready"`,
+		`<b>Ready to cut v0.53.0</b>`,
+		`push main to origin/main`,
+		`Nothing: main matches origin/main`,
+	)
+}
+
+// TestReportReleaseCandidate: cut, then soak and publish on the owner's ok.
+func TestReportReleaseCandidate(t *testing.T) {
+	proj := readyRCProject(t, rcBlock)
+	stubCandidates(t, nil, 0)
+	page := getReport(t, proj)
+	wantAll(t, "report", page,
+		`data-testid="status.release_wait.cut_rc"`,
+		`<b>Ready to cut release candidate v0.53.0-rc.1</b>`,
+		`Cut it: <code class="wb-code">issue-cli release cut v0.53.0</code>`,
+		`issue-cli release pick &lt;slug&gt;`,
+	)
+
+	proj = readyRCProject(t, rcBlock)
+	stubCandidates(t, map[string]time.Time{"v0.53.0-rc.2": time.Now().Add(-49 * time.Hour)}, 0)
+	page = getReport(t, proj)
+	wantAll(t, "report", page,
+		`data-testid="status.release_wait.state">v0.53.0-rc.2 soaking</span>`,
+		`data-testid="status.rc_badge"`,
+		`data-testid="status.release_wait.candidate.summary"><span class="wb-mono-inline">v0.53.0-rc.2</span> · cut 2d ago · nothing merged since</summary>`,
+		`data-testid="status.release_wait.publish"`,
+		`<b>v0.53.0-rc.2 soaking: publish v0.53.0 only on the owner's ok</b>`,
+		`Never publish without their ok.`,
+	)
+}
+
+// TestReportLocalCI: red CI with its last runs, what failed and what landed.
+func TestReportLocalCI(t *testing.T) {
+	proj, root := ciViewProject(t, ciBlockOn, redState())
+	t0 := time.Now().Add(-time.Hour)
+	for _, r := range []ci.Run{
+		{Sha: "aaaaaaa111", Tier: "default", State: ci.Green, Started: t0, Finished: t0.Add(time.Minute)},
+		{Sha: "bbbbbbb222", Tier: "default", State: ci.Red, Failed: "make validate", Started: t0.Add(10 * time.Minute), Finished: t0.Add(11 * time.Minute)},
+	} {
+		data, _ := json.Marshal(r)
+		if err := os.WriteFile(filepath.Join(ci.RunsDir(root), r.Sha+".json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := getReport(t, proj)
+	wantAll(t, "report", page,
+		`data-testid="status.ci"`,
+		`class="wb-chip wb-chip--red" data-testid="status.ci.state">red</span>`,
+		`main red since def5678: make validate: TestBroken`,
+		`data-testid="status.ci.runs"`,
+		`data-testid="status.ci.run.aaaaaaa" data-state="green"`,
+		`data-testid="status.ci.run.bbbbbbb" data-state="red"`,
+		`data-testid="status.ci.failed"`,
+		`<a class="wb-rel-title" href="/p/civ/issue/ui/a">a</a>`,
+		`and 1 commit without an issue`,
+		`data-testid="status.ci.log"`,
+	)
+}
+
+// TestReportNoReleaseOrCI: neither card without a milestone, changelog or
+// ci: block.
+func TestReportNoReleaseOrCI(t *testing.T) {
+	proj := releaseProject(t, releaseFixture{statuses: map[string]string{"busy": "in progress"}})
+	stubBranchState(t, nil)
+	page := getReport(t, proj)
+	wantNone(t, "report", page, `data-testid="status.release_wait"`, `data-testid="status.ci"`)
 }

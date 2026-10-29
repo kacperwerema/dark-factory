@@ -1355,3 +1355,28 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
   .wb-lots { grid-template-columns: 1fr; gap: 40px; }
   .wb-legend-links { margin-left: 0; }
 }
+
+/* L1: the report's Waiting for release and Local CI cards (wb/release, wb/ci). */
+.wb-rc-badge { align-self: flex-start; padding: 3px 10px; border-radius: 99px; border: 1.5px solid var(--ink); background: linear-gradient(180deg, #F4F6F9, #D9DEE6); color: var(--ink); font-size: 12px; font-weight: 700; text-decoration: none; }
+.wb-rel-list { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid #E1E5EB; min-width: 0; }
+.wb-rel-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 13.5px; }
+.wb-rel-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13.5px; }
+.wb-rel-check { display: grid; grid-template-columns: 16px 1fr auto; align-items: start; gap: 8px; font-size: 13.5px; }
+.wb-rel-check > svg { margin-top: 2px; }
+.wb-rel-check--ok > svg { color: var(--working); }
+.wb-rel-check--no > svg { color: var(--red); }
+.wb-rel-detail { font-family: var(--mono); font-size: 11.5px; color: #A3172A; overflow-wrap: anywhere; }
+.wb-rel-meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted-2); overflow-wrap: anywhere; }
+.wb-rel-title { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wb-rel-entry { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.wb-rel-fold > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.wb-rel-fold[open] > summary { margin-bottom: 6px; }
+.wb-rel-next { padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #E6F6EE; font-size: 13.5px; }
+.wb-rel-next ol { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.45; }
+.wb-ci-runs { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-ci-run { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--ink); }
+.wb-ci-run--green { background: var(--working); }
+.wb-ci-run--red { background: var(--red); }
+.wb-ci-run--error { background: #F2B544; }
+.wb-ci-run--running { background: #fff; border-style: dashed; }
+.wb-ci-log { margin: 0; max-height: 220px; overflow: auto; padding: 8px; border-radius: 8px; background: #F1F3F7; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
