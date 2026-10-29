@@ -124,7 +124,7 @@ func TestSystemsIndex_CardsMostOpenFirst(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/rd/systems")
+	page := pageGet(t, ts.URL+"/p/rd/systems?classic=1")
 	assertContains(t, page,
 		`data-testid="systems.card.ai"`, `data-testid="systems.card.sim"`,
 		"How teams choose plays", "docs/ai/play-calls.md", "Play calls · 1 of 2 done",

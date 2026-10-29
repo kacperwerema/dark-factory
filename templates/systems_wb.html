@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Systems" .Lot.Name)}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+{{/* hall tabs: added at merge */}}
+<section class="wb-ground wb-pagehead" aria-label="Systems">
+    <div class="wb-pagehead-text">
+        <h1 class="wb-h1 wb-h1--xl">Systems</h1>
+        <div class="wb-pagehead-sub">Each system is a workshop in the hall and a crate is one issue. Built from the <span class="wb-mono-inline">system</span> field of issues, most open first.</div>
+    </div>
+    {{template "wb/figures" .Figures}}
+</section>
+<main class="wb-main wb-main--page" data-testid="systems.wb.page">
+<div class="wb-systems">
+    <div class="wb-systems-bar">
+        {{template "wb/crate-legend" .Legend}}
+        <a class="wb-classic-link" href="{{.ClassicURL}}" data-testid="systems.wb.classic">Classic view</a>
+    </div>
+    {{if .Workshops}}
+    <div class="wb-workshops">{{range .Workshops}}{{template "wb/workshop" .}}{{end}}</div>
+    {{else}}
+    <div class="wb-empty" data-testid="systems.wb.empty">No systems yet. A workshop appears for every <span class="wb-mono-inline">system:</span> value in the issues, or for each entry under <span class="wb-mono-inline">workbench.systems</span> in workflow.yaml.</div>
+    {{end}}
+    {{with .NoSystem}}<div class="wb-note">{{.}}</div>{{end}}
+</div>
+<aside class="wb-side wb-side--systems" aria-label="Code map">
+    {{template "wb/code-map" .CodeMap}}
+    {{template "wb/warning" .SharedHot}}
+    {{template "wb/unlock-card" .Unlock}}
+</aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

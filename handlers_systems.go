@@ -8,7 +8,8 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
-// handleSystems serves /systems (the index) and /systems/<System>[/<Family>].
+// handleSystems serves /systems (the Workshop Board page, systems_wb.go; the
+// classic index at ?classic=1) and /systems/<System>[/<Family>].
 // rest is the route after the project prefix.
 func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) {
 	issues, err := tracker.LoadIssues(proj.IssueDir)
@@ -17,6 +18,10 @@ func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request, proj *tra
 		return
 	}
 	segs := splitSystemPath(strings.TrimPrefix(strings.TrimPrefix(rest, "systems"), "/"))
+	if len(segs) == 0 && r.URL.Query().Get("classic") == "" {
+		s.handleSystemsWb(w, proj, prefix, issues)
+		return
+	}
 	if len(segs) == 0 {
 		data := buildSystemsIndex(proj, issues, prefix)
 		data.Hash = s.systemsHash(proj, issues)
