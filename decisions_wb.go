@@ -148,7 +148,7 @@ func (s *Server) handleDecisionsWb(w http.ResponseWriter, r *http.Request, proj 
 		State:  strings.ToLower(q.Get("state")),
 	}, now)
 	lot, waiting := s.decisionsLot(proj, now)
-	data.Header = WbHeader{Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: waiting, HideDone: true}
+	data.Header = WbHeader{Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "decisions"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: waiting, HideDone: true}
 	data.Header.Crumbs[1].Color = lot.Color
 	// Decisions is a tab of the hall: the hall stays the current level.
 	data.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
