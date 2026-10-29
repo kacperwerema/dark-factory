@@ -49,16 +49,16 @@ func TestCompanyGoals(t *testing.T) {
 	}
 	assertContains(t, html,
 		// Header: HQ's goals, rolled-up progress for clients (mean of 75 and 50).
-		`<span class="wb-goal-name">Paying clients</span>`, `<span>63%</span>`, `title="mean progress of 2 department goals"`,
+		`<span class="wb-goal-name">Paying clients</span>`, `<span class="wb-goal-val">63%</span>`, `title="mean progress of 2 department goals"`,
 		// A stale value is muted, with its date in the tooltip.
-		`wb-goal-chip--off" data-testid="company.goal" title="stale: from 2020-01-15"`, `<span>400 EUR / 1000 EUR</span>`,
+		`wb-goal-chip--off" data-testid="company.goal" title="stale: from 2020-01-15"`, `<span class="wb-goal-val">400 EUR / 1000 EUR</span>`,
 		// HQ: mission and the roll-up.
 		`data-testid="company.room.mission">Grow the client roster</div>`, `data-testid="company.hq.rollup"`,
 		`data-testid="company.hq.rollup.child"`, `<span class="wb-goal-name">Marketing · Pages refreshed</span>`,
 		`<i style="width:75%;background:#E2559B"></i>`,
 		// Rooms and the line.
-		`data-testid="company.room.goals"`, `Every client site weekly`, `<span>30 / 40</span>`,
-		`Ship the engine`, `<span class="wb-goal-name">Open bugs</span>`, `<span>10 / 5</span>`, `<i style="width:50%;background:#3D7BF7"></i>`,
+		`data-testid="company.room.goals"`, `Every client site weekly`, `<span class="wb-goal-val">30 / 40</span>`,
+		`Ship the engine`, `<span class="wb-goal-name">Open bugs</span>`, `<span class="wb-goal-val">10 / 5</span>`, `<i style="width:50%;background:#3D7BF7"></i>`,
 	)
 	if strings.Contains(html, `<span class="wb-goal-name">Epic</span>`) {
 		t.Error("configured HQ goals replace the open-epics stand-in")

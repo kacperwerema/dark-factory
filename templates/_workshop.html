@@ -179,7 +179,7 @@ their styles). Pages compose them; a new element is a new component here first.
 </aside>
 {{end}}
 
-{{define "wb/goal"}}<div class="wb-stat-box wb-goal-chip{{if .Off}} wb-goal-chip--off{{end}}" data-testid="company.goal"{{with .Title}} title="{{.}}"{{end}}><span class="wb-muted">Goal</span><span class="wb-goal-name">{{.Progress.Label}}</span><span class="wb-goal-mini"><i style="width:{{.Progress.Pct}}%;background:{{.Color}}"></i></span><span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span></div>{{end}}
+{{define "wb/goal"}}<div class="wb-stat-box wb-goal-chip{{if .Off}} wb-goal-chip--off{{end}}" data-testid="company.goal"{{with .Title}} title="{{.}}"{{end}}><span class="wb-muted wb-goal-word">Goal</span><span class="wb-goal-name">{{.Progress.Label}}</span><span class="wb-goal-mini"><i style="width:{{.Progress.Pct}}%;background:{{.Color}}"></i></span><span class="wb-goal-val">{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span></div>{{end}}
 
 {{define "wb/room-goals"}}{{if .}}<div class="wb-room-goals" data-testid="company.room.goals">{{range .}}{{template "wb/goal" .}}{{end}}</div>{{end}}{{end}}
 
