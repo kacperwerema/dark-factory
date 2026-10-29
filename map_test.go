@@ -106,20 +106,17 @@ func TestMapRobotsWaitOnAnotherAgent(t *testing.T) {
 }
 
 func TestMapBuildingsAndProgress(t *testing.T) {
-	var open []*tracker.Issue
-	for i, sys := range []string{"Plan", "Plan", "Plan", "Zakupy", "Zakupy", "Czat", "Makro", "Testy", ""} {
-		open = append(open, &tracker.Issue{Slug: "x" + string(rune('a'+i)), Status: "backlog", System: sys})
-	}
-	wf := tracker.DefaultWorkflow()
-	b := mapBuildingsOf(open, wf)
-	if len(b) != mapBuildings || b[0].Name != "Plan" || b[0].Open != 3 || b[1].Name != "Zakupy" {
+	// The lot shows the project's departments: a small HQ and Product,
+	// taller with more open work.
+	b := mapDepartmentsOf(5)
+	if len(b) != 2 || b[0].Name != "HQ" || b[0].Color != companyHQColor || b[1].Name != "Product" || b[1].Open != 5 || b[1].Color != companyProductColor {
 		t.Fatalf("buildings = %+v", b)
 	}
-	if last := b[len(b)-1]; last.Name != "Others (3)" || last.Open != 3 {
-		t.Errorf("last building = %+v, want the rest counted together", last)
+	if big := mapDepartmentsOf(30)[1]; big.Height <= b[1].Height || big.Width <= b[1].Width {
+		t.Errorf("more open work should stand taller and wider: %+v vs %+v", big, b[1])
 	}
-	if b[0].Height <= b[1].Height {
-		t.Errorf("more open work should stand taller: %d vs %d", b[0].Height, b[1].Height)
+	if b[0].Width >= b[1].Width {
+		t.Error("HQ is the small building")
 	}
 
 	epic := &tracker.Issue{Slug: "e", Title: "Hall", Status: "in progress"}

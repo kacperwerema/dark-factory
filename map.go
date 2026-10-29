@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -22,21 +21,6 @@ import (
 // mapProjectColors are the lots' colours when a project sets none
 // (projects.yaml color:). Orange is never one: it is the owner's.
 var mapProjectColors = []string{"#13A386", "#5B5FE0", "#5DAE3B", "#2A5BD7", "#E2559B", "#17A2B8", "#B07A4F", "#6C7A96"}
-
-// mapBuildingColors are the department colours, given to a project's systems
-// by size: the biggest first.
-var mapBuildingColors = []string{"#3D7BF7", "#F2B233", "#E2559B", "#17A2B8", "#8BC34A", "#B07A4F", "#6C7A96"}
-
-// mapBuildings is how many of a project's systems stand on its lot; the rest
-// are counted in the last one's title.
-const mapBuildings = 4
-
-// mapSkylineWidth is the room for buildings on a lot, without the free lot
-// and the gaps; mapBuildingMinWidth the narrowest building.
-const (
-	mapSkylineWidth     = 196
-	mapBuildingMinWidth = 26
-)
 
 // mapQuoteMax is the longest CEO line on a lot, in characters.
 const mapQuoteMax = 140
@@ -218,8 +202,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		open = append(open, issue)
 	}
 	lot.Site = len(issues) == 0
-	wf := p.LoadWorkflow()
-	lot.Buildings = mapBuildingsOf(open, wf)
+	lot.Buildings = mapDepartmentsOf(len(open))
 	lot.Progress = mapProgressOf(issues)
 
 	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
@@ -315,46 +298,14 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 	return row
 }
 
-// mapBuildingsOf turns the open work per system into buildings: the biggest
-// systems, height and width growing with open issues.
-func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []WbBuilding {
-	groups, none := groupSystems(open, wf.Workbench)
-	tones := newStatusTones(wf)
-	var out []WbBuilding
-	for _, g := range groups {
-		n, _, _ := tones.counts(g.Members)
-		if n > 0 {
-			out = append(out, WbBuilding{Name: g.Name, Open: n})
-		}
+// mapDepartmentsOf is the project's departments as buildings on its lot:
+// a small HQ and Product, the software factory, growing with its open work.
+// Every issue is Product's until projects have more departments.
+func mapDepartmentsOf(open int) []WbBuilding {
+	return []WbBuilding{
+		{Name: "HQ", Color: companyHQColor, Width: 38, Height: 40},
+		{Name: "Product", Open: open, Color: companyProductColor, Width: 70 + min(open, 30)*2, Height: 24 + min(open, 34)},
 	}
-	if n, _, _ := tones.counts(none); n > 0 {
-		out = append(out, WbBuilding{Name: "No department", Open: n})
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Open > out[j].Open })
-	if len(out) > mapBuildings {
-		rest := 0
-		for _, b := range out[mapBuildings-1:] {
-			rest += b.Open
-		}
-		out = append(out[:mapBuildings-1], WbBuilding{Name: fmt.Sprintf("Others (%d)", len(out)-mapBuildings+1), Open: rest})
-	}
-	// Widths share the skyline (mapSkylineWidth): each gets at least
-	// mapBuildingMinWidth, the rest goes by open work.
-	total := 0
-	for _, b := range out {
-		total += b.Open
-	}
-	spare := mapSkylineWidth - len(out)*mapBuildingMinWidth
-	for i := range out {
-		b := &out[i]
-		b.Color = mapBuildingColors[i%len(mapBuildingColors)]
-		b.Height = 16 + min(b.Open, 14)*3
-		b.Width = mapBuildingMinWidth
-		if total > 0 && spare > 0 {
-			b.Width += min(spare*b.Open/total, 84)
-		}
-	}
-	return out
 }
 
 // mapProgressOf is the open epic furthest along (most done children), the

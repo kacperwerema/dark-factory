@@ -30,8 +30,8 @@
   // Roads: the engine (dark-factory) in the middle, a road to every project.
   // A road leaves the engine's side, runs to the project's column and turns
   // to its lot, like the streets on the design. A project testing the
-  // engine's release candidate gets a truck on its road; a building site is
-  // joined by a dotted road (planned).
+  // engine's release candidate gets a truck on its road; a building site's road
+  // is paler (planned).
   var lots = document.getElementById('lots');
   var svg = document.getElementById('roads');
   var ns = 'http://www.w3.org/2000/svg';
@@ -60,6 +60,9 @@
     var box = lots.getBoundingClientRect();
     var h = hub.getBoundingClientRect();
     var hl = h.left - box.left, hr = h.right - box.left, hy = h.top + h.height / 2 - box.top, hx = (hl + hr) / 2;
+    // Every road's surface first, then every road's white strips on top, so
+    // a road drawn later never covers another's strips.
+    var roads = [];
     lots.querySelectorAll('[data-slug]').forEach(function (lot) {
       if (lot === hub) return;
       var b = lot.getBoundingClientRect();
@@ -84,14 +87,11 @@
         }
         ty = hy;
       }
-      if (lot.hasAttribute('data-site')) {
-        path(d, '#C7D0DC', 16, '2 10');
-      } else {
-        path(d, '#C7D0DC', 16);
-        path(d, '#FFFFFF', 2, '7 7');
-      }
+      roads.push({ d: d, site: lot.hasAttribute('data-site') });
       if (lot.getAttribute('data-rc')) truck('RC ' + lot.getAttribute('data-rc') + ' · test', tx, ty);
     });
+    roads.forEach(function (r) { path(r.d, r.site ? '#D3DAE4' : '#C7D0DC', 16); });
+    roads.forEach(function (r) { path(r.d, '#FFFFFF', 2, '7 7'); });
   }
 
   // "Start CEO" on a building site: spawn the project's lead.
