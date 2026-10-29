@@ -1,0 +1,96 @@
+{{/*
+Workshop Board components of the decisions log (L2). View models in
+decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
+
+  wb/stat-big        a big number with its label           data: WbStat
+  wb/summary-box     a one-line verdict in a box           data: WbSummaryBox
+  wb/search-bar      a GET search box with filter pills    data: WbSearchBar
+  wb/filter-pill     a filter as a link                    data: WbFilterPill
+  wb/day-label       a day across the log                  data: string
+  wb/decision-thread one issue's decisions on a day        data: WbDecisionThread
+  wb/decision-row    one D-n line                          data: WbDecisionRow
+  wb/you-quote       the owner's words, with the YOU face  data: string
+  wb/decision-alone  "no words from you": Confirm / Question it  data: WbDecisionRow
+  wb/bars            a titled list of bars                 data: WbBars
+  wb/command-card    a titled note with the command to run data: WbCommandCard
+*/}}
+
+{{define "wb/stat-big"}}<div class="wb-statbig"><div class="wb-statbig-num">{{.Value}}</div><div class="wb-statbig-label">{{.Label}}</div></div>{{end}}
+
+{{define "wb/summary-box"}}<div class="wb-summary{{if not .OK}} wb-summary--warn{{end}}" data-testid="summary.{{.Key}}">{{if .OK}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#136B3A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{else}}<span class="wb-summary-mark" aria-hidden="true">!</span>{{end}}{{.Text}}</div>{{end}}
+
+{{define "wb/filter-pill"}}<a class="wb-pill{{if .On}} wb-pill--on{{end}}{{with .Tone}} wb-pill--{{.}}{{end}}{{if .Remove}} wb-pill--remove{{end}}" href="{{.URL}}"{{if .On}} aria-current="true"{{end}} data-testid="filter.{{.Key}}">{{.Label}}{{if .Remove}} <span aria-label="remove">×</span>{{end}}</a>{{end}}
+
+{{define "wb/search-bar"}}
+<form class="wb-search" method="get" action="{{.Action}}" role="search" data-testid="search.{{.Key}}">
+    <label class="wb-search-label" for="wb-search-{{.Key}}">SEARCH</label>
+    <input id="wb-search-{{.Key}}" type="search" name="{{.Name}}" value="{{.Value}}" placeholder="{{.Placeholder}}">
+    {{range .Keep}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
+    <div class="wb-pills" role="group" aria-label="Filters">{{range .Filters}}{{template "wb/filter-pill" .}}{{end}}</div>
+</form>
+{{end}}
+
+{{define "wb/day-label"}}<div class="wb-day" data-testid="decisions.day"><span>{{.}}</span><i aria-hidden="true"></i></div>{{end}}
+
+{{define "wb/you-quote"}}<div class="wb-youquote"><span class="wb-youquote-av" title="You">YOU</span><blockquote>“{{.}}”</blockquote></div>{{end}}
+
+{{define "wb/decision-alone"}}{{with .Confirm}}
+<form class="wb-alone" data-send="{{.SendURL}}" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.confirm">
+    <span class="wb-alone-text">The agent decided alone — no words from you.</span>
+    <input type="hidden" name="text" value="{{.ConfirmText}}">
+    <span class="wb-alone-actions">
+        <button type="submit" class="wb-alone-btn"{{if not .Live}} disabled title="Start the CEO first: Confirm goes to it"{{else}} title="Sends “{{.ConfirmText}}” to the CEO"{{end}}>Confirm</button>
+        <button type="button" class="wb-alone-btn wb-alone-btn--quiet" data-question="{{.QuestionText}}"{{if not .Live}} disabled title="Start the CEO first"{{else}} title="Starts a message to the CEO; say why and press Send"{{end}} data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.question">Question it</button>
+    </span>
+    <div class="wb-site-msg" role="status">{{if not .Live}}The CEO is not running: start it below to confirm or question.{{end}}</div>
+</form>
+{{end}}{{end}}
+
+{{define "wb/decision-row"}}
+<li class="wb-drow{{if .Confirm}} wb-drow--alone{{end}}{{if .Faded}} wb-drow--faded{{end}}" data-ref="{{.Ref}}" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}">
+    <div class="wb-drow-id">
+        <span>{{.ID}}</span>
+        <button type="button" class="wb-copyref" data-ref="{{.Ref}}" title="Copy {{.Ref}}" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.copy">copy ref</button>
+    </div>
+    <div class="wb-drow-main">
+        <div class="wb-drow-text" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.text">{{.Text}}</div>
+        {{with .Quote}}<div data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.quote">{{template "wb/you-quote" .}}</div>{{end}}
+        {{template "wb/decision-alone" .}}
+        <div class="wb-drow-meta">
+            <span class="wb-drow-by"><i class="wb-by wb-by--{{.ByTone}}" aria-hidden="true"></i>recorded by: {{.By}}</span>
+            <span data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.cited">cited by: {{range $i, $c := .Cited}}{{if $i}}, {{end}}<a class="wb-mono-inline" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}nobody yet{{end}}{{if .CitedMore}} +{{.CitedMore}}{{end}}</span>
+            {{if .RefersTo}}<span>refers to {{range $i, $r := .RefersTo}}{{if $i}}, {{end}}<a class="wb-mono-inline wb-drow-ref" href="{{$r.URL}}">{{$r.Label}}</a>{{end}}</span>{{end}}
+            {{with .ReplacedBy}}<span>superseded by <a class="wb-mono-inline wb-drow-ref" href="{{.URL}}">{{.Label}}</a></span>{{end}}
+            {{with .Also}}<span>also considered: {{.}}</span>{{end}}
+        </div>
+    </div>
+    <span class="wb-drow-state" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.state">{{template "wb/chip" .State}}</span>
+</li>
+{{end}}
+
+{{define "wb/decision-thread"}}
+<article class="wb-thread" data-testid="decisions.thread.{{tid .Slug}}">
+    <div class="wb-thread-head">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#E9D7B5" stroke="#1B1F2A" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10" fill="none"/></svg>
+        <a class="wb-thread-title" href="{{.URL}}">{{.Title}}</a>
+        <span class="wb-thread-slug">{{.Slug}}</span>
+        <span class="wb-thread-tags">{{if .System}}<a class="wb-tag-pill" href="{{.SystemURL}}">{{.System}}</a>{{end}}{{with .Status}}<span class="wb-tag-pill wb-tag-pill--mono">{{.}}</span>{{end}}</span>
+    </div>
+    <ol class="wb-thread-rows">{{range .Rows}}{{template "wb/decision-row" .}}{{end}}</ol>
+</article>
+{{end}}
+
+{{define "wb/bars"}}
+<div class="wb-bars" data-testid="bars.{{.Key}}">
+    <h2 class="wb-h2">{{.Title}}</h2>
+    {{range .Rows}}<a class="wb-bar{{if .On}} wb-bar--on{{end}}" href="{{.URL}}"><span class="wb-bar-label">{{.Label}}</span><span class="wb-bar-track"><i style="width:{{.Pct}}%"></i></span><span class="wb-bar-count">{{.Count}}</span></a>{{else}}<div class="wb-empty">{{.Empty}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/command-card"}}
+<div class="wb-cmdcard" data-testid="command.{{.Key}}">
+    <h2 class="wb-h2">{{.Title}}</h2>
+    <div class="wb-note">{{.Text}}</div>
+    <code class="wb-cmd">{{.Command}}</code>
+</div>
+{{end}}
