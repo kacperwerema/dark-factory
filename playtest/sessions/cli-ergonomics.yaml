@@ -29,7 +29,7 @@ steps:
   - id: TP5
     title: check-edit rewrites one box's text and keeps its tick; replace --line / --match rewrite one line
     setup:
-      - open: /p/{project}/issue/cli/faster-list-command
+      - open: /p/{project}/issue/cli/faster-list-command?classic=1
     act:
       - cli: [check-edit, cli/faster-list-command, P1, --text, "P1: Profile the loader with pprof"]
       - cli: [replace, cli/faster-list-command, --section, Plan, --match, "^- \\[ \\] Cache", --text, "- [ ] Cache parsed frontmatter by mtime"]
@@ -49,7 +49,7 @@ steps:
       - open: /p/{project}/
     act:
       - cli: [update, cli/export-issues-as-csv, --title, "Export issues as CSV and TSV"]
-      - open: /p/{project}/issue/cli/export-issues-as-csv
+      - open: /p/{project}/issue/cli/export-issues-as-csv?classic=1
     checks:
       - text_contains: { target: detail.title, text: Export issues as CSV and TSV }
       - issue: { slug: cli/export-issues-as-csv, field: slug, equals: export-issues-as-csv }
@@ -60,7 +60,7 @@ steps:
   - id: TP7
     title: Editing the title on the detail page keeps you on the same page, under the same slug
     setup:
-      - open: /p/{project}/issue/ui/dark-mode-toggle
+      - open: /p/{project}/issue/ui/dark-mode-toggle?classic=1
     act:
       - click: detail.title
       - type: { target: detail.title.input, text: "Dark mode toggle in the header" }

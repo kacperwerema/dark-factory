@@ -97,12 +97,12 @@ steps:
   - id: TP8
     title: The detail page shows depends on, depended on by, decided by and shared files; show prints the same links
     setup:
-      - open: /p/{project}/issue/sim/keep-redesign
+      - open: /p/{project}/issue/sim/keep-redesign?classic=1
     act:
       - check: { text_contains: { target: detail.field.depends_on, text: economy/shop-prices } }
       - check: { text_contains: { target: detail.field.decided_by, text: replaced by D-2 } }
       - check: { text_contains: { target: detail.field.shared_files, text: "2 hot files with 2 other branches" } }
-      - open: /p/{project}/issue/economy/shop-prices
+      - open: /p/{project}/issue/economy/shop-prices?classic=1
     checks:
       - text_contains: { target: detail.field.depended_on_by, text: sim/keep-redesign }
       - cli: { args: [show, sim/keep-redesign], contains: "Depends on: economy/shop-prices (in progress)" }
@@ -113,7 +113,7 @@ steps:
   - id: TP9
     title: depends_on is set with set-meta, unknown slugs are refused, and the new link shows on both pages
     setup:
-      - open: /p/{project}/issue/economy/bank-gold
+      - open: /p/{project}/issue/economy/bank-gold?classic=1
     act:
       - cli: [set-meta, economy/bank-gold, --key, depends_on, --value, "economy/shop-prices"]
       - reload: {}

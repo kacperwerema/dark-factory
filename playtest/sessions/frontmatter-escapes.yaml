@@ -14,7 +14,7 @@ steps:
       - cli: [set-meta, ui/sticky-board-header, --key, note, --value, "cost $1 ${x} \"q\" back\\slash\nline two"]
       - check: { issue: { slug: ui/sticky-board-header, field: title, equals: "Sticky $1 ${x} \"header\" \\ end\nline two" } }
       - check: { issue: { slug: ui/sticky-board-header, field: note, equals: "cost $1 ${x} \"q\" back\\slash\nline two" } }
-      - open: /p/{project}/issue/ui/sticky-board-header
+      - open: /p/{project}/issue/ui/sticky-board-header?classic=1
       - check: { text_contains: { target: detail.title, text: "Sticky $1 ${x} \"header\" \\ end" } }
     act:
       # A later write after a multi-line value used to leave the old second

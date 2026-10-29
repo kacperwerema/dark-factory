@@ -25,7 +25,7 @@ steps:
     title: dispatch on an issue that only waits on the owner's approval exits 3, names the gate and starts nothing; POST /dispatch answers 409
     act:
       - post: { path: "/p/{project}/issue/ui/child/dispatch", json: { agent: claude }, status: 409 }
-      - open: /p/{project}/issue/ui/child
+      - open: /p/{project}/issue/ui/child?classic=1
     checks:
       - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], exit: 3, contains: "ui/child waits on the owner's approval for \"testing\"" }
       - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], exit: 3, contains: "A human approves at: {base}/p/crew/issue/ui/child#approve-testing" }
@@ -38,7 +38,7 @@ steps:
     setup:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
     act:
-      - open: /p/{project}/issue/ui/child
+      - open: /p/{project}/issue/ui/child?classic=1
     checks:
       - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], contains: "Already live: agent-ui-child" }
       - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], contains: "Inside tmux:  tmux switch-client -t agent-ui-child" }
@@ -47,7 +47,7 @@ steps:
   - id: TP6
     title: Claude on an issue waiting on your approval says so, offers Approve and Dispatch anyway, and starts nothing
     setup:
-      - open: /p/{project}/issue/ui/child
+      - open: /p/{project}/issue/ui/child?classic=1
     act:
       - click: detail.dispatch.claude
       - wait_for: dispatch.gate
@@ -84,7 +84,7 @@ steps:
   - id: TP8
     title: links follow viewer_url from projects.yaml, and projects --json names it
     act:
-      - open: /p/{project}/issue/ui/child
+      - open: /p/{project}/issue/ui/child?classic=1
     checks:
       - cli: { args: [--project, crew, show, ui/child], contains: "Timeline: {base}/p/crew/issue/ui/child?tab=timeline" }
       - cli: { args: [--project, crew, projects, --json], contains: "\"viewer_url\": \"{base}\"" }

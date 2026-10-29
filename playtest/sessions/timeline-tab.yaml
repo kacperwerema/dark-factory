@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: Every issue page has the tab bar; Issue is the default, Timeline opens at ?tab=timeline
     setup:
-      - open: /p/{project}/issue/ui/timeline-demo
+      - open: /p/{project}/issue/ui/timeline-demo?classic=1
       - check: { visible: [detail.pagetabs, detail.pagetab.issue, detail.pagetab.timeline, detail.pagetab.evidence, detail.body, detail.sidebar] }
       - check: { selected: detail.pagetab.issue }
       - check: { text_contains: { target: detail.pagetab.timeline, text: "3h 0m" } }

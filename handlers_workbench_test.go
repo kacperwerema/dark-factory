@@ -180,7 +180,7 @@ func TestDetail_ApproveBothButton(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/wb/issue/ready")
+	page := pageGet(t, ts.URL+"/p/wb/issue/ready?classic=1")
 	for _, want := range []string{
 		`id="approve-backlog"`,
 		`id="approve-then-backlog" data-testid="detail.approve_then.backlog" class="approve-btn approve-then-btn "`,
@@ -194,12 +194,12 @@ func TestDetail_ApproveBothButton(t *testing.T) {
 
 	// in progress → done needs approval, but done is not a handoff status:
 	// no combined button.
-	if page := pageGet(t, ts.URL+"/p/wb/issue/asked"); strings.Contains(page, "approve-then-") {
+	if page := pageGet(t, ts.URL+"/p/wb/issue/asked?classic=1"); strings.Contains(page, "approve-then-") {
 		t.Error("combined approve button shown for a non-handoff approval")
 	}
 
 	pagePost(t, ts.URL+"/p/wb/issue/ready/approve", `{"status":"backlog","then":"in progress"}`)
-	page = pageGet(t, ts.URL+"/p/wb/issue/ready")
+	page = pageGet(t, ts.URL+"/p/wb/issue/ready?classic=1")
 	if !strings.Contains(page, `id="approve-then-backlog" data-testid="detail.approve_then.backlog" class="approve-btn approve-then-btn approved"`) {
 		t.Error("combined approve button not shown as approved once queued")
 	}

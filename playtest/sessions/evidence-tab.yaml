@@ -13,7 +13,7 @@ steps:
     title: A done issue reads proven, with its shots, links, verdict, change and playtest
     proves: [AC1, AC2, AC3, AC4, AC5, AC6, AC7, AC9]
     setup:
-      - open: /p/{project}/issue/ui/evidence-demo
+      - open: /p/{project}/issue/ui/evidence-demo?classic=1
       - check: { text_contains: { target: evidence.label, text: "4 / 4 proven" } }
       - click: detail.pagetab.evidence
       - wait_for: evidence.tab

@@ -686,7 +686,7 @@ func TestHandleUpdateIssue_StaleBodyRefused(t *testing.T) {
 	issue := loadTestIssue(t, proj, "bug-in-login")
 	pageHash := tracker.BodyHash(issue.BodyRaw)
 
-	page, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login")
+	page, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@ steps:
   - id: TP11
     title: At 390 px Needs you follows the brief and the side column sits under the body
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     checks:
       - below: [detail.brief.text, detail.needs]
       - below: [detail.needs, detail.time]

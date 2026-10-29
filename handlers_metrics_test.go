@@ -275,7 +275,7 @@ func TestDetailPage_DependencyFields(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{r.proj})
 	defer ts.Close()
 
-	alpha := pageGet(t, ts.URL+"/p/mp/issue/sim/alpha")
+	alpha := pageGet(t, ts.URL+"/p/mp/issue/sim/alpha?classic=1")
 	assertHas(t, alpha,
 		`data-testid="detail.field.depends_on"`,
 		`<a href="/p/mp/issue/sim/beta" class="mono dep-target">sim/beta</a> <span class="chip chip-blue">in progress</span>`,
@@ -287,7 +287,7 @@ func TestDetailPage_DependencyFields(t *testing.T) {
 	if strings.Contains(alpha, "<h3>Depends On</h3>") {
 		t.Error("depends_on also listed as a custom field")
 	}
-	beta := pageGet(t, ts.URL+"/p/mp/issue/sim/beta")
+	beta := pageGet(t, ts.URL+"/p/mp/issue/sim/beta?classic=1")
 	assertHas(t, beta, `data-testid="detail.field.depended_on_by"`, `sim/alpha</a>`)
 	if strings.Contains(beta, `data-testid="detail.field.depends_on"`) {
 		t.Error("beta has no depends_on row")

@@ -15,7 +15,7 @@ steps:
       # The Repro: the checkbox syntax quoted in inline code, prose and a
       # fenced block above the Plan boxes. The old page counted these.
       - cli: [append, ui/card-titles-overflow-on-a-phone, --section, Problem, --body, "Write `[ ]` for a task; prose can say [x] too.\n\n```\n- [ ] make cas\n```"]
-      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone
+      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone?classic=1
       - click: detail.fold.expand_all
     act:
       - click: detail.body.checkbox.1

@@ -17,7 +17,7 @@ steps:
   - id: TP4
     title: Approving with words writes the approval comment, clears the box, and says so
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     act:
       - check: { count: { pattern: approve_words.detail, equals: 1 } }
       - check: { below: [detail.approve_then.backlog, approve_words.detail] }
@@ -34,7 +34,7 @@ steps:
   - id: TP5
     title: A blank box writes no comment; un-approving ignores the box and keeps its text
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     act:
       - type: { target: approve_words.detail, text: "   " }
       - click: detail.approve.backlog
@@ -52,7 +52,7 @@ steps:
   - id: TP6
     title: Approve-then with words writes one comment naming both statuses
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     act:
       - type: { target: approve_words.detail, text: "Start straight away" }
       - click: detail.approve_then.backlog
@@ -65,7 +65,7 @@ steps:
   - id: TP7
     title: After the transition, the Timeline shows the words beside the approval
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
       - type: { target: approve_words.detail, text: "Prices per stage read right, go" }
       - click: detail.approve.backlog
       - wait_for: { selected: detail.approve.backlog }
@@ -82,7 +82,7 @@ steps:
   - id: TP10
     title: The issue page's words box and toasts read clearly
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     targets:
       - { id: approve_words.detail, note: Your words, optional }
       - { id: detail.approve.backlog, note: Approves backlog with the words }

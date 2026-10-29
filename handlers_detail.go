@@ -266,6 +266,12 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 		http.NotFound(w, r)
 		return
 	}
+	// The station (L3) is the issue page; ?classic=1 and the classic tabs
+	// keep this one.
+	if stationPage(r) {
+		s.handleStation(w, r, proj, prefix, found, issues)
+		return
+	}
 
 	backURL := prefix + "/"
 	if from := r.URL.Query().Get("from"); from != "" {
