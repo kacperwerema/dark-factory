@@ -1,0 +1,148 @@
+{{/*
+Workshop Board components of the Report (L1, /p/<project>/status). View models
+in report.go, styles in static/workshop.css ("L1: the report"). The page
+templates/report.html composes them.
+
+  wb/view-toggle   Board | Report                            data: []WbViewTab
+  wb/lock-icon     a padlock                                 data: none
+  wb/badge         a small pill with a padlock, linking      data: WbBadge
+  wb/report-title  the title band: title, badges, buttons    data: WbReportTitle
+  wb/action        a button, link or copy-command            data: WbAction
+  wb/stack-bar     a stacked bar                             data: []WbSegment
+  wb/squares       one square per agent                      data: []WbSquare
+  wb/legend        counted lines under a big number          data: []WbLegendRow
+  wb/count-card    a card with a big number                  data: WbCountCard
+  wb/bottleneck    the dark banner: what holds things up     data: WbBottleneck
+  wb/bar           a labelled done/total bar                 data: WbBar
+  wb/where         Where we are                              data: WbWhere
+  wb/shipped       Shipped in 7 days by system               data: WbShipped
+  wb/score-box     a score in a small box                    data: WbScoreBox
+  wb/health        Code health                               data: WbHealth
+  wb/unlock-item   one thing to enable                       data: WbUnlockItem
+  wb/unlock        To unlock                                 data: WbUnlock
+*/}}
+
+{{define "wb/view-toggle"}}<div class="wb-toggle" role="group" aria-label="Project view">{{range .}}{{if .Current}}<span class="wb-toggle-on" aria-current="page" data-testid="view.{{.TestID}}">{{.Label}}</span>{{else}}<a href="{{.URL}}" data-testid="view.{{.TestID}}">{{.Label}}</a>{{end}}{{end}}</div>{{end}}
+
+{{define "wb/lock-icon"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{{end}}
+
+{{define "wb/badge"}}<a class="wb-badge wb-badge--{{.Tone}}" href="{{.URL}}" title="{{.Title}}" data-testid="report.badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>{{.Label}}</a>{{end}}
+
+{{define "wb/report-title"}}
+<section class="wb-ground wb-rtitle" data-testid="report.title">
+    <div class="wb-rtitle-main">
+        <div class="wb-rtitle-row">
+            <h1 class="wb-rtitle-h1">{{.Title}}</h1>
+            {{range .Badges}}{{template "wb/badge" .}}{{end}}
+        </div>
+        <div class="wb-rtitle-sub">{{.Sub}} · CEO <span class="wb-mono-inline">{{.Session}}</span> {{if .Live}}live{{else}}not running{{end}} · as of {{.AsOf}}</div>
+    </div>
+    <div class="wb-rtitle-actions">
+        <button type="button" class="wb-rbtn wb-rbtn--shadow" data-copy-md="{{.MDURL}}" data-testid="report.copy_md"><span class="wb-copy-label">Copy as markdown</span></button>
+        <a class="wb-rbtn wb-rbtn--mono" href="{{.MDURL}}" data-testid="report.raw_md">status.md</a>
+        <a class="wb-rlink" href="{{.Classic}}" data-testid="report.classic">Classic view</a>
+    </div>
+</section>
+{{end}}
+
+{{define "wb/action"}}{{if .Copy}}<button type="button" class="wb-ract wb-ract--{{.Tone}}" data-copy="{{.Copy}}" title="{{with .Title}}{{.}}{{else}}Copy: {{.Copy}}{{end}}" data-testid="report.action.{{.TestID}}"><span class="wb-copy-label">{{.Label}}</span></button>{{else if .Spawn}}<button type="button" class="wb-ract wb-ract--{{.Tone}}" data-spawn-lead="{{.Spawn}}" data-testid="report.action.{{.TestID}}">{{.Label}}</button>{{else}}<a class="wb-ract wb-ract--{{.Tone}}" href="{{.URL}}"{{with .Title}} title="{{.}}"{{end}} data-testid="report.action.{{.TestID}}">{{.Label}}{{if .Count}} · {{.Count}}{{end}}{{if ne .Tone "link"}} <span aria-hidden="true">→</span>{{end}}</a>{{end}}{{end}}
+
+{{define "wb/stack-bar"}}{{if .}}<div class="wb-stack" role="img" aria-label="{{range $i, $s := .}}{{if $i}}, {{end}}{{$s.Value}} {{$s.Label}}{{end}}">{{range .}}<i style="flex:{{.Value}};background:{{.Color}}" title="{{.Value}} {{.Label}}"></i>{{end}}</div>{{end}}{{end}}
+
+{{define "wb/squares"}}{{if .}}<div class="wb-squares" role="img" aria-label="{{len .}} agents">{{range .}}<i style="background:{{.Color}}" title="{{.Title}}"></i>{{end}}</div>{{end}}{{end}}
+
+{{define "wb/legend"}}<div class="wb-legend-rows">{{range .}}<div class="wb-lrow"{{with .Title}} title="{{.}}"{{end}}>{{with .Color}}<i class="wb-swatch" style="background:{{.}}"></i>{{end}}{{with .Dot}}<i class="wb-dot wb-dot--{{.}}"></i>{{end}}{{if ge .Count 0}}<b>{{.Count}}</b> {{end}}<span>{{.Label}}</span>{{with .Note}} <span class="wb-lrow-note">— {{.}}</span>{{end}}{{with .Command}} <code class="wb-code">{{.}}</code>{{end}}</div>{{end}}</div>{{end}}
+
+{{define "wb/count-card"}}
+<section class="wb-ccard wb-ccard--{{.Icon}}" id="{{.ID}}" aria-labelledby="ccard-{{.ID}}" data-testid="report.card.{{.TestID}}">
+    <div class="wb-ccard-head"><span class="wb-ccard-icon wb-ccard-icon--{{.Icon}}{{if and (eq .Icon "you") .Count}} wb-ping{{end}}">{{if eq .Icon "you"}}!{{end}}</span><h2 class="wb-ccard-title" id="ccard-{{.ID}}">{{.Title}}</h2></div>
+    <div class="wb-ccard-num">{{.Count}}</div>
+    {{template "wb/stack-bar" .Bar}}
+    {{template "wb/squares" .Squares}}
+    {{if .Steps}}<ol class="wb-ccard-steps">{{range .Steps}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{template "wb/legend" .Legend}}
+    <div class="wb-grow"></div>
+    {{with .Note}}<div class="wb-ccard-note">{{.}}</div>{{end}}
+    {{with .Action}}<div data-spawn-box>{{template "wb/action" .}}<div class="wb-site-msg" role="status"></div></div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/bottleneck"}}
+<section class="wb-neck{{if .Calm}} wb-neck--calm{{end}}" aria-labelledby="neck-h" data-testid="report.bottleneck" data-spawn-box>
+    <div class="wb-neck-eyebrow">{{.Eyebrow}}</div>
+    <h2 class="wb-neck-h" id="neck-h">{{.Sentence}}</h2>
+    {{with .Text}}<div class="wb-neck-text">{{.}}</div>{{end}}
+    {{if .Actions}}<div class="wb-neck-actions">{{range .Actions}}{{template "wb/action" .}}{{end}}</div><div class="wb-site-msg" role="status"></div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/bar"}}
+<div class="wb-rbar{{if .Current}} wb-rbar--current{{end}}">
+    <div class="wb-rbar-row"><span class="wb-rbar-label">{{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}{{with .Note}} <span class="wb-rbar-note">{{.}}</span>{{end}}</span><span class="wb-rbar-num">{{.Done}}/{{.Total}} <span>done</span></span></div>
+    <div class="wb-rbar-track"><div style="width:{{.Pct}}%"></div></div>
+</div>
+{{end}}
+
+{{define "wb/where"}}
+<section class="wb-rcard" aria-labelledby="where-h" data-testid="report.where">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="where-h">Where we are</h2><a class="wb-rlink" href="{{.HallURL}}">Open the hall</a></div>
+    <div class="wb-rbar--all">{{template "wb/bar" .All}}</div>
+    {{range .Milestones}}{{template "wb/bar" .}}{{end}}
+    {{if .MoreVers}}<div class="wb-muted wb-small">+{{.MoreVers}} more versions in status.md</div>{{end}}
+    {{with .Locked}}<div class="wb-locknote" data-testid="report.where.locked">{{template "wb/lock-icon"}}<div class="wb-locknote-text"><b>{{.}}</b> {{$.LockedWhy}}</div><a class="wb-locknote-link" href="#unlock">How?</a></div>{{end}}
+    {{if .Epics}}<div class="wb-rsub">Open epics</div>{{range .Epics}}{{template "wb/bar" .}}{{end}}{{if .MoreEpics}}<div class="wb-muted wb-small">+{{.MoreEpics}} more open epics</div>{{end}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/shipped"}}
+<section class="wb-rcard" aria-labelledby="shipped-h" data-testid="report.shipped">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="shipped-h">Shipped · {{.Count}} in 7 days</h2><span class="wb-muted wb-small">by system</span><a class="wb-rlink" href="{{.ListURL}}">Full list</a></div>
+    <div class="wb-shipped">
+        {{range .Rows}}<div class="wb-shiprow" data-testid="report.shipped.row">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#E9D7B5" stroke="#1B1F2A" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10" fill="none"/></svg>
+            <span class="wb-shiprow-area">{{.Area}}</span>
+            <a class="wb-shiprow-slug" href="{{.URL}}">{{.Slug}}</a>
+            {{if .More}}{{if .MoreURL}}<a class="wb-shiprow-more" href="{{.MoreURL}}">+{{.More}} more</a>{{else}}<span class="wb-shiprow-more">+{{.More}} more</span>{{end}}{{end}}
+            <span class="wb-shiprow-date">{{.Date}}</span>
+        </div>{{else}}<div class="wb-empty">Nothing reached done in the last 7 days.</div>{{end}}
+        {{if .More}}<div class="wb-muted wb-small">+{{.More}} more systems in the full list</div>{{end}}
+    </div>
+</section>
+{{end}}
+
+{{define "wb/score-box"}}<div class="wb-scorebox{{if .Has}} wb-scorebox--has{{end}}"><div class="wb-eyebrow">{{.Label}}</div><div class="wb-scorebox-num">{{.Value}}</div><div class="wb-scorebox-line">{{.Line}}</div></div>{{end}}
+
+{{define "wb/health"}}
+<section class="wb-rcard" aria-labelledby="health-h" data-testid="report.health">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="health-h">Code health</h2><a class="wb-rlink" href="{{.URL}}">Details</a></div>
+    <div class="wb-scoreboxes">{{template "wb/score-box" .Derived}}{{template "wb/score-box" .Opinion}}</div>
+    {{with .Weakest}}<div class="wb-weak">
+        <div class="wb-eyebrow">WEAKEST SPOT</div>
+        <div class="wb-weak-name">{{.Name}}: {{.Score}}</div>
+        <div class="wb-weak-track"><div style="width:{{.Score}}%"></div></div>
+        <div class="wb-weak-line">{{.Value}} {{.Help}}</div>
+    </div>{{end}}
+    {{if not .Snapshot}}<div class="wb-empty">No health snapshot yet: the viewer takes one a day while it runs.</div>{{end}}
+    {{with .Lint}}{{if $.LintOK}}<div class="wb-lint wb-lint--ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.}}</div>{{else}}<div class="wb-lint">{{.}} <code class="wb-code">{{$.LintCmd}}</code></div>{{end}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/unlock-item"}}
+<div class="wb-unlock-item{{if .Risk}} wb-unlock-item--risk{{else if .On}} wb-unlock-item--on{{end}}" data-testid="report.unlock.{{.Key}}">
+    <span class="wb-unlock-icon">{{if .On}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{else}}{{template "wb/lock-icon"}}{{end}}</span>
+    <div class="wb-unlock-main">
+        <div class="wb-unlock-title"><span>{{.Title}}</span>{{if .Risk}}<span class="wb-risk">RISK</span>{{end}}{{if .On}}<span class="wb-chip wb-chip--green">on</span>{{end}}</div>
+        <div class="wb-unlock-text">{{.Text}}</div>
+        {{if and .Code (not .On)}}<code class="wb-code wb-unlock-code">{{.Code}}</code>{{end}}
+    </div>
+    {{if not .On}}{{template "wb/action" .Action}}{{end}}
+</div>
+{{end}}
+
+{{define "wb/unlock"}}
+<section class="wb-rcard" id="unlock" aria-labelledby="unlock-h" data-testid="report.unlock">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="unlock-h">To unlock</h2><span class="wb-rcard-count">{{.Done}}/{{.Total}}</span></div>
+    <div class="wb-muted wb-small">Instead of empty panels: what to enable so the report shows more.</div>
+    {{range .Items}}{{template "wb/unlock-item" .}}{{end}}
+</section>
+{{end}}

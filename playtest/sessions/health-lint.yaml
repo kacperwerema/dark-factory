@@ -44,7 +44,7 @@ steps:
     title: The Status page's Health card and status.md carry the lint count from the snapshot
     proves: [AC11]
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - wait_for: { visible: status.health.lint }
     checks:

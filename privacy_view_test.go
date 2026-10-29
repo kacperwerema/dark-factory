@@ -77,13 +77,13 @@ func TestPrivacyBadgesOnStatusProjectsAndStats(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{red, green})
 	defer ts.Close()
 
-	body := okBody(t, ts.URL+"/p/redproj/status")
+	body := okBody(t, ts.URL+"/p/redproj/status?classic=1")
 	assertContains(t, body, `data-testid="status.privacy.badge.work" data-level="red"`)
 	assertContains(t, body, `title="Work files are in the code repo: issues/ (1) is tracked by redproj"`)
 	assertContains(t, body, `data-testid="status.privacy.line.work" data-level="red"`)
 	assertContains(t, body, `href="/p/redproj/updates" data-testid="status.privacy.setup.work">Set up a private tracker on the Updates tab →`)
 
-	body = okBody(t, ts.URL+"/p/greenproj/status")
+	body = okBody(t, ts.URL+"/p/greenproj/status?classic=1")
 	assertContains(t, body, `data-testid="status.privacy.badge.work" data-level="green"`)
 	assertContains(t, body, `Work files private: remote, last backup just now`)
 

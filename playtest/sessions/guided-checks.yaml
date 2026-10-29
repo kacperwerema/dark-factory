@@ -38,7 +38,7 @@ steps:
   - id: TP5
     title: The Status page lists the issue under Checks
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - click: status.waiting.pop
     checks:
       - visible: status.waiting.checks.cli/checks-due

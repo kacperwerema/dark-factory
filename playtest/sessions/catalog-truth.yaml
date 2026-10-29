@@ -12,7 +12,7 @@ steps:
   - id: TP2
     title: The repro re-run - the declined changelog hint is gone, the stale record is reported, the empty glob is said
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { visible: status.released }
       - check: { absent: status.released.hint }

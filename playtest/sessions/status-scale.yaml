@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: Every list stops at its cap with "+K more"; the rows sit on one shared grid
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { text_contains: { target: status.release_wait.open.fold, text: "20 open: 1 in progress, 2 in design, 17 idea" } }
       - check: { count: { pattern: status.release_wait.open.row.*, equals: 0 } }
@@ -57,7 +57,7 @@ steps:
   - id: TP11
     title: The tiles open their card over the page and fold back on a click outside, focus loss or Escape
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { text_equals: { target: status.waiting.pop.summary, text: "7 to approve · 1 question" } }
       - check: { text_equals: { target: status.working.pop.summary, text: "12 agents stopped · lead not running" } }
@@ -91,7 +91,7 @@ steps:
   - id: TP12
     title: Side cards are as tall as the card beside them; one that overflows shows "Show all" and opens over the page
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       # Unfolding the 20 open issues makes Waiting for release taller than Epics.
       - click: status.release_wait.open.fold
@@ -119,7 +119,7 @@ steps:
   - id: TP5
     title: Current milestone splits 0.1 by status and counts its open issues by area
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - text_contains: { target: status.milestone, text: "Current milestone · 0.1" }
       - text_contains: { target: status.milestone, text: "13 / 33 done · 39%" }
@@ -142,7 +142,7 @@ steps:
   - id: TP6
     title: Epics group by area for the current milestone; tabs, Version and the text filter narrow them
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { selected: status.epics.tab.active }
       - check: { value_equals: { target: status.epics.version, value: "0.1" } }
@@ -170,7 +170,7 @@ steps:
   - id: TP7
     title: The tab, version, filter and folds come back after a reload
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - click: status.epics.tab.not_started
       - select: { target: status.epics.version, value: "0.2" }
@@ -188,7 +188,7 @@ steps:
   - id: TP8
     title: Recently shipped groups the last days by area; Versions and Recently released sit beside it
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - text_contains: { target: status.shipped, text: "Recently shipped · 20 in 7 days" }
       - text_contains: { target: status.shipped.area.data, text: "Show 3 more" }
@@ -199,12 +199,12 @@ steps:
       - text_contains: { target: status.released, text: CHANGELOG.md }
       # Bold and code render as markup, not literal asterisks.
       - text_contains: { target: status.release.v0_0_9, text: "Salvage after battle: pick two parts from the wreck, or sell the lot." }
-      - http: { path: "/p/{project}/status", contains: "<strong>Salvage after battle:</strong>" }
+      - http: { path: "/p/{project}/status?classic=1", contains: "<strong>Salvage after battle:</strong>" }
 
   - id: TP9
     title: status.md follows the page - counts and groups first, capped lists with the command for the rest
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - http: { path: "/p/{project}/status.md", contains: "29 epics in 9 areas" }
       - http: { path: "/p/{project}/status.md", contains: "## Waiting on you (8)" }

@@ -9,6 +9,7 @@
     <div class="wb-titlebar">
         <h1 class="wb-h1">{{.Lot.Name}}</h1>
         <span class="wb-sub">{{.Departments}} departments · CEO <span class="wb-mono-inline">{{.Lot.CEO.Session}}</span>{{with .Lot.Kind}} · {{.}}{{end}}</span>
+        <span class="wb-titlebar-end">{{template "wb/view-toggle" .Toggle}}</span>
     </div>
     <div class="wb-company">
         <div class="wb-company-row">

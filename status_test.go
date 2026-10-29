@@ -319,7 +319,7 @@ func TestStatusPageRenders(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, body := getResp(t, ts.URL+"/p/status/status")
+	resp, body := getResp(t, ts.URL+"/p/status/status?classic=1")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d:\n%s", resp.StatusCode, body)
 	}
@@ -375,7 +375,7 @@ func TestStatusUnsentBugReports(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, body := getResp(t, ts.URL+"/p/status/status")
+	_, body := getResp(t, ts.URL+"/p/status/status?classic=1")
 	for _, want := range []string{
 		`data-testid="status.waiting.cli_bugs"`,
 		`2 issue-cli bug reports not sent`,
@@ -415,7 +415,7 @@ func TestStatusChangelogHintRespectsDecline(t *testing.T) {
 			}
 			ts := newTestServer(t, []tracker.Project{proj})
 			defer ts.Close()
-			_, body := getResp(t, ts.URL+"/p/status/status")
+			_, body := getResp(t, ts.URL+"/p/status/status?classic=1")
 			if got := strings.Contains(body, hint); got != c.want {
 				t.Errorf("hint shown = %v, want %v", got, c.want)
 			}

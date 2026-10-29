@@ -53,6 +53,8 @@ type CompanyData struct {
 	Waiting   int
 	Radio     []WbMessage
 	Message   WbMessageBox
+	// Toggle is Board | Report, on the title line (the header is full here).
+	Toggle []WbViewTab
 }
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
@@ -100,6 +102,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	}
 	d.Header.Crumbs[1].Color = color
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}
+	d.Toggle = wbViewToggle(prefix, "board")
 
 	d.HQ = WbRoomHQ{
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},

@@ -13,7 +13,7 @@ steps:
     title: The card shows v1.5.0-rc.1 folded to one summary line; opening it shows the builds running, Atlas's calls on it and the open report holding 1.5 back
     proves: [AC4, AC5, AC6]
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       # Silver on the card: something is soaking, and for how long.
       - check: { text_contains: { target: status.rc_badge, text: "v1.5.0-rc.1 · release candidate · soaking " } }
@@ -49,7 +49,7 @@ steps:
     title: Taking the report to done turns the card into rc.1 soaking, publish only on the owner's ok
     proves: [AC8]
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { absent: status.release_wait.publish }
       - cli: [transition, cli/route-export-drops-waypoints, --to, done]
@@ -71,7 +71,7 @@ steps:
   - id: TP6
     title: status.md carries the candidate lines and the verdict
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - http: { path: "/p/{project}/status.md", contains: "- Milestone 1.5: 1/2 done; v1.5.0 not ready: 1 issue open; 1 report open: cli/route-export-drops-waypoints\n" }
       - http: { path: "/p/{project}/status.md", contains: "- Candidate v1.5.0-rc.1: cut " }
@@ -83,7 +83,7 @@ steps:
   - id: TP7
     title: The candidate reads clearly in every theme, silver on the card
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       # The side card fits its row; Show all opens the rest.
       - click: status.release_wait.fit
     do: Read the Waiting for release card (opened with Show all). The Release candidate block is folded to one line; click it to open the details, then switch to the Dracula and light themes.

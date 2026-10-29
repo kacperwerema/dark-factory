@@ -27,7 +27,7 @@ steps:
   - id: TP5
     title: Where we are shows overall progress and the no-version hint; the epic sits under its area
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       # No versions: one "all" panel and no Version select. The ui area has
       # nothing done, so Active keeps it folded; open it.
@@ -54,7 +54,7 @@ steps:
   - id: TP6
     title: Working on lists the issues in flight with status, agent and time in status
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - click: status.working.pop
     checks:
       - count: { pattern: status.working.row.*, equals: 4 }
@@ -74,7 +74,7 @@ steps:
   - id: TP7
     title: What's next shows the lead's list, the backlog by priority and the parked issue
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - click: status.next.pop
     checks:
       - text_contains: { target: status.next.source, text: sessions/2026-10-21-lead-atlas.md }
@@ -83,12 +83,12 @@ steps:
       - text_contains: { target: status.backlog, text: "Faster tile cache high Rename config keys low" }
       - text_contains: { target: status.parked, text: Voice directions }
       - text_contains: { target: status.parked, text: Blocked on the speech licence. }
-      - http: { path: "/p/{project}/status", contains: "<a href=\"/p/atlas/issue/ui/route-planner-panel\"><code>ui/route-planner-panel</code></a>" }
+      - http: { path: "/p/{project}/status?classic=1", contains: "<a href=\"/p/atlas/issue/ui/route-planner-panel\"><code>ui/route-planner-panel</code></a>" }
 
   - id: TP8
     title: Waiting on you holds the ready gate, the playtest and the question, not the open gate
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - click: status.waiting.pop
     checks:
       - text_equals: { target: status.waiting.count, text: "3" }
@@ -101,7 +101,7 @@ steps:
   - id: TP9
     title: Recently released shows 3 releases; an issue taken to done appears in Recently shipped under its area
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { visible: [status.release.v1_4_0, status.release.v1_3_0, status.release.v1_2_0] }
       - check: { absent: status.release.v1_1_0 }
@@ -119,7 +119,7 @@ steps:
   - id: TP10
     title: status.md is the same summary as text; Copy as markdown copies it
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - http: { path: "/p/{project}/status.md", contains: "## Waiting on you (3)" }
       - http: { path: "/p/{project}/status.md", contains: "- Approve ui/route-planner-panel: in design → backlog" }
@@ -137,7 +137,7 @@ steps:
   - id: TP11
     title: The page reads like the mockup and answers "where are we" at a glance
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     do: Read the page top to bottom, then switch to the Dracula and light themes.
     expect: |
       Three tiles on top: Needs you (amber, 3), Working on and What's

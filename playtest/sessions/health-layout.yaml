@@ -14,7 +14,7 @@ steps:
   - id: TP5
     title: Health is right below Status in the sidebar, with the derived score
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     act:
       - check: { below: [nav.tab.status, nav.tab.health] }
       - check: { text_contains: { target: nav.tab.health, text: "86" } }
@@ -27,7 +27,7 @@ steps:
   - id: TP7
     title: The Health card sits in the milestone row, a third of the grid like the top tiles
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - beside: [status.milestone, status.health]
       - below: [status.next.pop, status.health]

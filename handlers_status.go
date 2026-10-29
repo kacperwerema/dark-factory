@@ -15,9 +15,16 @@ import (
 // loadStatus builds the Status model for a request. A tmux failure only
 // drops the agent columns.
 func (s *Server) loadStatus(proj *tracker.Project, prefix string) (*StatusModel, error) {
+	m, _, _, err := s.loadStatusWith(proj, prefix)
+	return m, err
+}
+
+// loadStatusWith is loadStatus that also returns the issues and agents it
+// read (agents nil without tmux), for the Report built on the same model.
+func (s *Server) loadStatusWith(proj *tracker.Project, prefix string) (*StatusModel, []*tracker.Issue, *AgentsModel, error) {
 	issues, err := tracker.LoadIssues(proj.IssueDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	agents, _ := s.buildAgentsModel(proj, prefix)
 	m := buildStatus(proj, issues, agents, time.Now())
@@ -25,7 +32,7 @@ func (s *Server) loadStatus(proj *tracker.Project, prefix string) (*StatusModel,
 	if rw := m.ReleaseWait; rw != nil && rw.Milestone != nil && rw.Milestone.Candidate != nil && proj.Slug == s.engine {
 		rw.Milestone.addSoak(soakInput{projects: s.projects, issues: issues, cs: newCanvasStatuses(proj.LoadWorkflow()), viewer: Version})
 	}
-	return m, nil
+	return m, issues, agents, nil
 }
 
 // handleStatusMD serves the Status page as markdown: the stand-up the lead
@@ -59,6 +66,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, proj *trac
 	hasPage := proj.LoadWorkflow().Workbench.StatusPage != ""
 	if hasPage && r.URL.Query().Get("view") != "builtin" {
 		s.handleStatusProjectPage(w, r, proj, prefix)
+		return
+	}
+	// The Report (report.go) is the page now; ?classic=1 (and the project
+	// page's Built-in tab) keep the classic page.
+	if r.URL.Query().Get("classic") == "" && r.URL.Query().Get("view") != "builtin" {
+		s.handleReport(w, r, proj, prefix)
 		return
 	}
 	m, err := s.loadStatus(proj, prefix)

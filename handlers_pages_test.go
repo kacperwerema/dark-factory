@@ -70,7 +70,7 @@ func TestProjectPages_NoConfigLeavesStatusUnchanged(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	html := pageGet(t, ts.URL+"/p/atlas/status")
+	html := pageGet(t, ts.URL+"/p/atlas/status?classic=1")
 	if !strings.Contains(html, `data-testid="status.milestone"`) {
 		t.Fatal("built-in status page did not render")
 	}

@@ -73,7 +73,7 @@ steps:
   - id: TP7
     title: issue-cli status prints the viewer's stand-up and its JSON; a slug points at show
     act:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - http: { path: "/p/{project}/status.md", contains: "# Crew status" }
       - cli: { args: [--project, crew, status], contains: "# Crew status" }

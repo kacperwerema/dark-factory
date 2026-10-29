@@ -73,7 +73,8 @@ handlers_agents.go          — /agents canvas, agents.json, agent detail, open-
 handlers_lead_chat.go       — /lead chat (the lead's pane, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads across projects
 handlers_systems.go         — /systems index and system / family pages (model in systems.go, design-doc panel in docsections.go)
 handlers_metrics.go         — /metrics view (guard metrics, knobs, branches), metrics.json; handlers_metrics_panels.go feeds the system-page partials
-handlers_status.go          — /status page and /status.md (model in status.go: buildStatus, statusMarkdown)
+handlers_status.go          — /status page (?classic=1) and /status.md (model in status.go: buildStatus, statusMarkdown)
+report.go                   — /status: the Report (L1 · Workshop Board look) built from the Status model; components in templates/_workshop_report.html, page templates/report.html
 handlers_pages.go           — project pages (workbench.status_page / pages): frame, /pages/<n>, sandboxed /page-raw/, /status.json
 ci_watch.go                 — local CI watcher: polls each project's CI branch, starts detached `issue-cli ci run`
 health_watch.go             — daily project health snapshot: every 10 min, one per repository when none is from today; then shrinks shots of issues done 30+ days ago

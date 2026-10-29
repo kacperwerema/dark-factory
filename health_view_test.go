@@ -248,7 +248,7 @@ func TestStatusHealthCard(t *testing.T) {
 
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/p/test-project/status")
+	resp, err := http.Get(ts.URL + "/p/test-project/status?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

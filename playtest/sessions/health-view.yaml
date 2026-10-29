@@ -57,7 +57,7 @@ steps:
   - id: TP7
     title: Status adds only the Health card, in the milestone row, on the top tiles' grid
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - visible: [status.health, status.health.derived, status.health.opinion]
       - text_contains: { target: status.health.derived, text: "86" }

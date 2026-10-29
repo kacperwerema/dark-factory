@@ -19,8 +19,12 @@ type WbHeader struct {
 	// Goals replace the agent counters when set (L1: the company's goals).
 	Goals []WbGoal
 	// Chips follow the counters (L2: CI); HideDone drops "done this week".
-	Chips                    []WbChip
-	HideDone                 bool
+	Chips    []WbChip
+	HideDone bool
+	// Toggle is the project's Board | Report switch (L1); Quiet drops the
+	// agent counters (the Report has its own cards).
+	Toggle                   []WbViewTab
+	Quiet                    bool
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
