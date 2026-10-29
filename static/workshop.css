@@ -222,6 +222,7 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-company-row--plan { gap: 30px; }
 .wb-company-row--plan .wb-newtile { width: 290px; }
 .wb-room--dept { width: 300px; flex: none; }
+.wb-room--dept-line { width: 440px; }
 .wb-floor--dept { display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
 .wb-dept-role { font-size: 13px; line-height: 1.38; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 8px 10px; }
 .wb-dept-systems { font-size: 12px; }

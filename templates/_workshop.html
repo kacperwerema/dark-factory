@@ -219,7 +219,7 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/room-dept"}}
-<div class="wb-room wb-room--dept" data-testid="company.room.dept">
+<div class="wb-room wb-room--dept{{if .Stations}} wb-room--dept-line{{end}}" data-testid="company.room.dept">
     {{template "wb/room-head" .Head}}
     <div class="wb-floor wb-floor--dept">
         {{template "wb/robots" .Crew}}
