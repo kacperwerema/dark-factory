@@ -303,7 +303,7 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 // Every issue is Product's until projects have more departments.
 func mapDepartmentsOf(open int) []WbBuilding {
 	return []WbBuilding{
-		{Name: "HQ", Color: companyHQColor, Width: 38, Height: 40},
+		{Name: "HQ · CEO", Color: companyHQColor, Width: 38, Height: 40},
 		{Name: "Product", Open: open, Color: companyProductColor, Width: 70 + min(open, 30)*2, Height: 24 + min(open, 34)},
 	}
 }

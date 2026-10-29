@@ -109,7 +109,7 @@ func TestMapBuildingsAndProgress(t *testing.T) {
 	// The lot shows the project's departments: a small HQ and Product,
 	// taller with more open work.
 	b := mapDepartmentsOf(5)
-	if len(b) != 2 || b[0].Name != "HQ" || b[0].Color != companyHQColor || b[1].Name != "Product" || b[1].Open != 5 || b[1].Color != companyProductColor {
+	if len(b) != 2 || b[0].Name != "HQ · CEO" || b[0].Color != companyHQColor || b[1].Name != "Product" || b[1].Open != 5 || b[1].Color != companyProductColor {
 		t.Fatalf("buildings = %+v", b)
 	}
 	if big := mapDepartmentsOf(30)[1]; big.Height <= b[1].Height || big.Width <= b[1].Width {

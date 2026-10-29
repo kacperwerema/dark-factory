@@ -102,7 +102,7 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/skyline"}}
 <div class="wb-skyline" data-testid="map.lot.buildings">
-    {{range .}}<div class="wb-bld" title="{{.Name}}: {{.Open}} open" style="width:{{.Width}}px;height:{{.Height}}px;background-color:{{.Color}}"></div>{{end}}
+    {{range .}}<div class="wb-bld" title="{{.Name}}{{if .Open}}: {{.Open}} open{{end}}" style="width:{{.Width}}px;height:{{.Height}}px;background-color:{{.Color}}"></div>{{end}}
     <div class="wb-bld wb-bld--plan" title="Free lot: a new department"></div>
 </div>
 {{end}}
