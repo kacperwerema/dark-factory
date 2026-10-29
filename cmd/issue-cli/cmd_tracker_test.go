@@ -21,7 +21,7 @@ func makePrivacyFixture(t *testing.T, workflowTail string) (proj *tracker.Projec
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@test"} {
 		t.Setenv(k, v)
 	}
-	base := t.TempDir()
+	base := realTempDir(t)
 	root = filepath.Join(base, "proj")
 	remote = filepath.Join(base, "tracker-remote.git")
 	write := func(rel, text string) {
