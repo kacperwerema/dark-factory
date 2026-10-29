@@ -83,7 +83,11 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-sub { font-size: 14px; color: var(--muted-2); font-weight: 500; }
 
 /* ---- lots ---- */
-.wb-lots { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 300px)); gap: 70px 50px; justify-content: center; padding: 34px 24px 24px; }
+.wb-lots { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 300px)); gap: 70px 50px; justify-content: center; align-items: start; padding: 34px 24px 24px; }
+/* With the engine on the map: three columns, the engine in the middle across
+   two rows, every project around it, as on the design. */
+.wb-lots--hub { grid-template-columns: repeat(3, 300px); grid-auto-flow: row dense; }
+.wb-lots--hub .wb-lot--engine { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 .wb-roads { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 0; }
 .wb-lot { position: relative; z-index: 1; display: block; text-decoration: none; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); border-radius: 16px; box-shadow: 5px 5px 0 var(--ink); transition: transform .08s, box-shadow .08s; }
 .wb .wb-lot:hover { color: var(--ink); transform: translate(-1px, -1px); box-shadow: 7px 7px 0 var(--ink); }
@@ -145,6 +149,17 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-bang { position: absolute; top: -16px; right: -16px; width: 42px; height: 42px; border-radius: 50%; background: var(--you); border: 2px solid var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; line-height: 1; }
 .wb-bang span:first-child { font-size: 15px; } .wb-bang span:last-child { font-size: 14px; }
 
+/* building site: a project not kicked off yet */
+.wb-site { position: relative; z-index: 1; min-height: 230px; border: 2px dashed var(--plan); border-radius: 16px; background-color: #EEF3FB; background-image: linear-gradient(#D6E0EF 1px, transparent 1px), linear-gradient(90deg, #D6E0EF 1px, transparent 1px); background-size: 14px 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px; color: #243B5E; }
+.wb-site-label { font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.wb-site-name { font-family: var(--display); font-weight: 800; font-size: 22px; }
+.wb-site-text { font-size: 13px; line-height: 1.4; }
+.wb-site-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wb-site-link { font-weight: 600; font-size: 14px; color: #243B5E; }
+.wb-site-msg { font-size: 12px; font-weight: 600; }
+.wb-site-msg:empty { display: none; }
+.wb .wb-btn--paper { border: 2px solid var(--ink); background: #fff; color: var(--ink); box-shadow: 3px 3px 0 var(--ink); font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+
 /* new project */
 .wb-newlot { position: relative; z-index: 1; min-height: 230px; border: 2px dashed #8A93A3; border-radius: 16px; background: rgba(255,255,255,.55); color: #3A4252; }
 .wb-newlot summary { list-style: none; cursor: pointer; min-height: 226px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
@@ -189,6 +204,10 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-btn:hover { filter: brightness(.97); }
 .wb-empty { font-size: 13px; color: var(--muted-2); line-height: 1.45; padding: 10px 2px; }
 
+@media (max-width: 1100px) {
+  .wb-lots--hub { grid-template-columns: repeat(auto-fill, minmax(300px, 300px)); }
+  .wb-lots--hub .wb-lot--engine { grid-column: auto; grid-row: auto; }
+}
 @media (max-width: 1000px) {
   .wb-app { height: auto; min-height: 100vh; }
   .wb-main { flex-wrap: wrap; }

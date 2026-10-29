@@ -27,42 +27,95 @@
     });
   });
 
-  // Roads: from the engine's lot to every project testing its candidate.
-  // A line must carry something, so without a candidate there are no roads.
+  // Roads: the engine (dark-factory) in the middle, a road to every project.
+  // A road leaves the engine's side, runs to the project's column and turns
+  // to its lot, like the streets on the design. A project testing the
+  // engine's release candidate gets a truck on its road; a building site is
+  // joined by a dotted road (planned).
   var lots = document.getElementById('lots');
   var svg = document.getElementById('roads');
+  var ns = 'http://www.w3.org/2000/svg';
+  function path(d, stroke, width, dash) {
+    var p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke', stroke); p.setAttribute('stroke-width', width);
+    p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round');
+    if (dash) p.setAttribute('stroke-dasharray', dash);
+    svg.appendChild(p);
+  }
+  function truck(text, x, y) {
+    var t = document.createElement('div');
+    t.className = 'wb-truck';
+    t.innerHTML = '<svg width="18" height="14" viewBox="0 0 24 18" fill="none" stroke="#1B1F2A" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M1 2h13v11H1zM14 6h5l4 4v3h-9z"/><circle cx="6" cy="15" r="2" fill="#fff"/><circle cx="18" cy="15" r="2" fill="#fff"/></svg>';
+    t.appendChild(document.createTextNode(text));
+    t.style.left = x + 'px'; t.style.top = y + 'px';
+    lots.appendChild(t);
+  }
   function drawRoads() {
     if (!lots || !svg) return;
     svg.innerHTML = '';
     lots.querySelectorAll('.wb-truck').forEach(function (t) { t.remove(); });
-    var engine = lots.getAttribute('data-rc-engine');
-    var from = engine && document.getElementById('lot-' + engine);
-    if (!from) return;
+    var engine = lots.getAttribute('data-engine');
+    var hub = engine && document.getElementById('lot-' + engine);
+    if (!hub) return;
     var box = lots.getBoundingClientRect();
-    var a = from.getBoundingClientRect();
-    var ax = a.left + a.width / 2 - box.left, ay = a.top + a.height / 2 - box.top;
-    var ns = 'http://www.w3.org/2000/svg';
-    lots.querySelectorAll('.wb-lot[data-rc]').forEach(function (lot) {
+    var h = hub.getBoundingClientRect();
+    var hl = h.left - box.left, hr = h.right - box.left, hy = h.top + h.height / 2 - box.top, hx = (hl + hr) / 2;
+    lots.querySelectorAll('[data-slug]').forEach(function (lot) {
+      if (lot === hub) return;
       var b = lot.getBoundingClientRect();
-      var bx = b.left + b.width / 2 - box.left, by = b.top + b.height / 2 - box.top;
-      var midY = (ay + by) / 2;
-      var d = Math.abs(ay - by) < 40 ? 'M' + ax + ' ' + ay + ' H' + bx : 'M' + ax + ' ' + ay + ' V' + midY + ' H' + bx + ' V' + by;
-      [['#C7D0DC', 16, ''], ['#FFFFFF', 2, '7 7']].forEach(function (s) {
-        var p = document.createElementNS(ns, 'path');
-        p.setAttribute('d', d); p.setAttribute('fill', 'none'); p.setAttribute('stroke', s[0]); p.setAttribute('stroke-width', s[1]);
-        p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round');
-        if (s[2]) p.setAttribute('stroke-dasharray', s[2]);
-        svg.appendChild(p);
-      });
-      var truck = document.createElement('div');
-      truck.className = 'wb-truck';
-      truck.innerHTML = '<svg width="18" height="14" viewBox="0 0 24 18" fill="none" stroke="#1B1F2A" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M1 2h13v11H1zM14 6h5l4 4v3h-9z"/><circle cx="6" cy="15" r="2" fill="#fff"/><circle cx="18" cy="15" r="2" fill="#fff"/></svg>';
-      truck.appendChild(document.createTextNode('RC ' + lot.getAttribute('data-rc') + ' · test'));
-      truck.style.left = ((ax + bx) / 2) + 'px';
-      truck.style.top = (Math.abs(ay - by) < 40 ? ay : midY) + 'px';
-      lots.appendChild(truck);
+      var cx = b.left + b.width / 2 - box.left, top = b.top - box.top, bottom = b.bottom - box.top;
+      var d, tx, ty;
+      if (cx > hl && cx < hr) {
+        // Same column (narrow screens): straight up or down.
+        var y0 = top > hy ? h.bottom - box.top : h.top - box.top;
+        var y1 = top > hy ? top : bottom;
+        d = 'M' + cx + ' ' + y0 + ' V' + y1; tx = cx; ty = (y0 + y1) / 2;
+      } else {
+        var sx = cx < hx ? hl : hr;
+        if (bottom < hy || top > hy) {
+          // Above or below the engine: along, then up or down to the lot.
+          d = 'M' + sx + ' ' + hy + ' H' + cx + ' V' + (bottom < hy ? bottom : top);
+          tx = (sx + cx) / 2;
+        } else {
+          // Level with the engine: straight to the lot's near side.
+          var ex = cx < hx ? b.right - box.left : b.left - box.left;
+          d = 'M' + sx + ' ' + hy + ' H' + ex;
+          tx = (sx + ex) / 2;
+        }
+        ty = hy;
+      }
+      if (lot.hasAttribute('data-site')) {
+        path(d, '#C7D0DC', 16, '2 10');
+      } else {
+        path(d, '#C7D0DC', 16);
+        path(d, '#FFFFFF', 2, '7 7');
+      }
+      if (lot.getAttribute('data-rc')) truck('RC ' + lot.getAttribute('data-rc') + ' · test', tx, ty);
     });
   }
+
+  // "Start CEO" on a building site: spawn the project's lead.
+  document.querySelectorAll('[data-spawn-lead]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var msg = btn.closest('.wb-site').querySelector('.wb-site-msg');
+      btn.disabled = true;
+      msg.textContent = 'Starting the CEO…';
+      fetch(btn.getAttribute('data-spawn-lead'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp.status === 'error') {
+            var step = (resp.steps || []).filter(function (s) { return s.status === 'error'; })[0];
+            msg.textContent = 'Could not start the CEO' + (step ? ': ' + step.detail : '.');
+            btn.disabled = false;
+            return;
+          }
+          msg.textContent = 'CEO started: ' + (resp.session || 'lead') + '.';
+          setTimeout(function () { location.reload(); }, 1500);
+        })
+        .catch(function (e) { msg.textContent = 'Could not start the CEO: ' + e; btn.disabled = false; });
+    });
+  });
+
   drawRoads();
   window.addEventListener('resize', drawRoads);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawRoads);

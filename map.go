@@ -56,6 +56,11 @@ type MapData struct {
 	DoneWeek                 int
 	Queue                    []WbQueueCard
 	Updates                  int
+	// Engine is the engine project's slug when it is on the map: its lot
+	// stands in the middle and a road joins it to every project.
+	Engine string
+	// Active and Sites count the projects at work and the building sites.
+	Active, Sites int
 	// RC is the engine's release candidate being tested; nil without one.
 	RC *MapRC
 }
@@ -73,10 +78,14 @@ type MapRC struct {
 type MapLot struct {
 	Name, Slug, Kind, Color string
 	// Engine: this lot is the workflow engine itself (dark-factory).
-	Engine    bool
-	Buildings []WbBuilding
-	Robots    []WbRobot
-	Crew      WbCrew
+	Engine bool
+	// Site: a project not kicked off yet (no issues): a building site with
+	// its Description and a button to start its CEO.
+	Site        bool
+	Description string
+	Buildings   []WbBuilding
+	Robots      []WbRobot
+	Crew        WbCrew
 	// CI is "", "green" or "red"; CILine says what failed.
 	CI, CILine string
 	Working    int
@@ -131,6 +140,14 @@ func (s *Server) buildMap(now time.Time) MapData {
 	for i := range data.Lots {
 		lot := &data.Lots[i]
 		lot.Engine = lot.Slug == s.engine
+		if lot.Engine {
+			data.Engine = lot.Slug
+		}
+		if lot.Site {
+			data.Sites++
+		} else {
+			data.Active++
+		}
 		data.Working += lot.Working
 		data.Idle += lot.Idle
 		data.AgentWait += lot.AgentWait
@@ -145,6 +162,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 			}
 		}
 	}
+	sort.SliceStable(data.Lots, func(i, j int) bool { return !data.Lots[i].Site && data.Lots[j].Site })
 	sortMapQueue(data.Queue)
 	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue)}
 	return data
@@ -163,7 +181,7 @@ func sortMapQueue(q []WbQueueCard) {
 // buildLot is one project's lot and its rows of the owner's queue.
 func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapLot, []WbQueueCard) {
 	prefix := "/p/" + p.Slug
-	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, CEO: WbCEO{Session: tracker.LeadSessionName(p)}}
+	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, Description: p.Description, CEO: WbCEO{Session: tracker.LeadSessionName(p)}}
 	issues, err := tracker.LoadIssues(p.IssueDir)
 	if err != nil {
 		log.Printf("map: %s: load issues: %v", p.Slug, err)
@@ -178,6 +196,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		}
 		open = append(open, issue)
 	}
+	lot.Site = len(issues) == 0
 	wf := p.LoadWorkflow()
 	lot.Buildings = mapBuildingsOf(open, wf)
 	lot.Progress = mapProgressOf(issues)

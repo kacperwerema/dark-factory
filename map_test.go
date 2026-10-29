@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -190,4 +191,35 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 	var b strings.Builder
 	srv.tmpl.ExecuteTemplate(&b, "wb/header", WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status")})
 	assertContains(t, b.String(), `<a class="wb-crumb wb-crumb--link" href="/">Map</a>`, `aria-current="page">Jemik</span>`, `title="Pick a project, then its hall">Hall</span>`)
+}
+
+func TestMapEngineHubAndBuildingSite(t *testing.T) {
+	engine, _ := setupTestProject(t)
+	engine.Name, engine.Slug = "Dark Factory", "dark-factory"
+	site := tracker.Project{Name: "Cost Estimator", Slug: "cost-estimator", Description: "AI cost estimates for building projects.", IssueDir: filepath.Join(t.TempDir(), "issues")}
+	os.MkdirAll(site.IssueDir, 0755)
+	app, _ := setupTestProject(t)
+	srv, err := NewServer([]tracker.Project{site, engine, app})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.engine = "dark-factory"
+	data := srv.buildMap(time.Now())
+	if data.Engine != "dark-factory" || data.Active != 2 || data.Sites != 1 {
+		t.Fatalf("engine %q, active %d, sites %d", data.Engine, data.Active, data.Sites)
+	}
+	if last := data.Lots[len(data.Lots)-1]; !last.Site || last.Slug != "cost-estimator" {
+		t.Errorf("building sites come after the projects at work, got last %+v", last.Slug)
+	}
+
+	ts := httptest.NewServer(srv.Routes())
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/")
+	assertContains(t, html,
+		`class="wb-lots wb-lots--hub" id="lots" data-engine="dark-factory"`,
+		`class="wb-lot wb-lot--engine" id="lot-dark-factory"`, `>ENGINE</div>`,
+		`data-site="1" data-testid="map.site.cost-estimator"`, `AI cost estimates for building projects.`,
+		`data-spawn-lead="/p/cost-estimator/lead/spawn"`,
+		`2 active · 1 building site · roads lead to the engine`,
+	)
 }

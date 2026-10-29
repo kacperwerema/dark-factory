@@ -18,7 +18,10 @@ type Project struct {
 	Kind string `yaml:"kind"`
 	// Color is the project's colour on the map (#RRGGBB). Optional: without
 	// it the map gives each project the next colour of its palette.
-	Color        string `yaml:"color"`
+	Color string `yaml:"color"`
+	// Description is a sentence on what the project is for, shown on its
+	// lot while it is still a building site (no issues yet). Optional.
+	Description  string `yaml:"description"`
 	IssueDir     string `yaml:"issues"`
 	DocsDir      string `yaml:"docs"`
 	WorkflowFile string `yaml:"workflow"`

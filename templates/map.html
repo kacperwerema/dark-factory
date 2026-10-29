@@ -8,11 +8,11 @@
 <section class="wb-ground wb-map" aria-label="Project map">
     <div class="wb-titlebar">
         <h1 class="wb-h1">Your projects</h1>
-        <span class="wb-sub">{{len .Lots}} {{if eq (len .Lots) 1}}project{{else}}projects{{end}}{{with .RC}} · roads = release candidate {{.Tag}} from the engine{{end}}</span>
+        <span class="wb-sub">{{.Active}} active{{if .Sites}} · {{.Sites}} building {{if eq .Sites 1}}site{{else}}sites{{end}}{{end}}{{if .Engine}} · roads lead to the engine{{end}}{{with .RC}}, trucks carry release candidate {{.Tag}}{{end}}</span>
     </div>
-    <div class="wb-lots" id="lots" data-rc-engine="{{with .RC}}{{.Engine}}{{end}}">
+    <div class="wb-lots{{if .Engine}} wb-lots--hub{{end}}" id="lots" data-engine="{{.Engine}}">
         <svg class="wb-roads" id="roads" aria-hidden="true"></svg>
-        {{range .Lots}}{{template "wb/lot" .}}{{end}}
+        {{range .Lots}}{{if .Site}}{{template "wb/site" .}}{{else}}{{template "wb/lot" .}}{{end}}{{end}}
         <details class="wb-newlot" data-testid="map.new_project">
             <summary><span class="wb-plus">+</span><span class="wb-newlot-title">New project</span><span class="wb-newlot-sub">Templates: app · game · service</span></summary>
             <div class="wb-newlot-how">In the project's folder: <code>issue-cli init</code>, then an entry in <code>projects.yaml</code> (<code>kind:</code> and <code>color:</code> describe its lot).</div>

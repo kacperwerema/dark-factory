@@ -159,9 +159,9 @@ func wbCountChips(you, working, agentWait, idle int) []WbChip {
 func plCIChip(state, line string) *WbChip {
 	switch state {
 	case "red":
-		return &WbChip{Tone: "red", Text: "CI czerwony", Title: line, Dot: true, Blink: true}
+		return &WbChip{Tone: "red", Text: "CI red", Title: line, Dot: true, Blink: true}
 	case "green":
-		return &WbChip{Tone: "green", Text: "CI zielony", Dot: true}
+		return &WbChip{Tone: "green", Text: "CI green", Dot: true}
 	}
 	return nil
 }

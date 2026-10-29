@@ -493,6 +493,8 @@ var IDs = []string{
 	"map.lot.progress",
 	"map.lot.waiting",
 	"map.new_project",
+	"map.site.*",
+	"map.site.start_ceo",
 	"map.leads_link",
 	"map.updates_link",
 	"map.tab.queue",

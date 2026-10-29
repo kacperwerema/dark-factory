@@ -14,6 +14,7 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/bang        the orange "!" with a count                data: int
   wb/skyline     departments as buildings, plus a free lot  data: []WbBuilding
   wb/lot         a project on the map (L0)                  data: MapLot
+  wb/site       a project not kicked off yet (L0)          data: MapLot
   wb/queue-card  one thing waiting on the owner             data: WbQueueCard
   wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
 */}}
@@ -99,6 +100,20 @@ their styles). Pages compose them; a new element is a new component here first.
     </div>
     {{template "wb/bang" .Waiting}}
 </a>
+{{end}}
+
+{{define "wb/site"}}
+<div class="wb-site" id="lot-{{.Slug}}" data-slug="{{.Slug}}" data-site="1" data-testid="map.site.{{.Slug}}">
+    <div class="wb-site-label">BUILDING SITE</div>
+    <div class="wb-site-name">{{.Name}}</div>
+    <div class="wb-site-text">{{with .Description}}{{.}}{{else}}{{with .Kind}}{{.}}. {{end}}{{end}} Planned: no CEO or departments yet.</div>
+    <div class="wb-grow"></div>
+    <div class="wb-site-actions">
+        {{if .CEO.Live}}<a class="wb-btn wb-btn--paper" href="/p/{{.Slug}}/lead">Talk to the CEO</a>{{else}}<button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="/p/{{.Slug}}/lead/spawn" data-testid="map.site.start_ceo">Start CEO</button>{{end}}
+        <a class="wb-site-link" href="/p/{{.Slug}}/status">Open the project</a>
+    </div>
+    <div class="wb-site-msg" role="status"></div>
+</div>
 {{end}}
 
 {{define "wb/queue-card"}}

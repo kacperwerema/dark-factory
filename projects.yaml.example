@@ -17,6 +17,7 @@ projects:
     slug: "my-project"
     # kind: "aplikacja PWA"          # optional: a few words on the project, on its lot on the map (/)
     # color: "#13A386"               # optional: the project's colour on the map (default: the next palette colour)
+    # description: "AI cost estimates for building projects"  # optional: shown on the lot while the project has no issues yet (a building site)
     issues: "./issues"
     docs: "./docs"
     # lead_window: 1                # optional: the lead's tab at this window index (lead_terminal: tmux-window)
