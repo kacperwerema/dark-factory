@@ -113,7 +113,10 @@ func runTransition(ctx *Context, args []string) error {
 	if err := ownIssueOnly(ctx, issues, issue, "transition"); err != nil {
 		return err
 	}
-	wf := ctx.Project.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
 
 	if *dryRun {

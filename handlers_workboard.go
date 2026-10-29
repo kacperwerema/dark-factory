@@ -104,21 +104,33 @@ func (c *WorkColumn) Hidden() int {
 
 // WorkboardData is the workboard page.
 type WorkboardData struct {
-	Prefix       string
-	ProjectName  string
-	Hash         string
-	Group        string // status, system or epic
-	Columns      []*WorkColumn
-	Versions     []string
-	Version      string
-	System       string
-	WaitingOnly  bool
-	WaitingCount int
+	Prefix      string
+	ProjectName string
+	Hash        string
+	Group       string // status, system or epic
+	Columns     []*WorkColumn
+	Versions    []string
+	Version     string
+	System      string
+	// Department is the department whose own workflow the board shows ("" is
+	// Product's); Departments are the switch, only when some department has
+	// its own workflow file. WorkflowError is why its file didn't load.
+	Department    string
+	Departments   []WorkDeptTab
+	WorkflowError string
+	WaitingOnly   bool
+	WaitingCount  int
 	// ShowAll also draws the quiet cards; QuietCount is how many are hidden
 	// without it.
 	ShowAll    bool
 	QuietCount int
 	Total      int
+}
+
+// WorkDeptTab is one department on the board's switch.
+type WorkDeptTab struct {
+	Label, Href string
+	Active      bool
 }
 
 // GroupHref is the page URL with group set and the other filters kept.
@@ -146,6 +158,9 @@ func (d WorkboardData) href(group string, waiting, all bool) string {
 	}
 	if d.System != "" {
 		q = append(q, "system="+d.System)
+	}
+	if d.Department != "" {
+		q = append(q, "department="+url.QueryEscape(d.Department))
 	}
 	if waiting {
 		q = append(q, "waiting=1")
@@ -179,6 +194,21 @@ func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *t
 	if data.Group != "system" && data.Group != "epic" {
 		data.Group = "status"
 	}
+	// One workflow per board: Product's, or a department's own file.
+	if d := proj.DepartmentNamed(q.Get("department")); d != nil && proj.DepartmentWorkflowPath(d.Name) != "" {
+		data.Department = d.Name
+	}
+	if depts := proj.WorkflowDepartments(); len(depts) > 0 {
+		tab := func(name, label string) WorkDeptTab {
+			v := data
+			v.Department = name
+			return WorkDeptTab{Label: label, Href: v.href(data.Group, data.WaitingOnly, data.ShowAll), Active: name == data.Department}
+		}
+		data.Departments = append(data.Departments, tab("", "Product"))
+		for _, d := range depts {
+			data.Departments = append(data.Departments, tab(d.Name, d.Name))
+		}
+	}
 	sessionMap, activeBots := sessionsByIssueSlug(proj, issues)
 	data.Hash = issuesHash(issues, sessionMap, activeBots)
 
@@ -194,7 +224,10 @@ func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *t
 	sort.Strings(data.Versions)
 
 	now := time.Now()
-	wf := proj.LoadWorkflow()
+	wf, werr := proj.WorkflowFor(data.Department)
+	if werr != nil {
+		data.WorkflowError, wf = werr.Error(), &tracker.WorkflowConfig{}
+	}
 	mctx := newMarkerCtx(proj, prefix, issues, now)
 	agents := newCardAgents(proj, prefix, now)
 
@@ -204,6 +237,9 @@ func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *t
 			continue
 		}
 		if data.System != "" && !strings.EqualFold(issue.System, data.System) {
+			continue
+		}
+		if data.Departments != nil && proj.WorkflowDepartment(issue) != data.Department {
 			continue
 		}
 		card := buildWorkCard(proj, prefix, issue, issues, mctx, agents, now)
@@ -239,7 +275,7 @@ func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *t
 	case "system":
 		data.Columns = columnsBySystem(prefix, shown)
 	case "epic":
-		data.Columns = columnsByEpic(prefix, shown, issues)
+		data.Columns = columnsByEpic(proj, prefix, shown, issues)
 	default:
 		data.Columns = columnsByStatus(prefix, wf, shown, cards, data.System)
 	}
@@ -264,7 +300,7 @@ func buildWorkCard(proj *tracker.Project, prefix string, issue *tracker.Issue, i
 		Status:      issue.Status,
 		StatusColor: statusColorOf(issue.Status),
 		Epic:        tracker.IsEpic(issue, issues),
-		Progress:    epicProgress(prefix, issue, issues),
+		Progress:    epicProgress(proj, prefix, issue, issues),
 		Search:      strings.ToLower(issue.Title + " " + issue.Slug + " " + issue.System),
 	}
 	if p := tracker.FindIssue(issues, tracker.ParentSlug(issue)); p != nil && p.Status != "done" {
@@ -541,7 +577,7 @@ func columnsBySystem(prefix string, cards []*WorkCard) []*WorkColumn {
 // columnsByEpic gives every epic with open children a column (most open
 // children first) and puts the rest under "No epic". A nested epic is a card
 // in its parent's column and has a column of its own.
-func columnsByEpic(prefix string, cards []*WorkCard, issues []*tracker.Issue) []*WorkColumn {
+func columnsByEpic(proj *tracker.Project, prefix string, cards []*WorkCard, issues []*tracker.Issue) []*WorkColumn {
 	byEpic := map[string][]*WorkCard{}
 	var none []*WorkCard
 	for _, c := range cards {
@@ -562,7 +598,7 @@ func columnsByEpic(prefix string, cards []*WorkCard, issues []*tracker.Issue) []
 	var cols []*WorkColumn
 	for slug, list := range byEpic {
 		epic := tracker.FindIssue(issues, slug)
-		p := epicProgress(prefix, epic, issues)
+		p := epicProgress(proj, prefix, epic, issues)
 		sortCards(list)
 		col := &WorkColumn{Key: testids.Segment(slug), Name: epic.Title, Href: prefix + "/issue/" + epic.Slug, Cards: list, Count: len(list), Progress: p, MoreHref: prefix + "/issue/" + epic.Slug}
 		col.Note = epic.Status

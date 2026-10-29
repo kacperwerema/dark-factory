@@ -225,6 +225,8 @@ their styles). Pages compose them; a new element is a new component here first.
         {{template "wb/robots" .Crew}}
         {{with .Role}}<div class="wb-dept-role">{{.}}</div>{{end}}
         {{with .Systems}}<div class="wb-muted wb-dept-systems">systems: {{.}}</div>{{end}}
+        {{if .Stations}}<div data-testid="company.room.dept.line">{{template "wb/stations" .Stations}}<div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from {{.WorkflowFile}}</span></div></div>{{end}}
+        {{with .WorkflowError}}<div class="wb-dept-error" role="alert" data-testid="company.room.dept.workflow_error">{{.}}</div>{{end}}
     </div>
     {{template "wb/room-foot" .Foot}}
 </div>

@@ -26,7 +26,12 @@ Branches tab shows them per branch.
 
 created is set by create; set-meta may date an issue that has none
 (YYYY-MM-DD, what issue-cli lint's undated check asks for) but never
-changes or clears an existing date.`,
+changes or clears an existing date.
+
+system and department pick the issue's department (projects.yaml
+departments:). Moving it to a department whose workflow file lacks its
+status is refused; pass --status with one of that file's statuses:
+  issue-cli set-meta <slug> --key department --value Marketing --status brief`,
 	Run: runSetMeta,
 }
 
@@ -43,6 +48,7 @@ func runSetMeta(ctx *Context, args []string) error {
 	keyFlag := fs.String("key", "", "frontmatter key")
 	valueFlag := fs.String("value", "", "value to set")
 	clearFlag := fs.Bool("clear", false, "clear the field")
+	statusFlag := fs.String("status", "", "with --key system or department: the status the issue takes in its new department's workflow")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -65,6 +71,14 @@ func runSetMeta(ctx *Context, args []string) error {
 	}
 	if key == "type" && ctx.Project.LoadWorkflow().HasTypes() {
 		return fmt.Errorf("set-meta can't change type: in a project with types (it picks the issue's path)\n\nUse:\n  issue-cli set-type %s <type>", issue.Slug)
+	}
+	if *statusFlag != "" && key != "system" && key != "department" {
+		return fmt.Errorf("set-meta: --status goes with --key system or --key department (a move to another department)")
+	}
+	if key == "system" || key == "department" {
+		if err := checkDepartmentMove(ctx, issue, key, value, *statusFlag); err != nil {
+			return err
+		}
 	}
 	var list []string
 	if key == tracker.DependsOnField && !clear {
@@ -154,4 +168,32 @@ func closeSlugs(issues []*tracker.Issue, s string, n int) []string {
 		out = append(out, cands[i].slug)
 	}
 	return out
+}
+
+// checkDepartmentMove refuses a system/department change that moves issue to
+// a department whose workflow lacks its status; with status set, it checks
+// that one instead and writes it.
+func checkDepartmentMove(ctx *Context, issue *tracker.Issue, key, value, status string) error {
+	proj := ctx.Project
+	moved := issue.WithField(key, value)
+	from, to := proj.DepartmentOf(issue), proj.DepartmentOf(moved)
+	if status == "" {
+		if from == to {
+			return nil
+		}
+		return proj.CheckDepartmentMove(issue, to)
+	}
+	wf, err := proj.WorkflowFor(to)
+	if err != nil {
+		return err
+	}
+	status = strings.ToLower(strings.TrimSpace(status))
+	if wf.GetStatus(status) == nil {
+		return fmt.Errorf("set-meta: status %q is not in the target department's workflow (%s)", status, wf.StatusNames())
+	}
+	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{Status: &status}); err != nil {
+		return fmt.Errorf("failed to set status: %w", err)
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ Status set to %q for the move\n", status)
+	return nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -149,7 +150,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 
 	d.NewDept = WbNewTile{
 		Title: "New department", Sub: "Sales · Finance · SEO · Custom", TestID: "new_department",
-		Note: "Add one under departments: in projects.yaml (name, color, role, systems); its issues carry department: <name> or sit in its systems.",
+		Note: "Add one under departments: in projects.yaml (name, color, role, systems, workflow); its issues carry department: <name> or sit in its systems, and walk its workflow: file (issue-cli workflow init --template content --out workflows/<name>.yaml).",
 	}
 	if lot.CEO.Live {
 		if pane, err := agentrun.CaptureHistory(agentrun.Target(p, tracker.LeadSessionName(p)), leadChatScrollback); err == nil {
@@ -164,10 +165,12 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 // workers at their desks, its role, its open and done work.
 func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
 	open, done := 0, 0
+	var own []*tracker.Issue
 	for _, issue := range issues {
 		if p.DepartmentOf(issue) != dept.Name {
 			continue
 		}
+		own = append(own, issue)
 		if !strings.EqualFold(issue.Status, "done") {
 			open++
 		} else if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
@@ -186,6 +189,16 @@ func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues 
 	}
 	if len(dept.Systems) > 0 {
 		room.Systems = strings.Join(dept.Systems, ", ")
+	}
+	// A department on its own workflow file shows that file's line.
+	if strings.TrimSpace(dept.Workflow) != "" {
+		room.WorkflowFile = filepath.Base(dept.Workflow)
+		if wf, err := p.WorkflowFor(dept.Name); err != nil {
+			room.WorkflowError = err.Error()
+			room.Head.Chips = append(room.Head.Chips, WbChip{Tone: "red", Text: "workflow error"})
+		} else {
+			room.Stations = companyStations(wf, openOnly(own), workers, waitingOnOwner(p, openOnly(own)))
+		}
 	}
 	return room
 }

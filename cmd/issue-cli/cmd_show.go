@@ -39,7 +39,10 @@ func runShow(ctx *Context, args []string) error {
 		out := map[string]interface{}{
 			"issue":         issue,
 			"comments":      comments,
-			"workflow_file": workflowFileLabel(ctx.Project),
+			"workflow_file": issueWorkflowFileLabel(ctx.Project, wf),
+		}
+		if wf.Department != "" {
+			out["department"] = wf.Department
 		}
 		if wf.ActiveType != "" {
 			out["type"] = wf.ActiveType
@@ -52,7 +55,8 @@ func runShow(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "Status: %s%s | System: %s | Priority: %s | Assignee: %s\n",
 		statusLabel(wf, issue.Status), typeLabel(wf), issue.System, issue.Priority, issue.Assignee)
 	fmt.Fprintf(ctx.Stdout, "File: %s\n", issue.FilePath)
-	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", workflowFileLabel(ctx.Project))
+	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, wf))
+	printDepartmentLine(ctx.Stdout, ctx.Project, issue, wf)
 	if wf.ActiveType != "" {
 		fmt.Fprintf(ctx.Stdout, "Path: %s\n", typePath(wf))
 	}

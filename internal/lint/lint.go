@@ -45,7 +45,12 @@ var checks = []Check{
 	{"template", "the template: stamp against the template bundled in this issue-cli", checkTemplate},
 	{"placeholders", "{{name}} placeholders the field never fills, so the agent sees them as written", checkPlaceholders},
 	{"sections", "checkbox and test-plan gates on sections no template writes the way the gate needs", checkSections},
+	{"department", "department workflow files (projects.yaml departments: workflow:) that don't load, project-wide keys in them, issues whose status their department's file lacks", checkDepartment},
 }
+
+// boardChecks read the board, not a workflow file: they run once. The
+// other checks run on Product's file and again on each department's own.
+var boardChecks = map[string]bool{"undated": true, "department": true}
 
 // Checks lists every check in run order.
 func Checks() []Check { return append([]Check(nil), checks...) }
@@ -108,15 +113,48 @@ func Run(env *Env, names ...string) (*Report, error) {
 		}
 	}
 	rep := &Report{Project: env.Project.Slug, Findings: []Finding{}}
+	depts := env.departmentEnvs()
 	for _, c := range run {
 		rep.Checks = append(rep.Checks, c.Name)
-		for _, f := range c.Run(env) {
-			f.Check = c.Name
-			rep.Findings = append(rep.Findings, f)
-			rep.Warnings++
+		envs := []*Env{env}
+		if !boardChecks[c.Name] {
+			envs = append(envs, depts...)
+		}
+		for _, e := range envs {
+			for _, f := range c.Run(e) {
+				f.Check = c.Name
+				rep.Findings = append(rep.Findings, f)
+				rep.Warnings++
+			}
 		}
 	}
 	return rep, nil
+}
+
+// departmentEnvs is an Env per department workflow file that loads: its
+// own file as written (not merged with Product's), and the issues that
+// walk it. Files that don't load are the department check's to report.
+func (env *Env) departmentEnvs() []*Env {
+	var out []*Env
+	for _, d := range env.Project.WorkflowDepartments() {
+		path := env.Project.DepartmentWorkflowPath(d.Name)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		wf, err := tracker.LoadWorkflow(path)
+		if err != nil {
+			continue
+		}
+		var issues []*tracker.Issue
+		for _, issue := range env.Issues {
+			if env.Project.WorkflowDepartment(issue) == d.Name {
+				issues = append(issues, issue)
+			}
+		}
+		out = append(out, &Env{Project: env.Project, Workflow: wf, File: path, Raw: raw, Issues: issues, Now: env.Now})
+	}
+	return out
 }
 
 // Names lists every check name in run order.

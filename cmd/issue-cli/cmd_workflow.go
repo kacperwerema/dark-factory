@@ -5,9 +5,9 @@ import (
 )
 
 const workflowUsage = `Usage:
-  issue-cli workflow init [--template <name>] [--force]
-  issue-cli workflow upgrade [--template <name>] [--all]
-  issue-cli workflow scan [--dry-run] [--installed <ids>] [--declined <ids>] [--forget <ids>]
+  issue-cli workflow init [--template <name>] [--force] [--out <path>]
+  issue-cli workflow upgrade [--template <name>] [--all] [--department <name>]
+  issue-cli workflow scan [--dry-run] [--installed <ids>] [--declined <ids>] [--forget <ids>] [--department <name>]
   issue-cli workflow catalog-check [--base main]`
 
 var workflowCommand = &Command{
@@ -17,10 +17,13 @@ var workflowCommand = &Command{
 
 Subcommands:
   init [--template <name>] [--force]   write workflow.yaml and scaffold issues/, docs/
+       --out <path>                    write the template there instead, as a department's own
+                                       workflow file (projects.yaml departments: workflow: <path>)
   upgrade [--template <name>] [--all]  read-only: propose features workflow.yaml lacks, and the upgrade steps
                                        (agents: only when the operator asks; see issue-cli help upgrade)
   scan [--dry-run] [flags]             detect which catalog features workflow.yaml has and write its
                                        features: record (installed <id>@<version>, declined <id>)
+  --department <name>                  upgrade and scan read that department's own workflow file
   catalog-check [--base main]          issue-cli developers: a branch that changes a feature's code or a
                                        bundled template bumps its catalog version (make validate runs it)
 
@@ -68,8 +71,12 @@ func runWorkflowInit(ctx *Context, args []string) error {
 	fs := newFlagSet("workflow init", ctx)
 	templateFlag := fs.String("template", "", "template name")
 	forceFlag := fs.Bool("force", false, "overwrite an existing workflow.yaml")
+	outFlag := fs.String("out", "", "write the template to this path (a department's workflow file) instead of workflow.yaml")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
+	}
+	if *outFlag != "" {
+		return doWorkflowInitOut(*templateFlag, *outFlag, *forceFlag, ctx.Stdin, ctx.Stdout, contextStdinIsTTY(ctx))
 	}
 	return doWorkflowInit(*templateFlag, *forceFlag, ctx.Stdin, ctx.Stdout, contextStdinIsTTY(ctx))
 }

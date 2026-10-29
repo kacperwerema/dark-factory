@@ -25,13 +25,17 @@ func runWorkflowScan(ctx *Context, args []string) error {
 	installed := fs.String("installed", "", "comma-separated feature ids to record as installed at the catalog version")
 	declined := fs.String("declined", "", "comma-separated feature ids to record as declined")
 	forget := fs.String("forget", "", "comma-separated feature ids to drop from the record (re-opens a declined feature)")
+	deptFlag := fs.String("department", "", "read this department's own workflow file (projects.yaml departments: workflow:)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("workflow scan takes no arguments, got %q\n\n%s", strings.Join(fs.Args(), " "), scanUsage)
 	}
-	path := projectWorkflowFile(ctx.Project)
+	path, err := workflowFileFor(ctx.Project, *deptFlag)
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		return fmt.Errorf("no workflow.yaml found: this project runs on the built-in default workflow\n\nCreate one from a bundled template:\n  issue-cli workflow init --template <%s>", strings.Join(workflowupgrade.Templates(), "|"))
 	}

@@ -58,7 +58,10 @@ func runStart(ctx *Context, args []string) error {
 	if err := ownIssueOnly(ctx, issues, issue, "start"); err != nil {
 		return err
 	}
-	wf := ctx.Project.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	if assignee == "" {
 		assignee = agentNameForSlug(issue.Slug)
 	}

@@ -233,7 +233,12 @@ type WbRoomDept struct {
 	Crew    WbCrew
 	Role    string
 	Systems string
-	Foot    []WbFootItem
+	// Stations are the department's line from its own workflow file
+	// (workflow: in projects.yaml); none when it runs on Product's.
+	Stations []WbStation
+	// WorkflowFile is that file's name; WorkflowError why it didn't load.
+	WorkflowFile, WorkflowError string
+	Foot                        []WbFootItem
 }
 
 // WbRoomFactory is Product, the software factory: its line of stations.
