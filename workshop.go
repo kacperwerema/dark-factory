@@ -220,6 +220,15 @@ type WbStation struct {
 	Crew  WbCrew
 }
 
+// WbRoomDept is a department projects.yaml adds, as a room in the company.
+type WbRoomDept struct {
+	Head    WbRoomHead
+	Crew    WbCrew
+	Role    string
+	Systems string
+	Foot    []WbFootItem
+}
+
 // WbRoomFactory is Product, the software factory: its line of stations.
 type WbRoomFactory struct {
 	Head     WbRoomHead

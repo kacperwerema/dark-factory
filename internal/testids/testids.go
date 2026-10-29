@@ -506,6 +506,7 @@ var IDs = []string{
 	"company.ceo.start",
 	"company.room.hq",
 	"company.room.product",
+	"company.room.dept",
 	"company.line",
 	"company.enter_hall",
 	"company.queue.row",

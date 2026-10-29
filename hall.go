@@ -54,6 +54,9 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	sort.Slice(issues, func(i, j int) bool { return issues[i].Slug < issues[j].Slug })
 	wf := p.LoadWorkflow()
 	agents, _ := s.buildAgentsModel(p, prefix)
+	// The hall is Product's: issues of the other departments stay in their
+	// rooms.
+	issues = productIssues(p, issues)
 	open := openOnly(issues)
 	waiting := waitingOnOwner(p, open)
 

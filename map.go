@@ -202,7 +202,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		open = append(open, issue)
 	}
 	lot.Site = len(issues) == 0
-	lot.Buildings = mapDepartmentsOf(len(open))
+	lot.Buildings = mapDepartmentsOf(p, open)
 	lot.Progress = mapProgressOf(issues)
 
 	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
@@ -298,14 +298,52 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 	return row
 }
 
-// mapDepartmentsOf is the project's departments as buildings on its lot:
-// a small HQ and Product, the software factory, growing with its open work.
-// Every issue is Product's until projects have more departments.
-func mapDepartmentsOf(open int) []WbBuilding {
-	return []WbBuilding{
-		{Name: "HQ · CEO", Color: companyHQColor, Width: 38, Height: 40},
-		{Name: "Product", Open: open, Color: companyProductColor, Width: 70 + min(open, 30)*2, Height: 24 + min(open, 34)},
+// mapDeptColors are the colours of the departments a project adds (after
+// HQ's yellow and Product's blue), when projects.yaml sets none.
+var mapDeptColors = []string{"#E2559B", "#17A2B8", "#8BC34A", "#B07A4F", "#6C7A96"}
+
+// deptColor is department i's colour: its own, else the next of the palette.
+func deptColor(d tracker.Department, i int) string {
+	if d.Color != "" {
+		return d.Color
 	}
+	return mapDeptColors[i%len(mapDeptColors)]
+}
+
+// mapDepartmentsOf is the project's departments as buildings on its lot:
+// a small HQ, Product (the software factory, every issue no other
+// department takes) and each department projects.yaml adds. Height and
+// width grow with a department's open work.
+func mapDepartmentsOf(p *tracker.Project, open []*tracker.Issue) []WbBuilding {
+	count := map[string]int{}
+	for _, issue := range open {
+		count[strings.ToLower(p.DepartmentOf(issue))]++
+	}
+	productMax := max(130-28*len(p.Departments), 60)
+	out := []WbBuilding{
+		{Name: "HQ · CEO", Color: companyHQColor, Width: 38, Height: 40},
+		{Name: "Product", Open: count[""], Color: companyProductColor, Width: min(70+min(count[""], 30)*2, productMax), Height: 24 + min(count[""], 34)},
+	}
+	for i, d := range p.Departments {
+		n := count[strings.ToLower(d.Name)]
+		out = append(out, WbBuilding{Name: d.Name, Open: n, Color: deptColor(d, i), Width: 30 + min(n, 10)*2, Height: 20 + min(n, 30)})
+	}
+	return out
+}
+
+// productIssues is the issues that belong to Product: those no department
+// of projects.yaml takes.
+func productIssues(p *tracker.Project, issues []*tracker.Issue) []*tracker.Issue {
+	if len(p.Departments) == 0 {
+		return issues
+	}
+	var out []*tracker.Issue
+	for _, issue := range issues {
+		if p.DepartmentOf(issue) == "" {
+			out = append(out, issue)
+		}
+	}
+	return out
 }
 
 // mapProgressOf is the open epic furthest along (most done children), the

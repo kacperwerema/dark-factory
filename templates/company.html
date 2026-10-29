@@ -17,6 +17,7 @@
             {{template "wb/room-factory" .Product}}
         </div>
         <div class="wb-company-row wb-company-row--plan">
+            {{range .Rooms}}{{template "wb/room-dept" .}}{{end}}
             {{template "wb/new-tile" .NewDept}}
         </div>
     </div>

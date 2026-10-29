@@ -44,8 +44,10 @@ type CompanyData struct {
 	Departments int
 	HQ          WbRoomHQ
 	Product     WbRoomFactory
-	NewDept     WbNewTile
-	Queue       []WbQueueCard
+	// Rooms are the departments projects.yaml adds; none by default.
+	Rooms   []WbRoomDept
+	NewDept WbNewTile
+	Queue   []WbQueueCard
 	// QueueMore is how many more wait on the owner than the panel lists.
 	QueueMore int
 	Waiting   int
@@ -105,13 +107,28 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}},
 	}
 
+	// Workers by department: Product's go on its line, the others' sit in
+	// their department's room.
 	var workers []AgentNode
+	deptWorkers := map[string][]AgentNode{}
 	if agents != nil {
-		workers = agents.Workers
+		for _, w := range agents.Workers {
+			dept := ""
+			if w.Issue != nil {
+				if issue := tracker.FindIssue(issues, w.Issue.Slug); issue != nil {
+					dept = strings.ToLower(p.DepartmentOf(issue))
+				}
+			}
+			if dept == "" {
+				workers = append(workers, w)
+			} else {
+				deptWorkers[dept] = append(deptWorkers[dept], w)
+			}
+		}
 	}
 	product := WbRoomFactory{
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
-		Stations: companyStations(wf, issues, workers, waitingOnOwner(p, openOnly(issues))),
+		Stations: companyStations(wf, productIssues(p, issues), workers, waitingOnOwner(p, openOnly(productIssues(p, issues)))),
 		Waiting:  lot.Waiting,
 		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
@@ -122,9 +139,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	product.Head.Chips = append(product.Head.Chips, WbChip{Tone: "idle", Text: plural(len(workers), "worker", "workers")})
 	d.Product = product
 
+	for i, dept := range p.Departments {
+		d.Rooms = append(d.Rooms, companyDeptRoom(p, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now))
+	}
+	d.Departments = 2 + len(p.Departments)
+
 	d.NewDept = WbNewTile{
 		Title: "New department", Sub: "Sales · Finance · SEO · Custom", TestID: "new_department",
-		Note: "Coming later: a new department is a new pillar with its own agents, roles and connectors.",
+		Note: "Add one under departments: in projects.yaml (name, color, role, systems); its issues carry department: <name> or sit in its systems.",
 	}
 	if lot.CEO.Live {
 		if pane, err := agentrun.CaptureHistory(agentrun.Target(p, tracker.LeadSessionName(p)), leadChatScrollback); err == nil {
@@ -133,6 +155,36 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	}
 	d.Message = WbMessageBox{Session: lot.CEO.Session, SendURL: prefix + "/lead/send", Live: lot.CEO.Live, SpawnURL: prefix + "/lead/spawn"}
 	return d
+}
+
+// companyDeptRoom is a department projects.yaml adds, as a room: its
+// workers at their desks, its role, its open and done work.
+func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
+	open, done := 0, 0
+	for _, issue := range issues {
+		if p.DepartmentOf(issue) != dept.Name {
+			continue
+		}
+		if !strings.EqualFold(issue.Status, "done") {
+			open++
+		} else if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
+			done++
+		}
+	}
+	var robots []WbRobot
+	for _, w := range workers {
+		robots = append(robots, workerRobot(w))
+	}
+	room := WbRoomDept{
+		Head: WbRoomHead{Title: dept.Name, Color: deptColor(dept, i), Meta: plural(len(workers), "agent", "agents")},
+		Crew: wbCrew(robots),
+		Role: dept.Role,
+		Foot: []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", done), Tone: "green"}, {Text: fmt.Sprintf("%d open", open)}},
+	}
+	if len(dept.Systems) > 0 {
+		room.Systems = strings.Join(dept.Systems, ", ")
+	}
+	return room
 }
 
 // openOnly is the issues that are not done.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -108,11 +109,20 @@ func TestMapRobotsWaitOnAnotherAgent(t *testing.T) {
 func TestMapBuildingsAndProgress(t *testing.T) {
 	// The lot shows the project's departments: a small HQ and Product,
 	// taller with more open work.
-	b := mapDepartmentsOf(5)
+	five := make([]*tracker.Issue, 5)
+	for i := range five {
+		five[i] = &tracker.Issue{Slug: fmt.Sprint(i), Status: "backlog"}
+	}
+	thirty := make([]*tracker.Issue, 30)
+	for i := range thirty {
+		thirty[i] = &tracker.Issue{Slug: fmt.Sprint(i), Status: "backlog"}
+	}
+	proj := &tracker.Project{}
+	b := mapDepartmentsOf(proj, five)
 	if len(b) != 2 || b[0].Name != "HQ · CEO" || b[0].Color != companyHQColor || b[1].Name != "Product" || b[1].Open != 5 || b[1].Color != companyProductColor {
 		t.Fatalf("buildings = %+v", b)
 	}
-	if big := mapDepartmentsOf(30)[1]; big.Height <= b[1].Height || big.Width <= b[1].Width {
+	if big := mapDepartmentsOf(proj, thirty)[1]; big.Height <= b[1].Height || big.Width <= b[1].Width {
 		t.Errorf("more open work should stand taller and wider: %+v vs %+v", big, b[1])
 	}
 	if b[0].Width >= b[1].Width {
@@ -185,6 +195,7 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 		"wb/ceo-desk":     WbCEODesk{CEO: WbCEO{Session: "lead-meals"}, SpawnURL: "/p/meals/lead/spawn"},
 		"wb/room-hq":      WbRoomHQ{Head: WbRoomHead{Title: "HQ · CEO"}},
 		"wb/stations":     []WbStation{{Label: "gate", Gate: true}, {Label: "in progress", Count: 2, Crew: wbCrew([]WbRobot{{State: "working"}})}},
+		"wb/room-dept":    WbRoomDept{Head: WbRoomHead{Title: "Marketing", Color: "#E2559B"}, Role: "Posts", Crew: wbCrew(nil)},
 		"wb/room-factory": WbRoomFactory{Head: WbRoomHead{Title: "Product"}, HallURL: "/p/meals/board"},
 		"wb/new-tile":     WbNewTile{Title: "New department", TestID: "new_department"},
 		"wb/radio":        []WbMessage{{From: "lead-meals", To: "you", Initials: "CEO", Tone: "ceo", Text: "Hi"}},
@@ -263,7 +274,7 @@ func TestCompanyPage(t *testing.T) {
 		`data-testid="company.room.product"`, `>Product · software factory</span>`, `2 workers`,
 		`data-testid="company.line"`, `<div class="wb-station-label">in progress</div>`, `<div class="wb-station-label">gate</div>`,
 		`href="/p/agents/hall" data-testid="company.enter_hall"`,
-		`data-testid="tile.new_department"`, `Coming later: a new department is a new pillar`,
+		`data-testid="tile.new_department"`, `Add one under departments: in projects.yaml`,
 		`data-testid="company.queue.row"`, `>Question</span>`,
 		// The Radio: the CEO's lines, newest first, without tool calls.
 		`I sent two workers to Product.`, `data-send="/p/agents/lead/send"`,
@@ -331,5 +342,48 @@ func TestHallPage(t *testing.T) {
 	assertContains(t, html, `href="/p/agents/issue/ui/idle">ui/idle</a>`, `No worker`, `value="approved: ui/idle"`)
 	if !strings.Contains(html, `wb-crate-line wb-crate-line--on" href="/p/agents/hall?agent=ui/idle#agent"`) {
 		t.Error("the selected crate is ringed")
+	}
+}
+
+func TestDepartmentsOnlyWhenConfigured(t *testing.T) {
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "")
+	withMockTmuxSessions(t, nil)
+
+	// By default: HQ and Product, nothing else.
+	ts := newTestServer(t, []tracker.Project{a})
+	_, home := getBody(t, ts.URL+"/")
+	_, company := getBody(t, ts.URL+"/p/agents/company")
+	ts.Close()
+	if n := strings.Count(home, `class="wb-bld"`); n != 2 {
+		t.Errorf("buildings by default = %d, want HQ and Product", n)
+	}
+	if strings.Contains(company, `data-testid="company.room.dept"`) {
+		t.Error("no department rooms unless projects.yaml adds them")
+	}
+	assertContains(t, company, `2 departments`)
+
+	// A department in projects.yaml: a building, a room, and its issues
+	// leave Product's line.
+	a.Departments = []tracker.Department{{Name: "Marketing", Color: "#E2559B", Role: "Social posts and release notes", Systems: []string{"UI"}}}
+	ts = newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+	_, home = getBody(t, ts.URL+"/")
+	_, company = getBody(t, ts.URL+"/p/agents/company")
+	assertContains(t, home, `title="Marketing: 4 open"`, `background-color:#E2559B`)
+	assertContains(t, company, `3 departments`, `data-testid="company.room.dept"`, `>Marketing</span>`, `Social posts and release notes`, `systems: UI`)
+	if n := strings.Count(home, `class="wb-bld"`); n != 3 {
+		t.Errorf("buildings = %d, want HQ, Product and Marketing", n)
+	}
+}
+
+func TestDepartmentOf(t *testing.T) {
+	p := &tracker.Project{Departments: []tracker.Department{{Name: "Marketing", Systems: []string{"Social"}}}}
+	byField := &tracker.Issue{System: "UI", ExtraFields: []tracker.ExtraField{{Key: "department", Value: "marketing"}}}
+	bySystem := &tracker.Issue{System: "social"}
+	product := &tracker.Issue{System: "UI"}
+	if p.DepartmentOf(byField) != "Marketing" || p.DepartmentOf(bySystem) != "Marketing" || p.DepartmentOf(product) != "" {
+		t.Errorf("departments: %q %q %q", p.DepartmentOf(byField), p.DepartmentOf(bySystem), p.DepartmentOf(product))
 	}
 }

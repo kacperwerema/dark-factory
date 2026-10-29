@@ -21,14 +21,18 @@ type Project struct {
 	Color string `yaml:"color"`
 	// Description is a sentence on what the project is for, shown on its
 	// lot while it is still a building site (no issues yet). Optional.
-	Description  string `yaml:"description"`
-	IssueDir     string `yaml:"issues"`
-	DocsDir      string `yaml:"docs"`
-	WorkflowFile string `yaml:"workflow"`
-	Version      string `yaml:"version"`
-	WorkDir      string `yaml:"workdir"`
-	I3Workspace  string `yaml:"i3_workspace"`
-	Terminal     string `yaml:"terminal"`
+	Description string `yaml:"description"`
+	// Departments are the project's departments besides the two every
+	// project has (HQ with the CEO, and Product, the software factory).
+	// Optional: without them the board shows only HQ and Product.
+	Departments  []Department `yaml:"departments"`
+	IssueDir     string       `yaml:"issues"`
+	DocsDir      string       `yaml:"docs"`
+	WorkflowFile string       `yaml:"workflow"`
+	Version      string       `yaml:"version"`
+	WorkDir      string       `yaml:"workdir"`
+	I3Workspace  string       `yaml:"i3_workspace"`
+	Terminal     string       `yaml:"terminal"`
 	// TmuxSession, when set, runs dispatched agents (and nvim edits) as
 	// windows inside this one shared tmux session instead of one session per
 	// agent. A terminal is only opened when nobody is attached to it yet.
@@ -278,4 +282,38 @@ func normalizeViewerURL(raw string) (string, error) {
 		return "", fmt.Errorf("viewer_url must be an http:// or https:// URL with a host, got %q", raw)
 	}
 	return strings.TrimRight(raw, "/"), nil
+}
+
+// Department is one of a project's departments besides HQ and Product: a
+// building on the map and a room in the company. Its work is the issues
+// with department: <name> in their frontmatter, or in one of its systems.
+type Department struct {
+	Name string `yaml:"name"`
+	// Color is the department's colour (#RRGGBB); optional.
+	Color string `yaml:"color"`
+	// Role is a sentence on what the department does; optional.
+	Role string `yaml:"role"`
+	// Systems are the issue systems whose issues belong to the department.
+	Systems []string `yaml:"systems"`
+}
+
+// DepartmentOf is the name of the department an issue belongs to: its
+// department: field, else the department that lists its system; "" is
+// Product (every issue that belongs nowhere else).
+func (p *Project) DepartmentOf(issue *Issue) string {
+	if name := strings.TrimSpace(issue.Field("department")); name != "" {
+		for _, d := range p.Departments {
+			if strings.EqualFold(d.Name, name) {
+				return d.Name
+			}
+		}
+	}
+	for _, d := range p.Departments {
+		for _, sys := range d.Systems {
+			if strings.EqualFold(strings.TrimSpace(sys), strings.TrimSpace(issue.System)) && issue.System != "" {
+				return d.Name
+			}
+		}
+	}
+	return ""
 }

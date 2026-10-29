@@ -23,6 +23,7 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/room-hq    HQ: the CEO's room (L1)                    data: WbRoomHQ
   wb/stations   the factory line from workflow.yaml        data: []WbStation
   wb/room-factory  Product, the software factory (L1)      data: WbRoomFactory
+  wb/room-dept  a department projects.yaml adds (L1)       data: WbRoomDept
   wb/new-tile   a dashed "+" tile still to build           data: WbNewTile
   wb/queue-row  a compact "waiting on you" row             data: WbQueueCard
   wb/radio      what the CEO and agents said               data: []WbMessage
@@ -212,6 +213,18 @@ their styles). Pages compose them; a new element is a new component here first.
             <div class="wb-station-label">{{.Label}}</div>
         </div>{{end}}
     </div>
+</div>
+{{end}}
+
+{{define "wb/room-dept"}}
+<div class="wb-room wb-room--dept" data-testid="company.room.dept">
+    {{template "wb/room-head" .Head}}
+    <div class="wb-floor wb-floor--dept">
+        {{template "wb/robots" .Crew}}
+        {{with .Role}}<div class="wb-dept-role">{{.}}</div>{{end}}
+        {{with .Systems}}<div class="wb-muted wb-dept-systems">systems: {{.}}</div>{{end}}
+    </div>
+    {{template "wb/room-foot" .Foot}}
 </div>
 {{end}}
 
