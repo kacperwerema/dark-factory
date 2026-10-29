@@ -1,0 +1,136 @@
+{{/*
+Workshop Board components of the hall's Retro page (retro_wb.go has their
+view models, static/workshop.css their styles in the "L2: retro" block).
+templates/retro_wb.html composes them.
+
+  wb/retro-presort   Claude | Codex and "Let an agent pre-sort"     data: WbRetroPresort
+  wb/retro-loop      the loop strip and its counters                data: WbRetroLoop
+  wb/retro-list      a column of retros (To sort, Processed)        data: WbRetroList
+  wb/retro-item      one retro in a list                            data: WbRetroItem
+  wb/retro-head      the selected retro: chips, title, file         data: WbRetroView
+  wb/retro-progress  "Distributed k/n" and close / reopen           data: WbRetroProgress
+  wb/retro-note      the agent's note as written                    data: WbRetroView
+  wb/retro-finding   one finding and where it goes                  data: WbRetroFinding
+  wb/retro-send      the "Send to" box and its action               data: WbRetroSend
+  wb/retro-bin       a bin: how many findings go there              data: WbRetroBin
+  wb/retro-pattern   a term other issues' retros mention too        data: *WbRetroPattern
+*/}}
+
+{{define "wb/retro-presort"}}
+<div class="wb-presort" data-presort="{{.URL}}" data-testid="retro.presort">
+    <div class="wb-presort-row">
+    <div class="wb-seg wb-seg--tall" role="group" aria-label="Agent that pre-sorts">
+        {{range $i, $a := .Agents}}<button type="button" class="wb-seg-item{{if not $i}} wb-seg-item--on{{end}}" aria-pressed="{{if not $i}}true{{else}}false{{end}}" data-agent="{{$a}}" data-testid="retro.presort.agent.{{$a}}">{{if eq $a "claude"}}Claude{{else if eq $a "codex"}}Codex{{else}}{{$a}}{{end}}</button>{{end}}
+    </div>
+    <button type="button" class="wb-btn wb-btn--paper wb-btn--shadow" data-presort-run {{if .Live}}disabled title="{{.Session}} is already sorting"{{else}}title="Starts a review agent: it reads every retro and related bug report, marks what it is sure of processed and leaves the rest open"{{end}} data-testid="retro.presort.run">Let an agent pre-sort</button>
+    </div>
+    <div class="wb-site-msg wb-presort-msg" role="status">{{if .Live}}{{.Session}} is sorting now · <span class="wb-mono-inline">{{.AttachCmd}}</span>{{end}}</div>
+</div>
+{{end}}
+
+{{define "wb/retro-loop"}}
+<div class="wb-loop" data-testid="retro.loop">
+    <span class="wb-loop-label">LOOP</span>
+    <a class="wb-loop-step wb-loop-step--done" href="{{.DoneURL}}">Done</a>
+    <span class="wb-loop-arrow" aria-hidden="true">→</span>
+    <span class="wb-loop-step wb-loop-step--on">Retro · {{.Open}} open</span>
+    <span class="wb-loop-arrow" aria-hidden="true">→</span>
+    {{range .Steps}}<a class="wb-loop-step" href="{{.URL}}">{{.Label}}</a>{{end}}
+    <span class="wb-loop-arrow" aria-hidden="true">→</span>
+    <a class="wb-loop-step" href="{{.LineURL}}">Idea on the line</a>
+    <span class="wb-loop-counts" data-testid="retro.counts">{{.Processed}} processed · {{plural .LinkedBugs "linked bug" "linked bugs"}}</span>
+</div>
+{{end}}
+
+{{define "wb/retro-list"}}
+<section class="wb-rlist" aria-label="{{.Title}}" data-testid="retro.list.{{.Key}}">
+    <div class="wb-rlist-head"><span class="wb-rlist-title">{{.Title}}</span><span class="wb-rlist-count">{{.Count}}</span></div>
+    {{range .Items}}{{template "wb/retro-item" .}}{{else}}{{with .Empty}}<p class="wb-empty">{{.}}</p>{{end}}{{end}}
+    {{if .More}}<a class="wb-rlist-more" href="{{.MoreURL}}" data-testid="retro.list.more">+{{.More}} older</a>{{end}}
+</section>
+{{end}}
+
+{{define "wb/retro-item"}}
+<a class="wb-ritem{{if .Selected}} wb-ritem--on{{end}}" href="{{.URL}}"{{if .Selected}} aria-current="page"{{end}} data-testid="retro.item">
+    <span class="wb-ritem-title">{{.Title}}</span>
+    <span class="wb-ritem-meta">
+        {{with .System}}<span class="wb-rpill wb-rpill--line">{{.}}</span>{{end}}
+        <span class="wb-rpill wb-rpill--grey">{{.Date}}</span>
+        <span class="wb-rpill">{{if .Findings}}{{plural .Findings "finding" "findings"}}{{else}}unsorted{{end}}</span>
+    </span>
+</a>
+{{end}}
+
+{{define "wb/retro-head"}}
+<div class="wb-rhead" data-testid="retro.head">
+    <div class="wb-rhead-meta">
+        {{with .System}}<span class="wb-rpill wb-rpill--line">system: {{.}}</span>{{end}}
+        {{with .IssueStatus}}<span class="wb-rpill wb-rpill--line wb-mono-inline" title="the issue's status when the agent wrote the note">{{.}}</span>{{end}}
+        <span class="wb-rpill {{if .Processed}}wb-chip--green{{else}}wb-chip--idle{{end}}" data-testid="retro.state">{{if .Processed}}processed{{else}}open{{end}}</span>
+        <span class="wb-rhead-when">{{.When}}</span>
+        {{with .IssueURL}}<a class="wb-rhead-link" href="{{.}}" data-testid="retro.issue">open the issue</a>{{end}}
+    </div>
+    <h2 class="wb-rhead-title">{{.Title}}</h2>
+    <div class="wb-rhead-path">{{.Path}}</div>
+</div>
+{{end}}
+
+{{define "wb/retro-progress"}}
+<div class="wb-rprog" data-retro-key="{{.Key}}" data-testid="retro.progress">
+    <div class="wb-rprog-main">
+        <div class="wb-rprog-row"><span class="wb-rprog-label">Distributed</span><span class="wb-rprog-num" data-retro-done>{{.Done}}/{{.Total}}</span></div>
+        {{if .Segs}}<div class="wb-rprog-segs">{{range $i, $d := .Segs}}<span class="wb-rprog-seg{{if $d}} wb-rprog-seg--on{{end}}" data-seg="{{$i}}"></span>{{end}}</div>{{end}}
+        <div class="wb-rprog-note">{{if .Processed}}Closed as processed: every finding counts as handled.{{else}}A finding counts once the data shows it went somewhere (a bug report filed for this issue); sends from this page are marked in this browser only.{{end}}</div>
+    </div>
+    <div class="wb-rprog-act">
+        {{if .Processed}}<button type="button" class="wb-btn wb-btn--paper" data-retro-status="{{.StatusURL}}" data-status="open" data-testid="retro.reopen">Reopen the retro</button>
+        {{else}}<button type="button" class="wb-btn wb-rprog-close{{if and .Total (eq .Done .Total)}} wb-rprog-close--ready{{end}}" data-retro-status="{{.StatusURL}}" data-status="processed" data-testid="retro.close">Close the retro as processed</button>{{end}}
+        <div class="wb-site-msg" role="status"></div>
+    </div>
+</div>
+{{end}}
+
+{{define "wb/retro-note"}}
+<details class="wb-rnote"{{if .Unsorted}} open{{end}} data-testid="retro.note">
+    <summary>The agent's note as written</summary>
+    <div class="wb-rnote-body">{{safeHTML .BodyHTML}}</div>
+</details>
+{{end}}
+
+{{define "wb/retro-finding"}}
+<article class="wb-rfind{{if .Send.Done}} wb-rfind--done{{end}}" data-finding="{{.Index}}" data-bin="{{.Send.Bin}}" data-testid="retro.finding.{{.Index}}">
+    <div class="wb-rfind-text">
+        <div><span class="wb-rkind wb-rkind--{{.Tone}}">{{.Kind}}</span></div>
+        <div class="wb-rfind-title">{{.Title}}</div>
+        {{with .Text}}<div class="wb-rfind-desc">{{.}}</div>{{end}}
+    </div>
+    {{template "wb/retro-send" .Send}}
+</article>
+{{end}}
+
+{{define "wb/retro-send"}}
+<div class="wb-rsend">
+    <div class="wb-rsend-label">SEND TO</div>
+    <div class="wb-rsend-dest"><i class="wb-rsend-sq wb-rsend-sq--{{.Bin}}"></i>{{.Dest}}</div>
+    {{if .Done}}<div class="wb-rsend-done" data-testid="retro.finding.done">✓ {{.DoneLabel}}</div>
+    {{else}}<form class="wb-rsend-form" data-send="{{.SendURL}}" data-mark="{{.Key}}#{{.Index}}">
+        <input type="hidden" name="text" value="{{.Message}}">
+        <button type="submit" class="wb-btn wb-btn--ink wb-btn--block" {{if not .Live}}disabled title="The CEO ({{.Session}}) is not running: start it on the company page"{{else}}title="Sends this finding to {{.Session}} with what to do with it"{{end}} data-testid="retro.finding.send">{{.CTA}}</button>
+        <button type="button" class="wb-btn wb-rsend-sent" data-unmark hidden>✓ sent to the CEO · undo</button>
+        <div class="wb-site-msg" role="status"></div>
+    </form>{{end}}
+</div>
+{{end}}
+
+{{define "wb/retro-bin"}}
+<a class="wb-rbin" {{with .URL}}href="{{.}}"{{end}} data-bin-key="{{.Key}}" data-testid="retro.bin.{{.Key}}">
+    <span class="wb-rbin-n" style="background:{{.Color}}">{{.Total}}</span>
+    <span class="wb-rbin-text"><span class="wb-rbin-title">{{.Title}}</span><span class="wb-rbin-sub">{{.Sub}}{{if .Total}} · <span data-bin-done>{{.Done}}</span>/{{.Total}}{{end}}</span></span>
+</a>
+{{end}}
+
+{{define "wb/retro-pattern"}}{{with .}}
+<div class="wb-rpattern" data-testid="retro.pattern">
+    <b>A pattern that comes back:</b> <span class="wb-mono-inline">{{.Term}}</span> is in the retros of {{.Issues}} other issues too, e.g. <a href="{{.ExampleURL}}">{{.Example}}</a>.
+</div>
+{{end}}{{end}}

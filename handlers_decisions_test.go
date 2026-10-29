@@ -116,7 +116,7 @@ func TestNavLinksToDecisions(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	for _, path := range []string{"/", "/board", "/graph", "/docs?classic=1", "/stats", "/retros"} {
+	for _, path := range []string{"/", "/board", "/graph", "/docs?classic=1", "/stats", "/retros?classic=1"} {
 		page := pageGet(t, ts.URL+"/p/wb"+path)
 		if !strings.Contains(page, `href="/p/wb/decisions"`) {
 			t.Errorf("%s: Decisions nav link missing", path)
