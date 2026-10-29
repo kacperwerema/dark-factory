@@ -65,7 +65,7 @@ func TestHealthLintList(t *testing.T) {
 	if err := runHealth(ctx, []string{"lint", "--list"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"undated", "workflow", "schema", "template", "placeholders", "sections"} {
+	for _, name := range []string{"undated", "workflow", "schema", "template", "placeholders", "sections", "departments"} {
 		assertContains(t, stdout(ctx), "  "+name+" ")
 	}
 }

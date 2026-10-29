@@ -300,3 +300,46 @@ func TestLoadProjects_ViewerURL(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadProjects_CompanyAndProductGoals(t *testing.T) {
+	fp := filepath.Join(t.TempDir(), "projects.yaml")
+	content := `projects:
+  - name: "Acme"
+    issues: "./issues"
+    company:
+      mission: "Grow"
+      prompt: departments/hq/role.md
+      goals:
+        - {id: clients, name: Paying clients, target: 20, period: quarter}
+    departments:
+      - name: Marketing
+        mission: "Every site weekly"
+        prompt: departments/marketing/role.md
+        systems: [SEO]
+        goals:
+          - {id: pages, target: 40, source: "file:run.json#pages", rolls_up: clients}
+      - name: product
+        goals:
+          - {id: bugs, target: 5, direction: down}
+`
+	os.WriteFile(fp, []byte(content), 0644)
+	projects, err := LoadProjects(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := projects[0]
+	if p.Company == nil || p.Company.Mission != "Grow" || len(p.Company.Goals) != 1 || *p.Company.Goals[0].Target != 20 {
+		t.Fatalf("company = %+v", p.Company)
+	}
+	if len(p.Departments) != 1 || p.Departments[0].Name != "Marketing" || p.Departments[0].Goals[0].RollsUp != "clients" {
+		t.Fatalf("departments = %+v, want only Marketing (Product taken out)", p.Departments)
+	}
+	if p.Product == nil || p.Product.Goals[0].Direction != "down" {
+		t.Fatalf("product = %+v", p.Product)
+	}
+	// Product's issues stay Product's: department: product is not a room.
+	issue := &Issue{ExtraFields: []ExtraField{{Key: "department", Value: "Product"}}}
+	if got := p.DepartmentOf(issue); got != "" {
+		t.Errorf("DepartmentOf(department: Product) = %q, want \"\" (Product)", got)
+	}
+}

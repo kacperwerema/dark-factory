@@ -184,9 +184,21 @@ func wbCIChip(state, line string) *WbChip {
 }
 
 // WbGoal is a goal in the header: a labelled bar in the project's colour.
+// Text replaces Done/Total for a configured goal ("30 / 40"); Title is its
+// tooltip (stale, source error, the department).
 type WbGoal struct {
-	Progress WbProgress
-	Color    string
+	Progress    WbProgress
+	Color       string
+	Text, Title string
+	// Off: stale or unreadable, drawn muted.
+	Off bool
+}
+
+// WbHQGoal is an HQ goal in the HQ room with the department goals rolling
+// up into it.
+type WbHQGoal struct {
+	Goal     WbGoal
+	Children []WbGoal
 }
 
 // WbRoomHead is a department room's coloured roof: its name, a note on the
@@ -209,11 +221,13 @@ type WbCEODesk struct {
 	ChatURL, SpawnURL string
 }
 
-// WbRoomHQ is HQ: the CEO's room.
+// WbRoomHQ is HQ: the CEO's room, its mission and the business goals.
 type WbRoomHQ struct {
-	Head WbRoomHead
-	Desk WbCEODesk
-	Foot []WbFootItem
+	Head    WbRoomHead
+	Desk    WbCEODesk
+	Mission string
+	Goals   []WbHQGoal
+	Foot    []WbFootItem
 }
 
 // WbStation is one stop on the factory line: a status from workflow.yaml,
@@ -233,12 +247,16 @@ type WbRoomDept struct {
 	Crew    WbCrew
 	Role    string
 	Systems string
+	Mission string
+	Goals   []WbGoal
 	Foot    []WbFootItem
 }
 
 // WbRoomFactory is Product, the software factory: its line of stations.
 type WbRoomFactory struct {
 	Head     WbRoomHead
+	Mission  string
+	Goals    []WbGoal
 	Stations []WbStation
 	Waiting  int
 	HallURL  string
