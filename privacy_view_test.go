@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
+	"strings"
 	"testing"
 	"time"
 
@@ -90,10 +90,13 @@ func TestPrivacyBadgesOnStatusProjectsAndStats(t *testing.T) {
 	md := okBody(t, ts.URL+"/p/greenproj/status.md")
 	assertContains(t, md, "Work private: Work files private: remote, last backup just now\n")
 
+	// The map flags only what needs fixing: the red lot, not the green one.
 	body = okBody(t, ts.URL+"/")
-	assertContains(t, body, `data-testid="projects.privacy.work" data-level="red"`)
-	assertContains(t, body, `Work: In code repo`)
-	assertContains(t, body, `data-testid="projects.privacy.work" data-level="green"`)
+	assertContains(t, body, `data-testid="chip.privacy_work">`)
+	assertContains(t, body, `In code repo`)
+	if n := strings.Count(body, `data-testid="chip.privacy_work"`); n != 1 {
+		t.Errorf("privacy chips on the map = %d, want 1 (the red project)", n)
+	}
 
 	ov := buildOverview([]tracker.Project{red, green}, nil, time.Now())
 	if ov.Privacy != "1 in code repo · 1 private" {

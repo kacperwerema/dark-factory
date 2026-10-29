@@ -455,7 +455,7 @@ var IDs = []string{
 
 	// recording issue's slug and the decision id ("d-1").
 	"decisions.stats",
-	// Updates tab (templates/updates.html), /updates (updates_overview.html) and the project list's counts (projects.html).
+	// Updates tab (templates/updates.html), and /updates (updates_overview.html).
 	"updates.page",
 	"updates.flash",
 	"updates.undo",
@@ -481,10 +481,26 @@ var IDs = []string{
 	"updates.overview",
 	"updates.overview.stats",
 	"updates.overview.row",
-	"projects.updates",
-	"projects.privacy.*",
-	"projects.updates_link",
-	"projects.leads_link",
+	// The map of projects (templates/map.html, "/"): L0 of the Plansza design.
+	"map.brand",
+	"map.agents",
+	"map.done_week",
+	"map.waiting",
+	"map.lot.*",
+	"map.lot.buildings",
+	"map.lot.robots",
+	"map.lot.quote",
+	"map.lot.progress",
+	"map.lot.waiting",
+	"map.new_project",
+	"map.leads_link",
+	"map.updates_link",
+	"map.tab.queue",
+	"map.tab.radio",
+	"map.queue.row",
+	"map.queue.empty",
+	// Plansza components (templates/_plansza.html), on every level.
+	"chip.*",
 	// Lead chat (/p/<project>/lead) and the leads overview (/leads).
 	"lead_chat.page",
 	"lead_chat.session",

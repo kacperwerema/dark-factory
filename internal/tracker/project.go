@@ -11,8 +11,14 @@ import (
 )
 
 type Project struct {
-	Name         string `yaml:"name"`
-	Slug         string `yaml:"slug"`
+	Name string `yaml:"name"`
+	Slug string `yaml:"slug"`
+	// Kind is a few words on what the project is ("aplikacja PWA", "gra
+	// mobilna"), shown on the project's lot on the map (L0). Optional.
+	Kind string `yaml:"kind"`
+	// Color is the project's colour on the map (#RRGGBB). Optional: without
+	// it the map gives each project the next colour of its palette.
+	Color        string `yaml:"color"`
 	IssueDir     string `yaml:"issues"`
 	DocsDir      string `yaml:"docs"`
 	WorkflowFile string `yaml:"workflow"`

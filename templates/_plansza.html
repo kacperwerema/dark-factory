@@ -1,0 +1,134 @@
+{{/*
+Plansza warsztatowa components (plansza.go has their view models, static/plansza.css
+their styles). Pages compose them; a new element is a new component here first.
+
+  pl/head        <head> links: fonts, styles             data: page title (string)
+  pl/header      brand, Mapa › Firma › Hala, counters      data: PlHeader
+  pl/crumbs      the level breadcrumb                       data: []PlCrumb
+  pl/robot       one agent                                  data: PlRobot
+  pl/robots      a row of agents, "+N" past plCrewMax       data: PlCrew
+  pl/chip        a pill                                     data: PlChip
+  pl/chips       a row of pills                             data: []PlChip
+  pl/ceo         the CEO robot with its latest line         data: PlCEO
+  pl/progress    a labelled bar                             data: *PlProgress
+  pl/bang        the orange "!" with a count                data: int
+  pl/skyline     departments as buildings, plus a free lot  data: []PlBuilding
+  pl/lot         a project on the map (L0)                  data: MapLot
+  pl/queue-card  one thing waiting on the owner             data: PlQueueCard
+  pl/side        the right panel: Czeka na Ciebie + Radio   data: []PlQueueCard
+*/}}
+
+{{define "pl/head"}}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.}} · Dark Factory</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%231B1F2A'/><path d='M4 20V11l4 2.5v-2.5l4 2.5v-2.5l4 2.5V5h3v15z' fill='white'/></svg>">
+    <link rel="stylesheet" href="/static/plansza.css">
+{{end}}
+
+{{define "pl/header"}}
+<header class="pl-header">
+    <a class="pl-brand" href="/" data-testid="map.brand">
+        <span class="pl-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/><path d="M7 17h2M12 17h2M17 17h1"/></svg></span>
+        <span class="pl-brand-name">Dark Factory</span>
+    </a>
+    {{template "pl/crumbs" .Crumbs}}
+    <div class="pl-grow"></div>
+    <div class="pl-header-stats">
+        <div class="pl-stat-box" data-testid="map.agents">
+            <span class="pl-stat"><span class="pl-dot pl-dot--working"></span>{{.Working}} <span class="pl-muted">pracuje</span></span>
+            <span class="pl-stat"><span class="pl-dot pl-dot--idle"></span>{{.Idle}} <span class="pl-muted">bezczynnych</span></span>
+            <span class="pl-stat"><span class="pl-dot pl-dot--agent"></span>{{.AgentWait}} <span class="pl-muted">czeka na agenta</span></span>
+        </div>
+        <div class="pl-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="pl-muted">w tym tygodniu</span></div>
+        <a class="pl-you-btn{{if not .Waiting}} pl-you-btn--calm{{end}}" href="#czeka" data-testid="map.waiting"><span class="pl-you-mark">!</span>{{.Waiting}} czeka na Ciebie</a>
+        <div class="pl-avatar" title="Ty">TY</div>
+    </div>
+</header>
+{{end}}
+
+{{define "pl/crumbs"}}
+<nav class="pl-crumbs" aria-label="Poziom widoku">
+    {{range $i, $c := .}}{{if $i}}<span class="pl-crumb-sep" aria-hidden="true">›</span>{{end}}{{if $c.Current}}<span class="pl-crumb pl-crumb--on" aria-current="page">{{$c.Label}}</span>{{else if $c.URL}}<a class="pl-crumb pl-crumb--link" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}<span class="pl-crumb pl-crumb--plan" title="{{$c.Hint}}">{{$c.Label}}</span>{{end}}{{end}}
+</nav>
+{{end}}
+
+{{define "pl/robot"}}<div class="pl-bot pl-bot--{{.State}}" title="{{.Label}} · {{.StateLabel}}"><i class="pl-bot-ant"></i><i class="pl-bot-lamp"></i><span class="pl-bot-body"><i></i><i></i></span></div>{{end}}
+
+{{define "pl/robots"}}<div class="pl-robots" data-testid="map.lot.robots">{{range .Robots}}{{template "pl/robot" .}}{{else}}<span class="pl-none">Nikt teraz nie pracuje</span>{{end}}{{if .More}}<span class="pl-more">+{{.More}}</span>{{end}}</div>{{end}}
+
+{{define "pl/chip"}}<span class="pl-chip pl-chip--{{.Tone}}"{{with .Title}} title="{{.}}"{{end}}{{with .TestID}} data-testid="chip.{{.}}"{{end}}>{{if .Dot}}<span class="pl-chip-dot{{if .Blink}} pl-blink{{end}}"></span>{{end}}{{.Text}}</span>{{end}}
+
+{{define "pl/chips"}}{{if .}}<div class="pl-chips">{{range .}}{{template "pl/chip" .}}{{end}}</div>{{end}}{{end}}
+
+{{define "pl/ceo"}}
+<div class="pl-ceo">
+    <div class="pl-ceo-bot{{if not .Live}} pl-ceo-bot--off{{end}}"><svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="pl-bot-body"><i></i><i></i></span></div>
+    <div class="pl-bubble" data-testid="map.lot.quote">{{if .Quote}}„{{.Quote}}”{{else if .Live}}CEO pracuje, nic jeszcze nie powiedział.{{else}}CEO nie działa.{{end}}<div class="pl-mono">{{.Session}}{{if not .Live}} · nie działa{{end}}</div></div>
+</div>
+{{end}}
+
+{{define "pl/progress"}}{{with .}}<div class="pl-goal" data-testid="map.lot.progress">
+    <div class="pl-goal-row"><span>{{.Label}}</span><span>{{.Done}}/{{.Total}}</span></div>
+    <div class="pl-goal-track"><div style="width:{{.Pct}}%"></div></div>
+</div>{{end}}{{end}}
+
+{{define "pl/bang"}}{{if .}}<div class="pl-bang pl-ping" data-testid="map.lot.waiting"><span>!</span><span>{{.}}</span></div>{{end}}{{end}}
+
+{{define "pl/skyline"}}
+<div class="pl-skyline" data-testid="map.lot.buildings">
+    {{range .}}<div class="pl-bld" title="{{.Name}}: {{.Open}} otwartych" style="width:{{.Width}}px;height:{{.Height}}px;background-color:{{.Color}}"></div>{{end}}
+    <div class="pl-bld pl-bld--plan" title="Wolna działka: nowy dział"></div>
+</div>
+{{end}}
+
+{{define "pl/lot"}}
+<a class="pl-lot{{if .Engine}} pl-lot--engine{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/status" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
+   aria-label="{{.Name}}{{if .Waiting}}: {{.Waiting}} czeka na Ciebie{{end}}{{if eq .CI "red"}}, CI czerwony{{end}}. Wejdź do projektu.">
+    <div class="pl-lot-roof"></div>
+    <div class="pl-lot-body">
+        <div class="pl-lot-head">
+            <div class="pl-lot-name">{{.Name}}</div>
+            {{if .Engine}}<div class="pl-tag">SILNIK</div>{{else if .Kind}}<div class="pl-lot-kind">{{.Kind}}</div>{{end}}
+        </div>
+        {{template "pl/skyline" .Buildings}}
+        {{template "pl/robots" .Crew}}
+        {{template "pl/chips" .Chips}}
+        {{template "pl/ceo" .CEO}}
+        {{template "pl/progress" .Progress}}
+    </div>
+    {{template "pl/bang" .Waiting}}
+</a>
+{{end}}
+
+{{define "pl/queue-card"}}
+<article class="pl-card" data-testid="map.queue.row">
+    <div class="pl-card-meta">
+        <span class="pl-kind pl-kind--{{.Tone}}">{{.Label}}</span>
+        <span class="pl-proj"><i style="background:{{.Color}}"></i>{{.Project}}</span>
+        <span class="pl-age">{{.Age}}</span>
+    </div>
+    <div class="pl-slug">{{.Slug}}</div>
+    <div class="pl-card-note">{{.Note}}</div>
+    <div class="pl-card-actions">
+        <a class="pl-btn pl-btn--you" href="{{.URL}}">{{.CTA}}</a>
+        <a class="pl-btn pl-btn--quiet" href="#lot-{{.ProjectSlug}}" data-show="lot-{{.ProjectSlug}}">Pokaż na mapie</a>
+    </div>
+</article>
+{{end}}
+
+{{define "pl/side"}}
+<aside class="pl-side" id="czeka" aria-label="Czeka na Ciebie">
+    <div class="pl-tabs" role="tablist" aria-label="Panel">
+        <button type="button" role="tab" class="pl-tab" aria-selected="true" aria-controls="tab-queue" data-testid="map.tab.queue">Czeka na Ciebie · {{len .}}</button>
+        <button type="button" role="tab" class="pl-tab" aria-selected="false" aria-controls="tab-radio" data-testid="map.tab.radio">Radio</button>
+    </div>
+    <div class="pl-tabpanel" id="tab-queue" role="tabpanel">
+        <div class="pl-note">Najpierw to, co blokuje innych, potem najdłużej czekające bramki.</div>
+        {{range .}}{{template "pl/queue-card" .}}{{else}}<div class="pl-empty" data-testid="map.queue.empty">Nic na Ciebie nie czeka. Fabryka pracuje sama.</div>{{end}}
+    </div>
+    <div class="pl-tabpanel" id="tab-radio" role="tabpanel" hidden>
+        <div class="pl-empty">Radio pokaże rozmowy CEO i agentów. Na razie rozmowa z CEO jest na stronie <a href="/leads">CEO wszystkich projektów</a>.</div>
+    </div>
+</aside>
+{{end}}

@@ -1,0 +1,475 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/tracker"
+)
+
+// The map (L0, "Mapa projektów") is the board's home page: one lot per
+// project, the CEO's latest line, its agents as robots, CI, what waits on the
+// owner, and on the right the owner's queue across every project. Design:
+// "Plansza warsztatowa" (issues/Factory/designs/plansza in dark-factory).
+
+// mapProjectColors are the lots' colours when a project sets none
+// (projects.yaml color:). Orange is never one: it is the owner's.
+var mapProjectColors = []string{"#13A386", "#5B5FE0", "#5DAE3B", "#2A5BD7", "#E2559B", "#17A2B8", "#B07A4F", "#6C7A96"}
+
+// mapBuildingColors are the department colours, given to a project's systems
+// by size: the biggest first.
+var mapBuildingColors = []string{"#3D7BF7", "#F2B233", "#E2559B", "#17A2B8", "#8BC34A", "#B07A4F", "#6C7A96"}
+
+// mapBuildings is how many of a project's systems stand on its lot; the rest
+// are counted in the last one's title.
+const mapBuildings = 4
+
+// mapSkylineWidth is the room for buildings on a lot, without the free lot
+// and the gaps; mapBuildingMinWidth the narrowest building.
+const (
+	mapSkylineWidth     = 196
+	mapBuildingMinWidth = 26
+)
+
+// mapQuoteMax is the longest CEO line on a lot, in characters.
+const mapQuoteMax = 140
+
+// mapLeadScrollback is how much of a live lead's pane the quote reads.
+const mapLeadScrollback = 300
+
+// mapDoneWindow is "this week" for the done counters.
+const mapDoneWindow = 7 * 24 * time.Hour
+
+// MapData is the whole map page.
+type MapData struct {
+	Header PlHeader
+	Lots   []MapLot
+	// Totals across projects, for the header.
+	Working, Idle, AgentWait int
+	DoneWeek                 int
+	Queue                    []PlQueueCard
+	Updates                  int
+	// RC is the engine's release candidate being tested; nil without one.
+	RC *MapRC
+}
+
+// MapRC is the engine's release candidate and the projects running it: the
+// roads from the engine's lot carry it.
+type MapRC struct {
+	Tag    string
+	Engine string
+	// Testing are the slugs of the projects whose issue-cli ran the candidate.
+	Testing []string
+}
+
+// MapLot is one project on the map.
+type MapLot struct {
+	Name, Slug, Kind, Color string
+	// Engine: this lot is the workflow engine itself (dark-factory).
+	Engine    bool
+	Buildings []PlBuilding
+	Robots    []PlRobot
+	Crew      PlCrew
+	// CI is "", "green" or "red"; CILine says what failed.
+	CI, CILine string
+	Working    int
+	Idle       int
+	AgentWait  int
+	You        int
+	CEO        PlCEO
+	Progress   *PlProgress
+	// Chips are CI, the agent counts and privacy problems, in that order.
+	Chips []PlChip
+	// Waiting is what waits on the owner here: the "!" on the lot.
+	Waiting  int
+	DoneWeek int
+	// RC is the candidate tag when this project is testing it.
+	RC      string
+	Updates int
+	Privacy []PrivacyBadge
+}
+
+func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
+	data := s.buildMap(time.Now())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, "map.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// buildMap reads every project at once, one goroutine each.
+func (s *Server) buildMap(now time.Time) MapData {
+	lots := make([]MapLot, len(s.projects))
+	queues := make([][]PlQueueCard, len(s.projects))
+	var rc *MapRC
+	var wg sync.WaitGroup
+	for i := range s.projects {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			p := &s.projects[i]
+			color := p.Color
+			if color == "" {
+				color = mapProjectColors[i%len(mapProjectColors)]
+			}
+			lots[i], queues[i] = s.buildLot(p, color, now)
+			if p.Slug == s.engine {
+				rc = s.engineCandidate(p)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	data := MapData{Lots: lots, RC: rc}
+	for i := range data.Lots {
+		lot := &data.Lots[i]
+		lot.Engine = lot.Slug == s.engine
+		data.Working += lot.Working
+		data.Idle += lot.Idle
+		data.AgentWait += lot.AgentWait
+		data.DoneWeek += lot.DoneWeek
+		data.Updates += lot.Updates
+		data.Queue = append(data.Queue, queues[i]...)
+		if rc != nil {
+			for _, slug := range rc.Testing {
+				if slug == lot.Slug && !lot.Engine {
+					lot.RC = rc.Tag
+				}
+			}
+		}
+	}
+	sortMapQueue(data.Queue)
+	data.Header = PlHeader{Crumbs: plCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue)}
+	return data
+}
+
+// sortMapQueue puts what blocks others first (CI red), then the oldest.
+func sortMapQueue(q []PlQueueCard) {
+	sort.SliceStable(q, func(i, j int) bool {
+		if q[i].Blocking != q[j].Blocking {
+			return q[i].Blocking
+		}
+		return q[i].Since.Before(q[j].Since)
+	})
+}
+
+// buildLot is one project's lot and its rows of the owner's queue.
+func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapLot, []PlQueueCard) {
+	prefix := "/p/" + p.Slug
+	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, CEO: PlCEO{Session: tracker.LeadSessionName(p)}}
+	issues, err := tracker.LoadIssues(p.IssueDir)
+	if err != nil {
+		log.Printf("map: %s: load issues: %v", p.Slug, err)
+	}
+	var open []*tracker.Issue
+	for _, issue := range issues {
+		if strings.EqualFold(issue.Status, "done") {
+			if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
+				lot.DoneWeek++
+			}
+			continue
+		}
+		open = append(open, issue)
+	}
+	wf := p.LoadWorkflow()
+	lot.Buildings = mapBuildingsOf(open, wf)
+	lot.Progress = mapProgressOf(issues)
+
+	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
+		lot.CEO.Live = agents.ProjectLead.State == "live"
+		lot.Robots = mapRobotsOf(agents, issues)
+		for _, r := range lot.Robots {
+			switch r.State {
+			case "working":
+				lot.Working++
+			case "idle":
+				lot.Idle++
+			case "agent":
+				lot.AgentWait++
+			case "you":
+				lot.You++
+			}
+		}
+	}
+	lot.Crew = plCrew(lot.Robots)
+	lot.CEO.Quote = s.leadQuote(p, lot.CEO.Live, now)
+
+	var queue []PlQueueCard
+	if st, enabled := ciState(p); enabled && st != nil {
+		lot.CI = "green"
+		if st.IsRed() {
+			lot.CI = "red"
+			lot.CILine = "make validate"
+			if st.Failed != "" {
+				lot.CILine = st.Failed
+			}
+			slug := st.RedIssue
+			if slug == "" {
+				slug = st.Branch
+			}
+			since := st.Updated
+			queue = append(queue, PlQueueCard{
+				Kind: "ci", Label: "CI czerwony", Tone: "red", Blocking: true,
+				Project: p.Name, ProjectSlug: p.Slug, Color: color,
+				Slug: slug, Note: lot.CILine + " pada na " + st.Branch + ".",
+				Since: since, Age: polishAge(now.Sub(since)),
+				CTA: "Zobacz status", URL: prefix + "/status",
+			})
+		}
+	}
+	for _, it := range waitingOnOwner(p, open) {
+		queue = append(queue, mapQueueRow(p, color, prefix, it, now))
+	}
+	lot.Waiting = len(queue)
+
+	if plan := projectUpgradePlan(p); plan != nil {
+		lot.Updates = len(plan.Proposals)
+	}
+	lot.Privacy = privacyView(p, prefix, now).Badges
+	if c := plCIChip(lot.CI, lot.CILine); c != nil {
+		lot.Chips = append(lot.Chips, *c)
+	}
+	lot.Chips = append(lot.Chips, plCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)
+	for _, b := range lot.Privacy {
+		if b.Level == "amber" || b.Level == "red" {
+			lot.Chips = append(lot.Chips, PlChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
+		}
+	}
+	return lot, queue
+}
+
+// mapQueueRow words one waiting item for the owner, with its action.
+func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now time.Time) PlQueueCard {
+	row := PlQueueCard{
+		Kind: it.Kind, Tone: "you", Project: p.Name, ProjectSlug: p.Slug, Color: color,
+		Slug: it.Issue.Slug, Since: it.Since, Age: polishAge(now.Sub(it.Since)),
+		URL: prefix + "/issue/" + it.Issue.Slug,
+	}
+	if it.Approx {
+		row.Age = "≈ " + row.Age
+	}
+	switch it.Kind {
+	case "gate":
+		row.Label, row.CTA = "Bramka: "+it.Target, "Przejrzyj"
+		row.Note = it.Issue.Title + " · " + it.Issue.Status + " → " + it.Target
+		row.URL += "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
+	case "playtest":
+		row.Label, row.CTA = "Playtest", "Testuj"
+		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
+	case "checks":
+		row.Label, row.CTA = "Human testing", "Sprawdź"
+		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
+	case "question":
+		row.Label, row.CTA = "Pytanie", "Odpowiedz"
+		row.Note = it.Issue.Title
+	default:
+		row.Label, row.CTA, row.Note = it.Kind, "Otwórz", it.Issue.Title
+	}
+	return row
+}
+
+// mapBuildingsOf turns the open work per system into buildings: the biggest
+// systems, height and width growing with open issues.
+func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []PlBuilding {
+	groups, none := groupSystems(open, wf.Workbench)
+	tones := newStatusTones(wf)
+	var out []PlBuilding
+	for _, g := range groups {
+		n, _, _ := tones.counts(g.Members)
+		if n > 0 {
+			out = append(out, PlBuilding{Name: g.Name, Open: n})
+		}
+	}
+	if n, _, _ := tones.counts(none); n > 0 {
+		out = append(out, PlBuilding{Name: "Bez działu", Open: n})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Open > out[j].Open })
+	if len(out) > mapBuildings {
+		rest := 0
+		for _, b := range out[mapBuildings-1:] {
+			rest += b.Open
+		}
+		out = append(out[:mapBuildings-1], PlBuilding{Name: fmt.Sprintf("Pozostałe (%d)", len(out)-mapBuildings+1), Open: rest})
+	}
+	// Widths share the skyline (mapSkylineWidth): each gets at least
+	// mapBuildingMinWidth, the rest goes by open work.
+	total := 0
+	for _, b := range out {
+		total += b.Open
+	}
+	spare := mapSkylineWidth - len(out)*mapBuildingMinWidth
+	for i := range out {
+		b := &out[i]
+		b.Color = mapBuildingColors[i%len(mapBuildingColors)]
+		b.Height = 16 + min(b.Open, 14)*3
+		b.Width = mapBuildingMinWidth
+		if total > 0 && spare > 0 {
+			b.Width += min(spare*b.Open/total, 84)
+		}
+	}
+	return out
+}
+
+// mapProgressOf is the open epic furthest along (most done children), the
+// lot's bar until projects have goals.
+func mapProgressOf(issues []*tracker.Issue) *PlProgress {
+	var best *PlProgress
+	for _, issue := range issues {
+		if strings.EqualFold(issue.Status, "done") || !tracker.IsEpic(issue, issues) {
+			continue
+		}
+		p := PlProgress{Label: "Epic: " + issue.Title}
+		for _, c := range tracker.EpicChildren(issues, issue.Slug) {
+			p.Total++
+			if strings.EqualFold(c.Status, "done") {
+				p.Done++
+			}
+		}
+		if p.Total == 0 {
+			continue
+		}
+		if best == nil || p.Done*best.Total > best.Done*p.Total || (p.Done*best.Total == best.Done*p.Total && p.Total > best.Total) {
+			b := p
+			best = &b
+		}
+	}
+	return best
+}
+
+// mapRobotsOf is the project's live agents as robots. A worker whose issue is
+// blocked on another issue that has a live worker waits on that agent.
+func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []PlRobot {
+	working := map[string]bool{}
+	for _, w := range agents.Workers {
+		if w.Issue != nil {
+			working[strings.ToLower(w.Issue.Slug)] = true
+		}
+	}
+	var out []PlRobot
+	for _, w := range agents.Workers {
+		r := PlRobot{State: "working", Label: w.Name}
+		if w.Issue != nil {
+			r.Label = w.Issue.Slug
+		}
+		switch w.State {
+		case "at-gate", "question":
+			r.State = "you"
+		case "idle":
+			r.State = "idle"
+		}
+		if r.State != "you" && w.Issue != nil {
+			if issue := tracker.FindIssue(issues, w.Issue.Slug); issue != nil {
+				for _, dep := range blockedOn(issue) {
+					if working[strings.ToLower(dep)] {
+						r.State = "agent"
+						r.Label += " → " + dep
+						break
+					}
+				}
+			}
+		}
+		out = append(out, r)
+	}
+	for _, o := range agents.Others {
+		out = append(out, PlRobot{State: "working", Label: o.Name})
+	}
+	return out
+}
+
+// leadQuote is the CEO's latest line: its newest paragraph in the pane when
+// it is live, else the first line of its handoff note's ## Next.
+func (s *Server) leadQuote(p *tracker.Project, live bool, now time.Time) string {
+	if live {
+		if pane, err := agentrun.CaptureHistory(agentrun.Target(p, tracker.LeadSessionName(p)), mapLeadScrollback); err == nil {
+			if q := lastLeadParagraph(cleanPane(pane)); q != "" {
+				return q
+			}
+		}
+	}
+	next := leadNextSteps(projectRoot(p), tracker.LeadSessionName(p), now)
+	if next.Found {
+		for _, line := range strings.Split(next.Text, "\n") {
+			if line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*0123456789. ")); line != "" {
+				return clipRunes(line, mapQuoteMax)
+			}
+		}
+	}
+	return ""
+}
+
+// markdownMarks are inline markdown marks dropped from a quote.
+var markdownMarks = regexp.MustCompile("\\*\\*|`")
+
+// toolCall is a pane paragraph that is a tool call ("⏺ Bash(…)"), not
+// something the lead said.
+var toolCall = regexp.MustCompile(`^[A-Z][A-Za-z]*\(`)
+
+// lastLeadParagraph is the lead's newest message paragraph ("⏺ …") in its
+// pane, clipped; "" when there is none.
+func lastLeadParagraph(pane string) string {
+	paras := paneParagraphs(pane)
+	for i := len(paras) - 1; i >= 0; i-- {
+		para := paras[i]
+		if !strings.HasPrefix(para, "⏺") {
+			continue
+		}
+		text := strings.TrimSpace(strings.TrimPrefix(para, "⏺"))
+		if text == "" || toolCall.MatchString(text) {
+			continue
+		}
+		return clipRunes(markdownMarks.ReplaceAllString(text, ""), mapQuoteMax)
+	}
+	return ""
+}
+
+// clipRunes cuts s to n characters, ending in "…" when it was longer.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimSpace(string(r[:n-1])) + "…"
+}
+
+// polishAge is how long ago, the way the map says it: teraz, 12 min, 3 h,
+// 2 d.
+func polishAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "teraz"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d h", int(d.Hours()))
+	}
+	return fmt.Sprintf("%d d", int(d.Hours()/24))
+}
+
+// engineCandidate is the engine's release candidate and the projects that
+// ran it; nil without one.
+func (s *Server) engineCandidate(p *tracker.Project) *MapRC {
+	m, err := s.loadStatus(p, "/p/"+p.Slug)
+	if err != nil {
+		return nil
+	}
+	c := m.Candidate()
+	if c == nil {
+		return nil
+	}
+	rc := &MapRC{Tag: c.Tag, Engine: p.Slug}
+	if c.Soak != nil {
+		for _, sp := range c.Soak.Projects {
+			if sp.Calls > 0 {
+				rc.Testing = append(rc.Testing, sp.Slug)
+			}
+		}
+	}
+	return rc
+}

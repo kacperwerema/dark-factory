@@ -6,12 +6,9 @@ import (
 	"encoding/json"
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"html/template"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -263,64 +260,14 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 
 // --- Project List ---
 
-type ProjectListData struct {
-	Projects []ProjectSummary
-}
-
-type ProjectSummary struct {
-	Name       string
-	Slug       string
-	IssueCount int
-	DocCount   int
-	Updates    int // workflow features to decide (the Updates tab)
-	// Privacy is the work-files and code markers (privacy_view.go).
-	Privacy []PrivacyBadge
-}
-
+// handleProjectList is the board's home: the map of projects (L0, map.go),
+// also with a single project.
 func (s *Server) handleProjectList(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-
-	// If only one project, redirect directly
-	if len(s.projects) == 1 {
-		http.Redirect(w, r, "/p/"+s.projects[0].Slug+"/", http.StatusFound)
-		return
-	}
-
-	summaries := make([]ProjectSummary, len(s.projects))
-	var wg sync.WaitGroup
-	for i, p := range s.projects {
-		wg.Add(1)
-		go func(i int, p tracker.Project) {
-			defer wg.Done()
-			issues, err := tracker.LoadIssues(p.IssueDir)
-			if err != nil {
-				log.Printf("project list: %s: load issues: %v", p.Slug, err)
-			}
-			docs, err := tracker.LoadDocs(p.DocsDir)
-			if err != nil {
-				log.Printf("project list: %s: load docs: %v", p.Slug, err)
-			}
-			summaries[i] = ProjectSummary{
-				Name:       p.Name,
-				Slug:       p.Slug,
-				IssueCount: len(issues),
-				DocCount:   len(docs),
-			}
-			if plan := projectUpgradePlan(&p); plan != nil {
-				summaries[i].Updates = len(plan.Proposals)
-			}
-			summaries[i].Privacy = privacyView(&p, "/p/"+p.Slug, time.Now()).Badges
-		}(i, p)
-	}
-	wg.Wait()
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "projects.html", ProjectListData{Projects: summaries}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	s.handleMap(w, r)
 }
 
 // handleProjectFor is GET /project-for?cwd=<path>: the slug of the project

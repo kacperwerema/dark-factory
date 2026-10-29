@@ -217,8 +217,8 @@ func TestUpdatesOverviewComparesProjects(t *testing.T) {
 	}
 
 	_, home := getBody(t, ts.URL+"/")
-	if !strings.Contains(home, `data-testid="projects.updates"`) || !strings.Contains(home, `href="/updates"`) {
-		t.Error("the project list should show update counts and link /updates")
+	if !strings.Contains(home, `href="/updates" data-testid="map.updates_link">Aktualizacje workflow (`) {
+		t.Error("the map should link /updates with the count of updates to decide")
 	}
 }
 
