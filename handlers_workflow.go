@@ -533,7 +533,7 @@ func (s *Server) handleDocs(w http.ResponseWriter, r *http.Request, proj *tracke
 	}
 
 	if len(pages) > 0 {
-		http.Redirect(w, r, fmt.Sprintf("%s/docs/%s", prefix, pages[0].Slug), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s/docs/%s?classic=1", prefix, pages[0].Slug), http.StatusFound)
 		return
 	}
 

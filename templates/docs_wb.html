@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+{{/* hall tabs: added at merge */}}
+<main class="wb-docs">
+{{template "wb/binder" .Binder}}
+<article class="wb-reader" data-testid="docs.reader">
+    {{with .Doc}}
+    {{template "wb/doc-head" .}}
+    {{template "wb/guard-rule" .Guard}}
+    {{template "wb/doc-sections" .Sections}}
+    {{template "wb/doc-body" .Body}}
+    {{else}}
+    <div class="wb-docs-empty" data-testid="docs.empty">{{template "wb/plan-card" .Empty}}</div>
+    {{end}}
+    <div class="wb-doc-foot"><a href="{{.ClassicURL}}" data-testid="docs.classic">Classic view</a></div>
+</article>
+{{with .Side}}
+<aside class="wb-docside" aria-label="About the document">
+    {{template "wb/doc-guards" .}}
+    {{template "wb/freshness" .Fresh}}
+    {{template "wb/doc-agents" .}}
+    <div class="wb-docside-block">{{template "wb/doc-edit" .EditURL}}</div>
+    <div class="wb-docside-block" data-spawn-box data-testid="docs.ask">
+        {{template "wb/side-label" "Ask the CEO about this document"}}
+        {{template "wb/message-box" $.Message}}
+        {{if not $.Message.Live}}<button type="button" class="wb-btn wb-btn--paper wb-btn--block" data-spawn-lead="{{$.Message.SpawnURL}}" data-testid="docs.start_ceo">Start CEO</button><div class="wb-site-msg" role="status"></div>{{end}}
+    </div>
+</aside>
+{{end}}
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script>
+// Edit in nvim: open the document in a tmux session and say where.
+document.querySelectorAll('[data-doc-edit]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var msg = btn.parentNode.querySelector('.wb-site-msg');
+    btn.disabled = true;
+    msg.textContent = 'Opening…';
+    fetch(btn.getAttribute('data-doc-edit'), { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (resp) { msg.textContent = resp.error ? 'Could not open nvim: ' + resp.error : resp.message; btn.disabled = false; })
+      .catch(function (e) { msg.textContent = 'Could not open nvim: ' + e; btn.disabled = false; });
+  });
+});
+</script>
+</body>
+</html>

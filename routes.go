@@ -196,10 +196,18 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHash(w, r, proj)
 	case rest == "issues.json":
 		s.handleIssuesJSON(w, r, proj)
-	case rest == "docs":
-		s.handleDocs(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "docs/") && strings.HasSuffix(rest, "/edit-in-nvim") && r.Method == http.MethodPost:
+		s.handleDocEditInNvim(w, r, proj, prefix)
+	case (rest == "docs" || strings.HasPrefix(rest, "docs/")) && r.URL.Query().Get("classic") == "1":
+		if rest == "docs" {
+			s.handleDocs(w, r, proj, prefix)
+		} else {
+			s.handleDocPage(w, r, proj, prefix)
+		}
+	case rest == "docs" || rest == "docs/":
+		s.handleDocsWb(w, r, proj, prefix, "")
 	case strings.HasPrefix(rest, "docs/"):
-		s.handleDocPage(w, r, proj, prefix)
+		s.handleDocsWb(w, r, proj, prefix, strings.TrimPrefix(rest, "docs/"))
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/comments") && r.Method == http.MethodGet:
 		s.handleGetComments(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/comments") && r.Method == http.MethodPost:
