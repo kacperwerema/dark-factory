@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -85,13 +86,10 @@ func runMachine(t *testing.T, body string, extra ...string) libRun {
 func runOwner(t *testing.T, body, input string) (libRun, string) {
 	t.Helper()
 	needBash(t)
-	if _, err := exec.LookPath("script"); err != nil {
-		t.Skip("no script(1) for a pseudo-terminal")
-	}
 	root := t.TempDir()
 	bin, calls := fakeIssueCLI(t, t.TempDir())
 	path := writeScript(t, root, "demo", "#!/usr/bin/env bash\n# issue: demo/thing\nsource \"$CHECKS_LIB\"\n"+body)
-	cmd := exec.Command("script", "-qec", "bash "+path, "/dev/null")
+	cmd := ptyCommand(t, "bash", path)
 	cmd.Dir = root
 	cmd.Env = libEnv(t, root, bin)
 	cmd.Stdin = strings.NewReader(input)
@@ -104,6 +102,24 @@ func runOwner(t *testing.T, body, input string) (libRun, string) {
 	}
 	data, _ := os.ReadFile(calls)
 	return libRun{out: string(out), code: code, root: root}, string(data)
+}
+
+// ptyCommand runs argv on a pseudo-terminal. util-linux script(1) does it on
+// Linux; BSD script has no -c and sends EOF ahead of piped input, so macOS
+// uses Python's pty module instead.
+func ptyCommand(t *testing.T, argv ...string) *exec.Cmd {
+	t.Helper()
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("script"); err != nil {
+			t.Skip("no script(1) for a pseudo-terminal")
+		}
+		return exec.Command("script", "-qec", strings.Join(argv, " "), "/dev/null")
+	}
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3 for a pseudo-terminal")
+	}
+	spawn := "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))"
+	return exec.Command("python3", append([]string{"-c", spawn}, argv...)...)
 }
 
 func record(t *testing.T, root, mode string) string {

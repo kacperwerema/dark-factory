@@ -17,6 +17,9 @@ func init() {
 	agentrun.PromptDeliveryTimeout = 300 * time.Millisecond
 }
 
+// withPromptDeliveryTimeout sets how long a dispatch waits for the prompt to
+// show in the pane. Where delivery should succeed, leave room for a fresh
+// tmux server under a full parallel test run on a laptop.
 func withPromptDeliveryTimeout(t *testing.T, d time.Duration) {
 	t.Helper()
 	original := agentrun.PromptDeliveryTimeout

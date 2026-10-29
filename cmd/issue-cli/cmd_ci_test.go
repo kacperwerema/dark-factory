@@ -27,7 +27,7 @@ const ciFailCmd = `if [ -f fail.flag ]; then echo '--- FAIL: TestBroken'; exit 1
 // committed. ciBlock "" leaves CI off.
 func makeCIFixture(t *testing.T, ciBlock string) (*tracker.Project, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := realTempDir(t)
 	git := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", args...)

@@ -84,7 +84,7 @@ func TestStartAgentSession_TypingDuringDispatchCannotChangeTheStartCommand(t *te
 			t.Setenv("ISSUE_VIEWER_URL", "")
 			os.Unsetenv("ISSUE_VIEWER_URL")
 			isolateTmux(t)
-			withPromptDeliveryTimeout(t, 5*time.Second)
+			withPromptDeliveryTimeout(t, 15*time.Second)
 			original := agentrun.SessionAttached
 			agentrun.SessionAttached = func(string) bool { return false }
 			t.Cleanup(func() { agentrun.SessionAttached = original })

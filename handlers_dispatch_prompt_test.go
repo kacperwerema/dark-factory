@@ -181,7 +181,7 @@ func TestHandleDispatchReprompt_UnknownIssue404(t *testing.T) {
 // the pane, so the delivery check sees it.
 func TestHandleDispatchReprompt_PastesIntoLiveSession(t *testing.T) {
 	isolateTmux(t)
-	withPromptDeliveryTimeout(t, 5*time.Second)
+	withPromptDeliveryTimeout(t, 15*time.Second)
 	proj, tmpDir := setupTestProject(t)
 	proj.WorkDir = tmpDir
 	session := tmuxSessionName("bug-in-login")
@@ -210,7 +210,7 @@ func TestHandleDispatchReprompt_PastesIntoLiveSession(t *testing.T) {
 
 func TestStartAgentSession_LaunchesWithPromptArgumentAndVerifiesDelivery(t *testing.T) {
 	isolateTmux(t)
-	withPromptDeliveryTimeout(t, 5*time.Second)
+	withPromptDeliveryTimeout(t, 15*time.Second)
 	proj := &tracker.Project{Slug: "test", Terminal: "none", WorkDir: t.TempDir()}
 	prompt := "You have been assigned this issue: x\n\nbody line\nlast line of the briefing\n"
 
@@ -292,8 +292,9 @@ func TestPromptDeliveryStep_NoRepromptURLSuggestsManualPaste(t *testing.T) {
 // in the issue's stats sidecar.
 func TestStartAgentSession_LogsInProjectAndRecordsDispatch(t *testing.T) {
 	isolateTmux(t)
-	withPromptDeliveryTimeout(t, 5*time.Second)
+	withPromptDeliveryTimeout(t, 15*time.Second)
 	proj, tmpDir := setupWorktreeProject(t)
+	proj.Terminal = "none" // the default opens alacritty through i3-msg
 	worktree := filepath.Join(tmpDir, ".worktrees", "bug-in-login")
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatal(err)
