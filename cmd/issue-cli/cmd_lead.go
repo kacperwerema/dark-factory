@@ -405,6 +405,9 @@ func printLeadLines(ctx *Context, issue *tracker.Issue) {
 		return
 	}
 	fmt.Fprintln(ctx.Stdout, leadHeaderLine(ctx.Project, issue, issues))
+	if line := yoloHeaderLine(ctx.Project, ctx.now()); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
 	if hint := umbrellaHint(ctx.Project, issue); hint != "" {
 		fmt.Fprintln(ctx.Stdout, hint)
 	}

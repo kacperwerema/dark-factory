@@ -69,7 +69,7 @@ type Run struct {
 	// Results are the parsed test results per kind (unit, e2e), from the
 	// files the commands' results: entries name.
 	Results map[string]testresults.Summary `json:"results,omitempty"`
-	Merged    []Merged `json:"merged,omitempty"`
+	Merged  []Merged                       `json:"merged,omitempty"`
 }
 
 // TierState is the newest run of a non-default tier.
@@ -93,10 +93,12 @@ type State struct {
 	// GreenAt is when GreenSha's run finished.
 	GreenAt time.Time `json:"green_at,omitempty"`
 	// RedSince is the first red commit of the current red streak.
-	RedSince string   `json:"red_since,omitempty"`
-	Failed   string   `json:"failed,omitempty"`
-	Failures []string `json:"failures,omitempty"`
-	Error    string   `json:"error,omitempty"`
+	RedSince string `json:"red_since,omitempty"`
+	// RedAt is when RedSince's run finished: how long the branch has been red.
+	RedAt    time.Time `json:"red_at,omitempty"`
+	Failed   string    `json:"failed,omitempty"`
+	Failures []string  `json:"failures,omitempty"`
+	Error    string    `json:"error,omitempty"`
 	// Merged / Blamed: what landed since the last green run, and the issues
 	// among it (they carry the ci-red marker while red).
 	Merged   []Merged  `json:"merged,omitempty"`

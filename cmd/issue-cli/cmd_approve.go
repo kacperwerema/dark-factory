@@ -81,19 +81,29 @@ func runApprove(ctx *Context, args []string) error {
 	if me.Name != "" {
 		comment += " — recorded by " + me.Name
 	}
-	if err := tracker.AddComment(issue.FilePath, 0, comment, "cli"); err != nil {
-		return fmt.Errorf("writing the approval comment: %w", err)
-	}
-	if !strings.EqualFold(issue.HumanApproval, to) {
-		if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{HumanApproval: &to}); err != nil {
-			return fmt.Errorf("setting human_approval: %w", err)
-		}
-		if err := tracker.RecordApproval(issue.FilePath, to, ctx.now()); err != nil {
-			fmt.Fprintf(ctx.Stderr, "warning: recording approval time: %v\n", err)
-		}
+	if err := writeApproval(ctx, issue, comment, to); err != nil {
+		return err
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Approved %s for %q (%s)\n", issue.Slug, to, how)
 	fmt.Fprintf(ctx.Stdout, "  comment: %s\n", comment)
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", issue.FilePath)
+	return nil
+}
+
+// writeApproval saves an approval comment and sets human_approval to
+// status, as the viewer's approve button does.
+func writeApproval(ctx *Context, issue *tracker.Issue, comment, status string) error {
+	if err := tracker.AddComment(issue.FilePath, 0, comment, "cli"); err != nil {
+		return fmt.Errorf("writing the approval comment: %w", err)
+	}
+	if strings.EqualFold(issue.HumanApproval, status) {
+		return nil
+	}
+	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{HumanApproval: &status}); err != nil {
+		return fmt.Errorf("setting human_approval: %w", err)
+	}
+	if err := tracker.RecordApproval(issue.FilePath, status, ctx.now()); err != nil {
+		fmt.Fprintf(ctx.Stderr, "warning: recording approval time: %v\n", err)
+	}
 	return nil
 }
