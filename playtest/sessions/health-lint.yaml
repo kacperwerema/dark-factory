@@ -13,7 +13,7 @@ steps:
     title: The Health view's Lint section lists the three warnings with where and fix, and names issue-cli health lint
     proves: [AC12]
     setup:
-      - open: /p/{project}/health
+      - open: /p/{project}/health?classic=1
     checks:
       - visible: [health.lint, health.lint.count, health.lint.list, health.lint.cmd]
       - absent: [health.lint.error, health.lint.more]
@@ -31,7 +31,7 @@ steps:
     title: Dating the undated issue with set-meta drops it from the list on reload
     proves: [AC5, AC12]
     setup:
-      - open: /p/{project}/health
+      - open: /p/{project}/health?classic=1
     act:
       - check: { text_equals: { target: health.lint.count, text: 3 WARNINGS } }
       - cli: [set-meta, cli/voice-directions, --key, created, --value, "2026-09-02"]
@@ -54,7 +54,7 @@ steps:
   - id: TP7
     title: The Lint section reads well on the Health view, in every theme and on a phone
     setup:
-      - open: /p/{project}/health
+      - open: /p/{project}/health?classic=1
     do: Read the Lint section, then switch to the Dracula and light themes, and look at the phone width.
     expect: |
       "LINT · 3 WARNINGS" heads the section, between the scores and the

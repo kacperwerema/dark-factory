@@ -457,6 +457,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, proj *trac
 	case q.Get("error") != "":
 		page.Flash, page.FlashErr = q.Get("error"), true
 	}
+	if q.Get("classic") == "" {
+		s.handleHealthWb(w, r, proj, prefix, page)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "health.html", page); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

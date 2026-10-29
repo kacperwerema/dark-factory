@@ -57,6 +57,7 @@ their styles). Pages compose them; a new element is a new component here first.
         <span class="wb-brand-name">Dark Factory</span>
     </a>
     {{template "wb/crumbs" .Crumbs}}
+    {{with .Tabs}}{{template "wb/hall-tabs" .}}{{end}}
     <div class="wb-grow"></div>
     <div class="wb-header-stats">
         {{if .Goals}}{{range .Goals}}{{template "wb/goal" .}}{{end}}{{else}}

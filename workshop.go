@@ -19,8 +19,11 @@ type WbHeader struct {
 	// Goals replace the agent counters when set (L1: the company's goals).
 	Goals []WbGoal
 	// Chips follow the counters (L2: CI); HideDone drops "done this week".
-	Chips                    []WbChip
-	HideDone                 bool
+	Chips    []WbChip
+	HideDone bool
+	// Tabs is the hall's view toggle after the crumbs (L2: Line | Report |
+	// Health); nil elsewhere.
+	Tabs                     *WbHallTabs
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int

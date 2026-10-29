@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Hall health"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-hhead">
+    <div class="wb-hhead-text">
+        <h1 class="wb-h1 wb-h1--xl">Hall health</h1>
+        <div class="wb-hhead-sub">{{if .Latest}}Last measurement {{.Latest}} · {{plural .Snapshots "measurement" "measurements"}}{{else}}No measurement yet{{end}} · how we count: <span class="wb-mono-inline">docs/workbench-files.md</span>, “Scores” · <a href="{{.ClassicURL}}" data-testid="health.classic">Classic view</a></div>
+    </div>
+    {{template "wb/health-range" .Ranges}}
+</section>
+<main class="wb-hmain" data-testid="health.page" data-project="{{.Project}}">
+    {{if .Flash}}<p class="wb-flash{{if .FlashErr}} wb-flash--err{{end}}" role="status" data-testid="health.flash">{{.Flash}}</p>{{end}}
+
+    <div class="wb-hrow">
+        {{template "wb/health-score" .Score}}
+        {{template "wb/health-opinion" .Opinion}}
+    </div>
+    {{template "wb/health-recs" .Opinion}}
+
+    <section class="wb-hsec" aria-labelledby="health-sensors-h" data-testid="health.sensors">
+        <div class="wb-hsec-head">
+            <h2 id="health-sensors-h" class="wb-h2">Sensors</h2>
+            <span class="wb-hsec-sub">each gives 100 at its good value and 0 at its bad one · change the thresholds in <span class="wb-mono-inline">health.score</span> in workflow.yaml</span>
+        </div>
+        {{range .Groups}}{{template "wb/sensor-group" .}}{{else}}<p class="wb-empty">No sensors yet: the latest measurement has no score rows (issue-cli health snapshot adds them).</p>{{end}}
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="health-look-h" data-testid="health.look">
+        <div class="wb-hsec-head">
+            <h2 id="health-look-h" class="wb-h2">Where to look</h2>
+            <span class="wb-hsec-sub">from the latest measurement{{with .Look.Both}} · <b class="wb-ink">{{.}}</b> is on both lists{{end}}</span>
+            {{template "wb/refactor" .Look.Refactor}}
+        </div>
+        {{if .Look.Lists}}<div class="wb-look-grid">{{range .Look.Lists}}{{template "wb/look-list" .}}{{end}}</div>{{else}}<p class="wb-empty">{{.Look.Empty}}</p>{{end}}
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="health-trends-h" data-testid="health.trends">
+        <div class="wb-hsec-head">
+            <h2 id="health-trends-h" class="wb-h2">{{.TrendsLabel}}</h2>
+            <span class="wb-hsec-sub">a locked chart says what it lacks</span>
+        </div>
+        <div class="wb-trend-grid">{{range .Trends}}{{template "wb/trend-card" .}}{{end}}</div>
+    </section>
+
+    {{template "wb/health-setup" .Setup}}
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/workshop-health.js"></script>
+</body>
+</html>
