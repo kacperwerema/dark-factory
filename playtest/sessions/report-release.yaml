@@ -1,0 +1,33 @@
+session: report-release
+issue: factory/merge-workshop-board-to-main
+title: Report - Waiting for release on the Workshop Board Report, a candidate soaking
+scenario: release-rc
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The Report (/status) carries Waiting for release - milestone checks, the soaking candidate, a link per open issue
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/status
+    act:
+      - check: { visible: [report.page, status.release_wait, status.release_wait.milestone, status.release_wait.checks] }
+      - check: { hidden: status.release_wait.candidate.running }
+      - click: status.release_wait.candidate.summary
+      - wait_for: { visible: status.release_wait.candidate.running }
+    checks:
+      - text_equals: { target: status.release_wait.state, text: v1.5.0 not ready }
+      - text_contains: { target: status.rc_badge, text: "v1.5.0-rc.1 · release candidate · soaking " }
+      - text_contains: { target: status.release_wait.check.issues, text: 1 open }
+      - text_contains: { target: status.release_wait.candidate.summary, text: "v1.5.0-rc.1 · cut " }
+      - text_contains: { target: status.release_wait.candidate.running, text: "not the candidate: install v1.5.0-rc.1 and restart the viewer" }
+      - text_contains: { target: status.release_wait.candidate.report.cli/route-export-drops-waypoints, text: Route export drops waypoints }
+      - visible: [status.release_wait.open, status.release_wait.unreleased]
+      - absent: [status.release_wait.ready, status.release_wait.cut_rc, status.release_wait.publish]
+    expect: The right column of the Report opens with a Waiting for release card in the Workshop look - a milestone bar, ticks and crosses for each check, the silver candidate pill, and the open issues as links.
+    do: Open the Report, look at the right column, open the release candidate line.
+    why: The release flow (cut, soak, publish) reads this card, and /status now opens the Report.

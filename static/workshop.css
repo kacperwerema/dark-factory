@@ -1136,6 +1136,7 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
   .wb-binder { border-bottom: 2px solid var(--ink); }
   .wb-docside { border-top: 2px solid var(--ink); }
   .wb-reader { padding: 22px 18px 36px; }
+}
 /* ---- L2: updates ---- */
 .upd-page { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .upd-hero { padding: 24px 28px; border-bottom: 2px solid var(--ink); display: flex; flex-direction: column; gap: 18px; }
