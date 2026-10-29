@@ -185,3 +185,13 @@ func SectionAnchors(body string) []string {
 	})
 	return ids
 }
+
+// RenderDocMarkdown renders a doc body the way doc pages do: tables, task
+// lists and heading ids (the ids SectionAnchors returns).
+func RenderDocMarkdown(body string) (string, error) {
+	var buf bytes.Buffer
+	if err := newDocMarkdown().Convert([]byte(body), &buf); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}

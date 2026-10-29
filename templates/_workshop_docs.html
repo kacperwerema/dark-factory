@@ -1,0 +1,91 @@
+{{/*
+Workshop Board components of the Docs page (docs_wb.go has their view models,
+static/workshop.css their styles in the "L2: docs" block).
+
+  wb/binder        the list of documents, by folder        data: WbBinder
+  wb/binder-item   one document in the binder              data: WbBinderItem
+  wb/doc-head      kind, system, date, title and lead      data: *WbDoc
+  wb/guard-rule    the guard rule callout                  data: string
+  wb/doc-sections  chips linking to the "## " sections     data: []WbDocSection
+  wb/doc-body      the rendered Markdown                   data: template.HTML
+  wb/side-label    a small caps label over a side block    data: string
+  wb/doc-guards    the code a document guards              data: *WbDocSide
+  wb/freshness     how long ago it changed, as a bar       data: WbFreshness
+  wb/doc-citer     an issue or decision tied to the doc    data: WbDocCiter
+  wb/doc-agents    issues and decisions tied to the doc    data: *WbDocSide
+  wb/doc-edit      Edit in nvim                            data: string (POST URL)
+*/}}
+
+{{define "wb/binder"}}
+<nav class="wb-binder" aria-label="Docs" data-testid="docs.binder">
+    <div class="wb-binder-head"><span class="wb-binder-title">Binder</span><span class="wb-binder-count">{{.Count}}</span></div>
+    {{range .Groups}}
+    {{with .Name}}<div class="wb-binder-group">{{.}}</div>{{end}}
+    {{range .Items}}{{template "wb/binder-item" .}}{{end}}
+    {{end}}
+    <div class="wb-binder-new">{{template "wb/new-tile" .New}}</div>
+</nav>
+{{end}}
+
+{{define "wb/binder-item"}}<a class="wb-binder-item{{if .Current}} wb-binder-item--on{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}} data-testid="docs.item.{{.Slug}}">
+    <span class="wb-binder-name">{{.Title}}</span>
+    {{template "wb/chips" .Chips}}
+</a>{{end}}
+
+{{define "wb/doc-head"}}
+<div class="wb-doc-head">
+    {{if or .Chips .AsOf}}<div class="wb-doc-meta">{{range .Chips}}{{template "wb/chip" .}}{{end}}{{with .AsOf}}<span class="wb-doc-date">{{.}}</span>{{end}}</div>{{end}}
+    <h1 class="wb-doc-title" data-testid="docs.title">{{.Title}}</h1>
+    {{with .Lead}}<div class="wb-doc-lead wb-md">{{.}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/guard-rule"}}{{if .}}<div class="wb-guard-rule" data-testid="docs.guard_rule">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1B1F2A" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+    <div><b>Guard rule:</b> {{.}}</div>
+</div>{{end}}{{end}}
+
+{{define "wb/doc-sections"}}{{if .}}<nav class="wb-doc-sections" aria-label="Contents" data-testid="docs.sections">{{range .}}{{if .Href}}<a class="wb-doc-section" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="wb-doc-section">{{.Title}}</span>{{end}}{{end}}</nav>{{end}}{{end}}
+
+{{define "wb/doc-body"}}<div class="wb-doc-body wb-md" data-testid="docs.body">{{.}}</div>{{end}}
+
+{{define "wb/side-label"}}<div class="wb-side-label">{{.}}</div>{{end}}
+
+{{define "wb/doc-guards"}}
+<div class="wb-docside-block" data-testid="docs.guards">
+    {{template "wb/side-label" "Guards the code"}}
+    {{range .Guards}}<div class="wb-guard-path{{if .Missing}} wb-guard-path--missing{{end}}"><span>{{.Path}}</span>{{if .Missing}}<span class="wb-guard-path-note">not in the repo</span>{{end}}</div>{{end}}
+    {{if and .Guards .System}}<div class="wb-doc-plan">Adds to the code map: system <b>{{.System}}</b> → {{range $i, $g := .Guards}}{{if $i}}, {{end}}<span class="wb-mono-inline">{{$g.Path}}</span>{{end}}.</div>
+    {{else if not .Guards}}<div class="wb-doc-plan">This document names no code. Add <span class="wb-mono-inline">guards: [path, …]</span> to its frontmatter to show which code it guards.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/freshness"}}
+<div class="wb-docside-block" data-testid="docs.freshness">
+    {{template "wb/side-label" "Freshness"}}
+    <div class="wb-fresh-label">{{.Label}}</div>
+    {{if .Pct}}<div class="wb-fresh-bar wb-fresh-bar--{{.Tone}}"><i style="width:{{.Pct}}%"></i></div>{{end}}
+    <div class="wb-note">{{.Note}}</div>
+</div>
+{{end}}
+
+{{define "wb/doc-citer"}}<a class="wb-doc-citer" href="{{.URL}}"><span class="wb-doc-citer-slug">{{.Slug}}</span><span class="wb-doc-citer-text">{{.Text}}</span>{{with .Chip}}{{template "wb/chip" .}}{{end}}</a>{{end}}
+
+{{define "wb/doc-agents"}}
+<div class="wb-docside-block" data-testid="docs.agents">
+    {{template "wb/side-label" "Agents and this document"}}
+    {{if .Citers}}<div class="wb-note">Open issues that cite <span class="wb-mono-inline">{{.Path}}</span>:</div>
+    <div class="wb-doc-citers">{{range .Citers}}{{template "wb/doc-citer" .}}{{end}}{{if .More}}<span class="wb-note">+{{.More}} more</span>{{end}}</div>
+    {{else}}<div class="wb-note">No open issue cites <span class="wb-mono-inline">{{.Path}}</span>.</div>{{end}}
+    {{if .Decisions}}<div class="wb-note">Decisions it cites:</div>
+    <div class="wb-doc-citers">{{range .Decisions}}{{template "wb/doc-citer" .}}{{end}}</div>{{end}}
+    {{with .SystemDecisions}}<a class="wb-doc-link" href="{{.URL}}" data-testid="docs.system_decisions">{{.Text}}</a>{{end}}
+</div>
+{{end}}
+
+{{define "wb/doc-edit"}}
+<div class="wb-doc-edit">
+    <button type="button" class="wb-btn wb-btn--paper wb-btn--block" data-doc-edit="{{.}}" data-testid="docs.edit">Edit in nvim</button>
+    <div class="wb-site-msg" role="status"></div>
+</div>
+{{end}}
