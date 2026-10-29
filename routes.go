@@ -237,6 +237,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleRunChecks(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
+	case rest == "yolo.json" && r.Method == http.MethodGet:
+		s.handleYOLO(w, r, proj, "json")
+	case strings.HasPrefix(rest, "yolo/") && r.Method == http.MethodPost:
+		s.handleYOLO(w, r, proj, strings.TrimPrefix(rest, "yolo/"))
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
+		s.handleYOLOReview(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:
 		s.handleApproveIssue(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/delete") && r.Method == http.MethodPost:

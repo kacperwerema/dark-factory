@@ -125,6 +125,8 @@ func run(args []string) error {
 	}
 	// Project health: a snapshot a day per project (health_watch.go).
 	srv.bg.Go("health snapshots", func() { srv.watchHealth(ctx.Done()) })
+	// YOLO mode: close windows that expired or tripped a valve (yolo_view.go).
+	srv.bg.Go("yolo watcher", func() { srv.watchYOLO(ctx.Done()) })
 	// Private trackers: commit, pull and push the work files (tracker_watch.go).
 	srv.bg.Go("tracker sync", func() { srv.watchTrackers(ctx.Done()) })
 	// The stats page's aggregate and CLI usage, built before the first

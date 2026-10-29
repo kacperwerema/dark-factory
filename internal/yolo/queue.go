@@ -13,8 +13,8 @@ type Pass struct {
 	Status string `json:"status"`
 	// From is the status the issue left when the gate passed.
 	From string `json:"from,omitempty"`
-	By     string `json:"by,omitempty"`
-	At     string `json:"at"`
+	By   string `json:"by,omitempty"`
+	At   string `json:"at"`
 	// Comment is the approval comment's id on the issue.
 	Comment int `json:"comment"`
 	// Review is the owner's verdict ("agreed", "back to <status>"); empty

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -112,6 +113,9 @@ type Nav struct {
 	Panel          *NavPanel  // another page's screen panel
 	// Pages are the workbench.pages entries, indented under Status.
 	Pages []NavItem
+	// YOLO is the hazard line while YOLO is on, and the after-the-fact
+	// queue until the owner reviewed it (yolo_view.go).
+	YOLO *YOLOBand
 }
 
 // sidebarNav builds the sidebar for the project behind prefix, with active
@@ -153,6 +157,7 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 		ActiveBots:     activeBots,
 		CreateInPage:   active == "list" || active == "board",
 		ProjectActions: proj.LoadWorkflow().ProjectActions,
+		YOLO:           yoloBand(proj, issues, time.Now()),
 	}
 	for i, p := range proj.LoadWorkflow().Workbench.Pages {
 		key := fmt.Sprintf("page/%d", i)
