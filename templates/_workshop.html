@@ -1,0 +1,134 @@
+{{/*
+Workshop Board components (workshop.go has their view models, static/workshop.css
+their styles). Pages compose them; a new element is a new component here first.
+
+  wb/head        <head> links: fonts, styles             data: page title (string)
+  wb/header      brand, Map › Company › Hall, counters      data: WbHeader
+  wb/crumbs      the level breadcrumb                       data: []WbCrumb
+  wb/robot       one agent                                  data: WbRobot
+  wb/robots      a row of agents, "+N" past wbCrewMax       data: WbCrew
+  wb/chip        a pill                                     data: WbChip
+  wb/chips       a row of pills                             data: []WbChip
+  wb/ceo         the CEO robot with its latest line         data: WbCEO
+  wb/progress    a labelled bar                             data: *WbProgress
+  wb/bang        the orange "!" with a count                data: int
+  wb/skyline     departments as buildings, plus a free lot  data: []WbBuilding
+  wb/lot         a project on the map (L0)                  data: MapLot
+  wb/queue-card  one thing waiting on the owner             data: WbQueueCard
+  wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
+*/}}
+
+{{define "wb/head"}}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.}} · Dark Factory</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%231B1F2A'/><path d='M4 20V11l4 2.5v-2.5l4 2.5v-2.5l4 2.5V5h3v15z' fill='white'/></svg>">
+    <link rel="stylesheet" href="/static/workshop.css">
+{{end}}
+
+{{define "wb/header"}}
+<header class="wb-header">
+    <a class="wb-brand" href="/" data-testid="map.brand">
+        <span class="wb-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/><path d="M7 17h2M12 17h2M17 17h1"/></svg></span>
+        <span class="wb-brand-name">Dark Factory</span>
+    </a>
+    {{template "wb/crumbs" .Crumbs}}
+    <div class="wb-grow"></div>
+    <div class="wb-header-stats">
+        <div class="wb-stat-box" data-testid="map.agents">
+            <span class="wb-stat"><span class="wb-dot wb-dot--working"></span>{{.Working}} <span class="wb-muted">working</span></span>
+            <span class="wb-stat"><span class="wb-dot wb-dot--idle"></span>{{.Idle}} <span class="wb-muted">idle</span></span>
+            <span class="wb-stat"><span class="wb-dot wb-dot--agent"></span>{{.AgentWait}} <span class="wb-muted">waiting on an agent</span></span>
+        </div>
+        <div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>
+        <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="#waiting" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
+        <div class="wb-avatar" title="You">YOU</div>
+    </div>
+</header>
+{{end}}
+
+{{define "wb/crumbs"}}
+<nav class="wb-crumbs" aria-label="View level">
+    {{range $i, $c := .}}{{if $i}}<span class="wb-crumb-sep" aria-hidden="true">›</span>{{end}}{{if $c.Current}}<span class="wb-crumb wb-crumb--on" aria-current="page">{{$c.Label}}</span>{{else if $c.URL}}<a class="wb-crumb wb-crumb--link" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}<span class="wb-crumb wb-crumb--plan" title="{{$c.Hint}}">{{$c.Label}}</span>{{end}}{{end}}
+</nav>
+{{end}}
+
+{{define "wb/robot"}}<div class="wb-bot wb-bot--{{.State}}" title="{{.Label}} · {{.StateLabel}}"><i class="wb-bot-ant"></i><i class="wb-bot-lamp"></i><span class="wb-bot-body"><i></i><i></i></span></div>{{end}}
+
+{{define "wb/robots"}}<div class="wb-robots" data-testid="map.lot.robots">{{range .Robots}}{{template "wb/robot" .}}{{else}}<span class="wb-none">Nobody is working right now</span>{{end}}{{if .More}}<span class="wb-more">+{{.More}}</span>{{end}}</div>{{end}}
+
+{{define "wb/chip"}}<span class="wb-chip wb-chip--{{.Tone}}"{{with .Title}} title="{{.}}"{{end}}{{with .TestID}} data-testid="chip.{{.}}"{{end}}>{{if .Dot}}<span class="wb-chip-dot{{if .Blink}} wb-blink{{end}}"></span>{{end}}{{.Text}}</span>{{end}}
+
+{{define "wb/chips"}}{{if .}}<div class="wb-chips">{{range .}}{{template "wb/chip" .}}{{end}}</div>{{end}}{{end}}
+
+{{define "wb/ceo"}}
+<div class="wb-ceo">
+    <div class="wb-ceo-bot{{if not .Live}} wb-ceo-bot--off{{end}}"><svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
+    <div class="wb-bubble" data-testid="map.lot.quote">{{if .Quote}}“{{.Quote}}”{{else if .Live}}The CEO is working and has not said anything yet.{{else}}The CEO is not running.{{end}}<div class="wb-mono">{{.Session}}{{if not .Live}} · not running{{end}}</div></div>
+</div>
+{{end}}
+
+{{define "wb/progress"}}{{with .}}<div class="wb-goal" data-testid="map.lot.progress">
+    <div class="wb-goal-row"><span>{{.Label}}</span><span>{{.Done}}/{{.Total}}</span></div>
+    <div class="wb-goal-track"><div style="width:{{.Pct}}%"></div></div>
+</div>{{end}}{{end}}
+
+{{define "wb/bang"}}{{if .}}<div class="wb-bang wb-ping" data-testid="map.lot.waiting"><span>!</span><span>{{.}}</span></div>{{end}}{{end}}
+
+{{define "wb/skyline"}}
+<div class="wb-skyline" data-testid="map.lot.buildings">
+    {{range .}}<div class="wb-bld" title="{{.Name}}: {{.Open}} open" style="width:{{.Width}}px;height:{{.Height}}px;background-color:{{.Color}}"></div>{{end}}
+    <div class="wb-bld wb-bld--plan" title="Free lot: a new department"></div>
+</div>
+{{end}}
+
+{{define "wb/lot"}}
+<a class="wb-lot{{if .Engine}} wb-lot--engine{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/status" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
+   aria-label="{{.Name}}{{if .Waiting}}: {{.Waiting}} waiting on you{{end}}{{if eq .CI "red"}}, CI red{{end}}. Enter the project.">
+    <div class="wb-lot-roof"></div>
+    <div class="wb-lot-body">
+        <div class="wb-lot-head">
+            <div class="wb-lot-name">{{.Name}}</div>
+            {{if .Engine}}<div class="wb-tag">ENGINE</div>{{else if .Kind}}<div class="wb-lot-kind">{{.Kind}}</div>{{end}}
+        </div>
+        {{template "wb/skyline" .Buildings}}
+        {{template "wb/robots" .Crew}}
+        {{template "wb/chips" .Chips}}
+        {{template "wb/ceo" .CEO}}
+        {{template "wb/progress" .Progress}}
+    </div>
+    {{template "wb/bang" .Waiting}}
+</a>
+{{end}}
+
+{{define "wb/queue-card"}}
+<article class="wb-card" data-testid="map.queue.row">
+    <div class="wb-card-meta">
+        <span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span>
+        <span class="wb-proj"><i style="background:{{.Color}}"></i>{{.Project}}</span>
+        <span class="wb-age">{{.Age}}</span>
+    </div>
+    <div class="wb-slug">{{.Slug}}</div>
+    <div class="wb-card-note">{{.Note}}</div>
+    <div class="wb-card-actions">
+        <a class="wb-btn wb-btn--you" href="{{.URL}}">{{.CTA}}</a>
+        <a class="wb-btn wb-btn--quiet" href="#lot-{{.ProjectSlug}}" data-show="lot-{{.ProjectSlug}}">Show on map</a>
+    </div>
+</article>
+{{end}}
+
+{{define "wb/side"}}
+<aside class="wb-side" id="waiting" aria-label="Waiting on you">
+    <div class="wb-tabs" role="tablist" aria-label="Panel">
+        <button type="button" role="tab" class="wb-tab" aria-selected="true" aria-controls="tab-queue" data-testid="map.tab.queue">Waiting on you · {{len .}}</button>
+        <button type="button" role="tab" class="wb-tab" aria-selected="false" aria-controls="tab-radio" data-testid="map.tab.radio">Radio</button>
+    </div>
+    <div class="wb-tabpanel" id="tab-queue" role="tabpanel">
+        <div class="wb-note">What blocks others first, then the gates waiting longest.</div>
+        {{range .}}{{template "wb/queue-card" .}}{{else}}<div class="wb-empty" data-testid="map.queue.empty">Nothing is waiting on you. The factory runs by itself.</div>{{end}}
+    </div>
+    <div class="wb-tabpanel" id="tab-radio" role="tabpanel" hidden>
+        <div class="wb-empty">Radio will carry what the CEOs and agents say to each other. For now, talk to a CEO from <a href="/leads">All CEOs</a>.</div>
+    </div>
+</aside>
+{{end}}

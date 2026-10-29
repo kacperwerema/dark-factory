@@ -481,7 +481,7 @@ var IDs = []string{
 	"updates.overview",
 	"updates.overview.stats",
 	"updates.overview.row",
-	// The map of projects (templates/map.html, "/"): L0 of the Plansza design.
+	// The map of projects (templates/map.html, "/"): L0 of the Workshop Board design.
 	"map.brand",
 	"map.agents",
 	"map.done_week",
@@ -499,7 +499,7 @@ var IDs = []string{
 	"map.tab.radio",
 	"map.queue.row",
 	"map.queue.empty",
-	// Plansza components (templates/_plansza.html), on every level.
+	// Workshop Board components (templates/_workshop.html), on every level.
 	"chip.*",
 	// Lead chat (/p/<project>/lead) and the leads overview (/leads).
 	"lead_chat.page",

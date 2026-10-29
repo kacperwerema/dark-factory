@@ -38,16 +38,16 @@ func TestMapPage(t *testing.T) {
 		`data-testid="map.lot.agents"`, `href="/p/agents/status"`, `aplikacja PWA`,
 		`data-testid="map.lot.test-project"`,
 		// child waits at its gate, asker asks a question: both wait on the owner.
-		`class="pl-bot pl-bot--you" title="ui/child`, `class="pl-bot pl-bot--you" title="ui/asker`,
+		`class="wb-bot wb-bot--you" title="ui/child`, `class="wb-bot wb-bot--you" title="ui/asker`,
 		// The lead's newest paragraph is its quote.
-		`„Do you want the epic closed?”`, `lead-agents</div>`,
+		`“Do you want the epic closed?”`, `lead-agents</div>`,
 		`Epic: Epic</span><span>0/3</span>`,
-		`>Pytanie</span>`, `>Bramka: testing</span>`, `href="/p/agents/issue/ui/child#approve-testing"`,
+		`>Question</span>`, `>Gate: testing</span>`, `href="/p/agents/issue/ui/child#approve-testing"`,
 		`data-show="lot-agents"`, `data-testid="map.lot.waiting"`,
 	)
 	// Four ready testing gates and asker's question in agents, plus
 	// test-project's ready backlog gate.
-	if !strings.Contains(html, `>6 czeka na Ciebie</a>`) {
+	if !strings.Contains(html, `>6 waiting on you</a>`) {
 		t.Error("the header should count everything waiting on the owner across projects")
 	}
 }
@@ -60,7 +60,7 @@ func TestMapSingleProjectShowsTheMap(t *testing.T) {
 	if code != 200 || !strings.Contains(html, `data-testid="map.lot.test-project"`) {
 		t.Fatalf("status %d, want the map with the one project", code)
 	}
-	assertContains(t, html, `>Bramka: in progress</span>`, `href="/p/test-project/issue/add-dark-mode#approve-in-progress"`, `>1 czeka na Ciebie</a>`)
+	assertContains(t, html, `>Gate: in progress</span>`, `href="/p/test-project/issue/add-dark-mode#approve-in-progress"`, `>1 waiting on you</a>`)
 }
 
 func TestLastLeadParagraph(t *testing.T) {
@@ -71,7 +71,7 @@ func TestLastLeadParagraph(t *testing.T) {
 	if got := lastLeadParagraph(pane); got != "I sent two workers to ui/a." {
 		t.Errorf("quote = %q, want the newest paragraph that is not a tool call", got)
 	}
-	long := "⏺ " + strings.Repeat("słowo ", 60)
+	long := "⏺ " + strings.Repeat("wörd ", 60)
 	if got := lastLeadParagraph(long); len([]rune(got)) != mapQuoteMax || !strings.HasSuffix(got, "…") {
 		t.Errorf("long quote = %q (%d runes), want it clipped to %d", got, len([]rune(got)), mapQuoteMax)
 	}
@@ -114,27 +114,27 @@ func TestMapBuildingsAndProgress(t *testing.T) {
 	if len(b) != mapBuildings || b[0].Name != "Plan" || b[0].Open != 3 || b[1].Name != "Zakupy" {
 		t.Fatalf("buildings = %+v", b)
 	}
-	if last := b[len(b)-1]; last.Name != "Pozostałe (3)" || last.Open != 3 {
+	if last := b[len(b)-1]; last.Name != "Others (3)" || last.Open != 3 {
 		t.Errorf("last building = %+v, want the rest counted together", last)
 	}
 	if b[0].Height <= b[1].Height {
 		t.Errorf("more open work should stand taller: %d vs %d", b[0].Height, b[1].Height)
 	}
 
-	epic := &tracker.Issue{Slug: "e", Title: "Hala", Status: "in progress"}
+	epic := &tracker.Issue{Slug: "e", Title: "Hall", Status: "in progress"}
 	issues := []*tracker.Issue{epic,
 		{Slug: "e1", Status: "done", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 		{Slug: "e2", Status: "backlog", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 	}
 	p := mapProgressOf(issues)
-	if p == nil || p.Label != "Epic: Hala" || p.Done != 1 || p.Total != 2 || p.Pct() != 50 {
+	if p == nil || p.Label != "Epic: Hall" || p.Done != 1 || p.Total != 2 || p.Pct() != 50 {
 		t.Errorf("progress = %+v", p)
 	}
 }
 
 func TestSortMapQueueBlockingFirstThenOldest(t *testing.T) {
 	now := time.Now()
-	q := []PlQueueCard{
+	q := []WbQueueCard{
 		{Slug: "new", Since: now.Add(-time.Minute)},
 		{Slug: "ci", Blocking: true, Since: now},
 		{Slug: "old", Since: now.Add(-time.Hour)},
@@ -158,37 +158,29 @@ func TestMapLotTakesKindAndColorFromConfig(t *testing.T) {
 	}
 }
 
-func TestPolishAge(t *testing.T) {
-	for d, want := range map[time.Duration]string{30 * time.Second: "teraz", 12 * time.Minute: "12 min", 3 * time.Hour: "3 h", 50 * time.Hour: "2 d"} {
-		if got := polishAge(d); got != want {
-			t.Errorf("polishAge(%v) = %q, want %q", d, got, want)
-		}
-	}
-}
-
-// TestPlanszaComponentsStandAlone renders every component on its own: a page
+// TestWorkshopComponentsStandAlone renders every component on its own: a page
 // composes them, so none may lean on the page around it.
-func TestPlanszaComponentsStandAlone(t *testing.T) {
+func TestWorkshopComponentsStandAlone(t *testing.T) {
 	srv, err := NewServer(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	progress := &PlProgress{Label: "Epic: Hala", Done: 2, Total: 7}
-	card := PlQueueCard{Label: "Pytanie", Tone: "you", Project: "Jemik", ProjectSlug: "meals", Slug: "zakupy/x", CTA: "Odpowiedz", URL: "/p/meals/issue/zakupy/x"}
+	progress := &WbProgress{Label: "Epic: Hall", Done: 2, Total: 7}
+	card := WbQueueCard{Label: "Question", Tone: "you", Project: "Jemik", ProjectSlug: "meals", Slug: "zakupy/x", CTA: "Answer", URL: "/p/meals/issue/zakupy/x"}
 	for name, data := range map[string]any{
-		"pl/head":       "Mapa",
-		"pl/header":     PlHeader{Crumbs: plCrumbs(1, "Jemik", "/p/meals/status"), Working: 2, Waiting: 3},
-		"pl/robot":      PlRobot{State: "agent", Label: "ui/b → ui/a"},
-		"pl/robots":     plCrew([]PlRobot{{State: "working"}}),
-		"pl/chip":       *plCIChip("red", "make validate"),
-		"pl/chips":      plCountChips(1, 1, 1, 2),
-		"pl/ceo":        PlCEO{Session: "lead-meals", Live: true, Quote: "Mam 3 sprawy."},
-		"pl/progress":   progress,
-		"pl/bang":       3,
-		"pl/skyline":    []PlBuilding{{Name: "Plan", Open: 3, Color: "#3D7BF7", Width: 48, Height: 25}},
-		"pl/lot":        MapLot{Name: "Jemik", Slug: "meals", Color: "#13A386", Progress: progress, Waiting: 1},
-		"pl/queue-card": card,
-		"pl/side":       []PlQueueCard{card},
+		"wb/head":       "Map",
+		"wb/header":     WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status"), Working: 2, Waiting: 3},
+		"wb/robot":      WbRobot{State: "agent", Label: "ui/b → ui/a"},
+		"wb/robots":     wbCrew([]WbRobot{{State: "working"}}),
+		"wb/chip":       *plCIChip("red", "make validate"),
+		"wb/chips":      wbCountChips(1, 1, 1, 2),
+		"wb/ceo":        WbCEO{Session: "lead-meals", Live: true, Quote: "Three things for you."},
+		"wb/progress":   progress,
+		"wb/bang":       3,
+		"wb/skyline":    []WbBuilding{{Name: "Plan", Open: 3, Color: "#3D7BF7", Width: 48, Height: 25}},
+		"wb/lot":        MapLot{Name: "Jemik", Slug: "meals", Color: "#13A386", Progress: progress, Waiting: 1},
+		"wb/queue-card": card,
+		"wb/side":       []WbQueueCard{card},
 	} {
 		var b strings.Builder
 		if err := srv.tmpl.ExecuteTemplate(&b, name, data); err != nil || strings.TrimSpace(b.String()) == "" {
@@ -196,6 +188,6 @@ func TestPlanszaComponentsStandAlone(t *testing.T) {
 		}
 	}
 	var b strings.Builder
-	srv.tmpl.ExecuteTemplate(&b, "pl/header", PlHeader{Crumbs: plCrumbs(1, "Jemik", "/p/meals/status")})
-	assertContains(t, b.String(), `<a class="pl-crumb pl-crumb--link" href="/">Mapa</a>`, `aria-current="page">Jemik</span>`, `title="Wejdź w projekt, potem w halę">Hala</span>`)
+	srv.tmpl.ExecuteTemplate(&b, "wb/header", WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status")})
+	assertContains(t, b.String(), `<a class="wb-crumb wb-crumb--link" href="/">Map</a>`, `aria-current="page">Jemik</span>`, `title="Pick a project, then its hall">Hall</span>`)
 }

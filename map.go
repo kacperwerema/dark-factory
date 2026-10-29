@@ -14,10 +14,10 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
-// The map (L0, "Mapa projektów") is the board's home page: one lot per
+// The map (L0, "Project map") is the board's home page: one lot per
 // project, the CEO's latest line, its agents as robots, CI, what waits on the
 // owner, and on the right the owner's queue across every project. Design:
-// "Plansza warsztatowa" (issues/Factory/designs/plansza in dark-factory).
+// "Workshop Board" (issues/Factory/designs/workshop-board in dark-factory).
 
 // mapProjectColors are the lots' colours when a project sets none
 // (projects.yaml color:). Orange is never one: it is the owner's.
@@ -49,12 +49,12 @@ const mapDoneWindow = 7 * 24 * time.Hour
 
 // MapData is the whole map page.
 type MapData struct {
-	Header PlHeader
+	Header WbHeader
 	Lots   []MapLot
 	// Totals across projects, for the header.
 	Working, Idle, AgentWait int
 	DoneWeek                 int
-	Queue                    []PlQueueCard
+	Queue                    []WbQueueCard
 	Updates                  int
 	// RC is the engine's release candidate being tested; nil without one.
 	RC *MapRC
@@ -74,19 +74,19 @@ type MapLot struct {
 	Name, Slug, Kind, Color string
 	// Engine: this lot is the workflow engine itself (dark-factory).
 	Engine    bool
-	Buildings []PlBuilding
-	Robots    []PlRobot
-	Crew      PlCrew
+	Buildings []WbBuilding
+	Robots    []WbRobot
+	Crew      WbCrew
 	// CI is "", "green" or "red"; CILine says what failed.
 	CI, CILine string
 	Working    int
 	Idle       int
 	AgentWait  int
 	You        int
-	CEO        PlCEO
-	Progress   *PlProgress
+	CEO        WbCEO
+	Progress   *WbProgress
 	// Chips are CI, the agent counts and privacy problems, in that order.
-	Chips []PlChip
+	Chips []WbChip
 	// Waiting is what waits on the owner here: the "!" on the lot.
 	Waiting  int
 	DoneWeek int
@@ -107,7 +107,7 @@ func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
 // buildMap reads every project at once, one goroutine each.
 func (s *Server) buildMap(now time.Time) MapData {
 	lots := make([]MapLot, len(s.projects))
-	queues := make([][]PlQueueCard, len(s.projects))
+	queues := make([][]WbQueueCard, len(s.projects))
 	var rc *MapRC
 	var wg sync.WaitGroup
 	for i := range s.projects {
@@ -146,12 +146,12 @@ func (s *Server) buildMap(now time.Time) MapData {
 		}
 	}
 	sortMapQueue(data.Queue)
-	data.Header = PlHeader{Crumbs: plCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue)}
+	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue)}
 	return data
 }
 
 // sortMapQueue puts what blocks others first (CI red), then the oldest.
-func sortMapQueue(q []PlQueueCard) {
+func sortMapQueue(q []WbQueueCard) {
 	sort.SliceStable(q, func(i, j int) bool {
 		if q[i].Blocking != q[j].Blocking {
 			return q[i].Blocking
@@ -161,9 +161,9 @@ func sortMapQueue(q []PlQueueCard) {
 }
 
 // buildLot is one project's lot and its rows of the owner's queue.
-func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapLot, []PlQueueCard) {
+func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapLot, []WbQueueCard) {
 	prefix := "/p/" + p.Slug
-	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, CEO: PlCEO{Session: tracker.LeadSessionName(p)}}
+	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, CEO: WbCEO{Session: tracker.LeadSessionName(p)}}
 	issues, err := tracker.LoadIssues(p.IssueDir)
 	if err != nil {
 		log.Printf("map: %s: load issues: %v", p.Slug, err)
@@ -198,10 +198,10 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 			}
 		}
 	}
-	lot.Crew = plCrew(lot.Robots)
+	lot.Crew = wbCrew(lot.Robots)
 	lot.CEO.Quote = s.leadQuote(p, lot.CEO.Live, now)
 
-	var queue []PlQueueCard
+	var queue []WbQueueCard
 	if st, enabled := ciState(p); enabled && st != nil {
 		lot.CI = "green"
 		if st.IsRed() {
@@ -215,12 +215,12 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 				slug = st.Branch
 			}
 			since := st.Updated
-			queue = append(queue, PlQueueCard{
-				Kind: "ci", Label: "CI czerwony", Tone: "red", Blocking: true,
+			queue = append(queue, WbQueueCard{
+				Kind: "ci", Label: "CI red", Tone: "red", Blocking: true,
 				Project: p.Name, ProjectSlug: p.Slug, Color: color,
-				Slug: slug, Note: lot.CILine + " pada na " + st.Branch + ".",
-				Since: since, Age: polishAge(now.Sub(since)),
-				CTA: "Zobacz status", URL: prefix + "/status",
+				Slug: slug, Note: lot.CILine + " fails on " + st.Branch + ".",
+				Since: since, Age: shortDuration(now.Sub(since)),
+				CTA: "View status", URL: prefix + "/status",
 			})
 		}
 	}
@@ -236,20 +236,20 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 	if c := plCIChip(lot.CI, lot.CILine); c != nil {
 		lot.Chips = append(lot.Chips, *c)
 	}
-	lot.Chips = append(lot.Chips, plCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)
+	lot.Chips = append(lot.Chips, wbCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)
 	for _, b := range lot.Privacy {
 		if b.Level == "amber" || b.Level == "red" {
-			lot.Chips = append(lot.Chips, PlChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
+			lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
 		}
 	}
 	return lot, queue
 }
 
 // mapQueueRow words one waiting item for the owner, with its action.
-func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now time.Time) PlQueueCard {
-	row := PlQueueCard{
+func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now time.Time) WbQueueCard {
+	row := WbQueueCard{
 		Kind: it.Kind, Tone: "you", Project: p.Name, ProjectSlug: p.Slug, Color: color,
-		Slug: it.Issue.Slug, Since: it.Since, Age: polishAge(now.Sub(it.Since)),
+		Slug: it.Issue.Slug, Since: it.Since, Age: shortDuration(now.Sub(it.Since)),
 		URL: prefix + "/issue/" + it.Issue.Slug,
 	}
 	if it.Approx {
@@ -257,38 +257,38 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 	}
 	switch it.Kind {
 	case "gate":
-		row.Label, row.CTA = "Bramka: "+it.Target, "Przejrzyj"
+		row.Label, row.CTA = "Gate: "+it.Target, "Review"
 		row.Note = it.Issue.Title + " · " + it.Issue.Status + " → " + it.Target
 		row.URL += "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
 	case "playtest":
-		row.Label, row.CTA = "Playtest", "Testuj"
+		row.Label, row.CTA = "Playtest", "Play"
 		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
 	case "checks":
-		row.Label, row.CTA = "Human testing", "Sprawdź"
+		row.Label, row.CTA = "Human testing", "Check"
 		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
 	case "question":
-		row.Label, row.CTA = "Pytanie", "Odpowiedz"
+		row.Label, row.CTA = "Question", "Answer"
 		row.Note = it.Issue.Title
 	default:
-		row.Label, row.CTA, row.Note = it.Kind, "Otwórz", it.Issue.Title
+		row.Label, row.CTA, row.Note = it.Kind, "Open", it.Issue.Title
 	}
 	return row
 }
 
 // mapBuildingsOf turns the open work per system into buildings: the biggest
 // systems, height and width growing with open issues.
-func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []PlBuilding {
+func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []WbBuilding {
 	groups, none := groupSystems(open, wf.Workbench)
 	tones := newStatusTones(wf)
-	var out []PlBuilding
+	var out []WbBuilding
 	for _, g := range groups {
 		n, _, _ := tones.counts(g.Members)
 		if n > 0 {
-			out = append(out, PlBuilding{Name: g.Name, Open: n})
+			out = append(out, WbBuilding{Name: g.Name, Open: n})
 		}
 	}
 	if n, _, _ := tones.counts(none); n > 0 {
-		out = append(out, PlBuilding{Name: "Bez działu", Open: n})
+		out = append(out, WbBuilding{Name: "No department", Open: n})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Open > out[j].Open })
 	if len(out) > mapBuildings {
@@ -296,7 +296,7 @@ func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []PlBuild
 		for _, b := range out[mapBuildings-1:] {
 			rest += b.Open
 		}
-		out = append(out[:mapBuildings-1], PlBuilding{Name: fmt.Sprintf("Pozostałe (%d)", len(out)-mapBuildings+1), Open: rest})
+		out = append(out[:mapBuildings-1], WbBuilding{Name: fmt.Sprintf("Others (%d)", len(out)-mapBuildings+1), Open: rest})
 	}
 	// Widths share the skyline (mapSkylineWidth): each gets at least
 	// mapBuildingMinWidth, the rest goes by open work.
@@ -319,13 +319,13 @@ func mapBuildingsOf(open []*tracker.Issue, wf *tracker.WorkflowConfig) []PlBuild
 
 // mapProgressOf is the open epic furthest along (most done children), the
 // lot's bar until projects have goals.
-func mapProgressOf(issues []*tracker.Issue) *PlProgress {
-	var best *PlProgress
+func mapProgressOf(issues []*tracker.Issue) *WbProgress {
+	var best *WbProgress
 	for _, issue := range issues {
 		if strings.EqualFold(issue.Status, "done") || !tracker.IsEpic(issue, issues) {
 			continue
 		}
-		p := PlProgress{Label: "Epic: " + issue.Title}
+		p := WbProgress{Label: "Epic: " + issue.Title}
 		for _, c := range tracker.EpicChildren(issues, issue.Slug) {
 			p.Total++
 			if strings.EqualFold(c.Status, "done") {
@@ -345,16 +345,16 @@ func mapProgressOf(issues []*tracker.Issue) *PlProgress {
 
 // mapRobotsOf is the project's live agents as robots. A worker whose issue is
 // blocked on another issue that has a live worker waits on that agent.
-func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []PlRobot {
+func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []WbRobot {
 	working := map[string]bool{}
 	for _, w := range agents.Workers {
 		if w.Issue != nil {
 			working[strings.ToLower(w.Issue.Slug)] = true
 		}
 	}
-	var out []PlRobot
+	var out []WbRobot
 	for _, w := range agents.Workers {
-		r := PlRobot{State: "working", Label: w.Name}
+		r := WbRobot{State: "working", Label: w.Name}
 		if w.Issue != nil {
 			r.Label = w.Issue.Slug
 		}
@@ -378,7 +378,7 @@ func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []PlRobot {
 		out = append(out, r)
 	}
 	for _, o := range agents.Others {
-		out = append(out, PlRobot{State: "working", Label: o.Name})
+		out = append(out, WbRobot{State: "working", Label: o.Name})
 	}
 	return out
 }
@@ -436,20 +436,6 @@ func clipRunes(s string, n int) string {
 		return s
 	}
 	return strings.TrimSpace(string(r[:n-1])) + "…"
-}
-
-// polishAge is how long ago, the way the map says it: teraz, 12 min, 3 h,
-// 2 d.
-func polishAge(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return "teraz"
-	case d < time.Hour:
-		return fmt.Sprintf("%d min", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%d h", int(d.Hours()))
-	}
-	return fmt.Sprintf("%d d", int(d.Hours()/24))
 }
 
 // engineCandidate is the engine's release candidate and the projects that

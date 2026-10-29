@@ -1,10 +1,10 @@
-// Plansza warsztatowa: the map's tabs, "Pokaż na mapie", the roads that carry
+// Workshop Board: the map's tabs, "Show on map", the roads that carry
 // the engine's release candidate, and a quiet refresh.
 (function () {
   // Tabs in the right panel.
-  document.querySelectorAll('.pl-tab').forEach(function (tab) {
+  document.querySelectorAll('.wb-tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
-      document.querySelectorAll('.pl-tab').forEach(function (t) {
+      document.querySelectorAll('.wb-tab').forEach(function (t) {
         var on = t === tab;
         t.setAttribute('aria-selected', on);
         var panel = document.getElementById(t.getAttribute('aria-controls'));
@@ -13,17 +13,17 @@
     });
   });
 
-  // "Pokaż na mapie": scroll to the lot and flash it.
+  // "Show on map": scroll to the lot and flash it.
   document.querySelectorAll('[data-show]').forEach(function (link) {
     link.addEventListener('click', function (e) {
       var lot = document.getElementById(link.getAttribute('data-show'));
       if (!lot) return;
       e.preventDefault();
       lot.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      lot.classList.remove('pl-lot--flash');
+      lot.classList.remove('wb-lot--flash');
       void lot.offsetWidth;
-      lot.classList.add('pl-lot--flash');
-      setTimeout(function () { lot.classList.remove('pl-lot--flash'); }, 2400);
+      lot.classList.add('wb-lot--flash');
+      setTimeout(function () { lot.classList.remove('wb-lot--flash'); }, 2400);
     });
   });
 
@@ -34,7 +34,7 @@
   function drawRoads() {
     if (!lots || !svg) return;
     svg.innerHTML = '';
-    lots.querySelectorAll('.pl-truck').forEach(function (t) { t.remove(); });
+    lots.querySelectorAll('.wb-truck').forEach(function (t) { t.remove(); });
     var engine = lots.getAttribute('data-rc-engine');
     var from = engine && document.getElementById('lot-' + engine);
     if (!from) return;
@@ -42,7 +42,7 @@
     var a = from.getBoundingClientRect();
     var ax = a.left + a.width / 2 - box.left, ay = a.top + a.height / 2 - box.top;
     var ns = 'http://www.w3.org/2000/svg';
-    lots.querySelectorAll('.pl-lot[data-rc]').forEach(function (lot) {
+    lots.querySelectorAll('.wb-lot[data-rc]').forEach(function (lot) {
       var b = lot.getBoundingClientRect();
       var bx = b.left + b.width / 2 - box.left, by = b.top + b.height / 2 - box.top;
       var midY = (ay + by) / 2;
@@ -55,7 +55,7 @@
         svg.appendChild(p);
       });
       var truck = document.createElement('div');
-      truck.className = 'pl-truck';
+      truck.className = 'wb-truck';
       truck.innerHTML = '<svg width="18" height="14" viewBox="0 0 24 18" fill="none" stroke="#1B1F2A" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M1 2h13v11H1zM14 6h5l4 4v3h-9z"/><circle cx="6" cy="15" r="2" fill="#fff"/><circle cx="18" cy="15" r="2" fill="#fff"/></svg>';
       truck.appendChild(document.createTextNode('RC ' + lot.getAttribute('data-rc') + ' · test'));
       truck.style.left = ((ax + bx) / 2) + 'px';
