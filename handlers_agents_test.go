@@ -338,11 +338,11 @@ func TestDetailShowsLeadSection(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, html := getResp(t, ts.URL+"/p/agents/issue/ui/epic")
+	_, html := getResp(t, ts.URL+"/p/agents/issue/ui/epic?classic=1")
 	if !strings.Contains(html, `data-testid="detail.lead.name">lead-agents</div>`) || strings.Contains(html, "sub-lead") {
 		t.Errorf("epic page should name the project lead and no sub-lead")
 	}
-	_, html = getResp(t, ts.URL+"/p/agents/issue/ui/child")
+	_, html = getResp(t, ts.URL+"/p/agents/issue/ui/child?classic=1")
 	if !strings.Contains(html, `<div class="active-session-name" data-testid="detail.lead.name">lead-agents</div>`) || !strings.Contains(html, `· epic <a href="/p/agents/issue/ui/epic">ui/epic</a>`) {
 		t.Errorf("child page should name the project lead and its epic")
 	}

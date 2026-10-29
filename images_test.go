@@ -102,7 +102,7 @@ func TestDetailAndDocsRewriteRelativeImages(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	for _, path := range []string{"/p/test-project/issue/" + slug, "/p/test-project/docs/" + docSlug} {
+	for _, path := range []string{"/p/test-project/issue/" + slug + "?classic=1", "/p/test-project/docs/" + docSlug} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatal(err)

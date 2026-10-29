@@ -137,10 +137,10 @@ steps:
   - id: TP11
     title: An epic's detail page links to the canvas with the epic highlighted
     setup:
-      - open: /p/{project}/issue/core/index-issue-bodies
+      - open: /p/{project}/issue/core/index-issue-bodies?classic=1
     act:
       - check: { absent: detail.canvas_link }
-      - open: /p/{project}/issue/core/search-everywhere
+      - open: /p/{project}/issue/core/search-everywhere?classic=1
       - click: detail.canvas_link
       - wait_for: { url: { contains: "/canvas?hl=" } }
     checks:

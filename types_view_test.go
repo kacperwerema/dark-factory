@@ -200,11 +200,11 @@ func TestDetail_ApprovalsAndPreviewFollowType(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{setupTypedProject(t)})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/typed/issue/small-tweak")
+	_, html := getBody(t, ts.URL+"/p/typed/issue/small-tweak?classic=1")
 	if !strings.Contains(html, `id="approve-in-progress"`) || !strings.Contains(html, `id="type-select"`) {
 		t.Error("tweak at idea should show the in progress approval and the Type select")
 	}
-	_, html = getBody(t, ts.URL+"/p/typed/issue/big-feature")
+	_, html = getBody(t, ts.URL+"/p/typed/issue/big-feature?classic=1")
 	if strings.Contains(html, `id="approve-in-progress"`) {
 		t.Error("feature at idea should not show the tweak's approval")
 	}

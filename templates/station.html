@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Station" .Title.Slug)}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page" data-issue-url="{{.IssueURL}}">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-shead" aria-label="The issue">
+    {{template "wb/issue-title" .Title}}
+    <div class="wb-shead-row">
+        {{template "wb/belt" .Belt}}
+        {{template "wb/time-split" .Time}}
+    </div>
+</section>
+<main class="wb-l3">
+<div class="wb-l3-main">
+    {{template "wb/your-move" .Move}}
+    <section class="wb-quality" aria-labelledby="quality-h" data-testid="station.quality">
+        <div class="wb-titlebar wb-titlebar--flush"><h2 class="wb-h1 wb-h1--sm" id="quality-h">Quality check</h2><span class="wb-sub">what the agent checked, and what is left for you</span></div>
+        <div class="wb-qcards">{{range .Quality}}{{template "wb/quality-card" .}}{{end}}</div>
+    </section>
+    {{template "wb/decisions" .Decisions}}
+    {{template "wb/change-card" .Change}}
+    {{template "wb/tests-card" .Tests}}
+    {{template "wb/timeline-list" .Timeline}}
+</div>
+<aside class="wb-l3-side" aria-label="Agent and fields">
+    {{template "wb/station-agent" .Agent}}
+    {{template "wb/sessions" .Sessions}}
+    {{template "wb/body-index" .Body}}
+    {{template "wb/fields" .Fields}}
+</aside>
+</main>
+</div>
+<script src="/static/station.js"></script>
+</body>
+</html>

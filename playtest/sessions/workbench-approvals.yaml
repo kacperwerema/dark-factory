@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: Approved for backlog and in progress sets both approvals; a second click clears both
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     act:
       - check: { text_contains: { target: detail.approve_then.backlog, text: Approved for backlog and in progress } }
       - click: detail.approve_then.backlog
@@ -29,7 +29,7 @@ steps:
   - id: TP5
     title: With the queued approval, transition to backlog and start reach in progress without a second approval
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
       - click: detail.approve_then.backlog
       - wait_for: { selected: detail.approve_then.backlog }
     act:
@@ -55,7 +55,7 @@ steps:
   - id: TP7
     title: The two approval buttons say clearly what each one approves
     setup:
-      - open: /p/{project}/issue/economy/shop-prices-per-stage
+      - open: /p/{project}/issue/economy/shop-prices-per-stage?classic=1
     targets:
       - { id: detail.approve.backlog, note: Approves backlog only }
       - { id: detail.approve_then.backlog, note: Approves backlog and queues in progress }

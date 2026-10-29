@@ -51,6 +51,7 @@ markers.go                  — card markers (cardMarkers, blocked_on, needs-rev
 agent_state.go              — worker state for the agents canvas and card footers (workerState, idle from the clilog's last call)
 handlers_canvas.go          — issues canvas (/canvas): version columns × epic or system rows
 handlers_detail.go          — detail page, transition preview, data-table render
+station.go                  — L3, the station: GET /issue/<slug> (classic page at ?classic=1 or ?tab=); components in templates/_workshop_station.html, JS in static/station.js
 issue_tab.go                — the detail page's Issue tab model: brief, Needs-you band, path, what you're approving, folded body, side column
 evidence.go                 — the detail page's Evidence tab model and its label: shots per linked playtest step, criteria → proof, verdict, playtest per step, watch (evidence_change.go: commits and files by area; stale_text.go: stale Open/pending lines matched to a D-n)
 timeline.go                 — the detail page's Timeline tab model: where the time went (agent, waiting on you, idle, rework), life by status, filters

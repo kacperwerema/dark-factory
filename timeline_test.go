@@ -205,7 +205,7 @@ func TestDetailTabs(t *testing.T) {
 	defer ts.Close()
 	base := ts.URL + "/p/test-project/issue/bug-in-login"
 
-	_, issue := getBody(t, base)
+	_, issue := getBody(t, base+"?classic=1")
 	for _, want := range []string{`data-testid="detail.pagetab.issue" aria-current="true"`, `data-testid="detail.body"`, `data-testid="detail.sidebar"`} {
 		if !strings.Contains(issue, want) {
 			t.Errorf("issue tab: missing %s", want)

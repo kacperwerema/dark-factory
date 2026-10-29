@@ -16,7 +16,7 @@ steps:
   - id: TP4
     title: The band shows the brief, your words, the path and the ready gate
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     checks:
       - text_contains: { target: detail.brief.text, text: "The issue page opens on a band that says what this is" }
       - text_contains: { target: detail.brief.words, text: "the band first, the rest can wait" }
@@ -35,7 +35,7 @@ steps:
   - id: TP5
     title: Approving from the band saves your words with the approval
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     act:
       - type: { target: approve_words.band, text: "Band reads right, start it" }
       - click: detail.needs.approve.in_progress
@@ -47,7 +47,7 @@ steps:
   - id: TP6
     title: The body is folded by section; Show, Hide and Expand all work, and the state survives a reload
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     act:
       - check: { hidden: detail.block.13 }
       - check: { text_contains: { target: detail.fold.section.idea, text: "2 / 2" } }
@@ -68,7 +68,7 @@ steps:
   - id: TP7
     title: Comments and Edit still work on a folded body
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     act:
       - click: detail.fold.toggle.idea
       - wait_for: detail.block.6
@@ -86,7 +86,7 @@ steps:
   - id: TP8
     title: An answer under an open question is saved and clears the question
     setup:
-      - open: /p/{project}/issue/ui/question-open
+      - open: /p/{project}/issue/ui/question-open?classic=1
     act:
       - check: { text_contains: { target: detail.needs, text: "keep refused calls in the list, or only count them?" } }
       - type: { target: detail.needs.answer, text: "only count them" }
@@ -101,16 +101,16 @@ steps:
   - id: TP9
     title: The other states say what to do, or who has the issue
     setup:
-      - open: /p/{project}/issue/ui/playtest-due
+      - open: /p/{project}/issue/ui/playtest-due?classic=1
     act:
       - check: { text_contains: { target: detail.needs, text: "Run the playtest: 1 session." } }
       - check: { text_contains: { target: detail.needs.command, text: "make playtest ISSUE=ui/playtest-due" } }
       - check: { visible: detail.needs.copy }
       - check: { text_contains: { target: detail.needs.also, text: "approve → done" } }
-      - open: /p/{project}/issue/ui/parked-one
+      - open: /p/{project}/issue/ui/parked-one?classic=1
       - check: { text_contains: { target: detail.needs, text: "Nobody is on it." } }
       - check: { text_contains: { target: detail.needs, text: "Delivered by another issue in v0.53.0." } }
-      - open: /p/{project}/issue/ui/agent-stopped
+      - open: /p/{project}/issue/ui/agent-stopped?classic=1
     checks:
       - text_contains: { target: detail.needs, text: "The agent stopped." }
       - absent: detail.needs.approve.in_progress
@@ -119,7 +119,7 @@ steps:
   - id: TP10
     title: The Issue tab answers what, where and what you need in ten seconds
     setup:
-      - open: /p/{project}/issue/ui/folded-brief
+      - open: /p/{project}/issue/ui/folded-brief?classic=1
     targets:
       - { id: detail.brief, note: What this is, where it is, and Needs you }
       - { id: detail.approving, note: What was recorded since dispatch }

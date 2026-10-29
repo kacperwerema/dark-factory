@@ -1,0 +1,254 @@
+{{/*
+Workshop Board components of the station (L3: one issue to verify). View
+models in station.go, styles in static/workshop.css ("L3: the station"),
+behaviour in static/station.js. templates/station.html composes them.
+
+  wb/issue-title   the crate, title, chips and slug        data: WbIssueTitle
+  wb/belt          the issue's path, time per status       data: WbBelt
+  wb/time-split    where the time goes                     data: WbTimeSplit
+  wb/your-move     the owner's steps, then the stamp       data: WbYourMove
+  wb/move-task     one numbered step before the stamp      data: WbMoveTask
+  wb/stamp         the gate approval with your words       data: *WbStamp
+  wb/quality-card  one card of the quality check           data: WbQualityCard
+  wb/decisions     the D-n list                            data: WbDecisions
+  wb/decision      one decision                            data: WbDecision
+  wb/change-card   the files the work branch changed       data: WbChangeCard
+  wb/tests-card    tests, proofs and the checklist         data: WbTestsCard
+  wb/check-group   one section's checkboxes                data: WbCheckGroup
+  wb/timeline-list the issue's life, newest first          data: WbTimelineList
+  wb/station-agent the issue's agent                       data: WbStationAgent
+  wb/sessions      tmux sessions on the issue              data: WbSessionList
+  wb/body-index    the body by section, with counts        data: WbBodyIndex
+  wb/fields        a titled list of fields                 data: WbFields
+*/}}
+
+{{define "wb/issue-title"}}
+<div class="wb-ititle" data-testid="station.title">
+    <div class="wb-ititle-crate" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="#E9D7B5" stroke="#1B1F2A" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10" fill="none"/></svg></div>
+    <div class="wb-ititle-main">
+        <h1 class="wb-ititle-h">{{.Title}}</h1>
+        <div class="wb-ititle-meta">
+            {{range .Chips}}{{template "wb/chip" .}}{{end}}
+            <span class="wb-ititle-slug">{{.Slug}}</span>
+            <a class="wb-ititle-classic" href="{{.ClassicURL}}" data-testid="station.classic">Classic view</a>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "wb/belt"}}
+<div class="wb-beltcard" data-testid="station.belt">
+    <div class="wb-card-head"><span class="wb-eyebrow">{{.Label}}</span><a class="wb-beltcard-link" href="{{.HallURL}}">show in the hall</a></div>
+    <div class="wb-ibelt">
+        <div class="wb-ibelt-track" aria-hidden="true"></div>
+        <ol class="wb-ibelt-steps" style="grid-template-columns:repeat({{len .Steps}},minmax(0,1fr))">
+            {{range .Steps}}<li class="wb-ibelt-step">
+                <span class="wb-ibelt-mark wb-ibelt-mark--{{.State}}{{if .You}} wb-ibelt-mark--you wb-ping{{end}}">{{if eq .State "done"}}✓{{else if .You}}!{{end}}</span>
+                <span class="wb-ibelt-key">{{.Status}}</span>
+                <span class="wb-ibelt-time">{{.Time}}</span>
+                {{if .Note}}<span class="wb-ibelt-note{{if .NoteYou}} wb-ibelt-note--you{{end}}">{{.Note}}</span>{{end}}
+            </li>{{end}}
+        </ol>
+    </div>
+</div>
+{{end}}
+
+{{define "wb/time-split"}}
+<div class="wb-timesplit" data-testid="station.time">
+    <span class="wb-eyebrow">WHERE THE TIME GOES</span>
+    <div class="wb-timesplit-total">{{.Total}} <span>{{.Label}}</span></div>
+    {{if .Parts}}
+    <div class="wb-timesplit-bar" role="img" aria-label="{{range $i, $p := .Parts}}{{if $i}}, {{end}}{{$p.Label}} {{$p.Value}}{{end}}">{{range .Parts}}<i class="wb-tp--{{.Tone}}" style="flex-grow:{{printf "%.2f" .Pct}}"></i>{{end}}</div>
+    <div class="wb-timesplit-legend">{{range .Parts}}<span><i class="wb-tp--{{.Tone}}"></i>{{.Label}} {{.Value}}</span>{{end}}</div>
+    {{else if .Known}}{{else}}<div class="wb-note">No issue-cli calls found: only the time per status is known.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/your-move"}}
+<section class="wb-move{{if .On}} wb-move--on{{end}}" id="move" aria-labelledby="move-h" data-testid="station.move">
+    <div class="wb-move-head">
+        {{if .On}}<span class="wb-move-bang wb-ping" aria-hidden="true">!</span>{{end}}
+        <h2 class="wb-move-h" id="move-h">{{.Title}}</h2>
+        {{with .Meta}}<span class="wb-move-meta">{{.}}</span>{{end}}
+    </div>
+    {{with .Text}}<p class="wb-move-text">{{.}}</p>{{end}}
+    {{if or .Tasks .Stamp}}<div class="wb-move-steps">
+        {{range .Tasks}}{{template "wb/move-task" .}}{{end}}
+        {{with .Stamp}}{{template "wb/stamp" .}}{{end}}
+    </div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/move-task"}}
+<div class="wb-step" data-testid="station.move.task.{{.Kind}}">
+    <div class="wb-step-head"><span class="wb-step-n">{{.N}}</span><span class="wb-step-title">{{.Title}}</span>{{with .Badge}}<span class="wb-step-badge">{{.}}</span>{{end}}</div>
+    {{with .Question}}<blockquote class="wb-quote">{{.}}</blockquote>{{end}}
+    {{with .Asked}}<div class="wb-note">{{.}}</div>{{end}}
+    <p class="wb-step-text">{{.Text}}</p>
+    {{if .CommentURL}}
+    <form class="wb-step-form" data-answer="{{.CommentURL}}">
+        <label class="wb-words-label" for="wb-answer">Your answer</label>
+        <textarea id="wb-answer" name="text" rows="3" class="wb-words" placeholder="Answer the agent"></textarea>
+        <div class="wb-step-actions"><button type="submit" class="wb-btn wb-btn--youshadow">Answer</button></div>
+        <div class="wb-site-msg" role="status"></div>
+    </form>
+    {{end}}
+    {{with .Command}}<code class="wb-cmd">{{.}}</code>{{end}}
+    {{if .Command}}<div class="wb-step-actions">
+        {{with .RunURL}}<button type="button" class="wb-btn wb-btn--youshadow" data-run-checks="{{.}}">Run the checks</button>{{end}}
+        <button type="button" class="wb-btn wb-btn--paper" data-copy="{{.Command}}">Copy the command</button>
+    </div>
+    <div class="wb-site-msg" role="status"></div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/stamp"}}
+<form class="wb-step wb-stampcard" data-stamp="{{.ApproveURL}}" data-comment="{{.CommentURL}}" data-testid="station.stamp">
+    <div class="wb-step-head"><span class="wb-step-n">{{.N}}</span><span class="wb-step-title">Stamp it → {{index .Targets 0}}</span></div>
+    {{if .Approved}}<div class="wb-stamped">{{template "wb/stamp-icon"}}Stamped → <b>{{.Approved}}</b>. The agent continues; take it back below if you change your mind.</div>{{end}}
+    <div class="wb-stamp-targets">
+    {{range $i, $t := .Targets}}<label class="wb-stamp-target" id="approve-{{statusFragment $t}}">
+        <input type="{{if gt (len $.Targets) 1}}radio{{else}}checkbox{{end}}" name="status" value="{{$t}}"{{if eq $.Approved $t}} checked{{end}}{{if $.Locked}} disabled{{end}}>I approve the move to {{$t}}
+    </label>{{end}}
+    </div>
+    <label class="wb-words-label" for="approve-words-station">Your words <span>— saved with the approval and sent to the agent</span></label>
+    <textarea id="approve-words-station" name="words" rows="3" class="wb-words" placeholder="Why you approve, or what to fix" data-testid="approve_words.station"></textarea>
+    <div class="wb-step-actions">
+        <button type="submit" class="wb-btn wb-btn--stamp" data-testid="station.stamp.go"{{if .Locked}} disabled{{end}}>{{if .Approved}}Take the stamp back{{else}}Stamp it{{end}}</button>
+        <button type="button" class="wb-btn wb-btn--link" data-send-back data-testid="station.stamp.back">Send back for fixes</button>
+        {{with .LockNote}}<span class="wb-note">{{.}}</span>{{end}}
+    </div>
+    <div class="wb-site-msg" role="status"></div>
+</form>
+{{end}}
+
+{{define "wb/quality-card"}}
+<a class="wb-qcard" href="{{.Href}}" data-testid="station.quality.{{.Key}}">
+    <span class="wb-qcard-head"><i class="wb-lamp wb-lamp--{{.Tone}}"></i>{{.Title}}</span>
+    <span class="wb-qcard-big">{{.Big}}</span>
+    <span class="wb-qcard-line">{{.Line}}</span>
+    <span class="wb-qcard-verdict wb-chip wb-chip--{{.Tone}}">{{.Verdict}}</span>
+</a>
+{{end}}
+
+{{define "wb/decisions"}}
+<section class="wb-panel" id="decisions" aria-labelledby="decisions-h" data-testid="station.decisions">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="decisions-h">Decisions · {{len .Items}}</h2><span class="wb-panel-sub">your words, and what the agent recorded</span></div>
+    {{range .Items}}{{template "wb/decision" .}}{{else}}<div class="wb-panel-empty">No decision recorded on this issue.</div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/decision"}}
+<div class="wb-dec{{if not .Yours}} wb-dec--agent{{end}}">
+    <div class="wb-dec-main">
+        <div class="wb-dec-meta"><span class="wb-dec-id">{{.ID}}</span>{{if .Yours}}<span class="wb-dec-who">YOURS</span>{{else}}<span class="wb-dec-who wb-dec-who--agent">AGENT'S</span>{{end}}<span class="wb-dec-how">{{.How}}{{with .Date}} · {{.}}{{end}}</span>{{if .Deferred}}<span class="wb-chip wb-chip--idle">deferred</span>{{end}}</div>
+        <div class="wb-dec-text">{{.Text}}</div>
+        {{with .Quote}}<blockquote class="wb-quote">“{{.}}”</blockquote>{{end}}
+    </div>
+    {{if or .Also .Replaces}}<div class="wb-dec-side">
+        {{with .Also}}<div class="wb-eyebrow">ALSO CONSIDERED</div><div class="wb-dec-alt">{{.}}</div>{{end}}
+        {{with .Replaces}}<div class="wb-eyebrow">REPLACES</div><div class="wb-dec-alt wb-mono-inline">{{.}}</div>{{end}}
+    </div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/change-card"}}
+<section class="wb-panel" id="change" aria-labelledby="change-h" data-testid="station.change">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="change-h">Change · where the work sits</h2>{{if .Head}}<span class="wb-panel-mono">{{.Head}}{{with .Range}} · {{.}}{{end}}</span>{{end}}</div>
+    <div class="wb-panel-body">
+    {{if .Unreadable}}<div class="wb-panel-empty">{{.Unreadable}}</div>
+    {{else if not .PerFile}}<div class="wb-panel-empty">No commit on {{with .Range}}<span class="wb-mono-inline">{{.}}</span>{{else}}the work branch{{end}} yet.</div>
+    {{else}}
+        <div class="wb-change">
+            <div class="wb-files">
+                {{range .PerFile}}<div class="wb-file"><span class="wb-file-path" title="{{.Path}}">{{.Path}}</span><span class="wb-file-add">+{{.Add}}</span><span class="wb-file-del">{{if .Del}}−{{.Del}}{{end}}</span></div>{{end}}
+                {{if .More}}<div class="wb-file wb-file--more">+{{.More}} more files</div>{{end}}
+            </div>
+            <div class="wb-bound">
+                <div class="wb-eyebrow">WHERE THE CHANGE IS · FROM THE DIFF</div>
+                {{range .Areas}}<div class="wb-bound-row"><span class="wb-mono-inline">{{.Path}}</span><span>{{.Files}} {{if eq .Files 1}}file{{else}}files{{end}} · <b class="wb-file-add">+{{.Add}}</b> <b class="wb-file-del">−{{.Del}}</b></span></div>{{end}}
+                <div class="wb-note">{{.Commits}} {{if eq .Commits 1}}commit{{else}}commits{{end}} · +{{.Add}} −{{.Del}}{{if .TestAdd}} · +{{.TestAdd}} in tests{{end}}</div>
+            </div>
+        </div>
+    {{end}}
+    </div>
+</section>
+{{end}}
+
+{{define "wb/tests-card"}}
+<section class="wb-panel" id="tests" aria-labelledby="tests-h" data-testid="station.tests">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="tests-h">Tests and proofs</h2>{{with .CI}}<span class="wb-panel-right">{{template "wb/chip" .}}</span>{{end}}</div>
+    <div class="wb-panel-body">
+        {{if or .Big .Tests}}<div class="wb-tests-row">
+            {{if .Big}}<div class="wb-tests-big"><div class="wb-tests-num">{{.Big}}</div><div class="wb-tests-label">{{.BigLabel}}</div></div>{{end}}
+            {{with .Tests}}<div class="wb-tests-said"><div class="wb-eyebrow">THE AGENT'S TESTS LINE{{with $.TestsAt}} · {{.}}{{end}}</div><div class="wb-tests-text">{{.}}</div></div>{{end}}
+        </div>{{end}}
+        {{if .Criteria}}<div class="wb-crits">
+            {{range .Criteria}}<div class="wb-crit"><span class="wb-box{{if .Proven}} wb-box--on{{end}}">{{.ID}}</span><span class="wb-crit-text">{{.Text}}</span><span class="wb-crit-proof{{if .Proven}} wb-tone-green{{end}}">{{.Proof}}</span></div>{{end}}
+        </div>{{end}}
+        {{if .Groups}}<div class="wb-eyebrow">CHECKLIST · {{.Done}}/{{.Total}}</div>
+        <div class="wb-groups">{{range .Groups}}{{template "wb/check-group" .}}{{end}}</div>{{end}}
+        {{if not (or .Big .Tests .Groups)}}<div class="wb-panel-empty">No acceptance criteria, tests: line or checkboxes on this issue yet.</div>{{end}}
+    </div>
+</section>
+{{end}}
+
+{{define "wb/check-group"}}
+<div class="wb-group{{if and .You (lt .Done .Total)}} wb-group--you{{end}}">
+    <div class="wb-group-name">{{.Name}} <span>{{.Done}}/{{.Total}}</span></div>
+    <div class="wb-group-boxes">{{range .Boxes}}<span class="wb-box{{if .Checked}} wb-box--on{{else if $.You}} wb-box--you{{end}}" title="{{.Text}}">{{.ID}}</span>{{end}}</div>
+</div>
+{{end}}
+
+{{define "wb/timeline-list"}}
+<section class="wb-panel" id="timeline" aria-labelledby="timeline-h" data-testid="station.timeline">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="timeline-h">Timeline</h2>
+        <nav class="wb-filters" aria-label="Filter">{{range .Filters}}<a class="wb-filter{{if .On}} wb-filter--on{{end}}" href="{{.URL}}"{{if .On}} aria-current="true"{{end}} data-testid="station.timeline.filter.{{tid .Label}}">{{.Label}}</a>{{end}}</nav>
+    </div>
+    {{if .Rows}}<ol class="wb-tl">
+        {{range .Rows}}<li class="wb-tl-row"><span class="wb-tl-at">{{.At}}</span><i class="wb-tl-dot wb-tl-dot--{{.Tone}}"></i><span class="wb-tl-text">{{.Text}}{{with .Quote}}<span class="wb-tl-quote">“{{.}}”</span>{{end}}</span><span class="wb-tl-kind">{{.Kind}}</span></li>{{end}}
+    </ol>{{else}}<div class="wb-panel-empty">{{.Empty}}</div>{{end}}
+    <div class="wb-panel-foot">{{if .More}}{{.More}} older rows · {{end}}<a href="{{.FullURL}}">The full timeline</a></div>
+</section>
+{{end}}
+
+{{define "wb/station-agent"}}
+<div class="wb-sagent" data-testid="station.agent">
+    <div class="wb-eyebrow">AGENT</div>
+    <div class="wb-agent-id">
+        <div class="wb-bot-xl">{{template "wb/robot" .Robot}}</div>
+        <div class="wb-agent-name"><a class="wb-mono-inline" href="{{.AgentsURL}}">{{.Name}}</a><div><span class="wb-chip wb-chip--{{.Tone}}">{{.StateLabel}}</span></div></div>
+    </div>
+    {{if .Facts}}<dl class="wb-facts">{{range .Facts}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>{{end}}
+    <div class="wb-sagent-actions">
+        <button type="button" class="wb-btn wb-btn--paper" data-open-session="{{.Name}}" data-open-url="{{.OpenURL}}" data-testid="station.agent.open"{{if not .Live}} disabled title="The agent's tmux session is not running"{{end}}>Open in tmux</button>
+        <button type="button" class="wb-btn wb-btn--paper" data-reprompt="{{.PromptURL}}" data-testid="station.agent.prompt"{{if not .Live}} disabled title="The agent's tmux session is not running"{{end}}>Send the prompt</button>
+    </div>
+    <div class="wb-site-msg" role="status"></div>
+</div>
+{{end}}
+
+{{define "wb/sessions"}}
+<div class="wb-sessions" data-testid="station.sessions">
+    <div class="wb-eyebrow">SESSIONS ON THIS ISSUE · {{len .Rows}}</div>
+    {{range .Rows}}<div class="wb-sess"><i class="wb-sess-dot{{if .You}} wb-sess-dot--you{{end}}"></i><span class="wb-sess-name" title="{{.Name}}">{{.Name}}</span><span class="wb-sess-at">{{.Started}}</span></div>{{else}}<div class="wb-note">No tmux session names this issue.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/body-index"}}
+<div class="wb-bodyidx" data-testid="station.body">
+    <div class="wb-eyebrow">ISSUE BODY{{if .Comments}} · {{.Comments}} {{if eq .Comments 1}}comment{{else}}comments{{end}}{{end}}</div>
+    {{range .Sections}}<a class="wb-bodyrow" href="{{.URL}}"><span>{{.Title}}</span>{{if .Count}}<span class="wb-chip wb-chip--{{.Tone}}">{{.Count}}</span>{{end}}</a>{{end}}
+    {{range .NotStarted}}<div class="wb-bodyrow wb-bodyrow--plan"><span>{{.}}</span><span class="wb-bodyrow-note">not started</span></div>{{end}}
+    <button type="button" class="wb-btn wb-btn--link" data-nvim="{{.EditURL}}" data-testid="station.body.nvim">Edit in nvim</button>
+    <div class="wb-site-msg" role="status"></div>
+</div>
+{{end}}
+
+{{define "wb/fields"}}
+<div class="wb-fields" data-testid="station.fields">
+    <div class="wb-eyebrow">{{.Title}}</div>
+    <dl class="wb-facts">{{range .Rows}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>
+    {{with .LinkURL}}<a class="wb-fields-link" href="{{.}}">{{$.LinkText}}</a>{{end}}
+</div>
+{{end}}

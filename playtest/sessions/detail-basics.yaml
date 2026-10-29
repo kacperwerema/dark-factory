@@ -12,7 +12,7 @@ steps:
   - id: TP7
     title: Ticking a body checkbox saves it to the issue file
     setup:
-      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone
+      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone?classic=1
       - click: detail.fold.expand_all
       - check: { issue: { slug: ui/card-titles-overflow-on-a-phone, checkbox: P1, checked: false } }
     act:
@@ -25,7 +25,7 @@ steps:
   - id: TP8
     title: The approval button approves the issue for the next status
     setup:
-      - open: /p/{project}/issue/cli/export-issues-as-csv
+      - open: /p/{project}/issue/cli/export-issues-as-csv?classic=1
     act:
       - click: detail.approve.in_progress
     checks:
@@ -35,7 +35,7 @@ steps:
   - id: TP9
     title: Changing status in the sidebar writes it to the file
     setup:
-      - open: /p/{project}/issue/ui/dark-mode-toggle
+      - open: /p/{project}/issue/ui/dark-mode-toggle?classic=1
     act:
       - select: { target: detail.status, value: backlog }
     checks:
@@ -45,7 +45,7 @@ steps:
   - id: TP10
     title: A comment added on a body block is saved
     setup:
-      - open: /p/{project}/issue/ui/dark-mode-toggle
+      - open: /p/{project}/issue/ui/dark-mode-toggle?classic=1
       - click: detail.fold.expand_all
     act:
       - hover: detail.block.1
