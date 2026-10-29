@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Updates" .Project)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+{{/* hall tabs: added at merge */}}
+<div class="upd-page" data-testid="upd.page">
+<section class="wb-ground upd-hero" aria-label="Updates">
+    <div class="upd-hero-top">
+        <div class="upd-hero-text">
+            <h1 class="upd-h1">Updates</h1>
+            <p class="upd-lead">Workflow features the engine ships that this hall's workflow.yaml does not use yet. Nothing changes until you install them.</p>
+        </div>
+        <div class="upd-terminal">
+            <span class="upd-label">From the terminal</span>
+            <code>issue-cli workflow upgrade</code>
+            <a class="upd-classic" href="{{.ClassicURL}}" data-testid="upd.classic">Classic view</a>
+        </div>
+    </div>
+    <div class="upd-boxes">
+        {{template "wb/delivery" .Delivery}}
+        {{template "wb/upgrade-tree" .Tree}}
+    </div>
+</section>
+<main class="upd-main">
+    {{template "wb/upd-flash" .Flash}}
+    {{if not .ToDecide}}
+    <div class="upd-empty" data-testid="upd.empty">
+        <h2 class="upd-h2">Nothing to decide</h2>
+        <p>The hall uses, or has declined, every feature the engine ships for its template.</p>
+    </div>
+    {{else}}
+    {{template "wb/filters" .Filters}}
+    <section class="upd-section" aria-label="{{.FeaturedTitle}}">
+        <div class="upd-section-head">
+            <h2 class="upd-h2">{{.FeaturedTitle}}</h2>
+            {{with .FeaturedNote}}<span class="upd-section-note">{{.}}</span>{{end}}
+        </div>
+        <div class="upd-cards">{{range .Featured}}{{template "wb/upgrade-card" .}}{{else}}<p class="wb-empty">Nothing to decide in this group.</p>{{end}}</div>
+    </section>
+    {{if and .Expanded .Rest}}
+    <section class="upd-section" aria-label="More to decide">
+        <div class="upd-section-head"><h2 class="upd-h2">More to decide</h2></div>
+        <div class="upd-cards">{{range .Rest}}{{template "wb/upgrade-card" .}}{{end}}</div>
+    </section>
+    {{end}}
+    {{template "wb/upgrade-more" .More}}
+    {{end}}
+    {{template "wb/declined" .Declined}}
+</main>
+</div>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

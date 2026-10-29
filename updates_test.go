@@ -62,7 +62,7 @@ func TestUpdatesTabListsProposals(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	code, body := getBody(t, ts.URL+"/p/test-project/updates")
+	code, body := getBody(t, ts.URL+"/p/test-project/updates?classic=1")
 	if code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
@@ -91,7 +91,7 @@ func TestUpdatesTabListsProposals(t *testing.T) {
 		t.Error("v0.54.0 proposals should come before v0.36.0 ones")
 	}
 
-	_, filtered := getBody(t, ts.URL+"/p/test-project/updates?category=workbench")
+	_, filtered := getBody(t, ts.URL+"/p/test-project/updates?category=workbench&classic=1")
 	if !strings.Contains(filtered, "updates.card.health-tuning") || strings.Contains(filtered, "updates.card.proof-links") {
 		t.Error("category filter should keep workbench cards only")
 	}
@@ -113,7 +113,7 @@ func TestUpdatesDeclineAndReopenWriteTheRecord(t *testing.T) {
 	if !strings.Contains(string(raw), "ci:\n  run:\n    - cmd: make check\n") {
 		t.Fatalf("decline changed more than the record:\n%s", raw)
 	}
-	_, body := getBody(t, ts.URL+loc)
+	_, body := getBody(t, ts.URL+loc+"&classic=1")
 	for _, want := range []string{`data-testid="updates.flash"`, "health-tuning declined", `data-testid="updates.undo"`, `updates-declined-row just`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("after decline: missing %q", want)
@@ -123,14 +123,17 @@ func TestUpdatesDeclineAndReopenWriteTheRecord(t *testing.T) {
 		t.Error("declined card still listed")
 	}
 
-	loc = postForm(t, ts.URL+"/p/test-project/updates/reopen", url.Values{"id": {"health-tuning"}})
+	loc = postForm(t, ts.URL+"/p/test-project/updates/reopen", url.Values{"id": {"health-tuning"}, "classic": {"1"}})
+	if !strings.HasSuffix(loc, "&classic=1") {
+		t.Errorf("a classic form should go back to the classic tab: %q", loc)
+	}
 	_, body = getBody(t, ts.URL+loc)
 	if !strings.Contains(body, `data-testid="updates.card.health-tuning"`) || !strings.Contains(body, "re-opened") {
 		t.Error("re-open should list the card again")
 	}
 
 	loc = postForm(t, ts.URL+"/p/test-project/updates/decline", url.Values{"id": {"no-such-feature"}})
-	_, body = getBody(t, ts.URL+loc)
+	_, body = getBody(t, ts.URL+loc+"&classic=1")
 	if !strings.Contains(body, "unknown feature id") {
 		t.Errorf("unknown id: no error flash in %s", loc)
 	}
@@ -177,7 +180,7 @@ func TestUpdatesShowsARunningInstall(t *testing.T) {
 	agentSessionLive = func(_ *tracker.Project, name string) bool { return name == "agent-test-project-install-lead-prompt" }
 	t.Cleanup(func() { agentSessionLive = orig })
 
-	_, body := getBody(t, ts.URL+"/p/test-project/updates")
+	_, body := getBody(t, ts.URL+"/p/test-project/updates?classic=1")
 	if !strings.Contains(body, `data-testid="updates.card.lead-prompt.installing"`) || strings.Contains(body, `data-testid="updates.card.lead-prompt.decline"`) {
 		t.Error("a running install shows its chip and hides Decline")
 	}
@@ -260,7 +263,7 @@ func TestUpdatesStaleRecordIsNotUpToDate(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, body := getBody(t, ts.URL+"/p/test-project/updates")
+	_, body := getBody(t, ts.URL+"/p/test-project/updates?classic=1")
 	if !strings.Contains(body, `data-testid="updates.state">not recorded`) {
 		t.Errorf("state should be not recorded:\n%s", body)
 	}
