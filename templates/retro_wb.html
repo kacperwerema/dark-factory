@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Retro"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-rtop">
+    <div class="wb-rtop-row">
+        <div class="wb-hhead-text">
+            <h1 class="wb-h1 wb-h1--xl">Retro · sorting room</h1>
+            <div class="wb-hhead-sub">After every issue the agent leaves a note in <span class="wb-mono-inline">retros/</span>. Here you take it apart into findings and send each one where it changes something for good. · <a href="{{.ClassicURL}}" data-testid="retro.classic">Classic view</a></div>
+        </div>
+        {{template "wb/retro-presort" .Presort}}
+    </div>
+    {{template "wb/retro-loop" .Loop}}
+</section>
+<main class="wb-rmain" data-testid="retro.page" data-project="{{.Project}}">
+    <nav class="wb-rinbox" aria-label="Retros">
+        {{template "wb/retro-list" .ToSort}}
+        {{if .Processed.Count}}{{template "wb/retro-list" .Processed}}{{end}}
+    </nav>
+    <div class="wb-rcenter">
+        {{with .Selected}}
+        {{template "wb/retro-head" .}}
+        {{template "wb/retro-progress" .Progress}}
+        {{template "wb/retro-note" .}}
+        <section class="wb-rfindings" aria-labelledby="retro-findings-h">
+            <h3 id="retro-findings-h" class="wb-rfindings-h">Findings · {{len .Findings}}</h3>
+            {{if .Unsorted}}<p class="wb-empty" data-testid="retro.unsorted">This note has none of the labelled lines a retrospective has (Base workflow, Subsystem workflow, Missing system-specific instructions, Tooling/workflow friction), so it is not split into findings. Read it above, or let an agent pre-sort.</p>{{end}}
+            {{range .Findings}}{{template "wb/retro-finding" .}}{{end}}
+            {{if and .Findings (not .CEOLive)}}<p class="wb-small wb-muted">Sending a finding goes through the CEO ({{.CEOSession}}), which is not running: start it on the company page.</p>{{end}}
+        </section>
+        {{else}}<p class="wb-empty" data-testid="retro.empty">{{.Empty}}</p>{{end}}
+    </div>
+    <aside class="wb-rbins" aria-labelledby="retro-bins-h">
+        <h2 id="retro-bins-h" class="wb-h2 wb-h2--small">Bins from this retro</h2>
+        {{range .Bins}}{{template "wb/retro-bin" .}}{{end}}
+        {{template "wb/retro-pattern" .Pattern}}
+        <p class="wb-rbins-foot">Retro closes the loop from the Line: processed findings come back as docs, decisions, updates or new ideas.</p>
+    </aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/workshop-retro.js"></script>
+</body>
+</html>

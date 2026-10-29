@@ -54,7 +54,7 @@ The workflow prompt was clear.
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/retros")
+	resp, err := http.Get(ts.URL + "/p/test-project/retros?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ Needs triage.
 		t.Fatalf("expected bug file to be marked fixed\n%s", string(updatedBug))
 	}
 
-	resp, err = http.Get(ts.URL + "/p/test-project/retros?retro_status=processed&bug_status=fixed")
+	resp, err = http.Get(ts.URL + "/p/test-project/retros?classic=1&retro_status=processed&bug_status=fixed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestWorkflowDesignerRemoved(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	for _, path := range []string{"/", "/board", "/graph", "/canvas", "/agents", "/docs", "/stats", "/decisions", "/retros"} {
+	for _, path := range []string{"/", "/board", "/graph", "/canvas", "/agents", "/docs", "/stats", "/decisions", "/retros?classic=1"} {
 		if strings.Contains(pageGet(t, ts.URL+"/p/wb"+path), "workflow-designer") {
 			t.Errorf("%s: still links to the removed workflow designer", path)
 		}

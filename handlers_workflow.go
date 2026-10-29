@@ -71,6 +71,12 @@ func (s *Server) handleRetros(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 
+	// The Workshop Board Retro page; the classic one stays at ?classic=1.
+	if r.URL.Query().Get("classic") == "" {
+		s.handleRetroWb(w, r, proj, prefix, retros, bugs)
+		return
+	}
+
 	retroCounts := countRetrosByStatus(retros)
 	bugCounts := countBugsByStatus(bugs)
 

@@ -140,6 +140,7 @@
           }
           input.value = '';
           msg.textContent = 'Sent to ' + (res.body.session || 'the CEO') + '.';
+          form.dispatchEvent(new CustomEvent('wb:sent', { bubbles: true }));
           setTimeout(function () { location.reload(); }, 4000);
         })
         .catch(function (err) { msg.textContent = 'Not sent: ' + err; });

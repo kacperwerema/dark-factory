@@ -97,6 +97,7 @@ func wbHallTabs(prefix, current string) *WbHallTabs {
 		{Key: "health", Label: "Health", URL: prefix + "/health"},
 		{Key: "systems", Label: "Systems", URL: prefix + "/systems"},
 		{Key: "decisions", Label: "Decisions", URL: prefix + "/decisions"},
+		{Key: "retro", Label: "Retro", URL: prefix + "/retros"},
 		{Key: "docs", Label: "Docs", URL: prefix + "/docs"},
 		{Key: "updates", Label: "Updates", URL: prefix + "/updates"},
 	}}

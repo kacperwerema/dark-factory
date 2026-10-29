@@ -225,6 +225,7 @@
     <div class="retros-shell">
         <div class="retros-toolbar">
             <form class="retros-filters" method="GET" action="{{.Prefix}}/retros">
+                <input type="hidden" name="classic" value="1">
                 <select name="retro_status" onchange="this.form.submit()">
                     <option value="">All retro states</option>
                     <option value="open" {{if eq .RetroStatus "open"}}selected{{end}}>Open retros</option>
@@ -237,7 +238,7 @@
                     <option value="wontfix" {{if eq .BugStatus "wontfix"}}selected{{end}}>Won't fix bugs</option>
                 </select>
                 {{if or .RetroStatus .BugStatus}}
-                <a href="{{.Prefix}}/retros" class="clear-btn">Clear filters</a>
+                <a href="{{.Prefix}}/retros?classic=1" class="clear-btn">Clear filters</a>
                 {{end}}
             </form>
 
@@ -315,7 +316,7 @@
             {{end}}
         </section>
 
-        <section class="retros-section">
+        <section class="retros-section" id="bugs">
             <h2>Related Tool Bugs</h2>
             <p class="retros-section-intro">Global <code>bugs/</code> reports filtered down to issues that belong to this project.</p>
             {{if .Bugs}}

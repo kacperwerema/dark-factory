@@ -29,7 +29,7 @@ func TestProjectPagesRenderSidebar(t *testing.T) {
 		"/lead":                 "lead",
 		"/docs":                 "docs",
 		"/docs/getting-started": "docs",
-		"/retros":               "retros",
+		"/retros?classic=1":     "retros",
 		"/stats":                "stats",
 		"/github":               "github",
 		"/decisions":            "decisions",
