@@ -60,6 +60,7 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli privacy <sub>`        | The privacy choice's checks: `check` (exit 1 on red), `hook` (install the pre-push guard), `pre-push` (what the hook runs). See [`tracker` and `privacy`](#tracker-and-privacy) |
 | `issue-cli health [snapshot\|backfill\|lint\|review]` | Project health: print the latest snapshot and both scores, take one, compute past days, or the agent review. See [`health`](#health) |
 | `issue-cli approve <slug>`       | Record a human approval with the human's words (leads only). See [`approve`](#approve) |
+| `issue-cli yolo <sub>`           | YOLO mode: gates pass without the owner for a window, reviewed after the fact: `status`, `on --until … --quote …`, `extend`, `off`, `queue`, `review <slug> --agree`. See [YOLO Mode](../Workflow/yolo.md) |
 | `issue-cli check <slug> <id>...` | Tick checkboxes by id (several at once), whole section (`--section X --all`), text, or `--section` + `--index` |
 | `issue-cli check-edit <slug> <id> --text "…"` | Change one box's text; it keeps its tick and id. See [`check-edit`](#check-edit) |
 | `issue-cli checklist <slug>`     | List checkboxes grouped by section, each with its id (`D3`, `AC2`) |

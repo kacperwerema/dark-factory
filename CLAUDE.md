@@ -81,6 +81,7 @@ ci_watch.go                 — local CI watcher: polls each project's CI branch
 health_watch.go             — daily project health snapshot: every 10 min, one per repository when none is from today; then shrinks shots of issues done 30+ days ago
 tracker_watch.go            — private tracker sync: every 10 min, commit, pull and push each project's tracker repo (privacy.work_files: tracker)
 privacy_view.go             — the privacy badges: Status title and Health card lines, projects list and /stats overview markers
+yolo_view.go                — YOLO mode in the viewer: the sidebar band and after-the-fact queue, yolo/on|extend|off, yolo.json, issue …/yolo-review, the watcher closing expired or valve-tripped windows
 release_wait.go             — Status "Waiting for release" card: milestone readiness, ## Unreleased entries, unpushed commits (one git call)
 release_candidate.go        — the card's release candidate (workbench.release_candidates): newest local <cut>-rc.N tag, commits since (on release/vX.Y once cut), soaked and picked checks, release.json for issue-cli release; on the engine the builds running, projects that ran it (usage logs), reports from it
 ci_view.go                  — local CI on the pages: Status card (last runs boxes), waiting entry, ci-red markers
@@ -91,6 +92,7 @@ internal/timeline/          — the Timeline's derivation (Load, Split: agent / 
 internal/health/            — project health snapshots: family registry (Register), .health/snapshots/ files, retention, Range, Backfill; families codebase, shape, tests, opinion, storage (MB on disk by area), lint (issue-cli health lint warnings); the derived score (Derive); the agent review (evidence pack, prompt, record, file/dismiss)
 internal/testresults/       — test result parsers (go test -json, TRX, JUnit, playtest e2e) and their summary, for ci.run results:
 internal/lint/              — issue-cli health lint: named checks over workflow.yaml and the board (undated, workflow, schema, template, placeholders, sections); every finding a warning
+internal/yolo/              — YOLO mode: the window in .yolo/<project>.json (TurnOn, Extend, TurnOff, Active with the expiry and CI valve), the closed-window log, passes and the review queue from comments, the gates it passes
 internal/milestone/         — the current milestone (Pick, Released), shared by the Status page and the `milestone` health family
 internal/chart/             — server-rendered SVG charts (line, stacked bars, columns, gauge, sparkline) with table views
 internal/ci/                — local CI runner: .ci/ state and run records, lock, persistent .worktrees/.ci, blame, watcher, one-liner
@@ -219,6 +221,7 @@ Per-system docs:
 - [Workflow](docs/Workflow/overview.md) — workflow engine, transitions, overlays; template stamp, feature catalog, upgrade, keeping the catalog complete (`sources:`, `workflow catalog-check`)
 - [Proof Links](docs/Workflow/proof.md) — each acceptance criterion linked to its proof: `Proves:` trailers, playtest `proves:`, `issue-cli prove`; the checks, the `criteria_checkboxes` / `criteria_proven` gates, ticking; the Evidence tab reads the same report
 - [Types of Work](docs/Workflow/types.md) — per-type paths (feature/tweak/bugfix/epic) as overlays with `path:`, `set-type`, lint
+- [YOLO Mode](docs/Workflow/yolo.md) — for a window the owner chose, gates pass without them and wait for review after the fact: `issue-cli yolo on|extend|off|status|queue|review`, `.yolo/`, the CI and release valves, the `approval: "YOLO"` marker, Agree / Back to
 
 ## Sessions
 

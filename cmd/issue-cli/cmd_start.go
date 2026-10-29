@@ -109,7 +109,7 @@ func runStart(ctx *Context, args []string) error {
 
 	fmt.Fprintf(ctx.Stdout, "file: %s\n\n", issue.FilePath)
 
-	printWorkflowNextSteps(ctx.Stdout, wf, issue)
+	printWorkflowNextSteps(ctx, wf, issue)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
 	printStartWorkflowReminder(ctx.Stdout, wf)
 	return nil
@@ -147,7 +147,8 @@ func printStartWorkflowReminder(w io.Writer, wf *tracker.WorkflowConfig) {
 	fmt.Fprintln(w, "Run 'issue-cli process workflow' or 'issue-cli process transitions' for details.")
 }
 
-func printWorkflowNextSteps(w io.Writer, wf *tracker.WorkflowConfig, issue *tracker.Issue) {
+func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue) {
+	w := ctx.Stdout
 	total, checked := tracker.CountCheckboxes(issue.BodyRaw)
 	if total > 0 {
 		fmt.Fprintf(w, "== Checklist (%d/%d) ==\n", checked, total)
@@ -180,6 +181,7 @@ func printWorkflowNextSteps(w io.Writer, wf *tracker.WorkflowConfig, issue *trac
 			suffix = "   (optional — every remaining status is optional)"
 		}
 		cmd, note := nextStepCommand(wf, issue.Slug, issue.Status, next)
+		cmd, note = yoloNextStep(ctx, wf, issue.Slug, issue.Status, next, cmd, note)
 		fmt.Fprintf(w, "  %s%s\n", cmd, suffix)
 		if note != "" {
 			fmt.Fprintf(w, "  %s\n", note)

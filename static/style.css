@@ -309,6 +309,32 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .sidebar-agents[hidden] { display: none; }
 .sidebar-agents-dot { color: var(--green); }
 
+/* YOLO mode: yellow-black stripes mean YOLO only (orange stays the owner's). */
+.sidebar-yolo {
+    margin: 0 12px;
+    padding: 8px 10px;
+    border: 2px solid #1d1d1f;
+    border-radius: 6px;
+    font-size: 12px;
+    background: var(--bg-subtle, transparent);
+    color: var(--text);
+}
+.sidebar-yolo.on {
+    border: 0;
+    padding: 6px;
+    background: repeating-linear-gradient(-45deg, #f5c518 0 8px, #1d1d1f 8px 16px);
+}
+.sidebar-yolo.on .sidebar-yolo-line,
+.sidebar-yolo.on .sidebar-yolo-actions,
+.sidebar-yolo.on .sidebar-yolo-queue {
+    background: #fff8d6;
+    color: #1d1d1f;
+    padding: 4px 6px;
+}
+.sidebar-yolo-actions { display: flex; gap: 6px; }
+.sidebar-yolo-queue summary { cursor: pointer; font-weight: 600; }
+.sidebar-yolo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px 0; }
+
 .sidebar-panel {
     display: flex;
     flex-direction: column;
