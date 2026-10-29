@@ -108,15 +108,15 @@ behaviour in static/station.js. templates/station.html composes them.
     {{if .Approved}}<div class="wb-stamped">{{template "wb/stamp-icon"}}Stamped → <b>{{.Approved}}</b>. The agent continues; take it back below if you change your mind.</div>{{end}}
     <div class="wb-stamp-targets">
     {{range $i, $t := .Targets}}<label class="wb-stamp-target" id="approve-{{statusFragment $t}}">
-        <input type="{{if gt (len $.Targets) 1}}radio{{else}}checkbox{{end}}" name="status" value="{{$t}}"{{if eq $.Approved $t}} checked{{end}}{{if $.Locked}} disabled{{end}}>I approve the move to {{$t}}
+        <input type="{{if gt (len $.Targets) 1}}radio{{else}}checkbox{{end}}" name="status" value="{{$t}}"{{if eq $.Approved $t}} checked{{end}}>I approve the move to {{$t}}
     </label>{{end}}
     </div>
     <label class="wb-words-label" for="approve-words-station">Your words <span>— saved with the approval and sent to the agent</span></label>
     <textarea id="approve-words-station" name="words" rows="3" class="wb-words" placeholder="Why you approve, or what to fix" data-testid="approve_words.station"></textarea>
     <div class="wb-step-actions">
-        <button type="submit" class="wb-btn wb-btn--stamp" data-testid="station.stamp.go"{{if .Locked}} disabled{{end}}>{{if .Approved}}Take the stamp back{{else}}Stamp it{{end}}</button>
+        <button type="submit" class="wb-btn wb-btn--stamp" data-testid="station.stamp.go">{{if .Approved}}Take the stamp back{{else}}Stamp it{{end}}</button>
         <button type="button" class="wb-btn wb-btn--link" data-send-back data-testid="station.stamp.back">Send back for fixes</button>
-        {{with .LockNote}}<span class="wb-note">{{.}}</span>{{end}}
+        {{with .Note}}<span class="wb-note">{{.}}</span>{{end}}
     </div>
     <div class="wb-site-msg" role="status"></div>
 </form>

@@ -94,8 +94,8 @@ func TestStationClassicStillServed(t *testing.T) {
 	}
 }
 
-// TestStationOwnerSteps: guided checks due lock the stamp until they are
-// done (stationMove).
+// TestStationOwnerSteps: guided checks due come first, and the stamp after
+// them stays usable with a note that they are open (stationMove).
 func TestStationOwnerSteps(t *testing.T) {
 	issue := &tracker.Issue{Slug: "ui/x", Status: "human-testing"}
 	att := Attention{ChecksDue: true, Checks: []string{"x-checks"}, Gate: &GateInfo{Target: "documentation"}}
@@ -103,8 +103,13 @@ func TestStationOwnerSteps(t *testing.T) {
 	if !m.On || len(m.Tasks) != 1 || m.Tasks[0].Kind != "checks" || m.Tasks[0].RunURL != "/p/agents/issue/ui/x/check-script" {
 		t.Fatalf("tasks = %+v", m.Tasks)
 	}
-	if m.Stamp == nil || !m.Stamp.Locked || m.Stamp.N != 2 || m.Stamp.Targets[0] != "documentation" {
+	if m.Stamp == nil || m.Stamp.N != 2 || m.Stamp.Targets[0] != "documentation" || m.Stamp.Note != "Step 1 is still open: you can stamp ahead." {
 		t.Fatalf("stamp = %+v", m.Stamp)
+	}
+	// Playtest and checks due: both steps named in the note.
+	two := stationMove("agents", issue, "/u", needsYou{Amber: true, Wait: "2d"}, Attention{ChecksDue: true, Checks: []string{"x"}, PlaytestDue: true, Playtests: []string{"y"}, Gate: &GateInfo{Target: "documentation"}}, []string{"documentation"}, nil, time.Now())
+	if two.Stamp == nil || two.Stamp.N != 3 || two.Stamp.Note != "Steps 1–2 are still open: you can stamp ahead." {
+		t.Fatalf("stamp with two steps = %+v", two.Stamp)
 	}
 	if m.Title != "Your move: guided checks and the stamp" {
 		t.Errorf("title = %q", m.Title)
@@ -143,6 +148,8 @@ func TestStationComponents(t *testing.T) {
 			[]string{`<dt>Status</dt><dd class="wb-mono-inline">done</dd>`, `href="/e">Edit</a>`}},
 		{"wb/stamp", &WbStamp{N: 1, Targets: []string{"backlog", "in progress"}, Approved: "backlog", ApproveURL: "/a"},
 			[]string{`type="radio" name="status" value="backlog" checked`, `id="approve-in-progress"`, `Take the stamp back`}},
+		{"wb/stamp", &WbStamp{N: 3, Targets: []string{"documentation"}, ApproveURL: "/a", Note: "Steps 1–2 are still open: you can stamp ahead."},
+			[]string{`value="documentation">I approve`, `data-testid="station.stamp.go">Stamp it</button>`, `Steps 1–2 are still open: you can stamp ahead.`}},
 	}
 	for _, c := range cases {
 		var buf bytes.Buffer
