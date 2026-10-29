@@ -17,7 +17,10 @@ import (
 type WbHeader struct {
 	Crumbs []WbCrumb
 	// Goals replace the agent counters when set (L1: the company's goals).
-	Goals                    []WbGoal
+	Goals []WbGoal
+	// Chips follow the counters (L2: CI); HideDone drops "done this week".
+	Chips                    []WbChip
+	HideDone                 bool
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
@@ -240,5 +243,102 @@ type WbMessage struct {
 // WbMessageBox is the box to message the project's CEO.
 type WbMessageBox struct {
 	Session, SendURL, SpawnURL string
-	Live                       bool
+	// Prefill is the text the box starts with (L2: "approved: <slug>").
+	Prefill string
+	Live    bool
+}
+
+// WbHallStop is one stop on the hall's line: a station or a gate.
+type WbHallStop struct {
+	Station *WbHallStation
+	Gate    *WbGateCard
+}
+
+// WbGateCard is a gate on the hall's line: the owner's stamp before Status.
+type WbGateCard struct {
+	Name, Status string
+	Waiting      int
+}
+
+// WbHallStation is a station on the hall's line with its crates.
+type WbHallStation struct {
+	Name, Status, Who string
+	Count, More       int
+	Owner             bool
+	Crates            []WbCrate
+}
+
+// WbCrate is an issue on the line, carried by its worker (Robot) if it has
+// one. Question: it asks the owner; CI: CI went red since it landed.
+type WbCrate struct {
+	Slug, Title, URL, Note string
+	Robot                  *WbRobot
+	Question, CI, Selected bool
+}
+
+// WbDoneStation is the end of the line: what was done this week.
+type WbDoneStation struct {
+	Count int
+	Stack []int
+	Who   string
+}
+
+// WbCIScanner is local CI on the line.
+type WbCIScanner struct {
+	Red                            bool
+	Command, Branch, Issue, Detail string
+}
+
+// WbParking is the parked issues and why.
+type WbParking struct {
+	Count int
+	Items []WbParked
+}
+
+// WbParked is one parked issue.
+type WbParked struct {
+	Slug, URL, Reason string
+}
+
+// WbPlanCard is a blueprint card for something still to build: a project
+// (building site), a department or a stage of the line.
+type WbPlanCard struct {
+	Label, Title, Text string
+	LinkText, LinkURL  string
+	SpawnURL           string
+	TestID             string
+}
+
+// WbFact is a label and a value (Mono for code, Tone green, red or you).
+type WbFact struct {
+	Label, Value, Tone string
+	Mono               bool
+}
+
+// WbPathStep is one status on an issue's way along the line: done, now or
+// todo.
+type WbPathStep struct {
+	Status, Tone string
+}
+
+// WbStat is a big number with a label.
+type WbStat struct {
+	Value, Label string
+}
+
+// WbAgentPanel is the selected issue and its worker (L2's right panel).
+type WbAgentPanel struct {
+	Slug, Title, URL string
+	Robot            WbRobot
+	StateLabel       string
+	Session          string
+	Path             []WbPathStep
+	Facts            []WbFact
+	Stats            []WbStat
+}
+
+// WbNumbers is a titled list of figures.
+type WbNumbers struct {
+	Title string
+	Rows  []WbFact
 }

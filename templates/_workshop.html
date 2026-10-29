@@ -15,6 +15,7 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/skyline     departments as buildings, plus a free lot  data: []WbBuilding
   wb/lot         a project on the map (L0)                  data: MapLot
   wb/site       a project not kicked off yet (L0)          data: MapLot
+  wb/plan-card  a blueprint card: something still to build data: WbPlanCard
   wb/goal       a goal in the header                       data: WbGoal
   wb/room-head  a department room's roof                   data: WbRoomHead
   wb/room-foot  a room's footer line                       data: []WbFootItem
@@ -26,6 +27,16 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/queue-row  a compact "waiting on you" row             data: WbQueueCard
   wb/radio      what the CEO and agents said               data: []WbMessage
   wb/message-box  the box to message the CEO               data: WbMessageBox
+  wb/crate      an issue on the line, with its worker      data: WbCrate
+  wb/gate-card  the owner's stamp between stations (L2)    data: WbGateCard
+  wb/stamp-icon the stamp drawing                          data: none
+  wb/hall-station  a station with its crates (L2)          data: WbHallStation
+  wb/hall-stop  a station or a gate                        data: WbHallStop
+  wb/done-station  the end of the line                     data: WbDoneStation
+  wb/ci-scanner local CI on the line                       data: WbCIScanner
+  wb/parking    parked issues and why                      data: WbParking
+  wb/agent-panel  the selected issue and its worker        data: WbAgentPanel
+  wb/numbers    a titled list of figures                   data: WbNumbers
   wb/queue-card  one thing waiting on the owner             data: WbQueueCard
   wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
 */}}
@@ -53,7 +64,8 @@ their styles). Pages compose them; a new element is a new component here first.
             <span class="wb-stat"><span class="wb-dot wb-dot--idle"></span>{{.Idle}} <span class="wb-muted">idle</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--agent"></span>{{.AgentWait}} <span class="wb-muted">waiting on an agent</span></span>
         </div>
-        <div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}
+        {{if not .HideDone}}<div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}{{end}}
+        {{range .Chips}}<div class="wb-stat-box wb-stat-box--chip">{{template "wb/chip" .}}</div>{{end}}
         <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="#waiting" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
         <div class="wb-avatar" title="You">YOU</div>
     </div>
@@ -114,15 +126,17 @@ their styles). Pages compose them; a new element is a new component here first.
 </a>
 {{end}}
 
-{{define "wb/site"}}
-<div class="wb-site" id="lot-{{.Slug}}" data-slug="{{.Slug}}" data-site="1" data-testid="map.site.{{.Slug}}">
-    <div class="wb-site-label">BUILDING SITE</div>
-    <div class="wb-site-name">{{.Name}}</div>
-    <div class="wb-site-text">{{with .Description}}{{.}}{{else}}{{with .Kind}}{{.}}. {{end}}{{end}} Planned: no CEO or departments yet.</div>
+{{define "wb/site"}}<div class="wb-site-lot" id="lot-{{.Slug}}" data-slug="{{.Slug}}" data-site="1">{{template "wb/plan-card" .PlanCard}}</div>{{end}}
+
+{{define "wb/plan-card"}}
+<div class="wb-site" {{if .SpawnURL}}data-spawn-box{{end}} {{with .TestID}}data-testid="plan.{{.}}"{{end}}>
+    <div class="wb-site-label">{{.Label}}</div>
+    <div class="wb-site-name">{{.Title}}</div>
+    <div class="wb-site-text">{{.Text}}</div>
     <div class="wb-grow"></div>
     <div class="wb-site-actions">
-        {{if .CEO.Live}}<a class="wb-btn wb-btn--paper" href="/p/{{.Slug}}/lead">Talk to the CEO</a>{{else}}<button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="/p/{{.Slug}}/lead/spawn" data-testid="map.site.start_ceo">Start CEO</button>{{end}}
-        <a class="wb-site-link" href="/p/{{.Slug}}/status">Open the project</a>
+        {{with .SpawnURL}}<button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="{{.}}" data-testid="map.site.start_ceo">Start CEO</button>{{end}}
+        {{with .LinkURL}}<a class="wb-site-link" href="{{.}}">{{$.LinkText}}</a>{{end}}
     </div>
     <div class="wb-site-msg" role="status"></div>
 </div>
@@ -241,9 +255,90 @@ their styles). Pages compose them; a new element is a new component here first.
 <form class="wb-msgbox" data-send="{{.SendURL}}" data-testid="company.message">
     <label for="wb-msg-input">Message to <span class="wb-mono-inline">{{.Session}}</span></label>
     <div class="wb-msgbox-row">
-        <input id="wb-msg-input" type="text" name="text" autocomplete="off" placeholder="{{if .Live}}e.g. send a worker to fix CI{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}}>
+        <input id="wb-msg-input" type="text" name="text" autocomplete="off" value="{{.Prefill}}" placeholder="{{if .Live}}e.g. send a worker to fix CI{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}}>
         <button type="submit" class="wb-btn wb-btn--ink" {{if not .Live}}disabled{{end}}>Send</button>
     </div>
     <div class="wb-site-msg" role="status"></div>
 </form>
+{{end}}
+
+{{define "wb/crate"}}
+<div class="wb-crate-row">
+    <a class="wb-crate-line{{if .Selected}} wb-crate-line--on{{end}}" href="{{.URL}}" title="{{.Title}}" data-testid="hall.crate">
+        {{with .Robot}}{{template "wb/robot" .}}{{end}}
+        <span class="wb-crate"><span class="wb-crate-slug">{{.Slug}}</span>{{if .Question}}<span class="wb-crate-q" title="a question for you">?</span>{{end}}{{if .CI}}<span class="wb-crate-ci" title="CI red">CI</span>{{end}}</span>
+    </a>
+    {{with .Note}}<div class="wb-crate-note">{{.}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/gate-card"}}
+<div class="wb-gatecard" title="Your approval to enter {{.Status}}" data-testid="hall.gate">
+    <span class="wb-stamp">{{template "wb/stamp-icon"}}</span>
+    <span class="wb-gatecard-name">{{.Name}}</span>
+    <span class="wb-mono">{{.Status}}</span>
+    <span class="wb-gatecard-wait{{if .Waiting}} wb-gatecard-wait--on{{end}}">{{.Waiting}} waiting</span>
+</div>
+{{end}}
+
+{{define "wb/stamp-icon"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B1F2A" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6v5l-2 3h-2L9 8z"/><path d="M4 14h16v4H4zM6 21h12"/></svg>{{end}}
+
+{{define "wb/hall-station"}}
+<div class="wb-hst{{if .Owner}} wb-hst--owner{{end}}" data-testid="hall.station">
+    <div class="wb-hst-head">{{if .Owner}}{{template "wb/stamp-icon"}}{{end}}<span class="wb-hst-name">{{.Name}}</span><span class="wb-mono wb-hst-key">{{.Status}}</span><span class="wb-hst-count">{{.Count}}</span></div>
+    <div class="wb-hst-body">
+        {{range .Crates}}{{template "wb/crate" .}}{{else}}<div class="wb-hst-empty">empty</div>{{end}}
+        {{if .More}}<div class="wb-crate-note">+{{.More}} more</div>{{end}}
+    </div>
+    {{with .Who}}<div class="wb-hst-who" title="{{.}}">{{.}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/hall-stop"}}{{with .Gate}}{{template "wb/gate-card" .}}{{end}}{{with .Station}}{{template "wb/hall-station" .}}{{end}}{{end}}
+
+{{define "wb/done-station"}}
+<div class="wb-hst wb-hst--done" data-testid="hall.done">
+    <div class="wb-hst-head"><span class="wb-hst-name">Done</span><span class="wb-mono wb-hst-key">done</span><span class="wb-hst-count">{{.Count}}</span></div>
+    <div class="wb-hst-body">
+        <div class="wb-done-row"><div class="wb-done-stack">{{range .Stack}}<i></i>{{end}}</div><div><div class="wb-big">{{.Count}}</div><div class="wb-muted">this week</div></div></div>
+    </div>
+    <div class="wb-hst-who">{{.Who}}</div>
+</div>
+{{end}}
+
+{{define "wb/ci-scanner"}}
+<div class="wb-scanner{{if .Red}} wb-scanner--red{{end}}" data-testid="hall.ci">
+    <div class="wb-scanner-head"><span class="wb-scanner-dot{{if .Red}} wb-blink{{end}}"></span><span class="wb-scanner-name">CI scanner</span><span class="wb-mono">ci_watch.go</span></div>
+    <div class="wb-scanner-cmd">{{.Command}} · {{if .Red}}red{{else}}green{{end}}{{with .Detail}} · {{.}}{{end}}</div>
+    <div class="wb-scanner-text">{{if .Red}}on <span class="wb-mono-inline">{{with .Issue}}{{.}}{{else}}{{.Branch}}{{end}}</span>: blocks the way to testing{{else}}the line is clear on <span class="wb-mono-inline">{{.Branch}}</span>{{end}}</div>
+</div>
+{{end}}
+
+{{define "wb/parking"}}
+<div class="wb-parking" data-testid="hall.parking">
+    <div class="wb-parking-head"><span class="wb-hst-name">Parking</span><span class="wb-mono">parked</span><span class="wb-hst-count">{{.Count}}</span></div>
+    {{range .Items}}<div class="wb-parked"><a class="wb-parked-slug" href="{{.URL}}">{{.Slug}}</a><span>{{.Reason}}</span></div>{{else}}<div class="wb-muted">Nothing parked.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/agent-panel"}}
+<div class="wb-agent" id="agent" data-testid="hall.agent">
+    <div class="wb-eyebrow">SELECTED AGENT</div>
+    <div class="wb-agent-id">
+        <div class="wb-bot-xl">{{template "wb/robot" .Robot}}</div>
+        <div class="wb-agent-name"><a class="wb-mono-inline" href="{{.URL}}">{{.Slug}}</a><div><span class="wb-chip wb-chip--{{if eq .Robot.State "you"}}you{{else if eq .Robot.State "working"}}green{{else}}idle{{end}}">{{.StateLabel}}</span></div></div>
+    </div>
+    <div class="wb-path" aria-label="The issue's way through the statuses">{{range .Path}}<i class="wb-path-{{.Tone}}" title="{{.Status}}"></i>{{end}}</div>
+    <dl class="wb-facts">{{range .Facts}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>
+    <div class="wb-stats">{{range .Stats}}<div class="wb-statcard"><div class="wb-big">{{.Value}}</div><div class="wb-muted">{{.Label}}</div></div>{{end}}</div>
+    <a class="wb-btn wb-btn--you wb-btn--block" href="{{.URL}}" data-testid="hall.agent.open">Open the issue</a>
+    <div class="wb-note">The CEO approves a gate only with your words: the box below starts with “approved: {{.Slug}}”, edit it and press Send.</div>
+</div>
+{{end}}
+
+{{define "wb/numbers"}}
+<div class="wb-numbers" data-testid="hall.numbers">
+    <h2 class="wb-h2">{{.Title}}</h2>
+    {{range .Rows}}<div class="wb-numrow"><span>{{.Label}}</span><b{{with .Tone}} class="wb-tone-{{.}}"{{end}}>{{.Value}}</b></div>{{end}}
+</div>
 {{end}}

@@ -97,7 +97,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Waiting: len(queue), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
 	}
 	d.Header.Crumbs[1].Color = color
-	d.Header.Crumbs[2].Hint = "The hall (L2) comes next"
+	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}
 
 	d.HQ = WbRoomHQ{
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},
@@ -113,7 +113,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
 		Stations: companyStations(wf, issues, workers, waitingOnOwner(p, openOnly(issues))),
 		Waiting:  lot.Waiting,
-		HallURL:  prefix + "/board",
+		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
 	}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
@@ -175,12 +175,18 @@ func companyGoalsOf(issues []*tracker.Issue, color string) []WbGoal {
 	return goals
 }
 
-// companyStations is the factory line: every status of workflow.yaml up to
-// the final one, with how many issues stand there and the robots working
-// them. A status the owner approves entry into has a gate (a stamp) before
-// it, counting the issues ready for that approval; human testing is the
-// owner's own station.
-func companyStations(wf *tracker.WorkflowConfig, issues []*tracker.Issue, workers []AgentNode, waiting []WaitingItem) []WbStation {
+// lineStop is one stop of the factory line read from workflow.yaml: a
+// status, whether the owner approves entry into it (a gate stands before
+// it) and whether it is the owner's own station (human testing).
+type lineStop struct {
+	Name, Key, Description string
+	Gated, Owner           bool
+}
+
+// factoryLine is the project's workflow.yaml as the factory line: every
+// status up to done (parked is off the line; optional statuses are stations
+// too). Shared by the company's line (L1) and the hall (L2).
+func factoryLine(wf *tracker.WorkflowConfig) []lineStop {
 	cs := newCanvasStatuses(wf)
 	gated := map[string]bool{}
 	for _, t := range wf.Transitions {
@@ -194,6 +200,37 @@ func companyStations(wf *tracker.WorkflowConfig, issues []*tracker.Issue, worker
 			}
 		}
 	}
+	var out []lineStop
+	for _, st := range wf.Statuses {
+		k := statusKey(st.Name)
+		if k == cs.final || k == "done" || k == "parked" {
+			continue
+		}
+		owner := strings.Contains(k, "human")
+		out = append(out, lineStop{Name: st.Name, Key: k, Description: st.Description, Gated: gated[k] && !owner, Owner: owner})
+	}
+	return out
+}
+
+// workerRobot is a live worker as a robot.
+func workerRobot(w AgentNode) WbRobot {
+	r := WbRobot{State: "working", Label: w.Name}
+	if w.Issue != nil {
+		r.Label = w.Issue.Slug
+	}
+	switch w.State {
+	case "idle":
+		r.State = "idle"
+	case "at-gate", "question":
+		r.State = "you"
+	}
+	return r
+}
+
+// companyStations is the factory line with how many issues stand at each
+// stop and the robots working them; a gate counts the issues ready for the
+// owner's approval.
+func companyStations(wf *tracker.WorkflowConfig, issues []*tracker.Issue, workers []AgentNode, waiting []WaitingItem) []WbStation {
 	atGate := map[string]int{}
 	for _, it := range waiting {
 		if it.Kind == "gate" {
@@ -206,35 +243,20 @@ func companyStations(wf *tracker.WorkflowConfig, issues []*tracker.Issue, worker
 	}
 	robots := map[string][]WbRobot{}
 	for _, w := range workers {
-		if w.Issue == nil {
-			continue
+		if w.Issue != nil {
+			robots[statusKey(w.Issue.Status)] = append(robots[statusKey(w.Issue.Status)], workerRobot(w))
 		}
-		r := WbRobot{State: "working", Label: w.Issue.Slug}
-		switch w.State {
-		case "idle":
-			r.State = "idle"
-		case "at-gate", "question":
-			r.State = "you"
-		}
-		k := statusKey(w.Issue.Status)
-		robots[k] = append(robots[k], r)
 	}
 	var out []WbStation
-	for _, st := range wf.Statuses {
-		k := statusKey(st.Name)
-		// The line runs up to done; parked is off the line. Optional
-		// statuses are stations too (skippable, still on the line).
-		if k == cs.final || k == "done" || k == "parked" {
-			continue
+	for _, stop := range factoryLine(wf) {
+		if stop.Gated {
+			out = append(out, WbStation{Label: "gate", Title: "Your approval to enter " + stop.Name, Gate: true, Count: atGate[stop.Key]})
 		}
-		if gated[k] && !strings.Contains(k, "human") {
-			out = append(out, WbStation{Label: "gate", Title: "Your approval to enter " + st.Name, Gate: true, Count: atGate[k]})
-		}
-		label := st.Name
-		if strings.Contains(k, "human") {
+		label := stop.Name
+		if stop.Owner {
 			label = "human test"
 		}
-		out = append(out, WbStation{Label: label, Title: st.Description, Count: count[k], Crew: wbCrewOf(robots[k], companyStationBots), Owner: strings.Contains(k, "human")})
+		out = append(out, WbStation{Label: label, Title: stop.Description, Count: count[stop.Key], Crew: wbCrewOf(robots[stop.Key], companyStationBots), Owner: stop.Owner})
 	}
 	return out
 }

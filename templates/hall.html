@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Product hall" .Lot.Name)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="The production line">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Product hall</h1>
+        <span class="wb-sub">stations = statuses from <span class="wb-mono-inline">workflow.yaml</span> · one worker carries one issue</span>
+    </div>
+    <div class="wb-hall" data-testid="hall.line">
+        <div class="wb-hall-row">{{range .Top}}{{template "wb/hall-stop" .}}{{end}}</div>
+        <div class="wb-belt-row wb-belt-row--right" aria-hidden="true"></div>
+        <div class="wb-hall-turn"><span class="wb-grow"></span>{{with .CI}}{{template "wb/ci-scanner" .}}{{end}}<div class="wb-belt-down" aria-hidden="true"></div></div>
+        <div class="wb-hall-row wb-hall-row--back">{{range .Bottom}}{{template "wb/hall-stop" .}}{{end}}{{template "wb/done-station" .Done}}</div>
+        <div class="wb-belt-row wb-belt-row--left" aria-hidden="true"></div>
+        <div class="wb-hall-foot">
+            {{template "wb/plan-card" .Retro}}
+            {{template "wb/parking" .Parking}}
+        </div>
+    </div>
+    <div class="wb-legend">
+        <span><b>Crate</b> = an issue</span>
+        <span>· <b class="wb-you-text">stamp</b> = a gate, only you</span>
+        <span>· the belt shows the way (along the top to the right, back along the bottom)</span>
+        <span>· dashed = a stage still to build</span>
+    </div>
+</section>
+<aside class="wb-side wb-side--company" aria-label="Selected agent">
+    <div class="wb-side-block">{{with .Agent}}{{template "wb/agent-panel" .}}{{else}}<div class="wb-empty">Click a crate on the line to see its issue and its worker.</div>{{end}}</div>
+    <div class="wb-side-block wb-side-block--grow">{{template "wb/numbers" .Numbers}}</div>
+    <div class="wb-side-block wb-side-block--foot" data-spawn-box>{{template "wb/message-box" .Message}}</div>
+</aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

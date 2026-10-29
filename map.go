@@ -173,6 +173,22 @@ func (s *Server) buildMap(now time.Time) MapData {
 	return data
 }
 
+// PlanCard is the building site's blueprint card.
+func (l MapLot) PlanCard() WbPlanCard {
+	text := l.Description
+	if text == "" && l.Kind != "" {
+		text = l.Kind + "."
+	}
+	c := WbPlanCard{Label: "BUILDING SITE", Title: l.Name, Text: strings.TrimSpace(text + " Planned: no CEO or departments yet."),
+		LinkText: "Open the project", LinkURL: "/p/" + l.Slug + "/status", TestID: "site_" + strings.ReplaceAll(l.Slug, "-", "_")}
+	if l.CEO.Live {
+		c.LinkText, c.LinkURL = "Talk to the CEO", "/p/"+l.Slug+"/lead"
+	} else {
+		c.SpawnURL = "/p/" + l.Slug + "/lead/spawn"
+	}
+	return c
+}
+
 // sortMapQueue puts what blocks others first (CI red), then the oldest.
 func sortMapQueue(q []WbQueueCard) {
 	sort.SliceStable(q, func(i, j int) bool {

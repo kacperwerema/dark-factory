@@ -193,6 +193,17 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 		"wb/radio":        []WbMessage{{From: "lead-meals", To: "you", Initials: "CEO", Tone: "ceo", Text: "Hi"}},
 		"wb/message-box":  WbMessageBox{Session: "lead-meals", SendURL: "/p/meals/lead/send"},
 		"wb/site":         MapLot{Name: "Cost Estimator", Slug: "cost-estimator"},
+		"wb/plan-card":    WbPlanCard{Label: "MISSING STAGE", Title: "Retro and feedback", TestID: "retro"},
+		"wb/crate":        WbCrate{Slug: "ui/a", Robot: &WbRobot{State: "you"}, Question: true, CI: true},
+		"wb/gate-card":    WbGateCard{Name: "Gate", Status: "backlog", Waiting: 2},
+		"wb/stamp-icon":   nil,
+		"wb/hall-station": WbHallStation{Name: "In progress", Status: "in progress", Crates: []WbCrate{{Slug: "ui/a"}}},
+		"wb/hall-stop":    WbHallStop{Gate: &WbGateCard{Name: "Gate"}},
+		"wb/done-station": WbDoneStation{Count: 3, Stack: make([]int, 3)},
+		"wb/ci-scanner":   WbCIScanner{Red: true, Command: "make validate", Branch: "main"},
+		"wb/parking":      WbParking{Count: 1, Items: []WbParked{{Slug: "ui/x", Reason: "after beta"}}},
+		"wb/agent-panel":  WbAgentPanel{Slug: "ui/a", Robot: WbRobot{State: "you"}, Path: []WbPathStep{{Status: "idea", Tone: "done"}}},
+		"wb/numbers":      WbNumbers{Title: "The hall in numbers", Rows: []WbFact{{Label: "Done", Value: "3"}}},
 		"wb/side":         []WbQueueCard{card},
 	} {
 		var b strings.Builder
@@ -230,7 +241,7 @@ func TestMapEngineHubAndBuildingSite(t *testing.T) {
 	assertContains(t, html,
 		`class="wb-lots wb-lots--hub" id="lots" data-engine="dark-factory"`,
 		`class="wb-lot wb-lot--engine" id="lot-dark-factory"`, `>ENGINE</div>`,
-		`data-site="1" data-testid="map.site.cost-estimator"`, `AI cost estimates for building projects.`,
+		`id="lot-cost-estimator" data-slug="cost-estimator" data-site="1"`, `data-testid="plan.site_cost_estimator"`, `AI cost estimates for building projects.`,
 		`data-spawn-lead="/p/cost-estimator/lead/spawn"`,
 		`2 active · 1 building site · roads lead to the engine`,
 	)
@@ -254,7 +265,7 @@ func TestCompanyPage(t *testing.T) {
 		`data-testid="company.room.hq"`, `>HQ · CEO</span>`, `“Waiting on your call about the epic.”`, `href="/p/agents/lead" data-testid="company.ceo.talk"`,
 		`data-testid="company.room.product"`, `>Product · software factory</span>`, `2 workers`,
 		`data-testid="company.line"`, `<div class="wb-station-label">in progress</div>`, `<div class="wb-station-label">gate</div>`,
-		`href="/p/agents/board" data-testid="company.enter_hall"`,
+		`href="/p/agents/hall" data-testid="company.enter_hall"`,
 		`data-testid="tile.new_department"`, `Coming later: a new department is a new pillar`,
 		`data-testid="company.queue.row"`, `>Question</span>`,
 		// The Radio: the CEO's lines, newest first, without tool calls.
@@ -294,5 +305,34 @@ func TestCompanyStations(t *testing.T) {
 	}
 	if !got[4].Owner {
 		t.Error("human testing is the owner's station")
+	}
+}
+
+func TestHallPage(t *testing.T) {
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "⏺ Working on it.\n")
+	withMockTmuxSessions(t, []AgentSession{{Name: "lead-agents"}, {Name: "agent-ui-child"}, {Name: "agent-ui-asker"}})
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+
+	code, html := getBody(t, ts.URL+"/p/agents/hall")
+	if code != 200 {
+		t.Fatalf("status %d: %s", code, html)
+	}
+	assertContains(t, html,
+		`href="/p/agents/company"`, `aria-current="page"><i class="wb-crumb-sq" style="background:#3D7BF7"></i>Product hall</span>`,
+		`data-testid="hall.line"`, `<span class="wb-hst-name">In progress</span>`, `<span class="wb-hst-name">Backlog</span>`,
+		`data-testid="hall.gate"`, `<span class="wb-mono">testing</span>`,
+		// The asker carries its crate with a question for the owner.
+		`<span class="wb-crate-slug">ui/asker</span><span class="wb-crate-q"`,
+		`data-testid="hall.done"`, `data-testid="hall.parking"`, `data-testid="plan.retro"`, `Retro and feedback`,
+		// The default selection waits on the owner; the box is ready to approve it.
+		`data-testid="hall.agent"`, `value="approved: ui/`, `data-testid="hall.numbers"`,
+	)
+	_, html = getBody(t, ts.URL+"/p/agents/hall?agent=ui/idle")
+	assertContains(t, html, `href="/p/agents/issue/ui/idle">ui/idle</a>`, `No worker`, `value="approved: ui/idle"`)
+	if !strings.Contains(html, `wb-crate-line wb-crate-line--on" href="/p/agents/hall?agent=ui/idle#agent"`) {
+		t.Error("the selected crate is ringed")
 	}
 }
