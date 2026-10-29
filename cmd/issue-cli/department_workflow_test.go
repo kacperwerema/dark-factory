@@ -53,9 +53,11 @@ func TestDepartmentIssueWalksItsOwnWorkflow(t *testing.T) {
 	if issue.Status != "draft" || !strings.Contains(issue.BodyRaw, "## Draft") {
 		t.Fatalf("after brief → draft: status %q, body:\n%s", issue.Status, issue.BodyRaw)
 	}
-	// Product's statuses are not the department's.
-	if err := runTransition(ctx, []string{"seo/faq-page", "--to", "backlog"}); err == nil {
-		t.Fatal("a Marketing issue moved to Product's backlog")
+	// Product's statuses are not the department's, and the refusal lists
+	// the department's own.
+	err := runTransition(ctx, []string{"seo/faq-page", "--to", "backlog"})
+	if err == nil || !strings.Contains(err.Error(), "owner review") {
+		t.Fatalf("a Marketing issue to Product's backlog: err = %v, want the content statuses listed", err)
 	}
 	// Product's issue still follows workflow.yaml.
 	if err := runTransition(ctx, []string{"cli/tool", "--to", "backlog"}); err != nil {
@@ -91,6 +93,13 @@ func TestShowNamesTheDepartmentAndItsFile(t *testing.T) {
 	got := out.String()
 	assertContains(t, got, "Department: Marketing")
 	assertContains(t, got, filepath.Join("workflows", "marketing.yaml"))
+
+	out.Reset()
+	if err := runStart(ctx, []string{"seo/faq-page"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Department: Marketing")
+	assertContains(t, out.String(), "Workflow file: ")
 
 	out.Reset()
 	if err := runShow(ctx, []string{"cli/tool"}); err != nil {
