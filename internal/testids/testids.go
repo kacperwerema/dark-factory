@@ -627,6 +627,24 @@ var IDs = []string{
 	"decisions.row.*.*.cited",
 	"decisions.row.*.*.state",
 	"decisions.toast",
+	"decisions.new_view",
+	// Decisions log (Workshop Board L2, templates/decisions_wb.html and
+	// _workshop_decisions.html); the old table stays at ?classic=1.
+	"decisions.classic",
+	"decisions.count",
+	"decisions.log",
+	"decisions.day",
+	"decisions.thread.*",
+	"decisions.row.*.*.quote",
+	"decisions.row.*.*.confirm",
+	"decisions.row.*.*.question",
+	"decisions.hygiene",
+	"decisions.start_ceo",
+	"summary.*",
+	"search.*",
+	"filter.*",
+	"bars.*",
+	"command.*",
 
 	// Metrics view (templates/metrics.html): guard metrics, knobs, branches.
 	"balance.group.*.guard",

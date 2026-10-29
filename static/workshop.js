@@ -153,3 +153,32 @@
     if (document.visibilityState === 'visible' && !document.querySelector('details[open]') && !typing) location.reload();
   }, 60000);
 })();
+
+// Decisions log (L2): copy a decision's ref, and "Question it" starts a
+// message to the CEO in the box on the right for the owner to finish.
+(function () {
+  var toast = document.querySelector('.wb-toast');
+  function say(text) {
+    if (!toast) return;
+    toast.textContent = text;
+    toast.classList.add('wb-toast--on');
+    setTimeout(function () { toast.classList.remove('wb-toast--on'); }, 2200);
+  }
+  document.querySelectorAll('.wb-copyref').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var ref = btn.getAttribute('data-ref');
+      if (!navigator.clipboard) { say(ref); return; }
+      navigator.clipboard.writeText(ref).then(function () { say('Copied ' + ref); }, function () { say(ref); });
+    });
+  });
+  document.querySelectorAll('[data-question]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.getElementById('wb-msg-input');
+      if (!input || input.disabled) return;
+      input.value = btn.getAttribute('data-question');
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  });
+})();
