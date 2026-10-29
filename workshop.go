@@ -23,8 +23,11 @@ type WbHeader struct {
 	HideDone bool
 	// Toggle is the project's Board | Report switch (L1); Quiet drops the
 	// agent counters (the Report has its own cards).
-	Toggle                   []WbViewTab
-	Quiet                    bool
+	Toggle []WbViewTab
+	Quiet  bool
+	// Tabs is the hall's view toggle after the crumbs (L2: Line | Report |
+	// Health); nil elsewhere.
+	Tabs                     *WbHallTabs
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int

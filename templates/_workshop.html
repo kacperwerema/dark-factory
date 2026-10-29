@@ -58,6 +58,7 @@ their styles). Pages compose them; a new element is a new component here first.
     </a>
     {{template "wb/crumbs" .Crumbs}}
     {{with .Toggle}}{{template "wb/view-toggle" .}}{{end}}
+    {{with .Tabs}}{{template "wb/hall-tabs" .}}{{end}}
     <div class="wb-grow"></div>
     <div class="wb-header-stats">
         {{if .Goals}}{{range .Goals}}{{template "wb/goal" .}}{{end}}{{else if not .Quiet}}
