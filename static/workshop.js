@@ -97,7 +97,8 @@
   // "Start CEO" on a building site: spawn the project's lead.
   document.querySelectorAll('[data-spawn-lead]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var msg = btn.closest('.wb-site').querySelector('.wb-site-msg');
+      var box = btn.closest('.wb-site') || btn.closest('[data-spawn-box]') || btn.parentNode;
+      var msg = box.querySelector('.wb-site-msg');
       btn.disabled = true;
       msg.textContent = 'Starting the CEO…';
       fetch(btn.getAttribute('data-spawn-lead'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
@@ -120,9 +121,35 @@
   window.addEventListener('resize', drawRoads);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawRoads);
 
+  // Message to the CEO (L1): paste into the lead's session.
+  document.querySelectorAll('form[data-send]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = form.querySelector('input[name=text]');
+      var msg = form.querySelector('.wb-site-msg');
+      var text = input.value.trim();
+      if (!text) return;
+      msg.textContent = 'Sending…';
+      fetch(form.getAttribute('data-send'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok || res.body.status === 'error') {
+            var step = (res.body.steps || [])[0];
+            msg.textContent = 'Not sent' + (step ? ': ' + step.name + (step.detail ? ' (' + step.detail + ')' : '') : '.');
+            return;
+          }
+          input.value = '';
+          msg.textContent = 'Sent to ' + (res.body.session || 'the CEO') + '.';
+          setTimeout(function () { location.reload(); }, 4000);
+        })
+        .catch(function (err) { msg.textContent = 'Not sent: ' + err; });
+    });
+  });
+
   // Refresh once a minute while the page is in view, unless a details panel
   // is open.
   setInterval(function () {
-    if (document.visibilityState === 'visible' && !document.querySelector('details[open]')) location.reload();
+    var typing = document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.value;
+    if (document.visibilityState === 'visible' && !document.querySelector('details[open]') && !typing) location.reload();
   }, 60000);
 })();

@@ -15,7 +15,9 @@ import (
 // WbHeader is the bar on top of every level: brand, where you are (Map ›
 // Company › Hall), the agents, what was done this week and what waits on you.
 type WbHeader struct {
-	Crumbs                   []WbCrumb
+	Crumbs []WbCrumb
+	// Goals replace the agent counters when set (L1: the company's goals).
+	Goals                    []WbGoal
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
@@ -25,8 +27,10 @@ type WbHeader struct {
 // and for a level not reachable from here (drawn dashed: still to choose).
 type WbCrumb struct {
 	Label, URL string
-	Current    bool
-	Hint       string
+	// Color is the project's square on its crumb.
+	Color   string
+	Current bool
+	Hint    string
 }
 
 // wbCrumbs is Map › Company › Hall with level (0, 1, 2) current; project
@@ -70,14 +74,17 @@ const wbCrewMax = 16
 
 // wbCrew orders robots by what they need (waiting on you, working, waiting on
 // an agent, idle) and keeps the first wbCrewMax.
-func wbCrew(robots []WbRobot) WbCrew {
+func wbCrew(robots []WbRobot) WbCrew { return wbCrewOf(robots, wbCrewMax) }
+
+// wbCrewOf is wbCrew with its own cap (a station on the line draws 3).
+func wbCrewOf(robots []WbRobot, max int) WbCrew {
 	rank := map[string]int{"you": 0, "working": 1, "agent": 2, "idle": 3}
 	sorted := append([]WbRobot(nil), robots...)
 	sort.SliceStable(sorted, func(i, j int) bool { return rank[sorted[i].State] < rank[sorted[j].State] })
-	if len(sorted) <= wbCrewMax {
+	if len(sorted) <= max {
 		return WbCrew{Robots: sorted}
 	}
-	return WbCrew{Robots: sorted[:wbCrewMax], More: len(sorted) - wbCrewMax}
+	return WbCrew{Robots: sorted[:max], More: len(sorted) - max}
 }
 
 // StateLabel is the robot's state in words, for its tooltip.
@@ -155,8 +162,8 @@ func wbCountChips(you, working, agentWait, idle int) []WbChip {
 	return out
 }
 
-// plCIChip is CI's state as a chip; nil when the project has no CI.
-func plCIChip(state, line string) *WbChip {
+// wbCIChip is CI's state as a chip; nil when the project has no CI.
+func wbCIChip(state, line string) *WbChip {
 	switch state {
 	case "red":
 		return &WbChip{Tone: "red", Text: "CI red", Title: line, Dot: true, Blink: true}
@@ -164,4 +171,74 @@ func plCIChip(state, line string) *WbChip {
 		return &WbChip{Tone: "green", Text: "CI green", Dot: true}
 	}
 	return nil
+}
+
+// WbGoal is a goal in the header: a labelled bar in the project's colour.
+type WbGoal struct {
+	Progress WbProgress
+	Color    string
+}
+
+// WbRoomHead is a department room's coloured roof: its name, a note on the
+// right ("1/1 desk") and chips.
+type WbRoomHead struct {
+	Title, Color, Meta string
+	Chips              []WbChip
+}
+
+// WbFootItem is one line in a room's footer; Tone green for done work.
+type WbFootItem struct {
+	Text, Tone string
+}
+
+// WbCEODesk is the CEO at its desk: the big crowned robot, its latest line
+// and the way to talk to it (or start it).
+type WbCEODesk struct {
+	CEO               WbCEO
+	Color             string
+	ChatURL, SpawnURL string
+}
+
+// WbRoomHQ is HQ: the CEO's room.
+type WbRoomHQ struct {
+	Head WbRoomHead
+	Desk WbCEODesk
+	Foot []WbFootItem
+}
+
+// WbStation is one stop on the factory line: a status from workflow.yaml,
+// or a gate (the owner's stamp) before a status the owner approves.
+type WbStation struct {
+	Label, Title string
+	Count        int
+	Gate         bool
+	// Owner: the owner's own station (human testing).
+	Owner bool
+	Crew  WbCrew
+}
+
+// WbRoomFactory is Product, the software factory: its line of stations.
+type WbRoomFactory struct {
+	Head     WbRoomHead
+	Stations []WbStation
+	Waiting  int
+	HallURL  string
+	Foot     []WbFootItem
+}
+
+// WbNewTile is a dashed "+" tile for something still to build.
+type WbNewTile struct {
+	Title, Sub, Note string
+	TestID           string
+}
+
+// WbMessage is one line on the Radio. Tone is ceo, you, agent or system.
+type WbMessage struct {
+	From, To, Initials, Tone, Text string
+}
+
+// WbMessageBox is the box to message the project's CEO.
+type WbMessageBox struct {
+	Session, SendURL, SpawnURL string
+	Live                       bool
 }

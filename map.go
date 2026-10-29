@@ -63,6 +63,8 @@ type MapData struct {
 	Active, Sites int
 	// RC is the engine's release candidate being tested; nil without one.
 	RC *MapRC
+	// NewProject is the "+" tile after the lots.
+	NewProject WbNewTile
 }
 
 // MapRC is the engine's release candidate and the projects running it: the
@@ -136,7 +138,10 @@ func (s *Server) buildMap(now time.Time) MapData {
 	}
 	wg.Wait()
 
-	data := MapData{Lots: lots, RC: rc}
+	data := MapData{Lots: lots, RC: rc, NewProject: WbNewTile{
+		Title: "New project", Sub: "Templates: app · game · service", TestID: "new_project",
+		Note: "Run issue-cli init in the project's folder, then add it to projects.yaml (kind:, color:, description:).",
+	}}
 	for i := range data.Lots {
 		lot := &data.Lots[i]
 		lot.Engine = lot.Slug == s.engine
@@ -252,7 +257,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		lot.Updates = len(plan.Proposals)
 	}
 	lot.Privacy = privacyView(p, prefix, now).Badges
-	if c := plCIChip(lot.CI, lot.CILine); c != nil {
+	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		lot.Chips = append(lot.Chips, *c)
 	}
 	lot.Chips = append(lot.Chips, wbCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)

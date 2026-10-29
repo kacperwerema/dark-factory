@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Lot.Name}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Lot.Name}}: the company">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">{{.Lot.Name}}</h1>
+        <span class="wb-sub">{{.Departments}} departments · CEO <span class="wb-mono-inline">{{.Lot.CEO.Session}}</span>{{with .Lot.Kind}} · {{.}}{{end}}</span>
+    </div>
+    <div class="wb-company">
+        <div class="wb-company-row">
+            {{template "wb/room-hq" .HQ}}
+            <div class="wb-corridor{{if .Lot.Working}} wb-corridor--flow{{end}}" aria-hidden="true"></div>
+            {{template "wb/room-factory" .Product}}
+        </div>
+        <div class="wb-company-row wb-company-row--plan">
+            {{template "wb/new-tile" .NewDept}}
+        </div>
+    </div>
+    <div class="wb-legend">
+        <span><b>Corridors</b> = communication between departments</span>
+        <span>· moving dashes = work flowing</span>
+        <span>· <b class="wb-you-text">orange</b> = your decision</span>
+    </div>
+</section>
+<aside class="wb-side wb-side--company" id="waiting" aria-label="Project panel">
+    <div class="wb-side-block">
+        <h2 class="wb-h2">Waiting on you · {{.Waiting}}</h2>
+        {{range .Queue}}{{template "wb/queue-row" .}}{{else}}<div class="wb-empty" data-testid="company.queue.empty">Nothing is waiting on you here.</div>{{end}}
+        {{if .QueueMore}}<a class="wb-site-link" href="/#waiting" data-testid="company.queue.more">{{.QueueMore}} more on the map</a>{{end}}
+    </div>
+    <div class="wb-side-block wb-side-block--grow">
+        <div class="wb-h2-row"><h2 class="wb-h2">Radio · {{.Lot.Name}}</h2><span class="wb-muted">what the CEO said</span></div>
+        {{template "wb/radio" .Radio}}
+    </div>
+    <div class="wb-side-block wb-side-block--foot" data-spawn-box>{{template "wb/message-box" .Message}}</div>
+</aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

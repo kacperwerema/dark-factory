@@ -110,6 +110,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case rest == "" || rest == "/":
 		s.handleList(w, r, proj, prefix)
+	case rest == "company" && r.Method == http.MethodGet:
+		s.handleCompany(w, r, proj, prefix)
 	case rest == "board":
 		s.handleBoard(w, r, proj, prefix)
 	case rest == "graph":

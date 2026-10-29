@@ -15,6 +15,17 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/skyline     departments as buildings, plus a free lot  data: []WbBuilding
   wb/lot         a project on the map (L0)                  data: MapLot
   wb/site       a project not kicked off yet (L0)          data: MapLot
+  wb/goal       a goal in the header                       data: WbGoal
+  wb/room-head  a department room's roof                   data: WbRoomHead
+  wb/room-foot  a room's footer line                       data: []WbFootItem
+  wb/ceo-desk   the CEO at its desk, latest line, talk     data: WbCEODesk
+  wb/room-hq    HQ: the CEO's room (L1)                    data: WbRoomHQ
+  wb/stations   the factory line from workflow.yaml        data: []WbStation
+  wb/room-factory  Product, the software factory (L1)      data: WbRoomFactory
+  wb/new-tile   a dashed "+" tile still to build           data: WbNewTile
+  wb/queue-row  a compact "waiting on you" row             data: WbQueueCard
+  wb/radio      what the CEO and agents said               data: []WbMessage
+  wb/message-box  the box to message the CEO               data: WbMessageBox
   wb/queue-card  one thing waiting on the owner             data: WbQueueCard
   wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
 */}}
@@ -36,12 +47,13 @@ their styles). Pages compose them; a new element is a new component here first.
     {{template "wb/crumbs" .Crumbs}}
     <div class="wb-grow"></div>
     <div class="wb-header-stats">
+        {{if .Goals}}{{range .Goals}}{{template "wb/goal" .}}{{end}}{{else}}
         <div class="wb-stat-box" data-testid="map.agents">
             <span class="wb-stat"><span class="wb-dot wb-dot--working"></span>{{.Working}} <span class="wb-muted">working</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--idle"></span>{{.Idle}} <span class="wb-muted">idle</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--agent"></span>{{.AgentWait}} <span class="wb-muted">waiting on an agent</span></span>
         </div>
-        <div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>
+        <div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}
         <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="#waiting" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
         <div class="wb-avatar" title="You">YOU</div>
     </div>
@@ -50,7 +62,7 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/crumbs"}}
 <nav class="wb-crumbs" aria-label="View level">
-    {{range $i, $c := .}}{{if $i}}<span class="wb-crumb-sep" aria-hidden="true">›</span>{{end}}{{if $c.Current}}<span class="wb-crumb wb-crumb--on" aria-current="page">{{$c.Label}}</span>{{else if $c.URL}}<a class="wb-crumb wb-crumb--link" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}<span class="wb-crumb wb-crumb--plan" title="{{$c.Hint}}">{{$c.Label}}</span>{{end}}{{end}}
+    {{range $i, $c := .}}{{if $i}}<span class="wb-crumb-sep" aria-hidden="true">›</span>{{end}}{{if $c.Current}}<span class="wb-crumb wb-crumb--on" aria-current="page">{{with $c.Color}}<i class="wb-crumb-sq" style="background:{{.}}"></i>{{end}}{{$c.Label}}</span>{{else if $c.URL}}<a class="wb-crumb wb-crumb--link" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}<span class="wb-crumb wb-crumb--plan" title="{{$c.Hint}}">{{$c.Label}}</span>{{end}}{{end}}
 </nav>
 {{end}}
 
@@ -84,7 +96,7 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/lot"}}
-<a class="wb-lot{{if .Engine}} wb-lot--engine{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/status" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
+<a class="wb-lot{{if .Engine}} wb-lot--engine{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/company" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
    aria-label="{{.Name}}{{if .Waiting}}: {{.Waiting}} waiting on you{{end}}{{if eq .CI "red"}}, CI red{{end}}. Enter the project.">
     <div class="wb-lot-roof"></div>
     <div class="wb-lot-body">
@@ -146,4 +158,92 @@ their styles). Pages compose them; a new element is a new component here first.
         <div class="wb-empty">Radio will carry what the CEOs and agents say to each other. For now, talk to a CEO from <a href="/leads">All CEOs</a>.</div>
     </div>
 </aside>
+{{end}}
+
+{{define "wb/goal"}}<div class="wb-stat-box wb-goal-chip" data-testid="company.goal"><span class="wb-muted">Goal</span><span class="wb-goal-name">{{.Progress.Label}}</span><span class="wb-goal-mini"><i style="width:{{.Progress.Pct}}%;background:{{.Color}}"></i></span><span>{{.Progress.Done}}/{{.Progress.Total}}</span></div>{{end}}
+
+{{define "wb/room-head"}}<div class="wb-room-head" style="background:{{.Color}}"><span class="wb-room-title">{{.Title}}</span><span class="wb-grow"></span>{{range .Chips}}{{template "wb/chip" .}}{{end}}{{with .Meta}}<span class="wb-room-meta">{{.}}</span>{{end}}</div>{{end}}
+
+{{define "wb/room-foot"}}{{if .}}<div class="wb-room-foot">{{range .}}<span{{if .Tone}} class="wb-foot--{{.Tone}}"{{end}}>{{.Text}}</span>{{end}}</div>{{end}}{{end}}
+
+{{define "wb/ceo-desk"}}
+<div class="wb-desk">
+    <div class="wb-desk-seat">
+        <div class="wb-ceo-big{{if .CEO.Live}} wb-bob{{else}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}"><svg width="22" height="13" viewBox="0 0 16 10" aria-hidden="true"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.4" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
+        <div class="wb-desk-top"></div>
+        <div class="wb-mono">{{.CEO.Session}}</div>
+    </div>
+    <div class="wb-desk-talk">
+        <div class="wb-bubble wb-bubble--card" data-testid="company.ceo.quote">{{if .CEO.Quote}}“{{.CEO.Quote}}”{{else if .CEO.Live}}The CEO is working and has not said anything yet.{{else}}The CEO is not running.{{end}}</div>
+        {{if .CEO.Live}}<a class="wb-btn wb-btn--paper wb-btn--block" href="{{.ChatURL}}" data-testid="company.ceo.talk">Talk to the CEO</a>{{else}}<button type="button" class="wb-btn wb-btn--paper wb-btn--block" data-spawn-lead="{{.SpawnURL}}" data-testid="company.ceo.start">Start CEO</button><div class="wb-site-msg" role="status"></div>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "wb/room-hq"}}
+<div class="wb-room wb-room--hq" data-spawn-box data-testid="company.room.hq">
+    {{template "wb/room-head" .Head}}
+    <div class="wb-floor">{{template "wb/ceo-desk" .Desk}}</div>
+    {{template "wb/room-foot" .Foot}}
+</div>
+{{end}}
+
+{{define "wb/stations"}}
+<div class="wb-line" data-testid="company.line">
+    <div class="wb-belt"></div>
+    <div class="wb-stations">
+        {{range .}}<div class="wb-station{{if .Gate}} wb-station--gate{{end}}{{if .Owner}} wb-station--owner{{end}}{{if .Count}} wb-station--busy{{end}}" title="{{.Title}}">
+            <div class="wb-station-bots">{{range .Crew.Robots}}{{template "wb/robot" .}}{{end}}{{if .Crew.More}}<span class="wb-more wb-more--sm">+{{.Crew.More}}</span>{{end}}</div>
+            <div class="wb-station-box">{{.Count}}</div>
+            <div class="wb-station-label">{{.Label}}</div>
+        </div>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "wb/room-factory"}}
+<div class="wb-room wb-room--factory" data-testid="company.room.product">
+    {{template "wb/room-head" .Head}}
+    <div class="wb-floor wb-floor--factory">
+        {{template "wb/stations" .Stations}}
+        <div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from workflow.yaml</span></div>
+        <div class="wb-grow"></div>
+        <div class="wb-factory-foot">{{template "wb/room-foot" .Foot}}<span class="wb-grow"></span><a class="wb-btn wb-btn--ink" href="{{.HallURL}}" data-testid="company.enter_hall">Enter the hall <span aria-hidden="true">→</span></a></div>
+    </div>
+    {{template "wb/bang" .Waiting}}
+</div>
+{{end}}
+
+{{define "wb/new-tile"}}
+<div class="wb-newtile" data-testid="tile.{{.TestID}}">
+    <span class="wb-plus">+</span>
+    <span class="wb-newlot-title">{{.Title}}</span>
+    {{with .Sub}}<span class="wb-newlot-sub">{{.}}</span>{{end}}
+    {{with .Note}}<span class="wb-newtile-note">{{.}}</span>{{end}}
+</div>
+{{end}}
+
+{{define "wb/queue-row"}}<a class="wb-qrow" href="{{.URL}}" data-testid="company.queue.row"><span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span><span class="wb-qrow-slug">{{.Slug}}</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+
+{{define "wb/radio"}}
+<div class="wb-radio" data-testid="company.radio">
+    {{range .}}<div class="wb-msg">
+        <div class="wb-msg-av wb-msg-av--{{.Tone}}">{{.Initials}}</div>
+        <div class="wb-msg-main">
+            <div class="wb-msg-meta"><span class="wb-msg-from">{{.From}}</span>{{with .To}}<span>→ {{.}}</span>{{end}}</div>
+            <div class="wb-msg-text wb-msg-text--{{.Tone}}">{{.Text}}</div>
+        </div>
+    </div>{{else}}<div class="wb-empty">Nothing on the radio yet: the CEO's messages show up here while it runs.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/message-box"}}
+<form class="wb-msgbox" data-send="{{.SendURL}}" data-testid="company.message">
+    <label for="wb-msg-input">Message to <span class="wb-mono-inline">{{.Session}}</span></label>
+    <div class="wb-msgbox-row">
+        <input id="wb-msg-input" type="text" name="text" autocomplete="off" placeholder="{{if .Live}}e.g. send a worker to fix CI{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}}>
+        <button type="submit" class="wb-btn wb-btn--ink" {{if not .Live}}disabled{{end}}>Send</button>
+    </div>
+    <div class="wb-site-msg" role="status"></div>
+</form>
 {{end}}

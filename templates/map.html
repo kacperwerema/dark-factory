@@ -13,10 +13,7 @@
     <div class="wb-lots{{if .Engine}} wb-lots--hub{{end}}" id="lots" data-engine="{{.Engine}}">
         <svg class="wb-roads" id="roads" aria-hidden="true"></svg>
         {{range .Lots}}{{if .Site}}{{template "wb/site" .}}{{else}}{{template "wb/lot" .}}{{end}}{{end}}
-        <details class="wb-newlot" data-testid="map.new_project">
-            <summary><span class="wb-plus">+</span><span class="wb-newlot-title">New project</span><span class="wb-newlot-sub">Templates: app · game · service</span></summary>
-            <div class="wb-newlot-how">In the project's folder: <code>issue-cli init</code>, then an entry in <code>projects.yaml</code> (<code>kind:</code> and <code>color:</code> describe its lot).</div>
-        </details>
+        {{template "wb/new-tile" .NewProject}}
     </div>
     <div class="wb-legend">
         <span><b>Click a lot</b> to enter the project</span>

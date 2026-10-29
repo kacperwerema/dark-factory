@@ -36,7 +36,7 @@ func TestMapPage(t *testing.T) {
 		t.Fatalf("status %d: %s", code, html)
 	}
 	assertContains(t, html,
-		`data-testid="map.lot.agents"`, `href="/p/agents/status"`, `aplikacja PWA`,
+		`data-testid="map.lot.agents"`, `href="/p/agents/company"`, `aplikacja PWA`,
 		`data-testid="map.lot.test-project"`,
 		// child waits at its gate, asker asks a question: both wait on the owner.
 		`class="wb-bot wb-bot--you" title="ui/child`, `class="wb-bot wb-bot--you" title="ui/asker`,
@@ -169,19 +169,31 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 	progress := &WbProgress{Label: "Epic: Hall", Done: 2, Total: 7}
 	card := WbQueueCard{Label: "Question", Tone: "you", Project: "Jemik", ProjectSlug: "meals", Slug: "zakupy/x", CTA: "Answer", URL: "/p/meals/issue/zakupy/x"}
 	for name, data := range map[string]any{
-		"wb/head":       "Map",
-		"wb/header":     WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status"), Working: 2, Waiting: 3},
-		"wb/robot":      WbRobot{State: "agent", Label: "ui/b → ui/a"},
-		"wb/robots":     wbCrew([]WbRobot{{State: "working"}}),
-		"wb/chip":       *plCIChip("red", "make validate"),
-		"wb/chips":      wbCountChips(1, 1, 1, 2),
-		"wb/ceo":        WbCEO{Session: "lead-meals", Live: true, Quote: "Three things for you."},
-		"wb/progress":   progress,
-		"wb/bang":       3,
-		"wb/skyline":    []WbBuilding{{Name: "Plan", Open: 3, Color: "#3D7BF7", Width: 48, Height: 25}},
-		"wb/lot":        MapLot{Name: "Jemik", Slug: "meals", Color: "#13A386", Progress: progress, Waiting: 1},
-		"wb/queue-card": card,
-		"wb/side":       []WbQueueCard{card},
+		"wb/head":         "Map",
+		"wb/header":       WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status"), Working: 2, Waiting: 3},
+		"wb/robot":        WbRobot{State: "agent", Label: "ui/b → ui/a"},
+		"wb/robots":       wbCrew([]WbRobot{{State: "working"}}),
+		"wb/chip":         *wbCIChip("red", "make validate"),
+		"wb/chips":        wbCountChips(1, 1, 1, 2),
+		"wb/ceo":          WbCEO{Session: "lead-meals", Live: true, Quote: "Three things for you."},
+		"wb/progress":     progress,
+		"wb/bang":         3,
+		"wb/skyline":      []WbBuilding{{Name: "Plan", Open: 3, Color: "#3D7BF7", Width: 48, Height: 25}},
+		"wb/lot":          MapLot{Name: "Jemik", Slug: "meals", Color: "#13A386", Progress: progress, Waiting: 1},
+		"wb/queue-card":   card,
+		"wb/queue-row":    card,
+		"wb/goal":         WbGoal{Progress: *progress, Color: "#13A386"},
+		"wb/room-head":    WbRoomHead{Title: "HQ · CEO", Color: "#F2B233", Meta: "1/1 desk"},
+		"wb/room-foot":    []WbFootItem{{Text: "✓ 2 this week", Tone: "green"}},
+		"wb/ceo-desk":     WbCEODesk{CEO: WbCEO{Session: "lead-meals"}, SpawnURL: "/p/meals/lead/spawn"},
+		"wb/room-hq":      WbRoomHQ{Head: WbRoomHead{Title: "HQ · CEO"}},
+		"wb/stations":     []WbStation{{Label: "gate", Gate: true}, {Label: "in progress", Count: 2, Crew: wbCrew([]WbRobot{{State: "working"}})}},
+		"wb/room-factory": WbRoomFactory{Head: WbRoomHead{Title: "Product"}, HallURL: "/p/meals/board"},
+		"wb/new-tile":     WbNewTile{Title: "New department", TestID: "new_department"},
+		"wb/radio":        []WbMessage{{From: "lead-meals", To: "you", Initials: "CEO", Tone: "ceo", Text: "Hi"}},
+		"wb/message-box":  WbMessageBox{Session: "lead-meals", SendURL: "/p/meals/lead/send"},
+		"wb/site":         MapLot{Name: "Cost Estimator", Slug: "cost-estimator"},
+		"wb/side":         []WbQueueCard{card},
 	} {
 		var b strings.Builder
 		if err := srv.tmpl.ExecuteTemplate(&b, name, data); err != nil || strings.TrimSpace(b.String()) == "" {
@@ -222,4 +234,65 @@ func TestMapEngineHubAndBuildingSite(t *testing.T) {
 		`data-spawn-lead="/p/cost-estimator/lead/spawn"`,
 		`2 active · 1 building site · roads lead to the engine`,
 	)
+}
+
+func TestCompanyPage(t *testing.T) {
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "⏺ I sent two workers to Product.\n⏺ Bash(issue-cli status)\n⏺ Waiting on your call about the epic.\n")
+	withMockTmuxSessions(t, []AgentSession{{Name: "lead-agents"}, {Name: "agent-ui-child"}, {Name: "agent-ui-asker"}})
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+
+	code, html := getBody(t, ts.URL+"/p/agents/company")
+	if code != 200 {
+		t.Fatalf("status %d: %s", code, html)
+	}
+	assertContains(t, html,
+		`<a class="wb-crumb wb-crumb--link" href="/">Map</a>`, `aria-current="page"><i class="wb-crumb-sq"`, `>Agents</span>`,
+		`data-testid="company.goal"`, `<span class="wb-goal-name">Epic</span>`,
+		`data-testid="company.room.hq"`, `>HQ · CEO</span>`, `“Waiting on your call about the epic.”`, `href="/p/agents/lead" data-testid="company.ceo.talk"`,
+		`data-testid="company.room.product"`, `>Product · software factory</span>`, `2 workers`,
+		`data-testid="company.line"`, `<div class="wb-station-label">in progress</div>`, `<div class="wb-station-label">gate</div>`,
+		`href="/p/agents/board" data-testid="company.enter_hall"`,
+		`data-testid="tile.new_department"`, `Coming later: a new department is a new pillar`,
+		`data-testid="company.queue.row"`, `>Question</span>`,
+		// The Radio: the CEO's lines, newest first, without tool calls.
+		`I sent two workers to Product.`, `data-send="/p/agents/lead/send"`,
+	)
+	if strings.Contains(html, "Bash(issue-cli status)") {
+		t.Error("a tool call is not something the CEO said")
+	}
+	if strings.Index(html, "Waiting on your call") > strings.Index(html, "I sent two workers") {
+		t.Error("the Radio lists the newest line first")
+	}
+}
+
+func TestCompanyStations(t *testing.T) {
+	wf := &tracker.WorkflowConfig{
+		Statuses: []tracker.WorkflowStatus{{Name: "idea"}, {Name: "backlog"}, {Name: "in progress"}, {Name: "human-testing"}, {Name: "done"}, {Name: "parked"}},
+		Transitions: []tracker.WorkflowTransition{
+			{From: "backlog", To: "in progress", Actions: []tracker.WorkflowAction{{Type: "require_human_approval", Status: "in progress"}}},
+		},
+	}
+	issues := []*tracker.Issue{{Slug: "a", Status: "backlog"}, {Slug: "b", Status: "in progress"}, {Slug: "c", Status: "in progress"}, {Slug: "d", Status: "done"}}
+	workers := []AgentNode{{State: "working", Issue: &AgentIssue{Slug: "b", Status: "in progress"}}, {State: "at-gate", Issue: &AgentIssue{Slug: "c", Status: "in progress"}}}
+	waiting := []WaitingItem{{Kind: "gate", Target: "in progress", Issue: issues[0]}}
+	got := companyStations(wf, issues, workers, waiting)
+	var labels []string
+	for _, s := range got {
+		labels = append(labels, s.Label)
+	}
+	if strings.Join(labels, ",") != "idea,backlog,gate,in progress,human test" {
+		t.Fatalf("line = %v, want the statuses up to done with a gate before in progress", labels)
+	}
+	if g := got[2]; !g.Gate || g.Count != 1 {
+		t.Errorf("gate = %+v, want 1 issue ready for approval", g)
+	}
+	if s := got[3]; s.Count != 2 || len(s.Crew.Robots) != 2 || s.Crew.Robots[0].State != "you" {
+		t.Errorf("in progress = %+v", s)
+	}
+	if !got[4].Owner {
+		t.Error("human testing is the owner's station")
+	}
 }
