@@ -105,6 +105,7 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	}
 
 	// The default selection: whoever waits on the owner, else whoever works.
+	picked := selected != ""
 	if selected == "" {
 		for _, issue := range open {
 			if w, ok := workerOf[strings.ToLower(issue.Slug)]; ok && workerRobot(w).State == "you" {
@@ -193,7 +194,11 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	if selected != "" {
 		if issue := tracker.FindIssue(issues, selected); issue != nil {
 			d.Agent = hallAgentPanel(p, prefix, wf, issue, workerOf, blamed, ci != nil, now)
-			d.Message.Prefill = "approved: " + issue.Slug
+			// Only the owner's own pick addresses the box, and never with
+			// approval words: one stray Enter must not approve anything.
+			if picked {
+				d.Message.Prefill = issue.Slug + ": "
+			}
 		}
 	}
 

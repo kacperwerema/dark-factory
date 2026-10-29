@@ -347,7 +347,7 @@ their styles). Pages compose them; a new element is a new component here first.
     <dl class="wb-facts">{{range .Facts}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>
     <div class="wb-stats">{{range .Stats}}<div class="wb-statcard"><div class="wb-big">{{.Value}}</div><div class="wb-muted">{{.Label}}</div></div>{{end}}</div>
     <a class="wb-btn wb-btn--you wb-btn--block" href="{{.URL}}" data-testid="hall.agent.open">Open the issue</a>
-    <div class="wb-note">The CEO approves a gate only with your words: the box below starts with “approved: {{.Slug}}”, edit it and press Send.</div>
+    <div class="wb-note">The CEO approves a gate only with your words: write them in the box below, or stamp it on the issue.</div>
 </div>
 {{end}}
 

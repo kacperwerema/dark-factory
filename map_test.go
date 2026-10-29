@@ -335,11 +335,18 @@ func TestHallPage(t *testing.T) {
 		// The asker carries its crate with a question for the owner.
 		`<span class="wb-crate-slug">ui/asker</span><span class="wb-crate-q"`,
 		`data-testid="hall.done"`, `data-testid="hall.parking"`, `data-testid="plan.retro"`, `Retro and feedback`,
-		// The default selection waits on the owner; the box is ready to approve it.
-		`data-testid="hall.agent"`, `value="approved: ui/`, `data-testid="hall.numbers"`,
+		// The default selection waits on the owner; the box stays empty.
+		`data-testid="hall.agent"`, `id="wb-msg-input" type="text" name="text" autocomplete="off" value=""`, `data-testid="hall.numbers"`,
 	)
+	if strings.Contains(html, "approved:") {
+		t.Error("the hall prefills approval words for the default selection")
+	}
 	_, html = getBody(t, ts.URL+"/p/agents/hall?agent=ui/idle")
-	assertContains(t, html, `href="/p/agents/issue/ui/idle">ui/idle</a>`, `No worker`, `value="approved: ui/idle"`)
+	// The owner's pick addresses the box, without approval words.
+	assertContains(t, html, `href="/p/agents/issue/ui/idle">ui/idle</a>`, `No worker`, `value="ui/idle: "`)
+	if strings.Contains(html, "approved:") {
+		t.Error("the hall prefills approval words for the owner's pick")
+	}
 	if !strings.Contains(html, `wb-crate-line wb-crate-line--on" href="/p/agents/hall?agent=ui/idle#agent"`) {
 		t.Error("the selected crate is ringed")
 	}

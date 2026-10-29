@@ -259,7 +259,8 @@ type WbMessage struct {
 // WbMessageBox is the box to message the project's CEO.
 type WbMessageBox struct {
 	Session, SendURL, SpawnURL string
-	// Prefill is the text the box starts with (L2: "approved: <slug>").
+	// Prefill is the text the box starts with (L2: "<slug>: " for the
+	// issue the owner picked; never approval words).
 	Prefill string
 	Live    bool
 }
