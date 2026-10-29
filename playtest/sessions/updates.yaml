@@ -11,12 +11,11 @@ session_checks:
 steps:
   - id: TP4
     proves: [AC10]
-    title: The sidebar's Updates tab counts the proposals; the page lists them newest first with the template state
+    title: The sidebar's Updates tab counts the proposals; the classic page lists them newest first with the template state
     setup:
-      - open: /p/{project}/workboard
+      - open: /p/{project}/updates?classic=1
     act:
       - check: { visible: nav.tab.updates.count }
-      - click: nav.tab.updates
     checks:
       - url: { contains: "/p/harbor/updates" }
       - selected: nav.tab.updates
@@ -31,7 +30,7 @@ steps:
     proves: [AC10]
     title: Details opens the entry's why, where, question and snippet; a category chip filters the cards
     setup:
-      - open: /p/{project}/updates
+      - open: /p/{project}/updates?classic=1
     act:
       - click: updates.card.ci-test-results.details
       - check: { visible: updates.card.ci-test-results.snippet }
@@ -48,7 +47,7 @@ steps:
     proves: [AC10]
     title: Decline writes the features record and moves the card to Declined; Undo re-opens it
     setup:
-      - open: /p/{project}/updates
+      - open: /p/{project}/updates?classic=1
     act:
       - click: updates.card.health-tuning.decline
       - wait_for: updates.flash
@@ -67,7 +66,7 @@ steps:
     proves: [AC10]
     title: Install with an agent takes the operator's answer and starts the install agent; a running install shows on its card
     setup:
-      - open: /p/{project}/updates
+      - open: /p/{project}/updates?classic=1
     act:
       - click: updates.card.lead-prompt.install
       - check: { visible: [updates.card.lead-prompt.words, updates.card.lead-prompt.start] }
@@ -97,7 +96,7 @@ steps:
     proves: [AC10]
     title: The Updates tab reads like the approved mockup in every theme and at phone width
     setup:
-      - open: /p/{project}/updates
+      - open: /p/{project}/updates?classic=1
     do: |
       Compare with mockup A (issues/attachments/<issue>/Main.png), open Details
       and Install on a card, switch the Dracula and light themes, then narrow
