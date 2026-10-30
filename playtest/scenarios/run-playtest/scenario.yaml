@@ -1,0 +1,14 @@
+# ▶ Run playtest (factory/run-the-playtest-from-the-page-you-are-on).
+# ui/play-due is in human-testing and playtest/sessions/play-due.yaml names
+# it with no judge run, so the station, the Needs-you band and the Evidence
+# tab offer ▶ Run playtest. playtest_command and playtest_report are
+# stand-ins (tools/): the first writes a judge run (TP1 pass, TP2 fail), the
+# second comments on the issue. Both wait for Enter in tmux window
+# playtest-ui-play-due on the scenario's private tmux server.
+title: Run the playtest from the page
+project:
+  name: Playtest Demo
+  slug: rp
+issues: tracker
+workflow: workflow.yaml
+root: files

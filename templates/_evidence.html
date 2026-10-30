@@ -160,6 +160,8 @@ watch and stale text on the side. Data is DetailData; the model is .Evidence
                         <p class="tl-note">Your playtest is due: <code>{{$.Evidence.PlaytestCommand}}</code></p>
                         <button type="button" class="btn it-go" data-run-playtest="{{.}}" data-testid="evidence.playtest.run">▶ Run playtest</button>
                         <div class="tl-note playtest-result" role="status" aria-live="polite" data-playtest-result data-testid="evidence.playtest.result" hidden></div>
+                        <button type="button" class="btn it-go" data-playtest-tick data-testid="evidence.playtest.tick" hidden>Tick passed boxes</button>
+                        <p class="tl-note playtest-note" data-playtest-note hidden></p>
                     </div>{{end}}
                     {{if .Steps}}
                     <div class="ev-steps" role="table" aria-label="Playtest per step">

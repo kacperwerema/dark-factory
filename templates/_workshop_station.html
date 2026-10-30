@@ -95,13 +95,15 @@ behaviour in static/station.js. templates/station.html composes them.
     </form>
     {{end}}
     {{with .Command}}<code class="wb-cmd">{{.}}</code>{{end}}
-    {{if and .Command (eq .Kind "playtest")}}<div data-playtest data-playtest-btn="wb-btn wb-btn--youshadow">
+    {{if and .Command (eq .Kind "playtest")}}<div data-playtest>
     <div class="wb-step-actions">
         {{with .RunURL}}<button type="button" class="wb-btn wb-btn--youshadow" data-run-playtest="{{.}}" data-testid="station.move.run_playtest">▶ Run playtest</button>{{end}}
         <button type="button" class="wb-btn wb-btn--paper" data-copy="{{.Command}}">Copy the command</button>
     </div>
     <div class="wb-site-msg" role="status"></div>
     <div class="wb-site-msg playtest-result" role="status" aria-live="polite" data-playtest-result data-testid="station.move.playtest_result" hidden></div>
+    <button type="button" class="wb-btn wb-btn--youshadow" data-playtest-tick data-testid="station.move.playtest_tick" hidden>Tick passed boxes</button>
+    <p class="wb-site-msg playtest-note" data-playtest-note hidden></p>
     </div>{{else if .Command}}<div class="wb-step-actions">
         {{with .RunURL}}<button type="button" class="wb-btn wb-btn--youshadow" data-run-checks="{{.}}">Run the checks</button>{{end}}
         <button type="button" class="wb-btn wb-btn--paper" data-copy="{{.Command}}">Copy the command</button>

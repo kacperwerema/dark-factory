@@ -1,0 +1,89 @@
+session: run-playtest
+issue: factory/run-the-playtest-from-the-page-you-are-on
+title: ▶ Run playtest where your playtest is due, its result, and Tick passed boxes
+scenario: run-playtest
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (not this issue's).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: The band runs the playtest, lists the judged steps, and ticks on a click
+    proves: [AC1, AC3, AC4]
+    setup:
+      - open: /p/{project}/issue/ui/play-due?classic=1
+    act:
+      - check: { text_contains: { target: detail.needs, text: "Run the playtest: 1 session." } }
+      - check: { text_contains: { target: detail.needs.command, text: "sh tools/fake-playtest.sh ui/play-due" } }
+      - check: { visible: [detail.needs.run_playtest, detail.needs.copy] }
+      - check: { hidden: detail.needs.playtest_tick }
+      - click: detail.needs.run_playtest
+      - wait_for: { text_contains: { target: detail.needs.playtest_result, text: "Running in playtest-ui-play-due" }, ms: 10000 }
+      - check: { tmux: { session: playtest-ui-play-due, present: true } }
+      - wait_for: { tmux: { pane: playtest-ui-play-due, contains: "Press Enter to close" }, ms: 15000 }
+      - tmux: [send-keys, -t, playtest-ui-play-due, Enter]
+      - wait_for: { text_contains: { target: detail.needs.playtest_result, text: "Playtest done: 1 passed, 1 failed." }, ms: 15000 }
+      - check: { text_contains: { target: detail.needs.playtest_result, text: "TP2 · fail · The phone layout holds" } }
+      - check: { visible: detail.needs.playtest_tick }
+    checks:
+      - visible: detail.needs.playtest_tick
+      - text_contains: { target: detail.needs.playtest_result, text: "TP1 · pass · The band reads well" }
+    targets:
+      - { id: detail.needs, note: the band after the run, with the result and Tick passed boxes }
+    do: |
+      1. On Play due, read the band and press ▶ Run playtest. The scenario's
+         stand-in writes a judge run (TP1 pass, TP2 fail) instead of opening
+         the overlay; the session presses Enter in its window.
+      2. Read the result under the button.
+    expect: |
+      While it runs the band names the window. When it closes, the band says
+      1 passed, 1 failed, lists TP1 and TP2 with their verdicts, and offers
+      Tick passed boxes as the next action; nothing has been ticked yet.
+    why: ux-test sees the text and the button; only you can say the result reads as one clear next step.
+
+  - id: TP7
+    title: Tick passed boxes runs the report, then the page reloads
+    from: TP4
+    proves: [AC4]
+    setup:
+      - click: detail.needs.playtest_tick
+      - wait_for: { tmux: { pane: playtest-ui-play-due, contains: "Press Enter to close" }, ms: 15000 }
+      - tmux: [send-keys, -t, playtest-ui-play-due, Enter]
+      - wait_for: { absent: detail.needs.run_playtest, ms: 20000 }
+    checks:
+      - absent: detail.needs.run_playtest
+      - issue: { slug: ui/play-due, comment_contains: "playtest: stand-in report ran" }
+
+  - id: TP5
+    title: The station's playtest step runs it and shows the result in place
+    proves: [AC1, AC3]
+    setup:
+      - open: /p/{project}/issue/ui/play-due
+    act:
+      - check: { visible: [station.move.task.playtest, station.move.run_playtest] }
+      - click: station.move.run_playtest
+      - wait_for: { tmux: { pane: playtest-ui-play-due, contains: "Press Enter to close" }, ms: 15000 }
+      - tmux: [send-keys, -t, playtest-ui-play-due, Enter]
+      - wait_for: { text_contains: { target: station.move.playtest_result, text: "Playtest done: 1 passed, 1 failed." }, ms: 15000 }
+    checks:
+      - visible: station.move.playtest_tick
+      - text_contains: { target: station.move.playtest_result, text: "TP2 · fail" }
+    targets:
+      - { id: station.move.task.playtest, note: the playtest step after the run }
+    do: Open Play due's station, press ▶ Run playtest on the playtest step and wait for the result.
+    expect: The step shows the result and Tick passed boxes in place, in the station's look.
+    why: Only you can say it fits the station.
+
+  - id: TP6
+    title: The Evidence tab's Playtest card offers ▶ Run playtest with its command
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/issue/ui/play-due?tab=evidence
+    checks:
+      - visible: evidence.playtest.run
+      - text_contains: { target: evidence.playtest, text: "Your playtest is due: sh tools/fake-playtest.sh ui/play-due" }
+      - hidden: evidence.playtest.tick

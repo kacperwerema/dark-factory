@@ -49,6 +49,8 @@ Each takes the DetailData; detail.html places them.
                 <button type="button" class="btn" data-testid="detail.needs.copy" onclick="copyText({{.Command}}, this)">Copy command</button>
             </div>
             <div class="it-small playtest-result" role="status" aria-live="polite" data-playtest-result data-testid="detail.needs.playtest_result" hidden></div>
+            <button type="button" class="btn it-go" data-playtest-tick data-testid="detail.needs.playtest_tick" hidden>Tick passed boxes</button>
+            <p class="it-small playtest-note" data-playtest-note hidden></p>
         </div>
         {{else if eq .State "checks"}}
         <div class="it-actions">

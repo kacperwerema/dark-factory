@@ -1,10 +1,11 @@
 // ▶ Run playtest (handlers_playtest.go), on the station, the Issue tab's
 // Needs-you band and the Evidence tab. A [data-playtest] block holds the
-// button (data-run-playtest = the POST URL) and a [data-playtest-result]
-// line. The click opens tmux window playtest-<slug>; the line says it is
-// running until the window closes, then lists each judged step and offers
-// Tick passed boxes, which runs the report in the same window and reloads
-// the page when it ends.
+// button (data-run-playtest = the POST URL), a [data-playtest-result] line,
+// the hidden Tick passed boxes button ([data-playtest-tick]) and its
+// [data-playtest-note]. The click opens tmux window playtest-<slug>; the
+// line says it is running until the window closes, then lists each judged
+// step and shows Tick passed boxes, which runs the report in the same window
+// and reloads the page when it ends.
 (function () {
   var pollMs = 3000;
   var giveUpMs = 30 * 60 * 1000;
@@ -54,7 +55,7 @@
     tick();
   }
 
-  function showResult(block, url, box, d) {
+  function showResult(box, tick, note, d) {
     hold();
     box.hidden = false;
     box.textContent = '';
@@ -78,48 +79,46 @@
       });
     });
     box.appendChild(list);
-    var tick = document.createElement('button');
-    tick.type = 'button';
-    tick.className = block.getAttribute('data-playtest-btn') || 'btn';
-    tick.textContent = 'Tick passed boxes';
-    var note = document.createElement('p');
-    note.className = 'playtest-note';
-    note.textContent = 'Ticks the boxes of the steps that passed and comments the failures; nothing is ticked until you click.';
-    tick.addEventListener('click', function () { report(url, box, tick, note); });
-    box.appendChild(tick);
-    box.appendChild(note);
+    tick.hidden = false;
+    tick.disabled = false;
+    say(note, 'Ticks the boxes of the steps that passed and comments the failures; nothing is ticked until you click.');
   }
 
-  function report(url, box, btn, note) {
-    btn.disabled = true;
-    note.textContent = 'Ticking the boxes that passed…';
+  function report(url, box, tick, note) {
+    tick.disabled = true;
+    say(note, 'Ticking the boxes that passed…');
     fetch(url + '?report=1', { method: 'POST' })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
         var d = res.d;
         if (!res.ok || d.status === 'error') {
-          btn.disabled = false;
-          note.textContent = 'Tick passed boxes failed: ' + failed(d);
+          tick.disabled = false;
+          say(note, 'Tick passed boxes failed: ' + failed(d));
           return;
         }
         if (d.status === 'already-running') {
-          btn.disabled = false;
-          note.textContent = d.session + ' is still open: close it, then click again.';
+          tick.disabled = false;
+          say(note, d.session + ' is still open: close it, then click again.');
           return;
         }
-        note.textContent = 'Running the report in ' + d.session + '. ' + started(d);
-        watch(url, d.since, box, function () { location.reload(); });
+        say(note, 'Running the report in ' + d.session + '; press Enter there when it is done. ' + started(d));
+        watch(url, d.since, note, function () { location.reload(); });
       })
-      .catch(function (e) { btn.disabled = false; note.textContent = 'Tick passed boxes failed: ' + e; });
+      .catch(function (e) { tick.disabled = false; say(note, 'Tick passed boxes failed: ' + e); });
   }
 
   document.querySelectorAll('[data-playtest]').forEach(function (block) {
     var btn = block.querySelector('[data-run-playtest]');
     var box = block.querySelector('[data-playtest-result]');
-    if (!btn || !box) return;
+    var tick = block.querySelector('[data-playtest-tick]');
+    var note = block.querySelector('[data-playtest-note]');
+    if (!btn || !box || !tick || !note) return;
     var url = btn.getAttribute('data-run-playtest');
+    tick.addEventListener('click', function () { report(url, box, tick, note); });
     btn.addEventListener('click', function () {
       btn.disabled = true;
+      tick.hidden = true;
+      note.hidden = true;
       say(box, 'Starting the playtest…');
       fetch(url, { method: 'POST' })
         .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
@@ -129,10 +128,10 @@
           if (d.status === 'off') { btn.disabled = false; say(box, 'The owner playtest is off for this project.'); return; }
           if (!res.ok || d.status === 'error') { btn.disabled = false; say(box, 'Run playtest failed: ' + failed(d)); return; }
           var verb = d.status === 'already-running' ? 'Brought back ' : 'Running in ';
-          say(box, verb + d.session + '… judge the steps in the overlay, then close it. ' + started(d));
+          say(box, verb + d.session + '. Judge the steps in the overlay; when the window says so, press Enter to close it. ' + started(d));
           watch(url, d.since, box, function (state) {
             btn.disabled = false;
-            showResult(block, url, box, state);
+            showResult(box, tick, note, state);
           });
         })
         .catch(function (e) { btn.disabled = false; say(box, 'Run playtest failed: ' + e); });
