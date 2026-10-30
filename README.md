@@ -1,30 +1,148 @@
 # AI Workflow Engine
 
-**Run AI coding agents through a process you define, and approve the moments that matter.**
+**Agents do the work. You make the decisions that matter.**
 
-Issues are markdown files in your repo. The process is one `workflow.yaml`. Claude Code or Codex agents walk each issue through it with `issue-cli`, which won't let them skip a step, and you watch, steer and approve from a local web board.
+AI Workflow Engine runs Claude Code and Codex agents through a process you write down, one issue at a time. It stops them at the moments you care about and shows you the whole factory on one board.
 
-Built for developers who already run Claude Code or Codex on their own repositories. Bundled templates also cover review queues and long-form writing.
+<!-- Hero GIF slot (docs/images/hero.gif, not recorded yet): open an issue, press ▶ Claude; the agent's tmux pane runs `issue-cli start`; it blocks on a human approval; stamp it on the station; the agent carries on and the crate moves down the line. 20–30 s, 1280×720, under 5 MB. Until then the hall is the hero. -->
+![The Product hall: each station is a status from workflow.yaml with the issues sitting in it, the gates between them are stamps waiting on you, and the selected worker's progress shows on the right](docs/images/workshop-hall.png)
 
-<!-- Hero GIF slot (docs/images/hero.gif, not recorded yet): open an issue, press ▶ Claude; the agent's tmux pane runs `issue-cli start`; it blocks on a human approval; tick it on the issue page; the agent carries on and the card moves. 20–30 s, 1280×720, under 5 MB. Until then the Status screenshot is the hero. -->
-![The Status page: what needs you, what agents are working on, the current milestone, epics by area, local CI and what is waiting for release](docs/images/status.png)
-
-The **Status page** is where you start: what waits on you, what every agent is doing, how the current milestone stands, and whether `main` is green and ready to release.
-
-[Quickstart](#quickstart) · [How it works](#how-it-works) · [An issue's life](#an-issues-life) · [Screenshots](#screenshots) · [Configuration](#configuration) · [Commands](#commands) · [What's new](#whats-new) · [Docs](docs/)
+[Why](#why) · [How](#how) · [What](#what) · [Quickstart](#quickstart) · [An issue's life](#an-issues-life) · [Configuration](#configuration) · [Commands](#commands) · [What's new](#whats-new) · [Docs](docs/)
 
 ## Why
 
-Coding agents are good at writing code and bad at knowing when to stop. Left alone they skip the design, call untested work done, and ask you at the wrong moment or not at all.
+We believe agents should do the work and people should own the decisions.
 
-AI Workflow Engine puts a contract around them:
+Coding agents write good code. They are bad at knowing when to stop. Left alone, they skip the design, call untested work done, and ask you at the wrong moment or not at all. So you end up watching every step, and the time you saved goes into supervision.
 
-- **One step at a time.** An agent moves an issue forward only when that step's checks pass: a section written, its checkboxes ticked, a `tests:` comment posted, a shell command green.
-- **You own the costly moments.** Gates such as `backlog → in progress` wait for your tick on the board. The agent asks in chat and ends its turn; your approval nudges it to carry on.
-- **Guidance arrives just in time.** Each status has its own prompt, and every failed check prints the command that fixes it. There is no giant system prompt to drift from.
-- **Everything is files.** Markdown issues, a YAML workflow, git history as the audit log. No database, no SaaS, no API keys. The same workflow runs with Claude Code and Codex.
+It doesn't have to work that way. A team of people trusts its process, not each person's judgement at every minute. Agents can work the same way: inside a process you can read, with checks that hold, and a clear point where they stop and wait for you. You stop watching the agent and start running the factory.
 
-The longer argument, vendor harness vs. workflow harness: [docs/why.md](docs/why.md).
+The longer argument, vendor harness against workflow harness: [docs/why.md](docs/why.md).
+
+## How
+
+Five rules make that belief real.
+
+- **One step at a time.** An issue moves forward only when the step's checks pass: a section written, its boxes ticked, a `tests:` comment posted, a shell command green. `issue-cli` refuses the move otherwise, and says what is missing.
+- **You own the costly moments.** Gates such as `backlog → in progress` wait for your stamp. The agent asks you, ends its turn, and carries on when you approve.
+- **Guidance arrives just in time.** Each status has its own short prompt, and every failed check prints the command that fixes it. There is no long manual for the agent to drift from.
+- **Everything is files.** Issues are markdown, the process is one `workflow.yaml`, and git history is the audit log. No database, no SaaS, no API keys. The same workflow runs with Claude Code and Codex.
+- **The factory runs itself, and you steer.** A project lead dispatches workers and relays their questions. Work lands on `main`, local CI re-tests it, and everything that needs you collects in one list.
+
+## What
+
+The **Workshop Board** is the viewer: a local web app that draws your projects as a small company. Everything below comes from the sample project (`make demo`).
+
+### The map
+
+![The map: the Acme Shop lot with its departments as buildings, three workers busy, the CEO's last message, and seven things waiting on you listed on the right](docs/images/workshop-map.png)
+
+The map (`/`) shows every project as a lot: departments as buildings, the workers on it, and what the CEO said last. The **!** badge counts what waits on you.
+
+### The company: HQ and departments
+
+![The company page: HQ with the CEO and its goals rolled up from Product and Marketing, the outputs shelf with three items to review, and the Product line below](docs/images/workshop-company.png)
+
+Open a lot and you see the company. **HQ** is the CEO's room, with the business goals. **Product** is the software factory that runs `workflow.yaml`. `projects.yaml` can add departments such as Marketing, each with a mission, a role prompt, goals that roll up into HQ's, and its own workflow file (the bundled `content` template fits posts and pages). What a department makes lands on its **outputs shelf** (`issue-cli output add`) and waits for your yes. See [docs/departments.md](docs/departments.md).
+
+### The hall: your workflow as a line
+
+The **Product hall** (the picture at the top) draws `workflow.yaml` as a production line. Stations are statuses, gates are stamps, and each issue is a crate on the line. With local CI on, a CI scanner on the line shows whether `main` is green.
+
+![A station opened from the hall: the nine issues in it, the status prompt the agent is told, and the ways in and out with their checks, gates and side effects](docs/images/hall-station.png)
+
+Click any part to open it. A station lists its issues, the prompt an agent gets there, and every way in and out with its checks. **Edit** changes it in place:
+
+![The station editor: the status's description and prompt, then each way in and out with its approval switch and ordered actions; nothing is written until you confirm the preview](docs/images/hall-edit.png)
+
+The editor shows a diff of `workflow.yaml` and runs the checks before anything is written. Saving commits that one file to `main` with your words in the message.
+
+### The station: one issue
+
+![An issue's station: its belt through the statuses with the gates passed and ahead, the stamp waiting for you with a box for your words, and the agent and issue body on the side](docs/images/issue-station.png)
+
+Each issue has a station (`/p/<project>/issue/<slug>`). The belt shows where it is and which gates are ahead. When it waits on you, **Your move** is on top: stamp it with your words, or send it back for fixes. The Timeline tab shows where the time went (agent working, waiting on you, idle, rework). The Evidence tab links each acceptance criterion to the test or playtest that proves it.
+
+### The CEO chat
+
+![The CEO chat: the CEO's replies as whole messages, a question the owner already answered, an open question as a card with two options, and the gates waiting on you and the three live workers on the side](docs/images/ceo-chat.png)
+
+You talk to one session, the project lead, here called the CEO (`issue-cli lead spawn`, or **Start CEO** on the company page). The chat at `/p/<project>/lead` reads the lead's transcript, so each reply is one whole message with its markdown rendered. When the CEO asks a question, it becomes a card you answer on the page. Paste, drop or attach images. The CEO grooms ideas with you, dispatches workers, relays their questions, and stamps a gate only after you said yes in the chat (`issue-cli approve` records your words). Workers each own one issue in their own git worktree and never stamp a gate. Setup and routing: [docs/patterns/lead-session.md](docs/patterns/lead-session.md).
+
+### Needs you
+
+![Needs you: five gates ready to approve, each with its issue and how long it has waited, Select all ready and Approve selected at the top, and outputs to review below](docs/images/needs-you.png)
+
+Every "waiting on you" count opens one list (`/p/<project>/needs-you`, or `/needs-you` across projects): gates, red CI, playtests and checks to run, open questions and outputs to review, with what blocks others first. Gates that only miss your stamp can be approved together, after one confirm.
+
+### The Report
+
+![The Report: seven things waiting on you, three agents working, the bottleneck in one sentence, and the 1.0 milestone waiting for release](docs/images/report.png)
+
+The Report (`/p/<project>/status`, also `status.md`) is the stand-up: what waits on you, who is working, the bottleneck, where the milestone stands and what is ready to release.
+
+### YOLO mode
+
+When you step away, `issue-cli yolo on --until 4h --quote "<your words>"` lets gates pass without you for that window once nothing else is missing. Each pass waits in an after-the-fact list for your review, and red CI for more than 30 minutes turns YOLO off by itself. See [docs/Workflow/yolo.md](docs/Workflow/yolo.md).
+
+### Shipping: one main, local CI
+
+- **`main` is the only integration branch.** A worker merges `main` into its branch, runs your checks, and fast-forwards the local `main`. Agents never push.
+- **Local CI** re-tests `main` after every merge. An opt-in `ci:` block in `workflow.yaml` names the commands, the viewer runs them in tmux and keeps each run under `.ci/`. A red run shows in the hall's CI scanner, on the Report, on the issues that landed and in the lead's chat. See [docs/workflow.md#local-ci](docs/workflow.md#local-ci).
+- **A release per milestone.** Agents add their change under `## Unreleased` in the changelog. The Report's **Waiting for release** card says when the milestone is ready to cut. The lead cuts it and pushes on your go-ahead ([releases](docs/roadmap.md#cutting-a-release-candidate-soak-publish)).
+
+### Under the board
+
+| Piece | What it is |
+|---|---|
+| **Issues** | One markdown file per issue, `issues/<System>/<slug>.md`. Frontmatter holds `title`, `status`, `system`, `version`, `priority`, `labels`, `assignee` and any custom key. The body grows section by section; comments sit in a hidden block at the end. See [docs/issue-format.md](docs/issue-format.md). |
+| **Workflow** | `workflow.yaml`: statuses with a prompt each, transitions with ordered actions (`validate`, `require_human_approval`, `append_section`, `inject_prompt`, `set_fields`), optional side states and per-system overlays. |
+| **issue-cli** | How agents (and you) move issues: `start`, `check`, `comment`, `transition`. It enforces the workflow and prints `Requires:` / `Will:` before every step. |
+| **issue-viewer** | The Workshop Board above. One server hosts many projects and listens on localhost only. |
+| **Workers** | The lead, or `issue-cli dispatch <slug>`, starts Claude or Codex in tmux (`agent-<slug>`) with a briefing built from the workflow. With `worktree: true` each issue gets its own worktree and branch. |
+
+A transition says what must be true before the move and what happens after it:
+
+```yaml
+transitions:
+  - from: "backlog"
+    to: "in progress"
+    actions:
+      - type: require_human_approval     # waits for your stamp
+        status: "in progress"
+      - type: append_section             # the next step starts from a checklist
+        title: "Implementation"
+        body: |
+          - [ ] Happy path
+          - [ ] Edge cases
+  - from: "testing"
+    to: "human-testing"
+    actions:
+      - type: validate
+        rule: section_checkboxes_checked
+        section: "Testing"
+      - type: validate
+        rule: "has_comment_prefix: tests:"
+```
+
+Checks include `body_not_empty`, `has_section`, `section_min_length`, `section_checkboxes_checked`, `has_comment_prefix`, `field_in`, `has_label`, `has_pr_url`, `linked_issue_in_status`, `no_todo_markers` and `command_succeeds` (a shell command; opt in with `allow_shell: true`). `issue-cli process schema` prints them all. Full reference: [docs/workflow.md](docs/workflow.md).
+
+A blocked step tells the agent exactly what to do next:
+
+```text
+$ issue-cli transition backend/add-rate-limiting-to-api-endpoints --to testing --dry-run
+== Dry run: in progress → testing ==
+✗ 1 unmet requirement(s):
+  - [validator] Validate all checkboxes are checked
+      2 of 4 boxes still open:
+      R1   Token bucket algorithm for per-user limits
+      R2   Configurable limits per endpoint
+      Tick the ones that are done (ids, several at once):
+      issue-cli check backend/add-rate-limiting-to-api-endpoints R1 R2
+Nothing was changed.
+```
+
+More of what the board does: manual checks as [playtests](docs/patterns/playtest/README.md) and [guided check scripts](docs/patterns/guided-check-scripts.md), `issue-cli retrospective` notes on the workflow, custom buttons (`issue_actions`, `project_actions`), and stats and health over time ([docs/workflow-stats.md](docs/workflow-stats.md)). Terminals, shared tmux sessions, models and worktrees: [docs/agent-dispatch.md](docs/agent-dispatch.md).
 
 ## Quickstart
 
@@ -59,89 +177,9 @@ projects:
 issue-viewer -config projects.yaml
 ```
 
-Open the issue and press ▶ **Claude** (or **Codex**). The agent starts in a tmux session (`tmux attach -t agent-<slug>`), reads the workflow with `issue-cli process`, works the issue, and stops at the first gate for you.
+Open your project from the map and press **Start CEO** to talk to the lead; it dispatches workers when you ask. To start one worker yourself, run `issue-cli dispatch <slug> --quote "<what you want>"`. The worker starts in a tmux session (`tmux attach -t agent-<slug>`), reads the workflow with `issue-cli process`, works the issue, and stops at the first gate for you.
 
-Just looking? Clone the repo and run `make demo` (Go 1.25+) to open a sample project. Other install options (a pinned version, manual download, building from source) are in [docs/getting-started.md](docs/getting-started.md).
-
-## How it works
-
-![The development template: nine statuses, with a human gate at the four costly moments](docs/images/workflow-example.jpg)
-
-| Piece | What it is |
-|---|---|
-| **Issues** | One markdown file per issue, `issues/<System>/<slug>.md`. Frontmatter holds `title`, `status`, `system`, `version`, `priority`, `labels`, `assignee` and any custom key. The body grows section by section; comments sit in a hidden block at the end of the file. See [docs/issue-format.md](docs/issue-format.md). |
-| **Workflow** | `workflow.yaml`: statuses with a prompt each, transitions with ordered actions (`validate`, `require_human_approval`, `append_section`, `inject_prompt`, `set_fields`), optional side states, and per-system overlays. |
-| **issue-cli** | How agents (and you) move issues: `start`, `check`, `comment`, `transition`. It enforces the workflow and prints `Requires:` / `Will:` before every step. |
-| **The viewer** | `issue-viewer`: the Workshop Board (a map of HQ and the department rooms, the Product hall that draws `workflow.yaml` as a line you can open part by part, the Report, each issue's station, the CEO chat and the Needs-you list), a board whose cards carry what waits on you, the issues canvas (epics × versions), the agents canvas, list and docs, the issue page with its approval boxes, retros and stats, and your project's own HTML pages. One server hosts many projects and listens on localhost only. |
-| **The lead** | One Claude or Codex session per project (`lead-<project>`) that you talk to, in its terminal or in the CEO chat on the board. It dispatches workers, relays their questions, ticks the gates you approved in its chat, and cuts releases. |
-| **Workers** | ▶ on an issue starts Claude or Codex in tmux (`agent-<slug>`) with a briefing built from the workflow. With `worktree: true` each issue gets its own git worktree and branch. |
-
-### Gates and checks
-
-Each transition says what must be true before the move and what happens after it:
-
-```yaml
-transitions:
-  - from: "backlog"
-    to: "in progress"
-    actions:
-      - type: require_human_approval     # waits for your tick on the board
-        status: "in progress"
-      - type: append_section             # the next step starts from a checklist
-        title: "Implementation"
-        body: |
-          - [ ] Happy path
-          - [ ] Edge cases
-  - from: "testing"
-    to: "human-testing"
-    actions:
-      - type: validate
-        rule: section_checkboxes_checked
-        section: "Testing"
-      - type: validate
-        rule: "has_comment_prefix: tests:"
-```
-
-Checks include `body_not_empty`, `has_section`, `section_min_length`, `section_checkboxes_checked`, `has_comment_prefix`, `field_in`, `has_label`, `has_pr_url`, `linked_issue_in_status`, `no_todo_markers` and `command_succeeds` (runs a shell command; opt in with `allow_shell: true`). `issue-cli process schema` prints them all. Full reference: [docs/workflow.md](docs/workflow.md).
-
-At each step the agent gets a small, current prompt rather than one big manual, and a failed check tells it exactly what to do next. Here is one step on a real project:
-
-![The prompt pieces an agent gets at one step (base rules, status prompt, system overlay, injected actions, the issue), and a blocked transition that names the fix](docs/images/just-in-time.png)
-
-### The lead and its workers
-
-You talk to one session, the project lead. Start it with `issue-cli lead spawn` or **Spawn lead** in the sidebar. It grooms ideas with you, dispatches workers, checks on them, relays their questions one at a time, and ticks a gate only after you approved it in its chat (`issue-cli approve`, which records your words). Workers each own one issue in their own worktree and never tick a gate. There is one lead per project, and it leads the epics too.
-
-![Who does what: the human, the lead session, the board, worker agents in their worktrees, issue-cli and workflow.yaml; finished work merges into local main, local CI re-tests it, and the lead pushes once per milestone release](docs/images/lead-and-workers.png)
-
-How to set it up, and how the lead routes, hands off and leads epics: [docs/patterns/lead-session.md](docs/patterns/lead-session.md). The agents canvas shows the lead, its live workers and the jobs left unfinished:
-
-![The agents canvas: the lead, four live workers with their state (working, at a gate) and their issues, and unfinished jobs with no live agent](docs/images/agents.png)
-
-### Shipping: local merge, local CI, a release per milestone
-
-How an issue ships is up to your workflow's `shipping` step. The bundled `development` template commits and pushes. This repository ships differently, and the viewer supports it:
-
-- **Agents never push.** A worker merges `main` into its branch, runs `make validate`, and fast-forwards the local main checkout. Local `main` is the integration branch.
-- **Local CI** re-tests `main` after every merge. An opt-in `ci:` block in `workflow.yaml` names the commands. The viewer watches the branch, runs them in tmux `ci-<project>` and records each run under `.ci/`. A red run reaches the Status page, card markers, `ci:` comments on the issues that landed and the lead. See [docs/workflow.md#local-ci](docs/workflow.md#local-ci).
-- **A release per milestone.** Issues carry a `version:`. Agents add their change under `## Unreleased` in the changelog. The Status page's **Waiting for release** card lists those entries and the commits not pushed, and says whether the milestone is ready to cut: every issue done, CI green on the head, entries under `## Unreleased`. The lead then renames the heading, and pushes when you give the go-ahead.
-
-![Local CI with its last runs (one red, fixed by the next merge) beside Waiting for release: milestone 1.0 not ready with 12 issues open, three Unreleased entries and three commits not pushed](docs/images/ci-release.png)
-
-### Agents on the board
-
-- **Dispatch** from the issue page (▶), or let the lead do it. Each agent gets a tmux session `agent-<slug>`, or a window in one shared session when the project sets `tmux_session`. With `terminal: none` and `tmux_session_per_project: true` in `projects.yaml`, every project's lead and workers are windows of one session, and nothing opens a terminal.
-- **Worktrees.** With `worktree: true` the agent works in `.worktrees/<slug>` on branch `work/<slug>`. `issues/` is left out of the worktree, so issues stay on your main checkout; `worktree_setup: "make"` bootstraps a fresh one.
-- **Approvals.** When a step needs you, the CLI error links straight to the box (`…/issue/<slug>#approve-in-progress`). The agent asks in chat and ends its turn, and your tick nudges its tmux session to resume.
-- **The trail.** Every `issue-cli` call is logged under `.agent-logs/`. The issue page's Timeline tab turns it, with the stats sidecar, the work branch and playtest runs, into where the time went (agent working, waiting on you, idle, rework) and the issue's life by status; its CLI calls filter lists every call next to the exact prompt the agent was given.
-- **Retros and bug reports.** Agents leave `issue-cli retrospective` notes, which the Retros page collects, so you can fix the process where it hurt. `issue-cli report-bug` files bugs in the tool itself as `cli-bug` issues on this project's board, from any project.
-- **Custom buttons.** `issue_actions` and `project_actions` in `workflow.yaml` add one-click agent jobs (a review, a report, a sweep) to the issue page or the board.
-- **Manual checks as playtests.** An issue's manual checks are a YAML session whose step ids are the issue's checkbox ids. A machine runs everything it can see in headless Chrome against a throwaway board. You judge the rest in an overlay, which ▶ Run playtest opens from the page you are on, and a report ticks the boxes that passed. `playtest: agents` in `workflow.yaml` leaves playtests to the agents alone. See [docs/patterns/playtest/](docs/patterns/playtest/README.md) or `issue-cli process playtest`.
-- **Needs you.** Every "N waiting on you" count opens one list: red CI, gates to approve, playtests and checks to run, open questions and outputs to review. Gates that only miss your stamp can be approved together, after one confirm.
-- **YOLO mode.** `issue-cli yolo on --until 4h --quote "<your words>"` lets human gates pass for a set window once nothing else is missing. Each one waits in an after-the-fact list for your review.
-- **Departments.** `projects.yaml` can give HQ and each department a mission, a role prompt, goals and its own workflow file. Work a department makes lands on its outputs shelf (`issue-cli output add`) for your review.
-
-Terminals, shared sessions, models and worktrees: [docs/agent-dispatch.md](docs/agent-dispatch.md). The full dispatch-to-done path: [docs/agent-workflow-flow.md](docs/agent-workflow-flow.md).
+Just looking? Clone the repo and run `make demo` (Go 1.25+) to open Acme Shop, the sample project in these pictures. Other install options (a pinned version, manual download, building from source) are in [docs/getting-started.md](docs/getting-started.md).
 
 ## An issue's life
 
@@ -153,40 +191,16 @@ agent  issue-cli start <slug>                            claims it, prints the c
 agent  issue-cli transition <slug> --to "in design"      body_not_empty passes; Design section appended
 agent  … writes the design, ticks its boxes: issue-cli check <slug> D1 D2 D3
 agent  issue-cli transition <slug> --to "backlog"
-       approval for "backlog" is missing: asks you in chat, ends its turn
-you    tick the approval on the issue page                       ← gate 1: the design
-agent  nudged by the tick: moves to backlog, issue-cli start <slug>, asks for the go-ahead, ends its turn
-you    tick the next approval                                    ← gate 2: start building
+       approval for "backlog" is missing: asks you, ends its turn
+you    stamp it on the station or in Needs you                      ← gate 1: the design
+agent  moves to backlog, issue-cli start <slug>, asks for the go-ahead, ends its turn
+you    stamp the next gate                                          ← gate 2: start building
 agent  builds, tests, posts "tests: go test ./... green", moves to testing, then human-testing
-you    judge the steps a machine can't (make playtest), tick the approval  ← gate 3: it works
+you    judge the steps a machine can't (make playtest), stamp it    ← gate 3: it works
 agent  documentation → shipping
-you    tick the last approval                                    ← gate 4: ship it
+you    stamp the last gate                                          ← gate 4: ship it
 agent  → done, then files a retrospective on the workflow
 ```
-
-The same rhythm on a real issue, replayed from its logs: Raid League's "Sapper traps" went from discussion to pushed in 3 h 50 m, with the human in the loop at four ticks and a few chat answers.
-
-![A worker's issue-cli calls and the human's words from discussion to git push, beside the issue as the human saw it: four approvals ticked and where the time went](docs/images/issue-replay.png)
-
-## Screenshots
-
-All taken from the sample project (`make demo`).
-
-**The board.** Cards carry what waits on you, how long they have sat and which agent is on them. Here they are grouped by epic for milestone 1.0.
-
-![The board grouped by epic: cards with time in status, an amber "approve documentation" marker, epic progress and each card's agent (working, waiting on your approval, stopped)](docs/images/workboard.png)
-
-**The issues canvas.** One row per epic and one column per version. Epics start folded to a count per status; open one to see its cards, or pick a single epic with the Epic filter.
-
-![The issues canvas: epics as rows and versions 0.9 to 1.2 as columns, with Checkout v2 unfolded to its cards and the rest folded to status counts](docs/images/canvas.png)
-
-**An issue.** The body grows section by section. Approvals and dispatch sit in the sidebar.
-
-![An issue in backlog: its design ticked, the "Human-approved for in progress" box waiting for you, and ▶ Claude / Codex to dispatch it](docs/images/issue.png)
-
-**Project pages.** A project (or its lead) writes its own HTML, such as a weekly report, and the viewer shows it in its frame. It runs sandboxed, with live counts over `postMessage` ([docs/workbench-files.md](docs/workbench-files.md#project-pages-status_page-pages)).
-
-![A project page: the lead's weekly report shown inside the viewer, listed under Status in the sidebar](docs/images/project-page.png)
 
 ## Configuration
 
@@ -205,7 +219,7 @@ All taken from the sample project (`make demo`).
 | `telemetry` | `false` turns off issue-cli's local, names-only usage log ([docs/CLI/telemetry.md](docs/CLI/telemetry.md)) |
 | `company`, `departments` | HQ's and each department's mission, role prompt, goals and own workflow file ([docs/departments.md](docs/departments.md)) |
 
-**`workflow.yaml`** is the process: `statuses`, `transitions`, `systems` (per-system overlays), `board` (columns and card fields), `scoring`, `worktree`, `worktree_setup`, `worktree_sparse_exclude`, `allow_shell`, `issue_actions`, `project_actions`, `leads` (the lead's brief), `ci` (local CI), `playtest` (who runs playtests) and `workbench` (changelog, project pages, metric files). Start from a template with `issue-cli init`, edit it as text (`issue-cli workflow upgrade` pulls in template changes), or print the schema with `issue-cli process schema`. See [docs/workflow.md](docs/workflow.md) and [docs/board-configuration.md](docs/board-configuration.md).
+**`workflow.yaml`** is the process: `statuses`, `transitions`, `systems` (per-system overlays), `types` (per-type paths), `board`, `scoring`, `worktree`, `worktree_setup`, `worktree_sparse_exclude`, `allow_shell`, `issue_actions`, `project_actions`, `leads` (the lead's brief), `ci` (local CI), `playtest` (who runs playtests) and `workbench` (changelog, project pages, metric files). Start from a template with `issue-cli init`, edit a station from the hall or the file as text (`issue-cli workflow upgrade` pulls in template changes), or print the schema with `issue-cli process schema`. See [docs/workflow.md](docs/workflow.md) and [docs/board-configuration.md](docs/board-configuration.md).
 
 ## Commands
 
@@ -217,13 +231,15 @@ All taken from the sample project (`make demo`).
 | `issue-cli transition <slug> --to <status>` | Move one step (`--dry-run` lists what's missing) |
 | `issue-cli check <slug> D1 D2` | Tick checkboxes by id |
 | `issue-cli comment <slug> --text "…"` | Add a comment (`tests:`, `docs:`, `progress:` …) |
-| `issue-cli context <slug>` | Everything about one issue |
+| `issue-cli context <slug>` | Everything about one issue (alias `show`) |
 | `issue-cli list`, `search`, `stats` | Find and summarise issues |
 | `issue-cli retrospective <slug>`, `report-bug` | Feedback on the workflow and the tool |
 | `issue-cli lead spawn`, `approve <slug>` | Start the project lead; the lead records an approval you gave in chat |
+| `issue-cli dispatch <slug> --quote "…"` | Start one worker on an issue, with your words |
+| `issue-cli status` | The project's stand-up from the running viewer |
 | `issue-cli ci status` | Local CI: where `main` stands and the recent runs |
 | `issue-cli yolo on --until 4h --quote "…"` | Let gates pass for a window; review them afterwards |
-| `issue-cli output add`, `goals`, `department show` | A department's outputs shelf, goals and role |
+| `issue-cli output add`, `outputs`, `goals`, `department show` | A department's outputs shelf, goals and role |
 | `issue-viewer -config projects.yaml [-port 8080]` | Start the viewer (localhost only; `-host` to change it) |
 
 All commands: `issue-cli help`, or [docs/CLI/overview.md](docs/CLI/overview.md).
@@ -232,33 +248,32 @@ All commands: `issue-cli help`, or [docs/CLI/overview.md](docs/CLI/overview.md).
 
 Raid League is a football-manager-style game about a fantasy siege tourney, built in Godot and C# by one person and a crew of Claude agents on this engine since September 2026:
 
-- **235 issues** on the board and a **710-line workflow** with its own statuses, four human gates and 13 system overlays.
+- **235 issues** on the board and a **710-line workflow** with ten statuses, four human gates and 13 system overlays.
 - **Board buttons** for recurring agent jobs: *Balance report*, *Speed sweep*, *Idea sweep*.
+- One issue, "Sapper traps", went from discussion to pushed in 3 h 50 m, with the human in the loop at four stamps and a few chat answers.
 
-![Raid League's ten statuses, each with the check that guards it; four of them need a human](docs/images/lifecycle.png)
-
-Raid League runs with one project lead and a handful of workers at a time, the setup described in [The lead and its workers](#the-lead-and-its-workers).
+It runs with one project lead and a handful of workers at a time.
 
 ## What's new
 
+- **v0.56, edit the workflow from the hall:** open a station in the Product hall and press **Edit** to change its prompt, its ways in and out and their gates, with a preview and checks before the one-file commit. This README and its pictures now show the Workshop Board.
 - **v0.55, the Workshop Board and departments:**
   - The viewer's new look: a map of the company, HQ and the department rooms, the Product hall (the workflow.yaml line, where any station, gate or the CI scanner opens to show what is inside), the Report at `/status` and the station for each issue.
-  - The **CEO chat** (`/p/<project>/lead`): you talk to the project lead from the board. It reads the lead's transcript, so each reply is one message with its markdown rendered. The lead's questions are cards you answer on the page, and answered questions leave the waiting list. Paste, drop or attach images.
+  - The **CEO chat** (`/p/<project>/lead`): you talk to the project lead from the board. Each reply is one message with its markdown rendered, questions are cards you answer on the page, and you can paste, drop or attach images.
   - **Needs you** (`/p/<project>/needs-you`, or `/needs-you` across projects): everything that waits on you in one list, with *Approve selected* for the gates that only need your stamp.
   - **▶ Run playtest** from the page you are on. A `playtest: owner|agents|off` key decides who runs playtests.
   - **YOLO mode**: `issue-cli yolo on --until …` lets gates pass for a set window, and you review them afterwards.
   - **Departments**, each with its own workflow file, mission, prompt and goals, and an outputs shelf of what it made (`issue-cli output`).
 - **v0.54, project health:** daily health snapshots (size, speed, tests, storage, lint), a derived score and an agent's opinion on the Health page, trends on the Stats page, and privacy badges for private repos.
-- **v0.53, Safe core:** local CI on the integrated `main`, a Status page rebuilt for hundreds of issues (Needs you, Working on and What's next tiles, epics by area, Waiting for release), the viewer bound to localhost with cross-origin writes refused, and graceful shutdown.
+- **v0.53, Safe core:** local CI on the integrated `main`, the viewer bound to localhost with cross-origin writes refused, and graceful shutdown.
 - **v0.52, project status pages:** your own HTML pages in the viewer, sandboxed, and one lead per project that leads the epics too.
 - **v0.51, one terminal:** every project's lead and workers as windows of one tmux session.
-- **v0.49:** the new Board, with markers, an agent footer and grouping by status, system or epic.
 
 Every change is in [cmd/issue-cli/CHANGELOG.md](cmd/issue-cli/CHANGELOG.md) and `issue-cli process changes`.
 
 ## Status and roadmap
 
-Version 0.55 (October 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
+Version 0.56 (October 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
 
 Next, in order, from [docs/roadmap.md](docs/roadmap.md):
 
@@ -269,7 +284,7 @@ Next, in order, from [docs/roadmap.md](docs/roadmap.md):
 
 ## Contributing
 
-The author tracks this tool's own work with the tool (its `issues/` folder is kept out of git). Before sending a change, run `make validate` (go vet, the test suite and a coverage floor on `issue-cli`). Build with `make build` and `make build-cli`; `make demo` starts the board on the sample project.
+The author tracks this tool's own work with the tool (its `issues/` folder is kept out of git). Before sending a change, run `make validate` (go vet, the test suite and a coverage floor on `issue-cli`). Build with `make build` and `make build-cli`; `make demo` starts the board on the sample project. `make readme-shots` retakes this README's pictures from a staged copy of the demo (`docs/images/shots.yaml` lists them).
 
 ## Licence
 

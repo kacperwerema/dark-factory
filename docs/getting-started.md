@@ -44,6 +44,8 @@ make demo
 # http://localhost:8080
 ```
 
+The demo is Acme Shop, the sample project in the README's pictures: an HQ with business goals, Product on the `development` workflow, Marketing on its own `content` workflow, an outputs shelf, and a few gates waiting on you. Its files live in `demo/`. `make readme-shots` stages a copy of it with a CEO and three workers on a private tmux server and retakes the README's screenshots.
+
 ## Bootstrap a project
 
 In your project's directory, write a `workflow.yaml` and the standard `issues/` and `docs/` layout in one go:
@@ -158,7 +160,18 @@ Ctrl-C (or SIGTERM) stops the server gracefully. It stops accepting connections,
 
 An edit-in-nvim session that is still open when the server stops is closed. Its changes are discarded, and the issue gets a comment saying so. Agent tmux sessions and local CI runs keep running; they don't belong to the server process.
 
-Open `http://localhost:8080` and pick a project. The sidebar on the left leads to the board, the list, decisions and the docs; **More** holds the workflow graph, the canvas, agents, retros and stats. The swatches at the bottom switch between the dark, Dracula and light themes.
+## Find your way around
+
+Open `http://localhost:8080`. This is the Workshop Board:
+
+- **The map** (`/`) shows each project as a lot. The **!** badge counts what waits on you; the panel on the right lists it.
+- **The company** (`/p/<project>/company`): click a lot. HQ is the CEO's room with the business goals, Product is the software factory, and each department from `projects.yaml` has a room with its goals and outputs.
+- **The hall** (`/p/<project>/hall`): **Enter the hall** draws `workflow.yaml` as a line of stations (statuses) and gates (your stamps). Click a station or gate to see what is inside; **Edit** on a station changes it, with a preview before anything is written.
+- **The station** (`/p/<project>/issue/<slug>`): one issue, with its belt through the statuses, your next move, and the Timeline and Evidence tabs.
+- **The CEO chat** (`/p/<project>/lead`): talk to the project lead. **Start CEO** on the company page starts it.
+- **Needs you** (`/p/<project>/needs-you`, `/needs-you` across projects) and **the Report** (`/p/<project>/status`).
+
+The tabs in the hall's header lead to the Report, Health, Systems, Decisions, Retro, Docs and Updates.
 
 ## Docs pages
 

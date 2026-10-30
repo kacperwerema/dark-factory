@@ -30,7 +30,7 @@ The name is the identity, the same rule as `agent-<slug>` for workers. Dots and 
 
 ## Spawning the lead
 
-Start it with `issue-cli lead spawn`, or **Spawn lead** in the sidebar's Actions or on the [agents canvas](../UI/overview.md). The CLI and the buttons start the same session; the CLI doesn't need the viewer running.
+Start it with `issue-cli lead spawn`, or **Start CEO** on the company page (`/p/<project>/company`; the classic pages also have **Spawn lead**). The CLI and the buttons start the same session; the CLI doesn't need the viewer running. On the board the lead is the project's CEO: you talk to it in the CEO chat (`/p/<project>/lead`), which shows its whole messages, its questions as cards you answer on the page, and the workers running beside it.
 
 - `lead spawn` starts `lead-<project>` in the project checkout, or a `lead-<project>` window in the shared session when `tmux_session` is set. What opens follows [`lead_terminal:`](../agent-dispatch.md#lead-terminal): headless when unset, a tab in your own tmux session with `tmux-window`, or a command. The CLI and the buttons behave the same. `--headless` opens nothing either way. Workers follow `terminal:` instead. `--agent codex` runs Codex instead of Claude.
 - A lead that is already live is re-attached and its name printed. A second lead is never started.
@@ -69,6 +69,7 @@ The worker's dispatch prompt names its lead and its epic under `## Your lead`. `
 | `issue-cli lead whoami` | Your role (project lead, worker or unmanaged), the branch you guard, your lead and whether it is live, how to reach it, and what you may tick |
 | `issue-cli lead list` | The project lead, live or not, then the open epics with their children running of total |
 | `issue-cli lead message <target> "text"` | Pastes the text into a Codex session, signed `[from lead-x]`. For a Claude session it refuses and prints the `SendMessage` call to make. Target: `project`, a `lead-`/`agent-` name, or an issue slug (its worker) |
+| `/p/<project>/lead` | The CEO chat: the lead's conversation, its open questions, what waits on you and the live workers |
 | `/p/<project>/agents` | The agents canvas: the whole tree, each agent's state and the unfinished jobs. Click an agent to open its tmux session; its panel has Approve gate, Spawn and Copy attach (Copy switch with `terminal: none`) |
 
 Agents can also message each other with Claude Code's built-in messaging between sessions (`ListAgents` / `SendMessage`): Claude agents are launched with `-n <tmux name>`, so `lead-<project>` and `agent-<slug>` are their addresses, and the lead may message a worker this way. Workers don't message the lead or a peer unless the human, in the worker's own chat, gives permission or asks them to (owner, 2026-10-24: "they can only talk to lead after my permission or when i explicitly ask them"); they ask the human in their chat or post `question:` comments. Nothing in the tool gates or records these messages. `lead message` is the tmux-paste fallback for Codex only: `issue-cli` never pastes into a Claude session. Workers can't use it; they post `question:` comments, which their lead reads from the issue trail. A lead still reads everything without interrupting anyone:
