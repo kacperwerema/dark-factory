@@ -1,0 +1,102 @@
+{{/*
+Workshop Board components of the hall's drill-in pages (L2 · a part of the
+line opened: /hall/station/<status>, /hall/gate/<status>, /hall/ci). View
+models in hall_part.go, styles in static/workshop.css ("L2: hall drill-in").
+
+  wb/part-edges       transitions as rows, with actions    data: []WbPartEdge
+  wb/part-edge        one transition                       data: WbPartEdge
+  wb/part-overlays    the types and systems that change it data: []WbPartOverlay
+  wb/part-prompt      the status description and prompt    data: HallPartData
+  wb/part-station     the station opened                   data: HallPartData
+  wb/part-gate        the gate opened                      data: HallPartData
+  wb/part-ci          the CI scanner opened                data: WbPartCI
+*/}}
+
+{{define "wb/part-edge"}}
+<li class="wb-part-edge{{if .Gate}} wb-part-edge--gate{{end}}" data-testid="hall.part.edge">
+    <div class="wb-part-edge-way">
+        {{if .Gate}}<span class="wb-stamp wb-stamp--sm" title="needs your approval">{{template "wb/stamp-icon"}}</span>{{end}}
+        <span class="wb-mono-inline">{{if .Any}}any status{{else}}{{.From}}{{end}}</span> → <span class="wb-mono-inline">{{.To}}</span>
+        {{if .URL}}<a class="wb-part-edge-go" href="{{.URL}}">open</a>{{end}}
+        {{if .Replace}}<span class="wb-chip wb-chip--idle" title="replace: true — overwrites the base edge's actions">replaces the base edge</span>{{end}}
+    </div>
+    {{if .Actions}}<ul class="wb-part-actions">{{range .Actions}}<li>{{.}}</li>{{end}}</ul>
+    {{else if .Implied}}<div class="wb-note">the next step of the lifecycle; no transitions: entry, so nothing runs</div>
+    {{else}}<div class="wb-note">no actions</div>{{end}}
+</li>
+{{end}}
+
+{{define "wb/part-edges"}}{{if .}}<ul class="wb-part-edges">{{range .}}{{template "wb/part-edge" .}}{{end}}</ul>{{else}}<div class="wb-muted">None.</div>{{end}}{{end}}
+
+{{define "wb/part-overlays"}}
+<section class="wb-part-panel" data-testid="hall.part.overlays">
+    <h2 class="wb-h2">Overlays</h2>
+    <div class="wb-note">Types of work and systems that change this part of the line for their issues.</div>
+    {{range .}}<div class="wb-part-overlay">
+        <div class="wb-part-overlay-head"><span class="wb-chip wb-chip--idle">{{.Kind}}</span><span class="wb-mono-inline">{{.Name}}</span>{{if .Skips}}<span class="wb-muted">— its path skips this status</span>{{end}}</div>
+        {{with .Description}}<div>{{.}}</div>{{end}}
+        {{with .Prompt}}<pre class="wb-part-pre">{{.}}</pre>{{end}}
+        {{with .Edges}}{{template "wb/part-edges" .}}{{end}}
+    </div>{{else}}<div class="wb-muted">No type or system changes it.</div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/part-prompt"}}
+<section class="wb-part-panel" data-testid="hall.part.prompt">
+    <h2 class="wb-h2">What the agent is told</h2>
+    {{with .Description}}<div class="wb-part-desc">{{.}}</div>{{end}}
+    {{with .Prompt}}<details class="wb-part-fold"{{if lt (len .) 600}} open{{end}}><summary>The status prompt</summary><pre class="wb-part-pre">{{.}}</pre></details>
+    {{else}}<div class="wb-muted">No prompt: an agent entering <span class="wb-mono-inline">{{$.Status}}</span> gets no extra guidance.</div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/part-station"}}
+<section class="wb-part-panel wb-part-panel--wide" data-testid="hall.part.issues">
+    <h2 class="wb-h2">In this station <span class="wb-hst-count">{{.Station.Count}}</span></h2>
+    <div class="wb-part-crates">{{range .Station.Crates}}{{template "wb/crate" .}}{{else}}<div class="wb-muted">No issue is in <span class="wb-mono-inline">{{.Status}}</span>.</div>{{end}}</div>
+</section>
+{{template "wb/part-prompt" .}}
+<section class="wb-part-panel" data-testid="hall.part.in"><h2 class="wb-h2">Ways in</h2>{{template "wb/part-edges" .In}}</section>
+<section class="wb-part-panel" data-testid="hall.part.out"><h2 class="wb-h2">Ways out</h2>{{template "wb/part-edges" .Out}}</section>
+{{template "wb/part-overlays" .Overlays}}
+{{end}}
+
+{{define "wb/part-gate"}}
+<section class="wb-part-panel wb-part-panel--wide" data-testid="hall.part.waiting">
+    <h2 class="wb-h2">Waiting at the gate <span class="wb-hst-count">{{len .Waiting}}</span></h2>
+    {{if .Raised}}<div class="wb-part-raised" data-testid="hall.part.raised">{{template "wb/yolo-tag"}} YOLO: the barrier is up. Issues enter <span class="wb-mono-inline">{{.Status}}</span> without you and wait for your review after the fact.</div>{{end}}
+    {{range .Waiting}}<div class="wb-parked"><a class="wb-parked-slug" href="{{.URL}}">{{.Slug}}</a><span>{{.Title}}{{with .Since}} · waiting {{.}}{{end}}{{if .Approx}} (about){{end}}</span></div>
+    {{else}}<div class="wb-muted">Nothing waits for your approval here.</div>{{end}}
+</section>
+<section class="wb-part-panel" data-testid="hall.part.in">
+    <h2 class="wb-h2">What the gate stands on</h2>
+    <div class="wb-note">The transitions that need your approval to enter <span class="wb-mono-inline">{{.Status}}</span>, and everything else they check first.</div>
+    {{template "wb/part-edges" .In}}
+</section>
+{{template "wb/part-overlays" .Overlays}}
+{{end}}
+
+{{define "wb/part-ci"}}
+<section class="wb-part-panel wb-part-panel--wide{{if .Red}} wb-part-panel--red{{end}}" data-testid="hall.part.ci">
+    <h2 class="wb-h2">{{if .Red}}Red{{else}}{{.State}}{{end}} on <span class="wb-mono-inline">{{.Branch}}</span></h2>
+    <dl class="wb-facts">
+        {{with .Updated}}<dt>last run</dt><dd>{{.}}</dd>{{end}}
+        {{with .GreenSha}}<dt>last green</dt><dd class="wb-mono-inline">{{.}}</dd>{{end}}
+        {{if .Red}}{{with .RedSince}}<dt>red since</dt><dd class="wb-mono-inline">{{.}}</dd>{{end}}{{with .Failed}}<dt>failed</dt><dd class="wb-mono-inline wb-tone-red">{{.}}</dd>{{end}}{{end}}
+    </dl>
+    {{if .Failures}}<div class="wb-eyebrow">FAILING</div><ul class="wb-part-actions">{{range .Failures}}<li class="wb-mono-inline">{{.}}</li>{{end}}</ul>{{end}}
+    <a class="wb-part-edge-go" href="{{.StatusURL}}">The Status page has every run</a>
+</section>
+<section class="wb-part-panel" data-testid="hall.part.ci.run">
+    <h2 class="wb-h2">What it runs</h2>
+    <div class="wb-note">From <span class="wb-mono-inline">ci.run</span> in workflow.yaml, in order; the first failure stops the run.</div>
+    <dl class="wb-facts">{{range .Commands}}<dt>{{.Label}}</dt><dd class="wb-mono-inline">{{.Value}}</dd>{{else}}<dt>—</dt><dd>no commands</dd>{{end}}</dl>
+</section>
+<section class="wb-part-panel" data-testid="hall.part.ci.merged">
+    <h2 class="wb-h2">Landed since green</h2>
+    <dl class="wb-facts">{{range .Merged}}<dt class="wb-mono-inline">{{.Label}}</dt><dd>{{.Value}}</dd>{{else}}<dt>—</dt><dd>nothing</dd>{{end}}</dl>
+    {{if .Blamed}}<div class="wb-eyebrow">BLAMED</div>{{range .Blamed}}<div class="wb-parked"><a class="wb-parked-slug" href="{{.URL}}">{{.Slug}}</a></div>{{end}}{{end}}
+</section>
+{{with .LogTail}}<section class="wb-part-panel wb-part-panel--wide" data-testid="hall.part.ci.log"><h2 class="wb-h2">Log tail</h2><pre class="wb-part-pre">{{range .}}{{.}}
+{{end}}</pre></section>{{end}}
+{{end}}

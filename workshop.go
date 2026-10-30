@@ -305,18 +305,20 @@ type WbHallStop struct {
 
 // WbGateCard is a gate on the hall's line: the owner's stamp before Status.
 type WbGateCard struct {
-	Name, Status string
-	Waiting      int
+	// URL is the gate's drill-in page (/hall/gate/<status>).
+	Name, Status, URL string
+	Waiting           int
 	// Raised: YOLO is on, the barrier is up and crates pass without the owner.
 	Raised bool
 }
 
 // WbHallStation is a station on the hall's line with its crates.
 type WbHallStation struct {
-	Name, Status, Who string
-	Count, More       int
-	Owner             bool
-	Crates            []WbCrate
+	// URL is the station's drill-in page (/hall/station/<status>).
+	Name, Status, Who, URL string
+	Count, More            int
+	Owner                  bool
+	Crates                 []WbCrate
 }
 
 // WbCrate is an issue on the line, carried by its worker (Robot) if it has
@@ -330,20 +332,21 @@ type WbCrate struct {
 
 // WbDoneStation is the end of the line: what was done this week.
 type WbDoneStation struct {
-	Count int
-	Stack []int
-	Who   string
+	Count    int
+	Stack    []int
+	Who, URL string
 }
 
 // WbCIScanner is local CI on the line.
 type WbCIScanner struct {
-	Red                            bool
-	Command, Branch, Issue, Detail string
+	Red                                 bool
+	Command, Branch, Issue, Detail, URL string
 }
 
 // WbParking is the parked issues and why.
 type WbParking struct {
 	Count int
+	URL   string
 	Items []WbParked
 }
 

@@ -1638,3 +1638,35 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb .playtest-step--fail { color: var(--red); }
 .wb .playtest-step--open { color: var(--muted); }
 .wb .playtest-note { color: var(--muted); font-weight: 400; }
+
+/* L2: hall drill-in (templates/_workshop_hall_part.html). The hall's parts
+   are links; their pages show what is inside a station, a gate or CI. */
+a.wb-gatecard, a.wb-scanner, .wb-hst-head--link { color: inherit; text-decoration: none; }
+a.wb-gatecard:hover, a.wb-scanner:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
+.wb-hst-head--link:hover .wb-hst-name, a.wb-parking-head:hover .wb-hst-name { text-decoration: underline; }
+a.wb-gatecard:focus-visible, a.wb-scanner:focus-visible, .wb-hst-head--link:focus-visible { outline: 3px solid var(--working); outline-offset: 2px; }
+.wb-part { padding: 18px 24px 40px; display: flex; flex-direction: column; gap: 14px; }
+.wb-part-grid > [data-testid="hall.part.overlays"] { grid-column: 1 / -1; }
+.wb-part .wb-titlebar { flex-wrap: wrap; }
+.wb-part-back { font-weight: 800; font-size: 13px; color: var(--ink); }
+.wb-part-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 18px; align-items: start; }
+.wb-part-panel { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wb-part-panel--wide { grid-column: 1 / -1; }
+.wb-part-panel--red { box-shadow: 4px 4px 0 var(--red); }
+.wb-part-panel .wb-h2 { display: flex; align-items: center; gap: 8px; }
+.wb-part-panel .wb-h2 .wb-hst-count { margin-left: 0; }
+.wb-part-crates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.wb-part-desc { font-weight: 600; }
+.wb-part-pre { margin: 0; padding: 10px; background: #F4F6F9; border: 1.5px solid #E1E5EB; border-radius: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
+.wb-part-fold summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
+.wb-part-edges { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wb-part-edge { border: 1.5px solid #E1E5EB; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.wb-part-edge--gate { background: var(--you-bg); border-color: var(--ink); }
+.wb-part-edge-way { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 700; }
+.wb-part-edge-go { font-size: 12px; font-weight: 800; color: var(--ink); }
+.wb-part-actions { margin: 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.wb-stamp--sm { width: 24px; height: 24px; }
+.wb-stamp--sm svg { width: 14px; height: 14px; }
+.wb-part-overlay { border-top: 1.5px solid #E1E5EB; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wb-part-overlay-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 700; }
+.wb-part-raised { font-weight: 600; }
