@@ -14,6 +14,18 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
+// realTempDir is t.TempDir() with symlinks resolved. On macOS the temp dir
+// sits under /var, a link to /private/var; git and os.Getwd print the
+// resolved path, so a test that compares printed paths needs this one.
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 // newTestContext builds a Context whose Stdout/Stderr are captured into the
 // returned buffer. Tests use this in place of the old captureStdout helper so
 // per-test output stays isolated from os.Stdout (and from any concurrent

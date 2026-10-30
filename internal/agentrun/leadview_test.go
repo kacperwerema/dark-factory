@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -40,7 +41,14 @@ func isolateTmux(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	t.Setenv("TMUX", "")
-	t.Setenv("TMUX_TMPDIR", t.TempDir())
+	// Not t.TempDir(): under macOS's deep temp dir the socket path passes
+	// the ~104-byte limit and tmux can't connect.
+	dir, err := os.MkdirTemp("/tmp", "tmx-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	t.Setenv("TMUX_TMPDIR", dir)
 	t.Setenv("SHELL", "/bin/sh")
 	t.Cleanup(func() { _ = exec.Command("tmux", "kill-server").Run() })
 }

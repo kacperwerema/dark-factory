@@ -158,8 +158,13 @@ func TestStartScenarioIsolated(t *testing.T) {
 			t.Fatalf("tmux new-session: %v %d %s", err, code, out)
 		}
 		out, _, _ := sc.Tmux(ctx, "display-message", "-p", "-t", "pt-probe", "#{socket_path}")
-		if !strings.HasPrefix(strings.TrimSpace(out), sc.TmuxDir()+"/") {
-			t.Errorf("tmux socket %q is not under the scenario's %s", strings.TrimSpace(out), sc.TmuxDir())
+		// tmux prints the resolved path: on macOS the temp dir's /var is /private/var.
+		dir, err := filepath.EvalSymlinks(sc.TmuxDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(strings.TrimSpace(out), dir+"/") {
+			t.Errorf("tmux socket %q is not under the scenario's %s", strings.TrimSpace(out), dir)
 		}
 	}
 
