@@ -5,8 +5,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -66,5 +69,70 @@ func TestDemoConfig(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: status %d", path, rec.Code)
 		}
+	}
+}
+
+// TestDemoSeed guards what the README's pictures show from the demo: HQ and
+// a Marketing department on its own workflow, goals with values, outputs in
+// review, and gates that only wait for the owner's stamp.
+func TestDemoSeed(t *testing.T) {
+	projects, err := tracker.LoadProjects("demo/projects.yaml")
+	if err != nil {
+		t.Fatalf("LoadProjects: %v", err)
+	}
+	p := &projects[0]
+	if p.Company == nil || len(p.Company.Goals) == 0 {
+		t.Fatal("demo: no company: with goals (HQ's room would be empty)")
+	}
+	var marketing *tracker.Department
+	for i := range p.Departments {
+		if p.Departments[i].Name == "Marketing" {
+			marketing = &p.Departments[i]
+		}
+	}
+	if marketing == nil || marketing.Workflow == "" || len(marketing.Goals) == 0 {
+		t.Fatalf("demo: no Marketing department with its own workflow and goals: %+v", p.Departments)
+	}
+	if _, err := tracker.LoadWorkflow(filepath.Join(projectRoot(p), marketing.Workflow)); err != nil {
+		t.Errorf("Marketing workflow: %v", err)
+	}
+	for _, prompt := range []string{p.Company.Prompt, marketing.Prompt} {
+		if _, err := os.Stat(filepath.Join(projectRoot(p), prompt)); err != nil {
+			t.Errorf("role prompt %s: %v", prompt, err)
+		}
+	}
+
+	list, bad := outputs.Load(p)
+	if len(bad) > 0 {
+		t.Errorf("outputs log has bad lines: %+v", bad)
+	}
+	review := 0
+	for _, o := range list {
+		if o.State == "review" {
+			review++
+		}
+	}
+	if review < 2 {
+		t.Errorf("demo shelf: %d outputs in review, want at least 2", review)
+	}
+
+	issues, err := tracker.LoadIssues(p.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var open []*tracker.Issue
+	for _, is := range issues {
+		if is.Status != "done" {
+			open = append(open, is)
+		}
+	}
+	ready := 0
+	for _, r := range needsYouRows(p, "", "/p/demo", open, time.Now()) {
+		if r.Ready {
+			ready++
+		}
+	}
+	if ready < 3 {
+		t.Errorf("demo Needs you: %d ready gates, want at least 3 for Approve selected", ready)
 	}
 }

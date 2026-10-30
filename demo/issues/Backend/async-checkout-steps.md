@@ -5,6 +5,7 @@ system: "Backend"
 version: "1.1"
 priority: "medium"
 parent: "backend/checkout-v2"
+assignee: "agent-async-checkout-steps"
 created: "2026-10-22"
 ---
 

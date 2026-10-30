@@ -1,10 +1,34 @@
 # Sample project for `make demo`. Paths are relative to the repo root,
-# which is where `make demo` starts the board.
+# which is where `make demo` starts the board. Department paths (prompt:,
+# workflow:) are relative to the project root, demo/.
 projects:
-  - name: "Demo"
+  - name: "Acme Shop"
     slug: "demo"
     issues: "demo/issues"
     docs: "demo/docs"
     workflow: "demo/workflow.yaml"
     workdir: "demo"
     terminal: "none"   # print the tmux attach command instead of opening a window
+    company:
+      mission: "Checkout that never loses a sale"
+      prompt: departments/hq.md
+      goals:
+        - {id: shops, name: Paying shops, target: 500}
+        - {id: revenue, name: Monthly revenue, target: 20000, unit: EUR}
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: Launch posts, docs pages and the release digest
+        mission: "Every release explained the week it ships"
+        prompt: departments/marketing.md
+        systems: [Content]
+        workflow: workflows/marketing.yaml
+        goals:
+          - {id: posts, name: Posts published, target: 8, rolls_up: shops}
+          - {id: signups, name: Trial sign-ups, target: 300, rolls_up: shops}
+      - name: Product
+        mission: "Ship checkout v2 without a double charge"
+        prompt: departments/product.md
+        goals:
+          - {id: bugs, name: Open bugs, target: 5, direction: down}
+          - {id: conversion, name: Checkout conversion, target: 70, unit: pct, rolls_up: shops}

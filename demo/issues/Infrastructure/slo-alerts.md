@@ -5,6 +5,7 @@ system: "Infrastructure"
 version: "1.1"
 priority: "high"
 parent: "infrastructure/observability"
+assignee: "agent-slo-alerts"
 created: "2026-10-10"
 ---
 
