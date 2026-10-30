@@ -49,55 +49,48 @@
     });
   }
 
+  // A question card the owner has started answering stays as it is while
+  // the same question is still on the CEO's screen.
   function keepAskCard(slot, t) {
-    var mine = slot.querySelector('form[data-ask-id][data-dirty]');
+    var mine = slot.querySelector('form[data-ask-question][data-dirty]');
     if (!mine) return false;
-    var next = t.content.querySelector('form[data-ask-id="' + mine.getAttribute('data-ask-id') + '"]');
-    return !!next && !next.querySelector('[data-ask-pick][disabled]');
-  }
-
-  // askAnswers reads a question card: per question the options picked (1 is
-  // the first) and the Other text.
-  function askAnswers(form) {
-    return Array.prototype.map.call(form.querySelectorAll('[data-ask-q]'), function (set) {
-      var picks = Array.prototype.filter.call(set.querySelectorAll('[data-ask-pick]'), function (b) {
-        return b.getAttribute('aria-pressed') === 'true';
-      }).map(function (b) { return parseInt(b.getAttribute('data-ask-pick'), 10); });
-      return { picks: picks, other: set.querySelector('[data-ask-other]').value.trim() };
-    });
+    var next = t.content.querySelector('form[data-ask-question]');
+    return !!next && next.getAttribute('data-ask-question') === mine.getAttribute('data-ask-question');
   }
 
   function pickOption(btn) {
-    var set = btn.closest('[data-ask-q]');
+    var form = btn.closest('form');
     var on = btn.getAttribute('aria-pressed') !== 'true';
-    if (!set.getAttribute('data-multi')) {
-      set.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+    if (!form.getAttribute('data-multi')) {
+      form.querySelectorAll('[data-ask-pick]').forEach(function (b) {
         b.setAttribute('aria-pressed', 'false');
         b.classList.remove('wb-choice-opt--on');
       });
-      if (on) set.querySelector('[data-ask-other]').value = '';
+      if (on) form.querySelector('[data-ask-other]').value = '';
     }
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     btn.classList.toggle('wb-choice-opt--on', on);
-    btn.closest('form').setAttribute('data-dirty', '1');
+    form.setAttribute('data-dirty', '1');
   }
 
   function submitAsk(form) {
     var msg = form.querySelector('[data-ask-msg]');
-    var answers = askAnswers(form);
-    var missing = answers.findIndex(function (a) { return !a.picks.length && !a.other; });
-    if (missing >= 0) { msg.textContent = 'Question ' + (missing + 1) + ' has no answer yet.'; return; }
+    var picks = Array.prototype.filter.call(form.querySelectorAll('[data-ask-pick]'), function (b) {
+      return b.getAttribute('aria-pressed') === 'true';
+    }).map(function (b) { return parseInt(b.getAttribute('data-ask-pick'), 10); });
+    var other = form.querySelector('[data-ask-other]').value.trim();
+    if (!picks.length && !other) { msg.textContent = 'Pick an answer first.'; return; }
     msg.textContent = 'Answering…';
-    post(form.getAttribute('data-ask-url'), { id: form.getAttribute('data-ask-id'), answers: answers }).then(function (res) {
+    post(form.getAttribute('data-ask-url'), { question: form.getAttribute('data-ask-question'), picks: picks, other: other }).then(function (res) {
       if (!res.ok) { msg.textContent = 'Not answered: ' + (res.body.error || 'error'); return; }
       form.removeAttribute('data-dirty');
       msg.textContent = 'Answered in ' + (res.body.session || 'the CEO') + '.';
-      setTimeout(poll, 600);
+      setTimeout(poll, 400);
     }).catch(function (e) { msg.textContent = 'Not answered: ' + e; });
   }
 
   document.addEventListener('submit', function (e) {
-    var form = e.target.closest('form[data-ask-id]');
+    var form = e.target.closest('form[data-ask-question]');
     if (!form) return;
     e.preventDefault();
     submitAsk(form);
@@ -105,15 +98,15 @@
   document.addEventListener('input', function (e) {
     var other = e.target.closest('[data-ask-other]');
     if (!other) return;
-    var set = other.closest('[data-ask-q]');
-    // One answer for a single-choice question: typing Other clears a pick.
-    if (!set.getAttribute('data-multi') && other.value) {
-      set.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+    var form = other.closest('form');
+    // One answer for a single choice: typing Other clears a pick.
+    if (!form.getAttribute('data-multi') && other.value) {
+      form.querySelectorAll('[data-ask-pick]').forEach(function (b) {
         b.setAttribute('aria-pressed', 'false');
         b.classList.remove('wb-choice-opt--on');
       });
     }
-    other.closest('form').setAttribute('data-dirty', '1');
+    form.setAttribute('data-dirty', '1');
   });
 
   function poll() {

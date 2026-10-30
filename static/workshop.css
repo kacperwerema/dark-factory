@@ -1531,8 +1531,7 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-ask-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; }
 .wb-ask-q { line-height: 1.45; font-weight: 600; }
 .wb-ask-answer { margin-top: 2px; font-weight: 800; color: var(--ink); }
-.wb-ask-set { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.wb-ask-set legend { padding: 0; margin-bottom: 6px; line-height: 1.45; }
+.wb-ask-review { display: flex; flex-direction: column; gap: 6px; }
 .wb-ask-opt { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; }
 .wb-ask-opt small { font-size: 12.5px; font-weight: 500; color: #3A4252; }
 .wb-ask-other { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }

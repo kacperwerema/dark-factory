@@ -49,9 +49,7 @@ type CEOLive struct {
 	Pane CEOPane
 	// Source says where the turns came from: "transcript" or "pane".
 	Source string
-	// Asks are the open AskUserQuestion calls, oldest first: cards above
-	// the message box, answered through AnswerURL.
-	Asks      []*CEOQuestion
+	// AnswerURL answers Pane.Ask, the question card above the message box.
 	AnswerURL string
 	// Raw is the cleaned pane for the Terminal view.
 	Raw  string
@@ -163,15 +161,8 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 func (s *Server) buildCEOLive(p *tracker.Project, prefix string, m LeadChatModel) CEOLive {
 	live := CEOLive{
 		Live: m.Live, SpawnURL: prefix + "/lead/spawn", Raw: m.Pane, Source: m.Source, AnswerURL: prefix + "/lead/answer",
-		Pane: CEOPane{Turns: m.Turns, Older: m.Older, Working: m.Working, Prompt: m.Prompt, Mode: m.Mode},
+		Pane: CEOPane{Turns: m.Turns, Older: m.Older, Working: m.Working, Prompt: m.Prompt, Ask: m.Ask, Mode: m.Mode},
 		Side: CEOSide{Waiting: m.Waiting, Questions: m.OpenQuestions, AttachCmd: m.AttachCmd},
-	}
-	for _, t := range m.Turns {
-		for _, q := range t.Asks {
-			if !q.Answered {
-				live.Asks = append(live.Asks, q)
-			}
-		}
 	}
 	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
 		for _, w := range agents.Workers {

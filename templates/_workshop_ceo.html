@@ -11,7 +11,7 @@ static/ceo-chat.js).
   wb/ceo-terminal     the raw pane                                     data: CEOLive
   wb/choice-card      a menu the CEO waits on                          data: *CEOPrompt
   wb/ask-history      an AskUserQuestion in the conversation           data: *CEOQuestion
-  wb/ask-card         an open AskUserQuestion to answer                data: askCard (CEOQuestion, AnswerURL)
+  wb/ask-card         the question widget on the pane, to answer       data: CEOLive (.Pane.Ask)
   wb/composer         the message box                                  data: CEOComposer
   wb/session-controls the session's keys                               data: CEOChatPage
   wb/ceo-side         the right panel                                  data: CEOLive
@@ -108,26 +108,29 @@ static/ceo-chat.js).
 
 {{define "wb/ask-history"}}
 <div class="wb-ask wb-ask--history{{if .Answered}} wb-ask--done{{end}}" {{if .Answered}}data-testid="lead_chat.ask.answered"{{else}}data-testid="lead_chat.ask.open"{{end}}>
-    <div class="wb-ask-head"><span class="wb-chip {{if .Answered}}wb-chip--idle{{else}}wb-chip--you{{end}}">{{if .Answered}}answered{{else}}waits on you{{end}}</span>{{if not .Answered}}<span class="wb-muted">{{if .Live}}answer it above the message box{{else}}answer it in the Terminal view{{end}}</span>{{end}}</div>
+    <div class="wb-ask-head"><span class="wb-chip {{if .Answered}}wb-chip--idle{{else}}wb-chip--you{{end}}">{{if .Answered}}answered{{else}}waits on you{{end}}</span></div>
     {{range .Questions}}<div class="wb-ask-q">{{with .Header}}<span class="wb-chip wb-chip--plain">{{.}}</span> {{end}}{{.Question}}{{with .Answer}}<div class="wb-ask-answer">→ {{.}}</div>{{end}}</div>{{end}}
 </div>
 {{end}}
 
-{{define "wb/ask-card"}}{{$q := .Q}}
-<form class="wb-choice wb-ask-card" data-ask-id="{{$q.ID}}" data-ask-url="{{.AnswerURL}}" data-testid="lead_chat.ask_card">
+{{define "wb/ask-card"}}{{$a := .Pane.Ask}}
+<form class="wb-choice wb-ask-card" data-ask-url="{{.AnswerURL}}" data-ask-question="{{$a.Question}}" data-multi="{{if $a.Multi}}1{{end}}" data-testid="lead_chat.ask_card">
     <div class="wb-choice-head">
         <span class="wb-choice-bang wb-ping">?</span>
         <span class="wb-choice-title">The CEO asks you</span>
-        {{if not $q.Live}}<span class="wb-choice-hint">its screen has moved on: answer in the Terminal view</span>{{end}}
+        {{range $a.Tabs}}<span class="wb-chip {{if .Done}}wb-chip--idle{{else}}wb-chip--plain{{end}}">{{if .Done}}✓ {{end}}{{.Label}}</span>{{end}}
     </div>
-    {{range $i, $e := $q.Questions}}<fieldset class="wb-ask-set" data-ask-q="{{$i}}" data-multi="{{if $e.MultiSelect}}1{{end}}">
-        <legend class="wb-choice-q">{{with $e.Header}}<span class="wb-chip wb-chip--plain">{{.}}</span> {{end}}{{$e.Question}}{{if $e.MultiSelect}} <span class="wb-muted">(pick any)</span>{{end}}</legend>
-        <div class="wb-choice-opts">
-            {{range $j, $o := $e.Options}}<button type="button" class="wb-choice-opt" aria-pressed="false" data-ask-pick="{{inc $j}}" {{if not $q.Live}}disabled{{end}} data-testid="lead_chat.ask_card.{{$i}}.opt.{{$j}}"><span class="wb-choice-key">{{inc $j}}</span><span class="wb-ask-opt"><span>{{$o.Label}}</span>{{with $o.Description}}<small>{{.}}</small>{{end}}</span></button>{{end}}
-            <label class="wb-ask-other"><span>Other</span><input type="text" maxlength="500" data-ask-other placeholder="your own answer" {{if not $q.Live}}disabled{{end}} data-testid="lead_chat.ask_card.{{$i}}.other"></label>
-        </div>
-    </fieldset>{{end}}
-    <div class="wb-composer-bar"><span class="wb-site-msg" role="status" data-ask-msg></span><span class="wb-grow"></span><button type="submit" class="wb-btn wb-btn--ink" {{if not $q.Live}}disabled{{end}} data-testid="lead_chat.ask_card.submit">Submit</button></div>
+    {{if $a.Review}}
+    <div class="wb-ask-review" data-testid="lead_chat.ask_card.review">{{range $a.Answers}}<div class="wb-ask-q">{{.Question}}<div class="wb-ask-answer">→ {{.Answer}}</div></div>{{end}}</div>
+    <div class="wb-composer-bar"><span class="wb-grow"></span><button type="button" class="wb-btn wb-btn--outline" data-key="2" data-testid="lead_chat.ask_card.cancel">Cancel</button><button type="button" class="wb-btn wb-btn--ink" data-key="1" data-testid="lead_chat.ask_card.send">Submit answers</button></div>
+    {{else}}
+    <div class="wb-choice-q">{{$a.Question}}{{if $a.Multi}} <span class="wb-muted">(pick any)</span>{{end}}</div>
+    <div class="wb-choice-opts">
+        {{range $a.Options}}<button type="button" class="wb-choice-opt{{if .Checked}} wb-choice-opt--on{{end}}" aria-pressed="{{if .Checked}}true{{else}}false{{end}}" data-ask-pick="{{.Key}}" data-testid="lead_chat.ask_card.opt.{{.Key}}"><span class="wb-choice-key">{{.Key}}</span><span class="wb-ask-opt"><span>{{.Label}}</span>{{with .Description}}<small>{{.}}</small>{{end}}</span></button>{{end}}
+        <label class="wb-ask-other"><span>Other</span><input type="text" maxlength="500" value="{{$a.Other.Label}}" data-ask-other placeholder="your own answer" data-testid="lead_chat.ask_card.other"></label>
+    </div>
+    <div class="wb-composer-bar"><span class="wb-site-msg" role="status" data-ask-msg></span><span class="wb-grow"></span><button type="submit" class="wb-btn wb-btn--ink" data-testid="lead_chat.ask_card.submit">{{if gt (len $a.Tabs) 1}}Next{{else}}Submit{{end}}</button></div>
+    {{end}}
 </form>
 {{end}}
 
@@ -174,7 +177,8 @@ static/ceo-chat.js).
         <div class="wb-q-text">{{.Text}}</div>
         {{if eq .Kind "ask"}}<span class="wb-muted">Answer it in the card above the message box.</span>{{else}}<button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-answer="{{.Text}}" data-testid="lead_chat.question.answer">Answer in chat</button>{{end}}
     </div>{{else}}<div class="wb-empty">No open question from the CEO.</div>{{end}}
-    {{if .}}<div class="wb-side-note">The button only starts your reply in the box, in your words; nothing is sent until you press Send.</div>{{end}}
+    {{$sentence := false}}{{range .}}{{if eq .Kind "sentence"}}{{$sentence = true}}{{end}}{{end}}
+    {{if $sentence}}<div class="wb-side-note">Answer in chat only starts your reply in the box, in your words; nothing is sent until you press Send.</div>{{end}}
 </div>
 {{end}}
 
@@ -200,7 +204,7 @@ static/ceo-chat.js).
 </div>
 {{end}}
 
-{{define "wb/ceo-prompts"}}{{$url := .AnswerURL}}{{range .Asks}}{{template "wb/ask-card" (askCard . $url)}}{{end}}{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}{{end}}
+{{define "wb/ceo-prompts"}}{{if .Pane.Ask}}{{template "wb/ask-card" .}}{{end}}{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}{{end}}
 
 {{define "wb/ceo-card"}}
 <div class="wb-ceo-card" data-testid="leads.row.{{tid .Slug}}">

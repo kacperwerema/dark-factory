@@ -42,14 +42,13 @@ type CEOToolCall struct {
 }
 
 // CEOQuestion is one AskUserQuestion call: up to four questions asked
-// together, open until its tool result is in the transcript.
+// together, answered once its tool result is in the transcript. Claude
+// Code writes the call itself only after the answer, so an open one is
+// read from the pane (CEOPaneAsk).
 type CEOQuestion struct {
 	ID        string        `json:"id"`
 	Questions []CEOAskEntry `json:"questions"`
 	Answered  bool          `json:"answered"`
-	// Live says the lead's pane shows this question's widget right now, so
-	// the page can answer it (buildCEOLive sets it).
-	Live bool `json:"live"`
 }
 
 // CEOAskEntry is one question of an AskUserQuestion call.
@@ -242,8 +241,8 @@ func readLeadTranscript(path string) (CEOTranscript, error) {
 	return t.clone(), nil
 }
 
-// clone copies the turns and their questions, so a caller marking a
-// question Live doesn't change the cached read.
+// clone copies the turns and their questions, so a caller changing them
+// doesn't change the cached read.
 func (t CEOTranscript) clone() CEOTranscript {
 	turns := make([]CEOTurn, len(t.Turns))
 	for i, turn := range t.Turns {
@@ -483,22 +482,25 @@ func ceoMarkdown(text string) string {
 	return buf.String()
 }
 
-// openCEOQuestions is what the CEO waits on the owner for, from its turns:
-// every AskUserQuestion without an answer, oldest first, then the sentences
-// ending in "?" in its last message when the owner hasn't written since.
-// Answered questions are never in it. Needs-you and lead.json read it.
-func openCEOQuestions(turns []CEOTurn) []CEOOpenQuestion {
+// openCEOQuestions is what the CEO waits on the owner for: the question
+// widget on its pane, else any AskUserQuestion in turns without an answer,
+// then the sentences ending in "?" in its last message when the owner
+// hasn't written since. Answered questions are never in it. Needs-you and
+// lead.json read it.
+func openCEOQuestions(turns []CEOTurn, ask *CEOPaneAsk) []CEOOpenQuestion {
 	out := []CEOOpenQuestion{}
-	for _, t := range turns {
-		for _, q := range t.Asks {
-			if q.Answered {
-				continue
+	switch {
+	case ask != nil && ask.Review:
+		out = append(out, CEOOpenQuestion{Kind: "ask", Text: "Submit your answers to the CEO's questions"})
+	case ask != nil:
+		out = append(out, CEOOpenQuestion{Kind: "ask", Text: ask.Question})
+	default:
+		for _, t := range turns {
+			for _, q := range t.Asks {
+				if !q.Answered {
+					out = append(out, CEOOpenQuestion{Kind: "ask", Text: q.Questions[0].Question, ID: q.ID})
+				}
 			}
-			text := q.Questions[0].Question
-			if n := len(q.Questions); n > 1 {
-				text += " (+" + plural(n-1, "more question", "more questions") + ")"
-			}
-			out = append(out, CEOOpenQuestion{Kind: "ask", Text: text, ID: q.ID})
 		}
 	}
 	if n := len(turns); n > 0 && turns[n-1].From == "ceo" {
@@ -514,57 +516,4 @@ func openCEOQuestions(turns []CEOTurn) []CEOOpenQuestion {
 		}
 	}
 	return out
-}
-
-// paneTailText is the bottom of the pane with every run of whitespace one
-// space, so text the TUI wrapped matches the transcript's.
-func paneTailText(pane string) string {
-	lines := strings.Split(pane, "\n")
-	if len(lines) > 2*paneTail {
-		lines = lines[len(lines)-2*paneTail:]
-	}
-	for i, l := range lines {
-		lines[i] = boxText(l)
-	}
-	return strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
-}
-
-// askOnPane reports whether the pane's bottom shows q's widget: the start
-// of one of its questions, as wrapped text, above the widget's footer.
-func askOnPane(q *CEOQuestion, tail string) bool {
-	if !strings.Contains(tail, "Esc to cancel") {
-		return false
-	}
-	for _, e := range q.Questions {
-		head := []rune(strings.Join(strings.Fields(e.Question), " "))
-		if len(head) > 40 {
-			head = head[:40]
-		}
-		if len(head) > 0 && strings.Contains(tail, string(head)) {
-			return true
-		}
-	}
-	return false
-}
-
-// markLiveAsks sets Live on the open AskUserQuestion the pane shows.
-func markLiveAsks(turns []CEOTurn, pane string) {
-	tail := paneTailText(pane)
-	for i := range turns {
-		for _, q := range turns[i].Asks {
-			q.Live = !q.Answered && askOnPane(q, tail)
-		}
-	}
-}
-
-// anyLiveAsk reports whether one of turns' questions is on the pane.
-func anyLiveAsk(turns []CEOTurn) bool {
-	for _, t := range turns {
-		for _, q := range t.Asks {
-			if q.Live {
-				return true
-			}
-		}
-	}
-	return false
 }

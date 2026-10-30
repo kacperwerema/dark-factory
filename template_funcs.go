@@ -118,10 +118,6 @@ var funcMap = template.FuncMap{
 	"tid":     testids.Segment,
 	"plural":  plural,
 	"ceoMode": ceoModeLabel,
-	// askCard pairs an open CEO question with the URL that answers it;
-	// inc numbers options from 1.
-	"askCard": func(q *CEOQuestion, url string) askCard { return askCard{Q: q, AnswerURL: url} },
-	"inc":     func(i int) int { return i + 1 },
 	// statsCard pairs a chart card with its dashboard for the statsChart
 	// template; statsRangeLabel names the range ("30 days").
 	"statsCard":       func(d *Dashboard, c ChartCard) statsCardData { return statsCardData{Dash: d, Card: c} },

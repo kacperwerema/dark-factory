@@ -127,19 +127,24 @@ func TestParseTranscriptCutAndCapped(t *testing.T) {
 
 func TestOpenCEOQuestions(t *testing.T) {
 	tr := parseTranscript(strings.NewReader(strings.Join(leadTranscriptLines(), "\n")), false, 60)
-	open := openCEOQuestions(tr.Turns)
-	if len(open) != 1 || open[0].Kind != "ask" || open[0].ID != "ask2" || open[0].Text != "Which color do you prefer? (+1 more question)" {
+	open := openCEOQuestions(tr.Turns, nil)
+	if len(open) != 1 || open[0].Kind != "ask" || open[0].ID != "ask2" || open[0].Text != "Which color do you prefer?" {
 		t.Errorf("open = %+v (the answered ask must not be in it)", open)
+	}
+	// The widget on the pane is the open question when there is one.
+	open = openCEOQuestions(tr.Turns, &CEOPaneAsk{Question: "Which pets do you like?"})
+	if len(open) != 1 || open[0].Text != "Which pets do you like?" || open[0].ID != "" {
+		t.Errorf("with the widget open = %+v", open)
 	}
 	// A sentence in the CEO's last message waits until the owner writes.
 	turns := append(tr.Turns, CEOTurn{From: "ceo", Bubbles: []CEOBubble{{Markdown: "Done. Should I close the epic?"}}})
 	turns[1].Asks[1].Answered = true
-	open = openCEOQuestions(turns)
+	open = openCEOQuestions(turns, nil)
 	if len(open) != 1 || open[0].Kind != "sentence" || open[0].Text != "Should I close the epic?" {
 		t.Errorf("open = %+v", open)
 	}
 	turns = append(turns, CEOTurn{From: "you", Text: []string{"yes"}})
-	if open = openCEOQuestions(turns); len(open) != 0 {
+	if open = openCEOQuestions(turns, nil); len(open) != 0 {
 		t.Errorf("after the owner's reply open = %+v", open)
 	}
 }
@@ -195,10 +200,10 @@ func TestReadLeadTranscriptCachesAndCopies(t *testing.T) {
 	if err != nil || len(a.Turns) != 2 {
 		t.Fatalf("read = %+v, %v", a, err)
 	}
-	a.Turns[1].Asks[1].Live = true
+	a.Turns[1].Asks[1].Answered = true
 	b, _ := readLeadTranscript(path)
-	if b.Turns[1].Asks[1].Live {
-		t.Error("marking a question live changed the cached read")
+	if b.Turns[1].Asks[1].Answered {
+		t.Error("changing a read changed the cached read")
 	}
 	// An appended answer is read on the next poll.
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
@@ -207,108 +212,14 @@ func TestReadLeadTranscriptCachesAndCopies(t *testing.T) {
 	later := time.Now().Add(time.Second)
 	os.Chtimes(path, later, later)
 	c, _ := readLeadTranscript(path)
-	if !c.Turns[1].Asks[1].Answered || len(openCEOQuestions(c.Turns)) != 0 {
+	if !c.Turns[1].Asks[1].Answered || len(openCEOQuestions(c.Turns, nil)) != 0 {
 		t.Errorf("after the answer: %+v", c.Turns[1].Asks[1])
-	}
-}
-
-// askPane is the lead's pane showing ask2's widget (Claude Code 2.1).
-const askPane = "⏺ Before I go on:\n" +
-	"────────────────────\n" +
-	"←  ☐ Color  ☐ Pets  ✔ Submit  →\n\n" +
-	"Which color do you prefer?\n\n" +
-	"❯ 1. Red (warm)\n     A warm color\n  2. Blue (cool)\n     A cool color\n  3. Type something.\n" +
-	"────────────────────\n" +
-	"  4. Chat about this\n\n" +
-	"Enter to select · Tab/Arrow keys to navigate · Esc to cancel\n"
-
-func TestCEOAnswerSteps(t *testing.T) {
-	tr := parseTranscript(strings.NewReader(strings.Join(leadTranscriptLines(), "\n")), false, 60)
-	q := tr.Turns[1].Asks[1]
-	steps := func(answers []CEOAnswer) string {
-		checked, why := checkCEOAnswers(q, answers)
-		if why != "" {
-			return "refused: " + why
-		}
-		var out []string
-		for _, s := range ceoAnswerSteps(q, checked) {
-			if s.Text != "" {
-				out = append(out, "text:"+s.Text)
-			} else {
-				out = append(out, s.Key)
-			}
-		}
-		return strings.Join(out, " ")
-	}
-	for _, c := range []struct {
-		answers []CEOAnswer
-		want    string
-	}{
-		// A single choice is its digit; several choices toggle, then Tab.
-		{[]CEOAnswer{{Picks: []int{2}}, {Picks: []int{1, 3}}}, "2 1 3 Tab"},
-		// Other: the digit after the options, the text, Enter; in several
-		// choices, Down to its row and the text.
-		{[]CEOAnswer{{Other: " Green\n please "}, {Picks: []int{2}, Other: "Birds"}}, "3 text:Green please Enter 2 Down Down Down text:Birds Tab"},
-		{[]CEOAnswer{{Picks: []int{1}}}, "refused: answer each of the 2 questions"},
-		{[]CEOAnswer{{Picks: []int{1, 2}}, {Picks: []int{1}}}, "refused: question 1 takes one answer"},
-		{[]CEOAnswer{{Picks: []int{3}}, {Picks: []int{1}}}, "refused: question 1 has no option 3"},
-		{[]CEOAnswer{{Picks: []int{1}}, {}}, "refused: question 2 has no answer"},
-		{[]CEOAnswer{{Other: strings.Repeat("x", 501)}, {Picks: []int{1}}}, "refused: an Other answer is over 500 characters"},
-	} {
-		if got := steps(c.answers); got != c.want {
-			t.Errorf("%+v: steps = %q, want %q", c.answers, got, c.want)
-		}
-	}
-}
-
-func TestLeadAnswerEndpoint(t *testing.T) {
-	proj := setupAgentsProject(t)
-	st := stubLeadChat(t, true)
-	writeLeadTranscript(t, projectRoot(&proj), leadTranscriptLines())
-	ts := newTestServer(t, []tracker.Project{proj})
-	defer ts.Close()
-	url := ts.URL + "/p/agents/lead/answer"
-	body := `{"id":"ask2","answers":[{"picks":[2]},{"picks":[1,3]}]}`
-
-	// The pane doesn't show the widget: nothing is pressed.
-	code, out := leadChatPost(t, url, "application/json", body)
-	if code != 409 || out["status"] != "moved-on" || len(st.keys) != 0 {
-		t.Errorf("without the widget: %d %v keys=%v", code, out, st.keys)
-	}
-	st.pane = askPane
-	if code, out = leadChatPost(t, url, "application/json", `{"id":"ask1","answers":[{"picks":[1]},{"picks":[1]}]}`); code != 409 || out["status"] != "answered" {
-		t.Errorf("answered question: %d %v", code, out)
-	}
-	if code, out = leadChatPost(t, url, "application/json", `{"id":"nope","answers":[]}`); code != 404 {
-		t.Errorf("unknown question: %d %v", code, out)
-	}
-	if code, out = leadChatPost(t, url, "application/json", `{"id":"ask2","answers":[{"picks":[9]},{"picks":[1]}]}`); code != 400 {
-		t.Errorf("bad pick: %d %v", code, out)
-	}
-	if len(st.keys) != 0 {
-		t.Fatalf("refused answers pressed keys: %v", st.keys)
-	}
-	if code, out = leadChatPost(t, url, "application/json", body); code != 200 || out["status"] != "sent" {
-		t.Fatalf("answer: %d %v", code, out)
-	}
-	target := st.asked[len(st.asked)-1]
-	want := []string{target + " 2", target + " 1", target + " 3", target + " Tab"}
-	if strings.Join(st.keys, "|") != strings.Join(want, "|") {
-		t.Errorf("keys = %q, want %q", st.keys, want)
-	}
-	// On the review tab, the answers are submitted with 1.
-	st.keys = nil
-	st.pane = askPane + "Review your answers\nReady to submit your answers?\n❯ 1. Submit answers\n  2. Cancel\n"
-	leadChatPost(t, url, "application/json", body)
-	if n := len(st.keys); n == 0 || st.keys[n-1] != target+" 1" || n != 5 {
-		t.Errorf("review tab keys = %q", st.keys)
 	}
 }
 
 func TestCEOChatFromTranscript(t *testing.T) {
 	proj := setupAgentsProject(t)
-	st := stubLeadChat(t, true)
-	st.pane = askPane
+	stubLeadChat(t, true)
 	writeLeadTranscript(t, projectRoot(&proj), leadTranscriptLines())
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
@@ -321,22 +232,19 @@ func TestCEOChatFromTranscript(t *testing.T) {
 		"<b>Bash</b> · Check the board",
 		`data-testid="lead_chat.ask.answered"`,
 		"→ Cats, Fish",
-		`data-testid="lead_chat.ask.open"`,
-		`data-ask-id="ask2" data-ask-url="/p/agents/lead/answer"`,
-		`data-testid="lead_chat.ask_card.1.opt.2"`,
 		`data-testid="lead_chat.question.ask"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
-	// The pane's turns and its reading of the widget as a menu are gone.
-	for _, bad := range []string{"Merged ui/child.", "<script>alert", `data-testid="lead_chat.source"`, `data-testid="lead_chat.prompt"`} {
+	// The pane's turns are gone (the Terminal view still has the pane); raw
+	// HTML never renders.
+	for _, bad := range []string{`<p class="wb-turn-p">Merged ui/child.</p>`, "<script>alert", `data-testid="lead_chat.source"`} {
 		if strings.Contains(html, bad) {
 			t.Errorf("page has %q", bad)
 		}
 	}
-
 	_, body := getBody(t, ts.URL+"/p/agents/lead.json")
 	var m LeadChatModel
 	if err := json.Unmarshal([]byte(body), &m); err != nil {
@@ -344,13 +252,6 @@ func TestCEOChatFromTranscript(t *testing.T) {
 	}
 	if m.Source != "transcript" || len(m.OpenQuestions) != 1 || m.OpenQuestions[0].ID != "ask2" || len(m.Questions) != 1 {
 		t.Errorf("lead.json source=%q open=%+v questions=%q", m.Source, m.OpenQuestions, m.Questions)
-	}
-
-	// Off the pane, the card can't answer and says where to.
-	st.pane = leadChatPaneText
-	_, html = getBody(t, ts.URL+"/p/agents/lead")
-	if !strings.Contains(html, "answer in the Terminal view") || !strings.Contains(html, `data-testid="lead_chat.ask_card.submit"`) || !strings.Contains(html, `disabled data-testid="lead_chat.ask_card.submit"`) {
-		t.Error("an off-screen question should be a read-only card")
 	}
 }
 

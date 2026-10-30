@@ -137,12 +137,14 @@ type LeadChatModel struct {
 	// Turns and Older are the conversation: from the lead's transcript
 	// when one is found (Source "transcript", ceo_transcript.go), else the
 	// pane read as a conversation (Source "pane", parseCEOPane). Working,
-	// Prompt and Mode always come from the pane.
+	// Prompt, Ask (an open AskUserQuestion) and Mode always come from the
+	// pane.
 	Source  string      `json:"source"`
 	Turns   []CEOTurn   `json:"turns"`
 	Older   bool        `json:"older"`
 	Working *CEOWorking `json:"working,omitempty"`
 	Prompt  *CEOPrompt  `json:"prompt,omitempty"`
+	Ask     *CEOPaneAsk `json:"ask,omitempty"`
 	Mode    string      `json:"mode"`
 }
 
@@ -168,20 +170,15 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting
 		}
 	}
 	cp := parseCEOPane(m.Pane)
-	m.Turns, m.Older, m.Working, m.Prompt, m.Mode = cp.Turns, cp.Older, cp.Working, cp.Prompt, cp.Mode
+	m.Turns, m.Older, m.Working, m.Prompt, m.Ask, m.Mode = cp.Turns, cp.Older, cp.Working, cp.Prompt, cp.Ask, cp.Mode
 	if m.Live {
 		if path, ok := leadTranscript(projectRoot(proj), name); ok {
 			if t, err := readLeadTranscript(path); err == nil && len(t.Turns) > 0 {
 				m.Turns, m.Older, m.Source = t.Turns, t.Older, "transcript"
-				markLiveAsks(m.Turns, m.Pane)
-				// The question widget's options are not a permission menu.
-				if anyLiveAsk(m.Turns) {
-					m.Prompt = nil
-				}
 			}
 		}
 	}
-	m.OpenQuestions = openCEOQuestions(m.Turns)
+	m.OpenQuestions = openCEOQuestions(m.Turns, m.Ask)
 	for _, q := range m.OpenQuestions {
 		m.Questions = append(m.Questions, q.Text)
 	}

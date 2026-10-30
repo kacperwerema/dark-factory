@@ -86,6 +86,8 @@ type CEOPane struct {
 	Older   bool        `json:"older"`
 	Working *CEOWorking `json:"working,omitempty"`
 	Prompt  *CEOPrompt  `json:"prompt,omitempty"`
+	// Ask is an AskUserQuestion widget the CEO waits on (ceo_question.go).
+	Ask *CEOPaneAsk `json:"ask,omitempty"`
 	// Mode is the session's permission mode from the footer: "auto",
 	// "plan", "accept edits"; empty when the footer doesn't say.
 	Mode string `json:"mode"`
@@ -132,7 +134,9 @@ func parseCEOPane(pane string) CEOPane {
 			break
 		}
 	}
-	if p, start := paneMenu(lines[:end], tail); p != nil {
+	if a, start := parsePaneAsk(lines[:end], tail); a != nil {
+		out.Ask, end = a, start
+	} else if p, start := paneMenu(lines[:end], tail); p != nil {
 		out.Prompt, end = p, start
 	}
 	conv := lines[:end]

@@ -40,7 +40,7 @@ if step S2 "A real lead's reply is read from its transcript, as whole markdown" 
 	--what "starts claude -n $lead (Haiku) in the private tmux, in the sandbox project; it replies with a list and asks two questions." \
 	--why "only a real Claude Code session writes the real transcript and draws the real question widget." \
 	--look "the page: the reply is one bubble with a rendered list; the question shows as a card, not as ☐/Submit text." \
-	--expect "lead.json says source transcript and lists one open question of kind ask." \
+	--expect "lead.json lists one open question of kind ask, read from the widget, and the conversation from the transcript." \
 	--touches-real "a Claude Code session (Haiku, a few cents) and its transcript under ~/.claude/projects/<the sandbox folder>"; then
 	ptmux new-session -d -s "$lead" -x 140 -y 50 -c "$SANDBOX_PROJECT_DIR" \
 		"claude -n $lead --model claude-haiku-5-5 'Reply with a short markdown list of three fruits, each in bold. Then call the AskUserQuestion tool exactly once with two questions. Q1 header Color, question: Which color do you prefer?, single-select options Red (warm) and Blue (cool). Q2 header Pets, question: Which pets do you like?, multiSelect true, options Cats, Dogs, Fish. Do nothing else.'"
@@ -50,9 +50,9 @@ if step S2 "A real lead's reply is read from its transcript, as whole markdown" 
 		sleep 0.3
 		ptmux send-keys -t "$lead" Enter
 	fi
-	eventually '[ "$(lj "m[\"source\"]")" = transcript ]' "the chat reads the transcript" 60
 	eventually '[ "$(lj "[q[\"kind\"] for q in m[\"open_questions\"]]")" = "['"'"'ask'"'"']" ]' "one open question of kind ask" 90
 	eventually 'curl -fsS "$base/p/$SANDBOX_PROJECT/lead" | grep -q "data-testid=\"lead_chat.ask_card\""' "the question card is on the page"
+	eventually '[ "$(lj "m[\"source\"]")" = transcript ]' "the conversation comes from the transcript" 30
 	run curl -fsS "$base/p/$SANDBOX_PROJECT/lead"
 	expect '! printf "%s" "$out" | grep -q "☐"' "no widget text in the conversation"
 	echo "Open $base/p/$SANDBOX_PROJECT/lead"
@@ -61,20 +61,22 @@ fi
 
 # ── S3 ────────────────────────────────────────────────────────────────
 step S3 "Answering from the page answers the real widget" \
-	--what "posts Blue and Cats + Fish to …/lead/answer, as the card's Submit does, then reads lead.json." \
+	--what "posts Blue to …/lead/answer, then Cats + Fish + Other 'Birds', then Submit answers, as the card's buttons do." \
 	--why "the page presses the widget's keys; the transcript must record exactly those answers." \
-	--look "the question leaves open_questions, and its turn shows it answered with Blue (cool) / Cats, Fish." \
-	--expect "status sent; then answered, no open question; a second answer is refused with answered."
+	--look "the question leaves open_questions, and its turn shows it answered with Blue (cool) / Cats, Fish, Birds." \
+	--expect "each post says sent; then no open question, and the transcript has the answers."
 ptmux has-session -t "$lead" 2> /dev/null || skip "no stand-in lead: S2 was skipped"
-id=$(lj "[q['id'] for q in m['open_questions'] if q['kind']=='ask'][0]" 2> /dev/null)
-expect '[ -n "$id" ]' "the open question's id"
-run curl -fsS -X POST -H 'Content-Type: application/json' -d '{"id":"'"$id"'","answers":[{"picks":[2]},{"picks":[1,3]}]}' "$base/p/$SANDBOX_PROJECT/lead/answer"
-expect 'printf "%s" "$out" | grep -q "\"status\":\"sent\""' "the answer was pressed"
+answer() { curl -fsS -X POST -H 'Content-Type: application/json' -d "$1" "$base/p/$SANDBOX_PROJECT/lead/answer"; }
+run answer '{"question":"Which color do you prefer?","picks":[2]}'
+expect 'printf "%s" "$out" | grep -q "\"status\":\"sent\""' "Blue was pressed"
+eventually '[ "$(lj "(m.get(\"ask\") or {}).get(\"question\")")" = "Which pets do you like?" ]' "the widget moved to the second question"
+run answer '{"question":"Which pets do you like?","picks":[1,3],"other":"Birds"}'
+expect 'printf "%s" "$out" | grep -q "\"status\":\"sent\""' "Cats, Fish and Birds were pressed"
+eventually '[ "$(lj "(m.get(\"ask\") or {}).get(\"review\")")" = True ]' "the widget shows the review tab"
+run curl -fsS -X POST -H 'Content-Type: application/json' -d '{"key":"1"}' "$base/p/$SANDBOX_PROJECT/lead/key"
 eventually '[ "$(lj "len([q for q in m[\"open_questions\"] if q[\"kind\"]==\"ask\"])")" = 0 ]' "the question left open_questions" 30
-expect '[ "$(lj "[e[\"answer\"] for t in m[\"turns\"] for a in (t.get(\"asks\") or []) for e in a[\"questions\"]]")" = "['"'"'Blue (cool)'"'"', '"'"'Cats, Fish'"'"']" ]' "the transcript has Blue (cool) and Cats, Fish"
-run curl -sS -X POST -H 'Content-Type: application/json' -d '{"id":"'"$id"'","answers":[{"picks":[1]},{"picks":[1]}]}' "$base/p/$SANDBOX_PROJECT/lead/answer"
-expect 'printf "%s" "$out" | grep -q "\"status\":\"answered\""' "a second answer is refused"
-ask "On the page, is the question now a grey card marked answered with your picks, and is it gone from CEO's questions on the right?"
+eventually '[ "$(lj "[e[\"answer\"] for t in m[\"turns\"] for a in (t.get(\"asks\") or []) for e in a[\"questions\"]]")" = "['"'"'Blue (cool)'"'"', '"'"'Cats, Fish, Birds'"'"']" ]' "the transcript has Blue (cool) and Cats, Fish, Birds" 30
+ask "On the page, is the question now a grey card marked answered with these answers, and is it gone from CEO's questions on the right?"
 
 # ── S4 ────────────────────────────────────────────────────────────────
 step S4 "You answer a question by clicking the card" \
