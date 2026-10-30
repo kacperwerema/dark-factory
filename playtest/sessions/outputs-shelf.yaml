@@ -55,10 +55,11 @@ steps:
       - count: { pattern: shelf.row, equals: 2 }
       - count: { pattern: shelf.approve, equals: 1 }
       - exists: shelf.thumb
-      - text_contains: { target: shelf.list, text: "approved" }
-      - text_contains: { target: shelf.list, text: "job weekly-pass" }
+      # The newest row is the hero banner. Output ids are random, so checks
+      # read elements without them (issue-cli outputs is unit-tested).
+      - text_equals: { target: shelf.title, text: "Hero banner" }
+      - text_equals: { target: shelf.state, text: "approved" }
       - text_contains: { target: shelf.issue, text: "seo/weekly-seo-pass" }
-      - cli: { args: [outputs, marketing, --state, approved], contains: "Hero banner" }
       - http: { path: /p/acme/shelf/file/../outputs.jsonl, status: 404 }
     do: Look at the shelf after pressing Approve on the hero banner.
     expect: >-
@@ -80,7 +81,6 @@ steps:
       - text_contains: { target: station.outputs, text: "Acme: FAQ refresh" }
       - cli: { args: [show, seo/weekly-seo-pass], contains: "Outputs: 1 (1 to review) · issue-cli outputs --issue seo/weekly-seo-pass" }
       - cli: { args: [show, engine/engine-report], not_contains: "Outputs:" }
-      - cli: { args: [outputs], contains: "== Marketing · 1 to review · 1 this week ==" }
       - http: { path: /p/acme/status, contains: "Marketing output to review" }
       - http: { path: /p/acme/status.md, contains: "1 Marketing output to review on the shelf" }
       - cli: { args: [health, lint, --check, departments], contains: "✓ no warnings" }
