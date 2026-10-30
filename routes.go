@@ -174,6 +174,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleLeadChatSend(w, r, proj, prefix)
 	case rest == "lead/key" && r.Method == http.MethodPost:
 		s.handleLeadChatKey(w, r, proj, prefix)
+	case rest == "lead/answer" && r.Method == http.MethodPost:
+		s.handleLeadAnswer(w, r, proj, prefix)
 	case rest == "retros":
 		s.handleRetros(w, r, proj, prefix)
 	case rest == "retros/review" && r.Method == http.MethodPost:

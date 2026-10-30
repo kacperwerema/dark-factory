@@ -25,6 +25,12 @@ type CEOTurn struct {
 	// Tools are the CEO's tool calls by name ("Bash", "Read"), in order,
 	// one per call.
 	Tools []string `json:"tools,omitempty"`
+	// Bubbles, Calls and Asks come from the transcript (ceo_transcript.go):
+	// the CEO's whole messages, its tool calls with labels, and its
+	// AskUserQuestion calls. A pane turn has none of them.
+	Bubbles []CEOBubble    `json:"bubbles,omitempty"`
+	Calls   []CEOToolCall  `json:"calls,omitempty"`
+	Asks    []*CEOQuestion `json:"asks,omitempty"`
 }
 
 // ToolSummary is the folded line for the turn's tool calls: "used 3 tools:

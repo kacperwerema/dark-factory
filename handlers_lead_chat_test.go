@@ -33,12 +33,25 @@ type leadChatStub struct {
 	pastes  []string
 	session string
 	file    string
+	// pane is what capture returns; leadChatPaneText when empty.
+	pane string
+	// texts are the literal texts typed (agentrun.SendText).
+	texts []string
 }
 
 func stubLeadChat(t *testing.T, live bool) *leadChatStub {
 	t.Helper()
 	st := &leadChatStub{live: live}
 	origHas, origCap, origKey, origPaste, origConfirm := agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste, leadChatConfirm
+	origText, origGap := agentrun.SendText, ceoAnswerGap
+	ceoAnswerGap = 0
+	agentrun.SendText = func(target, text string) error {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.keys = append(st.keys, target+" text:"+text)
+		st.texts = append(st.texts, text)
+		return nil
+	}
 	agentrun.HasSession = func(target string) bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -48,6 +61,11 @@ func stubLeadChat(t *testing.T, live bool) *leadChatStub {
 	agentrun.CaptureHistory = func(target string, lines int) (string, error) {
 		if lines != leadChatScrollback {
 			t.Errorf("capture asked for %d lines", lines)
+		}
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		if st.pane != "" {
+			return st.pane, nil
 		}
 		return leadChatPaneText, nil
 	}
@@ -74,6 +92,7 @@ func stubLeadChat(t *testing.T, live bool) *leadChatStub {
 	leadChatCtrlCMu.Unlock()
 	t.Cleanup(func() {
 		agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste, leadChatConfirm = origHas, origCap, origKey, origPaste, origConfirm
+		agentrun.SendText, ceoAnswerGap = origText, origGap
 	})
 	return st
 }
@@ -210,7 +229,9 @@ func TestLeadChatJSON(t *testing.T) {
 	if len(m.Turns) == 0 || m.Turns[len(m.Turns)-1].From != "ceo" {
 		t.Errorf("turns = %+v", m.Turns)
 	}
-	want := []string{"Do you want the epic closed?", "Should I dispatch ui/idle next?"}
+	// The owner replied after "Should I dispatch ui/idle next?": only the
+	// question in the CEO's last message is open.
+	want := []string{"Do you want the epic closed?"}
 	if strings.Join(m.Questions, "|") != strings.Join(want, "|") {
 		t.Errorf("questions = %q", m.Questions)
 	}

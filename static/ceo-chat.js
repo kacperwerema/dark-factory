@@ -39,12 +39,82 @@
       var name = t.getAttribute('data-part');
       var slot = document.querySelector('[data-part-slot="' + name + '"]');
       if (!slot || last[name] === t.innerHTML) return;
+      // A question card the owner has started answering stays as it is
+      // while the same question is still open.
+      if (name === 'prompt' && keepAskCard(slot, t)) return;
       var stick = name === 'conv' && atBottom(scroll);
       last[name] = t.innerHTML;
       slot.innerHTML = t.innerHTML;
       if (stick) toBottom();
     });
   }
+
+  function keepAskCard(slot, t) {
+    var mine = slot.querySelector('form[data-ask-id][data-dirty]');
+    if (!mine) return false;
+    var next = t.content.querySelector('form[data-ask-id="' + mine.getAttribute('data-ask-id') + '"]');
+    return !!next && !next.querySelector('[data-ask-pick][disabled]');
+  }
+
+  // askAnswers reads a question card: per question the options picked (1 is
+  // the first) and the Other text.
+  function askAnswers(form) {
+    return Array.prototype.map.call(form.querySelectorAll('[data-ask-q]'), function (set) {
+      var picks = Array.prototype.filter.call(set.querySelectorAll('[data-ask-pick]'), function (b) {
+        return b.getAttribute('aria-pressed') === 'true';
+      }).map(function (b) { return parseInt(b.getAttribute('data-ask-pick'), 10); });
+      return { picks: picks, other: set.querySelector('[data-ask-other]').value.trim() };
+    });
+  }
+
+  function pickOption(btn) {
+    var set = btn.closest('[data-ask-q]');
+    var on = btn.getAttribute('aria-pressed') !== 'true';
+    if (!set.getAttribute('data-multi')) {
+      set.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+        b.classList.remove('wb-choice-opt--on');
+      });
+      if (on) set.querySelector('[data-ask-other]').value = '';
+    }
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('wb-choice-opt--on', on);
+    btn.closest('form').setAttribute('data-dirty', '1');
+  }
+
+  function submitAsk(form) {
+    var msg = form.querySelector('[data-ask-msg]');
+    var answers = askAnswers(form);
+    var missing = answers.findIndex(function (a) { return !a.picks.length && !a.other; });
+    if (missing >= 0) { msg.textContent = 'Question ' + (missing + 1) + ' has no answer yet.'; return; }
+    msg.textContent = 'Answering…';
+    post(form.getAttribute('data-ask-url'), { id: form.getAttribute('data-ask-id'), answers: answers }).then(function (res) {
+      if (!res.ok) { msg.textContent = 'Not answered: ' + (res.body.error || 'error'); return; }
+      form.removeAttribute('data-dirty');
+      msg.textContent = 'Answered in ' + (res.body.session || 'the CEO') + '.';
+      setTimeout(poll, 600);
+    }).catch(function (e) { msg.textContent = 'Not answered: ' + e; });
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('form[data-ask-id]');
+    if (!form) return;
+    e.preventDefault();
+    submitAsk(form);
+  });
+  document.addEventListener('input', function (e) {
+    var other = e.target.closest('[data-ask-other]');
+    if (!other) return;
+    var set = other.closest('[data-ask-q]');
+    // One answer for a single-choice question: typing Other clears a pick.
+    if (!set.getAttribute('data-multi') && other.value) {
+      set.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+        b.classList.remove('wb-choice-opt--on');
+      });
+    }
+    other.closest('form').setAttribute('data-dirty', '1');
+  });
 
   function poll() {
     if (document.hidden) return;
@@ -90,6 +160,7 @@
     var btn = e.target.closest('button');
     if (!btn || btn.disabled) return;
     if (btn.hasAttribute('data-send-now')) { send(true); return; }
+    if (btn.hasAttribute('data-ask-pick')) { pickOption(btn); return; }
     if (btn.hasAttribute('data-key')) { pressKey(btn.getAttribute('data-key'), btn); return; }
     if (btn.hasAttribute('data-answer')) {
       // The owner's reply starts in the box; nothing is sent until Send.

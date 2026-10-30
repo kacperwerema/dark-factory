@@ -14,6 +14,8 @@ func TestMain(m *testing.M) {
 	if err == nil {
 		os.Setenv("XDG_DATA_HOME", dir)
 		os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+		// No test reads the owner's Claude Code transcripts.
+		os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude"))
 	}
 	code := m.Run()
 	if err == nil {

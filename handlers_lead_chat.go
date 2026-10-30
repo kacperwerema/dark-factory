@@ -120,9 +120,13 @@ type LeadChatModel struct {
 	Live    bool   `json:"live"`
 	// Pane is the captured pane text, escape sequences stripped.
 	Pane string `json:"pane"`
-	// Questions are the lead's latest lines ending in "?" in the pane,
-	// newest first.
+	// Questions are the texts of OpenQuestions: what the CEO still waits
+	// on the owner for. Answered questions are never in it.
 	Questions []string `json:"questions"`
+	// OpenQuestions are the CEO's open questions (openCEOQuestions):
+	// unanswered AskUserQuestion calls, then the "?" sentences of its last
+	// message when the owner hasn't written since.
+	OpenQuestions []CEOOpenQuestion `json:"open_questions"`
 	// Waiting is filled on the page and in lead.json?waiting=1; WaitingIn
 	// says it was computed (so an empty list means nothing waits).
 	Waiting   []LeadWaiting `json:"waiting"`
@@ -130,8 +134,11 @@ type LeadChatModel struct {
 	AttachCmd string        `json:"attach_cmd"`
 	MaxBytes  int           `json:"max_bytes"`
 	At        string        `json:"at"`
-	// Turns, Older, Working, Prompt and Mode are the pane read as a
-	// conversation (parseCEOPane), for the CEO chat and scripts.
+	// Turns and Older are the conversation: from the lead's transcript
+	// when one is found (Source "transcript", ceo_transcript.go), else the
+	// pane read as a conversation (Source "pane", parseCEOPane). Working,
+	// Prompt and Mode always come from the pane.
+	Source  string      `json:"source"`
 	Turns   []CEOTurn   `json:"turns"`
 	Older   bool        `json:"older"`
 	Working *CEOWorking `json:"working,omitempty"`
@@ -151,17 +158,33 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting
 		At:        time.Now().Format(time.RFC3339),
 		Questions: []string{},
 		Waiting:   []LeadWaiting{},
+		Source:    "pane",
 	}
 	target := agentrun.Target(proj, name)
 	m.Live = agentrun.HasSession(target)
 	if m.Live {
 		if pane, err := agentrun.CaptureHistory(target, leadChatScrollback); err == nil {
 			m.Pane = cleanPane(pane)
-			m.Questions = leadQuestions(m.Pane, leadChatQuestions)
 		}
 	}
 	cp := parseCEOPane(m.Pane)
 	m.Turns, m.Older, m.Working, m.Prompt, m.Mode = cp.Turns, cp.Older, cp.Working, cp.Prompt, cp.Mode
+	if m.Live {
+		if path, ok := leadTranscript(projectRoot(proj), name); ok {
+			if t, err := readLeadTranscript(path); err == nil && len(t.Turns) > 0 {
+				m.Turns, m.Older, m.Source = t.Turns, t.Older, "transcript"
+				markLiveAsks(m.Turns, m.Pane)
+				// The question widget's options are not a permission menu.
+				if anyLiveAsk(m.Turns) {
+					m.Prompt = nil
+				}
+			}
+		}
+	}
+	m.OpenQuestions = openCEOQuestions(m.Turns)
+	for _, q := range m.OpenQuestions {
+		m.Questions = append(m.Questions, q.Text)
+	}
 	if withWaiting {
 		m.Waiting, m.WaitingIn = leadWaiting(proj, prefix, time.Now()), true
 	}

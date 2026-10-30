@@ -34,6 +34,7 @@ var (
 	CapturePane     = defaultCapturePane
 	CaptureHistory  = defaultCaptureHistory
 	SendKey         = defaultSendKey
+	SendText        = defaultSendText
 )
 
 // PromptDeliveryTimeout bounds how long a dispatch or reprompt waits for the
@@ -380,6 +381,12 @@ func defaultCaptureHistory(target string, lines int) (string, error) {
 // literal text) in target.
 func defaultSendKey(target, key string) error {
 	return exec.Command("tmux", "send-keys", "-t", target, key).Run()
+}
+
+// defaultSendText types text into target as literal keys (send-keys -l):
+// what a person would type into a TUI's text field, never key names.
+func defaultSendText(target, text string) error {
+	return exec.Command("tmux", "send-keys", "-t", target, "-l", text).Run()
 }
 
 // PromptDeliveryStep polls the agent's pane until the prompt's delivery
