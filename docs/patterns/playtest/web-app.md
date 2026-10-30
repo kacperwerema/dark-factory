@@ -286,3 +286,17 @@ A list such as `visible: [a, b]` becomes one check per item.
 - Waive a known layout bug with `layout_ignore` on its container and a
   comment naming the bug; remove the waiver when it is fixed. A pan surface
   (`canvas.world`) is waived for good: it is meant to run past the screen.
+- A page the Workshop Board replaced keeps its classic version at
+  `?classic=1` (issue page, Status, Decisions, Docs, Systems, Health). A
+  step that checks the classic page or its sidebar opens that URL, and an
+  `http:` check on it carries the same query. When a sidebar tab now leads
+  to a Workshop page, the step checks the URL after the click, then opens the
+  classic page for its checks.
+- The board takes its daily health snapshot a few seconds after it starts,
+  so a session's first page can load before it. A step that reads snapshot
+  data (Stats charts like Disk use, the Health score components, the Status
+  Health card's lint line) waits for it first:
+  `wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }`.
+- On macOS the scenario lives under `/var`, a link to `/private/var`, and
+  tmux can report a session's folder resolved. Code that matches paths
+  (agentrun.ForProject) has to accept both forms.
