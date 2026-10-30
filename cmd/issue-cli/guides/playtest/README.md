@@ -216,6 +216,32 @@ Code that shows an owner-facing playtest action asks
 `wf.PlaytestForOwner()` (internal/tracker) rather than reading the key.
 This repo's own workflow.yaml sets `playtest: agents`.
 
+### Run it from the page (`playtest_command:`, `playtest_report:`)
+
+With the owner's playtest on, the viewer offers **▶ Run playtest** wherever
+it says one is due: the station's playtest step, the Issue tab's Needs-you
+band and the Evidence tab's Playtest card. The click opens tmux window
+`playtest-<slug>` in the checkout that holds the session (the issue's
+worktree first), with `PLAYTEST_PROJECT=<project>` and `PLAYTEST_CHROME`
+(the viewer's own, else on a Mac the newest Chrome for Testing in
+Playwright's cache), and runs the project's command. The page says it is
+running until the window closes, then lists each step of the judge runs
+started since the click and shows **Tick passed boxes**, which runs the
+report command in the same window and reloads the page when it ends.
+Nothing is ticked without that click.
+
+```yaml
+playtest_command: "make playtest ISSUE={slug}"                  # the default
+playtest_report: "make playtest-report ISSUE={slug} APPLY=1"     # the default
+```
+
+`{slug}` is the issue's slug. Set both when your runner is not this repo's
+make targets; a department's own workflow file uses Product's unless it
+sets them. The page's copy line shows the same command. The endpoint is
+`POST /p/<project>/issue/<slug>/playtest` (`?report=1` for the report) and
+`GET` for the state (`handlers_playtest.go`); `cmd/playtest` also falls back
+to Playwright's Chrome when none is on the PATH.
+
 ## Building one for your project
 
 1. **Label what steps point at.** Give every element a stable id

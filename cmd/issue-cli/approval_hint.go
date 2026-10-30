@@ -19,6 +19,10 @@ func approvalHint(proj *tracker.Project, slug, requiredStatus string) string {
 	var b strings.Builder
 	b.WriteString("A human must approve this in the issue viewer:\n  ")
 	b.WriteString(approvalURL(proj, slug, requiredStatus))
+	if proj != nil {
+		b.WriteString("\nSeveral waiting? Approve them together:\n  ")
+		b.WriteString(needsYouURL(proj))
+	}
 	if proj == nil || proj.ViewerURL == "" {
 		b.WriteString("\n\n(set viewer_url in projects.yaml if your viewer is on a different host/port)")
 	}
@@ -54,6 +58,15 @@ func viewerBaseURL(proj *tracker.Project) string {
 // emitted on the approve button in templates/detail.html.
 func fragmentStatus(status string) string {
 	return strings.ReplaceAll(strings.TrimSpace(status), " ", "-")
+}
+
+// needsYouURL is the project's Needs you list: everything waiting on the
+// owner, where ready gates are approved together.
+func needsYouURL(proj *tracker.Project) string {
+	if proj == nil {
+		return viewerBaseURL(nil) + "/needs-you"
+	}
+	return fmt.Sprintf("%s/p/%s/needs-you", viewerBaseURL(proj), proj.Slug)
 }
 
 // issueURL is the viewer link to an issue's detail page.

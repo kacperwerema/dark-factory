@@ -398,10 +398,14 @@ Error: cannot start <slug>: human approval for "in progress" is missing; no chan
 
 A human must approve this in the issue viewer:
   http://localhost:8080/p/<project>/issue/<slug>#approve-in-progress
+Several waiting? Approve them together:
+  http://localhost:8080/p/<project>/needs-you
 
 Tell the human what needs approving, then stop and end your turn.
 Do not wait or poll: re-run this command only after the human says it is approved.
 ```
+
+The second link is the project's [Needs you list](UI/overview.md#needs-you-list), where the owner can approve several ready gates in one go. `issue-cli dispatch`'s waiting-on-gate refusal prints the same link on a `Several waiting?` line.
 
 The fragment `#approve-<status>` matches the `id` on the approve button in the detail view, so clicking the link scrolls to and visually flashes the right control. For optional approvals (the ones hidden behind a "Divert to..." CTA), the page also auto-reveals the widget when the URL fragment matches.
 

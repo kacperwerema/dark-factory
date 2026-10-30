@@ -85,6 +85,9 @@ type EvidenceTab struct {
 	Watch    []evRisk
 	Stale    []StaleLine
 	StaleRun bool
+
+	RunPlaytest     string // ▶ Run playtest's URL when your playtest is due
+	PlaytestCommand string
 }
 
 type evShot struct {
@@ -181,6 +184,9 @@ type evidenceIn struct {
 	WaitKnown          bool
 	CI                 *ciSummary
 	Now                time.Time
+	// RunPlaytest is where ▶ Run playtest posts ("" hides it); PlaytestCommand
+	// is what it runs.
+	RunPlaytest, PlaytestCommand string
 	// Exists reports whether a shot file is on disk (os.Stat when nil).
 	Exists func(string) bool
 }
@@ -191,6 +197,7 @@ func buildEvidence(in evidenceIn) *EvidenceTab {
 	}
 	r := in.Report
 	t := &EvidenceTab{Label: evidenceLabel(r, in.Required), Required: in.Required, Total: len(r.Criteria), Missing: r.Missing}
+	t.RunPlaytest, t.PlaytestCommand = in.RunPlaytest, in.PlaytestCommand
 	linked := false
 	for _, c := range r.Criteria {
 		if c.Proven() {
@@ -873,24 +880,27 @@ func loadEvidenceTab(proj *tracker.Project, prefix string, issue *tracker.Issue,
 	tl := buildTimeline(src, timelineInput{Status: issue.Status, Now: time.Now(), WF: wf})
 	// A run that can't be read is in report.Missing (proof.Collect).
 	runs, _ := timeline.LoadPlaytestRuns(nil, issue.Slug, root, worktree)
+	run := playtestRunURL(prefix+"/issue/"+issue.Slug, ownerAttention(proj, issue), wf)
 	return buildEvidence(evidenceIn{
-		Prefix:      prefix,
-		Slug:        issue.Slug,
-		Root:        root,
-		Status:      issue.Status,
-		Report:      report,
-		Required:    wf.ProofRequired(issue),
-		PastDesign:  pastDesign(wf, issue.Status),
-		Runs:        runs,
-		Comments:    src.Comments,
-		Decisions:   src.Decisions,
-		Body:        issue.BodyRaw,
-		Transitions: stats.Transitions,
-		Change:      loadEvidenceChange(root, report.Ref, report.RefName, stats),
-		Total:       timelineTotalLabel(proj, issue),
-		Waiting:     tl.Waiting,
-		WaitKnown:   tl.Known,
-		CI:          tl.CI,
-		Now:         time.Now(),
+		RunPlaytest:     run,
+		PlaytestCommand: wf.PlaytestCommandFor(issue.Slug),
+		Prefix:          prefix,
+		Slug:            issue.Slug,
+		Root:            root,
+		Status:          issue.Status,
+		Report:          report,
+		Required:        wf.ProofRequired(issue),
+		PastDesign:      pastDesign(wf, issue.Status),
+		Runs:            runs,
+		Comments:        src.Comments,
+		Decisions:       src.Decisions,
+		Body:            issue.BodyRaw,
+		Transitions:     stats.Transitions,
+		Change:          loadEvidenceChange(root, report.Ref, report.RefName, stats),
+		Total:           timelineTotalLabel(proj, issue),
+		Waiting:         tl.Waiting,
+		WaitKnown:       tl.Known,
+		CI:              tl.CI,
+		Now:             time.Now(),
 	})
 }

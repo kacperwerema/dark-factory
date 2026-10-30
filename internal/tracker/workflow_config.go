@@ -207,6 +207,12 @@ type WorkflowConfig struct {
 	// default) or "agents" (agents keep ux-test, the owner gets no playtest
 	// to run) or "off". Read it through PlaytestForOwner.
 	Playtest string `yaml:"playtest,omitempty" desc:"Who runs playtest sessions: owner (default; agents run ux-test, the owner runs make playtest), agents (agents only: no playtest action for the owner) or off"`
+	// PlaytestCommand and PlaytestReport are what ▶ Run playtest and Tick
+	// passed boxes run, from the issue's checkout, in tmux window
+	// playtest-<slug>; {slug} is the issue's slug. Empty means this repo's
+	// make targets (PlaytestCommandFor, PlaytestReportFor).
+	PlaytestCommand string `yaml:"playtest_command,omitempty" desc:"Command ▶ Run playtest runs for an issue (default: make playtest ISSUE={slug}); {slug} is the issue's slug"`
+	PlaytestReport  string `yaml:"playtest_report,omitempty" desc:"Command Tick passed boxes runs after a playtest (default: make playtest-report ISSUE={slug} APPLY=1); {slug} is the issue's slug"`
 	// AllowShell opts in to the command_succeeds validator. When false, any
 	// transition with a command_succeeds rule fails at validate time.
 	AllowShell bool `yaml:"allow_shell,omitempty" desc:"Permit command_succeeds validators to run shell commands (default false)"`

@@ -43,7 +43,15 @@ Each takes the DetailData; detail.html places them.
         <div class="it-mono it-muted it-command" data-testid="detail.needs.command">or tell the lead: {{.Command}}</div>
         {{else if eq .State "playtest"}}
         <code class="it-code" data-testid="detail.needs.command">{{.Command}}</code>
-        <div class="it-actions"><button type="button" class="btn" data-testid="detail.needs.copy" onclick="copyText({{.Command}}, this)">Copy command</button></div>
+        <div data-playtest>
+            <div class="it-actions">
+                {{with .RunURL}}<button type="button" class="btn it-go" data-run-playtest="{{.}}" data-testid="detail.needs.run_playtest">▶ Run playtest</button>{{end}}
+                <button type="button" class="btn" data-testid="detail.needs.copy" onclick="copyText({{.Command}}, this)">Copy command</button>
+            </div>
+            <div class="it-small playtest-result" role="status" aria-live="polite" data-playtest-result data-testid="detail.needs.playtest_result" hidden></div>
+            <button type="button" class="btn it-go" data-playtest-tick data-testid="detail.needs.playtest_tick" hidden>Tick passed boxes</button>
+            <p class="it-small playtest-note" data-playtest-note hidden></p>
+        </div>
         {{else if eq .State "checks"}}
         <div class="it-actions">
             <button type="button" class="btn it-go" data-testid="detail.needs.run_checks" onclick="runChecks(this)">▶ Run checks</button>

@@ -272,7 +272,7 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 		session = tracker.LeadSessionName(p)
 	}
 	d := ReportData{}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company")[:2], Toggle: wbViewToggle(prefix, "report"), Quiet: true, Waiting: m.WaitingCount()}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(1, p.Name, prefix+"/company")[:2], Toggle: wbViewToggle(prefix, "report"), Quiet: true, Waiting: m.WaitingCount()}
 	d.Header.Crumbs[1].Color = color
 
 	d.Title = WbReportTitle{
@@ -388,6 +388,9 @@ func reportWaiting(m *StatusModel) WbCountCard {
 	for _, sw := range m.Shelf {
 		c.Bar = append(c.Bar, WbSegment{Value: sw.Count, Color: sw.Color, Label: sw.Name + " outputs"})
 		c.Legend = append(c.Legend, WbLegendRow{Color: sw.Color, Count: sw.Count, Label: plural0(sw.Count, sw.Name+" output to review", sw.Name+" outputs to review"), Note: "the shelf", URL: sw.URL})
+	}
+	if c.Count > 0 {
+		c.Action = &WbAction{Label: "See all and approve", Tone: "you", TestID: "needs_you", URL: m.Prefix + "/needs-you"}
 	}
 	if c.Count == 0 {
 		c.Note = "Nothing waits on you: no gate, playtest, check script or open question."
@@ -531,6 +534,10 @@ func reportBottleneck(m *StatusModel, robots []reportRobot, prefix string, live 
 		it := gates[0]
 		b.Actions = append(b.Actions, WbAction{Label: "Approve gates", Count: len(gates), Tone: "you", TestID: "gates",
 			URL: prefix + "/issue/" + it.Issue.Slug + "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-"), Title: "Opens the oldest gate: " + it.Issue.Slug})
+		if len(gates) > 1 {
+			a := &b.Actions[len(b.Actions)-1]
+			a.URL, a.Title = prefix+"/needs-you", "Lists every gate, to approve them together"
+		}
 	}
 	if len(tests) > 0 {
 		it := tests[0]

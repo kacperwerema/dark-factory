@@ -150,7 +150,9 @@ func yoloMarked(issues []*tracker.Issue) map[string]bool {
 
 // WbYOLORow is one row of the company's "To review after YOLO" list.
 type WbYOLORow struct {
-	Slug, Status, URL string
+	Slug   string `json:"slug"`
+	Status string `json:"status"`
+	URL    string `json:"url"`
 }
 
 // yoloQueueRows is the queue as the company's rows, max at most.

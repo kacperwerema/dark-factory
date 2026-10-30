@@ -74,6 +74,8 @@ type NavItem struct {
 	Alert  bool   // Note is a problem count (red), e.g. "3 off"
 	// Attention marks Note as things waiting on the owner (amber chip).
 	Attention bool
+	// NoteHref makes the note its own link (Status: the Needs you list).
+	NoteHref string
 }
 
 // NavCount is a name with an open-issue count (the systems panel on the
@@ -177,16 +179,9 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 		item := NavItem{Key: v.Key, Label: v.Label, Href: prefix + v.Path, Active: v.Key == active}
 		switch v.Key {
 		case "status":
-			n := len(waitingOnOwner(proj, openIssues))
-			if ciRedState(proj) != nil {
-				n++
-			}
-			if unsentBugReports() > 0 {
-				n++
-			}
-			n += shelfWaiting(proj)
-			if n > 0 {
+			if n := needsYouCount(proj, prefix, openIssues); n > 0 {
 				item.Note, item.Attention = fmt.Sprint(n), true
+				item.NoteHref = prefix + "/needs-you"
 			}
 		case "health":
 			item.Note = healthNavNote(proj)

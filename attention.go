@@ -173,23 +173,7 @@ func playtestRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Work
 func playtestsToRun(roots []string, slug string) []string {
 	names := map[string]bool{}
 	for _, root := range roots {
-		files, _ := filepath.Glob(filepath.Join(root, "playtest", "sessions", "*.yaml"))
-		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				continue
-			}
-			var head struct {
-				Session string `yaml:"session"`
-				Issue   string `yaml:"issue"`
-			}
-			if yaml.Unmarshal(data, &head) != nil || head.Issue != slug {
-				continue
-			}
-			name := head.Session
-			if name == "" {
-				name = strings.TrimSuffix(filepath.Base(f), ".yaml")
-			}
+		for _, name := range playtestSessions(root, slug) {
 			names[name] = true
 		}
 	}
@@ -208,4 +192,30 @@ func playtestsToRun(roots []string, slug string) []string {
 	}
 	sort.Strings(due)
 	return due
+}
+
+// playtestSessions names the sessions under <root>/playtest/sessions that
+// name slug.
+func playtestSessions(root, slug string) []string {
+	var names []string
+	files, _ := filepath.Glob(filepath.Join(root, "playtest", "sessions", "*.yaml"))
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var head struct {
+			Session string `yaml:"session"`
+			Issue   string `yaml:"issue"`
+		}
+		if yaml.Unmarshal(data, &head) != nil || head.Issue != slug {
+			continue
+		}
+		name := head.Session
+		if name == "" {
+			name = strings.TrimSuffix(filepath.Base(f), ".yaml")
+		}
+		names = append(names, name)
+	}
+	return names
 }

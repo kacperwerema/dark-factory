@@ -31,6 +31,9 @@ type WbHeader struct {
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
+	// WaitingURL is where "N waiting on you" goes: the project's Needs you
+	// list, or /needs-you across projects.
+	WaitingURL string
 	// YOLO is the switch (L1), the after-the-fact count and the hazard band
 	// under the header on every project page while YOLO is on (yolo_wb.go).
 	YOLO *WbYOLO
@@ -146,14 +149,29 @@ func (p WbProgress) Pct() int {
 
 // WbQueueCard is one thing the owner has to do: the "Waiting on you" cards.
 type WbQueueCard struct {
-	Kind, Label          string
-	Project, ProjectSlug string
-	Color                string
-	Slug, Note, Age      string
-	CTA, URL             string
-	Blocking             bool
-	Since                time.Time
-	Tone                 string // "red" for CI, "you" otherwise
+	Kind        string    `json:"kind"`
+	Label       string    `json:"label"`
+	Project     string    `json:"project"`
+	ProjectSlug string    `json:"project_slug"`
+	Color       string    `json:"color"`
+	Slug        string    `json:"slug"`
+	Title       string    `json:"title,omitempty"`
+	Note        string    `json:"note"`
+	Age         string    `json:"age"`
+	CTA         string    `json:"action"`
+	URL         string    `json:"url"`
+	Blocking    bool      `json:"blocking"`
+	Since       time.Time `json:"since"`
+	Tone        string    `json:"tone"` // "red" for CI, "you" otherwise
+	// From and Target are a gate's from → to; Ready marks a gate whose
+	// approval is all it waits on, so it can be stamped from the list.
+	From   string `json:"from,omitempty"`
+	Target string `json:"target,omitempty"`
+	Ready  bool   `json:"ready,omitempty"`
+	// RunURL is the POST that starts the row's playtest or check scripts
+	// in tmux, RunLabel its button.
+	RunURL   string `json:"run_url,omitempty"`
+	RunLabel string `json:"run_label,omitempty"`
 }
 
 // wbCountChips are the agent counts as chips: N waiting on you, N working,

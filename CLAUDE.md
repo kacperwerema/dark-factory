@@ -79,6 +79,7 @@ stats_cache.go              — per-project cache of the aggregate and CLI usage
 stats_overview.go           — /stats without a project: every project compared from its snapshots
 updates.go                  — the Updates tab (/updates): workflow features to adopt, Decline / Re-open / Install with an agent, /updates across projects
 handlers_checks.go          — ▶ Run checks: POST …/check-script opens tmux window check-script-<slug> running the issue's guided check scripts
+handlers_playtest.go        — ▶ Run playtest: POST …/playtest opens tmux window playtest-<slug> running playtest_command (?report=1: playtest_report), GET its state and judged steps; JS in static/playtest-run.js
 handlers_agents.go          — /agents canvas, agents.json, agent detail, open-in-tmux and lead spawn endpoints
 handlers_lead_chat.go       — the lead chat's endpoints (lead.json, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads (Workshop Board cards)
 ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; ceo_images.go the box's images (…/lead/image, [Image: <path>] lines, turn thumbnails); components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
@@ -95,6 +96,7 @@ yolo_view.go                — YOLO mode in the viewer: the sidebar band and af
 release_wait.go             — Status "Waiting for release" card: milestone readiness, ## Unreleased entries, unpushed commits (one git call)
 release_candidate.go        — the card's release candidate (workbench.release_candidates): newest local <cut>-rc.N tag, commits since (on release/vX.Y once cut), soaked and picked checks, release.json for issue-cli release; on the engine the builds running, projects that ran it (usage logs), reports from it
 ci_view.go                  — local CI on the pages: Status card (last runs boxes), waiting entry, ci-red markers
+needs_you.go                — the Needs you list: /p/<project>/needs-you, /needs-you across projects, needs-you.json, POST …/needs-you/approve (ready gates stamped together); needsYouRows is the list every waiting-on-you count is the length of
 attention.go                — what waits on the owner (ownerAttention, waitingOnOwner): Status page, sidebar count, system pages, board markers
 issue.go                    — Issue struct, ParseIssue, LoadIssues (walks subdirs)
 docs.go                     — DocPage struct, ParseDocPage, LoadDocs
@@ -223,7 +225,7 @@ Detailed documentation lives in `docs/` and is viewable at `/docs` in the web UI
 - [Workflow Stats](docs/workflow-stats.md) — the Stats page (`/p/<project>/stats`: gauges, trends from health snapshots, where the time goes, options, drill-downs; `/stats` across projects), per-issue stats sidecar, token-cost estimation; the issue page's Timeline tab (`?tab=timeline`), its time rules and the project aggregate
 - [The Lead Session](docs/patterns/lead-session.md) — the project lead, one per project (`issue-cli lead`, `approve`), routing, authority, handoff, epics, agents canvas
 - [Guided Check Scripts](docs/patterns/guided-check-scripts.md) — manual checks run from a shell as `scripts/checks/<name>.sh` on the issue branch: `issue-cli check-script <slug>` (`--yes`, `--new`, `--lib`), the helper library (steps and boxes, sandboxes, private tmux, stand-ins), ▶ Run checks (tmux window `check-script-<slug>`), the `guided-check-scripts` feature
-- [Playtest Sessions](docs/patterns/playtest/README.md) — an issue's manual checks as YAML sessions: shared contract, [web app example](docs/patterns/playtest/web-app.md) (this repo, chromedp), [game example](docs/patterns/playtest/game.md); `issue-cli process playtest`; `playtest: owner|agents|off` (who runs them, `wf.PlaytestForOwner()`)
+- [Playtest Sessions](docs/patterns/playtest/README.md) — an issue's manual checks as YAML sessions: shared contract, ▶ Run playtest from the page (`playtest_command:` / `playtest_report:`), [web app example](docs/patterns/playtest/web-app.md) (this repo, chromedp), [game example](docs/patterns/playtest/game.md); `issue-cli process playtest`; `playtest: owner|agents|off` (who runs them, `wf.PlaytestForOwner()`)
 
 Per-system docs:
 

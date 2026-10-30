@@ -493,7 +493,7 @@ The tab answers in ten seconds what the issue is, where it is and what it needs 
 - **Where it is** (`detail.path`): the type's path, with the time spent in each status (from the Timeline's bands). It marks "your gate" on each status entered through an approval and "your playtest" on human-testing. A time strip (`detail.time`: total, agent, waiting on you) links to the Timeline; on a phone it sits right under Needs you.
 - **Needs you** (`detail.needs`, `data-state`) shows the same items as Status's Needs you, with the same wait ("waiting 2m · since 12:31", "≈" when the time is the file's mtime). An open question wins over a due playtest, and a playtest over a ready gate, as on the board cards; the rest show as "Also waiting" (`detail.needs.also`).
   - **gate:** one approve button per required approval, primary first and a handoff status (backlog) last (`detail.needs.approve.<status>`). Beside them sit the words box (`approve_words.band`) and the lead's `issue-cli approve <slug> --to "…" --quote "…"` line. A click posts to `/approve` like the sidebar's buttons, toasts, then reloads.
-  - **playtest:** `make playtest ISSUE=<slug>` with a Copy button.
+  - **playtest:** the project's playtest command (`playtest_command:`, default `make playtest ISSUE=<slug>`) with **▶ Run playtest** (`detail.needs.run_playtest`) and Copy. ▶ Run playtest opens tmux window `playtest-<slug>`; the line under it (`detail.needs.playtest_result`) says it is running, then lists each judged step, and **Tick passed boxes** (`detail.needs.playtest_tick`) runs the report and reloads. The station's playtest step (`station.move.run_playtest`, `.playtest_result`, `.playtest_tick`) and the Evidence tab's Playtest card (`evidence.playtest.run`, `.result`, `.tick`) offer the same while the playtest is due; all three are `static/playtest-run.js`. See [Run it from the page](../patterns/playtest/README.md#run-it-from-the-page-playtest_command-playtest_report). Session `run-playtest` on `playtest/scenarios/run-playtest`.
   - **question:** the question and an answer box. Send posts `answer: <text>` as a block-0 comment, which clears the question.
   - **Quiet** (card ground, nothing amber): it says who has the issue. With the agent: working, with the last call; idle, with Open in tmux. Also: stopped, queued, parked with its reason, done, or nobody. A gate whose checklist is still open, or one you approved that the agent has not moved through yet, adds one line.
 
@@ -536,7 +536,7 @@ An issue with no `created:` is dated by its first recorded transition or dispatc
 
 **Side column:**
 - **Verdict:** the status, the proven count, the merge sha and time (or the branch head while live), and CI after the merge. Then the newest `tests:` comment, said to be after or before the last code commit (docs-only commits don't count), and time from dispatch and waiting on you, as on the Timeline tab.
-- **Playtest, per step:** each step's latest machine result and the screens it ran at. Your verdict comes from the latest judge run, else the newest `approval:` / `playtest:` comment naming the step, whose words are quoted.
+- **Playtest, per step:** while your playtest is due, ▶ Run playtest and the command it runs come first (see Needs you). Then each step's latest machine result and the screens it ran at. Your verdict comes from the latest judge run, else the newest `approval:` / `playtest:` comment naming the step, whose words are quoted.
 - **How links are checked:** the key.
 - **Watch:** `risk:` comments; "risk: none" reads as none.
 - **Stale text:** past design, the body lines under an Open questions heading, or that start "Open question:", or that use pending or TBD as a value (`stale_text.go`).
@@ -579,6 +579,18 @@ The frontmatter sidebar on `/issue/<slug>` has a small toolbar at the top with t
 Both states persist independently in `localStorage` (`sidebar-locked`, `sidebar-hidden`). An early-load script in `<head>` reads them and sets `data-sidebar-locked` / `data-sidebar-hidden` on `<html>` before paint to avoid a flash. CSS targets `html[data-sidebar-locked="true"] .detail-sidebar` and `html[data-sidebar-hidden="true"] .detail-layout`.
 
 Lock defaults to on (the early-load check is `localStorage.getItem('sidebar-locked') !== 'false'`), so an explicit user opt-out is required to keep the sidebar scrolling with the body.
+
+## Needs you list
+
+Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it.
+- **One list, one count.** `needsYouRows` is the list: red CI, ready gates, playtests and check scripts to run, open `question:` comments, outputs to review (one row per department) and unsent `issue-cli report-bug` reports (listed once across projects). Red CI comes first, then the oldest. The sidebar's Status count, every Workshop Board header (`map.waiting`), the map's lots, the company panel, the hall, the Report's Waiting on you card and the classic Status card are all its length.
+- **Where the counts link.** The header's "N waiting on you" goes to the project's list (the map's and Every CEO's go to `/needs-you`). The sidebar's amber Status number is its own link to the list, while the word Status still opens the Status page. The Report's Waiting on you card has **See all and approve**, its bottleneck's **Approve gates** opens the list when more than one gate waits, and the company panel has **See all and approve**. The classic Status card, the workboard (**List →**), the map's Waiting on you panel and the CEO chat's Waiting band each have a See all link.
+- **Sections.** CI red, To approve, To test, To answer, Outputs to review, Other. Each row keeps its own action: Approve and Review (the station's approve button) for a gate, **▶ Run checks** (the station's `POST …/check-script`) and Check for check scripts, **▶ Play** (the station's `POST …/playtest`) and Open for a playtest, Answer (the station's comments) for a question, View status, Open shelf.
+- **Approving together.** Only ready gates (the approval is all the transition still needs) have a checkbox. **Select all ready (N)** and **Approve selected (N)** open one confirm listing each issue as `slug: from → to`, with one optional words box for the batch. **Approve all listed** posts each project's gates to its `POST …/needs-you/approve`. A row's own **Approve** opens the same confirm for one gate. Each row then shows "Approved for <status> ✓" or why it was not stamped.
+- **What a stamp writes.** It writes the station's record (`stampApproval`, shared with `POST /issue/<slug>/approve`): `human_approval`, the approval time in the stats sidecar, and the words as an `approval:` comment on each issue. Nothing moves and no agent session is messaged: the lead or the worker picks the stamp up. An issue already approved is skipped, never toggled off.
+- **Playtests and YOLO.** With `playtest: agents` or `off` in workflow.yaml there are no playtest rows. While YOLO is on, the gates it passed show under **After the fact**, below the list and not counted.
+
+Test ids are `needs_you.*`, and the session is `playtest/sessions/needs-you.yaml` (scenario `needs-you`).
 
 ## Approving two steps at once
 

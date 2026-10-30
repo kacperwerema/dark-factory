@@ -35,6 +35,10 @@ func TestApprovalHint_HonoursViewerURL(t *testing.T) {
 	if !strings.Contains(got, want) {
 		t.Errorf("hint did not honor viewer_url\n  got:  %q\n  want substring: %q", got, want)
 	}
+	// Several gates waiting: the Needs you list approves them together.
+	if !strings.Contains(got, "Several waiting? Approve them together:\n  https://issues.example.com:9000/p/demo/needs-you") {
+		t.Errorf("hint should link the Needs you list; got: %q", got)
+	}
 	// With viewer_url set we trust the user's setup; the nudge would be noise.
 	if strings.Contains(got, "set viewer_url") {
 		t.Errorf("hint should not suggest viewer_url when it is set; got: %q", got)

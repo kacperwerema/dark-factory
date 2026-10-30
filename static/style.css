@@ -281,6 +281,10 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 .nav-item:hover { background: var(--bg-tertiary); color: var(--text); text-decoration: none; }
 .nav-item.active { background: var(--bg-active); color: var(--text); }
+/* An item whose count is its own link (Status → Needs you). */
+.nav-split { position: relative; }
+.nav-split-count { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); }
+.nav-split-count:hover { text-decoration: none; filter: brightness(1.1); }
 
 .nav-note { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
 .nav-note.live { font-size: 12px; color: var(--green); }
@@ -4506,3 +4510,17 @@ a:hover > .chart-seg, a:focus > .chart-seg { opacity: .8; }
 @media (max-width: 1000px) {
     .lead-chat-body { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Classic Status: the Needs you card's link to the full list. */
+.status-see-all { margin-left: auto; font-size: 13px; font-weight: 600; }
+
+/* ▶ Run playtest (static/playtest-run.js): the result under the button. */
+.playtest-result { margin-top: 8px; }
+[data-playtest-result][hidden], [data-playtest-tick][hidden], [data-playtest-note][hidden] { display: none; }
+.playtest-result p { margin: 4px 0; }
+.playtest-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; }
+.playtest-step--pass { color: var(--green); }
+.playtest-step--fail { color: var(--red); }
+.playtest-step--open { color: var(--text-secondary); }
+.playtest-note { font-size: 12px; color: var(--text-secondary); }
+.ev-run { margin-bottom: 12px; }
