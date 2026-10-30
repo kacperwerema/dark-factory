@@ -186,7 +186,7 @@ func TestV036ProjectIsBehind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Status != StatusBehind || plan.Latest != "v0.54.0" {
-		t.Fatalf("status = %s, latest = %s; want behind, v0.54.0", plan.Status, plan.Latest)
+	if latest := mustLatest(t, "development"); plan.Status != StatusBehind || plan.Latest != latest {
+		t.Fatalf("status = %s, latest = %s; want behind, %s", plan.Status, plan.Latest, latest)
 	}
 }

@@ -203,6 +203,10 @@ type WorkflowConfig struct {
 	// whether development is private (docs/workflow.md, Private work and
 	// code). Project-wide like CI; nil means not decided.
 	Privacy *PrivacyConfig `yaml:"privacy,omitempty" desc:"Optional privacy choice: work_files (tracker | in_repo), code (snapshots | public), the owner's words in decided (see docs/workflow.md, Private work and code)"`
+	// Playtest says who runs the project's playtest sessions: "owner" (the
+	// default) or "agents" (agents keep ux-test, the owner gets no playtest
+	// to run) or "off". Read it through PlaytestForOwner.
+	Playtest string `yaml:"playtest,omitempty" desc:"Who runs playtest sessions: owner (default; agents run ux-test, the owner runs make playtest), agents (agents only: no playtest action for the owner) or off"`
 	// AllowShell opts in to the command_succeeds validator. When false, any
 	// transition with a command_succeeds rule fails at validate time.
 	AllowShell bool `yaml:"allow_shell,omitempty" desc:"Permit command_succeeds validators to run shell commands (default false)"`
@@ -271,6 +275,20 @@ func (w *WorkflowConfig) WorktreeEnabled() bool {
 		return false
 	}
 	return *w.Worktree
+}
+
+// PlaytestForOwner reports whether the owner runs playtest sessions: the
+// Waiting on you item, the station's playtest step and the card marker.
+// True unless playtest: is agents or off.
+func (w *WorkflowConfig) PlaytestForOwner() bool {
+	if w == nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(w.Playtest)) {
+	case "agents", "off":
+		return false
+	}
+	return true
 }
 
 // WorktreeSetupCmd returns the trimmed setup command, or "" when none is
