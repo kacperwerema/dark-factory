@@ -1406,6 +1406,8 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-ceo-empty p { margin: 0; }
 .wb-turn { display: flex; gap: 12px; align-items: flex-start; }
 .wb-turn--you { justify-content: flex-end; }
+.wb-turn--ceo { justify-content: flex-start; }
+.wb-ceo-chat [data-view-pane][hidden] { display: none; }
 .wb-turn-main { flex: 1; min-width: 0; max-width: 820px; display: flex; flex-direction: column; gap: 8px; }
 .wb-turn--you .wb-turn-main { flex: 0 1 620px; align-items: flex-end; }
 .wb-turn-meta { font-size: 12px; font-weight: 700; color: #3A4252; }

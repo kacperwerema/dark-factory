@@ -71,11 +71,12 @@ steps:
       - open: /p/{project}/lead
     act:
       - click: lead_chat.question.answer
+      - check: { value_equals: { target: lead_chat.text, value: 'Re: "Should I start the rename now?" ' } }
       - type: { target: lead_chat.text, text: "yes, start it" }
       - key: Enter
       - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
     checks:
-      - tmux: { pane: lead-crew, contains: 'Re: "Should I start the rename now?" yes, start it' }
+      - tmux: { pane: lead-crew, contains: "yes, start it" }
       - value_equals: { target: lead_chat.text, value: "" }
 
   - id: TP8

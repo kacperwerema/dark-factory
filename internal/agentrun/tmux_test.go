@@ -1,6 +1,8 @@
 package agentrun
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -157,5 +159,21 @@ func TestAgentOfStartCommand(t *testing.T) {
 		if got := agentOfStartCommand(cmd); got != want {
 			t.Errorf("agentOfStartCommand(%q) = %q, want %q", cmd, got, want)
 		}
+	}
+}
+
+func TestUnderDirResolvesLinks(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	resolved, _ := filepath.EvalSymlinks(real)
+	// tmux reports the resolved path; the project root may be the link.
+	if !underDir(filepath.Join(resolved, "sub"), link) {
+		t.Error("a pane under the link's target should be under the link")
+	}
+	if underDir("/elsewhere", link) {
+		t.Error("an unrelated path is not under the link")
 	}
 }
