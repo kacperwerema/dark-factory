@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/ci"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -69,40 +70,13 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 		d.Header.Chips = append(d.Header.Chips, *c)
 	}
 
-	// Who works which issue, and what each issue needs from the owner.
-	workerOf := map[string]AgentNode{}
-	if agents != nil {
-		for _, w := range agents.Workers {
-			if w.Issue != nil {
-				workerOf[strings.ToLower(w.Issue.Slug)] = w
-			}
-		}
-	}
-	question := map[string]bool{}
-	for _, it := range waiting {
-		if it.Kind == "question" {
-			question[strings.ToLower(it.Issue.Slug)] = true
-		}
-	}
-	blamed := map[string]bool{}
-	ci, _ := ciState(p)
-	if ci.IsRed() {
-		for _, slug := range ci.Blamed {
-			blamed[strings.ToLower(slug)] = true
-		}
-		if ci.RedIssue != "" {
-			blamed[strings.ToLower(ci.RedIssue)] = true
-		}
-	}
+	hc := newHallContext(p, prefix, open, agents, waiting, now)
+	ci, blamed, workerOf, byStatus := hc.ci, hc.blamed, hc.workerOf, hc.byStatus
 	atGate := map[string]int{}
 	for _, it := range waiting {
 		if it.Kind == "gate" {
 			atGate[statusKey(it.Target)]++
 		}
-	}
-	byStatus := map[string][]*tracker.Issue{}
-	for _, issue := range open {
-		byStatus[statusKey(issue.Status)] = append(byStatus[statusKey(issue.Status)], issue)
 	}
 
 	// The default selection: whoever waits on the owner, else whoever works.
@@ -127,36 +101,20 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	// In YOLO the gates stand raised, and a crate that passed one keeps the
 	// yellow marker to the end of the line.
 	raised := lot.YOLO != nil && lot.YOLO.On
-	marked := yoloMarked(open)
 	var stops []WbHallStop
 	for _, stop := range factoryLine(wf) {
 		if stop.Gated {
-			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key], Raised: raised}})
+			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key], Raised: raised, URL: hallPartURL(prefix, "gate", stop.Name)}})
 		}
-		st := &WbHallStation{Name: stationName(stop), Status: stop.Name, Who: stop.Description, Owner: stop.Owner}
-		here := byStatus[stop.Key]
+		st := &WbHallStation{Name: stationName(stop), Status: stop.Name, Who: stop.Description, Owner: stop.Owner, URL: hallPartURL(prefix, "station", stop.Name)}
+		here := hc.sorted(byStatus[stop.Key])
 		st.Count = len(here)
-		// Crates with a worker first, those waiting on the owner on top.
-		sort.SliceStable(here, func(i, j int) bool {
-			return crateRank(workerOf, here[i]) < crateRank(workerOf, here[j])
-		})
 		for i, issue := range here {
 			if i == hallCrates {
 				st.More = len(here) - hallCrates
 				break
 			}
-			key := strings.ToLower(issue.Slug)
-			c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: prefix + "/hall?agent=" + issue.Slug + "#agent", Question: question[key], CI: blamed[key], YOLO: marked[key], Selected: strings.EqualFold(issue.Slug, selected)}
-			if w, ok := workerOf[key]; ok {
-				r := workerRobot(w)
-				c.Robot = &r
-				if r.State == "idle" && w.LastCall != "" {
-					if at, err := time.Parse(time.RFC3339, w.LastCall); err == nil {
-						c.Note = "last issue-cli " + shortDuration(now.Sub(at)) + " ago — a long build?"
-					}
-				}
-			}
-			st.Crates = append(st.Crates, c)
+			st.Crates = append(st.Crates, hc.crate(issue, selected))
 		}
 		stops = append(stops, WbHallStop{Station: st})
 	}
@@ -165,9 +123,12 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 
 	stack := min(lot.DoneWeek, 9)
 	d.Done = WbDoneStation{Count: lot.DoneWeek, Stack: make([]int, stack), Who: "merged to main; releases are cut from here"}
+	if wfHasStatus(wf, "done") {
+		d.Done.URL = hallPartURL(prefix, "station", "done")
+	}
 
 	if ci != nil {
-		d.CI = &WbCIScanner{Red: ci.IsRed(), Command: "make validate", Branch: ci.Branch, Issue: ci.RedIssue}
+		d.CI = &WbCIScanner{Red: ci.IsRed(), Command: "make validate", Branch: ci.Branch, Issue: ci.RedIssue, URL: prefix + "/hall/ci"}
 		if ci.Failed != "" {
 			d.CI.Command = ci.Failed
 		}
@@ -176,6 +137,9 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 		}
 	}
 
+	if wfHasStatus(wf, "parked") {
+		d.Parking.URL = hallPartURL(prefix, "station", "parked")
+	}
 	for _, issue := range issues {
 		if statusKey(issue.Status) != "parked" {
 			continue
@@ -211,6 +175,16 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	return d
 }
 
+// wfHasStatus reports whether workflow.yaml has the status.
+func wfHasStatus(wf *tracker.WorkflowConfig, status string) bool {
+	for _, st := range wf.Statuses {
+		if statusKey(st.Name) == statusKey(status) {
+			return true
+		}
+	}
+	return false
+}
+
 // stationName is the station's sign: the status in words.
 func stationName(stop lineStop) string {
 	if stop.Owner {
@@ -218,6 +192,75 @@ func stationName(stop lineStop) string {
 	}
 	name := stop.Name
 	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// hallContext is what the hall knows about each open issue: its worker,
+// whether it asks the owner, whether CI blames it, whether it passed a gate
+// in YOLO. The hall and its part pages draw crates from it.
+type hallContext struct {
+	prefix   string
+	now      time.Time
+	ci       *ci.State
+	workerOf map[string]AgentNode
+	question map[string]bool
+	blamed   map[string]bool
+	marked   map[string]bool
+	byStatus map[string][]*tracker.Issue
+}
+
+func newHallContext(p *tracker.Project, prefix string, open []*tracker.Issue, agents *AgentsModel, waiting []WaitingItem, now time.Time) *hallContext {
+	hc := &hallContext{prefix: prefix, now: now, workerOf: map[string]AgentNode{}, question: map[string]bool{}, blamed: map[string]bool{}, byStatus: map[string][]*tracker.Issue{}}
+	if agents != nil {
+		for _, w := range agents.Workers {
+			if w.Issue != nil {
+				hc.workerOf[strings.ToLower(w.Issue.Slug)] = w
+			}
+		}
+	}
+	for _, it := range waiting {
+		if it.Kind == "question" {
+			hc.question[strings.ToLower(it.Issue.Slug)] = true
+		}
+	}
+	hc.ci, _ = ciState(p)
+	if hc.ci.IsRed() {
+		for _, slug := range hc.ci.Blamed {
+			hc.blamed[strings.ToLower(slug)] = true
+		}
+		if hc.ci.RedIssue != "" {
+			hc.blamed[strings.ToLower(hc.ci.RedIssue)] = true
+		}
+	}
+	hc.marked = yoloMarked(open)
+	for _, issue := range open {
+		hc.byStatus[statusKey(issue.Status)] = append(hc.byStatus[statusKey(issue.Status)], issue)
+	}
+	return hc
+}
+
+// sorted orders a station's issues: crates with a worker first, those
+// waiting on the owner on top.
+func (hc *hallContext) sorted(here []*tracker.Issue) []*tracker.Issue {
+	sort.SliceStable(here, func(i, j int) bool {
+		return crateRank(hc.workerOf, here[i]) < crateRank(hc.workerOf, here[j])
+	})
+	return here
+}
+
+// crate is one issue as a crate, carried by its worker if it has one.
+func (hc *hallContext) crate(issue *tracker.Issue, selected string) WbCrate {
+	key := strings.ToLower(issue.Slug)
+	c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: hc.prefix + "/hall?agent=" + issue.Slug + "#agent", Question: hc.question[key], CI: hc.blamed[key], YOLO: hc.marked[key], Selected: strings.EqualFold(issue.Slug, selected)}
+	if w, ok := hc.workerOf[key]; ok {
+		r := workerRobot(w)
+		c.Robot = &r
+		if r.State == "idle" && w.LastCall != "" {
+			if at, err := time.Parse(time.RFC3339, w.LastCall); err == nil {
+				c.Note = "last issue-cli " + shortDuration(hc.now.Sub(at)) + " ago — a long build?"
+			}
+		}
+	}
+	return c
 }
 
 // crateRank orders crates on a station: waiting on the owner, working,

@@ -31,6 +31,9 @@ type CEOTurn struct {
 	Bubbles []CEOBubble    `json:"bubbles,omitempty"`
 	Calls   []CEOToolCall  `json:"calls,omitempty"`
 	Asks    []*CEOQuestion `json:"asks,omitempty"`
+	// Images are the chat images the owner's message sent, taken out of its
+	// text (withTurnImages).
+	Images []CEOImage `json:"images,omitempty"`
 }
 
 // ToolSummary is the folded line for the turn's tool calls: "used 3 tools:

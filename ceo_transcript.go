@@ -246,6 +246,7 @@ func readLeadTranscript(path string) (CEOTranscript, error) {
 func (t CEOTranscript) clone() CEOTranscript {
 	turns := make([]CEOTurn, len(t.Turns))
 	for i, turn := range t.Turns {
+		turn.Text = append([]string(nil), turn.Text...)
 		if len(turn.Asks) > 0 {
 			asks := make([]*CEOQuestion, len(turn.Asks))
 			for j, q := range turn.Asks {

@@ -1094,6 +1094,8 @@ func TestProcessTransitionsRendersFromActiveWorkflow(t *testing.T) {
 	assertContains(t, out, "Global statuses (transitions from them to any status are allowed): blocked")
 	assertContains(t, out, "Per-system overlays are configured for:")
 	assertContains(t, out, "CLI")
+	// The owner sees each status in the Product hall.
+	assertContains(t, out, "In the viewer, the Product hall opens each status: "+viewerBaseURL(proj)+"/p/"+proj.Slug+"/hall/station/<status>")
 }
 
 func TestProcessTransitionsScopedBySystemFlag(t *testing.T) {

@@ -178,6 +178,7 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting
 			}
 		}
 	}
+	withTurnImages(proj, prefix, m.Turns)
 	m.OpenQuestions = openCEOQuestions(m.Turns, m.Ask)
 	for _, q := range m.OpenQuestions {
 		m.Questions = append(m.Questions, q.Text)
@@ -363,14 +364,17 @@ func leadChatLock(target string) func() {
 	return mu.(*sync.Mutex).Unlock
 }
 
-// handleLeadChatSend serves POST /p/<project>/lead/send, body {text}: the
-// owner's message, pasted into the live lead as one bracketed paste plus
-// Enter (agentrun.Paste, the way Re-send prompt delivers a briefing). 409
-// with status no-session when the lead isn't running, 413 over 20 KB, 400
-// for an empty message.
+// handleLeadChatSend serves POST /p/<project>/lead/send, body {text,
+// images}: the owner's message, pasted into the live lead as one bracketed
+// paste plus Enter (agentrun.Paste, the way Re-send prompt delivers a
+// briefing). Images are paths POST …/lead/image answered; each becomes an
+// "[Image: <path>]" line at the end (ceoImageLines). 409 with status
+// no-session when the lead isn't running, 413 over 20 KB, 400 for an empty
+// message or a path that isn't a chat image.
 func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	var body struct {
-		Text string `json:"text"`
+		Text   string   `json:"text"`
+		Images []string `json:"images"`
 	}
 	// JSON escaping can grow a message up to 6x; the text itself is
 	// checked below.
@@ -378,6 +382,17 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 		return
 	}
 	text := cleanMessage(body.Text)
+	if len(body.Images) > 0 {
+		lines, err := ceoImageLines(proj, body.Images)
+		if err != nil {
+			leadChatError(w, http.StatusBadRequest, "bad-image", err.Error())
+			return
+		}
+		if strings.TrimSpace(text) != "" {
+			lines = text + "\n\n" + lines
+		}
+		text = lines
+	}
 	if len(text) > leadChatMaxMessage {
 		leadChatError(w, http.StatusRequestEntityTooLarge, "too-large", "message is over 20 KB")
 		return

@@ -1,6 +1,8 @@
 // The CEO chat (/p/<project>/lead): polls the live part, sends messages and
 // keys to the lead, and keeps what the owner is typing and the scroll
-// position across updates. Spawning the CEO is workshop.js's data-spawn-lead.
+// position across updates. Images pasted, dropped or attached in the box go
+// to …/lead/image first; the send carries their paths. Spawning the CEO is
+// workshop.js's data-spawn-lead.
 (function () {
   var main = document.querySelector('[data-live-url]');
   if (!main) return;
@@ -9,6 +11,14 @@
   var status = form.querySelector('.wb-site-msg');
   var scroll = document.querySelector('[data-scroll]');
   var keyURL = form.getAttribute('data-key-url');
+  var imageURL = form.getAttribute('data-image-url');
+  var imageBox = form.querySelector('[data-images]');
+  var imageInput = form.querySelector('[data-image-input]');
+  var imageChip = form.querySelector('template[data-image-chip]');
+  var imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  var imageMax = 10 << 20, imagesPerMessage = 5;
+  // images: {path, el} per chip, path null while it uploads.
+  var images = [];
   var last = {};
   var live = null;
 
@@ -126,17 +136,66 @@
     }).catch(function (e) { say('Not pressed: ' + e); });
   }
 
+  function showImages() { imageBox.hidden = images.length === 0; }
+
+  function dropImage(img) {
+    images = images.filter(function (i) { return i !== img; });
+    img.el.remove();
+    showImages();
+  }
+
+  // addImages uploads each file and shows it as a chip; a refused file says
+  // why and leaves the rest of the box alone.
+  function addImages(files) {
+    Array.prototype.forEach.call(files, function (file) {
+      if (imageTypes.indexOf(file.type) < 0) { say('Not attached: ' + (file.name || 'that file') + ' is not a PNG, JPEG, GIF or WebP image.'); return; }
+      if (file.size > imageMax) { say('Not attached: ' + (file.name || 'that image') + ' is over 10 MB.'); return; }
+      if (images.length >= imagesPerMessage) { say('Not attached: at most ' + imagesPerMessage + ' images in one message.'); return; }
+      var img = { path: null, el: imageChip.content.firstElementChild.cloneNode(true) };
+      var pic = img.el.querySelector('img');
+      pic.alt = file.name || 'image';
+      pic.src = URL.createObjectURL(file);
+      img.el.querySelector('button').addEventListener('click', function () { dropImage(img); });
+      imageBox.appendChild(img.el);
+      images.push(img);
+      showImages();
+      say('Uploading ' + (file.name || 'image') + '…');
+      var fd = new FormData();
+      fd.append('file', file, file.name || 'pasted.png');
+      fetch(imageURL, { method: 'POST', body: fd })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (images.indexOf(img) < 0) return;
+          if (!res.ok || !res.body.path) { dropImage(img); say('Not attached: ' + (res.body.error || 'upload failed') + '.'); return; }
+          img.path = res.body.path;
+          img.el.title = img.path;
+          img.el.classList.remove('wb-image-chip--busy');
+          say(images.some(function (i) { return !i.path; }) ? 'Uploading…' : 'Attached. It goes with your next message.');
+        })
+        .catch(function (e) { dropImage(img); say('Not attached: ' + e); });
+    });
+  }
+
+  function clearImages() {
+    images.forEach(function (img) { img.el.remove(); });
+    images = [];
+    showImages();
+  }
+
   function send(now) {
     var msg = text.value.replace(/\s+$/, '');
-    if (!msg.trim()) return;
+    if (images.some(function (i) { return !i.path; })) { say('Wait: an image is still uploading.'); return; }
+    var paths = images.map(function (i) { return i.path; });
+    if (!msg.trim() && !paths.length) return;
     say('Sending…');
-    post(form.getAttribute('data-ceo-send'), { text: msg }).then(function (res) {
+    post(form.getAttribute('data-ceo-send'), { text: msg, images: paths }).then(function (res) {
       if (!res.ok || res.body.status === 'error') {
         var step = (res.body.steps || [])[0];
         say('Not sent' + (res.body.error ? ': ' + res.body.error : step ? ': ' + step.name + (step.detail ? ' (' + step.detail + ')' : '') : '.'));
         return;
       }
       text.value = '';
+      clearImages();
       say('Sent to ' + (res.body.session || 'the CEO') + '.');
       if (now) pressKey('SendNow');
       toBottom();
@@ -149,11 +208,33 @@
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(false); }
   });
 
+  // Paste: image files on the clipboard attach; text pastes as text.
+  text.addEventListener('paste', function (e) {
+    var files = Array.prototype.filter.call((e.clipboardData && e.clipboardData.files) || [], function (f) { return f.type.indexOf('image/') === 0; });
+    if (!files.length) return;
+    if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+    addImages(files);
+  });
+  form.addEventListener('dragover', function (e) {
+    if (text.disabled || !e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0) return;
+    e.preventDefault();
+    form.classList.add('wb-composer--drop');
+  });
+  form.addEventListener('dragleave', function (e) { if (!form.contains(e.relatedTarget)) form.classList.remove('wb-composer--drop'); });
+  form.addEventListener('drop', function (e) {
+    form.classList.remove('wb-composer--drop');
+    if (text.disabled || !e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    addImages(e.dataTransfer.files);
+  });
+  imageInput.addEventListener('change', function () { addImages(imageInput.files); imageInput.value = ''; });
+
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('button');
     if (!btn || btn.disabled) return;
     if (btn.hasAttribute('data-send-now')) { send(true); return; }
     if (btn.hasAttribute('data-ask-pick')) { pickOption(btn); return; }
+    if (btn.hasAttribute('data-attach')) { imageInput.click(); return; }
     if (btn.hasAttribute('data-key')) { pressKey(btn.getAttribute('data-key'), btn); return; }
     if (btn.hasAttribute('data-answer')) {
       // The owner's reply starts in the box; nothing is sent until Send.

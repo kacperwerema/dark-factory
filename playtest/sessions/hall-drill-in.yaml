@@ -1,0 +1,43 @@
+session: hall-drill-in
+issue: factory/hall-drill-into-a-station-gate-or-the-ci-scanner
+title: Product hall - click a station or a gate and see what is inside it
+scenario: yolo
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: A station's head and a gate open their pages; Product hall leads back
+    proves: [AC1, AC2, AC4, AC6]
+    setup:
+      - open: /p/{project}/hall
+    act:
+      - click: hall.station.open
+      - wait_for: hall.part.issues
+      - check: { text_contains: { target: hall.part.issues, text: "shop/price-history" } }
+      - check: { text_contains: { target: hall.part.prompt, text: "Raw idea" } }
+      - check: { text_contains: { target: hall.part.out, text: "backlog" } }
+      - click: hall.part.back
+      - wait_for: hall.line
+      - click: hall.gate
+      - wait_for: hall.part.waiting
+    checks:
+      - visible: [hall.part, hall.part.back, hall.part.waiting, hall.part.in]
+      - text_contains: { target: hall.part.in, text: "needs your approval for in progress" }
+      - text_contains: { target: hall.part, text: "Gate before in progress" }
+    targets:
+      - { id: hall.part.in, note: "What the gate stands on" }
+      - { id: hall.part.waiting, note: "Who waits at the gate" }
+    do: |
+      1. On the hall, click the Idea station's head, read its page, and use "← Product hall" to go back.
+      2. Click the gate before In progress.
+      3. Open In progress the same way and read its ways in and out.
+    expect: |
+      Each part opens a page that says what happens there in plain words:
+      the issues in it, what the agent is told, how issues come in and leave,
+      and for a gate what it checks and who waits at it. You can walk the
+      line from one station to the next with the "open" links.
+    why: ux-test checks the links and the content; only you can judge whether the pages answer "what is inside this part of the line".
