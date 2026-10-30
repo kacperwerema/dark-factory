@@ -1,0 +1,133 @@
+session: yolo-mode
+issue: factory/yolo-mode
+title: YOLO mode on the Workshop Board - switch and dialog, hazard band, striped lot, raised gates, review after the fact
+scenario: yolo
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The company's switch opens the turn-on dialog; turning on draws the band
+    proves: [AC9]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - check: { absent: yolo.band }
+      - click: yolo.switch
+      - wait_for: yolo.dialog
+      - check: { text_contains: { target: yolo.dialog.gates, text: "Gates skipped · 2" } }
+      - check: { text_contains: { target: yolo.dialog.gates, text: "backlog → in progress" } }
+      - check: { text_contains: { target: yolo.dialog.gates, text: "testing → done" } }
+      - check: { text_contains: { target: yolo.dialog.guards, text: "Agent tests" } }
+      - type: { target: yolo.dialog.words, text: "go yolo till morning" }
+      - click: yolo.dialog.go
+      - wait_for: { visible: yolo.band, ms: 8000 }
+    checks:
+      - visible: [yolo.band, yolo.band.extend, yolo.band.off]
+      - text_contains: { target: yolo.band, text: "Gates pass without you" }
+      - text_contains: { target: yolo.band, text: "no releases" }
+      - absent: yolo.dialog
+    targets:
+      - { id: yolo.switch, note: "The switch, only on the company" }
+      - { id: yolo.dialog, note: "The turn-on dialog" }
+    do: |
+      1. On the company page, click the YOLO switch in the header.
+      2. Read the dialog against issues/Factory/designs/workshop-board/YOLO-L1-turn-on.png.
+      3. Pick a duration, type your words and click "Turn on YOLO".
+    expect: |
+      The dialog reads like the mockup in English: the gates that will pass
+      without you, what still guards, how long (until 8:00 by default), the
+      valves, and a box for your words. Turning on closes it and the
+      yellow-black band appears under the header.
+    why: ux-test checks the dialog's content and the band; only you can judge the wording and whether it feels like a conscious switch.
+
+  - id: TP5
+    title: The band shows on every project screen; Turn off now removes it
+    proves: [AC9]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "4h", words: "go" }, status: 200 }
+      - open: /p/{project}/hall
+    act:
+      - check: { visible: yolo.band }
+      - open: /p/{project}/issue/shop/shopping-list-grouped-by-aisle
+      - check: { visible: yolo.band }
+      - open: /p/{project}/decisions
+      - check: { visible: yolo.band }
+      - open: /p/{project}/company
+      - click: yolo.band.extend
+      - click: yolo.band.off
+      - wait_for: { absent: yolo.band, ms: 8000 }
+    checks:
+      - absent: yolo.band
+      - visible: yolo.switch
+    targets:
+      - { id: yolo.band, note: "The hazard band" }
+      - { id: yolo.band.off, note: "Turn off now" }
+    do: |
+      1. With YOLO on, walk the company, the hall and its tabs, and an issue.
+      2. Open Extend and read its three ends; then click Turn off now.
+    expect: |
+      The band sits under the header on every screen of the project and is
+      hard to miss without hiding the page. Extend offers until 08:00, 4 more
+      hours and until turned off. Turn off now removes the band.
+    why: ux-test checks the band is on each page; only you can say whether its weight is right.
+
+  - id: TP6
+    title: The map's lot in stripes with "YOLO until" and "N after the fact"; the counter stays after off
+    proves: [AC10]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /
+    act:
+      - check: { text_equals: { target: map.lot.yolo, text: YOLO until turned off } }
+      - check: { text_contains: { target: map.lot.after_fact, text: "1" } }
+      - check: { absent: map.lot.waiting }
+      - post: { path: "/p/{project}/yolo/off", status: 200 }
+      - reload: true
+    checks:
+      - absent: map.lot.yolo
+      - visible: map.lot.after_fact
+    targets:
+      - { id: map.lot.after_fact, note: "N after the fact, in place of the orange \"!\"" }
+    do: |
+      1. With YOLO on, look at the project's lot on the map.
+      2. Turn YOLO off (company band) and come back to the map.
+    expect: |
+      The lot is framed in yellow-black stripes with "YOLO until …"; a
+      yellow "1 after the fact" sits where the orange "!" would be. After
+      turning off the stripes go and the counter stays.
+    why: ux-test checks the tag and the counter; only you can judge whether the lot reads at a glance on the map.
+
+  - id: TP7
+    title: Raised gates and the crate's YOLO marker in the hall; Passed in YOLO on the issue, Agree clears it
+    proves: [AC10]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "4h", words: "go" }, status: 200 }
+      - open: /p/{project}/hall
+    act:
+      - check: { count: { pattern: hall.gate.raised, equals: 1 } }
+      - check: { visible: hall.crate.yolo }
+      - open: /p/{project}/issue/shop/shopping-list-grouped-by-aisle
+      - check: { text_contains: { target: station.yolo, text: "Passed in YOLO" } }
+      - check: { text_equals: { target: station.yolo.back, text: Back to backlog } }
+      - click: station.yolo.agree
+      - wait_for: { absent: station.yolo, ms: 8000 }
+      - open: /p/{project}/company
+    checks:
+      - absent: company.yolo_queue
+      - absent: yolo.count
+    targets:
+      - { id: hall.gate.raised, note: "The barrier up" }
+      - { id: station.yolo, note: "Passed in YOLO" }
+    do: |
+      1. With YOLO on, open the hall and find the gates and the crate in "in progress".
+      2. Click the crate's issue (or open it), read "Passed in YOLO" and click Agree.
+    expect: |
+      The gates stand raised (barrier up) and the crate that passed carries a
+      yellow YOLO marker. The issue says which gate passed without you and
+      offers Agree and Back to backlog; Agree clears it from "To review after
+      YOLO".
+    why: ux-test checks the markers and the queue; only you can say whether the review reads as settling, not approving.
