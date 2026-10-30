@@ -4,7 +4,7 @@
 <body class="wb">
 <div class="wb-app wb-app--page" data-testid="lead_chat.page">
 {{template "wb/header" .Header}}
-<main class="wb-main wb-ceo-main" data-live-url="?part=live">
+<main class="wb-main wb-ceo-main" data-live-url="?part=live" data-live-state="{{if .Live.Live}}1{{else}}0{{end}}">
 <section class="wb-ceo-chat" aria-label="Conversation with the CEO">
     {{template "wb/ceo-title" .Title}}
     <div class="wb-ceo-scroll" data-scroll data-view-pane="conversation" data-testid="lead_chat.conversation">

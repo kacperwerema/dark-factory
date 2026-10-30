@@ -120,9 +120,17 @@
     try { localStorage.setItem('ceo-chat-view', view); } catch (e) {}
   }
 
+  // The page arrives with every part rendered: polls replace only what
+  // changed since.
+  document.querySelectorAll('[data-part-slot]').forEach(function (slot) {
+    var t = document.createElement('template');
+    t.innerHTML = slot.innerHTML;
+    last[slot.getAttribute('data-part-slot')] = t.innerHTML;
+  });
+  live = main.getAttribute('data-live-state');
+
   try { var saved = localStorage.getItem('ceo-chat-view'); if (saved) showView(saved); } catch (e) {}
   setMode((document.querySelector('[data-testid="lead_chat.mode"] [data-mode-label]') || {}).textContent || 'default');
   toBottom();
-  poll();
   setInterval(poll, 1500);
 })();
