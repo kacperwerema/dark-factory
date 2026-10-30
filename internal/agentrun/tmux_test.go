@@ -208,3 +208,23 @@ func TestUnderDirResolvesLinks(t *testing.T) {
 		t.Error("an unrelated path is not under the link")
 	}
 }
+
+func TestUnderDirRelativeRoot(t *testing.T) {
+	// projects.yaml may say workdir: "." (the README) or "demo" (make demo);
+	// tmux reports the absolute path.
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.Mkdir("demo", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if !underDir(filepath.Join(cwd, "demo"), "demo") {
+		t.Error("a session in <cwd>/demo should be under workdir demo")
+	}
+	if !underDir(filepath.Join(cwd, "demo", ".worktrees", "x"), ".") {
+		t.Error("a session under the cwd should be under workdir .")
+	}
+	if underDir("/elsewhere", "demo") {
+		t.Error("an unrelated path is not under a relative workdir")
+	}
+}

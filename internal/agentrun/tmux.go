@@ -318,9 +318,14 @@ func ForProject(proj *tracker.Project, root string, sessions []Session) []Sessio
 
 // underDir reports whether path is dir or inside it. tmux reports a pane's
 // path with links resolved (on a Mac /var is /private/var), so a miss is
-// tried again with dir's links resolved.
+// tried again with dir's links resolved. A relative dir (workdir: "." or
+// "demo" in projects.yaml) is taken from the working directory, as tmux's
+// path is always absolute.
 func underDir(path, dir string) bool {
-	path, dir = filepath.Clean(path), filepath.Clean(dir)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	path = filepath.Clean(path)
 	if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
 		return true
 	}
