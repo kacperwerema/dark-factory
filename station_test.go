@@ -99,7 +99,7 @@ func TestStationClassicStillServed(t *testing.T) {
 func TestStationOwnerSteps(t *testing.T) {
 	issue := &tracker.Issue{Slug: "ui/x", Status: "human-testing"}
 	att := Attention{ChecksDue: true, Checks: []string{"x-checks"}, Gate: &GateInfo{Target: "documentation"}}
-	m := stationMove("agents", issue, "/p/agents/issue/ui/x", needsYou{Amber: true, Wait: "2d"}, att, []string{"documentation"}, nil, time.Now())
+	m := stationMove("agents", nil, issue, "/p/agents/issue/ui/x", needsYou{Amber: true, Wait: "2d"}, att, []string{"documentation"}, nil, time.Now())
 	if !m.On || len(m.Tasks) != 1 || m.Tasks[0].Kind != "checks" || m.Tasks[0].RunURL != "/p/agents/issue/ui/x/check-script" {
 		t.Fatalf("tasks = %+v", m.Tasks)
 	}
@@ -107,7 +107,7 @@ func TestStationOwnerSteps(t *testing.T) {
 		t.Fatalf("stamp = %+v", m.Stamp)
 	}
 	// Playtest and checks due: both steps named in the note.
-	two := stationMove("agents", issue, "/u", needsYou{Amber: true, Wait: "2d"}, Attention{ChecksDue: true, Checks: []string{"x"}, PlaytestDue: true, Playtests: []string{"y"}, Gate: &GateInfo{Target: "documentation"}}, []string{"documentation"}, nil, time.Now())
+	two := stationMove("agents", nil, issue, "/u", needsYou{Amber: true, Wait: "2d"}, Attention{ChecksDue: true, Checks: []string{"x"}, PlaytestDue: true, Playtests: []string{"y"}, Gate: &GateInfo{Target: "documentation"}}, []string{"documentation"}, nil, time.Now())
 	if two.Stamp == nil || two.Stamp.N != 3 || two.Stamp.Note != "Steps 1–2 are still open: you can stamp ahead." {
 		t.Fatalf("stamp with two steps = %+v", two.Stamp)
 	}
@@ -115,7 +115,7 @@ func TestStationOwnerSteps(t *testing.T) {
 		t.Errorf("title = %q", m.Title)
 	}
 	// Nothing due and no gated exit: a quiet panel, no stamp.
-	q := stationMove("agents", issue, "/u", needsYou{Label: "With the agent", Title: "Nothing needs you."}, Attention{}, nil, nil, time.Now())
+	q := stationMove("agents", nil, issue, "/u", needsYou{Label: "With the agent", Title: "Nothing needs you."}, Attention{}, nil, nil, time.Now())
 	if q.On || q.Stamp != nil || q.Title != "With the agent: Nothing needs you" {
 		t.Errorf("quiet = %+v", q)
 	}

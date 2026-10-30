@@ -4506,3 +4506,13 @@ a:hover > .chart-seg, a:focus > .chart-seg { opacity: .8; }
 @media (max-width: 1000px) {
     .lead-chat-body { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ▶ Run playtest (static/playtest-run.js): the result under the button. */
+.playtest-result { margin-top: 8px; }
+.playtest-result p { margin: 4px 0; }
+.playtest-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; }
+.playtest-step--pass { color: var(--green); }
+.playtest-step--fail { color: var(--red); }
+.playtest-step--open { color: var(--text-secondary); }
+.playtest-note { font-size: 12px; color: var(--text-secondary); }
+.ev-run { margin-bottom: 12px; }

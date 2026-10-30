@@ -89,6 +89,7 @@ type needsYou struct {
 	Also   []string
 
 	OpenTmux string // idle: the agent session Open in tmux opens
+	RunURL   string // playtest: where ▶ Run playtest posts ("" hides it)
 }
 
 // approving is "What you're approving": what was recorded since the last
@@ -645,7 +646,8 @@ func needsYouFor(in issueTabInput, t IssueTab) needsYou {
 		if len(a.Playtests) > 1 {
 			n.Text = "Sessions " + joinAnd(a.Playtests) + " name this issue and have no run judged by you yet."
 		}
-		n.Command = "make playtest ISSUE=" + issue.Slug
+		n.Command = in.WF.PlaytestCommandFor(issue.Slug)
+		n.RunURL = playtestRunURL(in.Prefix+"/issue/"+issue.Slug, a, in.WF)
 	case len(kinds) > 0 && kinds[0] == "checks":
 		n.State, n.Sessions = "checks", a.Checks
 		n.Title = "Run the guided checks: " + plural(len(a.Checks), "script", "scripts") + "."

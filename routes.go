@@ -254,6 +254,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleSetIssueType(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/check-script") && r.Method == http.MethodPost:
 		s.handleRunChecks(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/playtest") && (r.Method == http.MethodPost || r.Method == http.MethodGet):
+		s.handlePlaytest(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
 	case rest == "yolo.json" && r.Method == http.MethodGet:

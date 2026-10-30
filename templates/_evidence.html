@@ -156,6 +156,11 @@ watch and stale text on the side. Data is DetailData; the model is .Evidence
             <section class="card tl-card" aria-labelledby="ev-pt-h" data-testid="evidence.playtest">
                 <div class="tl-head"><h2 id="ev-pt-h">Playtest, per step</h2>{{if .Judged}}<span class="chip chip-blue">{{.Judged}}</span>{{end}}</div>
                 <div class="tl-body">
+                    {{with .RunPlaytest}}<div class="ev-run" data-playtest>
+                        <p class="tl-note">Your playtest is due: <code>{{$.Evidence.PlaytestCommand}}</code></p>
+                        <button type="button" class="btn it-go" data-run-playtest="{{.}}" data-testid="evidence.playtest.run">▶ Run playtest</button>
+                        <div class="tl-note playtest-result" role="status" aria-live="polite" data-playtest-result data-testid="evidence.playtest.result" hidden></div>
+                    </div>{{end}}
                     {{if .Steps}}
                     <div class="ev-steps" role="table" aria-label="Playtest per step">
                         <div role="row" class="ev-steps-row ev-steps-head"><span role="columnheader">Step</span><span role="columnheader">Machine</span><span role="columnheader">You</span></div>

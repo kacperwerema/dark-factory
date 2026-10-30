@@ -328,12 +328,13 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 		Comments: src.Comments, Decisions: src.Decisions, Body: issue.BodyRaw, Transitions: stats.Transitions,
 		Change: loadEvidenceChange(root, report.Ref, report.RefName, stats), Total: timelineTotalLabel(p, issue),
 		Waiting: tl.Waiting, WaitKnown: tl.Known, CI: tl.CI, Now: now,
+		RunPlaytest: playtestRunURL(issueURL, att, wf), PlaytestCommand: wf.PlaytestCommandFor(issue.Slug),
 	})
 
 	d.Title = stationTitle(wf, issue, d.ClassicURL)
 	d.Belt = stationBelt(wf, issue, tab.Path, att, hallURL)
 	d.Time = stationTime(tl)
-	d.Move = stationMove(p.Slug, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
+	d.Move = stationMove(p.Slug, wf, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
 	d.YOLO = stationYOLOReview(issue, wf, src.Comments, issueURL)
 	d.Decisions = stationDecisions(src.Decisions)
 	d.Change = stationChange(ev.Change)
@@ -446,7 +447,7 @@ func stationTime(tl Timeline) WbTimeSplit {
 // is due (a question, the playtest, the guided checks), then the stamp
 // when the status has gated exits; the stamp stays locked until the steps
 // are done.
-func stationMove(project string, issue *tracker.Issue, issueURL string, needs needsYou, att Attention, targets []string, comments []tracker.Comment, now time.Time) WbYourMove {
+func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issue, issueURL string, needs needsYou, att Attention, targets []string, comments []tracker.Comment, now time.Time) WbYourMove {
 	m := WbYourMove{On: needs.Amber}
 	n := 0
 	var names []string
@@ -469,7 +470,7 @@ func stationMove(project string, issue *tracker.Issue, issueURL string, needs ne
 			text = "Sessions " + joinAnd(att.Playtests) + " name this issue and have no run judged by you yet."
 		}
 		m.Tasks = append(m.Tasks, WbMoveTask{N: n, Kind: "playtest", Title: "Run the playtest", Badge: fmt.Sprintf("0/%d", len(att.Playtests)),
-			Text: text, Command: "make playtest ISSUE=" + issue.Slug, Sessions: att.Playtests})
+			Text: text, Command: wf.PlaytestCommandFor(issue.Slug), RunURL: playtestRunURL(issueURL, att, wf), Sessions: att.Playtests})
 		names = append(names, "the playtest")
 	}
 	if att.ChecksDue {
