@@ -61,6 +61,46 @@ func TestOwnerAttentionChecksDueUntilTheOwnerRun(t *testing.T) {
 	}
 }
 
+// TestOwnerAttentionPlaytestOnlyWhenTheOwnerRunsThem: with playtest: agents
+// in workflow.yaml a session naming the issue is the agents' (ux-test), so
+// nothing waits on the owner; the guided checks still do.
+func TestOwnerAttentionPlaytestOnlyWhenTheOwnerRunsThem(t *testing.T) {
+	proj, wt := setupChecksProject(t)
+	os.MkdirAll(filepath.Join(wt, "playtest", "sessions"), 0o755)
+	os.WriteFile(filepath.Join(wt, "playtest", "sessions", "lead.yaml"), []byte("session: lead\nissue: cli/lead-tab\n"), 0o644)
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issue *tracker.Issue
+	for _, i := range issues {
+		if i.Slug == "cli/lead-tab" {
+			issue = i
+		}
+	}
+
+	if a := ownerAttention(&proj, issue); !a.PlaytestDue || !reflect.DeepEqual(a.Playtests, []string{"lead"}) {
+		t.Fatalf("default (owner): %+v", a)
+	}
+
+	for _, v := range []string{"agents", "off"} {
+		wf, _ := os.ReadFile(proj.WorkflowFile)
+		os.WriteFile(proj.WorkflowFile, []byte("playtest: "+v+"\n"+strings.TrimPrefix(string(wf), "playtest: agents\n")), 0o644)
+		a := ownerAttention(&proj, issue)
+		if a.PlaytestDue || len(a.Playtests) > 0 {
+			t.Fatalf("playtest: %s: still due for the owner: %+v", v, a)
+		}
+		if !a.ChecksDue {
+			t.Fatalf("playtest: %s: guided checks dropped too: %+v", v, a)
+		}
+		for _, it := range waitingOnOwner(&proj, issues) {
+			if it.Kind == "playtest" {
+				t.Fatalf("playtest: %s: waiting = %+v", v, it)
+			}
+		}
+	}
+}
+
 func TestNeedsYouChecks(t *testing.T) {
 	in := tabInput(&tracker.Issue{Slug: "cli/lead-tab", Status: "human-testing"})
 	in.Project = "chk"

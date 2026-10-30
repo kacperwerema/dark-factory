@@ -196,6 +196,26 @@ template has opt-in wording to adapt.
 - **Human-testing prompt:** the owner runs `make playtest ISSUE=<slug>`, then
   `make playtest-report ISSUE=<slug> APPLY=1`.
 
+### Playtests for the agents only (`playtest:`)
+
+A top-level `playtest:` key in `workflow.yaml` says who runs the sessions:
+
+```yaml
+playtest: agents   # owner (default) | agents | off
+```
+
+- `owner` (or no key): agents run `make ux-test`, the owner runs
+  `make playtest`. An issue in human-testing with a session that has no
+  judged run shows "Playtest <slug>" in Waiting on you, a playtest step on
+  the issue page and a playtest marker on its card.
+- `agents`: agents still write sessions and run `make ux-test`; nothing asks
+  the owner to run one. Reword the human-testing prompt so it doesn't either.
+- `off`: the project has no playtests; same for the owner as `agents`.
+
+Code that shows an owner-facing playtest action asks
+`wf.PlaytestForOwner()` (internal/tracker) rather than reading the key.
+This repo's own workflow.yaml sets `playtest: agents`.
+
 ## Building one for your project
 
 1. **Label what steps point at.** Give every element a stable id
