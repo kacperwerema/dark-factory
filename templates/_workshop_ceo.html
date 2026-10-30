@@ -1,0 +1,186 @@
+{{/*
+CEO chat components (L1 · HQ, /p/<project>/lead; models in ceo_chat.go and
+ceo_pane.go, styles under "L1: the CEO chat" in static/workshop.css, JS in
+static/ceo-chat.js).
+
+  wb/ceo-title        the CEO, live, mode, view toggle, Open in tmux   data: CEOTitle
+  wb/ceo-conv         the conversation (turns, working line)           data: CEOLive
+  wb/turn-you         the owner's message                              data: CEOTurn
+  wb/turn-ceo         the CEO's paragraphs and folded tools            data: CEOTurn
+  wb/ceo-working      the CEO at work, with Interrupt                  data: *CEOWorking
+  wb/ceo-terminal     the raw pane                                     data: CEOLive
+  wb/choice-card      a menu the CEO waits on                          data: *CEOPrompt
+  wb/composer         the message box                                  data: CEOComposer
+  wb/session-controls the session's keys                               data: CEOChatPage
+  wb/ceo-side         the right panel                                  data: CEOLive
+  wb/waiting-band     Waiting on you                                   data: []LeadWaiting
+  wb/ceo-questions    the CEO's latest questions                       data: []string
+  wb/ceo-workers      the project's live workers                       data: []CEOWorker
+  wb/ceo-live         the polled parts, one <template> each            data: CEOLive
+  wb/ceo-card         one project's CEO on /leads                      data: LeadRow
+*/}}
+
+{{define "wb/ceo-title"}}
+<div class="wb-ground wb-ceo-band">
+    <div class="wb-ceo-big{{if not .Live}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><svg width="22" height="14" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
+    <div class="wb-ceo-name">
+        <h1 class="wb-h1">CEO</h1>
+        <div class="wb-ceo-meta">
+            <span class="wb-mono-inline" data-testid="lead_chat.session">{{.Display}}</span>
+            {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="lead_chat.state"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle" data-testid="lead_chat.state">not running</span>{{end}}
+            {{if .Live}}<span class="wb-chip wb-chip--plain" title="Claude Code's permission mode (shift+tab cycles it)" data-testid="lead_chat.mode">session mode: <span data-mode-label>{{.Mode}}</span></span>{{end}}
+        </div>
+    </div>
+    <div class="wb-grow"></div>
+    <div class="wb-toggle" role="group" aria-label="View">
+        <button type="button" class="wb-toggle-btn wb-toggle-on" aria-pressed="true" data-view="conversation" data-testid="lead_chat.view.conversation">Conversation</button>
+        <button type="button" class="wb-toggle-btn" aria-pressed="false" data-view="terminal" data-testid="lead_chat.view.terminal">Terminal</button>
+    </div>
+    {{if .Live}}<button type="button" class="wb-btn wb-btn--outline" data-open-tmux="{{.OpenURL}}" data-session="{{.Session}}" data-testid="lead_chat.open_tmux">Open in tmux</button>{{end}}
+</div>
+{{end}}
+
+{{define "wb/ceo-conv"}}
+{{if not .Live}}<div class="wb-ceo-empty" data-testid="lead_chat.not_live">
+    <p><b>The CEO is not running.</b> Start it to talk to it here; nothing you type is sent until it runs.</p>
+    <div data-spawn-box><button type="button" class="wb-btn wb-btn--ink" data-spawn-lead="{{.SpawnURL}}" data-testid="lead_chat.spawn">Start the CEO</button><div class="wb-site-msg" role="status"></div></div>
+</div>{{else}}
+{{if .Pane.Older}}<div class="wb-ceo-older" data-testid="lead_chat.older">Older turns scrolled out of the capture: they are in tmux.</div>{{end}}
+{{range .Pane.Turns}}{{if eq .From "you"}}{{template "wb/turn-you" .}}{{else}}{{template "wb/turn-ceo" .}}{{end}}{{else}}<div class="wb-empty" data-testid="lead_chat.empty">Nothing said yet: the conversation shows up here once you or the CEO write.</div>{{end}}
+{{with .Pane.Working}}{{template "wb/ceo-working" .}}{{end}}
+{{end}}
+{{end}}
+
+{{define "wb/turn-you"}}
+<div class="wb-turn wb-turn--you" data-testid="lead_chat.turn.you">
+    <div class="wb-turn-main">
+        <div class="wb-turn-meta">You</div>
+        <div class="wb-turn-bubble">{{index .Text 0}}</div>
+    </div>
+    <div class="wb-turn-av wb-turn-av--you" aria-hidden="true">YOU</div>
+</div>
+{{end}}
+
+{{define "wb/turn-ceo"}}
+<div class="wb-turn wb-turn--ceo" data-testid="lead_chat.turn.ceo">
+    <div class="wb-turn-av wb-turn-av--ceo" aria-hidden="true"></div>
+    <div class="wb-turn-main">
+        <div class="wb-turn-meta">CEO</div>
+        {{range .Text}}<p class="wb-turn-p">{{.}}</p>{{end}}
+        {{with .ToolSummary}}<div class="wb-turn-tools" data-testid="lead_chat.tools">{{.}}</div>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "wb/ceo-working"}}
+<div class="wb-turn wb-turn--working" data-testid="lead_chat.working">
+    <div class="wb-turn-av wb-turn-av--ceo wb-bob" aria-hidden="true"></div>
+    <div class="wb-working">
+        <span class="wb-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>{{.Text}}</span>
+        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-key="Escape" data-testid="lead_chat.interrupt">Interrupt (Esc)</button>
+    </div>
+</div>
+{{end}}
+
+{{define "wb/ceo-terminal"}}<pre class="wb-terminal" data-testid="lead_chat.pane">{{if .Live}}{{.Raw}}{{else}}The CEO is not running.{{end}}</pre>{{end}}
+
+{{define "wb/choice-card"}}
+<div class="wb-choice" role="group" aria-labelledby="wb-choice-q" data-testid="lead_chat.prompt">
+    <div class="wb-choice-head">
+        <span class="wb-choice-bang wb-ping">!</span>
+        <span id="wb-choice-q" class="wb-choice-title">CEO waits on your choice</span>
+        {{with .Title}}<span class="wb-chip wb-chip--plain">{{.}}</span>{{end}}
+        <span class="wb-choice-hint">in the terminal: keys 1–{{len .Choices}}, Esc cancels</span>
+    </div>
+    {{with .Detail}}<code class="wb-choice-cmd">{{range $i, $l := .}}{{if $i}}<br>{{end}}{{$l}}{{end}}</code>{{end}}
+    <div class="wb-choice-q">{{.Question}}</div>
+    <div class="wb-choice-opts">
+        {{range $i, $c := .Choices}}<button type="button" class="wb-choice-opt{{if .Selected}} wb-choice-opt--on{{end}}" data-key="{{.Key}}" data-testid="lead_chat.prompt.choice.{{$i}}"><span class="wb-choice-key">{{.Key}}</span><span>{{.Text}}</span></button>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "wb/composer"}}
+<form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
+    <label for="ceo-text" class="wb-sr">Message to the CEO</label>
+    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the CEO… Enter sends, Shift+Enter is a new line.{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
+    <div class="wb-composer-bar">
+        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-key="ShiftTab" title="Cycles Claude Code's permission mode (shift+tab)" {{if not .Live}}disabled{{end}} data-testid="lead_chat.mode_switch">Mode: <span data-mode-label></span> · switch</button>
+        <span class="wb-grow"></span>
+        <button type="button" class="wb-btn wb-btn--outline" data-send-now title="Send, then ctrl+x ctrl+s: a busy CEO takes it now instead of queuing it" {{if not .Live}}disabled{{end}} data-testid="lead_chat.send_now">Send now</button>
+        <button type="submit" class="wb-btn wb-btn--ink" {{if not .Live}}disabled{{end}} data-testid="lead_chat.send">Send</button>
+    </div>
+    <div class="wb-site-msg" role="status" data-testid="lead_chat.status"></div>
+</form>
+{{end}}
+
+{{define "wb/session-controls"}}
+<div class="wb-controls" role="group" aria-label="Session controls">
+    <span class="wb-controls-label">Controls</span>
+    {{range .Controls}}<button type="button" class="wb-ctl{{if .Danger}} wb-ctl--danger{{end}}" data-key="{{.Key}}"{{if .Danger}} data-confirm="Stop the CEO's current work with Ctrl+C? A second Ctrl+C would close the session, so it is refused for 5 s."{{end}} title="{{.Title}}" {{if not $.Composer.Live}}disabled{{end}} data-testid="lead_chat.key.{{.TestID}}">{{.Label}}{{with .Hint}}<span class="wb-kbd">{{.}}</span>{{end}}</button>{{end}}
+    <span class="wb-controls-keys">{{range .Keys}}<button type="button" class="wb-ctl wb-ctl--key" data-key="{{.Key}}" title="{{.Title}}" {{if not $.Composer.Live}}disabled{{end}} data-testid="lead_chat.key.{{.TestID}}">{{.Label}}</button>{{end}}</span>
+</div>
+{{end}}
+
+{{define "wb/ceo-side"}}
+{{template "wb/waiting-band" .Side.Waiting}}
+{{template "wb/ceo-questions" .Side.Questions}}
+{{template "wb/ceo-workers" .Side.Workers}}
+<div class="wb-ceo-attach" data-testid="lead_chat.attach">From a terminal: <span class="wb-mono-inline">{{.Side.AttachCmd}}</span></div>
+{{end}}
+
+{{define "wb/waiting-band"}}
+<div class="wb-wait{{if .}} wb-wait--on{{end}}" id="waiting" data-testid="lead_chat.waiting">
+    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{end}}</div>
+    {{range .}}<a class="wb-wait-row" href="{{.ActionURL}}" data-testid="lead_chat.waiting.{{.Kind}}.{{tid .Slug}}"><span class="wb-kind wb-kind--you">{{.Action}}</span><span class="wb-wait-title">{{.Title}}</span><span class="wb-wait-detail">{{.Detail}} · {{.Age}}</span></a>{{end}}
+</div>
+{{end}}
+
+{{define "wb/ceo-questions"}}
+<div class="wb-side-sec" data-testid="lead_chat.questions">
+    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small">CEO's questions</h2><span class="wb-muted">latest in the pane</span></div>
+    {{range .}}<div class="wb-q">
+        <div class="wb-q-text">{{.}}</div>
+        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-answer="{{.}}" data-testid="lead_chat.question.answer">Answer in chat</button>
+    </div>{{else}}<div class="wb-empty">No open question from the CEO in its pane.</div>{{end}}
+    {{if .}}<div class="wb-side-note">The button only starts your reply in the box, in your words; nothing is sent until you press Send.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/ceo-workers"}}
+<div class="wb-side-sec" data-testid="lead_chat.workers">
+    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small">Working in the background</h2><span class="wb-muted">{{plural (len .) "worker" "workers"}}</span></div>
+    {{range .}}<div class="wb-worker" data-testid="lead_chat.worker">
+        {{template "wb/robot" .Robot}}
+        <div class="wb-worker-main">
+            {{with .Issue}}<a class="wb-worker-title" href="{{.URL}}">{{.Title}}</a><span class="wb-worker-meta"><span class="wb-mono-inline">{{.Slug}}</span> · {{.Status}}</span>{{else}}<span class="wb-worker-title wb-mono-inline">{{.Name}}</span>{{end}}
+            <span class="wb-worker-state wb-worker-state--{{.Robot.State}}">{{.State}}</span>
+        </div>
+    </div>{{else}}<div class="wb-empty">No worker is running.</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/ceo-live"}}
+<div data-live="{{if .Live}}1{{else}}0{{end}}" data-mode="{{ceoMode .Pane.Mode}}">
+<template data-part="conv">{{template "wb/ceo-conv" .}}</template>
+<template data-part="term">{{template "wb/ceo-terminal" .}}</template>
+<template data-part="prompt">{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}</template>
+<template data-part="side">{{template "wb/ceo-side" .}}</template>
+</div>
+{{end}}
+
+{{define "wb/ceo-card"}}
+<div class="wb-ceo-card" data-testid="leads.row.{{tid .Slug}}">
+    <div class="wb-ceo-big{{if not .Live}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><svg width="22" height="14" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
+    <div class="wb-ceo-card-main">
+        <div class="wb-ceo-card-name">{{.Name}}</div>
+        <span class="wb-mono-inline">{{.Session}}</span>
+        <div class="wb-ceo-meta">
+            {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="leads.row.{{tid .Slug}}.live"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}
+            {{if .Waiting}}<span class="wb-chip wb-chip--you">{{.Waiting}} waiting on you</span>{{else}}<span class="wb-chip wb-chip--idle">nothing waiting</span>{{end}}
+        </div>
+    </div>
+    <a class="wb-btn wb-btn--ink" href="{{.ChatURL}}" data-testid="leads.row.{{tid .Slug}}.chat">Talk to the CEO</a>
+</div>
+{{end}}

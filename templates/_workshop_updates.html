@@ -1,0 +1,126 @@
+{{/*
+Workshop Board components of the hall's Updates screen (updates_wb.go has their
+view models, static/workshop.css their styles under "L2: updates"). The forms
+post to the classic tab's endpoints: updates/install, updates/decline,
+updates/reopen.
+
+  wb/upd-flash      the line after a click, with Undo      data: WbUpgradeFlash
+  wb/delivery       template@version → the engine's        data: WbDelivery
+  wb/upgrade-tree   a square per feature                   data: WbUpgradeTree
+  wb/filters        group filter pills with counts         data: []WbFilterChip
+  wb/unlocks        what a feature unlocks, linked         data: []WbUnlock
+  wb/upgrade-card   one proposed feature and its actions   data: WbUpgradeCard
+  wb/upgrade-more   the "N more" row                       data: WbUpgradeMore
+  wb/declined       declined features with Re-open         data: []WbDeclinedRow
+*/}}
+
+{{define "wb/upd-flash"}}{{if .Text}}<div class="upd-flash{{if .Error}} upd-flash--error{{end}}" role="status" data-testid="upd.flash"><span>{{.Text}}</span>{{if .Undo}}<form method="post" action="{{.Prefix}}/updates/reopen"><input type="hidden" name="id" value="{{.Undo}}"><button type="submit" class="upd-linkbtn" data-testid="upd.undo">Undo</button></form>{{end}}</div>{{end}}{{end}}
+
+{{define "wb/delivery"}}
+<div class="upd-box upd-delivery" data-testid="upd.delivery">
+    <svg class="upd-truck" width="34" height="26" viewBox="0 0 24 18" fill="none" stroke="#1B1F2A" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M1 2h13v11H1zM14 6h5l4 4v3h-9z" fill="#E9D7B5"/><circle cx="6" cy="15" r="2" fill="#fff"/><circle cx="18" cy="15" r="2" fill="#fff"/></svg>
+    <div class="upd-box-main">
+        <div class="upd-label">Delivery from the engine</div>
+        <div class="upd-delivery-line"><span class="upd-mono">{{.From}} → {{.To}}</span>{{with .State}}{{template "wb/chip" .}}{{end}}</div>
+    </div>
+</div>
+{{end}}
+
+{{define "wb/upgrade-tree"}}
+<div class="upd-box upd-tree" data-testid="upd.tree">
+    <div class="upd-tree-head">
+        <span class="upd-label">Upgrade tree</span>
+        <span class="upd-tree-count"><b>{{.Installed}}</b> installed · {{.Declined}} declined{{if not .Recorded}} <span class="wb-muted">(detected: no features record yet)</span>{{end}}</span>
+        {{if .ToDecide}}<span class="upd-tree-pill">{{template "wb/chip" .Pill}}</span>{{end}}
+    </div>
+    <div class="upd-squares" role="img" aria-label="{{.Installed}} installed, {{.Declined}} declined, {{.ToDecide}} to decide">{{range .Squares}}<span class="upd-sq upd-sq--{{.State}}" title="{{.Label}}"></span>{{end}}</div>
+</div>
+{{end}}
+
+{{define "wb/filters"}}{{if .}}<nav class="upd-filters" aria-label="Group" data-testid="upd.filters">{{range .}}<a class="upd-filter{{if .Active}} upd-filter--on{{end}}" href="{{.URL}}"{{if .Active}} aria-current="true"{{end}} data-testid="upd.filter.{{tid .TestID}}">{{.Label}} · {{.Count}}</a>{{end}}</nav>{{end}}{{end}}
+
+{{define "wb/unlocks"}}{{if .}}
+<div class="upd-unlocks">
+    <div class="upd-unlocks-label">Unlocks</div>
+    {{range .}}<a class="upd-unlock" href="{{.URL}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg><span>{{.Text}}</span></a>{{end}}
+</div>
+{{end}}{{end}}
+
+{{define "wb/upgrade-card"}}
+<article class="upd-card" aria-label="{{.ID}}" data-testid="upd.card.{{tid .ID}}">
+    <div class="upd-card-head">
+        <div class="upd-badge upd-badge--{{.Group}}" aria-hidden="true">{{.Letter}}</div>
+        <div class="upd-card-titles">
+            <h3 class="upd-card-title">{{if eq .Kind "update"}}Update: {{end}}{{.Title}}</h3>
+            <div class="upd-card-meta">
+                <span class="upd-mono-sm">{{.ID}}@{{.Version}}</span>
+                {{template "wb/chip" .GroupChip}}
+                {{with .HaveChip}}{{template "wb/chip" .}}{{end}}
+                {{if .Installing}}<span data-testid="upd.card.{{tid .ID}}.installing">{{template "wb/chip" .InstallingChip}}</span>{{end}}
+            </div>
+        </div>
+    </div>
+    <p class="upd-card-text">{{.SummaryHTML}}</p>
+    {{with .Key}}<code class="upd-key" title="{{$.Where}}">{{.}}</code>{{end}}
+    {{if .Unlocks}}<div data-testid="upd.card.{{tid .ID}}.unlocks">{{template "wb/unlocks" .Unlocks}}</div>{{end}}
+    {{if .Installing}}<p class="upd-running" data-testid="upd.card.{{tid .ID}}.session"><span class="upd-mono-sm">{{.Session}}</span> is installing it with you. Attach: <code>{{.AttachCmd}}</code> · <a href="{{.Prefix}}/agents">Agents</a>. The card leaves once <code>workflow scan</code> records it.</p>{{end}}
+    <div class="wb-grow"></div>
+    <div class="upd-actions">
+        {{if not .Installing}}
+        <details class="upd-act"{{if .Open}} open{{end}}>
+            <summary class="upd-btn upd-btn--ink" data-testid="upd.card.{{tid .ID}}.install">Install with an agent</summary>
+            <form method="post" action="{{.Prefix}}/updates/install" class="upd-panel">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <p>An agent starts in tmux in this project's checkout, asks you the question below, edits workflow.yaml, runs <code>issue-cli process workflow</code> and <code>workflow scan</code>, and shows you the diff. It commits only when you say so.</p>
+                <label for="upd-words-{{.ID}}" class="upd-label">Your answer to "{{.Question}}" (optional)</label>
+                <textarea id="upd-words-{{.ID}}" name="words" rows="2" data-testid="upd.card.{{tid .ID}}.words"></textarea>
+                <button type="submit" class="upd-btn upd-btn--ink" data-testid="upd.card.{{tid .ID}}.start">Start the agent</button>
+            </form>
+        </details>
+        {{end}}
+        <details class="upd-act" data-testid="upd.card.{{tid .ID}}.details">
+            <summary class="upd-btn">Details</summary>
+            <div class="upd-panel">
+                <dl class="upd-dl">
+                    <dt>What</dt><dd>{{.WhatHTML}}</dd>
+                    <dt>Why</dt><dd>{{.WhyHTML}}</dd>
+                    <dt>Where</dt><dd><code>{{.Where}}</code></dd>
+                    <dt>Ask</dt><dd>{{.Question}}</dd>
+                </dl>
+                <pre class="upd-snippet">{{.Snippet}}</pre>
+                {{if .Setup}}<div class="upd-setup"><span class="upd-label">What installing does</span><ol>{{range .Steps}}<li>{{template "wb/chip" .Who}} {{.Do}}</li>{{end}}</ol></div>{{end}}
+            </div>
+        </details>
+        {{if not .Installing}}
+        <form method="post" action="{{.Prefix}}/updates/decline" class="upd-decline">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="upd-linkbtn" data-testid="upd.card.{{tid .ID}}.decline">Decline</button>
+        </form>
+        {{end}}
+    </div>
+</article>
+{{end}}
+
+{{define "wb/upgrade-more"}}{{if .Count}}
+<section class="upd-more" aria-label="More to decide" data-testid="upd.more">
+    <h2 class="upd-more-title">{{.Count}} more</h2>
+    <span class="upd-more-groups">{{range $i, $g := .Groups}}{{if $i}} · {{end}}{{$g}}{{end}}</span>
+    <a class="upd-btn upd-more-btn" href="{{.ShowURL}}" data-testid="upd.show_all">Show all</a>
+</section>
+{{end}}{{end}}
+
+{{define "wb/declined"}}{{if .}}
+<section class="upd-declined" aria-label="Declined" data-testid="upd.declined">
+    <h2 class="upd-more-title">Declined · {{len .}} <span class="wb-muted">never proposed again until re-opened</span></h2>
+    {{range .}}
+    <div class="upd-declined-row{{if .Just}} upd-declined-row--just{{end}}" data-testid="upd.declined.{{tid .ID}}">
+        <span class="upd-mono-sm">{{.ID}}</span>
+        <span class="wb-muted">{{.Title}}{{if .Just}} · just now{{end}}</span>
+        <form method="post" action="{{.Prefix}}/updates/reopen">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="upd-btn upd-btn--sm" data-testid="upd.declined.{{tid .ID}}.reopen">Re-open</button>
+        </form>
+    </div>
+    {{end}}
+</section>
+{{end}}{{end}}

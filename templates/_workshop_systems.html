@@ -1,0 +1,77 @@
+{{/*
+Workshop Board components of the Systems page (L2, systems_wb.go has their
+view models, static/workshop.css the "L2: systems" block their styles).
+
+  wb/figures      big numbers with labels                    data: []WbFigure
+  wb/crate-dot    an issue as a small crate, by its state    data: WbCrateDot
+  wb/crate-legend what the crate colours mean                data: []WbCrateKey
+  wb/code-chip    a file on a workshop's CODE row            data: WbCodeChip
+  wb/workshop     a system as a workshop card                data: WbWorkshop
+  wb/code-file    a file on the code map                     data: WbCodeFile
+  wb/code-package a package on the code map                  data: WbCodePackage
+  wb/code-map     packages → files → systems (a draft)       data: WbCodeMap
+  wb/warning      a red note                                 data: *WbWarning
+  wb/unlock-card  a locked feature and its action            data: *WbUnlockCard
+*/}}
+
+{{define "wb/figures"}}<div class="wb-figures">{{range .}}<div class="wb-figure"><div class="wb-figure-num{{with .Tone}} wb-figure-num--{{.}}{{end}}">{{.Value}}</div><div class="wb-figure-label">{{.Label}}</div></div>{{end}}</div>{{end}}
+
+{{define "wb/crate-dot"}}{{if .URL}}<a class="wb-cdot wb-cdot--{{.State}}" href="{{.URL}}" title="{{.Title}}" aria-label="{{.Title}}"></a>{{else}}<span class="wb-cdot wb-cdot--{{.State}}"{{with .Title}} title="{{.}}"{{end}}></span>{{end}}{{end}}
+
+{{define "wb/crate-legend"}}<div class="wb-cdot-legend" data-testid="systems.wb.legend">{{range .}}<span>{{template "wb/crate-dot" .Dot}}{{.Label}}</span>{{end}}</div>{{end}}
+
+{{define "wb/code-chip"}}<span class="wb-code-chip" title="{{.Path}}{{if .Hot}} · hot{{end}}">{{.Name}}{{if .Hot}}<i class="wb-hot-dot" aria-label="hot"></i>{{end}}</span>{{end}}
+
+{{define "wb/workshop"}}
+<article class="wb-workshop" data-testid="systems.wb.card.{{tid .Name}}">
+    <div class="wb-workshop-head">
+        <h2 class="wb-workshop-name"><a href="{{.URL}}">{{.Name}}</a></h2>
+        <span class="wb-grow"></span>
+        {{if .Gates}}<span class="wb-gates-pill" title="{{.GatesTitle}}" data-testid="systems.wb.gates">{{plural .Gates "gate" "gates"}}</span>{{end}}
+        <span class="wb-workshop-counts">{{.Open}} open · {{.Done}} done</span>
+    </div>
+    <div class="wb-crates" role="img" aria-label="{{.Aria}}" data-testid="systems.wb.crates">{{range .Crates}}{{template "wb/crate-dot" .}}{{end}}{{if .More}}<span class="wb-cdot-more">+{{.More}}</span>{{end}}</div>
+    <div class="wb-code-row" data-testid="systems.wb.code"><span class="wb-code-label">CODE</span>{{range .Code}}{{template "wb/code-chip" .}}{{else}}<span class="wb-code-chip wb-code-chip--none">no file named in its issues</span>{{end}}</div>
+    <div class="wb-workshop-foot">
+        <a href="{{.DecisionsURL}}" data-testid="systems.wb.decisions">Decisions · {{.Decisions}}</a>
+        <a href="{{.LineURL}}" data-testid="systems.wb.line">On the line</a>
+        {{with .Note}}<span class="wb-workshop-note">{{.}}</span>{{end}}
+    </div>
+</article>
+{{end}}
+
+{{define "wb/code-file"}}<div class="wb-code-file"><span class="wb-code-file-name" title="{{.Path}}">{{.Name}}</span>{{if .Hot}}<span class="wb-flag wb-flag--hot" title="a hotspot">hot</span>{{end}}{{if .Shared}}<span class="wb-flag wb-flag--shared" title="named by several systems' issues">shared</span>{{end}}<span class="wb-code-file-sys"{{if eq .Systems "?"}} title="no system's issues name it"{{else if .SystemsTitle}} title="{{.SystemsTitle}}"{{end}}>{{.Systems}}</span></div>{{end}}
+
+{{define "wb/code-package"}}
+<div class="wb-code-pkg">
+    <div class="wb-code-pkg-name">{{.Name}}</div>
+    {{range .Files}}{{template "wb/code-file" .}}{{end}}
+    {{if .More}}<div class="wb-code-file wb-code-file--more">+{{.More}} more files</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/code-map"}}
+<div class="wb-code-map" data-testid="systems.wb.codemap">
+    <div class="wb-code-map-head">
+        <h2 class="wb-h2 wb-h2--lg">Code map</h2>
+        <div class="wb-note">{{if .Draft}}Which packages belong to which systems. <b>Draft</b>: read from the files each system's issues name; nothing confirms it in workbench.systems yet.{{else}}{{.Note}}{{end}}</div>
+    </div>
+    {{with .Empty}}<div class="wb-code-empty" data-testid="systems.wb.codemap.empty">{{.}}</div>{{end}}
+    {{range .Packages}}{{template "wb/code-package" .}}{{end}}
+    {{if .More}}<div class="wb-note">+{{.More}} more files in other packages</div>{{end}}
+    {{if .Packages}}<div class="wb-note">{{.HotSource}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/warning"}}{{with .}}<div class="wb-warning" role="note" data-testid="systems.wb.shared_hot"><b>{{.Title}}</b> {{range .List}}{{.Sep}}<span class="wb-mono-inline">{{.Text}}</span>{{end}} {{.Text}}</div>{{end}}{{end}}
+
+{{define "wb/unlock-card"}}{{with .}}
+<form class="wb-unlock" data-send="{{.SendURL}}" data-testid="systems.wb.unlock">
+    <div class="wb-unlock-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{{.Title}}</div>
+    <div class="wb-unlock-text">{{.Text}}</div>
+    <input type="hidden" name="text" value="{{.Message}}">
+    <button type="submit" class="wb-btn wb-btn--paper wb-unlock-btn" title="{{.Message}}" {{if not .Live}}disabled{{end}} data-testid="systems.wb.unlock.send">{{.Button}}</button>
+    {{with .Note}}<div class="wb-unlock-note">{{.}}</div>{{end}}
+    <div class="wb-site-msg" role="status"></div>
+</form>
+{{end}}{{end}}

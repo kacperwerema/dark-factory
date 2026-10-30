@@ -189,7 +189,7 @@ func TestReleaseCandidateSoakOnTheEngine(t *testing.T) {
 	stubAgentsGit(t)
 	ts := newTestServer(t, projects)
 	defer ts.Close()
-	_, page := getResp(t, ts.URL+"/p/rel/status")
+	_, page := getResp(t, ts.URL+"/p/rel/status?classic=1")
 	_, md := getResp(t, ts.URL+"/p/rel/status.md")
 
 	wantAll(t, "page", page,

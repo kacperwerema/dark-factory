@@ -11,15 +11,34 @@ import (
 )
 
 type Project struct {
-	Name         string `yaml:"name"`
-	Slug         string `yaml:"slug"`
-	IssueDir     string `yaml:"issues"`
-	DocsDir      string `yaml:"docs"`
-	WorkflowFile string `yaml:"workflow"`
-	Version      string `yaml:"version"`
-	WorkDir      string `yaml:"workdir"`
-	I3Workspace  string `yaml:"i3_workspace"`
-	Terminal     string `yaml:"terminal"`
+	Name string `yaml:"name"`
+	Slug string `yaml:"slug"`
+	// Kind is a few words on what the project is ("aplikacja PWA", "gra
+	// mobilna"), shown on the project's lot on the map (L0). Optional.
+	Kind string `yaml:"kind"`
+	// Color is the project's colour on the map (#RRGGBB). Optional: without
+	// it the map gives each project the next colour of its palette.
+	Color string `yaml:"color"`
+	// Description is a sentence on what the project is for, shown on its
+	// lot while it is still a building site (no issues yet). Optional.
+	Description string `yaml:"description"`
+	// Departments are the project's departments besides the two every
+	// project has (HQ with the CEO, and Product, the software factory).
+	// Optional: without them the board shows only HQ and Product.
+	Departments []Department `yaml:"departments"`
+	// Company is HQ's mission, role prompt and business goals; optional.
+	Company *Company `yaml:"company"`
+	// Product is the departments: entry named Product, taken out of
+	// Departments on load: it gives Product a mission, prompt and goals but
+	// Product still owns every issue no other department claims.
+	Product      *Department `yaml:"-"`
+	IssueDir     string      `yaml:"issues"`
+	DocsDir      string      `yaml:"docs"`
+	WorkflowFile string      `yaml:"workflow"`
+	Version      string      `yaml:"version"`
+	WorkDir      string      `yaml:"workdir"`
+	I3Workspace  string      `yaml:"i3_workspace"`
+	Terminal     string      `yaml:"terminal"`
 	// TmuxSession, when set, runs dispatched agents (and nvim edits) as
 	// windows inside this one shared tmux session instead of one session per
 	// agent. A terminal is only opened when nobody is attached to it yet.
@@ -163,11 +182,15 @@ func (p *Project) LoadWorkflowForSystem(system string) *WorkflowConfig {
 	return p.LoadWorkflow().ForSystem(system)
 }
 
+// LoadWorkflowForIssue is the workflow issue walks (WorkflowForIssue). When
+// its department's file doesn't load it is a config with no statuses and
+// LoadErr set, so nothing moves and callers that check LoadErr can say why.
 func (p *Project) LoadWorkflowForIssue(issue *Issue) *WorkflowConfig {
-	if issue == nil {
-		return p.LoadWorkflow()
+	wf, err := p.WorkflowForIssue(issue)
+	if err != nil {
+		return p.brokenWorkflow(p.DepartmentOf(issue), err)
 	}
-	return p.LoadWorkflow().ForIssue(issue)
+	return wf
 }
 
 // ProjectsConfig is projects.yaml. The top-level keys are machine-wide
@@ -235,6 +258,7 @@ func LoadProjectsConfig(configPath string) (*ProjectsConfig, error) {
 		if p.Slug == "" {
 			p.Slug = Slugify(p.Name)
 		}
+		p.takeProduct()
 		if strings.TrimSpace(p.Terminal) == "" {
 			p.Terminal = cfg.Terminal
 		}
@@ -269,4 +293,105 @@ func normalizeViewerURL(raw string) (string, error) {
 		return "", fmt.Errorf("viewer_url must be an http:// or https:// URL with a host, got %q", raw)
 	}
 	return strings.TrimRight(raw, "/"), nil
+}
+
+// Department is one of a project's departments besides HQ and Product: a
+// building on the map and a room in the company. Its work is the issues
+// with department: <name> in their frontmatter, or in one of its systems.
+type Department struct {
+	Name string `yaml:"name"`
+	// Color is the department's colour (#RRGGBB); optional.
+	Color string `yaml:"color"`
+	// Role is a sentence on what the department does; optional.
+	Role string `yaml:"role"`
+	// Systems are the issue systems whose issues belong to the department.
+	Systems []string `yaml:"systems"`
+	// Mission is what the department is for, in a sentence; optional.
+	Mission string `yaml:"mission"`
+	// Prompt is the markdown file (relative to the project root) a lead or
+	// agent of the department starts with; optional.
+	Prompt string `yaml:"prompt"`
+	// Goals are the department's goals / KPIs (internal/goals reads them).
+	Goals []Goal `yaml:"goals"`
+	// Workflow is the department's own workflow file, relative to the
+	// project root (WorkflowFor); unset, it runs on Product's workflow.
+	Workflow string `yaml:"workflow"`
+}
+
+// Company is HQ: the business's mission, the CEO's role prompt and the
+// business goals the departments' goals roll up into.
+type Company struct {
+	Mission string `yaml:"mission"`
+	Prompt  string `yaml:"prompt"`
+	Goals   []Goal `yaml:"goals"`
+}
+
+// Goal is one goal / KPI of HQ or a department. See docs/departments.md.
+type Goal struct {
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+	// Target is the number to reach; nil shows the value without a bar.
+	Target *float64 `yaml:"target"`
+	// Unit is shown with the value (pct as %); free text otherwise.
+	Unit string `yaml:"unit"`
+	// Period is week, month, quarter or none (the default): the value shown
+	// is the newest of the current period, an older one is stale.
+	Period string `yaml:"period"`
+	// Direction is up (the default: more is better) or down.
+	Direction string `yaml:"direction"`
+	// Source is manual (the default: issue-cli goal set) or
+	// file:<path>#<metric id>, a JSON file in the metric run format.
+	Source string `yaml:"source"`
+	// RollsUp is the id of the HQ goal this goal counts towards.
+	RollsUp string `yaml:"rolls_up"`
+}
+
+// ProductName is the name of the department every project has that holds
+// today's software work.
+const ProductName = "Product"
+
+// takeProduct moves the departments: entry named Product to p.Product.
+func (p *Project) takeProduct() {
+	var rest []Department
+	for i := range p.Departments {
+		if strings.EqualFold(strings.TrimSpace(p.Departments[i].Name), ProductName) && p.Product == nil {
+			d := p.Departments[i]
+			p.Product = &d
+			continue
+		}
+		rest = append(rest, p.Departments[i])
+	}
+	p.Departments = rest
+}
+
+// Root is the project's folder: workdir, else the issues folder's parent.
+func (p *Project) Root() string {
+	if p.WorkDir != "" {
+		return p.WorkDir
+	}
+	if abs, err := filepath.Abs(p.IssueDir); err == nil {
+		return filepath.Dir(abs)
+	}
+	return filepath.Dir(p.IssueDir)
+}
+
+// DepartmentOf is the name of the department an issue belongs to: its
+// department: field, else the department that lists its system; "" is
+// Product (every issue that belongs nowhere else).
+func (p *Project) DepartmentOf(issue *Issue) string {
+	if name := strings.TrimSpace(issue.Field("department")); name != "" {
+		for _, d := range p.Departments {
+			if strings.EqualFold(d.Name, name) {
+				return d.Name
+			}
+		}
+	}
+	for _, d := range p.Departments {
+		for _, sys := range d.Systems {
+			if strings.EqualFold(strings.TrimSpace(sys), strings.TrimSpace(issue.System)) && issue.System != "" {
+				return d.Name
+			}
+		}
+	}
+	return ""
 }

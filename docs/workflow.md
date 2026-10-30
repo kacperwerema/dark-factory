@@ -503,6 +503,44 @@ System-specific documentation lives in `docs/<System>/` and agents should refere
 - [UI Overview](UI/overview)
 - [Workflow Overview](Workflow/overview)
 
+## Department workflows
+
+A project can split its issues into departments (`departments:` on the project in `projects.yaml`). An issue belongs to a department when it has `department: <name>` or sits in one of the department's `systems:`. Everything else is Product. A department can run on its own workflow file:
+
+```yaml
+projects:
+  - name: "Acme"
+    workflow: "workflow.yaml"           # Product's file
+    departments:
+      - name: "Marketing"
+        systems: ["SEO"]
+        workflow: "workflows/marketing.yaml"   # relative to the project root
+```
+
+- **Without `workflow:`** the department runs on Product's file, as before. A project without departments behaves exactly as it did.
+- **Every read is per issue.** transition, start, check, show, approve, done, prove, the dispatch prompt, the issue page and the station read the issue's own file. System overlays and `types:` work inside a department file as they do in Product's.
+- **Only the lifecycle lives in a department file:** statuses, transitions, prompts, types, systems, board. The project-wide keys (`workbench`, `ci`, `health`, `privacy`, `leads`, `project_actions`, `allow_shell`) are always taken from Product's file. `health lint` warns when one shows up in a department file. `worktree:` is the exception: a department file may set its own (content work may not need a code worktree), else Product's applies.
+- **No fallback.** A missing or broken department file is an error that names the file. Commands on that department's issues stop, and its room in the viewer shows an error chip. Product's issues are not affected.
+- **Statuses are keyed by (department, status).** `done` can be in both files. The Product board and hall show only Product's issues. Each department room draws its own line, and the Board's **Workflow** switch (`?department=<name>`) shows one file's columns at a time. Columns are never merged across departments.
+- **Epics across departments.** A child counts as done when it reaches the last status of its own file's path.
+- **Moving an issue** to another department (`set-meta --key department|system`, or the issue page) is refused when its status isn't in the target file. The error lists the target's statuses and the retry: `issue-cli set-meta <slug> --key department --value Marketing --status brief`.
+
+Commands that take `--department <name>`: `create` (and `--status` is checked against that file), `list`, `process workflow|transitions` (without it, on a project with departments, they print Product's lifecycle and list the department files), `workflow upgrade|scan`. `next` lists each department's work under its own heading. `show` and `start` print `Department:` and the file under `Workflow file:`.
+
+### Setting one up
+
+```bash
+issue-cli workflow init --template content --out workflows/marketing.yaml
+# add workflow: workflows/marketing.yaml to the department in projects.yaml
+issue-cli health lint --check department
+```
+
+The lint lists the department's issues whose status isn't in the new file, each with the `set-meta … --status` fix.
+
+The bundled `content` template is for recurring outputs such as posts and SEO pages: `brief → draft → owner review → publish → done`. `owner review → publish` needs the owner's `publish` approval in the viewer, so nothing goes out without the stamp. `owner review → draft` needs a `revise:` comment. `publish` adds `- [ ] Published: link to what went out`, and `publish → done` checks it.
+
+**Known limits.** The canvas, Stats, the timeline aggregate and the Status page order statuses by Product's file: a department's statuses sort after Product's. `next` keeps Product's backlog / in progress / testing buckets for Product's issues.
+
 ## Keeping workflow.yaml up to date
 
 Projects edit their `workflow.yaml` heavily, so a newer issue-cli never overwrites it. Instead:

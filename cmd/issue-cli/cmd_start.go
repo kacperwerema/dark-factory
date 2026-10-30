@@ -58,7 +58,10 @@ func runStart(ctx *Context, args []string) error {
 	if err := ownIssueOnly(ctx, issues, issue, "start"); err != nil {
 		return err
 	}
-	wf := ctx.Project.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	if assignee == "" {
 		assignee = agentNameForSlug(issue.Slug)
 	}
@@ -71,6 +74,10 @@ func runStart(ctx *Context, args []string) error {
 
 	fmt.Fprintf(ctx.Stdout, "== Starting work on: %s ==\n", issue.Title)
 	fmt.Fprintf(ctx.Stdout, "Status: %s%s\n", statusLabel(wf, started.FromStatus), typeLabel(wf))
+	if wf.File != "" {
+		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, wf))
+	}
+	printDepartmentLine(ctx.Stdout, ctx.Project, issue, wf)
 	printTypeWarnings(ctx.Stdout, wf, issue)
 	printLeadLines(ctx, issue)
 	if line := ci.AgentLine(projectRoot(ctx.Project), wf); line != "" {

@@ -161,20 +161,24 @@ func (s *Server) handleUpdates(w http.ResponseWriter, r *http.Request, proj *tra
 		return
 	}
 	q := r.URL.Query()
+	// The hall's Updates screen (updates_wb.go); the classic tab at ?classic=1.
+	if q.Get("classic") != "1" {
+		s.handleUpdatesWb(w, r, proj, prefix, plan)
+		return
+	}
 	data := buildUpdatesData(proj, prefix, plan, q.Get("category"), q.Get("install"))
-	switch {
-	case q.Get("declined") != "":
-		id := q.Get("declined")
-		data.Flash, data.Undo = id+" declined. It won't be proposed again; the record is in workflow.yaml (features.declined).", id
+	for i := range data.Chips {
+		sep := "?"
+		if strings.Contains(data.Chips[i].Href, "?") {
+			sep = "&"
+		}
+		data.Chips[i].Href += sep + "classic=1"
+	}
+	data.Flash, data.Undo, data.FlashErr = updatesFlash(q)
+	if id := q.Get("declined"); id != "" {
 		for i := range data.Declined {
 			data.Declined[i].Just = data.Declined[i].ID == id
 		}
-	case q.Get("reopened") != "":
-		data.Flash = q.Get("reopened") + " re-opened: it is proposed again."
-	case q.Get("installing") != "":
-		data.Flash = "Install agent for " + q.Get("installing") + " started. It asks you its question in tmux; the card leaves the list once workflow scan records it."
-	case q.Get("error") != "":
-		data.Flash, data.FlashErr = q.Get("error"), true
 	}
 	if err := s.tmpl.ExecuteTemplate(w, "updates.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -265,8 +269,13 @@ func buildUpdatesData(proj *tracker.Project, prefix string, plan *workflowupgrad
 }
 
 // updatesRedirect sends the browser back to the tab with a flash key.
+// A form from the classic tab (classic=1) goes back to the classic tab.
 func updatesRedirect(w http.ResponseWriter, r *http.Request, prefix, key, value string) {
-	http.Redirect(w, r, prefix+"/updates?"+key+"="+url.QueryEscape(value), http.StatusSeeOther)
+	to := prefix + "/updates?" + key + "=" + url.QueryEscape(value)
+	if r.FormValue("classic") == "1" {
+		to += "&classic=1"
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
 // handleUpdatesRecord declines (decline) or re-opens (reopen) a feature in

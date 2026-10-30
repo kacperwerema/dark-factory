@@ -20,21 +20,20 @@ func TestProjectPagesRenderSidebar(t *testing.T) {
 	defer ts.Close()
 
 	pages := map[string]string{
-		"/":                     "list",
-		"/board":                "board",
-		"/workboard":            "workboard",
-		"/graph":                "graph",
-		"/canvas":               "canvas",
-		"/agents":               "agents",
-		"/lead":                 "lead",
-		"/docs":                 "docs",
-		"/docs/getting-started": "docs",
-		"/retros":               "retros",
-		"/stats":                "stats",
-		"/github":               "github",
-		"/decisions":            "decisions",
-		"/balance":              "",
-		"/issue/bug-in-login":   "",
+		"/":                               "list",
+		"/board":                          "board",
+		"/workboard":                      "workboard",
+		"/graph":                          "graph",
+		"/canvas":                         "canvas",
+		"/agents":                         "agents",
+		"/docs?classic=1":                 "docs",
+		"/docs/getting-started?classic=1": "docs",
+		"/retros?classic=1":               "retros",
+		"/stats":                          "stats",
+		"/github":                         "github",
+		"/decisions?classic=1":            "decisions",
+		"/balance":                        "",
+		"/issue/bug-in-login?classic=1":   "",
 	}
 	for path, active := range pages {
 		code, html := getBody(t, ts.URL+"/p/test-project"+path)

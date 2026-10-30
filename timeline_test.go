@@ -205,11 +205,15 @@ func TestDetailTabs(t *testing.T) {
 	defer ts.Close()
 	base := ts.URL + "/p/test-project/issue/bug-in-login"
 
-	_, issue := getBody(t, base)
+	_, issue := getBody(t, base+"?classic=1")
 	for _, want := range []string{`data-testid="detail.pagetab.issue" aria-current="true"`, `data-testid="detail.body"`, `data-testid="detail.sidebar"`} {
 		if !strings.Contains(issue, want) {
 			t.Errorf("issue tab: missing %s", want)
 		}
+	}
+	// The classic Issue tab stays on the classic page, not the station.
+	if !strings.Contains(issue, `href="/p/test-project/issue/bug-in-login?classic=1" class="status-tab active" data-testid="detail.pagetab.issue"`) {
+		t.Error("the classic Issue tab must link to ?classic=1")
 	}
 	if strings.Contains(issue, "Agent Timeline") || strings.Contains(issue, `data-testid="timeline.tab"`) {
 		t.Error("issue tab still shows a timeline")

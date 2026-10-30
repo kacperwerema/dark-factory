@@ -1,0 +1,37 @@
+╭───────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code!                     │
+╰───────────────────────────────────────────────╯
+
+> You are the project lead. Read the
+  handoff and resume.
+
+⏺ Read the handoff. Two workers were running.
+
+⏺ Bash(issue-cli status)
+  ⎿  factory/mac-tmux-tests  in progress
+     factory/merge  testing
+     … +4 lines (ctrl+o to expand)
+
+⏺ Bash(issue-cli next)
+  ⎿  nothing ready
+
+⏺ Read(sessions/2026-10-29-lead-session.md)
+  ⎿  Read 80 lines
+
+⏺ Both workers are back. Open:
+  - merge waits on CI
+  - rename waits on merge
+
+  Should I start the rename now?
+
+> Review those and take over. Of course please
+  offload any work to workers.
+
+⏺ On it.
+
+✻ Pondering… (32s · ↓ 1.2k tokens · esc to interrupt)
+
+────────────────────────────────────────────────────
+> 
+────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

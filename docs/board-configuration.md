@@ -22,6 +22,8 @@ board:
 
 If omitted, all statuses defined in `statuses:` are shown in their declared order.
 
+A department with its own workflow file ([Department workflows](workflow#department-workflows)) takes its columns from its own `board:`. The Board's **Workflow** switch (`?department=<name>`, also on the classic board and graph) picks which file's columns and issues are shown; Product is the default.
+
 Issues whose status is not in the column list are hidden from the board (they still appear in the list view).
 
 ## Card Fields

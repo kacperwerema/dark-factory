@@ -14,7 +14,7 @@ steps:
   - id: TP4
     title: Queued issue-cli bug reports show under Needs you, with the command that sends them
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - check: { absent: [status.waiting.cli_bugs] }
       - cli: [report-bug, "Check ticks the wrong box when ids repeat"]
       - cli: [report-bug, "Approve drops the queued approval"]

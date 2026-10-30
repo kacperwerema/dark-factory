@@ -16,12 +16,14 @@ import (
 // first-parent commits (the range the proof checks read) and their files by
 // area.
 type evChange struct {
-	Commits    []evCommit
-	Merges     int
-	Files      int
-	Add, Del   int
-	TestAdd    int
-	Areas      []evArea
+	Commits  []evCommit
+	Merges   int
+	Files    int
+	Add, Del int
+	TestAdd  int
+	Areas    []evArea
+	// PerFile is every file the commits touched, most lines changed first.
+	PerFile    []evFile
 	Range      string
 	Unreadable string
 }
@@ -31,6 +33,12 @@ type evCommit struct {
 	At           time.Time
 	When         string
 	Files        int
+}
+
+// evFile is one file's lines added and deleted across the commits.
+type evFile struct {
+	Path     string
+	Add, Del int
 }
 
 type evArea struct {
@@ -65,6 +73,7 @@ func parseEvidenceChange(out string) evChange {
 	var c evChange
 	areas := map[string]*evArea{}
 	files := map[string]bool{}
+	perFile := map[string]*evFile{}
 	for _, rec := range strings.Split(out, "\x1e") {
 		rec = strings.TrimSpace(rec)
 		if rec == "" {
@@ -104,13 +113,25 @@ func parseEvidenceChange(out string) evChange {
 			if !files[path] {
 				files[path] = true
 				a.Files++
+				perFile[path] = &evFile{Path: path}
 			}
+			perFile[path].Add += add
+			perFile[path].Del += del
 			a.Add += add
 			a.Del += del
 		}
 		c.Commits = append(c.Commits, cm)
 	}
 	c.Files = len(files)
+	for _, f := range perFile {
+		c.PerFile = append(c.PerFile, *f)
+	}
+	sort.Slice(c.PerFile, func(i, j int) bool {
+		if a, b := c.PerFile[i].Add+c.PerFile[i].Del, c.PerFile[j].Add+c.PerFile[j].Del; a != b {
+			return a > b
+		}
+		return c.PerFile[i].Path < c.PerFile[j].Path
+	})
 	maxAdd := 0
 	for _, a := range areas {
 		c.Areas = append(c.Areas, *a)

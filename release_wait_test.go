@@ -100,7 +100,7 @@ func getStatusBoth(t *testing.T, proj tracker.Project) (page, md string) {
 	stubAgentsGit(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	resp, page := getResp(t, ts.URL+"/p/"+proj.Slug+"/status")
+	resp, page := getResp(t, ts.URL+"/p/"+proj.Slug+"/status?classic=1")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d:\n%s", resp.StatusCode, page)
 	}

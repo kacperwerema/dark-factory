@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -10,34 +9,6 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
-
-func TestHandleProjectList_RedirectsSingleProject(t *testing.T) {
-	proj, _ := setupTestProject(t)
-	srv, err := NewServer([]tracker.Project{proj})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Routes())
-	defer ts.Close()
-
-	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}}
-
-	resp, err := client.Get(ts.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusFound {
-		t.Fatalf("expected 302, got %d", resp.StatusCode)
-	}
-	loc := resp.Header.Get("Location")
-	if loc != "/p/test-project/" {
-		t.Fatalf("expected redirect to /p/test-project/, got %s", loc)
-	}
-}
 
 func TestHandleProjectList_ListsMultipleProjects(t *testing.T) {
 	proj1, _ := setupTestProject(t)

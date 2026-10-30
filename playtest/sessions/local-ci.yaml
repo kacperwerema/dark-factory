@@ -13,7 +13,7 @@ steps:
     title: With a ci block the viewer runs CI on main by itself, in tmux, and the Status page shows it green
     # Everything happens in setup, which judge mode (make playtest) runs too.
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       # Nobody starts the run: the viewer's watcher sees the untested head.
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
       - reload: true
@@ -32,7 +32,7 @@ steps:
   - id: TP5
     title: A merge that breaks main turns CI red - card, waiting item, sidebar count, ci comment on the merged issue
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
       # An agent ships: fast-forward main to its branch, which breaks a test.
       - tmux: [new-session, -d, -s, land, -c, "{dir}", "git merge -q --ff-only work/ui/route-planner-panel"]
@@ -59,7 +59,7 @@ steps:
   - id: TP6
     title: The merged issue carries a CI red chip on its system page
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
       - tmux: [new-session, -d, -s, land, -c, "{dir}", "git merge -q --ff-only work/ui/route-planner-panel"]
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main red since" }, ms: 30000 }
@@ -72,7 +72,7 @@ steps:
   - id: TP7
     title: Agents see the CI state in ci status and their dispatch prompt
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
       - tmux: [new-session, -d, -s, land, -c, "{dir}", "git merge -q --ff-only work/ui/route-planner-panel"]
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main red since" }, ms: 30000 }

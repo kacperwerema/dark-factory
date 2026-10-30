@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
@@ -57,4 +59,18 @@ func workflowFileLabel(p *tracker.Project) string {
 func isRegularFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+// workflowFileFor is the file upgrade and scan read: Product's
+// (projectWorkflowFile), or with --department that department's own.
+func workflowFileFor(p *tracker.Project, department string) (string, error) {
+	dept, err := departmentFlag(p, department)
+	if err != nil || dept == "" {
+		return projectWorkflowFile(p), err
+	}
+	path := p.DepartmentWorkflowPath(dept)
+	if path == "" {
+		return "", fmt.Errorf("--department %s: it runs on Product's workflow (no workflow: in projects.yaml)\n\nGive it one:\n  issue-cli workflow init --template content --out workflows/%s.yaml", dept, strings.ToLower(tracker.Slugify(dept)))
+	}
+	return path, nil
 }

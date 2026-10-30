@@ -457,6 +457,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, proj *trac
 	case q.Get("error") != "":
 		page.Flash, page.FlashErr = q.Get("error"), true
 	}
+	if q.Get("classic") == "" {
+		s.handleHealthWb(w, r, proj, prefix, page)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "health.html", page); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -546,7 +550,9 @@ type HealthCard struct {
 	OpinionPct               int
 	HasOpinion, OpinionStale bool
 	Weakest                  string
-	Proposed                 int
+	// WeakestPart is Weakest in parts, for the Report; nil without one.
+	WeakestPart *HealthWeakest
+	Proposed    int
 	// Lint is "2 lint warnings" from the snapshot's lint family, "" when
 	// it has none; LintCommand lists them.
 	Lint, LintCommand string
@@ -574,7 +580,8 @@ func healthCard(proj *tracker.Project, now time.Time) *HealthCard {
 		c.OpinionLine, c.OpinionStale = reviewedAgo(o, now), o.AgeDays(now) > float64(health.ReviewStaleDays)
 		c.Proposed = o.Proposed()
 	}
-	c.Weakest = weakest(s, proj.LoadWorkflow().Health)
+	c.WeakestPart = weakestPart(s, proj.LoadWorkflow().Health)
+	c.Weakest = c.WeakestPart.String()
 	c.Lint, c.LintCommand = lintLine(s), lintCommandFor(proj)
 	return c
 }
@@ -582,7 +589,31 @@ func healthCard(proj *tracker.Project, now time.Time) *HealthCard {
 // weakest names the lowest-scoring component with data: "big files 47
 // (17.8% source lines in big files)".
 func weakest(s *health.Snapshot, cfg *tracker.HealthConfig) string {
-	best, out := 101.0, ""
+	return weakestPart(s, cfg).String()
+}
+
+// HealthWeakest is the lowest-scoring component with data: its name, score
+// (0–100), measured value and what the value measures.
+type HealthWeakest struct {
+	Name  string
+	Score int
+	Value string
+	Help  string
+}
+
+// String is "big files 47 (17.8% source lines in big files)"; "" for nil.
+func (w *HealthWeakest) String() string {
+	if w == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s %d (%s %s)", w.Name, w.Score, w.Value, w.Help)
+}
+
+// weakestPart is weakest in parts; nil when every component scores 100 or
+// has no data.
+func weakestPart(s *health.Snapshot, cfg *tracker.HealthConfig) *HealthWeakest {
+	best := 101.0
+	var out *HealthWeakest
 	for _, c := range health.Components(cfg) {
 		l := map[string]string{"component": c.Name}
 		sub, ok := s.Value("score.component", l)
@@ -591,7 +622,7 @@ func weakest(s *health.Snapshot, cfg *tracker.HealthConfig) string {
 		}
 		v, _ := s.Value("score.component.value", l)
 		best = sub
-		out = fmt.Sprintf("%s %.0f (%s %s)", strings.ReplaceAll(c.Name, "_", " "), sub, health.FormatValue(c.Unit, v), strings.ToLower(c.Help[:1])+c.Help[1:])
+		out = &HealthWeakest{Name: strings.ReplaceAll(c.Name, "_", " "), Score: int(math.RoundToEven(sub)), Value: health.FormatValue(c.Unit, v), Help: strings.ToLower(c.Help[:1]) + c.Help[1:]}
 	}
 	return out
 }

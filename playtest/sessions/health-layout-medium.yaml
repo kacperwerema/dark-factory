@@ -15,7 +15,7 @@ steps:
   - id: TP7
     title: At 1100 wide the side cards keep 320px
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - beside: [status.milestone, status.health]
       - size: { target: status.health, min_width: 316, max_width: 324 }

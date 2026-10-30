@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: The overlay runs beside, below, size and css live and shows what it measured
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - beside: [status.waiting.pop, status.working.pop]
       - below: [status.milestone, status.epics]

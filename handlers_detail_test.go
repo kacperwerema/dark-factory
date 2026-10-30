@@ -17,7 +17,7 @@ func TestHandleDetail_ReturnsIssueDetail(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login")
+	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestHandleDetail_ShowsActiveSessionDetails(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login")
+	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestHandleDetail_ShowsEditInNvimAction(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login")
+	resp, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ Body
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr")
+	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ Body
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr")
+	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ Body
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr")
+	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ Body
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr")
+	resp, err := http.Get(ts.URL + "/p/test/issue/review-pr?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ intro
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/issue/with-tiers")
+	resp, err := http.Get(ts.URL + "/p/test-project/issue/with-tiers?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ trailing text
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/issue/has-marker")
+	resp, err := http.Get(ts.URL + "/p/test-project/issue/has-marker?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -680,7 +680,7 @@ depends_on: "fix-typo"
 		}
 		return string(b)
 	}
-	page := get("/p/test-project/issue/queued-work")
+	page := get("/p/test-project/issue/queued-work?classic=1")
 	for _, want := range []string{
 		`data-testid="detail.brief.text">The band shows this sentence.`,
 		`"i want it now"`,

@@ -33,6 +33,9 @@ type ScenarioSpec struct {
 		// (michal-franc/ai-workflow-engine) makes the board treat it as the
 		// engine project (report-bug's board, a release candidate's soak).
 		Repo string `yaml:"repo"`
+		// Extra is raw YAML added to the project's entry in projects.yaml
+		// (company:, departments:, …), indented under it.
+		Extra string `yaml:"extra"`
 	} `yaml:"project"`
 	Issues   string `yaml:"issues"`
 	Workflow string `yaml:"workflow"`
@@ -299,6 +302,11 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 		s.Base, spec.Project.Name, spec.Project.Slug, filepath.Join(s.Proj, "issues"), filepath.Join(s.Proj, "docs"), s.Proj)
 	if spec.Project.Repo != "" {
 		cfg += fmt.Sprintf("    repo: %q\n", spec.Project.Repo)
+	}
+	if extra := strings.TrimRight(spec.Project.Extra, "\n"); extra != "" {
+		for _, line := range strings.Split(extra, "\n") {
+			cfg += "    " + line + "\n"
+		}
 	}
 	if err := os.WriteFile(s.ConfigPath(), []byte(cfg), 0o644); err != nil {
 		return fail(err)

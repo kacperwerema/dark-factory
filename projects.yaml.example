@@ -15,6 +15,14 @@ projects:
 
   - name: "My Project"
     slug: "my-project"
+    # kind: "aplikacja PWA"          # optional: a few words on the project, on its lot on the map (/)
+    # color: "#13A386"               # optional: the project's colour on the map (default: the next palette colour)
+    # departments:                   # optional: besides HQ (the CEO) and Product (the software factory), which every project has
+    #   - name: "Marketing"
+    #     color: "#E2559B"
+    #     role: "Social posts and release notes"
+    #     systems: ["Marketing"]     # its issues: these systems, or department: Marketing in an issue
+    # description: "AI cost estimates for building projects"  # optional: shown on the lot while the project has no issues yet (a building site)
     issues: "./issues"
     docs: "./docs"
     # lead_window: 1                # optional: the lead's tab at this window index (lead_terminal: tmux-window)

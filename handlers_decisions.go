@@ -80,17 +80,14 @@ func (d *DecisionsData) RefSlugOf(ref string) string {
 	return slug
 }
 
-// FilterURL links the Decisions tab with the given filters.
+// FilterURL links the classic Decisions table with the given filters.
 func (d *DecisionsData) FilterURL(system, state string) string {
-	q := url.Values{}
+	q := url.Values{"classic": {"1"}}
 	if system != "" {
 		q.Set("system", system)
 	}
 	if state != "" {
 		q.Set("state", state)
-	}
-	if len(q) == 0 {
-		return d.Prefix + "/decisions"
 	}
 	return d.Prefix + "/decisions?" + q.Encode()
 }

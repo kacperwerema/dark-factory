@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Talking to the CEO"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page" data-testid="lead_chat.page">
+{{template "wb/header" .Header}}
+<main class="wb-main wb-ceo-main" data-live-url="?part=live" data-live-state="{{if .Live.Live}}1{{else}}0{{end}}">
+<section class="wb-ceo-chat" aria-label="Conversation with the CEO">
+    {{template "wb/ceo-title" .Title}}
+    <div class="wb-ceo-scroll" data-scroll data-view-pane="conversation" data-testid="lead_chat.conversation">
+        <div data-part-slot="conv">{{template "wb/ceo-conv" .Live}}</div>
+    </div>
+    <div class="wb-ceo-scroll wb-ceo-scroll--term" data-view-pane="terminal" hidden>
+        <div data-part-slot="term">{{template "wb/ceo-terminal" .Live}}</div>
+    </div>
+    <div class="wb-ceo-compose">
+        <div data-part-slot="prompt">{{with .Live.Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}</div>
+        {{template "wb/composer" .Composer}}
+        {{template "wb/session-controls" .}}
+    </div>
+</section>
+<aside class="wb-side wb-ceo-side" aria-label="Open matters with the CEO">
+    <div data-part-slot="side">{{template "wb/ceo-side" .Live}}</div>
+</aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/ceo-chat.js"></script>
+</body>
+</html>

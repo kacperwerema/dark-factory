@@ -57,7 +57,7 @@ func TestStatusPageShowsRedCI(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, body := getResp(t, ts.URL+"/p/civ/status")
+	resp, body := getResp(t, ts.URL+"/p/civ/status?classic=1")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d:\n%s", resp.StatusCode, body)
 	}
@@ -99,7 +99,7 @@ func TestStatusPageShowsGreenCI(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, body := getResp(t, ts.URL+"/p/civ/status")
+	_, body := getResp(t, ts.URL+"/p/civ/status?classic=1")
 	for _, want := range []string{`class="chip chip-green" data-testid="status.ci.state">green</span>`, "main green at abc1234 (12m ago)"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("status page missing %q", want)
@@ -122,7 +122,7 @@ func TestNoCIBlockShowsNothing(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, body := getResp(t, ts.URL+"/p/civ/status")
+	_, body := getResp(t, ts.URL+"/p/civ/status?classic=1")
 	if strings.Contains(body, `data-testid="status.ci`) || strings.Contains(body, "status.waiting.ci") {
 		t.Error("no ci: block, but the Status page shows CI")
 	}
@@ -198,7 +198,7 @@ func TestStatusPageShowsLastRuns(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, body := getResp(t, ts.URL+"/p/civ/status")
+	_, body := getResp(t, ts.URL+"/p/civ/status?classic=1")
 	if !strings.Contains(body, `data-testid="status.ci.runs"`) {
 		t.Fatal("no last-runs row")
 	}

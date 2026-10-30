@@ -115,8 +115,9 @@ var funcMap = template.FuncMap{
 	},
 	// tid turns a status or slug into one data-testid segment (see
 	// internal/testids).
-	"tid":    testids.Segment,
-	"plural": plural,
+	"tid":     testids.Segment,
+	"plural":  plural,
+	"ceoMode": ceoModeLabel,
 	// statsCard pairs a chart card with its dashboard for the statsChart
 	// template; statsRangeLabel names the range ("30 days").
 	"statsCard":       func(d *Dashboard, c ChartCard) statsCardData { return statsCardData{Dash: d, Card: c} },

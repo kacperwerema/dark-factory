@@ -16,7 +16,7 @@ steps:
   - id: TP4
     title: A checkbox click on a stale page is refused and the CLI's section survives
     setup:
-      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone
+      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone?classic=1
       - click: detail.fold.expand_all
       - cli: [append, ui/card-titles-overflow-on-a-phone, --section, Documentation, --body, "- [ ] Docs updated"]
     act:
@@ -30,7 +30,7 @@ steps:
   - id: TP5
     title: Two clicks in a row on a fresh page both save
     setup:
-      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone
+      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone?classic=1
       - click: detail.fold.expand_all
       - click: detail.body.checkbox.0
       - check: { issue: { slug: ui/card-titles-overflow-on-a-phone, checkbox: P1, checked: true } }
@@ -44,7 +44,7 @@ steps:
   - id: TP6
     title: An editor Save on a stale page is refused and keeps the typed text
     setup:
-      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone
+      - open: /p/{project}/issue/ui/card-titles-overflow-on-a-phone?classic=1
       - click: detail.fold.expand_all
       - click: detail.tab.edit
       - type: { target: detail.body.textarea, text: "Rewritten from a stale page" }

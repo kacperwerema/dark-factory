@@ -16,7 +16,7 @@
         <div class="wb-head">
             <div>
                 <h2 class="wb-title">Decisions</h2>
-                <p class="wb-sub">Generated from every issue's <code>## Decisions</code> section. Nobody edits this list. Agents and the lead add one with <code>issue-cli decide</code>.</p>
+                <p class="wb-sub">Generated from every issue's <code>## Decisions</code> section. Nobody edits this list. Agents and the lead add one with <code>issue-cli decide</code>. <a href="{{.Prefix}}/decisions" data-testid="decisions.new_view">New view</a></p>
             </div>
             {{if .Total}}
             <div class="wb-stats" data-testid="decisions.stats">
@@ -54,7 +54,7 @@
         </div>
 
         {{if not .Rows}}
-        <p class="decisions-nomatch" data-testid="decisions.nomatch">No decisions match these filters · <a href="{{.Prefix}}/decisions" data-testid="decisions.nomatch.clear">Clear filters</a></p>
+        <p class="decisions-nomatch" data-testid="decisions.nomatch">No decisions match these filters · <a href="{{.Prefix}}/decisions?classic=1" data-testid="decisions.nomatch.clear">Clear filters</a></p>
         {{else}}
         <div class="decisions-table-wrap">
             <table class="decisions-table" data-testid="decisions.table">

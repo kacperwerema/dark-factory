@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: Every issue page has the tab bar; Issue is the default, Timeline opens at ?tab=timeline
     setup:
-      - open: /p/{project}/issue/ui/timeline-demo
+      - open: /p/{project}/issue/ui/timeline-demo?classic=1
       - check: { visible: [detail.pagetabs, detail.pagetab.issue, detail.pagetab.timeline, detail.pagetab.evidence, detail.body, detail.sidebar] }
       - check: { selected: detail.pagetab.issue }
       - check: { text_contains: { target: detail.pagetab.timeline, text: "3h 0m" } }
@@ -25,7 +25,7 @@ steps:
       - absent: [detail.sidebar, detail.body]
       - below: [detail.pagetabs, timeline.total]
       - http: { path: "/p/{project}/issue/ui/timeline-demo?tab=evidence", contains: 'data-testid="evidence.tab"' }
-      - http: { path: "/p/{project}/issue/ui/timeline-demo", contains: 'data-testid="detail.pagetab.issue" aria-current="true"' }
+      - http: { path: "/p/{project}/issue/ui/timeline-demo?classic=1", contains: 'data-testid="detail.pagetab.issue" aria-current="true"' }
 
   - id: TP5
     title: Where the time went matches the stats sidecar - totals, waits, idle and the rework loop

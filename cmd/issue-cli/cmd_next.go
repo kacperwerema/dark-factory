@@ -54,6 +54,9 @@ func runNext(ctx *Context, args []string) error {
 	}
 
 	priorityRank := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "": 4}
+	// Issues of departments on their own workflow file don't walk backlog →
+	// in progress → testing: they are listed by department after Product's.
+	issues, deptOpen := splitDepartmentWork(proj, issues)
 
 	if design {
 		var matches []*tracker.Issue
@@ -109,7 +112,7 @@ func runNext(ctx *Context, args []string) error {
 		})
 	}
 
-	if len(backlog) == 0 && len(inProgress) == 0 && len(testing) == 0 {
+	if len(backlog) == 0 && len(inProgress) == 0 && len(testing) == 0 && len(deptOpen) == 0 {
 		fmt.Fprintf(ctx.Stdout, "No work available for version %s. Try: issue-cli next --design --version %s\n", version, version)
 		return nil
 	}
@@ -145,6 +148,51 @@ func runNext(ctx *Context, args []string) error {
 			fmt.Fprintf(ctx.Stdout, "  [%-8s] %-45s %s\n", p, issue.Slug, issue.System)
 		}
 	}
+	printDepartmentWork(ctx, deptOpen)
 	fmt.Fprintln(ctx.Stdout, "\nPick one: issue-cli start <slug>")
 	return nil
+}
+
+// deptWork is one department's open issues, on its own workflow file.
+type deptWork struct {
+	Name, File string
+	Issues     []*tracker.Issue
+}
+
+// splitDepartmentWork takes the issues of departments with their own
+// workflow file out of issues, keeping their open ones (not at the last
+// status of their file) by department.
+func splitDepartmentWork(proj *tracker.Project, issues []*tracker.Issue) ([]*tracker.Issue, []deptWork) {
+	depts := proj.WorkflowDepartments()
+	if len(depts) == 0 {
+		return issues, nil
+	}
+	var product []*tracker.Issue
+	byDept := map[string][]*tracker.Issue{}
+	for _, issue := range issues {
+		d := proj.WorkflowDepartment(issue)
+		if d == "" {
+			product = append(product, issue)
+			continue
+		}
+		if wf := proj.LoadWorkflowForIssue(issue); wf.LoadErr == nil && !wf.IsLastStatus(issue.Status) {
+			byDept[d] = append(byDept[d], issue)
+		}
+	}
+	var out []deptWork
+	for _, d := range depts {
+		if len(byDept[d.Name]) > 0 {
+			out = append(out, deptWork{Name: d.Name, File: d.Workflow, Issues: byDept[d.Name]})
+		}
+	}
+	return product, out
+}
+
+func printDepartmentWork(ctx *Context, depts []deptWork) {
+	for _, d := range depts {
+		fmt.Fprintf(ctx.Stdout, "\n%s — open on %s (%d):\n", d.Name, d.File, len(d.Issues))
+		for _, issue := range d.Issues {
+			fmt.Fprintf(ctx.Stdout, "  [%-12s] %-45s %s\n", issue.Status, issue.Slug, issue.System)
+		}
+	}
 }

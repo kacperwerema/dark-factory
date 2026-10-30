@@ -168,6 +168,8 @@ var volatile = []struct {
 	{regexp.MustCompile(`/pt-\d+\b`), "/pt-<n>"},
 	// The scenario's board runs on a free port, and links name it.
 	{regexp.MustCompile(`127\.0\.0\.1:\d+`), "127.0.0.1:<port>"},
+	// Relative ages ("main green at bb47fba (3s ago)") move with a slow first run.
+	{regexp.MustCompile(`\b\d+[smhd] ago\b`), "<n> ago"},
 }
 
 // sameTruncated reports whether two lines are the same text cut off at

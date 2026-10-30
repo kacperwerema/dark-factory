@@ -96,7 +96,7 @@ func TestHandleProjectList_LogsLoadErrorsWithSlug(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if got := buf.String(); !strings.Contains(got, "project list: missing: load issues:") {
+	if got := buf.String(); !strings.Contains(got, "map: missing: load issues:") {
 		t.Fatalf("log = %q, want the missing project's load error with its slug", got)
 	}
 }

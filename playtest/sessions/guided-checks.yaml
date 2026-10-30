@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: The band offers ▶ Run checks, and the click starts window check-script-<slug>
     setup:
-      - open: /p/{project}/issue/cli/checks-due
+      - open: /p/{project}/issue/cli/checks-due?classic=1
     act:
       - check: { text_contains: { target: detail.needs, text: "Run the guided checks: 1 script." } }
       - check: { text_contains: { target: detail.needs, text: "tmux window check-script-cli-checks-due" } }
@@ -20,7 +20,7 @@ steps:
       - check: { visible: [detail.needs.run_checks, detail.needs.copy] }
       - click: detail.needs.run_checks
       - wait_for: { text_contains: { target: detail.toast, text: "Started check-script-cli-checks-due" } }
-      - open: /p/{project}/issue/cli/checks-done
+      - open: /p/{project}/issue/cli/checks-done?classic=1
     checks:
       - absent: detail.needs.run_checks
     targets:
@@ -38,7 +38,7 @@ steps:
   - id: TP5
     title: The Status page lists the issue under Checks
     setup:
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
       - click: status.waiting.pop
     checks:
       - visible: status.waiting.checks.cli/checks-due

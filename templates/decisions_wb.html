@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Decisions log"}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<section class="wb-ground wb-dechero" aria-label="Decisions log">
+    <div class="wb-dechero-top">
+        <div class="wb-dechero-title">
+            <h1 class="wb-h1 wb-h1--big">Decisions log</h1>
+            <div class="wb-dechero-sub">Collected from every issue's <span class="wb-mono-inline">## Decisions</span> section. Nobody edits it — agents and the CEO add to it with <span class="wb-mono-inline">issue-cli decide</span>. <a href="{{.ClassicURL}}" data-testid="decisions.classic">Classic view</a></div>
+        </div>
+        <div class="wb-dechero-stats">
+            <div data-testid="decisions.count">{{template "wb/stat-big" .Count}}</div>
+            {{if .Total}}{{template "wb/summary-box" .Summary}}{{end}}
+        </div>
+    </div>
+    {{if .Total}}{{template "wb/search-bar" .Search}}{{end}}
+</section>
+<main class="wb-decmain">
+<div class="wb-declog" data-testid="decisions.log">
+    {{if not .Total}}
+    <div class="wb-thread wb-decempty" data-testid="decisions.empty">
+        <h2 class="wb-h2">No decisions recorded yet</h2>
+        <div class="wb-note">A decision shows up here when the CEO or an agent records it with <span class="wb-mono-inline">issue-cli decide &lt;slug&gt; --text "…"</span>. Free-form notes under <span class="wb-mono-inline">## Decisions</span> in older issues are not listed.</div>
+    </div>
+    {{else if .NoMatch}}
+    <div class="wb-thread wb-decempty" data-testid="decisions.nomatch">
+        <h2 class="wb-h2">No decisions match</h2>
+        <div class="wb-note">Nothing in the log passes this search and these filters. <a href="{{.ClearURL}}" data-testid="decisions.nomatch.clear">Clear them</a></div>
+    </div>
+    {{else}}
+    {{range .Days}}<section class="wb-decday">
+        {{template "wb/day-label" .Label}}
+        {{range .Threads}}{{template "wb/decision-thread" .}}{{end}}
+    </section>{{end}}
+    {{end}}
+</div>
+<aside class="wb-decside" aria-label="The log at a glance">
+    <div class="wb-decside-block">{{template "wb/bars" .BySystem}}</div>
+    <div class="wb-decside-block" data-testid="decisions.hygiene">{{template "wb/numbers" .Hygiene}}<div class="wb-note">{{.HygieneTip}}</div></div>
+    <div class="wb-decside-block" data-spawn-box>
+        {{template "wb/command-card" .Add}}
+        {{template "wb/message-box" .Message}}
+        {{if not .Message.Live}}<button type="button" class="wb-btn wb-btn--paper wb-btn--block" data-spawn-lead="{{.Message.SpawnURL}}" data-testid="decisions.start_ceo">Start CEO</button><div class="wb-site-msg" role="status"></div>{{end}}
+    </div>
+</aside>
+</main>
+</div>
+</div>
+<div class="wb-toast" role="status" aria-live="polite"></div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

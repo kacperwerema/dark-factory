@@ -176,7 +176,7 @@ func TestHealthPageAndActions(t *testing.T) {
 		return resp.Header.Get("Location")
 	}
 
-	page := get("/p/test-project/health")
+	page := get("/p/test-project/health?classic=1")
 	for _, want := range []string{`data-testid="health.page"`, `data-testid="health.score_gauge"`, `data-testid="health.component.big_files"`,
 		`data-testid="health.file_recommendation"`, `data-testid="health.chart.unit_tests"`, `data-testid="nav.tab.health"`, "Move the Chrome tests to the e2e tier"} {
 		if !strings.Contains(page, want) {
@@ -248,7 +248,7 @@ func TestStatusHealthCard(t *testing.T) {
 
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/p/test-project/status")
+	resp, err := http.Get(ts.URL + "/p/test-project/status?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestHealthPageShowsFamilyWarnings(t *testing.T) {
 	}
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	_, body := getBody(t, ts.URL+"/p/test-project/health")
+	_, body := getBody(t, ts.URL+"/p/test-project/health?classic=1")
 	for _, want := range []string{`data-testid="health.warnings"`, `<span class="mono">tests</span>`, "health.e2e_sessions (default playtest/sessions/*.yaml) matched no file"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("health page missing %q", want)

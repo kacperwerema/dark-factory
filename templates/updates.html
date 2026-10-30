@@ -20,7 +20,7 @@
             </div>
         </div>
 
-        {{if .Flash}}<div class="health-flash updates-flash{{if .FlashErr}} error{{end}}" role="status" data-testid="updates.flash"><span>{{.Flash}}</span>{{if .Undo}}<form method="post" action="{{.Prefix}}/updates/reopen"><input type="hidden" name="id" value="{{.Undo}}"><button type="submit" class="btn btn-sm" data-testid="updates.undo">Undo</button></form>{{end}}</div>{{end}}
+        {{if .Flash}}<div class="health-flash updates-flash{{if .FlashErr}} error{{end}}" role="status" data-testid="updates.flash"><span>{{.Flash}}</span>{{if .Undo}}<form method="post" action="{{.Prefix}}/updates/reopen"><input type="hidden" name="id" value="{{.Undo}}"><input type="hidden" name="classic" value="1"><button type="submit" class="btn btn-sm" data-testid="updates.undo">Undo</button></form>{{end}}</div>{{end}}
 
         <section class="card updates-template" aria-label="Template" data-testid="updates.template">
             <div class="updates-field">
@@ -82,7 +82,7 @@
                     <details class="updates-install"{{if .Open}} open{{end}}>
                         <summary class="btn btn-primary" data-testid="updates.card.{{tid .ID}}.install">Install with an agent</summary>
                         <form method="post" action="{{$.Prefix}}/updates/install" class="updates-install-form">
-                            <input type="hidden" name="id" value="{{.ID}}">
+                            <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="classic" value="1">
                             <p>An agent starts in tmux in this project's checkout, asks you the question below, edits workflow.yaml, runs <code>issue-cli process workflow</code> and <code>workflow scan</code>, and shows you the diff. It commits only when you say so.</p>
                             <label for="words-{{.ID}}" class="label">Your answer to "{{.Question}}" (optional)</label>
                             <textarea id="words-{{.ID}}" name="words" rows="2" data-testid="updates.card.{{tid .ID}}.words"></textarea>
@@ -90,7 +90,7 @@
                         </form>
                     </details>
                     <form method="post" action="{{$.Prefix}}/updates/decline" class="updates-decline">
-                        <input type="hidden" name="id" value="{{.ID}}">
+                        <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="classic" value="1">
                         <button type="submit" class="btn" data-testid="updates.card.{{tid .ID}}.decline">Decline</button>
                     </form>
                     {{end}}
@@ -117,7 +117,7 @@
                 <span class="mono">{{.ID}}</span>
                 <span class="muted">{{.Title}}{{if .Just}} · just now{{end}}</span>
                 <form method="post" action="{{$.Prefix}}/updates/reopen">
-                    <input type="hidden" name="id" value="{{.ID}}">
+                    <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="classic" value="1">
                     <button type="submit" class="btn btn-sm" data-testid="updates.declined.{{tid .ID}}.reopen">Re-open</button>
                 </form>
             </div>

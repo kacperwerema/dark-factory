@@ -63,6 +63,9 @@ Each step at each viewport starts a fresh scenario:
   notes, a `CHANGELOG.md`, `playtest/sessions/` and `.playtest/runs/`
   (the `status` scenario uses it).
 - **Its own config:** a `projects.yaml` that points only at that project.
+  `project: { extra: "…" }` in `scenario.yaml` adds raw YAML to that
+  project's entry (`company:`, `departments:`; the `departments` scenario
+  uses it).
 - **Fresh binaries:** `issue-viewer` and `issue-cli` built from the
   checkout, once per run, and put first on `PATH`.
 - **Its own board:** on a free port.

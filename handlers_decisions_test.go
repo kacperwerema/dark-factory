@@ -41,7 +41,7 @@ func TestHandleDecisions_RendersIndex(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/wb/decisions")
+	page := pageGet(t, ts.URL+"/p/wb/decisions?classic=1")
 	for _, want := range []string{
 		`data-testid="nav.tab.decisions" aria-current="page">Decisions`,
 		`<span class="wb-stat-num">4</span><span class="wb-stat-label">decisions</span>`,
@@ -78,23 +78,23 @@ func TestHandleDecisions_Filters(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/wb/decisions?state=stale")
+	page := pageGet(t, ts.URL+"/p/wb/decisions?classic=1&state=stale")
 	if !strings.Contains(page, `data-ref="sim/phases#D-1"`) || strings.Contains(page, `data-ref="sim/pivot#D-1"`) {
 		t.Error("stale filter wrong")
 	}
-	page = pageGet(t, ts.URL+"/p/wb/decisions?system=economy&state=deferred")
+	page = pageGet(t, ts.URL+"/p/wb/decisions?classic=1&system=economy&state=deferred")
 	if !strings.Contains(page, `data-ref="shop#D-2"`) || strings.Contains(page, `data-ref="shop#D-1"`) || strings.Contains(page, `data-ref="sim/`) {
 		t.Error("system+state filter wrong")
 	}
 	// Chips keep the other row's filter.
-	if !strings.Contains(page, `href="/p/wb/decisions?state=deferred&amp;system=Sim"`) {
+	if !strings.Contains(page, `href="/p/wb/decisions?classic=1&amp;state=deferred&amp;system=Sim"`) {
 		t.Error("system chip drops the state filter")
 	}
-	page = pageGet(t, ts.URL+"/p/wb/decisions?system=Sim&state=deferred")
+	page = pageGet(t, ts.URL+"/p/wb/decisions?classic=1&system=Sim&state=deferred")
 	if !strings.Contains(page, "No decisions match these filters") {
 		t.Error("no-match state missing")
 	}
-	page = pageGet(t, ts.URL+"/p/wb/decisions?state=replaced")
+	page = pageGet(t, ts.URL+"/p/wb/decisions?classic=1&state=replaced")
 	if !strings.Contains(page, `data-ref="sim/phases#D-1"`) || strings.Contains(page, `data-ref="shop`) {
 		t.Error("replaced filter should include stale replaced decisions only")
 	}
@@ -105,7 +105,7 @@ func TestHandleDecisions_EmptyState(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	page := pageGet(t, ts.URL+"/p/wb/decisions")
+	page := pageGet(t, ts.URL+"/p/wb/decisions?classic=1")
 	if !strings.Contains(page, "No decisions recorded yet") || strings.Contains(page, "decisions-table") {
 		t.Fatal("empty decisions state not rendered")
 	}
@@ -116,7 +116,7 @@ func TestNavLinksToDecisions(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	for _, path := range []string{"/", "/board", "/graph", "/docs", "/stats", "/retros"} {
+	for _, path := range []string{"/", "/board", "/graph", "/docs?classic=1", "/stats", "/retros?classic=1"} {
 		page := pageGet(t, ts.URL+"/p/wb"+path)
 		if !strings.Contains(page, `href="/p/wb/decisions"`) {
 			t.Errorf("%s: Decisions nav link missing", path)
@@ -155,7 +155,7 @@ func TestGeneratedPagesRenderHashBaseline(t *testing.T) {
 	}
 	want := hash[i+len(`"hash":"`):]
 	want = want[:strings.Index(want, `"`)]
-	for _, page := range []string{"/p/wb/decisions", "/p/wb/balance"} {
+	for _, page := range []string{"/p/wb/decisions?classic=1", "/p/wb/balance"} {
 		if got := pageGet(t, ts.URL+page); !strings.Contains(got, `var last = "`+want+`" || null;`) {
 			t.Errorf("%s does not render the /hash baseline %s", page, want)
 		}

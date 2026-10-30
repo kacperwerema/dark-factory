@@ -343,11 +343,11 @@ func TestDetail_EpicLinksToCanvas(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/test-project/issue/umbrella")
+	_, html := getBody(t, ts.URL+"/p/test-project/issue/umbrella?classic=1")
 	if !strings.Contains(html, `href="/p/test-project/canvas?hl=umbrella" data-testid="detail.canvas_link">View on canvas</a>`) {
 		t.Error("epic detail page has no View on canvas link")
 	}
-	_, html = getBody(t, ts.URL+"/p/test-project/issue/child")
+	_, html = getBody(t, ts.URL+"/p/test-project/issue/child?classic=1")
 	if strings.Contains(html, "View on canvas") {
 		t.Error("non-epic detail page links to the canvas")
 	}

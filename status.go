@@ -12,6 +12,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/clibug"
 	"github.com/michal-franc/issue-viewer/internal/milestone"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -179,6 +180,8 @@ type StatusModel struct {
 	// UnsentBugReports counts issue-cli bug reports queued on this machine
 	// because report-bug found no engine project.
 	UnsentBugReports int
+	// Shelf is the departments with outputs waiting for the owner's review.
+	Shelf []WbShelfWait
 }
 
 // unsentBugReports counts this user's queued report-bug files. A var so
@@ -201,11 +204,14 @@ func (m *StatusModel) WaitingCount() int {
 	if m.UnsentBugReports > 0 {
 		n++
 	}
-	return n
+	return n + len(m.Shelf)
 }
 
 // AgeOf is how long ago t was, as of the page: 25m, 1h 30m, 13d.
 func (m *StatusModel) AgeOf(t time.Time) string { return shortDuration(m.AsOf.Sub(t)) }
+
+// IssueURL is an issue's page, for the Report's release and CI cards.
+func (m *StatusModel) IssueURL(slug string) string { return m.Prefix + "/issue/" + slug }
 
 // Candidate is the release candidate being soaked (silver on the Waiting
 // for release card, waiting to be released); nil without one.
@@ -344,6 +350,7 @@ func buildStatus(proj *tracker.Project, issues []*tracker.Issue, agents *AgentsM
 	m.Health = healthCard(proj, now)
 	m.Privacy = privacyView(proj, m.Prefix, now)
 	m.UnsentBugReports = unsentBugReports()
+	_, _, m.Shelf = companyShelf(proj, m.Prefix, now)
 	root := projectRoot(proj)
 	m.Next = leadNextSteps(root, tracker.LeadSessionName(proj), now)
 	text, changelog := readChangelog(root, wf.Workbench.Changelog)
@@ -603,6 +610,9 @@ func statusMarkdown(m *StatusModel) string {
 	}
 	if m.UnsentBugReports > 0 {
 		fmt.Fprintf(&b, "- %d issue-cli bug report(s) not sent (issue-cli report-bug --send)\n", m.UnsentBugReports)
+	}
+	for _, sw := range m.Shelf {
+		fmt.Fprintf(&b, "- %s to review on the shelf (issue-cli outputs %s --state review)\n", plural(sw.Count, sw.Name+" output", sw.Name+" outputs"), outputs.DeptKey(sw.Name))
 	}
 	for i, it := range m.Waiting {
 		if i == capMDList {

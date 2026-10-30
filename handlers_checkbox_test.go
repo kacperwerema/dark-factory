@@ -56,7 +56,7 @@ func TestCheckboxToggle_FlipsExactlyTheClickedBox(t *testing.T) {
 	defer ts.Close()
 	issue := writeCheckboxIssue(t, proj)
 
-	page, err := http.Get(ts.URL + "/p/test-project/issue/boxes-below-code")
+	page, err := http.Get(ts.URL + "/p/test-project/issue/boxes-below-code?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

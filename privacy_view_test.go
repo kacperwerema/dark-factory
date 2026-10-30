@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
+	"strings"
 	"testing"
 	"time"
 
@@ -77,23 +77,26 @@ func TestPrivacyBadgesOnStatusProjectsAndStats(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{red, green})
 	defer ts.Close()
 
-	body := okBody(t, ts.URL+"/p/redproj/status")
+	body := okBody(t, ts.URL+"/p/redproj/status?classic=1")
 	assertContains(t, body, `data-testid="status.privacy.badge.work" data-level="red"`)
 	assertContains(t, body, `title="Work files are in the code repo: issues/ (1) is tracked by redproj"`)
 	assertContains(t, body, `data-testid="status.privacy.line.work" data-level="red"`)
 	assertContains(t, body, `href="/p/redproj/updates" data-testid="status.privacy.setup.work">Set up a private tracker on the Updates tab →`)
 
-	body = okBody(t, ts.URL+"/p/greenproj/status")
+	body = okBody(t, ts.URL+"/p/greenproj/status?classic=1")
 	assertContains(t, body, `data-testid="status.privacy.badge.work" data-level="green"`)
 	assertContains(t, body, `Work files private: remote, last backup just now`)
 
 	md := okBody(t, ts.URL+"/p/greenproj/status.md")
 	assertContains(t, md, "Work private: Work files private: remote, last backup just now\n")
 
+	// The map flags only what needs fixing: the red lot, not the green one.
 	body = okBody(t, ts.URL+"/")
-	assertContains(t, body, `data-testid="projects.privacy.work" data-level="red"`)
-	assertContains(t, body, `Work: In code repo`)
-	assertContains(t, body, `data-testid="projects.privacy.work" data-level="green"`)
+	assertContains(t, body, `data-testid="chip.privacy_work">`)
+	assertContains(t, body, `In code repo`)
+	if n := strings.Count(body, `data-testid="chip.privacy_work"`); n != 1 {
+		t.Errorf("privacy chips on the map = %d, want 1 (the red project)", n)
+	}
 
 	ov := buildOverview([]tracker.Project{red, green}, nil, time.Now())
 	if ov.Privacy != "1 in code repo · 1 private" {
