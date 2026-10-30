@@ -29,7 +29,10 @@ func runDone(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	wf := ctx.Project.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	updated, err := wf.MarkIssueDoneOnce(issue.FilePath, slug)
 	if err != nil {
 		return err

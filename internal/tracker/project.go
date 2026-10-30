@@ -182,11 +182,15 @@ func (p *Project) LoadWorkflowForSystem(system string) *WorkflowConfig {
 	return p.LoadWorkflow().ForSystem(system)
 }
 
+// LoadWorkflowForIssue is the workflow issue walks (WorkflowForIssue). When
+// its department's file doesn't load it is a config with no statuses and
+// LoadErr set, so nothing moves and callers that check LoadErr can say why.
 func (p *Project) LoadWorkflowForIssue(issue *Issue) *WorkflowConfig {
-	if issue == nil {
-		return p.LoadWorkflow()
+	wf, err := p.WorkflowForIssue(issue)
+	if err != nil {
+		return p.brokenWorkflow(p.DepartmentOf(issue), err)
 	}
-	return p.LoadWorkflow().ForIssue(issue)
+	return wf
 }
 
 // ProjectsConfig is projects.yaml. The top-level keys are machine-wide
@@ -309,6 +313,9 @@ type Department struct {
 	Prompt string `yaml:"prompt"`
 	// Goals are the department's goals / KPIs (internal/goals reads them).
 	Goals []Goal `yaml:"goals"`
+	// Workflow is the department's own workflow file, relative to the
+	// project root (WorkflowFor); unset, it runs on Product's workflow.
+	Workflow string `yaml:"workflow"`
 }
 
 // Company is HQ: the business's mission, the CEO's role prompt and the

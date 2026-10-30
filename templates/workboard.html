@@ -18,6 +18,8 @@
             <p class="page-sub">What waits on you, what is blocked, how long each card has sat, and which agent is on it.{{if not .ShowAll}} Quiet cards are hidden{{if .QuietCount}} ({{.QuietCount}}){{end}}.{{end}}</p>
         </div>
         <div class="workboard-controls">
+            {{if .Departments}}<span class="label">Workflow</span>
+            {{range .Departments}}<a href="{{.Href}}" class="chip workboard-toggle{{if .Active}} active{{end}}" data-testid="workboard.department.{{tid .Label}}"{{if .Active}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}{{end}}
             <span class="label">Group by</span>
             <a href="{{.GroupHref "status"}}" class="chip workboard-toggle{{if eq .Group "status"}} active{{end}}" data-testid="workboard.group.status"{{if eq .Group "status"}} aria-current="true"{{end}}>Status</a>
             <a href="{{.GroupHref "system"}}" class="chip workboard-toggle{{if eq .Group "system"}} active{{end}}" data-testid="workboard.group.system"{{if eq .Group "system"}} aria-current="true"{{end}}>System</a>
@@ -41,6 +43,7 @@
         </div>
     </header>
 
+    {{with .WorkflowError}}<p class="workboard-empty" role="alert" data-testid="workboard.workflow_error">{{.}}</p>{{end}}
     <div class="workboard-scroll">
         <div class="workboard-columns">
             {{range .Columns}}

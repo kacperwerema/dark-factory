@@ -195,12 +195,13 @@ func (p CardProgress) Pct() int {
 }
 
 // epicProgress is the issue's own epic progress when it is an epic, else its
-// parent epic's; nil when neither applies.
-func epicProgress(prefix string, issue *tracker.Issue, issues []*tracker.Issue) *CardProgress {
+// parent epic's; nil when neither applies. A child counts as done at the
+// end of its own workflow (Project.IssueDone), whatever its department.
+func epicProgress(proj *tracker.Project, prefix string, issue *tracker.Issue, issues []*tracker.Issue) *CardProgress {
 	count := func(slug string) (done, total int) {
 		for _, c := range tracker.EpicChildren(issues, slug) {
 			total++
-			if strings.EqualFold(c.Status, "done") {
+			if proj.IssueDone(c) {
 				done++
 			}
 		}

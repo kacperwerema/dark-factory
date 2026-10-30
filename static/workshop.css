@@ -233,9 +233,11 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-company-row--plan { gap: 30px; }
 .wb-company-row--plan .wb-newtile { width: 290px; }
 .wb-room--dept { width: 300px; flex: none; }
+.wb-room--dept-line { width: 440px; }
 .wb-floor--dept { display: flex; flex-direction: column; gap: 10px; min-height: 120px; }
 .wb-dept-role { font-size: 13px; line-height: 1.38; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 8px 10px; }
 .wb-dept-systems { font-size: 12px; }
+.wb-dept-error { font-size: 12px; color: var(--red); overflow-wrap: anywhere; }
 .wb-room { position: relative; background: #fff; border: 2px solid var(--ink); border-radius: 16px; box-shadow: 5px 5px 0 var(--ink); display: flex; flex-direction: column; }
 .wb-room--hq { width: 300px; flex: none; }
 .wb-room--factory { flex: 1 1 560px; min-width: 0; }

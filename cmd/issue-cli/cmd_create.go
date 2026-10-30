@@ -35,6 +35,7 @@ func runCreate(ctx *Context, args []string) error {
 	statusFlag := fs.String("status", "", "initial status")
 	priorityFlag := fs.String("priority", "", "priority")
 	typeFlag := fs.String("type", "", "type of work (when workflow.yaml defines types:)")
+	deptFlag := fs.String("department", "", "department (projects.yaml departments:): the issue walks its workflow file")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -47,7 +48,17 @@ func runCreate(ctx *Context, args []string) error {
 	}
 
 	proj := ctx.Project
-	base := proj.LoadWorkflow()
+	dept, err := departmentFlag(proj, *deptFlag)
+	if err != nil {
+		return err
+	}
+	if *deptFlag == "" {
+		dept = proj.DepartmentOf(&tracker.Issue{System: system})
+	}
+	base, err := proj.WorkflowFor(dept)
+	if err != nil {
+		return err
+	}
 	typ := strings.TrimSpace(*typeFlag)
 	if typ != "" {
 		if !base.HasTypes() {
@@ -122,6 +133,9 @@ func runCreate(ctx *Context, args []string) error {
 	if typ != "" {
 		content.WriteString(fmt.Sprintf("type: \"%s\"\n", typ))
 	}
+	if *deptFlag != "" && dept != "" {
+		content.WriteString(fmt.Sprintf("department: \"%s\"\n", dept))
+	}
 	content.WriteString("---\n")
 
 	tmpl := wf.TemplateForStatus(status)
@@ -147,6 +161,9 @@ func runCreate(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "✓ Created: %s\n", filename)
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", filename)
 	fmt.Fprintf(ctx.Stdout, "  Slug: %s\n", display)
+	if base.File != "" {
+		fmt.Fprintf(ctx.Stdout, "  Department: %s (workflow %s: %s)\n", base.Department, base.File, base.StatusNames())
+	}
 	if typ != "" {
 		fmt.Fprintf(ctx.Stdout, "  Type: %s%s\n", typ, otherTypesNote(base, typ, *typeFlag == "", display, status))
 		fmt.Fprintf(ctx.Stdout, "  Path: %s\n", wf.PathLine())

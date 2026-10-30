@@ -73,10 +73,25 @@ func (s *Server) handleUpdateIssue(w http.ResponseWriter, r *http.Request, proj 
 		update.Slug = tracker.RetitleUpdate(found, *update.Title, false).Slug
 	}
 
+	// A department: edit that moves the issue to a department whose
+	// workflow lacks its status is refused, as set-meta does.
+	if d, ok := update.ExtraFields["department"]; ok && update.Status == nil {
+		if to := proj.DepartmentOf(found.WithField("department", d)); to != proj.DepartmentOf(found) {
+			if err := proj.CheckDepartmentMove(found, to); err != nil {
+				writeTransitionError(w, err)
+				return
+			}
+		}
+	}
+
 	// Status changes route through the workflow engine so the board path matches
 	// `issue-cli transition` — validation, actions, declarative fields.
 	if update.Status != nil && *update.Status != found.Status {
 		wf := proj.LoadWorkflowForIssue(found)
+		if wf.LoadErr != nil {
+			writeTransitionError(w, wf.LoadErr)
+			return
+		}
 		_, _, terr := wf.ApplyTransitionToFileWithFields(found.FilePath, *update.Status, payload.Fields)
 		if terr != nil {
 			writeTransitionError(w, terr)
