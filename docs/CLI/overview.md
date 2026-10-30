@@ -83,6 +83,10 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli goals [<dept>]`       | HQ's and the departments' goals, each HQ goal with the department goals rolling up into it (value, target, progress, period, stale, source); `--json`. See [Departments](../departments.md) |
 | `issue-cli goal set <dept>/<id> <value>` | Record a manual goal's value (`--note`, `--date`) in `<issues>/.goals/values.jsonl`; an unknown key lists the valid ones |
 | `issue-cli department show <name>` | A department's (or `hq`'s, `product`'s) mission, role, role prompt file (path and content) and goals; `--json` |
+| `issue-cli output add --title "…" --kind <kind> (--url \| --file \| --path)` | Put what an issue or job made on its department's shelf (`--issue`, `--department`, `--job`, `--note`), in review; `<issues>/.outputs/outputs.jsonl`. See [Departments](../departments.md#outputs-shelf) |
+| `issue-cli output review <id> approve\|reject --quote "…"` | The owner's stamp on an output (the owner or the lead; never a worker) |
+| `issue-cli output publish <id> [--url]` / `output show <id>` | Mark an approved output published; show one output |
+| `issue-cli outputs [<dept>]` | The shelf by department, newest first (`--state`, `--issue`, `--json`) |
 | `issue-cli projects`             | List configured projects (slug, name, issue dir). `--json` for scripting |
 | `issue-cli telemetry report`     | Local usage report: calls per command, never-used commands/flags/topics, errors, unknown tokens, retry sequences. See [CLI Usage Telemetry](telemetry.md) |
 | `issue-cli telemetry path`       | Print the active telemetry file and whether recording is enabled |

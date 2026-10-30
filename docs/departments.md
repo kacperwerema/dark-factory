@@ -1,9 +1,9 @@
 ---
-title: "Departments: Role and Goals"
+title: "Departments: Role, Goals and Outputs"
 order: 9
 ---
 
-# Departments: role and goals
+# Departments: role, goals and outputs
 
 A project's **departments** live in `projects.yaml`, under the project. Every project has two: **HQ**, the CEO's room with the business goals, and **Product**, the software factory that runs `workflow.yaml`. `departments:` adds more (Marketing, Sales, …). A department's work is the issues with `department: <name>` in their frontmatter, or in one of its `systems:`; the rest is Product's.
 
@@ -101,7 +101,55 @@ projects:
   ```
 - **`issue-cli health lint`**, check `departments`: warns about a prompt file that does not exist, `rolls_up:` naming no HQ goal (or set on an HQ goal), a duplicate goal id or a goal with none, an unknown `period:`, `direction:` or `source:`, a file source whose file is missing, and `systems:` on the Product entry.
 
+## Outputs shelf
+
+Every department, Product included, has a **shelf**: what it made, such as a post, a design, a refreshed page, a report or an invoice, with the issue or job that made it and the owner's review. Nothing needs configuring. The shelf shows once something is on it.
+
+### Recording an output
+
+An agent records what it made:
+
+```
+issue-cli output add --issue seo/acme-weekly --title "Acme: FAQ refresh" --kind page --url https://acme.example/faq
+issue-cli output add --department marketing --job weekly-pass --title "Hero banner" --kind design --file out/hero.png
+issue-cli output add --title "October report" --kind report --path docs/reports/2026-10.md
+```
+
+- **Where it points**: exactly one of `--url` (an http(s) link), `--file` (copied onto the shelf, under `<issues>/.outputs/files/<dept>/`, up to 25 MB) or `--path` (a file in the repo, relative to the project root; it must exist). A file or path that later disappears shows as **missing**.
+- **Which shelf**: the department of `--issue`, else `--department`, else Product. A `--department` that disagrees with the issue's is refused.
+- **`--kind`** is any word. `post`, `design`, `site`, `page`, `report` and `invoice` get an icon; anything else shows 📦.
+- **`--job`** names the job that made it when no issue did (recurring jobs, later). **`--note`** adds a line.
+
+Each output is one line in `<issues>/.outputs/outputs.jsonl`, an append-only log next to the goals log, so a private tracker keeps outputs private too. Reviews and publishes are further lines with the same id, and the shelf folds them:
+
+```json
+{"op":"add","id":"o-20261030-a1b2","date":"2026-10-30T07:12:00Z","department":"marketing","title":"Acme: FAQ refresh","kind":"page","url":"https://acme.example/faq","issue":"seo/acme-weekly","by":"agent-seo-acme-weekly"}
+{"op":"review","id":"o-20261030-a1b2","date":"2026-10-30T08:01:00Z","state":"approved","quote":"approved on the shelf","how":"on the shelf","by":"owner"}
+{"op":"publish","id":"o-20261030-a1b2","date":"2026-10-30T09:30:00Z","url":"https://acme.example/faq","by":"agent-seo-acme-weekly"}
+```
+
+Commands take the full id or its last part (`a1b2`).
+
+### Review: the owner's stamp
+
+An output starts in **review**. Only the owner decides:
+
+- on the shelf page, with **Approve** or **Reject** on the row;
+- or through the lead: `issue-cli output review <id> approve|reject --quote "<the owner's words>"`. Workers are refused, as with `issue-cli approve`.
+
+`issue-cli output publish <id> [--url <where it went out>]` marks an output **published**, and only once it is approved. On the content workflow, the Draft box asks for `output add`, and the Published box asks for `output publish`. The issue's own `owner review → publish` gate still stamps the issue as a whole. The shelf stamps each piece, so the owner can approve eight of ten pages a weekly pass made.
+
+### Where it shows
+
+- **Company page**: each department room and the Product line show `📦 N to review · M made this week`, linking to their shelf. HQ shows the outputs to review across departments and the newest five.
+- **The shelf** (`/p/<project>/shelf`, `?dept=marketing&state=review`): tabs by department and state with counts, and a row per output: icon or image thumbnail, title linked to the URL or the shelf file, department, kind, the issue (to its station) or job, who, when, state, and Approve / Reject for those in review. Shelf files are served only from `.outputs/files`, under a sandbox CSP.
+- **The station** (the issue page) lists the outputs the issue made.
+- **Waiting on you**: a department with outputs in review is one item in the company panel, on the Status page (the Waiting card links to the shelf), in `status.md` and in the sidebar count.
+- **CLI**: `issue-cli outputs [<dept>] [--state review|approved|rejected|published] [--issue <slug>] [--json]` lists the shelf by department. `issue-cli output show <id>` shows one output. `issue-cli start` / `show` print `Outputs: 2 (1 to review)`, or on a department or content-workflow issue that made nothing yet, the `output add` command. A transition into `owner review`, `publish` or `done` on such an issue prints the same hint. It is a hint, not a gate.
+- **`issue-cli health lint`**, check `departments`: warns about log lines it skipped, outputs of a department `projects.yaml` no longer has, a file or path that is gone, and an output in review for more than 14 days.
+
 ## Not yet
 
 - Putting the role prompt into the dispatch briefing and the department lead's start: factory/department-agents-lead-and-briefing-per-department.
 - Connector sources, goal trends over time, and setting goals from the page.
+- Publishing an approved output through a connector (factory/department-connectors), outputs from recurring jobs beyond `--job` (factory/department-recurring-jobs), and editing or removing outputs from the page.
