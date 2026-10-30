@@ -55,6 +55,10 @@ type CompanyData struct {
 	Message   WbMessageBox
 	// Toggle is Board | Report, on the title line (the header is full here).
 	Toggle []WbViewTab
+	// YOLOQueue is "To review after YOLO": the passes the owner has not
+	// reviewed; YOLOMore how many more than listed.
+	YOLOQueue []WbYOLORow
+	YOLOMore  int
 }
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
@@ -103,6 +107,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Header.Crumbs[1].Color = color
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}
 	d.Toggle = wbViewToggle(prefix, "board")
+	d.Header.YOLO = wbYOLO(lot.YOLO, prefix)
+	if y := d.Header.YOLO; y != nil {
+		y.Switch = true
+		if !y.On {
+			y.Dialog = yoloDialog(p, wf)
+		}
+	}
+	d.YOLOQueue, d.YOLOMore = yoloQueueRows(lot.YOLO, prefix, companyQueueRows)
 
 	d.HQ = WbRoomHQ{
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},
@@ -133,6 +145,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
 		Stations: companyStations(wf, productIssues(p, issues), workers, waitingOnOwner(p, openOnly(productIssues(p, issues)))),
 		Waiting:  lot.Waiting,
+		YOLO:     lot.YOLO,
 		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
 	}

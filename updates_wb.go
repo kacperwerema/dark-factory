@@ -209,6 +209,7 @@ func (s *Server) updatesHeader(p *tracker.Project, prefix string, now time.Time)
 	lot := company.Lot
 	h := WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "updates"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
 	h.Crumbs[1].Color = lot.Color
+	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		h.Chips = append(h.Chips, *c)

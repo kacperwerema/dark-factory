@@ -32,11 +32,14 @@ const stationFiles = 12
 
 // StationData is the whole L3 page.
 type StationData struct {
-	Header     WbHeader
-	Title      WbIssueTitle
-	Belt       WbBelt
-	Time       WbTimeSplit
-	Move       WbYourMove
+	Header WbHeader
+	Title  WbIssueTitle
+	Belt   WbBelt
+	Time   WbTimeSplit
+	Move   WbYourMove
+	// YOLO is "Passed in YOLO": the gates this issue passed without the
+	// owner, each with Agree / Back to <status>; nil when none waits.
+	YOLO       *WbYOLOReview
 	Quality    []WbQualityCard
 	Decisions  WbDecisions
 	Change     WbChangeCard
@@ -138,6 +141,8 @@ type WbDecision struct {
 	ID, Text, Quote, How, Date string
 	Also, Replaces             string
 	Yours, Deferred            bool
+	// YOLO: recorded while YOLO was on, without the owner's words.
+	YOLO bool
 }
 
 // WbChangeCard is the issue's change: the work branch's commits, the files
@@ -280,6 +285,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	d.Header = WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: company.Waiting, HideDone: true}
 	d.Header.Crumbs = append(wbCrumbs(1, p.Name, prefix+"/company"), WbCrumb{Label: "Station", Current: true})
 	d.Header.Crumbs[1] = WbCrumb{Label: p.Name, URL: prefix + "/company", Color: lot.Color}
+	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: hallURL, Color: companyProductColor}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)
@@ -318,6 +324,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	d.Belt = stationBelt(wf, issue, tab.Path, att, hallURL)
 	d.Time = stationTime(tl)
 	d.Move = stationMove(p.Slug, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
+	d.YOLO = stationYOLOReview(issue, wf, src.Comments, issueURL)
 	d.Decisions = stationDecisions(src.Decisions)
 	d.Change = stationChange(ev.Change)
 	d.Tests = stationTests(ev, src.Boxes, tl.CI)
@@ -505,7 +512,7 @@ func stationDecisions(decisions []tracker.Decision) WbDecisions {
 	var out WbDecisions
 	for _, dec := range decisions {
 		q := unquote(dec.Quote)
-		item := WbDecision{ID: dec.ID, Text: dec.Text, How: dec.How, Also: dec.AlsoConsidered, Deferred: dec.Deferred, Replaces: strings.Join(dec.Replaces, ", ")}
+		item := WbDecision{ID: dec.ID, Text: dec.Text, How: dec.How, YOLO: yoloDecision(dec.How), Also: dec.AlsoConsidered, Deferred: dec.Deferred, Replaces: strings.Join(dec.Replaces, ", ")}
 		if !dec.Date.IsZero() {
 			item.Date = dec.Date.Format("2 Jan")
 		}

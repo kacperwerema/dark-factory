@@ -38,6 +38,7 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/parking    parked issues and why                      data: WbParking
   wb/agent-panel  the selected issue and its worker        data: WbAgentPanel
   wb/numbers    a titled list of figures                   data: WbNumbers
+  (YOLO mode: _workshop_yolo.html)
   wb/queue-card  one thing waiting on the owner             data: WbQueueCard
   wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
 */}}
@@ -69,10 +70,12 @@ their styles). Pages compose them; a new element is a new component here first.
         </div>
         {{if not .HideDone}}<div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}{{end}}
         {{range .Chips}}<div class="wb-stat-box wb-stat-box--chip">{{template "wb/chip" .}}</div>{{end}}
+        {{with .YOLO}}{{template "wb/yolo-switch" .}}{{end}}
         <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="#waiting" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
         <div class="wb-avatar" title="You">YOU</div>
     </div>
 </header>
+{{template "wb/yolo" .YOLO}}
 {{end}}
 
 {{define "wb/crumbs"}}
@@ -111,13 +114,14 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/lot"}}
-<a class="wb-lot{{if .Engine}} wb-lot--engine{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/company" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
-   aria-label="{{.Name}}{{if .Waiting}}: {{.Waiting}} waiting on you{{end}}{{if eq .CI "red"}}, CI red{{end}}. Enter the project.">
+<a class="wb-lot{{if .Engine}} wb-lot--engine{{end}}{{if and .YOLO .YOLO.On}} wb-lot--yolo{{end}}" id="lot-{{.Slug}}" href="/p/{{.Slug}}/company" style="--lot: {{.Color}}" data-slug="{{.Slug}}" {{with .RC}}data-rc="{{.}}"{{end}} data-testid="map.lot.{{.Slug}}"
+   aria-label="{{.Name}}{{with .YOLO}}{{if .On}}, YOLO until {{.End}}{{end}}{{if .Queue}}, {{len .Queue}} to review after the fact{{end}}{{end}}{{if .Waiting}}: {{.Waiting}} waiting on you{{end}}{{if eq .CI "red"}}, CI red{{end}}. Enter the project.">
     <div class="wb-lot-roof"></div>
     <div class="wb-lot-body">
         <div class="wb-lot-head">
             <div class="wb-lot-name">{{.Name}}</div>
             {{if .Engine}}<div class="wb-tag">ENGINE</div>{{else if .Kind}}<div class="wb-lot-kind">{{.Kind}}</div>{{end}}
+            {{with .YOLO}}{{if .On}}<span class="wb-yolo-tag" data-testid="map.lot.yolo">{{if eq .End "until turned off"}}YOLO until turned off{{else}}YOLO until {{.End}}{{end}}</span>{{end}}{{end}}
         </div>
         {{template "wb/skyline" .Buildings}}
         {{template "wb/robots" .Crew}}
@@ -125,7 +129,7 @@ their styles). Pages compose them; a new element is a new component here first.
         {{template "wb/ceo" .CEO}}
         {{template "wb/progress" .Progress}}
     </div>
-    {{template "wb/bang" .Waiting}}
+    {{if and .YOLO .YOLO.Queue}}<div class="wb-yolo-fact" data-testid="map.lot.after_fact" title="Gates passed in YOLO, waiting for your review"><span>{{len .YOLO.Queue}}</span><span>after the fact</span></div>{{else if and .YOLO .YOLO.On}}{{else}}{{template "wb/bang" .Waiting}}{{end}}
 </a>
 {{end}}
 
@@ -231,15 +235,15 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/room-factory"}}
-<div class="wb-room wb-room--factory" data-testid="company.room.product">
+<div class="wb-room wb-room--factory{{if and .YOLO .YOLO.On}} wb-room--yolo{{end}}" data-testid="company.room.product">
     {{template "wb/room-head" .Head}}
     <div class="wb-floor wb-floor--factory">
         {{template "wb/stations" .Stations}}
-        <div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from workflow.yaml</span></div>
+        <div class="wb-line-legend">{{if and .YOLO .YOLO.On}}<span><i class="wb-key wb-key--yolo"></i>gate open — review after the fact</span>{{else}}<span><i class="wb-key wb-key--gate"></i>gate = your decision</span>{{end}}<span><i class="wb-key"></i>station from workflow.yaml</span></div>
         <div class="wb-grow"></div>
         <div class="wb-factory-foot">{{template "wb/room-foot" .Foot}}<span class="wb-grow"></span><a class="wb-btn wb-btn--ink" href="{{.HallURL}}" data-testid="company.enter_hall">Enter the hall <span aria-hidden="true">→</span></a></div>
     </div>
-    {{template "wb/bang" .Waiting}}
+    {{if and .YOLO .YOLO.Queue}}<a class="wb-yolo-roomtag" href="#yolo-queue" data-testid="company.room.product.yolo">YOLO · {{len .YOLO.Queue}}</a>{{else if and .YOLO .YOLO.On}}{{else}}{{template "wb/bang" .Waiting}}{{end}}
 </div>
 {{end}}
 
@@ -281,18 +285,18 @@ their styles). Pages compose them; a new element is a new component here first.
 <div class="wb-crate-row">
     <a class="wb-crate-line{{if .Selected}} wb-crate-line--on{{end}}" href="{{.URL}}" title="{{.Title}}" data-testid="hall.crate">
         {{with .Robot}}{{template "wb/robot" .}}{{end}}
-        <span class="wb-crate"><span class="wb-crate-slug">{{.Slug}}</span>{{if .Question}}<span class="wb-crate-q" title="a question for you">?</span>{{end}}{{if .CI}}<span class="wb-crate-ci" title="CI red">CI</span>{{end}}</span>
+        <span class="wb-crate"><span class="wb-crate-slug">{{.Slug}}</span>{{if .Question}}<span class="wb-crate-q" title="a question for you">?</span>{{end}}{{if .CI}}<span class="wb-crate-ci" title="CI red">CI</span>{{end}}{{if .YOLO}}<span class="wb-crate-yolo" title="passed a gate in YOLO, without you" data-testid="hall.crate.yolo">YOLO</span>{{end}}</span>
     </a>
     {{with .Note}}<div class="wb-crate-note">{{.}}</div>{{end}}
 </div>
 {{end}}
 
 {{define "wb/gate-card"}}
-<div class="wb-gatecard" title="Your approval to enter {{.Status}}" data-testid="hall.gate">
-    <span class="wb-stamp">{{template "wb/stamp-icon"}}</span>
+<div class="wb-gatecard{{if .Raised}} wb-gatecard--raised{{end}}" title="{{if .Raised}}YOLO: the barrier is up, crates enter {{.Status}} without you{{else}}Your approval to enter {{.Status}}{{end}}" data-testid="hall.gate">
+    {{if .Raised}}<span class="wb-barrier" aria-hidden="true"><i></i></span>{{else}}<span class="wb-stamp">{{template "wb/stamp-icon"}}</span>{{end}}
     <span class="wb-gatecard-name">{{.Name}}</span>
     <span class="wb-mono">{{.Status}}</span>
-    <span class="wb-gatecard-wait{{if .Waiting}} wb-gatecard-wait--on{{end}}">{{.Waiting}} waiting</span>
+    {{if .Raised}}<span class="wb-yolo-tag" data-testid="hall.gate.raised">barrier up</span>{{else}}<span class="wb-gatecard-wait{{if .Waiting}} wb-gatecard-wait--on{{end}}">{{.Waiting}} waiting</span>{{end}}
 </div>
 {{end}}
 

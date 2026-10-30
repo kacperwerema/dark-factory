@@ -13,6 +13,7 @@
 </section>
 <main class="wb-l3">
 <div class="wb-l3-main">
+    {{with .YOLO}}{{template "wb/yolo-review" .}}{{end}}
     {{template "wb/your-move" .Move}}
     <section class="wb-quality" aria-labelledby="quality-h" data-testid="station.quality">
         <div class="wb-titlebar wb-titlebar--flush"><h2 class="wb-h1 wb-h1--sm" id="quality-h">Quality check</h2><span class="wb-sub">what the agent checked, and what is left for you</span></div>

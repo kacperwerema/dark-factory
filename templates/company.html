@@ -29,6 +29,7 @@
     </div>
 </section>
 <aside class="wb-side wb-side--company" id="waiting" aria-label="Project panel">
+    {{template "wb/yolo-queue" .}}
     <div class="wb-side-block">
         <h2 class="wb-h2">Waiting on you · {{.Waiting}}</h2>
         {{range .Queue}}{{template "wb/queue-row" .}}{{else}}<div class="wb-empty" data-testid="company.queue.empty">Nothing is waiting on you here.</div>{{end}}

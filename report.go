@@ -241,6 +241,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 	data := buildReport(proj, s.projectColor(proj), m, issues, agents)
+	data.Header.YOLO = headerYOLO(yoloBand(proj, issues, m.AsOf), m.Prefix)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "report.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

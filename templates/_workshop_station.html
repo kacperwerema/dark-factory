@@ -141,7 +141,7 @@ behaviour in static/station.js. templates/station.html composes them.
 {{define "wb/decision"}}
 <div class="wb-dec{{if not .Yours}} wb-dec--agent{{end}}">
     <div class="wb-dec-main">
-        <div class="wb-dec-meta"><span class="wb-dec-id">{{.ID}}</span>{{if .Yours}}<span class="wb-dec-who">YOURS</span>{{else}}<span class="wb-dec-who wb-dec-who--agent">AGENT'S</span>{{end}}<span class="wb-dec-how">{{.How}}{{with .Date}} · {{.}}{{end}}</span>{{if .Deferred}}<span class="wb-chip wb-chip--idle">deferred</span>{{end}}</div>
+        <div class="wb-dec-meta"><span class="wb-dec-id">{{.ID}}</span>{{if .Yours}}<span class="wb-dec-who">YOURS</span>{{else}}<span class="wb-dec-who wb-dec-who--agent">AGENT'S</span>{{end}}{{if .YOLO}}{{template "wb/yolo-tag" "without your words"}}{{end}}<span class="wb-dec-how">{{.How}}{{with .Date}} · {{.}}{{end}}</span>{{if .Deferred}}<span class="wb-chip wb-chip--idle">deferred</span>{{end}}</div>
         <div class="wb-dec-text">{{.Text}}</div>
         {{with .Quote}}<blockquote class="wb-quote">“{{.}}”</blockquote>{{end}}
     </div>

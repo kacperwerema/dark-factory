@@ -101,6 +101,8 @@ type WbDecisionRow struct {
 	Confirm      *WbConfirm
 	Slug         string
 	Stale, Faded bool
+	// YOLO: recorded while YOLO was on, without the owner's words.
+	YOLO bool
 }
 
 // WbLink is a labelled link.
@@ -150,6 +152,7 @@ func (s *Server) handleDecisionsWb(w http.ResponseWriter, r *http.Request, proj 
 	lot, waiting := s.decisionsLot(proj, now)
 	data.Header = WbHeader{Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "decisions"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: waiting, HideDone: true}
 	data.Header.Crumbs[1].Color = lot.Color
+	data.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	// Decisions is a tab of the hall: the hall stays the current level.
 	data.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
 	data.Message = WbMessageBox{Session: lot.CEO.Session, SendURL: prefix + "/lead/send", SpawnURL: prefix + "/lead/spawn", Live: lot.CEO.Live}
@@ -380,6 +383,7 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
 	row := WbDecisionRow{ID: e.ID, Ref: e.Ref, Text: boldOnly(e.Text), Quote: e.Quote, Also: e.AlsoConsidered, Slug: e.Slug}
 	row.By, row.ByTone = decisionsBy(e.How)
+	row.YOLO = yoloDecision(e.How)
 	cites := append(append([]*tracker.Issue(nil), e.CitedOpen...), e.CitedClosed...)
 	for i, c := range cites {
 		if i == decisionsCitedMax {
@@ -432,6 +436,8 @@ func decisionsBy(how string) (string, string) {
 		return "CEO (lead chat)", "ceo"
 	case low == "" || strings.Contains(low, "agent"):
 		return "agent", "agent"
+	case yoloDecision(how):
+		return "agent in YOLO", "agent"
 	}
 	return how, "other"
 }

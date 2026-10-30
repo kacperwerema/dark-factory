@@ -31,6 +31,9 @@ type WbHeader struct {
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
+	// YOLO is the switch (L1), the after-the-fact count and the hazard band
+	// under the header on every project page while YOLO is on (yolo_wb.go).
+	YOLO *WbYOLO
 }
 
 // WbCrumb is one level in the header. URL is empty for the current level
@@ -243,6 +246,9 @@ type WbRoomFactory struct {
 	Waiting  int
 	HallURL  string
 	Foot     []WbFootItem
+	// YOLO: while on, the gates on the line stand open and the room carries
+	// "YOLO · N" instead of the "!".
+	YOLO *YOLOBand
 }
 
 // WbNewTile is a dashed "+" tile for something still to build.
@@ -275,6 +281,8 @@ type WbHallStop struct {
 type WbGateCard struct {
 	Name, Status string
 	Waiting      int
+	// Raised: YOLO is on, the barrier is up and crates pass without the owner.
+	Raised bool
 }
 
 // WbHallStation is a station on the hall's line with its crates.
@@ -286,11 +294,12 @@ type WbHallStation struct {
 }
 
 // WbCrate is an issue on the line, carried by its worker (Robot) if it has
-// one. Question: it asks the owner; CI: CI went red since it landed.
+// one. Question: it asks the owner; CI: CI went red since it landed; YOLO:
+// it passed a gate in YOLO (the yellow marker, to the end of the line).
 type WbCrate struct {
-	Slug, Title, URL, Note string
-	Robot                  *WbRobot
-	Question, CI, Selected bool
+	Slug, Title, URL, Note       string
+	Robot                        *WbRobot
+	Question, CI, YOLO, Selected bool
 }
 
 // WbDoneStation is the end of the line: what was done this week.

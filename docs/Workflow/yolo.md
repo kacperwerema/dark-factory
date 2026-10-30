@@ -76,7 +76,14 @@ The queue is derived from comments: a YOLO approval with no later `yolo-review:`
 ## Where it shows
 
 - Every classic project page: a hazard line in the sidebar while on (until, passed, valves, Extend / Turn off now), and "N after the fact" with Agree / Back until the queue is empty.
-- The Workshop Board: the switch and the hazard band under the header on every project screen (L1), the lot in stripes with "YOLO until 08:00" and "N after the fact" in place of "!" (L0), raised gates and yellow-marked crates (L2), and "Passed in YOLO" with Agree / Back on the issue (L3).
+- The Workshop Board (yolo_wb.go, templates/_workshop_yolo.html):
+  - L1, the company: the **YOLO** switch in the header opens the turn-on dialog (the gates from workflow.yaml, what still guards, until 08:00 / 4 hours / until turned off, the valves, your words). While on, the Product room's gates stand open and the room carries "YOLO · N"; the side panel lists "To review after YOLO". The switch lives only here.
+  - Every project screen (company, hall and its tabs, Report, the issue): the hazard band under the header while on ("Gates pass without you · since 22:10 · turns off at 08:00 · passed: N · CI guards · no releases") with Extend (until 08:00, 4 more hours, until turned off) and Turn off now; "N to review after the fact" in the header while the queue waits.
+  - L0, the map: the lot in yellow-black stripes with "YOLO until 08:00", and "N after the fact" in place of the orange "!". The counter stays after YOLO ends until the queue is empty.
+  - L2, the hall: gates drawn raised (barrier up) while on; a crate that passed a gate in YOLO carries the yellow YOLO marker to the end of the line, reviewed or not.
+  - L3, the issue: "Passed in YOLO" above Your move, one form per unreviewed pass, with Agree and Back to <status>.
+  - Decisions: a decision recorded in YOLO (how `YOLO`) carries the YOLO tag in the Decisions log ("The agent decided alone in YOLO", Confirm / Question it) and on the issue ("YOLO · without your words").
+  Yellow-black stripes mean YOLO only; orange stays yours.
 
 Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 

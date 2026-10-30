@@ -74,10 +74,17 @@ func TestYOLOSwitchAndBand(t *testing.T) {
 	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/on", `{"until":"4h","words":"go yolo"}`); code != 200 || out["On"] != true {
 		t.Fatalf("on: %d %v", code, out)
 	}
-	page = pageGet(t, ts.URL+"/p/yp/status")
+	page = pageGet(t, ts.URL+"/p/yp/board")
 	for _, want := range []string{`class="sidebar-yolo on"`, "<strong>YOLO</strong> until", "no releases", `data-testid="nav.yolo.off"`} {
 		if !strings.Contains(page, want) {
-			t.Errorf("band lacks %q", want)
+			t.Errorf("sidebar band lacks %q", want)
+		}
+	}
+	// The Workshop Board pages (the Report here) carry the hazard band.
+	page = pageGet(t, ts.URL+"/p/yp/status")
+	for _, want := range []string{`data-testid="yolo.band"`, "Gates pass without you", "no releases", `data-testid="yolo.band.off"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("hazard band lacks %q", want)
 		}
 	}
 	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/off", ``); code != 200 || out["On"] != false || !strings.Contains(out["EndReason"].(string), "turned off by the owner") {

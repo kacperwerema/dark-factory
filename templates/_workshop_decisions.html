@@ -36,7 +36,7 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
 
 {{define "wb/decision-alone"}}{{with .Confirm}}
 <form class="wb-alone" data-send="{{.SendURL}}" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.confirm">
-    <span class="wb-alone-text">The agent decided alone — no words from you.</span>
+    <span class="wb-alone-text">{{if $.YOLO}}{{template "wb/yolo-tag"}} {{end}}The agent decided alone{{if $.YOLO}} in YOLO{{end}} — no words from you.</span>
     <input type="hidden" name="text" value="{{.ConfirmText}}">
     <span class="wb-alone-actions">
         <button type="submit" class="wb-alone-btn"{{if not .Live}} disabled title="Start the CEO first: Confirm goes to it"{{else}} title="Sends “{{.ConfirmText}}” to the CEO"{{end}}>Confirm</button>
@@ -50,6 +50,7 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
 <li class="wb-drow{{if .Confirm}} wb-drow--alone{{end}}{{if .Faded}} wb-drow--faded{{end}}" data-ref="{{.Ref}}" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}">
     <div class="wb-drow-id">
         <span>{{.ID}}</span>
+        {{if .YOLO}}<span data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.yolo">{{template "wb/yolo-tag"}}</span>{{end}}
         <button type="button" class="wb-copyref" data-ref="{{.Ref}}" title="Copy {{.Ref}}" data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.copy">copy ref</button>
     </div>
     <div class="wb-drow-main">

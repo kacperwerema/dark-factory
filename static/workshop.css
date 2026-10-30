@@ -1381,3 +1381,80 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-ci-run--error { background: #F2B544; }
 .wb-ci-run--running { background: #fff; border-style: dashed; }
 .wb-ci-log { margin: 0; max-height: 220px; overflow: auto; padding: 8px; border-radius: 8px; background: #F1F3F7; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
+
+/* YOLO (templates/_workshop_yolo.html): yellow-black stripes mean YOLO only;
+   orange stays the owner's colour. */
+.wb { --yolo: #FFD43B; --yolo-bg: #FFF9DB; --yolo-fg: #6B5300; --hazard: repeating-linear-gradient(-45deg, var(--yolo) 0 12px, var(--ink) 12px 24px); }
+.wb-hazard-sq { flex: none; display: inline-block; width: 18px; height: 14px; border: 1.5px solid var(--ink); border-radius: 3px; background: linear-gradient(135deg, var(--yolo) 50%, var(--ink) 50%); }
+.wb-yolo-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background: var(--yolo); border: 1.5px solid var(--ink); color: var(--ink); white-space: nowrap; }
+.wb .wb-btn--yolo { border: 2px solid var(--ink); background: var(--yolo); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); font: inherit; font-weight: 800; font-size: 14px; min-height: 44px; padding: 0 16px; cursor: pointer; gap: 8px; }
+
+/* L1 header: the switch and the after-the-fact count. */
+.wb-yolo-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px 0 10px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); font: inherit; font-weight: 800; font-size: 14px; cursor: pointer; }
+.wb-yolo-knob { position: relative; width: 34px; height: 20px; border-radius: 99px; background: #DDE2EA; border: 2px solid var(--ink); }
+.wb-yolo-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); transition: left .12s; }
+.wb-yolo-switch--on { background: var(--yolo); }
+.wb-yolo-switch--on .wb-yolo-knob { background: var(--ink); }
+.wb-yolo-switch--on .wb-yolo-knob::after { left: 16px; background: var(--yolo); }
+.wb-yolo-count { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); font-weight: 800; font-size: 13px; text-decoration: none; box-shadow: 3px 3px 0 var(--ink); }
+
+/* The hazard band under the header, on every project screen while on. */
+.wb-hazard { background: var(--hazard); border-bottom: 2px solid var(--ink); padding: 10px 20px; }
+.wb-hazard-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; max-width: 1200px; margin: 0 auto; padding: 8px 12px; background: var(--paper); border: 2px solid var(--ink); border-radius: 12px; }
+.wb-hazard-title { font-family: var(--display); font-weight: 800; font-size: 16px; padding: 3px 10px; border-radius: 7px; background: var(--yolo); border: 2px solid var(--ink); }
+.wb-hazard-text { font-size: 14px; }
+.wb-hazard-meta { font-size: 13px; color: var(--muted-2); }
+.wb-hazard-extend { position: relative; }
+.wb-hazard-extend > summary { list-style: none; }
+.wb-hazard-extend > summary::-webkit-details-marker { display: none; }
+.wb-hazard-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 6; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--paper); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 4px 4px 0 var(--ink); }
+.wb-hazard-msg:empty { display: none; }
+.wb-hazard-msg { max-width: 1200px; margin: 6px auto 0; padding: 4px 10px; background: var(--paper); border-radius: 8px; font-size: 13px; }
+
+/* The turn-on dialog (L1). */
+.wb-yolo-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 2px solid var(--ink); border-radius: 16px; box-shadow: 8px 8px 0 var(--ink); overflow: auto; color: var(--ink); font-family: var(--ui); }
+.wb-yolo-dialog::backdrop { background: rgba(27, 31, 42, .45); }
+.wb-yolo-dialog-stripes { height: 16px; background: var(--hazard); border-bottom: 2px solid var(--ink); }
+.wb-yolo-dialog-body { display: flex; flex-direction: column; gap: 14px; padding: 18px 24px 22px; }
+.wb-yolo-dialog-head { display: flex; gap: 14px; align-items: flex-start; }
+.wb-yolo-dialog-head .wb-h1 { margin: 2px 0 4px; }
+.wb-yolo-lead { margin: 0; font-size: 15px; line-height: 1.45; }
+.wb-yolo-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.wb-yolo-box { display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border: 2px solid var(--ink); border-radius: 12px; font-size: 13px; }
+.wb-yolo-box--skip { background: var(--yolo-bg); }
+.wb-yolo-gate, .wb-yolo-guard { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.wb-yolo-gate .wb-hazard-sq { align-self: center; }
+.wb-yolo-gate .wb-mono { font-size: 11.5px; margin: 0; }
+.wb-yolo-field { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wb-yolo-radios { display: flex; flex-wrap: wrap; gap: 10px; }
+.wb-yolo-radio { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 2px solid var(--line); border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; }
+.wb-yolo-radio:has(input:checked) { border-color: var(--ink); }
+.wb-yolo-check { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; line-height: 1.4; }
+.wb-yolo-check input { margin-top: 3px; }
+.wb-yolo-note { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--page); font-size: 13px; line-height: 1.45; }
+.wb-yolo-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; }
+
+/* L0: the lot in stripes, its tag, "N after the fact" instead of "!". */
+.wb-lot--yolo { border: 8px solid transparent; background: linear-gradient(var(--paper), var(--paper)) padding-box, var(--hazard) border-box; }
+.wb-yolo-fact { position: absolute; top: -16px; right: -16px; min-width: 64px; padding: 4px 8px; border-radius: 12px; background: var(--yolo); border: 2px solid var(--ink); display: flex; flex-direction: column; align-items: center; font-weight: 800; font-size: 10px; line-height: 1.1; text-align: center; }
+.wb-yolo-fact span:first-child { font-family: var(--display); font-size: 18px; }
+
+/* L1: the Product room in YOLO: gates open, "YOLO · N" instead of "!". */
+.wb-room--yolo .wb-station--gate .wb-station-box { background: var(--yolo); }
+.wb-key--yolo { border-radius: 50%; background: var(--yolo); }
+.wb-yolo-roomtag { position: absolute; top: -14px; right: -10px; padding: 3px 10px; border-radius: 8px; background: var(--yolo); border: 2px solid var(--ink); font-weight: 800; font-size: 12px; text-decoration: none; }
+.wb-side-block--yolo { background: var(--yolo-bg); }
+.wb-side-block--yolo .wb-qrow-slug { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* L2: the gate raised (barrier up), crates with the yellow marker. */
+.wb-gatecard--raised { background: var(--yolo-bg); }
+.wb-barrier { position: relative; width: 40px; height: 40px; }
+.wb-barrier::before { content: ""; position: absolute; left: 6px; bottom: 0; width: 6px; height: 22px; background: var(--ink); border-radius: 2px; }
+.wb-barrier i { position: absolute; left: 4px; bottom: 18px; width: 40px; height: 8px; border: 1.5px solid var(--ink); border-radius: 3px; background: var(--hazard); background-size: 34px 34px; transform: rotate(-60deg); transform-origin: 4px 50%; }
+.wb-crate-yolo { flex: none; height: 17px; padding: 0 4px; border-radius: 4px; background: var(--yolo); border: 1.5px solid var(--ink); font-size: 9px; font-weight: 800; display: flex; align-items: center; }
+
+/* L3: "Passed in YOLO", the review after the fact. */
+.wb-yolo-review { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; background: var(--yolo-bg); border: 2px solid var(--ink); border-radius: 14px; box-shadow: 5px 5px 0 var(--yolo); }
+.wb-yolo-review-head { display: flex; align-items: center; gap: 10px; }
+.wb-yolo-pass { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1.5px dashed var(--line); }
+.wb-yolo-pass:first-of-type { border-top: 0; padding-top: 0; }
