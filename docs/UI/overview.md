@@ -121,6 +121,8 @@ In projects whose `workflow.yaml` defines `types:` ([Types of Work](../Workflow/
 
 `/p/<project>/workboard` is the sidebar's **Board**. It is a read-only kanban whose cards carry coordination state, rebuilt from the repo files on each request; it reloads when `/hash` changes (not while the search box has text). Writes stay where they were: the classic board (drag-and-drop), the detail page and issue-cli.
 
+**Workflow switch.** On a project where a department has its own workflow file ([Department workflows](../workflow.md#department-workflows)), a **Workflow** switch above the columns picks Product or one department (`?department=<name>`): the columns come from that file and only its issues show. Product is the default, and columns are never merged across departments. The classic board and graph take `?department=` too. On the company page, a department with its own file draws its own line (440px wide so it fits); a missing or broken file shows an error chip with the message instead. On the issue page, changing `department:` to one whose file lacks the issue's status is refused, as with `set-meta`.
+
 **Card.**
 - **Head:** system chip, `epic` chip, and the time in the current status. That time comes from the stats sidecar's last transition into the status (tooltip "since"), else the file mtime ("last file change"). It turns amber after 24 h, except in the first status, done and global statuses (parked).
 - **Title:** links to the issue.
