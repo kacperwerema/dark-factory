@@ -203,6 +203,8 @@ workbench:
 
 `/p/<project>/status` is the first sidebar entry. It answers "where are we" without asking the lead. It is read-only, and everything comes from repo files. `buildStatus` (`status.go`) holds the rules and is tested without HTTP; the grouping and the caps are in `status_groups.go`.
 
+`/status` opens the Report (`report.go`, the Workshop Board look; components in `templates/_workshop_report.html`), built from the same `StatusModel`. This section describes the classic page, kept at `?classic=1`. The Report's side column carries the release flow as `wb/release` and `wb/ci`, with the classic page's test ids: Waiting for release (milestone readiness with a link to each open issue, the checks, Ready to cut or the release candidate with its cut, pick or publish step, Unreleased, Not pushed) and Local CI (state, blame, last runs boxes). Each is hidden when its part of the model is nil, the same rules as below.
+
 **Layout.** A row of three tiles, then three rows on one shared grid (`.status-grid`, gap 20 px), so card edges line up down the page:
 
 - **1200 px and up:** the tiles' grid, `repeat(3, minmax(0, 1fr))` (workflow/health-scores-…#D-10). Widths per row, normalised to 3: tiles 1 1 1, row 1 1 1 1, rows 2 and 3 2 1.
@@ -451,6 +453,10 @@ A UI issue's manual checks are written as a playtest session (`playtest/sessions
 - **Known bug:** at phone width (390px) the page headers and the board filter bar don't wrap. Sessions waive them with `layout_ignore`.
 
 ## Issue page tabs
+
+`/p/<project>/issue/<slug>` opens the station (`station.go`, the Workshop Board look); the classic page below is at `?classic=1` and at any `?tab=`. Its Issue tab links to `?classic=1`, so it stays on the classic page with the body editor, comments, checkbox ticking, dispatch and the data table.
+
+On the station the owner's steps come first (playtest, guided checks, an open question), then the stamp: the gate's targets, the words box, **Stamp it** and Send back for fixes. The stamp is never locked. While steps are open a note says so ("Steps 1–2 are still open: you can stamp ahead."), as the classic page's approve buttons never waited either. On the hall the message box starts empty when the page picks the issue itself; when you pick one it holds `<slug>: `, never approval words, so a stray Enter approves nothing.
 
 `/p/<project>/issue/<slug>` has the back link, the title (click to edit), a chip row (status, type, priority, system) and a tab bar. The bar reuses the Status page's `status-tabs` look, with links instead of JS:
 
