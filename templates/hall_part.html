@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Product hall" .Title)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<section class="wb-ground wb-part" aria-label="{{.Title}}" data-testid="hall.part">
+    <div class="wb-titlebar">
+        <a class="wb-part-back" href="{{.HallURL}}" data-testid="hall.part.back">← Product hall</a>
+        <h1 class="wb-h1">{{.Title}}</h1>
+        {{with .Status}}<span class="wb-mono">{{.}}</span>{{end}}
+        <span class="wb-sub">{{.Sub}}</span>
+    </div>
+    <div class="wb-part-grid">
+    {{if eq .Kind "station"}}{{template "wb/part-station" .}}{{else if eq .Kind "gate"}}{{template "wb/part-gate" .}}{{else}}{{template "wb/part-ci" .CI}}{{end}}
+    </div>
+</section>
+</div>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

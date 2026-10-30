@@ -1,0 +1,89 @@
+session: ceo-chat-images
+issue: factory/ceo-chat-paste-drop-or-attach-images
+title: "Images in the CEO chat box — attach, remove, send, refuse, thumbnails in your turn"
+scenario: leads
+
+# The lead is faked on the scenario's private tmux server (cat echoes the
+# paste), as in ceo-chat.yaml. attach/shot.png and notes.txt (from files/) sit in the
+# scenario's project root. The stored image's name is its content hash, so
+# TP6 can print the owner's turn with the path the send used.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Attach shows the image as a thumbnail in the box; × takes it out again
+    proves: [AC1]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - check: { visible: lead_chat.attach_image }
+      - upload: { target: lead_chat.image_input, path: attach/shot.png }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - check: { count: { pattern: lead_chat.image, equals: 1 } }
+      - check: { visible: lead_chat.images }
+      - click: lead_chat.image.remove
+    checks:
+      - count: { pattern: lead_chat.image, equals: 0 }
+      - hidden: lead_chat.images
+
+  - id: TP5
+    title: "Send pastes the text and one [Image: <absolute path>] line into the CEO, and the box empties"
+    proves: [AC2]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, -x, "300", -y, "40", cat]
+      - open: /p/{project}/lead
+    act:
+      - upload: { target: lead_chat.image_input, path: attach/shot.png }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - type: { target: lead_chat.text, text: "look at this" }
+      - key: Enter
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
+    checks:
+      - tmux: { pane: lead-crew, contains: "look at this" }
+      - tmux: { pane: lead-crew, contains: "[Image: {dir}/.agent-logs/lead-crew/chat/images/d507c28f9d713ef0918c51253094dd43.png]" }
+      - value_equals: { target: lead_chat.text, value: "" }
+      - count: { pattern: lead_chat.image, equals: 0 }
+
+  - id: TP6
+    title: The owner's turn shows the sent image as a thumbnail that links to the full image
+    proves: [AC3]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+      - upload: { target: lead_chat.image_input, path: attach/shot.png }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - tmux: [kill-session, -t, lead-crew]
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> look at this' '  [Image: {dir}/.agent-logs/lead-crew/chat/images/d507c28f9d713ef0918c51253094dd43.png]' '' '⏺ I see the checkerboard.'; exec cat"]
+      - reload: true
+    checks:
+      - visible: lead_chat.turn.images
+      - text_contains: { target: lead_chat.turn.you, text: "look at this" }
+      - http: { path: "/p/{project}/files/.agent-logs/lead-crew/chat/images/d507c28f9d713ef0918c51253094dd43.png", status: 200 }
+
+  - id: TP7
+    title: A file that isn't an image is refused with a message, and what you typed stays
+    proves: [AC4]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - type: { target: lead_chat.text, text: "half a thought" }
+      - upload: { target: lead_chat.image_input, path: attach/notes.txt }
+    checks:
+      - text_contains: { target: lead_chat.status, text: "Not attached: notes.txt is not a PNG, JPEG, GIF or WebP image." }
+      - value_equals: { target: lead_chat.text, value: "half a thought" }
+      - count: { pattern: lead_chat.image, equals: 0 }
+
+  - id: TP8
+    title: Pasting and dropping a screenshot attach it the same way
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    do: Take a screenshot to the clipboard (cmd+ctrl+shift+4) and paste it in the box; then drag an image file from Finder onto the box, and send.
+    expect: "Each shows as a thumbnail above the text while the box outlines on drag; × removes one; Send empties the box and the pane gets one [Image: …] line per image."
+    why: Clipboard and Finder drag can't be driven headless.
