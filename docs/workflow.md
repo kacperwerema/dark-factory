@@ -286,6 +286,10 @@ With scoring enabled:
 
 Existing URL filters (`?status=`, `?system=`, `?label=`, etc.) compose with `?sort=`.
 
+## Editing a station from the hall
+
+The owner can change a station of the Product line from the viewer: the Product hall's station page has **Edit**, which edits that status's description and prompt, the actions on the base transitions into and out of it, and the approval gate on each way in. It previews the diff, writes only the edited entries (the rest of the file, comments included, stays as written) and commits the file on main with the owner's reason quoted. Overlays, wildcard edges and statuses themselves are edited by hand. See [UI: Editing a station](UI/overview.md#editing-a-station).
+
 ## YOLO Mode
 
 For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).

@@ -60,6 +60,7 @@ handlers_canvas.go          — issues canvas (/canvas): version columns × epic
 handlers_detail.go          — detail page, transition preview, data-table render
 shelf.go                    — the outputs shelf: /p/<project>/shelf (filters, Approve / Reject POST …/shelf/review), …/shelf/file/ (sandboxed), the rooms' 📦 links, HQ's block, waiting rows
 hall_part.go                — the hall's drill-in: GET /hall/station/<status>, /hall/gate/<status>, /hall/ci (HallPartData, actionWords); components in templates/_workshop_hall_part.html
+hall_edit.go                — a station's Edit form: GET /hall/station/<status>/edit, POST …/edit/preview and …/edit/save over internal/wfedit; components in templates/_workshop_hall_edit.html, JS in static/hall-edit.js
 station.go                  — L3, the station: GET /issue/<slug> (classic page at ?classic=1 or ?tab=); components in templates/_workshop_station.html, JS in static/station.js
 issue_tab.go                — the detail page's Issue tab model: brief, Needs-you band, path, what you're approving, folded body, side column
 evidence.go                 — the detail page's Evidence tab model and its label: shots per linked playtest step, criteria → proof, verdict, playtest per step, watch (evidence_change.go: commits and files by area; stale_text.go: stale Open/pending lines matched to a D-n)
@@ -112,6 +113,7 @@ internal/privacy/           — private work files and code: the tracker repo (g
 internal/proof/             — acceptance criteria → proof links: Collect (Proves: trailers, playtest proves:, prove links in the sidecar), each link's check (docs-only commits don't stale a test), the criteria_proven gate, ticking
 internal/playtestruns/      — playtest run folders: List, Archive at done (latest own runs move to <root>/.playtest/runs), Prune (`issue-cli playtest prune`), Shrink (old shots to small JPEGs)
 internal/checks/            — guided check scripts: lib.sh (embedded; issue-cli check-script --lib), Find by `# issue:` header, owner run records, Due, WindowName, Skeleton; testdata/ported/ the first three scripts on the library
+internal/wfedit/            — edit one station of a workflow file: Open, Apply (splice only the edited items, diff, checks, read-back guard), Save (one-file commit on main quoting the owner); the hall's Edit
 internal/workflowupgrade/   — feature catalog, detection, features: record, upgrade plan (BuildPlan), catalog-check (CheckBranch); guard tests that every workflow.yaml key has an entry
 cmd/issue-cli/templates/    — bundled workflow templates and workflow-features.yaml, embedded as package templates
 internal/agentrun/          — shared tmux/worktree launcher used by the server and issue-cli (leads, dispatch)
