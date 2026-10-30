@@ -108,6 +108,7 @@ func TestDispatch_RefusesAtAReadyGate(t *testing.T) {
 	for _, w := range []string{
 		`ui/child waits on the owner's approval for "human-testing"`,
 		"A human approves at: https://issues.example.com/p/proj/issue/ui/child#approve-human-testing",
+		"Several waiting?     https://issues.example.com/p/proj/needs-you",
 		"Dispatch anyway:     issue-cli --project proj dispatch ui/child --force --quote \"start child\"",
 	} {
 		if !strings.Contains(err.Error(), w) {

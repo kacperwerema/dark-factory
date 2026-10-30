@@ -1617,3 +1617,46 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
   .wb-shelf-thumb { width: 40px; height: 32px; font-size: 18px; }
   .wb-shelf-acts { grid-column: 1 / -1; }
 }
+
+/* ---- Needs you: every waiting item, ready gates approved together ---- */
+.wb-ny-count { display: inline-grid; place-items: center; min-width: 30px; height: 30px; margin-left: 6px; padding: 0 8px; border: 2px solid var(--ink); border-radius: 99px; background: var(--you); font-size: 16px; vertical-align: 4px; }
+.wb-ny { max-width: 1080px; padding-right: 6px; }
+.wb-ny-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
+.wb-ny-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.wb-ny-hint { font-size: 12px; color: var(--muted-2); font-weight: 500; }
+.wb-ny-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+.wb-ny-proj { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 17px; }
+.wb-ny-proj i { width: 12px; height: 12px; border-radius: 4px; }
+.wb-ny-n { font-size: 12px; font-weight: 700; color: var(--muted-2); }
+.wb-ny-error { padding: 8px 12px; border: 1.5px solid #A3172A; border-radius: 10px; background: #FDE8EA; color: #A3172A; font-size: 13px; }
+.wb-ny-sec { display: flex; flex-direction: column; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); overflow: hidden; }
+.wb-ny-sec-h { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1.5px solid #E3E6EC; background: #F6F7F9; }
+.wb-ny-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1.5px solid #E3E6EC; }
+.wb-ny-sec-h + .wb-ny-row { border-top: 0; }
+.wb-ny-row--you { box-shadow: inset 4px 0 0 var(--you); }
+.wb-ny-row--red { background: #FFF6F7; box-shadow: inset 4px 0 0 #A3172A; }
+.wb-ny-row--done { opacity: .6; }
+.wb-ny-pick input, .wb-ny-all input { width: 18px; height: 18px; accent-color: var(--ink); cursor: pointer; }
+.wb-ny-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-ny-acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.wb-ny-acts button { font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; }
+.wb-ny-msg { font-size: 12.5px; font-weight: 700; }
+.wb-ny-msg:empty { display: none; }
+.wb-ny-msg--ok { color: #157A42; }
+.wb-ny-msg--err { color: #A3172A; }
+.wb-ny-after { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1.5px solid #E3E6EC; color: inherit; text-decoration: none; font-size: 13px; }
+.wb-ny-sec-h + .wb-ny-after { border-top: 0; }
+.wb-ny-after .wb-qrow-go { margin-left: auto; }
+.wb-ny-dialog { max-width: min(560px, calc(100vw - 32px)); padding: 20px 22px; border: 2px solid var(--ink); border-radius: 16px; background: var(--paper); box-shadow: 5px 5px 0 var(--ink); }
+.wb-ny-dialog::backdrop { background: rgba(27, 31, 42, .35); }
+.wb-ny-dialog h2 { margin: 0 0 10px; font-size: 18px; }
+.wb-ny-list { margin: 0 0 14px; padding-left: 18px; max-height: 45vh; overflow: auto; font-size: 13px; line-height: 1.6; }
+.wb-ny-list b { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; }
+.wb-ny-words { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 700; }
+.wb-ny-words textarea { font: inherit; font-weight: 400; padding: 8px; border: 1.5px solid var(--ink); border-radius: 8px; resize: vertical; }
+.wb-ny-dialog-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wb-ny-dialog-acts button { font: inherit; font-weight: 800; cursor: pointer; }
+@media (max-width: 640px) {
+    .wb-ny-row { grid-template-columns: 24px minmax(0, 1fr); }
+    .wb-ny-acts { grid-column: 2; justify-content: flex-start; }
+}

@@ -94,6 +94,7 @@ yolo_view.go                — YOLO mode in the viewer: the sidebar band and af
 release_wait.go             — Status "Waiting for release" card: milestone readiness, ## Unreleased entries, unpushed commits (one git call)
 release_candidate.go        — the card's release candidate (workbench.release_candidates): newest local <cut>-rc.N tag, commits since (on release/vX.Y once cut), soaked and picked checks, release.json for issue-cli release; on the engine the builds running, projects that ran it (usage logs), reports from it
 ci_view.go                  — local CI on the pages: Status card (last runs boxes), waiting entry, ci-red markers
+needs_you.go                — the Needs you list: /p/<project>/needs-you, /needs-you across projects, needs-you.json, POST …/needs-you/approve (ready gates stamped together); needsYouRows is the list every waiting-on-you count is the length of
 attention.go                — what waits on the owner (ownerAttention, waitingOnOwner): Status page, sidebar count, system pages, board markers
 issue.go                    — Issue struct, ParseIssue, LoadIssues (walks subdirs)
 docs.go                     — DocPage struct, ParseDocPage, LoadDocs

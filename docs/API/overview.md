@@ -28,6 +28,7 @@ The API system covers HTTP handlers, routing, JSON endpoints, and server-side lo
 - `handlers_dispatch.go` — agent dispatch, `startAgentSession`, `buildAgentPrompt`, `buildRetrosReviewPrompt`
 - `handlers_github.go` — github page, fetch, import
 - `shelf.go` — the departments' outputs shelf (`/shelf`, `/shelf/review`, the sandboxed `/shelf/file/` route), the company page's 📦 links and HQ block, the shelf rows in Waiting on you; the record is `internal/outputs`
+- `needs_you.go` — the Needs you list (`/needs-you`, `/needs-you.json`, `/needs-you/approve`, and `/needs-you` across projects): `needsYouRows`, the list every waiting-on-you count is the length of, and the bulk approve
 - `handlers_lead_chat.go` — the lead chat's model and endpoints (`/lead.json`, `/lead/send`, `/lead/key`: `buildLeadChat`, `cleanPane`, `leadQuestions`, `cleanMessage`) and `/leads`
 - `ceo_chat.go` — the CEO chat page (`/lead`, `?part=live`: `buildCEOChat`, `buildCEOLive`); `ceo_pane.go` reads the pane as a conversation (`parseCEOPane`: turns, working line, menu, mode)
 - `handlers_agents.go` — agents canvas (`buildAgentsModel`, `AgentsModel`), agent detail, `handleAgentOpen` (open a session in a terminal), `handleLeadSpawn`
@@ -88,6 +89,9 @@ When working on API changes:
 | GET    | `/status.json`                                | The Status model project pages receive by postMessage |
 | GET    | `/pages/<n>`                                  | A `workbench.pages` entry in the viewer frame |
 | GET    | `/page-raw/<path>`                            | A project page or asset under a configured page's folder, with CSP `sandbox`, `nosniff`; 404 otherwise |
+| GET    | `/needs-you`                                  | The [Needs you list](../UI/overview.md#needs-you-list): every item waiting on the owner, by section. `/needs-you` without `/p/<project>` lists every project |
+| GET    | `/needs-you.json`                             | The same rows: `{project, count, rows: [{kind, label, slug, title, note, age, action, url, since, tone, blocking, from, target, ready, run_url}], after: [{slug, status, url}], url}`. `count` is the number every waiting-on-you count shows |
+| POST   | `/needs-you/approve`                          | Body `{items: [{slug, status}], words}`: stamps each gate that still waits only on that approval (the station's record: `human_approval`, approval time, `words` as an `approval:` comment). No transition, no agent message. Returns `{results: [{slug, status, ok, error, words_error}]}`; a failed item does not stop the rest. 400 without items. Same-origin only |
 | GET    | `/shelf[?dept=<name>&state=<state>]`          | The [outputs shelf](../departments.md#outputs-shelf): department and state tabs, a row per output |
 | POST   | `/shelf/review`                               | Form fields `id`, `verdict` (`approve`/`reject`), plus `dept`, `state` to return to: records the owner's review (quote "approved on the shelf" or "rejected on the shelf"), then redirects to the shelf. Same-origin only |
 | GET    | `/shelf/file/<path>`                          | A file on the shelf, only from inside `<issues>/.outputs/files`, with CSP `sandbox`, `nosniff`; 404 otherwise |

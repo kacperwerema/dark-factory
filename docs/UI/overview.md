@@ -570,6 +570,18 @@ Both states persist independently in `localStorage` (`sidebar-locked`, `sidebar-
 
 Lock defaults to on (the early-load check is `localStorage.getItem('sidebar-locked') !== 'false'`), so an explicit user opt-out is required to keep the sidebar scrolling with the body.
 
+## Needs you list
+
+Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it.
+- **One list, one count.** `needsYouRows` is the list: red CI, ready gates, playtests and check scripts to run, open `question:` comments, outputs to review (one row per department) and unsent `issue-cli report-bug` reports (listed once across projects). Red CI comes first, then the oldest. The sidebar's Status count, every Workshop Board header (`map.waiting`), the map's lots, the company panel, the hall, the Report's Waiting on you card and the classic Status card are all its length.
+- **Where the counts link.** The header's "N waiting on you" goes to the project's list (the map's and Every CEO's go to `/needs-you`). The sidebar's amber Status number is its own link to the list, while the word Status still opens the Status page. The Report's Waiting on you card has **See all and approve**, its bottleneck's **Approve gates** opens the list when more than one gate waits, and the company panel has **See all and approve**. The classic Status card, the workboard (**List →**), the map's Waiting on you panel and the CEO chat's Waiting band each have a See all link.
+- **Sections.** CI red, To approve, To test, To answer, Outputs to review, Other. Each row keeps its own action: Approve and Review (the station's approve button) for a gate, **Run checks** (the same `POST …/check-script` as the station) and Check for check scripts, Play for a playtest, Answer (the station's comments) for a question, View status, Open shelf.
+- **Approving together.** Only ready gates (the approval is all the transition still needs) have a checkbox. **Select all ready (N)** and **Approve selected (N)** open one confirm listing each issue as `slug: from → to`, with one optional words box for the batch. **Approve all listed** posts each project's gates to its `POST …/needs-you/approve`. A row's own **Approve** opens the same confirm for one gate. Each row then shows "Approved for <status> ✓" or why it was not stamped.
+- **What a stamp writes.** It writes the station's record (`stampApproval`, shared with `POST /issue/<slug>/approve`): `human_approval`, the approval time in the stats sidecar, and the words as an `approval:` comment on each issue. Nothing moves and no agent session is messaged: the lead or the worker picks the stamp up. An issue already approved is skipped, never toggled off.
+- **Playtests and YOLO.** With `playtest: agents` or `off` in workflow.yaml there are no playtest rows. While YOLO is on, the gates it passed show under **After the fact**, below the list and not counted.
+
+Test ids are `needs_you.*`, and the session is `playtest/sessions/needs-you.yaml` (scenario `needs-you`).
+
 ## Approving two steps at once
 
 The sidebar's **Human Approval** section shows one **Human-approved for <status>** toggle per approval-gated next step. When that step lands on a handoff status (`backlog`, `human-testing`) whose own next step also needs an approval, a second toggle, **Approved for backlog and in progress**, approves both in one click.

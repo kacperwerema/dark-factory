@@ -4510,3 +4510,6 @@ a:hover > .chart-seg, a:focus > .chart-seg { opacity: .8; }
 @media (max-width: 1000px) {
     .lead-chat-body { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Classic Status: the Needs you card's link to the full list. */
+.status-see-all { margin-left: auto; font-size: 13px; font-weight: 600; }

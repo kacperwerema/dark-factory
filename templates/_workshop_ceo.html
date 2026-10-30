@@ -132,7 +132,7 @@ static/ceo-chat.js).
 
 {{define "wb/waiting-band"}}
 <div class="wb-wait{{if .}} wb-wait--on{{end}}" id="waiting" data-testid="lead_chat.waiting">
-    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{end}}</div>
+    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{else}}<a class="wb-wait-sub" href="needs-you" data-testid="lead_chat.waiting.all">See all and approve →</a>{{end}}</div>
     {{range .}}<a class="wb-wait-row" href="{{.ActionURL}}" data-testid="lead_chat.waiting.{{.Kind}}.{{tid .Slug}}"><span class="wb-kind wb-kind--you">{{.Action}}</span><span class="wb-wait-title">{{.Title}}</span><span class="wb-wait-detail">{{.Detail}} · {{.Age}}</span></a>{{end}}
 </div>
 {{end}}

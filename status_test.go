@@ -325,7 +325,7 @@ func TestStatusPageRenders(t *testing.T) {
 	}
 	for _, want := range []string{
 		`data-testid="nav.tab.status" aria-current="page"`,
-		`data-testid="nav.tab.status.count">3</span>`,
+		`data-testid="nav.tab.status.count">3</a>`,
 		`data-testid="status.no_versions"`,
 		`data-testid="status.epic.ui/epic"`,
 		`data-testid="status.working.row.ui/tested"`,
@@ -349,7 +349,7 @@ func TestStatusPageRenders(t *testing.T) {
 
 	// The count follows the page onto every other view.
 	_, list := getResp(t, ts.URL+"/p/status/")
-	if !strings.Contains(list, `data-testid="nav.tab.status.count">3</span>`) {
+	if !strings.Contains(list, `data-testid="nav.tab.status.count">3</a>`) {
 		t.Error("list page sidebar is missing the Status count")
 	}
 }
@@ -380,7 +380,7 @@ func TestStatusUnsentBugReports(t *testing.T) {
 		`data-testid="status.waiting.cli_bugs"`,
 		`2 issue-cli bug reports not sent`,
 		`issue-cli report-bug --send`,
-		`data-testid="nav.tab.status.count">4</span>`,
+		`data-testid="nav.tab.status.count">4</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("status page missing %q", want)

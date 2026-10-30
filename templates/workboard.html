@@ -38,6 +38,7 @@
             {{end}}
             {{if .System}}<a href="{{.Prefix}}/workboard{{if ne .Group "status"}}?group={{.Group}}{{end}}" class="chip workboard-toggle active" data-testid="workboard.filter.system" title="Clear the system filter">{{.System}} ×</a>{{end}}
             <a href="{{.WaitingHref}}" class="chip chip-amber workboard-toggle{{if .WaitingOnly}} active{{end}}" data-testid="workboard.filter.waiting"{{if .WaitingOnly}} aria-current="true"{{end}}>Waiting on you · {{.WaitingCount}}</a>
+            {{if .WaitingCount}}<a href="{{.Prefix}}/needs-you" class="chip workboard-toggle" data-testid="workboard.needs_you" title="Every item that waits on you, with Approve all">List →</a>{{end}}
             <a href="{{.AllHref}}" class="chip workboard-toggle{{if .ShowAll}} active{{end}}" data-testid="workboard.filter.all"{{if .ShowAll}} aria-current="true"{{end}} title="{{if .ShowAll}}Back to the cards that need attention{{else}}Also show quiet cards: no marker and no agent{{end}}">{{if .ShowAll}}Showing all{{else}}Show all · {{.QuietCount}} quiet{{end}}</a>
             <input type="search" class="workboard-search" data-testid="workboard.search" aria-label="Filter cards" placeholder="Filter cards…" oninput="filterWorkboard(this.value)">
         </div>

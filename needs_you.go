@@ -228,7 +228,9 @@ func (s *Server) buildNeedsYou(p *tracker.Project, prefix string, now time.Time)
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Needs you", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
-	d.Groups = []NeedsYouGroup{needsYouGroup(p, color, prefix, rows, lot.YOLO)}
+	if g := needsYouGroup(p, color, prefix, rows, lot.YOLO); g.Count > 0 || len(g.After) > 0 {
+		d.Groups = []NeedsYouGroup{g}
+	}
 	d.Ready = readyCount(d.Groups)
 	return d
 }
