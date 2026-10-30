@@ -27,6 +27,7 @@ The API system covers HTTP handlers, routing, JSON endpoints, and server-side lo
 - `handlers_workflow.go` — retros, bug status, docs pages
 - `handlers_dispatch.go` — agent dispatch, `startAgentSession`, `buildAgentPrompt`, `buildRetrosReviewPrompt`
 - `handlers_github.go` — github page, fetch, import
+- `shelf.go` — the departments' outputs shelf (`/shelf`, `/shelf/review`, the sandboxed `/shelf/file/` route), the company page's 📦 links and HQ block, the shelf rows in Waiting on you; the record is `internal/outputs`
 - `handlers_lead_chat.go` — the lead chat (`/lead`, `/lead.json`, `/lead/send`, `/lead/key`: `buildLeadChat`, `cleanPane`, `leadQuestions`, `cleanMessage`) and `/leads`
 - `handlers_agents.go` — agents canvas (`buildAgentsModel`, `AgentsModel`), agent detail, `handleAgentOpen` (open a session in a terminal), `handleLeadSpawn`
 - `internal/agentrun/` — the shared tmux + worktree launcher (`Start`, `Paste`, `CapturePane`, `CaptureHistory`, `SendKey`) used by the server and `issue-cli`; `lead.go` holds `LeadSpec`/`RecordLead` so `POST /lead/spawn` and `issue-cli lead spawn` start identical sessions
@@ -86,6 +87,9 @@ When working on API changes:
 | GET    | `/status.json`                                | The Status model project pages receive by postMessage |
 | GET    | `/pages/<n>`                                  | A `workbench.pages` entry in the viewer frame |
 | GET    | `/page-raw/<path>`                            | A project page or asset under a configured page's folder, with CSP `sandbox`, `nosniff`; 404 otherwise |
+| GET    | `/shelf[?dept=<name>&state=<state>]`          | The [outputs shelf](../departments.md#outputs-shelf): department and state tabs, a row per output |
+| POST   | `/shelf/review`                               | Form fields `id`, `verdict` (`approve`/`reject`), plus `dept`, `state` to return to: records the owner's review (quote "approved on the shelf" or "rejected on the shelf"), then redirects to the shelf. Same-origin only |
+| GET    | `/shelf/file/<path>`                          | A file on the shelf, only from inside `<issues>/.outputs/files`, with CSP `sandbox`, `nosniff`; 404 otherwise |
 | GET    | `/agents`                                     | Agents canvas (see [UI](../UI/overview.md#agents-canvas)) |
 | GET    | `/agents.json`                                | Canvas model: `project_lead`, `epics` (each open epic's issue and children running/total), `workers`, `unfinished`, `others`, `listed_at` |
 | GET    | `/agents/detail?session=<name>&issue=<slug>`  | Selected-agent panel: the issue's last 5 comments, `branch`/`against`/`diff_stat`. `400` unless `session` is an `agent-*`/`lead-*` name |
