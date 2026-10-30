@@ -307,18 +307,30 @@ func runOutputs(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, "No outputs match.")
 		return nil
 	}
+	// One block per department, in projects.yaml order (Product first),
+	// then any department no longer configured.
 	counts := outputs.Counts(list, ctx.now())
-	dept := ""
+	order := outputs.Keys(p)
 	for _, o := range list {
-		if o.Department != dept {
-			if dept != "" {
-				fmt.Fprintln(ctx.Stdout)
-			}
-			dept = o.Department
-			c := counts[dept]
-			fmt.Fprintf(ctx.Stdout, "== %s · %d to review · %d this week ==\n", o.Name, c.ToReview, c.Week)
+		if !slices.Contains(order, o.Department) {
+			order = append(order, o.Department)
 		}
-		printOutput(ctx.Stdout, o, "  ")
+	}
+	first := true
+	for _, dept := range order {
+		mine := outputs.Select(list, outputs.Filter{Department: dept})
+		if len(mine) == 0 {
+			continue
+		}
+		if !first {
+			fmt.Fprintln(ctx.Stdout)
+		}
+		first = false
+		c := counts[dept]
+		fmt.Fprintf(ctx.Stdout, "== %s · %d to review · %d this week ==\n", mine[0].Name, c.ToReview, c.Week)
+		for _, o := range mine {
+			printOutput(ctx.Stdout, o, "  ")
+		}
 	}
 	return nil
 }

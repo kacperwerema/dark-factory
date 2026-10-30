@@ -229,3 +229,22 @@ func TestOutputsLineAndHint(t *testing.T) {
 	}
 	assertContains(t, out.String(), "Outputs: 1 (1 to review)")
 }
+
+func TestOutputsListGroupsEachDepartmentOnce(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	addOutput(t, proj, "--department", "marketing", "--title", "M1", "--kind", "post", "--url", "https://a.example/1")
+	addOutput(t, proj, "--title", "P1", "--kind", "report", "--url", "https://a.example/2")
+	addOutput(t, proj, "--department", "marketing", "--title", "M2", "--kind", "post", "--url", "https://a.example/3")
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutputs(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if n := strings.Count(s, "== Marketing"); n != 1 {
+		t.Errorf("Marketing heading %d times:\n%s", n, s)
+	}
+	if !(strings.Index(s, "== Product") < strings.Index(s, "== Marketing") && strings.Index(s, "M2") < strings.Index(s, "M1")) {
+		t.Errorf("want Product first, then Marketing newest first:\n%s", s)
+	}
+}

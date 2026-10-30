@@ -224,6 +224,8 @@ func Load(p *tracker.Project) ([]*Output, []BadLine) {
 	}
 	defer f.Close()
 	byID := map[string]*Output{}
+	// seq is each output's place in the log: ties on Added go newest last.
+	seq := map[string]int{}
 	var bad []BadLine
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -241,6 +243,8 @@ func Load(p *tracker.Project) ([]*Output, []BadLine) {
 		}
 		if err := apply(byID, e); err != nil {
 			bad = append(bad, BadLine{Line: n, Err: err.Error()})
+		} else if e.Op == OpAdd {
+			seq[e.ID] = n
 		}
 	}
 	out := make([]*Output, 0, len(byID))
@@ -253,7 +257,7 @@ func Load(p *tracker.Project) ([]*Output, []BadLine) {
 		if !out[i].Added.Equal(out[j].Added) {
 			return out[i].Added.After(out[j].Added)
 		}
-		return out[i].ID > out[j].ID
+		return seq[out[i].ID] > seq[out[j].ID]
 	})
 	return out, bad
 }
@@ -397,7 +401,7 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 	list, _ := Load(p)
 	id := NewID(list, now)
 	e := Event{
-		Op: OpAdd, ID: id, Date: now.UTC().Format(time.RFC3339), Department: in.Department,
+		Op: OpAdd, ID: id, Date: now.UTC().Format(time.RFC3339Nano), Department: in.Department,
 		Title: in.Title, Kind: in.Kind, Issue: in.Issue, Job: strings.TrimSpace(in.Job),
 		Note: strings.TrimSpace(in.Note), By: in.By,
 	}
@@ -504,7 +508,7 @@ func Review(p *tracker.Project, id, state, quote, how, by string, now time.Time)
 	if o.State == StatePublished {
 		return nil, fmt.Errorf("output %s is already published", o.ID)
 	}
-	e := Event{Op: OpReview, ID: o.ID, Date: now.UTC().Format(time.RFC3339), State: state, Quote: strings.TrimSpace(quote), How: how, By: by}
+	e := Event{Op: OpReview, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), State: state, Quote: strings.TrimSpace(quote), How: how, By: by}
 	if err := Append(p, e); err != nil {
 		return nil, fmt.Errorf("recording the review: %w", err)
 	}
@@ -527,7 +531,7 @@ func Publish(p *tracker.Project, id, link, by string, now time.Time) (*Output, e
 			return nil, err
 		}
 	}
-	if err := Append(p, Event{Op: OpPublish, ID: o.ID, Date: now.UTC().Format(time.RFC3339), URL: strings.TrimSpace(link), By: by}); err != nil {
+	if err := Append(p, Event{Op: OpPublish, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), URL: strings.TrimSpace(link), By: by}); err != nil {
 		return nil, fmt.Errorf("recording the publish: %w", err)
 	}
 	list, _ = Load(p)

@@ -209,3 +209,19 @@ func ids(list []*Output) []string {
 	}
 	return out
 }
+
+func TestLoadOrdersSameInstantByLog(t *testing.T) {
+	p := project(t)
+	var want []string
+	for _, title := range []string{"a", "b", "c", "d"} {
+		o, err := Add(p, AddInput{Department: "marketing", Title: title, Kind: "post", URL: "https://x.example/" + title}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append([]string{o.ID}, want...)
+	}
+	list, _ := Load(p)
+	if got := ids(list); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("order = %v, want the newest recorded first %v", got, want)
+	}
+}
