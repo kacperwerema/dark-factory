@@ -25,6 +25,9 @@ type CEOTurn struct {
 	// Tools are the CEO's tool calls by name ("Bash", "Read"), in order,
 	// one per call.
 	Tools []string `json:"tools,omitempty"`
+	// Images are the chat images the owner's message sent, taken out of its
+	// text (withTurnImages).
+	Images []CEOImage `json:"images,omitempty"`
 }
 
 // ToolSummary is the folded line for the turn's tool calls: "used 3 tools:

@@ -708,6 +708,7 @@ var IDs = []string{
 	"lead_chat.pane",
 	"lead_chat.form",
 	"lead_chat.text",
+	"lead_chat.attach_image", "lead_chat.image_input", "lead_chat.images", "lead_chat.image", "lead_chat.image.remove", "lead_chat.turn.images",
 	"lead_chat.send", "lead_chat.send_now",
 	"lead_chat.key.*",
 	"lead_chat.status",
