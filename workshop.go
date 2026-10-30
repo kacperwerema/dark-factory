@@ -227,6 +227,7 @@ type WbRoomHQ struct {
 	Desk    WbCEODesk
 	Mission string
 	Goals   []WbHQGoal
+	Shelf   *WbHQShelf
 	Foot    []WbFootItem
 }
 
@@ -254,6 +255,7 @@ type WbRoomDept struct {
 	WorkflowFile, WorkflowError string
 	Mission                     string
 	Goals                       []WbGoal
+	Shelf                       *WbShelfLink
 	Foot                        []WbFootItem
 }
 
@@ -265,6 +267,7 @@ type WbRoomFactory struct {
 	Stations []WbStation
 	Waiting  int
 	HallURL  string
+	Shelf    *WbShelfLink
 	Foot     []WbFootItem
 }
 

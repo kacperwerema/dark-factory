@@ -10,6 +10,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/goals"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -56,9 +57,11 @@ type CompanyData struct {
 	Queue   []WbQueueCard
 	// QueueMore is how many more wait on the owner than the panel lists.
 	QueueMore int
-	Waiting   int
-	Radio     []WbMessage
-	Message   WbMessageBox
+	// Shelf is the departments with outputs waiting for the owner's review.
+	Shelf   []WbShelfWait
+	Waiting int
+	Radio   []WbMessage
+	Message WbMessageBox
 	// Toggle is Board | Report, on the title line (the header is full here).
 	Toggle []WbViewTab
 }
@@ -120,6 +123,10 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		d.HQ.Mission = rep.HQ.Mission
 		d.HQ.Goals = companyRollUp(p, rep.HQ, color)
 	}
+	shelf, hqShelf, shelfWaits := companyShelf(p, prefix, now)
+	d.HQ.Shelf, d.Shelf = hqShelf, shelfWaits
+	d.Waiting += len(shelfWaits)
+	d.Header.Waiting += len(shelfWaits)
 
 	// Workers by department: Product's go on its line, the others' sit in
 	// their department's room.
@@ -150,6 +157,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	if rep.Product != nil {
 		product.Mission, product.Goals = rep.Product.Mission, roomGoals(rep.Product, companyProductColor)
 	}
+	product.Shelf = shelf[goals.ProductKey]
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		product.Head.Chips = append(product.Head.Chips, *c)
 	}
@@ -161,6 +169,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
 			room.Mission, room.Goals = o.Mission, roomGoals(o, deptColor(dept, i))
 		}
+		room.Shelf = shelf[outputs.DeptKey(dept.Name)]
 		d.Rooms = append(d.Rooms, room)
 	}
 	d.Departments = 2 + len(p.Departments)

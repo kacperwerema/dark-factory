@@ -185,6 +185,17 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/mission"}}{{with .}}<div class="wb-mission" data-testid="company.room.mission">{{.}}</div>{{end}}{{end}}
 
+{{define "wb/shelf-link"}}{{with .}}<a class="wb-shelf-link" href="{{.URL}}" data-testid="company.room.outputs">{{if .ToReview}}<span class="wb-chip wb-chip--you">📦 {{.ToReview}} to review</span>{{else}}<span aria-hidden="true">📦</span>{{end}}<span class="wb-shelf-week">{{.Week}} made this week</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}{{end}}
+
+{{define "wb/shelf-item"}}<div class="wb-shelf-item" data-testid="shelf.item"><span class="wb-shelf-icon" aria-hidden="true">{{.Icon}}</span><i class="wb-shelf-dot" style="background:{{.Color}}" title="{{.Dept}}"></i>{{if .Link}}<a class="wb-shelf-title" href="{{.Link}}" rel="noopener noreferrer">{{.Title}}</a>{{else}}<span class="wb-shelf-title">{{.Title}}</span>{{end}}<span class="wb-shelf-state wb-shelf-state--{{.State}}">{{.State}}</span></div>{{end}}
+
+{{define "wb/hq-shelf"}}{{with .}}<div class="wb-hq-shelf" data-testid="company.hq.outputs">
+    <a class="wb-shelf-link" href="{{.URL}}"><span aria-hidden="true">📦</span><b>Outputs</b>{{if .ToReview}}<span class="wb-chip wb-chip--you">{{.ToReview}} to review</span>{{end}}<span class="wb-grow"></span><span class="wb-qrow-go" aria-hidden="true">›</span></a>
+    {{range .Latest}}{{template "wb/shelf-item" .}}{{end}}
+</div>{{end}}{{end}}
+
+{{define "wb/shelf-wait"}}<a class="wb-qrow" href="{{.URL}}" data-testid="company.queue.outputs"><span class="wb-kind wb-kind--you">📦 review</span><span class="wb-qrow-slug">{{.Count}} {{.Name}} output{{if ne .Count 1}}s{{end}}</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+
 {{define "wb/room-head"}}<div class="wb-room-head" style="background:{{.Color}}"><span class="wb-room-title">{{.Title}}</span><span class="wb-grow"></span>{{range .Chips}}{{template "wb/chip" .}}{{end}}{{with .Meta}}<span class="wb-room-meta">{{.}}</span>{{end}}</div>{{end}}
 
 {{define "wb/room-foot"}}{{if .}}<div class="wb-room-foot">{{range .}}<span{{if .Tone}} class="wb-foot--{{.Tone}}"{{end}}>{{.Text}}</span>{{end}}</div>{{end}}{{end}}
@@ -211,6 +222,7 @@ their styles). Pages compose them; a new element is a new component here first.
     {{with .Goals}}<div class="wb-rollup" data-testid="company.hq.rollup">{{range .}}
         <div class="wb-rollup-goal">{{template "wb/goal" .Goal}}{{range .Children}}<div class="wb-rollup-child" data-testid="company.hq.rollup.child">{{template "wb/goal" .}}</div>{{end}}</div>{{end}}
     </div>{{end}}
+    {{template "wb/hq-shelf" .Shelf}}
     {{template "wb/room-foot" .Foot}}
 </div>
 {{end}}
@@ -236,6 +248,7 @@ their styles). Pages compose them; a new element is a new component here first.
         {{with .Role}}<div class="wb-dept-role">{{.}}</div>{{end}}
         {{template "wb/mission" .Mission}}
         {{template "wb/room-goals" .Goals}}
+        {{template "wb/shelf-link" .Shelf}}
         {{with .Systems}}<div class="wb-muted wb-dept-systems">systems: {{.}}</div>{{end}}
         {{if .Stations}}<div data-testid="company.room.dept.line">{{template "wb/stations" .Stations}}<div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from {{.WorkflowFile}}</span></div></div>{{end}}
         {{with .WorkflowError}}<div class="wb-dept-error" role="alert" data-testid="company.room.dept.workflow_error">{{.}}</div>{{end}}
@@ -250,6 +263,7 @@ their styles). Pages compose them; a new element is a new component here first.
     <div class="wb-floor wb-floor--factory">
         {{template "wb/mission" .Mission}}
         {{template "wb/room-goals" .Goals}}
+        {{template "wb/shelf-link" .Shelf}}
         {{template "wb/stations" .Stations}}
         <div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from workflow.yaml</span></div>
         <div class="wb-grow"></div>

@@ -1394,3 +1394,46 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-ci-run--error { background: #F2B544; }
 .wb-ci-run--running { background: #fff; border-style: dashed; }
 .wb-ci-log { margin: 0; max-height: 220px; overflow: auto; padding: 8px; border-radius: 8px; background: #F1F3F7; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
+
+/* The outputs shelf (shelf.go): a room's link, HQ's block, the shelf page. */
+.wb-shelf-link { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin: 0 12px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 700; }
+.wb-shelf-link:hover { box-shadow: 2px 2px 0 var(--ink); }
+.wb-shelf-week { color: var(--muted-2); font-weight: 600; }
+.wb-hq-shelf { display: flex; flex-direction: column; gap: 4px; padding: 0 0 10px; }
+.wb-hq-shelf .wb-shelf-item { margin: 0 12px; }
+.wb-shelf-item { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; }
+.wb-shelf-icon { flex: none; }
+.wb-shelf-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink); }
+.wb-shelf-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; }
+.wb-shelf-state { flex: none; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: #EEF0F4; color: var(--muted-2); }
+.wb-shelf-state--review { background: var(--you-bg); color: var(--you-fg); }
+.wb-shelf-state--approved { background: #DDF3E5; color: #136B3A; }
+.wb-shelf-state--published { background: #DCE8FE; color: #1F4FB8; }
+.wb-shelf-state--rejected { background: #FBE1E1; color: #A12C2C; text-decoration: line-through; }
+.wb-shelf { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+.wb-shelf-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-shelf-tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 700; }
+.wb-shelf-tab--current { background: var(--ink); color: var(--paper); }
+.wb-shelf-tab b { font-weight: 800; opacity: .7; }
+.wb-shelf-list { display: flex; flex-direction: column; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); overflow: hidden; }
+.wb-shelf-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1.5px solid #E3E6EC; }
+.wb-shelf-row:first-child { border-top: 0; }
+.wb-shelf-thumb { width: 56px; height: 42px; display: grid; place-items: center; border: 1.5px solid var(--ink); border-radius: 8px; background: #F6F7F9; font-size: 22px; overflow: hidden; }
+.wb-shelf-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.wb-shelf-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-shelf-main .wb-shelf-title { font-size: 14.5px; }
+.wb-shelf-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: var(--muted-2); }
+.wb-shelf-meta a { color: inherit; }
+.wb-shelf-missing { color: #A12C2C; font-weight: 700; }
+.wb-shelf-acts { display: flex; align-items: center; gap: 8px; }
+.wb-shelf-acts form { margin: 0; }
+.wb .wb-shelf-btn { padding: 4px 10px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 2px 2px 0 var(--ink); }
+.wb .wb-shelf-btn--yes { background: var(--you); color: #fff; }
+.wb-shelf-empty { padding: 18px; font-size: 14px; }
+.wb-shelf-empty code { display: block; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: #F6F7F9; font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 640px) {
+  .wb-shelf { padding: 14px 16px; }
+  .wb-shelf-row { grid-template-columns: 40px minmax(0, 1fr); }
+  .wb-shelf-thumb { width: 40px; height: 32px; font-size: 18px; }
+  .wb-shelf-acts { grid-column: 1 / -1; }
+}

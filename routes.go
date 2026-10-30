@@ -114,6 +114,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHall(w, r, proj, prefix)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
+	case rest == "shelf" && r.Method == http.MethodGet:
+		s.handleShelf(w, r, proj, prefix)
+	case rest == "shelf/review" && r.Method == http.MethodPost:
+		s.handleShelfReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "shelf/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		s.handleShelfFile(w, r, proj, strings.TrimPrefix(rest, "shelf/file/"))
 	case rest == "board":
 		s.handleBoard(w, r, proj, prefix)
 	case rest == "graph":
