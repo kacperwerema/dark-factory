@@ -161,7 +161,7 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	case rest == "lead/spawn" && r.Method == http.MethodPost:
 		s.handleLeadSpawn(w, r, proj, prefix)
 	case rest == "lead" && r.Method == http.MethodGet:
-		s.handleLeadChat(w, r, proj, prefix)
+		s.handleCEOChat(w, r, proj, prefix)
 	case rest == "lead.json" && r.Method == http.MethodGet:
 		s.handleLeadChatJSON(w, r, proj, prefix)
 	case rest == "lead/send" && r.Method == http.MethodPost:

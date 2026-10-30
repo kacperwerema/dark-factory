@@ -51,10 +51,12 @@ var leadChatKeys = map[string][]string{
 	"Expand":     {"C-o"},
 	"Background": {"C-b", "C-b"},
 	"CtrlC":      {"C-c"},
+	// ShiftTab cycles the session's permission mode.
+	"ShiftTab": {"BTab"},
 }
 
 // leadChatKeyNames lists leadChatKeys for error messages, in a fixed order.
-const leadChatKeyNames = "Escape, Enter, Up, Down, 1, 2, 3, SendNow, Expand, Background, CtrlC"
+const leadChatKeyNames = "Escape, Enter, Up, Down, 1, 2, 3, SendNow, Expand, Background, CtrlC, ShiftTab"
 
 // leadChatCtrlCGap is how long after one Ctrl+C a second is refused: Claude
 // Code exits on Ctrl+C pressed twice, which would end the lead.
@@ -128,6 +130,13 @@ type LeadChatModel struct {
 	AttachCmd string        `json:"attach_cmd"`
 	MaxBytes  int           `json:"max_bytes"`
 	At        string        `json:"at"`
+	// Turns, Older, Working, Prompt and Mode are the pane read as a
+	// conversation (parseCEOPane), for the CEO chat and scripts.
+	Turns   []CEOTurn   `json:"turns"`
+	Older   bool        `json:"older"`
+	Working *CEOWorking `json:"working,omitempty"`
+	Prompt  *CEOPrompt  `json:"prompt,omitempty"`
+	Mode    string      `json:"mode"`
 }
 
 func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting bool) LeadChatModel {
@@ -151,6 +160,8 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting
 			m.Questions = leadQuestions(m.Pane, leadChatQuestions)
 		}
 	}
+	cp := parseCEOPane(m.Pane)
+	m.Turns, m.Older, m.Working, m.Prompt, m.Mode = cp.Turns, cp.Older, cp.Working, cp.Prompt, cp.Mode
 	if withWaiting {
 		m.Waiting, m.WaitingIn = leadWaiting(proj, prefix, time.Now()), true
 	}
@@ -285,21 +296,6 @@ func cleanMessage(text string) string {
 		return r
 	}, text)
 	return strings.TrimRight(text, " \t\n")
-}
-
-type LeadChatPageData struct {
-	Prefix      string
-	ProjectName string
-	Model       LeadChatModel
-}
-
-// handleLeadChat serves GET /p/<project>/lead, the chat page.
-func (s *Server) handleLeadChat(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	data := LeadChatPageData{Prefix: prefix, ProjectName: proj.Name, Model: s.buildLeadChat(proj, prefix, true)}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "lead_chat.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
 }
 
 // handleLeadChatJSON serves GET /p/<project>/lead.json: the pane and, with
@@ -444,10 +440,13 @@ type LeadRow struct {
 	Live    bool
 	Waiting int
 	ChatURL string
+	// Color is the project's colour, the CEO robot's body.
+	Color string
 }
 
 // handleLeads serves GET /leads: every configured project's lead, live or
-// not, with what waits on the owner there and a link to its chat.
+// not, with what waits on the owner there and a link to its chat, as
+// Workshop Board cards (wb/ceo-card).
 func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -468,12 +467,21 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 				Live:    agentrun.IsLive(p, name),
 				Waiting: len(waitingOnOwner(p, openIssuesOf(p))),
 				ChatURL: "/p/" + p.Slug + "/lead",
+				Color:   s.projectColor(p),
 			}
 		}(i)
 	}
 	wg.Wait()
+	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Every CEO", Current: true}}, Quiet: true}
+	for _, row := range rows {
+		header.Waiting += row.Waiting
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "leads.html", struct{ Rows []LeadRow }{rows}); err != nil {
+	data := struct {
+		Header WbHeader
+		Rows   []LeadRow
+	}{header, rows}
+	if err := s.tmpl.ExecuteTemplate(w, "leads.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

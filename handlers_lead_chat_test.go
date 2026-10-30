@@ -108,8 +108,17 @@ func TestLeadChatPage(t *testing.T) {
 		t.Fatalf("status %d: %s", code, html)
 	}
 	for _, want := range []string{
-		`data-testid="nav.tab.lead" aria-current="page"`,
+		// The Workshop Board page: Map › project › HQ · CEO.
+		`data-testid="lead_chat.page"`,
+		`aria-current="page"><i class="wb-crumb-sq" style="background:#F2B233"></i>HQ · CEO</span>`,
+		`<a class="wb-crumb wb-crumb--link" href="/p/agents/company">`,
 		`data-testid="lead_chat.pane"`,
+		`data-testid="lead_chat.turn.you"`,
+		`data-testid="lead_chat.turn.ceo"`,
+		`data-testid="lead_chat.key.ctrl_c"`,
+		`data-confirm=`,
+		`data-testid="lead_chat.open_tmux"`,
+		`data-answer="Do you want the epic closed?"`,
 		"Merged ui/child.",
 		"Do you want the epic closed?",
 		// The gate links to the issue's approve button.
@@ -138,6 +147,42 @@ func TestLeadChatPageNotLive(t *testing.T) {
 	if strings.Contains(html, "Merged ui/child.") {
 		t.Error("a lead that isn't running has no pane")
 	}
+	if !strings.Contains(html, `placeholder="Start the CEO first" disabled`) {
+		t.Error("the composer should be disabled while the CEO isn't running")
+	}
+	// The old ?classic=1 has no classic page left: it is the same page.
+	_, classic := getBody(t, ts.URL+"/p/agents/lead?classic=1")
+	if !strings.Contains(classic, `data-testid="lead_chat.page"`) || !strings.Contains(classic, "wb-app") {
+		t.Error("?classic=1 should serve the CEO chat")
+	}
+}
+
+func TestCEOChatLivePart(t *testing.T) {
+	proj := setupAgentsProject(t)
+	stubLeadChat(t, true)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	code, html := getBody(t, ts.URL+"/p/agents/lead?part=live")
+	if code != 200 {
+		t.Fatalf("status %d: %s", code, html)
+	}
+	for _, want := range []string{
+		`data-live="1"`,
+		`<template data-part="conv">`,
+		`<template data-part="term">`,
+		`<template data-part="prompt">`,
+		`<template data-part="side">`,
+		"Merged ui/child.",
+		`data-testid="lead_chat.waiting.count">Waiting on you: `,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("live part lacks %q", want)
+		}
+	}
+	if strings.Contains(html, "<html") || strings.Contains(html, "lead_chat.text") {
+		t.Error("the live part must not carry the page or the composer")
+	}
 }
 
 func TestLeadChatJSON(t *testing.T) {
@@ -161,6 +206,9 @@ func TestLeadChatJSON(t *testing.T) {
 	}
 	if m.WaitingIn || len(m.Waiting) != 0 {
 		t.Errorf("waiting without ?waiting=1: %+v", m.Waiting)
+	}
+	if len(m.Turns) == 0 || m.Turns[len(m.Turns)-1].From != "ceo" {
+		t.Errorf("turns = %+v", m.Turns)
 	}
 	want := []string{"Do you want the epic closed?", "Should I dispatch ui/idle next?"}
 	if strings.Join(m.Questions, "|") != strings.Join(want, "|") {
@@ -295,13 +343,13 @@ func TestLeadChatKeyChord(t *testing.T) {
 	defer ts.Close()
 	url := ts.URL + "/p/agents/lead/key"
 
-	for _, key := range []string{"SendNow", "Expand", "Background"} {
+	for _, key := range []string{"SendNow", "Expand", "Background", "ShiftTab"} {
 		b, _ := json.Marshal(map[string]string{"key": key})
 		if code, out := leadChatPost(t, url, "application/json", string(b)); code != 200 || out["key"] != key {
 			t.Fatalf("%s: %d %v", key, code, out)
 		}
 	}
-	want := "lead-agents C-x,lead-agents C-s,lead-agents C-o,lead-agents C-b,lead-agents C-b"
+	want := "lead-agents C-x,lead-agents C-s,lead-agents C-o,lead-agents C-b,lead-agents C-b,lead-agents BTab"
 	if got := strings.Join(st.keys, ","); got != want {
 		t.Errorf("pressed %s, want %s", got, want)
 	}
@@ -459,6 +507,10 @@ func TestLeadsOverview(t *testing.T) {
 		`href="/p/agents/lead" data-testid="leads.row.agents.chat"`,
 		`data-testid="leads.row.test-project"`,
 		`href="/p/test-project/lead"`,
+		// The Workshop Board look: Map › Every CEO, one card per project.
+		`aria-current="page">Every CEO</span>`,
+		`class="wb-ceo-card"`,
+		"Talk to the CEO",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("leads page lacks %q", want)
