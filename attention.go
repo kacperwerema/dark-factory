@@ -87,8 +87,10 @@ func ownerAttention(proj *tracker.Project, issue *tracker.Issue) Attention {
 	}
 	a.OpenQuestion = openQuestion(comments)
 	if strings.EqualFold(issue.Status, "human-testing") {
-		a.Playtests = playtestsToRun(playtestRoots(proj, issue, wf), issue.Slug)
-		a.PlaytestDue = len(a.Playtests) > 0
+		if wf.PlaytestForOwner() {
+			a.Playtests = playtestsToRun(playtestRoots(proj, issue, wf), issue.Slug)
+			a.PlaytestDue = len(a.Playtests) > 0
+		}
 		a.Checks = checks.Due(checkRoots(proj, issue, wf), issue.Slug)
 		a.ChecksDue = len(a.Checks) > 0
 	}
