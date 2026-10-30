@@ -83,6 +83,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/stats", s.handleStatsOverview)
 	mux.HandleFunc("/updates", s.handleUpdatesOverview)
 	mux.HandleFunc("/leads", s.handleLeads)
+	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	return hostAllowed(s.allowedHosts, sameOriginOnly(mux))
@@ -114,6 +115,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHall(w, r, proj, prefix)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
+	case rest == "needs-you" && r.Method == http.MethodGet:
+		s.handleNeedsYou(w, r, proj, prefix)
+	case rest == "needs-you.json" && r.Method == http.MethodGet:
+		s.handleNeedsYouJSON(w, r, proj, prefix)
+	case rest == "needs-you/approve" && r.Method == http.MethodPost:
+		s.handleNeedsYouApprove(w, r, proj, prefix)
 	case rest == "shelf" && r.Method == http.MethodGet:
 		s.handleShelf(w, r, proj, prefix)
 	case rest == "shelf/review" && r.Method == http.MethodPost:

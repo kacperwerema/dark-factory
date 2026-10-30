@@ -281,6 +281,10 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 .nav-item:hover { background: var(--bg-tertiary); color: var(--text); text-decoration: none; }
 .nav-item.active { background: var(--bg-active); color: var(--text); }
+/* An item whose count is its own link (Status → Needs you). */
+.nav-split { position: relative; }
+.nav-split-count { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); }
+.nav-split-count:hover { text-decoration: none; filter: brightness(1.1); }
 
 .nav-note { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
 .nav-note.live { font-size: 12px; color: var(--green); }

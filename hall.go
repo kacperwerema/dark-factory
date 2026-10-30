@@ -61,7 +61,7 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	waiting := waitingOnOwner(p, open)
 
 	d := HallData{Lot: lot, Message: company.Message}
-	d.Header = WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs[1].Color = lot.Color
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}

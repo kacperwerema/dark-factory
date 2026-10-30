@@ -130,7 +130,7 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 	lot, queue := s.buildLot(p, color, now)
 	m := s.buildLeadChat(p, prefix, true)
 	d := CEOChatPage{
-		Header: WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
+		Header: WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
 		Live:   s.buildCEOLive(p, prefix, m),
 		Composer: CEOComposer{
 			SendURL: prefix + "/lead/send", KeyURL: prefix + "/lead/key",

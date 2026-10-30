@@ -472,7 +472,7 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 		}(i)
 	}
 	wg.Wait()
-	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Every CEO", Current: true}}, Quiet: true}
+	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Every CEO", Current: true}}, Quiet: true, WaitingURL: "/needs-you"}
 	for _, row := range rows {
 		header.Waiting += row.Waiting
 	}

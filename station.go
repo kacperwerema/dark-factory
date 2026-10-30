@@ -292,7 +292,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	// The header: Map › project › Hall › Station.
 	company := s.buildCompany(p, prefix, now)
 	lot := company.Lot
-	d.Header = WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: company.Waiting, HideDone: true}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: company.Waiting, HideDone: true}
 	d.Header.Crumbs = append(wbCrumbs(1, p.Name, prefix+"/company"), WbCrumb{Label: "Station", Current: true})
 	d.Header.Crumbs[1] = WbCrumb{Label: p.Name, URL: prefix + "/company", Color: lot.Color}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)

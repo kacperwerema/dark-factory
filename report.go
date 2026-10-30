@@ -272,7 +272,7 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 		session = tracker.LeadSessionName(p)
 	}
 	d := ReportData{}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company")[:2], Toggle: wbViewToggle(prefix, "report"), Quiet: true, Waiting: m.WaitingCount()}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(1, p.Name, prefix+"/company")[:2], Toggle: wbViewToggle(prefix, "report"), Quiet: true, Waiting: m.WaitingCount()}
 	d.Header.Crumbs[1].Color = color
 
 	d.Title = WbReportTitle{

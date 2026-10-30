@@ -89,8 +89,15 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 			}
 		}
 	}
-	lot, queue := s.buildLot(p, color, now)
-	sortMapQueue(queue)
+	lot, all := s.buildLot(p, color, now)
+	// Outputs to review have their own rows in the panel (d.Shelf); they
+	// still count.
+	var queue []WbQueueCard
+	for _, row := range all {
+		if row.Kind != "outputs" {
+			queue = append(queue, row)
+		}
+	}
 	issues, _ := tracker.LoadIssues(p.IssueDir)
 	wf := p.LoadWorkflow()
 	agents, _ := s.buildAgentsModel(p, prefix)
@@ -105,14 +112,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		}
 	}
 	rep := goals.Resolve(p, now)
-	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(queue)}
+	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(all)}
 	if len(d.Queue) > companyQueueRows {
 		d.Queue, d.QueueMore = d.Queue[:companyQueueRows], len(queue)-companyQueueRows
 	}
 	d.Header = WbHeader{
 		Crumbs:  wbCrumbs(1, p.Name, prefix+"/company"),
 		Goals:   companyHeaderGoals(rep, issues, color),
-		Waiting: len(queue), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
+		Waiting: len(all), WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
 	}
 	d.Header.Crumbs[1].Color = color
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}
@@ -137,8 +144,6 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	}
 	shelf, hqShelf, shelfWaits := companyShelf(p, prefix, now)
 	d.HQ.Shelf, d.Shelf = hqShelf, shelfWaits
-	d.Waiting += len(shelfWaits)
-	d.Header.Waiting += len(shelfWaits)
 
 	// Workers by department: Product's go on its line, the others' sit in
 	// their department's room.

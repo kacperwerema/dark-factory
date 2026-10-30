@@ -296,34 +296,14 @@ func (s *Server) handleApproveIssue(w http.ResponseWriter, r *http.Request, proj
 		queued = wf.RequiredHumanApproval(body.Status, body.Then)
 	}
 
-	update := tracker.IssueUpdate{HumanApproval: &humanApproval, QueuedApproval: &queued}
-	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, update); err != nil {
-		http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Timestamp the approval so the transition consuming it records exact
-	// gate latency.
-	if err := tracker.RecordApproval(issue.FilePath, humanApproval, time.Now()); err != nil {
-		log.Printf("approve %s: recording approval time: %v", issue.Slug, err)
-	}
-	// The words go in after the approval, so a failed write never loses it.
 	words := ""
 	if humanApproval != "" {
 		words = strings.TrimSpace(body.Words)
 	}
-	wordsSaved, wordsErr := false, ""
-	if words != "" {
-		statuses := []string{humanApproval}
-		if queued != "" {
-			statuses = append(statuses, queued)
-		}
-		comment := tracker.ApprovalComment(words, "viewer", time.Now().Format("2006-01-02"), statuses...)
-		if err := tracker.AddComment(issue.FilePath, 0, comment, "app"); err != nil {
-			log.Printf("approve %s: saving your words: %v", issue.Slug, err)
-			wordsErr = err.Error()
-		} else {
-			wordsSaved = true
-		}
+	wordsSaved, wordsErr, err := stampApproval(issue, humanApproval, queued, words, time.Now())
+	if err != nil {
+		http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	resp := approvalResponse{
@@ -356,6 +336,36 @@ func (s *Server) handleApproveIssue(w http.ResponseWriter, r *http.Request, proj
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// stampApproval writes the owner's approval of status (and the queued
+// follow-up) on the issue, as the station and the Needs you list both do:
+// the frontmatter, the approval time and the owner's words as an approval:
+// comment. An empty status clears the approval. The words go in last, so a
+// failed comment never loses the approval; wordsErr says why it failed.
+func stampApproval(issue *tracker.Issue, status, queued, words string, now time.Time) (wordsSaved bool, wordsErr string, err error) {
+	update := tracker.IssueUpdate{HumanApproval: &status, QueuedApproval: &queued}
+	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, update); err != nil {
+		return false, "", err
+	}
+	// Timestamp the approval so the transition consuming it records exact
+	// gate latency.
+	if err := tracker.RecordApproval(issue.FilePath, status, now); err != nil {
+		log.Printf("approve %s: recording approval time: %v", issue.Slug, err)
+	}
+	if status == "" || words == "" {
+		return false, "", nil
+	}
+	statuses := []string{status}
+	if queued != "" {
+		statuses = append(statuses, queued)
+	}
+	comment := tracker.ApprovalComment(words, "viewer", now.Format("2006-01-02"), statuses...)
+	if err := tracker.AddComment(issue.FilePath, 0, comment, "app"); err != nil {
+		log.Printf("approve %s: saving your words: %v", issue.Slug, err)
+		return false, err.Error(), nil
+	}
+	return true, "", nil
 }
 
 var humanApprovalMessages = []string{

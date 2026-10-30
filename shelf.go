@@ -232,16 +232,3 @@ func companyShelf(p *tracker.Project, prefix string, now time.Time) (map[string]
 	}
 	return links, hq, waits
 }
-
-// shelfWaiting is how many departments have outputs waiting for review:
-// what the sidebar adds to its Waiting on you count.
-func shelfWaiting(p *tracker.Project) int {
-	all, _ := outputs.Load(p)
-	n := 0
-	for _, c := range outputs.Counts(all, time.Now()) {
-		if c.ToReview > 0 {
-			n++
-		}
-	}
-	return n
-}

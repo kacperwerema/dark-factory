@@ -73,7 +73,7 @@ their styles). Pages compose them; a new element is a new component here first.
         {{if not .HideDone}}<div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}{{end}}
         {{range .Chips}}<div class="wb-stat-box wb-stat-box--chip">{{template "wb/chip" .}}</div>{{end}}
         {{with .YOLO}}{{template "wb/yolo-switch" .}}{{end}}
-        <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="#waiting" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
+        <a class="wb-you-btn{{if not .Waiting}} wb-you-btn--calm{{end}}" href="{{if .WaitingURL}}{{.WaitingURL}}{{else}}#waiting{{end}}" data-testid="map.waiting"><span class="wb-you-mark">!</span>{{.Waiting}} waiting on you</a>
         <div class="wb-avatar" title="You">YOU</div>
     </div>
 </header>
@@ -174,7 +174,7 @@ their styles). Pages compose them; a new element is a new component here first.
         <button type="button" role="tab" class="wb-tab" aria-selected="false" aria-controls="tab-radio" data-testid="map.tab.radio">Radio</button>
     </div>
     <div class="wb-tabpanel" id="tab-queue" role="tabpanel">
-        <div class="wb-note">What blocks others first, then the gates waiting longest.</div>
+        <div class="wb-note">What blocks others first, then the gates waiting longest. <a href="/needs-you" data-testid="map.queue.all">See all and approve</a></div>
         {{range .}}{{template "wb/queue-card" .}}{{else}}<div class="wb-empty" data-testid="map.queue.empty">Nothing is waiting on you. The factory runs by itself.</div>{{end}}
     </div>
     <div class="wb-tabpanel" id="tab-radio" role="tabpanel" hidden>

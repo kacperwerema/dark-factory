@@ -668,7 +668,7 @@ func (s *Server) handleHealthWb(w http.ResponseWriter, r *http.Request, proj *tr
 	now := time.Now()
 	company := s.buildCompany(proj, prefix, now)
 	lot := company.Lot
-	h := WbHeader{Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait,
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait,
 		DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "health")}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)

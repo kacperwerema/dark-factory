@@ -165,7 +165,7 @@ func (s *Server) buildDocsWb(p *tracker.Project, prefix, slug string, now time.T
 		}
 	}
 	lot, queue := s.buildLot(p, color, now)
-	d.Header = WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "docs"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "docs"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true}
 	d.Header.Crumbs[1].Color = lot.Color
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", URL: prefix + "/hall", Color: companyProductColor}
