@@ -45,7 +45,8 @@ func loadProjectOrErr(configPath, projectSlug string) (*tracker.Project, []track
 // resolveBootstrap synthesizes a single-project config from cwd when ./issues
 // exists. Version and workflow come from, in order: ./project.yaml,
 // ./workflow.yaml (workflow only), then the one configured project whose
-// workdir or issues path is this directory. Several matches fail loud with
+// workdir or issues path is this directory, which also gives its
+// departments, company: and Product entry. Several matches fail loud with
 // errAmbiguousProject when the workflow still depends on them; projects that
 // do not match cwd never contribute anything.
 func resolveBootstrap(configPath string) (*tracker.Project, []tracker.Project, error) {
@@ -71,9 +72,6 @@ func resolveBootstrap(configPath string) (*tracker.Project, []tracker.Project, e
 	if proj.WorkflowFile == "" && isRegularFile("workflow.yaml") {
 		proj.WorkflowFile = "workflow.yaml"
 	}
-	if proj.Version != "" && proj.WorkflowFile != "" {
-		return proj, []tracker.Project{*proj}, nil
-	}
 	projects, err := tracker.LoadProjects(configPath)
 	if err != nil {
 		return proj, []tracker.Project{*proj}, nil
@@ -81,6 +79,8 @@ func resolveBootstrap(configPath string) (*tracker.Project, []tracker.Project, e
 	matches := projectsAtDir(projects, cwd)
 	switch {
 	case len(matches) == 1:
+		// The departments, HQ and Product config (projects.yaml only).
+		proj.Departments, proj.Company, proj.Product = matches[0].Departments, matches[0].Company, matches[0].Product
 		if proj.Version == "" {
 			proj.Version = matches[0].Version
 		}

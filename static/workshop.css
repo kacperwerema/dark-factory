@@ -216,6 +216,17 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-goal-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-goal-mini { width: 70px; height: 8px; border: 1.5px solid var(--ink); border-radius: 99px; overflow: hidden; background: #fff; display: inline-block; }
 .wb-goal-mini i { display: block; height: 100%; }
+.wb-goal-chip--off { opacity: .6; }
+.wb-mission { font-size: 13px; line-height: 1.38; font-style: italic; color: var(--muted-2); padding: 0 12px; }
+.wb-room-goals { display: flex; flex-direction: column; gap: 6px; }
+.wb-goal-val { white-space: nowrap; }
+.wb-room-goals .wb-goal-chip, .wb-rollup .wb-goal-chip { gap: 8px; }
+.wb-room-goals .wb-goal-word, .wb-rollup .wb-goal-word { display: none; }
+.wb-room-goals .wb-goal-name, .wb-rollup .wb-goal-name { flex: 1 1 auto; min-width: 0; max-width: none; }
+.wb-room-goals .wb-goal-mini, .wb-rollup .wb-goal-mini { width: 48px; flex: none; }
+.wb-rollup { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 10px; }
+.wb-rollup-goal { display: flex; flex-direction: column; gap: 4px; }
+.wb-rollup-child { margin-left: 18px; font-size: 12px; }
 .wb-mono-inline { font-family: var(--mono); font-size: .93em; }
 .wb-company { padding: 24px; display: flex; flex-direction: column; gap: 36px; }
 .wb-company-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 0; }
