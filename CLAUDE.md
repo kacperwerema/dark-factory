@@ -80,7 +80,7 @@ updates.go                  — the Updates tab (/updates): workflow features to
 handlers_checks.go          — ▶ Run checks: POST …/check-script opens tmux window check-script-<slug> running the issue's guided check scripts
 handlers_agents.go          — /agents canvas, agents.json, agent detail, open-in-tmux and lead spawn endpoints
 handlers_lead_chat.go       — the lead chat's endpoints (lead.json, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads (Workshop Board cards)
-ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
+ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; ceo_images.go the box's images (…/lead/image, [Image: <path>] lines, turn thumbnails); components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
 handlers_systems.go         — /systems index and system / family pages (model in systems.go, design-doc panel in docsections.go)
 handlers_metrics.go         — /metrics view (guard metrics, knobs, branches), metrics.json; handlers_metrics_panels.go feeds the system-page partials
 handlers_status.go          — /status page (?classic=1) and /status.md (model in status.go: buildStatus, statusMarkdown)
