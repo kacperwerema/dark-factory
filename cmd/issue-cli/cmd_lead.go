@@ -398,8 +398,8 @@ func umbrellaHint(proj *tracker.Project, issue *tracker.Issue) string {
 }
 
 // printLeadLines prints who the issue reports to, the department line
-// (role prompt, goals) and the umbrella: rename hint when they apply. show
-// and start print it under the status line.
+// (role prompt, goals), the outputs line and the umbrella: rename hint when
+// they apply. show and start print it under the status line.
 func printLeadLines(ctx *Context, issue *tracker.Issue) {
 	issues, err := tracker.LoadIssues(ctx.Project.IssueDir)
 	if err != nil {
@@ -407,6 +407,9 @@ func printLeadLines(ctx *Context, issue *tracker.Issue) {
 	}
 	fmt.Fprintln(ctx.Stdout, leadHeaderLine(ctx.Project, issue, issues))
 	if line := departmentLine(ctx.Project, issue); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
+	if line := outputsLine(ctx.Project, issue, ctx.Project.LoadWorkflowForIssue(issue)); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	if hint := umbrellaHint(ctx.Project, issue); hint != "" {
