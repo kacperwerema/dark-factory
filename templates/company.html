@@ -29,9 +29,11 @@
     </div>
 </section>
 <aside class="wb-side wb-side--company" id="waiting" aria-label="Project panel">
+    {{template "wb/yolo-queue" .}}
     <div class="wb-side-block">
         <h2 class="wb-h2">Waiting on you · {{.Waiting}}</h2>
-        {{range .Queue}}{{template "wb/queue-row" .}}{{else}}<div class="wb-empty" data-testid="company.queue.empty">Nothing is waiting on you here.</div>{{end}}
+        {{range .Shelf}}{{template "wb/shelf-wait" .}}{{end}}
+        {{range .Queue}}{{template "wb/queue-row" .}}{{else}}{{if not .Shelf}}<div class="wb-empty" data-testid="company.queue.empty">Nothing is waiting on you here.</div>{{end}}{{end}}
         {{if .QueueMore}}<a class="wb-site-link" href="/#waiting" data-testid="company.queue.more">{{.QueueMore}} more on the map</a>{{end}}
     </div>
     <div class="wb-side-block wb-side-block--grow">

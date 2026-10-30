@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/michal-franc/issue-viewer/internal/yolo"
 )
 
 var decideCommand = &Command{
@@ -95,7 +96,13 @@ func runDecide(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	nd := tracker.NewDecision{Text: *textFlag, How: *howFlag, Quote: *quoteFlag, Deferred: *deferredFlag}
+	how := *howFlag
+	if strings.TrimSpace(*quoteFlag) == "" {
+		if _, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on {
+			how = "YOLO" // made without the owner's words while YOLO is on: the Decisions log asks them later
+		}
+	}
+	nd := tracker.NewDecision{Text: *textFlag, How: how, Quote: *quoteFlag, Deferred: *deferredFlag}
 	if err := tracker.ValidateNewDecision(nd); err != nil {
 		return fmt.Errorf("%w\n\nExample:\n  issue-cli decide %s --text \"Gold resets each stage.\" --how chat", err, issue.Slug)
 	}

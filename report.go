@@ -241,6 +241,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 	data := buildReport(proj, s.projectColor(proj), m, issues, agents)
+	data.Header.YOLO = headerYOLO(yoloBand(proj, issues, m.AsOf), m.Prefix)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "report.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -383,6 +384,10 @@ func reportWaiting(m *StatusModel) WbCountCard {
 	if m.UnsentBugReports > 0 {
 		c.Bar = append(c.Bar, WbSegment{Value: 1, Color: reportBugColor, Label: "bug reports"})
 		c.Legend = append(c.Legend, WbLegendRow{Color: reportBugColor, Count: m.UnsentBugReports, Label: plural0(m.UnsentBugReports, "issue-cli bug report not sent", "issue-cli bug reports not sent"), Command: "issue-cli report-bug --send"})
+	}
+	for _, sw := range m.Shelf {
+		c.Bar = append(c.Bar, WbSegment{Value: sw.Count, Color: sw.Color, Label: sw.Name + " outputs"})
+		c.Legend = append(c.Legend, WbLegendRow{Color: sw.Color, Count: sw.Count, Label: plural0(sw.Count, sw.Name+" output to review", sw.Name+" outputs to review"), Note: "the shelf", URL: sw.URL})
 	}
 	if c.Count == 0 {
 		c.Note = "Nothing waits on you: no gate, playtest, check script or open question."

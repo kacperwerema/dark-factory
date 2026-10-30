@@ -31,6 +31,9 @@ type WbHeader struct {
 	Working, Idle, AgentWait int
 	DoneWeek                 int
 	Waiting                  int
+	// YOLO is the switch (L1), the after-the-fact count and the hazard band
+	// under the header on every project page while YOLO is on (yolo_wb.go).
+	YOLO *WbYOLO
 }
 
 // WbCrumb is one level in the header. URL is empty for the current level
@@ -227,6 +230,7 @@ type WbRoomHQ struct {
 	Desk    WbCEODesk
 	Mission string
 	Goals   []WbHQGoal
+	Shelf   *WbHQShelf
 	Foot    []WbFootItem
 }
 
@@ -247,13 +251,14 @@ type WbRoomDept struct {
 	Crew    WbCrew
 	Role    string
 	Systems string
-	Mission string
-	Goals   []WbGoal
 	// Stations are the department's line from its own workflow file
 	// (workflow: in projects.yaml); none when it runs on Product's.
 	Stations []WbStation
 	// WorkflowFile is that file's name; WorkflowError why it didn't load.
 	WorkflowFile, WorkflowError string
+	Mission                     string
+	Goals                       []WbGoal
+	Shelf                       *WbShelfLink
 	Foot                        []WbFootItem
 }
 
@@ -265,7 +270,11 @@ type WbRoomFactory struct {
 	Stations []WbStation
 	Waiting  int
 	HallURL  string
+	Shelf    *WbShelfLink
 	Foot     []WbFootItem
+	// YOLO: while on, the gates on the line stand open and the room carries
+	// "YOLO · N" instead of the "!".
+	YOLO *YOLOBand
 }
 
 // WbNewTile is a dashed "+" tile for something still to build.
@@ -298,6 +307,8 @@ type WbHallStop struct {
 type WbGateCard struct {
 	Name, Status string
 	Waiting      int
+	// Raised: YOLO is on, the barrier is up and crates pass without the owner.
+	Raised bool
 }
 
 // WbHallStation is a station on the hall's line with its crates.
@@ -309,11 +320,12 @@ type WbHallStation struct {
 }
 
 // WbCrate is an issue on the line, carried by its worker (Robot) if it has
-// one. Question: it asks the owner; CI: CI went red since it landed.
+// one. Question: it asks the owner; CI: CI went red since it landed; YOLO:
+// it passed a gate in YOLO (the yellow marker, to the end of the line).
 type WbCrate struct {
-	Slug, Title, URL, Note string
-	Robot                  *WbRobot
-	Question, CI, Selected bool
+	Slug, Title, URL, Note       string
+	Robot                        *WbRobot
+	Question, CI, YOLO, Selected bool
 }
 
 // WbDoneStation is the end of the line: what was done this week.

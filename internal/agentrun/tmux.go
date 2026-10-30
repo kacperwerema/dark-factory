@@ -295,12 +295,6 @@ func ParseSessions(out string) []Session {
 // root is dropped, and shared-session windows (other projects') are too.
 func ForProject(proj *tracker.Project, root string, sessions []Session) []Session {
 	var kept []Session
-	// tmux may report a session's path resolved (macOS /var is /private/var)
-	// while root came through the link.
-	resolvedRoot := root
-	if r, err := filepath.EvalSymlinks(root); err == nil {
-		resolvedRoot = r
-	}
 	if shared := SharedSession(proj); shared != "" {
 		for _, s := range sessions {
 			if session, _, ok := strings.Cut(s.Name, ":"); ok && session == shared {
@@ -313,7 +307,7 @@ func ForProject(proj *tracker.Project, root string, sessions []Session) []Sessio
 		if strings.Contains(s.Name, ":") {
 			continue
 		}
-		if s.Path != "" && root != "" && !underDir(s.Path, root) && !underDir(s.Path, resolvedRoot) {
+		if s.Path != "" && root != "" && !underDir(s.Path, root) {
 			continue
 		}
 		kept = append(kept, s)
@@ -321,10 +315,19 @@ func ForProject(proj *tracker.Project, root string, sessions []Session) []Sessio
 	return kept
 }
 
-// underDir reports whether path is dir or inside it.
+// underDir reports whether path is dir or inside it. tmux reports a pane's
+// path with links resolved (on a Mac /var is /private/var), so a miss is
+// tried again with dir's links resolved.
 func underDir(path, dir string) bool {
 	path, dir = filepath.Clean(path), filepath.Clean(dir)
-	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+	if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil || real == dir {
+		return false
+	}
+	return path == real || strings.HasPrefix(path, real+string(filepath.Separator))
 }
 
 // ListSharedWindows reports agent and lead windows living inside shared tmux

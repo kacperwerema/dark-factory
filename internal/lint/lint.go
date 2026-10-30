@@ -45,7 +45,7 @@ var checks = []Check{
 	{"template", "the template: stamp against the template bundled in this issue-cli", checkTemplate},
 	{"placeholders", "{{name}} placeholders the field never fills, so the agent sees them as written", checkPlaceholders},
 	{"sections", "checkbox and test-plan gates on sections no template writes the way the gate needs", checkSections},
-	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields", checkDepartments},
+	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields; outputs shelf lines, gone files, outputs waiting for review", checkDepartments},
 	{"department", "department workflow files (projects.yaml departments: workflow:) that don't load, project-wide keys in them, issues whose status their department's file lacks", checkDepartment},
 }
 

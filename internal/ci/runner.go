@@ -283,17 +283,17 @@ func applyRun(prev *State, run *Run) *State {
 	switch run.State {
 	case Green:
 		next.State, next.GreenSha, next.GreenAt = Green, run.Sha, run.Finished
-		next.RedSince, next.Failed, next.Failures, next.Error = "", "", nil, ""
+		next.RedSince, next.RedAt, next.Failed, next.Failures, next.Error = "", time.Time{}, "", nil, ""
 		next.Merged, next.Blamed, next.RedIssue, next.LogTail = nil, nil, "", nil
 	case Red:
 		if !prev.IsRed() {
-			next.RedSince = run.Sha
+			next.RedSince, next.RedAt = run.Sha, run.Finished
 		}
 		next.State, next.Failed, next.Failures, next.Error = Red, run.Failed, run.Failures, ""
 		next.Merged, next.Blamed, next.LogTail = run.Merged, Slugs(run.Merged), run.LogTail
 	default:
 		next.State, next.Error, next.LogTail = Error, run.Error, run.LogTail
-		next.RedSince, next.Failed, next.Failures, next.Merged, next.Blamed = "", "", nil, nil, nil
+		next.RedSince, next.RedAt, next.Failed, next.Failures, next.Merged, next.Blamed = "", time.Time{}, "", nil, nil, nil
 	}
 	return next
 }

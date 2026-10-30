@@ -1,0 +1,10 @@
+# YOLO mode on the Workshop Board: a small project with two gates on its
+# path (backlog → in progress, testing → done; the hall draws the first,
+# done is the end of the line) and one issue that already
+# passed the first gate in YOLO (its approval comment is in the fixture).
+title: Small project, two gates, one YOLO pass waiting for review
+project:
+  name: Yolo Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

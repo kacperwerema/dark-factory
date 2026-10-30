@@ -10,6 +10,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/goals"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -56,11 +57,17 @@ type CompanyData struct {
 	Queue   []WbQueueCard
 	// QueueMore is how many more wait on the owner than the panel lists.
 	QueueMore int
-	Waiting   int
-	Radio     []WbMessage
-	Message   WbMessageBox
+	// Shelf is the departments with outputs waiting for the owner's review.
+	Shelf   []WbShelfWait
+	Waiting int
+	Radio   []WbMessage
+	Message WbMessageBox
 	// Toggle is Board | Report, on the title line (the header is full here).
 	Toggle []WbViewTab
+	// YOLOQueue is "To review after YOLO": the passes the owner has not
+	// reviewed; YOLOMore how many more than listed.
+	YOLOQueue []WbYOLORow
+	YOLOMore  int
 }
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
@@ -110,6 +117,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Header.Crumbs[1].Color = color
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}
 	d.Toggle = wbViewToggle(prefix, "board")
+	d.Header.YOLO = wbYOLO(lot.YOLO, prefix)
+	if y := d.Header.YOLO; y != nil {
+		y.Switch = true
+		if !y.On {
+			y.Dialog = yoloDialog(p, wf)
+		}
+	}
+	d.YOLOQueue, d.YOLOMore = yoloQueueRows(lot.YOLO, prefix, companyQueueRows)
 
 	d.HQ = WbRoomHQ{
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},
@@ -120,6 +135,10 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		d.HQ.Mission = rep.HQ.Mission
 		d.HQ.Goals = companyRollUp(p, rep.HQ, color)
 	}
+	shelf, hqShelf, shelfWaits := companyShelf(p, prefix, now)
+	d.HQ.Shelf, d.Shelf = hqShelf, shelfWaits
+	d.Waiting += len(shelfWaits)
+	d.Header.Waiting += len(shelfWaits)
 
 	// Workers by department: Product's go on its line, the others' sit in
 	// their department's room.
@@ -144,12 +163,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
 		Stations: companyStations(wf, productIssues(p, issues), workers, waitingOnOwner(p, openOnly(productIssues(p, issues)))),
 		Waiting:  lot.Waiting,
+		YOLO:     lot.YOLO,
 		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
 	}
 	if rep.Product != nil {
 		product.Mission, product.Goals = rep.Product.Mission, roomGoals(rep.Product, companyProductColor)
 	}
+	product.Shelf = shelf[goals.ProductKey]
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		product.Head.Chips = append(product.Head.Chips, *c)
 	}
@@ -161,6 +182,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
 			room.Mission, room.Goals = o.Mission, roomGoals(o, deptColor(dept, i))
 		}
+		room.Shelf = shelf[outputs.DeptKey(dept.Name)]
 		d.Rooms = append(d.Rooms, room)
 	}
 	d.Departments = 2 + len(p.Departments)

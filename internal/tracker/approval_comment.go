@@ -89,3 +89,73 @@ func (a ApprovalWords) Approves(status string) bool {
 	}
 	return false
 }
+
+// YOLOHow is the how of an approval YOLO mode wrote when agent moved the
+// issue on from status from: the gate passed without the owner.
+//
+//	yolo · <agent> · from <status>
+func YOLOHow(agent, from string) string {
+	how := "yolo"
+	if agent != "" {
+		how += " · " + agent
+	}
+	if from != "" {
+		how += " · from " + from
+	}
+	return how
+}
+
+// YOLOFrom splits a YOLO how into the agent and the status it left.
+func (a ApprovalWords) YOLOFrom() (agent, from string) {
+	for _, part := range strings.Split(a.How, " · ")[1:] {
+		if f, ok := strings.CutPrefix(part, "from "); ok {
+			from = f
+		} else {
+			agent = part
+		}
+	}
+	return agent, from
+}
+
+// YOLO reports whether the approval passed in YOLO mode, not by the owner.
+func (a ApprovalWords) YOLO() bool {
+	return a.How == "yolo" || strings.HasPrefix(a.How, "yolo · ")
+}
+
+const yoloReviewPrefix = "yolo-review: "
+
+// YOLOReview is the owner's after-the-fact review of a gate passed in YOLO:
+// Verdict "agreed" or "back to <status>".
+type YOLOReview struct {
+	Verdict string
+	Words   string
+	How     string
+	Date    string
+	Status  string
+}
+
+// YOLOReviewComment is the comment the review writes:
+//
+//	yolo-review: <verdict> "<words>" (<how>, <date>) → <status>
+func YOLOReviewComment(verdict, words, how, date, status string) string {
+	return fmt.Sprintf("%s%s %q (%s, %s) → %s", yoloReviewPrefix, verdict, words, how, date, status)
+}
+
+// ParseYOLOReviewComment reads a comment written by YOLOReviewComment.
+func ParseYOLOReviewComment(text string) (YOLOReview, bool) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(text), yoloReviewPrefix)
+	if !found {
+		return YOLOReview{}, false
+	}
+	i := strings.Index(rest, ` "`)
+	if i < 0 {
+		return YOLOReview{}, false
+	}
+	r := YOLOReview{Verdict: strings.TrimSpace(rest[:i])}
+	a, ok := ParseApprovalComment(approvalPrefix + rest[i+1:])
+	if !ok || len(a.Statuses) != 1 {
+		return YOLOReview{}, false
+	}
+	r.Words, r.How, r.Date, r.Status = a.Words, a.How, a.Date, a.Statuses[0]
+	return r, true
+}

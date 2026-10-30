@@ -125,8 +125,13 @@ func runTransition(ctx *Context, args []string) error {
 
 	tickProvenBeforeGate(ctx, wf, issue, to)
 
+	gate, err := passYOLOGate(ctx, wf, issue, issues, to, fields)
+	if err != nil {
+		return err
+	}
 	from, result, err := wf.ApplyTransitionToFileWithFields(issue.FilePath, to, fields)
 	if err != nil {
+		printYOLOGate(ctx.Stderr, gate, issue.Status, to, ctx.now())
 		return fmt.Errorf("failed to transition: %w", err)
 	}
 
@@ -134,8 +139,16 @@ func runTransition(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := printTransitionResult(ctx, buildTransitionOutput(wf, issue, from, to, result)); err != nil {
+	out := buildTransitionOutput(wf, issue, from, to, result)
+	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue.Slug, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
+	if gate.Passed {
+		out.SideEffects = append(out.SideEffects, "YOLO: gate passed without the owner, marked for review after the fact")
+	}
+	if err := printTransitionResult(ctx, out); err != nil {
 		return err
+	}
+	if !ctx.JSONOutput {
+		printYOLOGate(ctx.Stdout, gate, from, to, ctx.now())
 	}
 	if to == "done" {
 		archivePlaytestRuns(ctx, issue)
@@ -145,6 +158,9 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	if !ctx.JSONOutput {
 		printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
+		if hint := outputsTransitionHint(ctx.Project, issue, wf, to); hint != "" {
+			fmt.Fprintln(ctx.Stdout, hint)
+		}
 	}
 	return nil
 }
@@ -184,7 +200,7 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 // requirement is unmet so scripts can branch on it.
 func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, slug, to string, fields map[string]string) error {
 	from := issue.Status
-	problems := collectTransitionProblems(ctx, wf, issue, slug, from, to, fields)
+	problems, yoloNote := yoloDryRun(ctx, wf, from, to, collectTransitionProblems(ctx, wf, issue, slug, from, to, fields))
 	out := dryRunOutput{DryRun: true, Ready: len(problems) == 0, From: from, To: to, Slug: slug, Problems: problems}
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)
@@ -200,6 +216,9 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		}
 	} else if out.Ready {
 		fmt.Fprintf(ctx.Stdout, "✓ Ready: %s → %s (dry run — nothing was changed)\n", from, to)
+		if yoloNote != "" {
+			fmt.Fprintln(ctx.Stdout, yoloNote)
+		}
 		renderNextTransitionContract(ctx.Stdout, nil, out.SideEffects)
 	} else {
 		fmt.Fprintf(ctx.Stdout, "== Dry run: %s → %s ==\n", from, to)

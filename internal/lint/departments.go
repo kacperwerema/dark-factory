@@ -2,12 +2,14 @@ package lint
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/goals"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -15,7 +17,8 @@ import (
 // departments: blocks that would otherwise only show as a missing goal or
 // an empty role prompt: a prompt file that isn't there, rolls_up: naming
 // no HQ goal, duplicate goal ids, unknown period:/direction:/source:, a
-// file source whose file is missing, systems: on the Product entry.
+// file source whose file is missing, systems: on the Product entry; and
+// the outputs shelf's (checkOutputs).
 func checkDepartments(env *Env) []Finding {
 	p := env.Project
 	var out []Finding
@@ -93,6 +96,37 @@ func checkDepartments(env *Env) []Finding {
 	}
 	for _, d := range p.Departments {
 		check(d.Name, d.Prompt, d.Goals, false)
+	}
+	return append(out, checkOutputs(env)...)
+}
+
+// checkOutputs flags the outputs shelf's problems: log lines Load skips,
+// outputs of a department no longer configured, a file or path that is
+// gone, an output waiting for review longer than outputs.StaleReview.
+func checkOutputs(env *Env) []Finding {
+	p := env.Project
+	list, bad := outputs.Load(p)
+	where := filepath.ToSlash(filepath.Join(filepath.Base(p.IssueDir), ".outputs", "outputs.jsonl"))
+	var out []Finding
+	for _, b := range bad {
+		out = append(out, Finding{Where: fmt.Sprintf("%s:%d", where, b.Line), Message: "line skipped: " + b.Err})
+	}
+	gone := map[string]int{}
+	for _, o := range list {
+		if !outputs.Configured(p, o.Department) {
+			gone[o.Department]++
+		}
+		if o.Missing {
+			out = append(out, Finding{Where: where, Message: fmt.Sprintf("output %s (%s): %s is gone", o.ID, o.Title, o.Where())})
+		}
+		if o.State == outputs.StateReview && env.Now.Sub(o.Added) > outputs.StaleReview {
+			out = append(out, Finding{Where: where, Message: fmt.Sprintf("output %s (%s) has waited for review since %s", o.ID, o.Title, o.Added.Format("2006-01-02")),
+				Fix: fmt.Sprintf("the owner approves or rejects it on the shelf, or: issue-cli output review %s approve|reject --quote \"...\"", o.ID)})
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(gone)) {
+		out = append(out, Finding{Where: where, Message: fmt.Sprintf("%d output(s) of department %q, which projects.yaml no longer has", gone[key], key),
+			Fix: "add the department back under departments:, or leave them as history"})
 	}
 	return out
 }

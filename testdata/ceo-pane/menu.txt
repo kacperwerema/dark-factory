@@ -1,0 +1,15 @@
+⏺ I'll check the ui branches first.
+
+⏺ Bash(git fetch origin && git log --oneline main..origin/ui/l0-mapa)
+
+╭───────────────────────────────────────────────────────────────╮
+│ Bash command                                                  │
+│                                                               │
+│   git fetch origin && git log --oneline main..origin/ui/l0-mapa │
+│   Fetch and list the branch's commits                         │
+│                                                               │
+│ Do you want to proceed?                                       │
+│ ❯ 1. Yes                                                      │
+│   2. Yes, and don't ask again for git log commands in /repo   │
+│   3. No, and tell Claude what to do differently (esc)         │
+╰───────────────────────────────────────────────────────────────╯

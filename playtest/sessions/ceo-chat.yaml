@@ -1,0 +1,129 @@
+session: ceo-chat
+issue: factory/lead-chat-screen
+title: The CEO chat (L1 · HQ) and every CEO on /leads, from the Workshop Board design
+scenario: leads
+
+# The lead is faked on the scenario's private tmux server: sh prints a
+# Claude Code screen (turns, a tool call, the spinner, the input box and the
+# mode footer), then cat echoes whatever the page pastes or presses, so a
+# send or a key shows up in the pane. No real agent starts.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The conversation shows the owner's and the CEO's turns from the pane, tools folded, the working line and the mode
+    proves: [AC1, AC2, AC3]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Resume the overnight work.' '' '⏺ Two workers are back.' '' '⏺ Bash(issue-cli status)' '  ⎿  factory/merge  testing' '' '⏺ Should I start the rename now?' '' '✻ Pondering… (12s · esc to interrupt)' '' '──────────────────' '> ' '──────────────────' '  ⏵⏵ auto mode on (shift+tab to cycle)'; exec cat"]
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - open: /p/{project}/lead
+    checks:
+      - text_contains: { target: lead_chat.session, text: "lead-crew" }
+      - text_equals: { target: lead_chat.state, text: "live" }
+      - text_contains: { target: lead_chat.mode, text: "session mode: auto" }
+      - count: { pattern: lead_chat.turn.you, equals: 1 }
+      - text_contains: { target: lead_chat.turn.you, text: "Resume the overnight work." }
+      - text_contains: { target: lead_chat.turn.ceo, text: "Should I start the rename now?" }
+      - text_equals: { target: lead_chat.tools, text: "used 1 tool: Bash" }
+      - text_contains: { target: lead_chat.working, text: "Pondering… (12s" }
+      - visible: lead_chat.interrupt
+      - absent: lead_chat.prompt
+      - text_contains: { target: lead_chat.worker, text: "Child" }
+      - text_contains: { target: lead_chat.attach, text: "lead-crew" }
+
+  - id: TP5
+    title: The Terminal view shows the raw pane; Conversation brings the turns back
+    proves: [AC2]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '⏺ Raw pane line.'; exec cat"]
+      - open: /p/{project}/lead
+    act:
+      - click: lead_chat.view.terminal
+    checks:
+      - visible: lead_chat.pane
+      - text_contains: { target: lead_chat.pane, text: "⏺ Raw pane line." }
+      - hidden: lead_chat.conversation
+      - selected: lead_chat.view.terminal
+
+  - id: TP6
+    title: A permission menu in the pane is the "CEO waits on your choice" card, and its buttons press the digit in the lead
+    proves: [AC4]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '⏺ Bash(git fetch origin)' '' '╭──────────────────────────╮' '│ Bash command             │' '│   git fetch origin       │' '│ Do you want to proceed?  │' '│ ❯ 1. Yes                 │' '│   2. Yes, and don'\\''t ask again │' '│   3. No (esc)            │' '╰──────────────────────────╯'; exec cat"]
+      - open: /p/{project}/lead
+    act:
+      - click: lead_chat.prompt.choice.1
+    checks:
+      - text_contains: { target: lead_chat.prompt, text: "CEO waits on your choice" }
+      - text_contains: { target: lead_chat.prompt, text: "git fetch origin" }
+      - count: { pattern: lead_chat.prompt.choice.#, equals: 3 }
+      - text_contains: { target: lead_chat.status, text: "Pressed 2 in" }
+
+  - id: TP7
+    title: Enter in the message box sends to the CEO; Answer in chat only fills the box
+    proves: [AC5, AC7]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '⏺ Should I start the rename now?'; exec cat"]
+      - open: /p/{project}/lead
+    act:
+      - click: lead_chat.question.answer
+      - check: { value_equals: { target: lead_chat.text, value: 'Re: "Should I start the rename now?" ' } }
+      - type: { target: lead_chat.text, text: "yes, start it" }
+      - key: Enter
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
+    checks:
+      - tmux: { pane: lead-crew, contains: "yes, start it" }
+      - value_equals: { target: lead_chat.text, value: "" }
+
+  - id: TP8
+    title: The session controls press their keys; Ctrl+C asks first
+    proves: [AC6]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - click: lead_chat.key.escape
+    checks:
+      - text_contains: { target: lead_chat.status, text: "Pressed Escape in" }
+      - visible: lead_chat.key.ctrl_c
+      - visible: lead_chat.mode_switch
+      - visible: lead_chat.key.send_now
+      - visible: lead_chat.key.expand
+
+  - id: TP9
+    title: With no lead running the page says so, offers Start the CEO and disables the box
+    proves: [AC9]
+    setup:
+      - open: /p/{project}/lead
+    checks:
+      - text_equals: { target: lead_chat.state, text: "not running" }
+      - visible: lead_chat.not_live
+      - visible: lead_chat.spawn
+      - disabled: lead_chat.text
+      - disabled: lead_chat.send
+      - text_contains: { target: lead_chat.waiting.count, text: "Waiting on you:" }
+
+  - id: TP10
+    title: /leads shows every project's CEO as a Workshop Board card with Talk to the CEO
+    proves: [AC11]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /leads
+    checks:
+      - visible: leads.page
+      - visible: leads.row.crew.live
+      - text_equals: { target: leads.row.crew.chat, text: "Talk to the CEO" }
+
+  - id: TP11
+    title: The page reads like the owner's L1 · CEO chat design
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Resume the overnight work.' '' '⏺ Two workers are back.' '' '⏺ Bash(issue-cli status)' '  ⎿  ok' '' '⏺ Should I start the rename now?' '' '✻ Pondering… (12s · esc to interrupt)' '' '──────────────────' '> ' '──────────────────' '  ⏵⏵ auto mode on (shift+tab to cycle)'; exec cat"]
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - open: /p/{project}/lead
+    do: Compare the page with issues/Factory/designs/workshop-board/L1-ceo-chat.dc.html at 1440 wide and on a phone.
+    expect: The CEO band, your turns on the right in orange-cream bubbles, the CEO's on the left, the dashed working line, the composer and controls at the bottom, and the side panel (Waiting on you, CEO's questions, workers, tmux line) look like the design. Parts left out on purpose (attachments, queue, grants card, From other CEOs) are absent, not faked.
+    why: Whether the screen feels like the design is the owner's call.

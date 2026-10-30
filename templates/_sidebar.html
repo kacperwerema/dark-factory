@@ -14,6 +14,32 @@ A page with a screen panel renders "sidebar-open", its panel, then
         <a href="{{.Prefix}}/" class="sidebar-project-name">{{.ProjectName}}</a>
         <span class="sidebar-project-meta">{{if .Version}}{{.Version}} · {{end}}{{.Open}} open</span>
     </div>
+    {{with .YOLO}}{{if .Show}}
+    <section class="sidebar-yolo{{if .On}} on{{end}}" data-testid="nav.yolo" data-prefix="{{$.Prefix}}" aria-label="YOLO mode">
+        {{if .On}}
+        <div class="sidebar-yolo-line"><strong>YOLO</strong> until {{.End}} · {{.Passed}} passed{{if .Valves}} · {{.Valves}}{{end}}</div>
+        <div class="sidebar-yolo-actions">
+            <button type="button" class="btn btn-small" data-testid="nav.yolo.extend" data-yolo="extend">Extend</button>
+            <button type="button" class="btn btn-small" data-testid="nav.yolo.off" data-yolo="off">Turn off now</button>
+        </div>
+        {{else}}
+        <div class="sidebar-yolo-line"><strong>YOLO off</strong>{{if .EndReason}} · {{.EndReason}}{{end}}</div>
+        {{end}}
+        {{if .Queue}}
+        <details class="sidebar-yolo-queue" data-testid="nav.yolo.queue">
+            <summary>{{len .Queue}} after the fact</summary>
+            {{range .Queue}}
+            <div class="sidebar-yolo-row" data-testid="nav.yolo.row.{{tid .Slug}}">
+                <a href="{{$.Prefix}}/issue/{{.Slug}}" class="mono">{{.Slug}}</a> → {{.Status}}
+                <button type="button" class="btn btn-small" data-yolo="agree" data-slug="{{.Slug}}" data-status="{{.Status}}">Agree</button>
+                <button type="button" class="btn btn-small" data-yolo="back" data-slug="{{.Slug}}" data-status="{{.Status}}">Back{{if .From}} to {{.From}}{{end}}</button>
+            </div>
+            {{end}}
+        </details>
+        {{end}}
+    </section>
+    <script src="/static/yolo.js" defer></script>
+    {{end}}{{end}}
     {{if .CreateInPage}}
     <button type="button" class="btn btn-primary sidebar-create" data-testid="nav.create" onclick="openCreateModal('')">
     {{else}}

@@ -27,7 +27,9 @@ The API system covers HTTP handlers, routing, JSON endpoints, and server-side lo
 - `handlers_workflow.go` — retros, bug status, docs pages
 - `handlers_dispatch.go` — agent dispatch, `startAgentSession`, `buildAgentPrompt`, `buildRetrosReviewPrompt`
 - `handlers_github.go` — github page, fetch, import
-- `handlers_lead_chat.go` — the lead chat (`/lead`, `/lead.json`, `/lead/send`, `/lead/key`: `buildLeadChat`, `cleanPane`, `leadQuestions`, `cleanMessage`) and `/leads`
+- `shelf.go` — the departments' outputs shelf (`/shelf`, `/shelf/review`, the sandboxed `/shelf/file/` route), the company page's 📦 links and HQ block, the shelf rows in Waiting on you; the record is `internal/outputs`
+- `handlers_lead_chat.go` — the lead chat's model and endpoints (`/lead.json`, `/lead/send`, `/lead/key`: `buildLeadChat`, `cleanPane`, `leadQuestions`, `cleanMessage`) and `/leads`
+- `ceo_chat.go` — the CEO chat page (`/lead`, `?part=live`: `buildCEOChat`, `buildCEOLive`); `ceo_pane.go` reads the pane as a conversation (`parseCEOPane`: turns, working line, menu, mode)
 - `handlers_agents.go` — agents canvas (`buildAgentsModel`, `AgentsModel`), agent detail, `handleAgentOpen` (open a session in a terminal), `handleLeadSpawn`
 - `internal/agentrun/` — the shared tmux + worktree launcher (`Start`, `Paste`, `CapturePane`, `CaptureHistory`, `SendKey`) used by the server and `issue-cli`; `lead.go` holds `LeadSpec`/`RecordLead` so `POST /lead/spawn` and `issue-cli lead spawn` start identical sessions
 - `internal/tracker/lead.go`, `lead_brief.go` — epic link (`ParentSlug`, `IsEpic`, `EpicChildren`, `EpicBase`), `LeadSessionName`, `LeadFor` routing, `IssueWorktree` (children start from the epic's base), lead briefs and handoff notes
@@ -86,6 +88,9 @@ When working on API changes:
 | GET    | `/status.json`                                | The Status model project pages receive by postMessage |
 | GET    | `/pages/<n>`                                  | A `workbench.pages` entry in the viewer frame |
 | GET    | `/page-raw/<path>`                            | A project page or asset under a configured page's folder, with CSP `sandbox`, `nosniff`; 404 otherwise |
+| GET    | `/shelf[?dept=<name>&state=<state>]`          | The [outputs shelf](../departments.md#outputs-shelf): department and state tabs, a row per output |
+| POST   | `/shelf/review`                               | Form fields `id`, `verdict` (`approve`/`reject`), plus `dept`, `state` to return to: records the owner's review (quote "approved on the shelf" or "rejected on the shelf"), then redirects to the shelf. Same-origin only |
+| GET    | `/shelf/file/<path>`                          | A file on the shelf, only from inside `<issues>/.outputs/files`, with CSP `sandbox`, `nosniff`; 404 otherwise |
 | GET    | `/agents`                                     | Agents canvas (see [UI](../UI/overview.md#agents-canvas)) |
 | GET    | `/agents.json`                                | Canvas model: `project_lead`, `epics` (each open epic's issue and children running/total), `workers`, `unfinished`, `others`, `listed_at` |
 | GET    | `/agents/detail?session=<name>&issue=<slug>`  | Selected-agent panel: the issue's last 5 comments, `branch`/`against`/`diff_stat`. `400` unless `session` is an `agent-*`/`lead-*` name |
@@ -93,10 +98,10 @@ When working on API changes:
 | GET    | `/updates`                                    | The Updates tab: workflow features to adopt (see [UI](../UI/overview.md#updates-tab)); `404` for a built-in or `template: custom` workflow |
 | POST   | `/updates/decline`, `/updates/reopen`         | Form field `id`: record the feature as declined, or drop it from the record (`workflow scan --declined` / `--forget`); only the `features:` block changes. Redirects to `/updates?declined=<id>` / `?reopened=<id>`, or `?error=` |
 | POST   | `/updates/install`                            | Form fields `id`, `words`: start the install agent `agent-<project>-install-<id>` with a brief built from the proposal and the answer. Redirects to `/updates?installing=<id>`; an id that isn't proposed redirects with `?error=` |
-| GET    | `/lead`                                       | [Lead chat](../agent-dispatch.md#lead-chat): the lead's pane, message box, keys, and Waiting on you |
-| GET    | `/lead.json`                                  | `{session, display, live, pane, questions, attach_cmd, max_bytes}`: the pane is `capture-pane -S -2000`, escape sequences stripped; with `?waiting=1` also `waiting` (`kind`, `title`, `url`, `detail`, `action`, `action_url`, `age`) and `waiting_included: true` |
+| GET    | `/lead`                                       | [CEO chat](../agent-dispatch.md#lead-chat): the conversation read from the lead's pane, the message box, keys, Waiting on you, questions, workers; `?part=live` is the polled HTML parts (`<template data-part="conv|term|prompt|side">`) |
+| GET    | `/lead.json`                                  | `{session, display, live, pane, questions, attach_cmd, max_bytes, turns, older, working, prompt, mode}` (`turns`: `{from: you|ceo, text, tools}`; `prompt`: `{title, question, detail, choices: [{key, text, selected}]}`): the pane is `capture-pane -S -2000`, escape sequences stripped; with `?waiting=1` also `waiting` (`kind`, `title`, `url`, `detail`, `action`, `action_url`, `age`) and `waiting_included: true` |
 | POST   | `/lead/send`                                  | Body `{text}` (`application/json`, at most 20 KB after control characters are dropped): pasted into the live lead with `agentrun.Paste` and Enter. Returns the dispatch response with `status: "sent"`; `409` `no-session` when the lead isn't running, `400` empty, `413` too large, `415` not JSON, `502` when tmux failed |
-| POST   | `/lead/key`                                   | Body `{key}`, one of `Escape`, `Enter`, `Up`, `Down`, `1`, `2`, `3`: pressed in the live lead (`agentrun.SendKey`). `{status: "sent"}`; `400` for any other key, `409` `no-session` |
+| POST   | `/lead/key`                                   | Body `{key}`, one of `Escape`, `Enter`, `Up`, `Down`, `1`, `2`, `3`, `SendNow`, `Expand`, `Background`, `CtrlC` (one per 5 s), `ShiftTab`: pressed in the live lead (`agentrun.SendKey`). `{status: "sent"}`; `400` for any other key, `409` `no-session` |
 | POST   | `/lead/spawn`                                 | Start (or re-attach) the project lead; optional `agent`. Returns the dispatch `{status, session, steps}`. What opens follows `lead_terminal:` like `issue-cli lead spawn`, never `terminal:`: unset is headless and the response carries `attach_cmd`/`switch_cmd`; `tmux-window` adds a detached tab to `lead_window_session` (a `warning` step plus the hints when it can't). A body with `epic` gets `422`: one lead per project |
 
 ## Edit in nvim

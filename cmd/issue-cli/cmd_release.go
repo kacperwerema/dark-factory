@@ -11,6 +11,8 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/ci"
 	"github.com/michal-franc/issue-viewer/internal/milestone"
 	"github.com/michal-franc/issue-viewer/internal/privacy"
+	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/michal-franc/issue-viewer/internal/yolo"
 )
 
 var releaseCommand = &Command{
@@ -295,6 +297,10 @@ func runReleasePublish(ctx *Context, args []string) error {
 	}
 	if fs.NArg() != 1 {
 		return &usageError{msg: "release publish takes the version: issue-cli release publish v0.54.0"}
+	}
+	if st, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on && !st.Valves.Releases {
+		return fmt.Errorf("YOLO is on: external releases wait for the owner. Publish after YOLO ends (%s), or the owner unlocks releases when turning YOLO on (--allow-releases)",
+			tracker.InjectProject(ctx.Project, "issue-cli yolo off"))
 	}
 	cut, err := privacy.ParseVersion(fs.Arg(0))
 	if err != nil {

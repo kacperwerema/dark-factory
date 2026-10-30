@@ -574,6 +574,7 @@ func (s *Server) handleRetroWb(w http.ResponseWriter, r *http.Request, proj *tra
 	h := WbHeader{Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait,
 		DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "retro")}
 	h.Crumbs[1].Color = lot.Color
+	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", URL: prefix + "/hall", Color: companyProductColor}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		h.Chips = append(h.Chips, *c)

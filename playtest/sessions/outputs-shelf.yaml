@@ -1,0 +1,86 @@
+session: outputs-shelf
+issue: factory/department-outputs-shelf
+title: Outputs shelf - the rooms' 📦 links, HQ's block, the shelf page with Approve, the station and Waiting on you
+scenario: shelf
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # station.stamp's class wb-stampcard has no CSS rule yet (Workshop Board
+  # station, not this issue); waived until it gets one.
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: The company page shows each room's outputs to review, HQ's outputs and the waiting rows
+    proves: [AC4, AC8]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Acme: FAQ refresh", --kind, page, --url, "https://acme.example/faq"]
+      - cli: [output, add, --department, marketing, --job, weekly-pass, --title, Hero banner, --kind, design, --file, out/hero.png]
+      - cli: [output, add, --title, October report, --kind, report, --path, docs/report.md]
+      - open: /p/acme/company
+    checks:
+      - text_contains: { target: company.room.dept, text: "📦 2 to review" }
+      - text_contains: { target: company.room.dept, text: "2 made this week" }
+      - text_contains: { target: company.room.product, text: "📦 1 to review" }
+      - text_contains: { target: company.hq.outputs, text: "3 to review" }
+      - text_contains: { target: company.hq.outputs, text: "October report" }
+      - count: { pattern: shelf.item, within: company.hq.outputs, equals: 3 }
+      - count: { pattern: company.queue.outputs, equals: 2 }
+      - text_contains: { target: company.queue.outputs, text: "1 Product output" }
+      - text_contains: { target: company.room.hq, text: "October report" }
+    do: Look at the HQ room, the Product line and the Marketing room, then the Waiting on you panel.
+    expect: >-
+      The Marketing room and the Product line each have a small bar with an orange "📦 N to review" chip
+      and "M made this week", under their goals and mission. HQ lists "Outputs · 3 to review" and the
+      three outputs, newest first, each with its kind icon, a dot in its department's colour and an
+      orange "review" pill. Waiting on you starts with two "📦 review" rows, one per department. Nothing
+      is cut off or overlapping.
+    why: The owner sees at a glance which department made something that waits for a yes before it goes out.
+
+  - id: TP5
+    title: The shelf lists the outputs; Approve takes one off the to-review list
+    proves: [AC5, AC6]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Acme: FAQ refresh", --kind, page, --url, "https://acme.example/faq"]
+      - cli: [output, add, --department, marketing, --job, weekly-pass, --title, Hero banner, --kind, design, --file, out/hero.png]
+      - open: /p/acme/shelf?dept=marketing
+      - check: { count: { pattern: shelf.approve, equals: 2 } }
+    act:
+      - click: shelf.approve
+      - wait_for: { url: { contains: dept=marketing } }
+      - wait_for: shelf.list
+    checks:
+      - count: { pattern: shelf.row, equals: 2 }
+      - count: { pattern: shelf.approve, equals: 1 }
+      - exists: shelf.thumb
+      # The newest row is the hero banner. Output ids are random, so checks
+      # read elements without them (issue-cli outputs is unit-tested).
+      - text_equals: { target: shelf.title, text: "Hero banner" }
+      - text_equals: { target: shelf.state, text: "approved" }
+      - text_contains: { target: shelf.issue, text: "seo/weekly-seo-pass" }
+      - http: { path: /p/acme/shelf/file/../outputs.jsonl, status: 404 }
+    do: Look at the shelf after pressing Approve on the hero banner.
+    expect: >-
+      The shelf has tabs for All, Product and Marketing with counts, and state tabs under them. The hero
+      banner row shows the image as a thumbnail and a green "approved" pill, with no buttons left. The FAQ
+      row still has Approve and Reject, links its title to acme.example and its issue to the station.
+      Rows read cleanly at this width, with the meta line (department, kind, issue or job, who, when) on
+      one or two lines.
+    why: Approve is the owner's stamp per piece, the step before an agent may publish it.
+
+  - id: TP6
+    title: The station, the Status report and issue-cli show the outputs too
+    proves: [AC7, AC8, AC9]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Acme: FAQ refresh", --kind, page, --url, "https://acme.example/faq"]
+      - open: /p/acme/issue/seo/weekly-seo-pass
+    checks:
+      - text_contains: { target: station.outputs, text: "Outputs · 1" }
+      - text_contains: { target: station.outputs, text: "Acme: FAQ refresh" }
+      - cli: { args: [show, seo/weekly-seo-pass], contains: "Outputs: 1 (1 to review) · issue-cli outputs --issue seo/weekly-seo-pass" }
+      - cli: { args: [show, engine/engine-report], not_contains: "Outputs:" }
+      - http: { path: /p/acme/status, contains: "Marketing output to review" }
+      - http: { path: /p/acme/status.md, contains: "1 Marketing output to review on the shelf" }
+      - cli: { args: [health, lint, --check, departments], contains: "✓ no warnings" }

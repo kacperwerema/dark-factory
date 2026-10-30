@@ -18,6 +18,7 @@ behaviour in static/station.js. templates/station.html composes them.
   wb/timeline-list the issue's life, newest first          data: WbTimelineList
   wb/station-agent the issue's agent                       data: WbStationAgent
   wb/sessions      tmux sessions on the issue              data: WbSessionList
+  wb/station-outputs what the issue made, from the shelf   data: *WbStationOutputs
   wb/body-index    the body by section, with counts        data: WbBodyIndex
   wb/fields        a titled list of fields                 data: WbFields
 */}}
@@ -141,7 +142,7 @@ behaviour in static/station.js. templates/station.html composes them.
 {{define "wb/decision"}}
 <div class="wb-dec{{if not .Yours}} wb-dec--agent{{end}}">
     <div class="wb-dec-main">
-        <div class="wb-dec-meta"><span class="wb-dec-id">{{.ID}}</span>{{if .Yours}}<span class="wb-dec-who">YOURS</span>{{else}}<span class="wb-dec-who wb-dec-who--agent">AGENT'S</span>{{end}}<span class="wb-dec-how">{{.How}}{{with .Date}} · {{.}}{{end}}</span>{{if .Deferred}}<span class="wb-chip wb-chip--idle">deferred</span>{{end}}</div>
+        <div class="wb-dec-meta"><span class="wb-dec-id">{{.ID}}</span>{{if .Yours}}<span class="wb-dec-who">YOURS</span>{{else}}<span class="wb-dec-who wb-dec-who--agent">AGENT'S</span>{{end}}{{if .YOLO}}{{template "wb/yolo-tag" "without your words"}}{{end}}<span class="wb-dec-how">{{.How}}{{with .Date}} · {{.}}{{end}}</span>{{if .Deferred}}<span class="wb-chip wb-chip--idle">deferred</span>{{end}}</div>
         <div class="wb-dec-text">{{.Text}}</div>
         {{with .Quote}}<blockquote class="wb-quote">“{{.}}”</blockquote>{{end}}
     </div>
@@ -252,3 +253,10 @@ behaviour in static/station.js. templates/station.html composes them.
     {{with .LinkURL}}<a class="wb-fields-link" href="{{.}}">{{$.LinkText}}</a>{{end}}
 </div>
 {{end}}
+
+{{define "wb/station-outputs"}}{{with .}}
+<section class="wb-panel" aria-labelledby="outputs-h" data-testid="station.outputs">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="outputs-h">Outputs · {{len .Rows}}</h2><span class="wb-panel-sub">{{if .ToReview}}<span class="wb-you-text">{{.ToReview}} to review</span> · {{end}}<a href="{{.URL}}">the shelf</a></span></div>
+    {{range .Rows}}{{template "wb/shelf-item" .}}{{end}}
+</section>
+{{end}}{{end}}

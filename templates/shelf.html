@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Shelf" .Name)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Name}}: outputs shelf" data-testid="shelf.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Outputs shelf</h1>
+        <span class="wb-sub">what each department made · <span class="wb-you-text">review</span> = waits for your yes before it goes out</span>
+    </div>
+    <div class="wb-shelf">
+        <nav class="wb-shelf-tabs" aria-label="Department" data-testid="shelf.depts">{{range .Depts}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{with .Color}}<i class="wb-shelf-dot" style="background:{{.}}"></i>{{end}}{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
+        <nav class="wb-shelf-tabs" aria-label="State" data-testid="shelf.states">{{range .States}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
+        <div class="wb-shelf-list" data-testid="shelf.list">
+        {{range .Rows}}
+            <div class="wb-shelf-row" data-testid="shelf.row" data-id="{{.ID}}" data-state="{{.State}}">
+                <div class="wb-shelf-thumb">{{if .Thumb}}<img src="{{.Thumb}}" alt="" loading="lazy" data-testid="shelf.thumb">{{else}}<span aria-hidden="true">{{.Icon}}</span>{{end}}</div>
+                <div class="wb-shelf-main">
+                    <div class="wb-shelf-item">{{if .Link}}<a class="wb-shelf-title" href="{{.Link}}" rel="noopener noreferrer" data-testid="shelf.title">{{.Title}}</a>{{else}}<span class="wb-shelf-title" data-testid="shelf.title">{{.Title}}</span>{{end}}<span class="wb-shelf-state wb-shelf-state--{{.State}}" data-testid="shelf.state">{{.State}}</span></div>
+                    <div class="wb-shelf-meta">
+                        <span><i class="wb-shelf-dot" style="background:{{.Color}};display:inline-block;vertical-align:-1px"></i> {{.Dept}}</span>
+                        <span>{{.Kind}}</span>
+                        {{with .Path}}<span class="wb-mono-inline">{{.}}</span>{{end}}
+                        {{if .Missing}}<span class="wb-shelf-missing" data-testid="shelf.missing">missing</span>{{end}}
+                        {{if .Issue}}<a href="{{.IssueURL}}" data-testid="shelf.issue">{{.Issue}}</a>{{else if .Job}}<span>job {{.Job}}</span>{{end}}
+                        {{with .By}}<span>by {{.}}</span>{{end}}
+                        <span>{{.When}}</span>
+                        <span class="wb-mono-inline">{{.Short}}</span>
+                    </div>
+                </div>
+                {{if .Review}}<div class="wb-shelf-acts">
+                    <form method="post" action="{{$.ReviewURL}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="verdict" value="approve"><input type="hidden" name="dept" value="{{$.Dept}}"><input type="hidden" name="state" value="{{$.State}}"><button class="wb-shelf-btn wb-shelf-btn--yes" type="submit" data-testid="shelf.approve">Approve</button></form>
+                    <form method="post" action="{{$.ReviewURL}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="verdict" value="reject"><input type="hidden" name="dept" value="{{$.Dept}}"><input type="hidden" name="state" value="{{$.State}}"><button class="wb-shelf-btn" type="submit" data-testid="shelf.reject">Reject</button></form>
+                </div>{{end}}
+            </div>
+        {{else}}
+            <div class="wb-shelf-empty" data-testid="shelf.empty">{{if .Empty}}Nothing on the shelf yet. An agent records what an issue or a job made with<code>{{.Example}}</code>{{else}}No outputs match these filters.{{end}}</div>
+        {{end}}
+        </div>
+    </div>
+    <div class="wb-legend">
+        <span><b>Approve</b> = it may go out; the agent marks it published with its link</span>
+        <span>· <b>Reject</b> = it does not go out</span>
+        <span>· files sit with the work files, under <span class="wb-mono-inline">.outputs/</span></span>
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

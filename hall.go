@@ -63,6 +63,7 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	d := HallData{Lot: lot, Message: company.Message}
 	d.Header = WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs[1].Color = lot.Color
+	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)
@@ -123,10 +124,14 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 		}
 	}
 
+	// In YOLO the gates stand raised, and a crate that passed one keeps the
+	// yellow marker to the end of the line.
+	raised := lot.YOLO != nil && lot.YOLO.On
+	marked := yoloMarked(open)
 	var stops []WbHallStop
 	for _, stop := range factoryLine(wf) {
 		if stop.Gated {
-			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key]}})
+			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key], Raised: raised}})
 		}
 		st := &WbHallStation{Name: stationName(stop), Status: stop.Name, Who: stop.Description, Owner: stop.Owner}
 		here := byStatus[stop.Key]
@@ -141,7 +146,7 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 				break
 			}
 			key := strings.ToLower(issue.Slug)
-			c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: prefix + "/hall?agent=" + issue.Slug + "#agent", Question: question[key], CI: blamed[key], Selected: strings.EqualFold(issue.Slug, selected)}
+			c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: prefix + "/hall?agent=" + issue.Slug + "#agent", Question: question[key], CI: blamed[key], YOLO: marked[key], Selected: strings.EqualFold(issue.Slug, selected)}
 			if w, ok := workerOf[key]; ok {
 				r := workerRobot(w)
 				c.Robot = &r

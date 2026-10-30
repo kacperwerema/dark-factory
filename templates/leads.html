@@ -1,41 +1,19 @@
 {{define "leads.html"}}
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leads, all projects</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 3h12v8H7l-3 3v-3H2z' stroke='%2374d19c' stroke-width='1.5' fill='none'/></svg>">
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="/static/theme.js"></script>
-</head>
-<body>
-<div class="container wb-page" data-testid="leads.page">
-    <div class="stats-crumb"><a href="/">All projects</a> / leads</div>
-    <div class="wb-head">
-        <div>
-            <h1 class="wb-title">Leads</h1>
-            <p class="wb-sub">Every project's lead, whether it runs in tmux, and what waits on you there. Open a lead's chat to read its pane and talk to it.</p>
-        </div>
+<head>{{template "wb/head" "Every CEO"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page" data-testid="leads.page">
+{{template "wb/header" .Header}}
+<main class="wb-ground wb-leads">
+    <div class="wb-titlebar wb-titlebar--flush">
+        <h1 class="wb-h1">Every CEO</h1>
+        <span class="wb-sub">Each project's lead, whether it runs in tmux, and what waits on you there.</span>
     </div>
-    <div class="updates-table-wrap">
-        <table class="data-table">
-            <thead><tr>
-                <th scope="col">Project</th><th scope="col">Lead</th><th scope="col">State</th><th scope="col" class="num">Waiting on you</th><th scope="col"></th>
-            </tr></thead>
-            <tbody>
-            {{range .Rows}}
-            <tr data-testid="leads.row.{{tid .Slug}}">
-                <th scope="row"><a href="/p/{{.Slug}}/status"><strong>{{.Name}}</strong></a></th>
-                <td class="mono">{{.Session}}</td>
-                <td>{{if .Live}}<span class="chip chip-green" data-testid="leads.row.{{tid .Slug}}.live">live</span>{{else}}<span class="chip">not running</span>{{end}}</td>
-                <td class="num">{{if .Waiting}}<a class="chip chip-amber" href="/p/{{.Slug}}/status">{{.Waiting}}</a>{{else}}0{{end}}</td>
-                <td><a class="btn btn-small" href="{{.ChatURL}}" data-testid="leads.row.{{tid .Slug}}.chat">Open chat</a></td>
-            </tr>
-            {{end}}
-            </tbody>
-        </table>
+    <div class="wb-leads-grid">
+        {{range .Rows}}{{template "wb/ceo-card" .}}{{else}}<div class="wb-empty">No project is configured in projects.yaml.</div>{{end}}
     </div>
+</main>
 </div>
 </body>
 </html>

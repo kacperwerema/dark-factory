@@ -191,6 +191,7 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 	d := SystemsWbData{Lot: lot, Legend: wbCrateKeys(), ClassicURL: prefix + "/systems?classic=1"}
 	d.Header = WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
 	d.Header.Crumbs[1].Color = lot.Color
+	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)

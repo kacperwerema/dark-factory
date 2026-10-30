@@ -89,6 +89,9 @@ type MapLot struct {
 	RC      string
 	Updates int
 	Privacy []PrivacyBadge
+	// YOLO is the project's YOLO window and after-the-fact queue: the lot in
+	// stripes and the counter that replaces the "!" (yolo_wb.go).
+	YOLO *YOLOBand
 }
 
 func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +205,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		open = append(open, issue)
 	}
 	lot.Site = len(issues) == 0
+	lot.YOLO = yoloBand(p, issues, now)
 	lot.Buildings = mapDepartmentsOf(p, open)
 	lot.Progress = mapProgressOf(issues)
 

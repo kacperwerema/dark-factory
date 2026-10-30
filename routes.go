@@ -114,6 +114,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHall(w, r, proj, prefix)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
+	case rest == "shelf" && r.Method == http.MethodGet:
+		s.handleShelf(w, r, proj, prefix)
+	case rest == "shelf/review" && r.Method == http.MethodPost:
+		s.handleShelfReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "shelf/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		s.handleShelfFile(w, r, proj, strings.TrimPrefix(rest, "shelf/file/"))
 	case rest == "board":
 		s.handleBoard(w, r, proj, prefix)
 	case rest == "graph":
@@ -161,7 +167,7 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	case rest == "lead/spawn" && r.Method == http.MethodPost:
 		s.handleLeadSpawn(w, r, proj, prefix)
 	case rest == "lead" && r.Method == http.MethodGet:
-		s.handleLeadChat(w, r, proj, prefix)
+		s.handleCEOChat(w, r, proj, prefix)
 	case rest == "lead.json" && r.Method == http.MethodGet:
 		s.handleLeadChatJSON(w, r, proj, prefix)
 	case rest == "lead/send" && r.Method == http.MethodPost:
@@ -250,6 +256,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleRunChecks(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
+	case rest == "yolo.json" && r.Method == http.MethodGet:
+		s.handleYOLO(w, r, proj, "json")
+	case strings.HasPrefix(rest, "yolo/") && r.Method == http.MethodPost:
+		s.handleYOLO(w, r, proj, strings.TrimPrefix(rest, "yolo/"))
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
+		s.handleYOLOReview(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:
 		s.handleApproveIssue(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/delete") && r.Method == http.MethodPost:
