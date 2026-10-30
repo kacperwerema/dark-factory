@@ -39,6 +39,7 @@ features:
     - design-overlap-discoverability@v0.36.0
     - sandbox-manual-tests@v0.36.0
     - playtest-sessions@v0.36.0
+    - playtest-owner-switch@v0.55.0
     - guided-check-scripts@v0.54.0
     - testing-unrelated-failures@v0.36.0
     - local-merge-shipping@v0.54.0
@@ -49,6 +50,11 @@ features:
 # Issue-viewer dispatches concurrent agents on different issues, so each
 # session needs its own working tree to avoid stomping on uncommitted state.
 worktree: true
+
+# Playtest sessions are the agents' check (make ux-test), not the owner's:
+# no playtest to run on Waiting on you or the issue page (owner, 2026-10-30,
+# factory/playtest-is-per-project-off-on-dark-factory D-2).
+playtest: agents
 
 # Local CI (docs/workflow.md, "Local CI"): every move of local main runs
 # make validate in .worktrees/.ci and reports red to the Status page, the
@@ -148,7 +154,7 @@ statuses:
   - name: "human-testing"
     description: "Manual verification by humans"
     prompt: |
-      Ask the human to run `make playtest ISSUE=<slug>` in the worktree (only the judgement steps, in an overlay on a scenario board; it reuses your last ux-test) and then `make playtest-report ISSUE=<slug> APPLY=1` (ticks the Manual boxes that passed, comments each failure and opinion), plus `issue-cli check-script <slug>` when the issue has a guided check script (▶ Run checks in the viewer; it ticks the boxes that passed and comments failures as `checks:`). Then ask them to approve `documentation` in the issue viewer, stop and end your turn; continue when the human messages you that it is approved.
+      Playtest sessions are your check here (playtest: agents): do not ask the human to run `make playtest`. Give them the issue page's Evidence tab (your last ux-test's shots per step) for anything that needs their eye, plus `issue-cli check-script <slug>` when the issue has a guided check script (▶ Run checks in the viewer; it ticks the boxes that passed and comments failures as `checks:`). Then ask them to approve `documentation` in the issue viewer, stop and end your turn; continue when the human messages you that it is approved.
       Make sure the manual checks are explicit, minimal, and reproducible; do not ask the human to verify against real projects or data.
       Read `playtest:` and `checks:` comments as test results: fix each failure, and answer or act on each opinion.
   - name: "documentation"
@@ -159,7 +165,7 @@ statuses:
     description: "Committing and merging into local main"
     prompt: |
       Ship by merging into the local main checkout. There are no pull requests (never open one) and you never push: the lead pushes main to origin when the owner asks, usually to cut a release.
-      You reach shipping only after the owner has run your playtest and approved documentation, so merging into local main is part of your job here: do it without asking first.
+      You reach shipping only after the owner has checked your work and approved documentation, so merging into local main is part of your job here: do it without asking first.
       1. Add your user-facing change summary under `## Unreleased` at the top of `cmd/issue-cli/CHANGELOG.md` (create the heading if a release just took it). Do not add a version heading or bump the version: the lead cuts releases per milestone (docs/roadmap.md). Never create or push tags.
       2. Commit on your branch with a message referencing the issue. Then remove your scripts/checks/<name>.sh in its own commit: check scripts stay on the issue branch and never reach main.
       3. `git merge main` (the local branch, not origin/main), resolve any conflicts, and run `make validate`. Keep both sides' entries under `## Unreleased` when the CHANGELOG conflicts.
