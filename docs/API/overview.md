@@ -91,6 +91,9 @@ When working on API changes:
 | GET    | `/shelf[?dept=<name>&state=<state>]`          | The [outputs shelf](../departments.md#outputs-shelf): department and state tabs, a row per output |
 | POST   | `/shelf/review`                               | Form fields `id`, `verdict` (`approve`/`reject`), plus `dept`, `state` to return to: records the owner's review (quote "approved on the shelf" or "rejected on the shelf"), then redirects to the shelf. Same-origin only |
 | GET    | `/shelf/file/<path>`                          | A file on the shelf, only from inside `<issues>/.outputs/files`, with CSP `sandbox`, `nosniff`; 404 otherwise |
+| GET    | `/hall/station/<status>`                      | A [hall](../UI/overview.md#product-hall-drill-into-a-part) station opened: every issue there, the prompt, ways in and out, overlays. `<status>` is lower case with spaces as dashes; 404 for an unknown status |
+| GET    | `/hall/gate/<status>`                         | The gate before the status: gating transitions, issues waiting, YOLO barrier, overlays; 404 when no gate stands there |
+| GET    | `/hall/ci`                                    | The CI scanner opened: state, commands, failures, landed since green, blamed issues, log tail; 404 without `ci:` |
 | GET    | `/agents`                                     | Agents canvas (see [UI](../UI/overview.md#agents-canvas)) |
 | GET    | `/agents.json`                                | Canvas model: `project_lead`, `epics` (each open epic's issue and children running/total), `workers`, `unfinished`, `others`, `listed_at` |
 | GET    | `/agents/detail?session=<name>&issue=<slug>`  | Selected-agent panel: the issue's last 5 comments, `branch`/`against`/`diff_stat`. `400` unless `session` is an `agent-*`/`lead-*` name |

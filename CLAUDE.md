@@ -59,6 +59,7 @@ agent_state.go              — worker state for the agents canvas and card foot
 handlers_canvas.go          — issues canvas (/canvas): version columns × epic or system rows
 handlers_detail.go          — detail page, transition preview, data-table render
 shelf.go                    — the outputs shelf: /p/<project>/shelf (filters, Approve / Reject POST …/shelf/review), …/shelf/file/ (sandboxed), the rooms' 📦 links, HQ's block, waiting rows
+hall_part.go                — the hall's drill-in: GET /hall/station/<status>, /hall/gate/<status>, /hall/ci (HallPartData, actionWords); components in templates/_workshop_hall_part.html
 station.go                  — L3, the station: GET /issue/<slug> (classic page at ?classic=1 or ?tab=); components in templates/_workshop_station.html, JS in static/station.js
 issue_tab.go                — the detail page's Issue tab model: brief, Needs-you band, path, what you're approving, folded body, side column
 evidence.go                 — the detail page's Evidence tab model and its label: shots per linked playtest step, criteria → proof, verdict, playtest per step, watch (evidence_change.go: commits and files by area; stale_text.go: stale Open/pending lines matched to a D-n)

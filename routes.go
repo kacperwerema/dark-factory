@@ -112,6 +112,11 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleList(w, r, proj, prefix)
 	case rest == "hall" && r.Method == http.MethodGet:
 		s.handleHall(w, r, proj, prefix)
+	case rest == "hall/ci" && r.Method == http.MethodGet:
+		s.handleHallPart(w, r, proj, prefix, "ci", "")
+	case (strings.HasPrefix(rest, "hall/station/") || strings.HasPrefix(rest, "hall/gate/")) && r.Method == http.MethodGet:
+		kind, key, _ := strings.Cut(strings.TrimPrefix(rest, "hall/"), "/")
+		s.handleHallPart(w, r, proj, prefix, kind, key)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
 	case rest == "shelf" && r.Method == http.MethodGet:

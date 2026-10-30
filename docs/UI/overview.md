@@ -454,6 +454,16 @@ A UI issue's manual checks are written as a playtest session (`playtest/sessions
 - **Containers:** label containers too (`nav.sidebar`, `board.filters`). A session's `layout_ignore` on a container waives a known layout bug inside it.
 - **Known bug:** at phone width (390px) the page headers and the board filter bar don't wrap. Sessions waive them with `layout_ignore`.
 
+## Product hall: drill into a part
+
+`/p/<project>/hall` (`hall.go`) draws workflow.yaml as the Product line. Each part of it opens a page of its own (`hall_part.go`, `templates/hall_part.html`, components in `templates/_workshop_hall_part.html`), with the Workshop header and the crumb Product hall › <part>. The pages are read-only; Edit comes with factory/hall-edit-the-workflow-from-the-hall.
+
+- **Station** (`hall.station.open`, the station's head; Done `hall.done.open` and Parking `hall.parking.open` when the workflow has `done` / `parked`) → `/hall/station/<status>`, the status in lower case with spaces as dashes. It lists every Product issue in the status as crates linking to their pages (no four-crate cap; Done lists every done issue), the status description and prompt (folded past 600 characters), the ways in and out with each action in words (`actionWords`: checks, approval, sections added, prompt given, fields set, fields asked), `*` edges as "any status", and the neighbour steps with no `transitions:` entry as implied. Each edge links to the station at its other end. **Overlays** lists every type and system that changes the status: its prompt or description, its edges (`replace: true` says "replaces the base edge"), and types whose `path:` skips it.
+- **Gate** (`hall.gate`) → `/hall/gate/<status>`: the transitions that need the owner's approval to enter the status with everything else they check, the issues waiting at it and for how long, "barrier up" while YOLO is on, and the overlays' gating edges. A status no gate stands before is 404.
+- **CI scanner** (`hall.ci`) → `/hall/ci`: green or red on the branch, last run, last green, red since, the failing command and failures, the `ci.run` commands by tier, what landed since green, the blamed issues, the log tail, and a link to the Status page for every run. 404 without a `ci:` block; before the first run it shows the commands and "no run yet".
+
+`issue-cli process transitions` ends with a line pointing at these pages, for agents to hand the owner.
+
 ## Issue page tabs
 
 `/p/<project>/issue/<slug>` opens the station (`station.go`, the Workshop Board look); the classic page below is at `?classic=1` and at any `?tab=`. Its Issue tab links to `?classic=1`, so it stays on the classic page with the body editor, comments, checkbox ticking, dispatch and the data table.

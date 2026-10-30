@@ -439,6 +439,12 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "  %s\n", strings.Join(names, ", "))
 		fmt.Fprintln(ctx.Stdout, "Run 'issue-cli process transitions --system <name>' or 'issue-cli process transitions <issue-slug>' to see the rules for a specific workflow.")
 	}
+	// The Product hall draws this workflow; point the owner at a station.
+	if dept == "" && len(statusOrder) > 0 {
+		hall := viewerBaseURL(proj) + "/p/" + proj.Slug + "/hall"
+		fmt.Fprintln(ctx.Stdout)
+		fmt.Fprintf(ctx.Stdout, "In the viewer, the Product hall opens each status: %s/station/<status> (e.g. %s/station/%s); gates %s/gate/<status>, CI %s/ci\n", hall, hall, strings.ToLower(fragmentStatus(statusOrder[len(statusOrder)/2])), hall, hall)
+	}
 	return nil
 }
 
