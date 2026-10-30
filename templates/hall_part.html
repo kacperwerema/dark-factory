@@ -11,7 +11,9 @@
         <h1 class="wb-h1">{{.Title}}</h1>
         {{with .Status}}<span class="wb-mono">{{.}}</span>{{end}}
         <span class="wb-sub">{{.Sub}}</span>
+        {{with .EditURL}}<a class="wb-btn wb-btn--paper wb-part-edit" href="{{.}}" data-testid="hall.part.edit">Edit</a>{{end}}
     </div>
+    {{with .Saved}}<div class="wb-part-panel wb-edit-saved" role="status" data-testid="hall.part.saved">Saved: the workflow change is commit <span class="wb-mono-inline">{{.}}</span> on main.</div>{{end}}
     <div class="wb-part-grid">
     {{if eq .Kind "station"}}{{template "wb/part-station" .}}{{else if eq .Kind "gate"}}{{template "wb/part-gate" .}}{{else}}{{template "wb/part-ci" .CI}}{{end}}
     </div>

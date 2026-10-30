@@ -15,8 +15,7 @@ import (
 // gate (/hall/gate/<status>) or the CI scanner (/hall/ci). It shows what is
 // inside: every issue there, the status prompt, the transitions in and out
 // with their actions, the overlays that change them, what waits at a gate.
-// Read-only; editing the workflow from here is
-// factory/hall-edit-the-workflow-from-the-hall.
+// A station's Edit opens the form in hall_edit.go.
 
 // HallPartData is the whole drill-in page.
 type HallPartData struct {
@@ -38,6 +37,12 @@ type HallPartData struct {
 	Waiting []WbPartWaiting
 	Raised  bool
 	CI      *WbPartCI
+	// YOLOOn is YOLO on for the project. EditURL is a station's Edit form
+	// ("" when the project has no workflow file); Saved the commit a save
+	// from it just made.
+	YOLOOn  bool
+	EditURL string
+	Saved   string
 }
 
 // WbPartEdge is one transition. Any: from "*" (any status); Gate: it needs
@@ -92,6 +97,7 @@ func (s *Server) handleHallPart(w http.ResponseWriter, r *http.Request, proj *tr
 		http.NotFound(w, r)
 		return
 	}
+	data.Saved = hallSaved(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "hall_part.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -120,6 +126,7 @@ func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now
 	d.Header.Crumbs[1] = WbCrumb{Label: p.Name, URL: prefix + "/company", Color: lot.Color}
 	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", URL: d.HallURL, Color: companyProductColor}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
+	d.YOLOOn = lot.YOLO != nil && lot.YOLO.On
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)
 	}
@@ -158,6 +165,9 @@ func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now
 		d.Station = st
 		d.In, d.Out = hallPartEdges(prefix, wf, status.Name)
 		d.Overlays = hallPartOverlays(prefix, wf, status.Name, false)
+		if hallEditFile(p) != "" {
+			d.EditURL = hallPartURL(prefix, "station", status.Name) + "/edit"
+		}
 	case "gate":
 		gates := hallGateEdges(prefix, wf, status.Name)
 		if len(gates) == 0 {

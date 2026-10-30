@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -395,7 +396,7 @@ func (f *file) apply(edits []splice) string {
 }
 
 // check fills Errors and Warnings: the new text must parse, add no schema
-// finding, keep every action well formed and decode to exactly the old
+// finding, keep every new or changed action well formed and decode to exactly the old
 // workflow with ch applied (so a splice slip never reaches the file).
 func (p *Preview) check(f *file, st *Station, ch Change) {
 	var oldCfg, newCfg tracker.WorkflowConfig
@@ -411,6 +412,11 @@ func (p *Preview) check(f *file, st *Station, ch Change) {
 	}
 	for _, i := range sortedKeys(ch.Edges) {
 		for n, a := range ch.Edges[i] {
+			// An action the edge already had is the file's as it was: a
+			// problem in it is lint's to report, not this edit's.
+			if slices.ContainsFunc(oldCfg.Transitions[i].Actions, func(o tracker.WorkflowAction) bool { return reflect.DeepEqual(o, a) }) {
+				continue
+			}
 			if msg := actionProblem(a, names); msg != "" {
 				e := oldCfg.Transitions[i]
 				p.Errors = append(p.Errors, fmt.Sprintf("%s → %s, action %d: %s", e.From, e.To, n+1, msg))

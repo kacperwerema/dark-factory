@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,9 @@ var funcMap = template.FuncMap{
 	"releaseBranch": milestone.ReleaseBranch,
 	// commentDay is the day of a comment date stored as RFC3339 or a day.
 	"commentDay": tracker.CommentDay,
+	// hallKnownType reports whether t is one of the action types the
+	// station Edit form offers (an unknown one still gets its option).
+	"hallKnownType": func(types []string, t string) bool { return slices.Contains(types, t) },
 	// sidebar is replaced per server (Server.sidebarNav): the Nav the shared
 	// sidebar partial renders for a project page.
 	"sidebar": func(prefix, active string) Nav { return Nav{Prefix: prefix} },

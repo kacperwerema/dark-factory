@@ -1,0 +1,78 @@
+{{/*
+Workshop Board components of a station's Edit form (L2 · a station opened,
+then Edit: /hall/station/<status>/edit). View model in hall_edit.go, JS in
+static/hall-edit.js, styles in static/workshop.css ("L2: hall edit").
+
+  wb/edit-row       one action row: type and its fields   data: HallEditRow
+  wb/edit-edge      one edge: gate switch and its rows    data: HallEditEdge
+  wb/edit-preview   the diff, its checks, Confirm         data: HallEditData
+*/}}
+
+{{define "wb/edit-row"}}
+<li class="wb-edit-row" data-edit-row data-testid="hall.edit.action">
+    <div class="wb-edit-row-head">
+        <select name="{{.Pre}}type" data-edit-type aria-label="Action type">
+            {{$t := .A.Type}}{{range .Types}}<option value="{{.}}"{{if eq . $t}} selected{{end}}>{{.}}</option>{{end}}
+            {{if not (hallKnownType .Types $t)}}<option value="{{$t}}" selected>{{$t}}</option>{{end}}
+        </select>
+        <span class="wb-edit-row-tools">
+            <button type="button" class="wb-edit-tool" data-edit-up title="Move up" aria-label="Move up">↑</button>
+            <button type="button" class="wb-edit-tool" data-edit-down title="Move down" aria-label="Move down" data-testid="hall.edit.down">↓</button>
+            <button type="button" class="wb-edit-tool" data-edit-remove title="Remove" aria-label="Remove" data-testid="hall.edit.remove">✕</button>
+        </span>
+    </div>
+    <div class="wb-edit-fields">
+        <label data-for="validate">rule <input name="{{.Pre}}rule" value="{{.A.Rule}}" placeholder="has_assignee, section_checkboxes_checked: Design…"></label>
+        <label data-for="validate set_fields">field <input name="{{.Pre}}field" value="{{.A.Field}}"></label>
+        <label data-for="set_fields">value <input name="{{.Pre}}value" value="{{.A.Value}}" placeholder="empty clears it"></label>
+        <label data-for="require_human_approval">status <input name="{{.Pre}}status" value="{{.A.Status}}"></label>
+        <label data-for="append_section">title <input name="{{.Pre}}title" value="{{.A.Title}}"></label>
+        <label data-for="append_section" class="wb-edit-wide">body <textarea name="{{.Pre}}body" rows="4">
+{{.A.Body}}</textarea></label>
+        <label data-for="inject_prompt" class="wb-edit-wide">prompt <textarea name="{{.Pre}}prompt" rows="3">
+{{.A.Prompt}}</textarea></label>
+        <label data-for="validate">section <input name="{{.Pre}}section" value="{{.A.Section}}"></label>
+        <label data-for="validate">values <input name="{{.Pre}}values" value="{{.Values}}" placeholder="a, b"></label>
+        <label data-for="validate">pattern <input name="{{.Pre}}pattern" value="{{.A.Pattern}}"></label>
+        <label data-for="validate">min <input name="{{.Pre}}min" value="{{if .A.Min}}{{.A.Min}}{{end}}" inputmode="numeric"></label>
+        <label data-for="validate">max <input name="{{.Pre}}max" value="{{if .A.Max}}{{.A.Max}}{{end}}" inputmode="numeric"></label>
+        <label data-for="validate">command <input name="{{.Pre}}command" value="{{.A.Command}}"></label>
+        <label data-for="validate">timeout s <input name="{{.Pre}}timeout_seconds" value="{{if .A.TimeoutSeconds}}{{.A.TimeoutSeconds}}{{end}}" inputmode="numeric"></label>
+        <label data-for="validate">ref_key <input name="{{.Pre}}ref_key" value="{{.A.RefKey}}"></label>
+        <label data-for="validate">linked status <input name="{{.Pre}}linked_status" value="{{.A.LinkedStatus}}"></label>
+        <label data-for="validate">hint <input name="{{.Pre}}hint" value="{{.A.Hint}}"></label>
+    </div>
+</li>
+{{end}}
+
+{{define "wb/edit-edge"}}
+<fieldset class="wb-edit-edge{{if .Gate}} wb-part-edge--gate{{end}}" data-edit-edge data-testid="hall.edit.edge">
+    <legend class="wb-part-edge-way"><span class="wb-chip wb-chip--idle">{{if .In}}way in{{else}}way out{{end}}</span> <span class="wb-mono-inline">{{.From}}</span> → <span class="wb-mono-inline">{{.To}}</span> <span class="wb-muted">line {{.Line}}</span></legend>
+    <input type="hidden" name="e{{.Index}}-present" value="1">
+    {{if .In}}<label class="wb-edit-gate" data-testid="hall.edit.gate">
+        <input type="checkbox" name="e{{.Index}}-gate" value="on"{{if .Gate}} checked{{end}}>
+        <span class="wb-stamp wb-stamp--sm">{{template "wb/stamp-icon"}}</span>
+        <span>Your approval to enter <span class="wb-mono-inline">{{.To}}</span></span>
+    </label>{{end}}
+    <ol class="wb-edit-rows" data-edit-rows>{{range .Rows}}{{template "wb/edit-row" .}}{{end}}</ol>
+    <template data-edit-blank>{{template "wb/edit-row" .Blank}}</template>
+    <button type="button" class="wb-btn wb-btn--paper wb-edit-add" data-edit-add data-testid="hall.edit.add">+ Add action</button>
+</fieldset>
+{{end}}
+
+{{define "wb/edit-preview"}}
+<section class="wb-part-panel wb-part-panel--wide{{if not .Preview.OK}} wb-part-panel--red{{end}}" data-testid="hall.edit.preview">
+    <h2 class="wb-h2">Preview{{with .Preview.Summary}} <span class="wb-sub">{{.}}</span>{{end}}</h2>
+    {{range .Preview.Errors}}<div class="wb-edit-error" data-testid="hall.edit.error">{{.}}</div>{{end}}
+    {{if and $.YOLO .Preview.Gates}}<div class="wb-part-raised" data-testid="hall.edit.yolo">{{template "wb/yolo-tag"}} YOLO is on: {{range $i, $g := .Preview.Gates}}{{if $i}}, {{end}}{{$g}}{{end}}. YOLO's gate list changes with it.</div>{{end}}
+    {{if .Preview.Diff}}<pre class="wb-part-pre wb-edit-diff" data-testid="hall.edit.diff">{{range .Preview.Diff}}<span class="wb-diff-{{if .Kind}}{{.Kind}}{{else}}ctx{{end}}">{{.Text}}</span>
+{{end}}</pre>
+    {{else}}<div class="wb-muted">The edit changes nothing in {{.File}}.</div>{{end}}
+    {{if .Here}}<div class="wb-note">{{.Here}} issue{{if ne .Here 1}}s{{end}} in this station pick the change up on their next issue-cli call.</div>{{end}}
+    {{with .Preview.Warnings}}<details class="wb-part-fold"><summary>{{len .}} other lint warning{{if ne (len .) 1}}s{{end}} in the file (not blocking)</summary><ul class="wb-part-actions">{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+    {{if .Preview.OK}}<div class="wb-edit-confirm">
+        <button type="submit" class="wb-btn wb-btn--you" formaction="{{.EditURL}}/save" data-edit-confirm data-testid="hall.edit.confirm">Confirm: write and commit on main</button>
+        <span class="wb-note" data-edit-stale hidden>You changed the form since this preview: preview again.</span>
+    </div>{{end}}
+</section>
+{{end}}

@@ -43,8 +43,8 @@ func lcs(a, b []string, eq func(x, y string) bool) [][2]int {
 
 // diffLine is one line of an edit script: ' ', '-' or '+'.
 type diffLine struct {
-	op         byte
-	text       string
+	op           byte
+	text         string
 	aLine, bLine int // 1-based line in old / new for ' ' and the side it has
 }
 

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "Edit %s · Product hall" .Title)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<form class="wb-ground wb-part wb-edit" method="post" action="{{.EditURL}}/preview" aria-label="Edit {{.Title}}" data-testid="hall.edit" data-edit-form>
+    <div class="wb-titlebar">
+        <a class="wb-part-back" href="{{.PartURL}}" data-testid="hall.edit.back">← {{.Title}}</a>
+        <h1 class="wb-h1">Edit {{.Title}}</h1>
+        <span class="wb-mono">{{.Status}}</span>
+        <span class="wb-sub">in <span class="wb-mono-inline">{{.File}}</span>; nothing is written until you confirm the preview</span>
+    </div>
+    <input type="hidden" name="hash" value="{{.Hash}}">
+    {{with .Error}}<div class="wb-part-panel wb-part-panel--red wb-edit-error" role="alert" data-testid="hall.edit.error">{{.}}</div>{{end}}
+    {{if .Preview}}{{template "wb/edit-preview" .}}{{end}}
+    <div class="wb-part-grid">
+        <section class="wb-part-panel wb-part-panel--wide" data-testid="hall.edit.prompt">
+            <h2 class="wb-h2">What the agent is told</h2>
+            <label class="wb-edit-label">Description <input name="description" value="{{.Description}}" data-testid="hall.edit.description"></label>
+            <label class="wb-edit-label">Status prompt <textarea name="prompt" rows="8" data-testid="hall.edit.prompt_text">
+{{.Prompt}}</textarea></label>
+        </section>
+        <section class="wb-part-panel wb-part-panel--wide" data-testid="hall.edit.edges">
+            <h2 class="wb-h2">Ways in and out</h2>
+            <div class="wb-note">The actions run in order: checks first, then the side effects. The switch on a way in is your approval gate.</div>
+            {{range .Edges}}{{template "wb/edit-edge" .}}{{else}}<div class="wb-muted">No transitions: entry goes into or out of <span class="wb-mono-inline">{{.Status}}</span>; the lifecycle's steps run no actions.</div>{{end}}
+        </section>
+        {{with .ReadOnly}}<section class="wb-part-panel wb-part-panel--wide" data-testid="hall.edit.readonly">
+            <h2 class="wb-h2">Edited by hand</h2>
+            <div class="wb-note">These also change this station, for some issues or from any status. Edit them in the file.</div>
+            <ul class="wb-part-actions">{{range .}}<li><span class="wb-mono-inline">{{.What}}</span> <span class="wb-muted">line {{.Line}}</span></li>{{end}}</ul>
+        </section>{{end}}
+        <section class="wb-part-panel wb-part-panel--wide" data-testid="hall.edit.save">
+            <h2 class="wb-h2">Why</h2>
+            <label class="wb-edit-label">Your reason, quoted in the commit <textarea name="reason" rows="2" data-testid="hall.edit.reason">{{.Reason}}</textarea></label>
+            <div><button type="submit" class="wb-btn wb-btn--paper" data-testid="hall.edit.preview_button">Preview the change</button></div>
+        </section>
+    </div>
+</form>
+</div>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/hall-edit.js"></script>
+</body>
+</html>

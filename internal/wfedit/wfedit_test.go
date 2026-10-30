@@ -215,6 +215,23 @@ func TestApplyRefusesBadActions(t *testing.T) {
 	}
 }
 
+// A broken action already in the file doesn't block an edit next to it.
+func TestApplyKeepsAnOldBrokenAction(t *testing.T) {
+	raw, _ := os.ReadFile("testdata/workflow.yaml")
+	path := writeTemp(t, []byte(strings.Replace(string(raw), `rule: "has_assignee"`+"\n      # Sections", `rule: "has_vibes"`+"\n      # Sections", 1)))
+	st, _ := Open(path, "in progress")
+	in := st.In[0]
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}})
+	if err != nil || !pv.OK() {
+		t.Fatalf("err %v errors %v", err, pv.Errors)
+	}
+	acts := append(SetGate(in.Actions, in.To, false), tracker.WorkflowAction{Type: "validate", Rule: "has_vibes_too"})
+	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: acts}})
+	if len(pv.Errors) != 1 || !strings.Contains(pv.Errors[0], "has_vibes_too") {
+		t.Errorf("errors = %v, want only the new action's", pv.Errors)
+	}
+}
+
 func TestApplyStale(t *testing.T) {
 	path := fixture(t)
 	st, _ := Open(path, "idea")

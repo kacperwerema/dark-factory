@@ -142,6 +142,24 @@ func (p *Project) loadWorkflowRaw() *WorkflowConfig {
 	return DefaultWorkflow()
 }
 
+// WorkflowPath is the file LoadWorkflow reads, made absolute: the
+// project's workflow: file, else a local workflow.yaml; "" when it runs on
+// the built-in default.
+func (p *Project) WorkflowPath() string {
+	for _, f := range []string{p.WorkflowFile, "workflow.yaml"} {
+		if f == "" {
+			continue
+		}
+		if custom, err := LoadWorkflow(f); err == nil && custom != nil {
+			if abs, err := filepath.Abs(f); err == nil {
+				return abs
+			}
+			return f
+		}
+	}
+	return ""
+}
+
 // attachRuntime populates IssuesRoot and a LookupIssue resolver so the
 // linked_issue_in_status and command_succeeds validators have what they need
 // without every caller wiring it themselves.

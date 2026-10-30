@@ -114,6 +114,11 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHall(w, r, proj, prefix)
 	case rest == "hall/ci" && r.Method == http.MethodGet:
 		s.handleHallPart(w, r, proj, prefix, "ci", "")
+	case strings.HasPrefix(rest, "hall/station/") && strings.HasSuffix(rest, "/edit") && r.Method == http.MethodGet:
+		s.handleHallEdit(w, r, proj, prefix, strings.TrimSuffix(strings.TrimPrefix(rest, "hall/station/"), "/edit"), "")
+	case strings.HasPrefix(rest, "hall/station/") && (strings.HasSuffix(rest, "/edit/preview") || strings.HasSuffix(rest, "/edit/save")) && r.Method == http.MethodPost:
+		key, action, _ := strings.Cut(strings.TrimPrefix(rest, "hall/station/"), "/edit/")
+		s.handleHallEdit(w, r, proj, prefix, key, action)
 	case (strings.HasPrefix(rest, "hall/station/") || strings.HasPrefix(rest, "hall/gate/")) && r.Method == http.MethodGet:
 		kind, key, _ := strings.Cut(strings.TrimPrefix(rest, "hall/"), "/")
 		s.handleHallPart(w, r, proj, prefix, kind, key)

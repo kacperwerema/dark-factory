@@ -1659,3 +1659,30 @@ a.wb-gatecard:focus-visible, a.wb-scanner:focus-visible, .wb-hst-head--link:focu
 .wb-part-overlay { border-top: 1.5px solid #E1E5EB; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .wb-part-overlay-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 700; }
 .wb-part-raised { font-weight: 600; }
+
+/* L2: hall edit (templates/_workshop_hall_edit.html, hall_edit.html): a
+   station's Edit form, its preview and Confirm. */
+.wb-part-edit { margin-left: auto; text-decoration: none; padding: 6px 14px; border-radius: 10px; }
+.wb-edit-saved { display: block; box-shadow: 4px 4px 0 var(--working); font-weight: 600; }
+.wb-edit-label { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 13px; }
+.wb-edit input, .wb-edit textarea, .wb-edit select { font: inherit; font-size: 13px; font-weight: 400; padding: 6px 8px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; color: var(--ink); min-width: 0; }
+.wb-edit textarea { resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+.wb-edit-edge { border: 1.5px solid #E1E5EB; border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.wb-edit-gate { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.wb-edit-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wb-edit-row { border: 1.5px solid #E1E5EB; border-radius: 8px; padding: 6px 8px; background: #FAFBFC; display: flex; flex-direction: column; gap: 6px; }
+.wb-edit-row-head { display: flex; align-items: center; gap: 8px; }
+.wb-edit-row-tools { margin-left: auto; display: flex; gap: 4px; }
+.wb-edit-tool { width: 30px; height: 30px; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); font: inherit; font-weight: 800; cursor: pointer; }
+.wb-edit-tool:focus-visible, .wb-edit-add:focus-visible { outline: 3px solid var(--working); outline-offset: 2px; }
+.wb-edit-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 6px 10px; }
+.wb-edit-fields label { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; font-weight: 700; color: var(--muted-2); }
+.wb-edit-fields .wb-edit-wide { grid-column: 1 / -1; }
+.wb-edit-fields [hidden] { display: none; }
+.wb-edit-add { align-self: flex-start; padding: 4px 12px; border-radius: 8px; font-size: 13px; }
+.wb-edit-error { color: var(--red); font-weight: 700; overflow-wrap: anywhere; }
+.wb-edit-diff .wb-diff-add { color: #1E6B35; background: #E3F5E8; display: inline-block; width: 100%; }
+.wb-edit-diff .wb-diff-del { color: #9B1C1C; background: #FBE4E4; display: inline-block; width: 100%; }
+.wb-edit-diff .wb-diff-hunk { color: var(--muted-2); }
+.wb-edit-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.wb-edit-confirm button[disabled] { opacity: .5; cursor: not-allowed; }

@@ -1,0 +1,82 @@
+session: hall-edit
+issue: factory/hall-edit-the-workflow-from-the-hall
+title: Product hall - edit a station's prompt, actions and gate, preview the diff, commit it
+scenario: yolo
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Edit opens the form; the gate switched off previews only the gate's lines
+    proves: [AC1, AC2, AC6]
+    setup:
+      - open: /p/{project}/hall/station/in-progress
+    act:
+      - click: hall.part.edit
+      - wait_for: hall.edit
+      - check: { text_contains: { target: hall.edit.edges, text: "backlog" } }
+      - click: hall.edit.gate
+      - click: hall.edit.preview_button
+      - wait_for: hall.edit.diff
+    checks:
+      - visible: [hall.edit.preview, hall.edit.diff, hall.edit.confirm]
+      - text_contains: { target: hall.edit.preview, text: "gate into in progress removed" }
+      - text_contains: { target: hall.edit.diff, text: "require_human_approval" }
+      - absent: hall.edit.error
+    targets:
+      - { id: hall.edit.edges, note: "Ways in and out, the gate switch on the way in" }
+      - { id: hall.edit.diff, note: "The file's diff before anything is written" }
+    do: |
+      1. On the In progress station, click Edit.
+      2. Read the form: the prompt, the ways in and out, the gate switch.
+      3. Untick "Your approval to enter in progress" and click "Preview the change".
+    expect: |
+      The form reads like the station page, in parts you can change. The
+      preview shows only the gate's lines going, and nothing is written
+      until you confirm. (With YOLO on, it also says the YOLO gate list
+      changes; this board has YOLO off.)
+    why: ux-test checks the form and the diff; only you can judge whether editing a station here feels safe and clear.
+
+  - id: TP5
+    title: Rows add, move and remove; Confirm waits for a fresh preview, then saves and commits
+    proves: [AC4]
+    setup:
+      - open: /p/{project}/hall/station/testing/edit
+      - wait_for: hall.edit
+    act:
+      - check: { count: { pattern: hall.edit.action, within: hall.edit.edges, equals: 1 } }
+      - click: hall.edit.add
+      - check: { count: { pattern: hall.edit.action, within: hall.edit.edges, equals: 2 } }
+      - click: hall.edit.down
+      - check: { count: { pattern: hall.edit.action, within: hall.edit.edges, equals: 2 } }
+      - click: hall.edit.remove
+      - click: hall.edit.remove
+      - check: { count: { pattern: hall.edit.action, within: hall.edit.edges, equals: 0 } }
+      - click: hall.edit.preview_button
+      - wait_for: hall.edit.confirm
+      - type: { target: hall.edit.description, text: "Being checked by hand", clear: true }
+      - check: { disabled: hall.edit.confirm }
+      - click: hall.edit.preview_button
+      - wait_for: { enabled: hall.edit.confirm }
+      - type: { target: hall.edit.reason, text: "Done needs no stamp from me in this shop" }
+      - click: hall.edit.confirm
+      - wait_for: hall.part.saved
+    checks:
+      - visible: [hall.part, hall.part.saved]
+    # hall.part.saved shows only with a commit sha in ?saved=; the sha
+    # itself differs per run, so no check reads it (REPEAT=2 compares).
+    targets:
+      - { id: hall.part.saved, note: "The commit the save made" }
+    do: |
+      1. Open the Testing station and click Edit.
+      2. Add an action, then remove both rows on testing → done.
+      3. Preview, then change the description: Confirm greys out until you preview again.
+      4. Preview again, write a reason and click Confirm.
+    expect: |
+      The row tools do what they say, Confirm never saves something other
+      than the diff you saw, and after saving the station page names the
+      commit on main. `git log -1` in the project quotes your reason.
+    why: ux-test drives the clicks and the save; only you can judge whether the flow from form to commit reads right.

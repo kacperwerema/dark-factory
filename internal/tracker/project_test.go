@@ -343,3 +343,23 @@ func TestLoadProjects_CompanyAndProductGoals(t *testing.T) {
 		t.Errorf("DepartmentOf(department: Product) = %q, want \"\" (Product)", got)
 	}
 }
+
+func TestProjectWorkflowPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	p := &Project{WorkflowFile: filepath.Join(dir, "missing.yaml")}
+	if got := p.WorkflowPath(); got != "" {
+		t.Errorf("no file anywhere: %q", got)
+	}
+	os.WriteFile("workflow.yaml", []byte("statuses:\n  - name: idea\n"), 0o644)
+	local, _ := filepath.Abs("workflow.yaml")
+	if got := p.WorkflowPath(); got != local {
+		t.Errorf("local fallback = %q, want %q", got, local)
+	}
+	own := filepath.Join(dir, "own.yaml")
+	os.WriteFile(own, []byte("statuses:\n  - name: idea\n"), 0o644)
+	p.WorkflowFile = own
+	if got := p.WorkflowPath(); got != own {
+		t.Errorf("workflow: file = %q, want %q", got, own)
+	}
+}
