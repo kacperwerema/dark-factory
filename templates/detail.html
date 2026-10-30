@@ -40,7 +40,7 @@
         </div>
 
         <nav class="status-tabs detail-tabs" aria-label="Issue page tabs" data-testid="detail.pagetabs">
-            <a href="{{.Prefix}}/issue/{{.Issue.Slug}}" class="status-tab{{if eq .Tab "issue"}} active{{end}}" data-testid="detail.pagetab.issue"{{if eq .Tab "issue"}} aria-current="true"{{end}}>{{if .Epic}}Epic <span class="chip chip-{{if .Epic.AllDone}}green{{else}}amber{{end}}" data-testid="detail.epic.label" title="Children closed">{{.Epic.Done}}/{{.Epic.Total}}</span>{{else}}Issue{{end}}</a>
+            <a href="{{.Prefix}}/issue/{{.Issue.Slug}}?classic=1" class="status-tab{{if eq .Tab "issue"}} active{{end}}" data-testid="detail.pagetab.issue"{{if eq .Tab "issue"}} aria-current="true"{{end}}>{{if .Epic}}Epic <span class="chip chip-{{if .Epic.AllDone}}green{{else}}amber{{end}}" data-testid="detail.epic.label" title="Children closed">{{.Epic.Done}}/{{.Epic.Total}}</span>{{else}}Issue{{end}}</a>
             <a href="{{.Prefix}}/issue/{{.Issue.Slug}}?tab=timeline" class="status-tab{{if eq .Tab "timeline"}} active{{end}}" data-testid="detail.pagetab.timeline"{{if eq .Tab "timeline"}} aria-current="true"{{end}}>Timeline{{if .TimelineTotal}} <span class="chip">{{.TimelineTotal}}</span>{{end}}</a>
             <a href="{{.Prefix}}/issue/{{.Issue.Slug}}?tab=evidence" class="status-tab{{if eq .Tab "evidence"}} active{{end}}" data-testid="detail.pagetab.evidence"{{if eq .Tab "evidence"}} aria-current="true"{{end}}>Evidence{{with .EvidenceLabel.Text}} <span class="chip{{if ne $.EvidenceLabel.Class "gray"}} chip-{{$.EvidenceLabel.Class}}{{end}}" data-testid="evidence.label">{{.}}</span>{{end}}</a>
         </nav>

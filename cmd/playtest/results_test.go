@@ -40,6 +40,11 @@ func TestDiffIgnoresPathsAndTimes(t *testing.T) {
 	if d := Diff(a, b); d != "" {
 		t.Errorf("runs that only differ in the board's port differ:\n%s", d)
 	}
+	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "text_contains status.ci.line", Pass: true, Actual: `main green at bb47fba (3s ago)`}}
+	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "text_contains status.ci.line", Pass: true, Actual: `main green at bb47fba (0s ago)`}}
+	if d := Diff(a, b); d != "" {
+		t.Errorf("runs that only differ in a relative age differ:\n%s", d)
+	}
 	// "exit 0: {" makes YAML quote the value, so the cut ends in …'
 	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli status --json", Pass: true, Actual: `exit 0: {"as_of":"2026-10-23T15:41:12.1+02:00","slug":"ui/child"…`}}
 	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli status --json", Pass: true, Actual: `exit 0: {"as_of":"2026-10-23T15:41:12.123+02:00","slug":"ui/chi…`}}

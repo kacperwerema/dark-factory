@@ -18,6 +18,7 @@
             {{template "wb/shipped" .Shipped}}
         </div>
         <div class="wb-report-side">
+            {{with .Status}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
             {{template "wb/health" .Health}}
             {{template "wb/unlock" .Unlock}}
         </div>

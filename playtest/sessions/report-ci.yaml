@@ -1,0 +1,24 @@
+session: report-ci
+issue: factory/merge-workshop-board-to-main
+title: Report - Local CI on the Workshop Board Report
+scenario: local-ci
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP5
+    title: The Report shows the Local CI card - state, one line, the last runs
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/status
+      - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
+      - reload: true
+    checks:
+      - visible: [report.page, status.ci, status.ci.state, status.ci.line, status.ci.runs]
+      - count: { pattern: status.ci.run.*, min: 1 }
+      - text_equals: { target: status.ci.state, text: green }
+      - text_contains: { target: status.ci.line, text: "main green at" }
+      - absent: [status.ci.blamed, status.ci.log]

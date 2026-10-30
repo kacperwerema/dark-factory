@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ const leadChatPaneText = "\x1b[1m⏺ Merged ui/child.\x1b[0m   \n" +
 // pane, and records the targets asked about, the keys pressed and the
 // pastes made. No real tmux is touched.
 type leadChatStub struct {
+	mu      sync.Mutex // handlers may call the stubs from several requests at once
 	live    bool
 	asked   []string
 	keys    []string
@@ -36,8 +38,10 @@ type leadChatStub struct {
 func stubLeadChat(t *testing.T, live bool) *leadChatStub {
 	t.Helper()
 	st := &leadChatStub{live: live}
-	origHas, origCap, origKey, origPaste := agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste
+	origHas, origCap, origKey, origPaste, origConfirm := agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste, leadChatConfirm
 	agentrun.HasSession = func(target string) bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
 		st.asked = append(st.asked, target)
 		return st.live
 	}
@@ -48,20 +52,28 @@ func stubLeadChat(t *testing.T, live bool) *leadChatStub {
 		return leadChatPaneText, nil
 	}
 	agentrun.SendKey = func(target, key string) error {
+		st.mu.Lock()
+		defer st.mu.Unlock()
 		st.keys = append(st.keys, target+" "+key)
 		return nil
 	}
-	leadChatPaste = func(proj *tracker.Project, session, text, textFile, hint string) agentrun.Response {
+	leadChatPaste = func(proj *tracker.Project, session, text, textFile string) agentrun.Response {
 		if !st.live {
-			return agentrun.Paste(proj, session, text, textFile, hint)
+			return agentrun.PasteSubmit(proj, session, text, textFile)
 		}
 		st.pastes = append(st.pastes, text)
 		st.session, st.file = session, textFile
 		return agentrun.Response{Status: "sent", Session: session, Prompt: text}
 	}
+	leadChatConfirm = func(steps *[]agentrun.Step, target, text, hint string) {
+		*steps = append(*steps, agentrun.Step{Name: "Prompt delivered", Status: "ok"})
+	}
 	withMockTmuxSessions(t, nil)
+	leadChatCtrlCMu.Lock()
+	leadChatLastCtrlC = map[string]time.Time{}
+	leadChatCtrlCMu.Unlock()
 	t.Cleanup(func() {
-		agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste = origHas, origCap, origKey, origPaste
+		agentrun.HasSession, agentrun.CaptureHistory, agentrun.SendKey, leadChatPaste, leadChatConfirm = origHas, origCap, origKey, origPaste, origConfirm
 	})
 	return st
 }
@@ -323,11 +335,115 @@ func TestLeadChatCtrlCGuard(t *testing.T) {
 	}
 }
 
+// TestLeadChatCtrlCDuringSend: a send waiting on its delivery check doesn't
+// hold the lead's lock, so a Ctrl+C goes through at once and a second one
+// inside the window is refused (the bypass was: both queued behind the
+// send, then both fired).
+func TestLeadChatCtrlCDuringSend(t *testing.T) {
+	proj := setupAgentsProject(t)
+	st := stubLeadChat(t, true)
+	confirming, release := make(chan struct{}), make(chan struct{})
+	leadChatConfirm = func(steps *[]agentrun.Step, target, text, hint string) {
+		close(confirming)
+		<-release
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	sent := make(chan int)
+	go func() {
+		code, _ := leadChatPost(t, ts.URL+"/p/agents/lead/send", "application/json", `{"text":"hello"}`)
+		sent <- code
+	}()
+	<-confirming
+	url := ts.URL + "/p/agents/lead/key"
+	done := make(chan [2]int)
+	go func() {
+		a, _ := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`)
+		b, _ := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`)
+		done <- [2]int{a, b}
+	}()
+	select {
+	case got := <-done:
+		if got != [2]int{200, http.StatusTooManyRequests} {
+			t.Errorf("Ctrl+C twice during a send: %v, want 200 then 429", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Ctrl+C waited behind the send's delivery check")
+	}
+	close(release)
+	if code := <-sent; code != 200 {
+		t.Errorf("send: %d", code)
+	}
+	if got := strings.Join(st.keys, ","); got != "lead-agents C-c" {
+		t.Errorf("pressed %s, want one C-c", got)
+	}
+}
+
+// TestLeadChatCtrlCRace: two presses at once, only one reaches the pane.
+func TestLeadChatCtrlCRace(t *testing.T) {
+	proj := setupAgentsProject(t)
+	st := stubLeadChat(t, true)
+	agentrun.SendKey = func(target, key string) error {
+		time.Sleep(20 * time.Millisecond)
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.keys = append(st.keys, target+" "+key)
+		return nil
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	url := ts.URL + "/p/agents/lead/key"
+
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			code, _ := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`)
+			codes <- code
+		}()
+	}
+	got := []int{<-codes, <-codes}
+	if got[0]+got[1] != 200+http.StatusTooManyRequests {
+		t.Errorf("two presses at once: %v, want one 200 and one 429", got)
+	}
+	if n := len(st.keys); n != 1 {
+		t.Errorf("pressed %v, want one C-c", st.keys)
+	}
+}
+
+// TestLeadChatCtrlCFailedPress: a Ctrl+C that didn't reach the pane doesn't
+// start the window, so the owner can press again.
+func TestLeadChatCtrlCFailedPress(t *testing.T) {
+	proj := setupAgentsProject(t)
+	st := stubLeadChat(t, true)
+	fail := true
+	agentrun.SendKey = func(target, key string) error {
+		if fail {
+			return errors.New("no pane")
+		}
+		st.keys = append(st.keys, target+" "+key)
+		return nil
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	url := ts.URL + "/p/agents/lead/key"
+
+	if code, _ := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`); code != http.StatusBadGateway {
+		t.Fatalf("failed Ctrl+C: %d, want 502", code)
+	}
+	fail = false
+	if code, out := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`); code != 200 {
+		t.Errorf("Ctrl+C after a failed one: %d %v, want 200", code, out)
+	}
+}
+
 func TestLeadsOverview(t *testing.T) {
 	a := setupAgentsProject(t)
 	b, _ := setupTestProject(t)
 	st := stubLeadChat(t, false)
 	agentrun.HasSession = func(target string) bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
 		st.asked = append(st.asked, target)
 		return target == "lead-agents"
 	}

@@ -211,6 +211,10 @@ func TestDetailTabs(t *testing.T) {
 			t.Errorf("issue tab: missing %s", want)
 		}
 	}
+	// The classic Issue tab stays on the classic page, not the station.
+	if !strings.Contains(issue, `href="/p/test-project/issue/bug-in-login?classic=1" class="status-tab active" data-testid="detail.pagetab.issue"`) {
+		t.Error("the classic Issue tab must link to ?classic=1")
+	}
 	if strings.Contains(issue, "Agent Timeline") || strings.Contains(issue, `data-testid="timeline.tab"`) {
 		t.Error("issue tab still shows a timeline")
 	}

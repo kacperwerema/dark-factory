@@ -22,6 +22,13 @@ Flags:
 `make playtest-check`. Use it before proposing a change that touches
 `cmd/issue-cli/`.
 
+It has to pass on macOS as well as Linux. On a Mac, `t.TempDir()` is under
+`/var`, a link to `/private/var`: a test that compares printed paths uses the
+resolved dir (`realTempDir` in cmd/issue-cli). That dir is also too deep for
+a tmux socket (~104 bytes), so `isolateTmux` keeps `TMUX_TMPDIR` under `/tmp`.
+BSD `script` has no `-c` (internal/checks `ptyCommand`), and tests that
+dispatch use `terminal: none`; the default terminal is i3-msg.
+
 UI checks run as playtest sessions:
 
 - `make ux-test [ISSUE=<slug>] [S=<session>] [REPEAT=2]` runs them in headless

@@ -25,7 +25,7 @@ type bootstrapFixture struct {
 
 func newBootstrapFixture(t *testing.T, localWorkflow bool) bootstrapFixture {
 	t.Helper()
-	root := t.TempDir()
+	root := realTempDir(t)
 	f := bootstrapFixture{root: root, proj: filepath.Join(root, "proj"), other: filepath.Join(root, "other")}
 	for _, dir := range []string{filepath.Join(f.proj, "issues"), filepath.Join(f.other, "issues")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

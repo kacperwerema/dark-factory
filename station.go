@@ -109,14 +109,14 @@ type WbMoveTask struct {
 }
 
 // WbStamp is the gate approval: the targets the status's gated exits offer,
-// the owner's words, Stamp it and Send back for fixes. Locked until the
-// steps before it are done; Approved is the stamp already given.
+// the owner's words, Stamp it and Send back for fixes. Always usable: Note
+// says when steps before it are still open; Approved is the stamp already
+// given.
 type WbStamp struct {
 	N                      int
 	Targets                []string
 	Approved               string
-	Locked                 bool
-	LockNote               string
+	Note                   string
 	ApproveURL, CommentURL string
 }
 
@@ -469,14 +469,13 @@ func stationMove(project string, issue *tracker.Issue, issueURL string, needs ne
 	if len(gt) > 0 && !strings.EqualFold(issue.Status, "done") {
 		n++
 		st := &WbStamp{N: n, Targets: gt, Approved: issue.HumanApproval, ApproveURL: issueURL + "/approve", CommentURL: issueURL + "/comments"}
-		if len(m.Tasks) > 0 {
-			st.Locked = true
-			st.LockNote = "Unlocks after step " + fmt.Sprint(len(m.Tasks)) + "."
-			if len(m.Tasks) > 1 {
-				st.LockNote = fmt.Sprintf("Unlocks after steps 1–%d.", len(m.Tasks))
-			}
+		// The owner may stamp ahead of their own steps, as on the classic page.
+		if len(m.Tasks) == 1 {
+			st.Note = "Step 1 is still open: you can stamp ahead."
+		} else if len(m.Tasks) > 1 {
+			st.Note = fmt.Sprintf("Steps 1–%d are still open: you can stamp ahead.", len(m.Tasks))
 		} else if att.Gate == nil || !att.Gate.Ready {
-			st.LockNote = "The gate's checklist is still open: you can stamp ahead, the agent continues once it is done."
+			st.Note = "The gate's checklist is still open: you can stamp ahead, the agent continues once it is done."
 		}
 		m.Stamp = st
 		if att.Gate != nil && att.Gate.Ready || len(m.Tasks) > 0 {

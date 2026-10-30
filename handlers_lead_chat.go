@@ -65,23 +65,32 @@ var (
 	leadChatLastCtrlC = map[string]time.Time{}
 )
 
-// leadChatCtrlCAllowed reports whether a Ctrl+C may go to target now, and
-// records it when it may.
+// leadChatCtrlCAllowed reports whether a Ctrl+C may go to target now. The
+// caller holds leadChatLock(target), and records the press with
+// leadChatRecordCtrlC once it was sent.
 func leadChatCtrlCAllowed(target string, now time.Time) bool {
 	leadChatCtrlCMu.Lock()
 	defer leadChatCtrlCMu.Unlock()
-	if last, ok := leadChatLastCtrlC[target]; ok && now.Sub(last) < leadChatCtrlCGap {
-		return false
-	}
+	last, ok := leadChatLastCtrlC[target]
+	return !ok || now.Sub(last) >= leadChatCtrlCGap
+}
+
+// leadChatRecordCtrlC starts the guard window for target.
+func leadChatRecordCtrlC(target string, now time.Time) {
+	leadChatCtrlCMu.Lock()
+	defer leadChatCtrlCMu.Unlock()
 	leadChatLastCtrlC[target] = now
-	return true
 }
 
 // leadChatChordGap separates the keys of a chord so the TUI reads them as one.
 var leadChatChordGap = 60 * time.Millisecond
 
-// leadChatPaste delivers a message into the live lead; a seam for tests.
-var leadChatPaste = agentrun.Paste
+// leadChatPaste pastes a message into the live lead and presses Enter, and
+// leadChatConfirm then checks it arrived; seams for tests.
+var (
+	leadChatPaste   = agentrun.PasteSubmit
+	leadChatConfirm = agentrun.PromptDeliveryStep
+)
 
 // LeadWaiting is one "Waiting on you" row in the chat's side panel.
 type LeadWaiting struct {
@@ -362,9 +371,16 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 		return
 	}
 	name := tracker.LeadSessionName(proj)
-	defer leadChatLock(agentrun.Target(proj, name))()
+	target := agentrun.Target(proj, name)
 	textFile := filepath.Join(projectRoot(proj), ".agent-logs", name, "chat", time.Now().Format("20060102-150405.000")+".txt")
-	resp := leadChatPaste(proj, name, text, textFile, "")
+	// The lock covers the paste and its Enter, not the delivery poll after
+	// it: keys (Esc, Ctrl+C) must not queue behind a 20 s wait.
+	unlock := leadChatLock(target)
+	resp := leadChatPaste(proj, name, text, textFile)
+	unlock()
+	if resp.Status == "sent" {
+		leadChatConfirm(&resp.Steps, target, text, "")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	switch resp.Status {
 	case "no-session":
@@ -396,11 +412,14 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 		leadChatError(w, http.StatusConflict, "no-session", agentDisplayName(proj, name)+" is not running")
 		return
 	}
+	// The guard is checked and recorded under the lead's lock, so two
+	// presses can't both pass, and only a press that reached the pane
+	// starts the window.
+	defer leadChatLock(target)()
 	if body.Key == "CtrlC" && !leadChatCtrlCAllowed(target, time.Now()) {
 		leadChatError(w, http.StatusTooManyRequests, "too-soon", "a second Ctrl+C within a few seconds would close the lead; wait and try again")
 		return
 	}
-	defer leadChatLock(target)()
 	for i, key := range keys {
 		if i > 0 {
 			time.Sleep(leadChatChordGap)
@@ -409,6 +428,9 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 			leadChatError(w, http.StatusBadGateway, "error", err.Error())
 			return
 		}
+	}
+	if body.Key == "CtrlC" {
+		leadChatRecordCtrlC(target, time.Now())
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "sent", "key": body.Key, "session": agentDisplayName(proj, name)})

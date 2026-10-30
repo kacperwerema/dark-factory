@@ -306,6 +306,17 @@ func recordDispatch(proj *tracker.Project, spec Spec, steps *[]Step) {
 // can't swap texts. textFile keeps a copy of what was sent and is what the
 // buffer loads. Status is "no-session" when the session is not live.
 func Paste(proj *tracker.Project, session, text, textFile, repromptHint string) Response {
+	response := PasteSubmit(proj, session, text, textFile)
+	if response.Status == "sent" {
+		PromptDeliveryStep(&response.Steps, Target(proj, session), text, repromptHint)
+	}
+	return response
+}
+
+// PasteSubmit is Paste without the delivery check: it returns once the paste
+// and Enter are in, so a caller can let go of its lock on the session before
+// polling the pane (PromptDeliveryStep) for up to PromptDeliveryTimeout.
+func PasteSubmit(proj *tracker.Project, session, text, textFile string) Response {
 	target := Target(proj, session)
 	response := Response{Status: "sent", Prompt: text, Session: tracker.AgentDisplayName(proj, session)}
 	if !HasSession(target) {
@@ -333,9 +344,7 @@ func Paste(proj *tracker.Project, session, text, textFile, repromptHint string) 
 		time.Sleep(200 * time.Millisecond)
 		ok = RunStep(&steps, "Submit prompt", exec.Command("tmux", "send-keys", "-t", target, "Enter"))
 	}
-	if ok {
-		PromptDeliveryStep(&steps, target, text, repromptHint)
-	} else {
+	if !ok {
 		response.Status = "error"
 	}
 	response.Steps = steps
