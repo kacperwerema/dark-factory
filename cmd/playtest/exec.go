@@ -178,6 +178,9 @@ func (e *stepEnv) do(ctx context.Context, a Action) error {
 	case "write":
 		m, _ := argMap(a.Arg)
 		return e.write(fmt.Sprint(m["path"]), fmt.Sprint(m["text"]))
+	case "upload":
+		m, _ := argMap(a.Arg)
+		return e.upload(ctx, fmt.Sprint(m["target"]), fmt.Sprint(m["path"]))
 	case "cli":
 		call, err := cliArgs(a.Arg)
 		if err != nil {
@@ -279,6 +282,19 @@ func (e *stepEnv) write(rel, text string) error {
 	}
 	e.logf("write %s (%d bytes)", clean, len(text))
 	return os.WriteFile(target, []byte(text), 0o644)
+}
+
+// upload picks a file under the scenario's project root in a file input, as
+// the owner choosing it in the file dialog does (the input's change event
+// fires). The input may be hidden behind a button.
+func (e *stepEnv) upload(ctx context.Context, target, rel string) error {
+	file := filepath.Join(e.sc.Proj, filepath.Clean("/"+rel))
+	if _, err := os.Stat(file); err != nil {
+		return fmt.Errorf("upload %s: %v", rel, err)
+	}
+	e.logf("upload %s into %s", rel, target)
+	sel := fmt.Sprintf(`[data-testid=%q]`, target)
+	return e.page.Do(ctx, chromedp.SetUploadFiles(sel, []string{file}))
 }
 
 // post sends the post action's request, with optional headers (e.g.
