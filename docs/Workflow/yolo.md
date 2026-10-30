@@ -83,7 +83,6 @@ The queue is derived from comments: a YOLO approval with no later `yolo-review:`
   - L2, the hall: gates drawn raised (barrier up) while on; a crate that passed a gate in YOLO carries the yellow YOLO marker to the end of the line, reviewed or not.
   - L3, the issue: "Passed in YOLO" above Your move, one form per unreviewed pass, with Agree and Back to <status>.
   - Decisions: a decision recorded in YOLO (how `YOLO`) carries the YOLO tag in the Decisions log ("The agent decided alone in YOLO", Confirm / Question it) and on the issue ("YOLO · without your words").
-  Yellow-black stripes mean YOLO only; orange stays yours.
 
 Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 
