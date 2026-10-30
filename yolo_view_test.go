@@ -74,7 +74,7 @@ func TestYOLOSwitchAndBand(t *testing.T) {
 	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/on", `{"until":"4h","words":"go yolo"}`); code != 200 || out["On"] != true {
 		t.Fatalf("on: %d %v", code, out)
 	}
-	page = pageGet(t, ts.URL+"/p/yp/status")
+	page = pageGet(t, ts.URL+"/p/yp/board")
 	for _, want := range []string{`class="sidebar-yolo on"`, "<strong>YOLO</strong> until", "no releases", `data-testid="nav.yolo.off"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("band lacks %q", want)
