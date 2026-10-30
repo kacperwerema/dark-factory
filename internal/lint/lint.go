@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -130,6 +132,29 @@ func Run(env *Env, names ...string) (*Report, error) {
 		}
 	}
 	return rep, nil
+}
+
+// File runs the checks that read only a workflow file, not the board, on
+// raw as the content of path (which need not exist yet): the workflow
+// editor's preview of an edit before it is written. An error means raw
+// does not parse.
+func File(path string, raw []byte, now time.Time) ([]Finding, error) {
+	var wf tracker.WorkflowConfig
+	if err := yaml.Unmarshal(raw, &wf); err != nil {
+		return nil, err
+	}
+	env := &Env{Project: &tracker.Project{}, Workflow: &wf, File: path, Raw: raw, Now: now}
+	var out []Finding
+	for _, c := range checks {
+		if boardChecks[c.Name] {
+			continue
+		}
+		for _, f := range c.Run(env) {
+			f.Check = c.Name
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 // departmentEnvs is an Env per department workflow file that loads: its

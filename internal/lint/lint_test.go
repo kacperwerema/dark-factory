@@ -315,3 +315,26 @@ func TestRepoWorkflowIsClean(t *testing.T) {
 		t.Errorf("%s %s: %s", f.Check, f.Where, f.Message)
 	}
 }
+
+func TestFileRunsTheFileChecksOnRawText(t *testing.T) {
+	raw := []byte("statuses:\n  - name: idea\n    promt: \"typo\"\ntransitions: []\n")
+	got, err := File("/nowhere/workflow.yaml", raw, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema []Finding
+	for _, f := range got {
+		if f.Check == "undated" || f.Check == "department" || f.Check == "departments" {
+			t.Errorf("board check %s ran on a file", f.Check)
+		}
+		if f.Check == "schema" {
+			schema = append(schema, f)
+		}
+	}
+	if len(schema) != 1 || schema[0].Where != "workflow.yaml:3" || !strings.Contains(schema[0].Message, `unknown key "promt"`) {
+		t.Errorf("schema findings = %+v", schema)
+	}
+	if _, err := File("w.yaml", []byte("statuses: [\n"), time.Now()); err == nil {
+		t.Error("broken YAML parsed")
+	}
+}

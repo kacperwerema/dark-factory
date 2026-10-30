@@ -1,0 +1,64 @@
+# A small workflow with the shapes a hand-written file has: comments
+# above and beside entries, quoted values, | blocks.
+template: development@v0.36.0
+
+statuses:
+  - name: "idea"
+    description: "Raw idea"
+    prompt: |
+      Clarify the idea.
+  # Building starts here.
+  - name: "in progress"
+    description: "Being built"   # the main station
+    prompt: |
+      Build it.
+      Keep the test plan concrete.
+  - name: "testing"
+    description: "Under verification"
+  - name: "done"
+    description: "Shipped"
+
+transitions:
+  - from: "idea"
+    to: "in progress"
+    actions:
+      - type: "require_human_approval"
+        status: "in progress"
+      - type: "validate"
+        rule: "has_assignee"
+      # Sections the builder fills in.
+      - type: "append_section"
+        title: "Implementation"
+        body: |
+          - [ ] Code changes complete
+
+          - [ ] Tests added
+  - from: "in progress"
+    to: "testing"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Implementation"
+      - type: "inject_prompt"
+        prompt: "Run the tests."
+  # Done needs the owner.
+  - from: "testing"
+    to: "done"
+    actions:
+      - type: "require_human_approval"
+        status: "done"
+  - from: "*"
+    to: "in progress"
+    actions: []
+
+types:
+  bugfix:
+    statuses:
+      - name: "in progress"
+        prompt: "Repro first."
+    transitions:
+      - from: "idea"
+        to: "in progress"
+        actions:
+          - type: "validate"
+            rule: "has_assignee"
+# The end of the file.
