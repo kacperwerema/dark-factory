@@ -41,6 +41,7 @@ func TestNeedsYouPageListsEveryKindWithItsAction(t *testing.T) {
 		`data-testid="needs_you.pick"`,
 		`data-testid="needs_you.approve"`,
 		`data-kind="playtest" data-slug="ui/tested"`,
+		`data-ny-run="/p/status/issue/ui/tested/playtest" data-testid="needs_you.run">▶ Play</button>`,
 		`data-kind="question" data-slug="ui/asker"`,
 		`href="/p/status/issue/ui/asker#comments" data-testid="needs_you.open">Answer</a>`,
 		`Select all ready (1)`,

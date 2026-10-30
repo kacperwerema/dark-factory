@@ -1,0 +1,11 @@
+session: play-due
+issue: ui/play-due
+title: The band, judged by the owner
+steps:
+  - id: TP1
+    title: The band reads well
+    setup:
+      - open: /p/{project}/issue/ui/play-due?classic=1
+    do: Read the band.
+    expect: It reads well.
+    why: Only you can say.

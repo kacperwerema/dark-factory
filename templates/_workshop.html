@@ -322,19 +322,19 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/gate-card"}}
-<div class="wb-gatecard{{if .Raised}} wb-gatecard--raised{{end}}" title="{{if .Raised}}YOLO: the barrier is up, crates enter {{.Status}} without you{{else}}Your approval to enter {{.Status}}{{end}}" data-testid="hall.gate">
+<a class="wb-gatecard{{if .Raised}} wb-gatecard--raised{{end}}" href="{{.URL}}" title="{{if .Raised}}YOLO: the barrier is up, crates enter {{.Status}} without you{{else}}Your approval to enter {{.Status}}{{end}}" data-testid="hall.gate">
     {{if .Raised}}<span class="wb-barrier" aria-hidden="true"><i></i></span>{{else}}<span class="wb-stamp">{{template "wb/stamp-icon"}}</span>{{end}}
     <span class="wb-gatecard-name">{{.Name}}</span>
     <span class="wb-mono">{{.Status}}</span>
     {{if .Raised}}<span class="wb-yolo-tag" data-testid="hall.gate.raised">barrier up</span>{{else}}<span class="wb-gatecard-wait{{if .Waiting}} wb-gatecard-wait--on{{end}}">{{.Waiting}} waiting</span>{{end}}
-</div>
+</a>
 {{end}}
 
 {{define "wb/stamp-icon"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B1F2A" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6v5l-2 3h-2L9 8z"/><path d="M4 14h16v4H4zM6 21h12"/></svg>{{end}}
 
 {{define "wb/hall-station"}}
 <div class="wb-hst{{if .Owner}} wb-hst--owner{{end}}" data-testid="hall.station">
-    <div class="wb-hst-head">{{if .Owner}}{{template "wb/stamp-icon"}}{{end}}<span class="wb-hst-name">{{.Name}}</span><span class="wb-mono wb-hst-key">{{.Status}}</span><span class="wb-hst-count">{{.Count}}</span></div>
+    {{if .URL}}<a class="wb-hst-head wb-hst-head--link" href="{{.URL}}" title="Open the {{.Status}} station" data-testid="hall.station.open">{{else}}<div class="wb-hst-head">{{end}}{{if .Owner}}{{template "wb/stamp-icon"}}{{end}}<span class="wb-hst-name">{{.Name}}</span><span class="wb-mono wb-hst-key">{{.Status}}</span><span class="wb-hst-count">{{.Count}}</span>{{if .URL}}</a>{{else}}</div>{{end}}
     <div class="wb-hst-body">
         {{range .Crates}}{{template "wb/crate" .}}{{else}}<div class="wb-hst-empty">empty</div>{{end}}
         {{if .More}}<div class="wb-crate-note">+{{.More}} more</div>{{end}}
@@ -347,7 +347,7 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/done-station"}}
 <div class="wb-hst wb-hst--done" data-testid="hall.done">
-    <div class="wb-hst-head"><span class="wb-hst-name">Done</span><span class="wb-mono wb-hst-key">done</span><span class="wb-hst-count">{{.Count}}</span></div>
+    {{if .URL}}<a class="wb-hst-head wb-hst-head--link" href="{{.URL}}" title="Open the done station" data-testid="hall.done.open">{{else}}<div class="wb-hst-head">{{end}}<span class="wb-hst-name">Done</span><span class="wb-mono wb-hst-key">done</span><span class="wb-hst-count">{{.Count}}</span>{{if .URL}}</a>{{else}}</div>{{end}}
     <div class="wb-hst-body">
         <div class="wb-done-row"><div class="wb-done-stack">{{range .Stack}}<i></i>{{end}}</div><div><div class="wb-big">{{.Count}}</div><div class="wb-muted">this week</div></div></div>
     </div>
@@ -356,16 +356,16 @@ their styles). Pages compose them; a new element is a new component here first.
 {{end}}
 
 {{define "wb/ci-scanner"}}
-<div class="wb-scanner{{if .Red}} wb-scanner--red{{end}}" data-testid="hall.ci">
+<a class="wb-scanner{{if .Red}} wb-scanner--red{{end}}" href="{{.URL}}" title="Open the CI scanner" data-testid="hall.ci">
     <div class="wb-scanner-head"><span class="wb-scanner-dot{{if .Red}} wb-blink{{end}}"></span><span class="wb-scanner-name">CI scanner</span><span class="wb-mono">ci_watch.go</span></div>
     <div class="wb-scanner-cmd">{{.Command}} · {{if .Red}}red{{else}}green{{end}}{{with .Detail}} · {{.}}{{end}}</div>
     <div class="wb-scanner-text">{{if .Red}}on <span class="wb-mono-inline">{{with .Issue}}{{.}}{{else}}{{.Branch}}{{end}}</span>: blocks the way to testing{{else}}the line is clear on <span class="wb-mono-inline">{{.Branch}}</span>{{end}}</div>
-</div>
+</a>
 {{end}}
 
 {{define "wb/parking"}}
 <div class="wb-parking" data-testid="hall.parking">
-    <div class="wb-parking-head"><span class="wb-hst-name">Parking</span><span class="wb-mono">parked</span><span class="wb-hst-count">{{.Count}}</span></div>
+    {{if .URL}}<a class="wb-parking-head wb-hst-head--link" href="{{.URL}}" title="Open the parked station" data-testid="hall.parking.open">{{else}}<div class="wb-parking-head">{{end}}<span class="wb-hst-name">Parking</span><span class="wb-mono">parked</span><span class="wb-hst-count">{{.Count}}</span>{{if .URL}}</a>{{else}}</div>{{end}}
     {{range .Items}}<div class="wb-parked"><a class="wb-parked-slug" href="{{.URL}}">{{.Slug}}</a><span>{{.Reason}}</span></div>{{else}}<div class="wb-muted">Nothing parked.</div>{{end}}
 </div>
 {{end}}

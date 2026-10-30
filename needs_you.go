@@ -165,12 +165,13 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 		row.URL += "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
 		row.From, row.Target, row.Ready = it.Issue.Status, it.Target, true
 	case "playtest":
-		row.Label, row.CTA = "Playtest", "Play"
+		row.Label, row.CTA = "Playtest", "Open"
 		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
+		row.RunURL, row.RunLabel = prefix+"/issue/"+it.Issue.Slug+"/playtest", "▶ Play"
 	case "checks":
 		row.Label, row.CTA = "Human testing", "Check"
 		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
-		row.RunURL = prefix + "/issue/" + it.Issue.Slug + "/check-script"
+		row.RunURL, row.RunLabel = prefix+"/issue/"+it.Issue.Slug+"/check-script", "▶ Run checks"
 	case "question":
 		row.Label, row.CTA = "Question", "Answer"
 		row.Note = it.Issue.Title

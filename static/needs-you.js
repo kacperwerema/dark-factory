@@ -1,7 +1,8 @@
 // The Needs you list: pick ready gates and approve them in one go (one
-// confirm listing each from → to), or one at a time; ▶ Run checks opens the
-// issue's check scripts in tmux. Each project's gates go to its own
-// …/needs-you/approve; a failed row says why and the others still go through.
+// confirm listing each from → to), or one at a time; ▶ Play and ▶ Run
+// checks open the issue's playtest or check scripts in tmux. Each project's
+// gates go to its own …/needs-you/approve; a failed row says why and the
+// others still go through.
 (function () {
     'use strict';
     var dialog = document.querySelector('[data-ny-dialog]');
@@ -117,9 +118,9 @@
             var btn = t.closest('[data-ny-run]');
             var row = rowOf(btn);
             btn.disabled = true;
-            say(row, 'Opening the check scripts…', true);
-            fetch(btn.dataset.nyRun, { method: 'POST' }).then(function (r) { return r.json(); }).then(function (res) {
-                var ok = res.status !== 'no-scripts' && res.status !== 'error';
+            say(row, 'Opening it in tmux…', true);
+            var ok = false;
+            fetch(btn.dataset.nyRun, { method: 'POST' }).then(function (r) { ok = r.ok; return r.json(); }).then(function (res) {
                 var text = ok ? 'Running in tmux window ' + res.session + (res.attach_cmd ? ': ' + res.attach_cmd : '') : ((res.steps && res.steps[0] && res.steps[0].name) || res.status);
                 say(row, text, ok);
             }).catch(function (err) { say(row, err.message, false); }).then(function () { btn.disabled = false; });

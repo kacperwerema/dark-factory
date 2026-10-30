@@ -36,7 +36,7 @@
                 </div>
                 <div class="wb-ny-acts">
                     {{if .Ready}}<button type="button" class="wb-btn wb-btn--you" data-ny-one data-testid="needs_you.approve">Approve</button>{{end}}
-                    {{if .RunURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-run="{{.RunURL}}" data-testid="needs_you.run">Run checks</button>{{end}}
+                    {{if .RunURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-run="{{.RunURL}}" data-testid="needs_you.run">{{.RunLabel}}</button>{{end}}
                     <a class="wb-btn{{if or .Ready .RunURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
                 </div>
             </div>

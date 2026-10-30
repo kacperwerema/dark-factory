@@ -59,6 +59,7 @@ agent_state.go              — worker state for the agents canvas and card foot
 handlers_canvas.go          — issues canvas (/canvas): version columns × epic or system rows
 handlers_detail.go          — detail page, transition preview, data-table render
 shelf.go                    — the outputs shelf: /p/<project>/shelf (filters, Approve / Reject POST …/shelf/review), …/shelf/file/ (sandboxed), the rooms' 📦 links, HQ's block, waiting rows
+hall_part.go                — the hall's drill-in: GET /hall/station/<status>, /hall/gate/<status>, /hall/ci (HallPartData, actionWords); components in templates/_workshop_hall_part.html
 station.go                  — L3, the station: GET /issue/<slug> (classic page at ?classic=1 or ?tab=); components in templates/_workshop_station.html, JS in static/station.js
 issue_tab.go                — the detail page's Issue tab model: brief, Needs-you band, path, what you're approving, folded body, side column
 evidence.go                 — the detail page's Evidence tab model and its label: shots per linked playtest step, criteria → proof, verdict, playtest per step, watch (evidence_change.go: commits and files by area; stale_text.go: stale Open/pending lines matched to a D-n)
@@ -78,9 +79,10 @@ stats_cache.go              — per-project cache of the aggregate and CLI usage
 stats_overview.go           — /stats without a project: every project compared from its snapshots
 updates.go                  — the Updates tab (/updates): workflow features to adopt, Decline / Re-open / Install with an agent, /updates across projects
 handlers_checks.go          — ▶ Run checks: POST …/check-script opens tmux window check-script-<slug> running the issue's guided check scripts
+handlers_playtest.go        — ▶ Run playtest: POST …/playtest opens tmux window playtest-<slug> running playtest_command (?report=1: playtest_report), GET its state and judged steps; JS in static/playtest-run.js
 handlers_agents.go          — /agents canvas, agents.json, agent detail, open-in-tmux and lead spawn endpoints
 handlers_lead_chat.go       — the lead chat's endpoints (lead.json, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads (Workshop Board cards)
-ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
+ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; ceo_images.go the box's images (…/lead/image, [Image: <path>] lines, turn thumbnails); components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
 handlers_systems.go         — /systems index and system / family pages (model in systems.go, design-doc panel in docsections.go)
 handlers_metrics.go         — /metrics view (guard metrics, knobs, branches), metrics.json; handlers_metrics_panels.go feeds the system-page partials
 handlers_status.go          — /status page (?classic=1) and /status.md (model in status.go: buildStatus, statusMarkdown)
@@ -223,7 +225,7 @@ Detailed documentation lives in `docs/` and is viewable at `/docs` in the web UI
 - [Workflow Stats](docs/workflow-stats.md) — the Stats page (`/p/<project>/stats`: gauges, trends from health snapshots, where the time goes, options, drill-downs; `/stats` across projects), per-issue stats sidecar, token-cost estimation; the issue page's Timeline tab (`?tab=timeline`), its time rules and the project aggregate
 - [The Lead Session](docs/patterns/lead-session.md) — the project lead, one per project (`issue-cli lead`, `approve`), routing, authority, handoff, epics, agents canvas
 - [Guided Check Scripts](docs/patterns/guided-check-scripts.md) — manual checks run from a shell as `scripts/checks/<name>.sh` on the issue branch: `issue-cli check-script <slug>` (`--yes`, `--new`, `--lib`), the helper library (steps and boxes, sandboxes, private tmux, stand-ins), ▶ Run checks (tmux window `check-script-<slug>`), the `guided-check-scripts` feature
-- [Playtest Sessions](docs/patterns/playtest/README.md) — an issue's manual checks as YAML sessions: shared contract, [web app example](docs/patterns/playtest/web-app.md) (this repo, chromedp), [game example](docs/patterns/playtest/game.md); `issue-cli process playtest`; `playtest: owner|agents|off` (who runs them, `wf.PlaytestForOwner()`)
+- [Playtest Sessions](docs/patterns/playtest/README.md) — an issue's manual checks as YAML sessions: shared contract, ▶ Run playtest from the page (`playtest_command:` / `playtest_report:`), [web app example](docs/patterns/playtest/web-app.md) (this repo, chromedp), [game example](docs/patterns/playtest/game.md); `issue-cli process playtest`; `playtest: owner|agents|off` (who runs them, `wf.PlaytestForOwner()`)
 
 Per-system docs:
 

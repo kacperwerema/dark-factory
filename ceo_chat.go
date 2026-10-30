@@ -70,9 +70,11 @@ type CEOWorker struct {
 // CEOComposer is the message box.
 type CEOComposer struct {
 	SendURL, KeyURL string
-	Session         string
-	Live            bool
-	MaxBytes        int
+	// ImageURL takes an image for the next message (POST …/lead/image).
+	ImageURL string
+	Session  string
+	Live     bool
+	MaxBytes int
 }
 
 // CEOControl is one key button. Key is the name /lead/key takes
@@ -133,7 +135,7 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 		Header: WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
 		Live:   s.buildCEOLive(p, prefix, m),
 		Composer: CEOComposer{
-			SendURL: prefix + "/lead/send", KeyURL: prefix + "/lead/key",
+			SendURL: prefix + "/lead/send", KeyURL: prefix + "/lead/key", ImageURL: prefix + "/lead/image",
 			Session: m.Display, Live: m.Live, MaxBytes: m.MaxBytes,
 		},
 		Controls: ceoControls,
@@ -157,6 +159,7 @@ func (s *Server) buildCEOLive(p *tracker.Project, prefix string, m LeadChatModel
 		Live: m.Live, SpawnURL: prefix + "/lead/spawn", Raw: m.Pane, Pane: parseCEOPane(m.Pane),
 		Side: CEOSide{Waiting: m.Waiting, Questions: m.Questions, AttachCmd: m.AttachCmd},
 	}
+	withTurnImages(p, prefix, live.Pane.Turns)
 	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
 		for _, w := range agents.Workers {
 			if !w.Live {

@@ -27,12 +27,12 @@ var (
 	actionKinds  = map[string]bool{
 		"open": true, "reload": true, "click": true, "hover": true, "type": true,
 		"select": true, "key": true, "drag": true, "wait_for": true, "wait": true,
-		"post": true, "write": true, "cli": true, "tmux": true, "snapshot": true, "check": true,
+		"post": true, "write": true, "upload": true, "cli": true, "tmux": true, "snapshot": true, "check": true,
 	}
 	browserActions = map[string]bool{
 		"open": true, "reload": true, "click": true, "hover": true, "type": true,
 		"select": true, "key": true, "drag": true, "wait_for": true, "wait": true,
-		"snapshot": true,
+		"snapshot": true, "upload": true,
 	}
 	layoutRules = map[string]bool{
 		"inside_viewport": true, "no_clipping": true, "no_overlap": true, "no_zero_size_text": true,
@@ -241,6 +241,13 @@ func (v *Validator) action(a Action, at errAt) {
 		m, ok := argMap(a.Arg)
 		p, _ := m["path"].(string)
 		need(ok && p != "" && !strings.HasPrefix(p, "/") && m["text"] != nil, "{path, text}: path relative to the scenario's project root")
+	case "upload":
+		m, ok := argMap(a.Arg)
+		p, _ := m["path"].(string)
+		need(ok && m["target"] != nil && p != "" && !strings.HasPrefix(p, "/"), "{target, path}: path relative to the scenario's project root")
+		if ok {
+			v.target(fmt.Sprint(m["target"]), a.Line, at)
+		}
 	case "cli":
 		_, err := cliArgs(a.Arg)
 		if err != nil {

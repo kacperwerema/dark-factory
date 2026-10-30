@@ -86,6 +86,14 @@ func (p *Project) WorkflowFor(dept string) (*WorkflowConfig, error) {
 	wf.Leads = product.Leads
 	wf.ProjectActions = product.ProjectActions
 	wf.AllowShell = product.AllowShell
+	// The playtest runner is the repository's: a department file may name its
+	// own, else it uses Product's.
+	if own.PlaytestCommand == "" {
+		wf.PlaytestCommand = product.PlaytestCommand
+	}
+	if own.PlaytestReport == "" {
+		wf.PlaytestReport = product.PlaytestReport
+	}
 	if own.Worktree == nil {
 		wf.Worktree, wf.WorktreeSetup, wf.WorktreeSparseExclude = product.Worktree, product.WorktreeSetup, product.WorktreeSparseExclude
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/michal-franc/issue-viewer/internal/playtestruns"
 )
 
 //go:embed assets/checks.js
@@ -38,6 +39,12 @@ func ChromePath() (string, error) {
 	}
 	for _, c := range chromeCandidates {
 		if p, err := exec.LookPath(c); err == nil {
+			return p, nil
+		}
+	}
+	// A Mac without Chrome in /Applications: Playwright's Chrome for Testing.
+	if home, err := os.UserHomeDir(); err == nil {
+		if p := playtestruns.PlaywrightChrome(home); p != "" {
 			return p, nil
 		}
 	}

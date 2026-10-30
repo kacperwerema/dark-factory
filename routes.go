@@ -113,6 +113,11 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleList(w, r, proj, prefix)
 	case rest == "hall" && r.Method == http.MethodGet:
 		s.handleHall(w, r, proj, prefix)
+	case rest == "hall/ci" && r.Method == http.MethodGet:
+		s.handleHallPart(w, r, proj, prefix, "ci", "")
+	case (strings.HasPrefix(rest, "hall/station/") || strings.HasPrefix(rest, "hall/gate/")) && r.Method == http.MethodGet:
+		kind, key, _ := strings.Cut(strings.TrimPrefix(rest, "hall/"), "/")
+		s.handleHallPart(w, r, proj, prefix, kind, key)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
 	case rest == "needs-you" && r.Method == http.MethodGet:
@@ -179,6 +184,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleLeadChatJSON(w, r, proj, prefix)
 	case rest == "lead/send" && r.Method == http.MethodPost:
 		s.handleLeadChatSend(w, r, proj, prefix)
+	case rest == "lead/image" && r.Method == http.MethodPost:
+		s.handleCEOImage(w, r, proj, prefix)
 	case rest == "lead/key" && r.Method == http.MethodPost:
 		s.handleLeadChatKey(w, r, proj, prefix)
 	case rest == "retros":
@@ -261,6 +268,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleSetIssueType(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/check-script") && r.Method == http.MethodPost:
 		s.handleRunChecks(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/playtest") && (r.Method == http.MethodPost || r.Method == http.MethodGet):
+		s.handlePlaytest(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
 	case rest == "yolo.json" && r.Method == http.MethodGet:

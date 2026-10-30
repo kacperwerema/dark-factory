@@ -55,7 +55,8 @@ static/ceo-chat.js).
 <div class="wb-turn wb-turn--you" data-testid="lead_chat.turn.you">
     <div class="wb-turn-main">
         <div class="wb-turn-meta">You</div>
-        <div class="wb-turn-bubble">{{index .Text 0}}</div>
+        {{with index .Text 0}}<div class="wb-turn-bubble">{{.}}</div>{{end}}
+        {{with .Images}}<div class="wb-turn-images" data-testid="lead_chat.turn.images">{{range .}}<a href="{{.URL}}" target="_blank" rel="noopener" title="{{.Path}}"><img src="{{.URL}}" alt="image sent to the CEO" loading="lazy"></a>{{end}}</div>{{end}}
     </div>
     <div class="wb-turn-av wb-turn-av--you" aria-hidden="true">YOU</div>
 </div>
@@ -102,10 +103,14 @@ static/ceo-chat.js).
 {{end}}
 
 {{define "wb/composer"}}
-<form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
+<form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-image-url="{{.ImageURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
     <label for="ceo-text" class="wb-sr">Message to the CEO</label>
-    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the CEO… Enter sends, Shift+Enter is a new line.{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
+    <div class="wb-composer-images" data-images hidden data-testid="lead_chat.images"></div>
+    <template data-image-chip><div class="wb-image-chip wb-image-chip--busy" data-testid="lead_chat.image"><img alt=""><button type="button" title="Remove this image" aria-label="Remove image" data-testid="lead_chat.image.remove">×</button></div></template>
+    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the CEO… Enter sends, Shift+Enter is a new line; paste or drop an image.{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
     <div class="wb-composer-bar">
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden data-image-input data-testid="lead_chat.image_input">
+        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-attach title="Attach images (PNG, JPEG, GIF, WebP; 10 MB each, 5 per message). You can also paste or drop them on the box." {{if not .Live}}disabled{{end}} data-testid="lead_chat.attach_image">📎 Attach</button>
         <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-key="ShiftTab" title="Cycles Claude Code's permission mode (shift+tab)" {{if not .Live}}disabled{{end}} data-testid="lead_chat.mode_switch">Mode: <span data-mode-label></span> · switch</button>
         <span class="wb-grow"></span>
         <button type="button" class="wb-btn wb-btn--outline" data-send-now title="Send, then ctrl+x ctrl+s: a busy CEO takes it now instead of queuing it" {{if not .Live}}disabled{{end}} data-testid="lead_chat.send_now">Send now</button>
