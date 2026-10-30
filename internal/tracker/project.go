@@ -306,9 +306,6 @@ type Department struct {
 	Role string `yaml:"role"`
 	// Systems are the issue systems whose issues belong to the department.
 	Systems []string `yaml:"systems"`
-	// Workflow is the department's own workflow file, relative to the
-	// project root (WorkflowFor); unset, it runs on Product's workflow.
-	Workflow string `yaml:"workflow"`
 	// Mission is what the department is for, in a sentence; optional.
 	Mission string `yaml:"mission"`
 	// Prompt is the markdown file (relative to the project root) a lead or
@@ -316,6 +313,9 @@ type Department struct {
 	Prompt string `yaml:"prompt"`
 	// Goals are the department's goals / KPIs (internal/goals reads them).
 	Goals []Goal `yaml:"goals"`
+	// Workflow is the department's own workflow file, relative to the
+	// project root (WorkflowFor); unset, it runs on Product's workflow.
+	Workflow string `yaml:"workflow"`
 }
 
 // Company is HQ: the business's mission, the CEO's role prompt and the

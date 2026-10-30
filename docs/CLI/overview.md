@@ -66,7 +66,7 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli append <slug>`        | Append content to issue body             |
 | `issue-cli replace <slug>`       | Replace content of an existing section, or one line of it (`--line N`, `--match RE`). See [`replace`](#replace) |
 | `issue-cli update <slug>`        | Change the title (the slug is kept; `--rename` moves it) and/or replace the body. See [`update`](#update) |
-| `issue-cli set-meta <slug>`      | Set or clear a frontmatter field, replacing its whole old value (list items and block lines included); refuses a write whose YAML would not parse (refuses `type` in projects with types — use `set-type`; `created` only on an issue that has none, `YYYY-MM-DD`, never changed or cleared; checks every slug in `depends_on`, and writes two or more as a YAML list) |
+| `issue-cli set-meta <slug>`      | Set or clear a frontmatter field, replacing its whole old value (list items and block lines included); refuses a write whose YAML would not parse (refuses `type` in projects with types — use `set-type`; `created` only on an issue that has none, `YYYY-MM-DD`, never changed or cleared; checks every slug in `depends_on`, and writes two or more as a YAML list; `--key department|system` is refused when the issue's status isn't in the target department's workflow file, and `--status <s>` moves it with a status from that file) |
 | `issue-cli set-type <slug> <t>`  | Change an issue's type of work; agents only while it is at its type's first status. See [Types of Work](../Workflow/types.md) |
 | `issue-cli process workflow`     | Print the workflow file in use (`Workflow file:`), the active workflow, the `== Types ==` block and `workflow.yaml` lint warnings; `--type <t>` prints one type's lifecycle |
 | `issue-cli process transitions`  | Print transition rules (default workflow, or scoped via `--system <name>`, `--type <t>` or `<issue-slug>`) |
@@ -520,7 +520,7 @@ Project health snapshots: dated JSON files in `.health/snapshots/` of the main c
 | `health review show` | The newest review: score, age, reviewer, assessment, and each recommendation with its kind, effort, state (`filed → <slug>`), evidence and expected effect |
 | `health review file <R#> --quote "<owner's words>" [--how "lead chat"]` | Creates an `idea` issue from a proposed recommendation, records the owner's decision on it and marks the recommendation filed. Without `--quote`: `needs the owner's approval: ask them, then pass --quote "<their words>"`. A filed or dismissed one, or an unknown id (the error lists the ids), is refused |
 | `health review dismiss <R#> --quote "<owner's words>" [--reason "..."]` | Marks a proposed recommendation dismissed. Needs `--quote` like `file` |
-| `health lint [--check a,b] [--list] [--all]` | Checks workflow.yaml and the board (`internal/lint`) and prints each warning as `<check> <where>: <message>` with `  fix: <command or edit>` under it, then `N warnings; the health score's lint component counts them`. Checks: `undated` (no `created:`; the fix is a `set-meta … --key created --value <earliest recorded date>`), `workflow` (the `process workflow` warnings: types:, workbench:, ci:, health:), `schema` (keys the parser doesn't know, with `did you mean`; no `statuses:` or `transitions:`; deprecated keys: `actions:`, `statuses[].template`/`validation`/`side_effects`), `template` (the `template:` stamp behind the bundled template, unknown, malformed or missing), `placeholders` (a `{{name}}` its field never fills, `{{ name }}` with spaces where plain replacement fills it, any `{{…}}` in an untemplated field such as a status prompt) and `sections` (a checkbox gate on a section no `append_section` or status template writes, or writes without a box; a `has_test_plan` template without exact `### Automated`/`### Manual`). Every finding is a warning: exit 0, 2 on bad usage or an unknown `--check`. Text shows 20 warnings per check (`--all` for every one). `--list` names the checks. `--json`: `{project, checks, findings: [{check, where, message, fix}], warnings}`. The [lint family](../workbench-files.md#the-lint-family) records the count, and /health lists the warnings live |
+| `health lint [--check a,b] [--list] [--all]` | Checks workflow.yaml, each department's workflow file (the file checks run once per file, the department's prefixed with its file) and the board (`internal/lint`) and prints each warning as `<check> <where>: <message>` with `  fix: <command or edit>` under it, then `N warnings; the health score's lint component counts them`. Checks: `undated` (no `created:`; the fix is a `set-meta … --key created --value <earliest recorded date>`), `workflow` (the `process workflow` warnings: types:, workbench:, ci:, health:), `schema` (keys the parser doesn't know, with `did you mean`; no `statuses:` or `transitions:`; deprecated keys: `actions:`, `statuses[].template`/`validation`/`side_effects`), `template` (the `template:` stamp behind the bundled template, unknown, malformed or missing), `placeholders` (a `{{name}}` its field never fills, `{{ name }}` with spaces where plain replacement fills it, any `{{…}}` in an untemplated field such as a status prompt) `department` (a department's workflow file that doesn't load, a project-wide key such as `ci:` in a department file, an issue whose status isn't in its department's file, with the `set-meta … --status` fix) and `sections` (a checkbox gate on a section no `append_section` or status template writes, or writes without a box; a `has_test_plan` template without exact `### Automated`/`### Manual`). Every finding is a warning: exit 0, 2 on bad usage or an unknown `--check`. Text shows 20 warnings per check (`--all` for every one). `--list` names the checks. `--json`: `{project, checks, findings: [{check, where, message, fix}], warnings}`. The [lint family](../workbench-files.md#the-lint-family) records the count, and /health lists the warnings live |
 | `health snapshot` | Takes a snapshot now (trigger `manual`), prints `✓ Snapshot written: <path>`, then the same summary. Fails with `health snapshots are off for this project (health.off: true in workflow.yaml)` or `<dir>: not in a git repository`. `--json` prints the snapshot |
 | `health backfill [--days 90]` | Computes one snapshot (trigger `backfill`) for each of the last N days that has none, as it stood at 23:59 that day: the codebase at the commit the branch had then, the workflow over the issues done by then. Prints one line per day (the path, `skipped: has a snapshot`, or `(before the first commit: no codebase)`), then `✓ Backfilled W of N days (S skipped, F failed) · charts: <url>`. The milestone family is left out (it knows only the present). `--days` outside 1–3650 is a usage error (exit 2). `--json` prints `{written, skipped, failed, days: [{day, path, skipped, error, no_commit}], charts}` |
 
@@ -666,7 +666,7 @@ issue-cli data list <slug> --json
 
 ### `workflow init`
 
-`issue-cli workflow init` bootstraps a fresh project directory. It writes `workflow.yaml` from one of three bundled templates and scaffolds `issues/` and `docs/` if they do not already exist.
+`issue-cli workflow init` bootstraps a fresh project directory. It writes `workflow.yaml` from one of the bundled templates and scaffolds `issues/` and `docs/` if they do not already exist.
 
 ```bash
 issue-cli workflow init --template development
@@ -681,11 +681,13 @@ Templates:
 | `development` | `idea → in design → backlog → in progress → testing → human-testing → documentation → shipping → done` | Software delivery flow (mirrors this repo) |
 | `review`      | `inbox → triaged → reviewing → needs-changes → approved → archived`         | Review and triage of incoming items       |
 | `writing`     | `idea → outline → drafting → editing → review → published`                  | Long-form content                         |
+| `content`     | `brief → draft → owner review → publish → done`                              | Recurring outputs (posts, SEO pages) for a department: the owner's `publish` approval before anything goes out, the published link as proof |
 
 Behaviour:
 
 - `--template <name>` selects a template. Without it, the command shows a numbered prompt when stdin is a terminal; piped or scripted invocations must pass the flag and exit non-zero with the list of valid templates if they don't.
-- `--force` overwrites an existing `workflow.yaml`. Without it, the command refuses to touch the existing file and exits non-zero.
+- `--out <path>` writes the template to that path instead of `workflow.yaml` (no `issues/` or `docs/` scaffolding) and prints the `departments:` lines to add to `projects.yaml`. Use it for a [department's workflow file](../workflow.md#department-workflows).
+- `--force` overwrites an existing `workflow.yaml` (or the `--out` file). Without it, the command refuses to touch the existing file and exits non-zero.
 - `issues/` and `docs/` creation is idempotent — running the command in an already-initialised project does not error and does not re-create directories.
 - Templates live as plain YAML under `cmd/issue-cli/templates/workflow/*.yaml` and are embedded at build time via `//go:embed`. The list of valid `--template` names is derived from the embedded directory, so adding a new template is just dropping a new `<name>.yaml` file there and rebuilding.
 - Each template starts with a `template: <name>@<release>` stamp and a `features:` record, so a new project is stamped and recorded from the start. A new template needs both; run `issue-cli workflow scan` on it to write the record. See [Template Stamp and Feature Record](../Workflow/overview.md#template-stamp-and-feature-record).
@@ -699,6 +701,7 @@ issue-cli workflow upgrade                      # proposals and steps
 issue-cli workflow upgrade --all                # every catalog feature the file lacks, declined ones flagged
 issue-cli workflow upgrade --template review    # compare an unstamped file with this template (default development)
 issue-cli --json workflow upgrade               # machine-readable plan
+issue-cli workflow upgrade --department Marketing  # that department's own file, against its own stamp
 ```
 
 - **Status:** with the current and bundled stamps:
@@ -731,6 +734,7 @@ issue-cli workflow scan                                   # write the features: 
 issue-cli workflow scan --installed types-of-work,scoring # record features as installed at the catalog version
 issue-cli workflow scan --declined worktree               # record features the human declined
 issue-cli workflow scan --forget worktree                 # drop ids from the record (re-opens a declined feature)
+issue-cli workflow scan --department Marketing            # scan that department's own file
 issue-cli --json workflow scan --dry-run
 ```
 

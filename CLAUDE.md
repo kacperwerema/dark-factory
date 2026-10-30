@@ -205,7 +205,7 @@ Detailed documentation lives in `docs/` and is viewable at `/docs` in the web UI
 - [Roadmap](docs/roadmap.md) — goals, epics and phase order (set 2026-10-22); the board's epics are the source of truth
 - [Getting Started](docs/getting-started.md) — install, server flags, first issue, docs page format
 - [Issue File Format](docs/issue-format.md) — frontmatter fields, custom fields, file organization
-- [Workflow](docs/workflow.md) — lifecycle, prompts, side-effects, system overlays
+- [Workflow](docs/workflow.md) — lifecycle, prompts, side-effects, system overlays; department workflows (a department's own file in projects.yaml `departments: workflow:`, the `content` template, `--department` flags)
 - [Agent Workflow Flow](docs/agent-workflow-flow.md) — full dispatch-to-done agent flow
 - [Board Configuration](docs/board-configuration.md) — columns, card fields
 - [Agent Dispatch](docs/agent-dispatch.md) — a human starts the work (the disclaimer: `dispatch --quote`, no unattended runs, every paste into a session and what starts it); terminal config, `lead_terminal` (leads as tabs in your own session), approval notifications, the lead session, worktrees; `issue-cli dispatch` / `status`, the waiting-on-gate refusal, `viewer_url`; the Lead chat page (`/p/<project>/lead`, `/leads`)

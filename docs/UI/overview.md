@@ -121,6 +121,8 @@ In projects whose `workflow.yaml` defines `types:` ([Types of Work](../Workflow/
 
 `/p/<project>/workboard` is the sidebar's **Board**. It is a read-only kanban whose cards carry coordination state, rebuilt from the repo files on each request; it reloads when `/hash` changes (not while the search box has text). Writes stay where they were: the classic board (drag-and-drop), the detail page and issue-cli.
 
+**Workflow switch.** On a project where a department has its own workflow file ([Department workflows](../workflow.md#department-workflows)), a **Workflow** switch above the columns picks Product or one department (`?department=<name>`): the columns come from that file and only its issues show. Product is the default, and columns are never merged across departments. The classic board and graph take `?department=` too. On the company page, a department with its own file draws its own line (440px wide so it fits); a missing or broken file shows an error chip with the message instead. On the issue page, changing `department:` to one whose file lacks the issue's status is refused, as with `set-meta`.
+
 **Card.**
 - **Head:** system chip, `epic` chip, and the time in the current status. That time comes from the stats sidecar's last transition into the status (tooltip "since"), else the file mtime ("last file change"). It turns amber after 24 h, except in the first status, done and global statuses (parked).
 - **Title:** links to the issue.
@@ -202,6 +204,8 @@ workbench:
 ## Status page
 
 `/p/<project>/status` is the first sidebar entry. It answers "where are we" without asking the lead. It is read-only, and everything comes from repo files. `buildStatus` (`status.go`) holds the rules and is tested without HTTP; the grouping and the caps are in `status_groups.go`.
+
+`/status` opens the Report (`report.go`, the Workshop Board look; components in `templates/_workshop_report.html`), built from the same `StatusModel`. This section describes the classic page, kept at `?classic=1`. The Report's side column carries the release flow as `wb/release` and `wb/ci`, with the classic page's test ids: Waiting for release (milestone readiness with a link to each open issue, the checks, Ready to cut or the release candidate with its cut, pick or publish step, Unreleased, Not pushed) and Local CI (state, blame, last runs boxes). Each is hidden when its part of the model is nil, the same rules as below.
 
 **Layout.** A row of three tiles, then three rows on one shared grid (`.status-grid`, gap 20 px), so card edges line up down the page:
 
@@ -451,6 +455,10 @@ A UI issue's manual checks are written as a playtest session (`playtest/sessions
 - **Known bug:** at phone width (390px) the page headers and the board filter bar don't wrap. Sessions waive them with `layout_ignore`.
 
 ## Issue page tabs
+
+`/p/<project>/issue/<slug>` opens the station (`station.go`, the Workshop Board look); the classic page below is at `?classic=1` and at any `?tab=`. Its Issue tab links to `?classic=1`, so it stays on the classic page with the body editor, comments, checkbox ticking, dispatch and the data table.
+
+On the station the owner's steps come first (playtest, guided checks, an open question), then the stamp: the gate's targets, the words box, **Stamp it** and Send back for fixes. The stamp is never locked. While steps are open a note says so ("Steps 1–2 are still open: you can stamp ahead."), as the classic page's approve buttons never waited either. On the hall the message box starts empty when the page picks the issue itself; when you pick one it holds `<slug>: `, never approval words, so a stray Enter approves nothing.
 
 `/p/<project>/issue/<slug>` has the back link, the title (click to edit), a chip row (status, type, priority, system) and a tab bar. The bar reuses the Status page's `status-tabs` look, with links instead of JS:
 

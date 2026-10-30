@@ -91,7 +91,7 @@ func TestMinimalWorkflowIsClean(t *testing.T) {
 	if len(rep.Findings) != 0 {
 		t.Errorf("findings on a clean workflow: %+v", rep.Findings)
 	}
-	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,department,departments" {
+	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,department" {
 		t.Errorf("checks = %v", rep.Checks)
 	}
 }
