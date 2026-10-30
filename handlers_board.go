@@ -160,8 +160,8 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, proj *track
 		filtered = append(filtered, issue)
 	}
 
-	wf := proj.LoadWorkflow()
-	issues = filterByType(filtered, wf, typeFilter)
+	_, wf, keep, _ := viewWorkflow(proj, r)
+	issues = filterByType(keepIssues(filtered, keep), wf, typeFilter)
 	statusOrder := wf.GetBoardColumns()
 	statusDescs := wf.GetStatusDescriptions()
 	sessionMap, _ := sessionsByIssueSlug(proj, issues)
@@ -263,7 +263,8 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, proj *track
 		return
 	}
 
-	base := proj.LoadWorkflow()
+	_, base, keep, _ := viewWorkflow(proj, r)
+	issues = keepIssues(issues, keep)
 	// ?type= draws that type's path, its approval markers and its issues.
 	typeFilter := r.URL.Query().Get("type")
 	wf := base

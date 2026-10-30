@@ -1,0 +1,105 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: content@v0.55.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - status-prompts@v0.36.0
+    - human-approval-gates@v0.36.0
+    - publish-stamp@v0.55.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - body-structure-gates@v0.36.0
+    - checklist-sections@v0.36.0
+    - board-columns@v0.36.0
+    - board-card-fields@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# Non-software work a department produces and puts out into the world: a
+# post, a page, an email, an SEO update. Made to be a department's own file
+# (projects.yaml departments: workflow: workflows/<name>.yaml); it works as
+# a project's workflow.yaml too. Nothing goes out before the owner stamps it:
+# owner review → publish needs their approval.
+board:
+  columns:
+    - brief
+    - draft
+    - owner review
+    - publish
+    - done
+  card_fields:
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "brief"
+    description: "What to make, for whom, where it goes"
+    prompt: |
+      Write the brief: what this piece is, who it is for, where it will be published (site, account, list) and what counts as done.
+      Ask the owner about anything the brief can't say on its own, then move to draft.
+  - name: "draft"
+    description: "Making the piece"
+    prompt: |
+      Make the piece the brief asks for. Put the full text (or a link to the file) in the issue under ## Draft,
+      and put the piece on the department's shelf: `issue-cli output add --issue <slug> --title "..." --kind <post|page|design|...> (--url | --file | --path)`.
+      Check facts, names, links and prices against their source.
+      When the draft is ready, move to owner review.
+  - name: "owner review"
+    description: "Waiting for the owner's yes before anything goes out"
+    prompt: |
+      Nothing is published yet. Say in chat what the owner reviews (the ## Draft section) and where it will go, and that publishing needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+      If the owner asks for changes, they leave a `revise:` comment: go back to draft.
+  - name: "publish"
+    description: "Putting the approved piece out"
+    prompt: |
+      Publish exactly what the owner approved, where the brief says. Do not change it on the way out.
+      Mark it published on the shelf with the link to what went out (`issue-cli output publish <id> --url <link>`; `issue-cli outputs --issue <slug>` lists the ids), record the link under ## Published, then move to done.
+  - name: "done"
+    description: "Out, with the link recorded"
+
+transitions:
+  - from: "brief"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Audience and channel stated
+          - [ ] What counts as done stated
+      - type: "append_section"
+        title: "Draft"
+        body: |
+          - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
+          - [ ] Facts, names and links checked
+  - from: "draft"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Draft"
+  - from: "owner review"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "owner review"
+    to: "publish"
+    actions:
+      - type: "require_human_approval"
+        status: "publish"
+      - type: "append_section"
+        title: "Published"
+        body: |
+          - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+  - from: "publish"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Published"

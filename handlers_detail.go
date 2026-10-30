@@ -412,7 +412,7 @@ func loadIssueTab(proj *tracker.Project, prefix string, issue *tracker.Issue, is
 		Att:     att,
 		Targets: targets,
 		Parent:  tracker.FindIssue(issues, tracker.ParentSlug(issue)),
-		Epic:    epicProgress(prefix, issue, issues),
+		Epic:    epicProgress(proj, prefix, issue, issues),
 		Footer:  ca.footer(wf, issue, att),
 		Call:    call,
 		Known:   known,

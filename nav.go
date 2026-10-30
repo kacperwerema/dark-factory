@@ -179,6 +179,7 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 			if unsentBugReports() > 0 {
 				n++
 			}
+			n += shelfWaiting(proj)
 			if n > 0 {
 				item.Note, item.Attention = fmt.Sprint(n), true
 			}

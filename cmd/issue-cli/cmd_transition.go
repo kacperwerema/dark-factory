@@ -113,7 +113,10 @@ func runTransition(ctx *Context, args []string) error {
 	if err := ownIssueOnly(ctx, issues, issue, "transition"); err != nil {
 		return err
 	}
-	wf := ctx.Project.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
 
 	if *dryRun {
@@ -142,6 +145,9 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	if !ctx.JSONOutput {
 		printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
+		if hint := outputsTransitionHint(ctx.Project, issue, wf, to); hint != "" {
+			fmt.Fprintln(ctx.Stdout, hint)
+		}
 	}
 	return nil
 }

@@ -12,7 +12,8 @@ var listCommand = &Command{
 	Name:      "list",
 	ShortHelp: "List issues with filters",
 	LongHelp: `List issues. Filters: --status (open|closed|<name>), --system, --assignee,
---version, --type (projects with types of work), --sort score.
+--version, --type (projects with types of work), --department (projects.yaml
+departments:; product is the rest), --sort score.
 
 When the project sets a version, list shows only that version by default.
 --all drops that default and lists every issue in every status and version;
@@ -43,6 +44,7 @@ func runList(ctx *Context, args []string) error {
 	versionFlag := fs.String("version", "", "filter by version (defaults to project version)")
 	sortFlag := fs.String("sort", "", "sort key (score)")
 	typeFlag := fs.String("type", "", "filter by type of work (untyped issues count as default_type)")
+	deptFlag := fs.String("department", "", "filter by department (projects.yaml departments:; product for the rest)")
 	allFlag := fs.Bool("all", false, "every status and version: drop the default project-version filter")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
@@ -67,7 +69,14 @@ func runList(ctx *Context, args []string) error {
 		defaultVersion = true
 	}
 	sortBy := *sortFlag
-	wf := proj.LoadWorkflow()
+	dept, err := departmentFlag(proj, *deptFlag)
+	if err != nil {
+		return err
+	}
+	wf, err := proj.WorkflowFor(dept)
+	if err != nil {
+		return err
+	}
 	typeFilter := strings.TrimSpace(*typeFlag)
 	if typeFilter != "" {
 		if err := checkTypeFlag(wf, typeFilter); err != nil {
@@ -95,6 +104,9 @@ func runList(ctx *Context, args []string) error {
 			}
 		}
 		if system != "" && !strings.EqualFold(issue.System, system) {
+			continue
+		}
+		if *deptFlag != "" && proj.DepartmentOf(issue) != dept {
 			continue
 		}
 		if assignee != "" && issue.Assignee != assignee {

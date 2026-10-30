@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/goals"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -33,8 +36,12 @@ const companyStationBots = 3
 // rest are on the map's queue.
 const companyQueueRows = 6
 
-// companyGoals is how many open epics stand as goals in the header.
+// companyGoals is how many goals the header shows: HQ's configured goals,
+// else the open epics that stand in for them.
 const companyGoals = 2
+
+// companyRoomGoals is how many goals a department room shows.
+const companyRoomGoals = 3
 
 // CompanyData is the whole L1 page.
 type CompanyData struct {
@@ -50,9 +57,11 @@ type CompanyData struct {
 	Queue   []WbQueueCard
 	// QueueMore is how many more wait on the owner than the panel lists.
 	QueueMore int
-	Waiting   int
-	Radio     []WbMessage
-	Message   WbMessageBox
+	// Shelf is the departments with outputs waiting for the owner's review.
+	Shelf   []WbShelfWait
+	Waiting int
+	Radio   []WbMessage
+	Message WbMessageBox
 	// Toggle is Board | Report, on the title line (the header is full here).
 	Toggle []WbViewTab
 }
@@ -91,13 +100,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 			backlog++
 		}
 	}
+	rep := goals.Resolve(p, now)
 	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(queue)}
 	if len(d.Queue) > companyQueueRows {
 		d.Queue, d.QueueMore = d.Queue[:companyQueueRows], len(queue)-companyQueueRows
 	}
 	d.Header = WbHeader{
 		Crumbs:  wbCrumbs(1, p.Name, prefix+"/company"),
-		Goals:   companyGoalsOf(issues, color),
+		Goals:   companyHeaderGoals(rep, issues, color),
 		Waiting: len(queue), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
 	}
 	d.Header.Crumbs[1].Color = color
@@ -109,6 +119,14 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Desk: WbCEODesk{CEO: lot.CEO, Color: color, ChatURL: prefix + "/lead", SpawnURL: prefix + "/lead/spawn"},
 		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}},
 	}
+	if rep.HQ != nil {
+		d.HQ.Mission = rep.HQ.Mission
+		d.HQ.Goals = companyRollUp(p, rep.HQ, color)
+	}
+	shelf, hqShelf, shelfWaits := companyShelf(p, prefix, now)
+	d.HQ.Shelf, d.Shelf = hqShelf, shelfWaits
+	d.Waiting += len(shelfWaits)
+	d.Header.Waiting += len(shelfWaits)
 
 	// Workers by department: Product's go on its line, the others' sit in
 	// their department's room.
@@ -136,6 +154,10 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
 	}
+	if rep.Product != nil {
+		product.Mission, product.Goals = rep.Product.Mission, roomGoals(rep.Product, companyProductColor)
+	}
+	product.Shelf = shelf[goals.ProductKey]
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		product.Head.Chips = append(product.Head.Chips, *c)
 	}
@@ -143,13 +165,18 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Product = product
 
 	for i, dept := range p.Departments {
-		d.Rooms = append(d.Rooms, companyDeptRoom(p, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now))
+		room := companyDeptRoom(p, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now)
+		if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
+			room.Mission, room.Goals = o.Mission, roomGoals(o, deptColor(dept, i))
+		}
+		room.Shelf = shelf[outputs.DeptKey(dept.Name)]
+		d.Rooms = append(d.Rooms, room)
 	}
 	d.Departments = 2 + len(p.Departments)
 
 	d.NewDept = WbNewTile{
 		Title: "New department", Sub: "Sales · Finance · SEO · Custom", TestID: "new_department",
-		Note: "Add one under departments: in projects.yaml (name, color, role, systems); its issues carry department: <name> or sit in its systems.",
+		Note: "Add one under departments: in projects.yaml (name, color, role, systems, mission, prompt, goals, workflow); its issues carry department: <name> or sit in its systems, and walk its workflow: file (issue-cli workflow init --template content --out workflows/<name>.yaml).",
 	}
 	if lot.CEO.Live {
 		if pane, err := agentrun.CaptureHistory(agentrun.Target(p, tracker.LeadSessionName(p)), leadChatScrollback); err == nil {
@@ -164,10 +191,12 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 // workers at their desks, its role, its open and done work.
 func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
 	open, done := 0, 0
+	var own []*tracker.Issue
 	for _, issue := range issues {
 		if p.DepartmentOf(issue) != dept.Name {
 			continue
 		}
+		own = append(own, issue)
 		if !strings.EqualFold(issue.Status, "done") {
 			open++
 		} else if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
@@ -187,6 +216,16 @@ func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues 
 	if len(dept.Systems) > 0 {
 		room.Systems = strings.Join(dept.Systems, ", ")
 	}
+	// A department on its own workflow file shows that file's line.
+	if strings.TrimSpace(dept.Workflow) != "" {
+		room.WorkflowFile = filepath.Base(dept.Workflow)
+		if wf, err := p.WorkflowFor(dept.Name); err != nil {
+			room.WorkflowError = err.Error()
+			room.Head.Chips = append(room.Head.Chips, WbChip{Tone: "red", Text: "workflow error"})
+		} else {
+			room.Stations = companyStations(wf, openOnly(own), workers, waitingOnOwner(p, openOnly(own)))
+		}
+	}
 	return room
 }
 
@@ -201,8 +240,83 @@ func openOnly(issues []*tracker.Issue) []*tracker.Issue {
 	return out
 }
 
+// companyHeaderGoals is HQ's configured goals, else the open epics.
+func companyHeaderGoals(rep *goals.Report, issues []*tracker.Issue, color string) []WbGoal {
+	if rep.HQ == nil || len(rep.HQ.Goals) == 0 {
+		return companyGoalsOf(issues, color)
+	}
+	var out []WbGoal
+	for _, g := range rep.HQ.Goals {
+		if len(out) == companyGoals {
+			break
+		}
+		out = append(out, goalChip(g, color))
+	}
+	return out
+}
+
+// companyRollUp is HQ's goals, each with the department goals rolling up
+// into it in their department's colour.
+func companyRollUp(p *tracker.Project, hq *goals.Owner, color string) []WbHQGoal {
+	colors := map[string]string{tracker.ProductName: companyProductColor}
+	for i, d := range p.Departments {
+		colors[d.Name] = deptColor(d, i)
+	}
+	var out []WbHQGoal
+	for _, g := range hq.Goals {
+		row := WbHQGoal{Goal: goalChip(g, color)}
+		for _, c := range g.Children {
+			chip := goalChip(c, colors[c.Owner])
+			chip.Progress.Label = c.Owner + " · " + c.Label()
+			row.Children = append(row.Children, chip)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// roomGoals is a department's first goals as chips.
+func roomGoals(o *goals.Owner, color string) []WbGoal {
+	var out []WbGoal
+	for _, g := range o.Goals {
+		if len(out) == companyRoomGoals {
+			break
+		}
+		out = append(out, goalChip(g, color))
+	}
+	return out
+}
+
+// goalChip is a configured goal as a goal chip: "30 / 40" and its
+// progress; the tooltip says why it is muted (stale, unreadable).
+func goalChip(g *goals.Goal, color string) WbGoal {
+	chip := WbGoal{Color: color, Progress: WbProgress{Label: g.Label(), Done: g.Pct(), Total: 100}, Text: g.ValueText()}
+	if t := g.TargetText(); t != "" {
+		chip.Text += " / " + t
+	}
+	var title []string
+	if g.RolledUp {
+		chip.Text = fmt.Sprintf("%d%%", g.Pct())
+		title = append(title, fmt.Sprintf("mean progress of %d department goals", g.RolledFrom))
+	}
+	switch {
+	case g.Err != "":
+		chip.Off = true
+		title = append(title, g.Err)
+	case g.Stale:
+		chip.Off = true
+		title = append(title, "stale: from "+g.Date)
+	case g.Value == nil && !g.RolledUp:
+		if g.Manual() {
+			title = append(title, "no value yet: "+g.SetCommand())
+		}
+	}
+	chip.Title = strings.Join(title, " · ")
+	return chip
+}
+
 // companyGoalsOf is the open epics furthest along, as the header's goals
-// until projects have goals of their own.
+// when HQ has no goals configured.
 func companyGoalsOf(issues []*tracker.Issue, color string) []WbGoal {
 	var goals []WbGoal
 	for _, issue := range issues {

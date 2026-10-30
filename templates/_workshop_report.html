@@ -60,7 +60,7 @@ release flow reads the same on both pages.
 
 {{define "wb/squares"}}{{if .}}<div class="wb-squares" role="img" aria-label="{{len .}} agents">{{range .}}<i style="background:{{.Color}}" title="{{.Title}}"></i>{{end}}</div>{{end}}{{end}}
 
-{{define "wb/legend"}}<div class="wb-legend-rows">{{range .}}<div class="wb-lrow"{{with .Title}} title="{{.}}"{{end}}>{{with .Color}}<i class="wb-swatch" style="background:{{.}}"></i>{{end}}{{with .Dot}}<i class="wb-dot wb-dot--{{.}}"></i>{{end}}{{if ge .Count 0}}<b>{{.Count}}</b> {{end}}<span>{{.Label}}</span>{{with .Note}} <span class="wb-lrow-note">— {{.}}</span>{{end}}{{with .Command}} <code class="wb-code">{{.}}</code>{{end}}</div>{{end}}</div>{{end}}
+{{define "wb/legend"}}<div class="wb-legend-rows">{{range .}}<div class="wb-lrow"{{with .Title}} title="{{.}}"{{end}}>{{with .Color}}<i class="wb-swatch" style="background:{{.}}"></i>{{end}}{{with .Dot}}<i class="wb-dot wb-dot--{{.}}"></i>{{end}}{{if ge .Count 0}}<b>{{.Count}}</b> {{end}}<span>{{if .URL}}<a href="{{.URL}}" data-testid="report.waiting.link">{{.Label}}</a>{{else}}{{.Label}}{{end}}</span>{{with .Note}} <span class="wb-lrow-note">— {{.}}</span>{{end}}{{with .Command}} <code class="wb-code">{{.}}</code>{{end}}</div>{{end}}</div>{{end}}
 
 {{define "wb/count-card"}}
 <section class="wb-ccard{{if eq .Icon "you"}} wb-ccard--you{{end}}" id="{{.ID}}" aria-labelledby="ccard-{{.ID}}" data-testid="report.card.{{.TestID}}">

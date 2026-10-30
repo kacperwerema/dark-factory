@@ -133,6 +133,32 @@ func TestBootstrap_NoLocalWorkflowUsesMatchingConfiguredProject(t *testing.T) {
 	}
 }
 
+func TestBootstrap_TakesDepartmentsAndGoalsFromMatchingProject(t *testing.T) {
+	// Agents run issue-cli from the project root without --project: the
+	// departments, company: and Product entry live only in projects.yaml,
+	// so bootstrap takes them from the matching project, even with a local
+	// project.yaml that sets the version and workflow.
+	f := newBootstrapFixture(t, true)
+	mustWrite(t, filepath.Join(f.proj, "project.yaml"), "version: \"0.3\"\nworkflow: workflow.yaml\n")
+	mustWrite(t, f.cfg, "projects:\n  - name: proj\n    workdir: "+f.proj+"\n"+
+		"    company:\n      goals: [{id: clients, target: 20}]\n"+
+		"    departments:\n      - {name: Marketing, systems: [SEO], goals: [{id: pages, rolls_up: clients}]}\n"+
+		"      - {name: Product, goals: [{id: bugs}]}\n"+
+		"  - name: other\n    workdir: "+f.other+"\n    company:\n      goals: [{id: leak}]\n")
+	withCwd(t, f.proj)
+
+	proj, _, err := loadProjectOrErr(f.cfg, "")
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if proj.Version != "0.3" || proj.WorkflowFile != "workflow.yaml" {
+		t.Errorf("local project.yaml should still win: version %q workflow %q", proj.Version, proj.WorkflowFile)
+	}
+	if proj.Company == nil || proj.Company.Goals[0].ID != "clients" || len(proj.Departments) != 1 || proj.Product == nil {
+		t.Fatalf("bootstrap lost the matching project's departments: company %+v departments %+v product %+v", proj.Company, proj.Departments, proj.Product)
+	}
+}
+
 func TestBootstrap_NoMatchFallsBackToDefaultNotLastProject(t *testing.T) {
 	f := newBootstrapFixture(t, false)
 	f.writeConfig(t, [4]string{"other", f.other, filepath.Join(f.other, "issues"), filepath.Join(f.other, "workflow.yaml")})
