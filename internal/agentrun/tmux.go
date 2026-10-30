@@ -295,6 +295,12 @@ func ParseSessions(out string) []Session {
 // root is dropped, and shared-session windows (other projects') are too.
 func ForProject(proj *tracker.Project, root string, sessions []Session) []Session {
 	var kept []Session
+	// tmux may report a session's path resolved (macOS /var is /private/var)
+	// while root came through the link.
+	resolvedRoot := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		resolvedRoot = r
+	}
 	if shared := SharedSession(proj); shared != "" {
 		for _, s := range sessions {
 			if session, _, ok := strings.Cut(s.Name, ":"); ok && session == shared {
@@ -307,7 +313,7 @@ func ForProject(proj *tracker.Project, root string, sessions []Session) []Sessio
 		if strings.Contains(s.Name, ":") {
 			continue
 		}
-		if s.Path != "" && root != "" && !underDir(s.Path, root) {
+		if s.Path != "" && root != "" && !underDir(s.Path, root) && !underDir(s.Path, resolvedRoot) {
 			continue
 		}
 		kept = append(kept, s)

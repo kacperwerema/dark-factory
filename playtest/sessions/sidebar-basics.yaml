@@ -43,7 +43,7 @@ steps:
   - id: TP6
     title: More stays open across a reload once opened
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     act:
       - click: nav.more
       - reload: true

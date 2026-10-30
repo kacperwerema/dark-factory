@@ -208,6 +208,14 @@ func TestHealthPageAndActions(t *testing.T) {
 	if loc := post("/p/test-project/health/recommendation/R9/file", nil); !strings.Contains(loc, "error=") {
 		t.Fatalf("unknown id must come back as an error: %s", loc)
 	}
+	// The classic page's buttons come back to the classic page, not the
+	// Workshop Board's.
+	if n := strings.Count(page, `<input type="hidden" name="classic" value="1">`); n != 5 {
+		t.Errorf("classic page: %d forms carry classic=1, want 5 (run review, file and dismiss on R1 and R2)", n)
+	}
+	if loc := post("/p/test-project/health/recommendation/R9/file", url.Values{"classic": {"1"}}); !strings.HasPrefix(loc, "/p/test-project/health?classic=1&error=") {
+		t.Errorf("classic redirect = %s", loc)
+	}
 	page = get("/p/test-project/health?filed=x")
 	if !strings.Contains(page, `data-testid="health.flash"`) || strings.Contains(page, `data-testid="health.file_recommendation"`) {
 		t.Error("after filing and dismissing, nothing is proposed and the flash shows")

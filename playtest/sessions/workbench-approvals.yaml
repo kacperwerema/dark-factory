@@ -43,7 +43,7 @@ steps:
   - id: TP6
     title: decide records a decision that the Decisions tab lists
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     act:
       - cli: [decide, economy/shop-prices-per-stage, --text, "Prices stay at the current stage's level when a team loses a stage", --how, lead chat, --quote, "losing should hurt"]
       - wait_for: { visible: decisions.row.economy/shop-prices-per-stage.d-1, ms: 12000 }

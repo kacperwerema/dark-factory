@@ -74,7 +74,7 @@
 
                 <section class="health-card" id="review" aria-labelledby="health-opinion-h" data-testid="health.opinion">
                     <div class="health-card-head"><h3 id="health-opinion-h">Agent opinion</h3>
-                        <form method="post" action="{{.Prefix}}/health/review"><button type="submit" class="btn btn-sm" data-testid="health.run_review">Run review</button></form>
+                        <form method="post" action="{{.Prefix}}/health/review"><input type="hidden" name="classic" value="1"><button type="submit" class="btn btn-sm" data-testid="health.run_review">Run review</button></form>
                     </div>
                     {{with .Opinion}}
                     {{if .Has}}
@@ -104,8 +104,8 @@
                         <p class="health-effect"><span class="stats-muted">Expected:</span> {{.Effect}}</p>
                         {{if .Proposed}}
                         <div class="health-rec-actions">
-                            <form method="post" action="{{$.Prefix}}/health/recommendation/{{.ID}}/file"><button type="submit" class="btn btn-sm btn-primary" data-testid="health.file_recommendation">File as issue</button></form>
-                            <form method="post" action="{{$.Prefix}}/health/recommendation/{{.ID}}/dismiss" class="health-dismiss">
+                            <form method="post" action="{{$.Prefix}}/health/recommendation/{{.ID}}/file"><input type="hidden" name="classic" value="1"><button type="submit" class="btn btn-sm btn-primary" data-testid="health.file_recommendation">File as issue</button></form>
+                            <form method="post" action="{{$.Prefix}}/health/recommendation/{{.ID}}/dismiss" class="health-dismiss"><input type="hidden" name="classic" value="1">
                                 <input name="reason" class="stats-select" placeholder="why (optional)" aria-label="Why dismiss {{.ID}} (optional)">
                                 <button type="submit" class="btn btn-sm" data-testid="health.dismiss_recommendation">Dismiss</button>
                             </form>

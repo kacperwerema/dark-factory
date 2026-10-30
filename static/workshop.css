@@ -549,6 +549,8 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb .wb-seg-item--on { background: var(--ink); color: #fff; }
 .wb .wb-seg-item--on:hover { color: #fff; }
 .wb-seg--tall .wb-seg-item { min-height: 36px; }
+/* The hall's eight views don't fit a phone: they wrap rather than widen the page. */
+.wb-seg--wrap { flex-wrap: wrap; max-width: 100%; }
 .wb-hhead { padding: 24px 28px; border-bottom: 2px solid var(--ink); display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; }
 .wb-hhead-text { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .wb-h1--xl { font-size: 38px; letter-spacing: -0.02em; line-height: 1; }

@@ -12,6 +12,6 @@ steps:
   - id: TP10
     title: At phone width the page never scrolls sideways
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     checks:
       - visible: [decisions.stats, decisions.filters, decisions.table]

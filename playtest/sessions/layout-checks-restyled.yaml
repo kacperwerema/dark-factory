@@ -12,7 +12,7 @@ steps:
   - id: TP5
     title: A replaced decision's text is still dimmed (.decision-replaced instead of .decision-row.dim)
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     act:
       - cli: [decide, sim/et-style-objective-format-6v6, --text, "The continuous raid becomes an ET-style objective format, 6v6.", --how, chat, --quote, "The old continuous raid had no readable tension.", --replaces, "sim/gdd-match-phases#D-1"]
       - wait_for: { visible: decisions.row.sim/et-style-objective-format-6v6.d-1, ms: 12000 }

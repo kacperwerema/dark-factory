@@ -29,7 +29,7 @@ steps:
       - cli: { args: [--project, crew, show, ui/child], contains: "Lead: lead-crew (live)" }
       - cli: { args: [--project, crew, dispatch-prompt, ui/child], not_contains: "sub-lead" }
       - http: { path: "/p/{project}/agents.json", json: { "others.0.name": lead-ui-epic, "others.0.kind": other } }
-      - http: { path: "/p/{project}/issue/ui/child", contains: 'data-testid="detail.lead.name">lead-crew</div>' }
+      - http: { path: "/p/{project}/issue/ui/child?classic=1", contains: 'data-testid="detail.lead.name">lead-crew</div>' }
       - visible: [agents.node.lead-crew, agents.node.lead-ui-epic, agents.node.agent-ui-child]
       - below: [agents.node.lead-crew, agents.node.agent-ui-child]
     targets:

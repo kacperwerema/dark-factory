@@ -12,6 +12,10 @@ steps:
   - id: TP4
     title: /stats shows gauges, trend lines from the snapshots, where the time goes, and the old tables folded below
     setup:
+      # The board's own daily snapshot (taken at start, with the storage
+      # family) lands a few seconds after the board is up: wait for its Disk
+      # use card, or the card is still pending.
+      - wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }
       # The fixtures are from late September 2026: range=all keeps them in.
       - open: /p/{project}/stats?range=all
       - wait_for: stats.dashboard
@@ -19,9 +23,8 @@ steps:
       - visible: [stats.options, stats.range, stats.group, stats.tables]
       - selected: stats.range.all
       - count: { pattern: stats.gauge, equals: 5 }
-      # 8 trend charts, plus Disk use once the board's own daily snapshot
-      # (taken at start, with the storage family) lands before the page.
-      - count: { pattern: stats.chart.*, min: 8, max: 9 }
+      # 8 trend charts and Disk use.
+      - count: { pattern: stats.chart.*, equals: 9 }
       - count: { pattern: stats.pending, equals: 3 }
       - absent: stats.backfill_hint
       - text_contains: { target: stats.chart.cycle, text: "Cycle time p50, by type" }

@@ -476,8 +476,14 @@ func healthRecID(rest string) string {
 	return parts[2]
 }
 
+// healthRedirect goes back to the Health page with the outcome; a form from
+// the classic page (classic=1) comes back to the classic page.
 func healthRedirect(w http.ResponseWriter, r *http.Request, prefix, key, value string) {
-	http.Redirect(w, r, prefix+"/health?"+key+"="+url.QueryEscape(value)+"#review", http.StatusSeeOther)
+	q := key + "=" + url.QueryEscape(value)
+	if r.FormValue("classic") == "1" {
+		q = "classic=1&" + q
+	}
+	http.Redirect(w, r, prefix+"/health?"+q+"#review", http.StatusSeeOther)
 }
 
 // handleHealthFile files a recommendation: the owner's click is the approval.

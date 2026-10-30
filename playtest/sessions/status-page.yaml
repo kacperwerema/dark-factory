@@ -20,6 +20,9 @@ steps:
       - check: { text_equals: { target: nav.tab.status.count, text: "3" } }
       - click: nav.tab.status
       - wait_for: { url: { contains: /status } }
+      # The tab opens the Report (Workshop Board, no sidebar); the classic
+      # Status page keeps the sidebar and these sections.
+      - open: /p/{project}/status?classic=1
     checks:
       - selected: nav.tab.status
       - visible: [status.page, status.strip, status.waiting.pop, status.working.pop, status.next.pop, status.milestone, status.epics, status.shipped, status.versions, status.released]

@@ -12,7 +12,7 @@ steps:
   - id: TP4
     title: The index lists AI before Sim, with AI's summary, doc and family; the sidebar marks Systems and lists the systems
     setup:
-      - open: /p/{project}/systems
+      - open: /p/{project}/systems?classic=1
     checks:
       - visible: [systems.index, systems.card.ai, systems.card.sim, systems.nosystem, nav.panel, nav.panel.system.ai, nav.panel.family.play_calls, nav.panel.system.sim]
       - selected: nav.tab.systems
@@ -22,7 +22,7 @@ steps:
       - text_contains: { target: systems.nosystem, text: "No system: 1 open" }
       # AI has 11 open issues, Sim 2: most open first.
       - text_contains: { target: nav.panel.system.ai, text: "11" }
-      - http: { path: "/p/{project}/systems", contains: "systems.card.ai" }
+      - http: { path: "/p/{project}/systems?classic=1", contains: "systems.card.ai" }
       # Cards two to a row, the no-system line under them.
       - beside: [systems.card.ai, systems.card.sim]
       - below: [systems.card.ai, systems.nosystem]

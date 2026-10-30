@@ -22,7 +22,7 @@ block). templates/health_wb.html composes them.
 */}}
 
 {{define "wb/hall-tabs"}}
-<nav class="wb-seg" aria-label="Hall view" data-testid="hall.tabs">
+<nav class="wb-seg wb-seg--wrap" aria-label="Hall view" data-testid="hall.tabs">
     {{range .Items}}{{if .Current}}<span class="wb-seg-item wb-seg-item--on" aria-current="page" data-testid="hall.tab.{{.Key}}">{{.Label}}</span>{{else}}<a class="wb-seg-item" href="{{.URL}}" data-testid="hall.tab.{{.Key}}">{{.Label}}</a>{{end}}{{end}}
 </nav>
 {{end}}

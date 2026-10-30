@@ -129,7 +129,7 @@ steps:
                 actions:
                   - type: "require_human_approval"
                     status: "backlog"
-      - open: /p/{project}/status
+      - open: /p/{project}/status?classic=1
     checks:
       - visible: status.milestone
       - absent: [status.tabs, page.frame, nav.page.0]

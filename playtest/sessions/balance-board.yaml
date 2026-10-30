@@ -22,7 +22,7 @@ steps:
       - check: { visible: nav.tab.balance }
       - open: /p/{project}/canvas
       - check: { visible: nav.tab.balance }
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
       - click: nav.tab.balance
       - wait_for: { url: { contains: /balance } }
     checks:

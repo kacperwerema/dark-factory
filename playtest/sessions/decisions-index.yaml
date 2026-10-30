@@ -22,9 +22,12 @@ steps:
       - check: { visible: nav.tab.decisions }
       - open: /p/{project}/canvas
       - check: { visible: nav.tab.decisions }
-      - open: /p/{project}/docs
+      - open: /p/{project}/docs?classic=1
       - click: nav.tab.decisions
       - wait_for: { url: { contains: /decisions } }
+      # The tab opens the Workshop Board's Decisions page, which has no
+      # sidebar; the classic table keeps it.
+      - open: /p/{project}/decisions?classic=1
     checks:
       - selected: nav.tab.decisions
       - visible: [nav.tab.list, nav.tab.workboard]
@@ -33,7 +36,7 @@ steps:
   - id: TP5
     title: The index lists the 5 recorded decisions; fenced and free-form lines are not listed
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     checks:
       - count: { pattern: decisions.row.*.*, equals: 5 }
       - text_equals: { target: decisions.stat.total, text: 5 DECISIONS }
@@ -51,7 +54,7 @@ steps:
   - id: TP6
     title: A direction change recorded with decide --replaces reloads the page and marks the old decisions stale
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     act:
       - cli: [decide, sim/et-style-objective-format-6v6, --text, "The continuous raid becomes an ET-style objective format, 6v6.", --how, chat, --quote, "The old continuous raid had no readable tension.", --replaces, "sim/gdd-match-phases#D-1", --replaces, "sim/gdd-match-format-and-length#D-1"]
       - wait_for: { visible: decisions.row.sim/et-style-objective-format-6v6.d-1, ms: 12000 }
@@ -85,12 +88,12 @@ steps:
       - click: decisions.nomatch.clear
     checks:
       - count: { pattern: decisions.row.*.*, equals: 6 }
-      - url: { matches: "^/p/[^/]+/decisions$" }
+      - url: { matches: "^/p/[^/]+/decisions\\?classic=1$" }
 
   - id: TP8
     title: copy ref shows the decision's ref in a toast
     setup:
-      - open: /p/{project}/decisions
+      - open: /p/{project}/decisions?classic=1
     act:
       - click: decisions.row.ui/company-lineup-panel.d-2.copy
     checks:

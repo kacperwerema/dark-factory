@@ -1,6 +1,8 @@
 package agentrun
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -157,5 +159,36 @@ func TestAgentOfStartCommand(t *testing.T) {
 		if got := agentOfStartCommand(cmd); got != want {
 			t.Errorf("agentOfStartCommand(%q) = %q, want %q", cmd, got, want)
 		}
+	}
+}
+
+// TestForProjectRootBehindSymlink: tmux reports a session's path resolved
+// (macOS /var is /private/var) while the project root is configured through
+// the link; the session still belongs to the project.
+func TestForProjectRootBehindSymlink(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, "proj", ".worktrees", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := []Session{
+		{Name: "agent-a", Path: filepath.Join(resolved, "proj")},
+		{Name: "agent-b", Path: filepath.Join(resolved, "proj", ".worktrees", "b")},
+		{Name: "agent-c", Path: filepath.Join(link, "proj")},
+		{Name: "agent-e", Path: resolved},
+	}
+	var got []string
+	for _, s := range ForProject(&tracker.Project{Slug: "p"}, filepath.Join(link, "proj"), sessions) {
+		got = append(got, s.Name)
+	}
+	if strings.Join(got, ",") != "agent-a,agent-b,agent-c" {
+		t.Errorf("sessions under a linked root: %v", got)
 	}
 }

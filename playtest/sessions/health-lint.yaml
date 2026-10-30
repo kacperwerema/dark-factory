@@ -13,6 +13,9 @@ steps:
     title: The Health view's Lint section lists the three warnings with where and fix, and names issue-cli health lint
     proves: [AC12]
     setup:
+      # The score components come from the board's daily snapshot, which
+      # lands a few seconds after the board is up.
+      - wait_for: { http: { path: "/p/{project}/health?classic=1", contains: 'data-testid="health.components"' }, ms: 30000 }
       - open: /p/{project}/health?classic=1
     checks:
       - visible: [health.lint, health.lint.count, health.lint.list, health.lint.cmd]
@@ -44,6 +47,8 @@ steps:
     title: The Status page's Health card and status.md carry the lint count from the snapshot
     proves: [AC11]
     setup:
+      # The card reads the board's daily snapshot (see TP4).
+      - wait_for: { http: { path: "/p/{project}/status?classic=1", contains: 'data-testid="status.health.lint"' }, ms: 30000 }
       - open: /p/{project}/status?classic=1
     act:
       - wait_for: { visible: status.health.lint }
