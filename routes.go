@@ -172,6 +172,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleLeadChatJSON(w, r, proj, prefix)
 	case rest == "lead/send" && r.Method == http.MethodPost:
 		s.handleLeadChatSend(w, r, proj, prefix)
+	case rest == "lead/image" && r.Method == http.MethodPost:
+		s.handleCEOImage(w, r, proj, prefix)
 	case rest == "lead/key" && r.Method == http.MethodPost:
 		s.handleLeadChatKey(w, r, proj, prefix)
 	case rest == "retros":

@@ -1532,6 +1532,16 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-composer textarea { resize: vertical; min-height: 72px; padding: 10px 13px; border: 0; border-radius: 14px 14px 0 0; outline-offset: -2px; font: inherit; font-size: 15px; color: var(--ink); background: transparent; }
 .wb-composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1.5px solid #E1E5EB; }
 .wb-composer .wb-site-msg { padding: 0 12px 8px; }
+.wb-composer--drop { outline: 3px dashed var(--you); outline-offset: 2px; }
+.wb-composer-images { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px 0; }
+.wb-composer-images[hidden] { display: none; }
+.wb-image-chip { position: relative; width: 72px; height: 72px; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; background: #EEF0F4; }
+.wb-image-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wb-image-chip--busy img { opacity: .4; }
+.wb .wb-image-chip button { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0; border: 1.5px solid var(--ink); border-radius: 50%; background: #fff; font: inherit; font-size: 13px; font-weight: 800; line-height: 1; color: var(--ink); cursor: pointer; }
+.wb-turn-images { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.wb-turn-images a { display: block; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; background: #fff; }
+.wb-turn-images img { display: block; max-width: 220px; max-height: 160px; }
 .wb-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .wb-controls-label { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #3A4252; margin-right: 4px; }
 .wb-controls-keys { display: inline-flex; gap: 4px; margin-left: auto; }
