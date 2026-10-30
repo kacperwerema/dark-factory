@@ -1,0 +1,17 @@
+# The outputs shelf: Marketing (system SEO) and Product, nothing on the
+# shelf yet. Sessions record outputs with `cli: [output, add, …]`: a page
+# the SEO pass made (a URL), a hero image Marketing made by job (out/hero.png,
+# copied onto the shelf) and a Product report (docs/report.md, a repo path).
+title: Marketing and Product with an empty outputs shelf
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client roster
+        systems: [SEO]
+issues: tracker
+workflow: workflow.yaml
+root: files

@@ -150,10 +150,18 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 	}
 	fs := newFlagSet("process workflow", ctx)
 	typeArg := fs.String("type", "", "show the lifecycle of one type of work")
+	deptArg := fs.String("department", "", "show the lifecycle of a department with its own workflow file")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
-	base := ctx.Project.LoadWorkflow()
+	dept, err := departmentFlag(ctx.Project, *deptArg)
+	if err != nil {
+		return err
+	}
+	base, err := ctx.Project.WorkflowFor(dept)
+	if err != nil {
+		return err
+	}
 	wf := base
 	typeFlag := strings.TrimSpace(*typeArg)
 	if typeFlag != "" {
@@ -168,7 +176,8 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 	} else {
 		fmt.Fprintln(ctx.Stdout, "== Status Lifecycle ==")
 	}
-	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", workflowFileLabel(ctx.Project))
+	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, base))
+	printWorkflowDepartments(ctx.Stdout, ctx.Project, dept, "process workflow")
 	statusOrder := wf.GetStatusOrder()
 	statusDescs := wf.GetStatusDescriptions()
 	for i, s := range statusOrder {
@@ -287,7 +296,12 @@ func runProcessTransitions(ctx *Context, args []string) error {
 	systemArg := fs.String("system", "", "scope the rules to a system overlay")
 	workflowArg := fs.String("workflow", "", "alias for --system")
 	typeArg := fs.String("type", "", "scope the rules to a type of work")
+	deptArg := fs.String("department", "", "the rules of a department with its own workflow file")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	dept, err := departmentFlag(proj, *deptArg)
+	if err != nil {
 		return err
 	}
 	if fs.NArg() > 1 {
@@ -302,12 +316,6 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		issueRef = fs.Arg(0)
 		hasIssueRef = true
 	}
-	if typeFlag != "" {
-		if err := checkTypeFlag(wf, typeFlag); err != nil {
-			return err
-		}
-	}
-
 	var issueSlug string
 	var issue *tracker.Issue
 	switch {
@@ -317,6 +325,7 @@ func runProcessTransitions(ctx *Context, args []string) error {
 			return err
 		}
 		issue = found
+		dept = proj.DepartmentOf(issue)
 		system = issue.System
 		issueSlug = issue.Slug
 		systemSource = fmt.Sprintf("issue %s", issue.Slug)
@@ -325,6 +334,14 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		systemSource = fmt.Sprintf("--system %s", systemFlag)
 	}
 
+	if wf, err = proj.WorkflowFor(dept); err != nil {
+		return err
+	}
+	if typeFlag != "" {
+		if err := checkTypeFlag(wf, typeFlag); err != nil {
+			return err
+		}
+	}
 	scoped := wf
 	switch {
 	case issue != nil:
@@ -353,7 +370,10 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		header = fmt.Sprintf("== Transition Rules — system %q ==", system)
 	}
 	fmt.Fprintln(ctx.Stdout, header)
-	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", workflowFileLabel(proj))
+	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(proj, wf))
+	if !hasIssueRef {
+		printWorkflowDepartments(ctx.Stdout, proj, dept, "process transitions")
+	}
 	if wf.HasTypes() && scoped.ActiveType == "" {
 		fmt.Fprintf(ctx.Stdout, "(base rules with no type applied; types: %s — pass --type <name> or an issue slug)\n", strings.Join(wf.TypeNames(), ", "))
 	}

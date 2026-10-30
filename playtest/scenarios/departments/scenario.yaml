@@ -1,0 +1,34 @@
+# Departments with goals: HQ (company:) with two business goals, Product
+# with a mission and a down goal, Marketing (system SEO) with a file goal
+# read from docs/seo/run.json and a manual goal, both rolling up into HQ's
+# clients. Sessions record manual values with `cli: [goal, set, …]` dated
+# today, so nothing turns stale as the calendar moves; hq/revenue is set
+# with an old --date to show a stale goal.
+title: HQ, Product and Marketing with goals rolled up into HQ
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: "Grow the client roster"
+      prompt: departments/hq.md
+      goals:
+        - {id: clients, name: Paying clients, target: 20}
+        - {id: revenue, name: Revenue, target: 1000, unit: EUR, period: month}
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client roster
+        mission: "Every client site refreshed every week"
+        prompt: departments/marketing.md
+        systems: [SEO]
+        goals:
+          - {id: pages, name: Pages refreshed, target: 40, source: "file:docs/seo/run.json#pages_refreshed", rolls_up: clients}
+          - {id: posts, name: Posts, target: 10, rolls_up: clients}
+      - name: Product
+        mission: "Ship the engine"
+        goals:
+          - {id: bugs, name: Open bugs, target: 5, direction: down}
+issues: tracker
+workflow: workflow.yaml
+root: files

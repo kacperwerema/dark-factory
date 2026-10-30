@@ -66,6 +66,9 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		DefaultType:    w.DefaultType,
 		ActiveType:     w.ActiveType,
 		OffPathStatus:  w.OffPathStatus,
+		Department:     w.Department,
+		File:           w.File,
+		LoadErr:        w.LoadErr,
 	}
 	if w.WorktreeSparseExclude != nil {
 		excl := append([]string(nil), (*w.WorktreeSparseExclude)...)

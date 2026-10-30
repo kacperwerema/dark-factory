@@ -58,6 +58,7 @@ markers.go                  — card markers (cardMarkers, blocked_on, needs-rev
 agent_state.go              — worker state for the agents canvas and card footers (workerState, idle from the clilog's last call)
 handlers_canvas.go          — issues canvas (/canvas): version columns × epic or system rows
 handlers_detail.go          — detail page, transition preview, data-table render
+shelf.go                    — the outputs shelf: /p/<project>/shelf (filters, Approve / Reject POST …/shelf/review), …/shelf/file/ (sandboxed), the rooms' 📦 links, HQ's block, waiting rows
 station.go                  — L3, the station: GET /issue/<slug> (classic page at ?classic=1 or ?tab=); components in templates/_workshop_station.html, JS in static/station.js
 issue_tab.go                — the detail page's Issue tab model: brief, Needs-you band, path, what you're approving, folded body, side column
 evidence.go                 — the detail page's Evidence tab model and its label: shots per linked playtest step, criteria → proof, verdict, playtest per step, watch (evidence_change.go: commits and files by area; stale_text.go: stale Open/pending lines matched to a D-n)
@@ -78,7 +79,8 @@ stats_overview.go           — /stats without a project: every project compared
 updates.go                  — the Updates tab (/updates): workflow features to adopt, Decline / Re-open / Install with an agent, /updates across projects
 handlers_checks.go          — ▶ Run checks: POST …/check-script opens tmux window check-script-<slug> running the issue's guided check scripts
 handlers_agents.go          — /agents canvas, agents.json, agent detail, open-in-tmux and lead spawn endpoints
-handlers_lead_chat.go       — /lead chat (the lead's pane, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads across projects
+handlers_lead_chat.go       — the lead chat's endpoints (lead.json, message box via agentrun.Paste, Esc and menu keys, Waiting on you) and /leads (Workshop Board cards)
+ceo_chat.go                 — /lead, the CEO chat (L1 · HQ): the page and its polled ?part=live; ceo_pane.go reads the pane as turns, working line, menu and mode; components in templates/_workshop_ceo.html, JS in static/ceo-chat.js
 handlers_systems.go         — /systems index and system / family pages (model in systems.go, design-doc panel in docsections.go)
 handlers_metrics.go         — /metrics view (guard metrics, knobs, branches), metrics.json; handlers_metrics_panels.go feeds the system-page partials
 handlers_status.go          — /status page (?classic=1) and /status.md (model in status.go: buildStatus, statusMarkdown)
@@ -100,6 +102,8 @@ internal/health/            — project health snapshots: family registry (Regis
 internal/testresults/       — test result parsers (go test -json, TRX, JUnit, playtest e2e) and their summary, for ci.run results:
 internal/lint/              — issue-cli health lint: named checks over workflow.yaml and the board (undated, workflow, schema, template, placeholders, sections); every finding a warning
 internal/yolo/              — YOLO mode: the window in .yolo/<project>.json (TurnOn, Extend, TurnOff, Active with the expiry and CI valve), the closed-window log, passes and the review queue from comments, the gates it passes
+internal/outputs/           — the departments' outputs shelf: events in <issues>/.outputs/outputs.jsonl (add, review, publish) folded into outputs (Load), files copied to .outputs/files, counts; issue-cli output / outputs, shelf.go, the station, lint
+internal/goals/             — department and HQ goals (projects.yaml company:/departments:): values from the manual log (<issues>/.goals/values.jsonl) or a metric file, progress, the roll-up into HQ (Resolve); issue-cli goals / goal set / department show, the company page
 internal/milestone/         — the current milestone (Pick, Released), shared by the Status page and the `milestone` health family
 internal/chart/             — server-rendered SVG charts (line, stacked bars, columns, gauge, sparkline) with table views
 internal/ci/                — local CI runner: .ci/ state and run records, lock, persistent .worktrees/.ci, blame, watcher, one-liner
@@ -204,16 +208,17 @@ Detailed documentation lives in `docs/` and is viewable at `/docs` in the web UI
 - [Roadmap](docs/roadmap.md) — goals, epics and phase order (set 2026-10-22); the board's epics are the source of truth
 - [Getting Started](docs/getting-started.md) — install, server flags, first issue, docs page format
 - [Issue File Format](docs/issue-format.md) — frontmatter fields, custom fields, file organization
-- [Workflow](docs/workflow.md) — lifecycle, prompts, side-effects, system overlays
+- [Workflow](docs/workflow.md) — lifecycle, prompts, side-effects, system overlays; department workflows (a department's own file in projects.yaml `departments: workflow:`, the `content` template, `--department` flags)
 - [Agent Workflow Flow](docs/agent-workflow-flow.md) — full dispatch-to-done agent flow
 - [Board Configuration](docs/board-configuration.md) — columns, card fields
-- [Agent Dispatch](docs/agent-dispatch.md) — a human starts the work (the disclaimer: `dispatch --quote`, no unattended runs, every paste into a session and what starts it); terminal config, `lead_terminal` (leads as tabs in your own session), approval notifications, the lead session, worktrees; `issue-cli dispatch` / `status`, the waiting-on-gate refusal, `viewer_url`; the Lead chat page (`/p/<project>/lead`, `/leads`)
+- [Agent Dispatch](docs/agent-dispatch.md) — a human starts the work (the disclaimer: `dispatch --quote`, no unattended runs, every paste into a session and what starts it); terminal config, `lead_terminal` (leads as tabs in your own session), approval notifications, the lead session, worktrees; `issue-cli dispatch` / `status`, the waiting-on-gate refusal, `viewer_url`; the CEO chat page (`/p/<project>/lead`, `/leads`)
 - [GitHub Integration](docs/github-integration.md) — sync, issue reference, auto-close
 - [Per-issue Data Store](docs/data-store.md) — sidecar JSON, `<!-- data -->` marker, `issue-cli data` commands
 - [Workbench Files](docs/workbench-files.md) — metric runs, targets and knob exports the Metrics view reads, branch matching, hot files, `depends_on`; project pages (`status_page`, `pages`: sandboxed HTML, postMessage status); health snapshots (`.health/snapshots/`, `health:` config, `limits` and `score`, metric names, the tests and shape families, the derived score, the agent opinion and `issue-cli health review`, `issue-cli health backfill`, the lint family and `issue-cli health lint`, adding a family)
 - [Local CI](docs/workflow.md#local-ci) — opt-in `ci:` block: commands run on local main after every merge in `.worktrees/.ci`, results in `.ci/`, red reported to Status, markers, `ci:` comments and the lead; `results:` test results via `CI_RESULTS_DIR`; `issue-cli ci status|run|reset|watch|gotest`
 - [Private work and code](docs/workflow.md#private-work-and-code) — opt-in `privacy:` block, the owner's choice: work files in a private tracker repo (git folder outside the checkout, `issue-cli tracker init|sync`, the 10-minute watcher); private development with one public snapshot commit per release (`code: snapshots`, `issue-cli release setup|publish`, the first switch from a mirror); the pre-push guard, the Work and Code badges, `issue-cli privacy check`
 - [Releases](docs/roadmap.md#cutting-a-release-candidate-soak-publish) — cutting a release on its branch: `issue-cli release cut` (release/v0.N and its `v0.N.0-rc.K` tags, `make install` from the release worktree stamps the build with `git describe`), the soak on this machine's projects with fixes picked from main (`release pick`), publish only on the owner's ok (`release publish`, or push main without `code: snapshots`)
+- [Departments: Role, Goals and Outputs](docs/departments.md) — `company:` and `departments:` in projects.yaml: mission, role prompt file, goals (manual via `issue-cli goal set` or `file:<path>#<metric id>`), the roll-up into HQ, the company page, `issue-cli goals` / `department show`, lint check `departments`; the outputs shelf (`issue-cli output add|review|publish`, `outputs`, `/p/<project>/shelf`, the owner's review per output)
 - [Workflow Stats](docs/workflow-stats.md) — the Stats page (`/p/<project>/stats`: gauges, trends from health snapshots, where the time goes, options, drill-downs; `/stats` across projects), per-issue stats sidecar, token-cost estimation; the issue page's Timeline tab (`?tab=timeline`), its time rules and the project aggregate
 - [The Lead Session](docs/patterns/lead-session.md) — the project lead, one per project (`issue-cli lead`, `approve`), routing, authority, handoff, epics, agents canvas
 - [Guided Check Scripts](docs/patterns/guided-check-scripts.md) — manual checks run from a shell as `scripts/checks/<name>.sh` on the issue branch: `issue-cli check-script <slug>` (`--yes`, `--new`, `--lib`), the helper library (steps and boxes, sandboxes, private tmux, stand-ins), ▶ Run checks (tmux window `check-script-<slug>`), the `guided-check-scripts` feature

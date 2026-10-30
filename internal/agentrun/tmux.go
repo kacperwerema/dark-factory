@@ -315,10 +315,19 @@ func ForProject(proj *tracker.Project, root string, sessions []Session) []Sessio
 	return kept
 }
 
-// underDir reports whether path is dir or inside it.
+// underDir reports whether path is dir or inside it. tmux reports a pane's
+// path with links resolved (on a Mac /var is /private/var), so a miss is
+// tried again with dir's links resolved.
 func underDir(path, dir string) bool {
 	path, dir = filepath.Clean(path), filepath.Clean(dir)
-	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+	if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil || real == dir {
+		return false
+	}
+	return path == real || strings.HasPrefix(path, real+string(filepath.Separator))
 }
 
 // ListSharedWindows reports agent and lead windows living inside shared tmux

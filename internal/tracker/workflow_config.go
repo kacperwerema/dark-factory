@@ -250,6 +250,14 @@ type WorkflowConfig struct {
 	// OffPathStatus is the issue's current status when it is not on its type's
 	// path and ForIssue kept it as a global exit.
 	OffPathStatus string `yaml:"-" json:"-"`
+
+	// Set by Project.WorkflowFor on a department's own file: the
+	// department's name and the file's path ("" for Product's workflow).
+	// LoadErr is why the department's file didn't load: such a config has
+	// no statuses (LoadWorkflowForIssue).
+	Department string `yaml:"-" json:"-"`
+	File       string `yaml:"-" json:"-"`
+	LoadErr    error  `yaml:"-" json:"-"`
 }
 
 var defaultBoardCardFields = []string{"system", "labels"}

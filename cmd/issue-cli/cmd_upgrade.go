@@ -66,10 +66,14 @@ func runWorkflowUpgrade(ctx *Context, args []string) error {
 	fs := newFlagSet("workflow upgrade", ctx)
 	templateFlag := fs.String("template", "", "template to compare an unstamped workflow.yaml with (default development)")
 	allFlag := fs.Bool("all", false, "list every catalog feature the file lacks, ignoring the stamp; declined ones included")
+	deptFlag := fs.String("department", "", "read this department's own workflow file (projects.yaml departments: workflow:)")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
-	path := projectWorkflowFile(ctx.Project)
+	path, err := workflowFileFor(ctx.Project, *deptFlag)
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		return fmt.Errorf("no workflow.yaml found: this project runs on the built-in default workflow\n\nCreate one from a bundled template:\n  issue-cli workflow init --template <%s>", strings.Join(workflowupgrade.Templates(), "|"))
 	}

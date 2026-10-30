@@ -58,7 +58,10 @@ func runApprove(ctx *Context, args []string) error {
 		return err
 	}
 	proj := ctx.Project
-	wf := proj.LoadWorkflowForIssue(issue)
+	wf, err := issueWorkflow(ctx, issue)
+	if err != nil {
+		return err
+	}
 	if wf != nil && wf.GetStatus(to) == nil {
 		return fmt.Errorf("unknown status %q; statuses: %s", to, strings.Join(wf.GetStatusOrder(), ", "))
 	}

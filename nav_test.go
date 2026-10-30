@@ -26,7 +26,6 @@ func TestProjectPagesRenderSidebar(t *testing.T) {
 		"/graph":                          "graph",
 		"/canvas":                         "canvas",
 		"/agents":                         "agents",
-		"/lead":                           "lead",
 		"/docs?classic=1":                 "docs",
 		"/docs/getting-started?classic=1": "docs",
 		"/retros?classic=1":               "retros",

@@ -24,9 +24,9 @@ func chdir(t *testing.T, dir string) {
 	t.Cleanup(func() { _ = os.Chdir(prev) })
 }
 
-func TestAvailableWorkflowTemplatesIncludesAllThree(t *testing.T) {
+func TestAvailableWorkflowTemplatesIncludesEveryBundledOne(t *testing.T) {
 	got := workflowupgrade.Templates()
-	want := map[string]bool{"development": false, "review": false, "writing": false}
+	want := map[string]bool{"development": false, "review": false, "writing": false, "content": false}
 	for _, name := range got {
 		if _, ok := want[name]; ok {
 			want[name] = true

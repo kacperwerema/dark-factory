@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -206,4 +207,33 @@ func scaffoldProjectDirs() ([]string, error) {
 		created = append(created, dir+"/")
 	}
 	return created, nil
+}
+
+// doWorkflowInitOut writes a bundled template to target as a department's
+// own workflow file: no scaffolding and no privacy question (those are
+// Product's), then says how to point a department at it.
+func doWorkflowInitOut(template, target string, force bool, in io.Reader, out io.Writer, isTTY bool) error {
+	chosen, err := resolveTemplate(template, workflowupgrade.Templates(), bufio.NewReader(in), out, isTTY)
+	if err != nil {
+		return err
+	}
+	if _, statErr := os.Stat(target); statErr == nil && !force {
+		return fmt.Errorf("%s already exists; pass --force to overwrite", target)
+	}
+	data, err := workflowupgrade.ReadTemplate(chosen)
+	if err != nil {
+		return fmt.Errorf("reading bundled template %q: %w", chosen, err)
+	}
+	if dir := filepath.Dir(target); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("creating %s: %w", dir, err)
+		}
+	}
+	if err := os.WriteFile(target, data, 0644); err != nil {
+		return fmt.Errorf("writing %s: %w", target, err)
+	}
+	fmt.Fprintf(out, "✓ Wrote %s (template: %s)\n", target, chosen)
+	fmt.Fprintf(out, "Point a department at it in projects.yaml (path relative to the project root):\n  departments:\n    - name: <Department>\n      workflow: %s\n", filepath.ToSlash(target))
+	fmt.Fprintln(out, "Then: issue-cli health lint --check department")
+	return nil
 }

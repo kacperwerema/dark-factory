@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/checks"
+	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -47,10 +48,18 @@ type StationData struct {
 	Timeline   WbTimelineList
 	Agent      WbStationAgent
 	Sessions   WbSessionList
+	Outputs    *WbStationOutputs
 	Body       WbBodyIndex
 	Fields     WbFields
 	IssueURL   string
 	ClassicURL string
+}
+
+// WbStationOutputs is what the issue made, from the outputs shelf.
+type WbStationOutputs struct {
+	Rows     []WbShelfRow
+	ToReview int
+	URL      string
 }
 
 // WbIssueTitle is the station's title: the crate, the title, its chips and
@@ -278,6 +287,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	issueURL := prefix + "/issue/" + issue.Slug
 	hallURL := prefix + "/hall?agent=" + url.QueryEscape(issue.Slug) + "#agent"
 	d := StationData{IssueURL: issueURL, ClassicURL: issueURL + "?classic=1"}
+	d.Outputs = stationOutputs(p, prefix, issue)
 
 	// The header: Map › project › Hall › Station.
 	company := s.buildCompany(p, prefix, now)
@@ -851,4 +861,22 @@ func stationFields(wf *tracker.WorkflowConfig, issue *tracker.Issue, classic str
 		f.Rows = append(f.Rows, WbFact{Label: "Labels", Value: strings.Join(issue.Labels, ", ")})
 	}
 	return f
+}
+
+// stationOutputs is the issue's outputs on the shelf; nil when it made none.
+func stationOutputs(p *tracker.Project, prefix string, issue *tracker.Issue) *WbStationOutputs {
+	all, _ := outputs.Load(p)
+	mine := outputs.Select(all, outputs.Filter{Issue: issue.Slug})
+	if len(mine) == 0 {
+		return nil
+	}
+	colors := shelfColors(p)
+	out := &WbStationOutputs{URL: shelfURL(prefix, "", "")}
+	for _, o := range mine {
+		out.Rows = append(out.Rows, shelfRow(p, prefix, o, colors))
+		if o.State == outputs.StateReview {
+			out.ToReview++
+		}
+	}
+	return out
 }
