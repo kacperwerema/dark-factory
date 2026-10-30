@@ -15,10 +15,10 @@ steps:
   - id: TP4
     title: With workbench.balance set, every project page has a Balance tab after Decisions
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { visible: [nav.tab.decisions, nav.tab.balance] }
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
       - check: { visible: nav.tab.balance }
       - open: /p/{project}/canvas
       - check: { visible: nav.tab.balance }

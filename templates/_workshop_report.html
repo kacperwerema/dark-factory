@@ -220,7 +220,7 @@ release flow reads the same on both pages.
         <ol>
             <li>Cut it: <code class="wb-code">issue-cli release cut {{.Cut}}</code>. {{if .Branch}}It tags {{.CutNext}} on <code class="wb-code">{{.Branch}}</code>{{else}}It creates <code class="wb-code">{{releaseBranch .Cut}}</code> from main and its worktree, and tags {{.CutNext}} there{{end}}; the candidate tag is never pushed. Main moves on; fixes land on main and are picked onto the branch (<code class="wb-code">issue-cli release pick &lt;slug&gt;</code>).</li>
             <li>Install that build from the release worktree and restart what runs it (issue-viewer: <code class="wb-code">make install</code> there, then restart the viewer).</li>
-            <li>Tell the leads of the projects that run it; they report problems with <code class="wb-code">issue-cli report-bug</code>, and those bugs join {{.Version}}.</li>
+            <li>Tell the CEOs of the projects that run it; they report problems with <code class="wb-code">issue-cli report-bug</code>, and those bugs join {{.Version}}.</li>
         </ol>
     </div>
     {{else if .Soaking}}
@@ -309,6 +309,52 @@ release flow reads the same on both pages.
         <pre class="wb-ci-log">{{range .LogTail}}{{.}}
 {{end}}</pre>
     </details>
+    {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/autostart"}}{{with .AutoStart}}
+<section class="wb-rcard" id="autostart" aria-labelledby="autostart-h" data-testid="status.autostart">
+    <div class="wb-rcard-head">
+        <h2 class="wb-rcard-h" id="autostart-h">Auto-start</h2>
+        <span class="wb-chip {{if .Paused}}wb-chip--idle{{else}}wb-chip--green{{end}}" data-testid="status.autostart.state">{{if .Paused}}paused{{else}}on below {{.Below}}%{{end}}</span>
+    </div>
+    <div class="wb-rel-list">
+        <div class="wb-rsub">Your words</div>
+        <span class="wb-rel-title wb-autostart-words" data-testid="status.autostart.words">“{{.Words}}”</span>
+        <span class="wb-rel-meta">turned on by {{.By}} {{.How}}, {{.Since}} · at most {{.Cap}} workers · one start per {{.GapMinutes}} min across all projects</span>
+    </div>
+    <div class="wb-rel-list">
+        <div class="wb-rsub">Now</div>
+        <code class="wb-code" data-testid="status.autostart.verdict">{{.Verdict}}</code>
+        {{if .Paused}}{{with .PauseReason}}<span class="wb-rel-meta">{{.}}</span>{{end}}{{end}}
+        {{with .Last}}<span class="wb-rel-meta" data-testid="status.autostart.last">Last start on this machine: {{.}}</span>{{end}}
+        <span class="wb-rel-meta">The CEO starts it at a check-in (issue-cli autostart next); nothing here starts a worker.</span>
+    </div>
+    <div class="wb-rel-list">
+        {{if .Paused}}<button type="button" class="wb-btn wb-btn--paper" data-autostart="{{.Prefix}}/autostart/resume" data-testid="status.autostart.resume">Resume</button>{{else}}<button type="button" class="wb-btn wb-btn--paper" data-autostart="{{.Prefix}}/autostart/pause" data-testid="status.autostart.pause">Pause</button>{{end}}
+        <button type="button" class="wb-btn wb-btn--quiet" data-autostart="{{.Prefix}}/autostart/off" data-testid="status.autostart.off">Turn off</button>
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/bench"}}{{with .}}
+<section class="wb-rcard" id="bench" aria-labelledby="bench-h" data-testid="report.bench">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="bench-h">Benchmark</h2><span class="wb-rcard-count">{{len .Rows}}</span></div>
+    <div class="wb-muted wb-small">Golden tasks solved again in a sandbox; the owner keeps the set and the budget.</div>
+    {{range $r := .Rows}}
+    <div class="wb-rel-list" data-testid="report.bench.row.{{.Name}}">
+        <div class="wb-rsub">{{.Name}} · {{.Tasks}} tasks</div>
+        {{if .NoRun}}
+        <div class="wb-empty" data-testid="report.bench.empty">No run yet. Start one from your shell: <code class="wb-code">{{.Cmd}}</code></div>
+        {{else}}
+        <span class="wb-rel-title" data-testid="report.bench.pass">{{.Pass}}{{with .Holdout}} · {{.}}{{end}}</span>
+        <span class="wb-rel-meta">run {{.RunID}}{{with .Label}} ({{.}}){{end}}, {{.When}} · {{.Cost}} · {{.Tokens}}</span>
+        {{with .Stop}}<span class="wb-chip wb-chip--you" data-testid="report.bench.stop">{{.}}</span>{{end}}
+        {{with .Delta}}<span class="wb-chip {{if eq $r.Tone "red"}}wb-chip--you{{else if eq $r.Tone "green"}}wb-chip--green{{else}}wb-chip--idle{{end}}" data-testid="report.bench.delta">{{.}}</span>{{end}}
+        <span class="wb-rel-meta">Next run from your shell: <code class="wb-code">{{.Cmd}}</code></span>
+        {{end}}
+    </div>
     {{end}}
 </section>
 {{end}}{{end}}

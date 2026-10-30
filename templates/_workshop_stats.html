@@ -1,0 +1,145 @@
+{{/* Workshop Board — Stats components (stats_view_wb.go). Generic ones
+  (wb/seg-links, wb/empty, wb/data-table, wb/table-card, wb/fold,
+  wb/see-also, wb/legend) carry their own data and fit any L2 page.
+
+  wb/seg-links    a row of options as links (seg.<Name>)  data: WbSegLinks
+  wb/empty        what is missing and what fills it        data: WbEmpty
+  wb/gauge        one gauge, locked or empty when no data  data: WbGauge
+  wb/series-legend series swatches; a link toggles one      data: []LegendItem
+  wb/chart-card   a chart, its table view and drill-down   data: WbChartCard
+  wb/drill        the issues behind a point or bar         data: Drill
+  wb/data-table   a table                                  data: WbTable
+  wb/table-card   a titled table, or its empty state       data: WbTable
+  wb/fold         folded tables                            data: WbFold
+  wb/see-also     a number another page owns, linked       data: WbSeeAlso
+  wb/project-stat one project on /stats                    data: OverviewRow
+*/}}
+
+{{define "wb/seg-links"}}
+<nav class="wb-seg wb-seg--tall wb-seg--wrap" aria-label="{{.Label}}" data-testid="seg.{{.Name}}">
+    {{range .Items}}<a class="wb-seg-item{{if .On}} wb-seg-item--on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}} data-testid="seg.{{$.Name}}.{{.Key}}">{{.Label}}</a>{{end}}
+</nav>
+{{end}}
+
+{{define "wb/empty"}}{{with .}}
+<div class="wb-sempty" data-testid="stats.empty">
+    <span>{{.Text}}</span>
+    {{if .Cmd}}{{template "wb/copy-cmd" .Cmd}}{{end}}
+    {{if .URL}}<a class="wb-sempty-link" href="{{.URL}}">{{.Link}}</a>{{end}}
+</div>
+{{end}}{{end}}
+
+{{define "wb/gauge"}}
+{{if .Locked}}
+<div class="wb-gauge wb-gauge--locked" data-testid="stats.gauge.{{.Key}}">
+    <div class="wb-gauge-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{{.Title}}</div>
+    <div class="wb-fog wb-gauge-fog" aria-hidden="true"></div>
+    <div class="wb-trend-need">{{.Need}}</div>
+    <a class="wb-trend-cmd" href="{{.URL}}">Open the issue</a>
+</div>
+{{else}}
+<div class="wb-gauge" data-testid="stats.gauge.{{.Key}}">
+    <div class="wb-gauge-title">{{if .Href}}<a href="{{.Href}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</div>
+    {{if .Empty}}{{template "wb/empty" .Empty}}{{else}}
+    <div class="wb-gauge-dial">{{.SVG}}</div>
+    <div class="wb-gauge-value"><span class="wb-gauge-big">{{.Value}}</span> <span class="wb-muted">{{.Context}}</span></div>
+    <div class="wb-chips">
+        {{if .Verdict}}<span class="wb-chip wb-chip--{{if .Over}}red{{else}}green{{end}}"><span class="wb-chip-dot"></span>{{.Verdict}}</span>{{end}}
+        {{if .Chip}}<span class="wb-chip wb-chip--idle">{{.Chip}}</span>{{end}}
+    </div>
+    {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "wb/series-legend"}}{{if .}}<div class="wb-trend-legend">{{range .}}{{if .Href}}<a class="{{.Class}}{{if .Hidden}} wb-legend-off{{end}}" href="{{.Href}}" title="{{if .Hidden}}Show{{else}}Hide{{end}} {{.Name}}"><i></i>{{.Name}}</a>{{else}}<span class="{{.Class}}"><i></i>{{.Name}}</span>{{end}}{{end}}</div>{{end}}{{end}}
+
+{{define "wb/chart-card"}}{{with .Card}}
+<figure class="wb-trend wb-chart{{if $.Wide}} wb-chart--wide{{end}}" id="{{.ID}}" data-testid="stats.chart.{{.ID}}">
+    <div class="wb-chart-head">
+        <div class="wb-chart-titles">
+            <h3 class="wb-trend-head">{{.Title}}</h3>
+            {{if .Sub}}<div class="wb-trend-need">{{.Sub}}{{with .SubSVG}} {{.}}{{end}}</div>{{end}}
+        </div>
+        {{if .Toggles}}<nav class="wb-seg wb-seg--small" aria-label="{{.Title}} option">{{range .Toggles}}<a class="wb-seg-item{{if .On}} wb-seg-item--on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}</nav>{{end}}
+    </div>
+    {{template "wb/series-legend" .Legend}}
+    {{if .Error}}<p class="wb-flash wb-flash--err">{{.Error}}</p>{{end}}
+    {{if .Bars}}
+    <div class="wb-areas" data-testid="stats.card.{{.ID}}">
+        {{if .Big}}<div class="wb-gauge-big">{{.Big}}</div>{{end}}
+        {{range .Bars}}<div class="wb-area"><span class="wb-mono-inline">{{.Label}}</span><span class="wb-area-v">{{.Value}}</span><span class="wb-area-bar"><i style="width: {{.Pct}}%"></i></span></div>{{end}}
+    </div>
+    {{end}}
+    {{if $.Empty}}{{template "wb/empty" $.Empty}}{{else if .SVG}}<div class="wb-trend-plot wb-chart-plot">{{.SVG}}</div>{{end}}
+    {{if $.Table.Rows}}
+    <details class="wb-chart-table" data-testid="stats.table.{{.ID}}">
+        <summary>Table</summary>
+        {{template "wb/data-table" $.Table}}
+    </details>
+    {{end}}
+    {{with $.Drill}}{{template "wb/drill" .}}{{end}}
+</figure>
+{{end}}{{end}}
+
+{{define "wb/drill"}}
+<div class="wb-drill" data-testid="stats.drilldown">
+    <div class="wb-drill-head"><strong>{{.Title}}</strong><a class="wb-btn wb-btn--sm" href="{{.Close}}">Close</a></div>
+    {{if .Issues}}<ul class="wb-drill-list">{{range .Issues}}<li><span class="wb-muted wb-mono-inline">{{.Date}}</span><a class="wb-mono-inline" href="{{.Href}}">{{.Slug}}</a><span class="wb-mono-inline">{{.Detail}}</span></li>{{end}}</ul>{{else}}<p class="wb-empty">No issues.</p>{{end}}
+    {{if .More}}<p class="wb-muted">{{.More}} more · each slug opens that issue's Timeline tab</p>{{end}}
+</div>
+{{end}}
+
+{{define "wb/data-table"}}
+<div class="wb-table-scroll"><table class="wb-table">
+    <thead><tr>{{range .Head}}<th scope="col"{{if .Num}} class="wb-num"{{end}}>{{.Text}}</th>{{end}}</tr></thead>
+    <tbody>{{range .Rows}}<tr>{{range $i, $c := .}}{{if and (eq $i 0) $.RowHead}}<th scope="row">{{template "wb/cell" $c}}</th>{{else}}<td{{if $c.Num}} class="wb-num"{{end}}>{{template "wb/cell" $c}}</td>{{end}}{{end}}</tr>{{end}}</tbody>
+</table></div>
+{{end}}
+
+{{define "wb/cell"}}{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else if .Code}}<code>{{.Text}}</code>{{else}}{{.Text}}{{end}}{{end}}
+
+{{define "wb/table-card"}}
+<section class="wb-tcard" data-testid="stats.table_card.{{.Key}}">
+    <h3 class="wb-trend-head">{{.Title}}</h3>
+    {{if .Sub}}<div class="wb-trend-need">{{.Sub}}</div>{{end}}
+    {{if .Rows}}{{template "wb/data-table" .}}{{else}}{{template "wb/empty" .Empty}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/fold"}}
+<details class="wb-fold"{{if .Open}} open{{end}} data-testid="stats.fold.{{.Key}}">
+    <summary>{{.Title}}</summary>
+    {{template "wb/empty" .Note}}
+    <div class="wb-tgrid">{{range .Tables}}{{template "wb/table-card" .}}{{end}}</div>
+</details>
+{{end}}
+
+{{define "wb/see-also"}}
+<div class="wb-trend wb-seealso" data-testid="stats.see_also.{{.Key}}">
+    <div class="wb-trend-head">{{.Title}}</div>
+    <div class="wb-trend-need">{{.Text}}</div>
+    <a class="wb-btn wb-btn--sm" href="{{.URL}}">{{.Link}} ›</a>
+</div>
+{{end}}
+
+{{define "wb/project-stat"}}
+<a class="wb-pstat" href="{{.Href}}" data-testid="stats.overview.row" data-project="{{.Slug}}">
+    <div class="wb-pstat-name"><strong>{{.Name}}</strong><span class="wb-muted wb-mono-inline">{{.Slug}}</span>
+        <span class="wb-pstat-privacy">{{range .Privacy}}<span class="wb-chip wb-chip--idle" data-testid="stats.overview.privacy.{{.Kind}}" data-level="{{.Level}}" title="{{.Sentence}}">{{.Icon}}{{.Marker}}</span>{{end}}</span>
+    </div>
+    {{if .Waiting.Has}}
+    <div class="wb-pstat-cell"><span class="wb-muted">Waiting on you</span><span class="wb-pstat-v">{{.Waiting.Value}}</span>
+        <span class="wb-meter" role="img" aria-label="{{.Waiting.Value}}{{if .Limit}} against a {{.Pct .Limit}}% limit{{end}}"><i style="width: {{.Pct .WaitingShare}}%"></i>{{if .Limit}}<b style="left: {{.Pct .Limit}}%"></b>{{end}}</span>
+        {{if .WaitingOver}}<span class="wb-chip wb-chip--red">over {{.Pct .Limit}}%</span>{{end}}</div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Cycle p50</span><span class="wb-pstat-v">{{.Cycle.Value}}</span><span class="s-all">{{.Cycle.Spark}}</span></div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Rework share</span><span class="wb-pstat-v">{{.Rework.Value}}</span><span class="s-all">{{.Rework.Spark}}</span></div>
+    {{else}}
+    <div class="wb-pstat-cell wb-pstat-cell--span"><span class="wb-muted">No issue done in the last 30 days{{if .Done}} with CLI calls{{end}}</span></div>
+    {{end}}
+    <div class="wb-pstat-cell"><span class="wb-muted">Done, 30 days</span><span class="wb-pstat-v">{{.Done}}</span></div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Lines of code</span>{{if .LOC.Has}}<span class="wb-pstat-v">{{.LOC.Value}}</span><span class="s-all">{{.LOC.Spark}}</span>{{else}}<span class="wb-pstat-v">—</span>{{end}}</div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Test ratio · big files</span><span class="wb-pstat-v">{{if .HasRatio}}{{printf "%.2f" .TestRatio}}{{else}}—{{end}} · {{if .HasBig}}{{.BigFiles}}{{else}}—{{end}}</span></div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Latest snapshot</span><span class="wb-mono-inline">{{.Latest}}</span></div>
+</a>
+{{end}}

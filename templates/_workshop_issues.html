@@ -1,0 +1,36 @@
+{{/* The crate store (issues_wb.go): the hall's Issues tab. */}}
+
+{{define "wb/shelf-label"}}<div class="wb-day" data-testid="issues.shelf.label"><span>{{.}}</span><i aria-hidden="true"></i></div>{{end}}
+
+{{define "wb/crate-icon"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="#E9D7B5" stroke="#1B1F2A" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10" fill="none"/></svg>{{end}}
+
+{{define "wb/crate-card"}}
+<li class="wb-scrate{{if .You}} wb-scrate--you{{end}}" data-testid="issues.crate.{{tid .Slug}}">
+    <span class="wb-scrate-icon">{{with .Robot}}{{template "wb/robot" .}}{{else}}{{template "wb/crate-icon"}}{{end}}</span>
+    <div class="wb-scrate-main">
+        <div class="wb-scrate-top">
+            <a class="wb-scrate-title" href="{{.URL}}" data-testid="issues.crate.{{tid .Slug}}.title">{{.Title}}</a>
+            {{if .ShowStatus}}<span class="wb-tag-pill wb-tag-pill--mono">{{.Status}}</span>{{end}}
+            {{with .You}}<span class="wb-chip wb-chip--you" title="Waiting on you" data-testid="issues.crate.{{tid $.Slug}}.you"><span class="wb-chip-dot"></span>{{.}}</span>{{end}}
+            {{if .CI}}<span class="wb-crate-ci" title="CI red">CI</span>{{end}}
+            {{if .YOLO}}<span class="wb-crate-yolo" title="passed a gate in YOLO, without you">YOLO</span>{{end}}
+        </div>
+        <div class="wb-scrate-meta">
+            <span class="wb-scrate-slug">{{.Slug}}</span>
+            {{range .Tags}}{{if .URL}}<a class="wb-tag-pill" href="{{.URL}}">{{.Label}}</a>{{else}}<span class="wb-tag-pill wb-tag-pill--mono">{{.Label}}</span>{{end}}{{end}}
+            {{with .Priority}}{{template "wb/chip" .}}{{end}}
+            {{range .Labels}}<a class="wb-tag-pill wb-tag-pill--label" href="{{.URL}}">{{.Label}}</a>{{end}}
+            {{with .Score}}<span class="wb-scrate-score" style="--c: {{scoreColor .}}" title="Score">⚡ {{formatScore .}}</span>{{end}}
+            {{with .Created}}<span class="wb-scrate-date">{{.}}</span>{{end}}
+        </div>
+    </div>
+</li>
+{{end}}
+
+{{define "wb/shelf"}}
+<section class="wb-shelf" data-testid="issues.shelf.{{tid .Status}}">
+    {{template "wb/shelf-label" .Label}}
+    <ul class="wb-thread wb-shelf-crates">{{range .Crates}}{{template "wb/crate-card" .}}{{end}}</ul>
+    {{if .More}}<a class="wb-shelf-more" href="{{.MoreURL}}" data-testid="issues.shelf.{{tid .Status}}.more">+{{.More}} more in {{.Status}}</a>{{end}}
+</section>
+{{end}}

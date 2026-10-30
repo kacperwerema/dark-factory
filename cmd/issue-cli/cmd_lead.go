@@ -12,25 +12,29 @@ import (
 
 var leadCommand = &Command{
 	Name:      "lead",
-	ShortHelp: "The project lead: spawn it, see who leads whom (sub: spawn|whoami|list|message)",
-	LongHelp: `The project lead supervises workers. There is one lead per project
-(tmux lead-<project>, in the project checkout); every worker reports to it,
-epic children included. Only the human decides.
+	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom (sub: spawn|whoami|list|message; alias: ceo)",
+	LongHelp: `The CEO supervises workers; it is what was called the project lead.
+There is one CEO per project (tmux lead-<project>, in the project
+checkout); every worker and department reports to it, epic children
+included. Only the human decides. issue-cli ceo is the same command.
 
 Subcommands:
-  spawn [--headless] [--agent claude|codex]
-      Start the project lead. A live lead is re-attached, never started
+  spawn [--department <name>] [--headless] [--agent claude|codex]
+      Start the CEO, or with --department a department's lead
+      (lead-<project>-<dept>, reporting to the CEO; projects.yaml
+      departments:). A live lead is re-attached, never started
       twice. lead_terminal: in projects.yaml decides what opens (unset:
       headless; tmux-window: a tab in lead_window_session); --headless
       opens nothing either way. Workers follow terminal: instead.
   whoami
-      Your role, lead, and what you may tick.
+      Your role, who you report to, and what you may tick.
   list
-      The project lead (live or not) and the open epics, with how many of
-      their children are running.
+      The CEO and the department leads (live or not) and the open
+      epics, with how many of their children are running.
   message <target> "text"
       Message a Codex session: pastes the text into it, signed
-      [from <you>]. target: project, a lead-/agent- session name, or an
+      [from <you>]. target: project (the CEO), department:<name> (its
+      lead), a lead-/agent- session name, or an
       issue slug (its worker). A Claude Code session is never pasted into:
       the command refuses and names the address to use with your own
       SendMessage tool (ListAgents lists them). Workers can't message; they
@@ -38,6 +42,7 @@ Subcommands:
 
 Examples:
   issue-cli lead spawn
+  issue-cli lead spawn --department marketing
   issue-cli lead whoami
   issue-cli lead message ui/workbench-redesign "please rebase on main"`,
 	Run:         runLead,
@@ -46,11 +51,12 @@ Examples:
 
 func init() {
 	registerCommand(leadCommand)
+	registerAlias("ceo", "lead")
 }
 
 func runLead(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"")
+		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -69,7 +75,7 @@ func runLead(ctx *Context, args []string) error {
 
 // errSubLeadsRemoved answers `lead spawn --epic`, kept so old habits get a
 // clear answer instead of an unknown-flag error.
-const errSubLeadsRemoved = "sub-leads were removed (one lead per project); issue-cli lead spawn starts the project lead"
+const errSubLeadsRemoved = "sub-leads were removed (one CEO per project); issue-cli lead spawn starts the CEO"
 
 func runLeadSpawn(ctx *Context, args []string) error {
 	for _, a := range args {
@@ -81,6 +87,7 @@ func runLeadSpawn(ctx *Context, args []string) error {
 	headlessFlag := fs.Bool("headless", false, "open nothing, even when lead_terminal is set")
 	fs.Bool("attach", false, "deprecated, no effect: lead_terminal decides")
 	agentFlag := fs.String("agent", "claude", "agent to run: claude or codex")
+	deptFlag := fs.String("department", "", "start this department's lead instead of the CEO")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -90,11 +97,24 @@ func runLeadSpawn(ctx *Context, args []string) error {
 		return fmt.Errorf("cannot load issues: %w", err)
 	}
 	if me := whoAmI(proj, issues); me.Role == tracker.RoleWorker {
-		return fmt.Errorf("workers can't spawn leads (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; your lead relays it:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
+		return fmt.Errorf("workers can't spawn the CEO (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; the CEO relays it:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
 			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
 	}
 
+	role := "CEO"
 	spec := agentrun.LeadSpec(proj, proj.LoadWorkflow(), projectRoot(proj), ctx.now())
+	if name := strings.TrimSpace(*deptFlag); name != "" {
+		dept, err := spawnDepartment(proj, name)
+		if err != nil {
+			return err
+		}
+		wf, err := proj.WorkflowFor(dept.Name)
+		if err != nil {
+			return fmt.Errorf("%w\n\nFix the department's workflow: file before starting its lead (issue-cli health lint)", err)
+		}
+		role = dept.Name + " lead"
+		spec = agentrun.DepartmentLeadSpec(proj, dept, wf, projectRoot(proj), ctx.now())
+	}
 	spec.AgentType = *agentFlag
 	spec.Headless = *headlessFlag
 
@@ -111,15 +131,38 @@ func runLeadSpawn(ctx *Context, args []string) error {
 	if resp.Status == "reattached" {
 		verb = "Already live:"
 	}
-	fmt.Fprintf(ctx.Stdout, "✓ %s project lead %s\n", verb, resp.Session)
+	fmt.Fprintf(ctx.Stdout, "✓ %s %s %s\n", verb, role, resp.Session)
 	printSteps(ctx, resp.Steps)
 	if resp.AttachCmd != "" {
 		fmt.Fprintf(ctx.Stdout, "\nInside tmux:  %s\nFrom a shell: %s\n", resp.SwitchCmd, resp.AttachCmd)
 		if agentrun.LeadHeadless(proj) && !*headlessFlag && os.Getenv("TMUX") != "" {
-			fmt.Fprintln(ctx.Stdout, "tip: set lead_terminal: tmux-window and lead_window_session: <your session> in projects.yaml to open the lead as a tab in your session")
+			fmt.Fprintln(ctx.Stdout, "tip: set lead_terminal: tmux-window and lead_window_session: <your session> in projects.yaml to open the CEO as a tab in your session")
 		}
 	}
+	if *deptFlag == "" && len(proj.Departments) > 0 {
+		fmt.Fprintf(ctx.Stdout, "tip: department leads: %s (%s)\n", tracker.InjectProject(proj, "issue-cli lead spawn --department <name>"), strings.Join(proj.DepartmentKeys(), ", "))
+	}
+	if *deptFlag == "" && len(proj.Departments) == 0 {
+		fmt.Fprintf(ctx.Stdout, "tip: add a department (Marketing, …) from a template: %s\n", tracker.InjectProject(proj, "issue-cli department list"))
+	}
 	return nil
+}
+
+// spawnDepartment is the department lead spawn --department names. HQ and
+// Product are the CEO's; anything else not in departments: is refused with
+// the list.
+func spawnDepartment(proj *tracker.Project, name string) (*tracker.Department, error) {
+	switch strings.ToLower(name) {
+	case "hq", strings.ToLower(tracker.ProductName):
+		return nil, fmt.Errorf("%s is the CEO's: %s", name, tracker.InjectProject(proj, "issue-cli lead spawn"))
+	}
+	if d := proj.DepartmentByKey(name); d != nil {
+		return d, nil
+	}
+	if len(proj.Departments) == 0 {
+		return nil, fmt.Errorf("no department %q: this project has no departments: in projects.yaml (docs/departments.md)", name)
+	}
+	return nil, fmt.Errorf("no department %q (departments: %s)", name, strings.Join(proj.DepartmentKeys(), ", "))
 }
 
 func printSteps(ctx *Context, steps []agentrun.Step) {
@@ -140,17 +183,21 @@ func printSteps(ctx *Context, steps []agentrun.Step) {
 }
 
 type whoamiJSON struct {
-	Role      string `json:"role"`
-	Session   string `json:"session,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	Issue     string `json:"issue,omitempty"`
-	Guards    string `json:"guards,omitempty"`
-	Lead      string `json:"lead,omitempty"`
-	LeadLive  bool   `json:"lead_live"`
-	MayTick   string `json:"may_tick"`
-	Reach     string `json:"reach,omitempty"`
-	Signal    string `json:"signal"`
-	LegacyKey bool   `json:"legacy_umbrella,omitempty"`
+	Role    string `json:"role"`
+	Session string `json:"session,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	// Department is a department lead's department.
+	Department string `json:"department,omitempty"`
+	Issue      string `json:"issue,omitempty"`
+	Guards     string `json:"guards,omitempty"`
+	Lead       string `json:"lead,omitempty"`
+	LeadLive   bool   `json:"lead_live"`
+	MayTick    string `json:"may_tick"`
+	Reach      string `json:"reach,omitempty"`
+	Signal     string `json:"signal"`
+	LegacyKey  bool   `json:"legacy_umbrella,omitempty"`
+	AutoStart  string `json:"autostart,omitempty"`
+	Jobs       string `json:"jobs,omitempty"`
 }
 
 func runLeadWhoami(ctx *Context, args []string) error {
@@ -172,16 +219,24 @@ func runLeadWhoami(ctx *Context, args []string) error {
 	case tracker.RoleProjectLead:
 		out.Guards = "main (the project checkout)"
 		out.MayTick = "gates the human approved in your chat, with issue-cli approve --quote; never Human Testing"
+		out.AutoStart = autostartLine(ctx)
+		out.Jobs = jobsLine(ctx, me, issues)
+	case tracker.RoleDepartmentLead:
+		out.Jobs = jobsLine(ctx, me, issues)
+		out.Department = me.Department
+		out.Guards = "main (the project checkout)"
+		out.Lead, out.LeadLive = projectLead, live(projectLead)
+		out.MayTick = me.Department + "'s gates the human approved in your chat, with issue-cli approve --quote; never Human Testing, never another department's"
 	case tracker.RoleWorker:
 		issue := tracker.FindIssue(issues, me.Slug)
 		route := tracker.LeadFor(proj, issue, issues, live)
 		out.Lead, out.LeadLive = route.Lead, route.Live
 		if issue != nil {
 			out.Guards = tracker.AgentSessionName(issue.Slug) + "'s branch only"
-			out.Reach = fmt.Sprintf("issue-cli comment %s \"question: ...\" — your lead follows your issue trail", issue.Slug)
+			out.Reach = fmt.Sprintf("issue-cli comment %s \"question: ...\" — %s follows your issue trail", issue.Slug, route.Lead)
 			out.LegacyKey = tracker.UsesLegacyUmbrella(issue)
 		} else {
-			out.Reach = "post question: comments on your issue — your lead follows your issue trail"
+			out.Reach = "post question: comments on your issue — the CEO follows your issue trail"
 		}
 		out.MayTick = "nothing: workers never tick gates"
 	default:
@@ -216,11 +271,17 @@ func runLeadWhoami(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "Reach your lead: %s\n", tracker.InjectProject(proj, out.Reach))
 	}
 	fmt.Fprintf(w, "May tick: %s\n", out.MayTick)
+	if out.AutoStart != "" {
+		fmt.Fprintln(w, out.AutoStart)
+	}
+	if out.Jobs != "" {
+		fmt.Fprintln(w, out.Jobs)
+	}
 	if out.LegacyKey {
 		fmt.Fprintf(w, "Hint: your issue links its epic with umbrella: (legacy alias). Rename it: issue-cli set-meta %s --key parent --value %s\n", out.Issue, tracker.ParentSlug(tracker.FindIssue(issues, out.Issue)))
 	}
 	if me.Role == tracker.RoleUnmanaged {
-		fmt.Fprintf(w, "\nNot a spawned lead or worker. If you are acting as the project lead, run: %s\n", tracker.InjectProject(proj, "issue-cli lead spawn"))
+		fmt.Fprintf(w, "\nNot a spawned CEO or worker. If you are acting as the CEO, run: %s\n", tracker.InjectProject(proj, "issue-cli lead spawn"))
 	}
 	return nil
 }
@@ -253,14 +314,33 @@ type epicRow struct {
 }
 
 type leadListJSON struct {
-	Lead  leadRow   `json:"lead"`
-	Epics []epicRow `json:"epics"`
+	Lead leadRow `json:"lead"`
+	// Departments are the department leads, in projects.yaml order.
+	Departments []deptLeadRow `json:"departments"`
+	Epics       []epicRow     `json:"epics"`
+}
+
+type deptLeadRow struct {
+	Department string `json:"department"`
+	Session    string `json:"session"`
+	Live       bool   `json:"live"`
+	Open       int    `json:"open"`
 }
 
 // leadList builds the project lead's row and one row per open epic.
 func leadList(proj *tracker.Project, issues []*tracker.Issue, live map[string]bool) leadListJSON {
 	projectLead := tracker.LeadSessionName(proj)
-	out := leadListJSON{Lead: leadRow{Session: projectLead, Live: live[projectLead]}, Epics: []epicRow{}}
+	out := leadListJSON{Lead: leadRow{Session: projectLead, Live: live[projectLead]}, Departments: []deptLeadRow{}, Epics: []epicRow{}}
+	for _, d := range proj.Departments {
+		name := tracker.DepartmentLeadName(proj, d.Name)
+		row := deptLeadRow{Department: d.Name, Session: name, Live: live[name]}
+		for _, issue := range issues {
+			if issue.Status != "done" && proj.DepartmentOf(issue) == d.Name {
+				row.Open++
+			}
+		}
+		out.Departments = append(out.Departments, row)
+	}
 	for _, issue := range issues {
 		if issue.Status == "done" || !tracker.IsEpic(issue, issues) {
 			continue
@@ -292,8 +372,14 @@ func runLeadList(ctx *Context, args []string) error {
 		return writeJSON(ctx.Stdout, list)
 	}
 	w := ctx.Stdout
-	fmt.Fprintln(w, "== Lead ==")
-	fmt.Fprintf(w, "  %-40s project lead  %s\n", list.Lead.Session, liveWord(list.Lead.Live))
+	fmt.Fprintln(w, "== CEO ==")
+	fmt.Fprintf(w, "  %-40s CEO  %s\n", list.Lead.Session, liveWord(list.Lead.Live))
+	if len(list.Departments) > 0 {
+		fmt.Fprintln(w, "\n== Department leads ==")
+		for _, r := range list.Departments {
+			fmt.Fprintf(w, "  %-40s %s  %s · %d open\n", r.Session, r.Department, liveWord(r.Live), r.Open)
+		}
+	}
 	if len(list.Epics) > 0 {
 		fmt.Fprintln(w, "\n== Epics ==")
 		for _, r := range list.Epics {
@@ -301,7 +387,7 @@ func runLeadList(ctx *Context, args []string) error {
 		}
 	}
 	if !list.Lead.Live {
-		fmt.Fprintf(w, "\nThe project lead is not running. Start it: %s\n", tracker.InjectProject(proj, "issue-cli lead spawn"))
+		fmt.Fprintf(w, "\nThe CEO is not running. Start it: %s\n", tracker.InjectProject(proj, "issue-cli lead spawn"))
 	}
 	return nil
 }
@@ -328,7 +414,7 @@ func runLeadMessage(ctx *Context, args []string) error {
 	me := whoAmI(proj, issues)
 	if me.Role == tracker.RoleWorker {
 		slug := valueOr(me.Slug, "<slug>")
-		return fmt.Errorf("workers can't message sessions. Ask your lead on your issue trail instead:\n  %s", tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", slug)))
+		return fmt.Errorf("workers can't message sessions. Ask the CEO on your issue trail instead:\n  %s", tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", slug)))
 	}
 	session := resolveMessageTarget(proj, issues, target)
 	signed := fmt.Sprintf("[from %s] %s", me.sender(), text)
@@ -361,6 +447,8 @@ func messageNotRunning(proj *tracker.Project, session string) error {
 	hint := ""
 	if session == tracker.LeadSessionName(proj) {
 		hint = "\n\nStart it: " + tracker.InjectProject(proj, "issue-cli lead spawn")
+	} else if d := proj.DepartmentOfLead(session); d != nil {
+		hint = "\n\nStart it: " + tracker.InjectProject(proj, "issue-cli lead spawn --department "+tracker.DepartmentKey(d.Name))
 	}
 	return fmt.Errorf("%s is not running; nothing was sent.%s", session, hint)
 }
@@ -372,6 +460,12 @@ func resolveMessageTarget(proj *tracker.Project, issues []*tracker.Issue, target
 	switch {
 	case target == tracker.LeadScopeProject:
 		return tracker.LeadSessionName(proj)
+	case strings.HasPrefix(target, tracker.LeadScopeDepartmentPrefix):
+		key := strings.TrimPrefix(target, tracker.LeadScopeDepartmentPrefix)
+		if d := proj.DepartmentByKey(key); d != nil {
+			key = d.Name
+		}
+		return tracker.DepartmentLeadName(proj, key)
 	case strings.HasPrefix(target, "lead-"), strings.HasPrefix(target, "agent-"):
 		return target
 	}
@@ -382,10 +476,17 @@ func resolveMessageTarget(proj *tracker.Project, issues []*tracker.Issue, target
 	return tracker.AgentSessionName(slug)
 }
 
-// leadHeaderLine is the "Lead:" line show and start print for an issue.
+// leadHeaderLine is the "CEO:" line show and start print for an issue.
 func leadHeaderLine(proj *tracker.Project, issue *tracker.Issue, issues []*tracker.Issue) string {
 	route := tracker.LeadFor(proj, issue, issues, sessionLive(proj))
-	return fmt.Sprintf("Lead: %s (%s)", route.Lead, liveWord(route.Live))
+	if route.Department == "" {
+		return fmt.Sprintf("CEO: %s (%s)", route.Lead, liveWord(route.Live))
+	}
+	line := fmt.Sprintf("Lead: %s (%s) · CEO: %s (%s)", route.DepartmentLead, liveWord(!route.Covering), route.CEO, liveWord(route.CEOLive))
+	if route.Covering {
+		line += " — the CEO covers until the " + route.Department + " lead starts: " + tracker.InjectProject(proj, "issue-cli lead spawn --department "+tracker.DepartmentKey(route.Department))
+	}
+	return line
 }
 
 // umbrellaHint nudges issues still on the legacy umbrella: key to parent:.
@@ -398,7 +499,7 @@ func umbrellaHint(proj *tracker.Project, issue *tracker.Issue) string {
 }
 
 // printLeadLines prints who the issue reports to, the department line
-// (role prompt, goals), the outputs line and the umbrella: rename hint when
+// (role prompt, goals), the outputs and connectors lines and the umbrella: rename hint when
 // they apply. show and start print it under the status line.
 func printLeadLines(ctx *Context, issue *tracker.Issue) {
 	issues, err := tracker.LoadIssues(ctx.Project.IssueDir)
@@ -409,10 +510,16 @@ func printLeadLines(ctx *Context, issue *tracker.Issue) {
 	if line := yoloHeaderLine(ctx.Project, ctx.now()); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
+	if line := experimentHeaderLine(ctx.Project, issue); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
 	if line := departmentLine(ctx.Project, issue); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	if line := outputsLine(ctx.Project, issue, ctx.Project.LoadWorkflowForIssue(issue)); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
+	if line := tracker.ConnectorsLine(ctx.Project, ctx.Project.DepartmentOf(issue)); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	if hint := umbrellaHint(ctx.Project, issue); hint != "" {

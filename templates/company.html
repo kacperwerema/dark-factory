@@ -37,7 +37,7 @@
         <a class="wb-site-link" href="{{.Header.WaitingURL}}" data-testid="company.queue.more">{{if .QueueMore}}{{.QueueMore}} more: see all{{else}}See all{{end}} and approve</a>
     </div>
     <div class="wb-side-block wb-side-block--grow">
-        <div class="wb-h2-row"><h2 class="wb-h2">Radio · {{.Lot.Name}}</h2><span class="wb-muted">what the CEO said</span></div>
+        <div class="wb-h2-row"><h2 class="wb-h2">Radio · {{.Lot.Name}}</h2><span class="wb-muted">what the CEO and agents said</span></div>
         {{template "wb/radio" .Radio}}
     </div>
     <div class="wb-side-block wb-side-block--foot" data-spawn-box>{{template "wb/message-box" .Message}}</div>

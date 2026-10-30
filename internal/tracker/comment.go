@@ -21,6 +21,33 @@ type Comment struct {
 	Text   string `json:"text"`
 	Status string `json:"status"`
 	Source string `json:"source"`
+	// Author is who wrote it: a session name (lead-<project>, agent-<slug>,
+	// a department lead) or "owner" from the viewer. Empty on comments from
+	// before v0.57 and from a shell with no session; read it through
+	// CommentAuthor.
+	Author string `json:"author,omitempty"`
+}
+
+// OwnerAuthor is the author of every comment the viewer writes: the owner
+// at the browser.
+const OwnerAuthor = "owner"
+
+// recordedBy is the suffix approval: and dispatch: comments name their
+// recorder with.
+const recordedBy = " — recorded by "
+
+// CommentAuthor is who wrote c: its author, else the name an older comment
+// gives after " — recorded by ", else "".
+func CommentAuthor(c Comment) string {
+	if c.Author != "" {
+		return c.Author
+	}
+	if i := strings.LastIndex(c.Text, recordedBy); i >= 0 {
+		if name := strings.TrimSpace(c.Text[i+len(recordedBy):]); name != "" && !strings.ContainsAny(name, " \n") {
+			return name
+		}
+	}
+	return ""
 }
 
 // CommentDay is the "2006-01-02" day of a comment date in either stored
@@ -138,6 +165,11 @@ func NextCommentID(comments []Comment) int {
 }
 
 func AddComment(filePath string, block int, text, source string) error {
+	return AddCommentBy(filePath, block, text, source, "")
+}
+
+// AddCommentBy is AddComment signed by author ("" for none).
+func AddCommentBy(filePath string, block int, text, source, author string) error {
 	return withIssueLock(filePath, func() error {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
@@ -152,6 +184,7 @@ func AddComment(filePath string, block int, text, source string) error {
 			Text:   text,
 			Status: "open",
 			Source: source,
+			Author: author,
 		}
 		existing = append(existing, c)
 		return saveCommentsLocked(filePath, existing)

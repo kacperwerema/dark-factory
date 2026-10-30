@@ -166,6 +166,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 
 	now := time.Now()
 	opts := parseStatsOpts(r.URL.Query())
+	// The Workshop Board header reads the whole project as well; build it
+	// while the stats are built.
+	header := make(chan WbHeader, 1)
+	if !opts.Classic {
+		go func() { header <- s.statsHeader(proj, prefix, now) }()
+	}
 	if s.stats == nil {
 		s.stats = newStatsCache()
 	}
@@ -180,8 +186,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 	recorded, totals := aggregateRecordedStats(issues)
 	usage, usageNotice, usageLoading := s.stats.cliUsage(proj, now, s.statsBG("stats cli usage "+proj.Slug))
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "stats.html", StatsData{
+	data := StatsData{
 		Prefix:              prefix,
 		ProjectName:         proj.Name,
 		DispatchPromptCost:  tracker.AgentDispatchPromptStaticCost(),
@@ -195,7 +200,13 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 		TimeGroups:          timeGroups(timeRep),
 		Dash:                dash,
 		TablesOpen:          opts.Days > 0,
-	}); err != nil {
+	}
+	if !opts.Classic {
+		s.renderStatsWb(w, proj, <-header, data)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, "stats.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

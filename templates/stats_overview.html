@@ -15,7 +15,7 @@
         <div class="stats-head-text">
             <div class="stats-crumb"><a href="/">All projects</a> / stats</div>
             <h1 class="page-title">Stats, all projects</h1>
-            <p class="stats-sub">Each project's latest health snapshot, with the last {{.Days}} days as a sparkline · click a project for its stats page</p>
+            <p class="stats-sub">Each project's latest health snapshot, with the last {{.Days}} days as a sparkline · click a project for its stats page · <a href="/stats?range={{.Range}}" data-testid="stats.workshop">Workshop view</a></p>
             {{with .Privacy}}<p class="stats-sub" data-testid="stats.overview.privacy">Work files: {{.}}</p>{{end}}
         </div>
         <nav class="stats-options" aria-label="Overview options">

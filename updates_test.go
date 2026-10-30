@@ -209,10 +209,10 @@ func TestUpdatesOverviewComparesProjects(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{a, b})
 	defer ts.Close()
 
-	_, body := getBody(t, ts.URL+"/updates")
+	_, body := getBody(t, ts.URL+"/updates?classic=1")
 	for _, want := range []string{`data-testid="updates.overview"`, `href="/p/test-project/updates"`, "development@v0.36.0", ">behind<", "built-in or custom", "1 installed · 1 declined"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("overview missing %q", want)
+			t.Errorf("classic overview missing %q", want)
 		}
 	}
 	if strings.Index(body, "Test Project") > strings.Index(body, "Plain") {
@@ -268,7 +268,7 @@ func TestUpdatesStaleRecordIsNotUpToDate(t *testing.T) {
 		t.Errorf("state should be not recorded:\n%s", body)
 	}
 	_, overview := getBody(t, ts.URL+"/updates")
-	if !strings.Contains(overview, ">not recorded<") {
+	if !strings.Contains(overview, `data-testid="updates_overview.card.test-project.state">not recorded<`) {
 		t.Error("overview should say not recorded")
 	}
 }

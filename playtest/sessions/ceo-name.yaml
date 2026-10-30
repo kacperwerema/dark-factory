@@ -1,0 +1,41 @@
+session: ceo-name
+issue: factory/call-leads-ceos-in-the-ui-and-cli
+title: "The project lead is called the CEO on the classic pages and in issue-cli"
+scenario: leads
+
+# The CEO is what was called the lead. The words change; lead-<project>,
+# issue-cli lead and /lead stay, with issue-cli ceo and /ceo leading there.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The sidebar, agents canvas and issue page say CEO; ceo and /ceo reach the lead
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+    act:
+      - open: /p/{project}/agents?classic=1
+    checks:
+      - text_equals: { target: actions.spawn_lead, text: "Start the CEO" }
+      - text_equals: { target: agents.spawn_lead, text: "Start the CEO" }
+      - http: { path: "/p/{project}/issue/ui/child?classic=1", contains: '<h3>CEO</h3>' }
+      - http: { path: "/p/{project}/ceo", contains: 'data-testid="lead_chat.page"' }
+      - http: { path: "/ceos", contains: 'data-testid="leads.page"' }
+      - cli: { args: [--project, crew, ceo, list], contains: "== CEO ==" }
+      - cli: { args: [--project, crew, show, ui/child], contains: "CEO: lead-crew (not running)" }
+      - cli: { args: [--project, crew, help, lead], contains: "Aliases: ceo" }
+    targets:
+      - { id: agents.tree, note: "The CEO's node at the centre reads CEO · lead-crew" }
+      - { id: actions.spawn_lead, note: "The sidebar button that starts the CEO" }
+    do: |
+      1. Look at the sidebar's Actions and the agents canvas: the buttons
+         and the centre node.
+      2. Open ui/child from the Issues tab and read its side column.
+    expect: |
+      The button reads Start the CEO, the centre node CEO · lead-crew, and
+      ui/child's side column has a CEO section naming lead-crew. Nowhere on
+      these pages is the project lead called the lead.
+    why: The machine checks cover the words; only you can say whether the pages read as one CEO.

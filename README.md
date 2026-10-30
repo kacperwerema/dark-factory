@@ -89,7 +89,7 @@ When you step away, `issue-cli yolo on --until 4h --quote "<your words>"` lets g
 
 - **`main` is the only integration branch.** A worker merges `main` into its branch, runs your checks, and fast-forwards the local `main`. Agents never push.
 - **Local CI** re-tests `main` after every merge. An opt-in `ci:` block in `workflow.yaml` names the commands, the viewer runs them in tmux and keeps each run under `.ci/`. A red run shows in the hall's CI scanner, on the Report, on the issues that landed and in the lead's chat. See [docs/workflow.md#local-ci](docs/workflow.md#local-ci).
-- **A release per milestone.** Agents add their change under `## Unreleased` in the changelog. The Report's **Waiting for release** card says when the milestone is ready to cut. The lead cuts it and pushes on your go-ahead ([releases](docs/roadmap.md#cutting-a-release-candidate-soak-publish)).
+- **A release per milestone.** Agents add their change under `## Unreleased` in the changelog. The Report's **Waiting for release** card says when the milestone is ready to cut. The lead cuts it and pushes on your go-ahead ([releases](docs/roadmap.md#cutting-a-release-candidate-soak-publish)). With `privacy.code: snapshots` the dev history stays in a private repo and the public one gets **one commit per release**, its changelog section as the message: `issue-cli release setup --dev <private repo url>` once, then `release publish <version>` (`--dry-run` shows the commit first).
 
 ### Under the board
 

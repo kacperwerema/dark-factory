@@ -1,12 +1,15 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/autostart"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/michal-franc/issue-viewer/internal/yolo"
 )
 
 // exitWaitingOnGate is dispatch's exit code when the issue only waits on the
@@ -31,21 +34,29 @@ nothing starts. Each dispatch (and --reprompt) leaves a comment on the issue:
   dispatch: "<words>" (<how>, <date>)
 One slug per call; nothing expands an epic into its children.
 
+--autostart is the one start without new words: on a project where the
+owner turned auto-start on (issue-cli autostart on --quote ...), it quotes
+the owner's stored words, checks memory (mem-guard), the worker cap and the
+machine-wide start budget again under a lock, and starts nothing when any
+of them holds. issue-cli autostart next prints the command when it may run.
+
 Workers can't dispatch: post a question: comment for your lead instead.
 
 Flags:
   --quote "<words>"      the human's words that ask for this worker (required)
-  --how "<how>"          how the words reached you (default: "lead chat" for
+  --how "<how>"          how the words reached you (default: "CEO chat" for
                          the lead, "owner's shell" otherwise)
   --agent claude|codex   agent to run (default claude)
   --force                dispatch even though the issue waits on a gate
   --reprompt             re-send the current briefing into the live worker
                          instead of starting one (the Re-send prompt button)
+  --autostart            start on the owner's stored auto-start words, in
+                         place of --quote (see issue-cli help autostart)
   --json                 print the same object POST .../dispatch returns
 
 Exit codes:
   0  started, re-attached, or re-prompted
-  1  the launch failed, or --reprompt found no live worker
+  1  the launch failed, --reprompt found no live worker, or --autostart held
   2  usage error (also: no --quote)
   3  waiting on the owner's approval; nothing was started
 
@@ -71,12 +82,20 @@ func runDispatch(ctx *Context, args []string) error {
 	reprompt := fs.Bool("reprompt", false, "re-send the current briefing into the live worker")
 	quoteFlag := fs.String("quote", "", "the human's words that ask for this worker (required)")
 	howFlag := fs.String("how", "", "how the words reached you")
+	auto := fs.Bool("autostart", false, "start it on the owner's standing words (issue-cli autostart), when autostart next allows")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
 	quote := strings.TrimSpace(normalizeEscapedText(*quoteFlag))
-	if quote == "" {
-		return &usageError{msg: fmt.Sprintf("dispatch needs --quote: the human's words that ask for this worker. Nothing was started.\n\nA human starts the work; never dispatch on your own (after planning, or the next issue).\n\nExample:\n  issue-cli dispatch %s --quote \"<the human's words>\"", slug)}
+	if *auto && (quote != "" || *reprompt || *force) {
+		return &usageError{msg: "--autostart quotes the owner's stored words and starts a new worker: --quote, --reprompt and --force don't apply to it"}
+	}
+	if quote == "" && !*auto {
+		msg := fmt.Sprintf("dispatch needs --quote: the human's words that ask for this worker. Nothing was started.\n\nA human starts the work; never dispatch on your own (after planning, or the next issue).\n\nExample:\n  issue-cli dispatch %s --quote \"<the human's words>\"", slug)
+		if line := autostartLine(ctx); line != "" && !strings.HasPrefix(line, "Auto-start: paused") {
+			msg += "\n\nAuto-start is on for this project: " + tracker.InjectProject(ctx.Project, "issue-cli autostart next")
+		}
+		return &usageError{msg: msg}
 	}
 	if *agentFlag != "claude" && *agentFlag != "codex" {
 		return &usageError{msg: fmt.Sprintf("--agent must be claude or codex, got %q", *agentFlag)}
@@ -92,15 +111,25 @@ func runDispatch(ctx *Context, args []string) error {
 	proj := ctx.Project
 	me := whoAmI(proj, issues)
 	if me.Role == tracker.RoleWorker {
-		return fmt.Errorf("workers can't dispatch (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; your lead relays it:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
+		return fmt.Errorf("workers can't dispatch (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; the CEO relays it:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
 			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
+	}
+
+	if refusal := outOfScope(proj, me, issue, "dispatches"); refusal != "" {
+		return fmt.Errorf("%s", refusal)
+	}
+	if *auto {
+		return dispatchAutostart(ctx, issue, issues, me, *agentFlag)
 	}
 
 	how := strings.TrimSpace(*howFlag)
 	if how == "" {
 		how = "owner's shell"
-		if me.Role == tracker.RoleProjectLead {
-			how = "lead chat"
+		switch me.Role {
+		case tracker.RoleProjectLead:
+			how = "CEO chat"
+		case tracker.RoleDepartmentLead:
+			how = me.Department + " lead chat"
 		}
 	}
 	comment := tracker.DispatchComment(quote, how, ctx.now().Format("2006-01-02"))
@@ -146,7 +175,7 @@ func reportDispatch(ctx *Context, issue *tracker.Issue, resp agentrun.Response, 
 	failed := resp.Status == "error" || resp.Status == "no-session"
 	commented := false
 	if resp.Status == "dispatched" || resp.Status == "reprompted" {
-		if err := tracker.AddComment(issue.FilePath, 0, comment, "cli"); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 			fmt.Fprintf(ctx.Stderr, "warning: writing the dispatch comment: %v\n", err)
 		} else {
 			commented = true
@@ -194,4 +223,44 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// dispatchAutostart starts issue's worker on the owner's standing words.
+// Under the machine-wide lock it decides again for this issue (a stale
+// autostart next can't overshoot), starts it, and stamps the last start, so
+// a lead in another project ticking at the same minute holds.
+func dispatchAutostart(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, me Identity, agentType string) error {
+	proj := ctx.Project
+	err := autostart.WithBudget(autostart.SharedDir(), func(last *autostart.Start) (*autostart.Start, error) {
+		v, st, err := autostartVerdict(ctx, issues, last, issue.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if !v.Start {
+			return nil, &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.", v.Reason)}
+		}
+		now := ctx.now()
+		_, yoloOn, _ := yolo.Active(yoloRoot(proj), proj.Slug, now)
+		spec, refused := agentrun.DispatchSpec(proj, issue, agentType, projectRoot(proj), yoloOn)
+		if refused != nil {
+			return nil, &exitCodeError{Code: exitWaitingOnGate, Msg: fmt.Sprintf("✗ Not auto-started: %s waits on the owner's approval for %q. Nothing was started.", issue.Slug, refused.Gate)}
+		}
+		comment := autostartComment(st, v, now)
+		if me.Name != "" {
+			comment += " — recorded by " + me.Name
+		}
+		resp := startAgent(proj, spec)
+		if resp.AttachCmd == "" && resp.Status != "error" {
+			resp.AttachCmd, resp.SwitchCmd = agentrun.AttachCmd(proj, spec.Session), agentrun.SwitchCmd(proj, spec.Session)
+		}
+		rerr := reportDispatch(ctx, issue, resp, comment)
+		if resp.Status != "dispatched" {
+			return nil, rerr
+		}
+		return &autostart.Start{Project: proj.Slug, Slug: issue.Slug, At: now, Memory: v.Memory, By: me.Name}, rerr
+	})
+	if errors.Is(err, autostart.ErrBusy) {
+		return &exitCodeError{Code: 1, Msg: "✗ Not auto-started: hold: " + err.Error() + ". Nothing was started."}
+	}
+	return err
 }

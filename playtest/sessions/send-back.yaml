@@ -1,0 +1,39 @@
+session: send-back
+issue: factory/send-back-for-fixes-an-endpoint-that-moves-an-issue-back
+title: Send back for fixes on the Station moves the issue back with your words
+scenario: send-back
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (not this issue's).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: Send back for fixes moves Label printer back to testing with your words
+    proves: [AC7]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    act:
+      - check: { visible: [station.stamp, station.stamp.back] }
+      - type: { target: approve_words.station, text: "The label is cut off on the right" }
+      - click: station.stamp.back
+      - wait_for: { text_contains: { target: station.stamp, text: "Sent back to testing" }, ms: 8000 }
+      - check: { text_contains: { target: station.stamp, text: "no worker is live" } }
+    checks:
+      - issue: { slug: shop/label-printer, field: status, equals: testing }
+      - issue: { slug: shop/label-printer, comment_contains: "rejected: \"The label is cut off on the right\" (viewer, " }
+      - issue: { slug: shop/label-printer, comment_contains: "→ back to testing" }
+    targets:
+      - { id: station.stamp, note: the stamp card with the result line under the buttons }
+    do: |
+      1. Open Label printer's station. It waits at human-testing for your stamp.
+      2. Write what to fix in the words box and press Send back for fixes.
+      3. Read the line under the buttons, then the page after it reloads.
+    expect: |
+      The line says "Sent back to testing, no worker is live: the lead sees it
+      on the trail." The page reloads with the issue at testing, no stamp card
+      for documentation, and your words on the trail as a rejected: comment.
+    why: ux-test sees the text and the move; only you can say the result line reads as a clear no.

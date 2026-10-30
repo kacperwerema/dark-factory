@@ -12,11 +12,11 @@ steps:
   - id: TP4
     title: Status is the first sidebar entry, with the waiting count, on every view
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { visible: nav.tab.status }
       - check: { text_equals: { target: nav.tab.status.count, text: "3" } }
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
       - check: { text_equals: { target: nav.tab.status.count, text: "3" } }
       - click: nav.tab.status
       - wait_for: { url: { contains: /status } }

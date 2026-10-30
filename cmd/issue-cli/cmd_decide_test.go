@@ -169,3 +169,63 @@ func TestTruncateRunes(t *testing.T) {
 		t.Error("decisionsURL without project")
 	}
 }
+
+func TestDecideConfirmRecordsTheQuoteOnTheSameLine(t *testing.T) {
+	proj, _, phasesPath := makeDecisionFixture(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runDecisions(ctx, []string{"--issue", "sim/phases"}); err != nil {
+		t.Fatalf("decisions: %v", err)
+	}
+	assertContains(t, stdout.String(), "sim/phases#D-1 · 2026-09-27 · active · needs owner's words · cited 1 open/0 closed")
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time { return time.Date(2026, 10, 30, 9, 0, 0, 0, time.Local) }
+	if err := runDecide(ctx, []string{"sim/phases", "--confirm", "d-1", "--quote", "Yes, three."}); err != nil {
+		t.Fatalf("decide --confirm: %v", err)
+	}
+	want := `- **D-1** · 2026-09-27 · chat, confirmed by owner 2026-10-30: Three phases of 20 minutes, "Yes, three."`
+	assertContains(t, stdout.String(), "✓ Confirmed sim/phases#D-1\n"+want)
+	assertContains(t, readFile(t, phasesPath), want)
+
+	// Already confirmed: refused, the line stays.
+	ctx, _, _ = newTestContext(proj, true)
+	if err := runDecide(ctx, []string{"sim/phases", "--confirm", "D-1", "--quote", "again"}); err == nil || !strings.Contains(err.Error(), "already has the human's words") {
+		t.Fatalf("second confirm err = %v", err)
+	}
+	assertContains(t, readFile(t, phasesPath), want)
+}
+
+func TestDecideConfirmRefuses(t *testing.T) {
+	proj, _, phasesPath := makeDecisionFixture(t)
+	before := readFile(t, phasesPath)
+	for name, tc := range map[string]struct {
+		args []string
+		want string
+	}{
+		"no quote":  {[]string{"sim/phases", "--confirm", "D-1"}, "--confirm needs --quote"},
+		"with text": {[]string{"sim/phases", "--confirm", "D-1", "--quote", "y", "--text", "x"}, "--confirm takes only --quote"},
+		"other ref": {[]string{"sim/phases", "--confirm", "cli/sample#D-1", "--quote", "y"}, "want a D-n of this issue"},
+		"no such":   {[]string{"sim/phases", "--confirm", "D-7", "--quote", "y"}, "issue-cli decisions --issue sim/phases"},
+		"not a ref": {[]string{"sim/phases", "--confirm", "one", "--quote", "y"}, "want a D-n of this issue"},
+	} {
+		ctx, _, _ := newTestContext(proj, false)
+		if err := runDecide(ctx, tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	if readFile(t, phasesPath) != before {
+		t.Fatal("a refused confirm changed the issue")
+	}
+
+	// A superseded decision is not confirmed; replacing one that only lacks
+	// words hints at --confirm.
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runDecide(ctx, []string{"sim/phases", "--text", "Two phases.", "--quote", "two", "--replaces", "D-1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), `To only add the human's words to a decision, keep its D-n instead: issue-cli decide sim/phases --confirm D-1 --quote "…"`)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runDecide(ctx, []string{"sim/phases", "--confirm", "D-1", "--quote", "y"}); err == nil || !strings.Contains(err.Error(), "superseded by sim/phases#D-2") {
+		t.Fatalf("superseded err = %v", err)
+	}
+}

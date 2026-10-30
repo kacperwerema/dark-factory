@@ -1,0 +1,96 @@
+session: crew
+issue: factory/agents-screen
+title: The Crew page - the agents as an org chart, their states and how to reach them
+scenario: leads
+
+# Live agents are faked with `cat` sessions on the scenario's private tmux
+# server: ui/child sits at the in progress → testing gate, ui/legacy has an
+# open question, cli/loner has no agent (a stopped job). No departments, so
+# one Product column runs under the CEO.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Crew shows the CEO, the Product column with each worker's state and issue, and the stopped jobs
+    # AC8: the session's layout checks run every step at 390x844 too.
+    proves: [AC1, AC2, AC3, AC4, AC8]
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /p/{project}/agents
+    checks:
+      - visible: [crew.chart, crew.card.lead-crew, crew.column.product, crew.classic]
+      - text_contains: { target: crew.card.lead-crew.state, text: "not running" }
+      - visible: crew.card.lead-crew.spawn
+      - count: { pattern: crew.card.*, within: crew.column.product, equals: 2 }
+      - text_contains: { target: crew.card.agent-ui-child.state, text: "waiting on you at the testing gate" }
+      - text_contains: { target: crew.card.agent-ui-legacy.state, text: "asked a question" }
+      - text_contains: { target: crew.card.agent-ui-child.issue, text: Child }
+      - count: { pattern: crew.card.agent-cli-loner, within: crew.stopped, equals: 1 }
+      - text_contains: { target: crew.card.agent-cli-loner.state, text: stopped }
+      - text_contains: { target: crew.stopped, text: "issue-cli dispatch cli/loner" }
+      - absent: crew.others
+      - text_contains: { target: summary.crew, text: "1 at a gate · 1 with a question" }
+      - http: { path: "/p/{project}/agents?classic=1", contains: 'data-layout="radial"' }
+
+  - id: TP5
+    title: Picking a worker opens its panel - Open in a terminal, the attach command, the gate's approve link and the branch
+    proves: [AC5]
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - open: /p/{project}/agents
+      - click: crew.card.agent-ui-child.pick
+      - wait_for: crew.panel.name
+    act:
+      - click: crew.panel.open
+      - wait_for: { text_contains: { target: crew.panel.open_status, text: agent-ui-child } }
+    checks:
+      - url: { contains: "agent=agent-ui-child" }
+      - text_equals: { target: crew.panel.name, text: agent-ui-child }
+      - text_contains: { target: crew.panel.command, text: "tmux" }
+      - text_contains: { target: crew.panel.approve, text: "Approve the testing gate at the station" }
+      - visible: crew.panel.issue
+      - http: { path: "/p/{project}/agents?agent=agent-nobody", contains: 'data-testid="crew.panel.empty"' }
+
+  - id: TP6
+    title: With no worker running, Crew says how to dispatch one
+    proves: [AC6]
+    setup:
+      - open: /p/{project}/agents
+    checks:
+      - visible: crew.no_workers
+      - text_contains: { target: crew.no_workers, text: "issue-cli dispatch" }
+      - visible: crew.column.product.empty
+
+  - id: TP7
+    title: The header's agent counts and the Company HQ room lead to Crew
+    proves: [AC7]
+    setup:
+      - open: /p/{project}/decisions
+    act:
+      - click: map.agents
+      - wait_for: crew.chart
+    checks:
+      - url: { matches: "^/p/[^/]+/agents$" }
+      - http: { path: "/p/{project}/company", contains: 'href="/p/crew/agents">Crew →</a>' }
+
+  - id: TP8
+    title: Crew reads as a Workshop Board page at desktop and phone width
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /p/{project}/agents?agent=agent-ui-child
+    look:
+      - { id: crew.chart, note: "You → CEO → the Product column with two workers" }
+      - { id: crew.panel, note: "The selected worker: Open in a terminal, command, approve link" }
+    do: Look at the Crew page at desktop width, then at phone width (390px).
+    expect: >-
+      The page looks like the other Workshop Board pages (thick outlines, hard shadows, the same header
+      and fonts). You → CEO → Product column read top to bottom; ui/child's card has an orange state chip,
+      the stopped loner is dashed. At 390px the columns stack, the panel is below the chart and nothing
+      scrolls sideways. Every word on the page is English.
+    why: There is no owner mockup for this screen; the owner judges the draft's look.

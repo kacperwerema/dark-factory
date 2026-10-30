@@ -122,10 +122,20 @@ var funcMap = template.FuncMap{
 	"tid":     testids.Segment,
 	"plural":  plural,
 	"ceoMode": ceoModeLabel,
+	// wbTone, wbVerdictTone and wbVerdictText draw the classic tones and
+	// metric verdicts as Workshop Board chips (system_wb.go).
+	"wbTone":        wbTone,
+	"wbVerdictTone": wbVerdictTone,
+	"wbVerdictText": wbVerdictText,
 	// statsCard pairs a chart card with its dashboard for the statsChart
 	// template; statsRangeLabel names the range ("30 days").
 	"statsCard":       func(d *Dashboard, c ChartCard) statsCardData { return statsCardData{Dash: d, Card: c} },
 	"statsRangeLabel": statsRangeLabel,
+	// Workshop Board component data built in a template (_workshop_stats.html).
+	"wbSeg": func(label, name string, items []statsOption) WbSegLinks {
+		return WbSegLinks{Label: label, Name: name, Items: items}
+	},
+	"wbEmpty": func(text, cmd string) *WbEmpty { return &WbEmpty{Text: text, Cmd: cmd} },
 	// head and rest split a list at n for "+K more" folds: range head 5 .X
 	// shows the first five, with rest 5 .X the others go in the fold.
 	// inlineMarkdown renders a changelog line's bold and code.

@@ -12,7 +12,7 @@ steps:
   - id: TP2
     title: Every workflow status is a column with its cards and count
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     checks:
       - visible: [board.column.idea, board.column.backlog, board.column.in_progress, board.column.testing, board.column.done]
       - count: { pattern: board.card.*, within: board.column.backlog.cards, equals: 2 }
@@ -23,7 +23,7 @@ steps:
   - id: TP3
     title: Typing in search hides the cards that don't match
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     act:
       - type: { target: board.search, text: csv }
     checks:
@@ -33,7 +33,7 @@ steps:
   - id: TP4
     title: Dragging a card past an approval gate asks first; cancel puts it back
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     act:
       - drag: { target: board.card.cli/export-issues-as-csv, to: board.column.in_progress.cards }
       - wait_for: board.transition_modal.confirm
@@ -46,7 +46,7 @@ steps:
   - id: TP5
     title: Dragging an idea to backlog moves the card and writes the status
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     act:
       - drag: { target: board.card.ui/dark-mode-toggle, to: board.column.backlog.cards }
     checks:

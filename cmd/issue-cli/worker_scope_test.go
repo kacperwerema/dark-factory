@@ -25,7 +25,7 @@ func TestWorkerScope_OwnIssueOnly(t *testing.T) {
 		}
 		ctx, _, _ := newTestContext(proj, false)
 		err := run(ctx, args)
-		if err == nil || !strings.Contains(err.Error(), "you work on ui/child only; ask your lead. "+name+" loner changed nothing") {
+		if err == nil || !strings.Contains(err.Error(), "you work on ui/child only; ask the CEO. "+name+" loner changed nothing") {
 			t.Errorf("%s: err = %v", name, err)
 		}
 		if err != nil && !strings.Contains(err.Error(), `issue-cli --project proj comment ui/child "question: ..."`) {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -148,8 +149,41 @@ type LeadChatModel struct {
 	Mode    string      `json:"mode"`
 }
 
-func (s *Server) buildLeadChat(proj *tracker.Project, prefix string, withWaiting bool) LeadChatModel {
-	name := tracker.LeadSessionName(proj)
+// chatLead is the lead a chat request talks to: the CEO, or with
+// ?dept=<name> that department's lead. The session name is built from
+// projects.yaml, never taken from the request: an unknown department is
+// ok=false, and the handler answers 404.
+func chatLead(proj *tracker.Project, r *http.Request) (name string, dept *tracker.Department, ok bool) {
+	key := r.URL.Query().Get("dept")
+	if key == "" {
+		return tracker.LeadSessionName(proj), nil, true
+	}
+	if dept = proj.DepartmentByKey(key); dept == nil {
+		return "", nil, false
+	}
+	return tracker.DepartmentLeadName(proj, dept.Name), dept, true
+}
+
+// chatQuery is the query a department lead's chat URLs carry
+// (?dept=<key>), "" for the CEO's.
+func chatQuery(dept *tracker.Department) string {
+	if dept == nil {
+		return ""
+	}
+	return "?dept=" + url.QueryEscape(tracker.DepartmentKey(dept.Name))
+}
+
+// chatWho is who the chat talks to, in words: "CEO" or "<Dept> lead".
+func chatWho(dept *tracker.Department) string {
+	if dept == nil {
+		return "CEO"
+	}
+	return dept.Name + " lead"
+}
+
+// buildLeadChat reads lead session name's chat (the CEO's or a department
+// lead's, see chatLead).
+func (s *Server) buildLeadChat(proj *tracker.Project, prefix, name string, withWaiting bool) LeadChatModel {
 	m := LeadChatModel{
 		Project:   proj.Name,
 		Prefix:    prefix,
@@ -322,7 +356,12 @@ func cleanMessage(text string) string {
 // handleLeadChatJSON serves GET /p/<project>/lead.json: the pane and, with
 // ?waiting=1, the side panel's waiting list.
 func (s *Server) handleLeadChatJSON(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	m := s.buildLeadChat(proj, prefix, r.URL.Query().Get("waiting") == "1")
+	name, _, ok := chatLead(proj, r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	m := s.buildLeadChat(proj, prefix, name, r.URL.Query().Get("waiting") == "1")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(m)
@@ -378,6 +417,11 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 	}
 	// JSON escaping can grow a message up to 6x; the text itself is
 	// checked below.
+	name, _, ok := chatLead(proj, r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	if !decodeLeadChatBody(w, r, 6*leadChatMaxMessage+1024, &body) {
 		return
 	}
@@ -401,7 +445,6 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 		leadChatError(w, http.StatusBadRequest, "empty", "message is empty")
 		return
 	}
-	name := tracker.LeadSessionName(proj)
 	target := agentrun.Target(proj, name)
 	textFile := filepath.Join(projectRoot(proj), ".agent-logs", name, "chat", time.Now().Format("20060102-150405.000")+".txt")
 	// The lock covers the paste and its Enter, not the delivery poll after
@@ -415,7 +458,7 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 	w.Header().Set("Content-Type", "application/json")
 	switch resp.Status {
 	case "no-session":
-		resp.Steps = []DispatchStep{{Name: resp.Session + " is not running", Status: "error", Detail: "spawn the lead first; nothing was sent"}}
+		resp.Steps = []DispatchStep{{Name: resp.Session + " is not running", Status: "error", Detail: "start the CEO first; nothing was sent"}}
 		w.WriteHeader(http.StatusConflict)
 	case "error":
 		w.WriteHeader(http.StatusBadGateway)
@@ -429,6 +472,11 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 	var body struct {
 		Key string `json:"key"`
 	}
+	name, _, ok := chatLead(proj, r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	if !decodeLeadChatBody(w, r, 1024, &body) {
 		return
 	}
@@ -437,7 +485,6 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 		leadChatError(w, http.StatusBadRequest, "error", "key must be one of "+leadChatKeyNames)
 		return
 	}
-	name := tracker.LeadSessionName(proj)
 	target := agentrun.Target(proj, name)
 	if !agentrun.HasSession(target) {
 		leadChatError(w, http.StatusConflict, "no-session", agentDisplayName(proj, name)+" is not running")
@@ -448,7 +495,7 @@ func (s *Server) handleLeadChatKey(w http.ResponseWriter, r *http.Request, proj 
 	// starts the window.
 	defer leadChatLock(target)()
 	if body.Key == "CtrlC" && !leadChatCtrlCAllowed(target, time.Now()) {
-		leadChatError(w, http.StatusTooManyRequests, "too-soon", "a second Ctrl+C within a few seconds would close the lead; wait and try again")
+		leadChatError(w, http.StatusTooManyRequests, "too-soon", "a second Ctrl+C within a few seconds would close the CEO; wait and try again")
 		return
 	}
 	for i, key := range keys {
@@ -477,6 +524,14 @@ type LeadRow struct {
 	ChatURL string
 	// Color is the project's colour, the CEO robot's body.
 	Color string
+	// Departments are the project's department leads under its CEO.
+	Departments []LeadDeptRow
+}
+
+// LeadDeptRow is one department lead on /leads.
+type LeadDeptRow struct {
+	Department, Session, ChatURL string
+	Live                         bool
 }
 
 // handleLeads serves GET /leads: every configured project's lead, live or
@@ -504,10 +559,17 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 				ChatURL: "/p/" + p.Slug + "/lead",
 				Color:   s.projectColor(p),
 			}
+			for _, d := range p.Departments {
+				lead := tracker.DepartmentLeadName(p, d.Name)
+				rows[i].Departments = append(rows[i].Departments, LeadDeptRow{
+					Department: d.Name, Session: agentDisplayName(p, lead), Live: agentrun.IsLive(p, lead),
+					ChatURL: "/p/" + p.Slug + "/lead" + chatQuery(&d),
+				})
+			}
 		}(i)
 	}
 	wg.Wait()
-	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Every CEO", Current: true}}, Quiet: true, WaitingURL: "/needs-you"}
+	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "All CEOs", Current: true}}, Quiet: true, WaitingURL: "/needs-you"}
 	for _, row := range rows {
 		header.Waiting += row.Waiting
 	}

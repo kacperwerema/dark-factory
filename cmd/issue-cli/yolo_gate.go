@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/ci"
+	"github.com/michal-franc/issue-viewer/internal/experiment"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/yolo"
 )
@@ -23,16 +24,27 @@ const yoloRecentEnd = 12 * time.Hour
 type yoloGate struct {
 	Passed bool
 	Status string // the approval the gate needed
+	To     string // the status start advances to (set by start only)
 	State  *yolo.State
 	// Ended: YOLO closed recently; the gate waits and the refusal says why.
 	Ended string
+	// Experiment: YOLO is on but the issue is an experiment, whose gates
+	// are the owner's (factory/factory-experiment-loop D-6).
+	Experiment bool
 }
+
+// yoloExperimentNote is what an experiment's gate says while YOLO is on.
+const yoloExperimentNote = "YOLO is on, but experiments are adopted by the owner, even in YOLO: this gate waits for the owner's approval in the issue viewer."
 
 // yoloEligible reports whether YOLO may pass the from → to gate: a forward
 // step on the issue's path, to a status that isn't optional, and never the
-// human's own Human Testing approval.
-func yoloEligible(wf *tracker.WorkflowConfig, from, to, required string) bool {
+// human's own Human Testing approval or any gate of an issue labelled
+// experiment (the owner adopts experiments).
+func yoloEligible(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to, required string) bool {
 	if required == "" || strings.ReplaceAll(strings.ToLower(required), " ", "-") == "human-testing" {
+		return false
+	}
+	if issue != nil && experiment.Is(issue.Labels) {
 		return false
 	}
 	fi, ti := wf.GetStatusIndex(from), wf.GetStatusIndex(to)
@@ -67,7 +79,8 @@ func passYOLOGate(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue
 		}
 		return g, nil
 	}
-	if !yoloEligible(wf, from, to, required) {
+	if !yoloEligible(wf, issue, from, to, required) {
+		g.Experiment = experiment.Is(issue.Labels)
 		return g, nil
 	}
 	for _, p := range collectTransitionProblems(ctx, wf, issue, issue.Slug, from, to, fields) {
@@ -93,6 +106,8 @@ func printYOLOGate(w io.Writer, g yoloGate, from, to string, now time.Time) {
 		fmt.Fprintf(w, "YOLO: gate %s → %s passed without the owner, marked for review after the fact (YOLO %s)\n", from, to, yoloEndPhrase(g.State, now))
 	case g.Ended != "":
 		fmt.Fprintln(w, g.Ended)
+	case g.Experiment:
+		fmt.Fprintln(w, yoloExperimentNote)
 	}
 }
 
@@ -118,9 +133,9 @@ func yoloHeaderLine(proj *tracker.Project, now time.Time) string {
 
 // yoloWouldPass reports whether YOLO is on and would pass the from → to
 // gate, with the state for the end phrase.
-func yoloWouldPass(ctx *Context, wf *tracker.WorkflowConfig, from, to string) (bool, *yolo.State) {
+func yoloWouldPass(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string) (bool, *yolo.State) {
 	required := wf.RequiredHumanApproval(from, to)
-	if !yoloEligible(wf, from, to, required) {
+	if !yoloEligible(wf, issue, from, to, required) {
 		return false, nil
 	}
 	st, on, err := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now())
@@ -132,11 +147,12 @@ func yoloWouldPass(ctx *Context, wf *tracker.WorkflowConfig, from, to string) (b
 
 // yoloNextStep rewrites the gated next step while YOLO is on: run the
 // transition, don't stop for the owner.
-func yoloNextStep(ctx *Context, wf *tracker.WorkflowConfig, slug, from, next, cmd, note string) (string, string) {
+func yoloNextStep(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, next, cmd, note string) (string, string) {
 	if note == "" {
 		return cmd, note
 	}
-	ok, st := yoloWouldPass(ctx, wf, from, next)
+	slug := issue.Slug
+	ok, st := yoloWouldPass(ctx, wf, issue, from, next)
 	if !ok {
 		return cmd, note
 	}
@@ -145,9 +161,12 @@ func yoloNextStep(ctx *Context, wf *tracker.WorkflowConfig, slug, from, next, cm
 }
 
 // yoloDryRun drops the approval problem YOLO would pass and says so.
-func yoloDryRun(ctx *Context, wf *tracker.WorkflowConfig, from, to string, problems []transitionProblem) ([]transitionProblem, string) {
-	ok, st := yoloWouldPass(ctx, wf, from, to)
+func yoloDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string, problems []transitionProblem) ([]transitionProblem, string) {
+	ok, st := yoloWouldPass(ctx, wf, issue, from, to)
 	if !ok {
+		if _, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on && issue != nil && experiment.Is(issue.Labels) && wf.RequiredHumanApproval(from, to) != "" {
+			return problems, yoloExperimentNote
+		}
 		return problems, ""
 	}
 	kept := problems[:0:0]

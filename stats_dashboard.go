@@ -44,6 +44,8 @@ type statsOpts struct {
 	// Days is the old ?days=N: a custom range that also opens the time
 	// tables, as /stats?days=N did before the dashboard.
 	Days int
+	// Classic keeps the classic page (?classic=1) across its own links.
+	Classic bool
 }
 
 func parseStatsOpts(q url.Values) statsOpts {
@@ -70,6 +72,7 @@ func parseStatsOpts(q url.Values) statsOpts {
 		}
 	}
 	o.Drill = q.Get("drill")
+	o.Classic = q.Get("classic") == "1"
 	if n, err := strconv.Atoi(q.Get("days")); err == nil && n >= 1 && n <= 3650 {
 		o.Days = n
 	}
@@ -101,6 +104,9 @@ func (o statsOpts) hidden(name string) bool {
 // query is the options as a query string; drill only when keepDrill.
 func (o statsOpts) query(keepDrill bool) string {
 	q := url.Values{}
+	if o.Classic {
+		q.Set("classic", "1")
+	}
 	if o.Days > 0 {
 		q.Set("days", strconv.Itoa(o.Days))
 	} else {
@@ -333,6 +339,14 @@ func buildDashboard(in dashIn) *Dashboard {
 	d.Weekly = weeklyColumns(in, d, rep)
 	d.Drill = drill(in, d, rep)
 	return d
+}
+
+// WorkshopURL is the page with the same options and without classic, for
+// the classic page's link to the Workshop Board page.
+func (d *Dashboard) WorkshopURL() string {
+	o := d.Opts
+	o.Classic, o.Drill = false, ""
+	return d.Base + "?" + o.query(false)
 }
 
 // href is the page with the options, one changed by change.
@@ -701,6 +715,20 @@ func trends(in dashIn, d *Dashboard, daily []*health.Snapshot, latest *health.Sn
 		c.SubSVG = chart.Spark{Label: "Test ratio trend", Values: ratio, Class: "s-tweak"}.SVG()
 	}
 	out = append(out, finish(c, l, "codebase"))
+
+	// Factory benchmark pass rate, one series per benchmark, once a
+	// snapshot has a finished run (internal/bench).
+	if series := benchSeries(daily); len(series) > 0 {
+		c, l = base("bench", "Factory benchmark pass rate", "Golden tasks passed in each benchmark's newest run, holdout apart (issue-cli bench report)")
+		l.Unit = chart.Share
+		classes := []string{"s-feature", "s-bugfix", "s-tweak", "s-all"}
+		for i, ser := range series {
+			ser.Class = classes[i%len(classes)]
+			l.Series = append(l.Series, ser)
+			c.Legend = append(c.Legend, LegendItem{Name: ser.Name, Class: ser.Class})
+		}
+		out = append(out, finish(c, l, "bench"))
+	}
 
 	// Disk use, once a snapshot has the storage family.
 	if c, ok := storageCard(d, daily, latest); ok {

@@ -55,7 +55,7 @@ steps:
   - id: TP1
     title: unknown things
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
       - teleport: somewhere
     checks:
       - visible: board.colum.backlog

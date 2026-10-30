@@ -34,7 +34,7 @@ func getStatsPage(t *testing.T) string {
 	// The CLI usage report is read in the background; the page says so
 	// until it lands, like a reload a moment later would.
 	for i := 0; ; i++ {
-		resp, err := http.Get(ts.URL + "/p/test-project/stats")
+		resp, err := http.Get(ts.URL + "/p/test-project/stats?classic=1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +126,7 @@ func TestStatsPageTimeSection(t *testing.T) {
 	proj := fixItProject(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/p/test-project/stats")
+	resp, err := http.Get(ts.URL + "/p/test-project/stats?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

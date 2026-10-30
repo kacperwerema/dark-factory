@@ -44,6 +44,28 @@ func TestFindMatchesTheIssueHeader(t *testing.T) {
 	}
 }
 
+func TestFindMatchesASlugWithASpace(t *testing.T) {
+	root := t.TempDir()
+	writeScript(t, root, "probe", "#!/usr/bin/env bash\n# issue: level design/rock-sentinel\n")
+	writeScript(t, root, "words", "#!/usr/bin/env bash\n# issue: level design/rock-sentinel  the boulder check\n")
+	writeScript(t, root, "other", "#!/usr/bin/env bash\n# issue: level design/rock-sentinel-two\n")
+	writeScript(t, root, "first-word", "#!/usr/bin/env bash\n# issue: level\n")
+
+	var names []string
+	for _, s := range Find([]string{root}, "level design/rock-sentinel") {
+		names = append(names, s.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"probe", "words"}) {
+		t.Fatalf("names = %v", names)
+	}
+	if got := Find([]string{root}, "level"); len(got) != 1 || got[0].Name != "first-word" {
+		t.Fatalf("Find(level) = %v", got)
+	}
+	if sk := Skeleton("level design/rock-sentinel", "probe", nil); !strings.Contains(sk, "#   issue-cli check-script 'level design/rock-sentinel'\n") {
+		t.Fatalf("the run line doesn't quote the slug:\n%s", sk)
+	}
+}
+
 func TestIssueOfOnlyReadsTheTopOfTheFile(t *testing.T) {
 	root := t.TempDir()
 	body := "#!/usr/bin/env bash\n" + strings.Repeat("# filler\n", headerLines) + "# issue: too/late\n"
@@ -122,5 +144,102 @@ func TestSkeletonIsValidBashWithOneStepPerBox(t *testing.T) {
 	}
 	if !strings.Contains(Skeleton("cli/x", "x", nil), "step MV1 ") {
 		t.Fatal("no boxes: want one example step")
+	}
+}
+
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestIssueWorktreeFindsTheCheckoutOnTheIssueBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	main := t.TempDir()
+	gitRun(t, main, "init", "-q", "-b", "main")
+	gitRun(t, main, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+	if got := IssueWorktree(main, "plan/fix"); got != "" {
+		t.Fatalf("no worktree yet: %q", got)
+	}
+	// A worktree named freely, on work/<slug>.
+	wt := filepath.Join(main, ".worktrees", "short-name")
+	gitRun(t, main, "worktree", "add", "-q", "-b", "work/plan/fix", wt)
+	want, _ := filepath.EvalSymlinks(wt)
+	got := IssueWorktree(main, "plan/fix")
+	if resolved, _ := filepath.EvalSymlinks(got); resolved != want {
+		t.Fatalf("IssueWorktree = %q, want %q", got, want)
+	}
+	if got := IssueWorktree(main, "plan/other"); got != "" {
+		t.Fatalf("another slug: %q", got)
+	}
+	if got := IssueWorktree(t.TempDir(), "plan/fix"); got != "" {
+		t.Fatalf("not a repo: %q", got)
+	}
+}
+
+func TestWorktreeHoldingFindsTheCheckoutADirIsIn(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	main := t.TempDir()
+	gitRun(t, main, "init", "-q", "-b", "main")
+	gitRun(t, main, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(main, ".worktrees", "rock-sentinel")
+	gitRun(t, main, "worktree", "add", "-q", "-b", "art/rock-sentinel", wt)
+	sub := filepath.Join(wt, "scripts")
+	os.MkdirAll(sub, 0o755)
+	want, _ := filepath.EvalSymlinks(wt)
+	for _, dir := range []string{wt, sub} {
+		if got := WorktreeHolding(main, dir); got != want {
+			t.Fatalf("WorktreeHolding(%s) = %q, want %q", dir, got, want)
+		}
+	}
+	if got := WorktreeHolding(main, main); got != "" {
+		t.Fatalf("the main checkout: %q", got)
+	}
+	if got := WorktreeHolding(main, t.TempDir()); got != "" {
+		t.Fatalf("outside the repository: %q", got)
+	}
+}
+
+func TestMachineRunsPassedReadsTheNewestRecord(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, RecordDir, "a")
+	os.MkdirAll(dir, 0o755)
+	if ok, ran := MachineRunPassed(root, "a"); ok || ran {
+		t.Fatalf("no record: ok=%v ran=%v", ok, ran)
+	}
+	os.WriteFile(filepath.Join(dir, "20261030T100000Z-machine.txt"), []byte("script: a\nstep S1 pass boxes=\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "20261030T110000Z-machine.txt"), []byte("script: a\nstep S1 fail boxes= note=nope\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "20261030T120000Z-owner.txt"), []byte("script: a\nstep S1 pass boxes=\n"), 0o644)
+	if ok, ran := MachineRunPassed(root, "a"); ok || !ran {
+		t.Fatalf("newest machine run failed: ok=%v ran=%v", ok, ran)
+	}
+	os.WriteFile(filepath.Join(dir, "20261030T130000Z-machine.txt"), []byte("script: a\nstep S1 eyes boxes=\nstep S2 skip boxes=\n"), 0o644)
+	if ok, ran := MachineRunPassed(root, "a"); !ok || !ran {
+		t.Fatalf("newest machine run passed: ok=%v ran=%v", ok, ran)
+	}
+}
+
+func TestFindBashPrefersAVersionFourOrNewer(t *testing.T) {
+	dir := t.TempDir()
+	fake := func(name, major string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte("#!/bin/sh\necho "+major+"\n"), 0o755)
+		return p
+	}
+	old, newer := fake("old", "3"), fake("new", "5")
+	got, err := findBash([]string{filepath.Join(dir, "missing"), old, newer})
+	if err != nil || got != newer {
+		t.Fatalf("findBash = %q, %v; want %q", got, err, newer)
+	}
+	_, err = findBash([]string{old})
+	if err == nil || !strings.Contains(err.Error(), "brew install bash") || !strings.Contains(err.Error(), old+" is bash 3") {
+		t.Fatalf("only bash 3: %v", err)
 	}
 }

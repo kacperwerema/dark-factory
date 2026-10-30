@@ -1,6 +1,6 @@
 session: stats-dashboard
 issue: ui/project-stats-dashboard-gauges-line-charts-and-bar-charts-per-project
-title: Stats page - gauges, trends from the health snapshots, where the time goes, and the overview of every project
+title: Classic Stats page (?classic=1) - gauges, trends from the health snapshots, where the time goes, and the overview of every project
 scenario: stats
 
 session_checks:
@@ -8,6 +8,8 @@ session_checks:
   layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
   console: no_errors
 
+# The classic page since factory/stats-screen: the Workshop Board page is
+# stats-workshop.yaml.
 steps:
   - id: TP4
     title: /stats shows gauges, trend lines from the snapshots, where the time goes, and the old tables folded below
@@ -15,9 +17,9 @@ steps:
       # The board's own daily snapshot (taken at start, with the storage
       # family) lands a few seconds after the board is up: wait for its Disk
       # use card, or the card is still pending.
-      - wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }
+      - wait_for: { http: { path: "/p/{project}/stats?classic=1&range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }
       # The fixtures are from late September 2026: range=all keeps them in.
-      - open: /p/{project}/stats?range=all
+      - open: /p/{project}/stats?classic=1&range=all
       - wait_for: stats.dashboard
     checks:
       - visible: [stats.options, stats.range, stats.group, stats.tables]
@@ -39,7 +41,7 @@ steps:
   - id: TP5
     title: Range and group-by options change the charts and are remembered for the project
     setup:
-      - open: /p/{project}/stats?range=all
+      - open: /p/{project}/stats?classic=1&range=all
       - wait_for: stats.dashboard
       - click: stats.range.7d
       - wait_for: { url: { contains: range=7d } }
@@ -55,21 +57,23 @@ steps:
   - id: TP6
     title: Group by reloads the page with the bars grouped, and the choice comes back on the next visit
     setup:
-      - open: /p/{project}/stats?range=all
+      - open: /p/{project}/stats?classic=1&range=all
       - wait_for: stats.dashboard
       - select: { target: stats.group, value: system }
       - wait_for: { url: { contains: group=system } }
+      # The options are remembered for the project and shared with the
+      # Workshop Board page, which /p/<project>/stats opens.
       - open: /p/{project}/stats
       - wait_for: { url: { contains: group=system } }
     checks:
-      - value_equals: { target: stats.group, value: system }
-      - selected: stats.range.all
+      - selected: seg.stats-group.system
+      - selected: seg.stats-range.all
       - text_contains: { target: stats.chart.group, text: "By system" }
 
   - id: TP7
     title: Each chart has a table view with the same numbers
     setup:
-      - open: /p/{project}/stats?range=all
+      - open: /p/{project}/stats?classic=1&range=all
       - wait_for: stats.dashboard
       - click: stats.table_btn.cycle
     checks:
@@ -83,7 +87,7 @@ steps:
   - id: TP8
     title: A bar or point opens the issues behind it, linked to their Timeline tab
     setup:
-      - open: /p/{project}/stats?range=all&drill=status:human-testing#time
+      - open: /p/{project}/stats?classic=1&range=all&drill=status:human-testing#time
       - wait_for: stats.drilldown
     checks:
       - visible: stats.drilldown
@@ -97,7 +101,7 @@ steps:
     title: issue-cli health backfill fills in history and the hint goes away
     setup:
       - cli: [health, backfill, --days, "3"]
-      - open: /p/{project}/stats?range=7d
+      - open: /p/{project}/stats?classic=1&range=7d
       - wait_for: stats.dashboard
     checks:
       - absent: stats.backfill_hint
@@ -106,7 +110,7 @@ steps:
   - id: TP10
     title: /stats without a project compares every project
     setup:
-      - open: /stats
+      - open: /stats?classic=1
       - wait_for: stats.overview
     checks:
       - count: { pattern: stats.overview.row, equals: 1 }

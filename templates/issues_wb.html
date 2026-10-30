@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Crate store"}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<section class="wb-ground wb-dechero" aria-label="Crate store" data-testid="issues.page">
+    <div class="wb-dechero-top">
+        <div class="wb-dechero-title">
+            <h1 class="wb-h1 wb-h1--big">Crate store</h1>
+            <div class="wb-dechero-sub">Every issue in the project, one crate each. Click a crate to open its station. <a href="{{.ClassicURL}}" data-testid="issues.classic">Classic view</a></div>
+        </div>
+        <div class="wb-dechero-stats">
+            <div data-testid="issues.count">{{template "wb/stat-big" .Count}}</div>
+            {{if .Total}}{{template "wb/summary-box" .Summary}}{{end}}
+        </div>
+    </div>
+    {{if .Total}}{{template "wb/search-bar" .Search}}{{end}}
+</section>
+<main class="wb-decmain">
+<div class="wb-declog" data-testid="issues.shelves">
+    {{if not .Total}}
+    <div class="wb-thread wb-decempty" data-testid="issues.empty">
+        <h2 class="wb-h2">No issues yet</h2>
+        <div class="wb-note">An issue is a markdown file under the project's issues folder. Create the first one with <span class="wb-mono-inline">issue-cli create "&lt;title&gt;"</span>, or ask the CEO.</div>
+    </div>
+    {{else if .NoMatch}}
+    <div class="wb-thread wb-decempty" data-testid="issues.nomatch">
+        <h2 class="wb-h2">No issues match</h2>
+        <div class="wb-note">Nothing passes this search and these filters. <a href="{{.ClearURL}}" data-testid="issues.nomatch.clear">Clear them</a></div>
+    </div>
+    {{else}}
+    {{range .Shelves}}{{template "wb/shelf" .}}{{end}}
+    {{end}}
+</div>
+<aside class="wb-decside" aria-label="The store at a glance">
+    {{if .Total}}{{range .Facets}}<div class="wb-decside-block">{{template "wb/bars" .}}</div>{{end}}{{end}}
+    <div class="wb-decside-block">
+        {{template "wb/command-card" .Add}}
+        <a class="wb-btn wb-btn--paper wb-btn--block" href="{{.NewURL}}" data-testid="issues.new">New issue</a>
+    </div>
+</aside>
+</main>
+</div>
+</div>
+<div class="wb-toast" role="status" aria-live="polite"></div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

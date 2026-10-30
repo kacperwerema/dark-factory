@@ -1,0 +1,74 @@
+session: code-paths
+issue: factory/code-paths-per-system-in-workbench-systems
+title: Code paths per system - the Systems code map reads workbench.systems paths and stops being a draft
+scenario: code-paths
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: With paths on Sim and AI only, the map is a draft naming UI, the shared file is marked, and lint names the glob that matches nothing
+    proves: [AC2, AC3, AC4]
+    setup:
+      - open: /p/{project}/systems
+    checks:
+      - visible: [systems.wb.codemap, systems.wb.codemap.draft, systems.wb.unlock]
+      - text_contains: { target: systems.wb.codemap, text: "UI: read from the files their issues name" }
+      - text_contains: { target: systems.wb.codemap, text: "store.go" }
+      - text_contains: { target: systems.wb.codemap, text: "AI, Sim" }
+      - text_contains: { target: systems.wb.codemap, text: "shared" }
+      # Sim's CODE row: its globs' files, lanes.go (named by its issue) first.
+      - text_contains: { target: systems.wb.card.sim, text: "lanes.go" }
+      - text_contains: { target: systems.wb.card.sim, text: "store.go" }
+      - text_contains: { target: systems.wb.card.ui, text: "app.tsx" }
+      - text_contains: { target: systems.wb.unlock, text: "Unlock: a confirmed code map" }
+      - text_contains: { target: systems.wb.unlock, text: "Give UI paths:" }
+      - cli: { args: [health, lint, --check, paths], contains: 'workbench.systems.AI.paths "src/missing/" matches no file' }
+      - cli: { args: [health, lint, --check, paths], not_contains: "src/sim/" }
+    do: Open the Systems page and read the code map on the right and the Unlock card.
+    expect: >-
+      The code map's note starts with "Draft ·" and says UI is still read from its issues while the
+      others come from their paths. store.go is listed under src/shared as owned by AI, Sim and marked shared. The
+      Sim workshop's CODE row starts with lanes.go. The Unlock card asks to give UI paths. Nothing is cut off.
+    why: ux-test checks the words; only you can judge whether the draft note and the card read clearly.
+
+  - id: TP5
+    title: With paths on every system, the map is no longer a draft and the unlock card is gone
+    proves: [AC1]
+    setup:
+      - write:
+          path: workflow.yaml
+          text: |
+            statuses:
+              - name: "idea"
+              - name: "in progress"
+              - name: "done"
+            transitions:
+              - from: "idea"
+                to: "in progress"
+              - from: "in progress"
+                to: "done"
+            workbench:
+              systems:
+                Sim:
+                  paths: [src/sim/, src/shared/]
+                AI:
+                  paths: [src/ai/, src/shared/]
+                UI:
+                  paths: [web/]
+      - open: /p/{project}/systems
+    checks:
+      - visible: [systems.wb.codemap]
+      - absent: systems.wb.codemap.draft
+      - absent: systems.wb.unlock
+      - text_contains: { target: systems.wb.codemap, text: "from paths: in workbench.systems" }
+      - text_contains: { target: systems.wb.codemap, text: "app.tsx" }
+      - cli: { args: [health, lint, --check, paths], not_contains: "matches no file" }
+    do: Look at the code map again after UI got paths.
+    expect: >-
+      The code map has no Draft mark; its note says it comes from paths: in workbench.systems. web/app.tsx is UI's,
+      and no Unlock card is shown.
+    why: ux-test checks the words; you judge whether the confirmed map reads as settled.

@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/michal-franc/issue-viewer/internal/retro"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -174,72 +174,6 @@ var retroBins = []struct{ Key, Title, Sub, Color string }{
 	{"bugs", "Bugs", "report-bug", "#F8CDD2"},
 }
 
-// retroLabelRe is one of the retrospective's labelled lines, as a "Label:
-// text" line or a "## Label" heading.
-var retroLabelRe = regexp.MustCompile(`(?i)^(?:#{1,4}\s*)?(?:[-*]\s+)?(?:\*\*)?(base workflow|subsystem workflow(?: for ([^:*]+?))?|missing system-specific instructions|tooling/workflow friction|tooling friction)(?:\*\*)?\s*(?::\s*(.*))?$`)
-
-// retroItemRe finds "(1) " item markers inside a finding.
-var retroItemRe = regexp.MustCompile(`\(\d{1,2}\)\s`)
-
-type retroSection struct {
-	label, system, text string
-}
-
-// retroSections splits a retro's body into its labelled sections.
-func retroSections(body string) []retroSection {
-	var out []retroSection
-	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		t := strings.TrimSpace(line)
-		if m := retroLabelRe.FindStringSubmatch(t); m != nil {
-			out = append(out, retroSection{label: strings.ToLower(m[1]), system: strings.TrimSpace(m[2]), text: strings.TrimSpace(m[3])})
-			continue
-		}
-		if len(out) == 0 || t == "" {
-			continue
-		}
-		cur := &out[len(out)-1]
-		t = strings.TrimSpace(strings.TrimLeft(t, "-*"))
-		if cur.text == "" {
-			cur.text = t
-		} else {
-			cur.text += " " + t
-		}
-	}
-	return out
-}
-
-// retroNone reports a section that says there is nothing ("none", "brak").
-func retroNone(text string) bool {
-	switch strings.ToLower(strings.Trim(strings.TrimSpace(text), ".!;—- ")) {
-	case "", "none", "brak", "nothing", "n/a", "na", "no", "nic", "nothing new", "none so far":
-		return true
-	}
-	return false
-}
-
-// retroItems splits "(1) a (2) b" into its items; text without markers is
-// one item.
-func retroItems(text string) []string {
-	locs := retroItemRe.FindAllStringIndex(text, -1)
-	if len(locs) < 2 {
-		return []string{text}
-	}
-	var out []string
-	if pre := strings.Trim(strings.TrimSpace(text[:locs[0][0]]), ":;,"); pre != "" {
-		out = append(out, pre)
-	}
-	for i, l := range locs {
-		end := len(text)
-		if i+1 < len(locs) {
-			end = locs[i+1][0]
-		}
-		if s := strings.Trim(strings.TrimSpace(text[l[1]:end]), ";,"); s != "" {
-			out = append(out, strings.TrimSpace(s))
-		}
-	}
-	return out
-}
-
 // retroTitleText splits a finding into a title (its first sentence) and the
 // rest; a long first sentence is cut and the whole kept as the text.
 func retroTitleText(s string) (string, string) {
@@ -269,25 +203,25 @@ func retroTitleText(s string) (string, string) {
 func retroFindings(r *RetroEntry, filedBug string, ceo WbMessageBox) []WbRetroFinding {
 	var out []WbRetroFinding
 	system := r.System
-	for _, sec := range retroSections(r.BodyRaw) {
-		if retroNone(sec.text) {
+	for _, sec := range retro.Sections(r.BodyRaw) {
+		if retro.None(sec.Text) {
 			continue
 		}
 		var kind, tone, bin, dest, cta, ask string
 		switch {
-		case sec.label == "base workflow":
+		case sec.Label == "base workflow":
 			kind, tone, bin = "Workflow", "ink", "workflow"
 			dest, cta = "Workflow: the base workflow", "Propose an update"
 			ask = "Propose an update to the base workflow in workflow.yaml for it; show me the change before applying it."
-		case strings.HasPrefix(sec.label, "subsystem workflow"):
-			sys := sec.system
+		case strings.HasPrefix(sec.Label, "subsystem workflow"):
+			sys := sec.System
 			if sys == "" {
 				sys = system
 			}
 			kind, tone, bin = "System "+orDash(sys), "sys", "workflow"
 			dest, cta = "Workflow: "+orDash(sys)+"'s workflow", "Propose an update"
 			ask = "Propose an update to the " + orDash(sys) + " system's workflow in workflow.yaml for it; show me the change before applying it."
-		case sec.label == "missing system-specific instructions":
+		case sec.Label == "missing system-specific instructions":
 			kind, tone, bin = "System "+orDash(system), "sys", "docs"
 			if system == "" {
 				kind = "Instructions"
@@ -299,7 +233,7 @@ func retroFindings(r *RetroEntry, filedBug string, ceo WbMessageBox) []WbRetroFi
 			dest, cta = "Bugs: report-bug", "File a bug report"
 			ask = "File it as a tool bug with report-bug, unless it is already filed."
 		}
-		for _, item := range retroItems(sec.text) {
+		for _, item := range retro.Items(sec.Text) {
 			title, text := retroTitleText(item)
 			i := len(out)
 			f := WbRetroFinding{Index: i, Kind: kind, Tone: tone, Title: title, Text: text}
@@ -357,30 +291,19 @@ func retroTitle(r *RetroEntry) string {
 	return strings.TrimSuffix(r.FileName, ".md")
 }
 
-// retroTermRe finds code-like terms (check-script, scripts/checks,
-// report-bug, work/<slug>) a pattern can be made of.
-var retroTermRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_]*(?:[-/.][A-Za-z0-9_<>]+)+`)
-
 // retroPattern finds the term of the selected retro that the retros of the
 // most other issues mention, if at least retroPatternMin do.
 func retroPattern(sel *RetroEntry, all []*RetroEntry, stop map[string]bool, link func(*RetroEntry) string) *WbRetroPattern {
-	body := retroSectionsText(sel.BodyRaw)
-	seen := map[string]bool{}
 	var best *WbRetroPattern
-	for _, term := range retroTermRe.FindAllString(body, -1) {
-		term = strings.TrimRight(term, ".")
+	for _, term := range retro.Terms(retro.SectionsText(sel.BodyRaw), stop) {
 		lt := strings.ToLower(term)
-		if seen[lt] || stop[lt] || len(term) < 6 || strings.Count(term, ".") > 0 && !strings.ContainsAny(term, "-/") {
-			continue
-		}
-		seen[lt] = true
 		issues := map[string]bool{}
 		var example *RetroEntry
 		for _, r := range all {
 			if r == sel || r.IssueSlug == sel.IssueSlug {
 				continue
 			}
-			if strings.Contains(strings.ToLower(retroSectionsText(r.BodyRaw)), lt) {
+			if strings.Contains(strings.ToLower(retro.SectionsText(r.BodyRaw)), lt) {
 				key := r.IssueSlug
 				if key == "" {
 					key = r.FileName
@@ -396,21 +319,6 @@ func retroPattern(sel *RetroEntry, all []*RetroEntry, stop map[string]bool, link
 		}
 	}
 	return best
-}
-
-// retroSectionsText is the text of a retro's labelled sections (the part a
-// pattern is looked for in); the whole body when it has none.
-func retroSectionsText(body string) string {
-	secs := retroSections(body)
-	if len(secs) == 0 {
-		return body
-	}
-	var b strings.Builder
-	for _, s := range secs {
-		b.WriteString(s.text)
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 type retroWbIn struct {

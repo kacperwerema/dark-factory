@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -18,9 +19,13 @@ import (
 // CEOChatPage is the whole page; the live part (?part=live) re-renders
 // Live alone.
 type CEOChatPage struct {
-	Header WbHeader
-	Title  CEOTitle
-	Live   CEOLive
+	// Who is who the page talks to: "CEO" or "<Dept> lead".
+	Who string
+	// LiveURL is the polled part's URL (?part=live, plus dept=).
+	LiveURL string
+	Header  WbHeader
+	Title   CEOTitle
+	Live    CEOLive
 	// Composer and the controls are drawn once: polling never touches what
 	// the owner is typing.
 	Composer CEOComposer
@@ -31,6 +36,7 @@ type CEOChatPage struct {
 // CEOTitle is the band above the conversation: the CEO, live or not, the
 // session mode, the view toggle and Open in tmux.
 type CEOTitle struct {
+	Who              string
 	Session, Display string
 	Color            string
 	Live             bool
@@ -42,6 +48,7 @@ type CEOTitle struct {
 // CEOLive is what the page polls: the conversation, the raw pane, the menu,
 // and the side panel.
 type CEOLive struct {
+	Who      string
 	Live     bool
 	SpawnURL string
 	// Pane is the conversation (Turns from the transcript, or the pane),
@@ -75,6 +82,7 @@ type CEOWorker struct {
 
 // CEOComposer is the message box.
 type CEOComposer struct {
+	Who             string
 	SendURL, KeyURL string
 	// ImageURL takes an image for the next message (POST …/lead/image).
 	ImageURL string
@@ -119,29 +127,47 @@ func ceoModeLabel(mode string) string {
 }
 
 func (s *Server) handleCEOChat(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
+	name, dept, ok := chatLead(proj, r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.URL.Query().Get("part") == "live" {
 		w.Header().Set("Cache-Control", "no-store")
-		live := s.buildCEOLive(proj, prefix, s.buildLeadChat(proj, prefix, true))
+		live := s.buildCEOLive(proj, prefix, dept, s.buildLeadChat(proj, prefix, name, true))
 		if err := s.tmpl.ExecuteTemplate(w, "wb/ceo-live", live); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
-	if err := s.tmpl.ExecuteTemplate(w, "ceo_chat.html", s.buildCEOChat(proj, prefix, time.Now())); err != nil {
+	if err := s.tmpl.ExecuteTemplate(w, "ceo_chat.html", s.buildCEOChat(proj, prefix, dept, time.Now())); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) CEOChatPage {
+// buildCEOChat is the chat page with the CEO, or with dept's lead when dept
+// is set.
+func (s *Server) buildCEOChat(p *tracker.Project, prefix string, dept *tracker.Department, now time.Time) CEOChatPage {
 	color := s.projectColor(p)
 	lot, queue := s.buildLot(p, color, now)
-	m := s.buildLeadChat(p, prefix, true)
+	name, q, who := tracker.LeadSessionName(p), chatQuery(dept), chatWho(dept)
+	if dept != nil {
+		name = tracker.DepartmentLeadName(p, dept.Name)
+	}
+	m := s.buildLeadChat(p, prefix, name, true)
+	liveURL := "?part=live"
+	if q != "" {
+		liveURL += "&" + strings.TrimPrefix(q, "?")
+	}
 	d := CEOChatPage{
-		Header: WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
-		Live:   s.buildCEOLive(p, prefix, m),
+		Who:     who,
+		LiveURL: liveURL,
+		Header:  WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
+		Live:    s.buildCEOLive(p, prefix, dept, m),
 		Composer: CEOComposer{
-			SendURL: prefix + "/lead/send", KeyURL: prefix + "/lead/key", ImageURL: prefix + "/lead/image",
+			Who:     who,
+			SendURL: prefix + "/lead/send" + q, KeyURL: prefix + "/lead/key" + q, ImageURL: prefix + "/lead/image",
 			Session: m.Display, Live: m.Live, MaxBytes: m.MaxBytes,
 		},
 		Controls: ceoControls,
@@ -152,23 +178,28 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 		{Label: p.Name, URL: prefix + "/company", Color: color},
 		{Label: "HQ · CEO", Color: companyHQColor, Current: true},
 	}
+	if dept != nil {
+		d.Header.Crumbs[2] = WbCrumb{Label: dept.Name + " · lead", Color: deptColor(*dept, deptIndex(p, dept.Name)), Current: true}
+	}
 	d.Title = CEOTitle{
-		Session: m.Session, Display: m.Display, Color: color, Live: m.Live,
-		Mode: ceoModeLabel(d.Live.Pane.Mode), OpenURL: prefix + "/agents/open", SpawnURL: prefix + "/lead/spawn",
+		Who: who, Session: m.Session, Display: m.Display, Color: color, Live: m.Live,
+		Mode: ceoModeLabel(d.Live.Pane.Mode), OpenURL: prefix + "/agents/open", SpawnURL: prefix + "/lead/spawn" + q,
 	}
 	return d
 }
 
-// buildCEOLive is the polled part, from the lead chat model.
-func (s *Server) buildCEOLive(p *tracker.Project, prefix string, m LeadChatModel) CEOLive {
+// buildCEOLive is the polled part, from the lead chat model. A department
+// lead's side panel lists only its department's workers.
+func (s *Server) buildCEOLive(p *tracker.Project, prefix string, dept *tracker.Department, m LeadChatModel) CEOLive {
+	q := chatQuery(dept)
 	live := CEOLive{
-		Live: m.Live, SpawnURL: prefix + "/lead/spawn", Raw: m.Pane, Source: m.Source, AnswerURL: prefix + "/lead/answer",
+		Who: chatWho(dept), Live: m.Live, SpawnURL: prefix + "/lead/spawn" + q, Raw: m.Pane, Source: m.Source, AnswerURL: prefix + "/lead/answer" + q,
 		Pane: CEOPane{Turns: m.Turns, Older: m.Older, Working: m.Working, Prompt: m.Prompt, Ask: m.Ask, Mode: m.Mode},
 		Side: CEOSide{Waiting: m.Waiting, Questions: m.OpenQuestions, AttachCmd: m.AttachCmd},
 	}
 	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
 		for _, w := range agents.Workers {
-			if !w.Live {
+			if !w.Live || (dept != nil && w.Department != dept.Name) {
 				continue
 			}
 			live.Side.Workers = append(live.Side.Workers, CEOWorker{

@@ -65,7 +65,7 @@ func TestReleaseCandidateCutFirst(t *testing.T) {
 	// Never the direct publish steps while no candidate has soaked.
 	wantNone(t, "page", page, `status.release_wait.ready"`, `status.release_wait.publish`, `status.release_wait.candidate"`, `rename <code>## Unreleased</code>`, `rc_badge`)
 	wantAll(t, "status.md", md,
-		"- Milestone 0.53: 1/1 done; ready to cut release candidate v0.53.0-rc.1: issue-cli release cut v0.53.0 (tags it on release/v0.53, never pushed), install that build from the release worktree and restart what runs it, then tell the leads of the projects that run it\n",
+		"- Milestone 0.53: 1/1 done; ready to cut release candidate v0.53.0-rc.1: issue-cli release cut v0.53.0 (tags it on release/v0.53, never pushed), install that build from the release worktree and restart what runs it, then tell the CEOs of the projects that run it\n",
 	)
 	wantNone(t, "status.md", md, "rename ## Unreleased", "- Candidate")
 }

@@ -22,11 +22,11 @@ func healthURL(proj *tracker.Project) string {
 func reviewSession(slug string) string { return "review-" + slug }
 
 const healthReviewUsage = `Usage:
-  issue-cli health review [--spawn --quote "<the human's words>" [--how "lead chat"] [--attach] [--agent claude|codex]]
+  issue-cli health review [--spawn --quote "<the human's words>" [--how "CEO chat"] [--attach] [--agent claude|codex]]
   issue-cli health review --schema
   issue-cli health review show
   issue-cli health review record <file.json> [--reviewer <name>]
-  issue-cli health review file <R#> --quote "<owner's words>" [--how "lead chat"]
+  issue-cli health review file <R#> --quote "<owner's words>" [--how "CEO chat"]
   issue-cli health review dismiss <R#> --quote "<owner's words>" [--reason "..."]`
 
 // runHealthReview is `issue-cli health review`: the agent opinion.
@@ -65,7 +65,7 @@ func runHealthReview(ctx *Context, args []string) error {
 		}
 		me := whoAmI(ctx.Project, issues)
 		if me.Role == tracker.RoleWorker {
-			return fmt.Errorf("workers can't start agents (you are %s, detected from %s). Ask your lead on your issue trail:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
+			return fmt.Errorf("workers can't start agents (you are %s, detected from %s). Ask the CEO on your issue trail:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
 				tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
 		}
 		if quote == "" {
@@ -74,7 +74,7 @@ func runHealthReview(ctx *Context, args []string) error {
 		if how == "" {
 			how = "owner's shell"
 			if me.Role == tracker.RoleProjectLead {
-				how = "lead chat"
+				how = "CEO chat"
 			}
 		}
 	}
@@ -157,7 +157,11 @@ func runReviewRecord(ctx *Context, args []string) error {
 	if err := dec.Decode(&o); err != nil {
 		return fmt.Errorf("%s: %v (the shape: issue-cli health review --schema)", fs.Arg(0), err)
 	}
-	env, err := health.NewEnv(ctx.Project, projectRoot(ctx.Project), ctx.now())
+	// One clock reading dates the opinion and the snapshot that reads it:
+	// a second one can fall in the next minute, and the snapshot would
+	// skip the opinion as newer than itself.
+	now := ctx.now()
+	env, err := health.NewEnv(ctx.Project, projectRoot(ctx.Project), now)
 	if err != nil {
 		return err
 	}
@@ -175,7 +179,7 @@ func runReviewRecord(ctx *Context, args []string) error {
 	if who == "" {
 		who = os.Getenv("AGENT_NAME")
 	}
-	health.NewOpinion(&o, snap, ctx.now(), who)
+	health.NewOpinion(&o, snap, now, who)
 	path, err := health.WriteOpinion(env.Root, &o)
 	if err != nil {
 		return err
@@ -246,7 +250,7 @@ func printOpinion(ctx *Context, o *health.Opinion, path string) {
 func runReviewFile(ctx *Context, args []string) error {
 	fs := newFlagSet("health review file", ctx)
 	quote := fs.String("quote", "", "the owner's words approving it (required)")
-	how := fs.String("how", "lead chat", "how the owner decided")
+	how := fs.String("how", "CEO chat", "how the owner decided")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}

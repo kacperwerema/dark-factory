@@ -125,3 +125,40 @@ func TestLeadsSurviveCloneAndSchema(t *testing.T) {
 		t.Fatal("help schema has no leads section with project/epic")
 	}
 }
+
+func TestLeadBrief_AutoStartLineOnlyWhenOn(t *testing.T) {
+	proj := &Project{Slug: "proj", Name: "Proj"}
+	off := LeadBrief(&WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir()})
+	if strings.Contains(off, "Auto-start") {
+		t.Fatalf("brief without auto-start mentions it:\n%s", off)
+	}
+	on := LeadBrief(&WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir(), AutoStart: &AutoStartBrief{Words: "start one under 50%", Below: 50, MaxWorkers: 3}})
+	for _, w := range []string{`Auto-start is on for this project (the owner's words: "start one under 50%")`, "issue-cli --project proj autostart next", "dispatch --autostart", "at or above 50%, 3 workers are live"} {
+		if !strings.Contains(on, w) {
+			t.Errorf("brief missing %q:\n%s", w, on)
+		}
+	}
+	paused := LeadBrief(&WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir(), AutoStart: &AutoStartBrief{Words: "w", Below: 50, MaxWorkers: 2, Paused: true}})
+	if !strings.Contains(paused, "It is paused now") {
+		t.Errorf("paused brief:\n%s", paused)
+	}
+}
+
+func TestLeadBrief_JobsRuleOnlyWithJobs(t *testing.T) {
+	proj := &Project{Slug: "proj", Name: "Proj", Departments: []Department{{Name: "Marketing"}, {Name: "Sales"}}}
+	if got := LeadBrief(&WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir()}); strings.Contains(got, "Recurring jobs") {
+		t.Fatalf("brief without jobs mentions them:\n%s", got)
+	}
+	proj.Departments[0].Jobs = []Job{{ID: "weekly"}, {ID: "monthly"}}
+	proj.Departments[1].Jobs = []Job{{ID: "leads"}}
+	ceo := LeadBrief(&WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir()})
+	for _, w := range []string{"- Recurring jobs (3): you tick the recurring jobs of departments whose lead is not live", "issue-cli --project proj job due", "--scheduled only where it says start", "never turn a job's standing start on or off without the human's words"} {
+		if !strings.Contains(strings.ToLower(ceo), strings.ToLower(w)) {
+			t.Errorf("CEO brief missing %q:\n%s", w, ceo)
+		}
+	}
+	dept := DepartmentLeadBrief(&WorkflowConfig{}, &proj.Departments[1], LeadBriefInput{Project: proj, Root: t.TempDir()})
+	if !strings.Contains(dept, "- Recurring jobs (1): you tick your department's recurring jobs.") {
+		t.Errorf("department brief:\n%s", dept)
+	}
+}

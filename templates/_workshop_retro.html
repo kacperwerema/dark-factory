@@ -132,5 +132,6 @@ templates/retro_wb.html composes them.
 {{define "wb/retro-pattern"}}{{with .}}
 <div class="wb-rpattern" data-testid="retro.pattern">
     <b>A pattern that comes back:</b> <span class="wb-mono-inline">{{.Term}}</span> is in the retros of {{.Issues}} other issues too, e.g. <a href="{{.ExampleURL}}">{{.Example}}</a>.
+    <span class="wb-rpattern-next" data-testid="retro.pattern.experiment">Measure a fix for it: <code>issue-cli experiment candidates</code>.</span>
 </div>
 {{end}}{{end}}

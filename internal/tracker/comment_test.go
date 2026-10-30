@@ -311,3 +311,58 @@ func TestCommentDateReadsBothForms(t *testing.T) {
 		t.Fatal("garbage parsed")
 	}
 }
+
+func TestAddCommentBy_StoresAuthor(t *testing.T) {
+	fp := filepath.Join(t.TempDir(), "test.md")
+	os.WriteFile(fp, []byte("---\ntitle: \"Test\"\n---\n\nBody."), 0644)
+	if err := AddCommentBy(fp, 0, "progress: done", "cli", "agent-x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddComment(fp, 0, "unsigned", "cli"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(fp)
+	if !strings.Contains(string(data), `"author":"agent-x"`) {
+		t.Errorf("the author is not in the line:\n%s", data)
+	}
+	if strings.Count(string(data), `"author"`) != 1 {
+		t.Errorf("an unsigned comment writes no author key:\n%s", data)
+	}
+}
+
+// Lines from before the field parse and save back byte for byte.
+func TestComments_OldLinesRoundTrip(t *testing.T) {
+	fp := filepath.Join(t.TempDir(), "test.md")
+	old := "---\ntitle: \"Test\"\n---\n\nBody.\n\n<!-- issue-viewer-comments\n" +
+		`{"id":1,"block":0,"date":"2026-10-01","text":"approval: \"go\" (in the lead chat, 2026-10-01) — recorded by lead-x","status":"open","source":"cli"}` + "\n-->"
+	os.WriteFile(fp, []byte(old), 0644)
+	comments, err := LoadComments(fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveComments(fp, comments); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(fp); string(data) != old {
+		t.Errorf("re-saved file changed:\n%s\nwant:\n%s", data, old)
+	}
+	if got := CommentAuthor(comments[0]); got != "lead-x" {
+		t.Errorf("CommentAuthor = %q, want the recorder", got)
+	}
+}
+
+func TestCommentAuthor(t *testing.T) {
+	for _, tc := range []struct {
+		c    Comment
+		want string
+	}{
+		{Comment{Author: "owner", Text: "x — recorded by lead-x"}, "owner"},
+		{Comment{Text: `dispatch: "go" (lead chat, 2026-10-30) — recorded by lead-dark-factory`}, "lead-dark-factory"},
+		{Comment{Text: "progress: tests pass"}, ""},
+		{Comment{Text: "a — recorded by two words"}, ""},
+	} {
+		if got := CommentAuthor(tc.c); got != tc.want {
+			t.Errorf("CommentAuthor(%+v) = %q, want %q", tc.c, got, tc.want)
+		}
+	}
+}

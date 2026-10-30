@@ -1,0 +1,32 @@
+package testids
+
+func init() {
+	IDs = append(IDs,
+		// Crew (Workshop Board L1, templates/crew.html and _workshop_crew.html);
+		// the old agents canvas stays at ?classic=1.
+		"crew.classic",
+		"crew.count",
+		"crew.chart",
+		"crew.no_workers",
+		"crew.column.*",
+		"crew.column.*.empty",
+		"crew.card.*",
+		"crew.card.*.pick",
+		"crew.card.*.state",
+		"crew.card.*.issue",
+		"crew.card.*.spawn",
+		"crew.*",
+		"crew.panel",
+		"crew.panel.name",
+		"crew.panel.open",
+		"crew.panel.open_status",
+		"crew.panel.command",
+		"crew.panel.spawn",
+		"crew.panel.issue",
+		"crew.panel.approve",
+		"crew.panel.last_call",
+		"crew.panel.diff",
+		"crew.panel.comments",
+		"crew.panel.empty",
+	)
+}

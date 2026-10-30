@@ -38,9 +38,12 @@ Usage:
                                               Manual box, in the issue's worktree
   issue-cli check-script --lib                print the helper library and its API
 
-The scripts run from the issue's worktree (or the project folder when the
-workflow has no worktrees). A machine run is also what you get when stdin
-isn't a terminal.`,
+The scripts run from the issue's worktree: the workflow's, else the git
+worktree on work/<slug>; when the workflow has no worktrees, the worktree
+you run it from, else the project folder. They run with a bash 4 or newer (PATH, then /opt/homebrew/bin,
+/usr/local/bin, /opt/local/bin; stock macOS: brew install bash). A machine
+run is also what you get when stdin isn't a terminal. With the feature on,
+human-testing waits for each script's newest --yes run to pass.`,
 	Run: runCheckScript,
 }
 
@@ -104,17 +107,28 @@ func runCheckScript(ctx *Context, args []string) error {
 }
 
 // checkScriptRoot is where the issue's scripts live and run: its worktree,
-// or the project folder when the workflow has no worktrees.
+// else the git worktree on its branch (work/<slug>, kept even when the
+// workflow declares none), else, when the workflow has no worktrees, the
+// worktree of the project it runs from (a slug with a space has no work/
+// branch), else the project folder.
 func checkScriptRoot(proj *tracker.Project, issue *tracker.Issue) (string, error) {
 	wf := proj.LoadWorkflowForIssue(issue)
 	path, branch, enabled := tracker.ResolveWorktree(projectRoot(proj), issue.Slug, wf)
+	if enabled && pathExists(path) {
+		return path, nil
+	}
+	if wt := checks.IssueWorktree(projectRoot(proj), issue.Slug); wt != "" {
+		return wt, nil
+	}
 	if !enabled {
+		if cwd, err := workingDir(); err == nil {
+			if wt := checks.WorktreeHolding(projectRoot(proj), cwd); wt != "" {
+				return wt, nil
+			}
+		}
 		return projectRoot(proj), nil
 	}
-	if !pathExists(path) {
-		return "", fmt.Errorf("no worktree for %s at %s\n\nCheck scripts live on the issue's branch (%s) and run from its worktree.\nCreate it with: git worktree add %s %s", issue.Slug, path, branch, path, branch)
-	}
-	return path, nil
+	return "", fmt.Errorf("no worktree for %s at %s\n\nCheck scripts live on the issue's branch (%s) and run from its worktree.\nCreate it with: git worktree add %s %s", issue.Slug, path, branch, path, branch)
 }
 
 func filterScripts(found []checks.Script, name string) []checks.Script {
@@ -132,7 +146,7 @@ func noCheckScripts(issue *tracker.Issue, root, name string) error {
 	if name != "" {
 		what = "no check script " + name
 	}
-	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, issue.Slug)}
+	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shellQuote(issue.Slug))}
 }
 
 type checkScriptEntry struct {
@@ -184,15 +198,23 @@ func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, 
 	if ctx.Project != nil && ctx.Project.Slug != "" {
 		project = ctx.Project.Slug
 	}
+	bash, err := checks.FindBash()
+	if err != nil {
+		return &exitCodeError{Code: 2, Msg: err.Error()}
+	}
+	// The scripts and lib.sh call bash by name too (clean_shell, stand-ins):
+	// the same one comes first on PATH.
+	path := filepath.Dir(bash) + string(os.PathListSeparator) + os.Getenv("PATH")
 	var failed []string
 	for i, s := range found {
 		if i > 0 {
 			fmt.Fprintln(ctx.Stdout)
 		}
-		cmd := exec.Command("bash", s.Path)
+		cmd := exec.Command(bash, s.Path)
 		cmd.Dir = s.Root
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = ctx.Stdin, ctx.Stdout, ctx.Stderr
 		cmd.Env = append(os.Environ(),
+			"PATH="+path,
 			"CHECKS_LIB="+lib,
 			"CHECKS_SLUG="+issue.Slug,
 			"CHECKS_PROJECT="+project,
@@ -242,8 +264,8 @@ func newCheckScript(ctx *Context, issue *tracker.Issue, root, name string) error
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Wrote %s\n", path)
 	fmt.Fprintln(ctx.Stdout, "  Fill in each step (the helpers: issue-cli check-script --lib), then:")
-	fmt.Fprintf(ctx.Stdout, "  issue-cli check-script %s --yes    machine run, before you hand over\n", issue.Slug)
-	fmt.Fprintf(ctx.Stdout, "  The owner runs: issue-cli check-script %s (or ▶ Run checks in the viewer)\n", issue.Slug)
+	fmt.Fprintf(ctx.Stdout, "  issue-cli check-script %s --yes    machine run, before you hand over\n", shellQuote(issue.Slug))
+	fmt.Fprintf(ctx.Stdout, "  The owner runs: issue-cli check-script %s (or ▶ Run checks in the viewer)\n", shellQuote(issue.Slug))
 	fmt.Fprintln(ctx.Stdout, "  Commit it on the issue branch; remove it in a last commit before the merge.")
 	return nil
 }
@@ -309,7 +331,7 @@ func printCheckScriptHint(w io.Writer, proj *tracker.Project, wf *tracker.Workfl
 		}
 		fmt.Fprintln(w, "== Guided checks ==")
 		fmt.Fprintln(w, "  None yet. Manual checks that aren't playtests come as a guided check script:")
-		fmt.Fprintf(w, "  issue-cli check-script %s --new <name>    (helpers: issue-cli check-script --lib)\n\n", issue.Slug)
+		fmt.Fprintf(w, "  issue-cli check-script %s --new <name>    (helpers: issue-cli check-script --lib)\n\n", shellQuote(issue.Slug))
 		return
 	}
 	names := make([]string, len(found))
@@ -319,13 +341,44 @@ func printCheckScriptHint(w io.Writer, proj *tracker.Project, wf *tracker.Workfl
 	fmt.Fprintln(w, "== Guided checks ==")
 	fmt.Fprintf(w, "  Scripts: %s\n", strings.Join(names, ", "))
 	if status == "testing" {
-		fmt.Fprintf(w, "  Before handing over: issue-cli check-script %s --yes    (machine checks only; never tick the owner's boxes)\n", issue.Slug)
+		fmt.Fprintf(w, "  Before handing over: issue-cli check-script %s --yes    (machine checks only; never tick the owner's boxes)\n", shellQuote(issue.Slug))
 	}
-	fmt.Fprintf(w, "  The owner runs: issue-cli check-script %s    (▶ Run checks in the viewer; ticks the boxes that pass)\n\n", issue.Slug)
+	fmt.Fprintf(w, "  The owner runs: issue-cli check-script %s    (▶ Run checks in the viewer; ticks the boxes that pass)\n\n", shellQuote(issue.Slug))
 }
 
 // checkScriptLibOnly reports whether args are `check-script --lib`, which
 // needs no project.
 func checkScriptLibOnly(args []string) bool {
 	return len(args) == 1 && (args[0] == "--lib" || args[0] == "-lib")
+}
+
+// checkScriptGate is the unmet requirement of → human-testing when the
+// workflow uses guided check scripts and the issue has some: each script's
+// newest machine run (check-script --yes) must have passed. Nil otherwise.
+func checkScriptGate(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue, to string) *transitionProblem {
+	if !strings.EqualFold(to, "human-testing") || !usesCheckScripts(wf) {
+		return nil
+	}
+	root, err := checkScriptRoot(proj, issue)
+	if err != nil {
+		return nil
+	}
+	var missing []string
+	for _, s := range checks.Find([]string{root}, issue.Slug) {
+		switch ok, ran := checks.MachineRunPassed(s.Root, s.Name); {
+		case !ran:
+			missing = append(missing, s.Name+": no machine run")
+		case !ok:
+			missing = append(missing, s.Name+": the last machine run failed")
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return &transitionProblem{
+		Kind:        "validator",
+		Requirement: "Guided check scripts pass a machine run",
+		Message:     strings.Join(missing, "; "),
+		Fix:         []string{tracker.InjectProject(proj, "issue-cli check-script "+shellQuote(issue.Slug)+" --yes")},
+	}
 }

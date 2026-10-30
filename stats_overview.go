@@ -31,6 +31,34 @@ type OverviewData struct {
 	// Privacy counts every project's work-files marker (privacy_view.go):
 	// "2 private · 1 in code repo".
 	Privacy string
+	// Classic is the classic page (?classic=1), kept across its links;
+	// Header is the Workshop Board page's (stats_overview_wb.html).
+	Classic bool
+	Header  WbHeader
+}
+
+// overviewHeader is the Workshop Board header across projects: Map › Stats,
+// with every project's agents and what waits on the owner.
+func (s *Server) overviewHeader(now time.Time) WbHeader {
+	h := s.buildNeedsYouAll(now).Header
+	h.Crumbs = []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Stats, all projects", Current: true}}
+	h.HideDone = true
+	return h
+}
+
+// NoneLine says which projects have no snapshot and how one comes.
+func (d OverviewData) NoneLine() string {
+	return "No snapshot yet: " + strings.Join(d.None, ", ") + ". A project in git gets one daily while the viewer runs, or now with this command; history with health backfill."
+}
+
+// ClassicURL is the classic overview with the same range and sort.
+func (d OverviewData) ClassicURL() string {
+	for _, s := range d.Sorts {
+		if s.On {
+			return "/stats?" + url.Values{"classic": {"1"}, "range": {d.Range}, "sort": {s.Key}}.Encode()
+		}
+	}
+	return "/stats?classic=1"
 }
 
 // OverviewCell is one value and its sparkline.
@@ -72,9 +100,17 @@ func (s *Server) handleStatsOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	data := buildOverview(s.projects, q, time.Now())
+	now := time.Now()
+	data := buildOverview(s.projects, q, now)
+	page := "stats_overview.html"
+	if q.Get("classic") == "1" {
+		data.Classic = true
+	} else {
+		page = "stats_overview_wb.html"
+		data.Header = s.overviewHeader(now)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "stats_overview.html", data); err != nil {
+	if err := s.tmpl.ExecuteTemplate(w, page, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -92,11 +128,18 @@ func buildOverview(projects []tracker.Project, q url.Values, now time.Time) Over
 			sortKey = o.Key
 		}
 	}
+	link := func(rng, sort string) string {
+		v := url.Values{"range": {rng}, "sort": {sort}}
+		if q.Get("classic") == "1" {
+			v.Set("classic", "1")
+		}
+		return "/stats?" + v.Encode()
+	}
 	for _, r := range statsRanges[:3] {
-		d.Ranges = append(d.Ranges, statsOption{Key: r.Key, Label: r.Label, On: r.Key == d.Range, Href: "/stats?" + url.Values{"range": {r.Key}, "sort": {sortKey}}.Encode()})
+		d.Ranges = append(d.Ranges, statsOption{Key: r.Key, Label: r.Label, On: r.Key == d.Range, Href: link(r.Key, sortKey)})
 	}
 	for _, o := range overviewSorts {
-		d.Sorts = append(d.Sorts, statsOption{Key: o.Key, Label: o.Label, On: o.Key == sortKey, Href: "/stats?" + url.Values{"range": {d.Range}, "sort": {o.Key}}.Encode()})
+		d.Sorts = append(d.Sorts, statsOption{Key: o.Key, Label: o.Label, On: o.Key == sortKey, Href: link(d.Range, o.Key)})
 	}
 
 	from := now.AddDate(0, 0, -d.Days)

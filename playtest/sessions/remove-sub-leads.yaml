@@ -22,11 +22,11 @@ steps:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
     act:
       - post: { path: "/p/{project}/lead/spawn", json: { epic: ui/epic }, status: 422 }
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
-      - cli: { args: [--project, crew, lead, spawn, --epic, ui/epic], exit: 1, contains: "sub-leads were removed (one lead per project)" }
+      - cli: { args: [--project, crew, lead, spawn, --epic, ui/epic], exit: 1, contains: "sub-leads were removed (one CEO per project)" }
       - cli: { args: [--project, crew, lead, list], not_contains: "sub-lead" }
-      - cli: { args: [--project, crew, show, ui/child], contains: "Lead: lead-crew (live)" }
+      - cli: { args: [--project, crew, show, ui/child], contains: "CEO: lead-crew (live)" }
       - cli: { args: [--project, crew, dispatch-prompt, ui/child], not_contains: "sub-lead" }
       - http: { path: "/p/{project}/agents.json", json: { "others.0.name": lead-ui-epic, "others.0.kind": other } }
       - http: { path: "/p/{project}/issue/ui/child?classic=1", contains: 'data-testid="detail.lead.name">lead-crew</div>' }
@@ -37,9 +37,9 @@ steps:
     do: |
       1. Look at the Tree: lead-crew leads agent-ui-child, and lead-ui-epic
          sits among the other sessions, not as anyone's lead.
-      2. Open ui/child from the Issues tab and read its Lead section.
+      2. Open ui/child from the Issues tab and read its CEO section.
     expect: |
       The canvas shows one lead, lead-crew. Nothing calls lead-ui-epic a
-      sub-lead or offers to spawn one. ui/child's Lead section names lead-crew
+      sub-lead or offers to spawn one. ui/child's CEO section names lead-crew
       and links its epic ui/epic.
     why: The machine checks cover the wording; only you can say whether the canvas still reads as one lead.

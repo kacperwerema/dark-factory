@@ -170,7 +170,7 @@ func outputKey(name string) string {
 func runOutputReview(ctx *Context, args []string) error {
 	fs := newFlagSet("output review", ctx)
 	quote := fs.String("quote", "", "the owner's words (required)")
-	how := fs.String("how", "", "how the words reached you (default: \"in the lead chat\")")
+	how := fs.String("how", "", "how the words reached you (default: \"in the CEO chat\")")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -190,11 +190,11 @@ func runOutputReview(ctx *Context, args []string) error {
 	issues, _ := tracker.LoadIssues(p.IssueDir)
 	me := whoAmI(p, issues)
 	if me.Role == tracker.RoleWorker {
-		return fmt.Errorf("workers never review outputs: the owner approves or rejects on the shelf (%s), or tells the lead", shelfURL(p, ""))
+		return fmt.Errorf("workers never review outputs: the owner approves or rejects on the shelf (%s), or tells the CEO", shelfURL(p, ""))
 	}
 	h := strings.TrimSpace(*how)
 	if h == "" {
-		h = "in the lead chat"
+		h = "in the CEO chat"
 	}
 	o, err := outputs.Review(p, fs.Arg(0), state, q, h, me.sender(), ctx.now())
 	if err != nil {

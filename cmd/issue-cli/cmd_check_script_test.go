@@ -248,3 +248,152 @@ func TestCheckScriptLibNeedsNoProject(t *testing.T) {
 		t.Fatal("--lib didn't print the library")
 	}
 }
+
+// issueWorktree puts a git worktree on work/<slug> under dir, named freely:
+// the workflow declares no worktrees, the workers make one anyway.
+func issueWorktree(t *testing.T, dir, slug string) string {
+	t.Helper()
+	return worktreeOn(t, dir, "work/"+slug)
+}
+
+// worktreeOn puts a git worktree on branch under dir.
+func worktreeOn(t *testing.T, dir, branch string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(dir, ".worktrees", "own-name")
+	git("worktree", "add", "-q", "-b", branch, wt)
+	resolved, err := filepath.EvalSymlinks(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func TestCheckScriptUsesTheIssueBranchWorktreeWhenTheWorkflowHasNone(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--new", "lead-tab"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Wrote "+filepath.Join(wt, "scripts", "checks", "lead-tab.sh"))
+	if pathExists(filepath.Join(dir, "scripts", "checks", "lead-tab.sh")) {
+		t.Fatal("--new wrote into the main checkout")
+	}
+
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v", err)
+	}
+	assertContains(t, out.String(), "lead-tab  "+filepath.Join(wt, "scripts", "checks", "lead-tab.sh"))
+}
+
+// A system with a space ("Level Design") gives a slug with a space: it has no
+// work/<slug> branch, so the worker's worktree is the one it runs from.
+func TestCheckScriptFindsScriptsForASlugWithASpace(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	level := filepath.Join(dir, "issues", "Level Design")
+	os.MkdirAll(level, 0o755)
+	os.WriteFile(filepath.Join(level, "rock-sentinel.md"), []byte("---\ntitle: \"rock sentinel\"\nstatus: \"human-testing\"\nsystem: \"Level Design\"\n---\n"), 0o644)
+	const slug = "level design/rock-sentinel"
+	wt := worktreeOn(t, dir, "art/rock-sentinel")
+	script := filepath.Join(wt, "scripts", "checks", "probe.sh")
+
+	old := workingDir
+	t.Cleanup(func() { workingDir = old })
+	os.MkdirAll(filepath.Join(wt, "scripts"), 0o755)
+	workingDir = func() (string, error) { return filepath.Join(wt, "scripts"), nil }
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{slug, "--new", "probe"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Wrote "+script)
+	assertContains(t, out.String(), "issue-cli check-script 'level design/rock-sentinel' --yes")
+	if pathExists(filepath.Join(dir, "scripts", "checks", "probe.sh")) {
+		t.Fatal("--new wrote into the main checkout")
+	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{slug, "--list"}); err != nil {
+		t.Fatalf("--list: %v", err)
+	}
+	assertContains(t, out.String(), "probe  "+script)
+
+	// From the main checkout, a script there is found too.
+	workingDir = func() (string, error) { return dir, nil }
+	os.MkdirAll(filepath.Join(dir, "scripts", "checks"), 0o755)
+	os.WriteFile(filepath.Join(dir, "scripts", "checks", "main.sh"), []byte(checks.Skeleton(slug, "main", nil)), 0o755)
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{slug, "--list"}); err != nil {
+		t.Fatalf("--list from the main checkout: %v", err)
+	}
+	assertContains(t, out.String(), "main  ")
+}
+
+func TestCheckScriptRunsWithBashFromCandidates(t *testing.T) {
+	bash, err := checks.FindBash()
+	if err != nil {
+		t.Skip(err)
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	writeCheckScript(t, dir, "lead-tab", checkSlug, "echo \"BASH=$BASH_VERSION\"\nstep TP3 ok\nexpect true fine\nsummary\n")
+	// A PATH whose bash is too old (or missing) doesn't stop the run.
+	t.Setenv("PATH", t.TempDir()+string(os.PathListSeparator)+"/usr/bin:/bin")
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("run: %v\n%s (bash %s)", err, out, bash)
+	}
+	assertNotContains(t, out.String(), "BASH=3.")
+}
+
+func TestHumanTestingWaitsForAPassingMachineRun(t *testing.T) {
+	wf := "statuses:\n  - name: \"testing\"\n    prompt: \"Pass issue-cli check-script <slug> --yes.\"\n  - name: \"human-testing\"\n"
+	proj, dir := makeCheckScriptFixture(t, wf)
+	ctx, _, _ := newTestContext(proj, false)
+	issue, _, err := findIssueOrErr(ctx, checkSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wfc := proj.LoadWorkflowForIssue(issue)
+	gate := func(to string) *transitionProblem { return checkScriptGate(proj, wfc, issue, to) }
+
+	if p := gate("human-testing"); p != nil {
+		t.Fatalf("no scripts: %+v", p)
+	}
+	writeCheckScript(t, dir, "lead-tab", checkSlug, "summary\n")
+	p := gate("human-testing")
+	if p == nil || !strings.Contains(p.Message, "lead-tab: no machine run") || len(p.Fix) == 0 || !strings.Contains(p.Fix[0], "check-script cli/lead-tab --yes") {
+		t.Fatalf("never run: %+v", p)
+	}
+	if p := gate("testing"); p != nil {
+		t.Fatalf("another target: %+v", p)
+	}
+	rec := filepath.Join(dir, checks.RecordDir, "lead-tab")
+	os.MkdirAll(rec, 0o755)
+	os.WriteFile(filepath.Join(rec, "20261030T100000Z-machine.txt"), []byte("step TP3 fail boxes=TP3 note=nope\n"), 0o644)
+	if p := gate("human-testing"); p == nil || !strings.Contains(p.Message, "lead-tab: the last machine run failed") {
+		t.Fatalf("failed run: %+v", p)
+	}
+	os.WriteFile(filepath.Join(rec, "20261030T110000Z-machine.txt"), []byte("step TP3 pass boxes=TP3\n"), 0o644)
+	if p := gate("human-testing"); p != nil {
+		t.Fatalf("passed run: %+v", p)
+	}
+
+	// Without the feature there is no gate.
+	plain, pdir := makeCheckScriptFixture(t, "")
+	writeCheckScript(t, pdir, "lead-tab", checkSlug, "summary\n")
+	if p := checkScriptGate(plain, plain.LoadWorkflowForIssue(issue), issue, "human-testing"); p != nil {
+		t.Fatalf("without the feature: %+v", p)
+	}
+}

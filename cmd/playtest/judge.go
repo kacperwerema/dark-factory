@@ -182,6 +182,7 @@ func (j *judge) shot(ctx context.Context, name string) string {
 	}()
 	png, err := j.page.Screenshot(ctx, false)
 	if err != nil {
+		j.logf("no screenshot: %v", err)
 		return ""
 	}
 	rel := filepath.Join("shots", name+".png")

@@ -143,13 +143,13 @@ func TestSystemPage_Configured(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/rd/systems/AI")
+	page := pageGet(t, ts.URL+"/p/rd/systems/AI?classic=1")
 	assertContains(t, page,
 		`data-testid="system.summary"`, "How teams choose plays",
 		"11 open · 2 done · 1 obsolete",
 		"Play calls · 1 of 2 done",
 		"workflow.yaml › workbench.systems.AI",
-		`href="/p/rd/board?system=AI"`, `href="/p/rd/decisions?system=AI"`,
+		`href="/p/rd/board?classic=1&amp;system=AI"`, `href="/p/rd/decisions?system=AI"`,
 		// furthest along first: the testing child before the in-progress umbrella
 		"system.issue.ai/caller-fit",
 		"epic · 1/2",
@@ -181,7 +181,7 @@ func TestSystemPage_Family(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/rd/systems/ai/play%20CALLS")
+	page := pageGet(t, ts.URL+"/p/rd/systems/ai/play%20CALLS?classic=1")
 	assertContains(t, page,
 		`<a href="/p/rd/systems/AI">AI</a> / Play calls`,
 		"Calls per stage", "1 open · 1 done", "umbrella · 1 of 2 done",
@@ -199,7 +199,7 @@ func TestSystemPage_Unconfigured(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/rd/systems/Sim")
+	page := pageGet(t, ts.URL+"/p/rd/systems/Sim?classic=1")
 	assertContains(t, page,
 		`data-testid="system.hint"`, "workbench.systems.Sim",
 		"Epics with issues here", `data-testid="system.epic.sim/siege"`,
@@ -218,7 +218,7 @@ func TestSystemPage_UnknownIs404(t *testing.T) {
 	defer ts.Close()
 
 	for _, path := range []string{"/p/rd/systems/Nope", "/p/rd/systems/AI/Nope", "/p/rd/systems/AI/Play%20calls/x"} {
-		resp, err := http.Get(ts.URL + path)
+		resp, err := http.Get(ts.URL + path + "?classic=1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,12 +243,12 @@ func TestSidebar_SystemsEntryVisibility(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	if page := pageGet(t, ts.URL+"/p/pl/board"); strings.Contains(page, `data-testid="nav.tab.systems"`) {
+	if page := pageGet(t, ts.URL+"/p/pl/board?classic=1"); strings.Contains(page, `data-testid="nav.tab.systems"`) {
 		t.Error("Systems shows for a project whose issues have no system")
 	}
 	writeSystemIssue(t, root, "sys", "With system", "idea", "Core", "", "")
-	page := pageGet(t, ts.URL+"/p/pl/board")
-	assertContains(t, page, `data-testid="nav.tab.systems"`, `href="/p/pl/board?system=Core"`)
+	page := pageGet(t, ts.URL+"/p/pl/board?classic=1")
+	assertContains(t, page, `data-testid="nav.tab.systems"`, `href="/p/pl/board?classic=1&amp;system=Core"`)
 }
 
 func TestBalance_SystemFilter(t *testing.T) {
@@ -268,7 +268,7 @@ func TestBalance_SystemFilter(t *testing.T) {
 	if strings.Contains(page, "creep-gold") {
 		t.Error("?system=ai shows a Sim note")
 	}
-	sys := pageGet(t, ts.URL+"/p/rd/systems/AI")
+	sys := pageGet(t, ts.URL+"/p/rd/systems/AI?classic=1")
 	assertContains(t, sys, `href="/p/rd/balance?system=AI"`)
 }
 
@@ -372,12 +372,12 @@ func TestSystemPage_MetricPanels(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{r.proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/mp/systems/Sim")
+	page := pageGet(t, ts.URL+"/p/mp/systems/Sim?classic=1")
 	assertContains(t, page, `data-testid="panel.guard_metrics"`, `data-testid="panel.guard_metrics.row.stuck"`, `data-testid="panel.knobs"`)
 	// A system that lists no metrics or knobs gets neither panel (no typed nil
 	// slipping through {{with}}).
 	writeSystemIssue(t, filepath.Dir(r.proj.IssueDir), "economy/shop", "Shop", "idea", "Economy", "", "")
-	other := pageGet(t, ts.URL+"/p/mp/systems/Economy")
+	other := pageGet(t, ts.URL+"/p/mp/systems/Economy?classic=1")
 	if strings.Contains(other, "panel.guard_metrics") || strings.Contains(other, "panel.knobs") {
 		t.Error("Economy lists no metrics or knobs but shows a panel")
 	}

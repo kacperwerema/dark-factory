@@ -10,14 +10,15 @@ The UI system covers HTML templates, CSS styling, and client-side JavaScript for
 ## Key Files
 
 - `templates/list.html` — filterable issue list
-- `templates/workboard.html` — the board (`/workboard`): read-only cards with markers, epic progress and the agent footer (`handlers_workboard.go`; see [Workboard](#workboard))
+- `templates/workboard.html` — the workboard (`/workboard?classic=1`): read-only cards with markers, epic progress and the agent footer (`handlers_workboard.go`; see [Workboard](#workboard))
 - `templates/_markers.html` — card marker partials: `markers`, `marker-chips`, `epic-progress`, `agent-footer`, `card-legend` (data from `markers.go`; agent state from `agent_state.go`)
-- `templates/board.html` — the classic kanban board with drag-and-drop (More › Classic board)
+- `templates/board.html` — the classic kanban board with drag-and-drop (`/board?classic=1`, More › Classic board)
 - `templates/detail.html` — issue page: title, the Issue · Timeline · Evidence tabs (`?tab=`), and on the Issue tab the folded body with comments and the sidebar with dispatch (see [Issue page tabs](#issue-page-tabs))
 - `templates/_issue_tab.html` — the Issue tab's band, main-column cards and side-column cards (`issue_tab.go` builds them; see [The Issue tab](#the-issue-tab))
 - `templates/_timeline.html` — the Timeline tab (`timeline.go` builds the view on `internal/timeline`'s `Split`, `timeline_sources.go` reads its files; rules in [Workflow Stats](../workflow-stats.md#timeline-tab))
 - `templates/graph.html` — workflow status graph
-- `templates/agents.html` — agents canvas: lead/worker tree, unfinished jobs, selected-agent panel (handlers in `handlers_agents.go`)
+- `templates/crew.html` — the Crew page (Workshop Board L1, `/agents`): the org chart, stopped jobs, selected-agent panel (`crew.go`; components in `templates/_workshop_crew.html`, JS in `static/crew.js`)
+- `templates/agents.html` — the classic agents canvas at `/agents?classic=1`: lead/worker tree, unfinished jobs, selected-agent panel (handlers in `handlers_agents.go`)
 - `templates/canvas.html` — issues canvas: version columns × epic or system rows, pan and zoom (`handlers_canvas.go` builds it)
 - `templates/docs.html` — documentation viewer with sidebar navigation
 - `templates/_sidebar.html` — the project sidebar on every project page (see [Navigation and theme](#navigation-and-theme)); `nav.go` lists the views
@@ -26,14 +27,14 @@ The UI system covers HTML templates, CSS styling, and client-side JavaScript for
 - `templates/balance.html` — balance board (`handlers_balance.go`, board built by `tracker.BuildBalanceBoard`). Its sidebar entry shows only when `workbench.balance` is set
 - `templates/status.html` — the project Status page (`handlers_status.go`; the model is `buildStatus` in `status.go`, the "waiting on you" rule is `attention.go`)
 - `templates/page.html`, `templates/_status_tabs.html` — the frame around a project's own HTML page (`workbench.status_page` / `pages`), and the Project status / Built-in tabs (`handlers_pages.go`). See [Project pages](#project-pages)
-- `templates/updates.html`, `templates/updates_overview.html` — the Updates tab and `/updates` (`updates.go`; the plan is `internal/workflowupgrade.BuildPlan`). See [Updates tab](#updates-tab)
+- `templates/updates.html`, `templates/updates_overview_wb.html` (`/updates` on the Workshop Board; components `wb/upd-tally`, `wb/upd-project`, `wb/upd-note` in `_workshop_updates.html`), `templates/updates_overview.html` (the classic table at `/updates?classic=1`) — the Updates tab and `/updates` (`updates.go`; the plan is `internal/workflowupgrade.BuildPlan`). See [Updates tab](#updates-tab)
 - `templates/decisions.html` — generated decisions index (`handlers_decisions.go`, index built by `tracker.BuildDecisionIndex`)
-- `templates/systems.html`, `templates/system.html` — systems index and the system / family pages (`handlers_systems.go`; the model is built in `systems.go`, the design doc panel in `docsections.go`). See [System pages](#system-pages)
+- `templates/systems.html`, `templates/system.html` — the classic systems index and system / family pages (`?classic=1`; the Workshop Board ones are `systems_wb.html` and `system_wb.html`) (`handlers_systems.go`; the model is built in `systems.go`, the design doc panel in `docsections.go`). See [System pages](#system-pages)
 - `templates/metrics.html` — Metrics view: guard metrics, knobs, branches (`handlers_metrics.go`; readers in `internal/tracker/metrics.go`, `knobs.go`, `branches.go`, `deps.go`)
 - `templates/_metrics_panels.html` — the `system-guard-metrics` and `system-knobs` partials a system page embeds, fed by `systemMetricsPanels` (`handlers_metrics_panels.go`)
 - `static/style.css` — all CSS: theme tokens for dark, Dracula and light, then the shared pieces and each view
 - `static/fonts/` — Archivo and JetBrains Mono (woff2, OFL), served by the viewer itself
-- `internal/testids/testids.go` — every `data-testid` the templates carry (playtest targets)
+- `internal/testids/` — every `data-testid` the templates carry (playtest targets), one file per page appending to `IDs`
 
 ## Navigation and theme
 
@@ -41,11 +42,11 @@ Every project page has the left sidebar from `templates/_sidebar.html`:
 
 - **All projects** link and the **project block**: name, version (projects.yaml `version`) and open-issue count.
 - **New issue**. On list and board it opens the create modal; elsewhere it links to `/?new=1`, which opens the modal on the list.
-- **Views**: Status (with an amber count of what waits on the owner), Systems (when any issue has a `system`, or `workbench.systems` is set), Board (the [workboard](#workboard), `/workboard`), List, Balance (when `workbench.balance` is set), Metrics, Decisions, Updates (when the project's `workflow.yaml` is based on a bundled template, with an amber count of features to decide) and Docs, then a **More** group with Classic board (`/board`, drag-and-drop), Graph, Canvas, Agents, Retros, Stats and GitHub (when `supports_github` is set).
+- **Views**: Status (with an amber count of what waits on the owner), Systems (when any issue has a `system`, or `workbench.systems` is set), Board (the hall, `/hall`), List, Balance (when `workbench.balance` is set), Metrics, Decisions, Updates (when the project's `workflow.yaml` is based on a bundled template, with an amber count of features to decide) and Docs, then a **More** group with Classic board (`/board?classic=1`, drag-and-drop), Workboard (`/workboard?classic=1`), Graph, Canvas, Agents, Retros, Stats and GitHub (when `supports_github` is set).
   - The current view has `aria-current="page"`.
   - More opens on load when the current view is in it; otherwise the browser remembers it open or closed (`localStorage` key `nav.more`).
 - **N agents running**, linking to Agents. It is hidden at 0, and `auto-refresh.js` updates it.
-- A **screen panel**. The Board shows the card legend, then a Systems list (open counts, each a `?system=` filter on that board); the Classic board shows the Systems list. The systems pages show the same list linking to the system pages, with configured families indented under their system and the current one marked.
+- A **screen panel**. The Workboard shows the card legend, then a Systems list (open counts, each a `?system=` filter on that board, `classic=1` kept); the Classic board shows the Systems list. The systems pages show the same list linking to the system pages, with configured families indented under their system and the current one marked.
 - **Actions** (Spawn lead and the `project_actions:` buttons) and the **theme swatches**, at the bottom.
 
 Below 900px the sidebar stacks above the page. There is no phone menu yet.
@@ -89,19 +90,19 @@ Charts are inline SVG from `internal/chart`, drawn on the server: marks use `cur
 
 | Route             | Template      | Description                                     |
 |:------------------|:--------------|:------------------------------------------------|
-| `/`               | `list.html`   | Filterable list with status, system, priority    |
-| `/workboard`      | `workboard.html` | The board: cards with markers, epic progress and the agent footer, read-only. See [Workboard](#workboard) |
-| `/board`          | `board.html`  | Classic kanban with configurable columns, card fields and drag-and-drop (More › Classic board) |
+| `/`               | `issues_wb.html` | The crate store, the hall's **Issues** tab: every issue as a crate on shelves by status. See [Crate store](#crate-store). The classic filterable list (`list.html`) is at `?classic=1` |
+| `/workboard?classic=1` | `workboard.html` | The workboard: cards with markers, epic progress and the agent footer, read-only. See [Workboard](#workboard) |
+| `/board?classic=1` | `board.html`  | Classic kanban with configurable columns, card fields and drag-and-drop (More › Classic board) |
 | `/graph`          | `graph.html`  | Workflow DAG with stale highlighting             |
-| `/agents`         | `agents.html` | Agents canvas: leads, workers, their issues (see below) |
+| `/agents`         | `crew.html` (`?classic=1`: `agents.html`) | Crew: the CEO, department leads, workers and how to reach them (see below) |
 | `/canvas`         | `canvas.html` | Issues canvas: versions × epics (or systems), see [Issues canvas](#issues-canvas) |
 | `/docs`           | `docs.html`   | Docs with collapsible sidebar sections           |
 | `/issue/<slug>`   | `detail.html` | Issue page with tabs: Issue (brief and Needs-you band, folded body, edit, approve, dispatch, comments), Timeline (`?tab=timeline`, `&show=`), Evidence (`?tab=evidence`: is it proven?). See [Issue page tabs](#issue-page-tabs) |
-| `/stats`          | `stats.html`  | The stats dashboard: gauges (waiting on you, milestone, big files), trend lines from the health snapshots, where the time goes by status and group, issues done per week, drill-downs to the issues; options `range`, `group` (remembered per project by `static/stats.js`). The time tables, token-cost estimates and CLI usage are folded below. See [Workflow Stats: Stats page](../workflow-stats.md#stats-page) |
-| `/stats` (top level, no `/p/<project>`) | `stats_overview.html` | Every project compared from its health snapshots: one row each with waiting on you, cycle p50, rework share, issues done, lines of code, test ratio and big files, with sparklines; `range` (7/30/90 days) and `sort` links |
+| `/stats`          | `stats_wb.html` (classic `stats.html` at `?classic=1`) | Hall stats on the Workshop Board (`stats_view_wb.go`, components in `_workshop_stats.html`). The dashboard: gauges (waiting on you, milestone, big files), trend lines from the health snapshots, where the time goes by status and group, issues done per week, drill-downs to the issues; options `range`, `group` (remembered per project by `static/stats.js`). The time tables, token-cost estimates and CLI usage are folded below. See [Workflow Stats: Stats page](../workflow-stats.md#stats-page) |
+| `/stats` (top level, no `/p/<project>`) | `stats_overview_wb.html` (classic `stats_overview.html` at `?classic=1`) | Every project compared from its health snapshots: one card each with waiting on you, cycle p50, rework share, issues done, lines of code, test ratio and big files, with sparklines; `range` (7/30/90 days) and `sort` links |
 | `/balance`        | `balance.html` | `?system=` scopes it to one system's issues (the system pages link here). Typed balance notes grouped by metric (state chip, hypothesis / change / evidence / verdict, earlier notes), joint passes from `balance_pass:` issues with **Start pass** (the existing dispatch endpoint), free-text notes under Unsorted. Shown only with `workbench.balance`; otherwise its sidebar entry is hidden and the page explains how to turn it on. Reloads when `/hash` changes, like `/decisions` |
 | `/systems`        | `systems.html` | One card per system, most open first: summary and design doc (from `workbench.systems`), open / done counts, status bar, waiting-on-you count and family chips, plus a "No system" line. See [System pages](#system-pages) |
-| `/systems/<System>[/<Family>]` | `system.html` | One page per system or configured family. Unknown names get a 404 listing the systems. See [System pages](#system-pages) |
+| `/systems/<System>[/<Family>]` | `system_wb.html` (classic: `system.html` at `?classic=1`) | One Workshop page per system or configured family. Unknown names get a 404 on the Systems page with a note. See [System pages](#system-pages) |
 | `/health`         | `health.html` | The Health view, right below Status in the sidebar (with the derived score beside it). See [Health view](#health-view) |
 | `/status`         | `status.html` | Where the project stands: progress, work in flight, next steps, what waits on the owner, what shipped. See [Status page](#status-page) |
 | `/status`         | `page.html`   | With `workbench.status_page`: the project's own page, with Project status / Built-in tabs. `?view=builtin` shows `status.html`. See [Project pages](#project-pages) |
@@ -112,14 +113,14 @@ Charts are inline SVG from `internal/chart`, drawn on the server: marks use `cur
 | `/decisions`      | `decisions.html` | Generated index of every `D-n` decision: how it was made, recording issue, citing issues, state (active / deferred / replaced / replaced · stale). System and state chips (`?system=`, `?state=`); reloads when `/hash` changes. The page renders the `/hash` value it was built from as the polling baseline, so a change made before the first 5 s poll still triggers a reload |
 
 | `/updates`        | `updates.html` | Workflow features the project could adopt, with Decline, Re-open and Install with an agent. See [Updates tab](#updates-tab) |
-| `/updates` (top level, no `/p/<project>`) | `updates_overview.html` | Every project's template stamp, state, features to decide, record and newest proposal, each linking its Updates tab. The project list shows each project's count and links here |
+| `/updates` (top level, no `/p/<project>`) | `updates_overview_wb.html` | Workflow updates on the Workshop Board: the Map › Workflow updates header with the Waiting count summed over every project, a tally (projects, stamped and behind, never scanned, to decide) and one card per project in its map colour (template stamp, state chip, to decide, record, newest proposal, **Open its updates**; a built-in or custom workflow says it has no catalog to compare). The map's *Workflow updates (N)* links here. The classic table is at `?classic=1` (`updates_overview.html`), linked as **Classic view**. Test ids `updates_overview.*`; session `global-screens` |
 | `/metrics`        | `metrics.html` | Guard metrics, knobs and branch overlap, read from the project's files and git (see [Metrics view](#metrics-view)). `/metrics.json` returns the same data; `?sig=1` only the reload signature |
 
 In projects whose `workflow.yaml` defines `types:` ([Types of Work](../Workflow/types.md)), the list and board show a type badge and an "All types" filter (`?type=`), `type` joins the default board card fields, `/graph?type=<t>` draws that type's path, and the detail sidebar has a **Type** select (`POST /p/<project>/issue/<slug>/type`; a `409` with `statuses` asks the human which status on the new path to move to). Without `types:` none of these controls render.
 
 ## Workboard
 
-`/p/<project>/workboard` is the sidebar's **Board**. It is a read-only kanban whose cards carry coordination state, rebuilt from the repo files on each request; it reloads when `/hash` changes (not while the search box has text). Writes stay where they were: the classic board (drag-and-drop), the detail page and issue-cli.
+`/p/<project>/workboard?classic=1` is the sidebar's More › **Workboard**. Without `?classic=1`, `/workboard` and `/board` redirect to the hall, which is the sidebar's Board now; the filter form and links keep `classic=1` (`factory/retire-board-canvas-graph#D-1`, provisional). Canvas and Graph stay classic pages, reachable from More and by URL, not linked from any Workshop Board page. The workboard is a read-only kanban whose cards carry coordination state, rebuilt from the repo files on each request; it reloads when `/hash` changes (not while the search box has text). Writes stay where they were: the classic board (drag-and-drop), the detail page and issue-cli.
 
 **Workflow switch.** On a project where a department has its own workflow file ([Department workflows](../workflow.md#department-workflows)), a **Workflow** switch above the columns picks Product or one department (`?department=<name>`): the columns come from that file and only its issues show. Product is the default, and columns are never merged across departments. The classic board and graph take `?department=` too. On the company page, a department with its own file draws its own line (440px wide so it fits); a missing or broken file shows an error chip with the message instead. On the issue page, changing `department:` to one whose file lacks the issue's status is refused, as with `set-meta`.
 
@@ -186,6 +187,18 @@ Test ids: `workboard.*`, `marker.<kind>` and `nav.panel.legend`. The sessions `w
 - **Balance notes.** Up to 3 open or unsorted `balance:` notes. They link to `/balance?system=` when the Balance view exists, and the panel is hidden without notes.
 - **Guard metrics and knobs.** `systemMetricsPanels` (`handlers_metrics_panels.go`) builds them from the system's (or family's) `metrics:` / `knobs:` lists. They render through the `system-guard-metrics` / `system-knobs` partials in `templates/_metrics_panels.html`, and are left out when the project has no metric or tuning source or the system lists none.
 
+### The Workshop page (one system)
+
+`/systems/<System>[/<Family>]` renders the Workshop Board version (`system_wb.go`, `templates/system_wb.html`, components in `templates/_workshop_systems.html`, styles in the "L2: one system" block of `static/workshop.css`). The classic page above stays at `?classic=1`. The model wraps `buildSystemPage` unchanged, so the content and its rules are the ones listed above. Drawn as `wb/*` components (no owner mockup; factory/system-detail-screen D-1, D-2):
+
+- **Head.** The hall header with the Systems tab current, a `wb/trail` crumb (Systems › System › Family), the summary or the not-configured hint, the umbrella chip (red when the umbrella is missing), links (items waiting on you, all issues, the line, the design doc) and `wb/figures`: open, done, gates for you.
+- **Workshop floor** (`wb/floor`). Every issue as a `wb/crate-dot` in the Systems index's states, with its legend, and a `wb/status-bar` per workflow status (side statuses counted in a note).
+- **Issues.** The page's rows (8 on a system, 30 on a family, open first) as the crate store's `wb/crate-card`s: status, worker robot, waiting-on-you, CI and YOLO chips, epic progress and the remaining markers as tags; "+N more in the list" links to the list.
+- **Families or epics** (`wb/families`, `wb/family-card`, `wb/epic-card`). Hidden on a family page and when there are none.
+- **Recent decisions** (`wb/sys-decisions`). The 3 newest as the decisions log's `wb/decision-row` (no Confirm box here; it is on the log), "All N" to `/decisions?system=`.
+- **Side.** The system's own code map (`codeIndex.codeMapOf`: the files its `paths:` match, or a Draft from the files its issues name; `shared` = another system owns it too), `wb/design-doc`, `wb/guard-metrics`, `wb/knobs` and balance notes (`wb/balance-note`). Each is hidden when it has no data.
+- At 1000px and below the side moves under the main column.
+
 Config, in `workflow.yaml`:
 
 ```yaml
@@ -194,12 +207,22 @@ workbench:
     UI:
       summary: "Templates, views and client-side behaviour"
       design_doc: docs/UI/overview.md
+      paths: [templates/, static/, "*_view.go"]
       families:
         Workbench:
           umbrella: ui/workbench-redesign-inbox-system-pages-balance-board-and-decisions-index
 ```
 
 `issue-cli process schema` lists every key (`WorkbenchSystem`, `WorkbenchFamily`).
+
+### The Systems page code map
+
+The Workshop Systems page (`/p/<project>/systems`, `systems_wb.go`, components in `templates/_workshop_systems.html`) has a code map on the right: packages, their files, and the systems that own each file. Hotspots from the latest health snapshot are marked `hot`, and a file owned by several systems is marked `shared`.
+
+- **Who owns a file.** A system with `paths:` owns the repository files its globs match (`tracker.MatchGlob`, the syntax `health.test_globs` uses: `**` any directories, a pattern without a slash matches the file name anywhere, `dir/` everything under it). Paths are relative to the repository root. The file list is `git ls-files --cached --others --exclude-standard`, so ignored folders such as `.worktrees/` never count. Without git it is a walk that skips dot-folders. A system without `paths:` owns the files its issues name.
+- **Draft.** The map is marked **Draft** while any system on the page (an issue's `system` or a `workbench.systems` key) has no `paths:`, and its note names those systems. When every system has paths, the note says the map comes from `workbench.systems`. A hotspot nobody owns shows `?`, and its hover says why.
+- **CODE row.** A workshop's row lists 3 of its files: the ones its issues name most first, then hotspots. "no file matches its paths" means a glob matches nothing (`issue-cli health lint --check paths` names it).
+- **Unlock card.** A system missing from `workbench.systems` gets the "Unlock: workbench.systems" card. When every system is configured but some lack `paths:`, the card is "Unlock: a confirmed code map", and its message asks the CEO to draft the globs from the current map.
 
 ## Status page
 
@@ -450,9 +473,22 @@ A UI issue's manual checks are written as a playtest session (`playtest/sessions
   - The id is `page.area.element`, lower snake case.
   - Dynamic segments use the `tid` template func: `data-testid="board.column.{{tid .Status}}"`.
   - From JS, set it as `el.dataset.testid = 'detail.body.checkbox.' + i`.
-- **The id list:** every id or pattern (`*` any one segment, `#` an index) goes in `internal/testids/testids.go`. `TestTemplateTestIDs` fails when templates and that list drift apart, and `make playtest-check` rejects session targets that aren't listed.
+- **The id list:** every id or pattern (`*` any one segment, `#` an index) goes in its page's file under `internal/testids/` (`sidebar.go`, `workboard.go`, ...). `TestTemplateTestIDs` fails when templates and that list drift apart, and `make playtest-check` rejects session targets that aren't listed.
 - **Containers:** label containers too (`nav.sidebar`, `board.filters`). A session's `layout_ignore` on a container waives a known layout bug inside it.
 - **Known bug:** at phone width (390px) the page headers and the board filter bar don't wrap. Sessions waive them with `layout_ignore`.
+
+## Crate store
+
+`/p/<project>/` (`issues_wb.go`, `templates/issues_wb.html`, components in `templates/_workshop_issues.html`) is the project's issue list as a Workshop Board page, the hall's **Issues** tab (`hall.tab.issues`, after Line in every hall header). No owner design yet: it was drafted from the design system and the Decisions page's layout (factory/issue-list-screen D-1, provisional).
+
+- **Shelves** (`wb/shelf`, `issues.shelf.<status>`): one per status in `workflow.yaml` order, statuses the workflow doesn't know after them, done and parked last. Done and parked show the 10 most recently changed crates (`storeFolded`) and a "+N more in done" link to `?status=done`. Within a shelf, crates waiting on the owner come first, then those with a live worker.
+- **Crate** (`wb/crate-card`, `issues.crate.<slug>`): the title links to the station (`/issue/<slug>`); the slug; system and type as pills that filter; the version; priority as a chip (critical and high red); labels as dashed pills that filter; the score when `scoring:` is on; the created date. A live worker draws its robot instead of the crate icon. Markers as on the hall: what waits on the owner (`gate · <status>`, `question`, `playtest to run`, `checks to run`; the crate is tinted), `CI` when blamed for red, `YOLO` when it passed a gate in YOLO.
+- **Filters**: the classic list's query parameters all work (`status`, `system`, `priority`, `label`, `assignee` with `_claimed` / `_unclaimed`, `type`, `search`, `sort=score`), plus `show=open|you|agent` for the quick pills All · Open · Waiting on you · Agent at work. Every applied filter is a pill with × (`filter.clear_<field>`); the search box keeps the others. `sort=score` (or `scoring.default_sort: score_desc`) turns the shelves into one list by score, each crate naming its status.
+- **Side facets** (`bars.issues_<field>`): By system, By priority, By type (with `types:`), By assignee (plus Claimed / Unclaimed) and Labels, the top 8 rows by count, the applied value always listed. A row counts the issues the *other* filters leave, so it never promises crates that won't show; clicking applies it, clicking the lit row drops it.
+- **Empty states**: no issues (`issues.empty`: how to create one) and no match (`issues.nomatch` with Clear).
+- **New issue** (`issues.new`) and the classic sidebar's New issue open the create modal on `?classic=1&new=1`.
+
+The page doesn't auto-refresh, like the other hall pages. The classic list at `?classic=1` keeps its sidebar, selects and live row updates, and its own filter form, Clear and sort links stay on `?classic=1`.
 
 ## Product hall: drill into a part
 
@@ -477,7 +513,7 @@ A UI issue's manual checks are written as a playtest session (`playtest/sessions
 
 `/p/<project>/issue/<slug>` opens the station (`station.go`, the Workshop Board look); the classic page below is at `?classic=1` and at any `?tab=`. Its Issue tab links to `?classic=1`, so it stays on the classic page with the body editor, comments, checkbox ticking, dispatch and the data table.
 
-On the station the owner's steps come first (playtest, guided checks, an open question), then the stamp: the gate's targets, the words box, **Stamp it** and Send back for fixes. The stamp is never locked. While steps are open a note says so ("Steps 1–2 are still open: you can stamp ahead."), as the classic page's approve buttons never waited either. On the hall the message box starts empty when the page picks the issue itself; when you pick one it holds `<slug>: `, never approval words, so a stray Enter approves nothing.
+On the station the owner's steps come first (playtest, guided checks, an open question), then the stamp: the gate's targets, the words box, **Stamp it** and **Send back for fixes**. Send back needs words. It posts them to `…/send-back`, which moves the issue back one status on its path, saves the words as a `rejected:` comment and tells the worker. The line under the buttons says "Sent back to <status>. Told <session>." or that no worker is live, then the page reloads. The stamp is never locked. While steps are open a note says so ("Steps 1–2 are still open: you can stamp ahead."), as the classic page's approve buttons never waited either. On the hall the message box starts empty when the page picks the issue itself; when you pick one it holds `<slug>: `, never approval words, so a stray Enter approves nothing.
 
 `/p/<project>/issue/<slug>` has the back link, the title (click to edit), a chip row (status, type, priority, system) and a tab bar. The bar reuses the Status page's `status-tabs` look, with links instead of JS:
 
@@ -591,9 +627,9 @@ Lock defaults to on (the early-load check is `localStorage.getItem('sidebar-lock
 
 ## Needs you list
 
-Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it.
+Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it. Both pages render the same components from `templates/_workshop_needs_you.html`: `wb/ny-bar`, `wb/ny-group` (its `Named` flag shows the project heading on the page across projects), `wb/ny-section`, `wb/ny-row`, `wb/ny-after`, `wb/ny-empty` and `wb/ny-confirm`.
 - **One list, one count.** `needsYouRows` is the list: red CI, ready gates, playtests and check scripts to run, open `question:` comments, outputs to review (one row per department) and unsent `issue-cli report-bug` reports (listed once across projects). Red CI comes first, then the oldest. The sidebar's Status count, every Workshop Board header (`map.waiting`), the map's lots, the company panel, the hall, the Report's Waiting on you card and the classic Status card are all its length.
-- **Where the counts link.** The header's "N waiting on you" goes to the project's list (the map's and Every CEO's go to `/needs-you`). The sidebar's amber Status number is its own link to the list, while the word Status still opens the Status page. The Report's Waiting on you card has **See all and approve**, its bottleneck's **Approve gates** opens the list when more than one gate waits, and the company panel has **See all and approve**. The classic Status card, the workboard (**List →**), the map's Waiting on you panel and the CEO chat's Waiting band each have a See all link.
+- **Where the counts link.** The header's "N waiting on you" goes to the project's list (the map's and All CEOs' go to `/needs-you`). The sidebar's amber Status number is its own link to the list, while the word Status still opens the Status page. The Report's Waiting on you card has **See all and approve**, its bottleneck's **Approve gates** opens the list when more than one gate waits, and the company panel has **See all and approve**. The classic Status card, the workboard (**List →**), the map's Waiting on you panel and the CEO chat's Waiting band each have a See all link.
 - **Sections.** CI red, To approve, To test, To answer, Outputs to review, Other. Each row keeps its own action: Approve and Review (the station's approve button) for a gate, **▶ Run checks** (the station's `POST …/check-script`) and Check for check scripts, **▶ Play** (the station's `POST …/playtest`) and Open for a playtest, Answer (the station's comments) for a question, View status, Open shelf.
 - **Approving together.** Only ready gates (the approval is all the transition still needs) have a checkbox. **Select all ready (N)** and **Approve selected (N)** open one confirm listing each issue as `slug: from → to`, with one optional words box for the batch. **Approve all listed** posts each project's gates to its `POST …/needs-you/approve`. A row's own **Approve** opens the same confirm for one gate. Each row then shows "Approved for <status> ✓" or why it was not stamped.
 - **What a stamp writes.** It writes the station's record (`stampApproval`, shared with `POST /issue/<slug>/approve`): `human_approval`, the approval time in the stats sidecar, and the words as an `approval:` comment on each issue. Nothing moves and no agent session is messaged: the lead or the worker picks the stamp up. An issue already approved is skipped, never toggled off.
@@ -637,9 +673,32 @@ Server-side wiring: both `ListData` and `BoardData` carry `CreatableStatuses []s
 
 Auto-refresh interaction: `static/auto-refresh.js` skips its full-page `location.reload()` (board "needs reload" path and the detail-view path) when `window.__createModalOpen` is true, so a polled refresh cannot wipe an in-flight create.
 
+## Radio
+
+The right panel of the company page (`/p/<project>/company`) ends with **Radio · `name`** (the project name), what the CEO and agents said:
+
+- **The CEO's lines** come first, newest first: the paragraphs the CEO wrote in its tmux pane (tool calls left out), up to 8, while it runs. They have no time.
+- **Comments** follow, newest first: `progress:` and `question:` comments (any case) on the project's issues from the last 7 days, up to 8. Each line shows the [author](../issue-format.md#comments) (else the comment's source), "on <issue>" linking to the issue, a `progress` or `question` chip and the age. The avatar is CEO for the CEO, the department's initial and L for a department lead, You for the owner, W for anyone else. Other comments (`approval:`, `dispatch:`, `ci:`, free text) stay off the Radio.
+- Only issue files written to in the last 7 days are read. Workers' cross-session messages are not on disk and do not show.
+- With neither, the Radio says what will show up there. The map's Radio tab is still a placeholder.
+
+`radio.go` (`radioComments`) builds the comment lines; `company.go` adds them below `leadRadio`'s. Playtest: `playtest/sessions/radio-comments.yaml`.
+
+## Crew
+
+`/p/<project>/agents` is the **Crew** page, a Workshop Board page one level below the project (Map › project › Crew). It is reached from the header's working / idle / waiting-on-an-agent counts on every project page (`WbHeader.CrewURL`), the **Crew →** link in the Company HQ room's foot, and the sidebar's Agents entry. It is server-rendered from the same `AgentsModel` as `agents.json` (`buildCrew` in `crew.go`) and reloads once a minute like the other Workshop Board pages. No owner mockup exists: it is drafted from the design system (`factory/agents-screen` D-1, provisional).
+
+- **Hero:** the number of live agents and a one-line verdict: how many live workers wait at a gate or with a question, and how many jobs stopped; "Nobody here waits on you" when none.
+- **Org chart:** You → the CEO card (live, or *not running* with **Start the CEO**) → one column per department: Product first (run by the CEO, no lead card), then `departments:` in order, each with its lead's card (**Start the <dept> lead** posts to `lead/spawn?dept=`) and its live workers, those waiting on you first, then working, then idle.
+- **`wb/crew-card`:** the robot in the agent's state, the session name, its state in words (the [worker states](#agents-canvas) below), the issue linking to its station, the status and the epic as pills, the last issue-cli call. The card links to `?agent=<session>`.
+- **Stopped jobs** (dashed cards, with **Copy** `issue-cli dispatch <slug>`, the gate they are ready for and "retro not swept") and **Other sessions** (live `agent-*` / `lead-*` sessions not bound to an issue) are rows of their own, hidden when empty. With no live worker the page says so and shows the dispatch command.
+- **Panel** (`?agent=<session>`, the workboard footer's link too): **Open in a terminal** (`POST agents/open`, the status words of the classic panel), the attach command or, with `terminal: none`, the switch command, the issue and its status, **Approve the <gate> gate at the station →** (the station's approve, which has the words box; gates are not approved here, D-2), the last issue-cli command, the branch against main with its `git diff --stat` (one git call, for the selected agent only) and the issue's last 5 comments. A name that is unknown or not an `agent-*` / `lead-*` name shows the hint.
+
+Playtest: `playtest/sessions/crew.yaml`.
+
 ## Agents canvas
 
-`/p/<project>/agents` (**Agents** under More in the sidebar) shows who is working on what, built from `tmux ls`, the issues' `parent:` links and git. The page polls `GET /p/<project>/agents.json` (the `AgentsModel` in `handlers_agents.go`) every 5 seconds; the toolbar shows `live · tmux ls Ns ago`, or `offline` when a poll fails.
+The classic canvas, at `/p/<project>/agents?classic=1`, shows who is working on what, built from `tmux ls`, the issues' `parent:` links and git. The page polls `GET /p/<project>/agents.json` (the `AgentsModel` in `handlers_agents.go`) every 5 seconds; the toolbar shows `live · tmux ls Ns ago`, or `offline` when a poll fails.
 
 - **Tree:** the hierarchy only: You → the project lead (`lead-<project>`) → its workers, then any other live agent session (a project action, or a leftover `lead-*` session). Epics are not drawn here; the [issues canvas](#issues-canvas) shows them. Nodes show the session name without `agent-`, cut at 32 characters; the full name is the tooltip. Each open epic's children running and total stay in `agents.json`.
 - **Worker states:**

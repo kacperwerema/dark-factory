@@ -27,6 +27,9 @@ type DataStore struct {
 	Entries []DataEntry `json:"entries"`
 	// Proofs are the issue-cli prove links, keyed by criterion id ("AC2").
 	Proofs map[string][]ProofLink `json:"proofs,omitempty"`
+	// Experiment is the experiment block of an issue labelled experiment
+	// (internal/experiment reads and writes it; kept raw here).
+	Experiment json.RawMessage `json:"experiment,omitempty"`
 }
 
 // DefaultDataStatuses is used when the marker omits an explicit status list.

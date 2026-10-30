@@ -1,0 +1,50 @@
+session: radio-comments
+issue: factory/comment-authors-and-agent-messages-on-the-radio
+title: Radio - worker and lead comments by author on the company page
+scenario: departments
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Progress and question comments show on the Radio by author, other comments do not
+    proves: [AC4, AC5]
+    setup:
+      # A worker and the Marketing lead comment from their sessions; the
+      # owner asks from the viewer; a ci: line stays off the Radio.
+      - tmux:
+          - new-session
+          - -d
+          - -s
+          - radio-voices
+          - sh
+          - -c
+          - >-
+            ISSUE_VIEWER_ISSUE_SLUG=seo/weekly-seo-pass issue-cli --project acme comment seo/weekly-seo-pass 'progress: ten client pages refreshed';
+            ISSUE_VIEWER_LEAD_SCOPE=department:marketing issue-cli --project acme comment seo/weekly-seo-pass 'question: keep the old landing pages?';
+            cat
+      - check:
+          issue: { slug: seo/weekly-seo-pass, comment_contains: "question: keep the old landing pages?" }
+      - post:
+          path: /p/{project}/issue/engine/goal-chips-on-the-company-page/comments
+          json: { block: 0, text: "question: ship the chips this week?" }
+          status: 201
+      - cli: [comment, engine/goal-chips-on-the-company-page, "ci: main red at abc123"]
+      - open: /p/{project}/company
+    checks:
+      - visible: company.radio
+      - count: { pattern: company.radio.issue, equals: 3 }
+      - count: { pattern: company.radio.kind, equals: 3 }
+      - text_contains: { target: company.radio, text: "agent-seo-weekly-seo-pass on seo/weekly-seo-pass progress" }
+      - text_contains: { target: company.radio, text: "lead-acme-marketing on seo/weekly-seo-pass question" }
+      - text_contains: { target: company.radio, text: "owner on engine/goal-chips-on-the-company-page question" }
+    do: Look at the Radio in the company page's right panel.
+    expect: >-
+      Three lines, newest first: your question on engine/goal-chips-on-the-company-page with a "You"
+      avatar, the Marketing lead's question (ML, green avatar) and the worker's progress (W), each
+      with its author in mono, "on <issue>" as a link, a small progress or question chip and its age
+      on the right. No "ci: main red" line. Nothing overlaps or is cut off.
+    why: The owner reads what workers and leads report and ask across the project in one place.

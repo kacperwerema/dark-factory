@@ -1,0 +1,66 @@
+session: global-screens
+issue: factory/global-screens
+title: The pages outside a project - Workflow updates, All CEOs and Needs you on the Workshop Board
+scenario: updates
+
+# Harbor is stamped development@v0.36.0 with a features: record, so /updates
+# shows it behind with proposals to decide. No lead runs on the scenario's
+# private tmux server.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The map's Workflow updates link opens the Workshop Board page with the tally and Harbor's card
+    # AC6: the session's layout checks run every step at 390x844 too.
+    proves: [AC1, AC6]
+    setup:
+      - open: /
+    act:
+      - click: map.updates_link
+      - wait_for: updates_overview.page
+    checks:
+      - url: { contains: "/updates" }
+      - visible: [updates_overview.tally, updates_overview.card.harbor, updates_overview.classic]
+      - text_equals: { target: updates_overview.tally.projects, text: "1 project" }
+      - text_equals: { target: updates_overview.card.harbor.state, text: behind }
+      - text_contains: { target: updates_overview.card.harbor.template, text: development@v0.36.0 }
+      - text_equals: { target: updates_overview.card.harbor.open, text: "Open its updates" }
+      - absent: updates.overview
+
+  - id: TP5
+    title: Open its updates goes to Harbor's Updates; Classic view keeps the old table
+    proves: [AC1, AC2]
+    setup:
+      - open: /updates
+    act:
+      - click: updates_overview.card.harbor.open
+      - wait_for: upd.delivery
+      - check: { url: { contains: "/p/harbor/updates" } }
+      - open: /updates
+      - click: updates_overview.classic
+      - wait_for: updates.overview
+    checks:
+      - url: { contains: "classic=1" }
+      - visible: [updates.overview.stats, updates.overview.row]
+      - absent: updates_overview.page
+
+  - id: TP6
+    title: All CEOs and Needs you open from the map as Workshop Board pages
+    proves: [AC5, AC6]
+    setup:
+      - open: /leads
+    checks:
+      - visible: [leads.page, leads.grid, leads.row.harbor, leads.row.harbor.chat]
+      - text_equals: { target: leads.row.harbor.chat, text: "Talk to the CEO" }
+
+  - id: TP7
+    title: The three pages read like the Workshop Board
+    setup:
+      - open: /updates
+    do: Open /updates, /leads and /needs-you at 1440 wide and on a phone, and compare them with issues/Factory/designs/workshop-board/design-system.dc.html and the L0 map.
+    expect: A light board with thick ink outlines and hard shadows. The project cards on /updates carry the project's colour along the top, and the state chips match the map's chips. Nothing scrolls sideways on the phone, and the Map crumb leads back to the map.
+    why: Whether the screens feel like the design is the owner's call.

@@ -502,20 +502,20 @@ func (m *StatusModel) WorkingSummary() string {
 	}
 	if m.LeadName != "" {
 		if m.LeadState == "live" {
-			parts = append(parts, "lead live")
+			parts = append(parts, "CEO live")
 		} else {
-			parts = append(parts, "lead not running")
+			parts = append(parts, "CEO not running")
 		}
 	}
 	return strings.Join(parts, " · ")
 }
 
-// NextSummary is the What's next tile's line: the lead's list, or the
+// NextSummary is the What's next tile's line: the CEO's list, or the
 // backlog and parked counts.
 func (m *StatusModel) NextSummary() string {
 	var parts []string
 	if m.Next.Found {
-		parts = append(parts, "the lead's ## Next")
+		parts = append(parts, "the CEO's ## Next")
 	}
 	parts = append(parts, fmt.Sprintf("%d backlog", len(m.Backlog)), fmt.Sprintf("%d parked", len(m.Parked)))
 	return strings.Join(parts, " · ")

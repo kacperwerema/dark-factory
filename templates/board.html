@@ -16,6 +16,7 @@
         <h1 class="page-title">Board</h1>
     </header>
     <form class="board-filter-bar" data-testid="board.filters" method="GET" action="{{.Prefix}}/board">
+        <input type="hidden" name="classic" value="1">
         <input type="search" class="board-search" id="board-search" data-testid="board.search" placeholder="Search issues..." oninput="filterBoardCards(this.value)">
 
         <select name="version" data-testid="board.filter.version" onchange="this.form.submit()">
@@ -51,7 +52,7 @@
         </select>
 
         {{if or .Version .System .Assignee .HideEmpty .WorkType}}
-        <a href="{{.Prefix}}/board" class="clear-btn" data-testid="board.clear">Clear filters</a>
+        <a href="{{.Prefix}}/board?classic=1" class="clear-btn" data-testid="board.clear">Clear filters</a>
         {{end}}
 
         <label class="board-hide-empty" data-testid="board.hide_empty" title="Hide statuses with no issues">

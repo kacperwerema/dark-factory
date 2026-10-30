@@ -9,9 +9,25 @@ view models, static/workshop.css the "L2: systems" block their styles).
   wb/workshop     a system as a workshop card                data: WbWorkshop
   wb/code-file    a file on the code map                     data: WbCodeFile
   wb/code-package a package on the code map                  data: WbCodePackage
-  wb/code-map     packages → files → systems (a draft)       data: WbCodeMap
+  wb/code-map     packages → files → systems (draft w/o paths)     data: WbCodeMap
   wb/warning      a red note                                 data: *WbWarning
   wb/unlock-card  a locked feature and its action            data: *WbUnlockCard
+
+The Workshop page (one system, system_wb.go) adds:
+
+  wb/trail        the page crumb Systems › System › Family   data: WbTrail
+  wb/link-row     a row of links                             data: []WbLink
+  wb/status-bar   a bar per workflow status, with legend     data: WbStatusBar
+  wb/floor        a system's crates, legend and status bar   data: WbFloor
+  wb/family-card  a family with its progress                 data: FamilyCard
+  wb/epic-card    an epic with issues in the system          data: EpicCard
+  wb/families     the families (or epics) panel              data: *WbFamilies
+  wb/sys-decisions  the latest decisions, decision-log rows  data: WbSysDecisions
+  wb/design-doc   the design doc's sections and their state  data: *DocPanel
+  wb/guard-metrics  the system's guard metrics               data: *MetricsPanel
+  wb/knobs        the knobs the system moves                 data: *KnobsPanel
+  wb/balance-note a balance: comment                         data: BalanceItem
+  wb/not-found    the index's note for an unknown system     data: string
 */}}
 
 {{define "wb/figures"}}<div class="wb-figures">{{range .}}<div class="wb-figure"><div class="wb-figure-num{{with .Tone}} wb-figure-num--{{.}}{{end}}">{{.Value}}</div><div class="wb-figure-label">{{.Label}}</div></div>{{end}}</div>{{end}}
@@ -31,7 +47,7 @@ view models, static/workshop.css the "L2: systems" block their styles).
         <span class="wb-workshop-counts">{{.Open}} open · {{.Done}} done</span>
     </div>
     <div class="wb-crates" role="img" aria-label="{{.Aria}}" data-testid="systems.wb.crates">{{range .Crates}}{{template "wb/crate-dot" .}}{{end}}{{if .More}}<span class="wb-cdot-more">+{{.More}}</span>{{end}}</div>
-    <div class="wb-code-row" data-testid="systems.wb.code"><span class="wb-code-label">CODE</span>{{range .Code}}{{template "wb/code-chip" .}}{{else}}<span class="wb-code-chip wb-code-chip--none">no file named in its issues</span>{{end}}</div>
+    <div class="wb-code-row" data-testid="systems.wb.code"><span class="wb-code-label">CODE</span>{{range .Code}}{{template "wb/code-chip" .}}{{else}}<span class="wb-code-chip wb-code-chip--none">{{.CodeNone}}</span>{{end}}</div>
     <div class="wb-workshop-foot">
         <a href="{{.DecisionsURL}}" data-testid="systems.wb.decisions">Decisions · {{.Decisions}}</a>
         <a href="{{.LineURL}}" data-testid="systems.wb.line">On the line</a>
@@ -40,7 +56,7 @@ view models, static/workshop.css the "L2: systems" block their styles).
 </article>
 {{end}}
 
-{{define "wb/code-file"}}<div class="wb-code-file"><span class="wb-code-file-name" title="{{.Path}}">{{.Name}}</span>{{if .Hot}}<span class="wb-flag wb-flag--hot" title="a hotspot">hot</span>{{end}}{{if .Shared}}<span class="wb-flag wb-flag--shared" title="named by several systems' issues">shared</span>{{end}}<span class="wb-code-file-sys"{{if eq .Systems "?"}} title="no system's issues name it"{{else if .SystemsTitle}} title="{{.SystemsTitle}}"{{end}}>{{.Systems}}</span></div>{{end}}
+{{define "wb/code-file"}}<div class="wb-code-file"><span class="wb-code-file-name" title="{{.Path}}">{{.Name}}</span>{{if .Hot}}<span class="wb-flag wb-flag--hot" title="a hotspot">hot</span>{{end}}{{if .Shared}}<span class="wb-flag wb-flag--shared" title="owned by several systems">shared</span>{{end}}<span class="wb-code-file-sys"{{with .SystemsTitle}} title="{{.}}"{{end}}>{{.Systems}}</span></div>{{end}}
 
 {{define "wb/code-package"}}
 <div class="wb-code-pkg">
@@ -54,7 +70,7 @@ view models, static/workshop.css the "L2: systems" block their styles).
 <div class="wb-code-map" data-testid="systems.wb.codemap">
     <div class="wb-code-map-head">
         <h2 class="wb-h2 wb-h2--lg">Code map</h2>
-        <div class="wb-note">{{if .Draft}}Which packages belong to which systems. <b>Draft</b>: read from the files each system's issues name; nothing confirms it in workbench.systems yet.{{else}}{{.Note}}{{end}}</div>
+        <div class="wb-note">{{if .Draft}}<b data-testid="systems.wb.codemap.draft">Draft</b> · {{end}}{{.Note}}</div>
     </div>
     {{with .Empty}}<div class="wb-code-empty" data-testid="systems.wb.codemap.empty">{{.}}</div>{{end}}
     {{range .Packages}}{{template "wb/code-package" .}}{{end}}
@@ -75,3 +91,101 @@ view models, static/workshop.css the "L2: systems" block their styles).
     <div class="wb-site-msg" role="status"></div>
 </form>
 {{end}}{{end}}
+
+{{define "wb/trail"}}<nav class="wb-trail" aria-label="Breadcrumb" data-testid="system.wb.trail">{{range $i, $c := .}}{{if $i}}<span aria-hidden="true">›</span>{{end}}{{if $c.URL}}<a href="{{$c.URL}}">{{$c.Label}}</a>{{else}}<b aria-current="page">{{$c.Label}}</b>{{end}}{{end}}</nav>{{end}}
+
+{{define "wb/link-row"}}{{if .}}<div class="wb-link-row">{{range .}}<a href="{{.URL}}">{{.Label}}</a>{{end}}</div>{{end}}{{end}}
+
+{{define "wb/status-bar"}}{{if .Segs}}
+<div class="wb-sbar-wrap" data-testid="system.wb.bar">
+    <div class="wb-sbar" role="img" aria-label="{{range $i, $s := .Segs}}{{if $i}}, {{end}}{{$s.Count}} {{$s.Status}}{{end}}">{{range .Segs}}<i class="wb-sbar-seg wb-sbar-seg--{{if .Tone}}{{.Tone}}{{else}}neutral{{end}}" style="width:{{$.Pct .Count}}%" title="{{.Count}} {{.Status}}"></i>{{end}}</div>
+    <div class="wb-sbar-legend">{{range .Segs}}<span><i class="wb-sbar-seg wb-sbar-seg--{{if .Tone}}{{.Tone}}{{else}}neutral{{end}}" aria-hidden="true"></i>{{.Count}} {{.Status}}</span>{{end}}{{with .Side}}<span>{{.}} not counted</span>{{end}}</div>
+</div>
+{{end}}{{end}}
+
+{{define "wb/floor"}}
+<section class="wb-shop-floor" aria-label="Workshop floor" data-testid="system.wb.floor">
+    {{template "wb/crate-legend" .Legend}}
+    {{if .Crates}}<div class="wb-crates wb-crates--floor" role="img" aria-label="{{.Aria}}" data-testid="system.wb.crates">{{range .Crates}}{{template "wb/crate-dot" .}}{{end}}</div>
+    {{else}}<div class="wb-empty" data-testid="system.wb.floor.empty">No issues in this workshop yet.</div>{{end}}
+    {{template "wb/status-bar" .Bar}}
+</section>
+{{end}}
+
+{{define "wb/family-card"}}
+<a class="wb-fam" href="{{.Href}}" data-testid="system.wb.family.{{tid .Name}}">
+    <span class="wb-fam-head"><span class="wb-fam-name">{{.Name}}</span>{{if .Waiting}}<span class="wb-chip wb-chip--you">{{.Waiting}} waiting on you</span>{{end}}{{if not .Found}}<span class="wb-chip wb-chip--red">umbrella not found</span>{{end}}</span>
+    {{with .Summary}}<span class="wb-fam-sum">{{.}}</span>{{end}}
+    <span class="wb-fam-bar"><span class="wb-goal-track"><span style="width:{{.Pct}}%"></span></span><span>{{.Done}} of {{.Total}} done</span></span>
+    <span class="wb-fam-slug">umbrella {{.Umbrella}}</span>
+</a>
+{{end}}
+
+{{define "wb/epic-card"}}
+<a class="wb-fam" href="{{.Href}}" data-testid="system.wb.epic.{{tid .Slug}}">
+    <span class="wb-fam-head"><span class="wb-fam-name">{{.Title}}</span><span class="wb-tag-pill wb-tag-pill--mono">{{.State}}</span></span>
+    <span class="wb-fam-bar"><span class="wb-goal-track"><span style="width:{{.Pct}}%"></span></span><span>{{.Done}} of {{.Total}} here done</span></span>
+    <span class="wb-fam-slug">{{.Slug}}</span>
+    {{with .Whole}}<span class="wb-fam-sum">{{.}}</span>{{end}}
+</a>
+{{end}}
+
+{{define "wb/families"}}{{with .}}
+<section class="wb-sys-panel" data-testid="system.wb.families" aria-labelledby="wb-fam-h">
+    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small" id="wb-fam-h">{{.Title}}</h2><span class="wb-note wb-mono-inline">{{.Source}}</span></div>
+    <div class="wb-fams">{{range .Families}}{{template "wb/family-card" .}}{{end}}{{range .Epics}}{{template "wb/epic-card" .}}{{end}}</div>
+    <div class="wb-note">{{.Note}}</div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/sys-decisions"}}
+<section class="wb-sys-panel" data-testid="system.wb.decisions" aria-labelledby="wb-dec-h">
+    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small" id="wb-dec-h">Recent decisions</h2>{{if .Total}}<a href="{{.URL}}" data-testid="system.wb.decisions.all">All {{.Total}} ›</a>{{end}}</div>
+    {{if .Rows}}<ol class="wb-thread wb-thread-rows">{{range .Rows}}{{template "wb/decision-row" .}}{{end}}</ol>
+    {{else}}<div class="wb-empty" data-testid="system.wb.decisions.empty">{{.Hint}}</div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/design-doc"}}{{with .}}
+<section class="wb-sys-side" data-testid="system.wb.doc" aria-labelledby="wb-doc-h">
+    <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-doc-h">Design doc</h2><div class="wb-note">{{if .Href}}<a class="wb-mono-inline" href="{{.Href}}">{{.Path}}</a>{{else}}<span class="wb-mono-inline">{{.Path}}</span>{{end}}</div></div>
+    {{if .Missing}}
+    <div class="wb-code-empty" data-testid="system.wb.doc.missing">Not on main{{if .OnBranches}}; it exists on {{plural (len .OnBranches) "branch" "branches"}}: <span class="wb-mono-inline">{{index .OnBranches 0}}</span>{{if gt (len .OnBranches) 1}} and others{{end}}{{end}}.</div>
+    {{else}}
+    <div class="wb-code-pkg">
+        <div class="wb-code-pkg-name">{{.Current}} current{{if .Changed}} · {{.Changed}} changed on {{plural .Branches "open branch" "open branches"}}{{end}} · {{.Stale}} stale{{if .ScanSkipped}} · branch scan skipped{{end}}</div>
+        {{range .Sections}}<div class="wb-code-file" data-testid="system.wb.doc.section.{{tid .Title}}" data-state="{{.State}}">{{if .Href}}<a class="wb-doc-title" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="wb-doc-title">{{.Title}}</span>{{end}}{{if .Note}}{{if .NoteHref}}<a class="wb-code-file-sys" href="{{.NoteHref}}" title="{{.Note}}">{{.Note}}</a>{{else}}<span class="wb-code-file-sys" title="{{.Note}}">{{.Note}}</span>{{end}}{{end}}<span class="wb-chip wb-chip--{{wbTone .Tone}}">{{.State}}</span></div>{{else}}<div class="wb-code-file wb-code-file--more">The doc has no ## sections.</div>{{end}}
+    </div>
+    {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/guard-metrics"}}{{with .}}
+<section class="wb-sys-side" data-testid="system.wb.metrics" aria-labelledby="wb-met-h">
+    <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-met-h">Guard metrics</h2>{{with .Run}}<div class="wb-note">{{$.Scope}} · <span class="wb-mono-inline">{{.File}}</span>{{if .Date}} · {{.Date}}{{end}}{{if .N}} · N = {{.N}}{{end}}</div>{{end}}</div>
+    <div class="wb-code-pkg">
+        {{range .Rows}}<div class="wb-code-file" data-testid="system.wb.metrics.row.{{tid .ID}}"><span class="wb-code-file-name" title="{{.ID}}">{{.Name}}</span><span class="wb-code-file-sys">{{masterValue .}} · {{bandText .Band}}</span><span class="wb-chip wb-chip--{{wbVerdictTone .Verdict}}">{{wbVerdictText .Verdict}}</span></div>{{end}}
+        <div class="wb-code-file wb-code-file--more">{{len .Rows}} of {{.Total}}{{if .Off}} · {{.Off}} off{{end}} · <a href="{{.Link}}">All metrics</a></div>
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/knobs"}}{{with .}}
+<section class="wb-sys-side" data-testid="system.wb.knobs" aria-labelledby="wb-knob-h">
+    <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-knob-h">Knobs this system moves</h2><div class="wb-note">recently changed first</div></div>
+    <div class="wb-code-pkg">
+        {{range .Rows}}<div class="wb-code-file wb-code-file--knob" data-testid="system.wb.knobs.row.{{tid .Name}}"><span class="wb-code-file-name">{{.Name}} = {{.Value}}</span><span class="wb-code-file-sys">{{with .Last}}{{.Label}} · {{.Date}}{{else}}unchanged{{end}}</span></div>{{end}}
+        <div class="wb-code-file wb-code-file--more">{{len .Rows}} of {{.Total}} · <a href="{{.Link}}">All knobs</a></div>
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/balance-note"}}
+<div class="wb-bnote">
+    <div class="wb-bnote-meta">{{with .Metric}}<span class="wb-mono-inline">{{.}}</span>{{end}}<span class="wb-chip wb-chip--{{if eq .State "open"}}you{{else}}idle{{end}}">{{.State}}</span><span>{{.Date}}</span></div>
+    <div class="wb-bnote-text">{{.Text}}</div>
+    <a class="wb-mono-inline" href="{{.Href}}">{{.Slug}}</a>
+</div>
+{{end}}
+
+{{define "wb/not-found"}}{{with .}}<div class="wb-warning" role="note" data-testid="systems.wb.notfound"><b>No system named {{.}}.</b> Pick a workshop below; systems come from the issues' system: field and workbench.systems.</div>{{end}}{{end}}

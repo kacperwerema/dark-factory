@@ -1,0 +1,62 @@
+session: department-connectors
+issue: factory/department-connectors
+title: Department connectors - the room's list, Check now, Needs you
+scenario: connectors
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The Marketing room lists its connectors with secrets set or missing, and Needs you names the missing one
+    proves: [AC7]
+    setup:
+      - open: /p/acme/company
+      - click: company.room.connectors
+    checks:
+      - visible: [company.room.connectors, company.room.connectors.failing, company.room.connectors.check_now]
+      - text_contains: { target: company.room.connectors, text: "3 connectors" }
+      - text_contains: { target: company.room.connectors.failing, text: "1 failing" }
+      - count: { pattern: company.room.connector, equals: 3 }
+      - text_contains: { target: company.room.connectors, text: "WP_APP_PASSWORD env:HOME set" }
+      - text_contains: { target: company.room.connectors, text: "GSC_TOKEN env:PLAYTEST_GSC_TOKEN_NEVER_SET missing" }
+      - text_contains: { target: company.room.connectors, text: "never checked" }
+      - text_contains: { target: company.room.connectors, text: "no check:" }
+      - http:
+          path: /p/acme/needs-you
+          status: 200
+          body_contains: "Marketing: search-console secret missing"
+    do: Unfold "🔌 3 connectors" in the Marketing room.
+    expect: >-
+      Under the room's goals and shelf there is a bordered "🔌 3 connectors · 1 failing" bar with a red chip.
+      Unfolded, each connector is a row: its name in bold, its kind, an orange "sends" pill on wordpress,
+      the check state on the right, and under it each secret's variable and reference with a green "set" or
+      red "missing". The note "Client sites" sits under wordpress. Check now is a button under the list.
+      Nothing is cut off at the phone width either; long references wrap inside the room.
+    why: The owner sees at a glance which tools a department has and which credential still needs creating.
+
+  - id: TP5
+    title: Check now runs the checks and the room reloads with their results
+    proves: [AC6, AC7]
+    setup:
+      - open: /p/acme/company
+      - click: company.room.connectors
+    act:
+      - click: company.room.connectors.check_now
+      - wait_for: { url: { contains: checking= } }
+      - wait_for: { url: { matches: "/company$" } }
+      - wait_for: company.room.connectors
+    checks:
+      - text_contains: { target: company.room.connectors, text: "✓ ok" }
+      - text_contains: { target: company.room.connectors, text: "✗ missing" }
+      - http:
+          path: /p/acme/connectors.json?dept=marketing
+          status: 200
+          body_contains: '"result":"ok"'
+    do: Press Check now in the Marketing room and wait for the page to come back.
+    expect: >-
+      The page reloads on its own within a few seconds. wordpress reads a green "✓ ok just now", search-console
+      a red "✗ missing", analytics still "no check:".
+    why: The health check is how the owner knows a connector still works before an agent relies on it.

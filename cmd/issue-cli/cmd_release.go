@@ -38,13 +38,17 @@ Subcommands:
       Cherry-picks (with -x) an issue's commits (work/<slug>) or a commit onto the
       release branch, in its worktree. Fixes land on main first; nothing is fixed
       on the branch itself. A pick after the newest candidate needs the next one.
-  publish <version> [--first]
+  publish <version> [--first] [--dry-run]
       Only on the owner's ok on a soaked candidate, from the release worktree.
       Names the changelog heading on the branch, pushes the branch tip's tree as
-      ONE commit "<version>" onto public's branch (the public repo's release
-      Action tags and builds it), tags <version> on the dev branch, pushes both to
-      origin, and moves the released lines of main's ## Unreleased under the
-      version. --first accepts a public tip that is the old history.
+      ONE commit onto public's branch (subject "<version>", body the release's
+      changelog section; the public repo's release Action tags and builds it),
+      tags <version> on the dev branch, pushes both to origin, and moves the
+      released lines of main's ## Unreleased under the version. No release PR:
+      the snapshot is the bundle. --first accepts a public tip that is the old
+      history. --dry-run runs the checks and shows the parent, the message and
+      what the commit changes, and writes nothing (YOLO and the card are
+      reported, not refused).
 
 cut and publish read the viewer's Waiting for release card and refuse unless it
 says the same (ready to cut; soaking).`,
@@ -58,7 +62,7 @@ func init() {
 
 func runRelease(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return &usageError{msg: "release requires a subcommand\n\nUsage:\n  issue-cli release setup --dev <url>\n  issue-cli release cut <version>\n  issue-cli release pick [--release <version>] <slug|sha>...\n  issue-cli release publish <version> [--first]"}
+		return &usageError{msg: "release requires a subcommand\n\nUsage:\n  issue-cli release setup --dev <url>\n  issue-cli release cut <version>\n  issue-cli release pick [--release <version>] <slug|sha>...\n  issue-cli release publish <version> [--first] [--dry-run]"}
 	}
 	if ctx.Project == nil {
 		return fmt.Errorf("release needs a project — pass --project <slug> or run from a project root")
@@ -105,7 +109,7 @@ func runReleaseSetup(ctx *Context, args []string) error {
 	if res.RenamedOrigin {
 		fmt.Fprintf(out, "✓ The old origin is now the remote %s (tags never fetched from it)\n", cfg.Remote())
 	}
-	fmt.Fprintf(out, "✓ origin is the dev repo %s and has every %s\n", *dev, strings.Join(res.Pushed, " and "))
+	fmt.Fprintf(out, "✓ origin is the dev repo %s and has all the %s\n", *dev, strings.Join(res.Pushed, " and "))
 	if res.SkippedRC > 0 {
 		fmt.Fprintf(out, "✓ %d release candidate tags stay local\n", res.SkippedRC)
 	}
@@ -116,10 +120,13 @@ func runReleaseSetup(ctx *Context, args []string) error {
 		return err
 	}
 	fmt.Fprintf(out, `Next, with the owner:
-  - The public repo still holds the old dev history. Clean it once from a mirror,
-    never in this checkout: git clone --mirror <public url>, git filter-repo
-    --path issues --path sessions --invert-paths (and the other work paths), git
-    push --force --mirror. Then: git fetch %s && issue-cli release publish <version> --first.
+  - The public repo keeps the history it has: the first snapshot goes on top of
+    its tip, and every release after is one commit. See it first, from the
+    release worktree: issue-cli release publish <version> --dry-run.
+  - Only if that old history must go: clean it once from a mirror, never in
+    this checkout: git clone --mirror <public url>, git filter-repo --path issues
+    --path sessions --invert-paths (and the other work paths), git push --force
+    --mirror. Then: git fetch %s && issue-cli release publish <version> --first.
   - The release workflow must skip the private dev repo, or it builds releases
     there too: if: ${{ !github.event.repository.private }} on its job.
   - Other machines and cloud sessions clone the dev repo, never the public one.
@@ -213,7 +220,7 @@ func runReleaseCut(ctx *Context, args []string) error {
 	if err != nil || from == "" {
 		from = "main"
 	}
-	res, err := privacy.Cut(root, cut, from, wf.Privacy.Snapshots())
+	res, err := privacy.Cut(root, cut, from, wf.Privacy)
 	if err != nil {
 		return err
 	}
@@ -292,30 +299,43 @@ func runReleasePick(ctx *Context, args []string) error {
 func runReleasePublish(ctx *Context, args []string) error {
 	fs := newFlagSet("release publish", ctx)
 	first := fs.Bool("first", false, "the public tip is the old history (cleaned once), not a snapshot: put the first snapshot on it")
+	dryRun := fs.Bool("dry-run", false, "run every check and show the public commit (parent, message, what it changes); commit, tag and push nothing")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "release publish takes the version: issue-cli release publish v0.54.0"}
-	}
-	if st, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on && !st.Valves.Releases {
-		return fmt.Errorf("YOLO is on: external releases wait for the owner. Publish after YOLO ends (%s), or the owner unlocks releases when turning YOLO on (--allow-releases)",
-			tracker.InjectProject(ctx.Project, "issue-cli yolo off"))
+		return &usageError{msg: "release publish takes the version: issue-cli release publish v0.54.0 [--dry-run]"}
 	}
 	cut, err := privacy.ParseVersion(fs.Arg(0))
 	if err != nil {
 		return &usageError{msg: err.Error()}
+	}
+	dryRunHint := tracker.InjectProject(ctx.Project, "issue-cli release publish "+cut+" --dry-run")
+	var waits []string
+	if st, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on && !st.Valves.Releases {
+		msg := fmt.Sprintf("YOLO is on: external releases wait for the owner. Publish after YOLO ends (%s), or the owner unlocks releases when turning YOLO on (--allow-releases)",
+			tracker.InjectProject(ctx.Project, "issue-cli yolo off"))
+		if !*dryRun {
+			return fmt.Errorf("%s. See what it would publish: %s", msg, dryRunHint)
+		}
+		waits = append(waits, msg)
 	}
 	wf := ctx.Project.LoadWorkflow()
 	if !wf.Privacy.Snapshots() {
 		return fmt.Errorf("privacy.code is not snapshots: this project publishes by pushing main (docs/roadmap.md, Cutting a release)")
 	}
 	card, err := fetchReleaseCard(ctx)
-	if err != nil {
+	switch {
+	case err != nil && !*dryRun:
 		return err
-	}
-	if milestone.Norm(card.Cut) != milestone.Norm(cut) || !card.Soaking {
-		return fmt.Errorf("Waiting for release does not say a %s candidate is soaking with every check met:\n%sPublish only a soaked candidate, on the owner's ok.", cut, card.unmet())
+	case err != nil:
+		waits = append(waits, "the Waiting for release card could not be read: "+err.Error())
+	case milestone.Norm(card.Cut) != milestone.Norm(cut) || !card.Soaking:
+		msg := fmt.Sprintf("Waiting for release does not say a %s candidate is soaking with every check met:\n%s", cut, card.unmet())
+		if !*dryRun {
+			return fmt.Errorf("%sPublish only a soaked candidate, on the owner's ok. See what it would publish: %s", msg, dryRunHint)
+		}
+		waits = append(waits, strings.TrimRight(msg, "\n"))
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -323,12 +343,16 @@ func runReleasePublish(ctx *Context, args []string) error {
 	}
 	root := privacy.MainCheckout(ctx.Project.TelemetryRoot())
 	res, err := privacy.Publish(privacy.PublishInput{
-		Root: root, Worktree: cwd, Cut: cut, Cfg: wf.Privacy, Changelog: wf.Workbench.Changelog, First: *first, Now: ctx.Now(),
+		Root: root, Worktree: cwd, Cut: cut, Cfg: wf.Privacy, Changelog: wf.Workbench.Changelog, First: *first, DryRun: *dryRun, Now: ctx.Now(),
 	})
 	if err != nil {
 		return err
 	}
 	out := ctx.Stdout
+	if *dryRun {
+		printPublishDryRun(ctx, cut, wf.Privacy, res, waits)
+		return nil
+	}
 	fmt.Fprintf(out, "✓ Published %s: one commit %s on %s/%s", cut, shortSha(res.Snapshot), wf.Privacy.Remote(), wf.Privacy.Branch())
 	if res.Parent != "" {
 		fmt.Fprintf(out, " (on top of %s)", shortSha(res.Parent))
@@ -345,6 +369,54 @@ func runReleasePublish(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(out, "Next: the public repo's release Action tags %s and builds it. Then make install from main.\n", cut)
 	return nil
+}
+
+// printPublishDryRun says what release publish would put on the public
+// repo, and what still stands in the way of the real run.
+func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, res privacy.PublishResult, waits []string) {
+	out := ctx.Stdout
+	remote, branch := cfg.Remote(), cfg.Branch()
+	fmt.Fprintf(out, "Dry run: nothing was committed, tagged or pushed.\n\n")
+	switch {
+	case res.Parent == "":
+		fmt.Fprintf(out, "Parent: none (%s/%s is empty): %s is its first commit\n", remote, branch, cut)
+	case res.IsBase:
+		fmt.Fprintf(out, "Parent: %s, %s/%s's tip, the old history recorded at setup: %s goes on top of it\n", shortSha(res.Parent), remote, branch, cut)
+	default:
+		fmt.Fprintf(out, "Parent: %s, the last release snapshot on %s/%s\n", shortSha(res.Parent), remote, branch)
+	}
+	fmt.Fprintf(out, "\nThe one public commit's message:\n")
+	for _, l := range strings.Split(strings.TrimRight(res.Message, "\n"), "\n") {
+		fmt.Fprintf(out, "  | %s\n", l)
+	}
+	fmt.Fprintf(out, "\nWhat it changes on %s/%s:\n", remote, branch)
+	if strings.TrimSpace(res.DiffStat) == "" {
+		fmt.Fprintln(out, "  nothing (the same tree)")
+	}
+	for _, l := range strings.Split(res.DiffStat, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			fmt.Fprintf(out, "  %s\n", l)
+		}
+	}
+	rb := milestone.ReleaseBranch(cut)
+	fmt.Fprintf(out, "\nA real publish would:\n")
+	fmt.Fprintf(out, "  1. commit ## Unreleased renamed to ## %s on %s (its only direct commit)\n", cut, rb)
+	fmt.Fprintf(out, "  2. push that tree as the one commit above to %s/%s, signed when user.signingkey is set\n", remote, branch)
+	fmt.Fprintf(out, "  3. tag %s on %s and push both to origin (the dev repo)\n", cut, rb)
+	fmt.Fprintf(out, "  4. move the released lines of main's ## Unreleased under ## %s and commit them\n", cut)
+	if len(waits) > 0 {
+		fmt.Fprintf(out, "\nThe real run would refuse now:\n")
+		for _, w := range waits {
+			for i, l := range strings.Split(strings.TrimSpace(w), "\n") {
+				switch {
+				case i == 0:
+					fmt.Fprintf(out, "  - %s\n", l)
+				case strings.TrimSpace(l) != "":
+					fmt.Fprintf(out, "    %s\n", strings.TrimSpace(l))
+				}
+			}
+		}
+	}
 }
 
 func shortSha(s string) string {

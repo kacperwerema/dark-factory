@@ -3,6 +3,8 @@ title: "The Lead Session"
 order: 1
 ---
 
+The **CEO** is what was called the project lead: the viewer and issue-cli say CEO, while the tmux name (`lead-<project>`), the `issue-cli lead` command (alias `issue-cli ceo`), the `/lead` pages (`/ceo` redirects there) and the `lead_terminal` / `lead_window_session` keys keep the old name.
+
 A way to run several agents on one project without the human talking to each of them. The tool knows about **lead agents**: it spawns them, names them, routes workers to them and shows them on the agents canvas. Raid League, a game built this way, is the worked example at the end.
 
 ## The roles
@@ -11,16 +13,19 @@ A way to run several agents on one project without the human talking to each of 
 |---|---|---|---|
 | **The human** | (you) | | Decides. Raises ideas, answers questions, approves gates, playtests. |
 | **Project lead** | `lead-<project>` | the project checkout | Runs the project with you: grooms ideas, dispatches the workers you name, checks on them, relays their questions, reviews designs and diffs, ticks the gates you approved in its chat, fixes the process from the retros. One per project. |
+| **Department lead** | `lead-<project>-<dept>` | the project checkout | One per department in `projects.yaml` `departments:`, reporting to the CEO. Runs its department's issues the way the project lead runs the rest, and only those. The human starts it. See [Department leads](../departments.md#department-leads). |
 | **Workers** | `agent-<slug>` | `.worktrees/<slug>` | Own one issue each. Walk it step by step on auto mode, leave a trail of comments, stop at every human gate and when it is done. Never tick a gate, never pick up another issue. |
 
 ```
 human
   └─ project lead            lead-<project>      project checkout
        ├─ worker             agent-<slug>        .worktrees/<slug>, branched from main
-       └─ worker             agent-<child-slug>  epic children too
+       ├─ worker             agent-<child-slug>  epic children too
+       └─ department lead    lead-<project>-<dept>   project checkout (one per department)
+            └─ worker        agent-<slug>        its department's issues
 ```
 
-There is one lead per project, and it leads the epics itself (workbench epic D-13). You talk to the lead, and the lead talks to the workers. You can still attach to any session's tmux. The board stays the source of truth for status and approvals.
+There is one project lead (the CEO) per project, and it leads the epics itself (workbench epic D-13). Each department adds one lead of its own under the CEO. You talk to the lead, and the lead talks to the workers. You can still attach to any session's tmux. The board stays the source of truth for status and approvals.
 
 A human starts the work: workers start from ▶ on the board or from the lead's `issue-cli dispatch --quote` with your words naming them, and nothing runs on a timer. See [A human starts the work](../agent-dispatch.md#a-human-starts-the-work), the disclaimer this pattern runs under.
 
@@ -70,7 +75,7 @@ The worker's dispatch prompt names its lead and its epic under `## Your lead`. `
 | `issue-cli lead list` | The project lead, live or not, then the open epics with their children running of total |
 | `issue-cli lead message <target> "text"` | Pastes the text into a Codex session, signed `[from lead-x]`. For a Claude session it refuses and prints the `SendMessage` call to make. Target: `project`, a `lead-`/`agent-` name, or an issue slug (its worker) |
 | `/p/<project>/lead` | The CEO chat: the lead's conversation, its open questions, what waits on you and the live workers |
-| `/p/<project>/agents` | The agents canvas: the whole tree, each agent's state and the unfinished jobs. Click an agent to open its tmux session; its panel has Approve gate, Spawn and Copy attach (Copy switch with `terminal: none`) |
+| `/p/<project>/agents` | The Crew page: the CEO, a column per department with its lead and workers, each agent's state and the stopped jobs. Pick an agent for its panel: Open in a terminal, the attach (switch with `terminal: none`) command, its gate's approve link at the station, its branch. The classic canvas is at `?classic=1` |
 
 Agents can also message each other with Claude Code's built-in messaging between sessions (`ListAgents` / `SendMessage`): Claude agents are launched with `-n <tmux name>`, so `lead-<project>` and `agent-<slug>` are their addresses, and the lead may message a worker this way. Workers don't message the lead or a peer unless the human, in the worker's own chat, gives permission or asks them to (owner, 2026-10-24: "they can only talk to lead after my permission or when i explicitly ask them"); they ask the human in their chat or post `question:` comments. Nothing in the tool gates or records these messages. `lead message` is the tmux-paste fallback for Codex only: `issue-cli` never pastes into a Claude session. Workers can't use it; they post `question:` comments, which their lead reads from the issue trail. A lead still reads everything without interrupting anyone:
 

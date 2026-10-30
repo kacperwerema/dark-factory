@@ -361,7 +361,7 @@ func stampApproval(issue *tracker.Issue, status, queued, words string, now time.
 		statuses = append(statuses, queued)
 	}
 	comment := tracker.ApprovalComment(words, "viewer", now.Format("2006-01-02"), statuses...)
-	if err := tracker.AddComment(issue.FilePath, 0, comment, "app"); err != nil {
+	if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "app", tracker.OwnerAuthor); err != nil {
 		log.Printf("approve %s: saving your words: %v", issue.Slug, err)
 		return false, err.Error(), nil
 	}

@@ -13,7 +13,7 @@ steps:
   - id: TP4
     title: Unknown flags and stray arguments fail with exit 2 wherever they are; --help works on every command
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     checks:
       # Before: Go's flag parsing stopped at "done", so a flag after it was
       # silently dropped (the RogueTech `list done --all`).
@@ -46,7 +46,7 @@ steps:
   - id: TP6
     title: A CLI retitle keeps the slug and the page; --rename moves both and the old page is gone
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - cli: [update, cli/export-issues-as-csv, --title, "Export issues as CSV and TSV"]
       - open: /p/{project}/issue/cli/export-issues-as-csv?classic=1

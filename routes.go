@@ -83,10 +83,23 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/stats", s.handleStatsOverview)
 	mux.HandleFunc("/updates", s.handleUpdatesOverview)
 	mux.HandleFunc("/leads", s.handleLeads)
+	mux.HandleFunc("/ceos", redirectTo("/leads"))
 	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	return hostAllowed(s.allowedHosts, sameOriginOnly(mux))
+}
+
+// redirectTo answers a GET with a redirect to path, keeping the query: the
+// CEO's pages live at /lead and /leads, and /ceo and /ceos lead there.
+func redirectTo(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		to := path
+		if r.URL.RawQuery != "" {
+			to += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, to, http.StatusFound)
+	}
 }
 
 // handleProjectRoutes dispatches /p/<slug>/... to the right handler
@@ -110,7 +123,11 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case rest == "" || rest == "/":
-		s.handleList(w, r, proj, prefix)
+		if r.URL.Query().Get("classic") == "1" {
+			s.handleList(w, r, proj, prefix)
+		} else {
+			s.handleIssuesWb(w, r, proj, prefix)
+		}
 	case rest == "hall" && r.Method == http.MethodGet:
 		s.handleHall(w, r, proj, prefix)
 	case rest == "hall/ci" && r.Method == http.MethodGet:
@@ -131,12 +148,20 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleNeedsYouJSON(w, r, proj, prefix)
 	case rest == "needs-you/approve" && r.Method == http.MethodPost:
 		s.handleNeedsYouApprove(w, r, proj, prefix)
+	case rest == "connectors/check" && r.Method == http.MethodPost:
+		s.handleConnectorsCheck(w, r, proj, prefix)
+	case rest == "connectors.json" && r.Method == http.MethodGet:
+		s.handleConnectorsJSON(w, r, proj)
 	case rest == "shelf" && r.Method == http.MethodGet:
 		s.handleShelf(w, r, proj, prefix)
 	case rest == "shelf/review" && r.Method == http.MethodPost:
 		s.handleShelfReview(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "shelf/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.handleShelfFile(w, r, proj, strings.TrimPrefix(rest, "shelf/file/"))
+	case (rest == "board" || rest == "workboard") && r.URL.Query().Get("classic") != "1":
+		// The hall is the board now; the old pages answer at ?classic=1
+		// (factory/retire-board-canvas-graph#D-1).
+		http.Redirect(w, r, prefix+"/hall", http.StatusFound)
 	case rest == "board":
 		s.handleBoard(w, r, proj, prefix)
 	case rest == "graph":
@@ -174,7 +199,11 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(rest, "health/recommendation/") && strings.HasSuffix(rest, "/dismiss") && r.Method == http.MethodPost:
 		s.handleHealthDismiss(w, r, proj, prefix, rest)
 	case rest == "agents" && r.Method == http.MethodGet:
-		s.handleAgents(w, r, proj, prefix)
+		if r.URL.Query().Get("classic") == "1" {
+			s.handleAgents(w, r, proj, prefix)
+		} else {
+			s.handleCrew(w, r, proj, prefix)
+		}
 	case rest == "agents.json" && r.Method == http.MethodGet:
 		s.handleAgentsJSON(w, r, proj, prefix)
 	case rest == "agents/detail" && r.Method == http.MethodGet:
@@ -185,6 +214,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleLeadSpawn(w, r, proj, prefix)
 	case rest == "lead" && r.Method == http.MethodGet:
 		s.handleCEOChat(w, r, proj, prefix)
+	case rest == "ceo" && r.Method == http.MethodGet:
+		redirectTo(prefix+"/lead")(w, r)
 	case rest == "lead.json" && r.Method == http.MethodGet:
 		s.handleLeadChatJSON(w, r, proj, prefix)
 	case rest == "lead/send" && r.Method == http.MethodPost:
@@ -209,6 +240,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.handleDecisionsWb(w, r, proj, prefix)
 		}
+	case strings.HasPrefix(rest, "decisions/") && strings.HasSuffix(rest, "/confirm") && r.Method == http.MethodPost:
+		s.handleDecisionConfirm(w, r, proj, rest)
 	case rest == "updates" && r.Method == http.MethodGet:
 		s.handleUpdates(w, r, proj, prefix)
 	case (rest == "updates/decline" || rest == "updates/reopen") && r.Method == http.MethodPost:
@@ -283,8 +316,14 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleYOLO(w, r, proj, "json")
 	case strings.HasPrefix(rest, "yolo/") && r.Method == http.MethodPost:
 		s.handleYOLO(w, r, proj, strings.TrimPrefix(rest, "yolo/"))
+	case strings.HasPrefix(rest, "jobs/") && strings.HasSuffix(rest, "/run") && r.Method == http.MethodPost:
+		s.handleJobRun(w, r, proj, strings.TrimSuffix(strings.TrimPrefix(rest, "jobs/"), "/run"))
+	case strings.HasPrefix(rest, "autostart/") && r.Method == http.MethodPost:
+		s.handleAutostart(w, r, proj, strings.TrimPrefix(rest, "autostart/"))
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
 		s.handleYOLOReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/send-back") && r.Method == http.MethodPost:
+		s.handleSendBack(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:
 		s.handleApproveIssue(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/delete") && r.Method == http.MethodPost:

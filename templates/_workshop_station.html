@@ -113,7 +113,7 @@ behaviour in static/station.js. templates/station.html composes them.
 {{end}}
 
 {{define "wb/stamp"}}
-<form class="wb-step wb-stampcard" data-stamp="{{.ApproveURL}}" data-comment="{{.CommentURL}}" data-testid="station.stamp">
+<form class="wb-step wb-stampcard" data-stamp="{{.ApproveURL}}" data-send-back="{{.SendBackURL}}" data-testid="station.stamp">
     <div class="wb-step-head"><span class="wb-step-n">{{.N}}</span><span class="wb-step-title">Stamp it → {{index .Targets 0}}</span></div>
     {{if .Approved}}<div class="wb-stamped">{{template "wb/stamp-icon"}}Stamped → <b>{{.Approved}}</b>. The agent continues; take it back below if you change your mind.</div>{{end}}
     <div class="wb-stamp-targets">
@@ -125,7 +125,7 @@ behaviour in static/station.js. templates/station.html composes them.
     <textarea id="approve-words-station" name="words" rows="3" class="wb-words" placeholder="Why you approve, or what to fix" data-testid="approve_words.station"></textarea>
     <div class="wb-step-actions">
         <button type="submit" class="wb-btn wb-btn--stamp" data-testid="station.stamp.go">{{if .Approved}}Take the stamp back{{else}}Stamp it{{end}}</button>
-        <button type="button" class="wb-btn wb-btn--link" data-send-back data-testid="station.stamp.back">Send back for fixes</button>
+        <button type="button" class="wb-btn wb-btn--link" data-testid="station.stamp.back">Send back for fixes</button>
         {{with .Note}}<span class="wb-note">{{.}}</span>{{end}}
     </div>
     <div class="wb-site-msg" role="status"></div>

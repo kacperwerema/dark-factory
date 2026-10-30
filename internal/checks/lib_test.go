@@ -562,8 +562,9 @@ func TestLibCleanPrivateTmuxGivesPanesTheStandIns(t *testing.T) {
 	r := runMachine(t, `
 stand_in claude
 private_tmux --clean
-ptmux new-session -d -s w 'sh -c "command -v claude > $CHECKS_STAND_IN_DIR/which; sleep 5"'
-sleep 0.5
+ptmux new-session -d -s w 'sh -c "command -v claude > $CHECKS_STAND_IN_DIR/which.tmp; mv $CHECKS_STAND_IN_DIR/which.tmp $CHECKS_STAND_IN_DIR/which; sleep 5"'
+tries=100
+while [ ! -e "$CHECKS_STAND_IN_DIR/which" ] && [ "$tries" -gt 0 ]; do sleep 0.1; tries=$((tries - 1)); done
 cat "$CHECKS_STAND_IN_DIR/which"
 `)
 	if !strings.Contains(r.out, "/bin/claude") || !strings.Contains(r.out, "ck-") {

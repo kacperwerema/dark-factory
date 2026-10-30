@@ -122,7 +122,7 @@ func runBalance(ctx *Context, args []string) error {
 		}
 	}
 
-	if err := tracker.AddComment(issue.FilePath, 0, text, "cli"); err != nil {
+	if err := tracker.AddCommentBy(issue.FilePath, 0, text, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 		return fmt.Errorf("failed to add balance note: %w", err)
 	}
 	if comments, err := tracker.LoadComments(issue.FilePath); err == nil && len(comments) > 0 {

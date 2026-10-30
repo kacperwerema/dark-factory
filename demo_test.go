@@ -61,7 +61,7 @@ func TestDemoConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
-	for _, path := range []string{"/p/" + projects[0].Slug + "/", "/p/" + projects[0].Slug + "/board"} {
+	for _, path := range []string{"/p/" + projects[0].Slug + "/", "/p/" + projects[0].Slug + "/board?classic=1"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Host = "localhost" // httptest defaults to example.com, which the Host guard refuses

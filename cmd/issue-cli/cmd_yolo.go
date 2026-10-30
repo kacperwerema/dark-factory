@@ -80,7 +80,7 @@ func yoloNotWorker(ctx *Context, what string) error {
 		return err
 	}
 	if me := whoAmI(ctx.Project, issues); me.Role == tracker.RoleWorker {
-		return fmt.Errorf("workers never %s: YOLO is the owner's switch. Ask your lead on your issue trail with a question: comment", what)
+		return fmt.Errorf("workers never %s: YOLO is the owner's switch. Ask the CEO on your issue trail with a question: comment", what)
 	}
 	return nil
 }
@@ -174,7 +174,7 @@ func runYOLOOn(ctx *Context, args []string) error {
 	fs := newFlagSet("yolo on", ctx)
 	untilFlag := fs.String("until", "", "end: 08:00, 4h, morning, or off (until turned off)")
 	quoteFlag := fs.String("quote", "", "the owner's words turning YOLO on (required)")
-	howFlag := fs.String("how", "", "how the words reached you (default: \"in the lead chat\")")
+	howFlag := fs.String("how", "", "how the words reached you (default: \"in the CEO chat\")")
 	noCI := fs.Bool("no-ci-valve", false, "don't turn off when CI is red > 30 min")
 	allowReleases := fs.Bool("allow-releases", false, "let release publish run while YOLO is on")
 	if err := parseFlags(ctx, fs, args); err != nil {
@@ -194,7 +194,7 @@ func runYOLOOn(ctx *Context, args []string) error {
 	}
 	how := strings.TrimSpace(*howFlag)
 	if how == "" {
-		how = "in the lead chat"
+		how = "in the CEO chat"
 	}
 	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
 	by := whoAmI(ctx.Project, issues).Name
@@ -320,7 +320,7 @@ func runYOLOReview(ctx *Context, args []string) error {
 	fs := newFlagSet("yolo review", ctx)
 	agree := fs.Bool("agree", false, "the owner agrees with the YOLO pass")
 	quoteFlag := fs.String("quote", "", "the owner's words (required)")
-	howFlag := fs.String("how", "", "how the words reached you (default: \"in the lead chat\")")
+	howFlag := fs.String("how", "", "how the words reached you (default: \"in the CEO chat\")")
 	statusFlag := fs.String("status", "", "which pass, when the issue has several (the approved status)")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
@@ -355,12 +355,12 @@ func runYOLOReview(ctx *Context, args []string) error {
 	}
 	how := strings.TrimSpace(*howFlag)
 	if how == "" {
-		how = "in the lead chat"
+		how = "in the CEO chat"
 	}
 	date := ctx.now().Format("2006-01-02")
 	for _, p := range pending {
 		comment := tracker.YOLOReviewComment("agreed", quote, how, date, p.Status)
-		if err := tracker.AddComment(issue.FilePath, 0, comment, "cli"); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 			return err
 		}
 		fmt.Fprintf(ctx.Stdout, "✓ Agreed: %s → %s\n", issue.Slug, p.Status)

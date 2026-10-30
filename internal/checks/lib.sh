@@ -138,7 +138,7 @@
 CHECKS_LIB_VERSION=2
 
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-	echo "guided checks need bash 4 or newer" >&2
+	echo "guided checks need bash 4 or newer (this is bash ${BASH_VERSION:-unknown}): brew install bash, then run the script with issue-cli check-script <slug>, which finds it" >&2
 	exit 2
 fi
 set +e

@@ -141,6 +141,9 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 		}
 		problems = append(problems, p)
 	}
+	if p := checkScriptGate(ctx.Project, wf, issue, to); p != nil {
+		problems = append(problems, *p)
+	}
 	return problems
 }
 

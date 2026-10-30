@@ -156,7 +156,7 @@ func TestProjectPages_PagesEntry(t *testing.T) {
 		}
 	}
 	// The entry shows on other views too.
-	if board := pageGet(t, ts.URL+"/p/atlas/workboard"); !strings.Contains(board, `data-testid="nav.page.0"`) {
+	if board := pageGet(t, ts.URL+"/p/atlas/workboard?classic=1"); !strings.Contains(board, `data-testid="nav.page.0"`) {
 		t.Error("workboard sidebar lacks the pages: entry")
 	}
 }

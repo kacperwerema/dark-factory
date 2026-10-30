@@ -31,6 +31,7 @@ var needsYouKinds = []struct {
 	{"test", "To test", []string{"playtest", "checks"}},
 	{"answer", "To answer", []string{"question"}},
 	{"outputs", "Outputs to review", []string{"outputs"}},
+	{"jobs", "Due jobs", []string{"job"}},
 	{"other", "Other", nil},
 }
 
@@ -58,6 +59,8 @@ type NeedsYouGroup struct {
 	After []WbYOLORow
 	// Error: the project's issues could not be read.
 	Error string
+	// Named: the group's heading names the project (the page across projects).
+	Named bool
 }
 
 // NeedsYouSection is one kind of row: To approve, To test, …
@@ -77,8 +80,8 @@ type NeedsYouJSON struct {
 
 // needsYouRows is what waits on the owner in the project: CI red, ready
 // gates, playtests and check scripts to run, open questions, outputs to
-// review (one row per department) and unsent bug reports; CI red first,
-// then the oldest.
+// review (one row per department), due jobs without a standing start and
+// unsent bug reports; CI red first, then the oldest.
 func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issue, now time.Time) []WbQueueCard {
 	var rows []WbQueueCard
 	if st, enabled := ciState(p); enabled && st != nil && st.IsRed() {
@@ -106,6 +109,8 @@ func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issu
 			Since: now, CTA: "Open shelf", URL: sw.URL,
 		})
 	}
+	rows = append(rows, connectorWaits(p, color, prefix, now)...)
+	rows = append(rows, jobNeedsYouRows(p, color, prefix, now)...)
 	if n := unsentBugReports(); n > 0 {
 		rows = append(rows, WbQueueCard{
 			Kind: "bugs", Label: "Bug reports", Tone: "you",
@@ -271,6 +276,7 @@ func (s *Server) buildNeedsYouAll(now time.Time) NeedsYouData {
 		all = appendNeedsYou(all, r.rows)
 		rows := append([]WbQueueCard(nil), all[before:]...)
 		g := needsYouGroup(p, r.lot.Color, "/p/"+p.Slug, rows, r.lot.YOLO)
+		g.Named = true
 		if r.err != nil {
 			g.Error = "could not read its issues: " + r.err.Error()
 		}

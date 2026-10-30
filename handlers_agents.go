@@ -32,10 +32,13 @@ type AgentNode struct {
 	Name string `json:"name"`
 	// Display is where it lives in tmux (shared:name in shared mode).
 	Display string `json:"display"`
-	// Kind is project-lead, worker or other (an agent session not bound to an
-	// issue, e.g. a project action).
+	// Kind is project-lead, department-lead, worker or other (an agent
+	// session not bound to an issue, e.g. a project action).
 	Kind string `json:"kind"`
-	Live bool   `json:"live"`
+	// Department is a department lead's department, or a worker's issue's
+	// ("" for Product).
+	Department string `json:"department,omitempty"`
+	Live       bool   `json:"live"`
 	// State is working, idle, at-gate, question or stopped for workers; live
 	// or not-running for leads. Idle: live, but no issue-cli call for
 	// agentIdleAfter.
@@ -71,9 +74,12 @@ type AgentsModel struct {
 	// TerminalNone is the project's terminal: none. Its owner works inside
 	// tmux, so the panel's copy button copies switch_cmd instead of
 	// attach_cmd.
-	TerminalNone bool        `json:"terminal_none"`
-	ProjectLead  AgentNode   `json:"project_lead"`
-	Epics        []EpicGroup `json:"epics"`
+	TerminalNone bool      `json:"terminal_none"`
+	ProjectLead  AgentNode `json:"project_lead"`
+	// DepartmentLeads report to the CEO, one per department, live or not;
+	// workers name their department.
+	DepartmentLeads []AgentNode `json:"department_leads"`
+	Epics           []EpicGroup `json:"epics"`
 	// Workers are the live workers; each names its epic, if any.
 	Workers []AgentNode `json:"workers"`
 	// Unfinished are issues with a worktree or an active status and no live
@@ -138,7 +144,7 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 	node := func(name, kind string) AgentNode {
 		sess, ok := live[name]
 		n := AgentNode{Name: name, Display: agentDisplayName(proj, name), Kind: kind, Live: ok, AttachCmd: agentAttachCmd(proj, name), SwitchCmd: agentrun.SwitchCmd(proj, name), StartTime: sess.StartTime}
-		if kind == "project-lead" {
+		if kind == "project-lead" || kind == "department-lead" {
 			n.State = "not-running"
 			if ok {
 				n.State = "live"
@@ -155,6 +161,13 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		ProjectLead:  node(tracker.LeadSessionName(proj), "project-lead"),
 	}
 	claimed := map[string]bool{model.ProjectLead.Name: true}
+	model.DepartmentLeads = []AgentNode{}
+	for _, d := range proj.Departments {
+		n := node(tracker.DepartmentLeadName(proj, d.Name), "department-lead")
+		n.Department = d.Name
+		claimed[n.Name] = true
+		model.DepartmentLeads = append(model.DepartmentLeads, n)
+	}
 
 	for _, issue := range issues {
 		if issue.Status == "done" || !tracker.IsEpic(issue, issues) {
@@ -175,10 +188,16 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		claimed[name] = true
 		n := node(name, "worker")
 		n.Issue = agentIssueOf(prefix, issue)
+		n.Department = proj.DepartmentOf(issue)
 		if parent := tracker.FindIssue(issues, tracker.ParentSlug(issue)); parent != nil {
 			n.Epic = parent.Slug
 		} else if tracker.IsEpic(issue, issues) {
 			n.Epic = issue.Slug
+		}
+		// A done issue without a live session is skipped below; skip it
+		// before parsing its workflow (800 done issues took 1.4 s).
+		if !n.Live && issue.Status == "done" {
+			continue
 		}
 		wf := proj.LoadWorkflowForIssue(issue)
 		wt, _, _ := resolveWorktree(workDir, issue.Slug, wf)
@@ -190,9 +209,6 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 				n.LastCall, n.LastCmd = call.At.Format(time.RFC3339), call.Cmd
 			}
 			model.Workers = append(model.Workers, n)
-			continue
-		}
-		if issue.Status == "done" {
 			continue
 		}
 		if activeStatus(wf, issue.Status) || (wt != "" && fileExists(wt)) {
@@ -277,8 +293,16 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request, proj 
 		http.Error(w, "session must be an agent-* or lead-* name", http.StatusBadRequest)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.agentDetailOf(proj, name, r.URL.Query().Get("issue")))
+}
+
+// agentDetailOf is what the panel shows below an agent: its issue's last
+// five comments and, for a worker, its branch against main and the diffstat
+// (one git call). The Crew page's panel and agents/detail share it.
+func (s *Server) agentDetailOf(proj *tracker.Project, name, slug string) AgentDetail {
 	detail := AgentDetail{Session: name}
-	if slug := r.URL.Query().Get("issue"); slug != "" {
+	if slug != "" {
 		if issue := s.findIssueBySlug(proj, slug); issue != nil {
 			comments, _ := tracker.LoadComments(issue.FilePath)
 			if len(comments) > 5 {
@@ -298,8 +322,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request, proj 
 			}
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(detail)
+	return detail
 }
 
 // mainBranch names the project's main branch. A var so tests don't run git.
@@ -397,7 +420,9 @@ var leadTerminal = agentrun.LeadTerminalStep
 var startLead = agentrun.Start
 
 // handleLeadSpawn starts the project lead, exactly like `issue-cli lead
-// spawn`. A request naming an epic is refused: sub-leads were removed.
+// spawn`; with ?dept=<name> that department's lead, like `issue-cli lead
+// spawn --department` (an unknown name is 404). A request naming an epic is
+// refused: sub-leads were removed.
 func (s *Server) handleLeadSpawn(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	var body struct {
 		Epic  string `json:"epic"`
@@ -407,10 +432,25 @@ func (s *Server) handleLeadSpawn(w http.ResponseWriter, r *http.Request, proj *t
 	if strings.TrimSpace(body.Epic) != "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(DispatchResponse{Status: "error", Steps: []DispatchStep{{Name: "Spawn lead", Status: "error", Detail: "sub-leads were removed (one lead per project)"}}})
+		json.NewEncoder(w).Encode(DispatchResponse{Status: "error", Steps: []DispatchStep{{Name: "Spawn CEO", Status: "error", Detail: "sub-leads were removed (one CEO per project)"}}})
 		return
 	}
 	spec := agentrun.LeadSpec(proj, proj.LoadWorkflow(), projectRoot(proj), time.Now())
+	if key := r.URL.Query().Get("dept"); key != "" {
+		dept := proj.DepartmentByKey(key)
+		if dept == nil {
+			http.NotFound(w, r)
+			return
+		}
+		wf, err := proj.WorkflowFor(dept.Name)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(DispatchResponse{Status: "error", Steps: []DispatchStep{{Name: "Spawn " + dept.Name + " lead", Status: "error", Detail: err.Error()}}})
+			return
+		}
+		spec = agentrun.DepartmentLeadSpec(proj, dept, wf, projectRoot(proj), time.Now())
+	}
 	spec.AgentType = strings.TrimSpace(body.Agent)
 	if spec.AgentType == "" {
 		spec.AgentType = "claude"

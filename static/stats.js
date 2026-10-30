@@ -11,6 +11,9 @@
     var key = 'stats:' + (page.getAttribute('data-project') || '');
     var params = new URLSearchParams(location.search);
     params.delete('drill');
+    // The remembered options are shared with the Workshop Board page
+    // (workshop-stats.js), so they never carry classic=1.
+    params.delete('classic');
     try {
         if (!location.search) {
             var saved = localStorage.getItem(key);

@@ -1,0 +1,28 @@
+session: department-templates
+issue: factory/department-templates-add-a-department-to-any-project
+title: Updates page - department templates the project can add
+scenario: updates
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP8
+    proves: [AC7]
+    title: The Updates page offers the Marketing department with its add command, below the workflow features
+    setup:
+      - open: /p/{project}/updates
+    checks:
+      - visible: [upd.page, upd.departments, upd.dept.marketing, upd.dept.marketing.command]
+      - text_contains: { target: upd.departments, text: "Departments you can add" }
+      - text_contains: { target: upd.dept.marketing, text: "workflow: content · 2 goals · role prompt" }
+      - text_contains: { target: upd.dept.marketing.command, text: "department add marketing" }
+    do: |
+      Look at the Departments you can add section on the Updates page.
+    expect: |
+      One Marketing card in its pink badge, the workflow · goals line, the
+      description and the command, laid out like the feature cards; on the
+      phone width the command wraps inside the card.
+    why: the look of a new section needs the owner's eye.

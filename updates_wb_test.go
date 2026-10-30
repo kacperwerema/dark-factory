@@ -221,11 +221,13 @@ func TestUpdatesWbComponentsStandAlone(t *testing.T) {
 		GroupChip: WbChip{Tone: "outline", Text: "automation"},
 		Unlocks:   []WbUnlockLink{{Text: "Hall: the CI scanner on the line", URL: "/p/x/hall"}}}
 	card.ID, card.Version, card.Title, card.Question = "local-ci", "v0.54.0", "Local CI on the integration branch", "Which commands?"
+	card.Experiment = &workflowupgrade.ExperimentRef{Slug: "factory/exp-1", Measured: "promising — gates_first_try 0.60→0.70"}
 	for name, c := range map[string]struct {
 		data any
 		want []string
 	}{
-		"wb/upgrade-card": {card, []string{`data-testid="upd.card.local-ci"`, `upd-badge--automation`, ">CI</div>", "local-ci@v0.54.0", `action="/p/x/updates/install"`, `action="/p/x/updates/decline"`, `href="/p/x/hall"`, "Install with an agent", "Details", "Decline"}},
+		"wb/upgrade-card": {card, []string{`data-testid="upd.card.local-ci"`, `upd-badge--automation`, ">CI</div>", "local-ci@v0.54.0", `action="/p/x/updates/install"`, `action="/p/x/updates/decline"`, `href="/p/x/hall"`, "Install with an agent", "Details", "Decline",
+			`data-testid="upd.card.local-ci.measured"`, "Measured by experiment <code>factory/exp-1</code>: promising — gates_first_try 0.60→0.70"}},
 		"wb/unlocks":      {card.Unlocks, []string{"Unlocks", "Hall: the CI scanner on the line"}},
 		"wb/delivery":     {WbDelivery{From: "development@v0.36.0", To: "v0.54.0", State: &WbChip{Tone: "you", Text: "behind"}}, []string{"Delivery from the engine", "development@v0.36.0 → v0.54.0", "behind"}},
 		"wb/upgrade-tree": {WbUpgradeTree{Installed: 2, ToDecide: 1, Recorded: true, Squares: []WbTreeSquare{{ID: "a", State: "installed"}, {ID: "b", State: "decide"}}, Pill: WbChip{Tone: "you", Text: "1 to decide"}}, []string{"Upgrade tree", "<b>2</b> installed · 0 declined", "upd-sq--decide", "1 to decide"}},
@@ -264,5 +266,62 @@ func TestUpdatesLetter(t *testing.T) {
 		if got := updatesLetter(title); got != want {
 			t.Errorf("updatesLetter(%q) = %q, want %q", title, got, want)
 		}
+	}
+}
+
+// Every catalog unlocks row links a page the viewer serves under a project.
+func TestCatalogUnlocksArePagesTheViewerServes(t *testing.T) {
+	entries, err := workflowupgrade.Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{updatesProject(t)})
+	defer ts.Close()
+	rows := 0
+	for _, e := range entries {
+		for _, u := range e.Unlocks {
+			rows++
+			if code, _ := getBody(t, ts.URL+"/p/test-project"+u.URL); code != http.StatusOK {
+				t.Errorf("%s: unlocks %q links %s, served %d", e.ID, u.Text, u.URL, code)
+			}
+		}
+	}
+	if rows == 0 {
+		t.Fatal("no catalog entry has unlocks:")
+	}
+}
+
+func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
+	proj := updatesProject(t)
+	countBefore := updatesNavNote(&proj)
+	ts := newTestServer(t, []tracker.Project{proj})
+	code, body := getBody(t, ts.URL+"/p/test-project/updates")
+	ts.Close()
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`data-testid="upd.departments"`,
+		"Departments you can add",
+		`data-testid="upd.dept.marketing"`,
+		"workflow: content · 2 goals · role prompt",
+		`style="background: #E2559B"`,
+		"SEO and content: refreshed client pages and posts",
+		`data-testid="upd.dept.marketing.command">issue-cli --project test-project department add marketing</code>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+
+	// Installed: not offered, and the sidebar count never counted it.
+	proj.Departments = []tracker.Department{{Name: "Marketing"}}
+	if got := updatesNavNote(&proj); got != countBefore {
+		t.Errorf("sidebar count %q, was %q", got, countBefore)
+	}
+	ts = newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	if _, body := getBody(t, ts.URL+"/p/test-project/updates"); strings.Contains(body, `data-testid="upd.departments"`) {
+		t.Error("an installed template is still offered")
 	}
 }

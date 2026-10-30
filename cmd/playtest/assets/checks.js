@@ -56,6 +56,9 @@
   function selected(el) {
     if (el.checked || el.selected) return true;
     if (el.getAttribute('aria-selected') === 'true' || el.getAttribute('aria-pressed') === 'true') return true;
+    // The Workshop Board marks the current tab or pill with aria-current.
+    var cur = el.getAttribute('aria-current');
+    if (cur && cur !== 'false') return true;
     return el.classList.contains('active') || el.classList.contains('selected') || el.classList.contains('approved');
   }
 

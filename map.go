@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -125,10 +127,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 	}
 	wg.Wait()
 
-	data := MapData{Lots: lots, RC: rc, NewProject: WbNewTile{
-		Title: "New project", Sub: "Templates: app · game · service", TestID: "new_project",
-		Note: "Run issue-cli init in the project's folder, then add it to projects.yaml (kind:, color:, description:).",
-	}}
+	data := MapData{Lots: lots, RC: rc, NewProject: mapNewProjectTile()}
 	for i := range data.Lots {
 		lot := &data.Lots[i]
 		lot.Engine = lot.Slug == s.engine
@@ -207,7 +206,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 	lot.Site = len(issues) == 0
 	lot.YOLO = yoloBand(p, issues, now)
 	lot.Buildings = mapDepartmentsOf(p, open)
-	lot.Progress = mapProgressOf(issues)
+	lot.Progress = mapProgressOf(goals.Resolve(p, now), issues, color)
 
 	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
 		lot.CEO.Live = agents.ProjectLead.State == "live"
@@ -301,15 +300,32 @@ func productIssues(p *tracker.Project, issues []*tracker.Issue) []*tracker.Issue
 	return out
 }
 
-// mapProgressOf is the open epic furthest along (most done children), the
-// lot's bar until projects have goals.
-func mapProgressOf(issues []*tracker.Issue) *WbProgress {
+// mapProgressOf is the lot's bar: the first goal of HQ, else of Product or a
+// department (projects.yaml), else the open epic furthest along (most done
+// children).
+func mapProgressOf(rep *goals.Report, issues []*tracker.Issue, color string) *WbProgress {
+	for _, o := range rep.Owners() {
+		if len(o.Goals) == 0 {
+			continue
+		}
+		g := o.Goals[0]
+		chip := goalChip(g, color)
+		p := chip.Progress
+		p.Label, p.Text, p.Title = "Goal: "+g.Label(), chip.Text, chip.Title
+		if o.Key != goals.HQKey {
+			p.Label = "Goal: " + o.Name + " · " + g.Label()
+		}
+		if g.Value == nil && !g.RolledUp {
+			p.Text = "no value yet"
+		}
+		return &p
+	}
 	var best *WbProgress
 	for _, issue := range issues {
 		if strings.EqualFold(issue.Status, "done") || !tracker.IsEpic(issue, issues) {
 			continue
 		}
-		p := WbProgress{Label: "Epic: " + issue.Title}
+		p := WbProgress{Label: "Epic: " + issue.Title, Title: "No goal in projects.yaml (company: goals:): the open epic furthest along"}
 		for _, c := range tracker.EpicChildren(issues, issue.Slug) {
 			p.Total++
 			if strings.EqualFold(c.Status, "done") {
@@ -327,8 +343,23 @@ func mapProgressOf(issues []*tracker.Issue) *WbProgress {
 	return best
 }
 
+// mapNewProjectTile is the "+" tile: the workflow templates issue-cli
+// bundles, read from its embedded files so the list cannot drift.
+func mapNewProjectTile() WbNewTile {
+	var names []string
+	entries, _ := templates.FS.ReadDir("workflow")
+	for _, e := range entries {
+		names = append(names, strings.TrimSuffix(e.Name(), ".yaml"))
+	}
+	return WbNewTile{
+		Title: "New project", Sub: "Templates: " + strings.Join(names, " · "), TestID: "new_project",
+		Note: "Run issue-cli workflow init --template <name> in the project's folder, then add it to projects.yaml (kind:, color:, description:).",
+	}
+}
+
 // mapRobotsOf is the project's live agents as robots. A worker whose issue is
-// blocked on another issue that has a live worker waits on that agent.
+// blocked on (blocked_on) or depends on (depends_on) another issue that has a
+// live worker waits on that agent.
 func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []WbRobot {
 	working := map[string]bool{}
 	for _, w := range agents.Workers {
@@ -350,7 +381,7 @@ func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []WbRobot {
 		}
 		if r.State != "you" && w.Issue != nil {
 			if issue := tracker.FindIssue(issues, w.Issue.Slug); issue != nil {
-				for _, dep := range blockedOn(issue) {
+				for _, dep := range append(blockedOn(issue), tracker.DependsOn(issue)...) {
 					if working[strings.ToLower(dep)] {
 						r.State = "agent"
 						r.Label += " → " + dep
@@ -442,4 +473,15 @@ func (s *Server) engineCandidate(p *tracker.Project) *MapRC {
 		}
 	}
 	return rc
+}
+
+// deptIndex is department name's position in projects.yaml (for deptColor),
+// 0 when it is not there.
+func deptIndex(p *tracker.Project, name string) int {
+	for i, d := range p.Departments {
+		if d.Name == name {
+			return i
+		}
+	}
+	return 0
 }

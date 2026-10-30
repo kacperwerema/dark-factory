@@ -335,7 +335,7 @@ func TestWorkflowDesignerRemoved(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	for _, path := range []string{"/", "/board", "/graph", "/canvas", "/agents", "/docs?classic=1", "/stats", "/decisions", "/retros?classic=1"} {
+	for _, path := range []string{"/?classic=1", "/board?classic=1", "/graph", "/canvas", "/agents", "/docs?classic=1", "/stats", "/decisions", "/retros?classic=1"} {
 		if strings.Contains(pageGet(t, ts.URL+"/p/wb"+path), "workflow-designer") {
 			t.Errorf("%s: still links to the removed workflow designer", path)
 		}

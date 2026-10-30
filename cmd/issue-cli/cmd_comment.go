@@ -59,10 +59,15 @@ func runComment(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := tracker.AddComment(issue.FilePath, 0, text, "cli"); err != nil {
+	author := commentAuthor(ctx.Project, issue)
+	if err := tracker.AddCommentBy(issue.FilePath, 0, text, "cli", author); err != nil {
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
-	fmt.Fprintf(ctx.Stdout, "✓ Comment added to %s\n", issue.Slug)
+	if author != "" {
+		fmt.Fprintf(ctx.Stdout, "✓ Comment added to %s by %s\n", issue.Slug, author)
+	} else {
+		fmt.Fprintf(ctx.Stdout, "✓ Comment added to %s (no author: no lead or worker session detected)\n", issue.Slug)
+	}
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", issue.FilePath)
 	if _, typed, isBalance := tracker.ParseBalanceComment(balancePrefix(ctx), text); isBalance && !typed {
 		fmt.Fprintf(ctx.Stdout, "Tip: issue-cli balance %s --metric <id> --state <state> --hypothesis \"...\" --change \"...\" --evidence \"...\" puts this on the Balance board as a typed note.\n", issue.Slug)

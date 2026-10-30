@@ -1,0 +1,12 @@
+# Code paths per system: Sim and AI have paths: in workbench.systems, UI
+# has a summary but no paths, so the Systems code map is a draft naming UI.
+# Sim and AI both claim src/shared/ (store.go is shared). AI's
+# src/missing/ glob matches nothing, which health lint reports. The session
+# then writes paths for UI and the map stops being a draft.
+title: Code paths per system
+project:
+  name: Raid League
+  slug: rl
+issues: tracker
+workflow: workflow.yaml
+root: files

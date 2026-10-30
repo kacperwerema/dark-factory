@@ -230,7 +230,7 @@ func changeWords(delta float64, window string) string {
 func opinionGauge(o *health.Opinion, now time.Time) HealthGauge {
 	g := HealthGauge{Title: "Agent opinion"}
 	if o == nil {
-		g.Empty = "No review yet. Run review starts a review agent; or ask the lead: issue-cli health review"
+		g.Empty = "No review yet. Run review starts a review agent; or ask the CEO: issue-cli health review"
 		return g
 	}
 	g.Has, g.Value = true, fmt.Sprintf("%d", o.Score)

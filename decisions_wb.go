@@ -15,8 +15,9 @@ import (
 // The decisions log (L2, a tab of the Product hall): every issue's
 // `## Decisions` D-n lines, grouped by day and then by issue. Nobody edits
 // it; agents and the CEO add a line with `issue-cli decide`. A decision
-// without the owner's words is boxed orange, with Confirm and Question it
-// going to the CEO through /lead/send. The classic table stays at
+// without the owner's words (or still marked provisional) is boxed orange:
+// Confirm records their words on it (decisions_confirm.go), Question it goes
+// to the CEO through /lead/send. The classic table stays at
 // ?classic=1. Design: issues/Factory/designs/workshop-board/L2-decisions.
 
 // Who-filter values (?who=).
@@ -108,12 +109,13 @@ type WbDecisionRow struct {
 // WbLink is a labelled link.
 type WbLink struct{ Label, URL string }
 
-// WbConfirm is the orange box on a decision the agent took alone: Confirm
-// sends ConfirmText to the CEO; Question it fills the message box with
-// QuestionText for the owner to finish.
+// WbConfirm is the orange box on a decision still waiting for the owner:
+// Confirm posts their words (optional) to ConfirmURL; Question it fills the
+// message box with QuestionText for the owner to finish, so it needs the CEO
+// Live. Provisional: it has words already (relayed), but is not confirmed.
 type WbConfirm struct {
-	SendURL, ConfirmText, QuestionText string
-	Live                               bool
+	ConfirmURL, QuestionText string
+	Provisional, Live        bool
 }
 
 // WbBars is a titled list of labelled bars (a count per row).
@@ -160,7 +162,7 @@ func (s *Server) handleDecisionsWb(w http.ResponseWriter, r *http.Request, proj 
 		for ti := range data.Days[di].Threads {
 			for _, row := range data.Days[di].Threads[ti].Rows {
 				if row.Confirm != nil {
-					row.Confirm.SendURL, row.Confirm.Live = data.Message.SendURL, lot.CEO.Live
+					row.Confirm.Live = lot.CEO.Live
 				}
 			}
 		}
@@ -218,11 +220,11 @@ func (f decisionsFilter) match(e *tracker.DecisionEntry) bool {
 	}
 	switch f.Who {
 	case decisionsWhoWords:
-		if e.Quote == "" {
+		if tracker.NeedsOwnerWords(e.Decision) {
 			return false
 		}
 	case decisionsWhoAlone:
-		if e.Quote != "" {
+		if !tracker.NeedsOwnerWords(e.Decision) {
 			return false
 		}
 	}
@@ -418,22 +420,23 @@ func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
 		row.State, row.Stale = WbChip{Tone: "red", Text: "superseded · still cited"}, true
 	}
 	// Only a decision still in force asks for the owner's words.
-	if e.Quote == "" && e.ReplacedBy == nil {
+	if tracker.NeedsOwnerWords(e.Decision) && e.ReplacedBy == nil {
 		row.Confirm = &WbConfirm{
-			ConfirmText:  fmt.Sprintf("I confirm %s: %q. Record it with my words (issue-cli decide %s --replaces %s).", e.Ref, e.Text, e.Slug, e.Ref),
+			ConfirmURL:   decisionConfirmURL(prefix, e.Slug, e.ID),
+			Provisional:  e.Quote != "",
 			QuestionText: fmt.Sprintf("I question %s (%q): ", e.Ref, e.Text),
 		}
 	}
 	return row
 }
 
-// decisionsBy is who recorded a decision, from its how: the CEO in the lead
-// chat, an agent, or the how as written.
+// decisionsBy is who recorded a decision, from its how: the CEO in its chat
+// ("lead chat" in older records), an agent, or the how as written.
 func decisionsBy(how string) (string, string) {
 	low := strings.ToLower(how)
 	switch {
-	case strings.Contains(low, "lead chat"):
-		return "CEO (lead chat)", "ceo"
+	case strings.Contains(low, "ceo chat"), strings.Contains(low, "lead chat"):
+		return "CEO chat", "ceo"
 	case low == "" || strings.Contains(low, "agent"):
 		return "agent", "agent"
 	case yoloDecision(how):

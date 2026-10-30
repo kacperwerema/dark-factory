@@ -332,3 +332,153 @@ func TestDocsOnly(t *testing.T) {
 		}
 	}
 }
+
+// A branch started on another issue's branch before that one reached main
+// holds the other issue's commits in its own first-parent chain. Their
+// trailers name the other issue's criteria, so they must not count, while
+// the branch is live or after both are merged.
+func TestTrailersFromABaseBranchOfAnotherIssue(t *testing.T) {
+	root := t.TempDir()
+	gitAt(t, root, t0, "init", "-q", "-b", "main")
+	commitFile(t, root, t0, "README", "x", "init")
+	dir := filepath.Join(root, "issues", "Sys")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prove-me.md"), []byte(issueBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := strings.Replace(issueBody, "Prove me", "Base work", 1)
+	if err := os.WriteFile(filepath.Join(dir, "base-work.md"), []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := tracker.LoadIssues(filepath.Join(root, "issues"))
+	if err != nil || len(issues) != 2 {
+		t.Fatalf("load issues: %v %d", err, len(issues))
+	}
+	var issue, other *tracker.Issue
+	for _, is := range issues {
+		if is.Slug == "sys/prove-me" {
+			issue = is
+		} else {
+			other = is
+		}
+	}
+
+	// The other issue's branch: a test commit, recorded at its transition.
+	gitAt(t, root, t0, "checkout", "-q", "-b", "work/"+other.Slug)
+	otherHead := commitFile(t, root, t0.Add(time.Hour), "pkg/base_test.go", "func TestBase(t *testing.T) {}\n", "base test\n\nProves: AC1 TestBase")
+	if err := tracker.SaveStats(other.FilePath, tracker.StatsStore{Transitions: []tracker.TransitionStat{{TS: t0.Add(90 * time.Minute), BranchHead: otherHead}}}); err != nil {
+		t.Fatal(err)
+	}
+	// This issue's branch starts on it, dispatched before that commit.
+	gitAt(t, root, t0, "checkout", "-q", "-b", "work/"+issue.Slug)
+	ownHead := commitFile(t, root, t0.Add(2*time.Hour), "pkg/own_test.go", "func TestOwn(t *testing.T) {}\n", "own test\n\nProves: AC2 TestOwn")
+	if err := tracker.SaveStats(issue.FilePath, tracker.StatsStore{
+		Dispatches:  []tracker.Dispatch{{At: t0.Add(30 * time.Minute)}},
+		Transitions: []tracker.TransitionStat{{TS: t0.Add(3 * time.Hour), BranchHead: ownHead}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, root, t0, "checkout", "-q", "main")
+
+	check := func(when string) {
+		t.Helper()
+		r := Collect(root, issue, testsComment(t0.Add(5*time.Hour)))
+		if c := criterion(t, r, "AC1"); len(c.Links) != 0 {
+			t.Errorf("%s: AC1 = %+v, want none (TestBase is the other issue's)", when, c.Links)
+		}
+		if c := criterion(t, r, "AC2"); len(c.Links) != 1 || c.Links[0].Ref != "TestOwn" {
+			t.Errorf("%s: AC2 = %+v, want the branch's own TestOwn", when, c.Links)
+		}
+	}
+	check("live branch")
+
+	gitAt(t, root, t0, "merge", "-q", "--ff-only", "work/"+issue.Slug)
+	gitAt(t, root, t0, "branch", "-q", "-D", "work/"+issue.Slug, "work/"+other.Slug)
+	check("after the merge")
+}
+
+// A test title with a colon ("D-8: …", an it() title) is found, and a
+// Proves: line in its own paragraph before Co-Authored-By counts.
+func TestColonTitleAndProvesParagraph(t *testing.T) {
+	f := newFixture(t, "TestFoo")
+	gitAt(t, f.root, t0, "checkout", "-q", "work/"+f.issue.Slug)
+	commitFile(t, f.root, t0.Add(5*time.Hour), "core/test/atHome.test.ts",
+		"it('D-8: kupuje mleko…', () => {})\n",
+		"test: D-8\n\nProves: AC4\n\nCo-Authored-By: t <t@t>")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+	if err := tracker.SaveData(f.issue.FilePath, tracker.DataStore{Proofs: map[string][]tracker.ProofLink{
+		"AC3": {{Kind: tracker.ProofTest, Ref: "D-8: kupuje mleko…", Criterion: "A value proves it"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	r := Collect(f.root, f.issue, testsComment(t0.Add(6*time.Hour)))
+	if c := criterion(t, r, "AC3"); len(c.Links) != 1 || !c.Links[0].Check.OK {
+		t.Errorf("AC3 = %+v, want the it() title with a colon found", c.Links)
+	}
+	if c := criterion(t, r, "AC4"); len(c.Links) != 1 || c.Links[0].Kind != tracker.ProofCommit {
+		t.Errorf("AC4 = %+v, want the commit from the Proves: paragraph before Co-Authored-By", c.Links)
+	}
+}
+
+// A live branch that only fast-forwarded to main, with no commits of its
+// own, collects no trailers: the Proves: on main came from another issue
+// that merged after this one was dispatched.
+func TestFastForwardedBranchWithNoOwnCommits(t *testing.T) {
+	root := t.TempDir()
+	gitAt(t, root, t0, "init", "-q", "-b", "main")
+	start := commitFile(t, root, t0, "README", "x", "init")
+	dir := filepath.Join(root, "issues", "Sys")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prove-me.md"), []byte(issueBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	other := strings.Replace(issueBody, "Prove me", "Other work", 1)
+	if err := os.WriteFile(filepath.Join(dir, "other-work.md"), []byte(other), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := tracker.LoadIssues(filepath.Join(root, "issues"))
+	if err != nil || len(issues) != 2 {
+		t.Fatalf("load issues: %v %d", err, len(issues))
+	}
+	var issue, otherIssue *tracker.Issue
+	for _, is := range issues {
+		if is.Slug == "sys/prove-me" {
+			issue = is
+		} else {
+			otherIssue = is
+		}
+	}
+
+	// This issue is dispatched on main and records main as its head.
+	gitAt(t, root, t0, "branch", "work/"+issue.Slug)
+	if err := tracker.SaveStats(issue.FilePath, tracker.StatsStore{
+		Dispatches:  []tracker.Dispatch{{At: t0.Add(30 * time.Minute)}},
+		Transitions: []tracker.TransitionStat{{TS: t0.Add(35 * time.Minute), BranchHead: start}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The other issue commits a Proves: trailer, records it and reaches main.
+	gitAt(t, root, t0, "checkout", "-q", "-b", "work/"+otherIssue.Slug)
+	otherHead := commitFile(t, root, t0.Add(time.Hour), "pkg/other_test.go", "func TestOther(t *testing.T) {}\n", "other test\n\nProves: AC1")
+	gitAt(t, root, t0, "checkout", "-q", "main")
+	gitAt(t, root, t0, "merge", "-q", "--ff-only", "work/"+otherIssue.Slug)
+	if err := tracker.SaveStats(otherIssue.FilePath, tracker.StatsStore{Transitions: []tracker.TransitionStat{
+		{TS: t0.Add(90 * time.Minute), BranchHead: otherHead},
+		{TS: t0.Add(2 * time.Hour), BranchHead: otherHead, MergeSHA: otherHead},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// This branch fast-forwards to main and has nothing of its own yet.
+	gitAt(t, root, t0, "branch", "-f", "work/"+issue.Slug, "main")
+
+	r := Collect(root, issue, testsComment(t0.Add(3*time.Hour)))
+	for _, c := range r.Criteria {
+		if len(c.Links) != 0 {
+			t.Errorf("%s = %+v, want none: the branch has no commits of its own", c.ID, c.Links)
+		}
+	}
+}

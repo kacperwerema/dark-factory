@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -182,5 +183,42 @@ func TestRunChecksOpensTheCheckScriptWindow(t *testing.T) {
 	live = false
 	if code, resp := postJSON(t, ts.URL+"/p/chk/issue/cli/lead-tab/check-script", `{}`); code != 404 || resp["status"] != "no-scripts" || len(made) != 1 {
 		t.Fatalf("no scripts: %d %v", code, resp)
+	}
+}
+
+// TestCheckRootsFindTheBranchWorktreeWithoutWorktreeConfig: a workflow
+// without worktree: still has workers in a worktree on work/<slug>, under
+// any folder name; its scripts are the owner's to run.
+func TestCheckRootsFindTheBranchWorktreeWithoutWorktreeConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	proj, _ := setupChecksProject(t)
+	root := proj.WorkDir
+	os.WriteFile(proj.WorkflowFile, []byte("statuses:\n  - name: \"testing\"\n  - name: \"human-testing\"\n  - name: \"done\"\n"), 0o644)
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(root, ".worktrees", "own-name")
+	git("worktree", "add", "-q", "-b", "work/cli/lead-tab", wt)
+	os.MkdirAll(filepath.Join(wt, "scripts", "checks"), 0o755)
+	os.WriteFile(filepath.Join(wt, "scripts", "checks", "own.sh"), []byte("#!/usr/bin/env bash\n# issue: cli/lead-tab\n"), 0o644)
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	var issue *tracker.Issue
+	for _, i := range issues {
+		if i.Slug == "cli/lead-tab" {
+			issue = i
+		}
+	}
+	a := ownerAttention(&proj, issue)
+	if !reflect.DeepEqual(a.Checks, []string{"own"}) {
+		t.Fatalf("checks due = %v, want the branch worktree's script", a.Checks)
 	}
 }

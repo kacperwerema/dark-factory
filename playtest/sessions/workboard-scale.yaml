@@ -12,7 +12,7 @@ steps:
   - id: TP11
     title: At ~520 issues the idle piles are tiles, only what needs attention is drawn, and long columns link to the list
     setup:
-      - open: /p/{project}/workboard
+      - open: /p/{project}/workboard?classic=1
     checks:
       - text_equals: { target: workboard.column.idea.count, text: "300" }
       - text_equals: { target: workboard.column.done.count, text: "60" }

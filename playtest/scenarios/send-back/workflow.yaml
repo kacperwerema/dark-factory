@@ -1,0 +1,24 @@
+statuses:
+  - name: "in progress"
+    description: "Being built"
+  - name: "testing"
+    description: "Being checked"
+  - name: "human-testing"
+    description: "The owner checks it"
+  - name: "documentation"
+    description: "Being written up"
+  - name: "done"
+    description: "Finished"
+
+transitions:
+  - from: "in progress"
+    to: "testing"
+  - from: "testing"
+    to: "human-testing"
+  - from: "human-testing"
+    to: "documentation"
+    actions:
+      - type: "require_human_approval"
+        status: "documentation"
+  - from: "documentation"
+    to: "done"

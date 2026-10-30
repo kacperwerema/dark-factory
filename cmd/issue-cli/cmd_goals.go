@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/connectors"
 	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -78,16 +79,35 @@ Examples:
 
 var departmentCommand = &Command{
 	Name:      "department",
-	ShortHelp: "Show a department's mission, role prompt and goals",
-	LongHelp: `Print a department's mission, role, the role prompt file a lead or
-agent of the department starts with (path and content) and its goals.
-<name> is hq, product or a department from projects.yaml.
+	ShortHelp: "Departments: list the templates, add or remove one, show one's role and goals",
+	LongHelp: `Work with the project's departments (projects.yaml departments:).
+
+  department list               HQ, Product and the bundled department
+                                templates, and which this project has
+  department add <template>     install a template: its workflow file
+                                (workflows/<key>.yaml), role prompt
+                                (departments/<key>/role.md) and an entry with
+                                its goals in projects.yaml. A file already
+                                there is never overwritten. --name <Name>
+                                installs it under another name, --dry-run
+                                prints the plan only
+  department remove <name>      take the entry out of projects.yaml (its
+                                files stay); refused while it has open issues
+  department show <name>        mission, role, the role prompt (path and
+                                content) and goals; <name> is hq, product or
+                                a department from projects.yaml
+
+add and remove edit the owner's projects.yaml: workers are refused.
 
 Examples:
+  issue-cli department list
+  issue-cli department add marketing --dry-run
+  issue-cli department add marketing --name SEO
+  issue-cli department remove seo
   issue-cli department show marketing
   issue-cli department show hq --json`,
 	Run:         runDepartment,
-	Subcommands: []string{"show"},
+	Subcommands: []string{"list", "add", "remove", "show"},
 }
 
 func init() {
@@ -254,11 +274,25 @@ type departmentShow struct {
 	PromptPath    string `json:"prompt_path,omitempty"`
 	PromptContent string `json:"prompt_content,omitempty"`
 	PromptError   string `json:"prompt_error,omitempty"`
+	// Connectors are a department's (issue-cli connectors).
+	Connectors []connectors.Status `json:"connectors,omitempty"`
 }
 
 func runDepartment(ctx *Context, args []string) error {
-	if len(args) == 0 || args[0] != "show" {
-		return &usageError{msg: "usage: issue-cli department show <name>"}
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "list":
+		return runDepartmentList(ctx, args[1:])
+	case "add":
+		return runDepartmentAdd(ctx, args[1:])
+	case "remove":
+		return runDepartmentRemove(ctx, args[1:])
+	case "show":
+	default:
+		return &usageError{msg: "usage: issue-cli department list|add <template>|remove <name>|show <name>"}
 	}
 	pos, err := parsePositionals(ctx, "department show", args[1:], 1)
 	if err != nil {
@@ -270,7 +304,7 @@ func runDepartment(ctx *Context, args []string) error {
 	rep := goals.Resolve(ctx.Project, ctx.now())
 	o := rep.Find(pos[0])
 	if o == nil {
-		return fmt.Errorf("no department %q (departments: %s)", pos[0], strings.Join(ownerKeys(rep), ", "))
+		return fmt.Errorf("no department %q (departments: %s)\nTemplates you can add: %s", pos[0], strings.Join(ownerKeys(rep), ", "), tracker.InjectProject(ctx.Project, "issue-cli department list"))
 	}
 	out := departmentShow{Owner: o}
 	if o.Prompt != "" {
@@ -281,6 +315,9 @@ func runDepartment(ctx *Context, args []string) error {
 			out.PromptContent = string(b)
 		}
 	}
+	if d := ctx.Project.DepartmentByKey(pos[0]); d != nil {
+		out.Connectors = connectors.List(ctx.Project, d.Name)
+	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, out)
 	}
@@ -288,6 +325,10 @@ func runDepartment(ctx *Context, args []string) error {
 	printOwnerGoals(w, o)
 	if o.Role != "" {
 		fmt.Fprintf(w, "Role: %s\n", o.Role)
+	}
+	if len(out.Connectors) > 0 {
+		fmt.Fprintln(w, "Connectors:")
+		printConnectors(w, out.Connectors, ctx.now(), "  ")
 	}
 	switch {
 	case o.Prompt == "":
@@ -297,6 +338,7 @@ func runDepartment(ctx *Context, args []string) error {
 	default:
 		fmt.Fprintf(w, "Role prompt: %s\n\n%s\n", out.PromptPath, strings.TrimRight(out.PromptContent, "\n"))
 	}
+	printDepartmentJobs(ctx, w, o.Key)
 	return nil
 }
 

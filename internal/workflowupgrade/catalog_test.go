@@ -1,6 +1,7 @@
 package workflowupgrade
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,6 +39,11 @@ func TestWorkflowFeatureCatalogIsComplete(t *testing.T) {
 		for _, tmpl := range e.Templates {
 			if !IsBundled(tmpl) {
 				t.Errorf("%s: template %q is not bundled", e.ID, tmpl)
+			}
+		}
+		for _, u := range e.Unlocks {
+			if strings.TrimSpace(u.Text) == "" || !strings.HasPrefix(u.URL, "/") {
+				t.Errorf("%s: unlocks row %+v needs text and a url under the project (/status)", e.ID, u)
 			}
 		}
 		var snippet map[string]any
@@ -129,6 +135,19 @@ func detectedIDs(t *testing.T, raw string) []string {
 		}
 	}
 	return ids
+}
+
+// A misspelled key (unlock: for unlocks:) would be dropped silently by the
+// lenient decode Catalog uses; the strict one names it.
+func TestCatalogHasOnlyKnownKeys(t *testing.T) {
+	var doc struct {
+		Entries []Entry `yaml:"entries"`
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(catalogYAML()))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("workflow-features.yaml has a key Entry doesn't know (add the field or fix the name): %v", err)
+	}
 }
 
 func TestFeatureProbesAreStructural(t *testing.T) {

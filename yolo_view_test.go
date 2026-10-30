@@ -55,7 +55,7 @@ func TestYOLOSwitchAndBand(t *testing.T) {
 	defer ts.Close()
 
 	// Off, but a pass waits: the sidebar shows the after-the-fact queue.
-	page := pageGet(t, ts.URL+"/p/yp/board")
+	page := pageGet(t, ts.URL+"/p/yp/board?classic=1")
 	for _, want := range []string{`data-testid="nav.yolo"`, "1 after the fact", `data-testid="nav.yolo.row.shop"`, "Back to in design"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("sidebar lacks %q", want)
@@ -74,7 +74,7 @@ func TestYOLOSwitchAndBand(t *testing.T) {
 	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/on", `{"until":"4h","words":"go yolo"}`); code != 200 || out["On"] != true {
 		t.Fatalf("on: %d %v", code, out)
 	}
-	page = pageGet(t, ts.URL+"/p/yp/board")
+	page = pageGet(t, ts.URL+"/p/yp/board?classic=1")
 	for _, want := range []string{`class="sidebar-yolo on"`, "<strong>YOLO</strong> until", "no releases", `data-testid="nav.yolo.off"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("sidebar band lacks %q", want)

@@ -134,7 +134,7 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 
 	stats, _ := tracker.LoadStats(issue.FilePath)
 	r.Ref, r.RefName = timeline.GitRef(root, issue.Slug, stats.Transitions)
-	c := &checker{root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, tests: map[string]Check{}}
+	c := &checker{root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
 	if r.Ref == "" {
 		r.Missing = append(r.Missing, "work/"+issue.Slug+": no branch, recorded branch head or merge sha; test and commit links can't be checked")
 	}
@@ -246,11 +246,12 @@ func splitTrailer(value, prefix string) (ids, tests []string) {
 }
 
 type commit struct {
-	sha    string
-	at     time.Time
-	merge  bool
-	proves []string
-	files  []string
+	sha     string
+	at      time.Time
+	merge   bool
+	parents []string
+	proves  []string
+	files   []string
 }
 
 // lastChange is the time of the newest commit that changed code: merging

@@ -125,11 +125,11 @@ type WbMoveTask struct {
 // says when steps before it are still open; Approved is the stamp already
 // given.
 type WbStamp struct {
-	N                      int
-	Targets                []string
-	Approved               string
-	Note                   string
-	ApproveURL, CommentURL string
+	N                       int
+	Targets                 []string
+	Approved                string
+	Note                    string
+	ApproveURL, SendBackURL string
 }
 
 // WbQualityCard is one card of the quality check. Tone is the lamp: you,
@@ -457,8 +457,14 @@ func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issu
 		q := strings.TrimSpace(strings.TrimSpace(last.Text)[len("question:"):])
 		task := WbMoveTask{N: n, Kind: "question", Title: "Answer the agent's question", Question: q, CommentURL: issueURL + "/comments",
 			Text: "Your answer is saved as a comment on the issue; the agent reads it with issue-cli."}
+		asked := "asked"
+		if author := tracker.CommentAuthor(last); author != "" {
+			asked += " by " + author
+		}
 		if at, ok := tracker.CommentTime(last.Date); ok {
-			task.Asked = "asked " + at.Local().Format("Mon 2 Jan, 15:04")
+			task.Asked = asked + " " + at.Local().Format("Mon 2 Jan, 15:04")
+		} else if asked != "asked" {
+			task.Asked = asked
 		}
 		m.Tasks = append(m.Tasks, task)
 		names = append(names, "an answer")
@@ -486,7 +492,7 @@ func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issu
 	gt := gateTargets(targets, att)
 	if len(gt) > 0 && !strings.EqualFold(issue.Status, "done") {
 		n++
-		st := &WbStamp{N: n, Targets: gt, Approved: issue.HumanApproval, ApproveURL: issueURL + "/approve", CommentURL: issueURL + "/comments"}
+		st := &WbStamp{N: n, Targets: gt, Approved: issue.HumanApproval, ApproveURL: issueURL + "/approve", SendBackURL: issueURL + "/send-back"}
 		// The owner may stamp ahead of their own steps, as on the classic page.
 		if len(m.Tasks) == 1 {
 			st.Note = "Step 1 is still open: you can stamp ahead."

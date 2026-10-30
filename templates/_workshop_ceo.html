@@ -19,6 +19,7 @@ static/ceo-chat.js).
   wb/ceo-questions    the CEO's open questions                         data: []CEOOpenQuestion
   wb/ceo-workers      the project's live workers                       data: []CEOWorker
   wb/ceo-live         the polled parts, one <template> each            data: CEOLive
+  wb/ceo-grid         every CEO card on /leads, or the empty state    data: []LeadRow
   wb/ceo-card         one project's CEO on /leads                      data: LeadRow
 */}}
 
@@ -26,7 +27,7 @@ static/ceo-chat.js).
 <div class="wb-ground wb-ceo-band">
     <div class="wb-ceo-big{{if not .Live}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><svg width="22" height="14" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
     <div class="wb-ceo-name">
-        <h1 class="wb-h1">CEO</h1>
+        <h1 class="wb-h1">{{.Who}}</h1>
         <div class="wb-ceo-meta">
             <span class="wb-mono-inline" data-testid="lead_chat.session">{{.Display}}</span>
             {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="lead_chat.state"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle" data-testid="lead_chat.state">not running</span>{{end}}
@@ -44,8 +45,8 @@ static/ceo-chat.js).
 
 {{define "wb/ceo-conv"}}
 {{if not .Live}}<div class="wb-ceo-empty" data-testid="lead_chat.not_live">
-    <p><b>The CEO is not running.</b> Start it to talk to it here; nothing you type is sent until it runs.</p>
-    <div data-spawn-box><button type="button" class="wb-btn wb-btn--ink" data-spawn-lead="{{.SpawnURL}}" data-testid="lead_chat.spawn">Start the CEO</button><div class="wb-site-msg" role="status"></div></div>
+    <p><b>The {{.Who}} is not running.</b> Start it to talk to it here; nothing you type is sent until it runs.</p>
+    <div data-spawn-box><button type="button" class="wb-btn wb-btn--ink" data-spawn-lead="{{.SpawnURL}}" data-testid="lead_chat.spawn">Start the {{.Who}}</button><div class="wb-site-msg" role="status"></div></div>
 </div>{{else}}
 {{if eq .Source "pane"}}<div class="wb-ceo-older" data-testid="lead_chat.source">No transcript found for this session: the conversation is read from the terminal.</div>{{end}}
 {{if .Pane.Older}}<div class="wb-ceo-older" data-testid="lead_chat.older">{{if eq .Source "transcript"}}Older turns are in the terminal and tmux.{{else}}Older turns scrolled out of the capture: they are in tmux.{{end}}</div>{{end}}
@@ -89,7 +90,7 @@ static/ceo-chat.js).
 </div>
 {{end}}
 
-{{define "wb/ceo-terminal"}}<pre class="wb-terminal" data-testid="lead_chat.pane">{{if .Live}}{{.Raw}}{{else}}The CEO is not running.{{end}}</pre>{{end}}
+{{define "wb/ceo-terminal"}}<pre class="wb-terminal" data-testid="lead_chat.pane">{{if .Live}}{{.Raw}}{{else}}The {{.Who}} is not running.{{end}}</pre>{{end}}
 
 {{define "wb/choice-card"}}
 <div class="wb-choice" role="group" aria-labelledby="wb-choice-q" data-testid="lead_chat.prompt">
@@ -137,10 +138,10 @@ static/ceo-chat.js).
 
 {{define "wb/composer"}}
 <form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-image-url="{{.ImageURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
-    <label for="ceo-text" class="wb-sr">Message to the CEO</label>
+    <label for="ceo-text" class="wb-sr">Message to the {{.Who}}</label>
     <div class="wb-composer-images" data-images hidden data-testid="lead_chat.images"></div>
     <template data-image-chip><div class="wb-image-chip wb-image-chip--busy" data-testid="lead_chat.image"><img alt=""><button type="button" title="Remove this image" aria-label="Remove image" data-testid="lead_chat.image.remove">×</button></div></template>
-    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the CEO… Enter sends, Shift+Enter is a new line; paste or drop an image.{{else}}Start the CEO first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
+    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the {{.Who}}… Enter sends, Shift+Enter is a new line; paste or drop an image.{{else}}Start the {{.Who}} first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
     <div class="wb-composer-bar">
         <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden data-image-input data-testid="lead_chat.image_input">
         <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-attach title="Attach images (PNG, JPEG, GIF, WebP; 10 MB each, 5 per message). You can also paste or drop them on the box." {{if not .Live}}disabled{{end}} data-testid="lead_chat.attach_image">📎 Attach</button>
@@ -211,6 +212,12 @@ static/ceo-chat.js).
 
 {{define "wb/ceo-prompts"}}{{if .Pane.Ask}}{{template "wb/ask-card" .}}{{end}}{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}{{end}}
 
+{{define "wb/ceo-grid"}}
+<div class="wb-leads-grid" data-testid="leads.grid">
+    {{range .}}{{template "wb/ceo-card" .}}{{else}}<div class="wb-empty" data-testid="leads.empty">No project is configured in projects.yaml.</div>{{end}}
+</div>
+{{end}}
+
 {{define "wb/ceo-card"}}
 <div class="wb-ceo-card" data-testid="leads.row.{{tid .Slug}}">
     <div class="wb-ceo-big{{if not .Live}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><svg width="22" height="14" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
@@ -221,6 +228,7 @@ static/ceo-chat.js).
             {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="leads.row.{{tid .Slug}}.live"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}
             {{if .Waiting}}<span class="wb-chip wb-chip--you">{{.Waiting}} waiting on you</span>{{else}}<span class="wb-chip wb-chip--idle">nothing waiting</span>{{end}}
         </div>
+        {{with .Departments}}<ul class="wb-ceo-card-depts" data-testid="leads.dept_leads">{{range .}}<li><a href="{{.ChatURL}}" data-testid="leads.dept_lead.{{tid .Department}}">{{.Department}} lead</a> <span class="wb-mono-inline">{{.Session}}</span> {{if .Live}}<span class="wb-chip wb-chip--green"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}</li>{{end}}</ul>{{end}}
     </div>
     <a class="wb-btn wb-btn--ink" href="{{.ChatURL}}" data-testid="leads.row.{{tid .Slug}}.chat">Talk to the CEO</a>
 </div>

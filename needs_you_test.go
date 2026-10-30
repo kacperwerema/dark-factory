@@ -70,7 +70,7 @@ func TestNeedsYouCountsMatchEverywhere(t *testing.T) {
 		t.Fatal("list count is not 3")
 	}
 	checks := map[string][]string{
-		"/p/status/":                 {`href="/p/status/needs-you" class="chip chip-amber nav-count nav-split-count"`, `data-testid="nav.tab.status.count">3</a>`},
+		"/p/status/?classic=1":       {`href="/p/status/needs-you" class="chip chip-amber nav-count nav-split-count"`, `data-testid="nav.tab.status.count">3</a>`},
 		"/p/status/status?classic=1": {`data-testid="status.waiting.count">3</span>`, `href="/p/status/needs-you" data-testid="status.waiting.all"`},
 		"/p/status/status":           {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`, `data-testid="report.action.needs_you"`},
 		"/p/status/company":          {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
@@ -330,5 +330,45 @@ func TestNeedsYouYOLOAfterTheFact(t *testing.T) {
 		if r.Slug == "shop" {
 			t.Errorf("a gate YOLO passed must not be counted: %+v", r)
 		}
+	}
+}
+
+// TestNeedsYouPagesShareComponents: the page is made of the wb/ny-*
+// components (none of their markup inline), and /needs-you and a project's
+// own list render the same rows; only the page across projects names the
+// project above its group.
+func TestNeedsYouPagesShareComponents(t *testing.T) {
+	src, err := templateFS.ReadFile("templates/needs_you.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"wb/ny-bar", "wb/ny-group", "wb/ny-empty", "wb/ny-confirm"} {
+		if !strings.Contains(string(src), `{{template "`+c+`"`) {
+			t.Errorf("needs_you.html does not use %s", c)
+		}
+	}
+	for _, inline := range []string{`data-testid="needs_you.row"`, `data-testid="needs_you.section"`, `<dialog`} {
+		if strings.Contains(string(src), inline) {
+			t.Errorf("needs_you.html still carries %s inline", inline)
+		}
+	}
+
+	a := setupStatusProject(t, time.Now())
+	withMockTmuxSessions(t, nil)
+	stubAgentsGit(t)
+	prev := unsentBugReports
+	unsentBugReports = func() int { return 0 }
+	t.Cleanup(func() { unsentBugReports = prev })
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+
+	_, all := getResp(t, ts.URL+"/needs-you")
+	_, own := getResp(t, ts.URL+"/p/status/needs-you")
+	if !strings.Contains(all, `<h2 class="wb-ny-proj">`) || strings.Contains(own, `<h2 class="wb-ny-proj">`) {
+		t.Error("only /needs-you should name the project above its group")
+	}
+	rows := regexp.MustCompile(`(?s)<div class="wb-ny-row.*?data-testid="needs_you.row.msg"`)
+	if a, o := rows.FindAllString(all, -1), rows.FindAllString(own, -1); len(a) == 0 || strings.Join(a, "") != strings.Join(o, "") {
+		t.Errorf("the two pages should render the same rows: %d vs %d", len(a), len(o))
 	}
 }

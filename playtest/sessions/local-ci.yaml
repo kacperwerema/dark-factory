@@ -63,7 +63,7 @@ steps:
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
       - tmux: [new-session, -d, -s, land, -c, "{dir}", "git merge -q --ff-only work/ui/route-planner-panel"]
       - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main red since" }, ms: 30000 }
-      - open: /p/{project}/systems/UI
+      - open: /p/{project}/systems/UI?classic=1
     checks:
       - visible: marker.ci-red
       - text_contains: { target: marker.ci-red, text: "CI red" }

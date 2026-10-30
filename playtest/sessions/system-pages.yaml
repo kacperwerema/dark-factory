@@ -30,7 +30,7 @@ steps:
   - id: TP5
     title: The AI header has the summary, counts, family chip and filtered links; rows go furthest along first and end with the footer
     setup:
-      - open: /p/{project}/systems/AI
+      - open: /p/{project}/systems/AI?classic=1
     checks:
       - visible: [system.header, system.summary, system.chip.counts, system.links, system.statusbar, system.issues, system.issues.more]
       - text_contains: { target: system.chip.counts, text: "11 open · 2 done · 1 obsolete" }
@@ -39,8 +39,8 @@ steps:
       - text_contains: { target: system.issues.more, text: "All 14 in the list" }
       - absent: system.hint
       # The testing child is the furthest along, so it is the first row.
-      - http: { path: "/p/{project}/systems/AI", contains: "href=\"/p/rl/board?system=AI\"" }
-      - http: { path: "/p/{project}/systems/AI", contains: "<li class=\"sys-row\" data-testid=\"system.issue.ai/caller-fit\">" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "href=\"/p/rl/board?classic=1&amp;system=AI\"" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "<li class=\"sys-row\" data-testid=\"system.issue.ai/caller-fit\">" }
       - selected: nav.panel.system.ai
       # Header across the top; issues on the left, families and the
       # design doc stacked on the right; a status bar with width.
@@ -53,19 +53,20 @@ steps:
   - id: TP6
     title: Play calls links to its family page, and the Sim epic shows as spanning two systems
     setup:
-      - open: /p/{project}/systems/AI
+      - open: /p/{project}/systems/AI?classic=1
     act:
       - check: { text_contains: { target: system.epic.sim/siege, text: "children in 2 systems" } }
       - click: system.family.play_calls
       - wait_for: { url: { contains: /systems/AI/Play%20calls } }
     checks:
-      - visible: system.header
-      - text_contains: { target: system.header, text: Play calls }
+      # The family link opens the Workshop page (factory/system-detail-screen).
+      - visible: system.wb.page
+      - text_contains: { target: system.wb.title, text: Play calls }
 
   - id: TP7
     title: The stale doc section, the replacing decision and the balance note
     setup:
-      - open: /p/{project}/systems/AI
+      - open: /p/{project}/systems/AI?classic=1
     checks:
       - visible: [system.doc, system.doc.section.rules, system.doc.section.shouts_and_tempo, system.decisions, system.decision.d-2, system.balance]
       - text_contains: { target: system.doc.section.shouts_and_tempo, text: "cites D-1, replaced by D-2" }
@@ -73,15 +74,15 @@ steps:
       - text_contains: { target: system.doc.section.rules, text: current }
       - text_contains: { target: system.decision.d-2, text: "replaces D-1" }
       - text_contains: { target: system.balance, text: dominant-plays }
-      - http: { path: "/p/{project}/systems/AI", contains: "data-testid=\"system.doc.section.shouts_and_tempo\" data-state=\"stale\"" }
-      - http: { path: "/p/{project}/systems/AI", contains: "href=\"/p/rl/docs/ai/play-calls#shouts-and-tempo\"" }
-      - http: { path: "/p/{project}/systems/AI", contains: "href=\"/p/rl/balance?system=AI\"" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "data-testid=\"system.doc.section.shouts_and_tempo\" data-state=\"stale\"" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "href=\"/p/rl/docs/ai/play-calls#shouts-and-tempo\"" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "href=\"/p/rl/balance?system=AI\"" }
       - http: { path: "/p/{project}/docs/ai/play-calls", contains: "id=\"shouts-and-tempo\"" }
 
   - id: TP8
     title: The family page lists only the umbrella's children and the sidebar marks the family
     setup:
-      - open: /p/{project}/systems/AI/Play%20calls
+      - open: /p/{project}/systems/AI/Play%20calls?classic=1
     checks:
       - visible: [system.issue.ai/caller-fit, system.issue.ai/call-modal, system.chip.umbrella]
       - absent: [system.issue.ai/scouting, system.issue.ai/play-calls, system.families]
@@ -92,7 +93,7 @@ steps:
   - id: TP9
     title: The unconfigured Sim page shows the config hint and its epic, and no summary or design doc
     setup:
-      - open: /p/{project}/systems/Sim
+      - open: /p/{project}/systems/Sim?classic=1
     checks:
       - visible: [system.hint, system.families, system.epic.sim/siege, system.decisions]
       - absent: [system.summary, system.doc]
@@ -104,8 +105,8 @@ steps:
     setup:
       - open: /p/{project}/systems
     checks:
-      - http: { path: "/p/{project}/systems/Nope", status: 404, contains: "systems.notfound" }
-      - http: { path: "/p/{project}/systems/AI/Nope", status: 404, contains: "systems.card.ai" }
+      - http: { path: "/p/{project}/systems/Nope?classic=1", status: 404, contains: "systems.notfound" }
+      - http: { path: "/p/{project}/systems/AI/Nope?classic=1", status: 404, contains: "systems.card.ai" }
 
   - id: TP11
     title: The pages read like the mockups in all three themes

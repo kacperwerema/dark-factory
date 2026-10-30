@@ -1,0 +1,31 @@
+session: workshop-board-data-gaps
+issue: factory/workshop-board-data-gaps
+title: Workshop Board data gaps - the map's lot shows the project's goal, New project lists the real templates
+scenario: departments
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The lot's bar is HQ's first goal and the New project tile names the bundled templates
+    proves: [AC1, AC2]
+    setup:
+      - cli: [goal, set, marketing/posts, "5"]
+      - open: /
+    checks:
+      # HQ's clients has no value of its own: the mean of Pages refreshed
+      # (30/40 = 75%) and Posts (5/10 = 50%), as on the company page.
+      - text_contains: { target: map.lot.progress, text: "Goal: Paying clients" }
+      - text_contains: { target: map.lot.progress, text: "63%" }
+      - text_contains: { target: tile.new_project, text: "development" }
+      - text_contains: { target: tile.new_project, text: "writing" }
+      - text_contains: { target: tile.new_project, text: "issue-cli workflow init --template" }
+    do: Look at the Acme lot on the map and at the "+ New project" tile after it.
+    expect: >-
+      Under the Acme lot the bar reads "Goal: Paying clients" with 63% and is about two thirds full, where it
+      used to show an epic. The New project tile lists development · content · review · writing and its note
+      says to run issue-cli workflow init --template <name>. Nothing is cut off.
+    why: ux-test checks the words; only you can judge whether a goal on the lot reads better than the epic did.

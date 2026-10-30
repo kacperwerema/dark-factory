@@ -119,13 +119,13 @@ steps:
   - id: TP1
     title: expects three backlog cards
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     checks:
       - text_equals: { target: board.column.backlog.count, text: "3" }
   - id: TP2
     title: clicks something that is not there
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
       - click: board.card.ui/no-such-card
     checks:
       - visible: board.search

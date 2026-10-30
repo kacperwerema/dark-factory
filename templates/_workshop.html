@@ -40,7 +40,7 @@ their styles). Pages compose them; a new element is a new component here first.
   wb/parking    parked issues and why                      data: WbParking
   wb/agent-panel  the selected issue and its worker        data: WbAgentPanel
   wb/numbers    a titled list of figures                   data: WbNumbers
-  (YOLO mode: _workshop_yolo.html)
+  (YOLO mode: _workshop_yolo.html; the Crew page: _workshop_crew.html)
   wb/queue-card  one thing waiting on the owner             data: WbQueueCard
   wb/side        the right panel: Waiting on you + Radio   data: []WbQueueCard
 */}}
@@ -65,11 +65,11 @@ their styles). Pages compose them; a new element is a new component here first.
     <div class="wb-grow"></div>
     <div class="wb-header-stats">
         {{if .Goals}}{{range .Goals}}{{template "wb/goal" .}}{{end}}{{else if not .Quiet}}
-        <div class="wb-stat-box" data-testid="map.agents">
+        {{if .CrewURL}}<a class="wb-stat-box wb-stat-box--link" href="{{.CrewURL}}" title="The crew: every agent and how to reach it" data-testid="map.agents">{{else}}<div class="wb-stat-box" data-testid="map.agents">{{end}}
             <span class="wb-stat"><span class="wb-dot wb-dot--working"></span>{{.Working}} <span class="wb-muted">working</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--idle"></span>{{.Idle}} <span class="wb-muted">idle</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--agent"></span>{{.AgentWait}} <span class="wb-muted">waiting on an agent</span></span>
-        </div>
+        {{if .CrewURL}}</a>{{else}}</div>{{end}}
         {{if not .HideDone}}<div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}{{end}}
         {{range .Chips}}<div class="wb-stat-box wb-stat-box--chip">{{template "wb/chip" .}}</div>{{end}}
         {{with .YOLO}}{{template "wb/yolo-switch" .}}{{end}}
@@ -101,8 +101,8 @@ their styles). Pages compose them; a new element is a new component here first.
 </div>
 {{end}}
 
-{{define "wb/progress"}}{{with .}}<div class="wb-goal" data-testid="map.lot.progress">
-    <div class="wb-goal-row"><span>{{.Label}}</span><span>{{.Done}}/{{.Total}}</span></div>
+{{define "wb/progress"}}{{with .}}<div class="wb-goal" data-testid="map.lot.progress"{{with .Title}} title="{{.}}"{{end}}>
+    <div class="wb-goal-row"><span>{{.Label}}</span><span>{{if .Text}}{{.Text}}{{else}}{{.Done}}/{{.Total}}{{end}}</span></div>
     <div class="wb-goal-track"><div style="width:{{.Pct}}%"></div></div>
 </div>{{end}}{{end}}
 
@@ -191,7 +191,22 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/shelf-link"}}{{with .}}<a class="wb-shelf-link" href="{{.URL}}" data-testid="company.room.outputs">{{if .ToReview}}<span class="wb-chip wb-chip--you">📦 {{.ToReview}} to review</span>{{else}}<span aria-hidden="true">📦</span>{{end}}<span class="wb-shelf-week">{{.Week}} made this week</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}{{end}}
 
+{{define "wb/connectors"}}{{with .}}<details class="wb-connectors" id="dept-{{.Dept}}" data-testid="company.room.connectors"{{with .Since}} open data-checking="{{.}}" data-state="{{$.StateURL}}"{{end}}>
+    <summary><span aria-hidden="true">🔌</span> {{.Count}} connector{{if ne .Count 1}}s{{end}}{{if .Failing}} · <span class="wb-chip wb-chip--red" data-testid="company.room.connectors.failing">{{.Failing}} failing</span>{{end}}{{if .Since}} · <span class="wb-muted" data-testid="company.room.connectors.checking">checking…</span>{{end}}</summary>
+    <ul class="wb-connector-list">{{range .Rows}}
+        <li class="wb-connector" data-testid="company.room.connector">
+            <span class="wb-connector-name">{{.Name}}</span> <span class="wb-muted">{{.Kind}}</span>{{if .Sends}} <span class="wb-chip wb-chip--you" title="It can publish or spend: only after you approve the output">sends</span>{{end}}
+            <span class="wb-connector-check wb-connector-check--{{.Tone}}" data-testid="company.room.connector.check">{{.Check}}</span>
+            {{range .Secrets}}<div class="wb-connector-secret" data-testid="company.room.connector.secret"><span class="wb-mono-inline">{{.Var}}</span> {{.Ref}} {{if .Set}}<span class="wb-connector-set">set</span>{{else}}<span class="wb-connector-missing">missing</span>{{end}}</div>{{end}}
+            {{with .Note}}<div class="wb-muted">{{.}}</div>{{end}}
+        </li>{{end}}
+    </ul>
+    <form method="post" action="{{.CheckURL}}"><input type="hidden" name="dept" value="{{.Dept}}"><button class="wb-btn" type="submit" data-testid="company.room.connectors.check_now">Check now</button></form>
+</details>{{end}}{{end}}
+
 {{define "wb/shelf-item"}}<div class="wb-shelf-item" data-testid="shelf.item"><span class="wb-shelf-icon" aria-hidden="true">{{.Icon}}</span><i class="wb-shelf-dot" style="background:{{.Color}}" title="{{.Dept}}"></i>{{if .Link}}<a class="wb-shelf-title" href="{{.Link}}" rel="noopener noreferrer">{{.Title}}</a>{{else}}<span class="wb-shelf-title">{{.Title}}</span>{{end}}<span class="wb-shelf-state wb-shelf-state--{{.State}}">{{.State}}</span></div>{{end}}
+
+{{define "wb/room-jobs"}}{{if .}}<div class="wb-room-jobs" data-testid="company.room.jobs">{{range .}}<div class="wb-job{{with .State}} wb-job--{{.}}{{end}}" data-testid="company.room.job" title="{{.Key}}{{with .Note}} · {{.}}{{end}}{{with .Error}} · {{.}}{{end}}"><span aria-hidden="true">⏱</span><b>{{.Name}}</b>{{if .Error}}<span class="wb-chip wb-chip--red">broken</span>{{else}}<span class="wb-muted">{{.Schedule}}{{with .Next}} · next {{.}}{{end}}</span>{{if .Last}}<a class="wb-job-last" href="{{.LastURL}}">last {{.Last}}</a>{{end}}{{if eq .State "waits"}}<span class="wb-chip wb-chip--you">due · waits for you</span>{{else if eq .State "due"}}<span class="wb-chip">due · lead starts it</span>{{else if eq .State "held"}}<span class="wb-chip wb-chip--idle">due · held</span>{{end}}<span class="wb-job-auto">{{if .Auto}}auto on{{else}}auto off{{end}}</span>{{end}}</div>{{end}}</div>{{end}}{{end}}
 
 {{define "wb/hq-shelf"}}{{with .}}<div class="wb-hq-shelf" data-testid="company.hq.outputs">
     <a class="wb-shelf-link" href="{{.URL}}"><span aria-hidden="true">📦</span><b>Outputs</b>{{if .ToReview}}<span class="wb-chip wb-chip--you">{{.ToReview}} to review</span>{{end}}<span class="wb-grow"></span><span class="wb-qrow-go" aria-hidden="true">›</span></a>
@@ -202,7 +217,7 @@ their styles). Pages compose them; a new element is a new component here first.
 
 {{define "wb/room-head"}}<div class="wb-room-head" style="background:{{.Color}}"><span class="wb-room-title">{{.Title}}</span><span class="wb-grow"></span>{{range .Chips}}{{template "wb/chip" .}}{{end}}{{with .Meta}}<span class="wb-room-meta">{{.}}</span>{{end}}</div>{{end}}
 
-{{define "wb/room-foot"}}{{if .}}<div class="wb-room-foot">{{range .}}<span{{if .Tone}} class="wb-foot--{{.Tone}}"{{end}}>{{.Text}}</span>{{end}}</div>{{end}}{{end}}
+{{define "wb/room-foot"}}{{if .}}<div class="wb-room-foot">{{range .}}{{if .URL}}<a href="{{.URL}}"{{if .Tone}} class="wb-foot--{{.Tone}}"{{end}}>{{.Text}}</a>{{else}}<span{{if .Tone}} class="wb-foot--{{.Tone}}"{{end}}>{{.Text}}</span>{{end}}{{end}}</div>{{end}}{{end}}
 
 {{define "wb/ceo-desk"}}
 <div class="wb-desk">
@@ -215,6 +230,14 @@ their styles). Pages compose them; a new element is a new component here first.
         <div class="wb-bubble wb-bubble--card" data-testid="company.ceo.quote">{{if .CEO.Quote}}“{{.CEO.Quote}}”{{else if .CEO.Live}}The CEO is working and has not said anything yet.{{else}}The CEO is not running.{{end}}</div>
         {{if .CEO.Live}}<a class="wb-btn wb-btn--paper wb-btn--block" href="{{.ChatURL}}" data-testid="company.ceo.talk">Talk to the CEO</a>{{else}}<button type="button" class="wb-btn wb-btn--paper wb-btn--block" data-spawn-lead="{{.SpawnURL}}" data-testid="company.ceo.start">Start CEO</button><div class="wb-site-msg" role="status"></div>{{end}}
     </div>
+</div>
+{{end}}
+
+{{define "wb/dept-lead"}}
+<div class="wb-dept-lead" data-spawn-box data-testid="company.room.dept.lead">
+    <div class="wb-ceo-big wb-dept-lead-bot{{if .Live}} wb-bob{{else}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><span class="wb-bot-body"><i></i><i></i></span></div>
+    <span class="wb-mono" data-testid="company.room.dept.lead.session">{{.Session}}</span>
+    {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="company.room.dept.lead.state"><span class="wb-chip-dot"></span>live</span><a class="wb-btn wb-btn--paper wb-btn--sm" href="{{.ChatURL}}" data-testid="company.room.dept.lead.talk">Talk to the {{.Who}}</a>{{else}}<span class="wb-chip wb-chip--idle" data-testid="company.room.dept.lead.state">not running</span><button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-spawn-lead="{{.SpawnURL}}" data-testid="company.room.dept.lead.start">▶ Start lead</button><div class="wb-site-msg" role="status"></div>{{end}}
 </div>
 {{end}}
 
@@ -248,11 +271,14 @@ their styles). Pages compose them; a new element is a new component here first.
 <div class="wb-room wb-room--dept{{if .Stations}} wb-room--dept-line{{end}}" data-testid="company.room.dept">
     {{template "wb/room-head" .Head}}
     <div class="wb-floor wb-floor--dept">
+        {{template "wb/dept-lead" .Lead}}
         {{template "wb/robots" .Crew}}
         {{with .Role}}<div class="wb-dept-role">{{.}}</div>{{end}}
         {{template "wb/mission" .Mission}}
         {{template "wb/room-goals" .Goals}}
         {{template "wb/shelf-link" .Shelf}}
+        {{template "wb/connectors" .Connectors}}
+        {{template "wb/room-jobs" .Jobs}}
         {{with .Systems}}<div class="wb-muted wb-dept-systems">systems: {{.}}</div>{{end}}
         {{if .Stations}}<div data-testid="company.room.dept.line">{{template "wb/stations" .Stations}}<div class="wb-line-legend"><span><i class="wb-key wb-key--gate"></i>gate = your decision</span><span><i class="wb-key"></i>station from {{.WorkflowFile}}</span></div></div>{{end}}
         {{with .WorkflowError}}<div class="wb-dept-error" role="alert" data-testid="company.room.dept.workflow_error">{{.}}</div>{{end}}
@@ -293,10 +319,10 @@ their styles). Pages compose them; a new element is a new component here first.
     {{range .}}<div class="wb-msg">
         <div class="wb-msg-av wb-msg-av--{{.Tone}}">{{.Initials}}</div>
         <div class="wb-msg-main">
-            <div class="wb-msg-meta"><span class="wb-msg-from">{{.From}}</span>{{with .To}}<span>→ {{.}}</span>{{end}}</div>
+            <div class="wb-msg-meta"><span class="wb-msg-from">{{.From}}</span>{{if .URL}}<span>on <a href="{{.URL}}" data-testid="company.radio.issue">{{.To}}</a></span>{{else}}{{with .To}}<span>→ {{.}}</span>{{end}}{{end}}{{with .Kind}}<span class="wb-msg-kind wb-msg-kind--{{.}}" data-testid="company.radio.kind">{{.}}</span>{{end}}{{with .When}}<span class="wb-msg-when">{{.}}</span>{{end}}</div>
             <div class="wb-msg-text wb-msg-text--{{.Tone}}">{{.Text}}</div>
         </div>
-    </div>{{else}}<div class="wb-empty">Nothing on the radio yet: the CEO's messages show up here while it runs.</div>{{end}}
+    </div>{{else}}<div class="wb-empty">Nothing on the radio yet: the CEO's messages show up here while it runs, and progress: and question: comments on the issues from the last week.</div>{{end}}
 </div>
 {{end}}
 

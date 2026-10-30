@@ -211,6 +211,7 @@ func TestWorkflowInitOutWritesADepartmentFile(t *testing.T) {
 		t.Fatalf("written file: template %q, err %v", wf.Template, err)
 	}
 	assertContains(t, out.String(), "workflow: "+filepath.ToSlash(target))
+	assertContains(t, out.String(), "from a template: issue-cli department list")
 	if _, err := os.Stat(filepath.Join(dir, "issues")); err == nil {
 		t.Fatal("--out scaffolded issues/: a department file is not a project")
 	}

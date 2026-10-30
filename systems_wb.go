@@ -21,8 +21,9 @@ import (
 // the hall and every issue a crate in it, coloured by what it waits on. The
 // right panel is the code map: which files the systems' issues name, which of
 // them are hotspots (the health snapshot's shape family) and which belong to
-// several systems. workbench.systems has no paths, so the map is a draft read
-// from the issues. Design: issues/Factory/designs/workshop-board/L2-systems.
+// several systems. A system's files come from its paths: globs in
+// workbench.systems; a system without them falls back to the files its
+// issues name, and the map is a draft until every system has paths. Design: issues/Factory/designs/workshop-board/L2-systems.
 // The classic index stays at ?classic=1 (systems.go, systems.html).
 
 const (
@@ -77,7 +78,8 @@ type WbCodeChip struct {
 	Hot        bool
 }
 
-// WbWorkshop is one system as a workshop card.
+// WbWorkshop is one system as a workshop card. CodeNone is what the CODE
+// row says when it has no file.
 type WbWorkshop struct {
 	Name, URL    string
 	Open, Done   int
@@ -86,6 +88,7 @@ type WbWorkshop struct {
 	Crates       []WbCrateDot
 	More         int
 	Code         []WbCodeChip
+	CodeNone     string
 	Decisions    int
 	DecisionsURL string
 	LineURL      string
@@ -97,11 +100,12 @@ func (w WbWorkshop) Aria() string {
 	return fmt.Sprintf("%s: %d open, %d done", w.Name, w.Open, w.Done)
 }
 
-// WbCodeFile is one file on the code map with the systems whose issues name
-// it ("?" when none does: a hotspot nobody claims).
+// WbCodeFile is one file on the code map with the systems that own it ("?"
+// when none does: a hotspot nobody claims).
 type WbCodeFile struct {
 	Name, Path, Systems string
-	// SystemsTitle names every system when Systems only counts them.
+	// SystemsTitle names every system when Systems only counts them, and
+	// says why nobody owns a "?" file.
 	SystemsTitle string
 	Hot, Shared  bool
 }
@@ -113,9 +117,9 @@ type WbCodePackage struct {
 	More  int
 }
 
-// WbCodeMap is the right panel: packages → files → systems. Draft: read from
-// the issues, not confirmed in workbench.systems. Empty explains a map with
-// nothing on it.
+// WbCodeMap is the right panel: packages → files → systems. Draft: some
+// system has no paths: in workbench.systems, so its files are read from its
+// issues. Empty explains a map with nothing on it.
 type WbCodeMap struct {
 	Note      string
 	Draft     bool
@@ -171,11 +175,26 @@ type SystemsWbData struct {
 	SharedHot  *WbWarning
 	Unlock     *WbUnlockCard
 	ClassicURL string
+	// NotFound names the system or family a /systems/<name> link asked for
+	// that does not exist (served with 404).
+	NotFound string
 }
 
 func (s *Server) handleSystemsWb(w http.ResponseWriter, proj *tracker.Project, prefix string, issues []*tracker.Issue) {
 	data := s.buildSystemsWb(proj, prefix, issues, time.Now())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, "systems_wb.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleSystemsWbNotFound is the Systems page with a 404 and a note naming
+// the system or family that does not exist.
+func (s *Server) handleSystemsWbNotFound(w http.ResponseWriter, proj *tracker.Project, prefix string, issues []*tracker.Issue, name string) {
+	data := s.buildSystemsWb(proj, prefix, issues, time.Now())
+	data.NotFound = name
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
 	if err := s.tmpl.ExecuteTemplate(w, "systems_wb.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -189,32 +208,9 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 	groups, none := groupSystems(issues, wf.Workbench)
 
 	d := SystemsWbData{Lot: lot, Legend: wbCrateKeys(), ClassicURL: prefix + "/systems?classic=1"}
-	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
-	d.Header.Crumbs[1].Color = lot.Color
-	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
-	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
-	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
-		d.Header.Chips = append(d.Header.Chips, *c)
-	}
+	d.Header = systemsHeader(p, prefix, company)
 
-	// What each open issue needs: the owner (waiting items) or an agent.
-	var open []*tracker.Issue
-	for _, g := range groups {
-		open = append(open, openIssues(st, g.Members)...)
-	}
-	waits := map[string][]WaitingItem{}
-	for _, it := range waitingOnOwner(p, open) {
-		k := strings.ToLower(it.Issue.Slug)
-		waits[k] = append(waits[k], it)
-	}
-	workerOf := map[string]AgentNode{}
-	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
-		for _, w := range agents.Workers {
-			if w.Issue != nil {
-				workerOf[strings.ToLower(w.Issue.Slug)] = w
-			}
-		}
-	}
+	waits, workerOf := s.systemsWho(p, prefix, st, groups)
 	index := tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(p))
 	decisionsOf := map[*tracker.Issue]int{}
 	for _, e := range index.Entries {
@@ -258,11 +254,24 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 	if len(missing) > 0 {
 		u := &WbUnlockCard{
 			Title:   "Unlock: workbench.systems",
-			Text:    fmt.Sprintf("Add the systems to workflow.yaml and each workshop gets a summary, a design doc and its families. %s not there yet. A confirmed code map would also need paths per system, which workbench.systems does not have.", notThere(missing)),
+			Text:    fmt.Sprintf("Add the systems to workflow.yaml and each workshop gets a summary, a design doc and its families; paths: per system confirm the code map. %s not there yet.", notThere(missing)),
 			Button:  "Give the draft to an agent",
 			SendURL: prefix + "/lead/send",
 			Live:    lot.CEO.Live,
-			Message: fmt.Sprintf("Draft workbench.systems in workflow.yaml for %s: a one-line summary and a design doc for each, and families where an umbrella epic exists. Use the code map on the Systems page as the draft of which files belong where. Do not commit; show me the diff first.", strings.Join(missing, ", ")),
+			Message: fmt.Sprintf("Draft workbench.systems in workflow.yaml for %s: a one-line summary, a design doc and paths: (repo globs of its code) for each, and families where an umbrella epic exists. Use the code map on the Systems page as the draft of which files belong where. Do not commit; show me the diff first.", strings.Join(missing, ", ")),
+		}
+		if !u.Live {
+			u.Note = "Start the CEO on the Company page first: the draft goes to it."
+		}
+		d.Unlock = u
+	} else if len(code.unpathed) > 0 {
+		u := &WbUnlockCard{
+			Title:   "Unlock: a confirmed code map",
+			Text:    fmt.Sprintf("Give %s paths: in workbench.systems (repo globs of its code) and the code map stops being a draft.", joinAnd(code.unpathed)),
+			Button:  "Give the draft to an agent",
+			SendURL: prefix + "/lead/send",
+			Live:    lot.CEO.Live,
+			Message: fmt.Sprintf("Add paths: (repo globs of each system's code, relative to the project root) to workbench.systems in workflow.yaml for %s. Use the code map on the Systems page as the draft of which files belong where, and check with issue-cli health lint --check paths. Do not commit; show me the diff first.", strings.Join(code.unpathed, ", ")),
 		}
 		if !u.Live {
 			u.Note = "Start the CEO on the Company page first: the draft goes to it."
@@ -270,6 +279,43 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 		d.Unlock = u
 	}
 	return d
+}
+
+// systemsHeader is the hall header with the Systems tab current, for the
+// index and the Workshop page.
+func systemsHeader(p *tracker.Project, prefix string, company CompanyData) WbHeader {
+	lot := company.Lot
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
+	h.Crumbs[1].Color = lot.Color
+	h.YOLO = headerYOLO(lot.YOLO, prefix)
+	h.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
+	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
+		h.Chips = append(h.Chips, *c)
+	}
+	return h
+}
+
+// systemsWho is what each open issue of the groups needs: the owner's
+// waiting items and the worker on it, both keyed by lower-case slug.
+func (s *Server) systemsWho(p *tracker.Project, prefix string, st *statusTones, groups []*systemGroup) (map[string][]WaitingItem, map[string]AgentNode) {
+	var open []*tracker.Issue
+	for _, g := range groups {
+		open = append(open, openIssues(st, g.Members)...)
+	}
+	waits := map[string][]WaitingItem{}
+	for _, it := range waitingOnOwner(p, open) {
+		k := strings.ToLower(it.Issue.Slug)
+		waits[k] = append(waits[k], it)
+	}
+	workerOf := map[string]AgentNode{}
+	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
+		for _, w := range agents.Workers {
+			if w.Issue != nil {
+				workerOf[strings.ToLower(w.Issue.Slug)] = w
+			}
+		}
+	}
+	return waits, workerOf
 }
 
 // systemWorkshop is one system's card: counts, crates, gates, code and
@@ -281,13 +327,59 @@ func systemWorkshop(st *statusTones, prefix string, g *systemGroup, waits map[st
 		LineURL:      prefix + "/hall",
 	}
 	ws.Open, ws.Done, _ = st.counts(g.Members)
-
-	rank := map[string]int{"you": 0, "working": 1, "queue": 2, "done": 3}
-	var crates []WbCrateDot
-	kinds := map[string]int{}
-	gated := 0
 	for _, issue := range g.Members {
 		ws.Decisions += decisionsOf[issue]
+	}
+	cs := systemCrates(st, prefix, g.Members, waits, workerOf)
+	ws.Crates, ws.Gates = cs.Crates, cs.Gates
+	if len(ws.Crates) > systemsCrateMax {
+		ws.More = len(ws.Crates) - systemsCrateMax
+		ws.Crates = ws.Crates[:systemsCrateMax]
+	}
+	ws.GatesTitle = cs.gatesTitle()
+
+	ws.Code = code.chipsFor(g.Name, g.Config.Paths, g.Members)
+	ws.CodeNone = "no file named in its issues"
+	if len(g.Config.Paths) > 0 {
+		ws.CodeNone = "no file matches its paths"
+	}
+	ws.Note = code.longFuncNote(g.Name)
+	if ws.Note == "" && ws.Gates > cs.Gated && cs.Gated > 0 {
+		ws.Note = fmt.Sprintf("%s on %s", plural(ws.Gates, "gate", "gates"), plural(cs.Gated, "issue", "issues"))
+	}
+	return ws
+}
+
+// wbCrates is a system's issues as crates, the owner's first, with how many
+// gates wait on the owner (Gates), on how many issues (Gated) and of which
+// kinds.
+type wbCrates struct {
+	Crates       []WbCrateDot
+	Gates, Gated int
+	kinds        map[string]int
+}
+
+// gatesTitle is the gates pill's tooltip: "Waiting on you: 2 gates, 1 question".
+func (cs wbCrates) gatesTitle() string {
+	if cs.Gates == 0 {
+		return ""
+	}
+	var parts []string
+	for _, k := range [][3]string{{"gate", "gate", "gates"}, {"playtest", "playtest", "playtests"}, {"checks", "check run", "check runs"}, {"question", "question", "questions"}} {
+		if n := cs.kinds[k[0]]; n > 0 {
+			parts = append(parts, plural(n, k[1], k[2]))
+		}
+	}
+	return "Waiting on you: " + strings.Join(parts, ", ")
+}
+
+// systemCrates draws members (side statuses left out) as crates by what
+// each waits on: the owner, an agent, the queue, or done.
+func systemCrates(st *statusTones, prefix string, members []*tracker.Issue, waits map[string][]WaitingItem, workerOf map[string]AgentNode) wbCrates {
+	rank := map[string]int{"you": 0, "working": 1, "queue": 2, "done": 3}
+	cs := wbCrates{kinds: map[string]int{}}
+	var crates []WbCrateDot
+	for _, issue := range members {
 		k := statusKey(issue.Status)
 		if st.side[k] {
 			continue
@@ -300,10 +392,10 @@ func systemWorkshop(st *statusTones, prefix string, g *systemGroup, waits map[st
 			c.State = "done"
 		case len(waits[key]) > 0:
 			c.State = "you"
-			gated++
+			cs.Gated++
 			for _, it := range waits[key] {
-				ws.Gates++
-				kinds[it.Kind]++
+				cs.Gates++
+				cs.kinds[it.Kind]++
 			}
 		case hasWorker && workerRobot(w).State == "you":
 			c.State = "you"
@@ -317,27 +409,8 @@ func systemWorkshop(st *statusTones, prefix string, g *systemGroup, waits map[st
 		crates = append(crates, c)
 	}
 	sort.SliceStable(crates, func(i, j int) bool { return rank[crates[i].State] < rank[crates[j].State] })
-	if len(crates) > systemsCrateMax {
-		ws.More = len(crates) - systemsCrateMax
-		crates = crates[:systemsCrateMax]
-	}
-	ws.Crates = crates
-	if ws.Gates > 0 {
-		var parts []string
-		for _, k := range [][3]string{{"gate", "gate", "gates"}, {"playtest", "playtest", "playtests"}, {"checks", "check run", "check runs"}, {"question", "question", "questions"}} {
-			if n := kinds[k[0]]; n > 0 {
-				parts = append(parts, plural(n, k[1], k[2]))
-			}
-		}
-		ws.GatesTitle = "Waiting on you: " + strings.Join(parts, ", ")
-	}
-
-	ws.Code = code.chipsFor(g.Name, g.Members)
-	ws.Note = code.longFuncNote(g.Name)
-	if ws.Note == "" && ws.Gates > gated && gated > 0 {
-		ws.Note = fmt.Sprintf("%s on %s", plural(ws.Gates, "gate", "gates"), plural(gated, "issue", "issues"))
-	}
-	return ws
+	cs.Crates = crates
+	return cs
 }
 
 // filePattern finds file paths in issue text: a run of path characters
@@ -345,21 +418,28 @@ func systemWorkshop(st *statusTones, prefix string, g *systemGroup, waits map[st
 // count.
 var filePattern = regexp.MustCompile(`[A-Za-z0-9_@.\-/]+\.(?:tsx|ts|jsx|js|mjs|cjs|go|rs|py|css|scss|html|gd|tscn|cs|swift|kt|java|rb|sql|sh|vue|svelte|cpp|c|h)\b`)
 
-// codeIndex is the draft code map: the files each system's issues name,
-// joined with the health snapshot's hotspots and longest functions.
+// codeIndex is the code map: the files each system owns (its paths: globs,
+// else the files its issues name), joined with the health snapshot's
+// hotspots and longest functions.
 type codeIndex struct {
 	root   string
 	exists map[string]bool
-	// named: system → file → issues naming it; bySys: file → systems.
-	named    map[string]map[string]int
-	bySys    map[string][]string
-	hot      map[string]bool
-	hotOrder []string
-	long     []health.Row
+	// repo is the project's file list, read on the first system with paths.
+	repo     []string
+	repoRead bool
+	// owned: system → files it owns; bySys: file → systems.
+	owned map[string]map[string]bool
+	bySys map[string][]string
+	// pathed and unpathed are the systems with and without paths, in the
+	// order chipsFor saw them.
+	pathed, unpathed []string
+	hot              map[string]bool
+	hotOrder         []string
+	long             []health.Row
 }
 
 func newCodeIndex(root string, snap *health.Snapshot) *codeIndex {
-	c := &codeIndex{root: root, exists: map[string]bool{}, named: map[string]map[string]int{}, bySys: map[string][]string{}, hot: map[string]bool{}}
+	c := &codeIndex{root: root, exists: map[string]bool{}, owned: map[string]map[string]bool{}, bySys: map[string][]string{}, hot: map[string]bool{}}
 	if snap != nil {
 		rows := snap.Rows("shape.hotspot")
 		sort.SliceStable(rows, func(i, j int) bool { return rows[i].Value > rows[j].Value })
@@ -390,10 +470,11 @@ func (c *codeIndex) fileExists(p string) bool {
 	return ok
 }
 
-// chipsFor reads the files the system's issues name and returns the most
-// named as its CODE row.
-func (c *codeIndex) chipsFor(system string, members []*tracker.Issue) []WbCodeChip {
-	files := map[string]int{}
+// chipsFor finds the files the system owns, the ones its globs match (all
+// the files its issues name when it has no globs), and returns its CODE
+// row: the files its issues name most first, then hotspots.
+func (c *codeIndex) chipsFor(system string, globs []string, members []*tracker.Issue) []WbCodeChip {
+	named := map[string]int{}
 	for _, issue := range members {
 		seen := map[string]bool{}
 		for _, m := range filePattern.FindAllString(issue.BodyRaw, -1) {
@@ -402,20 +483,36 @@ func (c *codeIndex) chipsFor(system string, members []*tracker.Issue) []WbCodeCh
 				continue
 			}
 			seen[p] = true
-			files[p]++
+			named[p]++
 		}
 	}
-	c.named[system] = files
-	for p := range files {
-		c.bySys[p] = append(c.bySys[p], system)
+	owned := map[string]bool{}
+	if len(globs) > 0 {
+		c.pathed = append(c.pathed, system)
+		if !c.repoRead {
+			c.repo, c.repoRead = tracker.RepoFiles(c.root), true
+		}
+		sys := tracker.WorkbenchSystem{Paths: globs}
+		for _, p := range c.repo {
+			if sys.Owns(p) {
+				owned[p] = true
+			}
+		}
+	} else {
+		c.unpathed = append(c.unpathed, system)
+		for p := range named {
+			owned[p] = true
+		}
 	}
-	paths := make([]string, 0, len(files))
-	for p := range files {
+	c.owned[system] = owned
+	paths := make([]string, 0, len(owned))
+	for p := range owned {
+		c.bySys[p] = append(c.bySys[p], system)
 		paths = append(paths, p)
 	}
 	sort.Slice(paths, func(i, j int) bool {
-		if files[paths[i]] != files[paths[j]] {
-			return files[paths[i]] > files[paths[j]]
+		if named[paths[i]] != named[paths[j]] {
+			return named[paths[i]] > named[paths[j]]
 		}
 		if c.hot[paths[i]] != c.hot[paths[j]] {
 			return c.hot[paths[i]]
@@ -433,12 +530,12 @@ func (c *codeIndex) chipsFor(system string, members []*tracker.Issue) []WbCodeCh
 	return out
 }
 
-// longFuncNote is the longest function in a file the system's issues name:
+// longFuncNote is the longest function in a file the system owns:
 // "Plan() has 982 lines".
 func (c *codeIndex) longFuncNote(system string) string {
-	files := c.named[system]
+	files := c.owned[system]
 	for _, r := range c.long {
-		if files[r.Labels["path"]] > 0 && r.Labels["func"] != "" {
+		if files[r.Labels["path"]] && r.Labels["func"] != "" {
 			return fmt.Sprintf("%s() has %s lines", r.Labels["func"], chart.Format(chart.Count, r.Value))
 		}
 	}
@@ -464,10 +561,19 @@ func codePackage(p string) (pkg, name string) {
 	return dir, strings.TrimPrefix(p, dir+"/")
 }
 
-// codeMap groups the named and hot files by package: hot files first, then
-// those several systems share.
+// codeMap groups the owned and hot files by package: hot files first, then
+// those several systems share. It is a draft while a system has no paths.
 func (c *codeIndex) codeMap(hasSnap bool) WbCodeMap {
-	m := WbCodeMap{Draft: true, Note: "Which packages belong to which systems. Draft: read from the files each system's issues name; nothing confirms it in workbench.systems yet."}
+	m := WbCodeMap{Draft: true, Note: "Which packages belong to which systems, read from the files each system's issues name. Add paths: per system in workbench.systems to confirm it."}
+	unowned := "no system's issues name it"
+	switch {
+	case len(c.pathed) > 0 && len(c.unpathed) == 0:
+		m.Draft, m.Note = false, "Which packages belong to which systems, from paths: in workbench.systems."
+		unowned = "no system's paths: cover it"
+	case len(c.pathed) > 0:
+		m.Note = fmt.Sprintf("%s: read from the files their issues name until they have paths: in workbench.systems. The others come from their paths.", joinAnd(c.unpathed))
+		unowned = "no system's paths: or issues claim it"
+	}
 	if hasSnap {
 		m.HotSource = "hot = a hotspot in the latest health snapshot (a big file changed in many commits)"
 	} else {
@@ -484,6 +590,41 @@ func (c *codeIndex) codeMap(hasSnap bool) WbCodeMap {
 		m.Empty = "No code map yet: no issue names a file in the repo and there is no health snapshot with hotspots."
 		return m
 	}
+	m.Packages, m.More = c.packages(all, unowned)
+	return m
+}
+
+// codeMapOf is the code map of one system: the files it owns, by package.
+// It is a draft when the system has no paths:. Call it after chipsFor ran
+// for every system, so shared files know their other owners.
+func (c *codeIndex) codeMapOf(system string, hasPaths, hasSnap bool) WbCodeMap {
+	m := WbCodeMap{Note: "The files under this system's paths: in workbench.systems, by package."}
+	if !hasPaths {
+		m.Draft = true
+		m.Note = fmt.Sprintf("The files %s's issues name. Add paths: under workbench.systems.%s to confirm it.", system, system)
+	}
+	if hasSnap {
+		m.HotSource = "hot = a hotspot in the latest health snapshot; shared = another system owns it too"
+	} else {
+		m.HotSource = "No health snapshot yet, so no file is marked hot (issue-cli health takes one)."
+	}
+	owned := c.owned[system]
+	if len(owned) == 0 {
+		m.Empty = fmt.Sprintf("No files yet: no %s issue names a file in the repo.", system)
+		if hasPaths {
+			m.Empty = "No files yet: no file in the repo matches its paths:."
+		}
+		return m
+	}
+	m.Packages, m.More = c.packages(owned, "")
+	return m
+}
+
+// packages groups files by package for the code map: packages with hot
+// files first, then the biggest; files hot first, then the most shared.
+// unowned is the tooltip of a file no system owns. More counts the files
+// in the packages past codeMapPackages.
+func (c *codeIndex) packages(all map[string]bool, unowned string) (out []WbCodePackage, more int) {
 	byPkg := map[string][]WbCodeFile{}
 	for p := range all {
 		pkg, name := codePackage(p)
@@ -492,7 +633,7 @@ func (c *codeIndex) codeMap(hasSnap bool) WbCodeMap {
 		f := WbCodeFile{Name: name, Path: p, Hot: c.hot[p], Shared: len(systems) > 1, Systems: strings.Join(systems, ", ")}
 		switch {
 		case len(systems) == 0:
-			f.Systems = "?"
+			f.Systems, f.SystemsTitle = "?", unowned
 		case len(systems) > codeMapSystems:
 			f.SystemsTitle, f.Systems = f.Systems, fmt.Sprintf("%d systems", len(systems))
 		}
@@ -526,7 +667,7 @@ func (c *codeIndex) codeMap(hasSnap bool) WbCodeMap {
 		files := byPkg[k]
 		if i == codeMapPackages {
 			for _, rest := range pkgs[i:] {
-				m.More += len(byPkg[rest])
+				more += len(byPkg[rest])
 			}
 			break
 		}
@@ -545,9 +686,9 @@ func (c *codeIndex) codeMap(hasSnap bool) WbCodeMap {
 		if len(files) > codeMapFiles {
 			pk.Files, pk.More = files[:codeMapFiles], len(files)-codeMapFiles
 		}
-		m.Packages = append(m.Packages, pk)
+		out = append(out, pk)
 	}
-	return m
+	return out, more
 }
 
 // sharedHot warns about hot files that several systems name: a change there

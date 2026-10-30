@@ -132,17 +132,22 @@
       }).catch(function (err) { go.disabled = false; say(form, 'Not stamped: ' + err); });
     });
 
-    // Send back for fixes: your words as a comment on the issue.
-    var back = form.querySelector('[data-send-back]');
+    // Send back for fixes: the issue goes back a status with your words,
+    // and the worker is told.
+    var back = form.querySelector('[data-testid="station.stamp.back"]');
     back.addEventListener('click', function () {
       var text = words.value.trim();
       if (!text) { say(form, 'Write what to fix in the box first.'); words.focus(); return; }
       back.disabled = true;
-      post(form.getAttribute('data-comment'), { block: 0, text: 'Sent back for fixes: ' + text }).then(function (res) {
+      post(form.getAttribute('data-send-back'), { text: text }).then(function (res) {
         back.disabled = false;
-        if (!res.ok) { say(form, 'Not sent: ' + stepError(res.body)); return; }
+        if (!res.ok) { say(form, 'Not sent back: ' + stepError(res.body)); return; }
+        var d = res.body;
+        var what = d.back_to === d.from ? 'Not approved, stays in ' + d.back_to : 'Sent back to ' + d.back_to;
+        if (d.notified_session) what += '. Told ' + d.notified_session;
+        else if (d.notification_error) what += ', ' + d.notification_error;
         words.value = '';
-        say(form, 'Saved as a comment on the issue for the agent.');
+        say(form, what + '.');
         setTimeout(function () { location.reload(); }, 1500);
       }).catch(function (err) { back.disabled = false; say(form, 'Not sent: ' + err); });
     });

@@ -37,6 +37,10 @@
 #                declaration; "@prompt" for prompt-only conventions. Changing
 #                them on a branch needs a version bump (catalog-check)
 #   title, what, why, where, question   shown to the agent
+#   unlocks      what the hall's Updates page shows locked or empty without the
+#                feature, each a `text` and a project-relative `url` (/status);
+#                Updates draws those cards first and links each. Display only:
+#                changing it needs no version bump
 #   snippet      YAML example (must parse); adapt status names to the project
 #   detect       structural probes over the parsed workflow.yaml; the feature is
 #                present when ANY probe matches. Each probe has a `path` and at
@@ -765,6 +769,9 @@ entries:
     category: automation
     propose: true
     sources: ["internal/ci/**", "internal/tracker/ci.go", "ci_watch.go", "ci_view.go", "cmd/issue-cli/cmd_ci.go"]
+    unlocks:
+      - text: "Hall: the CI scanner on the line"
+        url: /hall
     title: "Local CI on the integration branch"
     what: |
       `ci:` runs your check commands on local main after every merge, in a persistent
@@ -977,6 +984,9 @@ entries:
     category: workbench
     propose: true
     sources: ["release_wait.go", "status.go#readChangelog", "internal/milestone/**"]
+    unlocks:
+      - text: "Status: releases from your own changelog"
+        url: /status
     title: "Releases on the Status page"
     what: |
       Without `workbench.changelog` the Status page reads CHANGELOG.md at the project
@@ -1027,6 +1037,9 @@ entries:
     category: workbench
     propose: true
     sources: ["internal/privacy/**", "internal/tracker/privacy.go", "privacy_view.go", "tracker_watch.go", "templates/_privacy.html", "cmd/issue-cli/cmd_tracker.go", "cmd/issue-cli/cmd_privacy.go", "cmd/issue-cli/cmd_release.go", ".github/workflows/release-marker.yml", ".github/workflows/privacy-guard.yml"]
+    unlocks:
+      - text: "Status: the privacy badges"
+        url: /status
     title: "Private work files and private development"
     what: |
       `privacy:` records the owner's two choices. `work_files: tracker` keeps issues/,
@@ -1037,7 +1050,8 @@ entries:
       dev repo (origin) and gives the public repo ONE commit per release: a release is cut
       as release/vX.Y (`issue-cli release cut`), soaks there with fixes picked from main
       (`release pick`), and `release publish` pushes the branch tip's tree as one `vX.Y.Z`
-      commit. A pre-push guard refuses work files in the code repo, dev commits to the
+      commit with the release's changelog section as its body (`--dry-run` shows it
+      first and writes nothing). A pre-push guard refuses work files in the code repo, dev commits to the
       public remote, and (with `code: public`) commit messages quoting a decision. Status
       shows a Work and a Code badge after the title: green private, amber something to
       fix, red work or history where it shouldn't be, grey public by choice.
@@ -1064,38 +1078,45 @@ entries:
       - who: agent
         do: "With code: snapshots, issue-cli release setup --dev <dev url>: origin becomes the dev repo with every branch and non-candidate tag, the old origin becomes the remote public. In the release workflow, skip private repos (if: !github.event.repository.private) and take notes from the CHANGELOG. Copy .github/workflows/privacy-guard.yml from the engine repo: it fails PRs that touch work files, and every PR on the public repo."
       - who: owner
-        do: "Clean the public repo's old history once, from a mirror (git filter-repo of the work paths, force push), never in the working checkout. The next release is the first snapshot (issue-cli release publish <version> --first)."
+        do: "Decide what happens to the history already public. Leaving it is fine: the next release is the first snapshot, on top of it (see it first: issue-cli release publish <version> --dry-run from the release worktree). To remove it instead, clean it once from a mirror (git filter-repo of the work paths, force push), never in the working checkout, then publish with --first."
       - who: agent
         do: "issue-cli privacy check: every line green, or each fix explained to the owner. Other machines and cloud sessions clone the dev repo and the tracker, never the public repo."
     detect:
       - path: privacy
 
   - id: system-pages
-    version: v0.54.0
+    version: v0.57.0
     category: workbench
     propose: true
-    sources: ["systems.go", "handlers_systems.go", "docsections.go", "internal/tracker/workbench.go#WorkbenchSystem", "internal/tracker/workbench.go#WorkbenchFamily"]
+    sources: ["systems.go", "handlers_systems.go", "docsections.go", "systems_wb.go", "internal/lint/paths.go", "internal/tracker/workbench.go#WorkbenchSystem", "internal/tracker/workbench.go#WorkbenchFamily"]
+    unlocks:
+      - text: "Systems: summaries and design docs"
+        url: /systems
     title: "System page details"
     what: |
       Every issue `system:` already has a page, listed under Systems in the sidebar.
       Without `workbench.systems` each page shows the system's issues. The key adds to
       the page: a one-line summary, its design doc beside the issues, and families (an
-      epic's children inside the system, each with its own page).
+      epic's children inside the system, each with its own page). `paths:` (repo globs
+      of the system's code) turn the Systems page code map from a draft read from the
+      issues into a confirmed one; `issue-cli health lint` warns on a glob that matches
+      no file.
     why: |
       A system's issues, design doc and open questions sit on one page instead of a
       filtered list and a doc in another tab.
-    where: "workbench.systems.<system>: summary, design_doc, families (the pages themselves come from `system:`)"
+    where: "workbench.systems.<system>: summary, design_doc, paths, families (the pages themselves come from `system:`)"
     snippet: |
       workbench:
         systems:
           Combat:
             summary: "Turn order, weapons and damage."
             design_doc: docs/combat.md
+            paths: [src/combat/, "**/*Weapon*.cs"]
             umbrella: combat/combat-roadmap
             families:
               Weapons:
                 umbrella: combat/weapon-overhaul
-    question: "Which systems should have a summary and a design doc on their page?"
+    question: "Which systems should have a summary and a design doc on their page, and which code belongs to each?"
     detect:
       - path: workbench.systems
 
@@ -1130,6 +1151,9 @@ entries:
     category: workbench
     propose: true
     sources: ["handlers_metrics.go", "handlers_metrics_panels.go", "internal/tracker/metrics.go", "internal/tracker/knobs.go", "internal/tracker/branches.go"]
+    unlocks:
+      - text: "Metrics: guard metrics and tuning knobs"
+        url: /metrics
     title: "Metrics and knobs"
     what: |
       Without `workbench.metrics` the Metrics view of a git checkout still lists its
@@ -1163,6 +1187,9 @@ entries:
     category: workbench
     propose: false
     sources: ["internal/tracker/balance.go", "handlers_balance.go", "cmd/issue-cli/cmd_balance.go"]
+    unlocks:
+      - text: "Balance: the balance board"
+        url: /balance
     title: "Balance board"
     what: |
       `workbench.balance.comment_prefix` turns typed balance notes (`issue-cli balance`)

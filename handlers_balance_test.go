@@ -118,7 +118,7 @@ func TestHandleBalance_OffWithoutWorkbench(t *testing.T) {
 	if !strings.Contains(page, "The balance board is off for this project") {
 		t.Fatal("off page not rendered")
 	}
-	for _, path := range []string{"/", "/board", "/decisions", "/stats"} {
+	for _, path := range []string{"/?classic=1", "/board?classic=1", "/decisions", "/stats"} {
 		if strings.Contains(pageGet(t, ts.URL+"/p/wb"+path), `href="/p/wb/balance"`) {
 			t.Errorf("%s: Balance tab shown without workbench.balance", path)
 		}
@@ -130,7 +130,7 @@ func TestNavLinksToBalance(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	for _, path := range []string{"/", "/board", "/graph", "/docs?classic=1", "/stats", "/decisions?classic=1", "/retros?classic=1"} {
+	for _, path := range []string{"/?classic=1", "/board?classic=1", "/graph", "/docs?classic=1", "/stats?classic=1", "/decisions?classic=1", "/retros?classic=1"} {
 		page := pageGet(t, ts.URL+"/p/wb"+path)
 		decisions := strings.Index(page, `href="/p/wb/decisions"`)
 		balance := strings.Index(page, `href="/p/wb/balance"`)

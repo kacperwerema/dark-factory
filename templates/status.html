@@ -19,7 +19,7 @@
                     <h1 class="page-title">Status</h1>
                     {{with .Privacy}}{{template "privacy-badges" .}}{{end}}
                 </div>
-                <p class="page-sub" title="Read from the issues, the changelog, tmux and the lead's handoff note.">{{.Project}} · {{.All.Done}} / {{.All.Total}} done{{with .EpicsByArea}}{{if .Epics}} · {{plural .Epics "epic" "epics"}} in {{plural .Areas "area" "areas"}}{{end}}{{end}} · as of {{.AsOf.Format "Mon 2 Jan, 15:04"}}</p>
+                <p class="page-sub" title="Read from the issues, the changelog, tmux and the CEO's handoff note.">{{.Project}} · {{.All.Done}} / {{.All.Total}} done{{with .EpicsByArea}}{{if .Epics}} · {{plural .Epics "epic" "epics"}} in {{plural .Areas "area" "areas"}}{{end}}{{end}} · as of {{.AsOf.Format "Mon 2 Jan, 15:04"}}</p>
             </div>
             <div class="status-actions">
                 <button type="button" class="btn" data-testid="status.copy_md" onclick="copyStatusMarkdown(this)">
@@ -129,7 +129,7 @@
                 </div>
                 {{end}}
                 {{if .NotReady}}
-                <p class="status-hint" data-testid="status.waiting.not_ready">{{plural .NotReady "more issue is" "more issues are"}} at a gate with their checklist still open. <a href="{{.Prefix}}/board">See the board</a></p>
+                <p class="status-hint" data-testid="status.waiting.not_ready">{{plural .NotReady "more issue is" "more issues are"}} at a gate with their checklist still open. <a href="{{.Prefix}}/board?classic=1">See the board</a></p>
                 {{end}}
             </section>
                 </div>
@@ -194,7 +194,7 @@
                     {{if .Next.Found}}
                     <div class="status-next markdown-body">{{.NextHTML}}</div>
                     {{else}}
-                    <p class="status-hint">{{if .Next.File}}The project lead's newest handoff note (<span class="mono">{{.Next.File}}</span>) has no <code>## Next</code> section{{else}}The project lead has no handoff note yet{{end}}, so this lists the backlog. The lead's brief asks for a <code>## Next</code> section in every handoff note.</p>
+                    <p class="status-hint">{{if .Next.File}}The CEO's newest handoff note (<span class="mono">{{.Next.File}}</span>) has no <code>## Next</code> section{{else}}The CEO has no handoff note yet{{end}}, so this lists the backlog. The CEO's brief asks for a <code>## Next</code> section in every handoff note.</p>
                     {{end}}
                     {{$rest := rest .Cap.Next .Backlog}}
                     <div class="status-list status-divided" data-testid="status.backlog">
@@ -466,7 +466,7 @@
                     <ol>
                         <li>Cut it: <code>issue-cli release cut {{.Cut}}</code>. {{if .Branch}}It tags {{.CutNext}} on <code>{{.Branch}}</code>{{else}}It creates <code>{{releaseBranch .Cut}}</code> from main and its worktree, and tags {{.CutNext}} there{{end}}; the candidate tag is never pushed. Main moves on; fixes land on main and are picked onto the branch (<code>issue-cli release pick &lt;slug&gt;</code>).</li>
                         <li>Install that build from the release worktree and restart what runs it (issue-viewer: <code>make install</code> there, then restart the viewer).</li>
-                        <li>Tell the leads of the projects that run it; they report problems with <code>issue-cli report-bug</code>, and those bugs join {{.Version}}.</li>
+                        <li>Tell the CEOs of the projects that run it; they report problems with <code>issue-cli report-bug</code>, and those bugs join {{.Version}}.</li>
                     </ol>
                 </div>
                 {{else if .Soaking}}

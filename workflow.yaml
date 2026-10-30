@@ -32,7 +32,7 @@ features:
     - status-changelog@v0.54.0
     - release-candidates@v0.54.0
     - privacy@v0.54.0
-    - system-pages@v0.54.0
+    - system-pages@v0.57.0
     - worktree@v0.36.0
     - lead-prompt@v0.54.0
     - lead-handoff-prompts@v0.36.0
@@ -85,6 +85,39 @@ workbench:
     UI:
       summary: "Templates, views and client-side behaviour of the viewer: list, board, canvases, detail page and the workbench pages."
       design_doc: docs/UI/overview.md
+      paths:
+        - templates/
+        - static/
+        - docs/UI/
+        - nav.go
+        - template_funcs.go
+        - images.go
+        - handlers_list.go
+        - handlers_board.go
+        - handlers_canvas.go
+        - handlers_detail.go
+        - handlers_workboard.go
+        - issue_tab.go
+        - evidence*.go
+        - timeline*.go
+        - stale_text.go
+        - systems.go
+        - docsections.go
+        - markers.go
+        - attention.go
+        - agent_state.go
+        - agent_timeline.go
+        - "*_view.go"
+        - status*.go
+        - stats_*.go
+        - updates.go
+        - release_wait.go
+        - release_candidate.go
+        - internal/chart/
+        - internal/playtestruns/
+        - internal/testids/
+        - cmd/playtest/
+        - playtest/
       families:
         Workbench:
           summary: "The workbench redesign: system pages, balance board, decisions index, status page and the new frame."
@@ -92,12 +125,84 @@ workbench:
     CLI:
       summary: "issue-cli commands and their output contracts."
       design_doc: docs/CLI/overview.md
+      paths:
+        - cmd/issue-cli/
+        - docs/CLI/
+        - internal/clilog/
+        - internal/clibug/
+        - internal/telemetry/
+        - internal/viewerstate/
     Workflow:
       summary: "The workflow engine: statuses, transitions, overlays and types of work."
       design_doc: docs/Workflow/overview.md
+      paths:
+        - workflow.yaml
+        - workflow.yaml.example
+        - docs/Workflow/
+        - docs/workflow.md
+        - internal/tracker/
+        - internal/workflowupgrade/
+        - internal/wfedit/
+        - internal/proof/
+        - internal/lint/
+        - internal/checks/
+        - internal/yolo/
+        - internal/timeline/
+        - internal/milestone/
+        - internal/tokens/
+        - issue.go
+        - docs.go
+        - project.go
+        - comment.go
+        - frontmatter.go
     API:
       summary: "HTTP endpoints, handlers and server logic."
       design_doc: docs/API/overview.md
+      paths:
+        - main.go
+        - routes.go
+        - origin.go
+        - background.go
+        - helpers.go
+        - handlers_*.go
+        - "*_watch.go"
+        - tmux.go
+        - github.go
+        - internal/testresults/
+        - docs/API/
+        - internal/ci/
+        - internal/health/
+        - internal/agentrun/
+        - internal/privacy/
+    Factory:
+      summary: "The dark factory: the Workshop Board pages (map, company, hall, station, report), the CEO and department leads, auto-start, YOLO, goals and the outputs shelf."
+      design_doc: docs/departments.md
+      paths:
+        - map.go
+        - company.go
+        - workshop.go
+        - report.go
+        - station.go
+        - hall*.go
+        - "*_wb.go"
+        - ceo_*.go
+        - radio.go
+        - shelf.go
+        - needs_you.go
+        - send_back.go
+        - decisions_confirm.go
+        - department_view.go
+        - yolo_view.go
+        - autostart_view.go
+        - templates/_workshop*.html
+        - static/workshop*.js
+        - static/ceo-chat.js
+        - static/station.js
+        - static/hall-edit.js
+        - internal/autostart/
+        - internal/outputs/
+        - internal/goals/
+        - docs/departments.md
 
 board:
   columns:
@@ -148,7 +253,7 @@ statuses:
     prompt: |
       Build or update the relevant automated coverage, record concrete test evidence, and surface any remaining manual checks clearly.
       Before checking test-related boxes, make sure the Test Plan section in the issue body contains the explicit automated and manual steps being verified.
-      Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in internal/testids/testids.go.
+      Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in its page's file under internal/testids/.
       Run `make playtest-check`, single `make ux-test ISSUE=<slug>` runs while fixing, and `make ux-test ISSUE=<slug> REPEAT=2` once, as the final run before handing over. The runner builds the scenario: never point a session at the real projects.yaml, issues tree, user state or tmux server.
       A manual check a session can't drive (CLI commands, API routes, tmux, a terminal-only flow) comes as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib` (sandbox_project, private_tmux, clean_shell with a stand-in claude, --touches-real for anything in the owner's real session), name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself. Its sandbox never touches the real projects.yaml, issues tree, user state or tmux server.
   - name: "human-testing"
@@ -472,7 +577,7 @@ systems:
           Turn the problem into explicit checklists, assumptions, and open questions.
           Write the design into the issue body under the relevant sections before checking the related boxes.
           For UI work that launches local tools or editors, state whether to reuse existing tmux/alacritty patterns, whether handlers may block on local processes, and what feedback the user sees after launch.
-          Name the elements the issue's playtest session will point at; each gets a data-testid listed in internal/testids/testids.go (issue-cli process playtest web).
+          Name the elements the issue's playtest session will point at; each gets a data-testid listed in its page's file under internal/testids/ (issue-cli process playtest web).
           Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
           Describe how agents will discover and use the change. Prefer hints in CLI output and error messages over prompt text, which does not reach other projects' workflows or non-dispatched sessions.
           Mockups come before the written design for any change the user sees (docs/UI/overview.md, "Mockups in design"):

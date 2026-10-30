@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/autostart"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -36,7 +37,9 @@ var navViews = []navView{
 		return isGitCheckout(projectRoot(p))
 	}},
 	{Key: "systems", Label: "Systems", Path: "/systems"},
-	{Key: "workboard", Label: "Board", Path: "/workboard"},
+	// Board opens the hall; the old boards stay at ?classic=1 under More
+	// (factory/retire-board-canvas-graph#D-1).
+	{Key: "hall", Label: "Board", Path: "/hall"},
 	{Key: "list", Label: "List", Path: "/"},
 	{Key: "balance", Label: "Balance", Path: "/balance", Show: func(s *Server, p *tracker.Project) bool {
 		return p.LoadWorkflow().Workbench.HasBalance()
@@ -51,8 +54,8 @@ var navViews = []navView{
 		return projectUpgradePlan(p) != nil
 	}},
 	{Key: "docs", Label: "Docs", Path: "/docs"},
-	// The classic board keeps drag-and-drop until the retire child removes it.
-	{Key: "board", Label: "Classic board", Path: "/board", More: true},
+	{Key: "board", Label: "Classic board", Path: "/board?classic=1", More: true},
+	{Key: "workboard", Label: "Workboard", Path: "/workboard?classic=1", More: true},
 	{Key: "graph", Label: "Graph", Path: "/graph", More: true},
 	{Key: "canvas", Label: "Canvas", Path: "/canvas", More: true},
 	{Key: "agents", Label: "Agents", Path: "/agents", More: true},
@@ -118,6 +121,9 @@ type Nav struct {
 	// YOLO is the hazard line while YOLO is on, and the after-the-fact
 	// queue until the owner reviewed it (yolo_view.go).
 	YOLO *YOLOBand
+	// AutoStart is the project's auto-start while it is on: one line under
+	// YOLO, linking the Report's card. Read from the state file only.
+	AutoStart *autostart.State
 }
 
 // sidebarNav builds the sidebar for the project behind prefix, with active
@@ -160,6 +166,9 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 		CreateInPage:   active == "list" || active == "board",
 		ProjectActions: proj.LoadWorkflow().ProjectActions,
 		YOLO:           yoloBand(proj, issues, time.Now()),
+	}
+	if st, err := autostart.Load(ciRootFor(proj), proj.Slug); err == nil && st.On {
+		nav.AutoStart = st
 	}
 	for i, p := range proj.LoadWorkflow().Workbench.Pages {
 		key := fmt.Sprintf("page/%d", i)
@@ -220,9 +229,9 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 
 	switch {
 	case active == "board":
-		nav.Systems = systemCounts(bySystem, func(name string) string { return prefix + "/board?system=" + name })
+		nav.Systems = systemCounts(bySystem, func(name string) string { return prefix + "/board?classic=1&system=" + name })
 	case active == "workboard":
-		nav.Systems = systemCounts(bySystem, func(name string) string { return prefix + "/workboard?system=" + name })
+		nav.Systems = systemCounts(bySystem, func(name string) string { return prefix + "/workboard?classic=1&system=" + name })
 		nav.Legend = true
 	case active == "systems" || strings.HasPrefix(active, "systems/"):
 		nav.Systems = systemsPanel(prefix, active, issues, proj.LoadWorkflow())

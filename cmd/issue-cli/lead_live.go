@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,8 +62,11 @@ type Identity struct {
 	// Name is the session name (lead-x, agent-y); "" when unmanaged or
 	// unknown.
 	Name string
-	// Scope is "project" for the lead.
+	// Scope is "project" for the CEO, department:<key> for a department
+	// lead.
 	Scope string
+	// Department is a department lead's department ("" otherwise).
+	Department string
 	// Slug is the worker's issue ("" when unknown).
 	Slug string
 	// Signal says how the role was detected.
@@ -75,8 +79,12 @@ type Identity struct {
 // is unmanaged — a human, or a lead started by hand. Only the project lead's
 // scope and name count as a lead.
 func whoAmI(proj *tracker.Project, issues []*tracker.Issue) Identity {
-	if strings.TrimSpace(os.Getenv("ISSUE_VIEWER_LEAD_SCOPE")) == tracker.LeadScopeProject {
+	scope := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_LEAD_SCOPE"))
+	if scope == tracker.LeadScopeProject {
 		return projectLeadIdentity(proj, "ISSUE_VIEWER_LEAD_SCOPE")
+	}
+	if key, ok := strings.CutPrefix(scope, tracker.LeadScopeDepartmentPrefix); ok {
+		return departmentLeadIdentity(proj, key, "ISSUE_VIEWER_LEAD_SCOPE")
 	}
 	if slug := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_ISSUE_SLUG")); slug != "" {
 		return Identity{Role: tracker.RoleWorker, Name: tracker.AgentSessionName(slug), Slug: slug, Signal: "ISSUE_VIEWER_ISSUE_SLUG"}
@@ -86,6 +94,8 @@ func whoAmI(proj *tracker.Project, issues []*tracker.Issue) Identity {
 		switch {
 		case name != "" && name == tracker.LeadSessionName(proj):
 			return projectLeadIdentity(proj, "tmux name "+name)
+		case name != "" && proj.DepartmentOfLead(name) != nil:
+			return departmentLeadIdentity(proj, proj.DepartmentOfLead(name).Name, "tmux name "+name)
 		case strings.HasPrefix(name, "agent-"):
 			id := Identity{Role: tracker.RoleWorker, Name: name, Signal: "tmux name " + name}
 			for _, issue := range issues {
@@ -102,8 +112,50 @@ func whoAmI(proj *tracker.Project, issues []*tracker.Issue) Identity {
 	return Identity{Role: tracker.RoleUnmanaged, Signal: "no lead or worker signal"}
 }
 
+// commentAuthor is who signs a comment this session writes on issue: the
+// session's name, else the issue's assignee when a worker writes it, else ""
+// (a shell with no lead or worker signal).
+func commentAuthor(proj *tracker.Project, issue *tracker.Issue) string {
+	me := whoAmI(proj, nil)
+	if me.Name != "" {
+		return me.Name
+	}
+	if me.Role == tracker.RoleWorker && issue != nil {
+		return strings.TrimSpace(issue.Assignee)
+	}
+	return ""
+}
+
 func projectLeadIdentity(proj *tracker.Project, signal string) Identity {
 	return Identity{Role: tracker.RoleProjectLead, Name: tracker.LeadSessionName(proj), Scope: tracker.LeadScopeProject, Signal: signal}
+}
+
+// departmentLeadIdentity is the lead of the department named or keyed key.
+// A department projects.yaml no longer has keeps the role and the key, and
+// its scope checks refuse every issue.
+func departmentLeadIdentity(proj *tracker.Project, key, signal string) Identity {
+	name := key
+	if d := proj.DepartmentByKey(key); d != nil {
+		name = d.Name
+	}
+	return Identity{Role: tracker.RoleDepartmentLead, Name: tracker.DepartmentLeadName(proj, name), Scope: tracker.LeadScopeDepartment(name), Department: name, Signal: signal}
+}
+
+// outOfScope is the refusal a department lead gets for an issue outside its
+// department ("" when the issue is its own, or me is not a department
+// lead). verb names what was refused.
+func outOfScope(proj *tracker.Project, me Identity, issue *tracker.Issue, verb string) string {
+	if me.Role != tracker.RoleDepartmentLead || issue == nil {
+		return ""
+	}
+	owner := proj.DepartmentOf(issue)
+	if owner != "" && proj.DepartmentByKey(me.Department) != nil && strings.EqualFold(owner, me.Department) {
+		return ""
+	}
+	if owner == "" {
+		owner = tracker.ProductName
+	}
+	return fmt.Sprintf("%s is %s's, not %s's: a department lead %s only its own department's issues. Ask the CEO %s", issue.Slug, owner, me.Department, verb, tracker.LeadSessionName(proj))
 }
 
 // sender is how a message from this identity is signed.

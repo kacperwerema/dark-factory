@@ -9,7 +9,8 @@ import (
 )
 
 // handleSystems serves /systems (the Workshop Board page, systems_wb.go; the
-// classic index at ?classic=1) and /systems/<System>[/<Family>].
+// classic index at ?classic=1) and /systems/<System>[/<Family>] (the Workshop
+// page, system_wb.go; the classic system page at ?classic=1).
 // rest is the route after the project prefix.
 func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) {
 	issues, err := tracker.LoadIssues(proj.IssueDir)
@@ -40,10 +41,18 @@ func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request, proj *tra
 		}
 	}
 	if g == nil || len(segs) > 2 || (len(segs) == 2 && fam == nil) {
+		if r.URL.Query().Get("classic") == "" {
+			s.handleSystemsWbNotFound(w, proj, prefix, issues, strings.Join(segs, " / "))
+			return
+		}
 		data := buildSystemsIndex(proj, issues, prefix)
 		data.Hash = s.systemsHash(proj, issues)
 		data.NotFound = strings.Join(segs, " / ")
 		s.renderSystems(w, http.StatusNotFound, &data)
+		return
+	}
+	if r.URL.Query().Get("classic") == "" {
+		s.handleSystemWb(w, proj, prefix, issues, g, famKey, fam)
 		return
 	}
 	data := s.buildSystemPage(proj, issues, prefix, g, famKey, fam)

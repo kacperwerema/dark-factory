@@ -29,7 +29,7 @@ func TestTemplateTestIDs(t *testing.T) {
 		for _, id := range testids.ScanTemplate(string(src)) {
 			used = append(used, id)
 			if !testids.Known(id) {
-				t.Errorf("%s: data-testid %q is not listed in internal/testids/testids.go", f, id)
+				t.Errorf("%s: data-testid %q is not listed in internal/testids/ (one file per page)", f, id)
 			}
 		}
 	}

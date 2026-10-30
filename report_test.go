@@ -136,6 +136,7 @@ func TestReportComponentsStandAlone(t *testing.T) {
 		"wb/health":       WbHealth{Weakest: &HealthWeakest{Name: "big files", Score: 30}},
 		"wb/unlock-item":  WbUnlockItem{Key: "epics", Title: "Epics", Action: WbAction{Label: "Copy", Copy: "x"}},
 		"wb/unlock":       WbUnlock{Total: 1, Items: []WbUnlockItem{{Key: "review", Title: "Review", On: true}}},
+		"wb/bench":        &WbBench{Rows: []WbBenchRow{{Name: "v", NoRun: true, Cmd: "issue-cli bench run v"}}},
 		"wb/check-mark":   true,
 		"wb/release":      &StatusModel{ReleaseWait: &ReleaseWait{Changelog: "CHANGELOG.md"}},
 		"wb/ci":           &StatusModel{CI: &CIRow{Line: "main green at abc1234"}},

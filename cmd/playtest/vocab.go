@@ -177,7 +177,7 @@ func (v *Validator) target(id string, line int, at errAt) {
 		if s := testids.Suggest(id); s != "" {
 			hint = fmt.Sprintf("; did you mean %q?", s)
 		}
-		at(line, "unknown target %q — ids are listed in internal/testids/testids.go%s", id, hint)
+		at(line, "unknown target %q — ids are listed in internal/testids/%s", id, hint)
 	}
 }
 

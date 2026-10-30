@@ -302,10 +302,14 @@ func (s *Server) handleLeadAnswer(w http.ResponseWriter, r *http.Request, proj *
 		Picks    []int  `json:"picks"`
 		Other    string `json:"other"`
 	}
+	name, _, ok := chatLead(proj, r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	if !decodeLeadChatBody(w, r, 16*1024, &body) {
 		return
 	}
-	name := tracker.LeadSessionName(proj)
 	target := agentrun.Target(proj, name)
 	if !agentrun.HasSession(target) {
 		leadChatError(w, http.StatusConflict, "no-session", agentDisplayName(proj, name)+" is not running")

@@ -18,6 +18,7 @@
             <p class="page-sub" data-testid="header.count">{{if ne .Filtered .Total}}{{.Filtered}} of {{.Total}} shown{{else}}{{.Total}} issues{{end}}</p>
         </header>
         <form class="filter-bar" data-testid="list.filters" method="GET" action="{{.Prefix}}/">
+            <input type="hidden" name="classic" value="1">
             <input type="search" name="search" data-testid="list.search" placeholder="Search issues..." value="{{.Filter.Search}}">
 
             <select name="status" data-testid="list.filter.status" onchange="this.form.submit()">
@@ -67,7 +68,7 @@
             </select>
 
             {{if or .Filter.Status .Filter.System .Filter.Priority .Filter.Label .Filter.Assignee .Filter.Search .Filter.Type}}
-            <a href="{{.Prefix}}/" class="clear-btn" data-testid="list.clear">Clear filters</a>
+            <a href="{{.Prefix}}/?classic=1" class="clear-btn" data-testid="list.clear">Clear filters</a>
             {{end}}
         </form>
 
@@ -79,11 +80,11 @@
                 <span class="issue-table-sort">
                     Sort:
                     {{if eq .Sort "score"}}
-                    <a href="{{.Prefix}}/" class="sort-link sort-link-active">score ↓</a>
-                    <a href="{{.Prefix}}/" class="sort-link">default</a>
+                    <a href="{{.Prefix}}/?classic=1" class="sort-link sort-link-active">score ↓</a>
+                    <a href="{{.Prefix}}/?classic=1" class="sort-link">default</a>
                     {{else}}
-                    <a href="{{.Prefix}}/" class="sort-link sort-link-active">default</a>
-                    <a href="{{.Prefix}}/?sort=score" class="sort-link">score ↓</a>
+                    <a href="{{.Prefix}}/?classic=1" class="sort-link sort-link-active">default</a>
+                    <a href="{{.Prefix}}/?classic=1&amp;sort=score" class="sort-link">score ↓</a>
                     {{end}}
                 </span>
                 {{end}}
@@ -126,7 +127,7 @@
         <div class="empty-state" data-testid="list.empty">
             <h2>No issues found</h2>
             {{if or .Filter.Status .Filter.System .Filter.Priority .Filter.Label .Filter.Assignee .Filter.Search .Filter.Type}}
-            <p>Try adjusting your filters or <a href="{{.Prefix}}/">clear all filters</a></p>
+            <p>Try adjusting your filters or <a href="{{.Prefix}}/?classic=1">clear all filters</a></p>
             {{else}}
             <p>Add markdown files to the issues directory to get started.</p>
             {{end}}

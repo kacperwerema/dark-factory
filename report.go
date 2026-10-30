@@ -54,7 +54,9 @@ type ReportData struct {
 	Where      WbWhere
 	Shipped    WbShipped
 	Health     WbHealth
-	Unlock     WbUnlock
+	// Bench is the Benchmark card; nil without a benchmark for the project.
+	Bench  *WbBench
+	Unlock WbUnlock
 	// Status is the model the classic Status page renders; wb/release and
 	// wb/ci read its ReleaseWait and CI (the release flow).
 	Status *StatusModel
@@ -297,7 +299,9 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 	d.Where = reportWhere(m, issues, prefix)
 	d.Shipped = reportShipped(m, prefix)
 	d.Health = reportHealth(m, p, prefix)
+	d.Bench = reportBench(p, m.AsOf)
 	d.Unlock = reportUnlock(m, p, issues, prefix)
+	d.Unlock = unlockBench(d.Unlock, d.Bench != nil)
 	d.Status = m
 	return d
 }
@@ -702,6 +706,31 @@ func reportHealth(m *StatusModel, p *tracker.Project, prefix string) WbHealth {
 	h.Weakest = c.WeakestPart
 	h.Lint, h.LintOK = c.Lint, c.Lint == "no lint warnings"
 	return h
+}
+
+// unlockBench adds the benchmark to To unlock: on once a benchmark has a
+// task in the project, else the command that lists candidates.
+func unlockBench(u WbUnlock, on bool) WbUnlock {
+	cmd := "issue-cli bench candidates"
+	it := WbUnlockItem{Key: "benchmark", Title: "Factory benchmark", On: on,
+		Text: "Done issues solved again in a sandbox measure how well the factory works; the owner picks the golden tasks.", Code: cmd,
+		Action: WbAction{Label: "Copy", Copy: cmd, Tone: "paper", TestID: "unlock_benchmark"}}
+	if on {
+		it.Text = "A benchmark has golden tasks from this project; its runs are on the Benchmark card."
+	}
+	u.Total++
+	if on {
+		u.Done++
+		u.Items = append(u.Items, it)
+		return u
+	}
+	// Locked items come before the enabled ones.
+	i := 0
+	for i < len(u.Items) && !u.Items[i].On {
+		i++
+	}
+	u.Items = append(u.Items[:i], append([]WbUnlockItem{it}, u.Items[i:]...)...)
+	return u
 }
 
 // reportUnlock is To unlock: each thing that gives the Report more to

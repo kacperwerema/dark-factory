@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Lib is the helper library every check script sources ($CHECKS_LIB).
@@ -31,7 +32,7 @@ const RecordDir = ".agent-logs/checks"
 // headerLines is how far down a script its `# issue: <slug>` line may sit.
 const headerLines = 15
 
-var issueHeader = regexp.MustCompile(`^#\s*issue:\s*(\S+)`)
+var issueHeader = regexp.MustCompile(`^#\s*issue:\s*(.*)`)
 
 // validName is a script name check-script --new accepts.
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -81,10 +82,22 @@ func IssueOf(path string) string {
 	sc := bufio.NewScanner(f)
 	for i := 0; i < headerLines && sc.Scan(); i++ {
 		if m := issueHeader.FindStringSubmatch(strings.TrimSpace(sc.Text())); m != nil {
-			return m[1]
+			return headerSlug(m[1])
 		}
 	}
 	return ""
+}
+
+// headerSlug is the slug at the start of a header's text. A system folder
+// may hold a space ("level design/…") but a title slug never does, so the
+// slug ends at the first space after its first slash; words after it are a
+// comment.
+func headerSlug(text string) string {
+	from := max(strings.Index(text, "/"), 0)
+	if i := strings.IndexFunc(text[from:], unicode.IsSpace); i >= 0 {
+		return text[:from+i]
+	}
+	return text
 }
 
 // OwnerRun reports whether the script has a finished owner run: a run record
@@ -171,7 +184,11 @@ func Skeleton(slug, name string, boxes []Box) string {
 	b.WriteString("#!/usr/bin/env bash\n")
 	fmt.Fprintf(&b, "# issue: %s\n", slug)
 	fmt.Fprintf(&b, "# The owner's manual checks for %s, one step at a time. Run it with:\n", slug)
-	fmt.Fprintf(&b, "#   issue-cli check-script %s\n", slug)
+	run := slug
+	if strings.ContainsAny(slug, " '") {
+		run = shellQuote(slug)
+	}
+	fmt.Fprintf(&b, "#   issue-cli check-script %s\n", run)
 	b.WriteString("# The helpers (step, run, expect, ask, summary, sandbox_project, private_tmux, …): issue-cli check-script --lib\n")
 	b.WriteString("# shellcheck source=/dev/null disable=SC2034,SC2154\n")
 	b.WriteString("source \"${CHECKS_LIB:?run me with: issue-cli check-script <slug>}\"\n\n")

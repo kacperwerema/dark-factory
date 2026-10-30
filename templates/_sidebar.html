@@ -14,6 +14,9 @@ A page with a screen panel renders "sidebar-open", its panel, then
         <a href="{{.Prefix}}/" class="sidebar-project-name">{{.ProjectName}}</a>
         <span class="sidebar-project-meta">{{if .Version}}{{.Version}} · {{end}}{{.Open}} open</span>
     </div>
+    {{with .AutoStart}}
+    <a class="sidebar-autostart" href="{{$.Prefix}}/status#autostart" data-testid="nav.autostart"><strong>Auto-start</strong> {{if .Paused}}paused{{else}}on below {{.Below}}% · cap {{.MaxWorkers}}{{end}}</a>
+    {{end}}
     {{with .YOLO}}{{if .Show}}
     <section class="sidebar-yolo{{if .On}} on{{end}}" data-testid="nav.yolo" data-prefix="{{$.Prefix}}" aria-label="YOLO mode">
         {{if .On}}
@@ -43,7 +46,7 @@ A page with a screen panel renders "sidebar-open", its panel, then
     {{if .CreateInPage}}
     <button type="button" class="btn btn-primary sidebar-create" data-testid="nav.create" onclick="openCreateModal('')">
     {{else}}
-    <a href="{{.Prefix}}/?new=1" class="btn btn-primary sidebar-create" data-testid="nav.create">
+    <a href="{{.Prefix}}/?classic=1&amp;new=1" class="btn btn-primary sidebar-create" data-testid="nav.create">
     {{end}}
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2v12M2 8h12"/></svg>New issue
     {{if .CreateInPage}}</button>{{else}}</a>{{end}}
@@ -101,7 +104,7 @@ A page with a screen panel renders "sidebar-open", its panel, then
     <div class="sidebar-foot">
         <div class="sidebar-group" data-testid="nav.actions">
             <span class="label">Actions</span>
-            <button type="button" class="btn" data-testid="actions.spawn_lead" title="Start (or re-attach) the project lead agent, lead-&lt;project&gt;" onclick="spawnProjectLead('{{.Prefix}}')">Spawn lead</button>
+            <button type="button" class="btn" data-testid="actions.spawn_lead" title="Start (or re-attach) the CEO, tmux session lead-&lt;project&gt;" onclick="spawnProjectLead('{{.Prefix}}')">Start the CEO</button>
             {{range .ProjectActions}}
             <button type="button" class="btn" onclick="dispatchProjectAction('{{$.Prefix}}', '{{.ID}}', '{{.Label}}')">{{.Label}}</button>
             {{end}}

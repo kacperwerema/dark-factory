@@ -1,0 +1,27 @@
+session: department-leads
+issue: factory/department-agents-lead-and-briefing-per-department
+title: Department leads - the Marketing lead at its desk in the room
+scenario: departments
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP7
+    title: The Marketing room shows its lead, not running, with ▶ Start lead
+    proves: [AC7]
+    setup:
+      - open: /p/acme/company
+    checks:
+      - visible: company.room.dept.lead
+      - text_contains: { target: company.room.dept.lead.session, text: "lead-acme-marketing" }
+      - text_contains: { target: company.room.dept.lead.state, text: "not running" }
+      - text_contains: { target: company.room.dept.lead.start, text: "Start lead" }
+      - absent: company.room.dept.lead.talk
+    do: Look at the Marketing room on the company page.
+    expect: >-
+      In the Marketing room, above the role, a small robot in Marketing's pink sits at its desk with
+      lead-acme-marketing, a "not running" chip and a ▶ Start lead button, on one line, nothing cut off.
+    why: The owner sees and starts a department's lead where the department lives.

@@ -86,6 +86,23 @@ func TestCheckBranchPassesABumpOrATrailer(t *testing.T) {
 	}
 }
 
+// unlocks: is display text on the Updates page: a branch that changes only
+// it (in the catalog, no source file) asks no bump.
+func TestCheckBranchIgnoresUnlocks(t *testing.T) {
+	withUnlocks := strings.Replace(checkCatalog, "    sources: [\"internal/health/**\"", "    unlocks:\n      - text: \"Health: the score\"\n        url: /health\n    sources: [\"internal/health/**\"", 1)
+	if withUnlocks == checkCatalog {
+		t.Fatal("test catalog didn't change")
+	}
+	b := fakeBranch([]string{CatalogPath}, map[string]string{CatalogPath: checkCatalog}, map[string]string{CatalogPath: withUnlocks})
+	rep, err := CheckBranch(b, "v0.53.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entryStates(rep); got != "" || !rep.OK() {
+		t.Errorf("an unlocks-only change: states = %q, ok = %v", got, rep.OK())
+	}
+}
+
 // A #symbol source only counts when that symbol's code changed.
 func TestCheckBranchComparesSymbols(t *testing.T) {
 	path := "internal/tracker/workflow_validate.go"

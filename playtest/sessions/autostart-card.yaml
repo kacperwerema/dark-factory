@@ -1,0 +1,40 @@
+session: autostart-card
+issue: factory/auto-start-leads-keep-workers-busy-while-memory-is-low
+title: Report - the Auto-start card, its words, Pause and Turn off
+scenario: basic
+
+# Auto-start is turned on with issue-cli in the scenario's own state. The
+# verdict line depends on this machine's mem-guard, so only the paused
+# verdict is checked by text. cli: calls pass --project: issue-cli run in
+# the scenario folder otherwise names the project after the folder.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The Report shows the Auto-start card with the owner's words
+    proves: [AC8]
+    setup:
+      - cli: [--project, "{project}", autostart, on, --quote, "start a new job when memory is under 50%"]
+      - open: /p/{project}/status
+    checks:
+      - visible: [report.page, status.autostart, status.autostart.state, status.autostart.words, status.autostart.verdict, status.autostart.pause, status.autostart.off]
+      - text_equals: { target: status.autostart.state, text: "on below 50%" }
+      - text_contains: { target: status.autostart.words, text: "start a new job when memory is under 50%" }
+
+  - id: TP5
+    title: Pause on the card holds auto-start
+    proves: [AC8]
+    setup:
+      - cli: [--project, "{project}", autostart, on, --quote, "start a new job when memory is under 50%"]
+      - open: /p/{project}/status
+    act:
+      - click: status.autostart.pause
+      - wait_for: status.autostart.resume
+    checks:
+      - text_equals: { target: status.autostart.state, text: paused }
+      - text_contains: { target: status.autostart.verdict, text: "hold: auto-start is paused" }
+      - cli: { args: [--project, "{project}", autostart, status], contains: "Auto-start: paused" }

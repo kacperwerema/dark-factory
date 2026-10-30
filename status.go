@@ -182,6 +182,10 @@ type StatusModel struct {
 	UnsentBugReports int
 	// Shelf is the departments with outputs waiting for the owner's review.
 	Shelf []WbShelfWait
+	// AutoStart is the Auto-start card; nil when it is off.
+	AutoStart *AutoStartView
+	// Jobs is the recurring jobs' one line (jobsStatusLine); "" without jobs.
+	Jobs string
 }
 
 // unsentBugReports counts this user's queued report-bug files. A var so
@@ -603,6 +607,16 @@ func statusMarkdown(m *StatusModel) string {
 	for _, pb := range m.Privacy.badges() {
 		fmt.Fprintf(&b, "%s: %s\n", pb.Label, pb.Sentence)
 	}
+	if a := m.AutoStart; a != nil {
+		state := "on"
+		if a.Paused {
+			state = "paused"
+		}
+		fmt.Fprintf(&b, "Auto-start: %s below %d%% memory, cap %d (owner: %q) · now: %s\n", state, a.Below, a.Cap, a.Words, a.Verdict)
+	}
+	if m.Jobs != "" {
+		b.WriteString(m.Jobs + "\n")
+	}
 
 	fmt.Fprintf(&b, "\n## Waiting on you (%d)\n", m.WaitingCount())
 	if m.CI.Red() {
@@ -636,7 +650,7 @@ func statusMarkdown(m *StatusModel) string {
 
 	b.WriteString("\n## Working on\n")
 	if m.LeadName != "" {
-		fmt.Fprintf(&b, "Lead: %s (%s)\n", m.LeadName, strings.ReplaceAll(m.LeadState, "-", " "))
+		fmt.Fprintf(&b, "CEO: %s (%s)\n", m.LeadName, strings.ReplaceAll(m.LeadState, "-", " "))
 	}
 	for i, r := range m.Active {
 		if i == capMDList {
@@ -703,7 +717,7 @@ func statusMarkdown(m *StatusModel) string {
 	if m.Next.Found {
 		fmt.Fprintf(&b, "From %s:\n%s\n", m.Next.File, m.Next.Text)
 	} else {
-		b.WriteString("No ## Next section in the lead's handoff note.\n")
+		b.WriteString("No ## Next section in the CEO's handoff note.\n")
 	}
 	if len(m.Backlog) > 0 {
 		fmt.Fprintf(&b, "Backlog (%d):\n", len(m.Backlog))

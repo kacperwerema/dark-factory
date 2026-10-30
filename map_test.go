@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -106,6 +107,33 @@ func TestMapRobotsWaitOnAnotherAgent(t *testing.T) {
 	}
 }
 
+func TestMapRobotsWaitOnDependsOn(t *testing.T) {
+	// depends_on waits on an agent just as blocked_on does: a live target
+	// counts once even when both fields name it; a target with no worker
+	// leaves the robot working.
+	dep := &tracker.Issue{Slug: "ui/b", ExtraFields: []tracker.ExtraField{{Key: "depends_on", IsList: true, Values: []string{"ui/z", "UI/A"}}}}
+	both := &tracker.Issue{Slug: "ui/c", ExtraFields: []tracker.ExtraField{{Key: "blocked_on", Value: "ui/a"}, {Key: "depends_on", Value: "ui/a"}}}
+	free := &tracker.Issue{Slug: "ui/d", ExtraFields: []tracker.ExtraField{{Key: "depends_on", Value: "ui/z"}}}
+	issues := []*tracker.Issue{{Slug: "ui/a"}, dep, both, free}
+	agents := &AgentsModel{Workers: []AgentNode{
+		{Name: "agent-ui-a", State: "working", Issue: &AgentIssue{Slug: "ui/a"}},
+		{Name: "agent-ui-b", State: "working", Issue: &AgentIssue{Slug: "ui/b"}},
+		{Name: "agent-ui-c", State: "working", Issue: &AgentIssue{Slug: "ui/c"}},
+		{Name: "agent-ui-d", State: "working", Issue: &AgentIssue{Slug: "ui/d"}},
+	}}
+	got := mapRobotsOf(agents, issues)
+	want := []string{"working", "agent", "agent", "working"}
+	labels := []string{"ui/a", "ui/b → ui/a", "ui/c → ui/a", "ui/d"}
+	if len(got) != len(want) {
+		t.Fatalf("robots = %+v", got)
+	}
+	for i, r := range got {
+		if r.State != want[i] || r.Label != labels[i] {
+			t.Errorf("robot %d = %s %q, want %s %q", i, r.State, r.Label, want[i], labels[i])
+		}
+	}
+}
+
 func TestMapBuildingsAndProgress(t *testing.T) {
 	// The lot shows the project's departments: a small HQ and Product,
 	// taller with more open work.
@@ -134,9 +162,46 @@ func TestMapBuildingsAndProgress(t *testing.T) {
 		{Slug: "e1", Status: "done", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 		{Slug: "e2", Status: "backlog", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 	}
-	p := mapProgressOf(issues)
-	if p == nil || p.Label != "Epic: Hall" || p.Done != 1 || p.Total != 2 || p.Pct() != 50 {
+	p := mapProgressOf(&goals.Report{}, issues, "#13A386")
+	if p == nil || p.Label != "Epic: Hall" || p.Done != 1 || p.Total != 2 || p.Pct() != 50 || p.Text != "" {
 		t.Errorf("progress = %+v", p)
+	}
+}
+
+func TestMapProgressPrefersGoalsOverTheEpic(t *testing.T) {
+	epic := &tracker.Issue{Slug: "e", Title: "Hall", Status: "in progress"}
+	issues := []*tracker.Issue{epic, {Slug: "e1", Status: "done", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}}}
+	num := func(f float64) *float64 { return &f }
+	pct := func(n int) *int { return &n }
+	users := &goals.Goal{ID: "users", Name: "Active users", Value: num(30), Target: num(40), Progress: pct(75)}
+	leads := &goals.Goal{ID: "leads", Name: "Leads", Target: num(10), Source: "manual", Key: "dept:Marketing/leads"}
+
+	hq := &goals.Report{HQ: &goals.Owner{Key: goals.HQKey, Name: "HQ", Goals: []*goals.Goal{users}},
+		Departments: []*goals.Owner{{Key: "dept:Marketing", Name: "Marketing", Goals: []*goals.Goal{leads}}}}
+	if p := mapProgressOf(hq, issues, "#13A386"); p == nil || p.Label != "Goal: Active users" || p.Text != "30 / 40" || p.Pct() != 75 {
+		t.Errorf("HQ goal first: %+v", p)
+	}
+
+	dept := &goals.Report{HQ: &goals.Owner{Key: goals.HQKey, Name: "HQ", Goals: []*goals.Goal{}},
+		Departments: []*goals.Owner{{Key: "dept:Marketing", Name: "Marketing", Goals: []*goals.Goal{leads}}}}
+	p := mapProgressOf(dept, issues, "#13A386")
+	if p == nil || p.Label != "Goal: Marketing · Leads" || p.Text != "no value yet" || p.Pct() != 0 {
+		t.Fatalf("department goal without a value: %+v", p)
+	}
+	if !strings.Contains(p.Title, "issue-cli goal set dept:Marketing/leads") {
+		t.Errorf("title should give the set command: %q", p.Title)
+	}
+}
+
+func TestMapNewProjectTileListsTheBundledTemplates(t *testing.T) {
+	tile := mapNewProjectTile()
+	for _, name := range []string{"development", "content", "review", "writing"} {
+		if !strings.Contains(tile.Sub, name) {
+			t.Errorf("Sub %q lacks template %s", tile.Sub, name)
+		}
+	}
+	if strings.Contains(tile.Sub, "game") || !strings.Contains(tile.Note, "issue-cli workflow init --template") {
+		t.Errorf("tile = %+v", tile)
 	}
 }
 

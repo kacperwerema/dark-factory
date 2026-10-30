@@ -30,11 +30,12 @@ State lives in the main checkout under `.yolo/` (ignored by git, like `.ci/`): `
 
 ## What passes, and what still waits
 
-While YOLO is on, `issue-cli transition` passes a gate when all of these hold:
+While YOLO is on, `issue-cli transition` (and `issue-cli start` on a backlog or other handoff issue) passes a gate when all of these hold:
 
 - the step is forward along the issue's path (not backwards);
 - the target status is not optional (diverting to `parked` still needs the owner);
 - the approval is not Human Testing's own (`approve --to human-testing` keeps refusing);
+- the issue is not labelled `experiment`: an experiment's change is adopted by the owner, so every gate of it waits (the refusal and `transition --dry-run` say so; see [Experiments](../workflow-stats.md#experiments));
 - nothing else is missing: every checkbox, proof, field and shell gate still applies.
 
 The pass writes the marker on the issue, the same shape as any approval comment:
@@ -52,16 +53,17 @@ These still wait for the owner: `release publish` (unless unlocked), merging and
 ## Safety valves
 
 - **CI red for more than 30 minutes** turns YOLO off. The viewer's watcher checks every 30 s, and `issue-cli transition` checks too, so the valve works without the viewer running. The clock starts at the first red run (`red_at` in `.ci/state.json`). Without local CI the valve can't work, and `yolo on` says so.
-- **No external releases**: `release publish` refuses while YOLO is on unless it was turned on with `--allow-releases`.
+- **No external releases**: `release publish` refuses while YOLO is on unless it was turned on with `--allow-releases`. `release publish <version> --dry-run` still runs: it writes nothing and lists the YOLO window as what the real run waits on.
 - **The end**: an expired window reads as off everywhere, even before anything writes it down.
 
 ## How agents find out
 
 - `start`, `show` and `context` print `YOLO: on until 08:00 (…)` next to the Lead line.
 - `transition` prints `YOLO: gate in design → backlog passed without the owner, marked for review after the fact`. Its next step says to run the gated transition instead of stopping.
+- `start` on a backlog issue passes the gate the same way, judging it as already claimed (in design → backlog clears the assignee), and prints the same line under its AUTO-ADVANCED banner.
 - `transition --dry-run` drops the approval requirement YOLO would pass and says why.
 - When YOLO has just ended, a refused gate says when and why (`YOLO turned off at 07:12 (valve: CI red 34 min)`).
-- Decisions made with `decide` and no `--quote` while YOLO is on are recorded with how `YOLO`. The Decisions log shows them as "without your words" (Confirm / Question it).
+- Decisions made with `decide` and no `--quote` while YOLO is on are recorded with how `YOLO`. The Decisions log shows them as "without your words": Confirm records your words on the same D-n (no CEO needed), Question it goes to the CEO. Decisions marked `(provisional…)` in their text get the same box ("Provisional — not confirmed by you yet."), even with a relayed quote.
 
 ## Review after the fact
 
@@ -69,7 +71,7 @@ Every pass waits in the "after the fact" queue until the owner reviews it:
 
 - `issue-cli yolo queue` lists them (slug, from → to, by whom, when);
 - **Agree** (sidebar, the issue page, or `issue-cli yolo review <slug> --agree --quote "…"`) writes `yolo-review: agreed "<words>" (<how>, <date>) → <status>`;
-- **Back to <status>** (viewer only) moves the issue back to the status it left at the gate, with the owner's words, and writes `yolo-review: back to <status> "<words>" …`. The lead and the worker see it on the trail.
+- **Back to <status>** (viewer only) moves the issue back to the status it left at the gate, with the owner's words, and writes `yolo-review: back to <status> "<words>" …`. The move is the same one Send back for fixes uses (`tracker.MoveBack`), so it works on workflows that declare no backward edge. The lead and the worker see it on the trail.
 
 The queue is derived from comments: a YOLO approval with no later `yolo-review:` for the same status.
 

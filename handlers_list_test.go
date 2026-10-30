@@ -15,7 +15,7 @@ func TestHandleList_ReturnsIssueList(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/")
+	resp, err := http.Get(ts.URL + "/p/test-project/?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestHandleList_IncludesCreateModal(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/")
+	resp, err := http.Get(ts.URL + "/p/test-project/?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestHandleList_IncludesRetrosTab(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/")
+	resp, err := http.Get(ts.URL + "/p/test-project/?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestHandleList_ShowsActiveBotSummaryAndIssueChip(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/")
+	resp, err := http.Get(ts.URL + "/p/test-project/?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

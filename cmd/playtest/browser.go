@@ -176,14 +176,48 @@ func (p *Page) Do(ctx context.Context, steps ...chromedp.Action[chromedp.Void]) 
 	return chromedp.Do(ctx, steps...)
 }
 
-// Screenshot captures the page as PNG.
+// shotTimeout bounds one screenshot attempt; shotTries is how many are
+// made. A stalled capture (seen with headless Chrome for Testing) would
+// otherwise wait out the whole step.
+var (
+	shotTimeout = 15 * time.Second
+	shotTries   = 2
+)
+
+// Screenshot captures the page as PNG. Each attempt has its own short
+// timeout, and a stalled one is tried once more.
 func (p *Page) Screenshot(ctx context.Context, full bool) ([]byte, error) {
 	ctx, cancel := mergeCtx(p.ctx, ctx)
 	defer cancel()
-	if full {
-		return chromedp.Run(ctx, chromedp.FullScreenshot(100))
+	return captureBounded(ctx, func(ctx context.Context) ([]byte, error) {
+		if full {
+			return chromedp.Run(ctx, chromedp.FullScreenshot(100))
+		}
+		return chromedp.Run(ctx, chromedp.CaptureScreenshot())
+	})
+}
+
+// captureBounded runs capture up to shotTries times, each under
+// shotTimeout, and stops early when ctx ends.
+func captureBounded(ctx context.Context, capture func(context.Context) ([]byte, error)) ([]byte, error) {
+	var last error
+	for try := 1; try <= shotTries; try++ {
+		actx, cancel := context.WithTimeout(ctx, shotTimeout)
+		png, err := capture(actx)
+		timedOut := actx.Err() == context.DeadlineExceeded
+		cancel()
+		if err == nil {
+			return png, nil
+		}
+		if timedOut {
+			err = fmt.Errorf("timed out after %s", shotTimeout)
+		}
+		last = err
+		if ctx.Err() != nil {
+			break
+		}
 	}
-	return chromedp.Run(ctx, chromedp.CaptureScreenshot())
+	return nil, fmt.Errorf("screenshot failed after %d tries: %v", shotTries, last)
 }
 
 // Call runs window.__pt.<fn>(args…) and decodes the result into out. It

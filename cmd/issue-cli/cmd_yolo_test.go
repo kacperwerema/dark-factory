@@ -142,13 +142,13 @@ func TestYOLONeverPasses(t *testing.T) {
 	}
 
 	wf := proj.LoadWorkflowForIssue(issue)
-	if yoloEligible(wf, "backlog", "in design", "in design") {
+	if yoloEligible(wf, nil, "backlog", "in design", "in design") {
 		t.Fatal("backwards step eligible")
 	}
-	if yoloEligible(wf, "in progress", "human-testing", "human-testing") {
+	if yoloEligible(wf, nil, "in progress", "human-testing", "human-testing") {
 		t.Fatal("Human Testing approval eligible")
 	}
-	if !yoloEligible(wf, "human-testing", "documentation", "documentation") {
+	if !yoloEligible(wf, nil, "human-testing", "documentation", "documentation") {
 		t.Fatal("human-testing → documentation should pass in YOLO")
 	}
 }

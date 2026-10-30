@@ -238,7 +238,7 @@ func TestDispatch_LeavesTheQuote(t *testing.T) {
 	if err := runDispatch(ctx, []string{"loner", "--quote", "dispatch agents for loner"}); err != nil {
 		t.Fatal(err)
 	}
-	want := `dispatch: "dispatch agents for loner" (lead chat, 2026-10-24) — recorded by lead-proj`
+	want := `dispatch: "dispatch agents for loner" (CEO chat, 2026-10-24) — recorded by lead-proj`
 	path := loadLeadIssue(t, proj, "loner").FilePath
 	if cs := comments(t, path); len(cs) != 1 || cs[0].Text != want {
 		t.Fatalf("comments = %+v\nwant %q", cs, want)

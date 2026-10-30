@@ -17,7 +17,7 @@ steps:
     title: Approve gate with words writes the comment and quotes them to the agent
     setup:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
       - click: agents.node.agent-ui-child
       - wait_for: agents.panel.approve
     act:
@@ -35,7 +35,7 @@ steps:
     title: Text typed in the panel's box survives the canvas poll
     setup:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
       - click: agents.node.agent-ui-child
       - wait_for: approve_words.agents_panel
     act:
@@ -50,7 +50,7 @@ steps:
     title: The agents panel's words box reads clearly beside Approve gate
     setup:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
       - click: agents.node.agent-ui-child
       - wait_for: agents.panel.approve
     targets:

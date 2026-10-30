@@ -39,6 +39,8 @@ const (
 	TriggerBackfill = "backfill"
 	// TriggerReview: issue-cli health review record stored an opinion.
 	TriggerReview = "review"
+	// TriggerBench: issue-cli bench run finished a run (internal/bench).
+	TriggerBench = "bench"
 )
 
 // ErrNoPast is a family's answer when env.Backfill asks it about a past day

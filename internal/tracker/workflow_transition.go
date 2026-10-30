@@ -472,6 +472,18 @@ func IsHandoffStatus(status string) bool {
 	return false
 }
 
+// StartTarget is the status start advances to from status: the next work
+// status after a handoff status, "" from any other status (start only claims).
+func (w *WorkflowConfig) StartTarget(status string) string {
+	if !IsHandoffStatus(status) {
+		return ""
+	}
+	if to := w.NextRequiredStatus(status); to != "" {
+		return to
+	}
+	return w.NextStatus(status)
+}
+
 // StartIssueOnce picks up an issue: claims the assignee (if unset) and, when
 // the current status is a handoff state, advances to the next work status.
 // Preserves the backlog → in progress approval contract while allowing start
@@ -497,15 +509,9 @@ func (w *WorkflowConfig) StartIssueOnce(filePath, slug, assignee string) (*Start
 			return fmt.Errorf("issue %s is already done; nothing to start", slug)
 		}
 
-		toStatus := ""
-		if IsHandoffStatus(fromStatus) {
-			toStatus = w.NextRequiredStatus(fromStatus)
-			if toStatus == "" {
-				toStatus = w.NextStatus(fromStatus)
-			}
-			if toStatus == "" {
-				return fmt.Errorf("issue %s cannot be started from status %q: no forward status available", slug, fromStatus)
-			}
+		toStatus := w.StartTarget(fromStatus)
+		if IsHandoffStatus(fromStatus) && toStatus == "" {
+			return fmt.Errorf("issue %s cannot be started from status %q: no forward status available", slug, fromStatus)
 		}
 
 		rawBody, err := ParseFrontmatter(string(data), &Issue{})

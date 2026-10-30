@@ -154,6 +154,29 @@ func TestLeadChatPage(t *testing.T) {
 	}
 }
 
+// The CEO is what was called the lead: /ceo and /ceos redirect to the pages
+// at /lead and /leads, keeping the query.
+func TestCEORedirects(t *testing.T) {
+	proj := setupAgentsProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for from, to := range map[string]string{
+		"/p/agents/ceo":          "/p/agents/lead",
+		"/p/agents/ceo?view=raw": "/p/agents/lead?view=raw",
+		"/ceos":                  "/leads",
+	} {
+		resp, err := client.Get(ts.URL + from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != to {
+			t.Errorf("GET %s = %d → %q, want 302 → %q", from, resp.StatusCode, resp.Header.Get("Location"), to)
+		}
+	}
+}
+
 func TestLeadChatPageNotLive(t *testing.T) {
 	proj := setupAgentsProject(t)
 	stubLeadChat(t, false)
@@ -528,8 +551,8 @@ func TestLeadsOverview(t *testing.T) {
 		`href="/p/agents/lead" data-testid="leads.row.agents.chat"`,
 		`data-testid="leads.row.test-project"`,
 		`href="/p/test-project/lead"`,
-		// The Workshop Board look: Map › Every CEO, one card per project.
-		`aria-current="page">Every CEO</span>`,
+		// The Workshop Board look: Map › All CEOs, one card per project.
+		`aria-current="page">All CEOs</span>`,
 		`class="wb-ceo-card"`,
 		"Talk to the CEO",
 	} {
@@ -565,5 +588,25 @@ func TestLeadQuestionsAndCleanPane(t *testing.T) {
 	want := "Commit: commit workflow.yaml?|Branch: align main with chat-agents?|Should I limit it like that and start the worker?"
 	if strings.Join(got, "|") != want {
 		t.Errorf("wrapped questions = %q", got)
+	}
+}
+
+// TestLeadsGridAndEmpty: /leads renders its cards through wb/ceo-grid, and
+// with no project configured it says so.
+func TestLeadsGridAndEmpty(t *testing.T) {
+	ts := newTestServer(t, nil)
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/leads")
+	for _, want := range []string{`<title>All CEOs`, `<h1 class="wb-h1">All CEOs</h1>`, `data-testid="leads.grid"`, `data-testid="leads.empty">No project is configured in projects.yaml.<`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("/leads lacks %q", want)
+		}
+	}
+	src, err := templateFS.ReadFile("templates/leads.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `{{template "wb/ceo-grid" .Rows}}`) {
+		t.Error("leads.html should render wb/ceo-grid")
 	}
 }

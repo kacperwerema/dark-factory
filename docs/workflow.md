@@ -436,7 +436,7 @@ Setting it up (the `privacy` entry's setup steps):
 A public dev repo publishes how the work was done, not just the result: commit messages with owner quotes, D-n text and `Proves:` trailers, branch names (issue slugs), PRs and their refs, which GitHub never lets anyone rewrite. With `code: snapshots`:
 
 - a **private dev repo** (e.g. `<name>-dev`) is `origin` and holds everything: main, branches, tags, PRs;
-- the **public repo** is the remote `public` (its tags are never fetched, so they can't clash with the dev tags) and gets **one commit per release**: the release branch tip's tree, message `vX.Y.Z`, built with `git commit-tree`, so no dev commit, message, branch name or quote travels with it. Between releases it does not change; released code stays readable and `go install`-able;
+- the **public repo** is the remote `public` (its tags are never fetched, so they can't clash with the dev tags) and gets **one commit per release**: the release branch tip's tree, subject `vX.Y.Z` and the release's changelog section as the body, built with `git commit-tree`, so no dev commit, message, branch name or quote travels with it. It goes straight onto the public main: no release PR (a squash merge made on GitHub would not carry the `vX.Y.Z` subject the guard and the next publish look for). `release publish <version> --dry-run` shows the parent, the message and what the commit changes, and writes nothing. Between releases it does not change; released code stays readable and `go install`-able;
 - the snapshot is **signed** with the owner's `user.signingkey` (`commit-tree -S`), so GitHub shows it Verified; a key that fails to sign stops the publish, and the Code badge turns amber (**Release unsigned**) while the public tip has no signature;
 - releases follow the branch flow in [Roadmap: Cutting a release](roadmap.md#cutting-a-release-candidate-soak-publish): `issue-cli release cut` (the branch `release/vX.Y` and its rc tags), `release pick` (fixes from main), `release publish` (the snapshot). `release/vX.Y` stays in the dev repo for good.
 
@@ -444,9 +444,9 @@ A public dev repo publishes how the work was done, not just the result: commit m
 
 1. The owner creates the private dev repo. Agents never create repos.
 2. `issue-cli release setup --dev <url>`: the old `origin` becomes `public`, the dev repo becomes `origin` and gets every branch and every non-candidate tag, the public branch's tip is recorded as the base the first snapshot goes on, and the pre-push guard is installed. Nothing is pushed to `public`.
-3. The public repo still holds the old dev history. The owner cleans it **once, from a mirror**, never in the working checkout (so no worker waits): `git clone --mirror <public url>`, `git filter-repo --path issues --path sessions … --invert-paths`. Commit messages (quotes, D-n, trailers) and branch names stay public after a filter alone, so issue-viewer went further (2026-10-24): one squashed, signed commit per old tag (`git commit-tree -S`, the tag's filtered tree, message `vX.Y.Z`, the previous one as parent), the tags moved onto them, the old branches deleted, then `git push --force` of main and the tags. Back up the untouched mirror first (a tarball and a private repo). PR refs GitHub keeps can't be removed this way. Then record the cleaned tip as the base, so the Code badge doesn't read the cleaned history as dev history: `git fetch public && git config issue-cli.publicbase $(git rev-parse public/main)`.
+3. The public repo still holds the old dev history. Leaving it is fine: the first snapshot goes on top of the recorded base, and from then on each release is one commit (dark-factory kept v0.55.0 and v0.56.0 this way, `factory/release-bundling-one-public-commit-or-squash-merged-pr-per-release#D-2`). To remove it instead, the owner cleans it **once, from a mirror**, never in the working checkout (so no worker waits): `git clone --mirror <public url>`, `git filter-repo --path issues --path sessions … --invert-paths`. Commit messages (quotes, D-n, trailers) and branch names stay public after a filter alone, so issue-viewer went further (2026-10-24): one squashed, signed commit per old tag (`git commit-tree -S`, the tag's filtered tree, message `vX.Y.Z`, the previous one as parent), the tags moved onto them, the old branches deleted, then `git push --force` of main and the tags. Back up the untouched mirror first (a tarball and a private repo). PR refs GitHub keeps can't be removed this way. Then record the cleaned tip as the base, so the Code badge doesn't read the cleaned history as dev history: `git fetch public && git config issue-cli.publicbase $(git rev-parse public/main)`.
 4. In the release workflow, skip private repos (`if: ${{ !github.event.repository.private }}`) so the dev repo builds no releases, and take the release notes from the CHANGELOG's version section (a snapshot is one commit, so commit subjects say nothing). This repo's `release-marker.yml` does both.
-5. The next release is the first snapshot. If the public tip is no longer the recorded base (the mirror clean rewrote it), `git fetch public` and pass `--first` once.
+5. The next release is the first snapshot: see it first with `issue-cli release publish <version> --dry-run` from the release worktree. If the public tip is no longer the recorded base (the mirror clean rewrote it), `git fetch public` and pass `--first` once.
 
 **Cloud sessions and other machines** clone the dev repo (and the tracker), never the public one, and push there. A cloud session that opens a PR on the public repo publishes it: that is how PR #62 went public.
 
@@ -532,6 +532,14 @@ projects:
 Commands that take `--department <name>`: `create` (and `--status` is checked against that file), `list`, `process workflow|transitions` (without it, on a project with departments, they print Product's lifecycle and list the department files), `workflow upgrade|scan`. `next` lists each department's work under its own heading. `show` and `start` print `Department:` and the file under `Workflow file:`.
 
 ### Setting one up
+
+From a bundled department template, in one step (workflow file, role prompt, goals and the projects.yaml entry; see [Departments: templates](departments.md#templates)):
+
+```bash
+issue-cli department add marketing
+```
+
+By hand:
 
 ```bash
 issue-cli workflow init --template content --out workflows/marketing.yaml

@@ -322,6 +322,7 @@ func TestRetroWbComponentsStandAlone(t *testing.T) {
 		{"wb/retro-send", WbRetroSend{Dest: "Bugs: report-bug", Done: true, DoneLabel: "filed · bugs/b.json"}, "✓ filed · bugs/b.json"},
 		{"wb/retro-bin", WbRetroBin{Key: "docs", Title: "Docs", Sub: "Plan instructions", Color: "#E9D7B5", Done: 0, Total: 3}, ">3<"},
 		{"wb/retro-pattern", &WbRetroPattern{Term: "check-script", Issues: 4, Example: "E", ExampleURL: "?retro=e.md"}, "A pattern that comes back"},
+		{"wb/retro-pattern", &WbRetroPattern{Term: "check-script", Issues: 4, Example: "E", ExampleURL: "?retro=e.md"}, "issue-cli experiment candidates"},
 	} {
 		if got := render(c.name, c.data); !strings.Contains(got, c.want) {
 			t.Errorf("%s lacks %q:\n%s", c.name, c.want, got)

@@ -10,7 +10,7 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
   wb/decision-thread one issue's decisions on a day        data: WbDecisionThread
   wb/decision-row    one D-n line                          data: WbDecisionRow
   wb/you-quote       the owner's words, with the YOU face  data: string
-  wb/decision-alone  "no words from you": Confirm / Question it  data: WbDecisionRow
+  wb/decision-alone  "no words from you" / provisional: Confirm (records your words) / Question it (to the CEO)  data: WbDecisionRow
   wb/bars            a titled list of bars                 data: WbBars
   wb/command-card    a titled note with the command to run data: WbCommandCard
 */}}
@@ -24,7 +24,7 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
 {{define "wb/search-bar"}}
 <form class="wb-search" method="get" action="{{.Action}}" role="search" data-testid="search.{{.Key}}">
     <label class="wb-search-label" for="wb-search-{{.Key}}">SEARCH</label>
-    <input id="wb-search-{{.Key}}" type="search" name="{{.Name}}" value="{{.Value}}" placeholder="{{.Placeholder}}">
+    <input id="wb-search-{{.Key}}" type="search" name="{{.Name}}" value="{{.Value}}" placeholder="{{.Placeholder}}" data-testid="search.{{.Key}}.input">
     {{range .Keep}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
     <div class="wb-pills" role="group" aria-label="Filters">{{range .Filters}}{{template "wb/filter-pill" .}}{{end}}</div>
 </form>
@@ -35,14 +35,14 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
 {{define "wb/you-quote"}}<div class="wb-youquote"><span class="wb-youquote-av" title="You">YOU</span><blockquote>“{{.}}”</blockquote></div>{{end}}
 
 {{define "wb/decision-alone"}}{{with .Confirm}}
-<form class="wb-alone" data-send="{{.SendURL}}" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.confirm">
-    <span class="wb-alone-text">{{if $.YOLO}}{{template "wb/yolo-tag"}} {{end}}The agent decided alone{{if $.YOLO}} in YOLO{{end}} — no words from you.</span>
-    <input type="hidden" name="text" value="{{.ConfirmText}}">
+<form class="wb-alone" data-confirm="{{.ConfirmURL}}" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.confirm">
+    <span class="wb-alone-text">{{if $.YOLO}}{{template "wb/yolo-tag"}} {{end}}{{if .Provisional}}Provisional — not confirmed by you yet.{{else}}The agent decided alone{{if $.YOLO}} in YOLO{{end}} — no words from you.{{end}}</span>
     <span class="wb-alone-actions">
-        <button type="submit" class="wb-alone-btn"{{if not .Live}} disabled title="Start the CEO first: Confirm goes to it"{{else}} title="Sends “{{.ConfirmText}}” to the CEO"{{end}}>Confirm</button>
+        <input type="text" name="text" class="wb-alone-words" placeholder="Your words (optional)" aria-label="Your words on {{$.ID}} (optional)" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.words">
+        <button type="submit" class="wb-alone-btn" title="Records your words on {{$.Ref}}; without words it records “Confirmed.”">Confirm</button>
         <button type="button" class="wb-alone-btn wb-alone-btn--quiet" data-question="{{.QuestionText}}"{{if not .Live}} disabled title="Start the CEO first"{{else}} title="Starts a message to the CEO; say why and press Send"{{end}} data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.question">Question it</button>
     </span>
-    <div class="wb-site-msg" role="status">{{if not .Live}}The CEO is not running: start it below to confirm or question.{{end}}</div>
+    <div class="wb-site-msg" role="status"></div>
 </form>
 {{end}}{{end}}
 

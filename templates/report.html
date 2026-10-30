@@ -18,8 +18,9 @@
             {{template "wb/shipped" .Shipped}}
         </div>
         <div class="wb-report-side">
-            {{with .Status}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
+            {{with .Status}}{{template "wb/autostart" .}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
             {{template "wb/health" .Health}}
+            {{template "wb/bench" .Bench}}
             {{template "wb/unlock" .Unlock}}
         </div>
     </div>
@@ -44,6 +45,13 @@
                 .then(function (text) { return navigator.clipboard.writeText(text); })
                 .then(function () { flash(btn, '✓ Copied'); })
                 .catch(function () { window.open(url, '_blank'); });
+        });
+    });
+    document.querySelectorAll('[data-autostart]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            btn.disabled = true;
+            fetch(btn.getAttribute('data-autostart'), { method: 'POST' })
+                .then(function () { location.reload(); }, function () { btn.disabled = false; });
         });
     });
     document.querySelectorAll('[data-copy]').forEach(function (btn) {

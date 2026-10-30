@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/proof"
@@ -21,8 +23,11 @@ Most links need no prove call: declare them where you write the proof.
   playtest step   proves: [AC2]                 on the step in the session YAML
   test            Proves: AC2 TestProveList     trailer on the commit that adds or changes it
   the change      Proves: AC2                   trailer on its commit
-                  (several: "Proves: AC1, AC3 TestA TestB"; only the work
-                  branch's own commits count, never commits merged from main)
+                  (several: "Proves: AC1, AC3 TestA TestB"; a Proves: line
+                  counts in any paragraph of the message, also one before
+                  Co-Authored-By; only the work branch's own commits count,
+                  never commits merged from main or another issue's commits
+                  the branch was started on)
 
 prove is the fallback, and the only way to record a measured value:
 
@@ -143,7 +148,7 @@ func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem,
 			}
 			links[i].Ref = full
 		case tracker.ProofShot:
-			if wf := ctx.Project.LoadWorkflow(); wf.HasFeature("playtest-sessions") {
+			if hasPlaytestRunner(root, ctx.Project.LoadWorkflow()) {
 				return fmt.Errorf("--shot is refused: this project has a playtest runner, so its screenshots come from playtest runs. Add `proves: [%s]` to the step that shows it", it.ID)
 			}
 			if !tracker.IsVisualCriterion(it.Text) {
@@ -272,4 +277,23 @@ func writeProofReport(w io.Writer, out proveOutput) {
 		fmt.Fprintf(w, "✓ Ticked %s (proven)\n", id)
 	}
 	fmt.Fprintf(w, "%d/%d criteria proven\n", out.Proven, out.Total)
+}
+
+// hasPlaytestRunner reports whether the project's screenshots come from
+// playtest runs: the playtest-sessions feature is installed and the project
+// has a runner to back it (playtest_command, a session under
+// playtest/sessions/, or a run under .playtest/runs/). The feature alone
+// comes with the template, and a lead's notes in sessions/ are no runner.
+func hasPlaytestRunner(root string, wf *tracker.WorkflowConfig) bool {
+	if wf == nil || !wf.HasFeature("playtest-sessions") {
+		return false
+	}
+	if strings.TrimSpace(wf.PlaytestCommand) != "" {
+		return true
+	}
+	if files, _ := filepath.Glob(filepath.Join(root, "playtest", "sessions", "*.yaml")); len(files) > 0 {
+		return true
+	}
+	runs, _ := os.ReadDir(filepath.Join(root, ".playtest", "runs"))
+	return len(runs) > 0
 }

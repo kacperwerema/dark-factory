@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/michal-franc/issue-viewer/internal/depttemplate"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
 )
@@ -47,6 +48,31 @@ type UpdatesWbData struct {
 	Declined []WbDeclinedRow
 	// ToDecide is every proposal, before the group filter.
 	ToDecide int
+	// Departments are the bundled department templates the project hasn't
+	// installed. They are not in ToDecide or the sidebar count: a
+	// department is a projects.yaml entry, not a workflow feature (D-3).
+	Departments []WbDeptTemplate
+}
+
+// WbDeptTemplate is a department template the project can add, with the
+// command that adds it.
+type WbDeptTemplate struct {
+	Key, Name, Description, Color, Workflow, Command string
+	Goals                                            int
+}
+
+// updatesDepartments are the bundled department templates proj hasn't
+// installed.
+func updatesDepartments(proj *tracker.Project) []WbDeptTemplate {
+	var out []WbDeptTemplate
+	for _, t := range depttemplate.List() {
+		if t.Installed(proj) {
+			continue
+		}
+		out = append(out, WbDeptTemplate{Key: t.Key, Name: t.Name, Description: t.Description, Color: t.Color, Workflow: t.Workflow, Goals: len(t.Goals),
+			Command: tracker.InjectProject(proj, "issue-cli department add "+t.Key)})
+	}
+	return out
 }
 
 // WbUpgradeFlash is the line after a click: declined (with Undo),
@@ -141,19 +167,6 @@ type WbDeclinedRow struct {
 	Prefix string
 }
 
-// updatesUnlocks names, per catalog feature, what the board shows locked or
-// empty without it: only where a page says so itself (the Status hint for
-// workbench.changelog, Balance's "off" state, the Metrics and Systems hints,
-// the privacy badges' link to Updates, the hall's CI scanner that needs ci:).
-var updatesUnlocks = map[string][]WbUnlockLink{
-	"local-ci":          {{Text: "Hall: the CI scanner on the line", URL: "/hall"}},
-	"status-changelog":  {{Text: "Status: releases from your own changelog", URL: "/status"}},
-	"balance-board":     {{Text: "Balance: the balance board", URL: "/balance"}},
-	"metrics-and-knobs": {{Text: "Metrics: guard metrics and tuning knobs", URL: "/metrics"}},
-	"system-pages":      {{Text: "Systems: summaries and design docs", URL: "/systems"}},
-	"privacy":           {{Text: "Status: the privacy badges", URL: "/status"}},
-}
-
 // updatesGroupName is a catalog category as a filter label.
 func updatesGroupName(category string) string {
 	if category == "" {
@@ -225,8 +238,9 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 		Prefix:     prefix,
 		Project:    p.Name,
 		ClassicURL: prefix + "/updates?classic=1",
-		ToDecide:   classic.Total,
-		Expanded:   q.Get("all") == "1" || category != "",
+		ToDecide:    classic.Total,
+		Expanded:    q.Get("all") == "1" || category != "",
+		Departments: updatesDepartments(p),
 	}
 	if text, undo, isErr := updatesFlash(q); text != "" {
 		d.Flash = WbUpgradeFlash{Text: text, Undo: undo, Error: isErr, Prefix: prefix}
@@ -275,10 +289,12 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 
 	entries, _ := workflowupgrade.Catalog()
 	keys := map[string]string{}
+	unlocks := map[string][]workflowupgrade.Unlock{}
 	for _, e := range entries {
 		if len(e.Detect) > 0 {
 			keys[e.ID] = e.Detect[0].Path
 		}
+		unlocks[e.ID] = e.Unlocks
 	}
 	var unlocking, other []WbUpgradeCard
 	for _, c := range classic.Cards {
@@ -297,7 +313,7 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 			}
 			card.Steps = append(card.Steps, WbSetupStep{Who: who, Do: strings.TrimSpace(st.Do)})
 		}
-		for _, u := range updatesUnlocks[c.ID] {
+		for _, u := range unlocks[c.ID] {
 			card.Unlocks = append(card.Unlocks, WbUnlockLink{Text: u.Text, URL: prefix + u.URL})
 		}
 		if len(card.Unlocks) > 0 {

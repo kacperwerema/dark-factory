@@ -117,7 +117,7 @@ func TestOutputReviewPublishShow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, s, "✓ Approved "+o.ID+": Post (\"ok, ship it\", in the lead chat)")
+	assertContains(t, s, "✓ Approved "+o.ID+": Post (\"ok, ship it\", in the CEO chat)")
 	s, err = run("publish", id, "--url", "https://a.example/live")
 	if err != nil {
 		t.Fatal(err)

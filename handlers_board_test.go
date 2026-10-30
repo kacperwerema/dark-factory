@@ -14,7 +14,7 @@ func TestHandleBoard_ReturnsBoardView(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/board")
+	resp, err := http.Get(ts.URL + "/p/test-project/board?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestHandleBoard_IncludesCreateModal(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/board")
+	resp, err := http.Get(ts.URL + "/p/test-project/board?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,16 +66,16 @@ func TestHandleBoard_Filters(t *testing.T) {
 		name  string
 		query string
 	}{
-		{"version filter", "?version=1.0"},
-		{"system filter", "?system=Auth"},
-		{"assignee filter", "?assignee=alice"},
-		{"claimed filter", "?assignee=_claimed"},
-		{"unclaimed filter", "?assignee=_unclaimed"},
+		{"version filter", "&version=1.0"},
+		{"system filter", "&system=Auth"},
+		{"assignee filter", "&assignee=alice"},
+		{"claimed filter", "&assignee=_claimed"},
+		{"unclaimed filter", "&assignee=_unclaimed"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := http.Get(ts.URL + "/p/test-project/board" + tt.query)
+			resp, err := http.Get(ts.URL + "/p/test-project/board?classic=1" + tt.query)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +97,7 @@ func TestHandleBoard_ShowsActiveBotSummaryAndIssueChip(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/p/test-project/board")
+	resp, err := http.Get(ts.URL + "/p/test-project/board?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestHandleGraph_ShowsGraphNavTab(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	for _, path := range []string{"/p/test-project/", "/p/test-project/board", "/p/test-project/graph"} {
+	for _, path := range []string{"/p/test-project/?classic=1", "/p/test-project/board?classic=1", "/p/test-project/graph"} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatal(err)

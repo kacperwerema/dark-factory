@@ -75,14 +75,14 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 	}
 
 	// Cut: the branch, its worktree, rc.1.
-	cut, err := Cut(r.root, "v0.54.0", "main", true)
+	cut, err := Cut(r.root, "v0.54.0", "main", r.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !cut.Created || cut.Branch != "release/v0.54" || cut.Tag != "v0.54.0-rc.1" || !cut.Pushed {
 		t.Errorf("cut = %+v", cut)
 	}
-	if _, err := Cut(r.root, "v0.54.0", "main", true); err == nil || !strings.Contains(err.Error(), "already tags") {
+	if _, err := Cut(r.root, "v0.54.0", "main", r.cfg); err == nil || !strings.Contains(err.Error(), "already tags") {
 		t.Errorf("a second cut on the same tip = %v", err)
 	}
 	if out := run(t, r.root, "git", "--git-dir="+r.dev, "branch", "--list", "release/*"); !strings.Contains(out, "release/v0.54") {
@@ -106,7 +106,7 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cut.Worktree, "later.go")); err == nil {
 		t.Error("the later feature reached the release branch")
 	}
-	cut2, err := Cut(r.root, "v0.54.0", "main", true)
+	cut2, err := Cut(r.root, "v0.54.0", "main", r.cfg)
 	if err != nil || cut2.Tag != "v0.54.0-rc.2" || cut2.Created {
 		t.Fatalf("cut rc.2 = %+v, %v", cut2, err)
 	}
@@ -127,9 +127,17 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 	if res.Parent != setup.Base || !res.MainMoved {
 		t.Errorf("publish = %+v", res)
 	}
-	// The public repo: one new commit, message exactly v0.54.0, the branch's tree.
-	if msg := run(t, r.root, "git", "--git-dir="+r.public, "log", "-1", "--format=%B", "main"); msg != "v0.54.0" {
+	// The public repo: one new commit, subject v0.54.0 and the release's
+	// changelog lines as the body, the branch's tree.
+	if msg := run(t, r.root, "git", "--git-dir="+r.public, "log", "-1", "--format=%B", "main"); msg != "v0.54.0\n\n- fix B\n- feature A" {
 		t.Errorf("public head message = %q", msg)
+	}
+	if !IsSnapshot(r.root, res.Snapshot) {
+		t.Error("the snapshot with a changelog body is not seen as a snapshot")
+	}
+	snapRef := []PushRef{{"refs/heads/main", res.Snapshot, "refs/heads/main", res.Parent}}
+	if err := PrePush(r.root, r.cfg, "public", r.public, snapRef, nil); err != nil {
+		t.Errorf("the guard refused the snapshot: %v", err)
 	}
 	if n := run(t, r.root, "git", "--git-dir="+r.public, "rev-list", "--count", setup.Base+"..main"); n != "1" {
 		t.Errorf("public got %s commits, want 1", n)
@@ -185,12 +193,72 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 	}
 }
 
+func TestPublishDryRunChangesNothing(t *testing.T) {
+	r := newReleaseRepo(t)
+	setup, err := Setup(r.root, r.dev, r.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.land(t, "ui/b", "b.go", "package main // b\n", "- feature B")
+	cut, err := Cut(r.root, "v0.54.0", "main", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := func() string {
+		return run(t, r.root, "git", "for-each-ref", "--format=%(refname) %(objectname)") + "\n" +
+			run(t, r.root, "git", "ls-remote", r.public) + "\n" + run(t, r.root, "git", "ls-remote", r.dev)
+	}
+	before := refs()
+	branchLog, _ := os.ReadFile(filepath.Join(cut.Worktree, "CHANGELOG.md"))
+	mainLog, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md"))
+
+	in := PublishInput{Root: r.root, Worktree: cut.Worktree, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", DryRun: true, Now: time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)}
+	res, err := Publish(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Snapshot != "" || res.Parent != setup.Base || !res.IsBase {
+		t.Errorf("dry run = %+v", res)
+	}
+	if res.Message != "v0.54.0\n\n- feature B\n- feature A\n" {
+		t.Errorf("message = %q", res.Message)
+	}
+	if !strings.Contains(res.DiffStat, "b.go") || !strings.Contains(res.DiffStat, "CHANGELOG.md's ## Unreleased renamed to ## v0.54.0") {
+		t.Errorf("diff stat = %q", res.DiffStat)
+	}
+	if after := refs(); after != before {
+		t.Errorf("refs moved in a dry run:\n%s\n->\n%s", before, after)
+	}
+	if b, _ := os.ReadFile(filepath.Join(cut.Worktree, "CHANGELOG.md")); string(b) != string(branchLog) {
+		t.Error("the dry run wrote the branch's changelog")
+	}
+	if m, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md")); string(m) != string(mainLog) {
+		t.Error("the dry run wrote main's changelog")
+	}
+	if _, err := Publish(PublishInput{Root: r.root, Worktree: r.root, Cut: "v0.54.0", Cfg: r.cfg, DryRun: true}); err == nil || !strings.Contains(err.Error(), "publish runs on release/v0.54") {
+		t.Errorf("a dry run outside the worktree = %v", err)
+	}
+}
+
+func TestSnapshotMessage(t *testing.T) {
+	text := "# Changelog\n\n## v0.54.0 — 2026-10-31\n\n- a\n- b\n\n## v0.53.0 — 2026-10-23\n\n- old\n"
+	if got := snapshotMessage("v0.54.0", text); got != "v0.54.0\n\n- a\n- b\n" {
+		t.Errorf("message = %q", got)
+	}
+	if got := snapshotMessage("v0.55.0", text); got != "v0.55.0" {
+		t.Errorf("no section = %q", got)
+	}
+	if got := snapshotMessage("v0.54.0", "## v0.54.0\n\n"); got != "v0.54.0" {
+		t.Errorf("empty section = %q", got)
+	}
+}
+
 func TestPublishRefusals(t *testing.T) {
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
 	}
-	cut, err := Cut(r.root, "v0.54.0", "main", false)
+	cut, err := Cut(r.root, "v0.54.0", "main", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +382,7 @@ func TestPublishSignsTheSnapshot(t *testing.T) {
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
 	}
-	cut, err := Cut(r.root, "v0.54.0", "main", false)
+	cut, err := Cut(r.root, "v0.54.0", "main", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,5 +412,44 @@ func TestPublishSignsTheSnapshot(t *testing.T) {
 	}
 	if b := CodeBadge(Input{Root: r.root, Slug: "proj", Cfg: r.cfg, Now: time.Now()}); b.Level != Green || !strings.Contains(b.Sentence, "last published v0.54.0") {
 		t.Errorf("badge after a signed publish = %+v", b)
+	}
+}
+
+// Before release setup, origin is still the public repo: cut must not push
+// there, and must not leave a branch, tag or worktree behind either.
+func TestCutRefusesBeforeTheSwitch(t *testing.T) {
+	r := newReleaseRepo(t)
+	refs := func() string {
+		return run(t, r.root, "git", "for-each-ref", "--format=%(refname) %(objectname)") + "\n" + run(t, r.root, "git", "ls-remote", r.public)
+	}
+	before := refs()
+	_, err := Cut(r.root, "v0.54.0", "main", r.cfg)
+	if err == nil || !strings.Contains(err.Error(), "no public remote") || !strings.Contains(err.Error(), "issue-cli release setup --dev <private dev repo url>") {
+		t.Errorf("cut before the switch = %v", err)
+	}
+	if after := refs(); after != before {
+		t.Errorf("refs moved:\n%s\n->\n%s", before, after)
+	}
+	if _, err := os.Stat(filepath.Join(r.root, ".worktrees", "release-v0.54")); err == nil {
+		t.Error("cut left a worktree behind")
+	}
+
+	// A local cut (nothing to push) still works, and a publish dry run on it
+	// refuses before it fetches, writes or pushes anything.
+	cut, err := Cut(r.root, "v0.54.0", "main", nil)
+	if err != nil || cut.Pushed {
+		t.Fatalf("local cut = %+v, %v", cut, err)
+	}
+	before = refs()
+	branchLog, _ := os.ReadFile(filepath.Join(cut.Worktree, "CHANGELOG.md"))
+	_, err = Publish(PublishInput{Root: r.root, Worktree: cut.Worktree, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", DryRun: true, Now: time.Now()})
+	if err == nil || !strings.Contains(err.Error(), "no public remote: issue-cli release setup --dev <url> first") {
+		t.Errorf("dry run before the switch = %v", err)
+	}
+	if after := refs(); after != before {
+		t.Errorf("the dry run moved refs:\n%s\n->\n%s", before, after)
+	}
+	if b, _ := os.ReadFile(filepath.Join(cut.Worktree, "CHANGELOG.md")); string(b) != string(branchLog) {
+		t.Error("the dry run wrote the branch's changelog")
 	}
 }

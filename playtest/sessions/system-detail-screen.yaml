@@ -1,0 +1,79 @@
+session: system-detail-screen
+issue: factory/system-detail-screen
+title: Workshop page - one system or family as a Workshop Board page
+scenario: systems
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A system page is a Workshop with its head, floor, issues, families and decisions; the classic page stays at ?classic=1
+    proves: [AC1, AC2, AC3, AC4, AC5, AC7, AC9, AC10]
+    setup:
+      - open: /p/{project}/systems
+    act:
+      - check: { http: { path: "/p/{project}/systems", contains: "href=\"/p/rl/systems/AI\"" } }
+      - open: /p/{project}/systems/AI
+      - wait_for: system.wb.page
+    checks:
+      - visible: [system.wb.trail, system.wb.title, system.wb.summary, system.wb.floor, system.wb.crates, system.wb.bar, system.wb.issues, system.wb.families, system.wb.family.play_calls, system.wb.decisions, system.wb.classic]
+      - selected: hall.tab.systems
+      - text_contains: { target: system.wb.summary, text: "How teams choose their plays" }
+      - text_contains: { target: system.wb.bar, text: "1 obsolete not counted" }
+      - text_contains: { target: system.wb.issues, text: "more in the list" }
+      - visible: issues.crate.ai/caller-fit
+      - visible: decisions.row.ai/shouts.d-2
+      - absent: system.wb.hint
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "data-testid=\"system.header\"" }
+    targets:
+      - { id: system.wb.floor, note: "The workshop floor: crates and the status bar" }
+      - { id: system.wb.issues, note: "Issues as crate cards" }
+    do: |
+      1. Open the hall's Systems tab and click the AI workshop.
+      2. Read the page top to bottom, then the side panel.
+    expect: |
+      It reads as the AI workshop from the Systems page, opened up: the same
+      crate colours, then its issues, families and decisions, and its code and
+      design doc on the right. Nothing on it looks like the old dark page.
+    why: ux-test checks the sections and links; only you can judge whether the drafted layout (no mockup, D-6) is the look you want.
+
+  - id: TP5
+    title: The side panel shows the code map draft, the design doc sections and the balance note
+    proves: [AC6]
+    setup:
+      - open: /p/{project}/systems/AI
+    checks:
+      - visible: [systems.wb.codemap, systems.wb.codemap.draft, system.wb.doc, system.wb.doc.section.rules, system.wb.balance]
+      - text_contains: { target: system.wb.doc.section.shouts_and_tempo, text: stale }
+      - text_contains: { target: system.wb.balance, text: dominant-plays }
+      - absent: [system.wb.metrics, system.wb.knobs]
+
+  - id: TP6
+    title: A family page lists only the umbrella's children; the unconfigured Sim page shows its hint and epic
+    proves: [AC1, AC2, AC5, AC7]
+    setup:
+      - open: /p/{project}/systems/AI
+    act:
+      - click: system.wb.family.play_calls
+      - wait_for: { url: { contains: /systems/AI/Play%20calls } }
+      - check: { visible: [issues.crate.ai/caller-fit, issues.crate.ai/call-modal, system.wb.umbrella] }
+      - check: { absent: [issues.crate.ai/scouting, system.wb.families] }
+      - check: { text_contains: { target: system.wb.trail, text: Play calls } }
+      - open: /p/{project}/systems/Sim
+    checks:
+      - visible: [system.wb.hint, system.wb.families, system.wb.epic.sim/siege, system.wb.decisions.empty]
+      - absent: [system.wb.summary, system.wb.doc]
+      - text_contains: { target: system.wb.hint, text: workbench.systems.Sim }
+      - text_contains: { target: system.wb.decisions.empty, text: "issue-cli decide" }
+
+  - id: TP7
+    title: An unknown system or family is a 404 on the Systems page with a note
+    proves: [AC8]
+    setup:
+      - open: /p/{project}/systems
+    checks:
+      - http: { path: "/p/{project}/systems/Nope", status: 404, contains: "systems.wb.notfound" }
+      - http: { path: "/p/{project}/systems/AI/Nope", status: 404, contains: "systems.wb.card.ai" }

@@ -12,6 +12,12 @@ updates/reopen.
   wb/upgrade-card   one proposed feature and its actions   data: WbUpgradeCard
   wb/upgrade-more   the "N more" row                       data: WbUpgradeMore
   wb/declined       declined features with Re-open         data: []WbDeclinedRow
+
+/updates, every project (updates_overview_wb.html, updates.go):
+
+  wb/upd-tally      the numbers across projects            data: []WbUpdTally
+  wb/upd-project    one project's template and state       data: UpdatesOverviewRow
+  wb/upd-note       what "never scanned" means             data: none
 */}}
 
 {{define "wb/upd-flash"}}{{if .Text}}<div class="upd-flash{{if .Error}} upd-flash--error{{end}}" role="status" data-testid="upd.flash"><span>{{.Text}}</span>{{if .Undo}}<form method="post" action="{{.Prefix}}/updates/reopen"><input type="hidden" name="id" value="{{.Undo}}"><button type="submit" class="upd-linkbtn" data-testid="upd.undo">Undo</button></form>{{end}}</div>{{end}}{{end}}
@@ -62,6 +68,7 @@ updates/reopen.
     </div>
     <p class="upd-card-text">{{.SummaryHTML}}</p>
     {{with .Key}}<code class="upd-key" title="{{$.Where}}">{{.}}</code>{{end}}
+    {{with .Experiment}}<p class="upd-measured" data-testid="upd.card.{{tid $.ID}}.measured">Measured by experiment <code>{{.Slug}}</code>: {{.Measured}}</p>{{end}}
     {{if .Unlocks}}<div data-testid="upd.card.{{tid .ID}}.unlocks">{{template "wb/unlocks" .Unlocks}}</div>{{end}}
     {{if .Installing}}<p class="upd-running" data-testid="upd.card.{{tid .ID}}.session"><span class="upd-mono-sm">{{.Session}}</span> is installing it with you. Attach: <code>{{.AttachCmd}}</code> · <a href="{{.Prefix}}/agents">Agents</a>. The card leaves once <code>workflow scan</code> records it.</p>{{end}}
     <div class="wb-grow"></div>
@@ -109,6 +116,30 @@ updates/reopen.
 </section>
 {{end}}{{end}}
 
+{{define "wb/dept-templates"}}{{if .}}
+<section class="upd-section" aria-label="Departments you can add" data-testid="upd.departments">
+    <div class="upd-section-head">
+        <h2 class="upd-h2">Departments you can add</h2>
+        <span class="upd-section-note">a template installs the department's workflow file, role prompt and goals into projects.yaml; files you already have are never overwritten</span>
+    </div>
+    <div class="upd-cards">{{range .}}
+    <article class="upd-card" aria-label="{{.Name}}" data-testid="upd.dept.{{tid .Key}}">
+        <div class="upd-card-head">
+            <div class="upd-badge" aria-hidden="true"{{with .Color}} style="background: {{.}}"{{end}}>{{slice .Name 0 1}}</div>
+            <div class="upd-card-titles">
+                <h3 class="upd-card-title">{{.Name}}</h3>
+                <div class="upd-card-meta"><span class="upd-mono-sm">workflow: {{.Workflow}} · {{.Goals}} goal{{if ne .Goals 1}}s{{end}} · role prompt</span></div>
+            </div>
+        </div>
+        <p class="upd-card-text">{{.Description}}</p>
+        <div class="wb-grow"></div>
+        <span class="upd-label">From the terminal</span>
+        <code class="upd-key" data-testid="upd.dept.{{tid .Key}}.command">{{.Command}}</code>
+    </article>{{end}}
+    </div>
+</section>
+{{end}}{{end}}
+
 {{define "wb/declined"}}{{if .}}
 <section class="upd-declined" aria-label="Declined" data-testid="upd.declined">
     <h2 class="upd-more-title">Declined · {{len .}} <span class="wb-muted">never proposed again until re-opened</span></h2>
@@ -124,3 +155,31 @@ updates/reopen.
     {{end}}
 </section>
 {{end}}{{end}}
+
+{{define "wb/upd-tally"}}
+<div class="wb-uo-tally" data-testid="updates_overview.tally">
+    {{range .}}<div class="wb-uo-num{{with .Tone}} wb-uo-num--{{.}}{{end}}" data-testid="updates_overview.tally.{{.Key}}"><b>{{.Value}}</b><span>{{.Label}}</span></div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/upd-project"}}
+<div class="wb-uo-card" style="--lot: {{.Color}}" data-testid="updates_overview.card.{{tid .Slug}}">
+    <div class="wb-uo-card-head">
+        <span class="wb-uo-name">{{.Name}}</span>
+        <span class="wb-chip wb-chip--{{.Tone}}" data-testid="updates_overview.card.{{tid .Slug}}.state">{{.State}}</span>
+    </div>
+    <div class="wb-mono-inline" data-testid="updates_overview.card.{{tid .Slug}}.template">{{.Template}}</div>
+    {{if .Builtin}}
+    <div class="wb-note">Built-in or custom workflow: no catalog to compare.</div>
+    {{else}}
+    <dl class="wb-uo-facts">
+        <div><dt>To decide</dt><dd data-testid="updates_overview.card.{{tid .Slug}}.to_decide">{{.ToDecide}}</dd></div>
+        <div><dt>Record</dt><dd>{{if eq .Record "—"}}none yet{{else}}{{.Record}}{{end}}</dd></div>
+        {{with .Newest}}<div><dt>Newest</dt><dd class="wb-mono-inline">{{.}}</dd></div>{{end}}
+    </dl>
+    <a class="wb-btn{{if eq .Tone "you"}} wb-btn--you{{else}} wb-btn--quiet{{end}}" href="{{.Href}}" data-testid="updates_overview.card.{{tid .Slug}}.open">Open its updates</a>
+    {{end}}
+</div>
+{{end}}
+
+{{define "wb/upd-note"}}<p class="wb-note wb-uo-note">Never scanned: the project has no <code class="wb-mono-inline">features:</code> record yet, so every feature it lacks is listed. Its Updates page works either way; <code class="wb-mono-inline">issue-cli workflow scan</code> there records what it already has.</p>{{end}}

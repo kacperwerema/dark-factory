@@ -78,7 +78,7 @@ type HealthWbPage struct {
 }
 
 // WbHallTabs is the hall's view toggle in the header: Line | Report |
-// Health.
+// Health | Stats and the hall's other pages.
 type WbHallTabs struct {
 	Items []WbTab
 }
@@ -89,12 +89,14 @@ type WbTab struct {
 	Current         bool
 }
 
-// wbHallTabs is the toggle with current ("line", "report" or "health") on.
+// wbHallTabs is the toggle with current (a tab Key: "line", "issues", …) on.
 func wbHallTabs(prefix, current string) *WbHallTabs {
 	t := &WbHallTabs{Items: []WbTab{
 		{Key: "line", Label: "Line", URL: prefix + "/hall"},
+		{Key: "issues", Label: "Issues", URL: prefix + "/"},
 		{Key: "report", Label: "Report", URL: prefix + "/status"},
 		{Key: "health", Label: "Health", URL: prefix + "/health"},
+		{Key: "stats", Label: "Stats", URL: prefix + "/stats"},
 		{Key: "systems", Label: "Systems", URL: prefix + "/systems"},
 		{Key: "decisions", Label: "Decisions", URL: prefix + "/decisions"},
 		{Key: "retro", Label: "Retro", URL: prefix + "/retros"},
@@ -224,11 +226,13 @@ type WbRefactor struct {
 }
 
 // WbTrendCard is one trend: its chart, or locked with what it lacks and the
-// command that unlocks it.
+// command that unlocks it. URL turns Cmd into a link (an issue that brings
+// the data).
 type WbTrendCard struct {
 	Key, Title string
 	Locked     bool
 	Need, Cmd  string
+	URL        string
 	Summary    string
 	Charts     []template.HTML
 	Legend     []LegendItem

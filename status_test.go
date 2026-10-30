@@ -237,7 +237,7 @@ func TestStatusMarkdownEndpoint(t *testing.T) {
 		"## Epics: 0 active, 1 not started, in 1 area\n- Not started: ui 0/2 (1)\n",
 		"## Recently released\n- v0.4.0 (2026-10-21): Breaking: ask is gone, questions stay in chat.",
 		"## Recently shipped: 1 in 7 days\n- ui 1: ui/shipped\n",
-		"Lead: lead-status (not running)",
+		"CEO: lead-status (not running)",
 		"] ui/tested (agent stopped)",
 		"From sessions/2026-10-21-lead-status.md:\n1. Approve `ui/ready`.",
 		"Backlog (2):\n- ui/high (high)\n- ui/low (low)",
@@ -348,7 +348,7 @@ func TestStatusPageRenders(t *testing.T) {
 	}
 
 	// The count follows the page onto every other view.
-	_, list := getResp(t, ts.URL+"/p/status/")
+	_, list := getResp(t, ts.URL+"/p/status/?classic=1")
 	if !strings.Contains(list, `data-testid="nav.tab.status.count">3</a>`) {
 		t.Error("list page sidebar is missing the Status count")
 	}

@@ -334,6 +334,32 @@ type Department struct {
 	// Workflow is the department's own workflow file, relative to the
 	// project root (WorkflowFor); unset, it runs on Product's workflow.
 	Workflow string `yaml:"workflow"`
+	// Connectors are the outside tools only this department's agents may
+	// use (connector.go, docs/departments.md#connectors).
+	Connectors []Connector `yaml:"connectors"`
+	// Jobs are the department's recurring jobs (internal/jobs reads them).
+	Jobs []Job `yaml:"jobs"`
+}
+
+// Job is one recurring job of a department: a schedule and the brief each
+// run starts from. See docs/departments.md, "Recurring jobs".
+type Job struct {
+	ID   string `yaml:"id" json:"id"`
+	Name string `yaml:"name" json:"name,omitempty"`
+	// Every is day, week or month.
+	Every string `yaml:"every" json:"every"`
+	// On is the weekday (mon..sun) of a weekly job, the day (1..28 or last)
+	// of a monthly one; unused for a daily job.
+	On string `yaml:"on" json:"on,omitempty"`
+	// At is the local time (HH:MM) the run is due; default 00:00.
+	At string `yaml:"at" json:"at,omitempty"`
+	// Brief is the markdown file (relative to the project root) a run's
+	// issue starts with.
+	Brief string `yaml:"brief" json:"brief"`
+	// Priority is the run issue's priority; optional.
+	Priority string `yaml:"priority" json:"priority,omitempty"`
+	// Overlap lets a new run start while the last one is still open.
+	Overlap bool `yaml:"overlap" json:"overlap,omitempty"`
 }
 
 // Company is HQ: the business's mission, the CEO's role prompt and the
@@ -342,6 +368,11 @@ type Company struct {
 	Mission string `yaml:"mission"`
 	Prompt  string `yaml:"prompt"`
 	Goals   []Goal `yaml:"goals"`
+	// Connectors is read only for lint to warn about: HQ has none.
+	Connectors []Connector `yaml:"connectors"`
+	// Jobs are read only so lint can say HQ runs none: jobs belong to a
+	// department.
+	Jobs []Job `yaml:"jobs"`
 }
 
 // Goal is one goal / KPI of HQ or a department. See docs/departments.md.

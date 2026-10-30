@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Stats, all projects"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-hhead">
+    <div class="wb-hhead-text">
+        <h1 class="wb-h1 wb-h1--xl">Stats, all projects</h1>
+        <div class="wb-hhead-sub">each project's latest health snapshot, the last {{.Days}} days as a sparkline{{with .Privacy}} · <span data-testid="stats.overview.privacy">work files: {{.}}</span>{{end}}</div>
+        <div class="wb-hhead-sub"><a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
+    </div>
+    {{template "wb/seg-links" (wbSeg "Sparkline range" "overview-range" .Ranges)}}
+</section>
+<main class="wb-hmain wb-stats" data-testid="stats.overview">
+    <section class="wb-hsec" aria-labelledby="overview-h">
+        <div class="wb-hsec-head">
+            <h2 id="overview-h" class="wb-h2">Projects</h2>
+            <span class="wb-hsec-sub">open a project for its hall stats</span>
+            {{template "wb/seg-links" (wbSeg "Sort by" "overview-sort" .Sorts)}}
+        </div>
+        <div class="wb-pstats">{{range .Rows}}{{template "wb/project-stat" .}}{{else}}{{template "wb/empty" (wbEmpty "No project has a health snapshot yet." "issue-cli --project <slug> health snapshot")}}{{end}}</div>
+        {{if .None}}<div data-testid="stats.overview.none">{{template "wb/empty" (wbEmpty .NoneLine "issue-cli --project <slug> health snapshot")}}</div>{{end}}
+    </section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/workshop-stats.js"></script>
+</body>
+</html>

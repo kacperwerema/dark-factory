@@ -11,7 +11,7 @@ needs. The shared shape is in `issue-cli process playtest`.
 ## Layout
 
 ```
-internal/testids/testids.go     every data-testid id and pattern, one list
+internal/testids/<page>.go      every data-testid id and pattern, one file per page
 templates/*.html                data-testid="board.card.{{tid .Slug}}" on what steps point at
 testids_test.go                 fails when templates and the list drift apart
 playtest/sessions/<name>.yaml   sessions (step id = checkbox id)
@@ -44,7 +44,8 @@ In a dispatched worktree (branch `work/<slug>`) `ISSUE` defaults to `<slug>`, so
   - `el.dataset.testid = 'detail.body.checkbox.' + i`
   - a literal `data-testid="detail.comment.eye.' + idx + '"` inside an HTML
     string.
-- Every id goes in `internal/testids/testids.go`. `TestTemplateTestIDs`
+- Every id goes in its page's file under `internal/testids/` (`sidebar.go`,
+  `workboard.go`, ...), which appends to `testids.IDs`. `TestTemplateTestIDs`
   fails on an unlisted template id or an unused entry. `playtest check`
   rejects a session target that matches no entry, and suggests the closest.
 - Label containers too (`nav.sidebar`, `board.filters`). A `layout_ignore`

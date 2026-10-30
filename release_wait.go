@@ -239,7 +239,7 @@ func releaseWaitMarkdown(b *strings.Builder, rw *ReleaseWait, now time.Time) {
 		fmt.Fprintf(b, "- Milestone %s: %d/%d done; ", ms.Version, ms.Progress.Done, ms.Progress.Total)
 		switch {
 		case ms.RC && ms.CutNext != "":
-			fmt.Fprintf(b, "ready to cut release candidate %s: issue-cli release cut %s (tags it on %s, never pushed), install that build from the release worktree and restart what runs it, then tell the leads of the projects that run it\n", ms.CutNext, ms.Cut, milestone.ReleaseBranch(ms.Cut))
+			fmt.Fprintf(b, "ready to cut release candidate %s: issue-cli release cut %s (tags it on %s, never pushed), install that build from the release worktree and restart what runs it, then tell the CEOs of the projects that run it\n", ms.CutNext, ms.Cut, milestone.ReleaseBranch(ms.Cut))
 		case ms.RC && ms.Soaking && ms.Snapshots:
 			fmt.Fprintf(b, "%s soaking since %s; publish %s only on the owner's ok on the soak: cd %s && issue-cli release publish %s\n", ms.Candidate.Tag, shortDuration(now.Sub(ms.Candidate.CutAt)), ms.Cut, ms.Worktree, ms.Cut)
 		case ms.RC && ms.Soaking:

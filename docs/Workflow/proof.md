@@ -24,12 +24,22 @@ Most links need no command: the agent declares them where it writes the proof.
 | a commit trailer | `Proves: AC2` on the commit that is the change | commit |
 | `issue-cli prove` | `issue-cli prove <slug> AC2 --value "690 vs 380 (1.82×)"` | any kind |
 
-- **Trailers** go in the commit message's last paragraph, one or more lines:
+- **Trailers** are `Proves:` lines in the commit message, one or more, in any paragraph after the subject (one
+  in its own paragraph before `Co-Authored-By` counts too):
   `Proves: AC1, AC3 TestA TestB` links AC1 and AC3 to both tests. Words shaped like a criterion id (the section's
-  prefix plus a number) are ids, and the rest are test names.
+  prefix plus a number) are ids, and the rest are test names, so a test name with spaces (an `it()` title) goes
+  through `prove --test` instead.
   - Only the work branch's own first-parent commits count. While the branch is live they are read as
     `main..work/<slug>`, so commits merged in from main never count.
   - After the merge they are read from the recorded branch head, back to the issue's first dispatch.
+  - A commit another issue's branch held first is not this issue's: some other issue recorded a branch head
+    (`branch_head` in its stats sidecar) containing it before this issue recorded one. That leaves out the
+    commits of a base branch the work branch was started on before it reached main, and, after the merge, the
+    commits other issues fast-forwarded onto main meanwhile. Their trailers don't count and they don't move the
+    last code commit.
+  - A live branch that only fast-forwarded to main, with no commits of its own, is walked as if merged. Other
+    issues' commits on main are left out by the rule above, so it lists none of their trailers. A `Proves:` commit
+    made straight on main, which no issue recorded a head for, still counts.
 - **`proves:`** is an optional field on a playtest step (see the [playtest contract](../patterns/playtest/README.md)).
   The runner copies it into each run's `results.yaml`, which is what the engine reads. `make playtest-check`
   rejects an id that isn't one of the issue's criteria.
@@ -60,7 +70,8 @@ code. It does not check:
 - that the test passed. The `tests:` comment is free text, so "passed" is the agent's report.
 
 `prove --shot` is for projects with no playtest runner. It is refused when the workflow records the
-`playtest-sessions` feature, or when the criterion's text doesn't end in `(visual)`. Each criterion has at most one
+`playtest-sessions` feature and the project has a runner behind it (`playtest_command:`, a
+`playtest/sessions/*.yaml`, or a run under `.playtest/runs/`), or when the criterion's text doesn't end in `(visual)`. Each criterion has at most one
 shot, and a new one replaces the old.
 
 ## The command

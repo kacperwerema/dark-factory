@@ -116,27 +116,56 @@ type LeadRole string
 
 const (
 	RoleProjectLead LeadRole = "project lead"
-	RoleWorker      LeadRole = "worker"
-	RoleUnmanaged   LeadRole = "unmanaged"
+	// RoleDepartmentLead is a department's lead, reporting to the CEO.
+	RoleDepartmentLead LeadRole = "department lead"
+	RoleWorker         LeadRole = "worker"
+	RoleUnmanaged      LeadRole = "unmanaged"
 )
 
-// LeadRoute names who an issue's worker reports to: always the project lead.
-// Routing is derived from the parent link and the live sessions, never
+// LeadRoute names who an issue's worker reports to: its department's lead
+// while that session is live, else the CEO (the project lead). Routing is
+// derived from the department, the parent link and the live sessions, never
 // stored.
 type LeadRoute struct {
-	// Lead is the project lead's session name.
+	// Lead is the session name the worker reports to.
 	Lead string
 	// Live reports whether Lead's session is running.
 	Live bool
 	// Epic is the issue's epic ("" when it has none).
 	Epic string
+	// CEO is the project lead's session name; Lead when it is the CEO.
+	CEO string
+	// CEOLive reports whether the CEO's session is running.
+	CEOLive bool
+	// Department is the issue's department ("" for Product).
+	Department string
+	// DepartmentLead is the department's lead session ("" for Product).
+	DepartmentLead string
+	// Covering is set when the CEO stands in for a department lead that is
+	// not running.
+	Covering bool
 }
 
-// LeadFor routes issue to the project lead and names its epic. live reports
-// whether a session name is running; nil means nothing is.
+// LeadFor routes issue to its department's lead when that session is live,
+// else to the CEO, and names its epic. live reports whether a session name
+// is running; nil means nothing is.
 func LeadFor(proj *Project, issue *Issue, issues []*Issue, live func(name string) bool) LeadRoute {
+	isLive := func(name string) bool { return live != nil && live(name) }
 	route := LeadRoute{Lead: LeadSessionName(proj)}
-	route.Live = live != nil && live(route.Lead)
+	route.CEO = route.Lead
+	route.Live = isLive(route.Lead)
+	route.CEOLive = route.Live
+	if issue != nil && proj != nil {
+		if dept := proj.DepartmentOf(issue); dept != "" {
+			route.Department = dept
+			route.DepartmentLead = DepartmentLeadName(proj, dept)
+			if isLive(route.DepartmentLead) {
+				route.Lead, route.Live = route.DepartmentLead, true
+			} else {
+				route.Covering = true
+			}
+		}
+	}
 	if issue != nil {
 		if epic := ParentSlug(issue); epic != "" {
 			if e := FindIssue(issues, epic); e != nil {

@@ -1,0 +1,54 @@
+session: retire-board
+issue: factory/retire-board-canvas-graph
+title: The hall is the board; the classic board, workboard, canvas and graph stay at their classic URLs
+scenario: basic
+
+# factory/retire-board-canvas-graph#D-1 (provisional): /board and /workboard
+# redirect to the hall unless ?classic=1; canvas and graph are unchanged.
+
+session_checks:
+  viewports: [1440x900, 1280x800]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: An old board URL opens the hall
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/board
+    act:
+      - wait_for: { url: { contains: /hall } }
+      - check: { visible: hall.line }
+      - open: /p/{project}/workboard?group=epic
+      - wait_for: { url: { contains: /hall } }
+    checks:
+      - visible: hall.line
+
+  - id: TP5
+    title: The sidebar's Board opens the hall; the classic board and its filters stay classic
+    proves: [AC2, AC3]
+    setup:
+      - open: /p/{project}/board?classic=1
+    act:
+      - check: { selected: nav.tab.board }
+      - check: { visible: [nav.tab.hall, nav.tab.workboard, nav.tab.graph, nav.tab.canvas] }
+      - click: nav.panel.system.ui
+      - wait_for: { url: { contains: system=UI } }
+      - check: { visible: board.filters }
+      - click: nav.tab.hall
+      - wait_for: { url: { contains: /hall } }
+    checks:
+      - visible: hall.line
+
+  - id: TP6
+    title: Canvas and graph still open from More
+    proves: [AC4]
+    setup:
+      - open: /p/{project}/canvas
+    act:
+      - check: { selected: nav.tab.canvas }
+      - click: nav.tab.graph
+      - wait_for: { url: { contains: /graph } }
+    checks:
+      - selected: nav.tab.graph

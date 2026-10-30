@@ -35,6 +35,28 @@ type Entry struct {
 	// them and the install agent walks them; an owner step is the owner's to
 	// do, never the agent's.
 	Setup []SetupStep `yaml:"setup"`
+	// Unlocks are what the board shows locked or empty without the feature.
+	// The hall's Updates page draws these cards first and links each. Display
+	// only: catalog-check asks no version bump for them.
+	Unlocks []Unlock `yaml:"unlocks"`
+	// Experiment is the experiment that measured the feature before it was
+	// adopted (factory/factory-experiment-loop): the Updates card shows its
+	// verdict line. Display only.
+	Experiment *ExperimentRef `yaml:"experiment"`
+}
+
+// ExperimentRef names the experiment issue behind a feature and what it
+// measured, copied from its verdict line when the change was adopted.
+type ExperimentRef struct {
+	Slug     string `yaml:"slug" json:"slug"`
+	Measured string `yaml:"measured" json:"measured"`
+}
+
+// Unlock is a page the feature unlocks: Text names it, URL is the page's path
+// under the project (/status).
+type Unlock struct {
+	Text string `yaml:"text"`
+	URL  string `yaml:"url"`
 }
 
 // SetupStep is one setup step: who does it (owner or agent) and what.

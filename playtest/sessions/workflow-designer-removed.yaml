@@ -12,9 +12,9 @@ steps:
   - id: TP2
     title: The sidebar's More group has no Workflow entry; the other views are still there
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
-      - check: { visible: [nav.tab.workboard, nav.tab.list, nav.tab.docs] }
+      - check: { visible: [nav.tab.hall, nav.tab.list, nav.tab.docs] }
       - click: nav.more
     checks:
       - visible: [nav.tab.board, nav.tab.graph, nav.tab.canvas, nav.tab.agents, nav.tab.retros, nav.tab.stats]

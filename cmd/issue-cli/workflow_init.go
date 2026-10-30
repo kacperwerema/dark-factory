@@ -235,5 +235,6 @@ func doWorkflowInitOut(template, target string, force bool, in io.Reader, out io
 	fmt.Fprintf(out, "✓ Wrote %s (template: %s)\n", target, chosen)
 	fmt.Fprintf(out, "Point a department at it in projects.yaml (path relative to the project root):\n  departments:\n    - name: <Department>\n      workflow: %s\n", filepath.ToSlash(target))
 	fmt.Fprintln(out, "Then: issue-cli health lint --check department")
+	fmt.Fprintln(out, "Or install a whole department (workflow, role prompt, goals) from a template: issue-cli department list")
 	return nil
 }

@@ -40,6 +40,11 @@ func (s *Server) handleGetComments(w http.ResponseWriter, r *http.Request, proj 
 	if comments == nil {
 		comments = []tracker.Comment{}
 	}
+	// Older comments name their recorder in the text: the page shows it as
+	// the author, the file keeps the line as it is.
+	for i := range comments {
+		comments[i].Author = tracker.CommentAuthor(comments[i])
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(comments)
@@ -65,7 +70,7 @@ func (s *Server) handleAddComment(w http.ResponseWriter, r *http.Request, proj *
 		return
 	}
 
-	if err := tracker.AddComment(issue.FilePath, req.Block, req.Text, "app"); err != nil {
+	if err := tracker.AddCommentBy(issue.FilePath, req.Block, req.Text, "app", tracker.OwnerAuthor); err != nil {
 		http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

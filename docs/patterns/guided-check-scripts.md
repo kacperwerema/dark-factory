@@ -225,6 +225,26 @@ main never collects them. The Shipping section has a box for it. The library
 is versioned with issue-cli, so a branch's script runs with the library of
 the issue-cli that runs it.
 
+The issue's checkout is its worktree (`worktree:` in workflow.yaml); when the
+workflow declares none, it is the git worktree checked out on `work/<slug>`,
+whatever its folder is called. Without one (a slug with a space, such as
+`level design/…`, can't have a `work/` branch) it is the worktree of the
+project check-script runs from, and only from the main checkout the project
+folder.
+`--new` writes there, and `--list`, `--yes`, the owner's run and ▶ Run checks
+look there.
+
+The library needs bash 4 or newer. issue-cli runs the scripts with bash from
+PATH when it is new enough, else `/opt/homebrew/bin/bash`,
+`/usr/local/bin/bash` or `/opt/local/bin/bash`, and puts that bash first on
+the script's PATH. Stock macOS has only bash 3.2: `brew install bash`.
+
+When the workflow uses check scripts, `transition --to human-testing` waits
+for a passing machine run: each script's newest record under
+`.agent-logs/checks/<name>/*-machine.txt` must have no failed step (needs
+your eyes and skipped are fine). `--dry-run` lists it with the fix,
+`issue-cli check-script <slug> --yes`.
+
 ## How it is wired
 
 - `issue-cli check-script <slug> --list` lists the issue's scripts (exit 1

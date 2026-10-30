@@ -20,13 +20,14 @@
             <div class="stats-head-text">
                 <div class="stats-crumb"><a href="/stats">All projects</a> / {{.Project}}</div>
                 <h1 class="page-title">Stats</h1>
-                <p class="stats-sub">{{if .Latest}}<span data-testid="stats.snapshots">{{plural .Snapshots "snapshot" "snapshots"}}{{if .Backfilled}}, {{.Backfilled}} backfilled{{end}}</span>, latest {{.Latest}}{{else}}<span data-testid="stats.snapshots">No health snapshot yet</span>{{end}} · <span title="{{if .AggMS}}The aggregate took {{.AggMS}} ms to build; it is cached{{end}}">gauges and bars computed now</span> · rules: docs/workflow-stats.md, "Stats page"</p>
+                <p class="stats-sub">{{if .Latest}}<span data-testid="stats.snapshots">{{plural .Snapshots "snapshot" "snapshots"}}{{if .Backfilled}}, {{.Backfilled}} backfilled{{end}}</span>, latest {{.Latest}}{{else}}<span data-testid="stats.snapshots">No health snapshot yet</span>{{end}} · <span title="{{if .AggMS}}The aggregate took {{.AggMS}} ms to build; it is cached{{end}}">gauges and bars computed now</span> · rules: docs/workflow-stats.md, "Stats page" · <a href="{{.WorkshopURL}}" data-testid="stats.workshop">Workshop view</a></p>
             </div>
             <nav class="stats-options" aria-label="Chart options" data-testid="stats.options">
                 <div class="stats-seg" role="group" aria-label="Range" data-testid="stats.range">
                     {{range .Ranges}}<a href="{{.Href}}" class="stats-seg-btn{{if .On}} active{{end}}"{{if .On}} aria-current="true"{{end}} data-range="{{.Key}}" data-testid="stats.range.{{.Key}}">{{.Label}}</a>{{end}}
                 </div>
                 <form method="get" action="{{.Base}}" class="stats-group">
+                    {{if .Opts.Classic}}<input type="hidden" name="classic" value="1">{{end}}
                     {{if .Opts.Days}}<input type="hidden" name="days" value="{{.Opts.Days}}">{{else}}<input type="hidden" name="range" value="{{.Opts.Range}}">{{end}}
                     <label>Group by
                         <select name="group" class="stats-select" data-testid="stats.group">

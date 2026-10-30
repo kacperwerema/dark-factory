@@ -1,0 +1,35 @@
+# Department connectors: Marketing (system SEO) has three. wordpress's
+# secret is env:HOME, which every shell sets, so it reads "set" with no real
+# credential and its check passes; search-console's is an env var nobody
+# sets, so it reads "missing"; analytics has no secret and no check. No real
+# credential is ever needed (factory/department-connectors#D-6).
+title: Marketing with three connectors, one secret missing
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client roster
+        systems: [SEO]
+        connectors:
+          - name: wordpress
+            kind: tool
+            command: /bin/sh
+            sends: true
+            note: Client sites
+            secrets:
+              WP_APP_PASSWORD: env:HOME
+            check: 'test -n "$WP_APP_PASSWORD"'
+          - name: search-console
+            kind: mcp
+            command: gsc-mcp
+            secrets:
+              GSC_TOKEN: env:PLAYTEST_GSC_TOKEN_NEVER_SET
+            check: "true"
+          - name: analytics
+            kind: tool
+            command: /bin/echo
+issues: tracker
+workflow: workflow.yaml

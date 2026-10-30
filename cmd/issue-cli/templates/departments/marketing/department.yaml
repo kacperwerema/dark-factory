@@ -1,0 +1,31 @@
+# Department template: what `issue-cli department add marketing` installs.
+# The workflow file is the bundled workflow template named in workflow:,
+# written to workflows/<key>.yaml; role.md is written to
+# departments/<key>/role.md. Everything else becomes the department's entry
+# in projects.yaml. See docs/departments.md#templates.
+name: Marketing
+description: "SEO and content: refreshed client pages and posts, each reviewed by the owner before it goes out"
+color: "#E2559B"
+role: "SEO and content for the client sites"
+mission: "Every client site refreshed every week"
+systems: [SEO]
+workflow: content
+goals:
+  - id: pages
+    name: Client pages refreshed
+    target: 10
+    period: week
+  - id: posts
+    name: Posts published
+    target: 2
+    period: week
+# Recurring jobs: each run is an issue in the department (docs/departments.md,
+# "Recurring jobs"). A due run waits in Needs you until the owner starts it or
+# turns its standing start on: issue-cli job auto on marketing/weekly-seo-pass.
+jobs:
+  - id: weekly-seo-pass
+    name: Weekly SEO pass
+    every: week
+    on: mon
+    at: "07:00"
+    brief: jobs/weekly-seo-pass.md

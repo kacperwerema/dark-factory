@@ -24,6 +24,7 @@ workbench:
     - build/workbench/knobs.json                # knob export files
   systems:
     Sim:
+      paths: [src/sim/, "**/*Sim*.cs"]             # the system's code: the Systems page code map
       metrics: [full-holds, stage-share, open-*]   # ids, globs allowed
       knobs: [OpeningPrep, Role*]                  # names, globs allowed
       families:
@@ -34,6 +35,7 @@ workbench:
 
 - **Metrics entry:** with `metrics` or `tuning` set, the sidebar shows **Metrics** after Balance, with a red "N off" when any master metric is off.
 - **Branches only:** a git project with neither key still gets the entry, labelled **Branches** and showing only the Branches tab.
+- **System paths:** `paths:` on a system are repo globs of its code, relative to the repository root. The Systems page code map reads them and stops being a draft once every system has them ([UI: The Systems page code map](UI/overview.md#the-systems-page-code-map)); a system's own Workshop page lists exactly its files ([UI: The Workshop page](UI/overview.md#the-workshop-page-one-system)). `issue-cli health lint` warns on a glob that matches no file.
 
 ## Metric run (`metrics.probe_results`)
 
@@ -118,7 +120,7 @@ The Branches tab and the detail page's Shared files row use git only; no file is
 
 ## Dependencies
 
-- **`depends_on`** in an issue's frontmatter lists the issues it waits on. See [Issue File Format](issue-format.md#frontmatter-fields).
+- **`depends_on`** in an issue's frontmatter lists the issues it waits on. See [Issue File Format](issue-format.md#frontmatter-fields). When one of them has a live worker, the Workshop Board shows this issue's worker as waiting on an agent, as for `blocked_on`.
 - **Decided by** lists the decisions an issue's body cites (`slug#D-n`), with their state from the [decisions index](issue-format.md#decisions).
 - **Where they show:** both appear on the detail page, on the Branches tab and in `issue-cli show`.
 
@@ -368,6 +370,7 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `template`: the `template:` stamp against the bundled template.
   - `placeholders`: `{{name}}` a field never fills.
   - `sections`: gates on sections no template writes the way the gate needs.
+  - `paths`: a `workbench.systems` `paths:` glob that matches no file in the repository, or leaves it.
 
   [CLI: health](CLI/overview.md#health) has each rule.
 - **When it runs:** in every snapshot: the one `issue-cli ci run` takes after each run, and the viewer's daily one. It reads the present files, so backfill leaves it out. The Health view also runs lint live: its **Lint** section lists every warning with its fix (50, then the command for the rest). The Status page's Health card shows the snapshot's count (`3 lint warnings`), linking to it.
@@ -444,6 +447,22 @@ The `opinion` family puts the newest review into every snapshot, so the line hol
 | `opinion.recommendations` | `kind`, `state` | its recommendations |
 
 A review over 7 days old is flagged on the Health view, on the Status card and in `/status.md`. Nothing runs by itself (D-3).
+
+### The bench family
+
+The newest finished run of every [factory benchmark](benchmark.md) with a task in the project (`internal/bench`). `issue-cli bench run` takes a snapshot of each such project when a run ends (trigger `bench`), and the daily snapshot repeats the newest run. It reads the present runs, so backfill leaves it out. The holdout appears only as counts. Stats draws `bench.pass_rate` as "Factory benchmark pass rate".
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `bench.pass_rate` | `benchmark`, `setup` (the run's label) | tasks passed, share of scored tasks (holdout and broken left out) |
+| `bench.tasks` | same | scored tasks |
+| `bench.holdout.passed`, `bench.holdout.total` | same | holdout tasks passed, scored |
+| `bench.judge` | same | mean judge score 0-5 (only with a judge) |
+| `bench.gates_first_try` | same | transitions that passed on the first try, share (only with gates) |
+| `bench.tokens` | same | tokens the run spent (only when every task's usage was read) |
+| `bench.cost` | same | cost of the run, USD |
+| `bench.wall` | same | wall time summed over the tasks, seconds |
+| `bench.cli_refused`, `bench.rework` | same | refused issue-cli calls, backward transitions |
 
 ### Adding a family
 
@@ -535,7 +554,7 @@ It is sent when the iframe loads, again whenever the issues change (`/hash`'s `h
 <body>
   <h1>This week</h1>
   <p>Open issues: <strong id="open">…</strong></p>
-  <p><a href="/p/atlas/workboard" target="_top">Open the board</a></p>
+  <p><a href="/p/atlas/hall" target="_top">Open the board</a></p>
   <script>
     window.addEventListener('message', function (e) {
       if (e.data && e.data.type === 'issue-viewer.status') {

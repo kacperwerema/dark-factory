@@ -40,7 +40,7 @@ Each takes the DetailData; detail.html places them.
             {{if $t.Mockups}}<a href="#it-mockups" class="btn">Mockups ({{len $t.Mockups}})</a>{{end}}
         </div>
         {{template "approve-words" "band"}}
-        <div class="it-mono it-muted it-command" data-testid="detail.needs.command">or tell the lead: {{.Command}}</div>
+        <div class="it-mono it-muted it-command" data-testid="detail.needs.command">or tell the CEO: {{.Command}}</div>
         {{else if eq .State "playtest"}}
         <code class="it-code" data-testid="detail.needs.command">{{.Command}}</code>
         <div data-playtest>

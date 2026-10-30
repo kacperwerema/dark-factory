@@ -13,8 +13,14 @@ import (
 
 // checkRoots are the checkouts that may hold the issue's guided check
 // scripts: its worktree first (scripts stay on the branch), then the project.
+// Without the workflow's worktree, the git worktree on work/<slug> counts.
 func checkRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) []string {
 	roots := playtestRoots(proj, issue, wf)
+	if len(roots) == 1 {
+		if wt := checks.IssueWorktree(projectRoot(proj), issue.Slug); wt != "" {
+			roots = append(roots, wt)
+		}
+	}
 	if len(roots) == 2 {
 		roots[0], roots[1] = roots[1], roots[0]
 	}

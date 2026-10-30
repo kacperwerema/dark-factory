@@ -60,7 +60,7 @@ steps:
       - open: /p/{project}/status?classic=1
     act:
       - check: { text_equals: { target: status.waiting.pop.summary, text: "7 to approve · 1 question" } }
-      - check: { text_equals: { target: status.working.pop.summary, text: "12 agents stopped · lead not running" } }
+      - check: { text_equals: { target: status.working.pop.summary, text: "12 agents stopped · CEO not running" } }
       - check: { text_equals: { target: status.next.pop.summary, text: "8 backlog · 6 parked" } }
       - check: { absent: [status.waiting, status.working, status.next] }
       - snapshot: { name: milestone_before, target: status.milestone }

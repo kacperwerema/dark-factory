@@ -314,6 +314,17 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .sidebar-agents-dot { color: var(--green); }
 
 /* YOLO mode: yellow-black stripes mean YOLO only (orange stays the owner's). */
+.sidebar-autostart {
+    display: block;
+    margin: 0 12px 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border, #444);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+}
+.sidebar-autostart:hover { border-color: var(--text); }
 .sidebar-yolo {
     margin: 0 12px;
     padding: 8px 10px;
@@ -1587,6 +1598,13 @@ html[data-sidebar-hidden="true"] .sidebar-show-btn { display: inline-block; }
 
 .comment-source-icon.bot {
     color: #8b5cf6;
+}
+
+.comment-author {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-right: 4px;
 }
 
 .comment-date {
@@ -3173,7 +3191,7 @@ a.balance-pass:hover { text-decoration: none; border-color: var(--text-secondary
 }
 .agent-node.selected { outline: 2px solid var(--text-link); outline-offset: 1px; }
 .agent-human { cursor: default; font-weight: 600; }
-.agent-project-lead { font-weight: 600; }
+.agent-project-lead, .agent-department-lead { font-weight: 600; }
 .agent-worker, .agent-other { font-weight: 400; }
 .agent-name { font-family: var(--font-mono); }
 .agent-state { color: var(--text-secondary); font-size: 12px; }

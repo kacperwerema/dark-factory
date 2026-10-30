@@ -94,26 +94,28 @@
     roads.forEach(function (r) { path(r.d, '#FFFFFF', 2, '7 7'); });
   }
 
-  // "Start CEO" on a building site: spawn the project's lead.
+  // "Start CEO" on a building site: spawn the project's lead (or, with
+  // data-spawn-what, the department lead the button names).
   document.querySelectorAll('[data-spawn-lead]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var box = btn.closest('.wb-site') || btn.closest('[data-spawn-box]') || btn.parentNode;
       var msg = box.querySelector('.wb-site-msg');
+      var what = btn.getAttribute('data-spawn-what') || 'the CEO';
       btn.disabled = true;
-      msg.textContent = 'Starting the CEO…';
+      msg.textContent = 'Starting ' + what + '…';
       fetch(btn.getAttribute('data-spawn-lead'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
         .then(function (r) { return r.json(); })
         .then(function (resp) {
           if (resp.status === 'error') {
             var step = (resp.steps || []).filter(function (s) { return s.status === 'error'; })[0];
-            msg.textContent = 'Could not start the CEO' + (step ? ': ' + step.detail : '.');
+            msg.textContent = 'Could not start ' + what + (step ? ': ' + step.detail : '.');
             btn.disabled = false;
             return;
           }
-          msg.textContent = 'CEO started: ' + (resp.session || 'lead') + '.';
+          msg.textContent = 'Started ' + (resp.session || what) + '.';
           setTimeout(function () { location.reload(); }, 1500);
         })
-        .catch(function (e) { msg.textContent = 'Could not start the CEO: ' + e; btn.disabled = false; });
+        .catch(function (e) { msg.textContent = 'Could not start ' + what + ': ' + e; btn.disabled = false; });
     });
   });
 
@@ -172,6 +174,26 @@
       navigator.clipboard.writeText(ref).then(function () { say('Copied ' + ref); }, function () { say(ref); });
     });
   });
+  // Confirm records the owner's words on the decision itself (no CEO).
+  document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var input = form.querySelector('input[name=text]');
+      var msg = form.querySelector('.wb-site-msg');
+      var btn = form.querySelector('button[type=submit]');
+      btn.disabled = true;
+      msg.textContent = 'Confirming…';
+      fetch(form.getAttribute('data-confirm'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: input.value.trim() }) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { msg.textContent = 'Not confirmed: ' + (res.body.error || 'error'); btn.disabled = false; return; }
+          msg.textContent = 'Confirmed ' + res.body.ref + '.';
+          say('Confirmed ' + res.body.ref);
+          setTimeout(function () { location.reload(); }, 600);
+        })
+        .catch(function (err) { msg.textContent = 'Not confirmed: ' + err; btn.disabled = false; });
+    });
+  });
   document.querySelectorAll('[data-question]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var input = document.getElementById('wb-msg-input');
@@ -181,5 +203,26 @@
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
     });
+  });
+  // A room's connectors stay unfolded when the URL names them (after Check now).
+  document.querySelectorAll('details.wb-connectors').forEach(function (box) {
+    if (location.hash === '#' + box.id) box.open = true;
+  });
+  // After Check now, the room polls its connectors until every check has
+  // a result from after the click, then reloads (30 s at most).
+  document.querySelectorAll('[data-checking]').forEach(function (box) {
+    var since = Number(box.getAttribute('data-checking')) * 1000;
+    var tries = 0;
+    var poll = function () {
+      if (++tries > 15) { location.replace(location.pathname + location.hash); return; }
+      fetch(box.getAttribute('data-state'), { headers: { Accept: 'application/json' } })
+        .then(function (res) { return res.json(); })
+        .then(function (list) {
+          var done = list.every(function (c) { return !c.has_check || (c.last_check && Date.parse(c.last_check.date) >= since); });
+          if (done) { location.replace(location.pathname + location.hash); } else { setTimeout(poll, 2000); }
+        })
+        .catch(function () { setTimeout(poll, 2000); });
+    };
+    setTimeout(poll, 1000);
   });
 })();

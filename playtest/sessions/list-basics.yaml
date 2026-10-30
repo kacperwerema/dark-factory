@@ -12,7 +12,7 @@ steps:
   - id: TP6
     title: Rows show each issue's title and status; the filter and search narrow them
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { count: { pattern: list.row.*, equals: 5 } }
       - check: { text_equals: { target: list.row.ui/dark-mode-toggle.status, text: idea } }

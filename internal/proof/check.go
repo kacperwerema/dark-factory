@@ -17,6 +17,7 @@ import (
 // the newest tests: report and each playtest step's latest verdict.
 type checker struct {
 	root, worktree, ref, slug string
+	issuesDir, statsPath      string
 	lastChange                time.Time
 	reportAt                  time.Time
 	hasReport                 bool
@@ -27,7 +28,8 @@ type checker struct {
 // branchCommits lists the work branch's own first-parent commits, newest
 // first. A live branch is read as main..ref, so commits merged in from main
 // never count. After the merge only the recorded head is left, so the walk
-// stops at the issue's first dispatch or transition.
+// stops at the issue's first dispatch or transition. Commits another issue's
+// branch held first are left out (foreignCommits).
 func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 	if c.ref == "" {
 		return nil, nil
@@ -37,8 +39,10 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 		return nil, nil
 	}
 	// Each record starts with \x1e, so the --name-only file list that
-	// follows a commit's header stays in its record.
-	args := []string{"log", "--first-parent", "--name-only", "--format=%x1e%H%x1f%ct%x1f%P%x1f%(trailers:key=Proves,valueonly,unfold,separator=%x1d)%x1f"}
+	// follows a commit's header stays in its record. The whole message is
+	// read, not git's trailers: those are only the last paragraph, and a
+	// Proves: line often sits in its own paragraph before Co-Authored-By.
+	args := []string{"log", "--first-parent", "--name-only", "--format=%x1e%H%x1f%ct%x1f%P%x1f%B%x1f"}
 	out, err := git(c.root, append(args, rng...)...)
 	if err != nil {
 		return nil, err
@@ -49,16 +53,36 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 		if len(f) < 5 {
 			continue
 		}
-		cm := commit{sha: f[0], at: unixTime(f[1]), merge: len(strings.Fields(f[2])) > 1}
-		for _, v := range strings.Split(f[3], "\x1d") {
-			if v = strings.TrimSpace(v); v != "" {
-				cm.proves = append(cm.proves, v)
-			}
-		}
+		parents := strings.Fields(f[2])
+		cm := commit{sha: f[0], at: unixTime(f[1]), merge: len(parents) > 1, parents: parents}
+		cm.proves = provesLines(f[3])
 		cm.files = strings.Fields(f[4])
 		commits = append(commits, cm)
 	}
-	return commits, nil
+	foreign := foreignCommits(c.root, c.issuesDir, c.statsPath, c.ref, stats, commits)
+	own := commits[:0]
+	for _, cm := range commits {
+		if !foreign[cm.sha] {
+			own = append(own, cm)
+		}
+	}
+	return own, nil
+}
+
+// provesLines reads the values of the Proves: lines in a commit message's
+// body, in any paragraph.
+func provesLines(msg string) []string {
+	var out []string
+	lines := strings.Split(msg, "\n")
+	for _, l := range lines[1:] {
+		key, v, ok := strings.Cut(strings.TrimSpace(l), ":")
+		if ok && strings.EqualFold(key, "Proves") {
+			if v = strings.TrimSpace(v); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }
 
 // LogRange is the git log range of the work branch's own commits at ref:
@@ -135,14 +159,13 @@ func (c *checker) findTests(names []string) {
 	out, _ := git(c.root, append(args, c.ref, "--")...)
 	hit := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		// <ref>:<path>:<match>; the match is one of the names.
+		// <ref>:<path>:<match>; the match is one of the names, which may
+		// hold a colon itself ("D-8: …", an it() title).
 		rest := strings.TrimPrefix(line, c.ref+":")
-		i := strings.LastIndex(rest, ":")
-		if i < 0 {
-			continue
-		}
-		if testPathRe.MatchString(rest[:i]) {
-			hit[rest[i+1:]] = true
+		for _, n := range todo {
+			if path, ok := strings.CutSuffix(rest, ":"+n); ok && testPathRe.MatchString(path) {
+				hit[n] = true
+			}
 		}
 	}
 	for _, n := range todo {

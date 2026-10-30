@@ -43,7 +43,7 @@ steps:
   - id: TP6
     title: The pages entry shows under Status in the sidebar and opens in the same frame
     setup:
-      - open: /p/{project}/workboard
+      - open: /p/{project}/workboard?classic=1
     act:
       - check: { text_equals: { target: nav.page.0, text: Balance report } }
       - click: nav.page.0

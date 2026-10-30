@@ -12,7 +12,7 @@ steps:
   - id: TP12
     title: Without workbench.balance there is no Balance tab, and /balance explains how to turn it on
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { visible: nav.tab.decisions }
       - check: { absent: nav.tab.balance }

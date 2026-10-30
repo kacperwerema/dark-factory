@@ -12,7 +12,7 @@ steps:
   - id: TP11
     title: The board reads well at desktop and phone width
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     targets:
       - { id: board.column.backlog, note: Two cards wait here }
       - { id: board.filters, note: "Known bug: does not wrap at phone width" }
@@ -31,7 +31,7 @@ steps:
   - id: TP12
     title: The overlay works on a live board
     setup:
-      - open: /p/{project}/board
+      - open: /p/{project}/board?classic=1
     targets:
       - { id: board.card.ui/dark-mode-toggle, note: Drag this card to Backlog }
       - { id: board.column.backlog.cards, note: Drop it here }

@@ -1,0 +1,111 @@
+session: stats-workshop
+issue: factory/stats-screen
+title: Hall stats on the Workshop Board - gauges, trends, where the time goes, token cost, CLI usage, and /stats across projects
+scenario: stats
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: /p/<project>/stats is the Workshop Board page with every section
+    proves: [AC1, AC3, AC6]
+    setup:
+      # The board's own daily snapshot (with the storage family) lands a few
+      # seconds after the board is up; the fixtures are from late September
+      # 2026, so range=all keeps them in.
+      - wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }
+      - open: /p/{project}/stats?range=all
+      - wait_for: stats.page
+    checks:
+      - visible: [hall.tabs, seg.stats-range, stats.now, stats.trends, stats.time, stats.cost, stats.cli, stats.tables]
+      - selected: hall.tab.stats
+      - selected: seg.stats-range.all
+      - selected: seg.stats-group.type
+      - count: { pattern: stats.gauge.*, equals: 5 }
+      - visible: [stats.gauge.waiting-on-you, stats.gauge.big-files, stats.gauge.milestone]
+      - visible: [stats.chart.cycle, stats.chart.waiting, stats.chart.working, stats.chart.rework, stats.chart.storage]
+      - absent: stats.chart.loc
+      - visible: stats.see_also.code-shape
+      - text_contains: { target: stats.see_also.code-shape, text: "Latest lines of code" }
+      - visible: [stats.chart.time, stats.chart.group, stats.chart.weekly]
+      - visible: [stats.table_card.dispatch, stats.table_card.static, stats.table_card.recorded, stats.table_card.issues]
+      - text_contains: { target: stats.snapshots, text: "backfilled" }
+      - below: [stats.now, stats.trends]
+      - below: [stats.cost, stats.cli]
+    expect: The board's light look with the hall header (Line · Report · Health · Stats with Stats on). Under the title a range segment. Now has five gauge cards (waiting on you, the milestone, big files linking to Health, two dashed locked cards naming the issues that bring them). Trends shows cycle time, waiting on you with its limit line, agent time, rework and disk use, then a dashed "Code shape is on Health" card with the latest lines of code, then locked cards for the families that don't exist yet. Where the time goes has the legend, the group-by segment, by status and by type bars and the weekly columns across the width. Token cost and CLI usage are white cards with tables; the time tables are folded at the bottom. Everything is in English; nothing is cut off at phone width, where wide tables scroll inside their card.
+    do: Scroll the page top to bottom at desktop and phone width; hover a few points and bars; open Health from the Big files gauge and from the Code shape card, then come back with the Stats tab.
+    why: The hall's time and cost read like the rest of the Workshop Board, and code shape stays in one place, on Health.
+
+  - id: TP5
+    title: Range and group-by reload with the option on; a bar opens the issues behind it
+    proves: [AC4]
+    setup:
+      - open: /p/{project}/stats?range=all
+      - wait_for: stats.page
+      - click: seg.stats-group.system
+      - wait_for: { url: { contains: group=system } }
+    checks:
+      - selected: seg.stats-group.system
+      - selected: seg.stats-range.all
+      - text_contains: { target: stats.chart.group, text: "By system" }
+      - url: { contains: range=all }
+      - exists: stats.table.time
+    expect: Group by System keeps the range and regroups the second bar chart. Each chart's Table opens its rows below it. Opening /p/<project>/stats?range=all&drill=status:human-testing#time shows, under By status, the issues in human-testing, each linking to its Timeline tab, with Close.
+    do: Open Table on two charts, then click a by-status bar and a weekly segment and open one issue from the list.
+    why: Every view is a link, and every number leads to the issues behind it.
+
+  - id: TP6
+    title: Without history or done issues in range, each block says what is missing and what fills it
+    proves: [AC5, AC8]
+    setup:
+      # The fixtures are a month old: the last 7 days have no snapshot and
+      # no done issue.
+      - open: /p/{project}/stats?range=7d
+      - wait_for: stats.page
+    checks:
+      - visible: stats.backfill_hint
+      - text_contains: { target: stats.backfill_hint, text: "health backfill" }
+      - text_contains: { target: stats.chart.cycle, text: "a trend point is a day's snapshot" }
+      - text_contains: { target: stats.chart.time, text: "No issues with CLI calls done in this range" }
+      - text_contains: { target: stats.chart.time, text: "Show all time" }
+      - text_contains: { target: stats.done, text: "0 issues done" }
+    expect: A blue hint over the trends names issue-cli … health backfill with a Copy button; each trend card says it has no points and gives the same command; the time bars say no issue was done in range and offer Show all time; no empty axes are drawn.
+    do: Press Copy on a command and paste it in a shell; press Show all time.
+    why: An empty page tells you how to fill it instead of showing zeros.
+
+  - id: TP7
+    title: Classic view keeps the classic page and links back to the Workshop view
+    proves: [AC1, AC8]
+    setup:
+      - open: /p/{project}/stats?range=all
+      - wait_for: stats.page
+      - click: stats.classic
+      - wait_for: stats.dashboard
+      - click: stats.range.30d
+      - wait_for: { url: { contains: range=30d } }
+    checks:
+      - visible: stats.dashboard
+      - url: { contains: classic=1 }
+      - visible: stats.workshop
+    expect: Classic view opens the old Stats page with the sidebar; its range links stay on the classic page; Workshop view goes back to the new page with the same range.
+    do: Press Workshop view.
+    why: The old page stays one click away while the new one settles.
+
+  - id: TP8
+    title: /stats is the Workshop Board overview, one card per project
+    proves: [AC2, AC8]
+    setup:
+      - open: /stats
+      - wait_for: stats.overview
+    checks:
+      - count: { pattern: stats.overview.row, equals: 1 }
+      - text_contains: { target: stats.overview, text: "Stats Demo" }
+      - text_contains: { target: stats.overview, text: "Lines of code" }
+      - selected: seg.overview-range.30d
+      - visible: stats.classic
+    expect: The board header (Map › Stats, all projects); one white card per project with waiting on you (an orange meter with the limit tick), cycle p50, rework share with sparklines, issues done, lines of code, test ratio and big files, and the latest snapshot; the card opens the project's hall stats. Range and Sort by are segments; Classic view opens the old table.
+    do: Click the project card, then try Sort by and Classic view.
+    why: Projects compare side by side in the same look as the rest of the board.

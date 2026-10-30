@@ -26,11 +26,11 @@ var keptValueFlags = map[string]bool{
 // is a positional. TestBoolFlagsCoverCLI keeps the list in step with
 // cmd/issue-cli. A missing entry only over-redacts the next positional.
 var boolFlags = map[string]bool{
-	"agree": true, "all": true, "allow-releases": true, "attach": true, "clear": true, "debug": true,
+	"again": true, "agree": true, "all": true, "allow-releases": true, "as-owner": true, "attach": true, "autostart": true, "clear": true, "debug": true,
 	"deferred": true, "design": true, "detach": true, "dry-run": true,
-	"force": true, "global": true, "headless": true, "help": true, "h": true,
-	"if-untested": true, "import": true, "json": true, "lib": true, "list": true,
-	"first": true, "md": true, "no-ci-valve": true, "once": true, "quiet": true, "rename": true, "reprompt": true, "schema": true,
+	"force": true, "global": true, "headless": true, "help": true, "h": true, "holdout": true,
+	"if-untested": true, "import": true, "json": true, "keep": true, "lib": true, "list": true,
+	"first": true, "md": true, "no-ci-valve": true, "no-verify": true, "once": true, "quiet": true, "rename": true, "reprompt": true, "scheduled": true, "schema": true,
 	"send": true, "spawn": true, "yes": true,
 }
 

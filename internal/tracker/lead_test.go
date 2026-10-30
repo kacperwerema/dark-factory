@@ -3,6 +3,7 @@ package tracker
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -101,16 +102,49 @@ func TestLeadFor(t *testing.T) {
 	}
 
 	r := LeadFor(proj, child, issues, liveSet("lead-ui-epic", "lead-p"))
-	if r != (LeadRoute{Lead: "lead-p", Live: true, Epic: "ui/epic"}) {
+	if r != (LeadRoute{Lead: "lead-p", Live: true, Epic: "ui/epic", CEO: "lead-p", CEOLive: true}) {
 		t.Errorf("child: %+v", r)
 	}
 	r = LeadFor(proj, child, issues, liveSet("lead-ui-epic"))
-	if r != (LeadRoute{Lead: "lead-p", Live: false, Epic: "ui/epic"}) {
+	if r != (LeadRoute{Lead: "lead-p", Live: false, Epic: "ui/epic", CEO: "lead-p"}) {
 		t.Errorf("project lead down: %+v", r)
 	}
 	r = LeadFor(proj, epic, issues, nil)
-	if r != (LeadRoute{Lead: "lead-p"}) {
+	if r != (LeadRoute{Lead: "lead-p", CEO: "lead-p"}) {
 		t.Errorf("epic: %+v", r)
+	}
+}
+
+// A department issue reports to its department's lead while it is live,
+// else to the CEO covering for it; Product's issues report to the CEO.
+func TestLeadFor_Department(t *testing.T) {
+	proj := &Project{Slug: "acme", Departments: []Department{{Name: "Social Media", Systems: []string{"Social"}}}}
+	post := &Issue{Slug: "social/post", System: "Social"}
+	bug := &Issue{Slug: "engine/bug", System: "Engine"}
+	live := func(names ...string) func(string) bool {
+		return func(n string) bool { return slices.Contains(names, n) }
+	}
+
+	r := LeadFor(proj, post, nil, live("lead-acme", "lead-acme-social-media"))
+	if r.Lead != "lead-acme-social-media" || !r.Live || r.Covering || r.CEO != "lead-acme" || r.Department != "Social Media" {
+		t.Errorf("department lead live: %+v", r)
+	}
+	r = LeadFor(proj, post, nil, live("lead-acme"))
+	if r.Lead != "lead-acme" || !r.Live || !r.Covering || r.DepartmentLead != "lead-acme-social-media" {
+		t.Errorf("department lead down: %+v", r)
+	}
+	r = LeadFor(proj, bug, nil, live("lead-acme", "lead-acme-social-media"))
+	if r.Lead != "lead-acme" || r.Department != "" || r.Covering {
+		t.Errorf("product issue: %+v", r)
+	}
+	if got := proj.DepartmentOfLead("lead-acme-social-media"); got == nil || got.Name != "Social Media" {
+		t.Errorf("DepartmentOfLead = %+v", got)
+	}
+	if got := proj.DepartmentByKey("social-media"); got == nil || got.Name != "Social Media" {
+		t.Errorf("DepartmentByKey = %+v", got)
+	}
+	if LeadScopeDepartment("Social Media") != "department:social-media" {
+		t.Errorf("scope = %q", LeadScopeDepartment("Social Media"))
 	}
 }
 

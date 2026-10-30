@@ -39,6 +39,17 @@ type LeadBriefInput struct {
 	Root string
 	// Now dates the handoff note the lead is told to write.
 	Now time.Time
+	// AutoStart is the project's auto-start when the owner turned it on;
+	// nil when it is off.
+	AutoStart *AutoStartBrief
+}
+
+// AutoStartBrief is what the lead is told of the project's auto-start.
+type AutoStartBrief struct {
+	Words      string // the owner's words that turned it on
+	Below      int    // memory %
+	MaxWorkers int
+	Paused     bool
 }
 
 // LeadBrief renders the brief the project lead is spawned with: the
@@ -70,6 +81,20 @@ func LeadBrief(wf *WorkflowConfig, in LeadBriefInput) string {
 	fmt.Fprintf(&b, "- Messaging: in Claude Code, agents on this project message each other with ListAgents / SendMessage, addressed by tmux name (yours is %s; workers are agent-<slug>). Workers message you only when the human, in their chat, gives them permission or asks them to; don't ask workers to report to you. issue-cli lead message pastes only into Codex sessions; for a Claude session it refuses and prints the SendMessage call to make.\n", lead)
 	b.WriteString("- Dispatching: issue-cli dispatch <slug> --quote \"<the human's words>\" starts the worker exactly like ▶ on the board and leaves the words on the issue (--agent codex; --reprompt re-sends a live worker's briefing, also with --quote). It refuses, exit 3, while the issue only waits on the human's approval. Never call the viewer over HTTP: issue-cli dispatch and issue-cli status cover it. Starting any other agent (issue-cli health review --spawn) needs the human's words the same way.\n")
 	b.WriteString("- Decisions: record each owner decision under ## Decisions with the human's words (issue-cli append <slug> --section Decisions --body \"- **D-n** · <date> · lead chat: ...\").\n")
+	if a := in.AutoStart; a != nil {
+		fmt.Fprintf(&b, "- Auto-start is on for this project (the owner's words: %q): the one exception to dispatching only what the human names. At each check-in run issue-cli autostart next; when it says start, run the dispatch --autostart command it prints, one per check-in. It holds by itself while memory is at or above %d%%, %d workers are live, or another project just started one; mem-guard check stays the hard stop. Never turn auto-start on, off or pause it without the human's words.", a.Words, a.Below, a.MaxWorkers)
+		if a.Paused {
+			b.WriteString(" It is paused now: start nothing until the human resumes it.")
+		}
+		b.WriteString("\n")
+	}
+	n := 0
+	if proj != nil {
+		for _, d := range proj.Departments {
+			n += len(d.Jobs)
+		}
+	}
+	b.WriteString(JobsBrief(n, true))
 	if wf != nil && wf.CI.Enabled() {
 		b.WriteString("- Local CI: the ci: commands run on the integration branch after every move, without you. CI never messages you: read issue-cli ci status (or the Status page) when the human asks, at each check-in and before any push. When it is red, bring it to the human and decide together whether to revert, fix forward or dispatch a fix. Never push a release while it is red.\n")
 	}
@@ -147,3 +172,16 @@ const snapshotsBrief = "- Private development (privacy.code: snapshots): origin 
 
 // trackerBrief is the lead's line for privacy.work_files: tracker.
 const trackerBrief = "- Private tracker (privacy.work_files: tracker): issues, sessions and retros live in a private tracker repo; the viewer syncs it every 10 minutes. Before a handoff run issue-cli tracker sync; never add work files to the code repo (the pre-push guard refuses them).\n"
+
+// JobsBrief is a lead's rule for the n recurring jobs in its scope; "" with
+// none. ceo: the CEO, who ticks the jobs of departments without a live lead.
+func JobsBrief(n int, ceo bool) string {
+	if n == 0 {
+		return ""
+	}
+	scope := "your department's recurring jobs"
+	if ceo {
+		scope = "the recurring jobs of departments whose lead is not live (job due leaves the others out)"
+	}
+	return fmt.Sprintf("- Recurring jobs (%d): you tick %s. At each check-in run issue-cli job due and the one command it prints for each job: issue-cli job run <job> --scheduled only where it says start (the job's standing start is the owner's words). A job that waits for the owner stays in Needs you until the owner starts it or asks you (then issue-cli job run <job> --quote \"<the human's words>\"). A hold clears by itself; never work around it. Never turn a job's standing start on or off without the human's words (issue-cli job auto).\n", n, scope)
+}

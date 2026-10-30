@@ -129,7 +129,7 @@ func TestStartScenarioIsolated(t *testing.T) {
 		}
 	}()
 
-	resp, err := http.Get(sc.Base + "/p/demo/board")
+	resp, err := http.Get(sc.Base + "/p/demo/board?classic=1")
 	if err != nil {
 		t.Fatal(err)
 	}

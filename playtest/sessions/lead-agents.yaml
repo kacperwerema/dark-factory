@@ -25,16 +25,16 @@ steps:
       - tmux: [new-session, -d, -s, lead-crew, cat]
     act:
       - cli: [--project, crew, lead, spawn]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
-      - cli: { args: [--project, crew, lead, spawn], contains: "Already live: project lead lead-crew" }
+      - cli: { args: [--project, crew, lead, spawn], contains: "Already live: CEO lead-crew" }
       - tmux: { session: lead-crew, present: true }
       - cli: { args: [--project, crew, lead, list], contains: "lead-crew" }
 
   - id: TP4
     title: approve without the human's words is refused with a hint
     setup:
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
       - cli: { args: [--project, crew, approve, ui/child, --to, testing], exit: 1, contains: "--quote" }
 
@@ -43,9 +43,9 @@ steps:
     setup:
       - tmux: [new-session, -d, -s, lead-crew, cat]
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
-      - cli: { args: [--project, crew, lead, list], contains: "project lead  live" }
+      - cli: { args: [--project, crew, lead, list], contains: "CEO  live" }
       - cli: { args: [--project, crew, lead, list], contains: "ui/epic (in progress) · children running 1/2" }
       - cli: { args: [--project, crew, lead, list], not_contains: "sub-lead" }
 
@@ -59,7 +59,7 @@ steps:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
     act:
       - cli: [--project, crew, lead, message, project, ping from the human]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
       - tmux: { pane: lead-crew, contains: "[from human] ping from the human" }
       - cli: { args: [--project, crew, lead, message, ui/child, ping from the human], exit: 1, contains: "SendMessage({to: \"agent-ui-child\"" }
@@ -71,7 +71,7 @@ steps:
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
     act:
       - post: { path: "/p/{project}/issue/ui/child/dispatch", json: { agent: claude }, status: 200 }
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
       - http: { path: "/p/{project}/issue/ui/child/dispatch-prompt", contains: "You report to the project lead lead-crew (live). Your issue is part of epic ui/epic." }
       - cli: { args: [--project, crew, dispatch-prompt, ui/child], not_contains: "## Base branch" }
@@ -83,7 +83,7 @@ steps:
       - tmux: [new-session, -d, -s, lead-crew, cat]
       - tmux: [new-session, -d, -s, agent-ui-child, cat]
       - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     checks:
       - visible: [agents.you, agents.node.lead-crew]
       - count: { pattern: agents.node.agent-ui-child, within: agents.tree, equals: 1 }
@@ -150,7 +150,7 @@ steps:
   - id: TP12
     title: Spawn lead in the Actions bar starts the project lead
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
       # Make lead-crew live after the page loaded, so the click re-attaches
       # instead of starting a real agent.
       - tmux: [new-session, -d, -s, lead-crew, cat]

@@ -20,9 +20,11 @@ The board and detail views can dispatch issues to AI agents (Claude or Codex) vi
 
 The tool runs agents only when a human directs it. Once started, agents work on their own.
 
-- **A human starts the work.** Each worker starts from a dispatch on the board (▶), or from `issue-cli dispatch <slug> --quote "<the human's words>"`, where the words name that worker. The lead runs that command only when you tell it to in its chat, and only for the issues you name. It never starts work on its own: not when planning finishes, not as the next issue, not more workers than you named. The quote is the lead's report of what you said: the tool records it in a `dispatch:` comment but can't check it, and the trail makes it reviewable.
+- **A human starts the work.** Each worker starts from a dispatch on the board (▶), or from `issue-cli dispatch <slug> --quote "<the human's words>"`, where the words name that worker. The lead runs that command only when you tell it to in its chat, and only for the issues you name. It never starts work on its own: not when planning finishes, not as the next issue, not more workers than you named, unless you turned auto-start on for the project (below). The quote is the lead's report of what you said: the tool records it in a `dispatch:` comment but can't check it, and the trail makes it reviewable.
 - **Then agents work on their own.** A started worker runs in auto mode through its one issue's workflow and stops there. It stops at the gates the workflow puts in front of you. In a worker session, `start`, `claim` and `transition` on any other issue fail, and the worker prompt says never to pick the next issue.
-- **No unattended runs.** The tool has no scheduler, timer, overnight batch or auto-dispatch. Don't wrap anything around it (cron, a loop script, a scheduled check-in) that starts or prompts sessions without a human. Unattended runs are outside this tool: use `claude -p` or the Agent SDK with your own API key, not a Claude subscription.
+- **No unattended runs.** The tool has no scheduler, timer, overnight batch or auto-dispatch of its own. Don't wrap anything around it (cron, a loop script, a scheduled check-in) that starts or prompts sessions without a human. Unattended runs are outside this tool: use `claude -p` or the Agent SDK with your own API key, not a Claude subscription.
+- **One exception: auto-start, opt-in per project.** Your words can be a standing start: `issue-cli autostart on --quote "<your words>"` stores them for one project, and from then on the lead may start one worker at a time from the project's `next` order while memory is low (`issue-cli autostart next`, then `issue-cli dispatch <slug> --autostart`). It's off by default, only you (or the lead with your quoted words) turn it on, and every auto-start quotes your stored words in its `dispatch:` comment with the memory reading. The tool still runs nothing on a timer: the lead's check-in starts each worker, and `autostart pause` or `off` stops it. See [Auto-start](#auto-start).
+- **The second exception: recurring jobs, opt-in per job.** A department's recurring job (a weekly SEO pass, a daily lead search) can have a standing start too: `issue-cli job auto on <dept>/<job> --quote "<your words>"` (or `--all`). From then on, when the job is due, the lead's check-in starts its run (`issue-cli job due`, then `issue-cli job run <job> --scheduled`) inside the same budget as auto-start: mem-guard, the worker cap and the machine-wide gap. It's off by default. Without it, a due job waits in Needs you until you press ▶ Start run or name it. Every run quotes the words it started on in its `dispatch:` comment. The tool still runs nothing on a timer. See [Recurring jobs](departments.md#recurring-jobs).
 
 Agents message each other with Claude Code's own `ListAgents` / `SendMessage`. `issue-cli` never pastes into a Claude session on an agent's behalf: `issue-cli lead message` pastes only into Codex sessions, and for a Claude session it prints the `SendMessage` call to make instead.
 
@@ -34,6 +36,9 @@ Every place the engine pastes into or starts a session, and what starts it:
 |---|---|---|
 | Dispatch a worker | `agentrun.Start` via ▶ / `POST …/dispatch` | your click |
 | | `issue-cli dispatch --quote` | your words, quoted (the lead or your shell) |
+| | `issue-cli dispatch --autostart` | your stored [auto-start](#auto-start) words, at the lead's check-in |
+| | `issue-cli job run <job> --quote` / ▶ Start run on Needs you | your words or your click: one [recurring job](departments.md#recurring-jobs) run |
+| | `issue-cli job run <job> --scheduled` | the job's stored standing-start words, at the lead's check-in |
 | Re-send prompt | `agentrun.Reprompt` via the button / `POST …/dispatch/reprompt` | your click |
 | | `issue-cli dispatch --reprompt --quote` | your words, quoted |
 | Approval nudge into the worker | `tmuxSendKeys` (`agentrun.SendKeys`) in the approve handler | your Approve click in the viewer |
@@ -298,6 +303,31 @@ worktree_sparse_exclude: ["issues/"]   # the default; [] keeps everything
 
 Epics and their children get worktrees like any other issue: `work/<slug>` from `HEAD`. An old `base:` on an epic is ignored. See [The lead session](patterns/lead-session.md#epics).
 
+## Auto-start
+
+Auto-start is your standing start for one project: while memory is low, the lead starts one more worker at a time from the project's own list, without you naming each one. It's off for every project until you turn it on.
+
+```bash
+issue-cli autostart on --quote "start a new job when memory is under 50%" [--below 50] [--max-workers 2] [--gap 5]
+issue-cli autostart status      # on / paused / off, your words, the limits, the last start, the verdict now
+issue-cli autostart next        # start <slug> and the command to run, or hold: <reason>
+issue-cli dispatch <slug> --autostart
+issue-cli autostart pause [--reason "..."] | resume | off [--reason "..."]
+```
+
+- **Your words.** `autostart on` stores them with who relayed them and when, in `.autostart/<project>.json` in the main checkout (next to `.yolo/`, never committed). Only you, or the lead with your words, can turn it on, pause, resume or turn it off. Workers are refused. `off` logs the window in `.autostart/<project>.log.jsonl`.
+- **The check.** `autostart next` holds, with the reason, when:
+  - auto-start is off or paused
+  - `mem-guard` isn't on `PATH`, or `mem-guard check` refuses (the hard stop)
+  - `mem-guard used` is at or above `--below` (default 50%)
+  - the project has `--max-workers` live `agent-*` sessions (default 2; the lead doesn't count)
+  - any project on this machine auto-started a worker less than `--gap` minutes ago (default 5)
+  - nothing in the list is ready
+- **The list.** Unclaimed `backlog` issues of the project's version, by priority then file order, the same order as `issue-cli next`. An issue is skipped while its worker is live, a `depends_on` issue isn't done, or it only waits on your approval (unless YOLO is on, which passes that gate).
+- **The start.** `dispatch <slug> --autostart` takes a lock shared by every project on the machine (`$XDG_STATE_HOME/ai-workflow-engine/autostart/`), decides again for that issue, starts it like any dispatch and records the start. Its `dispatch:` comment quotes your stored words: `dispatch: "<your words>" (auto-start, turned on by lead-x in the lead chat 2026-10-30; memory 31% < 50%, 1/2 workers, 2026-10-30)`. When anything holds, it exits 1 and starts nothing.
+- **Who ticks.** The lead, at its check-ins. Its brief carries the rule while auto-start is on, and `issue-cli lead whoami` prints it. The tool still runs nothing on a timer, and the viewer never starts a worker for it.
+- **Where it shows.** An Auto-start card on the Report (`/p/<project>/status`) with your words, the verdict now and the last start on this machine, plus **Pause** / **Resume** / **Turn off** buttons (`POST /p/<project>/autostart/pause|resume|off`). The sidebar shows an Auto-start line while it's on, and `status.md` / `issue-cli status` print `Auto-start: …`.
+
 ## Lead Sessions
 
 There is one lead per project. It runs in tmux like a worker, as `lead-<project>`, in the project checkout. Start it with `issue-cli lead spawn`, or the **Spawn lead** button in the sidebar's Actions or on the agents canvas (`POST /p/<project>/lead/spawn`, body `{}`). A live lead is re-attached, never started twice.
@@ -307,13 +337,13 @@ There is one lead per project. It runs in tmux like a worker, as `lead-<project>
 - A `lead-*` session is never counted as an active agent on an issue, even when its name contains the issue's slug.
 - Every worker's dispatch prompt has a `## Your lead` section naming the project lead and the issue's epic.
 - Agents message each other with Claude Code's own `ListAgents` / `SendMessage`, addressed by tmux name. The tool builds nothing on top of it; the briefs just say it is there. `issue-cli lead message` pastes only into Codex sessions; for a Claude session it refuses and prints the `SendMessage` call.
-- The lead dispatches only the workers you name in its chat, with `issue-cli dispatch --quote` (see [A human starts the work](#a-human-starts-the-work)). A session in a different permission mode from the sender holds incoming messages for its human's approval, as Claude Code does out of the box.
+- The lead dispatches only the workers you name in its chat, with `issue-cli dispatch --quote` (see [A human starts the work](#a-human-starts-the-work)), or, where you turned [auto-start](#auto-start) on, one at a time with `issue-cli dispatch --autostart`. A session in a different permission mode from the sender holds incoming messages for its human's approval, as Claude Code does out of the box.
 
 See [The lead session](patterns/lead-session.md) for roles, routing and authority.
 
 ## Lead chat
 
-The **CEO chat** (`/p/<project>/lead`, L1 · HQ on the Workshop Board; the company page's HQ desk, the map's *Talk to the CEO* and the sidebar's Lead chat all link it) is you talking to the project lead in the board, without `tmux attach`. It replaced the classic lead chat; `?classic=1` serves the same page. **Every CEO** (`/leads`) shows each configured project's lead as a card: live or not, how many things wait on you there, and *Talk to the CEO*.
+The **CEO chat** (`/p/<project>/lead`, L1 · HQ on the Workshop Board; the company page's HQ desk, the map's *Talk to the CEO* and the sidebar's Lead chat all link it) is you talking to the project lead in the board, without `tmux attach`. It replaced the classic lead chat; `?classic=1` serves the same page. **All CEOs** (`/leads`, the map's *All CEOs* link; `wb/ceo-grid` of `wb/ceo-card`s, or "No project is configured in projects.yaml.") shows each configured project's lead as a card: live or not, how many things wait on you there, and *Talk to the CEO*.
 
 - **The conversation.** The page reads the lead's Claude Code transcript: the newest `*.jsonl` under `~/.claude/projects/<cwd>/` (`$CLAUDE_CONFIG_DIR/projects` when set; the folder is the lead's working directory with every character that isn't a letter or digit as `-`, cut at 200 characters plus a hash when longer) whose `agent-name` record is the lead's session name, which `claude -n lead-<project>` writes (`leadTranscript`, ceo_transcript.go). The last 4 MB are read, and read again only when the file changes. Your messages are on the right, as you typed them: Claude Code's reminders are cut, and ticks, peer messages, task notifications and subagent turns are left out. Each CEO message is one bubble with its markdown rendered (lists, code, tables; raw HTML is dropped). A turn's tool calls fold into one line ("used 3 tools: Bash ×2, Read") that opens to each call's name and its description, command or file; tool output is left out. Each AskUserQuestion stays in the turn as a card: grey and marked *answered* with what was chosen, once its answer is in the transcript. The last 60 turns show, and a note says older ones are in tmux. Without a transcript (a lead started by hand without `-n`, or another cwd), the page falls back to `tmux capture-pane -p -J -S -2000` split into turns (`parseCEOPane`), and says so above the conversation. **Terminal** shows the raw pane. The page polls `GET …/lead?part=live` every 1.5 s while the tab is visible; each part (conversation, pane, menu, side panel) is replaced only when it changed, the box you type in is never touched, and the conversation follows the bottom unless you have scrolled up.
 - **Working and menus.** The spinner line (`… esc to interrupt`) shows as the CEO working, with **Interrupt (Esc)**. A numbered menu under a question at the bottom of the pane (a permission prompt) is the *CEO waits on your choice* card: what it is about (the command), the question, and one button per option that presses its digit. The session mode in the footer (`auto`, `plan`, `accept edits`) is the chip under the CEO's name.

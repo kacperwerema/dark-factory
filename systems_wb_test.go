@@ -41,7 +41,7 @@ func TestSystemsWbPage(t *testing.T) {
 		// The file the issue names is on Auth's CODE row and the code map; the
 		// missing one is not.
 		`title="web/src/screens/Login.tsx">screens/Login.tsx</span>`, `<div class="wb-code-pkg-name">web/src</div>`,
-		`no file named in its issues`, `<b>Draft</b>`, `No health snapshot yet`,
+		`no file named in its issues`, `>Draft</b>`, `No health snapshot yet`,
 		// No workbench.systems and no CEO: the unlock card says how.
 		`data-testid="systems.wb.unlock"`, `Unlock: workbench.systems`, `Auth, Docs and UI are not there yet`, `Give the draft to an agent`, `disabled`, `Start the CEO on the Company page first`,
 	)
@@ -114,8 +114,12 @@ func TestSystemsWbClassicAndSystemPage(t *testing.T) {
 		t.Error("?classic=1 is the old index")
 	}
 	code, sys := getBody(t, ts.URL+"/p/test-project/systems/Auth")
+	if code != 200 || !strings.Contains(sys, `data-testid="system.wb.page"`) {
+		t.Errorf("/systems/<name> is the Workshop page: %d", code)
+	}
+	code, sys = getBody(t, ts.URL+"/p/test-project/systems/Auth?classic=1")
 	if code != 200 || !strings.Contains(sys, `data-testid="system.header"`) {
-		t.Errorf("/systems/<name> stays the system page: %d", code)
+		t.Errorf("/systems/<name>?classic=1 stays the classic system page: %d", code)
 	}
 }
 
@@ -132,9 +136,9 @@ func TestCodeIndex(t *testing.T) {
 	}}
 	c := newCodeIndex(root, snap)
 	issue := func(body string) *tracker.Issue { return &tracker.Issue{BodyRaw: body} }
-	plan := c.chipsFor("Plan", []*tracker.Issue{issue("see packages/web/src/screens/Plan.tsx and packages/web/src/lib/store.ts:42"), issue("packages/web/src/screens/Plan.tsx again")})
-	shop := c.chipsFor("Shopping", []*tracker.Issue{issue("`packages/web/src/lib/store.ts` and https://x.io/a.ts and ../main.go")})
-	c.chipsFor("Engine", []*tracker.Issue{issue("main.go and internal/health/shape.go")})
+	plan := c.chipsFor("Plan", nil, []*tracker.Issue{issue("see packages/web/src/screens/Plan.tsx and packages/web/src/lib/store.ts:42"), issue("packages/web/src/screens/Plan.tsx again")})
+	shop := c.chipsFor("Shopping", nil, []*tracker.Issue{issue("`packages/web/src/lib/store.ts` and https://x.io/a.ts and ../main.go")})
+	c.chipsFor("Engine", nil, []*tracker.Issue{issue("main.go and internal/health/shape.go")})
 
 	if len(plan) != 2 || plan[0].Name != "screens/Plan.tsx" || plan[0].Hot || plan[1].Name != "lib/store.ts" || !plan[1].Hot {
 		t.Errorf("Plan chips = %+v", plan)
@@ -211,6 +215,7 @@ func TestSystemsWbComponents(t *testing.T) {
 		`data-testid="systems.wb.card.plan"`, `3 gates</span>`, `2 open · 1 done`, `aria-label="Plan: 2 open, 1 done"`,
 		`<a class="wb-cdot wb-cdot--you" href="/p/x/issue/a"`, `<span class="wb-cdot wb-cdot--done"></span>`, `+4`,
 		`week.rs<i class="wb-hot-dot"`, `Decisions · 11`, `Plan() has 982 lines`)
+	assertContains(t, render("wb/workshop", WbWorkshop{Name: "Docs", CodeNone: "no file matches its paths"}), `wb-code-chip--none">no file matches its paths`)
 	if strings.Contains(render("wb/workshop", WbWorkshop{Name: "Docs"}), "systems.wb.gates") {
 		t.Error("no gates pill without gates")
 	}
@@ -227,4 +232,83 @@ func TestSystemsWbComponents(t *testing.T) {
 	}
 	assertContains(t, render("wb/unlock-card", &WbUnlockCard{Title: "Unlock: workbench.systems", Button: "Give the draft to an agent", SendURL: "/p/x/lead/send", Message: "Draft it", Live: true}),
 		`data-send="/p/x/lead/send"`, `name="text" value="Draft it"`, `Give the draft to an agent`)
+}
+
+func TestCodeIndexPaths(t *testing.T) {
+	root := t.TempDir()
+	for _, p := range []string{"web/src/screens/Plan.tsx", "web/src/screens/Week.tsx", "web/src/lib/store.ts", "web/src/styles.css", "main.go"} {
+		os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0755)
+		os.WriteFile(filepath.Join(root, p), []byte("x\n"), 0644)
+	}
+	snap := &health.Snapshot{Metrics: []health.Row{
+		{Metric: "shape.hotspot", Labels: map[string]string{"path": "web/src/styles.css"}, Value: 900},
+		{Metric: "shape.hotspot", Labels: map[string]string{"path": "web/src/screens/Week.tsx"}, Value: 500},
+	}}
+	issue := func(body string) *tracker.Issue { return &tracker.Issue{BodyRaw: body} }
+
+	// Plan and Shopping have paths, Engine doesn't: a draft naming Engine.
+	c := newCodeIndex(root, snap)
+	plan := c.chipsFor("Plan", []string{"web/src/screens/", "**/store.ts"}, []*tracker.Issue{issue("web/src/lib/store.ts")})
+	c.chipsFor("Shopping", []string{"web/src/lib/*.ts"}, nil)
+	c.chipsFor("Engine", nil, []*tracker.Issue{issue("main.go")})
+	if len(plan) != 3 || plan[0].Path != "web/src/lib/store.ts" || plan[1].Path != "web/src/screens/Week.tsx" || plan[2].Path != "web/src/screens/Plan.tsx" {
+		t.Errorf("Plan chips: its globs' files, the ones its issues name first, then hot: %+v", plan)
+	}
+	m := c.codeMap(true)
+	if !m.Draft || !strings.HasPrefix(m.Note, "Engine: read from the files their issues name") {
+		t.Errorf("mixed: a draft naming the system without paths: %+v", m)
+	}
+	files := map[string]WbCodeFile{}
+	for _, p := range m.Packages {
+		for _, f := range p.Files {
+			files[f.Path] = f
+		}
+	}
+	if f := files["web/src/lib/store.ts"]; !f.Shared || f.Systems != "Plan, Shopping" {
+		t.Errorf("store.ts is owned by two systems' globs: %+v", f)
+	}
+	if f := files["main.go"]; f.Systems != "Engine" {
+		t.Errorf("Engine keeps its issue-named file: %+v", f)
+	}
+	if f := files["web/src/styles.css"]; f.Systems != "?" || f.SystemsTitle != "no system's paths: or issues claim it" {
+		t.Errorf("a hotspot nobody owns: %+v", f)
+	}
+
+	// Every system has paths: no draft.
+	c = newCodeIndex(root, snap)
+	c.chipsFor("Plan", []string{"web/src/screens/"}, nil)
+	c.chipsFor("Engine", []string{"*.go"}, nil)
+	m = c.codeMap(true)
+	if m.Draft || !strings.Contains(m.Note, "from paths: in workbench.systems") {
+		t.Errorf("all paths: confirmed: %+v", m)
+	}
+	if got := c.chipsFor("Empty", []string{"nothing/**"}, nil); len(got) != 0 {
+		t.Errorf("a glob matching nothing gives no chips: %+v", got)
+	}
+}
+
+func TestSystemsWbPagePaths(t *testing.T) {
+	proj, root := setupTestProject(t)
+	withMockTmuxSessions(t, nil)
+	os.MkdirAll(filepath.Join(root, "web", "src", "screens"), 0755)
+	os.WriteFile(filepath.Join(root, "web", "src", "screens", "Login.tsx"), []byte("x\n"), 0644)
+	os.WriteFile(filepath.Join(proj.IssueDir, "login-copy.md"), []byte("---\ntitle: \"Login copy\"\nstatus: \"backlog\"\nsystem: \"Auth\"\n---\n\nNo file named.\n"), 0644)
+	proj.WorkflowFile = filepath.Join(root, "workflow.yaml")
+	base := "statuses:\n  - name: \"backlog\"\n  - name: \"in progress\"\n  - name: \"done\"\nworkbench:\n  systems:\n    Auth:\n      paths: [\"web/src/screens/\"]\n    UI:\n      summary: x\n"
+	os.WriteFile(proj.WorkflowFile, []byte(base+"    Docs:\n      summary: x\n"), 0644)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getBody(t, ts.URL+"/p/test-project/systems")
+	assertContains(t, html, `title="web/src/screens/Login.tsx">screens/Login.tsx</span>`, `data-testid="systems.wb.codemap.draft"`,
+		`Docs and UI: read from the files their issues name`, `Unlock: a confirmed code map`, `Give Docs and UI paths: in workbench.systems`)
+
+	os.WriteFile(proj.WorkflowFile, []byte(base+"      paths: [\"web/\"]\n    Docs:\n      paths: [\"*.md\"]\n"), 0644)
+	_, html = getBody(t, ts.URL+"/p/test-project/systems")
+	assertContains(t, html, `Which packages belong to which systems, from paths: in workbench.systems.`)
+	for _, s := range []string{`systems.wb.codemap.draft`, `Unlock: a confirmed code map`, `systems.wb.unlock`} {
+		if strings.Contains(html, s) {
+			t.Errorf("every system has paths: no %s", s)
+		}
+	}
 }

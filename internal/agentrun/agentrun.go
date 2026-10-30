@@ -48,8 +48,8 @@ type Spec struct {
 	// IssueSlug is exported as ISSUE_VIEWER_ISSUE_SLUG and names the window
 	// in per-session mode. Empty for agents not bound to an issue.
 	IssueSlug string
-	// LeadScope is exported as ISSUE_VIEWER_LEAD_SCOPE: "project" or the
-	// epic slug. Empty for workers.
+	// LeadScope is exported as ISSUE_VIEWER_LEAD_SCOPE: "project" (the CEO) or
+	// department:<key> (a department lead). Empty for workers.
 	LeadScope string
 	// WorkDir is the project checkout the agent (or its worktree) starts
 	// from; "" means ProjectWorkDir(proj).
@@ -81,6 +81,12 @@ var validSessionName = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // --model flag is added only when the project enforces one
 // (agent_model_source: project).
 func LaunchCommand(proj *tracker.Project, agentType, session, promptPath string) string {
+	return LaunchCommandWith(proj, agentType, session, promptPath, nil)
+}
+
+// LaunchCommandWith is LaunchCommand with extra flags before the prompt
+// (the department's MCP connectors, ConnectorFlags), each shell-quoted.
+func LaunchCommandWith(proj *tracker.Project, agentType, session, promptPath string, extra []string) string {
 	nameFlag := ""
 	if agentType == "claude" && validSessionName.MatchString(session) {
 		nameFlag = " -n " + session
@@ -89,7 +95,11 @@ func LaunchCommand(proj *tracker.Project, agentType, session, promptPath string)
 	if m := proj.AgentModel(agentType); m != "" && validModelName.MatchString(m) {
 		modelFlag = " --model " + m
 	}
-	return fmt.Sprintf("%s%s%s \"$(cat %q)\"", agentType, nameFlag, modelFlag, promptPath)
+	extraFlags := ""
+	for _, f := range extra {
+		extraFlags += " " + shellWord(f)
+	}
+	return fmt.Sprintf("%s%s%s%s \"$(cat %q)\"", agentType, nameFlag, modelFlag, extraFlags, promptPath)
 }
 
 // AgentCommand wraps launch for running as a tmux window's own command: in
@@ -244,8 +254,9 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// The prompt goes in as the agent's launch argument, never pasted: a
 	// paste sent before the agent's input is ready is silently dropped. Both
 	// agents start interactive, so a human stays in the loop.
+	extra := ConnectorFlags(proj, spec, sessionLogDir, env, &steps)
 	createName, createCmd := CreateTmux(proj, session, workDir, env,
-		AgentCommand(LaunchCommand(proj, spec.AgentType, session, promptPath))...)
+		AgentCommand(LaunchCommandWith(proj, spec.AgentType, session, promptPath, extra))...)
 	if !RunStep(&steps, fmt.Sprintf("%s, running %s (interactive, prompt as argument)", createName, spec.AgentType), createCmd) {
 		response.Status = "error"
 		response.Steps = steps

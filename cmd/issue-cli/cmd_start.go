@@ -19,7 +19,8 @@ Handoff statuses (backlog, human-testing) auto-advance to the next work status
 when the matching approval is present — e.g. start on an approved backlog issue
 moves it to "in progress" and consumes the approval. This advance is announced
 with a prominent AUTO-ADVANCED banner so it is never silent. Without the
-approval, start fails without changing anything. From any non-handoff status,
+approval, start fails without changing anything, unless YOLO is on and would pass the
+gate as transition does (see 'issue-cli yolo status'). From any non-handoff status,
 start only claims the issue and leaves the status unchanged.
 
 When the approval is missing, tell the human what to approve, then stop and
@@ -66,8 +67,13 @@ func runStart(ctx *Context, args []string) error {
 		assignee = agentNameForSlug(issue.Slug)
 	}
 
+	gate, err := passStartYOLOGate(ctx, wf, issue, issues, assignee)
+	if err != nil {
+		return err
+	}
 	started, err := wf.StartIssueOnce(issue.FilePath, slug, assignee)
 	if err != nil {
+		printYOLOGate(ctx.Stderr, gate, issue.Status, gate.To, ctx.now())
 		return err
 	}
 	issue = started.Issue
@@ -91,6 +97,10 @@ func runStart(ctx *Context, args []string) error {
 	advanced := started.Transitioned && started.FromStatus != started.ToStatus
 	if advanced {
 		printAutoAdvanceBanner(ctx.Stdout, started.FromStatus, started.ToStatus, started.Result.ClearedApproval)
+	}
+
+	if advanced {
+		printYOLOGate(ctx.Stdout, gate, started.FromStatus, started.ToStatus, ctx.now())
 	}
 
 	if started.Claimed {
@@ -120,6 +130,24 @@ func runStart(ctx *Context, args []string) error {
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
 	printStartWorkflowReminder(ctx.Stdout, wf)
 	return nil
+}
+
+// passStartYOLOGate passes the gate start's handoff advance needs while YOLO
+// is on, as transition does. The gate is judged as if start had already
+// claimed the issue: start claims and advances in one step, so an unclaimed
+// backlog issue (in design → backlog clears the assignee) still passes.
+func passStartYOLOGate(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue, assignee string) (yoloGate, error) {
+	to := wf.StartTarget(issue.Status)
+	if to == "" {
+		return yoloGate{}, nil
+	}
+	candidate := *issue
+	if candidate.Assignee == "" {
+		candidate.Assignee = assignee
+	}
+	gate, err := passYOLOGate(ctx, wf, &candidate, issues, to, nil)
+	gate.To = to
+	return gate, err
 }
 
 // printAutoAdvanceBanner renders the prominent notice shown when `start`
@@ -188,7 +216,7 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 			suffix = "   (optional — every remaining status is optional)"
 		}
 		cmd, note := nextStepCommand(wf, issue.Slug, issue.Status, next)
-		cmd, note = yoloNextStep(ctx, wf, issue.Slug, issue.Status, next, cmd, note)
+		cmd, note = yoloNextStep(ctx, wf, issue, issue.Status, next, cmd, note)
 		fmt.Fprintf(w, "  %s%s\n", cmd, suffix)
 		if note != "" {
 			fmt.Fprintf(w, "  %s\n", note)

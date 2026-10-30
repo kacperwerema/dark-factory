@@ -149,8 +149,30 @@ func TestProveRefusals(t *testing.T) {
 	}
 	assertContains(t, stdout.String(), "✗ shot shots/glow.png (prove) — missing")
 
+	// The feature from the template alone is no runner: a lead's notes in
+	// sessions/ and no playtest/sessions/ (the meals report).
 	runner, _, _ := makeProofFixture(t, "2026-10-23", "playtest-sessions@v0.36.0")
+	if err := os.MkdirAll(filepath.Join(runner.Root(), "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runner.Root(), "sessions", "2026-10-26-lead-meals.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ctx, _, _ = newTestContext(runner, false)
+	if err := runProve(ctx, []string{"cli/sample", "AC2", "--shot", "shots/glow.png"}); err != nil {
+		t.Errorf("shot with the feature but no runner: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(runner.Root(), "playtest", "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runner.Root(), "playtest", "sessions", "glow.yaml"), []byte("session: glow\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, _, _ = newTestContext(runner, false)
+	if err := runProve(ctx, []string{"cli/sample", "AC2", "--clear"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := runProve(ctx, []string{"cli/sample", "AC2", "--shot", "shots/glow.png"}); err == nil || !strings.Contains(err.Error(), "this project has a playtest runner") {
 		t.Errorf("shot with a playtest runner: %v", err)
 	}

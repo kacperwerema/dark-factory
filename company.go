@@ -26,7 +26,8 @@ const (
 	companyProductColor = "#3D7BF7"
 )
 
-// companyRadioMax is how many of the CEO's lines the Radio shows.
+// companyRadioMax is how many of the CEO's lines the Radio shows, and how
+// many progress: and question: comments below them.
 const companyRadioMax = 8
 
 // companyStationBots is how many robots a station draws before "+N".
@@ -72,6 +73,14 @@ type CompanyData struct {
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	data := s.buildCompany(proj, prefix, time.Now())
+	// After Check now the room polls until its checks are in.
+	if since, dept := r.URL.Query().Get("checking"), r.URL.Query().Get("dept"); since != "" {
+		for i := range data.Rooms {
+			if c := data.Rooms[i].Connectors; c != nil && c.Dept == dept {
+				c.Since = since
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "company.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -136,7 +145,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.HQ = WbRoomHQ{
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},
 		Desk: WbCEODesk{CEO: lot.CEO, Color: color, ChatURL: prefix + "/lead", SpawnURL: prefix + "/lead/spawn"},
-		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}},
+		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}, {Text: "Crew →", URL: prefix + "/agents"}},
 	}
 	if rep.HQ != nil {
 		d.HQ.Mission = rep.HQ.Mission
@@ -182,12 +191,15 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	product.Head.Chips = append(product.Head.Chips, WbChip{Tone: "idle", Text: plural(len(workers), "worker", "workers")})
 	d.Product = product
 
+	allJobs := viewerJobs(p, issues, now)
 	for i, dept := range p.Departments {
-		room := companyDeptRoom(p, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now)
+		room := companyDeptRoom(p, prefix, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now)
+		room.Jobs = deptJobLines(prefix, dept.Name, allJobs, now)
 		if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
 			room.Mission, room.Goals = o.Mission, roomGoals(o, deptColor(dept, i))
 		}
 		room.Shelf = shelf[outputs.DeptKey(dept.Name)]
+		room.Connectors = roomConnectors(p, prefix, dept.Name, now)
 		d.Rooms = append(d.Rooms, room)
 	}
 	d.Departments = 2 + len(p.Departments)
@@ -201,13 +213,16 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 			d.Radio = leadRadio(cleanPane(pane), lot.CEO.Session, companyRadioMax)
 		}
 	}
+	// The CEO's pane lines have no time: they stay on top, live; the
+	// comments follow newest first.
+	d.Radio = append(d.Radio, radioComments(p, prefix, issues, now, companyRadioMax)...)
 	d.Message = WbMessageBox{Session: lot.CEO.Session, SendURL: prefix + "/lead/send", Live: lot.CEO.Live, SpawnURL: prefix + "/lead/spawn"}
 	return d
 }
 
 // companyDeptRoom is a department projects.yaml adds, as a room: its
 // workers at their desks, its role, its open and done work.
-func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
+func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
 	open, done := 0, 0
 	var own []*tracker.Issue
 	for _, issue := range issues {
@@ -225,8 +240,14 @@ func companyDeptRoom(p *tracker.Project, dept tracker.Department, i int, issues 
 	for _, w := range workers {
 		robots = append(robots, workerRobot(w))
 	}
+	lead := tracker.DepartmentLeadName(p, dept.Name)
+	q := chatQuery(&dept)
 	room := WbRoomDept{
 		Head: WbRoomHead{Title: dept.Name, Color: deptColor(dept, i), Meta: plural(len(workers), "agent", "agents")},
+		Lead: WbDeptLead{
+			Who: chatWho(&dept), Session: lead, Live: agentrun.IsLive(p, lead), Color: deptColor(dept, i),
+			ChatURL: prefix + "/lead" + q, SpawnURL: prefix + "/lead/spawn" + q,
+		},
 		Crew: wbCrew(robots),
 		Role: dept.Role,
 		Foot: []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", done), Tone: "green"}, {Text: fmt.Sprintf("%d open", open)}},

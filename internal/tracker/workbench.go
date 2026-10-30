@@ -44,6 +44,18 @@ type WorkbenchSystem struct {
 	Metrics   []string                   `yaml:"metrics,omitempty" desc:"Metric ids whose guard rows show on the system page"`
 	Knobs     []string                   `yaml:"knobs,omitempty" desc:"Tuning knob names (globs allowed) shown on the system page"`
 	Families  map[string]WorkbenchFamily `yaml:"families,omitempty" desc:"Groups of mechanics inside the system, each an umbrella issue with its own page"`
+	Paths     []string                   `yaml:"paths,omitempty" desc:"Repo globs of the system's code, relative to the repository root (** any directories, dir/ everything under it); the Systems page code map reads them"`
+}
+
+// Owns reports whether the repo-relative slash path p matches one of the
+// system's paths globs.
+func (s WorkbenchSystem) Owns(p string) bool {
+	for _, g := range s.Paths {
+		if MatchGlob(g, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // WorkbenchFamily is a group of mechanics inside a system (AI › Play calls):

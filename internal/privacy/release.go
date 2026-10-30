@@ -16,8 +16,9 @@ import (
 // Private development, public releases (privacy.code: snapshots): origin is
 // a private dev repo with every branch and tag; the public repo is the
 // remote `public` and gets ONE commit per release, the release branch tip's
-// tree with the message vX.Y.Z, built with git commit-tree so no dev
-// commit, message or branch name travels with it. A release is cut first as
+// tree with the subject vX.Y.Z and the release's changelog section as the
+// body, built with git commit-tree so no dev commit, message or branch name
+// travels with it. A release is cut first as
 // release/vX.Y with rc tags on it, soaks there (fixes are cherry-picked from
 // main), and is published from that branch.
 
@@ -27,7 +28,7 @@ const publicBaseKey = "issue-cli.publicbase"
 
 var snapshotSubjectRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
-// IsSnapshot reports whether sha is a release snapshot commit: the message
+// IsSnapshot reports whether sha is a release snapshot commit: the subject
 // is exactly vX.Y.Z and it has at most one parent.
 func IsSnapshot(root, sha string) bool {
 	out, err := git(root, "log", "-1", "--format=%P%x00%B", sha)
@@ -38,7 +39,8 @@ func IsSnapshot(root, sha string) bool {
 	if len(strings.Fields(parents)) > 1 {
 		return false
 	}
-	return snapshotSubjectRe.MatchString(strings.TrimSpace(msg))
+	subject, _, _ := strings.Cut(strings.TrimSpace(msg), "\n")
+	return snapshotSubjectRe.MatchString(strings.TrimSpace(subject))
 }
 
 // SetupResult says what Setup did.
@@ -122,9 +124,15 @@ type CutResult struct {
 
 // Cut tags the next release candidate of cut on its release branch,
 // creating the branch from from (dev main) and its worktree when they are
-// missing. push sends the branch to origin (the dev repo).
-func Cut(root, cut, from string, push bool) (CutResult, error) {
+// missing. Under code: snapshots it sends the branch to origin (the dev
+// repo), and refuses before doing anything while setup hasn't run: origin
+// may still be the public repo (NotSwitched).
+func Cut(root, cut, from string, cfg *tracker.PrivacyConfig) (CutResult, error) {
 	res := CutResult{Branch: milestone.ReleaseBranch(cut), Worktree: filepath.Join(root, ".worktrees", milestone.ReleaseWorktreeName(cut))}
+	push := cfg.Snapshots()
+	if err := NotSwitched(root, cfg); err != nil {
+		return res, fmt.Errorf("not cutting %s: %w", cut, err)
+	}
 	if _, err := git(root, "rev-parse", "-q", "--verify", "refs/heads/"+res.Branch); err != nil {
 		if _, err := git(root, "branch", res.Branch, from); err != nil {
 			return res, err
@@ -160,6 +168,21 @@ func Cut(root, cut, from string, push bool) (CutResult, error) {
 		res.Pushed = true
 	}
 	return res, nil
+}
+
+// NotSwitched is the error while privacy.code is snapshots but release
+// setup hasn't run (no public remote): origin may still be the public repo,
+// so nothing may be pushed to it. The CodeBadge calls this "Not switched".
+func NotSwitched(root string, cfg *tracker.PrivacyConfig) error {
+	if !cfg.Snapshots() {
+		return nil
+	}
+	remote := cfg.Remote()
+	if url, _ := git(root, "remote", "get-url", remote); url != "" {
+		return nil
+	}
+	origin, _ := git(root, "remote", "get-url", "origin")
+	return fmt.Errorf("privacy.code is snapshots, but there is no %s remote, so origin (%s) may still be the public repo and nothing is pushed to it. Switch first: issue-cli release setup --dev <private dev repo url>", remote, valueOr(origin, "none"))
 }
 
 // PickResult is the commits Pick applied.
@@ -239,6 +262,7 @@ type PublishInput struct {
 	Cfg       *tracker.PrivacyConfig
 	Changelog string // the changelog's path relative to the root, "" for none
 	First     bool   // accept a public tip that isn't a snapshot (the old history)
+	DryRun    bool   // run the checks and say what would go public; write and push nothing
 	Now       time.Time
 }
 
@@ -249,6 +273,11 @@ type PublishResult struct {
 	MainMoved  bool   // main's changelog got the version section
 	MainBranch string
 	Signed     bool // the snapshot was signed with user.signingkey
+
+	// Filled on every run, and all a dry run gives.
+	Message  string // the snapshot's message
+	IsBase   bool   // Parent is the old history recorded at setup, not a snapshot
+	DiffStat string // git diff --stat from Parent to the snapshot's tree
 }
 
 // Publish pushes the release branch tip as one snapshot commit to the
@@ -291,19 +320,31 @@ func Publish(in PublishInput) (PublishResult, error) {
 		}
 	}
 
-	// The changelog heading, on the branch: the only direct commit there.
+	if res.Parent != "" && !IsSnapshot(in.Root, res.Parent) {
+		res.IsBase = true
+	}
+
+	// The changelog heading, on the branch: the only direct commit there. A
+	// dry run renames it in memory only.
+	res.Message = in.Cut
+	renamed := false
 	if in.Changelog != "" {
 		path := filepath.Join(in.Worktree, in.Changelog)
 		if data, err := os.ReadFile(path); err == nil {
+			text := string(data)
 			heading := "## " + in.Cut + " — " + in.Now.Format("2006-01-02")
-			if text, ok := renameUnreleased(string(data), heading); ok {
-				if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-					return res, err
-				}
-				if _, err := git(in.Worktree, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "docs(changelog): "+in.Cut, "--", in.Changelog); err != nil {
-					return res, err
+			if t, ok := renameUnreleased(text, heading); ok {
+				text, renamed = t, true
+				if !in.DryRun {
+					if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+						return res, err
+					}
+					if _, err := git(in.Worktree, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "docs(changelog): "+in.Cut, "--", in.Changelog); err != nil {
+						return res, err
+					}
 				}
 			}
+			res.Message = snapshotMessage(in.Cut, text)
 		}
 	}
 
@@ -311,9 +352,20 @@ func Publish(in PublishInput) (PublishResult, error) {
 	if err != nil {
 		return res, err
 	}
-	args := []string{"commit-tree", tree, "-m", in.Cut}
+	if in.DryRun {
+		from := res.Parent
+		if from == "" {
+			from = emptyTree
+		}
+		res.DiffStat, _ = git(in.Worktree, "diff", "--stat", "--summary", from, tree)
+		if renamed {
+			res.DiffStat = strings.TrimSpace(res.DiffStat + "\n(and " + in.Changelog + "'s ## Unreleased renamed to ## " + in.Cut + ")")
+		}
+		return res, nil
+	}
+	args := []string{"commit-tree", tree, "-m", res.Message}
 	if res.Parent != "" {
-		args = []string{"commit-tree", tree, "-p", res.Parent, "-m", in.Cut}
+		args = []string{"commit-tree", tree, "-p", res.Parent, "-m", res.Message}
 	}
 	// The public commit is signed with the owner's user.signingkey, so the
 	// public repo shows it Verified. commit-tree signs only with -S (it
@@ -351,6 +403,25 @@ func Publish(in PublishInput) (PublishResult, error) {
 		res.MainMoved = moved
 	}
 	return res, nil
+}
+
+// emptyTree is git's empty tree: what a first publish to an empty public
+// repo diffs from.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// snapshotMessage is the public commit's message: the version as the
+// subject, then the changelog's section for it (its lines without the
+// heading) as the body, so the public log reads as release notes.
+func snapshotMessage(cut, changelog string) string {
+	start, end, ok := section(changelog, func(h string) bool { return strings.HasPrefix(h, "## "+cut+" ") || h == "## "+cut })
+	if !ok {
+		return cut
+	}
+	_, body, _ := strings.Cut(changelog[start:end], "\n")
+	if body = strings.TrimSpace(body); body == "" {
+		return cut
+	}
+	return cut + "\n\n" + body + "\n"
 }
 
 func valueOr(s, def string) string {

@@ -16,7 +16,7 @@ steps:
   - id: TP4
     title: The Metrics entry shows the off count; Guard metrics lists every metric with band, master value and verdict, and the filters narrow it
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { text_contains: { target: nav.tab.metrics, text: 4 off } }
       - click: nav.tab.metrics

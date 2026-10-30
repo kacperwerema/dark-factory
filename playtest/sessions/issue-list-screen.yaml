@@ -1,0 +1,80 @@
+session: issue-list-screen
+issue: factory/issue-list-screen
+title: Crate store - every issue as a crate, filters as pills and facets
+scenario: basic
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The project root is the crate store; crates sit on shelves by status and open their station
+    proves: [AC1, AC2, AC8, AC10]
+    setup:
+      - open: /p/{project}/
+    act:
+      - check: { selected: hall.tab.issues }
+      - check: { count: { pattern: issues.crate.*, equals: 5 } }
+      - check: { visible: [issues.shelf.idea, issues.shelf.backlog, issues.shelf.in_progress, issues.shelf.done] }
+      - check: { text_contains: { target: issues.shelf.backlog, text: "backlog · 2" } }
+      - click: issues.crate.ui/dark-mode-toggle.title
+      - wait_for: { url: { contains: /issue/ui/dark-mode-toggle } }
+      - open: /p/{project}/hall
+      - click: hall.tab.issues
+      - wait_for: issues.page
+    checks:
+      - visible: [issues.page, issues.count, search.issues, issues.classic, bars.issues_system]
+      - text_contains: { target: issues.count, text: "5" }
+    targets:
+      - { id: issues.shelves, note: "The shelves of crates" }
+      - { id: bars.issues_system, note: "Side facets" }
+    do: |
+      1. Open the project's Issues tab (the crate store).
+      2. Read a few crates: title, slug, system, priority, labels.
+      3. Click a crate's title, then come back with the Issues tab.
+    expect: |
+      The page looks like the other hall pages (Decisions, Systems): one
+      crate per issue on shelves in workflow order, done at the bottom, and
+      every crate tells you what it is and where it is without opening it.
+    why: ux-test checks the shelves and links; only you can judge whether it reads as the Workshop Board and whether you find issues faster than on the classic list.
+
+  - id: TP5
+    title: Quick pills, facets and filter pills narrow the store; nothing matching offers Clear
+    proves: [AC3, AC4, AC6]
+    setup:
+      - open: /p/{project}/
+    act:
+      - click: filter.show_open
+      - wait_for: { url: { contains: show=open } }
+      - check: { count: { pattern: issues.crate.*, equals: 4 } }
+      - open: /p/{project}/?system=CLI
+      - check: { count: { pattern: issues.crate.*, equals: 2 } }
+      - check: { visible: filter.clear_system }
+      - type: { target: search.issues.input, text: csv, enter: true }
+      - wait_for: { url: { contains: search=csv } }
+      - check: { count: { pattern: issues.crate.*, equals: 1 } }
+      - check: { visible: issues.crate.cli/export-issues-as-csv }
+      - open: /p/{project}/?system=Nope
+      - check: { visible: issues.nomatch }
+      - click: issues.nomatch.clear
+      - wait_for: issues.crate.ui/dark-mode-toggle
+    checks:
+      - count: { pattern: issues.crate.*, equals: 5 }
+
+  - id: TP6
+    title: New issue opens the create form; the classic list stays at ?classic=1
+    proves: [AC7, AC1]
+    setup:
+      - open: /p/{project}/
+    act:
+      - click: issues.new
+      - wait_for: { visible: create.modal }
+      - open: /p/{project}/?classic=1
+      - check: { count: { pattern: list.row.*, equals: 5 } }
+      - select: { target: list.filter.status, value: backlog }
+      - wait_for: { url: { contains: status=backlog } }
+    checks:
+      - count: { pattern: list.row.*, equals: 2 }
+      - visible: nav.sidebar

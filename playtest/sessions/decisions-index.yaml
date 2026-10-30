@@ -13,12 +13,12 @@ steps:
   - id: TP4
     title: Every project page has a Decisions tab; the List landing page is unchanged
     setup:
-      - open: /p/{project}/
+      - open: /p/{project}/?classic=1
     act:
       - check: { selected: nav.tab.list }
-      - check: { visible: [nav.tab.workboard, nav.tab.docs, nav.tab.decisions] }
-      - check: { exists: [nav.tab.board, nav.tab.graph, nav.tab.canvas] }
-      - open: /p/{project}/board
+      - check: { visible: [nav.tab.hall, nav.tab.docs, nav.tab.decisions] }
+      - check: { exists: [nav.tab.board, nav.tab.workboard, nav.tab.graph, nav.tab.canvas] }
+      - open: /p/{project}/board?classic=1
       - check: { visible: nav.tab.decisions }
       - open: /p/{project}/canvas
       - check: { visible: nav.tab.decisions }
@@ -30,7 +30,7 @@ steps:
       - open: /p/{project}/decisions?classic=1
     checks:
       - selected: nav.tab.decisions
-      - visible: [nav.tab.list, nav.tab.workboard]
+      - visible: [nav.tab.list, nav.tab.hall]
       - exists: nav.tab.canvas
 
   - id: TP5

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,6 +28,11 @@ open issues that still cite them, so they can be revised.
   --quote      the human's own words, quoted after the text
   --replaces   repeatable: <slug>#D-n (or D-n in this issue) it replaces
   --deferred   the decision is to decide later
+  --confirm    D-n: record the human's --quote on that existing decision
+               instead of a new line: its "(provisional…)" mark goes, its
+               how ends "confirmed by owner <date>", and its ref and
+               citations stay valid. --quote is required. The owner's
+               Confirm button in the Decisions log does the same.
 
 Examples:
   issue-cli decide sim/et-style-objective-format-6v6 \
@@ -34,7 +40,9 @@ Examples:
     --how chat --quote "The old continuous raid had no readable tension." \
     --replaces sim/gdd-match-phases#D-1
   issue-cli decide ai/fantasy-classes --deferred --how chat \
-    --text "Balance classes once more elements are in place."`,
+    --text "Balance classes once more elements are in place."
+  issue-cli decide ai/fantasy-classes --confirm D-2 \
+    --quote "Yes, keep the healer slot."`,
 	Run: runDecide,
 }
 
@@ -83,6 +91,7 @@ func runDecide(ctx *Context, args []string) error {
 	howFlag := fs.String("how", "", `how it was made: "chat", "project rule", "playtest" (default "recorded by agent")`)
 	quoteFlag := fs.String("quote", "", "the human's own words")
 	deferredFlag := fs.Bool("deferred", false, "the decision is deferred (decide later)")
+	confirmFlag := fs.String("confirm", "", "D-n: record --quote on this existing decision (clears its provisional mark)")
 	var replaces []string
 	fs.Func("replaces", "repeatable: <slug>#D-n (or D-n in this issue) this decision replaces", func(v string) error {
 		replaces = append(replaces, v)
@@ -95,6 +104,12 @@ func runDecide(ctx *Context, args []string) error {
 	issue, issues, err := findIssueOrErr(ctx, slug)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(*confirmFlag) != "" {
+		if *textFlag != "" || *howFlag != "" || *deferredFlag || len(replaces) > 0 {
+			return fmt.Errorf("--confirm takes only --quote: it records the human's words on %s as it stands", *confirmFlag)
+		}
+		return runDecideConfirm(ctx, issue, issues, *confirmFlag, *quoteFlag)
 	}
 	how := *howFlag
 	if strings.TrimSpace(*quoteFlag) == "" {
@@ -158,10 +173,47 @@ func runDecide(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, " Open issues still citing it:")
 		fmt.Fprintln(ctx.Stdout, strings.Join(lines, "\n"))
 	}
+	for _, ref := range nd.Replaces {
+		if old := index.Lookup(ref); tracker.NeedsOwnerWords(old.Decision) && old.Slug == issue.Slug {
+			fmt.Fprintf(ctx.Stdout, "To only add the human's words to a decision, keep its D-n instead: issue-cli decide %s --confirm %s --quote \"…\"\n", old.Slug, old.ID)
+		}
+	}
 	if len(stale) > 0 {
 		fmt.Fprintf(ctx.Stdout, "Next: revise those issues to cite %s, or leave them for the human (they show as stale in %s).\n", d.Ref, out.Decisions)
 	}
 	fmt.Fprintf(ctx.Stdout, "Cite this decision from dependent issues as %s.\n", d.Ref)
+	return nil
+}
+
+// runDecideConfirm records the human's words on an existing decision.
+func runDecideConfirm(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, id, quote string) error {
+	if strings.TrimSpace(quote) == "" {
+		return fmt.Errorf("--confirm needs --quote: the human's own words confirming it\n\nExample:\n  issue-cli decide %s --confirm %s --quote \"Yes, keep it.\"", issue.Slug, id)
+	}
+	ref := tracker.NormalizeDecisionRef(issue.Slug, id)
+	if ref == "" || !strings.HasPrefix(ref, issue.Slug+"#") {
+		return fmt.Errorf("--confirm %q: want a D-n of this issue", id)
+	}
+	_, num, _ := strings.Cut(ref, "#")
+	e := tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(ctx.Project)).Lookup(ref)
+	switch {
+	case e == nil:
+		return fmt.Errorf("--confirm %s: no such decision\n\nList the decisions in this issue:\n  issue-cli decisions --issue %s", ref, issue.Slug)
+	case e.ReplacedBy != nil:
+		return fmt.Errorf("--confirm %s: it is superseded by %s; confirm that one", ref, e.ReplacedBy.Ref)
+	}
+	d, err := tracker.ConfirmDecision(issue.FilePath, issue.Slug, num, quote, ctx.now())
+	if errors.Is(err, tracker.ErrDecisionConfirmed) {
+		return fmt.Errorf("--confirm %s: it already has the human's words (no provisional mark); nothing to do", ref)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to confirm decision: %w", err)
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, decideOutput{Decision: d, StaleCiters: []staleCiter{}, Decisions: decisionsURL(ctx.Project)})
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ Confirmed %s\n", d.Ref)
+	fmt.Fprintln(ctx.Stdout, d.Raw)
 	return nil
 }
 
@@ -247,6 +299,9 @@ func runDecisions(ctx *Context, args []string) error {
 		state := r.State
 		if state == tracker.DecisionStale {
 			state = "replaced · stale"
+		}
+		if r.ReplacedBy == "" && tracker.NeedsOwnerWords(r.Decision) {
+			state += " · needs owner's words"
 		}
 		fmt.Fprintf(ctx.Stdout, "%s · %s · %s · cited %d open/%d closed\n", r.Ref, r.Date.Format("2006-01-02"), state, len(r.CitedOpen), r.CitedClosed)
 		fmt.Fprintf(ctx.Stdout, "    %s\n", truncateRunes(r.Text, 120))

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/health"
@@ -109,6 +110,43 @@ func TestHealthReviewFlow(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runHealth(ctx, []string{"--family", "nope"}); err == nil || !strings.Contains(err.Error(), "families: ") {
 		t.Fatalf("unknown family: %v", err)
+	}
+}
+
+// A review recorded as the minute turns still lands in its snapshot: the
+// opinion is dated with the same clock reading as the snapshot that reads
+// it (a slow, loaded machine crossed the minute between two readings).
+func TestHealthReviewRecordAcrossAMinute(t *testing.T) {
+	proj, root := makeCIFixture(t, "")
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"snapshot"}); err != nil {
+		t.Fatal(err)
+	}
+	review := filepath.Join(t.TempDir(), "review.json")
+	data, _ := json.Marshal(health.Opinion{Score: 64, Assessment: strings.Repeat("fine ", 70), Recommendations: []health.Recommendation{
+		{ID: "R1", Kind: "config", Title: "Keep the workflow small", Effort: "S", ExpectedEffect: "nothing breaks",
+			Evidence: []health.Evidence{{Path: "workflow.yaml", Shows: "the config"}, {Metric: "codebase.lines{kind=data}", Shows: "7 lines"}}},
+	}})
+	os.WriteFile(review, data, 0o644)
+
+	// The first reading is the last millisecond of a minute; every later
+	// one is in the next minute.
+	edge := time.Now().Truncate(time.Minute).Add(2*time.Minute - time.Millisecond)
+	readings := 0
+	ctx, _, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time {
+		readings++
+		if readings == 1 {
+			return edge
+		}
+		return edge.Add(time.Second)
+	}
+	if err := runHealth(ctx, []string{"review", "record", review}); err != nil {
+		t.Fatal(err)
+	}
+	snap, _, _ := health.Latest(root)
+	if v, ok := snap.Value("opinion.score", nil); !ok || v != 64 || snap.Run.Trigger != health.TriggerReview {
+		t.Fatalf("the review snapshot: opinion.score %v %v, trigger %q", v, ok, snap.Run.Trigger)
 	}
 }
 

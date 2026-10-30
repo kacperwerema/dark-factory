@@ -65,7 +65,7 @@ func TestWorkboardSwitchesWorkflowByDepartment(t *testing.T) {
 	stubAgentsGit(t)
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{a})
-	_, before := getBody(t, ts.URL+"/p/agents/workboard?all=1")
+	_, before := getBody(t, ts.URL+"/p/agents/workboard?classic=1&all=1")
 	ts.Close()
 	if strings.Contains(before, `workboard.department.`) {
 		t.Fatal("no department switch without department workflow files")
@@ -74,11 +74,11 @@ func TestWorkboardSwitchesWorkflowByDepartment(t *testing.T) {
 	withMarketingWorkflow(t, &a, "")
 	ts = newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, product := getBody(t, ts.URL+"/p/agents/workboard?all=1")
+	_, product := getBody(t, ts.URL+"/p/agents/workboard?classic=1&all=1")
 	assertContains(t, product, `data-testid="workboard.department.product"`, `data-testid="workboard.department.marketing"`)
 	if strings.Contains(product, `data-testid="workboard.column.owner_review"`) {
 		t.Error("Product's board drew a Marketing column")
 	}
-	_, mk := getBody(t, ts.URL+"/p/agents/workboard?all=1&department=Marketing")
+	_, mk := getBody(t, ts.URL+"/p/agents/workboard?classic=1&all=1&department=Marketing")
 	assertContains(t, mk, `data-testid="workboard.column.brief"`, `data-testid="workboard.column.owner_review"`)
 }

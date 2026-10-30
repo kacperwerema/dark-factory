@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,16 @@ type WbHeader struct {
 	YOLO *WbYOLO
 }
 
+// CrewURL is where the agent counters go: the project's Crew page, read off
+// WaitingURL (<prefix>/needs-you); "" across projects, where they stay text.
+func (h WbHeader) CrewURL() string {
+	prefix, ok := strings.CutSuffix(h.WaitingURL, "/needs-you")
+	if !ok || !strings.HasPrefix(prefix, "/p/") {
+		return ""
+	}
+	return prefix + "/agents"
+}
+
 // WbCrumb is one level in the header. URL is empty for the current level
 // and for a level not reachable from here (drawn dashed: still to choose).
 type WbCrumb struct {
@@ -72,8 +83,9 @@ type WbChip struct {
 	Dot, Blink                bool
 }
 
-// WbRobot is one agent. State is working, idle, you (waits on the owner) or
-// agent (waits on another agent's issue).
+// WbRobot is one agent. State is working, idle, you (waits on the owner),
+// agent (waits on another agent's issue) or off (no session: a stopped job,
+// a lead not running).
 type WbRobot struct {
 	State string
 	Label string
@@ -112,6 +124,8 @@ func (r WbRobot) StateLabel() string {
 		return "idle"
 	case "you":
 		return "waiting on you"
+	case "off":
+		return "not running"
 	}
 	return "waiting on an agent"
 }
@@ -132,11 +146,13 @@ type WbBuilding struct {
 	Width, Height int
 }
 
-// WbProgress is a labelled bar: a goal or, until projects have goals, the
-// most advanced open epic.
+// WbProgress is a labelled bar: a goal or, for a project without goals, the
+// most advanced open epic. Text replaces Done/Total ("30 / 40"); Title is
+// its hover text.
 type WbProgress struct {
 	Label       string
 	Done, Total int
+	Text, Title string
 }
 
 // Pct is the bar's fill, 0–100.
@@ -229,15 +245,25 @@ type WbRoomHead struct {
 	Chips              []WbChip
 }
 
-// WbFootItem is one line in a room's footer; Tone green for done work.
+// WbFootItem is one line in a room's footer; Tone green for done work, URL
+// makes it a link.
 type WbFootItem struct {
-	Text, Tone string
+	Text, Tone, URL string
 }
 
 // WbCEODesk is the CEO at its desk: the big crowned robot, its latest line
 // and the way to talk to it (or start it).
 type WbCEODesk struct {
 	CEO               WbCEO
+	Color             string
+	ChatURL, SpawnURL string
+}
+
+// WbDeptLead is a department's lead at its desk in the room: Talk to it
+// when it is live (its chat), else Start it.
+type WbDeptLead struct {
+	Who, Session      string
+	Live              bool
 	Color             string
 	ChatURL, SpawnURL string
 }
@@ -265,7 +291,9 @@ type WbStation struct {
 
 // WbRoomDept is a department projects.yaml adds, as a room in the company.
 type WbRoomDept struct {
-	Head    WbRoomHead
+	Head WbRoomHead
+	// Lead is the department's lead: live or not, and Talk or Start.
+	Lead    WbDeptLead
 	Crew    WbCrew
 	Role    string
 	Systems string
@@ -277,7 +305,11 @@ type WbRoomDept struct {
 	Mission                     string
 	Goals                       []WbGoal
 	Shelf                       *WbShelfLink
-	Foot                        []WbFootItem
+	// Connectors are the department's outside tools; nil when none.
+	Connectors *WbConnectors
+	// Jobs are the department's recurring jobs (jobs_view.go).
+	Jobs []WbJobLine
+	Foot []WbFootItem
 }
 
 // WbRoomFactory is Product, the software factory: its line of stations.
@@ -302,8 +334,11 @@ type WbNewTile struct {
 }
 
 // WbMessage is one line on the Radio. Tone is ceo, you, agent or system.
+// A comment line also has Kind (progress or question), URL (its issue's
+// page, To is the slug) and When (its age); a CEO pane line has none.
 type WbMessage struct {
 	From, To, Initials, Tone, Text string
+	Kind, URL, When                string
 }
 
 // WbMessageBox is the box to message the project's CEO.

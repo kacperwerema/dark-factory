@@ -35,6 +35,7 @@ func BuildDispatchPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, workDi
 	wt := IssueWorktree(workDir, issue, wf)
 	route := LeadFor(proj, issue, issues, live)
 	prompt := BuildAgentPrompt(proj, issue, wf, wt.Path, wt.Branch)
+	prompt += InjectProject(proj, DepartmentPromptSection(proj, issue))
 	prompt += InjectProject(proj, LeadPromptSection(issue, route))
 	prompt += InjectProject(proj, CIPromptSection(workDir, wf))
 	return DispatchPrompt{
@@ -74,7 +75,14 @@ func LeadPromptSection(issue *Issue, route LeadRoute) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n\n## Your lead\n\n")
-	fmt.Fprintf(&b, "You report to the project lead %s (%s).", route.Lead, state)
+	switch {
+	case route.Covering:
+		fmt.Fprintf(&b, "You report to the CEO %s (%s), covering for the %s lead %s, which is not running (the human starts it: issue-cli lead spawn --department %s).", route.Lead, state, route.Department, route.DepartmentLead, DepartmentKey(route.Department))
+	case route.Department != "":
+		fmt.Fprintf(&b, "You report to the %s lead %s (%s), who reports to the CEO %s.", route.Department, route.Lead, state, route.CEO)
+	default:
+		fmt.Fprintf(&b, "You report to the project lead %s (%s).", route.Lead, state)
+	}
 	if route.Epic != "" {
 		fmt.Fprintf(&b, " Your issue is part of epic %s.", route.Epic)
 	}

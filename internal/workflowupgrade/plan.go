@@ -126,6 +126,8 @@ type Proposal struct {
 	// Needs lists required entries the project lacks; only --all lists
 	// such a proposal.
 	Needs []string `json:"needs,omitempty"`
+	// Experiment is the experiment that measured the feature, if any.
+	Experiment *ExperimentRef `json:"experiment,omitempty"`
 }
 
 type Plan struct {
@@ -272,6 +274,7 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 			Question:   e.Question,
 			Setup:      e.Setup,
 			Needs:      needs,
+			Experiment: e.Experiment,
 		}
 		if hasRecord {
 			if v, ok := installed[e.ID]; ok {

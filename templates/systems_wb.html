@@ -13,6 +13,7 @@
 </section>
 <main class="wb-main wb-main--page" data-testid="systems.wb.page">
 <div class="wb-systems">
+    {{template "wb/not-found" .NotFound}}
     <div class="wb-systems-bar">
         {{template "wb/crate-legend" .Legend}}
         <a class="wb-classic-link" href="{{.ClassicURL}}" data-testid="systems.wb.classic">Classic view</a>

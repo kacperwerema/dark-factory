@@ -1,0 +1,27 @@
+{{define "updates_overview_wb.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Workflow updates"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page" data-testid="updates_overview.page">
+{{template "wb/header" .Header}}
+<main class="wb-ground wb-uo">
+    <div class="wb-titlebar wb-titlebar--flush">
+        <h1 class="wb-h1">Workflow updates</h1>
+        <span class="wb-sub">Each project's workflow.yaml against the bundled feature catalog ({{.CatalogSize}} features). Open a project for its Updates.</span>
+        <a class="wb-rlink" href="/updates?classic=1" data-testid="updates_overview.classic">Classic view</a>
+    </div>
+    {{if .Rows}}
+    {{template "wb/upd-tally" .Tally}}
+    <div class="wb-uo-grid">
+        {{range .Rows}}{{template "wb/upd-project" .}}{{end}}
+    </div>
+    {{if .NeverScanned}}{{template "wb/upd-note"}}{{end}}
+    {{else}}
+    <div class="wb-empty" data-testid="updates_overview.empty">No project is configured in projects.yaml.</div>
+    {{end}}
+</main>
+</div>
+</body>
+</html>
+{{end}}

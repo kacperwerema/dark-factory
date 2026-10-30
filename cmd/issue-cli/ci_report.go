@@ -84,7 +84,7 @@ func redComment(run *ci.Run, st *ci.State) string {
 		landed = append(landed, mergedLabel(m))
 	}
 	fmt.Fprintf(&b, "Landed since the last green run (%s): %s", ci.Short(st.GreenSha), strings.Join(landed, ", "))
-	fmt.Fprintf(&b, ". Log: %s. The lead decides whether to revert, fix forward or dispatch a fix", run.Log)
+	fmt.Fprintf(&b, ". Log: %s. The CEO decides whether to revert, fix forward or dispatch a fix", run.Log)
 	if st.RedIssue != "" {
 		fmt.Fprintf(&b, "; tracked in %s", st.RedIssue)
 	}

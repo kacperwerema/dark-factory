@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -198,7 +199,7 @@ func ownIssueOnly(ctx *Context, issues []*tracker.Issue, issue *tracker.Issue, v
 	if issue.Slug == own {
 		return nil
 	}
-	return fmt.Errorf("you work on %s only; ask your lead. %s %s changed nothing.\n\nA worker runs its own issue's workflow and stops: it doesn't start, claim or move another issue. Ask on your issue trail:\n  %s",
+	return fmt.Errorf("you work on %s only; ask the CEO. %s %s changed nothing.\n\nA worker runs its own issue's workflow and stops: it doesn't start, claim or move another issue. Ask on your issue trail:\n  %s",
 		own, verb, issue.Slug, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", own)))
 }
 
@@ -356,15 +357,7 @@ func printTickHint(w io.Writer, slug, body string) {
 // sortByPriority sorts issues in place using the provided rank map. Stable
 // across equal priorities.
 func sortByPriority(issues []*tracker.Issue, ranks map[string]int) {
-	for i := 0; i < len(issues); i++ {
-		for j := i + 1; j < len(issues); j++ {
-			ri := ranks[issues[i].Priority]
-			rj := ranks[issues[j].Priority]
-			if rj < ri {
-				issues[i], issues[j] = issues[j], issues[i]
-			}
-		}
-	}
+	sort.SliceStable(issues, func(i, j int) bool { return ranks[issues[i].Priority] < ranks[issues[j].Priority] })
 }
 
 // statusLabel returns the status name, appending " (optional)" when the

@@ -77,7 +77,7 @@ func TestWorkboard_MarkersAndFooters(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	code, html := getBody(t, ts.URL+"/p/wb/workboard")
+	code, html := getBody(t, ts.URL+"/p/wb/workboard?classic=1")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
@@ -140,7 +140,7 @@ func TestWorkboard_MarkersAndFooters(t *testing.T) {
 	}
 
 	// Show all draws the quiet cards as one line.
-	_, all := getBody(t, ts.URL+"/p/wb/workboard?all=1")
+	_, all := getBody(t, ts.URL+"/p/wb/workboard?classic=1&all=1")
 	if !strings.Contains(all, `class="workboard-card workboard-card-compact" data-testid="workboard.card.idle"`) || strings.Contains(cardHTML(t, all, "idle"), "marker.") {
 		t.Error("quiet card under Show all should be one compact line")
 	}
@@ -160,7 +160,7 @@ func TestWorkboard_SortsWaitingThenBlockedFirst(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	_, html := getBody(t, ts.URL+"/p/wb/workboard?all=1")
+	_, html := getBody(t, ts.URL+"/p/wb/workboard?classic=1&all=1")
 	col := html[strings.Index(html, `data-testid="workboard.column.backlog"`):]
 	col = col[:strings.Index(col, "</section>")]
 	var order []string
@@ -180,7 +180,7 @@ func TestWorkboard_GroupsAndFilters(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/wb/workboard?group=epic")
+	_, html := getBody(t, ts.URL+"/p/wb/workboard?classic=1&group=epic")
 	if !strings.Contains(html, `data-testid="workboard.column.epic"`) || !strings.Contains(html, `data-testid="workboard.column.none"`) {
 		t.Fatal("group=epic: want an epic column and No epic")
 	}
@@ -193,12 +193,12 @@ func TestWorkboard_GroupsAndFilters(t *testing.T) {
 		t.Error("epic column header shows the epic's progress")
 	}
 
-	_, html = getBody(t, ts.URL+"/p/wb/workboard?group=system")
+	_, html = getBody(t, ts.URL+"/p/wb/workboard?classic=1&group=system")
 	if !strings.Contains(html, `data-testid="workboard.column.economy"`) || strings.Contains(html, `data-testid="workboard.column.done"`) {
 		t.Error("group=system: one column per system, done left out")
 	}
 
-	_, html = getBody(t, ts.URL+"/p/wb/workboard?waiting=1")
+	_, html = getBody(t, ts.URL+"/p/wb/workboard?classic=1&waiting=1")
 	for _, slug := range []string{"ready", "asked"} {
 		if !strings.Contains(html, "workboard.card."+slug+`"`) {
 			t.Errorf("waiting=1 keeps %s", slug)
@@ -208,7 +208,7 @@ func TestWorkboard_GroupsAndFilters(t *testing.T) {
 		t.Error("waiting=1 drops cards that don't wait on the owner")
 	}
 
-	_, html = getBody(t, ts.URL+"/p/wb/workboard?version=0.2&all=1")
+	_, html = getBody(t, ts.URL+"/p/wb/workboard?classic=1&version=0.2&all=1")
 	if !strings.Contains(html, "workboard.card.other\"") || strings.Contains(html, "workboard.card.idle\"") {
 		t.Error("version filter keeps only that version")
 	}
@@ -226,7 +226,7 @@ func TestWorkboard_ColumnCapAndNoVersionSelect(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	_, html := getBody(t, ts.URL+"/p/test-project/workboard?all=1")
+	_, html := getBody(t, ts.URL+"/p/test-project/workboard?classic=1&all=1")
 	col := html[strings.Index(html, `data-testid="workboard.column.backlog"`):]
 	col = col[:strings.Index(col, "</section>")]
 	if n := strings.Count(col, "data-search="); n != workboardColumnCap {
@@ -330,7 +330,7 @@ func TestSystemPage_RowsCarryCardMarkers(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()
-	code, html := getBody(t, ts.URL+"/p/wb/systems/Economy")
+	code, html := getBody(t, ts.URL+"/p/wb/systems/Economy?classic=1")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}

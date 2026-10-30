@@ -194,7 +194,7 @@ block). templates/health_wb.html composes them.
     {{if .Locked}}
     <div class="wb-fog wb-trend-fog" aria-hidden="true"></div>
     <div class="wb-trend-need">{{.Need}}</div>
-    <code class="wb-trend-cmd">{{.Cmd}}</code>
+    {{if .URL}}<a class="wb-trend-cmd" href="{{.URL}}">{{.Cmd}}</a>{{else}}<code class="wb-trend-cmd">{{.Cmd}}</code>{{end}}
     {{else}}
     {{with .Summary}}<div class="wb-trend-need">{{.}}</div>{{end}}
     {{range .Charts}}<div class="wb-trend-plot">{{.}}</div>{{end}}

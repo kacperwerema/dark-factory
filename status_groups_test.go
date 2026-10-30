@@ -280,10 +280,10 @@ func TestTileSummaries(t *testing.T) {
 	if got := m.NeedsSummary(); got != "2 to approve · 1 to playtest · 2 questions" {
 		t.Errorf("needs = %q", got)
 	}
-	if got := m.WorkingSummary(); got != "2 agents working · 1 without an agent · 1 agent stopped · lead live" {
+	if got := m.WorkingSummary(); got != "2 agents working · 1 without an agent · 1 agent stopped · CEO live" {
 		t.Errorf("working = %q", got)
 	}
-	if got := m.NextSummary(); got != "the lead's ## Next · 1 backlog · 0 parked" {
+	if got := m.NextSummary(); got != "the CEO's ## Next · 1 backlog · 0 parked" {
 		t.Errorf("next = %q", got)
 	}
 }

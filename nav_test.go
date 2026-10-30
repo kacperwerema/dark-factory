@@ -20,16 +20,16 @@ func TestProjectPagesRenderSidebar(t *testing.T) {
 	defer ts.Close()
 
 	pages := map[string]string{
-		"/":                               "list",
-		"/board":                          "board",
-		"/workboard":                      "workboard",
+		"/?classic=1":                     "list",
+		"/board?classic=1":                          "board",
+		"/workboard?classic=1":                      "workboard",
 		"/graph":                          "graph",
 		"/canvas":                         "canvas",
-		"/agents":                         "agents",
+		"/agents?classic=1":               "agents",
 		"/docs?classic=1":                 "docs",
 		"/docs/getting-started?classic=1": "docs",
 		"/retros?classic=1":               "retros",
-		"/stats":                          "stats",
+		"/stats?classic=1":                "stats",
 		"/github":                         "github",
 		"/decisions?classic=1":            "decisions",
 		"/balance":                        "",
@@ -96,10 +96,10 @@ func TestSidebarNav(t *testing.T) {
 	}
 	// Systems shows because the issues have systems (ui/workbench-sidebar-and-system-pages#D-2);
 	// Updates because the project shares the repo's template-based workflow.yaml.
-	if got := keys(nav.Main); got != "status,lead,systems,workboard,list,decisions,updates,docs" {
+	if got := keys(nav.Main); got != "status,lead,systems,hall,list,decisions,updates,docs" {
 		t.Errorf("main = %s (Status first; Balance needs workbench.balance)", got)
 	}
-	if got := keys(nav.More); got != "board,graph,canvas,agents,retros,stats" {
+	if got := keys(nav.More); got != "board,workboard,graph,canvas,agents,retros,stats" {
 		t.Errorf("more = %s (GitHub needs supports_github)", got)
 	}
 	if !nav.MoreActive {
@@ -122,15 +122,15 @@ func TestSidebarNav(t *testing.T) {
 	for _, s := range board.Systems {
 		systems = append(systems, s.Name+"="+s.Href)
 	}
-	if got := strings.Join(systems, " "); got != "Auth=/p/test-project/board?system=Auth UI=/p/test-project/board?system=UI" {
+	if got := strings.Join(systems, " "); got != "Auth=/p/test-project/board?classic=1&system=Auth UI=/p/test-project/board?classic=1&system=UI" {
 		t.Errorf("board systems = %s", got)
 	}
 
 	wb := srv.sidebarNav("/p/test-project", "workboard")
-	if wb.MoreActive || wb.CreateInPage || !wb.Legend {
-		t.Error("workboard: More closed, New issue links to the list, card legend shown")
+	if !wb.MoreActive || wb.CreateInPage || !wb.Legend {
+		t.Error("workboard: under an open More, New issue links to the list, card legend shown")
 	}
-	if len(wb.Systems) == 0 || wb.Systems[0].Href != "/p/test-project/workboard?system=Auth" {
+	if len(wb.Systems) == 0 || wb.Systems[0].Href != "/p/test-project/workboard?classic=1&system=Auth" {
 		t.Errorf("workboard systems link the workboard: %+v", wb.Systems)
 	}
 

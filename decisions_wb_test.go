@@ -37,18 +37,18 @@ func TestDecisionsLogPage(t *testing.T) {
 		// Words and who recorded them.
 		`data-testid="decisions.row.sim/pivot.d-1.quote"`, `<blockquote>“no readable tension”</blockquote>`,
 		`The raid becomes an <strong>ET-style</strong> objective format &lt;6v6&gt;.`,
-		`recorded by: CEO (lead chat)`, `recorded by: chat`,
+		`recorded by: CEO chat`, `recorded by: chat`,
 		`refers to <a class="wb-mono-inline wb-drow-ref" href="/p/wb/issue/sim/phases">sim/phases#D-1</a>`,
 		`superseded by <a class="wb-mono-inline wb-drow-ref" href="/p/wb/issue/sim/pivot">sim/pivot#D-1</a>`,
 		`cited by: <a class="wb-mono-inline" href="/p/wb/issue/sim/creeps">sim/creeps</a>`, `cited by: nobody yet`,
 		`also considered: A Reset`,
 		// Chips: active, deferred, stale.
 		`wb-chip wb-chip--green">active</span>`, `wb-chip wb-chip--idle">deferred</span>`, `wb-chip wb-chip--red">superseded · still cited</span>`,
-		// The decision taken alone asks the owner; the CEO is off, so the
-		// buttons say so instead of pretending.
-		`data-testid="decisions.row.shop.d-2.confirm"`, `data-send="/p/wb/lead/send"`,
-		`value="I confirm shop#D-2: &#34;Balance later.&#34;. Record it with my words (issue-cli decide shop --replaces shop#D-2)."`,
-		`The CEO is not running`, `data-testid="decisions.start_ceo"`,
+		// The decision taken alone asks the owner. Confirm posts to its own
+		// endpoint and works with the CEO off; Question it needs the CEO.
+		`data-testid="decisions.row.shop.d-2.confirm"`, `data-confirm="/p/wb/decisions/shop/D-2/confirm"`,
+		`data-testid="decisions.row.shop.d-2.words"`, `<button type="submit" class="wb-alone-btn" title="Records your words on shop#D-2`,
+		`disabled title="Start the CEO first" data-testid="decisions.row.shop.d-2.question"`, `data-testid="decisions.start_ceo"`,
 		// Right panel.
 		`data-testid="bars.decisions_by_system"`, `<span class="wb-bar-label">Economy</span>`, `<span class="wb-bar-count">2</span>`,
 		`<h2 class="wb-h2">Log hygiene</h2>`, `<span>Superseded</span><b>1</b>`, `<span>Stale citations</span><b class="wb-tone-red">1</b>`,
@@ -78,7 +78,7 @@ func TestDecisionsLogConfirmWithLiveCEO(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 	_, html := getBody(t, ts.URL+"/p/wb/decisions")
-	assertContains(t, html, `<button type="submit" class="wb-alone-btn" title="Sends`, `data-question="I question shop#D-2 (&#34;Balance later.&#34;): "`)
+	assertContains(t, html, `title="Starts a message to the CEO; say why and press Send" data-testid="decisions.row.shop.d-2.question"`, `data-question="I question shop#D-2 (&#34;Balance later.&#34;): "`)
 	if strings.Contains(html, "The CEO is not running") || strings.Contains(html, `data-testid="decisions.start_ceo"`) {
 		t.Error("a live CEO still shows as off")
 	}
@@ -151,7 +151,7 @@ func TestDecisionsComponentsStandAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := WbDecisionRow{ID: "D-2", Ref: "ui/a#D-2", Slug: "ui/a", Text: "Limit 12.", By: "agent", ByTone: "agent", State: WbChip{Tone: "green", Text: "active"},
-		Confirm: &WbConfirm{SendURL: "/p/x/lead/send", ConfirmText: "I confirm ui/a#D-2", QuestionText: "I question ui/a#D-2: ", Live: true}}
+		Confirm: &WbConfirm{ConfirmURL: "/p/x/decisions/ui/a/D-2/confirm", QuestionText: "I question ui/a#D-2: ", Live: true}}
 	for name, data := range map[string]any{
 		"wb/stat-big":        WbStat{Value: "77", Label: "decisions"},
 		"wb/summary-box":     WbSummaryBox{Text: "0 superseded", OK: true, Key: "decisions"},
@@ -174,8 +174,9 @@ func TestDecisionsComponentsStandAlone(t *testing.T) {
 
 func TestDecisionsByAndDayLabel(t *testing.T) {
 	for how, want := range map[string]string{
-		"lead chat":                   "CEO (lead chat)",
-		"answered in lead chat (Q-1)": "CEO (lead chat)",
+		"lead chat":                   "CEO chat",
+		"in the CEO chat":             "CEO chat",
+		"answered in lead chat (Q-1)": "CEO chat",
 		"recorded by agent":           "agent",
 		"":                            "agent",
 		"project rule":                "project rule",

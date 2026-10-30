@@ -1,18 +1,16 @@
 {{define "leads.html"}}
 <!DOCTYPE html>
 <html lang="en">
-<head>{{template "wb/head" "Every CEO"}}</head>
+<head>{{template "wb/head" "All CEOs"}}</head>
 <body class="wb">
 <div class="wb-app wb-app--page" data-testid="leads.page">
 {{template "wb/header" .Header}}
 <main class="wb-ground wb-leads">
     <div class="wb-titlebar wb-titlebar--flush">
-        <h1 class="wb-h1">Every CEO</h1>
-        <span class="wb-sub">Each project's lead, whether it runs in tmux, and what waits on you there.</span>
+        <h1 class="wb-h1">All CEOs</h1>
+        <span class="wb-sub">Each project's CEO (what was called the lead), whether it runs in tmux, and what waits on you there.</span>
     </div>
-    <div class="wb-leads-grid">
-        {{range .Rows}}{{template "wb/ceo-card" .}}{{else}}<div class="wb-empty">No project is configured in projects.yaml.</div>{{end}}
-    </div>
+    {{template "wb/ceo-grid" .Rows}}
 </main>
 </div>
 </body>

@@ -134,18 +134,18 @@ func TestAgentsPageRenders(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	resp, html := getResp(t, ts.URL+"/p/agents/agents")
+	resp, html := getResp(t, ts.URL+"/p/agents/agents?classic=1")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, html)
 	}
-	for _, want := range []string{`class="nav-item active" data-testid="nav.tab.agents" aria-current="page">Agents`, `data-layout="radial"`, `id="opt-stopped"`, `Spawn lead`, `"/p/agents"`} {
+	for _, want := range []string{`class="nav-item active" data-testid="nav.tab.agents" aria-current="page">Agents`, `data-layout="radial"`, `id="opt-stopped"`, `Start the CEO`, `"/p/agents"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("page missing %q", want)
 		}
 	}
-	_, board := getResp(t, ts.URL+"/p/agents/board")
+	_, board := getResp(t, ts.URL+"/p/agents/board?classic=1")
 	if !strings.Contains(board, `href="/p/agents/agents"`) || !strings.Contains(board, "spawnProjectLead(") {
-		t.Errorf("board lacks the Agents tab or the Spawn lead button")
+		t.Errorf("board lacks the Agents tab or the Start the CEO button")
 	}
 }
 
@@ -168,7 +168,7 @@ func TestLeadSpawnEndpoint(t *testing.T) {
 
 	got = agentrun.Spec{}
 	code, out = postJSON(t, ts.URL+"/p/agents/lead/spawn", `{"epic":"ui/epic"}`)
-	if code != 422 || out["steps"].([]interface{})[0].(map[string]interface{})["detail"] != "sub-leads were removed (one lead per project)" || got.Session != "" {
+	if code != 422 || out["steps"].([]interface{})[0].(map[string]interface{})["detail"] != "sub-leads were removed (one CEO per project)" || got.Session != "" {
 		t.Fatalf("epic: %d %v %+v", code, out, got)
 	}
 }

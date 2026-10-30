@@ -384,13 +384,26 @@ type UpdatesOverviewRow struct {
 	Record          string
 	Newest          string
 	Builtin         bool // runs on the built-in workflow (no Updates tab)
-	stateRank       int
+	// Slug, Color and Tone for wb/upd-project: Tone is the state chip's
+	// (you, green or idle), Color the project's colour on the map.
+	Slug, Color, Tone string
+	stateRank         int
 }
 
 type UpdatesOverviewData struct {
 	Rows                                              []UpdatesOverviewRow
 	Projects, Behind, Stamped, NeverScanned, ToDecide int
 	CatalogSize                                       int
+	// Header and Tally: the Workshop Board page's header and its numbers.
+	Header WbHeader
+	Tally  []WbUpdTally
+}
+
+// WbUpdTally is one number in wb/upd-tally; Tone "you" when it asks for the
+// owner's attention.
+type WbUpdTally struct {
+	Key, Label, Tone string
+	Value            int
 }
 
 func (s *Server) handleUpdatesOverview(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +412,7 @@ func (s *Server) handleUpdatesOverview(w http.ResponseWriter, r *http.Request) {
 	data.CatalogSize = len(entries)
 	for i := range s.projects {
 		proj := &s.projects[i]
-		row := UpdatesOverviewRow{Name: proj.Name, Href: "/p/" + proj.Slug + "/updates"}
+		row := UpdatesOverviewRow{Name: proj.Name, Href: "/p/" + proj.Slug + "/updates", Slug: proj.Slug, Color: s.projectColor(proj), Tone: "idle"}
 		plan := projectUpgradePlan(proj)
 		if plan == nil {
 			row.Builtin, row.State, row.Template, row.stateRank = true, "no template", "built-in or custom", 3
@@ -415,16 +428,16 @@ func (s *Server) handleUpdatesOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		switch {
 		case plan.Status == workflowupgrade.StatusBehind:
-			row.State, row.StateClass, row.stateRank = "behind", "chip-amber", 0
+			row.State, row.StateClass, row.Tone, row.stateRank = "behind", "chip-amber", "you", 0
 			data.Behind++
 		case plan.Record == nil:
 			row.State, row.stateRank = "never scanned", 1
 		case row.ToDecide > 0:
-			row.State, row.StateClass, row.stateRank = "undecided", "chip-amber", 0
+			row.State, row.StateClass, row.Tone, row.stateRank = "undecided", "chip-amber", "you", 0
 		case plan.Status == workflowupgrade.StatusStaleRecord:
-			row.State, row.StateClass, row.stateRank = "not recorded", "chip-amber", 0
+			row.State, row.StateClass, row.Tone, row.stateRank = "not recorded", "chip-amber", "you", 0
 		default:
-			row.State, row.StateClass, row.stateRank = "up to date", "chip-green", 2
+			row.State, row.StateClass, row.Tone, row.stateRank = "up to date", "chip-green", "green", 2
 		}
 		if plan.Record == nil {
 			data.NeverScanned++
@@ -446,7 +459,49 @@ func (s *Server) handleUpdatesOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.ToDecide > b.ToDecide
 	})
-	if err := s.tmpl.ExecuteTemplate(w, "updates_overview.html", data); err != nil {
+	// The Workshop Board page (wb/upd-tally, wb/upd-project); the classic
+	// table at ?classic=1.
+	page := "updates_overview.html"
+	if r.URL.Query().Get("classic") != "1" {
+		page = "updates_overview_wb.html"
+		data.Header = WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: "/"}, {Label: "Workflow updates", Current: true}}, Quiet: true, WaitingURL: "/needs-you", Waiting: s.waitingEverywhere()}
+		data.Tally = []WbUpdTally{
+			{Key: "projects", Label: pluralWord(data.Projects, "project", "projects"), Value: data.Projects},
+			{Key: "behind", Label: "stamped, behind", Value: data.Behind, Tone: youIf(data.Behind)},
+			{Key: "never_scanned", Label: "never scanned", Value: data.NeverScanned},
+			{Key: "to_decide", Label: "to decide", Value: data.ToDecide, Tone: youIf(data.ToDecide)},
+		}
+	}
+	if err := s.tmpl.ExecuteTemplate(w, page, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// youIf is the "you" tone when n asks for the owner, else none.
+func youIf(n int) string {
+	if n > 0 {
+		return "you"
+	}
+	return ""
+}
+
+// waitingEverywhere is what waits on the owner across every project, the
+// header's Waiting count on the pages outside a project.
+func (s *Server) waitingEverywhere() int {
+	counts := make([]int, len(s.projects))
+	var wg sync.WaitGroup
+	for i := range s.projects {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			p := &s.projects[i]
+			counts[i] = len(waitingOnOwner(p, openIssuesOf(p)))
+		}(i)
+	}
+	wg.Wait()
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
 }

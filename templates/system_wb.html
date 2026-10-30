@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .PageTitle}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-pagehead" aria-label="{{.Name}}">
+    <div class="wb-pagehead-text">
+        {{template "wb/trail" .Trail}}
+        <h1 class="wb-h1 wb-h1--xl" data-testid="system.wb.title">{{.Name}}</h1>
+        {{if .Summary}}<div class="wb-pagehead-sub" data-testid="system.wb.summary">{{.Summary}}</div>
+        {{else if .Hint}}<div class="wb-pagehead-sub wb-pagehead-hint" data-testid="system.wb.hint">{{.Hint}}</div>{{end}}
+        <div class="wb-sys-meta">
+            {{with .Umbrella}}<a class="wb-chip wb-chip--{{if .Found}}agent{{else}}red{{end}}" href="{{.Href}}" data-testid="system.wb.umbrella"{{with .Whole}} title="{{.}}"{{end}}>{{if .Found}}{{.Label}}{{else}}umbrella {{.Slug}} not found{{end}}</a>{{end}}
+            {{template "wb/link-row" .Links}}
+        </div>
+    </div>
+    {{template "wb/figures" .Figures}}
+</section>
+<main class="wb-main wb-main--page" data-testid="system.wb.page">
+<div class="wb-systems">
+    <div class="wb-systems-bar">
+        <h2 class="wb-h2 wb-h2--small">Workshop floor</h2>
+        <a class="wb-classic-link" href="{{.ClassicURL}}" data-testid="system.wb.classic">Classic view</a>
+    </div>
+    {{template "wb/floor" .Floor}}
+    <div data-testid="system.wb.issues">
+    {{if .Issues.Crates}}{{template "wb/shelf" .Issues}}
+    {{else}}<div class="wb-empty" data-testid="system.wb.issues.empty">No issues {{if eq .Kind "family"}}name the umbrella as their parent{{else}}in this system yet{{end}}.</div>{{end}}
+    {{with .Hidden}}<div class="wb-note">{{.}}</div>{{end}}
+    </div>
+    {{template "wb/families" .Families}}
+    {{template "wb/sys-decisions" .Decision}}
+</div>
+<aside class="wb-side wb-side--systems" aria-label="Code and design">
+    {{template "wb/code-map" .Code}}
+    {{template "wb/design-doc" .Doc}}{{with .DocNote}}<div class="wb-note">{{.}}</div>{{end}}
+    {{template "wb/guard-metrics" .Metrics}}
+    {{template "wb/knobs" .Knobs}}
+    {{if .Balance}}
+    <section class="wb-sys-side" data-testid="system.wb.balance" aria-labelledby="wb-bal-h">
+        <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-bal-h">Balance notes</h2>{{with .BalanceHref}}<div class="wb-note"><a href="{{.}}">Balance board ›</a></div>{{end}}</div>
+        {{range .Balance}}{{template "wb/balance-note" .}}{{end}}
+    </section>
+    {{end}}
+</aside>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

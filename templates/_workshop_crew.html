@@ -1,0 +1,75 @@
+{{/*
+Workshop Board components of the Crew page (L1, /agents). View models in
+crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
+
+  wb/crew-card     one agent: robot, name, state, issue    data: WbCrewCard
+  wb/crew-column   a department: its lead and its workers  data: WbCrewColumn
+  wb/crew-row      a titled row of cards (stopped, others) data: WbCrewRow
+  wb/crew-panel    the selected agent: reach it, its issue data: *WbCrewPanel
+*/}}
+
+{{define "wb/crew-card"}}
+<article class="wb-crew-card wb-crew-card--{{.Kind}}{{if .Selected}} wb-crew-card--on{{end}}" data-testid="crew.card.{{tid .Name}}">
+    <a class="wb-crew-card-pick" href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}} data-testid="crew.card.{{tid .Name}}.pick">
+        {{if eq .Kind "ceo"}}<span class="wb-ceo-bot{{if eq .Robot.State "off"}} wb-ceo-bot--off{{end}}" title="{{.Robot.Label}} · {{.Robot.StateLabel}}"><svg width="16" height="10" viewBox="0 0 16 10" aria-hidden="true"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></span>{{else}}{{template "wb/robot" .Robot}}{{end}}
+        <span class="wb-crew-name">{{.Name}}</span>
+    </a>
+    <div class="wb-crew-state" data-testid="crew.card.{{tid .Name}}.state">{{template "wb/chip" .Chip}}</div>
+    {{with .Issue}}<a class="wb-crew-issue" href="{{.URL}}" data-testid="crew.card.{{tid $.Name}}.issue">{{.Label}}</a>{{end}}
+    {{if or .Status .Epic .Notes}}<div class="wb-crew-tags">{{with .Status}}<span class="wb-tag-pill">{{.}}</span>{{end}}{{with .Epic}}<span class="wb-tag-pill wb-tag-pill--epic" title="Epic">{{.}}</span>{{end}}{{range .Notes}}<span class="wb-tag-pill wb-tag-pill--note">{{.}}</span>{{end}}</div>{{end}}
+    {{with .LastCall}}<div class="wb-crew-meta">{{.}}</div>{{end}}
+    {{with .Command}}{{template "wb/copy-cmd" .}}{{end}}
+    {{if and .SpawnURL (eq .Robot.State "off")}}<div class="wb-crew-spawn" data-spawn-box><button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="{{.SpawnURL}}" data-spawn-what="{{.SpawnWhat}}" data-testid="crew.card.{{tid .Name}}.spawn">Start {{.SpawnWhat}}</button><div class="wb-site-msg" role="status"></div></div>{{end}}
+</article>
+{{end}}
+
+{{define "wb/crew-column"}}
+<section class="wb-crew-col" style="--dept: {{.Color}}" data-testid="crew.column.{{tid .Key}}">
+    <h2 class="wb-crew-col-head"><span>{{.Name}}</span><span class="wb-crew-col-count">{{len .Workers}}</span></h2>
+    {{with .Lead}}{{template "wb/crew-card" .}}{{else}}<div class="wb-note wb-crew-led">Run by the CEO</div>{{end}}
+    <div class="wb-crew-workers">
+        {{range .Workers}}{{template "wb/crew-card" .}}{{else}}<div class="wb-note wb-crew-none" data-testid="crew.column.{{tid $.Key}}.empty">No workers here right now</div>{{end}}
+    </div>
+</section>
+{{end}}
+
+{{define "wb/crew-row"}}{{if .Cards}}
+<section class="wb-crew-row" data-testid="crew.{{.Key}}">
+    <div class="wb-crew-row-head"><h2 class="wb-h2 wb-h2--small">{{.Title}}</h2><span class="wb-note">{{.Note}}</span></div>
+    <div class="wb-crew-grid">{{range .Cards}}{{template "wb/crew-card" .}}{{end}}</div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/crew-panel"}}
+<div class="wb-crew-panel" data-testid="crew.panel">
+{{with .}}
+    <div class="wb-crew-panel-head">
+        {{template "wb/robot" .Card.Robot}}
+        <div><h2 class="wb-h2 wb-h2--small wb-crew-name" data-testid="crew.panel.name">{{.Card.Name}}</h2><div class="wb-note">{{.Card.Kind}}</div></div>
+    </div>
+    <div class="wb-crew-state">{{template "wb/chip" .Card.Chip}}</div>
+    {{if .OpenURL}}
+    <div class="wb-crew-open" data-open-box>
+        <button type="button" class="wb-btn wb-btn--ink" data-open-session="{{.OpenURL}}" data-session="{{.Card.Name}}" data-testid="crew.panel.open">Open in a terminal</button>
+        <div class="wb-site-msg" role="status" data-testid="crew.panel.open_status"></div>
+    </div>
+    {{with .Command}}{{template "wb/side-label" $.CommandLabel}}<div data-testid="crew.panel.command">{{template "wb/copy-cmd" .}}</div>{{end}}
+    {{else if .Card.SpawnURL}}
+    <div class="wb-note">Not running.</div>
+    <div data-spawn-box><button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="{{.Card.SpawnURL}}" data-spawn-what="{{.Card.SpawnWhat}}" data-testid="crew.panel.spawn">Start {{.Card.SpawnWhat}}</button><div class="wb-site-msg" role="status"></div></div>
+    {{else if .Card.Command}}
+    <div class="wb-note">No agent is running on this job. Start one again:</div>
+    {{template "wb/copy-cmd" .Card.Command}}
+    {{end}}
+    {{with .Card.Issue}}{{template "wb/side-label" "Issue"}}<a class="wb-crew-issue" href="{{.URL}}" data-testid="crew.panel.issue">{{.Label}}</a>{{with $.Card.Status}}<div class="wb-crew-tags"><span class="wb-tag-pill">{{.}}</span></div>{{end}}{{end}}
+    {{if .ApproveURL}}<a class="wb-btn wb-btn--you" href="{{.ApproveURL}}" data-testid="crew.panel.approve">Approve the {{.Gate}} gate at the station →</a>{{end}}
+    {{with .LastCmd}}{{template "wb/side-label" "Last issue-cli call"}}<code class="wb-crew-code" data-testid="crew.panel.last_call">{{.}}</code>{{with $.Card.LastCall}}<div class="wb-note">{{.}}</div>{{end}}{{end}}
+    {{if .Branch}}{{template "wb/side-label" "Branch"}}<div class="wb-note"><span class="wb-mono-inline">{{.Branch}}</span> against <span class="wb-mono-inline">{{.Against}}</span></div>
+    {{if .DiffStat}}<pre class="wb-crew-diff" data-testid="crew.panel.diff">{{.DiffStat}}</pre>{{else}}<div class="wb-note">No changes against {{.Against}} yet.</div>{{end}}{{end}}
+    {{if .Comments}}{{template "wb/side-label" "Last comments"}}
+    <ul class="wb-crew-comments" data-testid="crew.panel.comments">{{range .Comments}}<li><span class="wb-mono-inline">{{.Date}}</span> {{.Text}}</li>{{end}}</ul>{{end}}
+{{else}}
+    <div class="wb-note" data-testid="crew.panel.empty">Pick an agent to see its issue, its branch and how to reach it.</div>
+{{end}}
+</div>
+{{end}}

@@ -123,6 +123,9 @@ func runTransition(ctx *Context, args []string) error {
 		return runTransitionDryRun(ctx, wf, issue, slug, to, fields)
 	}
 
+	if p := checkScriptGate(ctx.Project, wf, issue, to); p != nil {
+		return fmt.Errorf("failed to transition: %s: %s\n\nRun: %s", p.Requirement, p.Message, p.Fix[0])
+	}
 	tickProvenBeforeGate(ctx, wf, issue, to)
 
 	gate, err := passYOLOGate(ctx, wf, issue, issues, to, fields)
@@ -140,7 +143,7 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	out := buildTransitionOutput(wf, issue, from, to, result)
-	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue.Slug, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
+	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
 	if gate.Passed {
 		out.SideEffects = append(out.SideEffects, "YOLO: gate passed without the owner, marked for review after the fact")
 	}
@@ -191,7 +194,7 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 		return
 	}
 	head, _ := ci.Head(root, branch)
-	fmt.Fprintf(ctx.Stdout, "Local CI tests %s at %s by itself: don't wait for it, you are done. If it goes red on your merge, the lead may re-open this issue (%s).\n",
+	fmt.Fprintf(ctx.Stdout, "Local CI tests %s at %s by itself: don't wait for it, you are done. If it goes red on your merge, the CEO may re-open this issue (%s).\n",
 		branch, ci.Short(head), tracker.InjectProject(ctx.Project, "issue-cli ci status"))
 }
 
@@ -200,7 +203,7 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 // requirement is unmet so scripts can branch on it.
 func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, slug, to string, fields map[string]string) error {
 	from := issue.Status
-	problems, yoloNote := yoloDryRun(ctx, wf, from, to, collectTransitionProblems(ctx, wf, issue, slug, from, to, fields))
+	problems, yoloNote := yoloDryRun(ctx, wf, issue, from, to, collectTransitionProblems(ctx, wf, issue, slug, from, to, fields))
 	out := dryRunOutput{DryRun: true, Ready: len(problems) == 0, From: from, To: to, Slug: slug, Problems: problems}
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)
@@ -223,6 +226,9 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 	} else {
 		fmt.Fprintf(ctx.Stdout, "== Dry run: %s → %s ==\n", from, to)
 		printProblemReport(ctx.Stdout, problems)
+		if yoloNote != "" {
+			fmt.Fprintln(ctx.Stdout, yoloNote)
+		}
 		fmt.Fprintln(ctx.Stdout, "Nothing was changed.")
 	}
 	if !out.Ready {

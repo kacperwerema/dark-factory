@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/retro"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -128,7 +129,7 @@ func loadRetrospectives(proj *tracker.Project) ([]*RetroEntry, error) {
 		if err != nil {
 			return err
 		}
-		meta, body := parseRetrospective(string(data))
+		meta, body := retro.Parse(string(data))
 		if strings.TrimSpace(body) == "" {
 			body = strings.TrimSpace(string(data))
 		}
@@ -167,54 +168,6 @@ func loadRetrospectives(proj *tracker.Project) ([]*RetroEntry, error) {
 	})
 
 	return retros, nil
-}
-
-func parseRetrospective(raw string) (map[string]string, string) {
-	content := strings.ReplaceAll(raw, "\r\n", "\n")
-	lines := strings.Split(content, "\n")
-	meta := map[string]string{}
-
-	start := 0
-	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
-		start++
-	}
-	if start < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[start]), "#") {
-		start++
-	}
-	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
-		start++
-	}
-
-	idx := start
-	for idx < len(lines) {
-		line := strings.TrimSpace(lines[idx])
-		if line == "" {
-			idx++
-			break
-		}
-		switch {
-		case strings.HasPrefix(line, "Issue:"):
-			meta["Issue"] = strings.TrimSpace(strings.TrimPrefix(line, "Issue:"))
-		case strings.HasPrefix(line, "Title:"):
-			meta["Title"] = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
-		case strings.HasPrefix(line, "Status:"):
-			meta["Status"] = strings.TrimSpace(strings.TrimPrefix(line, "Status:"))
-		case strings.HasPrefix(line, "System:"):
-			meta["System"] = strings.TrimSpace(strings.TrimPrefix(line, "System:"))
-		case strings.HasPrefix(line, "Date:"):
-			meta["Date"] = strings.TrimSpace(strings.TrimPrefix(line, "Date:"))
-		case strings.HasPrefix(line, "ReviewStatus:"):
-			meta["ReviewStatus"] = strings.TrimSpace(strings.TrimPrefix(line, "ReviewStatus:"))
-		default:
-			return meta, strings.TrimSpace(content)
-		}
-		idx++
-	}
-
-	if len(meta) == 0 {
-		return meta, strings.TrimSpace(content)
-	}
-	return meta, strings.TrimSpace(strings.Join(lines[idx:], "\n"))
 }
 
 func loadRelatedToolBugs(issues []*tracker.Issue) ([]*ToolBugReportView, error) {

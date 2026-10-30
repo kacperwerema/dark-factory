@@ -18,7 +18,7 @@ steps:
     title: Clicking a live lead shows "Inside tmux" switch-client and "From a shell" attach; Copy copies the switch command
     setup:
       - tmux: [new-session, -d, -s, lead-crew, cat]
-      - open: /p/{project}/agents
+      - open: /p/{project}/agents?classic=1
     act:
       - click: agents.node.lead-crew
       - wait_for: { text_contains: { target: agents.panel.open_status, text: "Inside tmux" } }

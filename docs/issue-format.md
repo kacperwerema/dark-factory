@@ -183,11 +183,20 @@ The line format is `- **D-<n>** · <YYYY-MM-DD>[ · deferred] · <how>: <text>[,
   - `replaced` once another line names it in `(replaces …)`. The newest replacer wins.
   - `stale` when it is replaced but an open issue still cites it. Open means the issue's status sorts before `done`; `done` and anything after it (e.g. `obsolete`) count as closed.
 - **What is skipped.** Only lines under a level-2 `## Decisions` heading and outside fenced code are parsed. Free-form notes in that section are left alone and not listed.
+- **Confirming.** A decision without the owner's quote, with a `(provisional…)` mark in its text, or with how `YOLO` / provisional waits for the owner. Confirm on the Decisions log (or `issue-cli decide <slug> --confirm D-n --quote "…"`) rewrites the same line: `- **D-2** · 2026-10-04 · chat, confirmed by owner 2026-10-30: Balance later, "yes, later"`.
 - **Revising.** `issue-cli show` prints `== Cites replaced decisions ==` for an issue that still builds on a replaced decision.
 
 ## Comments
 
 Comments live in an `<!-- issue-viewer-comments … -->` block at the end of the file, written by `issue-cli comment` and the issue page. Each has an id, text, status, source and `date`. Since v0.54 `date` is a full RFC3339 timestamp (`2026-10-23T14:05:07+02:00`); older comments have the day only (`2026-10-23`). Both forms are read, and pages and `issue-cli show` show the day.
+
+Since v0.57 a comment can carry `author`, who wrote it:
+
+- **issue-cli** signs it with the session it runs in: `lead-<project>` for the CEO, `lead-<project>-<dept>` for a department lead, `agent-<slug>` for a worker (the same detection as `issue-cli lead whoami`). A worker found only by its `.worktrees/` folder signs with the issue's assignee. Run from a plain shell, it signs nothing. `issue-cli comment` says which: `✓ Comment added to <slug> by <author>`, or `(no author: no lead or worker session detected)`. `ci` and `report-bug` comments are unsigned.
+- **The viewer** signs every comment it writes (the comment box, approve, Send back, the YOLO review) `owner`.
+- **Older comments** have no `author` and are never rewritten. Their author is read from a trailing ` — recorded by <name>` (approval: and dispatch: comments), else they show their source. `GET /p/<project>/issue/<slug>/comments` returns that author.
+
+The classic issue page shows each comment's author, the Station's question card says who asked, and the company page [Radio](UI/overview.md#radio) lists `progress:` and `question:` comments by author.
 
 ## Balance notes
 

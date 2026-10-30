@@ -233,7 +233,7 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 		if words == "" {
 			words = "agreed"
 		}
-		if err := tracker.AddComment(issue.FilePath, 0, tracker.YOLOReviewComment("agreed", words, "viewer", date, pass.Status), "app"); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment("agreed", words, "viewer", date, pass.Status), "app", tracker.OwnerAuthor); err != nil {
 			writeYOLOError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -249,13 +249,13 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 			return
 		}
 		if !strings.EqualFold(issue.Status, back) {
-			if _, _, err := wf.ApplyTransitionToFileWithFields(issue.FilePath, back, nil); err != nil {
+			if _, err := wf.MoveBack(issue.FilePath, back); err != nil {
 				writeTransitionError(w, err)
 				return
 			}
 		}
 		verdict := "back to " + back
-		if err := tracker.AddComment(issue.FilePath, 0, tracker.YOLOReviewComment(verdict, words, "viewer", date, pass.Status), "app"); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment(verdict, words, "viewer", date, pass.Status), "app", tracker.OwnerAuthor); err != nil {
 			writeYOLOError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

@@ -95,6 +95,13 @@ func withLive(t *testing.T, names ...string) {
 	t.Cleanup(func() { sessionLive, liveSessionNames = origLive, origNames })
 }
 
+// issue-cli ceo is the lead command: the CEO is what was called the lead.
+func TestCEOAliasIsLead(t *testing.T) {
+	if lookupCommand("ceo") != leadCommand {
+		t.Fatal("issue-cli ceo does not resolve to the lead command")
+	}
+}
+
 func TestLeadSpawn_ProjectLead(t *testing.T) {
 	proj := makeLeadProject(t)
 	os.MkdirAll(filepath.Join(proj.WorkDir, "sessions"), 0755)
@@ -123,7 +130,7 @@ func TestLeadSpawn_ProjectLead(t *testing.T) {
 	if strings.Contains(spec.Prompt, "sub-lead") || strings.Contains(spec.Prompt, "--epic") {
 		t.Errorf("brief still mentions sub-leads:\n%s", spec.Prompt)
 	}
-	if !strings.Contains(stdout.String(), "✓ Spawned project lead lead-proj") {
+	if !strings.Contains(stdout.String(), "✓ Spawned CEO lead-proj") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -209,7 +216,7 @@ func TestLeadSpawn_ReattachSaysAlreadyLive(t *testing.T) {
 	if err := runLead(ctx, []string{"spawn"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "Already live: project lead lead-proj") {
+	if !strings.Contains(stdout.String(), "Already live: CEO lead-proj") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
@@ -225,7 +232,7 @@ func TestLeadSpawn_EpicRemoved(t *testing.T) {
 	} {
 		ctx, stdout, _ := newTestContext(proj, false)
 		err := runLead(ctx, args)
-		if err == nil || err.Error() != "sub-leads were removed (one lead per project); issue-cli --project proj lead spawn starts the project lead" {
+		if err == nil || err.Error() != "sub-leads were removed (one CEO per project); issue-cli --project proj lead spawn starts the CEO" {
 			t.Fatalf("%v: err = %v", args, err)
 		}
 		if strings.Contains(err.Error(), "\n") || stdout.Len() != 0 {
@@ -244,7 +251,7 @@ func TestLeadSpawn_Refusals(t *testing.T) {
 	ctx, _, _ := newTestContext(proj, false)
 
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "ui/child")
-	if err := runLead(ctx, []string{"spawn"}); err == nil || !strings.Contains(err.Error(), "workers can't spawn leads") {
+	if err := runLead(ctx, []string{"spawn"}); err == nil || !strings.Contains(err.Error(), "workers can't spawn the CEO") {
 		t.Fatalf("worker: err = %v", err)
 	}
 }
@@ -325,7 +332,7 @@ func TestLeadList(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	want := "== Lead ==\n  lead-proj                                project lead  not running\n\n== Epics ==\n  ui/epic (in progress) · children running 1/2\n\nThe project lead is not running. Start it: issue-cli --project proj lead spawn\n"
+	want := "== CEO ==\n  lead-proj                                CEO  not running\n\n== Epics ==\n  ui/epic (in progress) · children running 1/2\n\nThe CEO is not running. Start it: issue-cli --project proj lead spawn\n"
 	if out != want {
 		t.Errorf("list:\n%s\nwant:\n%s", out, want)
 	}
@@ -338,7 +345,7 @@ func TestLeadList(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	wantJSON := leadListJSON{Lead: leadRow{Session: "lead-proj"}, Epics: []epicRow{{Slug: "ui/epic", Title: "Epic", Status: "in progress", ChildrenRunning: 1, ChildrenTotal: 2}}}
+	wantJSON := leadListJSON{Lead: leadRow{Session: "lead-proj"}, Departments: []deptLeadRow{}, Epics: []epicRow{{Slug: "ui/epic", Title: "Epic", Status: "in progress", ChildrenRunning: 1, ChildrenTotal: 2}}}
 	if !reflect.DeepEqual(got, wantJSON) {
 		t.Errorf("json = %+v", got)
 	}
@@ -467,7 +474,7 @@ func TestApprove(t *testing.T) {
 		t.Fatalf("human_approval = %q", child.HumanApproval)
 	}
 	comments, _ := tracker.LoadComments(child.FilePath)
-	if len(comments) != 1 || !strings.HasPrefix(comments[0].Text, `approval: "ship it" (in the lead chat, `) || !strings.HasSuffix(comments[0].Text, ") → done — recorded by lead-proj") {
+	if len(comments) != 1 || !strings.HasPrefix(comments[0].Text, `approval: "ship it" (in the CEO chat, `) || !strings.HasSuffix(comments[0].Text, ") → done — recorded by lead-proj") {
 		t.Fatalf("comments = %+v", comments)
 	}
 
@@ -488,7 +495,7 @@ func TestShowPrintsLeadAndUmbrellaHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "Lead: lead-proj (live)\n") {
+	if !strings.Contains(out, "CEO: lead-proj (live)\n") {
 		t.Errorf("missing lead line:\n%s", out)
 	}
 	if !strings.Contains(out, "Hint: umbrella: is a legacy alias for parent:. Rename it: issue-cli --project proj set-meta ui/old --key parent --value ui/epic") {

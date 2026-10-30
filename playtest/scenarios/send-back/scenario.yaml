@@ -1,0 +1,9 @@
+# Send back for fixes: one issue waits at human-testing for the owner's
+# stamp (→ documentation) and has no live worker, so the Station's button
+# moves it back to testing and says nobody was told.
+title: One issue at human-testing, waiting on the stamp
+project:
+  name: Send Back Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

@@ -57,7 +57,7 @@ func ParseApprovalComment(text string) (ApprovalWords, bool) {
 	}
 	a := ApprovalWords{Words: words}
 	rest = strings.TrimSpace(rest[len(quoted):])
-	rest, _, _ = strings.Cut(rest, " — recorded by ")
+	rest, _, _ = strings.Cut(rest, recordedBy)
 	if inner, after, ok := strings.Cut(strings.TrimPrefix(rest, "("), ")"); ok && strings.HasPrefix(rest, "(") {
 		if i := strings.LastIndex(inner, ", "); i >= 0 {
 			a.How, a.Date = inner[:i], inner[i+2:]

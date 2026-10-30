@@ -237,11 +237,14 @@ func (r *Runner) runStep(b *Browser, bins *Binaries, s *Session, st *Step, vp Vi
 			r.shotsSkipped = true
 			return
 		}
-		if png, err := pg.Screenshot(ctx, true); err == nil {
-			rel := filepath.Join("shots", name+".png")
-			if os.WriteFile(filepath.Join(dir, rel), png, 0o644) == nil {
-				vr.Screenshot = filepath.ToSlash(rel)
-			}
+		png, err := pg.Screenshot(ctx, true)
+		if err != nil {
+			fmt.Fprintf(logf, "no screenshot: %v\n", err)
+			return
+		}
+		rel := filepath.Join("shots", name+".png")
+		if os.WriteFile(filepath.Join(dir, rel), png, 0o644) == nil {
+			vr.Screenshot = filepath.ToSlash(rel)
 		}
 	}
 	for _, a := range append(chain(s, st), st.act...) {

@@ -14,8 +14,9 @@ import (
 
 // The workboard (/p/<project>/workboard) is the board in the workbench frame:
 // read-only cards that carry coordination state (markers, epic progress, the
-// agent on the card). The classic /board keeps drag-and-drop until the retire
-// child removes it.
+// agent on the card). It and the classic /board (drag-and-drop) answer only at
+// ?classic=1; without it both redirect to the hall
+// (factory/retire-board-canvas-graph#D-1).
 //
 // It stays readable with hundreds of issues (D-10): the idle piles (the first
 // status, parked, done) fold to count tiles, it opens on the cards that need
@@ -149,7 +150,7 @@ func (d WorkboardData) AllHref() string {
 }
 
 func (d WorkboardData) href(group string, waiting, all bool) string {
-	var q []string
+	q := []string{"classic=1"}
 	if group != "" && group != "status" {
 		q = append(q, "group="+group)
 	}
@@ -168,11 +169,7 @@ func (d WorkboardData) href(group string, waiting, all bool) string {
 	if all {
 		q = append(q, "all=1")
 	}
-	h := d.Prefix + "/workboard"
-	if len(q) > 0 {
-		h += "?" + strings.Join(q, "&")
-	}
-	return h
+	return d.Prefix + "/workboard?" + strings.Join(q, "&")
 }
 
 func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {

@@ -9,7 +9,7 @@ import (
 
 var approveCommand = &Command{
 	Name:      "approve",
-	ShortHelp: "Record a human approval for a gate, with the human's words (leads only; never workers)",
+	ShortHelp: "Record a human approval for a gate, with the human's words (the CEO only; never workers)",
 	LongHelp: `Record that the human approved an issue for a status. It writes an
 approval: comment with the human's words, the same comment the viewer's
 words box writes:
@@ -42,7 +42,7 @@ func runApprove(ctx *Context, args []string) error {
 	fs := newFlagSet("approve", ctx)
 	toFlag := fs.String("to", "", "status the human approved (required)")
 	quoteFlag := fs.String("quote", "", "the human's words (required)")
-	howFlag := fs.String("how", "", "how the words reached you (default: \"in the lead chat\")")
+	howFlag := fs.String("how", "", "how the words reached you (default: \"in the CEO chat\")")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -72,11 +72,17 @@ func runApprove(ctx *Context, args []string) error {
 	me := whoAmI(proj, issues)
 	if me.Role == tracker.RoleWorker {
 		route := tracker.LeadFor(proj, issue, issues, sessionLive(proj))
-		return fmt.Errorf("workers never tick gates. Ask your lead (%s, %s) on your issue trail:\n  %s", route.Lead, liveWord(route.Live),
+		return fmt.Errorf("workers never tick gates. Ask the CEO (%s, %s) on your issue trail:\n  %s", route.Lead, liveWord(route.Live),
 			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ready for %s?\"", issue.Slug, to)))
 	}
+	if refusal := outOfScope(proj, me, issue, "approves"); refusal != "" {
+		return fmt.Errorf("%s", refusal)
+	}
 	if how == "" {
-		how = "in the lead chat"
+		how = "in the CEO chat"
+		if me.Role == tracker.RoleDepartmentLead {
+			how = "in the " + me.Department + " lead chat"
+		}
 	}
 
 	date := ctx.now().Format("2006-01-02")
@@ -96,7 +102,7 @@ func runApprove(ctx *Context, args []string) error {
 // writeApproval saves an approval comment and sets human_approval to
 // status, as the viewer's approve button does.
 func writeApproval(ctx *Context, issue *tracker.Issue, comment, status string) error {
-	if err := tracker.AddComment(issue.FilePath, 0, comment, "cli"); err != nil {
+	if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 		return fmt.Errorf("writing the approval comment: %w", err)
 	}
 	if strings.EqualFold(issue.HumanApproval, status) {

@@ -1,0 +1,24 @@
+statuses:
+  - name: "idea"
+    description: "Raw idea"
+  - name: "in progress"
+    description: "Being built"
+  - name: "done"
+    description: "Finished"
+
+transitions:
+  - from: "idea"
+    to: "in progress"
+  - from: "in progress"
+    to: "done"
+
+workbench:
+  systems:
+    Sim:
+      summary: "Lanes and sieges."
+      paths: [src/sim/, src/shared/]
+    AI:
+      summary: "Play calls."
+      paths: [src/ai/, src/shared/, src/missing/]
+    UI:
+      summary: "The web app."

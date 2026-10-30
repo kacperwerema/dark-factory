@@ -1,0 +1,60 @@
+session: decision-confirm
+issue: factory/decision-confirm-endpoint
+title: Confirm on the decisions log records your words on the decision itself
+scenario: workbench
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Confirm with words, the CEO off, puts your words on sim/gdd-match-phases D-1
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/decisions
+    act:
+      - check: { visible: [decisions.row.sim/gdd-match-phases.d-1.confirm, decisions.row.sim/gdd-match-phases.d-1.words] }
+      - check: { disabled: decisions.row.sim/gdd-match-phases.d-1.question }
+      - type: { target: decisions.row.sim/gdd-match-phases.d-1.words, text: "Three phases it is" }
+      - key: Enter
+      - wait_for: { visible: decisions.row.sim/gdd-match-phases.d-1.quote, ms: 8000 }
+    checks:
+      - text_contains: { target: decisions.row.sim/gdd-match-phases.d-1.quote, text: "Three phases it is" }
+      - absent: decisions.row.sim/gdd-match-phases.d-1.confirm
+      - issue: { slug: sim/gdd-match-phases, body_contains: "chat, confirmed by owner " }
+      - issue: { slug: sim/gdd-match-phases, body_contains: "three phases of 20 / 20 / 20, \"Three phases it is\"" }
+
+  - id: TP5
+    title: Confirm without words records "Confirmed." on the lane formations D-5
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/decisions
+    act:
+      - check: { disabled: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.question }
+      - post: { path: "/p/{project}/decisions/sim/lane-formations-morale-waves-and-mixing/D-5/confirm", json: {}, status: 200 }
+      - post: { path: "/p/{project}/decisions/sim/lane-formations-morale-waves-and-mixing/D-5/confirm", json: {}, status: 409 }
+      - reload: true
+      - wait_for: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.quote
+    checks:
+      - text_contains: { target: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.quote, text: "Confirmed." }
+      - absent: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.confirm
+      - issue: { slug: sim/lane-formations-morale-waves-and-mixing, body_contains: "· deferred · chat, relayed by the lead, confirmed by owner " }
+
+  - id: TP6
+    title: The orange box reads clearly with its words box, at desktop and phone width
+    setup:
+      - open: /p/{project}/decisions
+    checks:
+      - visible: [decisions.row.sim/gdd-match-phases.d-1.confirm, decisions.row.sim/gdd-match-phases.d-1.words, decisions.row.sim/gdd-match-phases.d-1.question]
+    targets:
+      - { id: decisions.row.sim/gdd-match-phases.d-1.confirm, note: the orange box under the decision text }
+    do: |
+      1. Find sim/gdd-match-phases D-1 in the log: its orange box says the agent decided alone.
+      2. Look at the words box, Confirm and Question it. Narrow the window to phone width and look again.
+    expect: |
+      The box reads as one ask: "no words from you", an optional words box, then
+      Confirm and Question it. Question it is greyed (the CEO is off); Confirm is
+      not. At phone width the controls wrap under the text; nothing is cut off.
+    why: ux-test sees the parts are there; only you can say the box reads as "confirm this" and not as a chat form.

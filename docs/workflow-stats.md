@@ -72,14 +72,17 @@ Issues that transitioned before the feature shipped have no sidecar. The Stats t
 
 ## Stats page
 
-`/p/<project>/stats` (sidebar: More → Stats) opens on a dashboard; the tables below it are the ones this page always had, folded. `/stats` without a project compares every project.
+`/p/<project>/stats` (the hall tabs' Stats, or sidebar: More → Stats) opens the Workshop Board page, "Hall stats" (`stats_view_wb.go`, `templates/stats_wb.html`, components in `templates/_workshop_stats.html`): Now gauges, Trends, Where the time goes, Token cost, CLI usage and the time tables folded at the bottom. It renders the classic page's model, so the numbers are the same; the classic page stays at `?classic=1` (its own links keep `classic=1`; "Workshop view" goes back). Lines of code and the test ratio are not drawn here: code shape is Health's, so a "Code shape is on Health" card gives the latest figure and links there, and the Big files gauge links to Health too. A block without data says what is missing and the command that fills it (a trend: `health backfill`; Big files: `health snapshot`; CLI usage: `telemetry report`; recorded transitions: `transition`); the time bars offer "Show all time". `/stats` without a project compares every project, one card each (`stats_overview_wb.html`; classic table at `?classic=1`).
+
+Once a snapshot has a [benchmark](benchmark.md) run, Trends adds **Factory benchmark pass rate**: the `bench.pass_rate` of each benchmark's newest run, one line per benchmark, the run's label in each point's tooltip.
 
 **Options** are query parameters, so every view is a link:
 
 - `range`: `7d`, `30d` (default), `90d` or `all` (since the oldest snapshot or done issue). The old `?days=N` still works as a custom range and opens the time tables.
 - `group`: `type` (default), `system`, `epic` (the `parent:` slug) or `version`, for the "By <group>" bars and their drill-downs.
 - `p=90` switches the cycle chart to p90, `scale=share` the by-status bars to shares, `hide=<type,…>` hides series (click a legend entry), and `drill=…` opens the issues behind a bar or point.
-- `static/stats.js` remembers the last options per project (`stats:<slug>` in localStorage, read and written in try/catch). A visit without options restores them. Everything works without the script.
+- `classic=1` keeps the classic page.
+- `static/stats.js` (classic) and `static/workshop-stats.js` remember the last options per project (`stats:<slug>` in localStorage, without `classic`, read and written in try/catch), shared by both pages. A visit without options restores them. Everything works without the scripts.
 
 **Now: gauges.**
 
@@ -224,10 +227,40 @@ The tab label on every tab ("5h 0m", "1h 50m so far") reads only the stats sidec
 - `templates/stats.html` — page template: the dashboard (`statsChart` renders a chart card with its table and drill-down), then the tables. Reuses the existing `data-table` styling.
 - `stats_dashboard.go` — the dashboard model: options, gauges, trends from the snapshots, time bars, weekly columns, drill-downs. `buildDashboard` reads nothing from disk.
 - `stats_cache.go` — the per-project aggregate and CLI usage cache, and `warmStats` at server start.
-- `stats_overview.go`, `templates/stats_overview.html` — `/stats` across projects.
+- `stats_overview.go`, `templates/stats_overview.html` — `/stats` across projects; `stats_overview_wb.html` its Workshop Board page.
+- `stats_view_wb.go`, `templates/stats_wb.html`, `templates/_workshop_stats.html` — the Workshop Board page: `buildStatsWb` turns `StatsData` into `wb/*` cards (`wb/gauge`, `wb/chart-card`, `wb/table-card`, `wb/fold`, `wb/see-also`, `wb/empty`, `wb/seg-links`, `wb/project-stat`). The hall header is built in parallel with the stats (`handleStats`).
 - `internal/chart/` — line, stacked bars, columns, gauge and sparkline as SVG, each with `Table()`.
 - `internal/milestone/` — the current milestone (`Pick`, `Released`) and the `milestone` health family.
-- `static/stats.js` — table toggles, the group-by select, remembered options.
+- `static/stats.js` — table toggles, the group-by select, remembered options (classic page); `static/workshop-stats.js` — Copy buttons and remembered options (Workshop Board page).
+
+## Experiments
+
+The experiment loop (factory/factory-experiment-loop) measures a change to prompts, `workflow.yaml` or a tool before the owner adopts it. It goes propose → experiment → adopt, and the benchmark (factory/factory-benchmark-and-evals) is its yardstick.
+
+**What an experiment is.** An ordinary issue labelled `experiment`. Its walk is the usual feature or tweak path, and its change is code on its branch. The issue's data sidecar holds an `experiment` block: hypothesis, the retros it came from (`source`), the globs the branch may change (`change`), the target (`metric`, `up|down`, `threshold`), the benchmark, the baseline and candidate runs, the verdict with its reasons and numbers, and later `adopted` / `rolled_back`. `issue-cli show` and `start` print an `Experiment:` line under the header.
+
+**Propose.** `issue-cli experiment candidates [--min 3]` reads the retros' Workflow-bin findings (the Base workflow and Subsystem workflow lines, the same parsing as the Retro sorting room, `internal/retro`). It lists the terms that come back in `--min` or more issues, then the single findings of the last 30 days, each with its retros and any open experiment already using them. It writes nothing. An agent proposes on the issue trail; the lead or the owner creates the issue (label `experiment`). Then `issue-cli experiment init <slug> --hypothesis "…" --target gates_first_try:up:0.05 --source retros/<file> [--change workflow.yaml]`.
+
+Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold in the metric's own units; `tokens`, `cost`, `wall`, with the threshold as a fraction of the baseline.
+
+**Experiment.** `issue-cli experiment run <slug>`, on the issue's branch:
+
+1. Guard. The branch contains main (merge main first). Its diff against main touches no protected path and, when `change` is set, only those globs. Protected paths are the `protected:` list of the owner's `<bench dir>/<benchmark>.yaml`, or by default `internal/bench/**`, `internal/experiment/**`, `internal/health/bench*`, `cmd/issue-cli/cmd_bench*`, `cmd/issue-cli/cmd_experiment*`. The loop can't change its own yardstick, and nothing in it writes the bench config.
+2. Baseline. A finished run that measured main's sha is reused; otherwise `bench run <benchmark> --setup <main sha>`.
+3. Candidate. `bench run <benchmark> --setup <branch sha> --label experiment:<slug>@<sha>`.
+4. Verdict:
+   - **broken**: the runs can't be compared (a run didn't finish, other tasks or holdout size, another model or Claude Code version, no value for the metric);
+   - **rejected**: a task that passed now fails, the pass rate drops, or the target misses its threshold. A pass-rate move under one task counts as no change;
+   - **promising**: otherwise.
+5. Record. The block, an `experiment:` comment with the numbers (holdout only as passed n/m), and on promising a `## Experiment result` table.
+
+`--dry-run` prints the guard and the plan and runs nothing. `experiment record <slug> --baseline <run> --candidate <run>` judges two runs that already exist. Runs start only from a session the owner started; there is no schedule.
+
+**Adopt.** The owner adopts the change, even in YOLO: YOLO passes no gate of an issue labelled `experiment` ([YOLO](Workflow/yolo.md)). A rejected experiment is parked with its reason. The adopted commits carry the trailer `Experiment: <slug>`. A change that adds or bumps a catalog feature may name it on its entry in `workflow-features.yaml` (`experiment: {slug, measured: <verdict line>}`), and the Updates card shows "Measured by experiment …".
+
+**Roll back.** `issue-cli experiment rollback <slug>` creates branch `revert/<slug>` with one `revert(experiment): …` commit reverting the commits on main with that trailer. It never touches main; the owner reviews and merges it. The numbers stay in the sidecar.
+
+Code: `internal/experiment/` (block, `Judge`, `Guard`, `Protected`, `Candidates`, the git helpers), `cmd/issue-cli/cmd_experiment.go`, the exception in `cmd/issue-cli/yolo_gate.go`.
 
 ## Out of scope (today)
 

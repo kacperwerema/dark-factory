@@ -1,0 +1,51 @@
+package testids
+
+func init() {
+	IDs = append(IDs,
+		// Stats dashboard (templates/stats.html, /p/<project>/stats?classic=1).
+		"stats.dashboard",
+		"stats.options",
+		"stats.range",
+		"stats.range.*",
+		"stats.group",
+		"stats.gauge",
+		"stats.chart.*",
+		"stats.card.*",
+		"stats.snapshots",
+		"stats.done",
+		"stats.table.*",
+		"stats.table_btn.*",
+		"stats.pending",
+		"stats.drilldown",
+		"stats.backfill_hint",
+		"stats.tables",
+		"stats.overview",
+		"stats.overview.row",
+		"stats.overview.privacy",
+		"stats.overview.privacy.*",
+		"stats.overview.none",
+		"stats.time",
+		"stats.time.unsplit",
+		"stats.time.unread",
+		"stats.time.types",
+		"stats.time.status",
+		"stats.time.approvals",
+		"stats.time.failures",
+
+		// The hall's Stats page and /stats on the Workshop Board
+		// (stats_wb.html, stats_overview_wb.html, _workshop_stats.html).
+		"stats.page",
+		"stats.classic",
+		"stats.workshop",
+		"stats.now",
+		"stats.gauge.*",
+		"stats.trends",
+		"stats.locked",
+		"stats.see_also.*",
+		"stats.cost",
+		"stats.cli",
+		"stats.table_card.*",
+		"stats.fold.*",
+		"stats.empty",
+	)
+}

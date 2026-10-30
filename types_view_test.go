@@ -87,19 +87,19 @@ func TestBoard_TypeBadgeAndFilter(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{setupTypedProject(t)})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/typed/board")
+	_, html := getBody(t, ts.URL+"/p/typed/board?classic=1")
 	for _, want := range []string{`<select name="type"`, `board-card-type" title="Type of work">tweak<`, `board-card-type" title="Type of work">feature<`, `id="create-type"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("board missing %q", want)
 		}
 	}
 
-	_, html = getBody(t, ts.URL+"/p/typed/board?type=tweak")
+	_, html = getBody(t, ts.URL+"/p/typed/board?classic=1&type=tweak")
 	if !strings.Contains(html, "Small tweak") || strings.Contains(html, "Big feature") {
 		t.Error("board ?type=tweak should show only the tweak")
 	}
 
-	_, html = getBody(t, ts.URL+"/p/typed/?type=feature")
+	_, html = getBody(t, ts.URL+"/p/typed/?classic=1&type=feature")
 	if strings.Contains(html, "Small tweak") || !strings.Contains(html, "Big feature") || !strings.Contains(html, `class="type-badge"`) {
 		t.Errorf("list ?type=feature should show only features, with a type badge: tweak=%v feature=%v badge=%v", strings.Contains(html, "Small tweak"), strings.Contains(html, "Big feature"), strings.Contains(html, `class="type-badge"`))
 	}
@@ -119,7 +119,7 @@ func TestBoard_UntypedProjectHasNoTypeControls(t *testing.T) {
 	proj.WorkflowFile = "workflow.yaml.example" // untyped; the repo's workflow.yaml defines types
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	for _, page := range []string{"/board", "/", "/graph"} {
+	for _, page := range []string{"/board?classic=1", "/", "/graph"} {
 		_, html := getBody(t, ts.URL+"/p/test-project"+page)
 		if strings.Contains(html, `name="type"`) || strings.Contains(html, `id="create-type"`) || strings.Contains(html, "board-card-type") {
 			t.Errorf("%s shows type controls in a project without types", page)
