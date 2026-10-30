@@ -269,6 +269,18 @@ A list such as `visible: [a, b]` becomes one check per item.
   `comment … --text "playtest: …"`. It records posted comments in the run's
   `reported.yaml`, so a second APPLY doesn't repeat them.
 
+## README screenshots (playtest shots)
+
+`make readme-shots` reuses the runner's browser for the README's pictures.
+`scripts/readme-shots.sh` copies `demo/` to a temp folder, points `HOME`,
+`XDG_STATE_HOME` and `CLAUDE_CONFIG_DIR` into it, starts the CEO
+(`lead-demo`, a fixture transcript and pane from `demo/shots/`) and three
+workers on a private tmux socket, and starts the viewer on a free port.
+`playtest shots -list docs/images/shots.yaml -base URL -out docs/images`
+then shoots each page at 1280 px, 2x, in the light theme. `-only a.png,b.png`
+retakes some. Teardown kills only that socket's server and that viewer.
+Look at every picture before committing: the repo is public.
+
 ## Gotchas found while building it
 
 - HTML5 drag and drop doesn't start from plain CDP mouse events. Use

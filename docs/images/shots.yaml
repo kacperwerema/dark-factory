@@ -1,0 +1,12 @@
+# The README's screenshots: `make readme-shots` stages the demo (with its
+# CEO, workers and seeded departments) and shoots each page below at
+# 1280 px wide, 2x, in the light theme. See scripts/readme-shots.sh.
+- {file: workshop-hall.png, path: /p/demo/hall}
+- {file: workshop-map.png, path: /, height: 720}
+- {file: workshop-company.png, path: /p/demo/company, height: 980}
+- {file: hall-station.png, path: /p/demo/hall/station/in-progress, height: 760}
+- {file: hall-edit.png, path: /p/demo/hall/station/in-progress/edit, height: 760}
+- {file: issue-station.png, path: /p/demo/issue/backend/idempotency-keys-for-payment-retries}
+- {file: report.png, path: /p/demo/status, height: 900}
+- {file: ceo-chat.png, path: /p/demo/lead, height: 1000, settle: 700}
+- {file: needs-you.png, path: /p/demo/needs-you, height: 680}

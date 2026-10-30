@@ -1,4 +1,4 @@
-.PHONY: build build-cli install demo clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report
+.PHONY: build build-cli install demo readme-shots clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report
 
 # The build's version is `git describe`: the tag on a release or release
 # candidate (v0.54.0-rc.1), "<tag>-N-g<sha>" past one, "-dirty" with
@@ -20,6 +20,12 @@ install:
 
 demo: build
 	./issue-viewer -config demo/projects.yaml -port 8080
+
+# The README's screenshots (docs/images/shots.yaml) from a staged copy of the
+# demo, with a CEO and workers on a private tmux server. Needs Chrome
+# (PLAYTEST_CHROME on a Mac without it in /Applications).
+readme-shots:
+	scripts/readme-shots.sh
 
 clean:
 	rm -f issue-viewer issue-cli cover.out
