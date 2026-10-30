@@ -1,0 +1,20 @@
+❯ Call AskUserQuestion exactly once more with the same two questions (Color single-select with descriptions, Pets multiSelect). Nothing
+  else.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☒ Pets  ✔ Submit  →
+
+Review your answers
+
+ ● Which color do you prefer?
+   → Blue (cool)
+ ● Which pets do you like?
+   → Cats, Fish, Birds
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── lead-sandbox ─

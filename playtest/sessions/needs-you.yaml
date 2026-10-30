@@ -1,0 +1,102 @@
+session: needs-you
+issue: factory/needs-you-list-every-waiting-item-in-one-place-with-approve-all
+title: Needs you - every waiting item in one place, ready gates approved together
+scenario: needs-you
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The list shows every waiting item by section, each with its own action
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/needs-you
+    checks:
+      - text_equals: { target: needs_you.count, text: "5" }
+      - count: { pattern: needs_you.section, equals: 3 }
+      - count: { pattern: needs_you.row, equals: 5 }
+      - count: { pattern: needs_you.pick, equals: 3 }
+      - count: { pattern: needs_you.approve, equals: 3 }
+      - text_contains: { target: needs_you.bar, text: "Select all ready (3)" }
+      - disabled: needs_you.approve_selected
+      - absent: needs_you.after
+      - text_equals: { target: needs_you.run, text: "▶ Play" }
+    do: Look at the Needs you page.
+    expect: >-
+      Under the header, a bar with "Select all ready (3)" and a greyed "Approve selected (0)".
+      Three boxed sections: To approve (three gates, each with a checkbox, "in design → backlog",
+      Approve and Review), To test (search-as-you-type's playtest, ▶ Play and Open) and To answer
+      (saved-places-sync's question, Answer). Offline map tiles is not listed: its Design is still
+      open. Nothing is cut off or overlapping, also at phone width.
+    why: One place to see everything that waits on the owner and act on each row.
+
+  - id: TP5
+    title: Select all ready, one confirm listing each gate, one click stamps them all
+    proves: [AC3, AC4]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - click: needs_you.select_all
+      - check: { enabled: needs_you.approve_selected }
+      - click: needs_you.approve_selected
+      - wait_for: needs_you.confirm.list
+      - check: { count: { pattern: needs_you.confirm.list, equals: 1 } }
+      - check: { text_contains: { target: needs_you.confirm.list, text: "ui/route-planner-panel: in design → backlog" } }
+      - type: { target: needs_you.confirm.words, text: "all three look right" }
+      - click: needs_you.confirm.ok
+      - wait_for: { hidden: needs_you.confirm }
+      - wait: 600
+    checks:
+      - text_contains: { target: needs_you.row.msg, text: "Approved for backlog" }
+      - issue: { slug: ui/route-planner-panel, field: human_approval, equals: backlog }
+      - issue: { slug: ui/compass-overlay, field: human_approval, equals: backlog }
+      - issue: { slug: cli/import-kml, field: human_approval, equals: backlog }
+      - issue: { slug: ui/route-planner-panel, field: status, equals: "in design" }
+      - issue: { slug: cli/import-kml, comment_contains: "all three look right" }
+      - disabled: needs_you.approve_selected
+    do: Press Select all ready, then Approve selected (3), read the confirm, type a few words and press Approve all listed.
+    expect: >-
+      The confirm lists the three issues as "slug: in design → backlog" with an optional words box.
+      After Approve all listed, each gate row turns faded with a green "Approved for backlog ✓";
+      the bar's button goes back to "Approve selected (0)". The issues stay in design (only the
+      stamp is written).
+    why: Six gates at once was six station visits; now it is one confirm.
+
+  - id: TP6
+    title: Every count links to the list and shows the same number
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - http: { path: "/p/{project}/needs-you.json", json: { count: 5 } }
+      - text_equals: { target: needs_you.count, text: "5" }
+    act:
+      - check: { text_contains: { target: map.waiting, text: "5 waiting on you" } }
+      - check: { exists: report.action.needs_you }
+      - click: map.waiting
+      - wait_for: { url: { contains: /needs-you } }
+    do: On the Status report, press the orange "5 waiting on you" in the header; then go back and look at the Waiting on you card and the sidebar of any classic page.
+    expect: >-
+      The header button opens the Needs you list. The Waiting on you card has a "See all and
+      approve →" link. On a classic page (the list view) the sidebar's Status count is 5 and
+      clicking the amber number itself opens the list, while clicking "Status" opens the Status page.
+    why: Every "N need you" now leads to the list behind it.
+
+  - id: TP7
+    title: Across projects, grouped by project
+    proves: [AC6]
+    setup:
+      - open: /needs-you
+    checks:
+      - count: { pattern: needs_you.group, equals: 1 }
+      - text_equals: { target: needs_you.count, text: "5" }
+      - exists: needs_you.select_all
+    do: Open /needs-you (the map's "N waiting on you" goes there).
+    expect: >-
+      The same rows under a project heading "Atlas 5" with its colour square, linking to the
+      project's own list. With several projects each gets its own heading, and Approve selected
+      stamps gates in each project.
+    why: The owner can clear every project's gates from one page.

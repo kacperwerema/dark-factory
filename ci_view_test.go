@@ -72,7 +72,7 @@ func TestStatusPageShowsRedCI(t *testing.T) {
 		`--- FAIL: TestBroken`,
 		`data-testid="status.waiting.ci"`,
 		`data-testid="status.waiting.count">1</span>`,
-		`data-testid="nav.tab.status.count">1</span>`,
+		`data-testid="nav.tab.status.count">1</a>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("status page missing %q", want)

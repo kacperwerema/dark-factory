@@ -25,6 +25,12 @@ type CEOTurn struct {
 	// Tools are the CEO's tool calls by name ("Bash", "Read"), in order,
 	// one per call.
 	Tools []string `json:"tools,omitempty"`
+	// Bubbles, Calls and Asks come from the transcript (ceo_transcript.go):
+	// the CEO's whole messages, its tool calls with labels, and its
+	// AskUserQuestion calls. A pane turn has none of them.
+	Bubbles []CEOBubble    `json:"bubbles,omitempty"`
+	Calls   []CEOToolCall  `json:"calls,omitempty"`
+	Asks    []*CEOQuestion `json:"asks,omitempty"`
 	// Images are the chat images the owner's message sent, taken out of its
 	// text (withTurnImages).
 	Images []CEOImage `json:"images,omitempty"`
@@ -83,6 +89,8 @@ type CEOPane struct {
 	Older   bool        `json:"older"`
 	Working *CEOWorking `json:"working,omitempty"`
 	Prompt  *CEOPrompt  `json:"prompt,omitempty"`
+	// Ask is an AskUserQuestion widget the CEO waits on (ceo_question.go).
+	Ask *CEOPaneAsk `json:"ask,omitempty"`
 	// Mode is the session's permission mode from the footer: "auto",
 	// "plan", "accept edits"; empty when the footer doesn't say.
 	Mode string `json:"mode"`
@@ -129,7 +137,9 @@ func parseCEOPane(pane string) CEOPane {
 			break
 		}
 	}
-	if p, start := paneMenu(lines[:end], tail); p != nil {
+	if a, start := parsePaneAsk(lines[:end], tail); a != nil {
+		out.Ask, end = a, start
+	} else if p, start := paneMenu(lines[:end], tail); p != nil {
 		out.Prompt, end = p, start
 	}
 	conv := lines[:end]

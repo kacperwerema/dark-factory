@@ -14,7 +14,7 @@
         <div data-part-slot="term">{{template "wb/ceo-terminal" .Live}}</div>
     </div>
     <div class="wb-ceo-compose">
-        <div data-part-slot="prompt">{{with .Live.Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}</div>
+        <div data-part-slot="prompt">{{template "wb/ceo-prompts" .Live}}</div>
         {{template "wb/composer" .Composer}}
         {{template "wb/session-controls" .}}
     </div>

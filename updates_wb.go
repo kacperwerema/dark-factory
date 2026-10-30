@@ -207,7 +207,7 @@ func (s *Server) handleUpdatesWb(w http.ResponseWriter, r *http.Request, proj *t
 func (s *Server) updatesHeader(p *tracker.Project, prefix string, now time.Time) WbHeader {
 	company := s.buildCompany(p, prefix, now)
 	lot := company.Lot
-	h := WbHeader{Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "updates"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "updates"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}

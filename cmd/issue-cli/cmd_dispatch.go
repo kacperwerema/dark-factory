@@ -122,9 +122,9 @@ func runDispatch(ctx *Context, args []string) error {
 			return &exitCodeError{Code: exitWaitingOnGate}
 		}
 		return &exitCodeError{Code: exitWaitingOnGate, Msg: fmt.Sprintf(
-			"✗ Not dispatched: %s waits on the owner's approval for %q.\nEverything else %s → %s needs is done, so a new worker would only stop at the gate.\n\nA human approves at: %s\nDispatch anyway:     %s",
+			"✗ Not dispatched: %s waits on the owner's approval for %q.\nEverything else %s → %s needs is done, so a new worker would only stop at the gate.\n\nA human approves at: %s\nSeveral waiting?     %s\nDispatch anyway:     %s",
 			issue.Slug, refused.Gate, issue.Status, refused.Gate,
-			approvalURL(proj, issue.Slug, refused.Gate),
+			approvalURL(proj, issue.Slug, refused.Gate), needsYouURL(proj),
 			tracker.InjectProject(proj, fmt.Sprintf("issue-cli dispatch %s --force --quote %q", issue.Slug, quote)))}
 	}
 	resp := startAgent(proj, spec)

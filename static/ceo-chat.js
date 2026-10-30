@@ -49,12 +49,75 @@
       var name = t.getAttribute('data-part');
       var slot = document.querySelector('[data-part-slot="' + name + '"]');
       if (!slot || last[name] === t.innerHTML) return;
+      // A question card the owner has started answering stays as it is
+      // while the same question is still open.
+      if (name === 'prompt' && keepAskCard(slot, t)) return;
       var stick = name === 'conv' && atBottom(scroll);
       last[name] = t.innerHTML;
       slot.innerHTML = t.innerHTML;
       if (stick) toBottom();
     });
   }
+
+  // A question card the owner has started answering stays as it is while
+  // the same question is still on the CEO's screen.
+  function keepAskCard(slot, t) {
+    var mine = slot.querySelector('form[data-ask-question][data-dirty]');
+    if (!mine) return false;
+    var next = t.content.querySelector('form[data-ask-question]');
+    return !!next && next.getAttribute('data-ask-question') === mine.getAttribute('data-ask-question');
+  }
+
+  function pickOption(btn) {
+    var form = btn.closest('form');
+    var on = btn.getAttribute('aria-pressed') !== 'true';
+    if (!form.getAttribute('data-multi')) {
+      form.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+        b.classList.remove('wb-choice-opt--on');
+      });
+      if (on) form.querySelector('[data-ask-other]').value = '';
+    }
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('wb-choice-opt--on', on);
+    form.setAttribute('data-dirty', '1');
+  }
+
+  function submitAsk(form) {
+    var msg = form.querySelector('[data-ask-msg]');
+    var picks = Array.prototype.filter.call(form.querySelectorAll('[data-ask-pick]'), function (b) {
+      return b.getAttribute('aria-pressed') === 'true';
+    }).map(function (b) { return parseInt(b.getAttribute('data-ask-pick'), 10); });
+    var other = form.querySelector('[data-ask-other]').value.trim();
+    if (!picks.length && !other) { msg.textContent = 'Pick an answer first.'; return; }
+    msg.textContent = 'Answering…';
+    post(form.getAttribute('data-ask-url'), { question: form.getAttribute('data-ask-question'), picks: picks, other: other }).then(function (res) {
+      if (!res.ok) { msg.textContent = 'Not answered: ' + (res.body.error || 'error'); return; }
+      form.removeAttribute('data-dirty');
+      msg.textContent = 'Answered in ' + (res.body.session || 'the CEO') + '.';
+      setTimeout(poll, 400);
+    }).catch(function (e) { msg.textContent = 'Not answered: ' + e; });
+  }
+
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('form[data-ask-question]');
+    if (!form) return;
+    e.preventDefault();
+    submitAsk(form);
+  });
+  document.addEventListener('input', function (e) {
+    var other = e.target.closest('[data-ask-other]');
+    if (!other) return;
+    var form = other.closest('form');
+    // One answer for a single choice: typing Other clears a pick.
+    if (!form.getAttribute('data-multi') && other.value) {
+      form.querySelectorAll('[data-ask-pick]').forEach(function (b) {
+        b.setAttribute('aria-pressed', 'false');
+        b.classList.remove('wb-choice-opt--on');
+      });
+    }
+    form.setAttribute('data-dirty', '1');
+  });
 
   function poll() {
     if (document.hidden) return;
@@ -170,6 +233,7 @@
     var btn = e.target.closest('button');
     if (!btn || btn.disabled) return;
     if (btn.hasAttribute('data-send-now')) { send(true); return; }
+    if (btn.hasAttribute('data-ask-pick')) { pickOption(btn); return; }
     if (btn.hasAttribute('data-attach')) { imageInput.click(); return; }
     if (btn.hasAttribute('data-key')) { pressKey(btn.getAttribute('data-key'), btn); return; }
     if (btn.hasAttribute('data-answer')) {

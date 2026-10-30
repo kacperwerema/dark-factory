@@ -1509,7 +1509,34 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-turn-bubble { padding: 11px 14px; border: 2px solid var(--ink); border-radius: 14px 4px 14px 14px; background: #FFE3CC; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wb-turn-p { margin: 0; padding: 10px 14px; background: #fff; border: 2px solid var(--ink); border-radius: 4px 14px 14px 14px; font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .wb-turn-p + .wb-turn-p { border-radius: 14px; }
+.wb-turn-md > :first-child { margin-top: 0; }
+.wb-turn-md > :last-child { margin-bottom: 0; }
+.wb-turn-md p, .wb-turn-md ul, .wb-turn-md ol, .wb-turn-md pre, .wb-turn-md table, .wb-turn-md blockquote { margin: 0 0 8px; }
+.wb-turn-md ul, .wb-turn-md ol { padding-left: 22px; }
+.wb-turn-md li + li { margin-top: 3px; }
+.wb-turn-md h1, .wb-turn-md h2, .wb-turn-md h3, .wb-turn-md h4 { margin: 4px 0 6px; font-size: 15px; font-weight: 800; }
+.wb-turn-md code { padding: 1px 5px; border-radius: 5px; background: #F1F3F7; font-family: var(--mono); font-size: 12.5px; }
+.wb-turn-md pre { padding: 9px 12px; border-radius: 9px; background: var(--ink); color: #E3E7ED; overflow-x: auto; }
+.wb-turn-md pre code { padding: 0; background: none; color: inherit; }
+.wb-turn-md table { border-collapse: collapse; font-size: 13.5px; display: block; overflow-x: auto; }
+.wb-turn-md th, .wb-turn-md td { border: 1.5px solid #C9CFD9; padding: 4px 8px; text-align: left; vertical-align: top; }
+.wb-turn-md blockquote { padding-left: 10px; border-left: 3px solid #C9CFD9; color: #3A4252; }
+.wb-turn-md a { color: inherit; text-decoration: underline; }
 .wb-turn-tools { align-self: flex-start; padding: 3px 10px; border-radius: 8px; background: #EEF0F4; color: #2A303C; font-family: var(--mono); font-size: 12px; }
+.wb-turn-tools summary { cursor: pointer; }
+.wb-turn-tools ul { margin: 6px 0 4px; padding-left: 18px; }
+.wb-turn-tools li { overflow-wrap: anywhere; }
+.wb-ask { border: 2px solid var(--ink); border-radius: 12px; padding: 10px 14px; background: #FFF7F0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.wb-ask--done { background: #F4F5F8; border-color: #9AA3B2; color: #3A4252; }
+.wb-ask-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; }
+.wb-ask-q { line-height: 1.45; font-weight: 600; }
+.wb-ask-answer { margin-top: 2px; font-weight: 800; color: var(--ink); }
+.wb-ask-review { display: flex; flex-direction: column; gap: 6px; }
+.wb-ask-opt { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; }
+.wb-ask-opt small { font-size: 12.5px; font-weight: 500; color: #3A4252; }
+.wb-ask-other { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+.wb-ask-other input { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; border: 2px solid var(--ink); border-radius: 10px; font: inherit; font-weight: 500; }
+.wb-ask-card .wb-composer-bar { padding: 4px 0 0; border-top: 0; }
 .wb-turn--working { align-items: center; }
 .wb-working { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border: 2px dashed #9AA3B2; border-radius: 14px; background: #fff; font-size: 13.5px; font-weight: 600; color: #2A303C; }
 .wb-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); margin-right: 3px; animation: wb-dot 1.2s infinite; }
@@ -1627,6 +1654,60 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
   .wb-shelf-thumb { width: 40px; height: 32px; font-size: 18px; }
   .wb-shelf-acts { grid-column: 1 / -1; }
 }
+
+/* ---- Needs you: every waiting item, ready gates approved together ---- */
+.wb-ny-count { display: inline-grid; place-items: center; min-width: 30px; height: 30px; margin-left: 6px; padding: 0 8px; border: 2px solid var(--ink); border-radius: 99px; background: var(--you); font-size: 16px; vertical-align: 4px; }
+.wb-ny { max-width: 1080px; padding-right: 6px; }
+.wb-ny-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
+.wb-ny-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.wb-ny-hint { font-size: 12px; color: var(--muted-2); font-weight: 500; }
+.wb-ny-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+.wb-ny-proj { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 17px; }
+.wb-ny-proj i { width: 12px; height: 12px; border-radius: 4px; }
+.wb-ny-n { font-size: 12px; font-weight: 700; color: var(--muted-2); }
+.wb-ny-error { padding: 8px 12px; border: 1.5px solid #A3172A; border-radius: 10px; background: #FDE8EA; color: #A3172A; font-size: 13px; }
+.wb-ny-sec { display: flex; flex-direction: column; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); overflow: hidden; }
+.wb-ny-sec-h { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1.5px solid #E3E6EC; background: #F6F7F9; }
+.wb-ny-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1.5px solid #E3E6EC; }
+.wb-ny-sec-h + .wb-ny-row { border-top: 0; }
+.wb-ny-row--you { box-shadow: inset 4px 0 0 var(--you); }
+.wb-ny-row--red { background: #FFF6F7; box-shadow: inset 4px 0 0 #A3172A; }
+.wb-ny-row--done { opacity: .6; }
+.wb-ny-pick input, .wb-ny-all input { width: 18px; height: 18px; accent-color: var(--ink); cursor: pointer; }
+.wb-ny-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-ny-acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.wb-ny-acts button { font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; }
+.wb-ny-msg { font-size: 12.5px; font-weight: 700; }
+.wb-ny-msg:empty { display: none; }
+.wb-ny-msg--ok { color: #157A42; }
+.wb-ny-msg--err { color: #A3172A; }
+.wb-ny-after { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1.5px solid #E3E6EC; color: inherit; text-decoration: none; font-size: 13px; }
+.wb-ny-sec-h + .wb-ny-after { border-top: 0; }
+.wb-ny-after .wb-qrow-go { margin-left: auto; }
+.wb-ny-dialog { max-width: min(560px, calc(100vw - 32px)); padding: 20px 22px; border: 2px solid var(--ink); border-radius: 16px; background: var(--paper); box-shadow: 5px 5px 0 var(--ink); }
+.wb-ny-dialog::backdrop { background: rgba(27, 31, 42, .35); }
+.wb-ny-dialog h2 { margin: 0 0 10px; font-size: 18px; }
+.wb-ny-list { margin: 0 0 14px; padding-left: 18px; max-height: 45vh; overflow: auto; font-size: 13px; line-height: 1.6; }
+.wb-ny-list b { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; }
+.wb-ny-words { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 700; }
+.wb-ny-words textarea { font: inherit; font-weight: 400; padding: 8px; border: 1.5px solid var(--ink); border-radius: 8px; resize: vertical; }
+.wb-ny-dialog-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wb-ny-dialog-acts button { font: inherit; font-weight: 800; cursor: pointer; }
+@media (max-width: 640px) {
+    .wb-ny-row { grid-template-columns: 24px minmax(0, 1fr); }
+    .wb-ny-acts { grid-column: 2; justify-content: flex-start; }
+}
+
+/* ▶ Run playtest on the station (static/playtest-run.js): the result under
+   the playtest step and Tick passed boxes. */
+[data-playtest-result][hidden], [data-playtest-tick][hidden], [data-playtest-note][hidden] { display: none; }
+.wb .playtest-result { margin-top: 8px; font-weight: 400; }
+.wb .playtest-result p { margin: 4px 0; font-weight: 600; }
+.wb .playtest-steps { margin: 4px 0 8px; padding-left: 18px; font-family: var(--mono); font-size: 12px; }
+.wb .playtest-step--pass { color: #136B3A; }
+.wb .playtest-step--fail { color: var(--red); }
+.wb .playtest-step--open { color: var(--muted); }
+.wb .playtest-note { color: var(--muted); font-weight: 400; }
 
 /* L2: hall drill-in (templates/_workshop_hall_part.html). The hall's parts
    are links; their pages show what is inside a station, a gate or CI. */

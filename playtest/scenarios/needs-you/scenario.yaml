@@ -1,0 +1,13 @@
+# Needs you list: the status scenario (Atlas) plus two more ready gates, so
+# three issues wait at in design → backlog with Design ticked
+# (ui/route-planner-panel, ui/compass-overlay, cli/import-kml);
+# ui/offline-map-tiles waits at the same gate with Design open (not ready,
+# not listed). ui/search-as-you-type has a playtest due, ui/saved-places-sync
+# an open question: comment.
+title: Needs you - every waiting item in one place, ready gates approved together
+project:
+  name: Atlas
+  slug: atlas
+issues: tracker
+workflow: workflow.yaml
+root: root

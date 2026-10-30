@@ -83,6 +83,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/stats", s.handleStatsOverview)
 	mux.HandleFunc("/updates", s.handleUpdatesOverview)
 	mux.HandleFunc("/leads", s.handleLeads)
+	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	return hostAllowed(s.allowedHosts, sameOriginOnly(mux))
@@ -124,6 +125,12 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHallPart(w, r, proj, prefix, kind, key)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
+	case rest == "needs-you" && r.Method == http.MethodGet:
+		s.handleNeedsYou(w, r, proj, prefix)
+	case rest == "needs-you.json" && r.Method == http.MethodGet:
+		s.handleNeedsYouJSON(w, r, proj, prefix)
+	case rest == "needs-you/approve" && r.Method == http.MethodPost:
+		s.handleNeedsYouApprove(w, r, proj, prefix)
 	case rest == "shelf" && r.Method == http.MethodGet:
 		s.handleShelf(w, r, proj, prefix)
 	case rest == "shelf/review" && r.Method == http.MethodPost:
@@ -186,6 +193,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleCEOImage(w, r, proj, prefix)
 	case rest == "lead/key" && r.Method == http.MethodPost:
 		s.handleLeadChatKey(w, r, proj, prefix)
+	case rest == "lead/answer" && r.Method == http.MethodPost:
+		s.handleLeadAnswer(w, r, proj, prefix)
 	case rest == "retros":
 		s.handleRetros(w, r, proj, prefix)
 	case rest == "retros/review" && r.Method == http.MethodPost:
@@ -266,6 +275,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleSetIssueType(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/check-script") && r.Method == http.MethodPost:
 		s.handleRunChecks(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/playtest") && (r.Method == http.MethodPost || r.Method == http.MethodGet):
+		s.handlePlaytest(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
 	case rest == "yolo.json" && r.Method == http.MethodGet:

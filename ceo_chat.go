@@ -44,7 +44,13 @@ type CEOTitle struct {
 type CEOLive struct {
 	Live     bool
 	SpawnURL string
-	Pane     CEOPane
+	// Pane is the conversation (Turns from the transcript, or the pane),
+	// and the pane's working line, menu and mode.
+	Pane CEOPane
+	// Source says where the turns came from: "transcript" or "pane".
+	Source string
+	// AnswerURL answers Pane.Ask, the question card above the message box.
+	AnswerURL string
 	// Raw is the cleaned pane for the Terminal view.
 	Raw  string
 	Side CEOSide
@@ -53,7 +59,7 @@ type CEOLive struct {
 // CEOSide is the right panel.
 type CEOSide struct {
 	Waiting   []LeadWaiting
-	Questions []string
+	Questions []CEOOpenQuestion
 	Workers   []CEOWorker
 	AttachCmd string
 }
@@ -132,7 +138,7 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 	lot, queue := s.buildLot(p, color, now)
 	m := s.buildLeadChat(p, prefix, true)
 	d := CEOChatPage{
-		Header: WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
+		Header: WbHeader{WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: len(queue), HideDone: true},
 		Live:   s.buildCEOLive(p, prefix, m),
 		Composer: CEOComposer{
 			SendURL: prefix + "/lead/send", KeyURL: prefix + "/lead/key", ImageURL: prefix + "/lead/image",
@@ -156,10 +162,10 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, now time.Time) 
 // buildCEOLive is the polled part, from the lead chat model.
 func (s *Server) buildCEOLive(p *tracker.Project, prefix string, m LeadChatModel) CEOLive {
 	live := CEOLive{
-		Live: m.Live, SpawnURL: prefix + "/lead/spawn", Raw: m.Pane, Pane: parseCEOPane(m.Pane),
-		Side: CEOSide{Waiting: m.Waiting, Questions: m.Questions, AttachCmd: m.AttachCmd},
+		Live: m.Live, SpawnURL: prefix + "/lead/spawn", Raw: m.Pane, Source: m.Source, AnswerURL: prefix + "/lead/answer",
+		Pane: CEOPane{Turns: m.Turns, Older: m.Older, Working: m.Working, Prompt: m.Prompt, Ask: m.Ask, Mode: m.Mode},
+		Side: CEOSide{Waiting: m.Waiting, Questions: m.OpenQuestions, AttachCmd: m.AttachCmd},
 	}
-	withTurnImages(p, prefix, live.Pane.Turns)
 	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
 		for _, w := range agents.Workers {
 			if !w.Live {

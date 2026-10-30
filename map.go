@@ -145,7 +145,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 		data.AgentWait += lot.AgentWait
 		data.DoneWeek += lot.DoneWeek
 		data.Updates += lot.Updates
-		data.Queue = append(data.Queue, queues[i]...)
+		data.Queue = appendNeedsYou(data.Queue, queues[i])
 		if rc != nil {
 			for _, slug := range rc.Testing {
 				if slug == lot.Slug && !lot.Engine {
@@ -156,7 +156,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 	}
 	sort.SliceStable(data.Lots, func(i, j int) bool { return !data.Lots[i].Site && data.Lots[j].Site })
 	sortMapQueue(data.Queue)
-	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue)}
+	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue), WaitingURL: "/needs-you"}
 	return data
 }
 
@@ -228,32 +228,13 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 	lot.Crew = wbCrew(lot.Robots)
 	lot.CEO.Quote = s.leadQuote(p, lot.CEO.Live, now)
 
-	var queue []WbQueueCard
 	if st, enabled := ciState(p); enabled && st != nil {
 		lot.CI = "green"
 		if st.IsRed() {
-			lot.CI = "red"
-			lot.CILine = "make validate"
-			if st.Failed != "" {
-				lot.CILine = st.Failed
-			}
-			slug := st.RedIssue
-			if slug == "" {
-				slug = st.Branch
-			}
-			since := st.Updated
-			queue = append(queue, WbQueueCard{
-				Kind: "ci", Label: "CI red", Tone: "red", Blocking: true,
-				Project: p.Name, ProjectSlug: p.Slug, Color: color,
-				Slug: slug, Note: lot.CILine + " fails on " + st.Branch + ".",
-				Since: since, Age: shortDuration(now.Sub(since)),
-				CTA: "View status", URL: prefix + "/status",
-			})
+			lot.CI, lot.CILine = "red", ciRedLine(st)
 		}
 	}
-	for _, it := range waitingOnOwner(p, open) {
-		queue = append(queue, mapQueueRow(p, color, prefix, it, now))
-	}
+	queue := needsYouRows(p, color, prefix, open, now)
 	lot.Waiting = len(queue)
 
 	if plan := projectUpgradePlan(p); plan != nil {
@@ -270,36 +251,6 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		}
 	}
 	return lot, queue
-}
-
-// mapQueueRow words one waiting item for the owner, with its action.
-func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now time.Time) WbQueueCard {
-	row := WbQueueCard{
-		Kind: it.Kind, Tone: "you", Project: p.Name, ProjectSlug: p.Slug, Color: color,
-		Slug: it.Issue.Slug, Since: it.Since, Age: shortDuration(now.Sub(it.Since)),
-		URL: prefix + "/issue/" + it.Issue.Slug,
-	}
-	if it.Approx {
-		row.Age = "≈ " + row.Age
-	}
-	switch it.Kind {
-	case "gate":
-		row.Label, row.CTA = "Gate: "+it.Target, "Review"
-		row.Note = it.Issue.Title + " · " + it.Issue.Status + " → " + it.Target
-		row.URL += "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
-	case "playtest":
-		row.Label, row.CTA = "Playtest", "Play"
-		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
-	case "checks":
-		row.Label, row.CTA = "Human testing", "Check"
-		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
-	case "question":
-		row.Label, row.CTA = "Question", "Answer"
-		row.Note = it.Issue.Title
-	default:
-		row.Label, row.CTA, row.Note = it.Kind, "Open", it.Issue.Title
-	}
-	return row
 }
 
 // mapDeptColors are the colours of the departments a project adds (after

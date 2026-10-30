@@ -10,11 +10,13 @@ static/ceo-chat.js).
   wb/ceo-working      the CEO at work, with Interrupt                  data: *CEOWorking
   wb/ceo-terminal     the raw pane                                     data: CEOLive
   wb/choice-card      a menu the CEO waits on                          data: *CEOPrompt
+  wb/ask-history      an AskUserQuestion in the conversation           data: *CEOQuestion
+  wb/ask-card         the question widget on the pane, to answer       data: CEOLive (.Pane.Ask)
   wb/composer         the message box                                  data: CEOComposer
   wb/session-controls the session's keys                               data: CEOChatPage
   wb/ceo-side         the right panel                                  data: CEOLive
   wb/waiting-band     Waiting on you                                   data: []LeadWaiting
-  wb/ceo-questions    the CEO's latest questions                       data: []string
+  wb/ceo-questions    the CEO's open questions                         data: []CEOOpenQuestion
   wb/ceo-workers      the project's live workers                       data: []CEOWorker
   wb/ceo-live         the polled parts, one <template> each            data: CEOLive
   wb/ceo-card         one project's CEO on /leads                      data: LeadRow
@@ -45,7 +47,8 @@ static/ceo-chat.js).
     <p><b>The CEO is not running.</b> Start it to talk to it here; nothing you type is sent until it runs.</p>
     <div data-spawn-box><button type="button" class="wb-btn wb-btn--ink" data-spawn-lead="{{.SpawnURL}}" data-testid="lead_chat.spawn">Start the CEO</button><div class="wb-site-msg" role="status"></div></div>
 </div>{{else}}
-{{if .Pane.Older}}<div class="wb-ceo-older" data-testid="lead_chat.older">Older turns scrolled out of the capture: they are in tmux.</div>{{end}}
+{{if eq .Source "pane"}}<div class="wb-ceo-older" data-testid="lead_chat.source">No transcript found for this session: the conversation is read from the terminal.</div>{{end}}
+{{if .Pane.Older}}<div class="wb-ceo-older" data-testid="lead_chat.older">{{if eq .Source "transcript"}}Older turns are in the terminal and tmux.{{else}}Older turns scrolled out of the capture: they are in tmux.{{end}}</div>{{end}}
 {{range .Pane.Turns}}{{if eq .From "you"}}{{template "wb/turn-you" .}}{{else}}{{template "wb/turn-ceo" .}}{{end}}{{else}}<div class="wb-empty" data-testid="lead_chat.empty">Nothing said yet: the conversation shows up here once you or the CEO write.</div>{{end}}
 {{with .Pane.Working}}{{template "wb/ceo-working" .}}{{end}}
 {{end}}
@@ -68,7 +71,9 @@ static/ceo-chat.js).
     <div class="wb-turn-main">
         <div class="wb-turn-meta">CEO</div>
         {{range .Text}}<p class="wb-turn-p">{{.}}</p>{{end}}
-        {{with .ToolSummary}}<div class="wb-turn-tools" data-testid="lead_chat.tools">{{.}}</div>{{end}}
+        {{range .Bubbles}}<div class="wb-turn-p wb-turn-md" data-testid="lead_chat.bubble">{{.HTML}}</div>{{end}}
+        {{range .Asks}}{{template "wb/ask-history" .}}{{end}}
+        {{with .ToolSummary}}{{if $.Calls}}<details class="wb-turn-tools" data-testid="lead_chat.tools"><summary>{{.}}</summary><ul>{{range $.Calls}}<li><b>{{.Name}}</b>{{with .Label}} · {{.}}{{end}}</li>{{end}}</ul></details>{{else}}<div class="wb-turn-tools" data-testid="lead_chat.tools">{{.}}</div>{{end}}{{end}}
     </div>
 </div>
 {{end}}
@@ -100,6 +105,34 @@ static/ceo-chat.js).
         {{range $i, $c := .Choices}}<button type="button" class="wb-choice-opt{{if .Selected}} wb-choice-opt--on{{end}}" data-key="{{.Key}}" data-testid="lead_chat.prompt.choice.{{$i}}"><span class="wb-choice-key">{{.Key}}</span><span>{{.Text}}</span></button>{{end}}
     </div>
 </div>
+{{end}}
+
+{{define "wb/ask-history"}}
+<div class="wb-ask wb-ask--history{{if .Answered}} wb-ask--done{{end}}" {{if .Answered}}data-testid="lead_chat.ask.answered"{{else}}data-testid="lead_chat.ask.open"{{end}}>
+    <div class="wb-ask-head"><span class="wb-chip {{if .Answered}}wb-chip--idle{{else}}wb-chip--you{{end}}">{{if .Answered}}answered{{else}}waits on you{{end}}</span></div>
+    {{range .Questions}}<div class="wb-ask-q">{{with .Header}}<span class="wb-chip wb-chip--plain">{{.}}</span> {{end}}{{.Question}}{{with .Answer}}<div class="wb-ask-answer">→ {{.}}</div>{{end}}</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/ask-card"}}{{$a := .Pane.Ask}}
+<form class="wb-choice wb-ask-card" data-ask-url="{{.AnswerURL}}" data-ask-question="{{$a.Question}}" data-multi="{{if $a.Multi}}1{{end}}" data-testid="lead_chat.ask_card">
+    <div class="wb-choice-head">
+        <span class="wb-choice-bang wb-ping">?</span>
+        <span class="wb-choice-title">The CEO asks you</span>
+        {{range $a.Tabs}}<span class="wb-chip {{if .Done}}wb-chip--idle{{else}}wb-chip--plain{{end}}">{{if .Done}}✓ {{end}}{{.Label}}</span>{{end}}
+    </div>
+    {{if $a.Review}}
+    <div class="wb-ask-review" data-testid="lead_chat.ask_card.review">{{range $a.Answers}}<div class="wb-ask-q">{{.Question}}<div class="wb-ask-answer">→ {{.Answer}}</div></div>{{end}}</div>
+    <div class="wb-composer-bar"><span class="wb-grow"></span><button type="button" class="wb-btn wb-btn--outline" data-key="2" data-testid="lead_chat.ask_card.cancel">Cancel</button><button type="button" class="wb-btn wb-btn--ink" data-key="1" data-testid="lead_chat.ask_card.send">Submit answers</button></div>
+    {{else}}
+    <div class="wb-choice-q">{{$a.Question}}{{if $a.Multi}} <span class="wb-muted">(pick any)</span>{{end}}</div>
+    <div class="wb-choice-opts">
+        {{range $a.Options}}<button type="button" class="wb-choice-opt{{if .Checked}} wb-choice-opt--on{{end}}" aria-pressed="{{if .Checked}}true{{else}}false{{end}}" data-ask-pick="{{.Key}}" data-testid="lead_chat.ask_card.opt.{{.Key}}"><span class="wb-choice-key">{{.Key}}</span><span class="wb-ask-opt"><span>{{.Label}}</span>{{with .Description}}<small>{{.}}</small>{{end}}</span></button>{{end}}
+        <label class="wb-ask-other"><span>Other</span><input type="text" maxlength="500" value="{{$a.Other.Label}}" data-ask-other placeholder="your own answer" data-testid="lead_chat.ask_card.other"></label>
+    </div>
+    <div class="wb-composer-bar"><span class="wb-site-msg" role="status" data-ask-msg></span><span class="wb-grow"></span><button type="submit" class="wb-btn wb-btn--ink" data-testid="lead_chat.ask_card.submit">{{if gt (len $a.Tabs) 1}}Next{{else}}Submit{{end}}</button></div>
+    {{end}}
+</form>
 {{end}}
 
 {{define "wb/composer"}}
@@ -137,19 +170,20 @@ static/ceo-chat.js).
 
 {{define "wb/waiting-band"}}
 <div class="wb-wait{{if .}} wb-wait--on{{end}}" id="waiting" data-testid="lead_chat.waiting">
-    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{end}}</div>
+    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{else}}<a class="wb-wait-sub" href="needs-you" data-testid="lead_chat.waiting.all">See all and approve →</a>{{end}}</div>
     {{range .}}<a class="wb-wait-row" href="{{.ActionURL}}" data-testid="lead_chat.waiting.{{.Kind}}.{{tid .Slug}}"><span class="wb-kind wb-kind--you">{{.Action}}</span><span class="wb-wait-title">{{.Title}}</span><span class="wb-wait-detail">{{.Detail}} · {{.Age}}</span></a>{{end}}
 </div>
 {{end}}
 
 {{define "wb/ceo-questions"}}
 <div class="wb-side-sec" data-testid="lead_chat.questions">
-    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small">CEO's questions</h2><span class="wb-muted">latest in the pane</span></div>
-    {{range .}}<div class="wb-q">
-        <div class="wb-q-text">{{.}}</div>
-        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-answer="{{.}}" data-testid="lead_chat.question.answer">Answer in chat</button>
-    </div>{{else}}<div class="wb-empty">No open question from the CEO in its pane.</div>{{end}}
-    {{if .}}<div class="wb-side-note">The button only starts your reply in the box, in your words; nothing is sent until you press Send.</div>{{end}}
+    <div class="wb-h2-row"><h2 class="wb-h2 wb-h2--small">CEO's questions</h2><span class="wb-muted">open only</span></div>
+    {{range .}}<div class="wb-q" data-testid="lead_chat.question.{{.Kind}}">
+        <div class="wb-q-text">{{.Text}}</div>
+        {{if eq .Kind "ask"}}<span class="wb-muted">Answer it in the card above the message box.</span>{{else}}<button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-answer="{{.Text}}" data-testid="lead_chat.question.answer">Answer in chat</button>{{end}}
+    </div>{{else}}<div class="wb-empty">No open question from the CEO.</div>{{end}}
+    {{$sentence := false}}{{range .}}{{if eq .Kind "sentence"}}{{$sentence = true}}{{end}}{{end}}
+    {{if $sentence}}<div class="wb-side-note">Answer in chat only starts your reply in the box, in your words; nothing is sent until you press Send.</div>{{end}}
 </div>
 {{end}}
 
@@ -170,10 +204,12 @@ static/ceo-chat.js).
 <div data-live="{{if .Live}}1{{else}}0{{end}}" data-mode="{{ceoMode .Pane.Mode}}">
 <template data-part="conv">{{template "wb/ceo-conv" .}}</template>
 <template data-part="term">{{template "wb/ceo-terminal" .}}</template>
-<template data-part="prompt">{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}</template>
+<template data-part="prompt">{{template "wb/ceo-prompts" .}}</template>
 <template data-part="side">{{template "wb/ceo-side" .}}</template>
 </div>
 {{end}}
+
+{{define "wb/ceo-prompts"}}{{if .Pane.Ask}}{{template "wb/ask-card" .}}{{end}}{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}{{end}}
 
 {{define "wb/ceo-card"}}
 <div class="wb-ceo-card" data-testid="leads.row.{{tid .Slug}}">

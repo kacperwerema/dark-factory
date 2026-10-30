@@ -42,6 +42,7 @@
                 <div class="status-card-head">
                     <h2 id="status-waiting-h">Needs you</h2>
                     <span class="chip{{if .WaitingCount}} chip-amber{{end}}" data-testid="status.waiting.count">{{.WaitingCount}}</span>
+                    {{if .WaitingCount}}<a class="status-see-all" href="{{.Prefix}}/needs-you" data-testid="status.waiting.all">See all {{.WaitingCount}} and approve →</a>{{end}}
                 </div>
                 {{if .CI.Red}}
                 <div class="status-list">

@@ -1,0 +1,20 @@
+❯ Call AskUserQuestion exactly once more with the same two questions (Color single-select with descriptions, Pets multiSelect). Nothing
+  else.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Color  ☐ Pets  ✔ Submit  →
+
+Which pets do you like?
+
+❯ 1. [ ] Cats
+         Cats as pets
+  2. [ ] Dogs
+         Dogs as pets
+  3. [ ] Fish
+         Fish as pets
+  4. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── lead-sandbox ─
