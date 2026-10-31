@@ -156,7 +156,10 @@ type Benchmark struct {
 	// Scorer is the promptfoo command output and diff evals run; default
 	// DefaultScorer (the pinned promptfoo through npx).
 	Scorer string `yaml:"scorer,omitempty"`
-	Tasks  []Task `yaml:"tasks"`
+	// WorkerHome is where the worker's HOME is: WorkerHomeSandbox (the
+	// default) or WorkerHomeOwner.
+	WorkerHome string `yaml:"worker_home,omitempty"`
+	Tasks      []Task `yaml:"tasks"`
 
 	path string
 }
@@ -251,6 +254,9 @@ func Load(name string) (*Benchmark, error) {
 	}
 	var b Benchmark
 	if err := yaml.Unmarshal(data, &b); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if err := validWorkerHome(b.WorkerHome); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if b.Name == "" {

@@ -72,7 +72,12 @@ worktree (the tracked `_test.go` that declares `func <Name>(`; a sub-test `TestA
 `go test -json -run '^(…)$' <packages>` there, and posts
 `tests: prove --run at <sha>: <command> — N passed: <names>` only when every named test passed. A failing,
 skipped, not-run (its package didn't build) or not-found name prints its output and posts nothing; the command exits
-non-zero. It refuses, with the manual `issue-cli comment <slug> --text "tests: ..."` as the way out, when the issue has
+non-zero. A name that is not found is **superseded**, not a failure, when only an older commit's trailer names it and,
+on every criterion it is linked to, a newer commit's trailer (or a `prove --test` link) names a test that is found: a
+test renamed or removed later (an owner decision changed the design) can't be taken out of a pinned commit. It prints
+as `– <name> — superseded by <newer> (trailer on <sha>)`, is skipped, and the comment ends with `; N superseded:
+<names>`; `prove` lists that link as `superseded by …`. A missing name in the newest trailer still blocks (a typo).
+It refuses, with the manual `issue-cli comment <slug> --text "tests: ..."` as the way out, when the issue has
 no test links, no worktree, or no `go.mod`; it refuses uncommitted code in the worktree (commit first: that commit
 would stale the report anyway) and runs `mem-guard check` first when `mem-guard` is on PATH. `--json` adds a `run`
 object (`command`, `head`, `packages`, `results` with each name's `outcome` and output tail, `posted`). The "no tests:
@@ -116,6 +121,30 @@ check result (with a `→` fix line when it fails).
 
 `prove`, `prove --list` and the transition that runs `criteria_proven` tick every proven criterion that is still
 unticked. A ticked box whose proof stops passing is reported, not unticked.
+
+### Criteria a command can fail
+
+A criterion is worth its box when something could fail it. Write each one so it names its proof: a test
+(`The lint flags a vague box (TestCriteriaFlags…)`, `(tests with fixtures)`), a command in backticks
+(`` `issue-cli status` names the issue``, "exits 1 on a bad flag"), or a playtest step (`(visual)`,
+"the playtest step shows the badge"). Lint check `criteria` warns about an open criterion that names none of
+these, quoting the vague word it leans on ("works", "is clear", "looks good"); `issue-cli transition` prints
+the same warnings when the issue leaves design. They are warnings: the check reads words, so it can misfire,
+and it never refuses a move. The owner's boxes (`(owner)`) are skipped: their proof is the owner's eyes.
+
+The proof links stay the gate table: Behaviour is the criterion, Command is its proof (a test, a step, a
+commit), Result is that proof's check at `criteria_proven`.
+
+### ## Must not
+
+The development template's idea → in design edge appends `## Must not` after Acceptance Criteria: plain
+bullets, one thing the change must not do per line ("Change the issue file format", "Refuse a transition").
+They are not checkboxes: nobody ticks them and no gate counts them. A line may name a test or a command in
+backticks the way a criterion does (`` Touch projects.yaml (`TestProjectsYAMLUnchanged`) ``); the fresh critic
+checks the diff against the list and runs what a line names. `tracker.MustNot(body)` reads the lines, without
+the placeholder. Lint check `criteria` warns about an issue past design whose `## Must not` still holds only
+the placeholder: write what the change must not do, or `- nothing beyond the scope above`. Catalog entry
+`must-not-section` adds it to an older workflow file (`issue-cli workflow upgrade`).
 
 ### Owner checks
 

@@ -157,11 +157,11 @@ block). templates/health_wb.html composes them.
         <thead><tr><th scope="col">Department</th><th scope="col">On track</th><th scope="col">Goals</th><th scope="col">Outputs</th><th scope="col">Jobs</th><th scope="col">Handoffs</th></tr></thead>
         <tbody>{{range .Rows}}<tr data-testid="health.departments.row.{{.Key}}">
             <th scope="row">{{.Name}}</th>
-            <td>{{if .OnTrack}}<b class="wb-score--{{.Tone}}">{{.OnTrack}}</b>{{else}}<span class="wb-muted">nothing to measure</span>{{end}}</td>
+            <td>{{if .OnTrack}}<b class="wb-score--{{.Tone}}">{{.OnTrack}}</b>{{else}}<span class="wb-muted" title="{{.NotMeasured}}" data-testid="health.departments.not_measured">not measured yet</span>{{end}}</td>
             <td>{{.Goals}}</td><td>{{.Outputs}}</td><td>{{.Jobs}}</td>
             <td{{if .Old}} class="wb-dept-health--old"{{end}}>{{.Handoff}}</td>
         </tr>{{end}}</tbody>
-    </table>{{else}}<p class="wb-empty" data-testid="health.departments.empty">{{.Empty}} Run <code class="wb-code">{{.Command}}</code> to take it now.</p>{{end}}
+    </table>{{with .NotMeasured}}<p class="wb-dept-health-note" data-testid="health.departments.not_measured_note">{{.}} Until then a department is left out of the on-track share and the score.</p>{{end}}{{else}}<p class="wb-empty" data-testid="health.departments.empty">{{.Empty}} Run <code class="wb-code">{{.Command}}</code> to take it now.</p>{{end}}
 </section>
 {{end}}{{end}}
 

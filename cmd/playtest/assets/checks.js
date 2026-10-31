@@ -152,6 +152,15 @@
         if (ok && a.gap_max != null && rb.left - ra.right > Number(a.gap_max)) ok = false;
         return res(ok, both);
       }
+      case 'inside': {
+        // The target's box lies wholly inside within's (±1px), read as it
+        // is now: no scrolling into view first.
+        var ew = first(a.within);
+        if (!el || !ew) return res(false, (!el ? a.target : a.within) + ' missing');
+        var rt = el.getBoundingClientRect(), rw = ew.getBoundingClientRect();
+        var inOK = rt.left >= rw.left - 1 && rt.right <= rw.right + 1 && rt.top >= rw.top - 1 && rt.bottom <= rw.bottom + 1;
+        return res(inOK, a.target + ' ' + box(rt) + ', ' + a.within + ' ' + box(rw));
+      }
       case 'css': {
         if (!el) return res(false, 'missing');
         var cv = getComputedStyle(el).getPropertyValue(a.property).trim();
@@ -187,6 +196,17 @@
     for (var n = el.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
       var s = getComputedStyle(n);
       if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && n.scrollWidth > n.clientWidth) return true;
+    }
+    return false;
+  }
+
+  // inPanel: el sits in a panel the reader can scroll (overflow auto or
+  // scroll), so what lies past the viewport is reachable. A box that only
+  // hides its overflow doesn't count: what it cuts off is lost.
+  function inPanel(el) {
+    for (var n = el.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      var s = getComputedStyle(n);
+      if (/(auto|scroll)/.test(s.overflowY + ' ' + s.overflowX)) return true;
     }
     return false;
   }
@@ -331,6 +351,23 @@
     var shown = all.filter(visible);
     function v(rule, el, detail) { out.push({ rule: rule, id: el.getAttribute('data-testid'), detail: detail }); }
     rules.forEach(function (rule) {
+      if (rule === 'no_page_scroll') {
+        // A page that fits its view: the document is no taller or wider
+        // than the viewport (scrolling inside a panel is fine).
+        var de = document.documentElement, vh = window.innerHeight;
+        if (de.scrollHeight > vh + 1 || de.scrollWidth > vw + 1) {
+          out.push({ rule: rule, id: '(page)', detail: 'page scrolls: ' + de.scrollWidth + 'x' + de.scrollHeight + ' in a ' + vw + 'x' + vh + ' viewport' });
+        }
+        // A page that hides its overflow doesn't scroll but still cuts off
+        // what sticks out: every shown id outside a scrolling panel ends
+        // inside the viewport.
+        shown.forEach(function (el) {
+          if (inPanel(el) || floating(el)) return;
+          var r = el.getBoundingClientRect();
+          if (r.bottom > vh + 1 || r.right > vw + 1) v(rule, el, 'ends at ' + Math.round(r.right) + 'x' + Math.round(r.bottom) + ', outside the ' + vw + 'x' + vh + ' viewport');
+        });
+        return;
+      }
       if (rule === 'inside_viewport') {
         if (document.documentElement.scrollWidth > vw + 1) {
           // Name the outermost element that sticks out, so a layout_ignore on

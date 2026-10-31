@@ -304,6 +304,10 @@ func checkJobs(p *tracker.Project, dept string, js []tracker.Job) []Finding {
 		switch brief := strings.TrimSpace(j.Brief); {
 		case brief == "":
 			out = append(out, Finding{Message: label + ": no brief: (the markdown file each run starts from)"})
+		case jobs.IsBuiltin(brief):
+			if _, err := jobs.BriefText(p, j); err != nil {
+				out = append(out, Finding{Message: label + ": " + err.Error(), Fix: "name a bundled brief or a file under the project root"})
+			}
 		default:
 			path := filepath.Join(p.Root(), filepath.FromSlash(brief))
 			if _, err := os.Stat(path); err != nil {

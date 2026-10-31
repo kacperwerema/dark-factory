@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/michal-franc/issue-viewer/internal/milestone"
+	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=v0.X.Y".
@@ -20,6 +21,8 @@ report a problem against it.`,
 }
 
 func init() {
+	// Errors about a workflow newer than this build name the build.
+	tracker.BuildVersion = Version
 	registerCommand(versionCommand)
 }
 

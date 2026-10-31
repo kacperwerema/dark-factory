@@ -65,6 +65,7 @@ func init() {
 		"company.room.spend.budget_error",
 		"company.room.spend.weeks",
 		"company.room.spend.top",
+		"company.room.spend.subs",
 		"company.room.spend.issue",
 		"company.room.week",
 		"company.room.week.counts",
@@ -77,6 +78,7 @@ func init() {
 		"company.queue.row",
 		"company.yolo_queue",
 		"company.yolo_queue.row",
+		"company.yolo_queue.review_all",
 		"company.queue.empty",
 		"company.queue.more",
 
@@ -84,6 +86,7 @@ func init() {
 		"company.radio.issue",
 		"company.radio.kind",
 		"company.message",
+		"company.message.input",
 
 		// The New department tile's form (dept_add.go).
 		"company.new_dept",

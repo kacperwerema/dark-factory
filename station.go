@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/michal-franc/issue-viewer/internal/redrounds"
 	"html"
 	"html/template"
 	"net/http"
@@ -42,7 +43,9 @@ type StationData struct {
 	Move   WbYourMove
 	// YOLO is "Passed in YOLO": the gates this issue passed without the
 	// owner, each with Agree / Back to <status>; nil when none waits.
-	YOLO       *WbYOLOReview
+	YOLO *WbYOLOReview
+	// Clarify is the clarify round as one form; nil without ## Clarify.
+	Clarify    *WbClarify
 	Quality    []WbQualityCard
 	Decisions  WbDecisions
 	Change     WbChangeCard
@@ -51,6 +54,8 @@ type StationData struct {
 	Agent      WbStationAgent
 	Sessions   WbSessionList
 	Outputs    *WbStationOutputs
+	// Critique is the newest fresh critic run (station_critique.go).
+	Critique *WbStationCritique
 	Body       WbBodyIndex
 	Fields     WbFields
 	IssueURL   string
@@ -203,6 +208,16 @@ type WbTestsCard struct {
 	Short          string
 	// Label is the Evidence tab's word for the proofs ("3/4 proven").
 	Label *WbChip
+	// RedRounds are the checks red on the issue now, "red 3 of 4" each
+	// (internal/redrounds); empty when none is.
+	RedRounds []WbRedRound
+}
+
+// WbRedRound is one red check's streak on the Station: Label is "red 3 of
+// 4"; Question is set when it is a question for the owner now.
+type WbRedRound struct {
+	Check, Label, Why string
+	Question          bool
 }
 
 // WbCriterion is one acceptance criterion and its proof.
@@ -311,6 +326,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	hallURL := prefix + "/hall?agent=" + url.QueryEscape(issue.Slug) + "#agent"
 	d := StationData{IssueURL: issueURL, ClassicURL: issueURL + "?classic=1"}
 	d.Outputs = stationOutputs(p, prefix, issue)
+	d.Critique = stationCritique(p, wf, issue, now)
 
 	// The header: Map › project › Hall › Station.
 	company := s.buildCompany(p, prefix, now)
@@ -367,9 +383,11 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	d.Time = stationTime(tl)
 	d.Move = stationMove(p.Slug, wf, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
 	d.YOLO = stationYOLOReview(issue, wf, src.Comments, issueURL)
+	d.Clarify = stationClarify(issueURL, issue, src.Comments)
 	d.Decisions = stationDecisions(src.Decisions)
 	d.Change = stationChange(ev.Change)
 	d.Tests = stationTests(ev, src.Boxes, tl.CI)
+	d.Tests.RedRounds = stationRedRounds(p, wf, issue)
 	if lbl := evidenceLabel(report, wf.ProofRequired(issue)); lbl.Text != "" {
 		tone := map[string]string{"green": "green", "amber": "you", "red": "red"}[lbl.Class]
 		if tone == "" {
@@ -380,7 +398,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	d.Quality = stationQuality(d, issue)
 	d.Timeline = stationTimeline(tl, issueURL, d.ClassicURL, now)
 	d.Agent = stationAgent(prefix, issueURL, issue, tab.Agent, footer, wt, root, now)
-	d.Agent.Dispatch = stationDispatch(wf, issueURL)
+	d.Agent.Dispatch = stationDispatch(p, wf, issue, issueURL, now)
 	sessions, _ := sessionsByIssueSlug(p, []*tracker.Issue{issue})
 	d.Sessions = stationSessions(sessions[issue.Slug], tracker.AgentSessionName(issue.Slug), d.Move.On)
 	d.Body = stationBody(tab.Fold, tab.NotStarted, len(src.Comments), len(src.Decisions), d.ClassicURL, issueURL)
@@ -921,4 +939,23 @@ func stationSlugMap(issues []*tracker.Issue) map[string]string {
 		m[filepath.Base(is.Slug)] = is.Slug
 	}
 	return m
+}
+
+// stationRedRounds is each check red on the issue now, from its stats
+// sidecar and the local CI runs that merged it.
+func stationRedRounds(p *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue) []WbRedRound {
+	root := ""
+	if wf.CI.Enabled() {
+		root = ciRootFor(p)
+	}
+	st, err := redrounds.Load(issue.FilePath, issue.Slug, root, p.IssueDir, wf.RedRoundCap())
+	if err != nil {
+		return nil
+	}
+	var out []WbRedRound
+	for _, s := range st.Streaks {
+		_, open := st.Open[s.Check]
+		out = append(out, WbRedRound{Check: s.Check, Label: s.Label(st.Max), Why: s.Last.Why, Question: open || s.AtCap(st.Max)})
+	}
+	return out
 }

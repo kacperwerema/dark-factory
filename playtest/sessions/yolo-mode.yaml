@@ -13,7 +13,7 @@ steps:
     title: The company's switch opens the turn-on dialog; turning on draws the band
     proves: [AC9]
     setup:
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     act:
       - check: { absent: yolo.band }
       - click: yolo.switch
@@ -56,7 +56,7 @@ steps:
       - check: { visible: yolo.band }
       - open: /p/{project}/decisions
       - check: { visible: yolo.band }
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
       - click: yolo.band.extend
       - click: yolo.band.off
       - wait_for: { absent: yolo.band, ms: 8000 }
@@ -115,7 +115,7 @@ steps:
       - check: { text_equals: { target: station.yolo.back, text: Back to backlog } }
       - click: station.yolo.agree
       - wait_for: { absent: station.yolo, ms: 8000 }
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     checks:
       - absent: company.yolo_queue
       - absent: yolo.count

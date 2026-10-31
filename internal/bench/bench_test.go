@@ -226,10 +226,11 @@ func TestRunStopsAWorkerMidTaskWhenItsTranscriptSpendsTheBudget(t *testing.T) {
 	f := newFixture(t)
 	env := f.env(t)
 	env.Home = t.TempDir()
-	// The worker writes a transcript line over the budget, then hangs.
-	worker := `d="$HOME_T/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"; ` +
+	// The worker writes a transcript line over the budget in its own
+	// (sandbox) HOME, then hangs.
+	worker := `d="$HOME/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"; mkdir -p "$d"; ` +
 		`echo '{"type":"assistant","sessionId":"s","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":9000,"output_tokens":1}}}' > "$d/s.jsonl"; sleep 30`
-	b := f.benchmark("HOME_T="+env.Home+" sh -c '"+strings.ReplaceAll(worker, "'", `'\''`)+"'", f.task)
+	b := f.benchmark(worker, f.task)
 	b.Budget.Tokens = 5000
 	run, err := Execute(context.Background(), b, env, Options{})
 	if err != nil {
@@ -238,6 +239,9 @@ func TestRunStopsAWorkerMidTaskWhenItsTranscriptSpendsTheBudget(t *testing.T) {
 	r := run.Tasks[0]
 	if r.Outcome != OutcomeBudget || !r.Usage.Known || r.Usage.Tokens() != 9001 || r.Usage.Source != "transcript" {
 		t.Fatalf("record = %+v", r)
+	}
+	if entries, _ := os.ReadDir(env.Home); len(entries) != 0 {
+		t.Errorf("the worker wrote into the owner's home: %v", entries)
 	}
 }
 

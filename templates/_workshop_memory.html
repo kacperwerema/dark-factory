@@ -1,0 +1,84 @@
+{{/*
+Workshop Board components of the Memory page (memory_view.go has their
+view models, static/workshop.css their styles, static/memory.js asks before
+a Delete). /p/<project>/memory renders them; the forms post to
+…/memory/edit, …/memory/pin, …/memory/unpin and …/memory/delete.
+
+  wb/mem-filters  the scope, kind, state and pin seg links    data: []MemoryFilter
+  wb/mem-recent   what agents learned in the last 7 days      data: []MemoryEventLine
+  wb/mem-entities the entity index: who knows what             data: MemoryData
+  wb/mem-group    the rows under one entity (?group=entity)  data: MemoryGroup
+  wb/mem-row      one memory: meta, text to edit, history     data: MemoryRow
+  wb/mem-empty    no memory matches, and the add command      data: MemoryData
+*/}}
+
+{{define "wb/mem-filters"}}
+<nav class="wb-mem-filters" aria-label="Filter memories" data-testid="memory.filters">
+    {{range .}}<div class="wb-mem-filter" data-testid="memory.filter.{{.Name}}">
+        <span class="wb-mem-filter-label">{{.Label}}</span>
+        {{range .Items}}<a class="wb-mem-filter-item{{if .On}} wb-mem-filter-item--on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+    </div>{{end}}
+</nav>
+{{end}}
+
+{{define "wb/mem-recent"}}
+<details class="wb-mem-recent" data-testid="memory.recent"{{if .}} open{{end}}>
+    <summary><b>Recently changed</b> <span class="wb-muted">· last 7 days · {{len .}}</span></summary>
+    {{range .}}<div class="wb-mem-ev"><span class="wb-mono-inline">{{.At}}</span> <a class="wb-mono-inline" href="#{{.ID}}">{{.ID}}</a> <b>{{.Op}}</b>{{with .By}} <span class="wb-muted">by {{.}}</span>{{end}}{{with .Detail}} · {{.}}{{end}}</div>{{else}}<div class="wb-mem-ev wb-muted">Nothing changed in the last 7 days.</div>{{end}}
+</details>
+{{end}}
+
+{{define "wb/mem-row"}}{{$m := .}}
+<article class="wb-mem-row{{if ne .State "valid"}} wb-mem-row--invalid{{end}}"{{if .Anchor}} id="{{$m.ID}}"{{end}} data-testid="memory.row.{{$m.ID}}">
+    <div class="wb-mem-meta">
+        <span class="wb-mem-id wb-mono-inline">{{$m.ID}}</span>
+        <span class="wb-chip">{{$m.Kind}}</span>
+        <span class="wb-chip wb-chip--idle">{{$m.Scope}}</span>
+        {{if ne .State "valid"}}<span class="wb-chip wb-chip--red" data-testid="memory.row.{{$m.ID}}.state">{{.State}}{{with $m.InvalidReason}}: {{.}}{{end}}</span>{{end}}
+        {{if $m.Pinned}}<span class="wb-chip wb-chip--green" title="in every briefing of its scope">📌 pinned by {{$m.PinnedBy}}</span>{{else if $m.SuggestPin}}<span class="wb-chip wb-chip--agent" data-testid="memory.row.{{$m.ID}}.suggested">a worker suggests pinning it</span>{{end}}
+        <span class="wb-muted">{{$m.Day}}</span>
+        {{with $m.Author}}<span class="wb-muted">· {{.}}</span>{{end}}
+        {{if and (eq $m.Scope "machine") $m.Project}}<span class="wb-muted">· from {{$m.Project}}</span>{{end}}
+        {{if $m.Source.Issue}}{{if .IssueURL}}<a class="wb-mem-src" href="{{.IssueURL}}" data-testid="memory.row.{{$m.ID}}.source">{{$m.Source.Issue}}</a>{{else}}<span class="wb-mem-src">{{$m.Source.Issue}}</span>{{end}}{{end}}
+        {{with $m.Source.Commit}}<span class="wb-mem-src">commit {{.}}</span>{{end}}
+        {{with $m.Source.Comment}}<span class="wb-mem-src">comment {{.}}</span>{{end}}
+        {{with $m.Supersedes}}<a class="wb-mem-src" href="#{{.}}">supersedes {{.}}</a>{{end}}
+        {{with $m.SupersededBy}}<a class="wb-mem-src" href="#{{.}}">superseded by {{.}}</a>{{end}}
+        {{range .Entities}}<a class="wb-mem-tag" href="{{.Href}}" title="only the memories with {{.Name}}">{{.Name}}</a>{{end}}
+    </div>
+    <form class="wb-mem-edit" method="post" action="{{.EditURL}}">
+        <input type="hidden" name="id" value="{{$m.ID}}">
+        <textarea class="wb-mem-text" name="text" rows="2" maxlength="500" aria-label="Memory {{$m.ID}}" data-testid="memory.row.{{$m.ID}}.text">{{$m.Text}}</textarea>
+        <div class="wb-mem-actions">
+            <button class="wb-btn wb-btn--sm" type="submit" data-testid="memory.row.{{$m.ID}}.save">Save</button>
+            {{if $m.Pinned}}<button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.UnpinURL}}" data-testid="memory.row.{{$m.ID}}.unpin">Unpin</button>{{else}}<button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.PinURL}}" data-testid="memory.row.{{$m.ID}}.pin">Pin</button>{{end}}
+            <button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.DeleteURL}}" data-mem-delete data-testid="memory.row.{{$m.ID}}.delete">Delete</button>
+        </div>
+    </form>
+    <details class="wb-mem-history" data-testid="memory.row.{{$m.ID}}.history">
+        <summary>History · {{len .History}} · used {{$m.Uses}} times</summary>
+        {{range .History}}<div class="wb-mem-ev"><span class="wb-mono-inline">{{.At}}</span> <b>{{.Op}}</b>{{with .By}} <span class="wb-muted">by {{.}}</span>{{end}}{{with .Detail}} · {{.}}{{end}}</div>{{end}}
+    </details>
+</article>
+{{end}}
+
+{{define "wb/mem-entities"}}
+<details class="wb-mem-entities" data-testid="memory.entities"{{if .Entities}} open{{end}}>
+    <summary><b>Entities</b> <span class="wb-muted">· who knows what · {{len .Entities}} #topics and @names in the text and tags</span></summary>
+    {{if .Entity}}<div class="wb-mem-entity-on" data-testid="memory.entity_filter">Only memories with <b class="wb-mono-inline">{{.Entity}}</b> · <a href="{{.ClearEntityURL}}">show all</a></div>{{end}}
+    <div class="wb-mem-entity-list">
+    {{range .Entities}}<a class="wb-mem-entity{{if .On}} wb-mem-entity--on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}} data-testid="memory.entity.{{.Key}}"><span class="wb-mono-inline">{{.Name}}</span> <span class="wb-mem-entity-n">{{.Count}}</span>{{with .Who}}<span class="wb-mem-entity-who"> · known by {{range $i, $w := .}}{{if $i}}, {{end}}{{$w}}{{end}}</span>{{end}}</a>{{else}}<span class="wb-muted">No entities yet. An agent writes #topic or @agent in a memory, or tags it: {{template "wb/copy-cmd" "issue-cli memory add \"@lead-x knows the #playtest runner\" --kind who"}}</span>{{end}}
+    </div>
+</details>
+{{end}}
+
+{{define "wb/mem-group"}}
+<section class="wb-mem-group" data-testid="memory.group.{{.Key}}">
+    <h3 class="wb-mem-group-head">{{if .Name}}<a class="wb-mono-inline" href="{{.Href}}">{{.Name}}</a>{{else}}No entity{{end}} <span class="wb-chip wb-chip--idle">{{.Count}}</span>{{with .Who}} <span class="wb-muted">known by {{range $i, $w := .}}{{if $i}}, {{end}}{{$w}}{{end}}</span>{{end}}</h3>
+    {{range .Rows}}{{template "wb/mem-row" .}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/mem-empty"}}
+<div class="wb-mem-empty" data-testid="memory.empty">{{if .Total}}No memory matches these filters.{{else}}No memories yet. An agent adds one with {{template "wb/copy-cmd" .AddCmd}}{{end}}</div>
+{{end}}

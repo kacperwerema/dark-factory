@@ -46,7 +46,7 @@ func TestHandleBoard_IncludesCreateModal(t *testing.T) {
 
 	html := string(body)
 	for _, marker := range []string{
-		`data-testid="nav.create" onclick="openCreateModal('')"`,
+		`data-testid="nav.create" data-click="[&#34;openCreateModal&#34;,&#34;&#34;]"`,
 		`id="create-modal"`,
 		`var bodyTemplates =`,
 		`window.openCreateModal`,

@@ -4,7 +4,7 @@ title: "Images in the CEO chat box — attach, remove, send, refuse, thumbnails 
 scenario: leads
 
 # The lead is faked on the scenario's private tmux server (cat echoes the
-# paste), as in ceo-chat.yaml. attach/shot.png and notes.txt (from files/) sit in the
+# paste), as in ceo-chat.yaml. attach/shot.png and empty.txt (from files/) sit in the
 # scenario's project root. The stored image's name is its content hash, so
 # TP6 can print the owner's turn with the path the send used.
 
@@ -66,18 +66,19 @@ steps:
       - http: { path: "/p/{project}/files/.agent-logs/lead-crew/chat/images/d507c28f9d713ef0918c51253094dd43.png", status: 200 }
 
   - id: TP7
-    title: A file that isn't an image is refused with a message, and what you typed stays
+    title: A file the chat can't take (an empty one) is refused with a message, and what you typed stays
     proves: [AC4]
     setup:
       - tmux: [new-session, -d, -s, lead-crew, cat]
       - open: /p/{project}/lead
     act:
       - type: { target: lead_chat.text, text: "half a thought" }
-      - upload: { target: lead_chat.image_input, path: attach/notes.txt }
+      - upload: { target: lead_chat.image_input, path: attach/empty.txt }
     checks:
-      - text_contains: { target: lead_chat.status, text: "Not attached: notes.txt is not a PNG, JPEG, GIF or WebP image." }
+      - text_contains: { target: lead_chat.status, text: "Not attached: empty.txt is empty." }
       - value_equals: { target: lead_chat.text, value: "half a thought" }
       - count: { pattern: lead_chat.image, equals: 0 }
+      - count: { pattern: lead_chat.file, equals: 0 }
 
   - id: TP8
     title: Pasting and dropping a screenshot attach it the same way

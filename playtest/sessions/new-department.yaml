@@ -13,7 +13,7 @@ steps:
     title: The tile opens the form over the templates; Preview shows the plan and keeps the edited role.md
     proves: [AC1, AC2]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - click: tile.new_department
       - wait_for: { visible: company.new_dept.form }
@@ -37,13 +37,15 @@ steps:
     checks:
       - url: { matches: "^/p/acme/company\\?" }
       - text_contains: { target: company.added, text: "Added Marketing: 2 files written, 1 edited file of yours kept" }
-      - text_contains: { target: company.room.dept, text: "Marketing" }
-    targets: [company.added, company.room.dept]
+      # Add lands on the floor: the new room's tile and its inspector.
+      - text_contains: { target: floor.tile.dept, text: "Marketing" }
+      - visible: floor.inspector.marketing
+    targets: [company.added, floor.tile.dept]
 
   - id: AS1
     title: Owner check after shipping - adding Marketing from the tile works end to end
     from: TP5
-    targets: [company.room.dept, tile.new_department]
+    targets: [floor.tile.dept, tile.new_department]
     do: >-
       On this sandbox project, open the New department tile, pick Marketing,
       press Preview, read the plan, press Add Marketing.

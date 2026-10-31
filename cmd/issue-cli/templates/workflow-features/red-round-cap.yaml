@@ -1,0 +1,26 @@
+id: red-round-cap
+version: v0.59.0
+category: gates
+propose: true
+templates: [development]
+sources: ["internal/redrounds/**", "internal/tracker/redrounds.go", "cmd/issue-cli/redrounds.go"]
+title: "Red-round cap: a check still red after N fix rounds becomes a question"
+what: |
+  `max_red_rounds:` (4 when unset) caps how many fix rounds a check may stay red on an
+  issue: a gate's command (`command_succeeds`), the proof check (`criteria_proven`), a local
+  CI command run on a merge that named the issue. Reds at one branch head are one round; a
+  green ends the streak. At the cap `issue-cli transition` posts a `question: red rounds:`
+  comment for the owner (recommendation first) and refuses without running anything again
+  until the owner resolves it, which starts the count over. `issue-cli rounds <slug>`
+  shows "red 3 of 4" per check, and `rounds --cannot-fix <check> --why "…"` raises the
+  question at once. YOLO doesn't pass it.
+why: |
+  A worker that keeps failing the same check loops: fix, retry, red again, without telling
+  anyone. After a few rounds the check is a question about what it should accept, not
+  more of the same work.
+where: "top-level max_red_rounds: in workflow.yaml (project-wide, like ci:)"
+question: "After how many red fix rounds should a check become a question for you (4 by default)?"
+snippet: |
+  max_red_rounds: 4
+detect:
+  - path: max_red_rounds

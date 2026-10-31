@@ -31,7 +31,7 @@ func TestCompanyShowsAGroupWithItsDepartmentsInside(t *testing.T) {
 	withGTMGroup(&a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 
 	g := strings.Index(company, `data-testid="company.room.group"`)
 	inside := strings.Index(company, `data-testid="company.room.group.departments"`)
@@ -112,7 +112,7 @@ func TestNewDeptTileAddsAGroupThenNoMore(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, company := getBody(t, ts.URL+"/p/acme/company")
+	_, company := getBody(t, ts.URL+"/p/acme/company?classic=1")
 	assertContains(t, company, `value="gtm"`, "group: installs Marketing under it")
 	if strings.Contains(company, `data-testid="company.new_dept.parent"`) {
 		t.Error("no group yet: the tile asks for none")
@@ -128,7 +128,7 @@ func TestNewDeptTileAddsAGroupThenNoMore(t *testing.T) {
 	assertContains(t, string(cfg), "- name: GTM", "- name: Marketing", "parent: gtm")
 
 	_, company = getBody(t, ts.URL+resp.Header.Get("Location"))
-	assertContains(t, company, "✓ Added GTM: 6 files written", `data-testid="company.room.group"`, "Every department template is added")
+	assertContains(t, company, "✓ Added GTM: 6 files written", `data-testid="floor.tile.group"`, "Every department template is added")
 	if strings.Contains(company, `data-testid="company.new_dept.form"`) {
 		t.Error("every template is added: the tile still has its form")
 	}
@@ -159,7 +159,7 @@ func TestNewDeptTileAddsADepartmentUnderAGroup(t *testing.T) {
 	ts := newTestServer(t, projects)
 	defer ts.Close()
 
-	_, company := getBody(t, ts.URL+"/p/acme/company")
+	_, company := getBody(t, ts.URL+"/p/acme/company?classic=1")
 	assertContains(t, company, `data-testid="company.new_dept.parent"`, `<option value="biz">Biz</option>`)
 	resp := postAdd(t, ts.URL, url.Values{"template": {"marketing"}, "parent": {"biz"}}, sameOrigin)
 	if resp.StatusCode != http.StatusSeeOther {

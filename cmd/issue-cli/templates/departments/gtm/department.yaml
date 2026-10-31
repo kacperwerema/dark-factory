@@ -8,14 +8,14 @@
 name: GTM
 description: "Go-to-market: the group over Marketing (and Sales, later), with one lead over their leads and a weekly plan"
 color: "#F2A541"
-role: "Brings in the next clients: marketing and sales under one lead"
-mission: "A steady pipeline of new clients"
+role: "Brings in the next customers: marketing and sales under one lead"
+mission: "A steady pipeline of new customers"
 group: true
 children: [marketing]
 workflow: planning
 goals:
   - id: pipeline
-    name: New client conversations
+    name: New customer conversations
     target: 8
     period: month
 # The week plan: each Monday's run reads the departments' goals, outputs,

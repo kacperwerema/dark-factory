@@ -1,7 +1,8 @@
 // The CEO chat (/p/<project>/lead): polls the live part, sends messages and
 // keys to the lead, and keeps what the owner is typing and the scroll
 // position across updates. Images pasted, dropped or attached in the box go
-// to …/lead/image first; the send carries their paths. Spawning the CEO is
+// to …/lead/image first, any other file (or an image too big or refused
+// there) to …/lead/file; the send carries their paths. Spawning the CEO is
 // workshop.js's data-spawn-lead.
 (function () {
   var main = document.querySelector('[data-live-url]');
@@ -15,10 +16,14 @@
   var imageBox = form.querySelector('[data-images]');
   var imageInput = form.querySelector('[data-image-input]');
   var imageChip = form.querySelector('template[data-image-chip]');
+  var fileURL = form.getAttribute('data-file-url');
+  var fileChip = form.querySelector('template[data-file-chip]');
   var imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
   var imageMax = 10 << 20, imagesPerMessage = 5;
-  // images: {path, el} per chip, path null while it uploads.
+  var fileMax = 50 << 20, filesPerMessage = 5;
+  // images and files: {path, el} per chip, path null while it uploads.
   var images = [];
+  var files = [];
   var last = {};
   var live = null;
 
@@ -136,59 +141,113 @@
     }).catch(function (e) { say('Not pressed: ' + e); });
   }
 
-  function showImages() { imageBox.hidden = images.length === 0; }
+  function showImages() { imageBox.hidden = images.length + files.length === 0; }
 
   function dropImage(img) {
     images = images.filter(function (i) { return i !== img; });
+    files = files.filter(function (f) { return f !== img; });
     img.el.remove();
     showImages();
   }
 
-  // addImages uploads each file and shows it as a chip; a refused file says
-  // why and leaves the rest of the box alone.
-  function addImages(files) {
-    Array.prototype.forEach.call(files, function (file) {
-      if (imageTypes.indexOf(file.type) < 0) { say('Not attached: ' + (file.name || 'that file') + ' is not a PNG, JPEG, GIF or WebP image.'); return; }
-      if (file.size > imageMax) { say('Not attached: ' + (file.name || 'that image') + ' is over 10 MB.'); return; }
-      if (images.length >= imagesPerMessage) { say('Not attached: at most ' + imagesPerMessage + ' images in one message.'); return; }
-      var img = { path: null, el: imageChip.content.firstElementChild.cloneNode(true) };
-      var pic = img.el.querySelector('img');
-      pic.alt = file.name || 'image';
-      pic.src = URL.createObjectURL(file);
-      img.el.querySelector('button').addEventListener('click', function () { dropImage(img); });
-      imageBox.appendChild(img.el);
-      images.push(img);
-      showImages();
-      say('Uploading ' + (file.name || 'image') + '…');
-      var fd = new FormData();
-      fd.append('file', file, file.name || 'pasted.png');
-      fetch(imageURL, { method: 'POST', body: fd })
-        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, body: j }; }); })
-        .then(function (res) {
-          if (images.indexOf(img) < 0) return;
-          if (!res.ok || !res.body.path) { dropImage(img); say('Not attached: ' + (res.body.error || 'upload failed') + '.'); return; }
-          img.path = res.body.path;
-          img.el.title = img.path;
-          img.el.classList.remove('wb-image-chip--busy');
-          say(images.some(function (i) { return !i.path; }) ? 'Uploading…' : 'Attached. It goes with your next message.');
-        })
-        .catch(function (e) { dropImage(img); say('Not attached: ' + e); });
+  function uploading() { return images.concat(files).some(function (i) { return !i.path; }); }
+  function attachedSay() { say(uploading() ? 'Uploading…' : 'Attached. It goes with your next message.'); }
+
+  function upload(url, file) {
+    var fd = new FormData();
+    fd.append('file', file, file.name || 'pasted');
+    return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json' }, body: fd })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, code: r.status, body: j }; }); });
+  }
+
+  function sizeText(n) {
+    if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + ' MB';
+    if (n >= 1 << 10) return Math.floor(n / 1024) + ' KB';
+    return n + ' B';
+  }
+
+  function badge(name) {
+    var i = name.lastIndexOf('.');
+    return i > 0 && i < name.length - 1 ? name.slice(i + 1).toUpperCase().slice(0, 5) : 'FILE';
+  }
+
+  // addAttachments sends each file the image way (a PNG, JPEG, GIF or WebP
+  // of 10 MB or less) or the file way; a refused file says why and leaves
+  // the rest of the box alone.
+  function addAttachments(list) {
+    Array.prototype.forEach.call(list, function (file) {
+      if (imageTypes.indexOf(file.type) >= 0 && file.size <= imageMax) addImage(file);
+      else addFile(file);
     });
   }
 
+  // addFile uploads a file to …/lead/file and shows it as a file chip.
+  function addFile(file) {
+    var label = file.name || 'that file';
+    if (!file.size) { say('Not attached: ' + label + ' is empty.'); return; }
+    if (file.size > fileMax) { say('Not attached: ' + label + ' is over 50 MB.'); return; }
+    if (files.length >= filesPerMessage) { say('Not attached: at most ' + filesPerMessage + ' files in one message.'); return; }
+    var f = { path: null, el: fileChip.content.firstElementChild.cloneNode(true) };
+    f.el.querySelector('.wb-file-badge').textContent = badge(file.name || '');
+    f.el.querySelector('.wb-file-name').textContent = file.name || 'file';
+    f.el.title = file.name || 'file';
+    f.el.querySelector('button').addEventListener('click', function () { dropImage(f); });
+    imageBox.appendChild(f.el);
+    files.push(f);
+    showImages();
+    say('Uploading ' + (file.name || 'file') + '…');
+    upload(fileURL, file).then(function (res) {
+      if (files.indexOf(f) < 0) return;
+      if (!res.ok || !res.body.path) { dropImage(f); say('Not attached: ' + label + ': ' + (res.body.error || 'upload failed') + '.'); return; }
+      f.path = res.body.path;
+      f.el.title = res.body.name + ' · ' + f.path;
+      f.el.querySelector('.wb-file-name').textContent = res.body.name;
+      f.el.querySelector('.wb-file-badge').textContent = res.body.type;
+      f.el.querySelector('.wb-file-size').textContent = sizeText(res.body.size);
+      f.el.setAttribute('data-state', 'ready');
+      attachedSay();
+    }).catch(function (e) { dropImage(f); say('Not attached: ' + e); });
+  }
+
+  // addImage uploads an image to …/lead/image and shows it as a thumbnail;
+  // one the server doesn't take as an image (415) goes the file way.
+  function addImage(file) {
+    if (images.length >= imagesPerMessage) { say('Not attached: at most ' + imagesPerMessage + ' images in one message.'); return; }
+    var img = { path: null, el: imageChip.content.firstElementChild.cloneNode(true) };
+    var pic = img.el.querySelector('img');
+    pic.alt = file.name || 'image';
+    pic.src = URL.createObjectURL(file);
+    img.el.querySelector('button').addEventListener('click', function () { dropImage(img); });
+    imageBox.appendChild(img.el);
+    images.push(img);
+    showImages();
+    say('Uploading ' + (file.name || 'image') + '…');
+    upload(imageURL, file).then(function (res) {
+      if (images.indexOf(img) < 0) return;
+      if (res.code === 415) { dropImage(img); addFile(file); return; }
+      if (!res.ok || !res.body.path) { dropImage(img); say('Not attached: ' + (res.body.error || 'upload failed') + '.'); return; }
+      img.path = res.body.path;
+      img.el.title = img.path;
+      img.el.classList.remove('wb-image-chip--busy');
+      attachedSay();
+    }).catch(function (e) { dropImage(img); say('Not attached: ' + e); });
+  }
+
   function clearImages() {
-    images.forEach(function (img) { img.el.remove(); });
+    images.concat(files).forEach(function (img) { img.el.remove(); });
     images = [];
+    files = [];
     showImages();
   }
 
   function send(now) {
     var msg = text.value.replace(/\s+$/, '');
-    if (images.some(function (i) { return !i.path; })) { say('Wait: an image is still uploading.'); return; }
+    if (uploading()) { say('Wait: a file is still uploading.'); return; }
     var paths = images.map(function (i) { return i.path; });
-    if (!msg.trim() && !paths.length) return;
+    var filePaths = files.map(function (f) { return f.path; });
+    if (!msg.trim() && !paths.length && !filePaths.length) return;
     say('Sending…');
-    post(form.getAttribute('data-ceo-send'), { text: msg, images: paths }).then(function (res) {
+    post(form.getAttribute('data-ceo-send'), { text: msg, images: paths, files: filePaths }).then(function (res) {
       if (!res.ok || res.body.status === 'error') {
         var step = (res.body.steps || [])[0];
         say('Not sent' + (res.body.error ? ': ' + res.body.error : step ? ': ' + step.name + (step.detail ? ' (' + step.detail + ')' : '') : '.'));
@@ -208,12 +267,12 @@
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(false); }
   });
 
-  // Paste: image files on the clipboard attach; text pastes as text.
+  // Paste: files on the clipboard attach; text pastes as text.
   text.addEventListener('paste', function (e) {
-    var files = Array.prototype.filter.call((e.clipboardData && e.clipboardData.files) || [], function (f) { return f.type.indexOf('image/') === 0; });
-    if (!files.length) return;
+    var pasted = (e.clipboardData && e.clipboardData.files) || [];
+    if (!pasted.length) return;
     if (!e.clipboardData.getData('text/plain')) e.preventDefault();
-    addImages(files);
+    addAttachments(pasted);
   });
   form.addEventListener('dragover', function (e) {
     if (text.disabled || !e.dataTransfer || Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') < 0) return;
@@ -225,9 +284,9 @@
     form.classList.remove('wb-composer--drop');
     if (text.disabled || !e.dataTransfer || !e.dataTransfer.files.length) return;
     e.preventDefault();
-    addImages(e.dataTransfer.files);
+    addAttachments(e.dataTransfer.files);
   });
-  imageInput.addEventListener('change', function () { addImages(imageInput.files); imageInput.value = ''; });
+  imageInput.addEventListener('change', function () { addAttachments(imageInput.files); imageInput.value = ''; });
 
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('button');

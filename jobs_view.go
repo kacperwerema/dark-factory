@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -86,14 +84,14 @@ func jobNeedsYouRows(p *tracker.Project, color, prefix string, now time.Time) []
 // sentence's length; "" when it can't be read.
 func jobBriefLine(p *tracker.Project, key string) string {
 	r, err := jobs.Find(p, key)
-	if err != nil || strings.TrimSpace(r.Job.Brief) == "" {
-		return ""
-	}
-	data, err := os.ReadFile(filepath.Join(p.Root(), filepath.FromSlash(r.Job.Brief)))
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	data, err := jobs.BriefText(p, r.Job)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(data, "\n") {
 		line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#"))
 		if line == "" {
 			continue

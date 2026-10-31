@@ -97,7 +97,21 @@ var departmentCommand = &Command{
                                 puts it under a group, --dry-run prints the
                                 plan only. A group template (gtm) installs
                                 the group and its departments, and moves one
-                                you already have under it
+                                you already have under it. It ends with the
+                                files git does not track yet and the commit
+                                to make; --commit commits exactly those
+  department update <name>      bring an installed department up to its
+                                template's newer text: a file (role.md, a
+                                job's brief) or a role, mission or goal
+                                name in projects.yaml is replaced only when
+                                it still holds an earlier template's text;
+                                what you edited is kept and named.
+                                --dry-run says what would change, --side
+                                writes the template's text next to each
+                                edited file (role.template.md) to compare.
+                                The workflow file is replaced only from a
+                                text that differs in wording alone; its
+                                features move with workflow upgrade
   department remove <name>      take the entry out of projects.yaml (its
                                 files stay); refused while it has open
                                 issues, or departments under it (a group)
@@ -118,19 +132,21 @@ var departmentCommand = &Command{
                                 group's room on the company page. It only
                                 reads and writes that file: nothing starts
 
-add and remove edit the owner's projects.yaml: workers are refused.
+add, update and remove edit the owner's projects.yaml: workers are refused.
 
 Examples:
   issue-cli department list
   issue-cli department add marketing --dry-run
   issue-cli department add marketing
+  issue-cli department add marketing --commit
+  issue-cli department update marketing --dry-run
   issue-cli department remove marketing
   issue-cli department show marketing
   issue-cli department show hq --json
   issue-cli department week gtm
   issue-cli department week gtm --write`,
 	Run:         runDepartment,
-	Subcommands: []string{"list", "add", "remove", "show", "week"},
+	Subcommands: []string{"list", "add", "update", "remove", "show", "week"},
 }
 
 func init() {
@@ -320,13 +336,15 @@ func runDepartment(ctx *Context, args []string) error {
 		return runDepartmentList(ctx, args[1:])
 	case "add":
 		return runDepartmentAdd(ctx, args[1:])
+	case "update":
+		return runDepartmentUpdate(ctx, args[1:])
 	case "remove":
 		return runDepartmentRemove(ctx, args[1:])
 	case "week":
 		return runDepartmentWeek(ctx, args[1:])
 	case "show":
 	default:
-		return &usageError{msg: "usage: issue-cli department list|add <template>|remove <name>|show <name>|week <name>"}
+		return &usageError{msg: "usage: issue-cli department list|add <template>|update <name>|remove <name>|show <name>|week <name>"}
 	}
 	pos, err := parsePositionals(ctx, "department show", args[1:], 1)
 	if err != nil {

@@ -45,6 +45,14 @@ type Candidate struct {
 	// (CheckCandidates), set only by `bench candidates --replay`.
 	Replay    string `json:"replay,omitempty"`
 	ReplayWhy string `json:"replay_why,omitempty"`
+	// Workflow, Output and Eval are set on an output task candidate
+	// (OutputCandidates): the department's box key, the approved output
+	// that would be the reference and the eval that would score a run.
+	Workflow    string `json:"workflow,omitempty"`
+	Output      string `json:"output,omitempty"`
+	OutputTitle string `json:"output_title,omitempty"`
+	Eval        string `json:"eval,omitempty"`
+	EvalScore   string `json:"eval_score,omitempty"`
 
 	repo   string
 	rng    Range

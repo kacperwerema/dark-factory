@@ -176,3 +176,75 @@ func TestNoDepartmentsUnaffected(t *testing.T) {
 		t.Errorf("departments component: %v", c)
 	}
 }
+
+// A department whose only measure is a job that has never run has nothing
+// to measure yet: no on-track row, so it is not off track (AC1). The
+// project share counts only measured departments.
+func TestNotMeasured(t *testing.T) {
+	p := project(t)
+	p.Departments = append(p.Departments, tracker.Department{Name: "GTM", Jobs: []tracker.Job{{ID: "plan", Every: "week", On: "mon", Brief: "b.md"}}})
+	// Marketing: one output reviewed in time; its two jobs never ran.
+	day := func(n int) string { return now.AddDate(0, 0, -n).Format(time.RFC3339) }
+	for _, e := range []outputs.Event{
+		{Op: outputs.OpAdd, ID: "o1", Date: day(4), Department: "marketing", Title: "a", Kind: "post", URL: "https://example.com/a"},
+		{Op: outputs.OpReview, ID: "o1", Date: day(3), State: outputs.StateApproved, Quote: "ok"},
+	} {
+		if err := outputs.Append(p, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := rows(Measure(Input{Project: p, Now: now}))
+	mk := func(name string) string { return health.RowID(name, map[string]string{"department": "marketing"}) }
+	gk := func(name string) string { return health.RowID(name, map[string]string{"department": "gtm"}) }
+	if _, ok := got[gk(OnTrack)]; ok {
+		t.Errorf("gtm (a job with no run yet) has an on-track row: %v", got[gk(OnTrack)])
+	}
+	if _, ok := got[gk(JobsOnTime)]; ok {
+		t.Error("a job with no run yet counts in jobs on time")
+	}
+	if got[gk(JobsDue)] != 1 {
+		t.Errorf("gtm jobs due = %v, want 1 (still shown)", got[gk(JobsDue)])
+	}
+	if got[mk(OnTrack)] != 1 || got[OnTrack] != 1 || got[Measured] != 1 || got[Count] != 3 {
+		t.Errorf("marketing on track %v, project %v, measured %v, count %v", got[mk(OnTrack)], got[OnTrack], got[Measured], got[Count])
+	}
+
+	// Once the job has run, a period due over a day with no run is late.
+	ran := []*tracker.Issue{issue(t, "gtm/plan-run", "status: \"done\"\njob: \"gtm/plan\"\nrun: \"2026-W42\"\ndepartment: \"GTM\"")}
+	got = rows(Measure(Input{Project: p, Issues: ran, Now: now}))
+	if v, ok := got[gk(JobsOnTime)]; !ok || v != 0 {
+		t.Errorf("gtm jobs on time after a run = %v (present %v), want 0", v, ok)
+	}
+}
+
+// With no department measured the family has no project on-track row and
+// the derived score leaves the departments component out (AC2).
+func TestNoneMeasuredLeavesScoreOut(t *testing.T) {
+	p := project(t) // Marketing's jobs never ran, no goal values, no outputs; Sales has nothing.
+	ms := Measure(Input{Project: p, Now: now})
+	got := rows(ms)
+	if _, ok := got[OnTrack]; ok {
+		t.Fatalf("project on-track row with nothing measured: %v", got[OnTrack])
+	}
+	if got[Measured] != 0 || got[Count] != 2 {
+		t.Errorf("measured %v, count %v", got[Measured], got[Count])
+	}
+	base := []health.Row{
+		{ID: "lint.warnings", Metric: "lint.warnings", Value: 4},
+		{ID: "shape.big_lines.share", Metric: "shape.big_lines.share", Value: 0.1},
+	}
+	cur := &health.Snapshot{Metrics: base}
+	for _, m := range ms {
+		cur.Metrics = append(cur.Metrics, health.Row{ID: health.RowID(m.Name, m.Labels), Metric: m.Name, Labels: m.Labels, Value: m.Value})
+	}
+	score := rows(health.Derive(cur, nil, health.DefaultComponents()))
+	for id := range score {
+		if strings.Contains(id, "component=departments") {
+			t.Errorf("departments component in the score: %s", id)
+		}
+	}
+	plain := rows(health.Derive(&health.Snapshot{Metrics: base}, nil, health.DefaultComponents()))
+	if len(score) != len(plain) || score["score.coverage"] != plain["score.coverage"] {
+		t.Errorf("score %v with unmeasured departments, %v without", score, plain)
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/testids"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -135,6 +137,10 @@ type WbBodyPart struct {
 type WbDispatch struct {
 	URL, ActionURL, PromptURL string
 	Actions                   []tracker.CustomAction
+	// Routed is the agent the workflow's routing: picks now ("codex") and
+	// Why the rule; empty without routing:, so the page offers only the
+	// explicit Claude / Codex buttons.
+	Routed, Why string
 }
 
 // stationPriorities is the priority select, as on the classic page.
@@ -328,8 +334,16 @@ func stationEpic(tab *EpicTab, slug, prefix string, wf *tracker.WorkflowConfig) 
 }
 
 // stationDispatch is the agent card's dispatch buttons.
-func stationDispatch(wf *tracker.WorkflowConfig, issueURL string) WbDispatch {
-	return WbDispatch{URL: issueURL + "/dispatch", ActionURL: issueURL + "/action/", PromptURL: issueURL + "/dispatch-prompt", Actions: wf.IssueActionList()}
+func stationDispatch(p *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue, issueURL string, now time.Time) WbDispatch {
+	d := WbDispatch{URL: issueURL + "/dispatch", ActionURL: issueURL + "/action/", PromptURL: issueURL + "/dispatch-prompt", Actions: wf.IssueActionList()}
+	if wf.Routing != nil {
+		c := routing.Pick(wf.Routing, routing.IssueSubject(p, issue), "", agentrun.Subscriptions(), now)
+		d.Routed, d.Why = c.Agent, c.Why
+		if c.Hold != "" {
+			d.Why = c.Hold
+		}
+	}
+	return d
 }
 
 // h2Re finds a rendered "## " heading; the renderer writes each on its own

@@ -33,18 +33,19 @@ steps:
     checks:
       - url: { matches: "^/p/acme/company\\?" }
       - text_contains: { target: company.added, text: "Added GTM" }
-      - text_contains: { target: company.room.group, text: "GTM" }
-      - text_contains: { target: company.room.group.departments, text: "Marketing" }
+      # Add lands on the floor: GTM's wing with Marketing inside.
+      - text_contains: { target: floor.tile.group, text: "GTM" }
+      - text_contains: { target: floor.sub, text: "Marketing" }
       # GTM brings Marketing: every template is in, so the tile has no form
       # (ui/the-add-department-form-offers-only-templates-the-project-doesnt-have-yet).
       - text_contains: { target: tile.new_department, text: "Every department template is added" }
       - absent: company.new_dept.form
-    targets: [company.room.group, company.room.group.departments]
+    targets: [floor.tile.group, floor.sub]
 
   - id: AS1
     title: Owner check after shipping - GTM with Marketing inside, from the Add button
     from: TP5
-    targets: [company.room.group, tile.new_department]
+    targets: [floor.tile.group, tile.new_department]
     do: >-
       On this sandbox project, open the New department tile, pick GTM, press
       Preview, read the plan, press Add GTM.

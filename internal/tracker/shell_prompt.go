@@ -35,7 +35,7 @@ func ShellPromptSection(f ShellFacts) string {
 		lines = append(lines, "- zsh: `$VAR` holding a command doesn't word-split (use a shell function), `$B:h` is a modifier, and unquoted globs fail: write `--include='*.go'`.")
 	}
 	if f.RTK {
-		lines = append(lines, "- rtk shortens some output (`git log`, `go test -v` test names): when output feeds a commit message or a parser, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>`.")
+		lines = append(lines, "- rtk shortens some output (`git log`; `go test -v` loses its test names and `t.Log` lines): when output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>` (`rtk proxy go test -v …`).")
 	}
 	if f.BSD {
 		lines = append(lines, "- macOS BSD tools: `sed -i ''`, `script` has no `-c`, no `timeout`, `cp` is `/bin/cp`.")

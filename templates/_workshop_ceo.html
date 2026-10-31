@@ -61,6 +61,7 @@ static/ceo-chat.js).
         <div class="wb-turn-meta">You</div>
         {{with index .Text 0}}<div class="wb-turn-bubble">{{.}}</div>{{end}}
         {{with .Images}}<div class="wb-turn-images" data-testid="lead_chat.turn.images">{{range .}}<a href="{{.URL}}" target="_blank" rel="noopener" title="{{.Path}}"><img src="{{.URL}}" alt="image sent to the CEO" loading="lazy"></a>{{end}}</div>{{end}}
+        {{with .Files}}<div class="wb-turn-files" data-testid="lead_chat.turn.files">{{range .}}<a class="wb-file-chip" href="{{.URL}}" download="{{.Name}}" title="Download {{.Name}} ({{.Path}})" data-testid="lead_chat.turn.file"><span class="wb-file-badge" aria-hidden="true">{{.Type}}</span><span class="wb-file-meta"><span class="wb-file-name">{{.Name}}</span><span class="wb-file-size">{{.SizeText}} · <span class="wb-file-dl">⬇ Download</span></span></span></a>{{end}}</div>{{end}}
     </div>
     <div class="wb-turn-av wb-turn-av--you" aria-hidden="true">YOU</div>
 </div>
@@ -137,14 +138,15 @@ static/ceo-chat.js).
 {{end}}
 
 {{define "wb/composer"}}
-<form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-image-url="{{.ImageURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
+<form class="wb-composer" data-ceo-send="{{.SendURL}}" data-key-url="{{.KeyURL}}" data-image-url="{{.ImageURL}}" data-file-url="{{.FileURL}}" data-max="{{.MaxBytes}}" data-testid="lead_chat.form">
     <label for="ceo-text" class="wb-sr">Message to the {{.Who}}</label>
     <div class="wb-composer-images" data-images hidden data-testid="lead_chat.images"></div>
+    <template data-file-chip><div class="wb-file-chip" data-state="uploading" data-testid="lead_chat.file"><span class="wb-file-badge" aria-hidden="true"></span><span class="wb-file-meta"><span class="wb-file-name"></span><span class="wb-file-size">uploading…</span></span><button type="button" title="Remove this file" aria-label="Remove file" data-testid="lead_chat.file.remove">×</button></div></template>
     <template data-image-chip><div class="wb-image-chip wb-image-chip--busy" data-testid="lead_chat.image"><img alt=""><button type="button" title="Remove this image" aria-label="Remove image" data-testid="lead_chat.image.remove">×</button></div></template>
-    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the {{.Who}}… Enter sends, Shift+Enter is a new line; paste or drop an image.{{else}}Start the {{.Who}} first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
+    <textarea id="ceo-text" name="text" rows="3" placeholder="{{if .Live}}Write to the {{.Who}}… Enter sends, Shift+Enter is a new line; paste or drop an image or a file.{{else}}Start the {{.Who}} first{{end}}" {{if not .Live}}disabled{{end}} data-testid="lead_chat.text"></textarea>
     <div class="wb-composer-bar">
-        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden data-image-input data-testid="lead_chat.image_input">
-        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-attach title="Attach images (PNG, JPEG, GIF, WebP; 10 MB each, 5 per message). You can also paste or drop them on the box." {{if not .Live}}disabled{{end}} data-testid="lead_chat.attach_image">📎 Attach</button>
+        <input type="file" multiple hidden data-image-input data-testid="lead_chat.image_input">
+        <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-attach title="Attach images or any file (.zip, PDF, text…): images 10 MB, other files 50 MB, 5 of each per message. You can also paste or drop them on the box." {{if not .Live}}disabled{{end}} data-testid="lead_chat.attach_image">📎 Attach</button>
         <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-key="ShiftTab" title="Cycles Claude Code's permission mode (shift+tab)" {{if not .Live}}disabled{{end}} data-testid="lead_chat.mode_switch">Mode: <span data-mode-label></span> · switch</button>
         <span class="wb-grow"></span>
         <button type="button" class="wb-btn wb-btn--outline" data-send-now title="Send, then ctrl+x ctrl+s: a busy CEO takes it now instead of queuing it" {{if not .Live}}disabled{{end}} data-testid="lead_chat.send_now">Send now</button>

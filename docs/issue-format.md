@@ -263,3 +263,5 @@ issues/
     rate-limiting.md
   fix-typo.md
 ```
+
+Folders whose name starts with `.` or `_` hold no issues, and loading skips them without a word: dot folders keep the work files' logs and reports (`.goals/`, `.outputs/`, `.jobs/`, `.reports/`), underscore folders evidence (`_evidence/`: READMEs, reports, shots, with or without frontmatter). A file moved into such a folder leaves the board. Images there still serve through `/files/`, so an issue can link `../_evidence/<run>/after.png`. Any other `.md` file without frontmatter is reported once per process: `warning: skipping <path>: … missing frontmatter delimiter`.

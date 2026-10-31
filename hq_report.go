@@ -250,7 +250,11 @@ func spendParts(rep *spend.Report, key string) (*HQRPart, *HQRRow) {
 func hqBox(p *tracker.Project, prefix string, c CompanyData, snap *health.Snapshot, sp *spend.Report) HQRBox {
 	b := HQRBox{Key: connections.HQ, Name: "HQ", Color: companyHQColor, Kind: "hq", Tone: "idle", Link: prefix + "/company", LinkText: "HQ on the company page"}
 	if line := deptHealthLine(snap); line != "" {
-		b.Parts = append(b.Parts, HQRPart{Text: "departments " + strings.TrimPrefix(line, "Departments: ")})
+		part := "departments " + strings.TrimPrefix(line, "Departments: ")
+		if _, ok := snap.Value(deptfamily.OnTrack, nil); !ok {
+			part = "departments not measured yet"
+		}
+		b.Parts = append(b.Parts, HQRPart{Text: part})
 		b.Rows = append(b.Rows, HQRRow{Label: "Health", Lines: []HQRLine{{Text: line, URL: prefix + "/health#departments"}}})
 		if v, ok := snap.Value(deptfamily.OnTrack, nil); ok {
 			b.Tone = map[string]string{"good": "green", "medium": "amber", "bad": "red"}[shareTone(v)]
@@ -492,7 +496,7 @@ func deptBox(p *tracker.Project, prefix string, dept tracker.Department, color s
 	if len(b.Rows) == 0 {
 		b.Empty = "Nothing here yet: no goals, outputs, jobs, handoffs, open work or spend. Start with " + tracker.InjectProject(p, "issue-cli department show "+key) + "."
 	} else if unmeasured {
-		health := HQRRow{Label: "Health", Lines: []HQRLine{{Text: "not measured in the last snapshot: no goal moves, outputs, jobs or handoffs to measure yet", URL: prefix + "/health#departments"}}}
+		health := HQRRow{Label: "Health", Lines: []HQRLine{{Text: "not measured yet: it starts with " + deptfamily.StartsMeasuring, URL: prefix + "/health#departments"}}}
 		b.Rows = append([]HQRRow{health}, b.Rows...)
 	}
 	return b

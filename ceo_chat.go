@@ -84,11 +84,12 @@ type CEOWorker struct {
 type CEOComposer struct {
 	Who             string
 	SendURL, KeyURL string
-	// ImageURL takes an image for the next message (POST …/lead/image).
-	ImageURL string
-	Session  string
-	Live     bool
-	MaxBytes int
+	// ImageURL takes an image for the next message (POST …/lead/image),
+	// FileURL any other file (POST …/lead/file).
+	ImageURL, FileURL string
+	Session           string
+	Live              bool
+	MaxBytes          int
 }
 
 // CEOControl is one key button. Key is the name /lead/key takes
@@ -167,7 +168,7 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, dept *tracker.D
 		Live:    s.buildCEOLive(p, prefix, dept, m),
 		Composer: CEOComposer{
 			Who:     who,
-			SendURL: prefix + "/lead/send" + q, KeyURL: prefix + "/lead/key" + q, ImageURL: prefix + "/lead/image",
+			SendURL: prefix + "/lead/send" + q, KeyURL: prefix + "/lead/key" + q, ImageURL: prefix + "/lead/image", FileURL: prefix + "/lead/file",
 			Session: m.Display, Live: m.Live, MaxBytes: m.MaxBytes,
 		},
 		Controls: ceoControls,

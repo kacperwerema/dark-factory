@@ -93,14 +93,14 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 	r.land(t, "ui/fix", "fix.go", "package main // fix\n", "- fix B")
 	r.land(t, "ui/later", "later.go", "package main // later\n", "- later C")
 
-	pick, err := Pick(r.root, "v0.54.0", []string{"ui/fix"})
+	pick, err := Pick(r.root, "v0.54.0", []string{"ui/fix"}, PickOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(pick.Picked) != 1 {
 		t.Errorf("pick = %+v", pick)
 	}
-	if again, _ := Pick(r.root, "v0.54.0", []string{"ui/fix"}); len(again.Already) != 1 || len(again.Picked) != 0 {
+	if again, _ := Pick(r.root, "v0.54.0", []string{"ui/fix"}, PickOptions{}); len(again.Already) != 1 || len(again.Picked) != 0 {
 		t.Errorf("second pick = %+v", again)
 	}
 	if _, err := os.Stat(filepath.Join(cut.Worktree, "later.go")); err == nil {

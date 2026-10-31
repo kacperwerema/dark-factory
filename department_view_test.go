@@ -39,7 +39,7 @@ func TestDepartmentRoomShowsItsOwnLine(t *testing.T) {
 	withMarketingWorkflow(t, &a, "")
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `data-testid="company.room.dept.line"`, `owner review`, `station from marketing.yaml`)
 	if strings.Contains(company, `company.room.dept.workflow_error`) {
 		t.Error("a good file shows no workflow error")
@@ -54,7 +54,7 @@ func TestDepartmentRoomShowsABrokenFile(t *testing.T) {
 	withMarketingWorkflow(t, &a, "statuses: [: broken\n")
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `data-testid="company.room.dept.workflow_error"`, `department Marketing`, `workflow error`)
 	// Product's room still draws its line.
 	assertContains(t, company, `data-testid="company.room.product"`)

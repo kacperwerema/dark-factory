@@ -438,7 +438,7 @@ entries:
         equals: measure
 
   - id: brand-foundation
-    version: v0.58.0
+    version: v0.59.0
     category: lifecycle
     propose: true
     templates: [marketing]
@@ -489,7 +489,7 @@ entries:
         equals: icp
 
   - id: week-plan
-    version: v0.58.0
+    version: v0.59.0
     category: lifecycle
     propose: false
     templates: [planning]
@@ -1172,6 +1172,63 @@ entries:
     question: "Which CI commands write test results, and in which format?"
     detect:
       - path: ci.run[].results
+
+  - id: memory-embedder
+    version: v0.59.0
+    category: automation
+    propose: false
+    sources: ["internal/tracker/memory_config.go", "internal/memory/embed.go", "internal/memory/hybrid.go", "cmd/issue-cli/memory_ranker.go", "internal/lint/memory.go"]
+    title: "Shared memory search by meaning (local embedder)"
+    what: |
+      `memory: embedder:` names a local embedder for `issue-cli memory search`, start's
+      == Memories == and the hint at done: a URL on this machine speaking Ollama's
+      `/api/embed`, or a command reading the same JSON on stdin. Search then ranks by words
+      (BM25) and meaning (cosine), vectors cached per memory in `<issues>/.memory/vectors/`.
+      Before each request it asks `mem-guard used`; at 70% or more, or when the embedder
+      fails, it ranks by words only and search says why. A URL off this machine is refused.
+    why: |
+      Words alone miss a memory that says the same thing differently ("flaky under load"
+      vs "timing test fails on a busy machine"). Off by default: it needs a local model.
+    where: "top-level memory: (docs/memory.md, Semantic search)"
+    snippet: |
+      memory:
+        embedder:
+          url: "http://127.0.0.1:11434/api/embed"
+          model: "nomic-embed-text"
+    question: "Is there a local embedding model on this machine that memory search should use?"
+    detect:
+      - path: memory.embedder
+
+  - id: postmortem
+    version: v0.59.0
+    category: automation
+    propose: true
+    sources: ["internal/tracker/postmortem_config.go", "internal/postmortem/postmortem.go", "internal/postmortem/brief.go", "internal/postmortem/apply.go", "cmd/issue-cli/cmd_postmortem.go", "postmortem_view.go"]
+    title: "Post-mortem at close: lessons the owner agrees to, applied to one place each"
+    what: |
+      `postmortem:` starts a fresh agent when an issue reaches `at:` (default: the last
+      status). It reads the run from paths only (the issue, its sidecars, the worker's
+      clilog, the commits, the worker's retro) and saves a retro with Steps, Worked, Did
+      not work, Decisions, Known and Proposed actions (`issue-cli postmortem write`). Each
+      action passes one test, "would a fresh agent do something differently next session
+      because of it?", and names one place: memory <kind>, file <path.md>, skill <name>,
+      workflow (an experiment proposal) or none <doc ref>; the parser refuses the rest.
+      The owner agrees or refuses all of them in one round on /p/<project>/postmortem/<slug>
+      (owner's browser only); agreed ones become a memory, a one-file commit or an
+      experiment proposal, linked from the retro. `start: ask` (the default) only prints
+      `issue-cli postmortem start <slug> --quote "…"`; `start: auto` starts the agent itself.
+    why: |
+      A retro the worker writes about itself is free text nothing acts on. A fresh reader
+      with one test and one place per lesson turns it into changes the next agent meets,
+      and the owner sees each before it lands.
+    where: "top-level postmortem: (docs/workflow.md, Post-mortem)"
+    snippet: |
+      postmortem:
+        at: done
+        start: ask      # auto: the transition into done starts the agent
+    question: "Should a fresh agent write a post-mortem when an issue closes, with lessons you agree to in one round?"
+    detect:
+      - path: postmortem
 
   # ------------------------------------------------------------------ actions
   - id: issue-actions

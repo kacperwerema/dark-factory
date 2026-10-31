@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/autostart"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -39,8 +40,17 @@ func AutostartCandidates(proj *tracker.Project, issues []*tracker.Issue, yoloOn 
 		bySlug[strings.ToLower(issue.Slug)] = issue
 	}
 	out := make([]autostart.Candidate, 0, len(backlog))
+	subs, now := Subscriptions(), time.Now()
 	for _, issue := range backlog {
-		out = append(out, autostart.Candidate{Slug: issue.Slug, Hold: candidateHold(proj, issue, bySlug, yoloOn)})
+		hold := candidateHold(proj, issue, bySlug, yoloOn)
+		if hold == "" {
+			// Routing: an issue whose agents are all resting waits; one
+			// routed to a resting agent with a free fallback starts there.
+			if c := routing.Pick(proj.LoadWorkflowForIssue(issue).Routing, routing.IssueSubject(proj, issue), "", subs, now); c.Hold != "" {
+				hold = c.Hold
+			}
+		}
+		out = append(out, autostart.Candidate{Slug: issue.Slug, Hold: hold})
 	}
 	return out
 }
@@ -91,7 +101,9 @@ func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot
 	}
 	in := autostart.Input{Project: proj.Slug, State: st, Last: last, Now: now}
 	if st.On && !st.Paused {
+		ScanLimits(proj, workRoot, now)
 		in.Memory = autostart.ReadMemory()
+		in.CPU = autostart.ReadLoad()
 		in.Workers = LiveWorkers(proj, workRoot)
 		in.Candidates = AutostartCandidates(proj, issues, yoloOn)
 		if only != "" {

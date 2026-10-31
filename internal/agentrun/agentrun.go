@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/telemetry"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -61,6 +62,10 @@ type Spec struct {
 	// RepromptHint is the command quoted in hints when the prompt can be
 	// re-sent (issue-cli dispatch <slug> --reprompt).
 	RepromptHint string
+	// Route is how AgentType was picked (routing: rules, a fallback, or
+	// the owner's --agent); nil when the caller named the agent itself.
+	// Start reports it as the launch's first step.
+	Route *routing.Choice
 	// Headless skips opening a terminal (lead_terminal for leads, terminal
 	// for workers); the response carries AttachCmd and SwitchCmd.
 	Headless bool
@@ -251,6 +256,10 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		return response
 	}
 
+	if spec.Route != nil {
+		steps = append(steps, RouteStep(*spec.Route))
+	}
+
 	serverRoot, _ := os.Getwd()
 	env := []string{
 		"ISSUE_CLI_LOG=" + cliLog,
@@ -297,7 +306,7 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		if spec.IssueSlug != "" {
 			windowName = spec.IssueSlug
 		}
-		exec.Command("tmux", "rename-window", "-t", session, windowName).Run()
+		exec.Command("tmux", "rename-window", "-t", target, windowName).Run()
 	}
 
 	if headless {

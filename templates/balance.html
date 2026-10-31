@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M8 1l1.5 3H14v2H2V4h4.5zM3 7h2v6H3zm4 0h2v6H7zm4 0h2v6h-2zM1 14h14v1.5H1z' fill='%2358a6ff'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -140,7 +141,7 @@
 
     <div id="save-toast" class="save-toast" data-testid="balance.toast"></div>
 
-    <script>
+    <script nonce="{{cspNonce}}">
     (function() {
         var prefix = {{.Prefix}};
 

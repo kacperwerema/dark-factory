@@ -52,6 +52,44 @@ type UpdatesWbData struct {
 	// installed. They are not in ToDecide or the sidebar count: a
 	// department is a projects.yaml entry, not a workflow feature (D-3).
 	Departments []WbDeptTemplate
+	// DeptUpdates are installed departments whose template has newer
+	// text for a file or value the owner never edited (depttemplate.Updates).
+	// Like Departments, they are not in ToDecide.
+	DeptUpdates []WbDeptUpdate
+}
+
+// WbDeptUpdate is one installed department with newer template text: what
+// the update replaces, what it keeps, and the commands.
+type WbDeptUpdate struct {
+	Key, Name, Template, Color string
+	// Replace are the files and projects.yaml values still holding an
+	// earlier template's text; Keep the ones the owner edited.
+	Replace, Keep    []string
+	Command, Preview string
+}
+
+// updatesDeptUpdates are proj's departments with newer template text.
+func updatesDeptUpdates(proj *tracker.Project) []WbDeptUpdate {
+	var out []WbDeptUpdate
+	for _, u := range depttemplate.Updates(proj) {
+		w := WbDeptUpdate{Key: u.Key, Name: u.Name, Template: u.Template.Key, Color: u.Template.Color,
+			Command: tracker.InjectProject(proj, "issue-cli department update "+u.Key),
+			Preview: tracker.InjectProject(proj, "issue-cli department update "+u.Key+" --dry-run")}
+		for _, it := range u.Items {
+			what := it.What
+			if !it.File {
+				what += " in projects.yaml"
+			}
+			switch it.State {
+			case depttemplate.UpdateOld:
+				w.Replace = append(w.Replace, what)
+			case depttemplate.UpdateEdited:
+				w.Keep = append(w.Keep, what)
+			}
+		}
+		out = append(out, w)
+	}
+	return out
 }
 
 // WbDeptTemplate is a department template the project can add, with the
@@ -252,6 +290,7 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 		ToDecide:    classic.Total,
 		Expanded:    q.Get("all") == "1" || category != "",
 		Departments: updatesDepartments(p, prefix),
+		DeptUpdates: updatesDeptUpdates(p),
 	}
 	if text, undo, isErr := updatesFlash(q); text != "" {
 		d.Flash = WbUpgradeFlash{Text: text, Undo: undo, Error: isErr, Prefix: prefix}

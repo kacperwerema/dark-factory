@@ -1,0 +1,47 @@
+session: clarify-round
+issue: factory/one-clarify-round-per-design-every-question-at-once-with-options-cost-and-the-recommendation-first-assumed-answers-marked
+title: The clarify round is one form on the Station, and your answers become decisions
+scenario: clarify
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (not this issue's).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: Answer both questions at once; each becomes a decision with your words
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    act:
+      - check: { visible: [station.clarify, station.clarify.send] }
+      - check: { text_contains: { target: station.clarify.send, text: "Answer all 2" } }
+      - click: station.clarify.send
+      - wait_for: { text_contains: { target: station.clarify, text: "every question answered" }, ms: 8000 }
+    checks:
+      - absent: station.clarify.send
+      - issue: { slug: shop/label-printer, body_contains: "owner: \"The shop's thermal printer\" (D-1)" }
+      - issue: { slug: shop/label-printer, body_contains: "clarify round: Q2 Does the label show the price → Yes, large, \"Yes, large\"" }
+      - issue: { slug: shop/label-printer, comment_contains: "clarify: the owner answered Q1 (D-1), Q2 (D-2) on the Station" }
+
+  - id: TP5
+    title: The clarify form reads as one round, the recommendation first, at desktop and phone width
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    checks:
+      - visible: [station.clarify, station.clarify.send]
+    targets:
+      - { id: station.clarify, note: the Clarify card under Your move }
+    do: |
+      1. Open Label printer's station and find the Clarify card under Your move.
+      2. Read both questions: each option, its cost, the recommended chip.
+      3. Narrow the window to phone width and look again.
+    expect: |
+      Both questions sit in one card with one "Answer all 2" button. The first
+      option of each is marked recommended and preselected, every option shows
+      its cost under it, and each question has an optional words box. At phone
+      width options wrap under each other and nothing is cut off.
+    why: ux-test sees the parts are there; only you can say the card reads as one round of choices with the cost clear.

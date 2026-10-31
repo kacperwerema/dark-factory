@@ -86,9 +86,29 @@ func runSpend(ctx *Context, args []string) error {
 		if t := sumWeeks(rep.Unattributed); !t.Empty() {
 			fmt.Fprintf(w, "\nUnattributed (sessions in the project folder with no agent name, yours): %s over %d weeks\n", spend.Line(t), spend.Weeks)
 		}
+		printSubscriptions(w, rep)
 	}
 	printPricesHint(w, rep)
 	return nil
+}
+
+// printSubscriptions is the split by agent CLI: this week and the weeks
+// shown, or why a CLI's usage couldn't be read.
+func printSubscriptions(w io.Writer, rep *spend.Report) {
+	if len(rep.Subscriptions) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nBy subscription (this week · last 4 weeks):")
+	for _, s := range rep.Subscriptions {
+		switch {
+		case !s.Read && s.Agent == "codex":
+			fmt.Fprintf(w, "  %-7s no Codex session logs on this machine ($CODEX_HOME/sessions)\n", s.Agent)
+		case !s.Read:
+			fmt.Fprintf(w, "  %-7s no transcripts of this project\n", s.Agent)
+		default:
+			fmt.Fprintf(w, "  %-7s %s · %s\n", s.Agent, spend.Line(s.ThisWeek()), spend.Line(s.Total()))
+		}
+	}
 }
 
 func sumWeeks(ws []spend.Week) spend.Tally {

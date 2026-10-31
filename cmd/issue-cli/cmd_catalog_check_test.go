@@ -186,3 +186,59 @@ func TestCatalogCheckIgnoresFilesFromMain(t *testing.T) {
 	}
 	assertContains(t, stdout.String(), "catalog-check ok: this branch changes no catalog feature's sources")
 }
+
+// On a release/vX.Y branch only the commits after its newest release or
+// candidate tag count: a published commit's bad Catalog: line and its files
+// can't be reworded, and were checked when they were tagged.
+func TestCatalogCheckOnAReleaseBranchReadsSinceItsLastTag(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	proj := &tracker.Project{Name: "t", IssueDir: dir}
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "release/v0.53")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst r = 1\n")
+	catalogRepoGit(t, dir, "commit", "-q", "-am", "fix\n\nCatalog: n/a")
+	catalogRepoGit(t, dir, "tag", "v0.53.0-rc.2")
+	// A tag of another line on the branch doesn't count.
+	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "unrelated")
+	catalogRepoGit(t, dir, "tag", "v0.52.9")
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err != nil {
+		t.Fatalf("tagged commit still read: %v\n%s", err, stdout.String())
+	}
+	assertContains(t, stdout.String(), "catalog-check ok: this branch changes no catalog feature's sources")
+
+	// A patch after the tag is checked like any branch commit.
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst r = 2\n")
+	catalogRepoGit(t, dir, "commit", "-q", "-am", "patch")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err == nil {
+		t.Fatalf("stale patch after the tag passed:\n%s", stdout.String())
+	}
+	assertContains(t, stdout.String(), "✗ catalog health-tuning: needs a bump or an n/a")
+	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "note\n\nCatalog: n/a health-tuning a fix")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err != nil {
+		t.Fatalf("n/a after the tag: %v\n%s", err, stdout.String())
+	}
+
+	// A release branch with no tag of its line yet keeps the merge-base.
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "release/v0.54", "main")
+	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "cut\n\nCatalog: n/a")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err == nil {
+		t.Fatalf("untagged release branch skipped its commits:\n%s", stdout.String())
+	}
+
+	// A work branch reads from the merge-base even when main carries a tag.
+	catalogRepoGit(t, dir, "checkout", "-q", "main")
+	catalogRepoGit(t, dir, "tag", "v0.53.0")
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/r")
+	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "w\n\nCatalog: n/a")
+	catalogRepoGit(t, dir, "tag", "v0.53.1")
+	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "w2")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err == nil {
+		t.Fatalf("work branch stopped at a tag:\n%s", stdout.String())
+	}
+}

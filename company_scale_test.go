@@ -7,11 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -105,7 +107,7 @@ func TestCompanyAtScaleNestsGroupsAndMarksTheFloorDense(t *testing.T) {
 	}
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	body, _ := timedGet(t, ts.URL+"/p/acme/company")
+	body, _ := timedGet(t, ts.URL+"/p/acme/company?classic=1")
 	for _, c := range []struct {
 		what string
 		n    int
@@ -147,7 +149,7 @@ func TestSmallCompanyFloorIsNotDense(t *testing.T) {
 	proj := scenarioProject(t, "declared-connections")
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	body, _ := timedGet(t, ts.URL+"/p/acme/company")
+	body, _ := timedGet(t, ts.URL+"/p/acme/company?classic=1")
 	if strings.Contains(body, "data-dense") {
 		t.Error("a 3-department company's floor is dense")
 	}
@@ -202,24 +204,69 @@ func TestCompanyPageFastAtScale(t *testing.T) {
 	proj := scenarioProject(t, "company-scale")
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	_, cold := timedGet(t, ts.URL+"/p/acme/company")
-	best := time.Hour
-	for i := 0; i < 3; i++ {
-		var tries []string
-		for try := 0; try < 3; try++ {
-			_, base := timedGet(t, ts.URL+"/p/acme/issues.json")
-			limit := max(150*time.Millisecond, companyVsIssues*base)
-			_, d := timedGet(t, ts.URL+"/p/acme/company")
-			best = min(best, d)
-			if d <= limit {
-				tries = nil
-				break
+	// The floor (the default) renders a hidden inspector for every room;
+	// the classic page stays at ?classic=1. Both keep the budget.
+	for _, page := range []struct{ name, path string }{
+		{"floor", "/p/acme/company"},
+		{"classic", "/p/acme/company?classic=1"},
+	} {
+		_, cold := timedGet(t, ts.URL+page.path)
+		best := time.Hour
+		for i := 0; i < 3; i++ {
+			var tries []string
+			for try := 0; try < 3; try++ {
+				_, base := timedGet(t, ts.URL+"/p/acme/issues.json")
+				limit := max(150*time.Millisecond, companyVsIssues*base)
+				_, d := timedGet(t, ts.URL+page.path)
+				best = min(best, d)
+				if d <= limit {
+					tries = nil
+					break
+				}
+				tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
 			}
-			tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
+			if tries != nil {
+				t.Errorf("company page (%s): %s; want under 150 ms, or %d× /issues.json on a slow machine", page.name, strings.Join(tries, ", "), companyVsIssues)
+			}
 		}
-		if tries != nil {
-			t.Errorf("company page: %s; want under 150 ms, or %d× /issues.json on a slow machine", strings.Join(tries, ", "), companyVsIssues)
+		t.Logf("15 departments, %s: cold %v, warm best %v", page.name, cold, best)
+	}
+}
+
+// The company page reads its department leads from the session list the
+// agents model already read: a tmux has-session per room was 15 process
+// starts a render, about a third of the page's time (ui/company-page-runs-
+// at-its-150-ms-limit-…). The live lead still shows as live.
+func TestCompanyPageAsksTmuxOnceNotPerRoom(t *testing.T) {
+	proj := scenarioProject(t, "company-scale")
+	lead := tracker.DepartmentLeadName(&proj, proj.Departments[0].Name)
+	withMockTmuxSessions(t, []AgentSession{{Name: lead}})
+	var mu sync.Mutex
+	var asked []string
+	orig := agentrun.HasSession
+	agentrun.HasSession = func(target string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, target)
+		return false
+	}
+	t.Cleanup(func() { agentrun.HasSession = orig })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	body, _ := timedGet(t, ts.URL+"/p/acme/company?classic=1")
+	var rooms []string
+	for _, d := range proj.Departments {
+		name := tracker.DepartmentLeadName(&proj, d.Name)
+		for _, a := range asked {
+			if strings.HasSuffix(a, name) {
+				rooms = append(rooms, name)
+			}
 		}
 	}
-	t.Logf("15 departments: cold %v, warm best %v", cold, best)
+	if len(rooms) > 0 {
+		t.Errorf("the page asked tmux about %d department leads one by one: %v", len(rooms), rooms)
+	}
+	if !strings.Contains(body, `data-testid="company.room.dept.lead.talk"`) {
+		t.Errorf("the live lead %s has no Talk link", lead)
+	}
 }

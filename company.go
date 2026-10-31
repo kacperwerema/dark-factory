@@ -66,14 +66,19 @@ type CompanyData struct {
 	// Shelf is the departments with outputs waiting for the owner's review.
 	Shelf   []WbShelfWait
 	Waiting int
-	Radio   []WbMessage
-	Message WbMessageBox
+	// NeedsYou is needsYouRows: every row Waiting counts, in its order (the
+	// floor's rail lists its first rows).
+	NeedsYou []WbQueueCard
+	Radio    []WbMessage
+	Message  WbMessageBox
 	// Toggle is Board | Report, on the title line (the header is full here).
 	Toggle []WbViewTab
 	// YOLOQueue is "To review after YOLO": the passes the owner has not
 	// reviewed; YOLOMore how many more than listed.
 	YOLOQueue []WbYOLORow
 	YOLOMore  int
+	// YOLOReviewURL is the review page, where the whole queue is reviewed.
+	YOLOReviewURL string
 	// Connections are the lines between the rooms (connections_view.go);
 	// nil without departments.
 	Connections *WbConnections
@@ -130,7 +135,17 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	wf := p.LoadWorkflow()
 	// What waits on the owner, read once: Product, the groups and the
 	// departments' lines each take their share.
-	waits := waitingOnOwner(p, openOnly(issues))
+	waits := lot.waits
+	// Whether each department's lead is live, from the session list the
+	// agents model read: a tmux has-session per room was 15 process starts
+	// a render.
+	var leadLive map[string]bool
+	if agents != nil {
+		leadLive = map[string]bool{}
+		for _, l := range agents.DepartmentLeads {
+			leadLive[l.Name] = l.Live
+		}
+	}
 
 	open, backlog := 0, 0
 	for _, issue := range issues {
@@ -144,7 +159,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	rep := goals.Resolve(p, now)
 	sp := companySpend(p, issues, now)
 	flag := projectFlag(p)
-	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(all)}
+	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(all), NeedsYou: all}
 	if len(d.Queue) > companyQueueRows {
 		d.Queue, d.QueueMore = d.Queue[:companyQueueRows], len(queue)-companyQueueRows
 	}
@@ -164,12 +179,16 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		}
 	}
 	d.YOLOQueue, d.YOLOMore = yoloQueueRows(lot.YOLO, prefix, companyQueueRows)
+	if len(d.YOLOQueue) > 0 {
+		d.YOLOReviewURL = prefix + "/yolo/review"
+	}
 
 	d.HQ = WbRoomHQ{
 		Box:  connections.HQ,
 		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk", ID: "hq"},
 		Desk: WbCEODesk{CEO: lot.CEO, Color: color, ChatURL: prefix + "/lead", SpawnURL: prefix + "/lead/spawn"},
-		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}, {Text: "Crew →", URL: prefix + "/agents"}, {Text: "Report →", URL: hqReportURL(prefix), Title: "HQ report: every department in one line"}},
+		Open: open,
+		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}, {Text: "Crew →", URL: prefix + "/agents"}, {Text: "Report →", URL: hqReportURL(prefix), Title: "HQ report: every department in one line"}, hqMemoryFoot(p, prefix)},
 	}
 	if rep.HQ != nil {
 		d.HQ.Mission = rep.HQ.Mission
@@ -209,6 +228,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	}
 	if rep.Product != nil {
 		product.Mission, product.Goals = rep.Product.Mission, roomGoals(rep.Product, companyProductColor)
+		product.AllGoals = roomGoalsAll(rep.Product, companyProductColor)
 	}
 	product.Shelf = shelf[goals.ProductKey]
 	product.Spend = roomSpend(sp, spend.Product, prefix, flag)
@@ -219,18 +239,19 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Product = product
 
 	allJobs := viewerJobs(p, issues, now)
-	// One goroutine per room: each asks tmux whether its lead is live, and
-	// one after another 15 departments waited on 15 tmux calls.
+	// One goroutine per room: a room whose lead's liveness is unknown asks
+	// tmux, and one after another 15 departments waited on 15 tmux calls.
 	built := make([]WbRoomDept, len(p.Departments))
 	var wg sync.WaitGroup
 	for i, dept := range p.Departments {
 		wg.Add(1)
 		go func(i int, dept tracker.Department) {
 			defer wg.Done()
-			room := companyDeptRoom(p, prefix, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], waits, now)
+			room := companyDeptRoom(p, prefix, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], waits, leadLive, now)
 			room.Jobs = deptJobLines(prefix, dept.Name, allJobs, now)
 			if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
 				room.Mission, room.Goals = o.Mission, roomGoals(o, deptColorOf(p, dept, i))
+				room.AllGoals = roomGoalsAll(o, deptColorOf(p, dept, i))
 			}
 			room.Shelf = shelf[outputs.DeptKey(dept.Name)]
 			room.Connectors = roomConnectors(p, prefix, dept.Name, now)
@@ -340,7 +361,9 @@ func waitsOf(waits []WaitingItem, keep func(*tracker.Issue) bool) []WaitingItem 
 
 // companyDeptRoom is a department projects.yaml adds, as a room: its
 // workers at their desks, its role, its open and done work.
-func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, waits []WaitingItem, now time.Time) WbRoomDept {
+// leadLive says which department leads are live (by session name); nil
+// asks tmux.
+func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, waits []WaitingItem, leadLive map[string]bool, now time.Time) WbRoomDept {
 	open, done := 0, 0
 	var own []*tracker.Issue
 	for _, issue := range issues {
@@ -359,11 +382,15 @@ func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department,
 		robots = append(robots, workerRobot(w))
 	}
 	lead := tracker.DepartmentLeadName(p, dept.Name)
+	live, known := leadLive[lead]
+	if !known {
+		live = agentrun.IsLive(p, lead)
+	}
 	q := chatQuery(&dept)
 	room := WbRoomDept{
 		Head: WbRoomHead{Title: dept.Name, Color: deptColorOf(p, dept, i), Meta: plural(len(workers), "agent", "agents")},
 		Lead: WbDeptLead{
-			Who: chatWho(&dept), Session: lead, Live: agentrun.IsLive(p, lead), Color: deptColorOf(p, dept, i),
+			Who: chatWho(&dept), Session: lead, Live: live, Color: deptColorOf(p, dept, i),
 			ChatURL: prefix + "/lead" + q, SpawnURL: prefix + "/lead/spawn" + q,
 		},
 		Crew: wbCrew(robots),
@@ -434,11 +461,14 @@ func companyRollUp(p *tracker.Project, hq *goals.Owner, color string) []WbHQGoal
 
 // roomGoals is a department's first goals as chips.
 func roomGoals(o *goals.Owner, color string) []WbGoal {
+	all := roomGoalsAll(o, color)
+	return all[:min(len(all), companyRoomGoals)]
+}
+
+// roomGoalsAll is every goal of o, for the floor's inspector.
+func roomGoalsAll(o *goals.Owner, color string) []WbGoal {
 	var out []WbGoal
 	for _, g := range o.Goals {
-		if len(out) == companyRoomGoals {
-			break
-		}
 		out = append(out, goalChip(g, color))
 	}
 	return out

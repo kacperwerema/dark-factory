@@ -1,0 +1,30 @@
+session: agent-routing
+issue: factory/route-work-between-claude-and-codex-subscriptions-ccr-pick-the-agent-per-task-fall-back-when-one-hits-its-limit
+title: The Crew page shows a worker that hit its CLI's usage limit and each subscription's state
+scenario: leads
+
+# A stand-in worker on the scenario's private tmux server prints Codex's own
+# usage-limit message (codex-rs/protocol/src/error.rs) and waits; no real
+# claude or codex runs. The scan on page load marks codex resting in the
+# scenario's own state dir.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A worker whose pane shows Codex's limit message keeps running, its card shows the message and reset, and the Subscriptions strip says codex is resting
+    proves: [AC3, AC4]
+    setup:
+      - tmux: [new-session, -d, -s, agent-cli-loner, sh, -c, "printf '%s\\n' 'working on the issue' '■ You’ve hit your usage limit. Try again at 11:59 PM.'; exec cat"]
+      - open: /p/{project}/agents
+    checks:
+      - visible: [crew.subs, crew.subs.codex, crew.subs.claude]
+      - text_contains: { target: crew.subs.codex, text: "resting until 23:59 (limit seen in agent-cli-loner)" }
+      - text_contains: { target: crew.card.agent-cli-loner.limit, text: "You’ve hit your usage limit. Try again at 11:59 PM. — resets 23:59" }
+      # It also waits on the owner at the testing gate: that state wins over the limit.
+      - text_contains: { target: crew.card.agent-cli-loner.state, text: "waiting on you at the testing gate" }
+      - http: { path: "/p/{project}/status.md", contains: "codex resting until 23:59 (limit seen in agent-cli-loner)" }
+      - http: { path: "/p/{project}/agents.json", contains: '"limit":"You’ve hit your usage limit.' }

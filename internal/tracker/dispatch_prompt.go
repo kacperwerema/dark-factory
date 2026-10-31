@@ -38,6 +38,7 @@ func BuildDispatchPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, workDi
 	prompt := buildAgentPrompt(proj, issue, wf, wt.Path, wt.Branch, yoloOn)
 	prompt += InjectProject(proj, DepartmentPromptSection(proj, issue))
 	prompt += InjectProject(proj, LeadPromptSection(issue, route))
+	prompt += InjectProject(proj, MemoryPromptSection(proj, issue))
 	prompt += ShellPromptSection(DetectShell())
 	prompt += InjectProject(proj, CIPromptSection(workDir, wf))
 	return DispatchPrompt{
@@ -179,6 +180,7 @@ func buildAgentPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, worktreeP
 	}
 
 	prompt := renderPromptTemplate(AgentDispatchPromptTemplate, agentPromptFields(issue, currentPrompt, statusReminder, statusField, yoloOn))
+	prompt += "\n\n" + RedRoundsPromptSection(issue.Slug, wf)
 
 	// Inject --project so dispatched bots in a multi-project projects.yaml
 	// setup don't silently run against the default project. The web app
@@ -197,9 +199,22 @@ You are already in an isolated git worktree at %s on branch %s.
 - Issue management is NOT code work. The issues/ tree is excluded from this worktree on purpose — it lives on the primary checkout (master). Run every issue-cli command exactly as written: --project already points it at the primary checkout, so it manages the issue on master regardless of your worktree branch. Do not cd into the primary checkout, and do not try to create or edit issue files inside this worktree.
 - Leave the worktree in place after the issue ships: do not remove it, and nobody has to clean it up.
 - A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
+- The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml: it knows you by your environment, tmux name and worktree, not by the config. Walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment to get past it.
 `, worktreePath, worktreeBranch, worktreeBranch)
 	}
 	return prompt
+}
+
+// RedRoundsPromptSection is the briefing's rule for the red-round cap
+// (internal/redrounds): how many rounds a check may stay red, and what to
+// do when one can't be fixed.
+func RedRoundsPromptSection(slug string, wf *WorkflowConfig) string {
+	n := wf.RedRoundCap()
+	return fmt.Sprintf(`## Red checks
+
+A check that is still red after %d fix rounds (a gate's command, the proof check, a local CI command; one round per commit) becomes a question for the owner: transition posts it and refuses without re-running the check until the owner resolves it. Stop working on that check then; don't loop on it.
+  issue-cli rounds %s                                         # each red check: red N of %d
+  issue-cli rounds %s --cannot-fix "<check>" --why "..."      # can't fix it: ask now, recommendation first`, n, slug, n, slug)
 }
 
 // agentPromptFields is the value of each {{name}} placeholder in

@@ -85,6 +85,12 @@ func computeFenceFlags(lines []string) []bool {
 	return flags
 }
 
+// HasSection reports whether body has a heading titled title, the way
+// replace and append --section match it.
+func HasSection(body, title string) bool {
+	return len(findHeadingMatches(body, title)) > 0
+}
+
 func findHeadingMatches(body, title string) []headingMatch {
 	lines := strings.Split(body, "\n")
 	key := normalizeHeadingKey(title)

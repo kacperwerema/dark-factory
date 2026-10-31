@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='1' width='4' height='14' rx='1' fill='%238b949e'/><rect x='6' y='1' width='4' height='10' rx='1' fill='%238b949e'/><rect x='11' y='1' width='4' height='12' rx='1' fill='%238b949e'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -17,16 +18,16 @@
     </header>
     <form class="board-filter-bar" data-testid="board.filters" method="GET" action="{{.Prefix}}/board">
         <input type="hidden" name="classic" value="1">
-        <input type="search" class="board-search" id="board-search" data-testid="board.search" placeholder="Search issues..." oninput="filterBoardCards(this.value)">
+        <input type="search" class="board-search" id="board-search" data-testid="board.search" placeholder="Search issues..." data-input="{{onCall "filterBoardCards" "$value"}}">
 
-        <select name="version" data-testid="board.filter.version" onchange="this.form.submit()">
+        <select name="version" data-testid="board.filter.version" data-autosubmit>
             <option value="">All versions</option>
             {{range .Versions}}
             <option value="{{.}}" {{if eq . $.Version}}selected{{end}}>v{{.}}</option>
             {{end}}
         </select>
 
-        <select name="system" data-testid="board.filter.system" onchange="this.form.submit()">
+        <select name="system" data-testid="board.filter.system" data-autosubmit>
             <option value="">All systems</option>
             {{range .Systems}}
             <option value="{{.}}" {{if eq . $.System}}selected{{end}}>{{.}}</option>
@@ -34,7 +35,7 @@
         </select>
 
         {{if .WorkTypes}}
-        <select name="type" data-testid="board.filter.type" onchange="this.form.submit()">
+        <select name="type" data-testid="board.filter.type" data-autosubmit>
             <option value="">All types</option>
             {{range .WorkTypes}}
             <option value="{{.Name}}" title="{{.Path}}" {{if eq .Name $.WorkType}}selected{{end}}>{{.Name}}</option>
@@ -42,7 +43,7 @@
         </select>
         {{end}}
 
-        <select name="assignee" data-testid="board.filter.assignee" onchange="this.form.submit()">
+        <select name="assignee" data-testid="board.filter.assignee" data-autosubmit>
             <option value="">All assignees</option>
             <option value="_claimed" {{if eq .Assignee "_claimed"}}selected{{end}}>Claimed</option>
             <option value="_unclaimed" {{if eq .Assignee "_unclaimed"}}selected{{end}}>Unclaimed</option>
@@ -56,11 +57,11 @@
         {{end}}
 
         <label class="board-hide-empty" data-testid="board.hide_empty" title="Hide statuses with no issues">
-            <input type="checkbox" name="hide_empty" value="1" {{if .HideEmpty}}checked{{end}} onchange="this.form.submit()">
+            <input type="checkbox" name="hide_empty" value="1" {{if .HideEmpty}}checked{{end}} data-autosubmit>
             Hide empty
         </label>
 
-        <button class="board-layout-btn" id="layout-toggle" data-testid="board.layout_toggle" title="Toggle layout" onclick="toggleBoardLayout()">
+        <button class="board-layout-btn" id="layout-toggle" data-testid="board.layout_toggle" title="Toggle layout" data-click="{{onCall "toggleBoardLayout"}}">
             <svg id="layout-icon-h" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2h4v12H1V2zm5 0h4v12H6V2zm5 0h4v12h-4V2z"/></svg>
             <svg id="layout-icon-v" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="display:none"><path d="M2 1h12v4H2V1zm0 5h12v4H2V6zm0 5h12v4H2v-4z"/></svg>
         </button>
@@ -70,7 +71,7 @@
         <div class="board">
             {{range .Columns}}
             <div class="board-column{{if .Optional}} board-column-optional{{end}}" data-status="{{.Status}}" data-testid="board.column.{{tid .Status}}">
-                <div class="board-column-header" onclick="toggleColumn(this)">
+                <div class="board-column-header" data-click="{{onCall "toggleColumn" "$this"}}">
                     <div class="board-column-header-top">
                         <svg class="board-column-chevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M4 2l4 4-4 4"/></svg>
                         <span class="board-column-dot" style="border-color:{{statusColor .Status}}"></span>
@@ -78,7 +79,7 @@
                         {{if .Optional}}<span class="board-column-optional-badge" title="Optional status — forward transitions may skip this column">optional</span>{{end}}
                         {{if .Global}}<span class="board-column-global-badge" title="Global status — transitions from here are allowed to any status">global</span>{{end}}
                         <span class="board-column-count" data-testid="board.column.{{tid .Status}}.count">{{len .Issues}}</span>
-                        <button class="board-column-add" data-testid="board.column.{{tid .Status}}.add" title="Add issue" onclick="event.stopPropagation(); openCreateModal('{{.Status}}')">
+                        <button class="board-column-add" data-testid="board.column.{{tid .Status}}.add" title="Add issue" data-stop data-click="{{onCall "openCreateModal" .Status}}">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.25 1a.75.75 0 01.75.75V7h5.25a.75.75 0 010 1.5H8v5.25a.75.75 0 01-1.5 0V8.5H1.25a.75.75 0 010-1.5H6.5V1.75A.75.75 0 017.25 1z"/></svg>
                         </button>
                     </div>
@@ -109,14 +110,14 @@
                             </div>
                             <div class="board-card-title" data-testid="board.card.{{tid .Slug}}.title">{{.Title}}</div>
                         </a>
-                        <div class="board-card-dispatch" onclick="event.stopPropagation(); toggleAgentPicker(this)">
+                        <div class="board-card-dispatch" data-stop data-click="{{onCall "toggleAgentPicker" "$this"}}">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75a.75.75 0 00-1.19.61v11.28a.75.75 0 001.19.61l9.5-5.64a.75.75 0 000-1.22L1.5 1.75z"/></svg>
-                            <div class="agent-picker" onclick="event.stopPropagation()">
-                                <button class="agent-picker-option" onclick="dispatchToAgent('{{.Slug}}', 'claude'); closeAllPickers()">Claude</button>
-                                <button class="agent-picker-option" onclick="dispatchToAgent('{{.Slug}}', 'codex'); closeAllPickers()">Codex</button>
+                            <div class="agent-picker" data-stop>
+                                <button class="agent-picker-option" data-click="{{onCall "dispatchFromPicker" .Slug "claude"}}">Claude</button>
+                                <button class="agent-picker-option" data-click="{{onCall "dispatchFromPicker" .Slug "codex"}}">Codex</button>
                             </div>
                         </div>
-                        <button class="board-card-delete" title="Delete issue" onclick="event.stopPropagation(); confirmDelete('{{.Slug}}', '{{.Title}}')">
+                        <button class="board-card-delete" title="Delete issue" data-stop data-click="{{onCall "confirmDelete" .Slug .Title}}">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 010 1.5H2.75a.75.75 0 010-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75zM6.5 1.75v1.25h3V1.75a.25.25 0 00-.25-.25h-2.5a.25.25 0 00-.25.25zM4.997 6.178a.75.75 0 10-1.493.144L4.5 13.25a.25.25 0 00.25.25h6.5a.25.25 0 00.25-.25l.996-6.928a.75.75 0 10-1.493-.144L10.08 12.5H5.92L4.997 6.178z"/></svg>
                         </button>
                     </div>
@@ -136,7 +137,7 @@
                 This cannot be undone.
             </div>
             <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+                <button class="modal-btn modal-btn-cancel" data-click="{{onCall "closeDeleteModal"}}">Cancel</button>
                 <button class="modal-btn modal-btn-danger" id="delete-confirm-btn">Delete</button>
             </div>
         </div>
@@ -175,14 +176,14 @@
                 </details>
             </div>
             <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" onclick="closeDispatchModal()">Close</button>
+                <button class="modal-btn modal-btn-cancel" data-click="{{onCall "closeDispatchModal"}}">Close</button>
             </div>
         </div>
     </div>
 
     <div class="save-toast" id="save-toast" data-testid="board.toast">Saved</div>
 
-    <script>
+    <script nonce="{{cspNonce}}">
     // Board layout toggle
     function applyBoardLayout(layout) {
         var container = document.querySelector('.board-container');
@@ -553,6 +554,11 @@
         closeAllPickers();
         if (!isOpen) picker.classList.add('open');
     }
+    function dispatchFromPicker(slug, agent) {
+        dispatchToAgent(slug, agent);
+        closeAllPickers();
+    }
+
     function closeAllPickers() {
         document.querySelectorAll('.agent-picker.open').forEach(function(p) { p.classList.remove('open'); });
     }
@@ -581,7 +587,7 @@
 
             if (data.status === 'waiting-on-gate') {
                 stepsEl.innerHTML = gateBanner(prefix + '/issue/' + slug, data.gate,
-                    "dispatchToAgent('" + slug + "', '" + agent + "', true)");
+                    ['dispatchToAgent', slug, agent, true]);
                 return;
             }
             var html = '';
@@ -616,7 +622,7 @@
         return '<div class="dispatch-banner reattached" data-testid="dispatch.gate">'
             + 'Waiting on your approval for <b>' + safe + '</b>: everything else is done, so a new agent would only stop at the gate. Nothing was started. '
             + '<a href="' + issuePath + '#approve-' + safe.replace(/ /g, '-') + '" data-testid="dispatch.gate.approve">Approve</a> or '
-            + '<button class="dispatch-banner-btn" data-testid="dispatch.gate.force" onclick="' + forceCall + '">Dispatch anyway</button>'
+            + '<button class="dispatch-banner-btn" data-testid="dispatch.gate.force" ' + dataCall('click', forceCall) + '>Dispatch anyway</button>'
             + '</div>';
     }
 

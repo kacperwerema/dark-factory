@@ -17,6 +17,7 @@
     {{template "wb/brief" .Brief}}
     {{with .YOLO}}{{template "wb/yolo-review" .}}{{end}}
     {{template "wb/your-move" .Move}}
+    {{template "wb/clarify" .Clarify}}
     {{template "wb/approving" .Approving}}
     <section class="wb-quality" aria-labelledby="quality-h" data-testid="station.quality">
         <div class="wb-titlebar wb-titlebar--flush"><h2 class="wb-h1 wb-h1--sm" id="quality-h">Quality check</h2><span class="wb-sub">what the agent checked, and what is left for you</span></div>
@@ -24,6 +25,7 @@
     </section>
     {{template "wb/epic-children" .Epic}}
     {{template "wb/mockups" .Mockups}}
+    {{template "wb/station-critique" .Critique}}
     {{template "wb/decisions" .Decisions}}
     {{template "wb/change-card" .Change}}
     {{template "wb/tests-card" .Tests}}

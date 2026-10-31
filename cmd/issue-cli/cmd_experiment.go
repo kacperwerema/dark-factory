@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/michal-franc/issue-viewer/internal/bench"
 	"github.com/michal-franc/issue-viewer/internal/experiment"
 	"github.com/michal-franc/issue-viewer/internal/retro"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -50,7 +52,9 @@ Subcommands:
   record <slug> --baseline <run> --candidate <run>
       Judge two finished benchmark runs and record the verdict: the block,
       an experiment: comment, and on promising an "Experiment result"
-      section.
+      section. Beside it, each workflow's verdict (bench compare's By
+      workflow), marked changed or control by the files the candidate
+      changed since main; advice only, the owner adopts.
   rollback <slug>
       Make branch revert/<slug> reverting the commits on main with the
       trailer "Experiment: <slug>". main is not touched; review and merge it.
@@ -348,6 +352,7 @@ func runExperimentShow(ctx *Context, args []string) error {
 	for _, r := range b.Reasons {
 		fmt.Fprintf(w, "  - %s\n", r)
 	}
+	printExperimentWorkflows(w, b)
 	if b.Adopted != nil && b.Adopted.RolledBack != "" {
 		fmt.Fprintf(w, "Rollback:   branch %s prepared\n", b.Adopted.RolledBack)
 	}
@@ -649,11 +654,15 @@ func orValue(s, def string) string {
 func recordExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, base, cand *experiment.Run) error {
 	verdict, reasons, res := experiment.Judge(base, cand, b.Target)
 	b.Verdict, b.Reasons, b.Result = verdict, reasons, res
+	b.Workflows, b.WorkflowsNote = experimentWorkflows(ctx.Project, b)
 	if err := experiment.Save(issue.FilePath, b); err != nil {
 		return err
 	}
 	comment := fmt.Sprintf("experiment: %s; tokens %+d, cost %+.2f USD, wall %+.1fm; runs %s (baseline) %s (candidate)",
 		b.VerdictLine(), res.TokensDelta, res.USDDelta, res.WallDelta/60, base.ID, cand.ID)
+	if line := b.WorkflowsLine(); line != "" {
+		comment += "; workflows: " + line
+	}
 	if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 		return fmt.Errorf("verdict saved, comment failed: %w", err)
 	}
@@ -670,6 +679,7 @@ func recordExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, b
 	for _, r := range reasons {
 		fmt.Fprintf(w, "  - %s\n", r)
 	}
+	printExperimentWorkflows(w, b)
 	switch verdict {
 	case experiment.Promising:
 		fmt.Fprintln(w, "Next: the owner adopts it at the issue's gates (YOLO does not pass them); the numbers are under ## Experiment result.")
@@ -696,6 +706,26 @@ func experimentResultSection(b *experiment.Block, base, cand *experiment.Run) st
 	fmt.Fprintf(&sb, "| tokens | %d | %d |\n", base.SpentTokens, cand.SpentTokens)
 	fmt.Fprintf(&sb, "| cost (USD) | %.2f | %.2f |\n", base.SpentUSD, cand.SpentUSD)
 	fmt.Fprintf(&sb, "\nRegressions: %d · tasks improved: %d.\n", r.Regressions, r.Improved)
+	if len(b.Workflows) > 0 {
+		sb.WriteString("\n### By workflow\n\n")
+		sb.WriteString("Advice beside the verdict above: changed workflows are the ones the branch's files reach, controls the rest.\n\n")
+		sb.WriteString("| workflow | mark | verdict | pass rate | score | tokens | cost (USD) | wall |\n|---|---|---|---|---|---|---|---|\n")
+		for _, v := range b.Workflows {
+			mark := orDash(v.Mark)
+			if len(v.ChangedBy) > 0 {
+				mark += " (" + bench.FilesText(v.ChangedBy) + ")"
+			}
+			fmt.Fprintf(&sb, "| %s | %s | %s | %.2f → %.2f | %s → %s | %d → %d | %.2f → %.2f | %s → %s |\n",
+				v.Workflow, mark, v.Verdict, v.PassRateA, v.PassRateB, scoreText(v.ScoreA), scoreText(v.ScoreB),
+				v.TokensA, v.TokensB, v.USDA, v.USDB, secText(v.WallA), secText(v.WallB))
+		}
+		for _, n := range noisyResults(b.Workflows) {
+			fmt.Fprintf(&sb, "\n⚠ %s.\n", n)
+		}
+	}
+	if b.WorkflowsNote != "" {
+		fmt.Fprintf(&sb, "\nBy workflow: %s.\n", b.WorkflowsNote)
+	}
 	sb.WriteString("\nRolling it back later: `issue-cli experiment rollback <slug>` (the commits carry `Experiment: <slug>`).")
 	return sb.String()
 }
@@ -759,4 +789,89 @@ func experimentHeaderLine(proj *tracker.Project, issue *tracker.Issue) string {
 		next = tracker.InjectProject(proj, fmt.Sprintf("; measure it: issue-cli experiment run %s --dry-run", issue.Slug))
 	}
 	return fmt.Sprintf("Experiment: %s · %s%s; the owner adopts experiments, even in YOLO", b.Target, b.VerdictLine(), next)
+}
+
+// experimentWorkflows are the per-workflow verdicts of b's two runs, read
+// as internal/bench runs and marked by the files the candidate's sha
+// changed since main; the note says why they are missing or unmarked.
+func experimentWorkflows(proj *tracker.Project, b *experiment.Block) ([]experiment.WorkflowResult, string) {
+	if b.Baseline == nil || b.Candidate == nil || b.Baseline.Run == "" || b.Candidate.Run == "" {
+		return nil, "no runs to compare"
+	}
+	ra, err := bench.LoadRun(b.Benchmark, b.Baseline.Run)
+	if err != nil {
+		return nil, "baseline run not readable: " + err.Error()
+	}
+	rb, err := bench.LoadRun(b.Benchmark, b.Candidate.Run)
+	if err != nil {
+		return nil, "candidate run not readable: " + err.Error()
+	}
+	vs := bench.CompareByWorkflow(ra, rb)
+	if len(vs) == 0 {
+		return nil, "the runs have no tasks"
+	}
+	note := ""
+	ref := b.Candidate.SHA
+	if ref == "" {
+		ref = b.Candidate.Ref // bench run --setup <ref>: the commit it built
+	}
+	if ref == "" {
+		note = "not marked: the candidate run names no commit (bench run --setup <ref>)"
+	} else if aff, err := branchAffected(proj, ".", ref); err != nil {
+		note = "not marked: " + err.Error()
+	} else {
+		bench.MarkWorkflows(vs, aff)
+	}
+	data, err := json.Marshal(vs)
+	if err != nil {
+		return nil, err.Error()
+	}
+	var out []experiment.WorkflowResult
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err.Error()
+	}
+	return out, note
+}
+
+// printExperimentWorkflows is the By workflow block of record, run and
+// show.
+func printExperimentWorkflows(w io.Writer, b *experiment.Block) {
+	if len(b.Workflows) == 0 {
+		if b.WorkflowsNote != "" {
+			fmt.Fprintf(w, "By workflow: %s\n", b.WorkflowsNote)
+		}
+		return
+	}
+	fmt.Fprintln(w, "By workflow (advice beside the verdict; the owner adopts):")
+	for _, v := range b.Workflows {
+		mark := ""
+		switch {
+		case len(v.ChangedBy) > 0:
+			mark = " [changed: " + bench.FilesText(v.ChangedBy) + "]"
+		case v.Mark != "":
+			mark = " [" + v.Mark + "]"
+		}
+		fmt.Fprintf(w, "  %s: %s · %d tasks%s\n", v.Workflow, v.Verdict, v.Tasks, mark)
+		fmt.Fprintf(w, "      pass %.0f%% → %.0f%% · score %s → %s · tokens %s → %s · cost $%.2f → $%.2f · wall %s → %s\n",
+			v.PassRateA*100, v.PassRateB*100, scoreText(v.ScoreA), scoreText(v.ScoreB),
+			compactTokens(v.TokensA), compactTokens(v.TokensB), v.USDA, v.USDB, secText(v.WallA), secText(v.WallB))
+		if len(v.Why) > 0 {
+			fmt.Fprintf(w, "      %s\n", strings.Join(v.Why, "; "))
+		}
+	}
+	if b.WorkflowsNote != "" {
+		fmt.Fprintf(w, "  (%s)\n", b.WorkflowsNote)
+	}
+	for _, n := range noisyResults(b.Workflows) {
+		fmt.Fprintf(w, "  ⚠ %s\n", n)
+	}
+}
+
+// noisyResults is bench.NoisyControls over the stored results.
+func noisyResults(rs []experiment.WorkflowResult) []string {
+	var vs []bench.WorkflowVerdict
+	for _, r := range rs {
+		vs = append(vs, bench.WorkflowVerdict{Workflow: r.Workflow, Mark: r.Mark, Verdict: r.Verdict})
+	}
+	return bench.NoisyControls(vs)
 }

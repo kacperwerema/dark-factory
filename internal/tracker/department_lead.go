@@ -249,6 +249,7 @@ func DepartmentLeadBrief(wf *WorkflowConfig, dept *Department, in LeadBriefInput
 	fmt.Fprintf(&b, "- Role: %s lead (%s). You answer to the human and report to %s.\n", dept.Name, lead, boss)
 	b.WriteString(LeadRules)
 	b.WriteString(JobsBrief(len(dept.Jobs), false))
+	b.WriteString(MemoryLeadLine(proj, lead, dept.Name))
 	if len(children) > 0 {
 		var names []string
 		for _, c := range proj.Descendants(dept.Name) {

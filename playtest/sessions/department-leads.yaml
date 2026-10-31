@@ -13,7 +13,7 @@ steps:
     title: The Marketing room shows its lead, not running, with ▶ Start lead
     proves: [AC7]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     checks:
       - visible: company.room.dept.lead
       - text_contains: { target: company.room.dept.lead.session, text: "lead-acme-marketing" }

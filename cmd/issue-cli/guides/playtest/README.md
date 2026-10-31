@@ -146,6 +146,10 @@ reduced: "2026-11-22"          # set when the shots were shrunk (below)
   the `work/<slug>` branch the repo is on. Another issue's session keeps its `results.yaml` and the shots of failing
   sizes, nothing else, and ux-test prints "shots kept for <issue> only" once. Judge runs keep every shot. With no own
   issue (on main) every shot is kept.
+- **A session asked for by name** (`-s`, `make ux-test S=<session>`) keeps its shots whoever's it is. When it is
+  another issue's and the repo is a linked worktree, its run goes to the project root's `.playtest/runs/`, not the
+  worktree's: the Evidence tab reads only the root and the issue's own worktree, and prune clears other issues' runs
+  from a worktree. The runner prints where the run went.
 - **At done:** `issue-cli transition <slug> --to done` keeps the latest auto and judge run of each of the issue's own
   sessions (a game's `ux-test` / `playtest` count as auto / judge), moves them to the project root's `.playtest/runs/`
   and deletes the rest of the worktree's runs and the runner's cached binaries (`runs/.bin`), so removing the worktree

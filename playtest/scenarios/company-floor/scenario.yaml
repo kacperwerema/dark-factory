@@ -1,0 +1,46 @@
+# The company floor (L1 v2): HQ with two goals, Product on a nine-station
+# line with gates, GTM as a wing (one lead, Marketing inside, an empty slot)
+# with a goal and a weekly job, Marketing with goals, a job and outputs
+# waiting on review, a few issues at stations and some spend. Sessions turn
+# YOLO on with a post, so the strip and After YOLO have something to show.
+title: HQ, Product on a full line, and a GTM wing with Marketing inside
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: Grow the client roster
+      goals:
+        - {id: sites, name: Client sites live, target: 26}
+        - {id: studies, name: Case studies, target: 10}
+    departments:
+      - name: GTM
+        color: "#F2A541"
+        role: Brings in the next clients
+        mission: A steady pipeline of new clients
+        goals:
+          - {id: pipeline, name: New client conversations, target: 8, period: month}
+        jobs:
+          - {id: weekly-plan, name: Week plan and report, every: week, on: mon, at: "08:00"}
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client sites
+        systems: [SEO]
+        parent: GTM
+        goals:
+          - {id: pages, name: Client pages refreshed, target: 10, period: week}
+          - {id: posts, name: Posts published, target: 2, period: week}
+        jobs:
+          - {id: weekly-seo, name: Weekly SEO pass, every: week, on: mon, at: "07:00"}
+issues: tracker
+workflow: workflow.yaml
+transcripts:
+  - cwd: .worktrees/seo/pricing-page
+    messages:
+      - {model: claude-test, input: 20000, output: 9000, cache_read: 1200000}
+  - cwd: .worktrees/engine/case-study-template
+    messages:
+      - {model: claude-test, input: 40000, output: 15000, cache_read: 2500000}
+  - agent: lead-acme
+    messages:
+      - {model: claude-test, input: 5000, output: 2000, cache_read: 300000}

@@ -201,6 +201,7 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 	if typeFlag == "" {
 		printTypesBlock(ctx.Stdout, base)
 	}
+	printEvalsLine(ctx.Stdout, base)
 	printLintBlock(ctx.Stdout, base, staleRecordWarning(ctx.Project))
 	return nil
 }
@@ -233,6 +234,25 @@ func printTypesBlock(w io.Writer, wf *tracker.WorkflowConfig) {
 		fmt.Fprintf(w, "  %-18s  %s\n", "", wf.ForType(name).PathLine())
 	}
 	fmt.Fprintln(w, "An issue's type: frontmatter picks its path. Details: issue-cli process workflow --type <name>; create with --type; change with set-type (first status only).")
+}
+
+// printEvalsLine says how runs on this workflow are scored by the
+// benchmark: each eval with its score kind and types, or none.
+func printEvalsLine(w io.Writer, wf *tracker.WorkflowConfig) {
+	fmt.Fprintln(w)
+	if len(wf.Evals) == 0 {
+		fmt.Fprintln(w, "Evals: none — benchmark runs on this workflow are scored by hidden tests alone; declare evals: to score outputs (docs/benchmark.md#evals)")
+		return
+	}
+	var parts []string
+	for _, e := range wf.Evals {
+		types := "every other type"
+		if len(e.Types) > 0 {
+			types = "types " + strings.Join(e.Types, ", ")
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s, %s)", e.ID, e.ScoreKind(), types))
+	}
+	fmt.Fprintf(w, "Evals: %s — how issue-cli bench scores a run (docs/benchmark.md#evals)\n", strings.Join(parts, " · "))
 }
 
 // printLintBlock prints workflow.yaml warnings: types: and workbench:

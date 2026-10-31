@@ -14,6 +14,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/telemetry"
 	"github.com/michal-franc/issue-viewer/internal/telemetry/share"
+	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
 )
 
@@ -159,7 +160,7 @@ func countIssueFiles(dir string) int {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && p != dir && strings.HasPrefix(d.Name(), ".") {
+		if d.IsDir() && p != dir && tracker.NotIssueFolder(d.Name()) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {

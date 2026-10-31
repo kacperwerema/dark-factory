@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='2' cy='8' r='1.5' fill='%238b949e'/><circle cx='8' cy='2' r='1.5' fill='%238b949e'/><circle cx='14' cy='8' r='1.5' fill='%238b949e'/><circle cx='8' cy='14' r='1.5' fill='%238b949e'/><path d='M3.5 8h9M8 3.5v9' stroke='%238b949e' stroke-width='1.5'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
     <style>
         .graph-outer {
             padding: 0 24px 48px;
@@ -244,7 +245,7 @@
 {{template "sidebar" (sidebar .Prefix "graph")}}
 <div class="app-main">
     <form class="graph-filter-bar" method="GET" action="{{.Prefix}}/graph">
-        <select name="system" onchange="this.form.submit()">
+        <select name="system" data-autosubmit>
             <option value="">All systems</option>
             {{range .Systems}}
             <option value="{{.}}" {{if eq . $.System}}selected{{end}}>{{.}}</option>
@@ -252,7 +253,7 @@
         </select>
 
         {{if .WorkTypes}}
-        <select name="type" onchange="this.form.submit()">
+        <select name="type" data-autosubmit>
             <option value="">All types (base path)</option>
             {{range .WorkTypes}}
             <option value="{{.Name}}" title="{{.Path}}" {{if eq .Name $.WorkType}}selected{{end}}>{{.Name}}</option>
@@ -261,12 +262,12 @@
         {{end}}
 
         <label>
-            <input type="checkbox" name="done" value="1" {{if .ShowDone}}checked{{end}} onchange="this.form.submit()">
+            <input type="checkbox" name="done" value="1" {{if .ShowDone}}checked{{end}} data-autosubmit>
             Show done
         </label>
 
         <label title="Hide statuses with no issues">
-            <input type="checkbox" name="hide_empty" value="1" {{if .HideEmpty}}checked{{end}} onchange="this.form.submit()">
+            <input type="checkbox" name="hide_empty" value="1" {{if .HideEmpty}}checked{{end}} data-autosubmit>
             Hide empty
         </label>
 

@@ -1,0 +1,23 @@
+statuses:
+  - name: "in design"
+    description: "Being designed"
+  - name: "backlog"
+    description: "Ready to work on"
+  - name: "testing"
+    description: "Being checked"
+  - name: "done"
+    description: "Finished"
+transitions:
+  - from: "in design"
+    to: "backlog"
+    actions:
+      - type: "validate"
+        rule: "critique"
+  - from: "backlog"
+    to: "testing"
+    actions: []
+  - from: "testing"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "critique"

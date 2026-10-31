@@ -25,6 +25,9 @@ import (
 // ReleaseWait is the card; nil when it has nothing to show.
 type ReleaseWait struct {
 	Milestone *MilestoneRow
+	// Patch is a patch release's candidate soaking on an existing release
+	// branch (release_patch.go); nil without one.
+	Patch *MilestoneRow
 	// Changelog is the changelog's path; "" without one (no Unreleased row,
 	// no changelog check).
 	Changelog  string
@@ -62,6 +65,8 @@ type MilestoneRow struct {
 	// Unpicked are the milestone's done issues whose commits the release
 	// branch lacks.
 	Unpicked []string
+	// Patch: a patch release on the existing branch (ReleaseWait.Patch).
+	Patch bool
 }
 
 // ReleaseCheck is one condition for cutting the release.
@@ -221,12 +226,17 @@ func buildReleaseWait(proj *tracker.Project, wf *tracker.WorkflowConfig, cs *can
 		rw.Milestone = ms
 	}
 
+	if wf.Workbench.ReleaseCandidates {
+		st, on := ciState(proj)
+		rw.Patch = buildPatchRow(proj, wf, changelog, st, on, bs.Branch, bs.Head, now)
+	}
+
 	// A changelog without the Unreleased convention says nothing here
 	// unless there is a milestone to cut.
 	if !found && rw.Milestone == nil {
 		rw.Changelog = ""
 	}
-	if rw.Milestone == nil && rw.Changelog == "" && rw.Unpushed == nil {
+	if rw.Milestone == nil && rw.Patch == nil && rw.Changelog == "" && rw.Unpushed == nil {
 		return nil
 	}
 	return rw
@@ -269,6 +279,17 @@ func releaseWaitMarkdown(b *strings.Builder, rw *ReleaseWait, now time.Time) {
 		}
 		if ms.Candidate != nil {
 			candidateMarkdown(b, ms.Candidate, now)
+		}
+	}
+	if p := rw.Patch; p != nil {
+		fmt.Fprintf(b, "- Patch %s on %s: ", p.Cut, p.Branch)
+		switch {
+		case p.Soaking:
+			fmt.Fprintf(b, "%s soaking since %s; publish only on the owner's ok: cd %s && issue-cli release publish %s\n", p.Candidate.Tag, shortDuration(now.Sub(p.Candidate.CutAt)), p.Worktree, p.Cut)
+		case p.CutNext != "":
+			fmt.Fprintf(b, "ready to cut %s: issue-cli release cut %s\n", p.CutNext, p.Cut)
+		default:
+			fmt.Fprintf(b, "not ready: %s\n", strings.Join(p.Reasons(), "; "))
 		}
 	}
 	if rw.Changelog != "" {

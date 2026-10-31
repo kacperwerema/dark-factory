@@ -199,7 +199,11 @@ type WorkflowConfig struct {
 	Workbench WorkbenchConfig `yaml:"workbench,omitempty" desc:"Optional workbench views config: systems, metric sources, tuning files, balance (paths relative to the project root)"`
 	// CI is the local CI that re-checks the integration branch after every
 	// move. Project-wide like Workbench; nil means CI is off.
-	CI *CIConfig `yaml:"ci,omitempty" desc:"Optional local CI: commands run on the integration branch after every move, results in .ci/ (see docs/workflow.md, Local CI)"`
+	// MaxRedRounds is how many fix rounds a check may stay red before it
+	// becomes a question for the owner (internal/redrounds); RedRoundCap
+	// gives 4 when unset. Project-wide like CI.
+	MaxRedRounds int       `yaml:"max_red_rounds,omitempty" desc:"Fix rounds a check (a gate's command, the proof check, a local CI command) may stay red before it becomes a question for the owner and is not re-run; 4 when unset (issue-cli rounds <slug>)"`
+	CI           *CIConfig `yaml:"ci,omitempty" desc:"Optional local CI: commands run on the integration branch after every move, results in .ci/ (see docs/workflow.md, Local CI)"`
 	// Health tunes the project health snapshots. Project-wide like CI; nil
 	// means snapshots with the defaults.
 	Health *HealthConfig `yaml:"health,omitempty" desc:"Optional health snapshot settings: big-file limit, test and exclude globs (see docs/workbench-files.md, Health snapshots)"`
@@ -220,6 +224,22 @@ type WorkflowConfig struct {
 	// Evals say how the factory benchmark scores a run of this file's types
 	// (docs/benchmark.md, Evals). Per file; overlays don't change them.
 	Evals []WorkflowEval `yaml:"evals,omitempty" desc:"Benchmark evals: per type, how a run is scored (tests or output), rubric, assertions, checks and pass bar (see docs/benchmark.md, Evals)"`
+
+	// Routing picks the agent CLI (claude, codex) for each start and the
+	// fallback order when one subscription is resting (internal/routing).
+	Routing *RoutingConfig `yaml:"routing,omitempty" desc:"Agent routing: default, fallback order and rules (type, label, status, department, lead → agent) picking claude or codex per start (see docs/agent-dispatch.md, Routing)"`
+
+	// Postmortem starts a fresh agent that writes the post-mortem when an
+	// issue reaches its status (docs/workflow.md, Post-mortem). nil means none.
+	Postmortem *PostmortemConfig `yaml:"postmortem,omitempty" desc:"Post-mortem at close: at (status, default the last), start (auto | ask), agent (see docs/workflow.md, Post-mortem)"`
+
+	// Memory configures the agents' shared memory: an optional local
+	// embedder for search (docs/memory.md). nil means BM25 only.
+	Memory *MemoryConfig `yaml:"memory,omitempty" desc:"Shared memory settings: an optional local embedder for search (see docs/memory.md, Semantic search)"`
+
+	// Critique is how issue-cli critique starts the fresh critic the
+	// critique gate reads (docs/Workflow/critique.md).
+	Critique *CritiqueConfig `yaml:"critique,omitempty" desc:"Fresh critic settings: agent, command, timeout for issue-cli critique, read by the critique gate (see docs/Workflow/critique.md)"`
 
 	// AllowShell opts in to the command_succeeds validator. When false, any
 	// transition with a command_succeeds rule fails at validate time.
@@ -265,6 +285,12 @@ type WorkflowConfig struct {
 	// lets the criteria only the owner can prove wait for them after the
 	// fact instead of blocking (internal/proof YOLOGateError).
 	DeferOwnerProof bool `yaml:"-" json:"-"`
+	// CheckHold and CheckDone are set by issue-cli to count red rounds
+	// (internal/redrounds): ValidateTransition asks CheckHold before it runs
+	// a check validation (CheckKey) and refuses with its error, without
+	// running the check; CheckDone hears each check's result. Nil elsewhere.
+	CheckHold func(key string) error      `yaml:"-" json:"-"`
+	CheckDone func(key string, err error) `yaml:"-" json:"-"`
 
 	// Set by ForType/ForIssue on a scoped config. ActiveType is the resolved
 	// type ("" when the project has no types); typePath is the set of statuses

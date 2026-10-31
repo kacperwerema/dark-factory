@@ -36,12 +36,12 @@
             <div id="create-error" class="modal-error" style="display:none;margin-top:8px;padding:8px;background:#fee;color:#a00;border-radius:4px;font-size:13px"></div>
         </div>
         <div class="modal-actions">
-            <button class="modal-btn modal-btn-cancel" onclick="closeCreateModal()">Cancel</button>
-            <button class="modal-btn modal-btn-primary" id="create-confirm-btn" onclick="submitCreate()">Create</button>
+            <button class="modal-btn modal-btn-cancel" data-click="{{onCall "closeCreateModal"}}">Cancel</button>
+            <button class="modal-btn modal-btn-primary" id="create-confirm-btn" data-click="{{onCall "submitCreate"}}">Create</button>
         </div>
     </div>
 </div>
-<script>
+<script nonce="{{cspNonce}}">
 (function() {
     var pathMatch = location.pathname.match(/^(\/p\/[^/]+)/);
     var createPrefix = pathMatch ? pathMatch[1] : '';

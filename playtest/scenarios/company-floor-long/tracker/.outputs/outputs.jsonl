@@ -1,0 +1,3 @@
+{"op":"add","id":"o-launch","date":"2026-10-28T10:00:00+01:00","department":"marketing","title":"Acme: launch post","kind":"post","url":"https://example.test/launch"}
+{"op":"add","id":"o-research-long","date":"2026-10-29T10:00:00+01:00","department":"research","title":"Acme research digest: what forty client interviews say about pricing, onboarding, support and the parts of the product nobody opens","kind":"report","url":"https://example.test/digest"}
+{"op":"add","id":"o-research-2","date":"2026-10-30T10:00:00+01:00","department":"research","title":"Acme competitor teardown: twelve tools compared screen by screen with notes on what each does better than us","kind":"report","url":"https://example.test/teardown"}

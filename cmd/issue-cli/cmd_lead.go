@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -86,7 +87,7 @@ func runLeadSpawn(ctx *Context, args []string) error {
 	fs := newFlagSet("lead spawn", ctx)
 	headlessFlag := fs.Bool("headless", false, "open nothing, even when lead_terminal is set")
 	fs.Bool("attach", false, "deprecated, no effect: lead_terminal decides")
-	agentFlag := fs.String("agent", "claude", "agent to run: claude or codex")
+	agentFlag := fs.String("agent", "", "agent to run: claude or codex (default: the workflow's routing: rules, else claude)")
 	deptFlag := fs.String("department", "", "start this department's lead instead of the CEO")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
@@ -103,6 +104,7 @@ func runLeadSpawn(ctx *Context, args []string) error {
 
 	role := "CEO"
 	spec := agentrun.LeadSpec(proj, proj.LoadWorkflow(), projectRoot(proj), ctx.now())
+	deptKey := ""
 	if name := strings.TrimSpace(*deptFlag); name != "" {
 		dept, err := spawnDepartment(proj, name)
 		if err != nil {
@@ -114,8 +116,10 @@ func runLeadSpawn(ctx *Context, args []string) error {
 		}
 		role = dept.Name + " lead"
 		spec = agentrun.DepartmentLeadSpec(proj, dept, wf, projectRoot(proj), ctx.now())
+		deptKey = tracker.DepartmentKey(dept.Name)
 	}
-	spec.AgentType = *agentFlag
+	route := agentrun.RouteAgent(proj, spec.Workflow, projectRoot(proj), routing.Subject{Lead: true, Department: deptKey}, *agentFlag, ctx.now())
+	spec.AgentType, spec.Route = route.Agent, &route
 	spec.Headless = *headlessFlag
 
 	resp := startAgent(proj, spec)
@@ -201,6 +205,7 @@ type whoamiJSON struct {
 	Signal      string   `json:"signal"`
 	LegacyKey   bool     `json:"legacy_umbrella,omitempty"`
 	AutoStart   string   `json:"autostart,omitempty"`
+	Queue       string   `json:"queue,omitempty"`
 	Jobs        string   `json:"jobs,omitempty"`
 }
 
@@ -224,6 +229,7 @@ func runLeadWhoami(ctx *Context, args []string) error {
 		out.Guards = "main (the project checkout)"
 		out.MayTick = "gates the human approved in your chat, with issue-cli approve --quote; never Human Testing"
 		out.AutoStart = autostartLine(ctx)
+		out.Queue = queueLine(ctx, issues)
 		out.Jobs = jobsLine(ctx, me, issues)
 	case tracker.RoleDepartmentLead:
 		out.Jobs = jobsLine(ctx, me, issues)
@@ -316,6 +322,9 @@ func runLeadWhoami(ctx *Context, args []string) error {
 	fmt.Fprintf(w, "May tick: %s\n", out.MayTick)
 	if out.AutoStart != "" {
 		fmt.Fprintln(w, out.AutoStart)
+	}
+	if out.Queue != "" {
+		fmt.Fprintln(w, out.Queue)
 	}
 	if out.Jobs != "" {
 		fmt.Fprintln(w, out.Jobs)

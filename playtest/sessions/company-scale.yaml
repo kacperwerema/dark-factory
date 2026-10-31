@@ -13,7 +13,7 @@ steps:
     title: The company page lays out 15 departments, three groups with their departments inside, no room over another
     proves: [AC1, AC2]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.connections.focus }
     checks:

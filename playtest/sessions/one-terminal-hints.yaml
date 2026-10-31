@@ -23,11 +23,11 @@ steps:
       - click: agents.node.lead-crew
       - wait_for: { text_contains: { target: agents.panel.open_status, text: "Inside tmux" } }
     checks:
-      - text_contains: { target: agents.panel.open_status, text: "Inside tmux: tmux switch-client -t lead-crew" }
+      - text_contains: { target: agents.panel.open_status, text: "Inside tmux: tmux switch-client -t '=lead-crew:'" }
       # The attach command names the private server; the switch command
       # doesn't need to, because inside tmux $TMUX already does.
       - text_contains: { target: agents.panel.open_status, text: "From a shell: TMUX_TMPDIR=" }
       - text_equals: { target: agents.panel.copy, text: Copy switch }
-      - http: { path: "/p/{project}/agents.json", json: { "terminal_none": true, "project_lead.switch_cmd": "tmux switch-client -t lead-crew" } }
-      - cli: { args: [--project, crew, lead, spawn], contains: "Inside tmux:  tmux switch-client -t lead-crew" }
+      - http: { path: "/p/{project}/agents.json", json: { "terminal_none": true, "project_lead.switch_cmd": "tmux switch-client -t '=lead-crew:'" } }
+      - cli: { args: [--project, crew, lead, spawn], contains: "Inside tmux:  tmux switch-client -t '=lead-crew:'" }
       - cli: { args: [--project, crew, lead, spawn], contains: "From a shell: TMUX_TMPDIR=" }

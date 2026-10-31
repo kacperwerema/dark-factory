@@ -113,6 +113,33 @@ leads:
 - An old `epic` key still loads but is ignored; `issue-cli process workflow` warns about it.
 - `leads:` is project-wide: type, system and per-issue overlays keep it as it is.
 
+## The clarify round
+
+The design step asks the owner once. The bundled `development` template's `in design` prompt has the agent write every question in one `## Clarify` section, in one go:
+
+```markdown
+## Clarify
+
+### Q1. Which printer does the label go to?
+1. **The shop's thermal printer** (recommended) it is the one at the till (docs/shop.md). Cost: one driver call.
+2. **Any system printer** Cost: a print dialog and a layout per printer.
+**Answer:** —
+```
+
+- Each question is a `### Q<n>.` heading with 2–4 numbered options. Each option says `Cost:`. The first option is the recommendation, marked `(recommended)`, and cites the work.
+- The answer line is one of three forms:
+  - `—`: open.
+  - `<n> · <date> · owner: "<words>" (D-k)`: the owner's answer, which is also decision D-k (how `clarify round`, the owner's words as its quote).
+  - `assumed — <reason>`: the agent took the answer alone. Without an option number it is the recommendation; `assumed 2 — …` picks option 2.
+- With nothing to ask, the section is one line: `Nothing to ask: <why>.`
+- Outside the round, a `question:` comment is for a blocker only. The worker briefing says so.
+
+The owner answers on the issue's Station: the **Clarify** card shows every question as one form, with the recommendation preselected and an optional words box per question. **Answer all** posts them (`POST …/issue/<slug>/clarify`, owner's browser only). Each answer is recorded on its own. If a question changed after the page loaded, it is refused and the owner reloads. Needs you lists one **Clarify** row per issue with questions waiting ("2 questions to answer"), counted in the one waiting-on-you count.
+
+`issue-cli clarify <slug>` prints the round, each answer's state and the format's problems: option count, no recommendation, no `Cost:`, no answer line. `--assume [--reason]` marks the open answers assumed. `--answer Q2=1 --quote "…" [--how chat]` records an answer the owner gave in chat, relayed by the lead. When an issue leaves a status whose prompt asks for `## Clarify`, `transition` prints the round's problems, or a hint if the issue has no round.
+
+Under YOLO the gate that takes the issue out of design marks every open answer `assumed — YOLO: took the recommendation`, and the answers wait in that issue's entry of the [review after YOLO](Workflow/yolo.md#assumed-answers). Other sections reuse the format through `tracker.ParseQuestions(body, section)` and `tracker.AppendQuestion` (the red-round and post-mortem questions). Catalog entry `clarify-round` (factory/one-clarify-round-per-design-every-question-at-once-with-options-cost-and-the-recommendation-first-assumed-answers-marked).
+
 ## Side-Effects
 
 Statuses support a `side_effects` field — actions that run automatically after entering a status:
@@ -313,6 +340,35 @@ The owner can change a station of the Product line from the viewer: the Product 
 
 For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. A gate marked `owner_only: true` (a step that spends money or publishes outside the machine, like the marketing template's `owner review → publish`) is never passed: it waits for the owner. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).
 
+## Post-mortem
+
+When an issue closes, a fresh agent that did none of the work reads the run and writes a post-mortem: a retro whose lessons each go to one place, and only once the owner agrees. Source: factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees.
+
+```yaml
+postmortem:
+  at: done        # the status whose transition starts it (default: the last status)
+  start: ask      # ask (default): print the start command · auto: the transition starts the agent
+  agent: claude   # optional; else routing: picks it as for a worker
+```
+
+- **The agent.** `postmortem-<slug>`, headless, in the project checkout (no worktree). Its brief (`issue-cli postmortem brief <slug>`) has **paths only**: the issue file (body, decisions, comments), its data and stats sidecars, the worker's `.agent-logs/agent-<slug>/` (clilog, prompt), the branch and the base it was cut from, and the worker's own retros. None of the run's text is pasted. It only reads. A post-mortem that exists already, a live session or `mem-guard check` saying no holds the start, and the output prints the command for later. By hand: `issue-cli postmortem start <slug> --quote "<the owner's words>"` (the lead or the owner, workers can't; `--again` writes a new one).
+- **The retro.** `issue-cli postmortem write <slug> --file <path>` saves it under `retros/` with the header `Kind: postmortem` and six sections: `## Steps`, `## Worked`, `## Did not work`, `## Decisions`, `## Known`, `## Proposed actions`. The retro sorting room, `experiment candidates` and `memory candidates` read it like any retro.
+- **An action** is `- [ ] A<n>: <action>` with `Differently:` (the answer to "would a fresh agent do something differently next session because of it?"), `Place:` and `Text:` (`Under: <heading>` optional):
+
+  | Place | Applied as |
+  |---|---|
+  | `memory <kind>` (fact, convention, pitfall, howto, who) | a project memory, sourced to the issue and the retro (a near-duplicate is updated, not doubled) |
+  | `file <path.md>` (CLAUDE.md, AGENTS.md, docs/…) | the text spliced in under `Under:` (else at the end), one-file commit on main: `docs(postmortem): …` with `Owner: agreed …` and `Refs: <slug>` |
+  | `skill <name>` | the same, in `.claude/skills/<name>/SKILL.md` |
+  | `workflow` | an experiment proposal: an idea issue labelled `experiment` whose source is the retro (the [experiment loop](workflow-stats.md) measures it; nothing edits `workflow.yaml` directly) |
+  | `none <doc path#anchor>` | nothing: the docs already say it, and the doc is named |
+
+- **Refused, nothing saved.** `write` refuses a missing section, an action with no `Differently:` or a non-answer there ("n/a", too short, the action repeated), no or two places, an unknown place or memory kind, no `Text:`, a file path that is absolute, leaves the repo, isn't markdown or sits under `issues/`, `retros/`, `sessions/`, `.git/`, `.worktrees/` or `.agent-logs/`, a `none` naming a missing doc, a secret in `Text:`, and a duplicate id. Each refusal prints the shape that passes.
+- **The owner's one round.** `/p/<project>/postmortem/<slug>` folds the five sections and lists every action with Agree / Refuse and a note, then **one** Submit (POST `…/postmortem/<slug>/decide`, the owner's browser only: an O route in [Security](API/security.md)). The round must answer every open action. Agreed ones are applied in order. A failed one (a heading gone, the checkout not on main) stays open with its error while the others apply. Once nothing is open the form is read-only and another POST gets 409. YOLO never answers it.
+- **Traceable.** Each action's line in the retro is ticked with `Applied: memory m-… | commit <sha> (<path>) | experiment <slug> | none (…)`, or gets `Refused: <date> (owner): <note>`. The issue gets one `postmortem: decided — N applied, M refused` comment. `issue-cli postmortem show <slug>` and `postmortem list` print them.
+- **Waiting on you.** A post-mortem with open actions is one Needs you row (one waiting-on-you count, docs/departments.md Settled rules).
+- **Lint.** The workflow check warns on an `at:` that names no status and a `start:` other than auto or ask. Catalog entry `postmortem`.
+
 ## Local CI
 
 Agents run `make validate` on their own branch before they fast-forward main. Two branches that are green on their own can still break main together, and nobody runs the slow checks. Local CI re-checks the integration branch after every move and tells the system when it goes red. It is opt-in per project: without a `ci:` block nothing runs and nothing shows.
@@ -415,6 +471,22 @@ Without the viewer, `issue-cli ci watch` does the polling; `--once` checks once.
 - After `issue-cli transition <slug> --to done`, the agent reads that CI tests main by itself and that it must not wait.
 - The lead brief adds a line when `ci:` is set: check `issue-cli ci status` before any push, and never push a release while main is red.
 - `issue-cli ci status` prints the one-liner first, then what landed and the recent runs; `--json` dumps the state and runs. See [CLI Overview](CLI/overview#ci).
+
+## Red-round cap
+
+A check that stays red round after round becomes a question for the owner, and the worker stops looping on it. The owner chose four rounds (factory/stop-after-four-red-rounds-…, from the spec-flow epic's D-4).
+
+```yaml
+max_red_rounds: 4   # top level, project-wide like ci:; 4 when unset
+```
+
+- **What counts.** Checks that run and can go red without the worker touching them: a gate's `command_succeeds` command (`gate:command_succeeds:<command>`), the proof check (`gate:criteria_proven`), and a local CI command on a run that merged the issue (`ci:<command>`). Checkbox and section gates don't count, because the worker fills those in. `issue-cli transition` records each check it ran, red or green, in the issue's stats sidecar (`rounds:` in `<issue>.stats.json`). CI runs are read from `.ci/runs`. The fresh critic's runs are read from `<issues>/.critique/runs.jsonl`. Each run with a blocks finding is a red round of `critique <from> → <to>`, and the fourth posts the question. While it is open, `issue-cli critique` refuses as well ([The Fresh Critic](Workflow/critique.md#the-gate)).
+- **A round** is one fix attempt. Critique runs are the exception: each held run is its own round. Otherwise, reds at the same work-branch head fold into one round, so retrying without a new commit doesn't add to the count. With no branch, each red is a round. A green ends the check's streak.
+- **At the cap.** The transition that records the fourth red posts `question: red rounds: <check> — red 4 of 4 …` with the recommendation first and the options after it, then refuses. While that question is open, every `transition` refuses *before* running anything, naming the question. The check is not retried automatically. YOLO doesn't pass it: it's a question, not a gate approval. The question is a `question:` comment, so it shows on Needs you like any other.
+- **The owner's answer** is resolving the question (the comment toggle on the issue page). Rounds before it no longer count, and the next transition runs the check again.
+- **Can't fix it.** `issue-cli rounds <slug> --cannot-fix "<check>" --why "…"` raises the question at once, for a listed check or a new name such as `test:TestFoo`.
+- **Where it shows.** A red check's refusal says `red 2 of 4 (max_red_rounds)`. `issue-cli rounds <slug> [--json]` lists every red check. `show` and `start` print a `Red rounds:` line. The worker briefing has a `## Red checks` section. The Station's Tests and proofs panel lists *red checks* with "red 3 of 4".
+- **Lint.** `workflow` warns on a value below 1. `max_red_rounds` is project-wide, so a department's own file setting it gets the `department` warning. Catalog entry `red-round-cap`.
 
 ## Private work and code
 

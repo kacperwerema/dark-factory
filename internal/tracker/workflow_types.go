@@ -197,6 +197,12 @@ func (w *WorkflowConfig) Lint() []string {
 	out = append(out, w.CI.Validate()...)
 	out = append(out, w.Health.Validate()...)
 	out = append(out, w.Privacy.Validate()...)
+	if err := w.CheckPostmortem(); err != nil {
+		out = append(out, err.Error())
+	}
+	if w.MaxRedRounds < 0 {
+		out = append(out, fmt.Sprintf("max_red_rounds is %d: it must be 1 or more, so the default %d is used (set max_red_rounds: 4, or remove it)", w.MaxRedRounds, DefaultMaxRedRounds))
+	}
 	if strings.TrimSpace(w.Leads.Epic) != "" {
 		out = append(out, "leads.epic is obsolete and ignored: there is one lead per project (remove it)")
 	}

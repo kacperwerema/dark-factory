@@ -51,6 +51,7 @@ func TestDeptHealthRows(t *testing.T) {
 		{m.Jobs, "50% on time · 1 due · 2 periods missed"},
 		{m.Handoff, "1 in · 0 out open · oldest 9 days"},
 		{s.OnTrack, ""}, {s.Goals, "no goal progress"}, {s.Jobs, "no jobs"},
+		{m.NotMeasured, ""}, {s.NotMeasured, notMeasuredHint}, {d.NotMeasured, notMeasuredHint},
 	} {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
@@ -80,8 +81,11 @@ func TestDeptFootLineAndSeries(t *testing.T) {
 		!strings.Contains(f.Title, "goals moving 50% · outputs reviewed in time 75% · jobs on time 50%") {
 		t.Errorf("foot = %+v", f)
 	}
-	if deptFootItem(s, "/p/acme", "sales") != nil || deptFootItem(nil, "", "marketing") != nil {
-		t.Error("foot item without a row")
+	if f := deptFootItem(s, "/p/acme", "sales"); f == nil || f.Text != "♥ not measured yet" || f.Tone != "" || !strings.Contains(f.Title, "a job's first run") {
+		t.Errorf("foot item for a department with nothing to measure = %+v", f)
+	}
+	if deptFootItem(nil, "", "marketing") != nil || deptFootItem(healthSnap(time.Now(), map[string]float64{"lint.warnings": 1}), "", "marketing") != nil {
+		t.Error("foot item without the family")
 	}
 	if got := deptHealthLine(s); got != "Departments: 85% on track · 3 outputs waiting" {
 		t.Errorf("line = %q", got)
@@ -122,8 +126,8 @@ func TestDeptHealthOnThePages(t *testing.T) {
 	defer ts.Close()
 	_, page = getBody(t, ts.URL+"/p/test-project/health")
 	assertContains(t, page, `id="departments"`, `data-testid="health.departments.row.marketing"`, `data-testid="health.departments.row.sales"`,
-		"62%", "75% reviewed within 7 days · 3 waiting", "nothing to measure", `class="wb-dept-health--old"`)
-	_, company := getBody(t, ts.URL+"/p/test-project/company")
+		"62%", "75% reviewed within 7 days · 3 waiting", "not measured yet", `data-testid="health.departments.not_measured_note"`, `class="wb-dept-health--old"`)
+	_, company := getBody(t, ts.URL+"/p/test-project/company?classic=1")
 	assertContains(t, company, "♥ 62% on track", `href="/p/test-project/health#departments"`, `class="wb-foot--amber"`)
 	_, report := getBody(t, ts.URL+"/p/test-project/status")
 	assertContains(t, report, `data-testid="report.health.departments"`, "Departments: 62% on track · 3 outputs waiting")
@@ -131,4 +135,27 @@ func TestDeptHealthOnThePages(t *testing.T) {
 	assertContains(t, md, "- Departments: 62% on track")
 	_, stats := getBody(t, ts.URL+"/p/test-project/stats?classic=1")
 	assertContains(t, stats, "Departments on track")
+}
+
+// A department with nothing to measure reads "not measured yet", never
+// 0%: its row, its room's foot and, with none measured, the Report line.
+func TestDeptNotMeasuredWords(t *testing.T) {
+	now := time.Now()
+	none := healthSnap(now, map[string]float64{
+		"departments.count":                          2,
+		"departments.measured":                       0,
+		"departments.jobs.due{department=marketing}": 1,
+	})
+	if got := deptHealthLine(none); !strings.HasPrefix(got, "Departments: not measured yet (starts with ") || !strings.Contains(got, "a job's first run") {
+		t.Errorf("line = %q", got)
+	}
+	r := deptHealthRow(none, tracker.Department{Name: "Marketing"}, nil)
+	if r.OnTrack != "" || r.NotMeasured == "" || r.Jobs != "no run yet · 1 due" {
+		t.Errorf("row = %+v", r)
+	}
+	some := deptSnap(now, 0.62)
+	some.Metrics = append(some.Metrics, health.Row{ID: deptfamily.Measured, Metric: deptfamily.Measured, Value: 1})
+	if got := deptHealthLine(some); got != "Departments: 62% on track (1 of 2 measured) · 3 outputs waiting" {
+		t.Errorf("line = %q", got)
+	}
 }

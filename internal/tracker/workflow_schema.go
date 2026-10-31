@@ -51,6 +51,7 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "criteria_proven: since <YYYY-MM-DD>", Description: "Every Acceptance Criteria box has a proof link that passes its check (issue-cli prove); issues created before the date, and issues without criteria, pass"},
 	{Name: "commits_reference_issue", Description: "One of the work branch's own commits references the issue: its subject names the slug (chore(merge): main into <slug>) or a 'Refs: <slug>' line in its message does"},
 	{Name: "has_output: <kind>", Description: "The outputs shelf has an output for the issue (issue-cli output add --issue <slug>) of the given kind (any kind when omitted) that isn't rejected and whose file is still there"},
+	{Name: "critique", Description: "The newest fresh-critic run from the current status (issue-cli critique <slug>) has no blocks finding, didn't fail, or the owner overrode it; the critique: block says how the critic starts"},
 	{Name: "has_assignee", Description: "Issue must have a non-empty assignee"},
 	{Name: "all_checkboxes_checked", Description: "Every checkbox in the body must be checked"},
 	{Name: "section_checkboxes_checked: <Title>", Description: "'## <Title>' section must exist with at least one checkbox, and every checkbox in it must be checked"},
@@ -105,6 +106,7 @@ func WorkflowSchemaSections() []SchemaSection {
 		{Path: "workbench.pages[]", Title: "WorkbenchPage", Fields: schemaFieldsOf(reflect.TypeOf(WorkbenchPage{}))},
 		{Path: "ci", Title: "CIConfig", Fields: schemaFieldsOf(reflect.TypeOf(CIConfig{}))},
 		{Path: "ci.run[]", Title: "CICommand", Fields: schemaFieldsOf(reflect.TypeOf(CICommand{}))},
+		{Path: "critique", Title: "CritiqueConfig", Fields: schemaFieldsOf(reflect.TypeOf(CritiqueConfig{}))},
 		{Path: "health", Title: "HealthConfig", Fields: schemaFieldsOf(reflect.TypeOf(HealthConfig{}))},
 	}
 }

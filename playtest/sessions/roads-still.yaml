@@ -14,7 +14,7 @@ steps:
     title: Reduced motion draws no moving parcels; each road with traffic shows its counts instead
     proves: [AC2]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.connections.tally }
     checks:

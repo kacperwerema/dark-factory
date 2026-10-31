@@ -1,0 +1,34 @@
+worktree: true
+
+statuses:
+  - {name: "idea", description: "A thought"}
+  - {name: "in design", description: "Being designed"}
+  - {name: "backlog", description: "Ready to work on"}
+  - {name: "in progress", description: "Being built"}
+  - {name: "testing", description: "Being checked"}
+  - {name: "human-testing", description: "The owner tries it"}
+  - {name: "documentation", description: "Docs written"}
+  - {name: "shipping", description: "Going out"}
+  - {name: "done", description: "Finished"}
+
+transitions:
+  - {from: "idea", to: "in design"}
+  - from: "in design"
+    to: "backlog"
+    actions:
+      - {type: "require_human_approval", status: "backlog"}
+  - from: "backlog"
+    to: "in progress"
+    actions:
+      - {type: "require_human_approval", status: "in progress"}
+  - {from: "in progress", to: "testing"}
+  - from: "testing"
+    to: "human-testing"
+    actions:
+      - {type: "require_human_approval", status: "human-testing"}
+  - from: "human-testing"
+    to: "documentation"
+    actions:
+      - {type: "require_human_approval", status: "documentation"}
+  - {from: "documentation", to: "shipping"}
+  - {from: "shipping", to: "done"}

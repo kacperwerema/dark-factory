@@ -30,6 +30,9 @@ type GateInfo struct {
 type Attention struct {
 	Gate         *GateInfo
 	OpenQuestion bool
+	// Clarify is how many of the issue's ## Clarify questions wait for the
+	// owner's answer: open ones, and assumed ones no YOLO review holds.
+	Clarify int
 	// PlaytestDue is set in human-testing when a playtest session names the
 	// issue and has no judge (owner) run yet; Playtests lists those sessions.
 	PlaytestDue bool
@@ -49,8 +52,10 @@ type Attention struct {
 // WaitingItem is one thing the owner has to do on an issue.
 type WaitingItem struct {
 	Issue *tracker.Issue
-	// Kind is gate, playtest, checks or question.
+	// Kind is gate, playtest, checks, question or clarify.
 	Kind string
+	// Count is how many clarify questions wait (Kind clarify).
+	Count int
 	// Target is the gate's target status; Sessions the playtests (or check
 	// scripts) to run.
 	Target   string
@@ -91,6 +96,7 @@ func attentionWith(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Work
 		a.Gate = &GateInfo{Target: gate, Ready: tracker.WaitingOnGate(wf, issue, comments) != ""}
 	}
 	a.OpenQuestion = openQuestion(comments)
+	a.Clarify = len(clarifyWaiting(issue, comments))
 	if strings.EqualFold(issue.Status, "human-testing") {
 		if wf.PlaytestForOwner() {
 			a.Playtests = playtestsToRun(playtestRoots(proj, issue, wf), issue.Slug)
@@ -126,6 +132,9 @@ func waitingOnOwner(proj *tracker.Project, issues []*tracker.Issue) []WaitingIte
 		}
 		if a.OpenQuestion {
 			items = append(items, WaitingItem{Issue: issue, Kind: "question", Since: a.Since, Approx: a.SinceApprox})
+		}
+		if a.Clarify > 0 {
+			items = append(items, WaitingItem{Issue: issue, Kind: "clarify", Count: a.Clarify, Since: a.Since, Approx: a.SinceApprox})
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Since.Before(items[j].Since) })

@@ -212,6 +212,12 @@ func (c WorkbenchConfig) Validate() []string {
 		if ext := strings.ToLower(filepath.Ext(path)); ext != ".html" && ext != ".htm" {
 			problems = append(problems, fmt.Sprintf("workbench.%s: %q is not an .html file", key, path))
 		}
+		for _, seg := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
+			if strings.HasPrefix(seg, ".") && seg != "." {
+				problems = append(problems, fmt.Sprintf("workbench.%s: %q is inside a dot-folder or a dot-file; the viewer never serves those", key, path))
+				break
+			}
+		}
 	}
 	if c.StatusPage != "" {
 		checkPage("status_page", c.StatusPage)

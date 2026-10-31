@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/proof"
@@ -26,6 +28,8 @@ changed (a refactor, a fix), mark it on a branch commit instead:
 The line counts in any paragraph of the message, merge commits included;
 one without an entry id, or naming an entry the catalog lacks, fails the
 check. Files the branch has only because it merged main aren't asked about.
+On a release/vX.Y branch only the commits after its newest vX.Y.Z or
+vX.Y.Z-rc.N tag are read: the tagged ones are published and were checked.
 Run it while the work is in progress: it checks uncommitted changes too.`
 
 // runCatalogCheck compares the branch with its merge-base and fails when a
@@ -56,13 +60,18 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "catalog-check skipped: not a work branch (HEAD is %s)\n", *base)
 		return nil
 	}
+	from := mergeBase
+	if tag, sha := catalogReleaseTag(root, branch); tag != "" {
+		fmt.Fprintf(ctx.Stdout, "catalog-check on %s: reading the commits since %s\n", branch, tag)
+		from = sha
+	}
 
-	changed, err := catalogChangedFiles(root, mergeBase)
+	changed, err := catalogChangedFiles(root, from)
 	if err != nil {
 		return err
 	}
 	changed = catalogOwnChanges(root, *base, changed)
-	trailers, err := catalogTrailers(root, mergeBase)
+	trailers, err := catalogTrailers(root, from)
 	if err != nil {
 		return err
 	}
@@ -77,11 +86,11 @@ func runCatalogCheck(ctx *Context, args []string) error {
 	rep, err := workflowupgrade.CheckBranch(workflowupgrade.Branch{
 		Changed: changed,
 		Base: func(p string) ([]byte, bool) {
-			out, err := exec.Command("git", "-C", root, "show", mergeBase+":"+p).Output()
+			out, err := exec.Command("git", "-C", root, "show", from+":"+p).Output()
 			return out, err == nil
 		},
-		Head:    repoAt(root).Read,
-		HeadDir: repoAt(root).Dir,
+		Head:     repoAt(root).Read,
+		HeadDir:  repoAt(root).Dir,
 		Trailers: trailers,
 	}, last)
 	if err != nil {
@@ -98,6 +107,42 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		return fmt.Errorf("catalog-check: bump the entries above, or mark them n/a (%s)", workflowupgrade.TrailerForm)
 	}
 	return nil
+}
+
+var releaseBranch = regexp.MustCompile(`^release/(v\d+\.\d+)$`)
+
+// catalogReleaseTag is the newest vX.Y.Z or vX.Y.Z-rc.N tag reachable from
+// HEAD on a release/vX.Y branch, and its commit: the commits up to it were
+// checked when they were tagged and are published, so they can't be
+// reworded. Empty off a release branch or before its line has a tag.
+func catalogReleaseTag(root, branch string) (tag, sha string) {
+	m := releaseBranch.FindStringSubmatch(branch)
+	if m == nil {
+		return "", ""
+	}
+	line := regexp.MustCompile(`^` + regexp.QuoteMeta(m[1]) + `\.\d+(-rc\.\d+)?$`)
+	out, err := catalogGit(root, "tag", "--merged", "HEAD", "--list", m[1]+".*")
+	if err != nil {
+		return "", ""
+	}
+	best := -1
+	for _, t := range strings.Split(out, "\n") {
+		if t = strings.TrimSpace(t); !line.MatchString(t) {
+			continue
+		}
+		n, err := catalogGit(root, "rev-list", "--count", t+"..HEAD")
+		if err != nil {
+			continue
+		}
+		c, err := strconv.Atoi(n)
+		if err != nil || (best >= 0 && c >= best) {
+			continue
+		}
+		if s, err := catalogGit(root, "rev-list", "-n", "1", t); err == nil {
+			tag, sha, best = t, s, c
+		}
+	}
+	return tag, sha
 }
 
 // catalogTrailers reads the Catalog: lines of the branch's commits since

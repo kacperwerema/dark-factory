@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: development@v0.58.0
+template: development@v0.59.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -13,7 +13,7 @@ features:
     - types-of-work@v0.36.0
     - docs-type@v0.58.0
     - report-type@v0.58.0
-    - workflow-evals@v0.58.0
+    - workflow-evals@v0.59.0
     - human-approval-gates@v0.36.0
     - checklist-gates@v0.36.0
     - assignee-gate@v0.36.0
@@ -22,6 +22,7 @@ features:
     - body-structure-gates@v0.36.0
     - failure-hints@v0.36.0
     - proof-links@v0.58.0
+    - red-round-cap@v0.59.0
     - checklist-sections@v0.36.0
     - transition-prompts@v0.36.0
     - set-fields@v0.36.0
@@ -35,6 +36,8 @@ features:
     - guided-check-scripts@v0.54.0
     - testing-unrelated-failures@v0.36.0
     - testing-na-forms@v0.58.0
+    - clarify-round@v0.59.0
+    - must-not-section@v0.59.0
 
 board:
   columns:
@@ -68,13 +71,14 @@ statuses:
   - name: "idea"
     description: "Raw idea, needs exploration"
     prompt: |
-      Clarify the issue with the human before moving into structured design.
-      Ask focused questions to remove ambiguity around goals, scope, and success criteria.
+      Read the brief and the context before moving into structured design.
+      Collect the questions about goals, scope and success criteria for the design's clarify round (`## Clarify`), all at once, instead of one at a time.
   - name: "in design"
     description: "Being designed and specced out"
     prompt: |
       Review the relevant context before proposing changes.
       Turn the problem into explicit checklists, assumptions, and open questions.
+      Write the clarify round once, in a `## Clarify` section: every question at once, each a `### Q1. <question>` with 2–4 numbered options `1. **<option>** (recommended) <why, citing the work>. Cost: <cost>.`, the recommendation first, then an open `**Answer:** —` line. With no question, the section is one line: `Nothing to ask: <why>.` An answer you take alone is `**Answer:** assumed — <reason>` (`issue-cli clarify <slug> --assume`); `issue-cli clarify <slug>` shows the round and its format problems. Questions go only in this round; outside it a `question:` comment is for a blocker only.
       Write the design into the issue body under the relevant sections before checking the related boxes.
       A criterion only the owner can check (a look, a read-through, a decision) carries the owner marker: `- [ ] The board reads well on a phone (owner)`. "(owner)" anywhere counts, and so does a box starting "Owner visual check …"; no proof ticks it, and under YOLO it waits in the review queue.
       Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
@@ -148,6 +152,10 @@ transitions:
         body: |
           - [ ] First observable requirement
           - [ ] Second observable requirement
+      - type: "append_section"
+        title: "Must not"
+        body: |
+          - <what this change must not do; name a test or a command in backticks when one can catch it>
   - from: "in design"
     to: "backlog"
     actions:
@@ -264,6 +272,17 @@ evals:
     rubric:
       - "Answers the question the issue asks, with a clear recommendation or finding"
       - "Every claim that isn't common knowledge names its source"
+  - id: docs
+    description: "A docs change that says what the issue asks and matches the code"
+    types: [docs]
+    score: diff
+    rubric:
+      - "The changed docs say what the issue asks, in plain words, and match what the code does"
+      - "Nothing in the change contradicts the rest of the docs or leaves a stale line behind"
+      - "As good as or better than the REFERENCE diff that was merged: {{reference}}"
+    assert:
+      - type: not-icontains
+        value: "TODO"
 
 # Types of work: an issue's `type:` frontmatter picks its path through the
 # statuses above. Untyped issues get default_type. Set the type at creation

@@ -1,15 +1,16 @@
 id: workflow-evals
-version: v0.58.0
+version: v0.59.0
 category: lifecycle
 propose: true
-templates: [development, marketing]
+templates: [development, marketing, content]
 sources: ["internal/tracker/evals.go", "internal/bench/evals.go", "internal/bench/scorer.go", "internal/lint/evals.go"]
 title: "Evals: how the benchmark scores each type"
 what: |
   A top-level `evals:` list says, per type of work, what a good run looks like and how the
-  factory benchmark scores it: `tests` (hidden Go tests and checks) or `output` (the run's
-  output on the shelf, graded by `rubric:` lines through the benchmark's grader and `assert:`
-  items, promptfoo assertions without a model), with a `pass:` bar. Golden tasks for output
+  factory benchmark scores it: `tests` (hidden Go tests and checks), `output` (the run's
+  output on the shelf) or `diff` (the worker's diff against the base, for a change with no
+  hidden tests such as docs), the last two graded by `rubric:` lines through the benchmark's
+  grader and `assert:` items (promptfoo assertions without a model), with a `pass:` bar. Golden tasks for output
   evals come from outputs the owner approved. `bench compare` then gives each workflow its
   own verdict (net positive, net negative, no change), with pass rate, score, wall time,
   tokens and cost side by side.

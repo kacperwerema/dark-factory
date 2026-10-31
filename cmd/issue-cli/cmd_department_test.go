@@ -111,7 +111,7 @@ func TestDepartmentAddInstallsMarketing(t *testing.T) {
 	if err := runDepartment(ctx, []string{"show", "marketing"}); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, out.String(), "Mission: Every client site refreshed every week")
+	assertContains(t, out.String(), "Mission: Your site(s) refreshed every week")
 	assertContains(t, out.String(), "# Marketing: role")
 	ctx, out = goalsCtx(t, proj, false)
 	if err := runGoals(ctx, []string{"marketing"}); err != nil {
@@ -313,4 +313,112 @@ func TestDepartmentAddGroup(t *testing.T) {
 	if kids := reloadDeptProject(t, cfg).Children("gtm"); len(kids) != 1 || kids[0].Name != "Marketing" {
 		t.Fatalf("children = %+v", kids)
 	}
+}
+
+// deptGitEnv keeps the machine's git config (hooks, identity) out of a
+// sandbox repository the test commits in.
+func deptGitEnv(t *testing.T) {
+	t.Helper()
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+		t.Setenv(k, v)
+	}
+}
+
+// TestDepartmentAddNamesUntrackedFiles: after add, the files git does not
+// track are named with the commit to make; nothing is committed without
+// --commit.
+func TestDepartmentAddNamesUntrackedFiles(t *testing.T) {
+	asLead(t)
+	deptGitEnv(t)
+	proj, _ := deptTemplateProject(t)
+	root := proj.Root()
+	git(t, root, "init", "-q", "-b", "main")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-q", "-m", "init")
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"add", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	assertContains(t, s, "New files git does not track yet: departments/marketing/jobs/weekly-seo-pass.md, departments/marketing/role.md, workflows/marketing.yaml")
+	assertContains(t, s, "add departments/marketing/jobs/weekly-seo-pass.md departments/marketing/role.md workflows/marketing.yaml && git -C")
+	assertContains(t, s, "commit -m 'chore(departments): add the Marketing department' --")
+	assertContains(t, s, "projects.yaml is in this repository and has uncommitted changes, the new department entry among them")
+	if st := git(t, root, "status", "--porcelain"); !strings.Contains(st, "?? departments/") {
+		t.Fatalf("add committed without --commit:\n%s", st)
+	}
+}
+
+func TestDepartmentAddCommitFlag(t *testing.T) {
+	asLead(t)
+	deptGitEnv(t)
+	proj, _ := deptTemplateProject(t)
+	root := proj.Root()
+	git(t, root, "init", "-q", "-b", "main")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-q", "-m", "init")
+	mustWrite(t, filepath.Join(root, "mine.txt"), "not the department's\n")
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"add", "gtm", "--commit"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Committed ")
+	st := git(t, root, "status", "--porcelain")
+	if strings.Contains(st, "departments/") || strings.Contains(st, "workflows/") || !strings.Contains(st, "?? mine.txt") {
+		t.Fatalf("status after --commit:\n%s", st)
+	}
+	files := git(t, root, "show", "--name-only", "--format=%s", "HEAD")
+	for _, f := range []string{"chore(departments): add the GTM department", "workflows/gtm.yaml", "workflows/marketing.yaml", "departments/marketing/role.md", "departments/gtm/jobs/weekly-plan.md"} {
+		assertContains(t, files, f)
+	}
+}
+
+func TestDepartmentUpdateKeepsEditsAndReplacesOldText(t *testing.T) {
+	asLead(t)
+	proj, cfg := deptTemplateProject(t)
+	ctx, _ := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"add", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	// Make it the earlier template's install: old values in projects.yaml,
+	// role.md edited by the owner.
+	raw, _ := os.ReadFile(cfg)
+	old := strings.NewReplacer("role: SEO and content for your site(s)", "role: SEO and content for the client sites",
+		"name: Pages refreshed", "name: Client pages refreshed").Replace(string(raw))
+	mustWrite(t, cfg, old)
+	role := filepath.Join(proj.Root(), "departments", "marketing", "role.md")
+	mustWrite(t, role, "# Ours\n")
+	proj = reloadDeptProject(t, cfg)
+
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"update", "marketing", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	assertContains(t, s, "Dry run: department update marketing (nothing changed)")
+	assertContains(t, s, `role (`+cfg+`): would update: "SEO and content for the client sites" → "SEO and content for your site(s)"`)
+	assertContains(t, s, "departments/marketing/role.md: kept: not an earlier template's text")
+	if b, _ := os.ReadFile(cfg); string(b) != old {
+		t.Fatal("dry run changed projects.yaml")
+	}
+
+	ctx, out = goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"update", "marketing", "--side"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Updated Marketing to the marketing template's text")
+	assertContains(t, out.String(), "Wrote the template's text next to your file: departments/marketing/role.template.md")
+	if b, _ := os.ReadFile(role); string(b) != "# Ours\n" {
+		t.Fatalf("edited role.md overwritten: %q", b)
+	}
+	b, _ := os.ReadFile(cfg)
+	assertContains(t, string(b), "role: SEO and content for your site(s)")
+	assertContains(t, string(b), "name: Pages refreshed")
+
+	ctx, out = goalsCtx(t, reloadDeptProject(t, cfg), false)
+	if err := runDepartment(ctx, []string{"update", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Nothing to update in Marketing")
 }

@@ -18,15 +18,17 @@ const YOLOOwnerOnly = "experiments, product-policy rules, and anything that spen
 // YOLORule is the one line a worker gets in place of "clarify with the
 // human" and "stop for approval" while YOLO is on.
 func YOLORule(slug string) string {
-	return "YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself and record each with " +
+	return "YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself: the design's go in its ## Clarify round, " +
+		"each marked assumed (issue-cli clarify " + slug + " --assume); record any other answer you give yourself with " +
 		"issue-cli decide " + slug + " --provisional --text \"...\"; put what you can't answer in a question: comment and go on. " +
 		"Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: " + YOLOOwnerOnly +
 		"; for those post a question: comment and stop."
 }
 
 var (
-	// yoloStopRe: a sentence that stops the agent for the owner.
-	yoloStopRe = regexp.MustCompile(`(?i)\bend your turn\b|^\s*ask\b|\bclarif`)
+	// yoloStopRe: a sentence that stops the agent for the owner. "Clarify …
+	// with the human" stops; the clarify round (## Clarify) does not.
+	yoloStopRe = regexp.MustCompile(`(?i)\bend your turn\b|^\s*ask\b|\bclarif\w*\s+(?:\S+\s+){0,3}?with\b`)
 	// A sentence naming the human together with one of these asks or waits.
 	yoloHumanRe = regexp.MustCompile(`(?i)\b(human|owner|user)s?\b([^-]|$)`) // not "human-testing"
 	yoloWaitRe  = regexp.MustCompile(`(?i)\b(ask|tell|wait|approv\w*|confirm\w*|messages you)\b`)

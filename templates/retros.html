@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2' y='2' width='12' height='12' rx='2' fill='%238b949e'/><path d='M5 5h6v1.5H5zm0 3h6v1.5H5zm0 3h4v1.5H5z' fill='%230d1117'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
     <style>
         .retros-shell {
             width: min(1180px, calc(100% - 32px));
@@ -226,12 +227,12 @@
         <div class="retros-toolbar">
             <form class="retros-filters" method="GET" action="{{.Prefix}}/retros">
                 <input type="hidden" name="classic" value="1">
-                <select name="retro_status" onchange="this.form.submit()">
+                <select name="retro_status" data-autosubmit>
                     <option value="">All retro states</option>
                     <option value="open" {{if eq .RetroStatus "open"}}selected{{end}}>Open retros</option>
                     <option value="processed" {{if eq .RetroStatus "processed"}}selected{{end}}>Processed retros</option>
                 </select>
-                <select name="bug_status" onchange="this.form.submit()">
+                <select name="bug_status" data-autosubmit>
                     <option value="">All bug states</option>
                     <option value="open" {{if eq .BugStatus "open"}}selected{{end}}>Open bugs</option>
                     <option value="fixed" {{if eq .BugStatus "fixed"}}selected{{end}}>Fixed bugs</option>
@@ -247,7 +248,7 @@
                     <option value="claude">Claude</option>
                     <option value="codex">Codex</option>
                 </select>
-                <button class="primary" onclick="launchRetrosReview()">Review Retros And Bugs</button>
+                <button class="primary" data-click="{{onCall "launchRetrosReview"}}">Review Retros And Bugs</button>
                 <span class="review-launch-status" id="review-launch-status"></span>
             </div>
         </div>
@@ -289,7 +290,7 @@
                                 <option value="open" {{if eq .ReviewStatus "open"}}selected{{end}}>Open</option>
                                 <option value="processed" {{if eq .ReviewStatus "processed"}}selected{{end}}>Processed</option>
                             </select>
-                            <button onclick="updateRetroStatus('{{.FileName}}')">Save</button>
+                            <button data-click="{{onCall "updateRetroStatus" .FileName}}">Save</button>
                         </div>
                     </div>
                     <div class="retro-meta">
@@ -331,7 +332,7 @@
                                 <option value="fixed" {{if eq .Status "fixed"}}selected{{end}}>Fixed</option>
                                 <option value="wontfix" {{if eq .Status "wontfix"}}selected{{end}}>Won't fix</option>
                             </select>
-                            <button onclick="updateBugStatus('{{.FileName}}')">Save</button>
+                            <button data-click="{{onCall "updateBugStatus" .FileName}}">Save</button>
                         </div>
                     </div>
                     <div class="bug-meta">
@@ -352,7 +353,7 @@
             {{end}}
         </section>
     </div>
-    <script>
+    <script nonce="{{cspNonce}}">
     var prefix = "{{.Prefix}}";
 
     function launchRetrosReview() {

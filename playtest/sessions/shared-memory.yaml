@@ -1,0 +1,67 @@
+session: shared-memory
+issue: factory/shared-memory-between-agents-mem0-or-similar-open-source
+title: Shared memory - agents write through issue-cli, the owner sees, edits and filters on the Memory page
+scenario: memory
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A memory an agent adds through issue-cli shows on the Memory page with its kind, scope and source
+    proves: [AC2, AC3]
+    setup:
+      - cli: { args: [memory, add, "Weekly SEO passes publish on Tuesdays", --issue, seo/weekly-seo-pass, --kind, convention] }
+      - open: /p/{project}/memory
+    checks:
+      - visible: [memory.page, memory.filters, memory.recent, memory.row.m-aaa001, memory.row.m-aaa001.source, memory.row.m-aaa001.history, memory.row.m-aaa002, memory.row.m-aaa002.suggested]
+      - text_contains: { target: memory.count, text: "3 of 4" }
+      - cli: { args: [memory, search, Tuesdays], contains: "Weekly SEO passes publish on Tuesdays" }
+      - text_contains: { target: memory.list, text: "department:marketing" }
+      - absent: [memory.row.m-aaa003]
+      - cli: { args: [memory, search, robots, staging], contains: "m-aaa002" }
+
+  - id: TP5
+    title: The owner edits a memory on the page; the edit is in its history
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/memory
+    act:
+      - type: { target: memory.row.m-aaa001.text, text: "Engine pages are built from wb/* components only", clear: true }
+      - click: memory.row.m-aaa001.save
+      - wait_for: { visible: memory.flash, ms: 8000 }
+    checks:
+      - text_contains: { target: memory.flash, text: "m-aaa001 saved" }
+      - cli: { args: [memory, show, m-aaa001], contains: "owner-edit by owner" }
+
+  - id: TP6
+    title: The state filter shows the superseded memory with its state and link
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/memory?state=all
+    checks:
+      - visible: [memory.row.m-aaa003, memory.row.m-aaa003.state]
+      - text_contains: { target: memory.row.m-aaa003.state, text: "superseded" }
+      - text_contains: { target: memory.row.m-aaa003, text: "superseded by m-aaa001" }
+
+  - id: TP7
+    title: The Memory page reads like the Workshop Board at desktop and phone width
+    judgement_step: true
+    setup:
+      - open: /p/{project}/memory
+    checks:
+      - visible: [memory.page, memory.filters, memory.row.m-aaa001]
+    targets:
+      - { id: memory.row.m-aaa001, note: a memory with its source, history and actions }
+    do: |
+      1. Look at the page: the filters, the Recently changed strip, then the list of memories.
+      2. Open one memory's History.
+      3. Narrow the window to phone width and look again.
+    expect: |
+      Each memory reads as one fact with its kind, scope, source and age,
+      and Save, Pin and Delete sit beside its text. The filters read as
+      seg links and the superseded memory is hidden until you pick "all".
+      At phone width the buttons drop under the text and nothing is cut off.
+    why: ux-test checks the parts are there; only you can say the page reads as the Workshop Board.

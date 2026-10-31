@@ -371,12 +371,15 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `template`: the `template:` stamp against the bundled template.
   - `placeholders`: `{{name}}` a field never fills.
   - `sections`: gates on sections no template writes the way the gate needs.
+  - `untracked`: a department's files git does not track (its role prompt, workflow file, job briefs, anything under `departments/<key>/`), as `department add` leaves them; the fix is the `git add … && git commit … --` for exactly those files. Ignored files aren't flagged; a project outside git gets none ([Departments](departments.md#templates)).
   - `paths`: a `workbench.systems` `paths:` glob that matches no file in the repository, or leaves it.
   - `owner-only`: a step that spends or publishes behind a gate YOLO may pass: a path entering `publish` / `launch` / `send` without an `owner_only` gate, a department with a `sends: true` connector whose workflow has none, `owner_only` on a non-approval action ([YOLO Mode](Workflow/yolo.md#gates-yolo-never-passes)).
   - `owner-marker`: an open acceptance criterion on an open issue that reads like the owner's check ("the owner confirms it reads well") but has no `(owner)` marker, so `criteria_proven` counts it as the agent's. The fix is `issue-cli check-edit <slug> <id> --text "… (owner)"`.
+  - `criteria`: an open acceptance criterion on an open issue that names nothing that could fail it: no test (a `TestName`, "tests", a fixture), no command (a span in backticks, `issue-cli`, "exits 1") and no playtest step ("playtest", "step", a shot, `(visual)`, a guided check script). The message quotes a vague word it leans on ("works", "is clear", "looks good"). Owner boxes (`(owner)`), ticked, N/A and template boxes and closed issues are skipped. It also warns about an issue past design whose `## Must not` still holds only the template's placeholder. The fix is `issue-cli check-edit <slug> <id> --text "… (test: TestName)"`, or `(owner)` when only the owner can judge it. `issue-cli transition` prints the same warnings when an issue leaves design (an edge that validates `criteria_checkboxes:`); they never refuse the move ([Proof Links](Workflow/proof.md#criteria-a-command-can-fail)).
   - `na-boxes`: a ticked box on an open issue whose N/A reason is out of form (empty, a `<placeholder>` left, a named form without its test or session, under three words), or an N/A on the owner's box (`## Human Testing`, `(owner)`). The forms: `issue-cli check --help` ([N/A boxes](CLI/overview.md#na-boxes-check---na)).
   - `reports`: an issue past a `has_output` gate (the `report` type's `in progress → human-testing`) whose output is gone from the shelf: never added (a hand edit), its file deleted, or rejected and not replaced. Fix: `issue-cli output add --issue <slug> --kind report --file <file>`. See [Types of Work](Workflow/types.md#the-report-type).
 
+  - `testids`: a playtest session step (`playtest/sessions/*.yaml`) whose selector names a data-testid that `internal/testids` doesn't list: a target field, a `targets:` entry, or `data-testid="…"` in a string such as an `http` check's `contains:`. The step would fail only in Chrome. It runs only on a repository that has `internal/testids` (this engine), and names the session file, line and step id.
   [CLI: health](CLI/overview.md#health) has each rule.
 - **When it runs:** in every snapshot: the one `issue-cli ci run` takes after each run, and the viewer's daily one. It reads the present files, so backfill leaves it out. The Health view also runs lint live: its **Lint** section lists every warning with its fix (50, then the command for the rest). The Status page's Health card shows the snapshot's count (`3 lint warnings`), linking to it.
 
@@ -475,14 +478,15 @@ The newest finished run of every [factory benchmark](benchmark.md) with a task i
 
 Per department in `projects.yaml` (`internal/deptfamily`): are its goals moving, does the owner review its outputs in time, do its jobs run when due, do handoffs sit. A project without departments gets no rows, and its score is unchanged (the `departments` component is optional). It reads the present logs (`.goals/`, `.outputs/`, `.jobs/`, the handoff issues), so backfill leaves it out. Rows carry box keys and goal ids, never titles.
 
-- **On track** is the mean of the shares a department has: goals moving, outputs reviewed in time, jobs on time. A department with none of them has no `on_track` row; the project's `departments.on_track` is the mean over departments and drives the `departments` score component.
+- **On track** is the mean of the shares a department has: goals moving, outputs reviewed in time, jobs on time. A department with none of them is **not measured yet**: it has no `on_track` row and is left out of the mean, never counted as 0. It starts being measured with a goal value that has one from 7 days before, an output reviewed (or past its review window), or a job's first run: a job that has never run counts as due but not as late. The project's `departments.on_track` is the mean over the measured departments and drives the `departments` score component; with none measured there is no project row, and the derived score leaves the component out.
 - **Limits** (`health.limits`): `outputs_review_days` (default 7: an output counts as reviewed in time within this many days of being added) and `handoff_age_days` (default 7: the Health view marks a department whose oldest open inbox handoff is older). 0 turns `handoff_age_days` off.
-- **Where it shows:** the Health view's **Departments** table (`/health#departments`), a `♥ N% on track` item on each room's foot on the company page (title: the three shares), the Report's Health card and `/status.md` (`Departments: N% on track · M outputs waiting`), and the Stats card "Departments on track", one line per department.
+- **Where it shows:** the Health view's **Departments** table (`/health#departments`), a `♥ N% on track` item on each room's foot on the company page (title: the three shares; `♥ not measured yet` for a department with nothing to measure, the title saying what starts it), the Report's Health card and `/status.md` (`Departments: N% on track (1 of 2 measured) · M outputs waiting`, or `Departments: not measured yet (starts with …)`), and the Stats card "Departments on track", one line per department.
 - **Spend** joins once department budgets land (`departments.spend{department}`); the family has the hook.
 
 | Metric | Labels | Value |
 |:--|:--|:--|
 | `departments.count` | none | departments in projects.yaml |
+| `departments.measured` | none | departments with an `on_track` row |
 | `departments.on_track` | none, or `department` | mean of the shares below (`share`) |
 | `departments.goal.progress` | `department`, `goal` | each goal's progress, 0–100 |
 | `departments.goals.progress` | `department` | mean progress of its goals |
@@ -490,7 +494,7 @@ Per department in `projects.yaml` (`internal/deptfamily`): are its goals moving,
 | `departments.goals.delta` | `department` | mean progress change over 7 days, points |
 | `departments.outputs.reviewed` | `department` | outputs of the last 30 days reviewed within `outputs_review_days`, of those reviewed or older than that (`share`) |
 | `departments.outputs.waiting` | `department` | outputs in review now |
-| `departments.jobs.on_time` | `department` | jobs not late, i.e. not due for over a day without a run (`share`) |
+| `departments.jobs.on_time` | `department` | of the jobs that have run at least once, those not late, i.e. not due for over a day without a run (`share`; no row until a job's first run) |
 | `departments.jobs.due`, `departments.jobs.missed` | `department` | jobs due now; periods missed since each job's last run |
 | `departments.handoffs.open` | `department`, `dir` (`in`, `out`) | open handoffs to and from it |
 | `departments.handoffs.oldest_days` | `department` | age of its oldest open inbox handoff, days |
@@ -539,10 +543,11 @@ A page is arbitrary HTML and its scripts run, but it is kept away from the viewe
 - The frame embeds it as `<iframe sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation">` with **no `allow-same-origin`**. The page gets an opaque origin (`null`), so it can't read the viewer's cookies or storage, or read viewer API responses.
 - Links: a link with `target="_top"` may replace the whole tab when clicked (e.g. to an issue). A script can't navigate the viewer on its own. `target="_blank"` opens a new tab.
 - The viewer refuses every non-GET request whose `Origin` is `null` (403), so a page can't approve, comment or dispatch.
-- `GET /p/<project>/page-raw/<path>` serves the page and its assets. It serves only files under the folder of a configured page (for `docs/status/index.html`, everything under `docs/status/`), with these extensions: html, htm, css, js, json, svg, png, jpg, jpeg, gif, webp, woff2. Responses carry the right `Content-Type`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-cache` and `Content-Security-Policy: sandbox …; frame-ancestors 'self'`, so opening the raw URL directly is sandboxed too.
-- Anything else gets a 404: other folders, `..`, symlinks that leave the root, and directories (there is no listing).
+- `GET /p/<project>/page-raw/<path>` serves the page and its assets. It serves only files under the folder of a configured page (for `docs/status/index.html`, everything under `docs/status/`), with these extensions: html, htm, css, js, json, svg, png, jpg, jpeg, gif, webp, woff2. Responses carry the right `Content-Type`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-cache` and `Content-Security-Policy: sandbox …; default-src 'self'; connect-src 'self'; form-action 'none'; …; frame-ancestors 'self'`, so opening the raw URL directly is sandboxed too.
+- **Everything stays on the viewer.** The CSP lets a page load scripts, styles, images, fonts and data only from the viewer (its own folder), plus inline script and style and `data:` images. `fetch`, beacons and forms to another host are blocked, so a page can't send the status it is posted anywhere. Put a chart library next to the page rather than loading it from a CDN.
+- Anything else gets a 404: other folders, `..`, symlinks that leave the root, directories (there is no listing), and any path through a dot-folder or to a dot-file (`.ci/`, `.health/`, `.worktrees/`, `.env.json`).
 - The page's own `fetch("data.json")` comes from origin `null`, and the response allows it (`Access-Control-Allow-Origin: null`).
-- Give pages a folder of their own. A page at the project root makes the whole root its folder.
+- Give pages a folder of their own. A page at the project root is served on its own: the root's other files (its assets included) are not, because the root holds the work files.
 
 ### Refresh
 
@@ -556,7 +561,7 @@ The frame sends the page the built-in Status model, so a page can show live coun
 { type: "issue-viewer.status", project: "Atlas", status: { … } }
 ```
 
-It is sent when the iframe loads, again whenever the issues change (`/hash`'s `hash`), and whenever the page asks with `parent.postMessage({type: "issue-viewer.status.request"}, "*")`. The frame ignores every other message. `status` has this shape (also at `GET /p/<project>/status.json`):
+It is sent when the iframe loads, again whenever the issues change (`/hash`'s `hash`), and whenever the page asks with `parent.postMessage({type: "issue-viewer.status.request"}, "*")`. The frame ignores every other message. The frame's origin is opaque, so the status goes out with target `*`. It is sent only while the frame shows the page the viewer loaded. If the page navigates itself (a link, `location = …`, even a reload of its own), no status is sent until the viewer reloads the frame, after a file change or a page reload. `status` has this shape (also at `GET /p/<project>/status.json`):
 
 ```json
 {

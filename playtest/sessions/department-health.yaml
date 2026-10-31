@@ -27,7 +27,7 @@ steps:
       - text_contains: { target: health.departments.row.marketing, text: "1 waiting" }
       - text_contains: { target: health.departments.row.marketing, text: "100% on time" }
       - text_contains: { target: health.departments.row.marketing, text: "1 in · 0 out open" }
-      - text_contains: { target: health.departments.row.sales, text: "nothing to measure" }
+      - text_contains: { target: health.departments.row.sales, text: "not measured yet" }
       - visible: health.sensor.departments
     targets: [health.departments]
 
@@ -38,7 +38,7 @@ steps:
       - cli: [--project, "{project}", goal, set, marketing/pages, "30"]
       - cli: [--project, "{project}", goal, set, marketing/posts, "5"]
       - cli: [--project, "{project}", health, snapshot]
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     checks:
       - text_contains: { target: company.room.dept, text: "♥ 75% on track" }
       - http: { path: "/p/{project}/status", contains: 'data-testid="report.health.departments"' }
@@ -57,6 +57,6 @@ steps:
     expect: >-
       The table has one row per department: Marketing at 75% in green (green from 70%, amber from 40%), with goals, outputs, jobs and
       handoffs in words, its handoffs cell marked amber (the HQ handoff is weeks old); Sales says
-      "nothing to measure". On the company page Marketing's room foot shows the chip in green, its
+      "not measured yet". On the company page Marketing's room foot shows the chip in green, its
       tooltip lists goals moving, outputs and jobs, and a click lands on Health's Departments table.
     why: The owner reads whether each department keeps up without opening four pages.

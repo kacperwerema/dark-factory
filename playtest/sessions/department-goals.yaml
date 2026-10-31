@@ -16,7 +16,7 @@ steps:
       - cli: [goal, set, marketing/posts, "5"]
       - cli: [goal, set, product/bugs, "10"]
       - cli: [goal, set, hq/revenue, "400", --date, "2020-01-15"]
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     checks:
       # The header's first goal is HQ's clients: no value of its own, so the
       # mean of Pages refreshed (30/40 = 75%) and Posts (5/10 = 50%).
@@ -46,7 +46,7 @@ steps:
     proves: [AC2, AC5]
     setup:
       - cli: [goal, set, marketing/posts, "5"]
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
       - check: { text_contains: { target: company.goal, text: "63%" } }
     act:
       - cli: [goal, set, hq/clients, "12", --note, "two signed this week"]
@@ -60,7 +60,7 @@ steps:
     title: issue-cli goals, department show and show print the roll-up, the role prompt and the Department line
     proves: [AC6, AC7, AC9]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     checks:
       - cli: { args: [goals], contains: "↳ Marketing: Pages refreshed [marketing/pages]  30 / 40 · 75%" }
       - cli: { args: [goals], contains: "no value yet: issue-cli goal set marketing/posts <value>" }

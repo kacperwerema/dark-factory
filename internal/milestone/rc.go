@@ -107,3 +107,10 @@ func ReleaseBranch(cut string) string {
 func ReleaseWorktreeName(cut string) string {
 	return strings.ReplaceAll(ReleaseBranch(cut), "/", "-")
 }
+
+// IsPatch reports whether cut is a patch release ("v0.58.1"): it goes on
+// the existing release/vX.Y branch, outside the milestone flow.
+func IsPatch(cut string) bool {
+	parts := strings.Split(Norm(cut), ".")
+	return len(parts) == 3 && parts[2] != "0" && parts[2] != ""
+}

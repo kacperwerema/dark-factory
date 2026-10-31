@@ -21,7 +21,7 @@ var (
 		"enabled": true, "disabled": true, "selected": true,
 		"text_equals": true, "text_contains": true, "value_equals": true,
 		"count": true, "url": true, "changed": true, "unchanged": true,
-		"beside": true, "below": true, "css": true, "size": true,
+		"beside": true, "below": true, "inside": true, "css": true, "size": true,
 	}
 	runnerChecks = map[string]bool{"issue": true, "cli": true, "tmux": true, "http": true}
 	actionKinds  = map[string]bool{
@@ -35,13 +35,17 @@ var (
 		"snapshot": true, "upload": true,
 	}
 	layoutRules = map[string]bool{
-		"inside_viewport": true, "no_clipping": true, "no_overlap": true, "no_zero_size_text": true,
+		"inside_viewport": true, "no_page_scroll": true, "no_clipping": true, "no_overlap": true, "no_zero_size_text": true,
 		"styles_applied": true,
 	}
 	keyNames = map[string]bool{
 		"Enter": true, "Escape": true, "Tab": true, "Backspace": true, "Delete": true,
 		"ArrowUp": true, "ArrowDown": true, "ArrowLeft": true, "ArrowRight": true,
 		"Home": true, "End": true, "PageUp": true, "PageDown": true, "Space": true,
+		"1": true, "2": true, "3": true, "4": true, "f": true, "+": true, "-": true,
+		// The same keys with a modifier: a page's own shortcuts must leave
+		// the browser's alone (Cmd+F, Ctrl+1).
+		"Control+1": true, "Meta+f": true, "Control+f": true,
 	}
 )
 
@@ -374,6 +378,13 @@ func (v *Validator) check(c Check, at errAt) {
 		}
 	case "changed", "unchanged":
 		need(str("target") != "" && str("since") != "", "{target, since: <snapshot name>}")
+	case "inside":
+		need(str("target") != "" && str("within") != "", "{target, within} (target's box wholly inside within's)")
+		for _, k := range []string{"target", "within"} {
+			if t := str(k); t != "" {
+				v.target(t, c.Line, at)
+			}
+		}
 	case "beside", "below":
 		form := "[a, b] or {a, b}"
 		if c.Kind == "beside" {

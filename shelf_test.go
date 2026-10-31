@@ -50,7 +50,7 @@ func TestCompanyShelf(t *testing.T) {
 	a, _ := shelfProject(t)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	code, html := getBody(t, ts.URL+"/p/agents/company")
+	code, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if code != 200 {
 		t.Fatalf("status %d: %s", code, html)
 	}
@@ -78,7 +78,7 @@ func TestCompanyWithoutOutputs(t *testing.T) {
 	a.Departments = []tracker.Department{{Name: "Marketing", Systems: []string{"UI"}}}
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	for _, id := range []string{"company.room.outputs", "company.hq.outputs", "company.queue.outputs"} {
 		if strings.Contains(html, id) {
 			t.Errorf("no outputs, but the page has %s", id)
@@ -155,7 +155,7 @@ func TestShelfReview(t *testing.T) {
 		t.Errorf("rejected = %+v", o)
 	}
 	// Nothing in review now: no chip, no waiting row.
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if strings.Contains(html, "to review</span>") || strings.Contains(html, "company.queue.outputs") {
 		t.Error("the company page still shows outputs to review")
 	}
@@ -230,4 +230,31 @@ func TestStationAndStatusShowOutputs(t *testing.T) {
 	assertContains(t, html, `<a href="/p/agents/shelf?dept=marketing&amp;state=review" data-testid="report.waiting.link">Marketing output to review</a>`, `Product output to review`)
 	_, md := getBody(t, ts.URL+"/p/agents/status.md")
 	assertContains(t, md, "- 1 Marketing output to review on the shelf (issue-cli outputs marketing --state review)")
+}
+
+// F-15 (docs/API/security.md): the check was lexical and os.Stat follows
+// links, so a symlink under .outputs/files reached any file on the machine.
+// A link that stays inside the shelf still serves.
+func TestShelfFileRefusesSymlinkOut(t *testing.T) {
+	a, made := shelfProject(t)
+	dir := filepath.Join(a.IssueDir, ".outputs", "files")
+	secret := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(secret, []byte("SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(dir, "out.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "marketing", made[1].ID+"-hero.svg"), filepath.Join(dir, "in.svg")); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+	code, body := getBody(t, ts.URL+"/p/agents/shelf/file/out.txt")
+	if code != http.StatusNotFound || strings.Contains(body, "SECRET") {
+		t.Errorf("symlink out of the shelf: %d %q, want 404", code, body)
+	}
+	if code, _ := getBody(t, ts.URL+"/p/agents/shelf/file/in.svg"); code != http.StatusOK {
+		t.Errorf("symlink inside the shelf: %d, want 200", code)
+	}
 }

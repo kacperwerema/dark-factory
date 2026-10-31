@@ -499,11 +499,11 @@ func renderDataTable(prefix, slug string, statuses, tiers []string, entries []tr
 	b.WriteString(template.HTMLEscapeString(prefix))
 	b.WriteString(`">`)
 	b.WriteString(`<div class="data-table-toolbar">`)
-	b.WriteString(`<select class="data-table-filter" onchange="dataTableFilter(this)" title="Filter by status"><option value="">All statuses</option></select>`)
+	b.WriteString(`<select class="data-table-filter" data-change="[&#34;dataTableFilter&#34;,&#34;$this&#34;]" title="Filter by status"><option value="">All statuses</option></select>`)
 	if hasTier {
-		b.WriteString(`<select class="data-table-tier-filter" onchange="dataTableTierFilter(this)" title="Filter by tier"><option value="">All tiers</option></select>`)
+		b.WriteString(`<select class="data-table-tier-filter" data-change="[&#34;dataTableTierFilter&#34;,&#34;$this&#34;]" title="Filter by tier"><option value="">All tiers</option></select>`)
 	}
-	b.WriteString(`<button type="button" class="data-table-tb-btn data-table-wide-btn" onclick="dataTableToggleWide()" title="Expand / shrink the table (spill under sidebar)">↔ Expand</button>`)
+	b.WriteString(`<button type="button" class="data-table-tb-btn data-table-wide-btn" data-click="[&#34;dataTableToggleWide&#34;]" title="Expand / shrink the table (spill under sidebar)">↔ Expand</button>`)
 	b.WriteString(`</div>`)
 	// Explicit colgroup pins the small fixed-width columns so browsers don't
 	// redistribute leftover space into them under table-layout: fixed.
@@ -539,9 +539,9 @@ func renderDataTable(prefix, slug string, statuses, tiers []string, entries []tr
 		b.WriteString(template.HTMLEscapeString(e.Description))
 		b.WriteString(`</td>`)
 		if hasTier {
-			b.WriteString(`<td class="data-status-tier"><div class="data-status"><select onchange="dataSetStatus(this)">`)
+			b.WriteString(`<td class="data-status-tier"><div class="data-status"><select data-change="[&#34;dataSetStatus&#34;,&#34;$this&#34;]">`)
 			writeOptions(&b, statuses, e.Status)
-			b.WriteString(`</select></div><div class="data-tier"><select onchange="dataSetTier(this)"><option value=""`)
+			b.WriteString(`</select></div><div class="data-tier"><select data-change="[&#34;dataSetTier&#34;,&#34;$this&#34;]"><option value=""`)
 			if e.Tier == "" {
 				b.WriteString(` selected`)
 			}
@@ -549,17 +549,17 @@ func renderDataTable(prefix, slug string, statuses, tiers []string, entries []tr
 			writeOptions(&b, tiers, e.Tier)
 			b.WriteString(`</select></div></td>`)
 		} else {
-			b.WriteString(`<td class="data-status"><select onchange="dataSetStatus(this)">`)
+			b.WriteString(`<td class="data-status"><select data-change="[&#34;dataSetStatus&#34;,&#34;$this&#34;]">`)
 			writeOptions(&b, statuses, e.Status)
 			b.WriteString(`</select></td>`)
 		}
-		b.WriteString(`<td class="data-comment" contenteditable="true" onblur="dataSetComment(this)" onclick="dataCommentClick(event)" title="`)
+		b.WriteString(`<td class="data-comment" contenteditable="true" data-blur="[&#34;dataSetComment&#34;,&#34;$this&#34;]" data-click="[&#34;dataCommentClick&#34;,&#34;$event&#34;]" title="`)
 		b.WriteString(template.HTMLEscapeString(e.Comment))
 		b.WriteString(`" data-original="`)
 		b.WriteString(template.HTMLEscapeString(e.Comment))
 		b.WriteString(`">`)
 		b.WriteString(linkifyComment(e.Comment))
-		b.WriteString(`</td><td class="data-actions"><button class="data-remove-btn" onclick="dataRemove(this)" title="Remove entry">×</button></td></tr>`)
+		b.WriteString(`</td><td class="data-actions"><button class="data-remove-btn" data-click="[&#34;dataRemove&#34;,&#34;$this&#34;]" title="Remove entry">×</button></td></tr>`)
 	}
 	b.WriteString(`</tbody></table></div>`)
 	return b.String()

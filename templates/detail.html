@@ -7,8 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='{{urlEncodeColor (statusColor .Issue.Status)}}'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
     <script src="/static/approve-words.js"></script>
-    <script>
+    <script nonce="{{cspNonce}}">
     (function() {
         if (localStorage.getItem('sidebar-locked') !== 'false') {
             document.documentElement.setAttribute('data-sidebar-locked', 'true');
@@ -26,11 +27,11 @@
     <div class="container">
         <a href="{{.BackURL}}" class="detail-back" data-testid="detail.back">← Back</a>
 
-        <h1 class="detail-title" id="issue-title" data-testid="detail.title" onclick="editTitle()">{{.Issue.Title}} <span class="title-edit-icon">&#9998;</span></h1>
+        <h1 class="detail-title" id="issue-title" data-testid="detail.title" data-click="{{onCall "editTitle"}}">{{.Issue.Title}} <span class="title-edit-icon">&#9998;</span></h1>
         <div class="title-editor" id="title-editor" style="display:none">
             <input type="text" class="title-input" id="title-input" data-testid="detail.title.input" value="{{.Issue.Title}}">
-            <button class="body-save-btn" data-testid="detail.title.save" onclick="saveTitle()">Save</button>
-            <button class="body-tab" onclick="cancelTitleEdit()">Cancel</button>
+            <button class="body-save-btn" data-testid="detail.title.save" data-click="{{onCall "saveTitle"}}">Save</button>
+            <button class="body-tab" data-click="{{onCall "cancelTitleEdit"}}">Cancel</button>
         </div>
         <div class="detail-chips">
             <span class="chip" style="color: {{statusColor .Issue.Status}}">{{.Issue.Status}}</span>
@@ -59,11 +60,11 @@
                     <div class="tl-head">
                         <h2 id="it-full-h">Full issue <span class="it-muted it-fold-state">· folded</span></h2>
                         <div class="body-toolbar">
-                            <button class="body-tab active" id="btn-preview" data-testid="detail.tab.preview" onclick="showPreview()">Preview</button>
-                            <button class="body-tab" id="btn-edit" data-testid="detail.tab.edit" onclick="showEditor()">Edit</button>
-                            <button class="body-toolbar-action" onclick="editInNvim()">Edit in nvim</button>
-                            <button class="body-toolbar-action" id="fold-all" data-testid="detail.fold.expand_all" onclick="toggleFoldAll()">Expand all</button>
-                            <button class="body-toolbar-action sidebar-show-btn" onclick="toggleSidebarHide()" title="Show sidebar">Show sidebar</button>
+                            <button class="body-tab active" id="btn-preview" data-testid="detail.tab.preview" data-click="{{onCall "showPreview"}}">Preview</button>
+                            <button class="body-tab" id="btn-edit" data-testid="detail.tab.edit" data-click="{{onCall "showEditor"}}">Edit</button>
+                            <button class="body-toolbar-action" data-click="{{onCall "editInNvim"}}">Edit in nvim</button>
+                            <button class="body-toolbar-action" id="fold-all" data-testid="detail.fold.expand_all" data-click="{{onCall "toggleFoldAll"}}">Expand all</button>
+                            <button class="body-toolbar-action sidebar-show-btn" data-click="{{onCall "toggleSidebarHide"}}" title="Show sidebar">Show sidebar</button>
                         </div>
                     </div>
                     <div class="detail-body it-body" id="body-preview" data-testid="detail.body" data-fold="{{toJSON .IssueTab.Fold}}">
@@ -75,7 +76,7 @@
                     </div>
                     <div class="body-editor-wrap" id="body-editor" style="display:none">
                         <textarea class="body-textarea" id="body-textarea" data-testid="detail.body.textarea" data-body-hash="{{bodyHash .Issue.BodyRaw}}">{{.Issue.BodyRaw}}</textarea>
-                        <button class="body-save-btn" data-testid="detail.body.save" onclick="saveBody()">Save</button>
+                        <button class="body-save-btn" data-testid="detail.body.save" data-click="{{onCall "saveBody"}}">Save</button>
                     </div>
                     {{with .IssueTab.NotStarted}}<p class="it-notstarted" data-testid="detail.fold.not_started"><span>{{range $i, $s := .}}{{if $i}} · {{end}}{{$s}}{{end}}</span> <span class="it-muted">not started; each appears when its status begins</span></p>{{end}}
                 </section>
@@ -83,8 +84,8 @@
 
             <div class="detail-sidebar" data-testid="detail.sidebar">
                 <div class="sidebar-toolbar">
-                    <button class="sidebar-toolbar-btn" id="sidebar-lock-btn" onclick="toggleSidebarLock()" title="Lock sidebar so it stays visible while body scrolls">Lock</button>
-                    <button class="sidebar-toolbar-btn" id="sidebar-hide-btn" onclick="toggleSidebarHide()" title="Hide sidebar">Hide</button>
+                    <button class="sidebar-toolbar-btn" id="sidebar-lock-btn" data-click="{{onCall "toggleSidebarLock"}}" title="Lock sidebar so it stays visible while body scrolls">Lock</button>
+                    <button class="sidebar-toolbar-btn" id="sidebar-hide-btn" data-click="{{onCall "toggleSidebarHide"}}" title="Hide sidebar">Hide</button>
                 </div>
                 {{template "issue-side" .}}
                 <details class="it-fields" data-testid="detail.fields" open>
@@ -93,7 +94,7 @@
                 <div class="sidebar-section">
                     <h3>Status</h3>
                     <div class="sidebar-value">
-                        <select class="edit-select" data-field="status" data-testid="detail.status" onchange="updateField(this)">
+                        <select class="edit-select" data-field="status" data-testid="detail.status" data-change="{{onCall "updateField" "$this"}}">
                             {{range $.Statuses}}
                             <option value="{{.}}" {{if eq . $.Issue.Status}}selected{{end}}>{{.}}</option>
                             {{end}}
@@ -112,7 +113,7 @@
                 <div class="sidebar-section">
                     <h3>Type</h3>
                     <div class="sidebar-value">
-                        <select class="edit-select" id="type-select" data-current="{{.Issue.WorkType}}" onchange="changeType(this.value)" title="Type of work: picks the issue's path">
+                        <select class="edit-select" id="type-select" data-current="{{.Issue.WorkType}}" data-change="{{onCall "changeType" "$value"}}" title="Type of work: picks the issue's path">
                             {{range .WorkTypes}}
                             <option value="{{.Name}}" title="{{.Description}} — {{.Path}}" {{if eq .Name $.Issue.WorkType}}selected{{end}}>{{.Name}}</option>
                             {{end}}
@@ -120,8 +121,8 @@
                         <div id="type-status-pick" style="display:none;margin-top:6px">
                             <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px" id="type-status-msg"></div>
                             <select class="edit-select" id="type-status-select"></select>
-                            <button class="sidebar-toolbar-btn" onclick="changeType(document.getElementById('type-select').value, document.getElementById('type-status-select').value)">Move</button>
-                            <button class="sidebar-toolbar-btn" onclick="cancelTypeChange()">Cancel</button>
+                            <button class="sidebar-toolbar-btn" data-click="{{onCall "changeTypeMove"}}">Move</button>
+                            <button class="sidebar-toolbar-btn" data-click="{{onCall "cancelTypeChange"}}">Cancel</button>
                         </div>
                         {{if .TypeWarning}}<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">⚠ {{.TypeWarning}}</div>{{end}}
                     </div>
@@ -155,7 +156,7 @@
                     {{range .NeedsApprovals}}
                     {{$status := .}}
                     <div class="sidebar-value">
-                        <button id="approve-{{statusFragment .}}" data-testid="detail.approve.{{tid .}}" class="approve-btn {{if eq $.Issue.HumanApproval .}}approved{{end}}" data-status="{{.}}" onclick="toggleApproval('{{.}}')">
+                        <button id="approve-{{statusFragment .}}" data-testid="detail.approve.{{tid .}}" class="approve-btn {{if eq $.Issue.HumanApproval .}}approved{{end}}" data-status="{{.}}" data-click="{{onCall "toggleApproval" .}}">
                             <span class="approve-check">{{if eq $.Issue.HumanApproval .}}&#10003;{{else}}&#9744;{{end}}</span>
                             Human-approved for {{.}}
                         </button>
@@ -163,7 +164,7 @@
                     {{with index $.ApproveThen .}}
                     {{$both := and (eq $.Issue.HumanApproval $status) (eq $.Issue.QueuedApproval .)}}
                     <div class="sidebar-value">
-                        <button id="approve-then-{{statusFragment $status}}" data-testid="detail.approve_then.{{tid $status}}" class="approve-btn approve-then-btn {{if $both}}approved{{end}}" data-then-status="{{$status}}" data-then="{{.}}" onclick="toggleApproval('{{$status}}', '{{.}}')" title="Approves {{$status}} now and queues {{.}}, so the agent's start continues into {{.}} without a second approval">
+                        <button id="approve-then-{{statusFragment $status}}" data-testid="detail.approve_then.{{tid $status}}" class="approve-btn approve-then-btn {{if $both}}approved{{end}}" data-then-status="{{$status}}" data-then="{{.}}" data-click="{{onCall "toggleApproval" $status .}}" title="Approves {{$status}} now and queues {{.}}, so the agent's start continues into {{.}} without a second approval">
                             <span class="approve-check">{{if $both}}&#10003;{{else}}&#9744;{{end}}</span>
                             Approved for {{$status}} and {{.}}
                         </button>
@@ -173,15 +174,15 @@
                     {{range .OptionalApprovals}}
                     {{$open := eq $.Issue.HumanApproval .Status}}
                     <div class="sidebar-value optional-approval-group" data-optional-status="{{.Status}}">
-                        <button class="optional-approval-cta{{if $open}} hidden{{end}}" onclick="revealOptionalApproval(this)">
+                        <button class="optional-approval-cta{{if $open}} hidden{{end}}" data-click="{{onCall "revealOptionalApproval" "$this"}}">
                             {{if .CTALabel}}{{.CTALabel}}{{else}}Divert to {{.Status}}{{if .Description}} — {{.Description}}{{end}}{{end}}
                         </button>
                         <div class="optional-approval-widget{{if not $open}} hidden{{end}}">
-                            <button id="approve-{{statusFragment .Status}}" data-testid="detail.approve.{{tid .Status}}" class="approve-btn {{if $open}}approved{{end}}" data-status="{{.Status}}" onclick="toggleApproval('{{.Status}}')">
+                            <button id="approve-{{statusFragment .Status}}" data-testid="detail.approve.{{tid .Status}}" class="approve-btn {{if $open}}approved{{end}}" data-status="{{.Status}}" data-click="{{onCall "toggleApproval" .Status}}">
                                 <span class="approve-check">{{if $open}}&#10003;{{else}}&#9744;{{end}}</span>
                                 Human-approved for {{.Status}}
                             </button>
-                            <button class="optional-approval-dismiss" onclick="dismissOptionalApproval(this)">Cancel</button>
+                            <button class="optional-approval-dismiss" data-click="{{onCall "dismissOptionalApproval" "$this"}}">Cancel</button>
                         </div>
                     </div>
                     {{end}}
@@ -192,7 +193,7 @@
                 <div class="sidebar-section">
                     <h3>Priority</h3>
                     <div class="sidebar-value">
-                        <select class="edit-select" data-field="priority" data-testid="detail.priority" onchange="updateField(this)">
+                        <select class="edit-select" data-field="priority" data-testid="detail.priority" data-change="{{onCall "updateField" "$this"}}">
                             <option value="" {{if eq .Issue.Priority ""}}selected{{end}}>—</option>
                             <option value="low" {{if eq .Issue.Priority "low"}}selected{{end}}>low</option>
                             <option value="medium" {{if eq .Issue.Priority "medium"}}selected{{end}}>medium</option>
@@ -205,7 +206,7 @@
                 <div class="sidebar-section">
                     <h3>Assignee</h3>
                     <div class="sidebar-value">
-                        <input type="text" class="edit-input" data-field="assignee" data-testid="detail.assignee" value="{{.Issue.Assignee}}" placeholder="Unassigned" onchange="updateField(this)">
+                        <input type="text" class="edit-input" data-field="assignee" data-testid="detail.assignee" value="{{.Issue.Assignee}}" placeholder="Unassigned" data-change="{{onCall "updateField" "$this"}}">
                     </div>
                 </div>
 
@@ -219,7 +220,7 @@
                 <div class="sidebar-section">
                     <h3>Version</h3>
                     <div class="sidebar-value">
-                        <input type="text" class="edit-input" data-field="version" value="{{.Issue.Version}}" placeholder="—" onchange="updateField(this)">
+                        <input type="text" class="edit-input" data-field="version" value="{{.Issue.Version}}" placeholder="—" data-change="{{onCall "updateField" "$this"}}">
                     </div>
                 </div>
 
@@ -227,12 +228,12 @@
                     <h3>Labels</h3>
                     <div class="sidebar-labels" id="labels-container" data-testid="detail.labels">
                         {{range .Issue.Labels}}
-                        <span class="label-badge badge editable-label">{{.}}<button class="label-remove" onclick="removeLabel(this, '{{.}}')">&times;</button></span>
+                        <span class="label-badge badge editable-label">{{.}}<button class="label-remove" data-click="{{onCall "removeLabel" "$this" .}}">&times;</button></span>
                         {{end}}
                     </div>
                     <div class="label-add-row">
-                        <input type="text" class="edit-input" id="new-label" data-testid="detail.label.input" placeholder="Add label..." onkeydown="if(event.key==='Enter'){event.preventDefault();addLabel()}">
-                        <button class="label-add-btn" data-testid="detail.label.add" onclick="addLabel()">+</button>
+                        <input type="text" class="edit-input" id="new-label" data-testid="detail.label.input" placeholder="Add label..." data-keydown="{{onCall "addLabelOnEnter" "$event"}}">
+                        <button class="label-add-btn" data-testid="detail.label.add" data-click="{{onCall "addLabel"}}">+</button>
                     </div>
                 </div>
 
@@ -300,17 +301,17 @@
                 {{end}}
 
                 <div class="sidebar-section dispatch-btn-group">
-                    <button class="dispatch-btn" data-testid="detail.dispatch.claude" onclick="dispatchToAgent('claude')">
+                    <button class="dispatch-btn" data-testid="detail.dispatch.claude" data-click="{{onCall "dispatchToAgent" "claude"}}">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75a.75.75 0 00-1.19.61v11.28a.75.75 0 001.19.61l9.5-5.64a.75.75 0 000-1.22L1.5 1.75z"/></svg>
                         Claude
                     </button>
-                    <button class="dispatch-btn dispatch-btn-codex" data-testid="detail.dispatch.codex" onclick="dispatchToAgent('codex')">
+                    <button class="dispatch-btn dispatch-btn-codex" data-testid="detail.dispatch.codex" data-click="{{onCall "dispatchToAgent" "codex"}}">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 1.75a.75.75 0 00-1.19.61v11.28a.75.75 0 001.19.61l9.5-5.64a.75.75 0 000-1.22L1.5 1.75z"/></svg>
                         Codex
                     </button>
                 </div>
                 <div class="sidebar-section reprompt-group">
-                    <button class="dispatch-btn dispatch-btn-reprompt" onclick="repromptAgent()" title="Re-send the current briefing into this issue's running agent session">
+                    <button class="dispatch-btn dispatch-btn-reprompt" data-click="{{onCall "repromptAgent"}}" title="Re-send the current briefing into this issue's running agent session">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2.5a5.5 5.5 0 104.9 3h-1.7a4 4 0 11-1-1.5L8.5 5.7h4.75V1L11.4 2.85A5.48 5.48 0 008 2.5z"/></svg>
                         Re-send prompt
                     </button>
@@ -318,7 +319,7 @@
                 {{if .CustomActions}}
                 <div class="sidebar-section custom-actions-group">
                     {{range .CustomActions}}
-                    <button class="dispatch-btn dispatch-btn-custom" onclick="dispatchCustomAction('{{.ID}}', '{{.Label}}')">
+                    <button class="dispatch-btn dispatch-btn-custom" data-click="{{onCall "dispatchCustomAction" .ID .Label}}">
                         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 100 16A8 8 0 008 0zM4.5 7.5h7a.5.5 0 010 1h-7a.5.5 0 010-1z"/></svg>
                         {{.Label}}
                     </button>
@@ -345,14 +346,14 @@
                 </details>
             </div>
             <div class="modal-actions">
-                <button class="modal-btn modal-btn-cancel" onclick="closeDispatchModal()">Close</button>
+                <button class="modal-btn modal-btn-cancel" data-click="{{onCall "closeDispatchModal"}}">Close</button>
             </div>
         </div>
     </div>
 
     <div class="save-toast" id="save-toast" data-testid="detail.toast">Saved</div>
 
-    <script>
+    <script nonce="{{cspNonce}}">
     const issueURL = "{{.Prefix}}/issue/{{.Issue.Slug}}";
 
     function toggleSidebarLock() {
@@ -390,6 +391,10 @@
     function removeLabel(btn, label) {
         btn.parentElement.remove();
         saveUpdate({ labels: getCurrentLabels() });
+    }
+
+    function addLabelOnEnter(event) {
+        if (event.key === 'Enter') { event.preventDefault(); addLabel(); }
     }
 
     function addLabel() {
@@ -766,9 +771,9 @@
                     + (c.author ? '<span class="comment-author" data-testid="detail.comment.author">' + escapeHtml(c.author) + '</span>' : '')
                     + '<span class="comment-date">' + (c.author ? '· ' : '') + (c.date || '').slice(0, 10) + '</span>'
                     + '<span class="comment-actions">'
-                    + '<button class="comment-toggle-btn" onclick="toggleComment(' + c.id + ',' + blockIdx + ')" title="' + (isDone ? 'Reopen' : 'Mark done') + '">'
+                    + '<button class="comment-toggle-btn" ' + dataCall('click', ['toggleComment', c.id, blockIdx]) + ' title="' + (isDone ? 'Reopen' : 'Mark done') + '">'
                     + (isDone ? '&#8634;' : '&#10003;') + '</button>'
-                    + '<button class="comment-delete-btn" onclick="deleteComment(' + c.id + ',' + blockIdx + ')" title="Delete">&times;</button>'
+                    + '<button class="comment-delete-btn" ' + dataCall('click', ['deleteComment', c.id, blockIdx]) + ' title="Delete">&times;</button>'
                     + '</span>'
                     + '</div>'
                     + '<div class="comment-text">' + escapeHtml(c.text) + '</div>'
@@ -779,7 +784,7 @@
 
         html += '<div class="comment-add">'
             + '<textarea class="comment-text-input" placeholder="Add a comment..." id="comment-text-' + blockIdx + '" data-testid="detail.comment.input.' + blockIdx + '"></textarea>'
-            + '<button class="comment-submit" data-testid="detail.comment.submit.' + blockIdx + '" onclick="submitComment(' + blockIdx + ')">Comment</button>'
+            + '<button class="comment-submit" data-testid="detail.comment.submit.' + blockIdx + '" ' + dataCall('click', ['submitComment', blockIdx]) + '>Comment</button>'
             + '</div>';
 
         popover.innerHTML = html;
@@ -904,6 +909,10 @@
 
     // Human type change. A 409 means the current status is not on the new
     // type's path: show the path's statuses and re-post with the pick.
+    function changeTypeMove() {
+        changeType(document.getElementById('type-select').value, document.getElementById('type-status-select').value);
+    }
+
     function changeType(type, status) {
         const payload = { type: type };
         if (status) payload.status = status;
@@ -1022,7 +1031,7 @@
             promptEl.closest('details').style.display = data.status === 'waiting-on-gate' ? 'none' : '';
 
             if (data.status === 'waiting-on-gate') {
-                stepsEl.innerHTML = gateBanner(issueURL, data.gate, "dispatchToAgent('" + label + "', true)");
+                stepsEl.innerHTML = gateBanner(issueURL, data.gate, ['dispatchToAgent', label, true]);
                 return;
             }
             var html = '';
@@ -1030,7 +1039,7 @@
                 html += '<div class="dispatch-banner reattached">'
                     + 'Existing tmux session — attached without re-prompting the agent. '
                     + 'Kill the session manually if you want a fresh dispatch, or '
-                    + '<button class="dispatch-banner-btn" onclick="repromptAgent()">Re-send prompt</button>'
+                    + '<button class="dispatch-banner-btn" ' + dataCall('click', ['repromptAgent']) + '>Re-send prompt</button>'
                     + ' if the agent never got its briefing.'
                     + '</div>';
             }
@@ -1062,8 +1071,8 @@
         var safe = String(gate).replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; });
         return '<div class="dispatch-banner reattached" data-testid="dispatch.gate">'
             + 'Waiting on your approval for <b>' + safe + '</b>: everything else is done, so a new agent would only stop at the gate. Nothing was started. '
-            + '<a href="' + issuePath + '#approve-' + safe.replace(/ /g, '-') + '" data-testid="dispatch.gate.approve" onclick="closeDispatchModal()">Approve</a> or '
-            + '<button class="dispatch-banner-btn" data-testid="dispatch.gate.force" onclick="' + forceCall + '">Dispatch anyway</button>'
+            + '<a href="' + issuePath + '#approve-' + safe.replace(/ /g, '-') + '" data-testid="dispatch.gate.approve" ' + dataCall('click', ['closeDispatchModal']) + '>Approve</a> or '
+            + '<button class="dispatch-banner-btn" data-testid="dispatch.gate.force" ' + dataCall('click', forceCall) + '>Dispatch anyway</button>'
             + '</div>';
     }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -56,6 +57,23 @@ type AgentNode struct {
 	// SwitchCmd reaches the agent from inside tmux (tmux switch-client).
 	SwitchCmd string `json:"switch_cmd"`
 	StartTime string `json:"start_time,omitempty"`
+	// Agent is the CLI the live session runs (claude, codex), read from
+	// its pane's start command; "" when unknown.
+	Agent string `json:"agent,omitempty"`
+	// Limit is the usage-limit message its pane shows now, with the reset
+	// ("You've hit your 5-hour limit · resets 5pm … — resets 17:00"); the
+	// agent is left running.
+	Limit string `json:"limit,omitempty"`
+}
+
+// SubscriptionView is one agent CLI's subscription on this machine.
+type SubscriptionView struct {
+	Agent     string `json:"agent"`
+	Installed bool   `json:"installed"`
+	// State is working, resting until HH:MM (…) or unknown.
+	State   string `json:"state"`
+	Resting bool   `json:"resting"`
+	Live    int    `json:"live"`
 }
 
 // EpicGroup is one open epic under the project lead and how its children
@@ -87,6 +105,9 @@ type AgentsModel struct {
 	Unfinished []AgentNode `json:"unfinished"`
 	// Others are live agent sessions not bound to an issue.
 	Others []AgentNode `json:"others"`
+	// Subscriptions are the agent CLIs' states (routing); the same words
+	// issue-cli agents prints.
+	Subscriptions []SubscriptionView `json:"subscriptions"`
 }
 
 func statusColorOf(status string) string {
@@ -141,9 +162,23 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		}
 	}
 
+	now := time.Now()
+	limits := map[string]agentrun.PaneLimit{}
+	for _, l := range scanPaneLimits(proj, workDir, now) {
+		limits[l.Session] = l
+	}
 	node := func(name, kind string) AgentNode {
 		sess, ok := live[name]
 		n := AgentNode{Name: name, Display: agentDisplayName(proj, name), Kind: kind, Live: ok, AttachCmd: agentAttachCmd(proj, name), SwitchCmd: agentrun.SwitchCmd(proj, name), StartTime: sess.StartTime}
+		if ok {
+			n.Agent = sessionAgent(proj, name)
+			if l, hit := limits[name]; hit {
+				n.Limit = l.Limit.Line + " — resets " + routing.RestUntilText(routing.Rest{Until: l.Limit.Until, KnownReset: l.Limit.KnownReset}, now)
+				if n.Agent == "" {
+					n.Agent = l.Limit.Agent
+				}
+			}
+		}
 		if kind == "project-lead" || kind == "department-lead" {
 			n.State = "not-running"
 			if ok {
@@ -234,7 +269,40 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		n.State = "working"
 		model.Others = append(model.Others, n)
 	}
+	model.Subscriptions = subscriptionViews(model, now)
 	return model, nil
+}
+
+// scanPaneLimits and sessionAgent read tmux; vars so tests need none.
+var (
+	scanPaneLimits = agentrun.ScanLimits
+	sessionAgent   = agentrun.SessionAgent
+)
+
+// subscriptionViews is each agent CLI's state for the Crew page, status.md
+// and agents.json: resting (from the machine's subscription state), working
+// when a live session of the model runs it, else unknown.
+func subscriptionViews(m *AgentsModel, now time.Time) []SubscriptionView {
+	live := map[string]int{}
+	count := func(n AgentNode) {
+		if n.Live && n.Agent != "" {
+			live[n.Agent]++
+		}
+	}
+	count(m.ProjectLead)
+	for _, group := range [][]AgentNode{m.DepartmentLeads, m.Workers, m.Others} {
+		for _, n := range group {
+			count(n)
+		}
+	}
+	st := agentrun.Subscriptions()
+	var out []SubscriptionView
+	for _, a := range routing.KnownAgents {
+		_, resting := st.Resting(a, now)
+		out = append(out, SubscriptionView{Agent: a, Installed: routing.Installed(a), Live: live[a], Resting: resting,
+			State: routing.StateWords(a, st, live[a] > 0, now)})
+	}
+	return out
 }
 
 type AgentsPageData struct {
@@ -452,14 +520,33 @@ func (s *Server) handleLeadSpawn(w http.ResponseWriter, r *http.Request, proj *t
 		}
 		spec = agentrun.DepartmentLeadSpec(proj, dept, wf, projectRoot(proj), time.Now())
 	}
-	spec.AgentType = strings.TrimSpace(body.Agent)
-	if spec.AgentType == "" {
-		spec.AgentType = "claude"
-	}
-	if refuseAgentType(w, spec.AgentType) {
+	explicit := strings.TrimSpace(body.Agent)
+	if explicit != "" && refuseAgentType(w, explicit) {
 		return
 	}
+	deptKey := ""
+	if spec.LeadScope != tracker.LeadScopeProject {
+		deptKey = strings.TrimPrefix(spec.LeadScope, "department:")
+	}
+	route := agentrun.RouteAgent(proj, spec.Workflow, projectRoot(proj), routing.Subject{Lead: true, Department: tracker.DepartmentKey(deptKey)}, explicit, time.Now())
+	spec.AgentType, spec.Route = route.Agent, &route
 	resp := startLead(proj, spec)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// agentsStatusLine is status.md's "Agents:" line: each installed agent CLI's
+// subscription state ("Agents: claude working · codex resting until 18:30
+// (limit seen in agent-x)"); "" when none is installed.
+func agentsStatusLine(subs []SubscriptionView) string {
+	var parts []string
+	for _, sv := range subs {
+		if sv.Installed || sv.Resting {
+			parts = append(parts, sv.Agent+" "+sv.State)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Agents: " + strings.Join(parts, " · ") + " (issue-cli agents)"
 }

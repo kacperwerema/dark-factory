@@ -1,0 +1,19 @@
+blocks issues/UI/design.md:32,74,100,108 — The playtest step can pass before the server answers; wait for the finished state.
+
+should issues/UI/design.md:21,44,64,68 — Line 21 promises the original name, but only the cleaned name is stored.
+
+should issues/UI/design.md:42,109,139 — Only one fallback status is handled; say what happens to the other one, and add a test.
+
+should issues/UI/design.md:64,66,70,72 — The store's confinement is checked on send only; check it on write and serve too, with a test.
+
+should issues/UI/design.md:44,64,72 — Some cases are not covered:
+- The temp-file name is not specified, so a crash could leave a file that matches the stored-file rule.
+- The rule does not say what happens when the extension alone is over 120 bytes.
+- Nothing says how a 50 MB multipart body is read: streamed to disk (MultipartReader) or held by ParseMultipartForm. On this memory-capped machine, several uploads at once could fill memory.
+
+note issues/UI/design.md:53,104 — Stored files are never deleted, so the folder grows without limit.
+
+note issues/UI/design.md:92 — Promised doc updates have no acceptance criterion.
+
+Coverage: read 2 of 2 files
+Not read: none

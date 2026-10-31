@@ -185,6 +185,11 @@ branches:
   - **Layout rules:**
     - `inside_viewport`: no sideways page scroll. When the page does scroll
       sideways, the error names the element that causes it.
+    - `no_page_scroll`: the page scrolls neither way: the document is no
+      taller or wider than the viewport, and no shown id outside a panel
+      that scrolls (overflow auto or scroll) ends past the viewport, so a
+      page that hides its overflow can't cut a control off. For a screen
+      that must fit its view, like the company floor.
     - `no_clipping`: text fits its box.
     - `no_overlap`: sibling ids don't overlap.
     - `no_zero_size_text`: no text in a 0-wide or 0-high box.
@@ -216,7 +221,7 @@ branches:
 | `click` / `hover` | `click: board.transition_modal.confirm`. A real mouse event at the centre; refused when the target is hidden, disabled or covered. |
 | `type` | `type: { target: list.search, text: csv, enter: true }` (clears first unless `clear: false`) |
 | `select` | `select: { target: list.filter.status, value: backlog }` |
-| `key` | `key: Escape` |
+| `key` | `key: Escape` (also `"1"`–`"4"`, `f`, `+`, `-`: keys a page binds itself, and `Control+1`, `Control+f`, `Meta+f` to check it leaves the browser's own alone) |
 | `drag` | `drag: { target: board.card.ui/x, to: board.column.backlog.cards }`. A real mouse drag (native HTML5 drag and drop) when both ends are on screen, else synthetic drag events. |
 | `wait_for` | `wait_for: board.toast`, `wait_for: { hidden: board.transition_modal, ms: 8000 }`, `wait_for: { url: { contains: status=backlog } }` |
 | `wait` | `wait: 500` (ms; prefer `wait_for`) |
@@ -247,6 +252,7 @@ branches:
 | `http` | `{ path, status?, contains?, json: { "a.0.b": value } }` |
 | `beside` | `[a, b]` or `{ a, b, gap_max? }`: b starts right of a's right edge and their vertical extents overlap (one row); `gap_max` caps the gap in px |
 | `below` | `[a, b]` or `{ a, b }`: b starts below a's bottom edge |
+| `inside` | `{ target, within }`: target's box lies wholly inside within's (±1px), as it is now: nothing is scrolled into view first |
 | `css` | `{ target, property, equals \| in: [..] \| not }` on the computed value, e.g. `{ target: board.column.backlog, property: display, equals: flex }` |
 | `size` | `{ target, min_width?, max_width?, min_height?, max_height? }` in CSS px, from the element's box |
 
@@ -290,20 +296,31 @@ A list such as `visible: [a, b]` becomes one check per item.
 
 ## Report
 
-- `make playtest-report ISSUE=…` lists the runs it read and their builds.
-  It warns about runs from an older build, then prints the boxes to tick,
-  the comments to post, and the steps with no result.
-- `APPLY=1` calls `issue-cli --project issue-viewer check …` and
-  `comment … --text "playtest: …"`. It records posted comments in the run's
-  `reported.yaml`, so a second APPLY doesn't repeat them.
+- `make playtest-report ISSUE=…` names the project it reports to
+  (`PLAYTEST_PROJECT`, else the worker's `ISSUE_VIEWER_PROJECT`, else the
+  configured project whose issues dir is this repo's) and lists the runs it
+  read and their builds. It warns about runs from an older build, then
+  prints the boxes to tick, the comments to post, and the steps with no
+  result.
+- `APPLY=1` calls `issue-cli --project <project> check …` and
+  `comment … --text "playtest: …"`, then reads the checklist back: a box it
+  meant to tick that is still open is named, and the run fails. It records
+  posted comments in the run's `reported.yaml`, so a second APPLY doesn't
+  repeat them.
 
 ## One screenshot (make shot)
 
-`make shot URL=<page> [W=390] [H=844] [FULL=1] [OUT=file.png]` runs
-`playtest shot`: the same browser, one page, one PNG (default 1280x800 into
-`.playtest/shot.png`; `FULL=1` takes the whole page). It waits for the load
-event and the body, then 300 ms, never for the network to go idle, so
-Workshop pages that poll don't hang it. Point it at a throwaway board (the
+`make shot URL=<page> [W=390] [H=844] [FULL=1] [SCROLL=<selector>] [OUT=file.png]`
+runs `playtest shot`: the same browser, one page, one PNG (default 1280x800
+into `.playtest/shot.png`; `FULL=1` takes the whole page). It waits for the
+load event and the body, then 300 ms, never for the network to go idle, so
+Workshop pages that poll don't hang it. Workshop pages are one screen tall
+and scroll inside (the company floor `.wb-map`, `.wb-scroll`), so on a page
+that doesn't scroll itself `FULL=1` unrolls the inner scroller hiding the
+most: it and its ancestors drop their height cap and clip, the page gets a
+resize (the roads redraw), then the full shot. `SCROLL=<selector>` unrolls
+that element instead (and implies `FULL=1`); a selector that matches nothing
+fails the shot. Point it at a throwaway board (the
 demo staged by `scripts/readme-shots.sh --serve`, or a scenario), not the
 owner's viewer.
 
@@ -312,7 +329,9 @@ owner's viewer.
 On a work branch `ISSUE` defaults to the branch's slug. `S=<session>` drops
 that default and runs the named session whoever's issue it is. With both
 `ISSUE=` and `S=` given and no match, the error names the issue filter and,
-when the session belongs to another issue, that issue.
+when the session belongs to another issue, that issue. A named session keeps its shots, and when it is another issue's its run goes
+to the project root's `.playtest/runs/`, where that issue's Evidence tab
+reads it (see the shared contract's "A session asked for by name").
 
 ## README screenshots (playtest shots)
 
@@ -339,9 +358,13 @@ example each.
 - **`cli:` runs issue-cli in the scenario folder, which names the project
   `proj`.** Per-project commands need the board's slug:
   `cli: [--project, "{project}", autostart, status]`.
-- **playtest-report defaults to the engine's board and the branch's slug.** On
-  another board pass the project, and the issue when the branch isn't
-  `work/<slug>` (a session that lives on a sibling issue's branch):
+- **playtest-report finds the board and defaults to the branch's slug.** The
+  project is `PLAYTEST_PROJECT`, else a dispatched worker's
+  `ISSUE_VIEWER_PROJECT`, else the configured project whose issues dir is this
+  repo's (the report prints it on its `project:` line). After APPLY it reads
+  the checklist back and fails naming any box still unticked. On another
+  board pass the project, and the issue when the branch isn't `work/<slug>`
+  (a session that lives on a sibling issue's branch):
   `PLAYTEST_PROJECT=dark-factory make playtest-report ISSUE=factory/yolo-mode`.
 - **The first health snapshot lands seconds after the board starts.** A step
   that reads snapshot data (Stats charts like Disk use, the Health score

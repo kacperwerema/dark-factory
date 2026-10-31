@@ -4,10 +4,10 @@
 # departments/<key>/role.md. Everything else becomes the department's entry
 # in projects.yaml. See docs/departments.md#templates.
 name: Marketing
-description: "SEO and content: refreshed client pages and posts, each reviewed by the owner before it goes out"
+description: "SEO and content: refreshed pages and posts on your site(s), each reviewed by the owner before it goes out"
 color: "#E2559B"
-role: "SEO and content for the client sites"
-mission: "Every client site refreshed every week"
+role: "SEO and content for your site(s)"
+mission: "Your site(s) refreshed every week"
 # Channels are types of work in the marketing workflow, each with a system
 # of the same name (its room and board filter): seo-pass ↔ SEO. Add PPC,
 # Social or Outreach here when you uncomment their type in
@@ -16,7 +16,7 @@ systems: [SEO]
 workflow: marketing
 goals:
   - id: pages
-    name: Client pages refreshed
+    name: Pages refreshed
     target: 10
     period: week
   - id: posts

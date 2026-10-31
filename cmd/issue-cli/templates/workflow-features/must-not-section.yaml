@@ -1,0 +1,34 @@
+id: must-not-section
+version: v0.59.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["internal/tracker/mustnot.go", "internal/lint/criteria.go"]
+title: "## Must not: what a change must not do"
+what: |
+  The idea → in design edge appends `## Must not` after Acceptance Criteria: plain bullets,
+  one thing the change must not do per line (not checkboxes: nobody ticks them, no gate
+  counts them). A line may name a test or a command in backticks, as a criterion does, so
+  the fresh critic can run it when it checks the diff against the list
+  (`tracker.MustNot` reads the lines). Lint check `criteria` warns about an issue past
+  design whose Must not still holds only the placeholder, and about open acceptance
+  criteria no test, command or playtest step could fail; the same criteria warnings print
+  when the issue leaves design.
+why: |
+  Acceptance criteria say what the change does; nothing said what it must leave alone, so
+  a reviewer had only the agent's word that nothing else moved. A short list written at
+  design gives the critic something to check the diff against.
+where: "the idea → in design transition, next to the Acceptance Criteria append_section"
+question: "Should each issue list what its change must not do, for the critic to check the diff against?"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "in design"
+      actions:
+        - type: "append_section"
+          title: "Must not"
+          body: |
+            - <what this change must not do; name a test or a command in backticks when one can catch it>
+detect:
+  - path: transitions[].actions[].title
+    contains: "Must not"

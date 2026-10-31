@@ -70,12 +70,13 @@ func TestNeedsYouCountsMatchEverywhere(t *testing.T) {
 		t.Fatal("list count is not 3")
 	}
 	checks := map[string][]string{
-		"/p/status/?classic=1":       {`href="/p/status/needs-you" class="chip chip-amber nav-count nav-split-count"`, `data-testid="nav.tab.status.count">3</a>`},
-		"/p/status/status?classic=1": {`data-testid="status.waiting.count">3</span>`, `href="/p/status/needs-you" data-testid="status.waiting.all"`},
-		"/p/status/status":           {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`, `data-testid="report.action.needs_you"`},
-		"/p/status/company":          {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
-		"/p/status/hall":             {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
-		"/":                          {`href="/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
+		"/p/status/?classic=1":        {`href="/p/status/needs-you" class="chip chip-amber nav-count nav-split-count"`, `data-testid="nav.tab.status.count">3</a>`},
+		"/p/status/status?classic=1":  {`data-testid="status.waiting.count">3</span>`, `href="/p/status/needs-you" data-testid="status.waiting.all"`},
+		"/p/status/status":            {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`, `data-testid="report.action.needs_you"`},
+		"/p/status/company?classic=1": {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
+		"/p/status/company":           {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-fl-you-mark">!</span>3 waiting on you`, `Waiting on you · 3`},
+		"/p/status/hall":              {`href="/p/status/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
+		"/":                           {`href="/needs-you" data-testid="map.waiting"><span class="wb-you-mark">!</span>3 waiting on you`},
 	}
 	for path, wants := range checks {
 		_, body := getResp(t, url+path)

@@ -1,0 +1,28 @@
+session: phone-company-floor
+issue: factory/company-floor-v2-the-whole-company-on-one-screen-a-fixed-map-with-an-inspector-panel
+title: "The company floor at phone width: the rail under the floor, controls tappable"
+scenario: company-floor
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP11
+    title: At 390px the rail drops under the floor; the tabs and the Rooms list are at least 44px tall, and a room opens from the list
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/company
+    act:
+      # The floor is scaled to fit the phone (about 0.35): its room names
+      # are too small to tap, so the rail's Rooms list is the way to a room.
+      - click: floor.rooms.link
+    checks:
+      - visible: [floor.view, floor.rail]
+      - below: [floor.view, floor.rail]
+      - text_contains: { target: floor.tab.room, text: "HQ" }
+      - size: { target: floor.tab.room, min_height: 44 }
+      - size: { target: floor.rooms.link, min_height: 44 }
+      # Nothing on the floor takes a touch: a swipe scrolls the page.
+      - css: { target: floor.view, property: touch-action, equals: "auto" }

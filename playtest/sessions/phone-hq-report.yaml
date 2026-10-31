@@ -1,0 +1,33 @@
+session: phone-hq-report
+issue: ui/phone-width-pass-needs-you-the-station-the-ceo-chat-the-shelf-reader-and-the-hq-report-work-at-390px
+title: "The HQ Report and the company page header at phone width"
+scenario: hq-report
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP5
+    title: The HQ Report at 390px fits the screen; Expand all, Markdown and each headline are 44px tall
+    proves: [AC1, AC2]
+    setup:
+      - cli: [health, snapshot]
+      - open: /p/{project}/hq/report
+    checks:
+      - visible: [hq_report.page, hq_report.expand, hq_report.md, hq_report.headline.marketing]
+      - size: { target: hq_report.expand, min_height: 44 }
+      - size: { target: hq_report.md, min_height: 44 }
+      - size: { target: hq_report.headline.marketing, min_height: 44 }
+
+  - id: TP6
+    title: The company page header at 390px fits the screen; its links are 44px tall
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/company?classic=1
+    checks:
+      - visible: [map.brand, map.owner, company.room.hq]
+      - size: { target: map.brand, min_height: 44 }
+      - size: { target: map.owner, min_height: 44 }
+      - size: { target: map.waiting, min_height: 44 }

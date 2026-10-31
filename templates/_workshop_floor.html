@@ -1,0 +1,246 @@
+{{/*
+Workshop Board components of the company floor (L1, /p/<project>/company;
+factory/company-floor-v2-…). View models in company_floor.go, styles in
+static/workshop.css ("L1: the company floor"), behaviour in
+static/company-floor.js. Tiles have a fixed size from the plan; what does not
+fit is in the inspector. The classic company page is at ?classic=1.
+
+  wb/fl-header     one header row: crumbs, goal chips, counts      data: FloorData
+  wb/fl-yolo       the 34px YOLO strip (and the YOLO script's hook)  data: WbYOLO
+  wb/fl-tile       one room on the plan (HQ, Product, dept, wing, plot)  data: FloorTile
+  wb/fl-stations   a line as a fixed strip                         data: FloorTile
+  wb/fl-sub        a department or nested group inside a wing      data: FloorSub
+  wb/fl-roads      corridors and connection roads under the tiles  data: FloorPlan
+  wb/fl-rail       Waiting on you, Room | After YOLO, message box  data: FloorData
+  wb/fl-insp       one room in the rail                            data: FloorInspector
+  wb/fl-num        one of a tile's three numbers                   data: FloorNum
+  wb/fl-goals      a tile's goals as bars (detail level)           data: []WbGoal
+*/}}
+
+{{define "wb/fl-header"}}
+<header class="wb-fl-header">
+    <a class="wb-fl-logo" href="/" title="Dark Factory: the map" data-testid="map.brand"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/></svg></a>
+    <nav class="wb-fl-crumbs" aria-label="Level">
+        <a class="wb-fl-crumb" href="/">Map</a>
+        <span aria-hidden="true" class="wb-crumb-sep">›</span>
+        <span class="wb-fl-crumb wb-fl-crumb--on" aria-current="page"><i class="wb-fl-crumb-sq" style="background:{{.Lot.Color}}"></i>{{.Lot.Name}}</span>
+    </nav>
+    <div class="wb-fl-goals">{{range .Header.Goals}}<span class="wb-fl-goal{{if .Off}} wb-fl-goal--off{{end}}" title="Goal: {{if .Title}}{{.Title}}{{else}}{{.Progress.Label}}{{end}}" data-testid="floor.goal"><span class="wb-fl-goal-name">{{.Progress.Label}}</span><span class="wb-fl-goal-bar"><i style="width:{{.Progress.Pct}}%"></i></span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span>{{end}}</div>
+    <span class="wb-grow"></span>
+    {{with .Header.YOLO}}{{if not .On}}{{template "wb/yolo-switch" .}}{{end}}{{end}}
+    {{if .AfterYOLO}}<a class="wb-fl-after" href="{{.YOLOReviewURL}}" title="Issues YOLO moved without you, waiting for your review" data-testid="floor.after_yolo"><i class="wb-fl-hazard-sq" aria-hidden="true"></i>{{.AfterYOLO}} after the fact</a>{{end}}
+    <a class="wb-fl-you{{if not .Waiting}} wb-fl-you--calm{{end}}" href="{{.Header.WaitingURL}}" data-testid="map.waiting"><span class="wb-fl-you-mark">!</span>{{.Waiting}} waiting on you</a>
+    <a class="wb-fl-avatar" href="/owner" title="You: owner sign-in (approvals and other owner decisions need it)" data-testid="map.owner">YOU</a>
+</header>
+{{end}}
+
+{{define "wb/fl-yolo"}}<div class="wb-yolo-hook" data-yolo-prefix="{{.Prefix}}" hidden></div>{{if .On}}
+<div class="wb-fl-yolo" role="status" data-testid="floor.yolo">
+    <form class="wb-fl-yolo-card">
+        <span class="wb-fl-yolo-tag">YOLO</span>
+        <b data-testid="floor.yolo.since">since {{.Since}} · {{if eq .End "until turned off"}}until turned off{{else}}until {{.End}}{{end}}</b>
+        <span class="wb-fl-yolo-meta"><span data-testid="floor.yolo.passed">{{.Passed}} passed</span>{{with .Valves}} · {{.}}{{end}}</span>
+        {{if .Never}}<span class="wb-fl-yolo-never" tabindex="0" title="{{.NeverList}}" data-testid="floor.yolo.never">never passes: {{.Never}}</span>{{end}}
+        <details class="wb-fl-yolo-extend">
+            <summary class="wb-fl-yolo-btn" data-testid="floor.yolo.extend">Extend</summary>
+            <div class="wb-fl-yolo-menu" role="group" aria-label="Extend YOLO">
+                <button type="button" class="wb-fl-yolo-btn" data-yolo="extend" data-until="08:00">until 08:00</button>
+                <button type="button" class="wb-fl-yolo-btn" data-yolo="extend" data-until="4h">4 more hours</button>
+                <button type="button" class="wb-fl-yolo-btn" data-yolo="extend" data-until="off">until turned off</button>
+            </div>
+        </details>
+        <button type="button" class="wb-fl-yolo-btn wb-fl-yolo-btn--ink" data-yolo="off" data-testid="floor.yolo.off">Turn off</button>
+        <span class="wb-site-msg wb-fl-yolo-msg" role="status"></span>
+    </form>
+</div>
+{{end}}{{end}}
+
+{{define "wb/fl-num"}}<div class="wb-fl-num{{with .Tone}} wb-fl-num--{{.}}{{end}}"{{with .Title}} title="{{.}}"{{end}}><div class="wb-fl-num-v">{{.Value}}</div><div class="wb-fl-num-l">{{.Label}}</div></div>{{end}}
+
+{{define "wb/fl-stations"}}<div class="wb-fl-line" style="--col:{{.StationW}}px" data-testid="floor.line">
+    <div class="wb-fl-belt" aria-hidden="true"></div>
+    <ol class="wb-fl-stations">
+        {{range .Stations}}<li class="wb-fl-st{{if .Gate}} wb-fl-st--gate{{end}}{{if .Owner}} wb-fl-st--owner{{end}}" title="{{.Title}}">
+            <div class="wb-fl-st-bots">{{range .Crew.Robots}}{{template "wb/robot" .}}{{end}}{{if .Crew.More}}<span class="wb-more wb-more--sm">+{{.Crew.More}}</span>{{end}}</div>
+            <div class="wb-fl-st-box">{{.Count}}</div>
+            <div class="wb-fl-st-label">{{if not .Gate}}{{stripLabel .Label}}{{end}}</div>
+        </li>{{end}}
+        {{if .More}}<li class="wb-fl-st wb-fl-st--more"><div class="wb-fl-st-bots"></div><a class="wb-fl-st-box" href="#room-{{.Box}}" data-pick="{{.Box}}" title="{{.More}} more stations: every station is in the inspector's Line">+{{.More}}</a><div class="wb-fl-st-label">more</div></li>{{end}}
+    </ol>
+</div>{{end}}
+
+{{define "wb/fl-sub"}}<div class="wb-fl-sub{{if .Chips}} wb-fl-sub--group{{end}}{{if .More}} wb-fl-sub--more{{end}}" style="left:{{.X}}px;top:{{.Y}}px;width:{{.W}}px;height:{{.H}}px" data-box="{{.Box}}" data-testid="floor.sub">
+    <a class="wb-fl-subhead" href="#room-{{.Box}}" data-pick="{{.Box}}" draggable="false"{{if not .Chips}}{{with .Room.Head.Color}} style="background:{{.}}"{{end}}{{end}} data-testid="floor.head.{{.Box}}"><span class="wb-fl-name">{{.Room.Head.Title}}</span>{{if .Room.Lead.Live}}<span class="wb-fl-pill"><i class="wb-fl-dot wb-fl-dot--green"></i>lead live</span>{{end}}</a>
+    <a class="wb-fl-chat wb-fl-chat-go wb-fl-subchat" href="{{.Room.Lead.ChatURL}}" draggable="false" data-testid="floor.sub.chat" title="Chat with the {{.Room.Lead.Who}}">Chat<span class="wb-fl-chat-more"> with the lead</span> →</a>
+    <div class="wb-fl-subbody">
+        {{if .Chips}}<ul class="wb-fl-chips">{{range .Chips}}<li><a class="wb-fl-chip" href="#room-{{.Box}}" data-pick="{{.Box}}" draggable="false" data-testid="floor.chip"><i class="wb-fl-dot"{{with .Color}} style="background:{{.}}"{{end}}></i>{{.Title}}{{with .Note}} <span class="wb-muted">· {{.}}</span>{{end}}</a></li>{{end}}{{if .More}}<li><a class="wb-fl-chip wb-fl-chip--more" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.chip.more">+{{.More}} more</a></li>{{end}}</ul>
+        {{else}}{{with .Room}}
+        {{with or .Role .Mission}}<div class="wb-fl-sentence">{{.}}</div>{{end}}
+        {{if .Stations}}<div class="wb-fl-mini" role="img" aria-label="{{len .Stations}} stations from {{.WorkflowFile}}">{{range .Stations}}<span class="{{if .Gate}}wb-fl-mini--gate{{end}}{{if .Owner}} wb-fl-mini--owner{{end}}" title="{{if .Gate}}gate: {{.Title}}{{else}}{{.Label}}{{end}}">{{.Count}}</span>{{end}}</div>{{end}}
+        {{range $i, $j := .Jobs}}{{if eq $i 0}}<div class="wb-fl-job{{if eq .State "waits"}} wb-fl-job--you{{end}}"><b>{{.Name}}</b> · {{.Schedule}}{{if eq .State "waits"}} · <span class="wb-fl-you-text">due · waits for you</span>{{else if eq .State "due"}} · due{{end}}</div>{{end}}{{end}}
+        <div class="wb-fl-lod-detail" data-testid="floor.lod.detail">{{template "wb/fl-goals" .Goals}}{{with .Spend}}<div class="wb-fl-spendline">{{.Line}}</div>{{end}}</div>
+        <div class="wb-grow"></div>
+        <div class="wb-fl-badges">{{range $i, $f := .Foot}}{{if lt $i 3}}<span{{with .Tone}} class="wb-fl-badge--{{.}}"{{end}}{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</span>{{end}}{{end}}</div>
+        {{end}}{{end}}
+    </div>
+</div>{{end}}
+
+{{define "wb/fl-goals"}}{{if .}}<div class="wb-fl-tgoals">{{range $i, $g := .}}{{if lt $i 3}}<div class="wb-fl-tgoal" title="{{if .Title}}{{.Title}}{{else}}{{.Progress.Label}}{{end}}"><span>{{.Progress.Label}}</span><span class="wb-fl-goal-bar"><i style="width:{{.Progress.Pct}}%"></i></span><span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span></div>{{end}}{{end}}</div>{{end}}{{end}}
+
+{{define "wb/fl-tile"}}
+{{if eq .Kind "hq"}}{{with .HQ}}
+<div class="wb-fl-tile" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="{{$.Box}}" data-box="{{$.Box}}" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-spawn-box data-testid="floor.tile.hq">
+    <a class="wb-fl-head" href="#room-{{$.Box}}" data-pick="{{$.Box}}" draggable="false" style="background:{{$.Color}}" data-testid="floor.head.hq"><span class="wb-fl-name">{{$.Title}}</span><span class="wb-fl-meta">{{.Head.Meta}}</span></a>
+    <div class="wb-fl-body">
+        <a class="wb-fl-ceo wb-fl-chat" href="{{.Desk.ChatURL}}" draggable="false" title="Chat with the CEO" data-testid="floor.hq.chat"><div class="wb-fl-ceobot{{if .Desk.CEO.Live}} wb-bob{{else}} wb-fl-ceobot--off{{end}}" style="--body:{{.Desk.Color}}" aria-hidden="true"><svg width="18" height="11" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.4" stroke-linejoin="round"/></svg><span class="wb-fl-ceobot-body"><i></i><i></i></span></div><span class="wb-fl-mono">{{.Desk.CEO.Session}}</span><span class="wb-fl-chat-go">Chat<span class="wb-fl-chat-more"> with the CEO</span> →</span></a>
+        <div class="wb-fl-quote" data-testid="floor.hq.quote">{{if .Desk.CEO.Quote}}“{{.Desk.CEO.Quote}}”{{else if .Desk.CEO.Live}}The CEO is working and has not said anything yet.{{else}}The CEO is not running.{{end}}</div>
+        {{if not .Desk.CEO.Live}}<button type="button" class="wb-fl-btn" data-spawn-lead="{{.Desk.SpawnURL}}" data-testid="floor.hq.start">▶ Start CEO</button><div class="wb-site-msg" role="status"></div>{{end}}
+        <div class="wb-fl-lod-normal" data-testid="floor.lod.normal">{{with .Shelf}}<a class="wb-fl-outline" href="{{.URL}}">📦 {{if .ToReview}}<b class="wb-fl-you-text">{{.ToReview}} to review</b>{{else}}outputs{{end}}{{with .Latest}} · {{len .}} latest{{end}}</a>{{end}}</div>
+        <div class="wb-fl-lod-detail" data-testid="floor.lod.detail">{{template "wb/fl-goals" $.Goals}}{{with .Spend}}<div class="wb-fl-spendline">{{.Line}}</div>{{end}}</div>
+        <div class="wb-grow"></div>
+        <div class="wb-fl-nums">{{range $.Nums}}{{template "wb/fl-num" .}}{{end}}</div>
+    </div>
+</div>
+{{end}}{{else if eq .Kind "product"}}{{with .Product}}
+<div class="wb-fl-tile{{if and .YOLO .YOLO.On}} wb-fl-tile--yolo{{end}}" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="{{$.Box}}" data-box="{{$.Box}}" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-testid="floor.tile.product">
+    <a class="wb-fl-head" href="#room-{{$.Box}}" data-pick="{{$.Box}}" draggable="false" style="background:{{$.Color}}" data-testid="floor.head.product"><span class="wb-fl-name">{{$.Title}}</span><span class="wb-grow"></span>{{range .Head.Chips}}<span class="wb-fl-pill{{if eq .Tone "green"}} wb-fl-pill--green{{else if eq .Tone "red"}} wb-fl-pill--red{{end}}"{{with .Title}} title="{{.}}"{{end}}>{{if .Dot}}<i class="wb-fl-dot wb-fl-dot--{{.Tone}}"></i>{{end}}{{.Text}}</span>{{end}}{{if and .YOLO (or .YOLO.On .YOLO.Queue)}}<span class="wb-fl-yolo-pill" title="Issues YOLO moved without you, waiting for review after the fact" data-testid="floor.product.yolo">YOLO · {{len .YOLO.Queue}}</span>{{else if .Waiting}}<span class="wb-fl-pill wb-fl-pill--you">! {{.Waiting}}</span>{{end}}</a>
+    <div class="wb-fl-body wb-fl-body--product">
+        {{template "wb/fl-stations" $}}
+        <div class="wb-fl-lod-normal" data-testid="floor.lod.normal">{{with .Shelf}}<a class="wb-fl-outline" href="{{.URL}}">📦 {{if .ToReview}}<b class="wb-fl-you-text">{{.ToReview}} to review</b> · {{end}}{{.Week}} made this week</a>{{end}}</div>
+        <div class="wb-fl-lod-detail wb-fl-lod-row" data-testid="floor.lod.detail">{{template "wb/fl-goals" $.Goals}}{{with .Spend}}<div class="wb-fl-spendline">{{.Line}}</div>{{end}}</div>
+        <div class="wb-grow"></div>
+        <div class="wb-fl-pfoot">
+            {{range $i, $f := .Foot}}{{if lt $i 2}}{{if .URL}}<a href="{{.URL}}"{{with .Tone}} class="wb-fl-badge--{{.}}"{{end}}>{{.Text}}</a>{{else}}<span{{with .Tone}} class="wb-fl-badge--{{.}}"{{end}}>{{.Text}}</span>{{end}}{{end}}{{end}}
+            {{with .Spend}}{{if not .Empty}}<span class="wb-muted-2" title="{{.Line}}">{{.Tokens}} tokens/wk</span>{{end}}{{end}}
+            {{if and .YOLO .YOLO.On}}<span class="wb-fl-key-yolo"><i aria-hidden="true"></i>gate open — review after</span>{{else}}<span class="wb-fl-key-gate"><i aria-hidden="true"></i>gate = your decision</span>{{end}}
+            <span class="wb-grow"></span>
+            <a class="wb-fl-ink" href="{{.HallURL}}" data-testid="floor.enter_hall">Enter the hall →</a>
+        </div>
+    </div>
+</div>
+{{end}}{{else if eq .Kind "dept"}}{{with .Dept}}
+<div class="wb-fl-tile{{if .Added}} wb-fl-tile--added{{end}}" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="{{$.Box}}" data-box="{{$.Box}}" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-spawn-box data-testid="floor.tile.dept">
+    <a class="wb-fl-head" href="#room-{{$.Box}}" data-pick="{{$.Box}}" draggable="false"{{with $.Color}} style="background:{{.}}"{{end}} data-testid="floor.head.{{$.Box}}"><span class="wb-fl-name">{{$.Title}}</span><span class="wb-grow"></span>{{range .Head.Chips}}<span class="wb-fl-pill{{if eq .Tone "red"}} wb-fl-pill--red{{end}}">{{.Text}}</span>{{end}}</a>
+    <div class="wb-fl-body">
+        <div class="wb-fl-leadrow"><span class="wb-fl-leadbot{{if not .Lead.Live}} wb-fl-leadbot--off{{end}}" style="--body:{{.Lead.Color}}" aria-hidden="true"><i></i><i></i></span><span class="wb-fl-leadword">{{if .Lead.Live}}lead live{{else}}lead not running{{end}}</span>{{template "wb/robots" .Crew}}</div>
+        <a class="wb-fl-chat wb-fl-chat-go" href="{{.Lead.ChatURL}}" draggable="false" data-testid="floor.dept.chat" title="Chat with the {{.Lead.Who}}">Chat<span class="wb-fl-chat-more"> with the lead</span> →</a>
+        {{if not .Lead.Live}}<button type="button" class="wb-fl-btn" data-spawn-lead="{{.Lead.SpawnURL}}" data-testid="floor.dept.start">▶ Start lead</button><div class="wb-site-msg" role="status"></div>{{end}}
+        {{with $.Sentence}}<div class="wb-fl-sentence">{{.}}</div>{{end}}
+        {{if $.Stations}}{{template "wb/fl-stations" $}}{{end}}
+        {{with $.Job}}<div class="wb-fl-job{{if eq .State "waits"}} wb-fl-job--you{{end}}" data-testid="floor.job"><b>{{.Name}}</b> · {{.Schedule}}{{if eq .State "waits"}}<br><span class="wb-fl-you-text">due · waits for you</span>{{else if eq .State "due"}} · due{{end}}</div>{{end}}
+        <div class="wb-fl-lod-normal" data-testid="floor.lod.normal">{{template "wb/shelf-link" .Shelf}}</div>
+        <div class="wb-fl-lod-detail" data-testid="floor.lod.detail">{{template "wb/fl-goals" $.Goals}}{{with .Spend}}<div class="wb-fl-spendline">{{.Line}}</div>{{end}}</div>
+        <div class="wb-grow"></div>
+        <div class="wb-fl-badges">{{range $.Badges}}<span{{with .Tone}} class="wb-fl-badge--{{.}}"{{end}}{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</span>{{end}}</div>
+    </div>
+</div>
+{{end}}{{else if eq .Kind "group"}}{{with .Dept}}
+<div class="wb-fl-tile" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="{{$.Box}}" data-box="{{$.Box}}" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-testid="floor.tile.group">
+    <a class="wb-fl-head wb-fl-head--group" href="#room-{{$.Box}}" data-pick="{{$.Box}}" draggable="false" data-testid="floor.head.{{$.Box}}"><span class="wb-fl-name">{{$.Title}}</span><span class="wb-fl-wingword">wing · {{plural (len .Children) "department" "departments"}} under one lead</span><span class="wb-grow"></span>{{if .Waiting}}<span class="wb-fl-pill wb-fl-pill--you" data-testid="floor.group.waiting">! {{.Waiting}}</span>{{end}}<span class="wb-fl-meta">{{.Head.Meta}}</span></a>
+    <div class="wb-fl-wingbody">
+        <div class="wb-fl-wlead" style="width:{{$.LeadW}}px" data-spawn-box>
+            <div class="wb-fl-leadrow"><span class="wb-fl-leadbot{{if not .Lead.Live}} wb-fl-leadbot--off{{end}}" style="--body:{{.Lead.Color}}" aria-hidden="true"><i></i><i></i></span><span class="wb-fl-leadword">{{if .Lead.Live}}lead live{{else}}lead not running{{end}}</span></div>
+            <a class="wb-fl-chat wb-fl-chat-go" href="{{.Lead.ChatURL}}" draggable="false" data-testid="floor.group.chat" title="Chat with the {{.Lead.Who}}">Chat<span class="wb-fl-chat-more"> with the lead</span> →</a>
+            {{if not .Lead.Live}}<button type="button" class="wb-fl-btn" data-spawn-lead="{{.Lead.SpawnURL}}" data-testid="floor.group.start">▶ Start lead</button><div class="wb-site-msg" role="status"></div>{{end}}
+            {{range $i, $g := .Goals}}{{if eq $i 0}}<div class="wb-fl-wgoal" title="{{if .Title}}{{.Title}}{{else}}{{.Progress.Label}}{{end}}"><div><span>{{.Progress.Label}}</span><span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span></div><span class="wb-fl-goal-bar wb-fl-goal-bar--full"><i style="width:{{.Progress.Pct}}%"></i></span></div>{{end}}{{end}}
+            {{with $.Job}}<div class="wb-fl-job{{if eq .State "waits"}} wb-fl-job--you{{end}}" data-testid="floor.job"><b>{{.Name}}</b> · {{.Schedule}}{{if eq .State "waits"}}<br><span class="wb-fl-you-text">due · waits for you</span>{{else if eq .State "due"}} · due{{end}}</div>{{end}}
+            <div class="wb-fl-lod-detail" data-testid="floor.lod.detail">{{with .Spend}}<div class="wb-fl-spendline">{{.Line}}</div>{{end}}</div>
+            <div class="wb-grow"></div>
+            <div class="wb-fl-badges wb-fl-badges--col">{{range $.Badges}}<span{{with .Tone}} class="wb-fl-badge--{{.}}"{{end}}{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</span>{{end}}</div>
+        </div>
+        {{range $.Subs}}{{template "wb/fl-sub" .}}{{end}}
+        {{with $.Slot}}{{if .URL}}<a class="wb-fl-slot" href="{{.URL}}" style="left:{{.X}}px;top:{{.Y}}px;width:{{.W}}px;height:{{.H}}px" data-testid="floor.slot"><span class="wb-fl-plus wb-fl-plus--sm">+</span><b>{{.Label}}</b><span>empty slot</span></a>{{else}}<div class="wb-fl-slot" style="left:{{.X}}px;top:{{.Y}}px;width:{{.W}}px;height:{{.H}}px" data-testid="floor.slot"><span class="wb-fl-plus wb-fl-plus--sm">+</span><b>{{.Label}}</b><span>empty slot</span></div>{{end}}{{end}}
+    </div>
+</div>
+{{end}}{{else if eq .Kind "new"}}{{with .NewDept}}
+<div class="wb-fl-plot" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="new" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-testid="floor.new_dept">
+    {{if and .FormURL .Templates}}<details class="wb-fl-plot-form" data-testid="company.new_dept">
+        <summary class="wb-fl-plot-face" data-testid="tile.{{.Tile.TestID}}"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{len .Templates}} template{{if ne (len .Templates) 1}}s{{end}} left</span></summary>
+        <form class="wb-fl-plot-pop" method="get" action="{{.FormURL}}" data-testid="company.new_dept.form">
+            {{range .Templates}}<label class="wb-newdept-choice" data-testid="company.new_dept.template.{{tid .Key}}"><input type="radio" name="template" value="{{.Key}}"{{if .Checked}} checked{{end}}><span><b>{{.Name}}</b> <span class="wb-newdept-meta">{{.Description}}</span></span></label>{{end}}
+            {{with .Groups}}<label class="wb-newdept-name">Under which group? <select name="parent" data-testid="company.new_dept.parent"><option value="">None: straight under HQ</option>{{range .}}<option value="{{.Key}}">{{.Name}}</option>{{end}}</select></label>{{end}}
+            <button type="submit" class="wb-fl-ink" data-testid="company.new_dept.preview">Preview →</button>
+            <span class="wb-newtile-note">Nothing is written until you press Add on the next page.</span>
+        </form>
+    </details>{{else}}<div class="wb-fl-plot-face" data-testid="tile.{{.Tile.TestID}}" title="{{.Tile.Note}}"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{if .Tile.Sub}}{{.Tile.Sub}}{{end}}</span></div>{{end}}
+</div>
+{{end}}{{end}}
+{{end}}
+
+{{define "wb/fl-roads"}}<svg class="wb-fl-roads" width="{{.W}}" height="{{.H}}" viewBox="0 0 {{.W}} {{.H}}" role="group" aria-label="Roads between the rooms" data-testid="floor.roads">
+    <g class="wb-fl-corr-bed" aria-hidden="true">{{range .Corridors}}<polyline points="{{.Points}}"/>{{end}}</g>
+    <g class="wb-fl-corr-line" aria-hidden="true">{{range .Corridors}}<polyline points="{{.Points}}"/>{{end}}</g>
+    {{range .Roads}}<a href="{{.URL}}" class="wb-fl-road{{if .Traffic}} wb-fl-road--traffic{{end}}{{if .Undeclared}} wb-fl-road--off{{end}}" data-a="{{.A}}" data-b="{{.B}}" data-testid="floor.road"><title>{{.Title}}</title><polyline class="wb-fl-road-bed" points="{{.Points}}"/><polyline class="wb-fl-road-line" points="{{.Points}}"/>{{if .ShowCounter}}<circle cx="{{.LabelX}}" cy="{{.LabelY}}" r="9"/><text x="{{.LabelX}}" y="{{.LabelY}}" dy="4" text-anchor="middle">{{.Count}}</text>{{end}}</a>{{end}}
+</svg>{{end}}
+
+{{define "wb/fl-insp"}}<section class="wb-fl-insp" id="room-{{.Box}}" data-room="{{.Box}}" data-title="{{.Title}}"{{if not .Open}} hidden{{end}} data-testid="floor.inspector.{{.Box}}">
+    <div class="wb-fl-insp-title"><span class="wb-fl-insp-sq{{if eq .Kind "group"}} wb-fl-insp-sq--group{{end}}"{{if ne .Kind "group"}}{{with .Color}} style="background:{{.}}"{{end}}{{end}}></span><h2>{{.Title}}</h2></div>
+    <div class="wb-fl-insp-who"><span class="wb-fl-mono">{{.Lead}}</span><span class="wb-fl-state wb-fl-state--{{.StateTone}}">{{.State}}</span></div>
+    {{with .ChatURL}}<a class="wb-fl-ink wb-fl-insp-chat" href="{{.}}" data-testid="floor.chat">{{$.Chat}}</a>{{end}}
+    {{with .Note}}<p class="wb-fl-insp-note">{{.}}</p>{{end}}
+    {{with .HQ}}
+        {{with .Shelf}}<div class="wb-fl-isec"><h3>OUTPUTS{{with .Latest}} · {{len .}}{{end}}{{if $.HQ.Shelf.ToReview}} · {{$.HQ.Shelf.ToReview}} TO REVIEW{{end}}</h3><div class="wb-fl-isec-body">{{template "wb/hq-shelf" .}}</div></div>{{end}}
+        <div class="wb-fl-isec"><h3>WORK</h3>{{range .Foot}}{{if not .URL}}<div class="wb-fl-irow"><span>{{.Text}}</span></div>{{end}}{{end}}</div>
+        {{with .Goals}}<div class="wb-fl-isec"><h3>GOALS</h3><div class="wb-fl-isec-body">{{range .}}<div class="wb-rollup-goal">{{template "wb/goal" .Goal}}{{range .Children}}<div class="wb-rollup-child">{{template "wb/goal" .}}</div>{{end}}</div>{{end}}</div></div>{{end}}
+        {{with .Spend}}<div class="wb-fl-isec"><h3>SPEND · THIS WEEK</h3><div class="wb-fl-isec-body">{{template "wb/room-spend" .}}</div></div>{{end}}
+        {{with .Handoffs}}<div class="wb-fl-isec"><h3>HANDOFFS</h3><div class="wb-fl-isec-body">{{template "wb/room-handoffs" .}}</div></div>{{end}}
+        <div class="wb-fl-isec"><h3>MORE</h3>{{range .Foot}}{{if .URL}}<a class="wb-fl-irow" href="{{.URL}}"{{with .Title}} title="{{.}}"{{end}}><span>{{.Text}}</span></a>{{end}}{{end}}</div>
+    {{end}}
+    {{with .Product}}
+        <div class="wb-fl-isec" id="room-product-line"><h3>LINE · workflow.yaml</h3>{{range .Stations}}<div class="wb-fl-irow"><span>{{if .Gate}}gate · {{.Title}}{{else}}{{.Label}}{{end}}</span><b>{{.Count}}</b></div>{{end}}</div>
+        {{if and .YOLO .YOLO.On}}<div class="wb-fl-isec"><h3>YOLO</h3><div class="wb-fl-irow"><span>Passed without you</span><b>{{.YOLO.Passed}}</b>{{if .YOLO.Queue}}<a class="wb-fl-tag wb-fl-tag--you" href="#yolo" data-tab-go="yolo">{{len .YOLO.Queue}} to review</a>{{end}}</div></div>{{end}}
+        {{with .AllGoals}}<div class="wb-fl-isec"><h3>GOALS · {{len .}}</h3><div class="wb-fl-isec-body">{{template "wb/room-goals" .}}</div></div>{{end}}
+        {{with .Shelf}}<div class="wb-fl-isec"><h3>OUTPUTS</h3><div class="wb-fl-isec-body">{{template "wb/shelf-link" .}}</div></div>{{end}}
+        {{with .Spend}}<div class="wb-fl-isec"><h3>SPEND · THIS WEEK</h3><div class="wb-fl-isec-body">{{template "wb/room-spend" .}}</div></div>{{end}}
+        {{with .Handoffs}}<div class="wb-fl-isec"><h3>HANDOFFS</h3><div class="wb-fl-isec-body">{{template "wb/room-handoffs" .}}</div></div>{{end}}
+        <div class="wb-fl-isec"><h3>MORE</h3>{{range .Foot}}<div class="wb-fl-irow">{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else}}<span>{{.Text}}</span>{{end}}</div>{{end}}</div>
+    {{end}}
+    {{with .Dept}}
+        <div class="wb-fl-isec-body wb-fl-insp-lead">{{template "wb/dept-lead" .Lead}}{{template "wb/robots" .Crew}}</div>
+        {{with $.Children}}<div class="wb-fl-isec"><h3>DEPARTMENTS · {{len .}}</h3>{{range .}}<a class="wb-fl-irow" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.inspector.child"><i class="wb-fl-dot"{{with .Color}} style="background:{{.}}"{{end}}></i><span>{{.Title}}</span>{{with .Note}}<span class="wb-muted">{{.}}</span>{{end}}<span class="wb-qrow-go">›</span></a>{{end}}</div>{{end}}
+        {{with .AllGoals}}<div class="wb-fl-isec"><h3>GOALS · {{len .}}</h3><div class="wb-fl-isec-body">{{template "wb/room-goals" .}}</div></div>{{end}}
+        {{with .Jobs}}<div class="wb-fl-isec"><h3>JOBS</h3><div class="wb-fl-isec-body">{{template "wb/room-jobs" .}}</div></div>{{end}}
+        {{with .Stations}}<div class="wb-fl-isec"><h3>LINE · {{$.Dept.WorkflowFile}}</h3>{{range .}}<div class="wb-fl-irow"><span>{{if .Gate}}gate · {{.Title}}{{else}}{{.Label}}{{end}}</span><b>{{.Count}}</b></div>{{end}}</div>{{end}}
+        {{with .WorkflowError}}<div class="wb-dept-error" role="alert">{{.}}</div>{{end}}
+        {{with .Shelf}}<div class="wb-fl-isec"><h3>OUTPUTS</h3><div class="wb-fl-isec-body">{{template "wb/shelf-link" .}}</div></div>{{end}}
+        {{with .Week}}<div class="wb-fl-isec"><h3>WEEK</h3><div class="wb-fl-isec-body">{{template "wb/week-report" .}}</div></div>{{end}}
+        {{with .Connectors}}<div class="wb-fl-isec"><h3>CONNECTORS</h3><div class="wb-fl-isec-body">{{template "wb/connectors" .}}</div></div>{{end}}
+        {{with .Spend}}<div class="wb-fl-isec"><h3>SPEND · THIS WEEK</h3><div class="wb-fl-isec-body">{{template "wb/room-spend" .}}</div></div>{{end}}
+        {{with .Handoffs}}<div class="wb-fl-isec"><h3>HANDOFFS</h3><div class="wb-fl-isec-body">{{template "wb/room-handoffs" .}}</div></div>{{end}}
+        {{with .Systems}}<div class="wb-fl-isec"><h3>SYSTEMS</h3><div class="wb-fl-irow"><span>{{.}}</span></div></div>{{end}}
+        {{with .Foot}}<div class="wb-fl-isec"><h3>NUMBERS</h3>{{range .}}<div class="wb-fl-irow">{{if .URL}}<a href="{{.URL}}"{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</a>{{else}}<span>{{.Text}}</span>{{end}}</div>{{end}}</div>{{end}}
+    {{end}}
+    {{with .Missing}}<div class="wb-fl-isec"><h3>MISSING</h3>{{range .}}<div class="wb-fl-irow"><span class="wb-fl-wrap">{{.}}</span></div>{{end}}</div>{{end}}
+    <div class="wb-fl-insp-cta" data-spawn-box>
+        {{if .Spawn}}<button type="button" class="wb-fl-ink" data-spawn-lead="{{.CTAURL}}">{{.CTA}}</button>{{else if .CTAURL}}<a class="wb-fl-ink" href="{{.CTAURL}}">{{.CTA}}</a>{{end}}
+        <div class="wb-site-msg" role="status"></div>
+    </div>
+</section>{{end}}
+
+{{define "wb/fl-rail"}}
+<aside class="wb-fl-rail" id="waiting" aria-label="Waiting and inspector" data-testid="floor.rail">
+    <div class="wb-fl-wait" data-testid="floor.waiting">
+        <h2 class="wb-fl-h2">Waiting on you · {{.Waiting}}</h2>
+        {{range .Waits}}{{template "wb/queue-row" .}}{{else}}<div class="wb-fl-empty" data-testid="floor.waiting.empty">Nothing is waiting on you here.</div>{{end}}
+        {{if .WaitMore}}<a class="wb-fl-more" href="{{.Header.WaitingURL}}" data-testid="floor.waiting.more">{{.WaitMore}} more: see all and approve</a>{{else if .Waits}}<a class="wb-fl-more" href="{{.Header.WaitingURL}}" data-testid="floor.waiting.more">See all and approve</a>{{end}}
+    </div>
+    <div class="wb-fl-tabs" role="tablist" aria-label="Rail">
+        <a role="tab" class="wb-fl-tab" href="#room-{{.Pick}}" aria-selected="true" data-tab="room" data-testid="floor.tab.room">Room ·&nbsp;<span data-room-name>{{range .Inspectors}}{{if .Open}}{{.Title}}{{end}}{{end}}</span></a>
+        <a role="tab" class="wb-fl-tab wb-fl-tab--yolo" href="#yolo" aria-selected="false" data-tab="yolo" data-testid="floor.tab.yolo">After YOLO · {{.AfterYOLO}}</a>
+    </div>
+    <div class="wb-fl-rail-body">
+        <div class="wb-fl-panel" data-panel="room" role="tabpanel">
+            {{range .Inspectors}}{{template "wb/fl-insp" .}}{{end}}
+            <nav class="wb-fl-isec wb-fl-rooms" aria-label="Rooms" data-testid="floor.rooms"><h3>ROOMS</h3>{{range .Rooms}}<a class="wb-fl-irow" href="#room-{{.Box}}" data-pick="{{.Box}}" style="padding-left:{{.Depth}}em"{{if eq .Box $.Pick}} aria-current="true"{{end}} data-testid="floor.rooms.link"><i class="wb-fl-dot"{{with .Color}}{{if ne . "var(--group)"}} style="background:{{.}}"{{end}}{{end}}></i><span>{{.Title}}</span></a>{{end}}</nav>
+        </div>
+        <div class="wb-fl-panel wb-fl-panel--yolo" id="yolo" data-panel="yolo" role="tabpanel" data-testid="floor.after_yolo.panel">
+            {{if .YOLOQueue}}<div class="wb-fl-insp-note">{{.AfterYOLO}} issue{{if ne .AfterYOLO 1}}s{{end}} YOLO moved without you, oldest first.</div>
+            {{with .YOLOReviewURL}}<a class="wb-qrow" href="{{.}}" data-testid="floor.after_yolo.all"><b>Review all together</b><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+            {{range .YOLOQueue}}<a class="wb-qrow" href="{{.URL}}" data-testid="floor.after_yolo.row"><span class="wb-fl-yolo-pill">{{.Detail}}</span><span class="wb-qrow-slug">{{.Slug}}</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+            {{if .YOLOMore}}<a class="wb-fl-more" href="{{.YOLOReviewURL}}">{{.YOLOMore}} more on the review page</a>{{end}}
+            {{else}}<div class="wb-fl-empty" data-testid="floor.after_yolo.empty">Nothing waits for review after YOLO.{{if not (and .Header.YOLO .Header.YOLO.On)}} YOLO is off: turn it on from the YOLO switch in the header.{{end}}</div>{{end}}
+        </div>
+    </div>
+    <div class="wb-fl-msg" data-spawn-box>{{template "wb/message-box" .Message}}</div>
+</aside>
+{{end}}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/jobs"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -39,6 +40,15 @@ type RunResult struct {
 // agentrun.Start or a test's stand-in.
 func StartRun(proj *tracker.Project, r *jobs.Ref, issues []*tracker.Issue, period string, rs RunStart, workDir string, now time.Time, start func(*tracker.Project, Spec) Response) (RunResult, error) {
 	var res RunResult
+	if rs.Auto != nil && rs.Agent == "" {
+		// An unattended run holds, before its issue is written, when every
+		// agent to try is resting.
+		wf, _ := proj.WorkflowFor(r.Department)
+		subj := routing.Subject{Type: r.Job.Type, Department: tracker.DepartmentKey(r.Department)}
+		if c := RouteAgent(proj, wf, workDir, subj, "", now); c.Hold != "" {
+			return res, fmt.Errorf("hold: %s; the run starts on a later tick", c.Hold)
+		}
+	}
 	n, err := jobs.PlanRun(proj, r, jobs.Runs(proj, issues, r.Key), period, rs.Again)
 	if err != nil {
 		return res, err
@@ -64,11 +74,7 @@ func StartRun(proj *tracker.Project, r *jobs.Ref, issues []*tracker.Issue, perio
 		return res, fmt.Errorf("run issue %s was written but does not load", n.File)
 	}
 	res.Comment = RunComment(r.Key, period, rs, now)
-	agent := rs.Agent
-	if agent == "" {
-		agent = "claude"
-	}
-	spec, refused := DispatchSpec(proj, res.Issue, agent, workDir, false)
+	spec, refused := DispatchSpec(proj, res.Issue, rs.Agent, workDir, false)
 	if refused != nil {
 		res.Response = *refused
 		return res, nil

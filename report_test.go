@@ -76,7 +76,7 @@ func TestCompanyPageLinksTheReport(t *testing.T) {
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, html := getResp(t, ts.URL+"/p/agents/company")
+	_, html := getResp(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, html, `aria-current="page" data-testid="view.board">Board</span>`, `href="/p/agents/status" data-testid="view.report"`)
 }
 

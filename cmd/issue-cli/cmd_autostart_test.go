@@ -42,12 +42,13 @@ func makeAutostartProject(t *testing.T) *tracker.Project {
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("TMUX_TMPDIR", "")
-	origHas, origList, origMem := agentrun.HasSession, agentrun.ListSessions, autostart.ReadMemory
+	origHas, origList, origMem, origLoad := agentrun.HasSession, agentrun.ListSessions, autostart.ReadMemory, autostart.ReadLoad
 	agentrun.HasSession = func(string) bool { return false }
 	agentrun.ListSessions = func() []agentrun.Session { return nil }
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
 	t.Cleanup(func() {
-		agentrun.HasSession, agentrun.ListSessions, autostart.ReadMemory = origHas, origList, origMem
+		agentrun.HasSession, agentrun.ListSessions, autostart.ReadMemory, autostart.ReadLoad = origHas, origList, origMem, origLoad
 	})
 	return &tracker.Project{Slug: "proj", Name: "Proj", IssueDir: filepath.Join(root, "issues"), WorkDir: root, WorkflowFile: filepath.Join(root, "workflow.yaml")}
 }
@@ -130,13 +131,13 @@ func TestAutostart_NextPicksTheFirstReadyIssue(t *testing.T) {
 	if err := runAutostart(ctx, []string{"next"}); err != nil {
 		t.Fatal(err)
 	}
-	want := "start high (memory 31% < 50%, 0/2 workers)\n  issue-cli --project proj dispatch high --autostart\n"
+	want := "start high (memory 31% < 50%, load 4.0 < 14 on 14 cores, 0/2 workers)\n  issue-cli --project proj dispatch high --autostart\n"
 	if stdout.String() != want {
 		t.Fatalf("next =\n%s\nwant\n%s", stdout.String(), want)
 	}
 
 	// A live worker on high: the next ready one is low (blocked waits on base).
-	agentrun.HasSession = func(name string) bool { return name == "agent-high" }
+	agentrun.HasSession = func(name string) bool { return name == "=agent-high:" }
 	ctx, stdout, _ = newTestContext(proj, false)
 	runAutostart(ctx, []string{"next"})
 	if !strings.HasPrefix(stdout.String(), "start low ") {
@@ -160,6 +161,13 @@ func TestAutostart_NextPicksTheFirstReadyIssue(t *testing.T) {
 		t.Errorf("memory: %q", got)
 	}
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 20, CanStart: true} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 16, Cores: 14} }
+	ctx, stdout, _ = newTestContext(proj, false)
+	runAutostart(ctx, []string{"next"})
+	if got := strings.TrimSpace(stdout.String()); got != "hold: load 16.0 on 14 cores (max 14)" {
+		t.Errorf("load: %q", got)
+	}
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
 	agentrun.ListSessions = func() []agentrun.Session {
 		return []agentrun.Session{{Name: "agent-high"}, {Name: "agent-low"}, {Name: "lead-proj"}}
 	}
@@ -189,7 +197,7 @@ func TestDispatchAutostart_QuotesTheStoredWordsAndSharesTheBudget(t *testing.T) 
 	}
 	comments, _ := tracker.LoadComments(loadLeadIssue(t, proj, "high").FilePath)
 	last := comments[len(comments)-1].Text
-	for _, w := range []string{`dispatch: "` + autostartWords + `"`, "auto-start, turned on by lead-proj in the lead chat", "memory 31% < 50%, 0/2 workers", "— recorded by lead-proj"} {
+	for _, w := range []string{`dispatch: "` + autostartWords + `"`, "auto-start, turned on by lead-proj in the lead chat", "memory 31% < 50%, load 4.0 < 14 on 14 cores, 0/2 workers", "— recorded by lead-proj"} {
 		if !strings.Contains(last, w) {
 			t.Errorf("comment %q missing %q", last, w)
 		}
@@ -232,5 +240,35 @@ func TestDispatch_NoQuoteHintsAutostart(t *testing.T) {
 	err := runDispatch(ctx, []string{"high"})
 	if exitOf(err) != 2 || !strings.Contains(err.Error(), "Auto-start is on for this project: issue-cli --project proj autostart next") {
 		t.Fatalf("dispatch without --quote: %v", err)
+	}
+}
+
+// --max-load sets the window's load limit; status names it, and the
+// default reads as the core count.
+func TestAutostart_MaxLoad(t *testing.T) {
+	proj := makeAutostartProject(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"on", "--quote", "use the CPU", "--max-load", "3.5"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "load under 3.5") {
+		t.Errorf("on = %q", stdout.String())
+	}
+	if st, _ := autostart.Load(yoloRoot(proj), proj.Slug); st.MaxLoad != 3.5 {
+		t.Fatalf("max_load = %v", st.MaxLoad)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	runAutostart(ctx, []string{"next"})
+	if got := strings.TrimSpace(stdout.String()); got != "hold: load 4.0 on 14 cores (max 3.5)" {
+		t.Errorf("next = %q", got)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	runAutostart(ctx, []string{"status"})
+	if !strings.Contains(stdout.String(), "memory under 50% · load under 3.5 ·") {
+		t.Errorf("status = %q", stdout.String())
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"on", "--quote", "x", "--max-load", "-1"}); err == nil {
+		t.Error("negative --max-load accepted")
 	}
 }

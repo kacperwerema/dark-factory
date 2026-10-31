@@ -54,6 +54,7 @@ type Input struct {
 	Project    string
 	State      *State
 	Memory     Memory
+	CPU        CPU
 	Workers    int // the project's live workers, without the lead
 	Last       *Start
 	Candidates []Candidate
@@ -69,18 +70,35 @@ type Verdict struct {
 	Below   int    `json:"below"`
 	Workers int    `json:"workers"`
 	Cap     int    `json:"cap"`
+	// Load is the 1-minute load average (LoadFound false: no reading),
+	// Cores the machine's cores, MaxLoad the limit in use.
+	LoadFound bool    `json:"load_found"`
+	Load      float64 `json:"load"`
+	Cores     int     `json:"cores"`
+	MaxLoad   float64 `json:"max_load"`
+}
+
+// LoadPart is the load clause of a start line: "load 4.3 < 14 on 14 cores",
+// or "load unknown".
+func (v Verdict) LoadPart() string {
+	if !v.LoadFound {
+		return "load unknown"
+	}
+	return fmt.Sprintf("load %s < %s on %d cores", FormatLoad(v.Load), FormatLimit(v.MaxLoad), v.Cores)
 }
 
 // Decide checks the rules in order and returns the first that holds, or the
 // first ready candidate.
 func Decide(in Input) Verdict {
-	v := Verdict{Memory: in.Memory.Used, Workers: in.Workers}
+	v := Verdict{Memory: in.Memory.Used, Workers: in.Workers,
+		LoadFound: in.CPU.Found, Load: in.CPU.Avg1, Cores: in.CPU.Cores}
 	st := in.State
 	if st == nil || !st.On {
 		v.Reason = "auto-start is off"
 		return v
 	}
 	v.Below, v.Cap = st.Below, st.MaxWorkers
+	v.MaxLoad = st.LoadLimit(in.CPU.Cores)
 	if st.Paused {
 		v.Reason = "auto-start is paused"
 		if st.PauseReason != "" {
@@ -101,6 +119,12 @@ func Decide(in Input) Verdict {
 	}
 	if in.Memory.Used >= st.Below {
 		v.Reason = fmt.Sprintf("memory %d%% ≥ %d%%", in.Memory.Used, st.Below)
+		return v
+	}
+	// No reading (an OS without one) doesn't hold: mem-guard stays the
+	// hard stop (D-3).
+	if in.CPU.Found && in.CPU.Avg1 >= v.MaxLoad {
+		v.Reason = fmt.Sprintf("load %s on %d cores (max %s)", FormatLoad(in.CPU.Avg1), in.CPU.Cores, FormatLimit(v.MaxLoad))
 		return v
 	}
 	if in.Workers >= st.MaxWorkers {

@@ -1,0 +1,34 @@
+session: script-csp
+issue: api/security-hardening-after-the-review-script-csp-page-raw-connect-src-exact-tmux-targets
+title: Pages run under the script CSP, and the buttons that used inline handlers still work
+scenario: basic
+
+# Every page now answers script-src 'self' 'nonce-<request>' (F-12): a
+# script without the nonce, or an on*= handler, is blocked and shows as a
+# console error, which console: no_errors fails on. The steps click,
+# type and press through handlers that moved to data-click / data-input /
+# data-keydown (static/events.js).
+session_checks:
+  viewports: [1440x900]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: Board, sidebar and issue page buttons work with no CSP violation
+    setup:
+      - open: /p/{project}/board?classic=1
+    act:
+      - type: { target: board.search, text: csv }
+      - click: nav.create
+      - wait_for: create.modal
+      - open: /p/{project}/issue/ui/dark-mode-toggle?classic=1
+      - click: detail.title
+      - wait_for: detail.title.input
+      - type: { target: detail.label.input, text: csp-check }
+      - key: Enter
+      - wait_for: { text_contains: { target: detail.labels, text: csp-check } }
+    checks:
+      - visible: detail.title.input
+      - text_contains: { target: detail.labels, text: csp-check }
+      - http: { path: "/p/{project}/board?classic=1", contains: "nonce=\"" }
+      - http: { path: "/p/{project}/board?classic=1", contains: "/static/events.js" }

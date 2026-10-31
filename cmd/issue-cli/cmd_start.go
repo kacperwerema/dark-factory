@@ -88,6 +88,7 @@ func runStart(ctx *Context, args []string) error {
 	if line := baseLine(issue); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
+	printRedRoundsLine(ctx.Stdout, ctx, wf, issue)
 	printStartDeps(ctx.Stdout, shipDeps(ctx, issue, issues))
 	if line := ci.AgentLine(projectRoot(ctx.Project), wf); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
@@ -131,6 +132,7 @@ func runStart(ctx *Context, args []string) error {
 
 	printWorkflowNextSteps(ctx, wf, issue, issues)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
+	printStartMemories(ctx.Stdout, ctx, issue)
 	printStartWorkflowReminder(ctx.Stdout, wf)
 	return nil
 }

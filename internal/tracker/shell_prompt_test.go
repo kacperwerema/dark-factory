@@ -12,7 +12,7 @@ func TestShellPromptSection(t *testing.T) {
 	if !strings.HasPrefix(all, "\n\n## Shell on this machine\n\n") {
 		t.Fatalf("missing heading: %q", all)
 	}
-	for _, want := range []string{"doesn't word-split", "`--include='*.go'`", "`/usr/bin/git`", "rtk proxy", "`sed -i ''`", "no `-c`", "`/bin/cp`"} {
+	for _, want := range []string{"doesn't word-split", "`--include='*.go'`", "`/usr/bin/git`", "rtk proxy", "`t.Log` lines", "`rtk proxy go test -v …`", "`sed -i ''`", "no `-c`", "`/bin/cp`"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("section missing %q: %q", want, all)
 		}

@@ -52,6 +52,7 @@ func run(args []string) error {
 	host := fs.String("host", defaultHost, "Interface to listen on; anything but loopback exposes agent dispatch to the network")
 	port := fs.Int("port", 8080, "Port to listen on")
 	versionFlag := fs.Bool("version", false, "Print version and exit")
+	ownerCode := fs.String("owner-code", "auto", "Where the owner sign-in code is shown: dialog (macOS), terminal (this viewer's stderr), or auto (the dialog, else the terminal)")
 	recordViewer := fs.Bool("record-viewer", false, "Record this viewer in viewer.json even when it looks like a sandbox (default: a temp-folder config or another live viewer's record leaves the file alone)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -64,6 +65,7 @@ func run(args []string) error {
 		fmt.Println("issue-viewer", Version)
 		return nil
 	}
+	tracker.BuildVersion = Version
 
 	var projects []tracker.Project
 	var configuredHosts []string
@@ -109,6 +111,12 @@ func run(args []string) error {
 		return err
 	}
 	srv.telemetryData = telemetryData
+	switch *ownerCode {
+	case "auto", "dialog", "terminal":
+		srv.owner.deliver = deliverOwnerCode(*ownerCode)
+	default:
+		return fmt.Errorf("-owner-code %q: want auto, dialog or terminal", *ownerCode)
+	}
 	if engine != "" {
 		srv.engine = engine
 	}
@@ -175,6 +183,7 @@ func run(args []string) error {
 	for _, p := range projects {
 		fmt.Printf("  Project: %s (issues: %s, docs: %s)\n", p.Name, p.IssueDir, p.DocsDir)
 	}
+	fmt.Printf("Owner decisions (approvals, YOLO, reviews) need a browser signed in at %s/owner\n", url)
 	fmt.Printf("Ctrl-C to stop (waits up to %s for in-flight work; Ctrl-C again to force)\n", shutdownGrace)
 
 	return serve(ctx, newHTTPServer(addr, srv.Routes()), ln, srv.bg)

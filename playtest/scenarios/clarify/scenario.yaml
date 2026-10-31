@@ -1,0 +1,9 @@
+# The clarify round: one issue in design with two questions open in its
+# ## Clarify, so the Station shows them as one form and Needs you lists
+# one Clarify row.
+title: One issue in design with its clarify round open
+project:
+  name: Clarify Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

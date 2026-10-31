@@ -1,0 +1,29 @@
+session: phone-ceo-chat
+issue: ui/phone-width-pass-needs-you-the-station-the-ceo-chat-the-shelf-reader-and-the-hq-report-work-at-390px
+title: "The CEO chat at phone width: the box, the turns and the keys fit and are tappable"
+scenario: leads
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: The CEO chat at 390px fits the screen; the box, Send and the keys are at least 44px tall
+    proves: [AC1, AC2]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Resume the overnight work.' '' '⏺ Two workers are back.' '' '⏺ Bash(issue-cli status)' '  ⎿  factory/merge  testing' '' '⏺ Should I start the rename now?' '' '✻ Pondering… (12s · esc to interrupt)' '' '──────────────────' '> ' '──────────────────' '  ⏵⏵ auto mode on (shift+tab to cycle)'; exec cat"]
+      - open: /p/{project}/lead
+    checks:
+      - visible: [lead_chat.conversation, lead_chat.turn.you, lead_chat.turn.ceo, lead_chat.text, lead_chat.send, lead_chat.key.escape, lead_chat.key.enter]
+      - below: [lead_chat.conversation, lead_chat.form]
+      - size: { target: lead_chat.text, min_height: 44 }
+      - size: { target: lead_chat.send, min_height: 44 }
+      - size: { target: lead_chat.send_now, min_height: 44 }
+      - size: { target: lead_chat.attach_image, min_height: 44 }
+      - size: { target: lead_chat.key.escape, min_height: 44 }
+      - size: { target: lead_chat.key.ctrl_c, min_height: 44 }
+      - size: { target: lead_chat.key.up, min_height: 44, min_width: 44 }
+      - size: { target: lead_chat.key.enter, min_height: 44, min_width: 44 }
+      - size: { target: lead_chat.key.1, min_height: 44, min_width: 44 }

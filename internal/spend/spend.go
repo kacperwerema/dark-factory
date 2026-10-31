@@ -146,6 +146,10 @@ type Report struct {
 	Unpriced   []string `json:"unpriced_models,omitempty"`
 	// Folders is how many transcript folders were read.
 	Folders int `json:"folders"`
+	// Subscriptions split the spend by agent CLI: claude (every box and
+	// the owner's own sessions) and codex (Codex's session logs in the
+	// project).
+	Subscriptions []Subscription `json:"subscriptions"`
 }
 
 // Find is the box with key or name (any case), or nil.
@@ -181,6 +185,8 @@ type Options struct {
 	ProjectsDir string
 	// Prices, when not nil, are used instead of LoadPrices.
 	Prices map[string]bench.Price
+	// CodexDir is Codex's sessions folder; "" is DefaultCodexSessionsDir.
+	CodexDir string
 }
 
 // DefaultProjectsDir is where Claude Code keeps transcripts.
@@ -339,6 +345,21 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Option
 		rep.Unpriced = append(rep.Unpriced, m)
 	}
 	sort.Strings(rep.Unpriced)
+	claude := Subscription{Agent: "claude", Weeks: emptyWeeks(starts), Read: rep.Folders > 0}
+	for _, b := range boxes {
+		for i := range b.own {
+			claude.Weeks[i].Add(b.own[i].Tally)
+		}
+	}
+	for i := range rep.Unattributed {
+		claude.Weeks[i].Add(rep.Unattributed[i].Tally)
+	}
+	if opt.CodexDir == "" {
+		opt.CodexDir = DefaultCodexSessionsDir()
+	}
+	codex := Subscription{Agent: "codex"}
+	codex.Weeks, codex.Read = codexWeeks(opt.CodexDir, root, starts, since, now)
+	rep.Subscriptions = []Subscription{claude, codex}
 	rollUp(p, rep, boxes, starts)
 	return rep
 }

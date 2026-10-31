@@ -25,6 +25,8 @@ templates/report.html composes them.
                    release candidate, next steps, open
                    issues, ## Unreleased, unpushed commits
   wb/ci            Local CI: state, last runs, what failed   data: *StatusModel
+  wb/behind        the installed build behind main: count,   data: *StatusModel
+                   new changelog entries, install command
   wb/active-list   Working on: issues in flight, their age   data: WbActiveList
                    and agent; agents on issues not started
   wb/released      Recently released                         data: WbReleased
@@ -266,6 +268,19 @@ release flow reads the same on both pages.
     </div>
     {{end}}
     {{end}}
+    {{with .Patch}}
+    <div class="wb-rel-list" data-testid="status.release_wait.patch">
+        <div class="wb-rel-row"><div class="wb-rsub">Patch {{.Cut}} on <span class="wb-mono-inline">{{.Branch}}</span></div><span class="wb-chip {{if or .CutNext .Soaking}}wb-chip--green{{else}}wb-chip--you{{end}}" data-testid="status.release_wait.patch.state">{{if .Soaking}}{{.Candidate.Tag}} soaking{{else if .CutNext}}ready to cut {{.CutNext}}{{else}}not ready{{end}}</span></div>
+        {{range .Checks}}
+        <div class="wb-rel-check {{if .OK}}wb-rel-check--ok{{else}}wb-rel-check--no{{end}}" data-testid="status.release_wait.patch.check.{{.Key}}" data-ok="{{.OK}}">
+            {{template "wb/check-mark" .OK}}
+            <div class="wb-rel-stack"><span>{{.Text}}</span>{{if .Detail}}<span class="wb-rel-detail">{{.Detail}}</span>{{end}}</div>
+            <span class="wb-rel-meta">{{.Meta}}</span>
+        </div>
+        {{end}}
+        {{if .Soaking}}<span class="wb-rel-meta">Publish only on the owner's ok: <code class="wb-code">cd {{.Worktree}} &amp;&amp; issue-cli release publish {{.Cut}}</code></span>{{end}}
+    </div>
+    {{end}}
     {{if .Changelog}}
     <div class="wb-rel-list" data-testid="status.release_wait.unreleased">
         <div class="wb-rel-row"><div class="wb-rsub">Unreleased · {{len .Unreleased}}</div><span class="wb-rel-meta">{{.Changelog}}</span></div>
@@ -328,6 +343,41 @@ release flow reads the same on both pages.
 </section>
 {{end}}{{end}}
 
+{{define "wb/queue"}}{{with .Queue}}
+<section class="wb-rcard" id="queue" aria-labelledby="queue-h" data-testid="status.queue">
+    <div class="wb-rcard-head">
+        <h2 class="wb-rcard-h" id="queue-h">Queue</h2>
+        <span class="wb-rcard-count" data-testid="status.queue.count">{{.Active}}</span>
+        {{if .Blocked}}<span class="wb-chip wb-chip--idle" data-testid="status.queue.blocked">{{.Blocked}} blocked</span>{{end}}
+    </div>
+    {{if .Error}}
+    <div class="wb-empty" data-testid="status.queue.error">{{.Error}}</div>
+    {{else}}
+    <div class="wb-rel-list">
+        <div class="wb-rsub">Next</div>
+        {{range .Next}}
+        <span class="wb-rel-title" data-testid="status.queue.item.{{.ID}}">{{.ID}}. {{if .Started}}[&gt;]{{else}}[ ]{{end}} {{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}idea: {{.Label}}{{end}}</span>
+        {{with .Hold}}<span class="wb-rel-meta">{{.}}</span>{{end}}
+        {{end}}
+        {{if .More}}<span class="wb-rel-meta" data-testid="status.queue.more">+{{.More}} more (issue-cli queue list)</span>{{end}}
+        <span class="wb-rel-meta" data-testid="status.queue.refill">∞ {{.Refill}}</span>
+    </div>
+    {{if .DoneToday}}
+    <div class="wb-rel-list" data-testid="status.queue.done">
+        <div class="wb-rsub">Done today</div>
+        {{range .DoneToday}}<span class="wb-rel-meta">{{.ID}}. [x] {{with .SHA}}<code class="wb-code">{{.}}</code> {{end}}{{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</span>
+        {{end}}
+    </div>
+    {{end}}
+    <div class="wb-rel-list">
+        <div class="wb-rsub">Now</div>
+        <code class="wb-code" data-testid="status.queue.verdict">{{.Verdict}}</code>
+        <span class="wb-rel-meta">The CEO starts it at a check-in ({{.Cmd}}); nothing here starts a worker.</span>
+    </div>
+    {{end}}
+</section>
+{{end}}{{end}}
+
 {{define "wb/autostart"}}{{with .AutoStart}}
 <section class="wb-rcard" id="autostart" aria-labelledby="autostart-h" data-testid="status.autostart">
     <div class="wb-rcard-head">
@@ -342,6 +392,7 @@ release flow reads the same on both pages.
     <div class="wb-rel-list">
         <div class="wb-rsub">Now</div>
         <code class="wb-code" data-testid="status.autostart.verdict">{{.Verdict}}</code>
+        {{with .Load}}<span class="wb-rel-meta" data-testid="status.autostart.load">CPU: {{.}}</span>{{end}}
         {{if .Paused}}{{with .PauseReason}}<span class="wb-rel-meta">{{.}}</span>{{end}}{{end}}
         {{with .Last}}<span class="wb-rel-meta" data-testid="status.autostart.last">Last start on this machine: {{.}}</span>{{end}}
         <span class="wb-rel-meta">The CEO starts it at a check-in (issue-cli autostart next); nothing here starts a worker.</span>
@@ -384,6 +435,28 @@ release flow reads the same on both pages.
 {{end}}
 
 {{define "wb/active-row"}}<div class="wb-ractive" data-testid="report.active.row.{{tid .Slug}}"><a class="wb-ractive-title" href="{{.URL}}" title="{{.Slug}}">{{.Title}}</a><span class="wb-ractive-meta"><span class="wb-chip wb-chip--plain">{{.Status}}</span> <span class="wb-chip wb-chip--{{.Tone}}"{{with .AgeTitle}} title="{{.}}"{{end}}>{{.Age}}</span> <span class="wb-muted wb-small">{{.Agent}}</span></span></div>{{end}}
+
+{{define "wb/behind"}}{{with .Behind}}
+<section class="wb-rcard" id="behind" aria-labelledby="behind-h" data-testid="status.behind">
+    <div class="wb-rcard-head">
+        <h2 class="wb-rcard-h" id="behind-h">Installed build behind {{.Branch}}</h2>
+        <span class="wb-chip wb-chip--you" data-testid="status.behind.count">{{plural .Ahead "commit" "commits"}} behind</span>
+    </div>
+    <code class="wb-code" data-testid="status.behind.line">installed {{.Installed}} · {{.Branch}} is {{plural .Ahead "commit" "commits"}} ahead</code>
+    {{if .Changelog}}
+    <div class="wb-rel-list" data-testid="status.behind.entries">
+        <div class="wb-rsub">New in {{.Changelog}} since {{.Sha}}</div>
+        {{range head $.Cap.Unreleased .Entries}}<div class="wb-rel-entry">{{inlineMarkdown .}}</div>{{else}}<span class="wb-rel-meta">Nothing new under <code class="wb-code">## Unreleased</code></span>{{end}}
+        {{with rest $.Cap.Unreleased .Entries}}<details class="wb-rel-fold" data-testid="status.behind.more"><summary>+{{len .}} more</summary>{{range .}}<div class="wb-rel-entry">{{inlineMarkdown .}}</div>{{end}}</details>{{end}}
+    </div>
+    {{end}}
+    <div class="wb-rel-list">
+        <div class="wb-rsub">To get them</div>
+        <code class="wb-code" data-testid="status.behind.install">{{.Install}}</code>
+        <span class="wb-rel-meta">then restart the viewer. Your call: nothing runs it for you.</span>
+    </div>
+</section>
+{{end}}{{end}}
 
 {{define "wb/released"}}
 <section class="wb-rcard" id="released" aria-labelledby="released-h" data-testid="report.released">

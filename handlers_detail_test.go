@@ -500,7 +500,7 @@ intro
 		`<th>Status / Tier</th>`,
 		`class="data-status-tier"`,
 		`class="data-tier"`,
-		`onchange="dataSetTier(this)"`,
+		`data-change="[&#34;dataSetTier&#34;,&#34;$this&#34;]"`,
 		`value="🔴 critical" selected`,
 		`value="🟢 nice"`,
 		`data-table-tier-filter`,

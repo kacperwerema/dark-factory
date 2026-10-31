@@ -43,7 +43,7 @@ func TestHQReportOneFoldPerBoxInTheCompanyTree(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
 
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `href="/p/agents/hq/report"`, "Report →")
 
 	_, page := getBody(t, ts.URL+"/p/agents/hq/report")

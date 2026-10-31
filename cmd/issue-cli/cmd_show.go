@@ -68,6 +68,7 @@ func runShow(ctx *Context, args []string) error {
 	if line := baseLine(issue); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
+	printRedRoundsLine(ctx.Stdout, ctx, wf, issue)
 	if _, rule := yoloGuidance(ctx, issue.Slug, nil); rule != "" {
 		fmt.Fprintln(ctx.Stdout, rule)
 	}
@@ -75,6 +76,9 @@ func runShow(ctx *Context, args []string) error {
 	// Where the issue's time went, to hand the owner a link.
 	fmt.Fprintf(ctx.Stdout, "Timeline: %s?tab=timeline\n", issueURL(ctx.Project, issue.Slug))
 	fmt.Fprintf(ctx.Stdout, "Evidence: %s?tab=evidence\n", issueURL(ctx.Project, issue.Slug))
+	if line := critiqueLine(ctx.Project.IssueDir, wf, issue); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
 	// The sentence the owner reads first on the Issue tab.
 	if brief := tracker.Brief(issue.BodyRaw); brief != "" {
 		fmt.Fprintf(ctx.Stdout, "Brief: %s\n", brief)

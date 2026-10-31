@@ -212,7 +212,7 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix, name string, withW
 			}
 		}
 	}
-	withTurnImages(proj, prefix, m.Turns)
+	withTurnAttachments(proj, prefix, m.Turns)
 	m.OpenQuestions = openCEOQuestions(m.Turns, m.Ask)
 	for _, q := range m.OpenQuestions {
 		m.Questions = append(m.Questions, q.Text)
@@ -407,13 +407,16 @@ func leadChatLock(target string) func() {
 // images}: the owner's message, pasted into the live lead as one bracketed
 // paste plus Enter (agentrun.Paste, the way Re-send prompt delivers a
 // briefing). Images are paths POST …/lead/image answered; each becomes an
-// "[Image: <path>]" line at the end (ceoImageLines). 409 with status
+// "[Image: <path>]" line at the end (ceoImageLines). Files are paths POST
+// …/lead/file answered; each becomes a "[File: <path>]" line after the
+// images (ceoFileLines), 400 bad-file otherwise. 409 with status
 // no-session when the lead isn't running, 413 over 20 KB, 400 for an empty
 // message or a path that isn't a chat image.
 func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	var body struct {
 		Text   string   `json:"text"`
 		Images []string `json:"images"`
+		Files  []string `json:"files"`
 	}
 	// JSON escaping can grow a message up to 6x; the text itself is
 	// checked below.
@@ -426,12 +429,25 @@ func (s *Server) handleLeadChatSend(w http.ResponseWriter, r *http.Request, proj
 		return
 	}
 	text := cleanMessage(body.Text)
+	var attached []string
 	if len(body.Images) > 0 {
 		lines, err := ceoImageLines(proj, body.Images)
 		if err != nil {
 			leadChatError(w, http.StatusBadRequest, "bad-image", err.Error())
 			return
 		}
+		attached = append(attached, lines)
+	}
+	if len(body.Files) > 0 {
+		lines, err := ceoFileLines(proj, body.Files)
+		if err != nil {
+			leadChatError(w, http.StatusBadRequest, "bad-file", err.Error())
+			return
+		}
+		attached = append(attached, lines)
+	}
+	if len(attached) > 0 {
+		lines := strings.Join(attached, "\n")
 		if strings.TrimSpace(text) != "" {
 			lines = text + "\n\n" + lines
 		}

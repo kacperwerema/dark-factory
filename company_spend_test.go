@@ -50,7 +50,7 @@ func TestCompanySpend(t *testing.T) {
 
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	code, html := getBody(t, ts.URL+"/p/agents/company")
+	code, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if code != 200 {
 		t.Fatalf("status %d: %s", code, html)
 	}

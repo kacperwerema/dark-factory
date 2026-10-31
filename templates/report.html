@@ -19,7 +19,7 @@
             {{template "wb/shipped" .Shipped}}
         </div>
         <div class="wb-report-side">
-            {{with .Status}}{{template "wb/autostart" .}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
+            {{with .Status}}{{template "wb/behind" .}}{{template "wb/queue" .}}{{template "wb/autostart" .}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
             {{template "wb/released" .Released}}
             {{template "wb/health" .Health}}
             {{template "wb/bench" .Bench}}
@@ -29,7 +29,7 @@
 </main>
 </div>
 <script src="/static/workshop.js"></script>
-<script>
+<script nonce="{{cspNonce}}">
 // Copy as markdown (status.md) and the copy-command buttons. Without a
 // clipboard, status.md opens and a command is shown to copy by hand.
 (function () {

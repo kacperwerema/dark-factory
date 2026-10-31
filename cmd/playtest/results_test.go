@@ -46,6 +46,11 @@ func TestDiffIgnoresPathsAndTimes(t *testing.T) {
 	if d := Diff(a, b); d != "" {
 		t.Errorf("runs that only differ in a relative age differ:\n%s", d)
 	}
+	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli memory add", Pass: true, Actual: `exit 0: m-4b022c · convention · project`}}
+	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli memory add", Pass: true, Actual: `exit 0: m-f47df9 · convention · project`}}
+	if d := Diff(a, b); d != "" {
+		t.Errorf("runs that only differ in a new memory's random id differ:\n%s", d)
+	}
 	// "exit 0: {" makes YAML quote the value, so the cut ends in …'
 	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli status --json", Pass: true, Actual: `exit 0: {"as_of":"2026-10-23T15:41:12.1+02:00","slug":"ui/child"…`}}
 	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli status --json", Pass: true, Actual: `exit 0: {"as_of":"2026-10-23T15:41:12.123+02:00","slug":"ui/chi…`}}
@@ -206,19 +211,19 @@ func TestApplyPlanTicksJudgementStepsApart(t *testing.T) {
 		return nil
 	}
 	var out, errw strings.Builder
-	code := applyPlan(p, "x/y", p.Comments, run, &out, &errw)
+	code := applyPlan(p, "x/y", p.Comments, run, nil, &out, &errw)
 	want := "check x/y TP1|check x/y TP3|comment x/y --text playtest: TP2 FAIL"
 	if got := strings.Join(calls, "|"); got != want {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}
-	if code != 1 || !strings.Contains(errw.String(), "they stay for the owner") || !strings.Contains(out.String(), "✓ ticked 1, commented 1") {
+	if code != 1 || !strings.Contains(errw.String(), "they stay for the owner") || !strings.Contains(out.String(), "✗ ticked 1, commented 1") {
 		t.Fatalf("code %d\nout: %s\nerr: %s", code, out.String(), errw.String())
 	}
 
 	// The owner's own shell: both calls pass.
 	calls = nil
 	out.Reset()
-	if code := applyPlan(p, "x/y", nil, func(args ...string) error { calls = append(calls, args[2]); return nil }, &out, &errw); code != 0 || !strings.Contains(out.String(), "✓ ticked 2") {
+	if code := applyPlan(p, "x/y", nil, func(args ...string) error { calls = append(calls, args[2]); return nil }, nil, &out, &errw); code != 0 || !strings.Contains(out.String(), "✓ ticked 2") {
 		t.Fatalf("owner: code %d, out %s", code, out.String())
 	}
 }

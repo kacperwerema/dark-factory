@@ -26,6 +26,8 @@ The tool runs agents only when a human directs it. Once started, agents work on 
 - **One exception: auto-start, opt-in per project.** Your words can be a standing start: `issue-cli autostart on --quote "<your words>"` stores them for one project, and from then on the lead may start one worker at a time from the project's `next` order while memory is low (`issue-cli autostart next`, then `issue-cli dispatch <slug> --autostart`). It's off by default, only you (or the lead with your quoted words) turn it on, and every auto-start quotes your stored words in its `dispatch:` comment with the memory reading. The tool still runs nothing on a timer: the lead's check-in starts each worker, and `autostart pause` or `off` stops it. See [Auto-start](#auto-start).
 - **The second exception: recurring jobs, opt-in per job.** A department's recurring job (a weekly SEO pass, a daily lead search) can have a standing start too: `issue-cli job auto on <dept>/<job> --quote "<your words>"` (or `--all`). From then on, when the job is due, the lead's check-in starts its run (`issue-cli job due`, then `issue-cli job run <job> --scheduled`) inside the same budget as auto-start: mem-guard, the worker cap and the machine-wide gap. It's off by default. Without it, a due job waits in Needs you until you press ▶ Start run or name it. Every run quotes the words it started on in its `dispatch:` comment. The tool still runs nothing on a timer. See [Recurring jobs](departments.md#recurring-jobs).
 
+- **The third exception: the post-mortem at close, opt-in per workflow.** With `postmortem: start: auto` in a workflow file, the transition into `at:` (done) starts one read-only post-mortem agent for that issue, `postmortem-<slug>`, headless, after `mem-guard check` passes. The owner's words are the workflow setting itself and the issue's own dispatch. It starts once per issue, never for another issue, and it changes nothing until you agree to its actions. With `start: ask` (the default) the transition only prints `issue-cli postmortem start <slug> --quote "…"` for the lead. See [Post-mortem](workflow.md#post-mortem). Source: factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-1, #D-10 (provisional).
+
 Agents message each other with Claude Code's own `ListAgents` / `SendMessage`. `issue-cli` never pastes into a Claude session on an agent's behalf: `issue-cli lead message` pastes only into Codex sessions, and for a Claude session it prints the `SendMessage` call to make instead.
 
 ### Where the tool types into a session
@@ -136,7 +138,7 @@ The handler fills in the placeholders below and runs the command via `sh -c`. Ea
 | `{{project}}` | the project slug |
 | `{{name}}`    | the agent's name: `agent-<slug>`, `lead-<project>`, or `agent-<slug>-edit` for **Edit in nvim** |
 | `{{role}}`    | `lead`, `worker` or `editor` |
-| `{{window}}`  | the agent's exact tmux target, e.g. `'=work:=agent-<slug>'` in shared mode, ready for `tmux select-window -t {{window}}` |
+| `{{window}}`  | the agent's exact tmux target: `'=agent-<slug>:'`, or `'=work:=agent-<slug>'` in shared mode, ready for `tmux select-window -t {{window}}` |
 
 `terminal:` is for workers and the editor. The project lead follows [`lead_terminal:`](#lead-terminal) instead.
 
@@ -152,7 +154,7 @@ The handler fills in the placeholders below and runs the command via `sh -c`. Ea
 
 If `terminal` is unset and `i3-msg` is on `PATH` (or `i3_workspace` is set), it defaults to i3 + alacritty, with the window titled after the session (`alacritty -T <session>`). On i3, opening an agent from the agents canvas when its session already has a terminal focuses the window with that exact title instead of opening another, so give your own `terminal` command `-T {{session}}` (or your terminal's equivalent) to get the same. Unset on a machine without i3 (a Mac, most Linux desktops) is headless, and the dispatch step says how to set `terminal:` to get a window. Set to `none` to only create the tmux session. Nothing on screen changes, and the response carries two ways to reach the agent:
 
-- `switch_cmd` is for a shell already inside tmux, e.g. `tmux switch-client -t agent-<slug>`. A plain `tmux attach` refuses to nest there.
+- `switch_cmd` is for a shell already inside tmux, e.g. `tmux switch-client -t '=agent-<slug>:'` (an exact target). A plain `tmux attach` refuses to nest there.
 - `attach_cmd` is for a plain shell, e.g. `tmux attach -t agent-<slug>`.
 
 `issue-cli lead spawn` prints both, as `Inside tmux:` and `From a shell:`, whenever the lead is headless.
@@ -306,10 +308,10 @@ Epics and their children get worktrees like any other issue: `work/<slug>` from 
 
 ## Auto-start
 
-Auto-start is your standing start for one project: while memory is low, the lead starts one more worker at a time from the project's own list, without you naming each one. It's off for every project until you turn it on.
+Auto-start is your standing start for one project: while memory is low and the CPU has room, the lead starts one more worker at a time from the project's own list, without you naming each one. It's off for every project until you turn it on.
 
 ```bash
-issue-cli autostart on --quote "start a new job when memory is under 50%" [--below 50] [--max-workers 2] [--gap 5]
+issue-cli autostart on --quote "start a new job when memory is under 50%" [--below 50] [--max-load <cores>] [--max-workers 2] [--gap 5]
 issue-cli autostart status      # on / paused / off, your words, the limits, the last start, the verdict now
 issue-cli autostart next        # start <slug> and the command to run, or hold: <reason>
 issue-cli dispatch <slug> --autostart
@@ -321,13 +323,75 @@ issue-cli autostart pause [--reason "..."] | resume | off [--reason "..."]
   - auto-start is off or paused
   - `mem-guard` isn't on `PATH`, or `mem-guard check` refuses (the hard stop)
   - `mem-guard used` is at or above `--below` (default 50%)
+  - the 1-minute load average is at or above `--max-load` (default the core count): `hold: load 16.0 on 14 cores (max 14)`. It's read from `sysctl -n vm.loadavg` on macOS and `/proc/loadavg` on Linux; the cores are `runtime.NumCPU()`. Where there's no reading, load doesn't hold and the verdict says `load unknown` (mem-guard stays the hard stop)
   - the project has `--max-workers` live `agent-*` sessions (default 2; the lead doesn't count)
   - any project on this machine auto-started a worker less than `--gap` minutes ago (default 5)
   - nothing in the list is ready
 - **The list.** Unclaimed `backlog` issues of the project's version, by priority then file order, the same order as `issue-cli next`. An issue is skipped while its worker is live, a `depends_on` issue isn't done, or it only waits on your approval (unless YOLO is on, which passes that gate).
-- **The start.** `dispatch <slug> --autostart` takes a lock shared by every project on the machine (`$XDG_STATE_HOME/ai-workflow-engine/autostart/`), decides again for that issue, starts it like any dispatch and records the start. Its `dispatch:` comment quotes your stored words: `dispatch: "<your words>" (auto-start, turned on by lead-x in the lead chat 2026-10-30; memory 31% < 50%, 1/2 workers, 2026-10-30)`. When anything holds, it exits 1 and starts nothing.
+- **The start.** `dispatch <slug> --autostart` takes a lock shared by every project on the machine (`$XDG_STATE_HOME/ai-workflow-engine/autostart/`), decides again for that issue, starts it like any dispatch and records the start. Its `dispatch:` comment quotes your stored words: `dispatch: "<your words>" (auto-start, turned on by lead-x in the lead chat 2026-10-30; memory 31% < 50%, load 4.3 < 14 on 14 cores, 1/2 workers, 2026-10-30)`. When anything holds, it exits 1 and starts nothing.
 - **Who ticks.** The lead, at its check-ins. Its brief carries the rule while auto-start is on, and `issue-cli lead whoami` prints it. The tool still runs nothing on a timer, and the viewer never starts a worker for it.
-- **Where it shows.** An Auto-start card on the Report (`/p/<project>/status`) with your words, the verdict now and the last start on this machine, plus **Pause** / **Resume** / **Turn off** buttons (`POST /p/<project>/autostart/pause|resume|off`). The sidebar shows an Auto-start line while it's on, and `status.md` / `issue-cli status` print `Auto-start: …`.
+- **Where it shows.** An Auto-start card on the Report (`/p/<project>/status`) with your words, the verdict now, the load and cores (`CPU: load 4.3 on 14 cores (max 14)`) and the last start on this machine, plus **Pause** / **Resume** / **Turn off** buttons (`POST /p/<project>/autostart/pause|resume|off`). The sidebar shows an Auto-start line while it's on, and `status.md` / `issue-cli status` print `Auto-start: …`.
+
+## The lead's queue
+
+The lead's queue is the project's ordered plan: what the lead's tick starts next while memory and CPU allow. It is the engine's version of the hand-kept night plan (numbered items, `[>] <slug>` once started, `[x] <sha>` once shipped, `blocked:`, and "think up more" kept last). Source: factory/the-leads-queue-as-an-engine-feature-an-ordered-plan-of-items-the-leads-tick-starts-while-memory-and-cpu-allow (D-1 to D-6, provisional).
+
+```bash
+issue-cli queue add <slug> --quote "<your words>" [--how ...] [--top|--before N|--after N] [--blocked-on <item|slug>]
+issue-cli queue add --idea "<one line to file>" --quote "<your words>"
+issue-cli queue list [--all]          # active items with their holds, done today, the refill line
+issue-cli queue move N --top|--bottom|--before M|--after M
+issue-cli queue block N --on <item|slug>   /   unblock N [--on ...]
+issue-cli queue link N <slug>         # the idea's issue was filed
+issue-cli queue quote N --quote "<your words>"
+issue-cli queue drop N [--reason ...] /   done N [--sha ...]   # by hand: no-code items
+issue-cli queue limits [--below 50] [--max-workers 0]
+issue-cli queue next [--start]        # what starts next, or why nothing does
+```
+
+- **The file.** `<issues>/.queue/queue.json`, one per project, with the work files (a private tracker keeps it private). Written atomically under a lock (`.queue/queue.lock`), so the lead and a worker's `transition` can write at once. `<item>` is the item's number (`12`, `#12`) or its slug.
+- **"Think up more" is always last.** It isn't stored: every list ends with `∞ Out of work: think up more…`, so it can't be done, moved or dropped. When nothing open is left, `queue next` prints it with the `queue add` command.
+- **Your words.** An item starts only on your words: its own `--quote`, or auto-start's stored words while [auto-start](#auto-start) is on and not paused. An item with neither holds (`no owner's words: issue-cli queue quote N --quote …`). Never an agent's words. The started worker's `dispatch:` comment quotes them: `dispatch: "<your words>" (queue item 2, in the CEO chat; memory 31% < 50%, load 4.0 < 14 on 14 cores, 0 workers, no worker cap, 2026-10-31)`.
+- **What holds an item**, in order: a queue blocker not done (an item number done or dropped, or a slug at its workflow's last status); an idea with no issue yet (`file it, then queue link N <slug>`); no issue with that slug; the issue already shipped or parked; already started (`started, worker live`, or `started, no live worker`: it is never restarted by itself, re-dispatch by hand); a live worker, a `depends_on` not done, or waiting on your approval (YOLO lets that through), as for auto-start; routing resting; no words.
+- **The machine checks** are auto-start's (`Decide`): `mem-guard` found and `mem-guard check` passing, memory under the limit, the 1-minute load under the core count, the worker cap, and one start per 5 minutes across all projects (the same lock and last start as `dispatch --autostart`). Plus: **local CI red on main holds every start** (`local CI red on main at abc1234: no new starts until it is green`); no `ci:` block doesn't hold. Limits are auto-start's when it is on; otherwise the queue's own, `queue limits`: memory under 50% and **no worker cap** by default (your words, 2026-10-31: "don't limit yourself on the 5 individual workers - just on the memory you have").
+- **Start.** `queue next --start` decides again under the lock, starts the first startable item like `dispatch`, marks it `[>]` (started, by whom, when) and prints the next item. When anything holds it exits 1 and starts nothing, listing why each item before it can't start.
+- **Done.** `transition --to <last status>` marks the issue's items done with the merge SHA: the tip of `work/<slug>` when main (or master) contains it, else main's head (`✓ Queue item 4 marked done at becb563`). An item whose issue reached its last status another way (close, a lead's move) shows as done without a SHA.
+- **Who.** The lead (or you); workers may read the queue but never change it or start from it. Nothing runs on a timer: the lead's check-in runs `queue next --start`. `issue-cli lead whoami` prints `Queue: N active, next <slug>. At each check-in: issue-cli queue next --start`, and `dispatch` without `--quote` points at `queue next` when the project has a queue.
+- **Where it shows.** A Queue card on the Report (`/p/<project>/status`): the next 5 items with their holds, the blocked count, done today with SHAs, the refill line and what `queue next` says now. `status.md` / `issue-cli status` print `Queue: 3 active · 1 blocked · 2 done today · next <slug> · now: …`. The viewer only reads: it never writes the queue or starts a worker.
+
+**Not yet:** editing the queue from the page; importing a markdown night plan; a queue per department.
+
+## Routing between Claude and Codex
+
+With both Claude Code and Codex logged in on this machine, a `routing:` block in the workflow file picks which one starts each worker, lead and job run, and moves new starts to the other one while a subscription is resting after a usage limit.
+
+```yaml
+routing:
+  default: claude            # when no rule matches (no routing: block: claude, as before)
+  fallback: [claude, codex]  # the order to try when the picked one is resting
+  rules:                     # first match wins; a rule matches when every key it names matches
+    - {type: docs, agent: codex}
+    - {type: report, agent: codex}
+    - {label: design, agent: claude}
+    - {status: in design, agent: claude}     # the issue's current status
+    - {department: marketing, agent: codex}  # a box key
+    - {lead: true, agent: claude}            # the CEO and department leads
+```
+
+- **Where it applies.** `issue-cli dispatch`, ▶ on the issue page (**Dispatch · codex**, with the rule as its tooltip), `dispatch --autostart` and auto-start, `issue-cli lead spawn` and the Crew page's Start buttons, and `job run` (scheduled or not). Each launch report starts with `Agent: codex (type docs → codex)`. A department's own workflow file routes its own work.
+- **`--agent` wins.** `--agent claude|codex` on dispatch, lead spawn and job run, an action's `agent:` and the page's **Claude** / **Codex** buttons are your choice. Routing doesn't change them. When that subscription is resting the launch says so (a warning step) and starts it anyway.
+- **Limits.** Before each routed start, when the Crew or Status page loads and on `issue-cli agents`, the last lines of every live agent and lead pane in the project are read for the CLI's own limit message:
+  - Claude Code: `You've hit your 5-hour limit · resets 5pm (Europe/Warsaw)` (also the weekly, Opus, Sonnet and Fable limits, and the older `Claude usage limit reached … reset at 5pm`).
+  - Codex: `You’ve hit your usage limit. … try again at 6:30 PM.` (or a date).
+  That subscription then rests until the reset it names, or one hour when it names none. The rest is machine-wide (`$XDG_STATE_HOME/ai-workflow-engine/subscriptions/state.json`, under a lock) and ends by itself. The same message still on a pane after the reset doesn't start a new rest. Spend caps and usage credits are paid extras, not the plan, so they don't count.
+- **While one rests.** A routed start takes the next agent in `fallback:` that is installed and not resting. When none is free, auto-start and scheduled job runs hold with the reason (`every agent to try is resting (claude until 17:00, codex until 18:30)`). A start you asked for goes ahead on the routed agent, with a warning.
+- **The worker that hit the limit** is left running: nothing is killed, typed into or retried. Its Crew card says `hit its codex usage limit · left running` with the message and the reset. `status.md` lists it on its Working on line, and `agents.json` has its `limit`.
+- **Where it shows.** Each live Crew card names its agent CLI, and the Crew header shows **Subscriptions**: `claude working · codex resting until 18:30 (limit seen in agent-x)`, `unknown` or `not installed`. `status.md` has an `Agents:` line. `issue-cli agents` prints the same, the panes showing a limit now and the rules. HQ's Spend block and `issue-cli spend` split the spend by subscription ([Departments](departments.md#spend-and-budgets)).
+- **By hand.** `issue-cli agents rest <agent> --until HH:MM` (you saw the limit yourself) and `issue-cli agents clear <agent>` (a wrong match, or an early reset). Only you or a lead can run them; a worker is refused.
+- **What it never does.** It never uses API keys, creates accounts, logs in, reads either CLI's login, or shares a subscription. It doesn't work around a provider's limits: it only chooses which of your installed tools starts the next task.
+- **Lint.** The `routing` check (`issue-cli health lint`) warns about an agent that isn't a command name or isn't on `PATH`; a type, status or department the file or projects.yaml doesn't know; a rule with no `agent:`; a rule after a catch-all; and a `fallback:` that repeats an agent or leaves out the default. It also flags a department file that routes another department's work.
+- **Judging the rules.** `issue-cli bench run <benchmark> --worker "<codex exec …>"` runs the same golden tasks on another CLI. run.json records the setup's `agent`, so `bench compare` puts time, tokens and score side by side ([Factory Benchmark](benchmark.md)).
+- **claude-code-router (CCR).** CCR is a local proxy that routes Claude Code's model requests to other providers using API keys. The engine doesn't bundle, install or call it (factory/route-work-between-claude-and-codex-subscriptions-ccr-pick-the-agent-per-task-fall-back-when-one-hits-its-limit#D-1). If you set CCR up yourself inside a Claude Code session, routing still picks only the CLI.
 
 ## Lead Sessions
 
@@ -353,13 +417,14 @@ The **CEO chat** (`/p/<project>/lead`, L1 · HQ on the Workshop Board; the compa
 - **The CEO's questions.** Claude Code writes an AskUserQuestion to the transcript only after it is answered, so an open one is read from its widget on the pane (`parsePaneAsk`, ceo_question.go): the tab headers, the question on screen, its options with descriptions (ticked when several may be picked) and *Other*. It is the *The CEO asks you* card above the message box: pick an option (or several) or type Other, then **Submit** (**Next** when more questions follow). `POST …/lead/answer` presses the widget's keys for the question on screen: a digit for a single choice; Other's digit, the text and Enter; for several choices the digits that change a tick, Down to Other and the text, Down to Submit and Enter. When the screen shows another question, or none, it presses nothing (409) and you answer in **Terminal**. The last tab lists your answers with **Submit answers** and **Cancel** (keys 1 and 2). A card you started isn't redrawn by the poll while the same question is on screen.
 - **The message box.** Enter sends, Shift+Enter adds a line. The text goes in like Re-send prompt: `agentrun.Paste` loads it into a tmux buffer named after the session, pastes it as one bracketed paste and presses Enter, then checks its last line shows up in the conversation, pressing Enter again while it sits in the input box. Nothing passes through a shell. Control characters other than newline and tab are dropped (so a message can't close the bracketed paste and press keys), a message is at most 20 KB, and a copy is kept in `.agent-logs/lead-<project>/chat/`. **Send now** sends and then presses ctrl+x ctrl+s. **Mode · switch** presses shift+tab, which cycles Claude Code's permission mode.
 - **Images.** Paste an image in the box, drop one on it, or pick one with **📎 Attach**: PNG, JPEG, GIF or WebP (read from the content, not the name), at most 10 MB each and 5 per message. Each goes to `POST …/lead/image` right away, is kept in `.agent-logs/lead-<project>/chat/images/<hash>.<ext>` (the same image twice is one file) and shows as a thumbnail with × above the text. Send waits for uploads, then ends the message with one `[Image: <absolute path>]` line per image; the CEO reads the file with its Read tool. A message may be images alone. The send refuses any path that isn't a file in that folder (400). Your turn in the conversation shows those lines as thumbnails (through `/files/`) that open the full image.
+- **Files.** Any other file goes through the same box: a .zip, a PDF, notes, an .html. So does an image over 10 MB, or one `lead/image` refuses. It goes to `POST …/lead/file` (owner only: sign in at `/owner`), at most 50 MB and 5 per message, and an empty file is refused. The upload is streamed into `.agent-logs/lead-<project>/chat/files/<hash>/<name>` (mode 0600, name cleaned to ASCII `A-Za-z0-9._-`, the same bytes under the same name stored once) and shows as a chip (type badge, name, size) with ×. Send ends the message with one `[File: <absolute path>]` line per file, after the image lines; the agent reads it with its own tools. Department chats (`?dept=`) use the same project store. Your turn shows each file as a chip that downloads it: `GET …/lead/file/<hash>/<name>`, owner only, always `application/octet-stream` as an attachment, never shown in the viewer. The viewer never unpacks or opens a stored file.
 - **Keys.** **Interrupt** is Esc. **Stop session** is Ctrl+C, after a confirm; a second Ctrl+C within 5 s is refused (429), because Claude Code exits on two. The window is checked and recorded under the lead's lock, so it holds while a message is still being delivered and when two presses race; a press whose keys fail to send does not start it. A send holds that lock over the paste and Enter only, not the wait for its last line to show up in the pane. ↑ ↓ ⏎ 1 2 3 answer menus. **Send now · interrupt** presses ctrl+x ctrl+s (a message queued while the lead works goes in now), **Show details** ctrl+o, **To background** ctrl+b ctrl+b. A chord's keys go 60 ms apart. Only these keys are accepted.
 - **Start the CEO** shows when the lead isn't running (`POST …/lead/spawn`); the box and the keys are disabled until it runs.
 - **Side panel.** *Waiting on you* is the Status page's list for the project (gates link to the issue's approve button, `#approve-<status>`; playtests, check scripts and `question:` comments link to the issue). *CEO's questions* are only the open ones (`openCEOQuestions`): the question widget on its screen, and the sentences ending in `?` in its last message until you write anything after it. Answered questions drop off; they stay in the conversation, marked answered. **Answer in chat** starts your reply in the box (`Re: "<question>" `) and sends nothing. `lead.json` has the same list as `open_questions` (`kind` ask or sentence, `text`), and `questions` is its texts: Needs-you and scripts read it rather than the pane. *Working in the background* lists the project's live workers (issue, status, working / idle / waiting on you). Last, the `tmux attach` command.
 
-Not on the page yet (the design has them, the engine has no data for them): files other than images, a queue of messages you can edit, the "your words authorize" card, notes from other CEOs.
+Not on the page yet (the design has them, the engine has no data for them): a queue of messages you can edit, the "your words authorize" card, notes from other CEOs.
 
-What you send there is you typing in the lead's chat, so it counts as your words: when you tell the lead to dispatch a worker there, that is what its `--quote` reports. The page never sends anything by itself: no timer, no retry, no queued message. The tmux target comes from the project (`tracker.LeadSessionName`, `agentrun.Target`), never from the request; an unknown project is a 404. `POST …/lead/send`, `POST …/lead/key` and `POST …/lead/answer` take `application/json` only (`POST …/lead/image` multipart) and sit behind the same origin check as every other write (403 cross-origin).
+What you send there is you typing in the lead's chat, so it counts as your words: when you tell the lead to dispatch a worker there, that is what its `--quote` reports. The page never sends anything by itself: no timer, no retry, no queued message. The tmux target comes from the project (`tracker.LeadSessionName`, `agentrun.Target`), never from the request; an unknown project is a 404. `POST …/lead/send`, `POST …/lead/key` and `POST …/lead/answer` take `application/json` only (`POST …/lead/image` and `POST …/lead/file` multipart) and sit behind the same origin check as every other write (403 cross-origin).
 
 Before this page the agents canvas deliberately showed no pane and no message box (UI decision D-12); the lead chat is the owner's request to have both, for the lead only. Workers are still reached in tmux.
 

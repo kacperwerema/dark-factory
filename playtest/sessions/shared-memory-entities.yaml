@@ -1,0 +1,54 @@
+session: shared-memory-entities
+issue: factory/shared-memory-phase-4-entities-and-who-knows-what
+title: Shared memory entities - @agent and #topic search, the entity index and the Memory page by entity
+scenario: memory-entities
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: memory search @x and '#t' find the memories that carry them; memory entities says who knows what
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/memory
+    checks:
+      - cli: { args: [memory, search, "@lead-acme"], contains: "m-aaa004" }
+      - cli: { args: [memory, search, "#playtest"], contains: "m-aaa005" }
+      - cli: { args: [memory, entities], contains: "known by @lead-acme" }
+
+  - id: TP5
+    title: The Memory page lists the entities, filters by one, and groups the memories by entity
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/memory?group=entity
+    act:
+      - click: memory.entity.agent-owner
+      - wait_for: { visible: memory.entity_filter, ms: 8000 }
+    checks:
+      - visible: [memory.entities, memory.entity.topic-playtest, memory.entity.agent-lead-acme, memory.entity_filter, memory.group.topic-playtest, memory.group.agent-owner, memory.row.m-aaa005]
+      - text_contains: { target: memory.entity.topic-playtest, text: "known by @lead-acme" }
+      - text_contains: { target: memory.entity_filter, text: "@owner" }
+      - absent: [memory.group.none, memory.row.m-aaa004]
+
+  - id: TP6
+    title: The Memory page by entity reads like the Workshop Board at desktop and phone width
+    judgement_step: true
+    setup:
+      - open: /p/{project}/memory?group=entity
+    checks:
+      - visible: [memory.entities, memory.group.topic-playtest]
+    targets:
+      - { id: memory.entities, note: the entity index, who knows what }
+      - { id: memory.group.topic-playtest, note: the memories under one entity }
+    do: |
+      1. Look at the Entities strip: each #topic and @name with its count and, for a topic, who knows it.
+      2. Click an entity: the list narrows to the memories that carry it, with a "show all" link.
+      3. Pick Group: by entity and read the list; narrow to phone width.
+    expect: |
+      The entities read as chips with counts, the who-knows line is plain,
+      and the grouped list puts each memory under its #topics and @names
+      with "No entity" last. At phone width nothing is cut off.
+    why: ux-test checks the parts are there; only you can say the grouped page is easy to read.

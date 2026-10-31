@@ -1,0 +1,8 @@
+# One issue behind a critique gate with a recorded critic run (a stand-in's
+# output: no real critic ran), and one behind the gate with no run yet.
+title: The fresh critic's findings on the station
+project:
+  name: Critique Demo
+  slug: critique
+issues: tracker
+workflow: workflow.yaml

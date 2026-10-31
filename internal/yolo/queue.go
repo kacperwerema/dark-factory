@@ -1,7 +1,9 @@
 package yolo
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -26,6 +28,10 @@ type Pass struct {
 	Check string `json:"check,omitempty"`
 	What  string `json:"what,omitempty"`
 	Why   string `json:"why,omitempty"`
+	// Question is set on an assumed answer instead: the id (Q2) of a
+	// ## Clarify question the agent answered alone after YOLO passed the
+	// issue's gate; What is the question, Why the assumed answer and reason.
+	Question string `json:"question,omitempty"`
 }
 
 // Key is what the owner's review names: the box of an owner check, else the
@@ -33,6 +39,9 @@ type Pass struct {
 func (p Pass) Key() string {
 	if p.Check != "" {
 		return p.Check
+	}
+	if p.Question != "" {
+		return p.Question
 	}
 	return p.Status
 }
@@ -42,6 +51,9 @@ func (p Pass) Key() string {
 func (p Pass) Label() string {
 	if p.Check != "" {
 		return p.Check + ": owner check, not done"
+	}
+	if p.Question != "" {
+		return p.Question + ": assumed answer"
 	}
 	return p.Status
 }
@@ -118,6 +130,42 @@ func OwnerChecks(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	return out
 }
 
+// Questions is every assumed answer in the issue's ## Clarify once a YOLO
+// gate passed on it, oldest pass first, each with the review that settled
+// it: a yolo-review: naming its Q-id. An answer the owner gave since is no
+// longer assumed and drops out. Each is dated by the issue's first YOLO
+// pass, the one that left the design with them, and goes back to its from.
+func Questions(issue *tracker.Issue, comments []tracker.Comment) []Pass {
+	var first *Pass
+	reviews := map[string]string{}
+	for _, c := range comments {
+		if a, ok := tracker.ParseApprovalComment(c.Text); ok && a.YOLO() && first == nil {
+			by, from := a.YOLOFrom()
+			first = &Pass{By: by, From: from, At: c.Date, Comment: c.ID}
+			continue
+		}
+		if r, ok := tracker.ParseYOLOReviewComment(c.Text); ok && first != nil {
+			if id := tracker.NormalizeQuestionID(r.Status); id != "" && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(r.Status)), "Q") {
+				reviews[id] = r.Verdict
+			}
+		}
+	}
+	if first == nil {
+		return nil
+	}
+	var out []Pass
+	for _, q := range tracker.ParseClarify(issue.BodyRaw).Assumed() {
+		why := q.Answer.Reason
+		if ch := q.Chosen(); ch != nil {
+			why = "assumed " + ch.Label + " — " + q.Answer.Reason
+		}
+		p := *first
+		p.Slug, p.Title, p.Question, p.What, p.Why, p.Review = issue.Slug, issue.Title, q.ID, q.Text, why, reviews[q.ID]
+		out = append(out, p)
+	}
+	return out
+}
+
 // Queue is the passes and owner checks across issues still waiting for the
 // owner's review.
 func Queue(issues []*tracker.Issue) []Pass {
@@ -132,11 +180,12 @@ func Queue(issues []*tracker.Issue) []Pass {
 	return out
 }
 
-// Unreviewed is the issue's passes, then its owner checks, still waiting
-// for review.
+// Unreviewed is the issue's passes, then its owner checks, then its
+// assumed answers, still waiting for review.
 func Unreviewed(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	var out []Pass
-	for _, p := range append(Passes(issue, comments), OwnerChecks(issue, comments)...) {
+	all := append(Passes(issue, comments), OwnerChecks(issue, comments)...)
+	for _, p := range append(all, Questions(issue, comments)...) {
 		if p.Review == "" {
 			out = append(out, p)
 		}
@@ -285,4 +334,89 @@ func WorkflowOwnerGates(wf *tracker.WorkflowConfig, dept string) []OwnerGate {
 		}
 	}
 	return out
+}
+
+// Entry is one issue waiting for the owner's review after the fact: the
+// review unit and what every count counts. Gates are its gate passes not
+// yet reviewed (one Agree covers them all), Checks the owner checks a gate
+// left open (each ticked or agreed on its own), Questions the answers the
+// agent assumed in its clarify round (the same Agree covers them).
+type Entry struct {
+	Slug      string `json:"slug"`
+	Title     string `json:"title,omitempty"`
+	Gates     []Pass `json:"gates"`
+	Checks    []Pass `json:"checks"`
+	Questions []Pass `json:"questions,omitempty"`
+	// Oldest is the oldest waiting item's comment date.
+	Oldest string `json:"oldest"`
+}
+
+// Detail is "3 gates, 2 owner checks" (a part that is zero is left out).
+func (e Entry) Detail() string {
+	var parts []string
+	if n := len(e.Gates); n == 1 {
+		parts = append(parts, "1 gate")
+	} else if n > 1 {
+		parts = append(parts, strconv.Itoa(n)+" gates")
+	}
+	if n := len(e.Checks); n == 1 {
+		parts = append(parts, "1 owner check")
+	} else if n > 1 {
+		parts = append(parts, strconv.Itoa(n)+" owner checks")
+	}
+	if n := len(e.Questions); n == 1 {
+		parts = append(parts, "1 assumed answer")
+	} else if n > 1 {
+		parts = append(parts, strconv.Itoa(n)+" assumed answers")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// Items is the entry's gates, then its owner checks, then its assumed
+// answers.
+func (e Entry) Items() []Pass {
+	return append(append(append([]Pass(nil), e.Gates...), e.Checks...), e.Questions...)
+}
+
+// Entries groups passes by issue, in the order each issue first appears;
+// each entry's Oldest is its oldest item by date.
+func Entries(queue []Pass) []Entry {
+	var out []Entry
+	index := map[string]int{}
+	oldest := map[string]time.Time{}
+	for _, p := range queue {
+		key := strings.ToLower(p.Slug)
+		i, ok := index[key]
+		if !ok {
+			i = len(out)
+			index[key] = i
+			out = append(out, Entry{Slug: p.Slug, Title: p.Title, Oldest: p.At})
+		}
+		if p.Check != "" {
+			out[i].Checks = append(out[i].Checks, p)
+		} else if p.Question != "" {
+			out[i].Questions = append(out[i].Questions, p)
+		} else {
+			out[i].Gates = append(out[i].Gates, p)
+		}
+		if t, ok := tracker.CommentTime(p.At); ok {
+			if o, seen := oldest[key]; !seen || t.Before(o) {
+				oldest[key] = t
+				out[i].Oldest = p.At
+			}
+		}
+	}
+	return out
+}
+
+// QueueEntries is the queue across issues, one entry per issue.
+func QueueEntries(issues []*tracker.Issue) []Entry { return Entries(Queue(issues)) }
+
+// Totals is how many gates and owner checks the entries hold.
+func Totals(entries []Entry) (gates, checks int) {
+	for _, e := range entries {
+		gates += len(e.Gates)
+		checks += len(e.Checks)
+	}
+	return gates, checks
 }

@@ -67,7 +67,7 @@ func TestDispatch_StartsTheBoardsSpec(t *testing.T) {
 		t.Fatalf("RepromptHint = %q", spec.RepromptHint)
 	}
 	out := stdout.String()
-	for _, w := range []string{"✓ Dispatched agent-loner for loner", "  ✓ stubbed", "Inside tmux:  tmux switch-client -t agent-loner", "From a shell: tmux attach -t agent-loner"} {
+	for _, w := range []string{"✓ Dispatched agent-loner for loner", "  ✓ stubbed", "Inside tmux:  tmux switch-client -t '=agent-loner:'", "From a shell: tmux attach -t agent-loner"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("stdout missing %q:\n%s", w, out)
 		}

@@ -1,0 +1,8 @@
+# The red-round cap on the Station: one issue whose proof check has been
+# red for three fix rounds, at three branch heads (its stats sidecar).
+title: One issue with a check red for three fix rounds
+project:
+  name: Red Rounds Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

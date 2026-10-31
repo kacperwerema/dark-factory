@@ -75,6 +75,9 @@ type StatsStore struct {
 	// Dispatches are the agent launches on this issue, oldest first; the
 	// first is where the issue's agent work starts.
 	Dispatches []Dispatch `json:"dispatches,omitempty"`
+	// Rounds are the issue's check results, oldest first, that
+	// internal/redrounds counts into red rounds.
+	Rounds []RoundResult `json:"rounds,omitempty"`
 }
 
 // StatsSidecarPath returns the stats sidecar path for an issue markdown file.

@@ -19,6 +19,7 @@ behaviour in static/station.js. templates/station.html composes them.
   wb/station-agent the issue's agent                       data: WbStationAgent
   wb/sessions      tmux sessions on the issue              data: WbSessionList
   wb/station-outputs what the issue made, from the shelf   data: *WbStationOutputs
+  wb/station-critique the fresh critic's newest run        data: *WbStationCritique
   wb/body-index    the body by section, with counts        data: WbBodyIndex
   wb/fields        the fields: edited in place, then rows  data: WbFields
   wb/move-preview  a status change's preview and approval  data: *WbFieldEdit
@@ -170,6 +171,31 @@ behaviour in static/station.js. templates/station.html composes them.
 </a>
 {{end}}
 
+{{define "wb/clarify"}}{{with .}}
+<section class="wb-panel" id="clarify" aria-labelledby="clarify-h" data-clarify-url="{{.PostURL}}" data-testid="station.clarify">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="clarify-h">Clarify{{with .Questions}} · {{len .}}{{end}}</h2><span class="wb-panel-sub">{{if .Nothing}}the design had nothing to ask{{else if .Waiting}}{{.Waiting}} wait{{if eq .Waiting 1}}s{{end}} for your answer · the recommendation first{{else}}every question answered{{end}}{{with .InReview}} · {{.}} assumed in YOLO, in the review after it{{end}}</span></div>
+    {{if .Nothing}}<div class="wb-panel-empty">Nothing to ask{{with .Why}}: {{.}}{{end}}.</div>{{end}}
+    {{range .Questions}}{{template "wb/clarify-q" .}}{{end}}
+    {{with .Problems}}<div class="wb-panel-foot wb-cl-problems" data-testid="station.clarify.problems">Format: {{range $i, $p := .}}{{if $i}} · {{end}}{{$p}}{{end}}</div>{{end}}
+    {{if .Waiting}}<div class="wb-panel-foot wb-cl-foot">
+        <span class="wb-site-msg" role="status" data-testid="station.clarify.msg"></span>
+        <button type="button" class="wb-btn wb-btn--you" data-clarify-send data-testid="station.clarify.send">Answer {{if eq .Waiting 1}}the question{{else}}all {{.Waiting}}{{end}}</button>
+    </div>{{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/clarify-q"}}
+<fieldset class="wb-cl-q{{if .Done}} wb-cl-q--done{{end}}" data-clarify-q="{{.ID}}" data-text="{{.Text}}"{{if .Done}} disabled{{end}} data-testid="station.clarify.q">
+    <legend class="wb-cl-legend"><span class="wb-dec-id">{{.ID}}</span> {{.Text}}</legend>
+    {{if eq .State "assumed"}}<div class="wb-cl-state">{{template "wb/yolo-tag" "assumed"}} {{.Answer}}</div>{{else if .Done}}<div class="wb-cl-state"><span class="wb-dec-who">YOURS</span> {{.Answer}}{{with .Decision}} · {{.}}{{end}}</div>{{else if .Answer}}<div class="wb-cl-state">{{.Answer}}</div>{{end}}
+    {{$q := .ID}}{{range .Options}}<label class="wb-cl-opt">
+        <input type="radio" name="clarify-{{$q}}" value="{{.Num}}"{{if .Pick}} checked{{end}}>
+        <span class="wb-cl-opt-t"><b>{{.Num}}. {{.Label}}</b>{{if .Recommended}} <span class="wb-chip wb-chip--you">recommended</span>{{end}}{{with .Why}} <span class="wb-cl-why">{{.}}</span>{{end}}{{with .Cost}}<span class="wb-cl-cost">Cost: {{.}}</span>{{end}}</span>
+    </label>{{end}}
+    {{if not .Done}}<input class="wb-cl-words" type="text" placeholder="Your words (optional: the option's name is recorded without them)" aria-label="Your words on {{.ID}}" data-clarify-words>{{end}}
+</fieldset>
+{{end}}
+
 {{define "wb/decisions"}}
 <section class="wb-panel" id="decisions" aria-labelledby="decisions-h" data-testid="station.decisions">
     <div class="wb-panel-head"><h2 class="wb-panel-h" id="decisions-h">Decisions · {{len .Items}}</h2><span class="wb-panel-sub">your words, and what the agent recorded</span></div>
@@ -225,9 +251,11 @@ behaviour in static/station.js. templates/station.html composes them.
         {{if .Criteria}}<div class="wb-crits">
             {{range .Criteria}}<div class="wb-crit"><span class="wb-box{{if .Proven}} wb-box--on{{end}}">{{.ID}}</span><span class="wb-crit-text">{{.Text}}</span><span class="wb-crit-proof{{if .Proven}} wb-tone-green{{end}}">{{.Proof}}</span></div>{{end}}
         </div>{{end}}
+        {{if .RedRounds}}<div class="wb-eyebrow">RED CHECKS</div>
+        <div class="wb-crits" data-testid="station.tests.red_rounds">{{range .RedRounds}}<div class="wb-crit"><span class="wb-crit-proof{{if .Question}} wb-tone-red{{end}}">{{.Label}}{{if .Question}} · your question{{end}}</span><span class="wb-crit-text"><code class="wb-mono-inline">{{.Check}}</code>{{with .Why}} — {{.}}{{end}}</span></div>{{end}}</div>{{end}}
         {{if .Groups}}<div class="wb-eyebrow">CHECKLIST · {{.Done}}/{{.Total}}</div>
         <div class="wb-groups">{{range .Groups}}{{template "wb/check-group" .}}{{end}}</div>{{end}}
-        {{if not (or .Big .Tests .Groups)}}<div class="wb-panel-empty">No acceptance criteria, tests: line or checkboxes on this issue yet.</div>{{end}}
+        {{if not (or .Big .Tests .Groups .RedRounds)}}<div class="wb-panel-empty">No acceptance criteria, tests: line or checkboxes on this issue yet.</div>{{end}}
     </div>
 </section>
 {{end}}
@@ -271,10 +299,12 @@ behaviour in static/station.js. templates/station.html composes them.
 {{define "wb/dispatch"}}
 <div class="wb-st-dispatch" data-st-dispatch="{{.URL}}" data-testid="station.dispatch">
     <div class="wb-st-btns">
-        <button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>
+        {{if .Routed}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="" title="{{.Why}}" data-testid="station.dispatch.routed">Dispatch · {{.Routed}}</button>
+        <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Claude</button>{{else}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>{{end}}
         <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-agent="codex" data-testid="station.dispatch.codex">Codex</button>
         {{range .Actions}}<button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-action="{{$.ActionURL}}{{.ID}}" data-label="{{.Label}}" data-testid="station.dispatch.action.{{tid .ID}}">{{.Label}}</button>{{end}}
     </div>
+    {{if .Routed}}<div class="wb-note" data-testid="station.dispatch.why">Routing: {{.Why}}</div>{{end}}
     <a class="wb-fields-link" href="{{.PromptURL}}" target="_blank" rel="noopener" data-testid="station.dispatch.prompt">The dispatch prompt</a>
     <div class="wb-st-steps" role="status" aria-live="polite" data-st-steps data-testid="station.dispatch.steps" hidden></div>
 </div>
@@ -417,7 +447,7 @@ behaviour in static/station.js. templates/station.html composes them.
         <div class="wb-step-actions"><button type="submit" class="wb-btn wb-btn--ink" data-testid="station.fullbody.save">Save</button><button type="button" class="wb-btn wb-btn--link" data-st-edit-cancel>Cancel</button></div>
     </form>
     <div class="wb-site-msg wb-st-bodymsg" role="status" data-st-body-msg></div>
-    <script>document.querySelectorAll('[data-st-body] .wb-st-md input[type=checkbox][data-line]').forEach(function (cb, i) { cb.dataset.testid = 'station.fullbody.box.' + i; });</script>
+    <script nonce="{{cspNonce}}">document.querySelectorAll('[data-st-body] .wb-st-md input[type=checkbox][data-line]').forEach(function (cb, i) { cb.dataset.testid = 'station.fullbody.box.' + i; });</script>
 </section>
 {{end}}
 
@@ -426,6 +456,23 @@ behaviour in static/station.js. templates/station.html composes them.
     <b>Could not read {{len .}} {{if eq (len .) 1}}source{{else}}sources{{end}}</b>: the page leaves out what they hold.
     <ul class="wb-st-list">{{range .}}<li>{{.}}</li>{{end}}</ul>
 </div>
+{{end}}{{end}}
+
+{{define "wb/station-critique"}}{{with .}}
+<section class="wb-panel" aria-labelledby="critique-h" data-testid="station.critique" data-verdict="{{if .Empty}}none{{else}}{{.Verdict}}{{end}}">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="critique-h">Critique{{if not .Empty}} · {{.Verdict}}{{end}}</h2><span class="wb-panel-sub">{{if .Empty}}a fresh critic reads the work before {{range $i, $g := .Gates}}{{if $i}}, {{end}}{{$g}}{{end}}{{else}}{{.Edge}} · {{if .Agent}}{{.Agent}} · {{end}}{{.When}}{{end}}</span></div>
+    <div class="wb-panel-body">
+    {{if .Empty}}<p class="wb-panel-sub">No critic has read this issue yet. The worker runs <code>issue-cli critique {{.Slug}}</code> before the gate.</p>{{else}}
+    <p class="wb-panel-sub">{{if .Holds}}<span class="wb-you-text">Holds the gate</span>{{else if .Override}}Overridden by the owner: “{{.Override}}”{{else}}No blocks finding{{end}} · {{.Blocks}} blocks · {{.Should}} should · {{len .Notes}} {{if eq (len .Notes) 1}}note{{else}}notes{{end}}{{if .Error}} · failed: {{.Error}}{{end}}</p>
+    {{if or .Findings .Problems}}<ul class="wb-st-list">
+        {{range .Findings}}<li data-testid="station.critique.finding" data-severity="{{.Severity}}"><b>{{.Severity}}</b>{{if .Malformed}} (malformed) {{.Text}}{{else}} <code>{{.Where}}</code> {{.Text}}{{end}}</li>{{end}}
+        {{range .Problems}}<li data-testid="station.critique.finding" data-severity="blocks"><b>blocks</b> {{.}}</li>{{end}}
+    </ul>{{end}}
+    {{if .Notes}}<details class="wb-panel-sub"><summary>{{len .Notes}} {{if eq (len .Notes) 1}}note{{else}}notes{{end}}</summary><ul class="wb-st-list">{{range .Notes}}<li data-severity="note"><code>{{.Where}}</code> {{.Text}}</li>{{end}}</ul></details>{{end}}
+    {{if .Coverage}}<p class="wb-panel-sub">Coverage: {{.Coverage}}{{if .Unread}} · Not read: {{range $i, $u := .Unread}}{{if $i}}, {{end}}<code>{{$u}}</code>{{end}}{{end}}</p>{{end}}
+    {{end}}
+    </div>
+</section>
 {{end}}{{end}}
 
 {{define "wb/station-outputs"}}{{with .}}

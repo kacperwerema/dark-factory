@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,5 +150,101 @@ func TestBenchCompareGivesEachWorkflowItsVerdictWithTimeAndCost(t *testing.T) {
 	_ = runBench(ctx, []string{"compare", "mix/r1", "mix/r2"})
 	if !strings.Contains(out.String(), `"workflows": [`) || !strings.Contains(out.String(), `"verdict": "net negative"`) {
 		t.Errorf("json:\n%s", out)
+	}
+}
+
+func TestBenchCandidatesDepartmentListsOnlyApprovedOutputsWithTheirEval(t *testing.T) {
+	proj := shopProject(t)
+	asWorker(t)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--department", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "marketing/post-tees  piece · output o-1 (Tees) · eval piece (output)") {
+		t.Errorf("approved post not proposed with its eval:\n%s", got)
+	}
+	if strings.Contains(got, "post-caps") {
+		t.Errorf("a post waiting for review was proposed:\n%s", got)
+	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--department", "Marketing", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "- marketing/post-caps  its output o-2 is review, not approved by the owner") {
+		t.Errorf("--all lacks why post-caps is left out:\n%s", out)
+	}
+	ctx, out, _ = newTestContext(proj, true)
+	if err := runBench(ctx, []string{"candidates", "--department", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	var cands []bench.Candidate
+	if err := json.Unmarshal(out.Bytes(), &cands); err != nil || len(cands) != 1 || cands[0].Output != "o-1" || cands[0].Eval != "piece" || cands[0].Workflow != "marketing" {
+		t.Errorf("--json = %s (%v)", out, err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--department", "marketing", "--replay"}); !errors.As(err, new(*usageError)) {
+		t.Errorf("--department with --replay: %v", err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--department", "sales"}); err == nil || !strings.Contains(err.Error(), "unknown department") {
+		t.Errorf("unknown department: %v", err)
+	}
+	if _, err := os.Stat(bench.Dir()); !os.IsNotExist(err) {
+		t.Errorf("candidates --department wrote %s (%v)", bench.Dir(), err)
+	}
+}
+
+func TestBenchCandidatesWithoutAnEvalSaysWhy(t *testing.T) {
+	proj := shopProject(t)
+	asWorker(t)
+	wf := filepath.Join(proj.WorkDir, "workflows/marketing.yaml")
+	if err := os.WriteFile(wf, []byte(strings.Replace(cliMarketingWorkflow, "types: [piece]", "types: [seo-pass]", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--department", "marketing", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `- marketing/post-tees  the marketing workflow has no eval for type "piece"`) {
+		t.Errorf("no-eval reason missing:\n%s", out)
+	}
+}
+
+func TestBenchCandidatesHintsAtOutputTasks(t *testing.T) {
+	proj := shopProject(t)
+	asWorker(t)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Output tasks: issue-cli bench candidates --department <key>") || !strings.Contains(out.String(), "(evals in: marketing)") {
+		t.Errorf("plain candidates lacks the output tasks hint:\n%s", out)
+	}
+	proj.Departments = nil
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Output tasks:") {
+		t.Errorf("hint without a department with evals:\n%s", out)
+	}
+}
+
+func TestProcessWorkflowPrintsEvalsLine(t *testing.T) {
+	proj := shopProject(t)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runProcess(ctx, []string{"workflow", "--department", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Evals: piece (output, types piece) — how issue-cli bench scores a run (docs/benchmark.md#evals)") {
+		t.Errorf("marketing workflow lacks its Evals: line:\n%s", out)
+	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runProcess(ctx, []string{"workflow"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Evals: none — benchmark runs on this workflow are scored by hidden tests alone") {
+		t.Errorf("product workflow lacks Evals: none:\n%s", out)
 	}
 }

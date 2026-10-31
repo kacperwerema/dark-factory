@@ -29,7 +29,7 @@ var needsYouKinds = []struct {
 	{"ci", "CI red", []string{"ci"}},
 	{"approve", "To approve", []string{"gate"}},
 	{"test", "To test", []string{"playtest", "checks"}},
-	{"answer", "To answer", []string{"question"}},
+	{"answer", "To answer", []string{"question", "clarify"}},
 	{"outputs", "Outputs to review", []string{"outputs"}},
 	{"jobs", "Due jobs", []string{"job"}},
 	{"other", "Other", nil},
@@ -57,8 +57,15 @@ type NeedsYouGroup struct {
 	URL, ApproveURL string
 	Count           int
 	Sections        []NeedsYouSection
-	// After is YOLO's after-the-fact queue: shown, not counted.
-	After []WbYOLORow
+	// After is YOLO's after-the-fact queue, one row per issue: shown, not
+	// counted; at most needsYouAfterRows rows, AfterMore the rest.
+	// AfterCount is the issues waiting (the review unit), AfterGates and
+	// AfterChecks what they hold, AfterOldest the oldest item's age,
+	// AfterURL the review page.
+	After                               []WbYOLORow
+	AfterCount, AfterGates, AfterChecks int
+	AfterMore                           int
+	AfterOldest, AfterURL               string
 	// Error: the project's issues could not be read.
 	Error string
 	// Named: the group's heading names the project (the page across projects).
@@ -77,7 +84,16 @@ type NeedsYouJSON struct {
 	Count   int           `json:"count"`
 	Rows    []WbQueueCard `json:"rows"`
 	After   []WbYOLORow   `json:"after"`
-	URL     string        `json:"url"`
+	// AfterCount is the issues waiting for review after the fact (After
+	// lists them all, one row each), AfterGates and AfterChecks what they
+	// hold, AfterOldest the oldest item's time ("" when none), AfterURL the
+	// review page.
+	AfterCount  int    `json:"after_count"`
+	AfterGates  int    `json:"after_gates"`
+	AfterChecks int    `json:"after_checks"`
+	AfterOldest string `json:"after_oldest,omitempty"`
+	AfterURL    string `json:"after_url,omitempty"`
+	URL         string `json:"url"`
 }
 
 // needsYouRows is what waits on the owner in the project: CI red, ready
@@ -85,6 +101,13 @@ type NeedsYouJSON struct {
 // review (one row per department), due jobs without a standing start and
 // unsent bug reports; CI red first, then the oldest.
 func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issue, now time.Time) []WbQueueCard {
+	return needsYouRowsWith(p, color, prefix, waitingOnOwner(p, open), now)
+}
+
+// needsYouRowsWith is needsYouRows with waitingOnOwner already read: the
+// company page reads it once for the lot's queue and its rooms (it read
+// every open issue's comments and workflow twice a render).
+func needsYouRowsWith(p *tracker.Project, color, prefix string, owner []WaitingItem, now time.Time) []WbQueueCard {
 	var rows []WbQueueCard
 	if st, enabled := ciState(p); enabled && st != nil && st.IsRed() {
 		slug := st.RedIssue
@@ -99,7 +122,7 @@ func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issu
 			CTA: "View status", URL: prefix + "/status",
 		})
 	}
-	for _, it := range waitingOnOwner(p, open) {
+	for _, it := range owner {
 		rows = append(rows, mapQueueRow(p, color, prefix, it, now))
 	}
 	_, _, waits := companyShelf(p, prefix, now)
@@ -113,6 +136,7 @@ func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issu
 	}
 	rows = append(rows, connectorWaits(p, color, prefix, now)...)
 	rows = append(rows, jobNeedsYouRows(p, color, prefix, now)...)
+	rows = append(rows, postmortemNeedsYou(p, color, prefix, now)...)
 	if n := unsentBugReports(); n > 0 {
 		rows = append(rows, WbQueueCard{
 			Kind: "bugs", Label: "Bug reports", Tone: "you",
@@ -183,6 +207,10 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 		row.Label, row.CTA = "Question", "Answer"
 		row.Note = it.Issue.Title
 		row.URL += "#comments"
+	case "clarify":
+		row.Label, row.CTA = "Clarify", "Answer"
+		row.Note = it.Issue.Title + " · " + plural(it.Count, "question to answer", "questions to answer")
+		row.URL += "#clarify"
 	default:
 		row.Label, row.CTA, row.Note = it.Kind, "Open", it.Issue.Title
 	}
@@ -208,9 +236,20 @@ func needsYouGroup(p *tracker.Project, color, prefix string, rows []WbQueueCard,
 			g.Sections = append(g.Sections, sec)
 		}
 	}
-	g.After, _ = yoloQueueRows(yolo, prefix, 1<<30)
+	g.After, g.AfterMore = yoloQueueRows(yolo, prefix, needsYouAfterRows)
+	if yolo != nil && len(yolo.Queue) > 0 {
+		g.AfterCount, g.AfterURL = len(yolo.Queue), prefix+"/yolo/review"
+		g.AfterGates, g.AfterChecks = yoloTotals(yolo.Queue)
+		if t, ok := yoloQueueOldest(yolo.Queue); ok {
+			g.AfterOldest = shortDuration(time.Since(t))
+		}
+	}
 	return g
 }
+
+// needsYouAfterRows is how many after-the-fact rows Needs you lists; the
+// review page lists them all.
+const needsYouAfterRows = 8
 
 // readyCount is how many rows of the groups are gates that can be stamped.
 func readyCount(groups []NeedsYouGroup) int {
@@ -317,6 +356,13 @@ func (s *Server) handleNeedsYouJSON(w http.ResponseWriter, r *http.Request, proj
 	lot, rows := s.buildLot(proj, s.projectColor(proj), now)
 	after, _ := yoloQueueRows(lot.YOLO, prefix, 1<<30)
 	out := NeedsYouJSON{Project: proj.Slug, Count: len(rows), Rows: rows, After: after, URL: prefix + "/needs-you"}
+	if lot.YOLO != nil && len(lot.YOLO.Queue) > 0 {
+		out.AfterCount, out.AfterURL = len(lot.YOLO.Queue), prefix+"/yolo/review"
+		out.AfterGates, out.AfterChecks = yoloTotals(lot.YOLO.Queue)
+		if t, ok := yoloQueueOldest(lot.YOLO.Queue); ok {
+			out.AfterOldest = t.Format(time.RFC3339)
+		}
+	}
 	if out.Rows == nil {
 		out.Rows = []WbQueueCard{}
 	}

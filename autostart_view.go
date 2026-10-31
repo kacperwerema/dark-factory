@@ -29,6 +29,8 @@ type AutoStartView struct {
 	Below       int
 	Cap         int
 	GapMinutes  int
+	// Load is "load 4.3 on 14 cores (max 14)" or "load unknown".
+	Load string
 	// Verdict is "start <slug> (…)" or "hold: <reason>"; Start and Slug
 	// name the issue that starts next.
 	Verdict string
@@ -57,8 +59,11 @@ func autostartView(proj *tracker.Project, issues []*tracker.Issue, prefix string
 		Since: st.Since.Format("Mon 2 Jan, 15:04"), Below: st.Below, Cap: st.MaxWorkers, GapMinutes: st.GapMinutes,
 		Start: v.Start, Slug: v.Slug,
 	}
+	if !st.Paused {
+		a.Load = autostart.LoadLine(autostart.CPU{Found: v.LoadFound, Avg1: v.Load, Cores: v.Cores}, v.MaxLoad)
+	}
 	if v.Start {
-		a.Verdict = fmt.Sprintf("start %s (memory %d%% < %d%%, %d/%d workers)", v.Slug, v.Memory, v.Below, v.Workers, v.Cap)
+		a.Verdict = fmt.Sprintf("start %s (memory %d%% < %d%%, %s, %d/%d workers)", v.Slug, v.Memory, v.Below, v.LoadPart(), v.Workers, v.Cap)
 	} else {
 		a.Verdict = "hold: " + v.Reason
 	}

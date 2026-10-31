@@ -13,9 +13,9 @@ func TestUpgradeProposesTheBrandFoundationToAnOlderMarketingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := strings.Replace(string(raw), "template: content@v0.58.0", "template: marketing@v0.57.0", 1)
+	old := strings.Replace(string(raw), "template: content@v0.59.0", "template: marketing@v0.57.0", 1)
 	if old == string(raw) {
-		t.Fatal("content template is no longer stamped content@v0.58.0; update this test")
+		t.Fatal("content template is no longer stamped content@v0.59.0; update this test")
 	}
 	plan, err := BuildPlan("workflows/marketing.yaml", []byte(old), "", false)
 	if err != nil {

@@ -298,9 +298,10 @@ func (s *Server) handleDispatchAgent(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
-	// Parse agent type from request body (default: claude). force skips the
-	// waiting-on-gate refusal (the modal's Dispatch anyway).
-	agentType := "claude"
+	// Parse agent type from request body (none: the workflow's routing:
+	// rules pick it, else claude). force skips the waiting-on-gate refusal
+	// (the modal's Dispatch anyway).
+	agentType := ""
 	var body struct {
 		Agent string `json:"agent"`
 		Force bool   `json:"force"`
@@ -308,7 +309,7 @@ func (s *Server) handleDispatchAgent(w http.ResponseWriter, r *http.Request, pro
 	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && strings.TrimSpace(body.Agent) != "" {
 		agentType = strings.TrimSpace(body.Agent)
 	}
-	if refuseAgentType(w, agentType) {
+	if agentType != "" && refuseAgentType(w, agentType) {
 		return
 	}
 

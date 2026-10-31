@@ -61,6 +61,8 @@ func init() {
 		"health.lint.fix",
 		"health.departments",
 		"health.departments.empty",
+		"health.departments.not_measured",
+		"health.departments.not_measured_note",
 		"health.departments.row.*",
 	)
 }

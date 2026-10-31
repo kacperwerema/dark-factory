@@ -32,7 +32,7 @@ func TestCompanyNestsAGroupInsideAGroup(t *testing.T) {
 	withNestedGroups(&a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 
 	at := func(box string) int { return strings.Index(company, `data-box="`+box+`"`) }
 	gtm, out, sales, mkt, ops := at("gtm"), at("outbound"), at("sales"), at("marketing"), at("ops")

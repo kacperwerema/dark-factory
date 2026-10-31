@@ -50,7 +50,7 @@ watch and stale text on the side. Data is DetailData; the model is .Evidence
                                 {{if .Reduced}}<span class="chip" title="Shrunk 30 days after done: smaller JPEG, top of the page">reduced</span>{{end}}
                                 {{if gt (len .Views) 1}}
                                 <span class="ev-views" role="group" aria-label="Screen size">
-                                    {{range .Views}}<button type="button" class="ev-vp{{if .On}} is-on{{end}}{{if .Failed}} is-failed{{end}}" data-src="{{.Src}}" data-vp="{{.Name}}" data-narrow="{{if .Narrow}}1{{end}}" aria-pressed="{{if .On}}true{{else}}false{{end}}" data-testid="evidence.shot.vp.{{tid .Name}}" onclick="evPickView(this)">{{.Label}}{{if .Failed}} ✕{{end}}</button>{{end}}
+                                    {{range .Views}}<button type="button" class="ev-vp{{if .On}} is-on{{end}}{{if .Failed}} is-failed{{end}}" data-src="{{.Src}}" data-vp="{{.Name}}" data-narrow="{{if .Narrow}}1{{end}}" aria-pressed="{{if .On}}true{{else}}false{{end}}" data-testid="evidence.shot.vp.{{tid .Name}}" data-click="{{onCall "evPickView" "$this"}}">{{.Label}}{{if .Failed}} ✕{{end}}</button>{{end}}
                                 </span>
                                 {{end}}
                             </div>
@@ -209,7 +209,7 @@ watch and stale text on the side. Data is DetailData; the model is .Evidence
         </aside>
     </div>
 </div>
-<script>
+<script nonce="{{cspNonce}}">
 function evPickView(btn) {
     var fig = btn.closest('.ev-shot');
     fig.querySelectorAll('.ev-vp').forEach(function(b) { b.classList.remove('is-on'); b.setAttribute('aria-pressed', 'false'); });

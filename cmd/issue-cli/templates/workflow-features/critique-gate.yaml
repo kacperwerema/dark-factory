@@ -1,0 +1,40 @@
+id: critique-gate
+version: v0.59.0
+category: gates
+propose: true
+sources: ["internal/critique/**", "internal/tracker/critique.go", "cmd/issue-cli/cmd_critique.go", "internal/lint/critique.go"]
+title: "A fresh critic before a gate: blocks findings hold it"
+what: |
+  `issue-cli critique <slug>` starts a fresh, read-only agent that did not write the work
+  (the other installed CLI than the worker's when there is one), gives it only paths (the
+  issue file, the branch's diff, the changed files, the settled rules), never the worker's
+  summary, and tells it to assume the work is wrong. It reports findings as `blocks`,
+  `should` and `note`, each with path:line, plus a Coverage line. The `critique` rule on a
+  transition holds it while the newest run from the current status has a blocks finding
+  (a malformed one too), failed or has no Coverage line; a new run clears it, or the owner
+  overrides with their words. mem-guard and the CPU load are checked first; the run sits
+  in the issue's worktree, so its tokens count for the issue in spend.
+why: |
+  The worker that wrote the work also judges it, so its blind spots reach the owner, and
+  under YOLO nobody else reads it before the after-the-fact review.
+where: "a validate action with rule \"critique\" on the edge out of design and out of testing; critique: at the top level (optional)"
+question: "Should a fresh read-only critic read each issue's design and finished work before the gate, with its blocks findings holding the gate?"
+snippet: |
+  critique:                 # optional: defaults shown
+    agent: ""               # claude | codex; default: routing's pick, switched to the other installed one
+    timeout: 15m
+  transitions:
+    - from: "in design"
+      to: "backlog"
+      actions:
+        - type: "validate"
+          rule: "critique"
+    - from: "testing"
+      to: "human-testing"
+      actions:
+        - type: "validate"
+          rule: "critique"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [critique]
+  - path: critique

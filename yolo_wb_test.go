@@ -18,7 +18,7 @@ func TestYOLOWorkshopSwitchDialogAndBand(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	page := pageGet(t, ts.URL+"/p/yp/company")
+	page := pageGet(t, ts.URL+"/p/yp/company?classic=1")
 	assertContains(t, page,
 		`data-testid="yolo.switch"`, `aria-checked="false"`, `data-yolo="dialog"`,
 		`data-testid="yolo.dialog"`, `Turn on YOLO MODE?`,
@@ -28,8 +28,8 @@ func TestYOLOWorkshopSwitchDialogAndBand(t *testing.T) {
 		`no local CI here: the CI valve is off.`, `name="no_releases" checked`,
 		`data-testid="yolo.dialog.words"`, `required`,
 		// Off, one pass waits: the count and the queue, no band.
-		`data-testid="yolo.count"`, `1 to review after the fact`,
-		`data-testid="company.yolo_queue"`, `YOLO · backlog`, `href="/p/yp/issue/shop#yolo"`,
+		`data-testid="yolo.count"`, `1 issue to review after the fact`,
+		`data-testid="company.yolo_queue"`, `YOLO · 1 gate`, `href="/p/yp/issue/shop#yolo"`,
 		`<script src="/static/workshop-yolo.js" defer></script>`,
 	)
 	if strings.Contains(page, `data-testid="yolo.band"`) {
@@ -43,7 +43,7 @@ func TestYOLOWorkshopSwitchDialogAndBand(t *testing.T) {
 	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/on", `{"until":"4h","words":"go yolo","ci_valve":true}`); code != 200 {
 		t.Fatalf("on: %d %v", code, out)
 	}
-	for _, path := range []string{"/company", "/hall", "/status", "/health", "/systems", "/decisions", "/retros", "/docs", "/updates", "/issue/shop"} {
+	for _, path := range []string{"/company?classic=1", "/hall", "/status", "/health", "/systems", "/decisions", "/retros", "/docs", "/updates", "/issue/shop"} {
 		code, html := getBody(t, ts.URL+"/p/yp"+path)
 		if code != 200 {
 			t.Errorf("%s: status %d", path, code)
@@ -55,7 +55,10 @@ func TestYOLOWorkshopSwitchDialogAndBand(t *testing.T) {
 			}
 		}
 	}
-	company := pageGet(t, ts.URL+"/p/yp/company")
+	// The floor carries the 34px strip instead of the band.
+	floor := pageGet(t, ts.URL+"/p/yp/company")
+	assertContains(t, floor, `data-testid="floor.yolo"`, `data-testid="floor.yolo.since">since `, `until `, `data-testid="floor.yolo.extend"`, `data-yolo="extend" data-until="4h"`, `data-testid="floor.yolo.off"`, `no releases`, `data-yolo-prefix="/p/yp"`)
+	company := pageGet(t, ts.URL+"/p/yp/company?classic=1")
 	assertContains(t, company, `wb-yolo-switch wb-yolo-switch--on`, `aria-checked="true"`, `wb-room--yolo`, `gate open — review after the fact`, `data-testid="company.room.product.yolo">YOLO · 1</a>`)
 	if strings.Contains(company, `data-testid="yolo.dialog"`) {
 		t.Error("the turn-on dialog is still drawn while YOLO is on")
@@ -75,7 +78,7 @@ func TestYOLOWorkshopMapLot(t *testing.T) {
 		t.Fatalf("on: %d %v", code, out)
 	}
 	page := pageGet(t, ts.URL+"/")
-	assertContains(t, page, `wb-lot--yolo`, `data-testid="map.lot.yolo">YOLO until turned off</span>`, `data-testid="map.lot.after_fact"`, `<span>1</span><span>after the fact</span>`, `1 to review after the fact`)
+	assertContains(t, page, `wb-lot--yolo`, `data-testid="map.lot.yolo">YOLO until turned off</span>`, `data-testid="map.lot.after_fact"`, `<span>1</span><span>after the fact</span>`, `1 issue to review after the fact`)
 	// The map is L0: no band, no switch.
 	if strings.Contains(page, `data-testid="yolo.band"`) || strings.Contains(page, `data-testid="yolo.switch"`) {
 		t.Error("the map draws the band or the switch")

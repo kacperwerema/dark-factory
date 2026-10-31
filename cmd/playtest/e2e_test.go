@@ -105,6 +105,34 @@ func TestUXTestKeepsOnlyOwnIssueShots(t *testing.T) {
 	}
 }
 
+// TestUXTestNamedSessionKeepsShotsForItsIssue: make ux-test S=<another
+// issue's session> keeps its shots and writes the run to the project root's
+// runs, where that issue's Evidence tab reads it, not into this worktree.
+func TestUXTestNamedSessionKeepsShotsForItsIssue(t *testing.T) {
+	r, b := newTestRunner(t)
+	r.OwnIssue = "ui/someone-else"
+	r.Named = "board-basics"
+	r.EvidenceRuns = t.TempDir()
+	s := loadRepoSession(t, "board-basics")
+	res, dir, err := r.UXTest(b, s, map[string]bool{"TP2": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(dir, r.EvidenceRuns+string(filepath.Separator)) {
+		t.Errorf("run dir %s is not under the root's runs %s", dir, r.EvidenceRuns)
+	}
+	for _, v := range res.Steps[0].Viewports {
+		if v.Screenshot == "" {
+			t.Errorf("%s: no shot kept for the named session", v.Viewport)
+		} else if _, err := os.Stat(filepath.Join(dir, v.Screenshot)); err != nil {
+			t.Errorf("%s: %v", v.Viewport, err)
+		}
+	}
+	if note := r.ShotsNote(); note != "" {
+		t.Errorf("note = %q", note)
+	}
+}
+
 // TestUXTestReportsFailures: a wrong expectation fails the step with the
 // check, the actual value and a log that lists the page's targets.
 func TestUXTestReportsFailures(t *testing.T) {

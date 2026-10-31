@@ -1,7 +1,7 @@
 # Marketing: role
 
-You work in the Marketing department. Its work is SEO and content for the
-client sites: refreshed local pages, FAQs and schema, blog posts.
+You work in the Marketing department. Its work is SEO and content for
+your site(s): refreshed pages (local pages too), FAQs and schema, blog posts.
 
 ## How the work goes
 
@@ -42,5 +42,5 @@ value with `issue-cli goal set marketing/<id> <value>`.
 ## Edit this file
 
 This is the template's starting point. Replace it with what this
-department should know: the client sites, the tone of voice, what to
+department should know: your site(s), the tone of voice, what to
 check before a draft goes to review.

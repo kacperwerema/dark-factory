@@ -1,0 +1,42 @@
+session: critique-station
+issue: factory/a-fresh-critic-that-never-wrote-the-work-a-read-only-agent-given-only-paths-findings-blocksshouldnote-with-fileline-blocks-hold-the-gate
+title: The station shows the fresh critic's findings, and names the command before any run
+scenario: critique
+
+# The run in the scenario's tracker/.critique/runs.jsonl is a stand-in's
+# output written as a fixture; no real critic runs.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: An issue whose newest critic run has blocks findings shows "holds" with each blocks and should finding at its path:line, the malformed one kept, notes folded, Coverage and Not read
+    proves: [AC5]
+    setup:
+      - open: /p/{project}/issue/factory/held-by-the-critic
+    checks:
+      - visible: [station.critique, station.critique.finding]
+      - text_contains: { target: station.critique, text: "Critique · holds" }
+      - text_contains: { target: station.critique, text: "testing → done · codex" }
+      - text_contains: { target: station.critique, text: "Holds the gate" }
+      - text_contains: { target: station.critique, text: "internal/list/list.go:42" }
+      - text_contains: { target: station.critique, text: "docs/list.md:10-14" }
+      - text_contains: { target: station.critique, text: "(malformed) blocks the whole retry path is unsafe" }
+      - text_contains: { target: station.critique, text: "1 note" }
+      - text_contains: { target: station.critique, text: "Coverage: read 3 of 4 files" }
+      - text_contains: { target: station.critique, text: "static/list.js" }
+
+  - id: TP5
+    title: An issue behind a critique gate with no run yet says no critic has read it and names issue-cli critique <slug>
+    proves: [AC5]
+    setup:
+      - open: /p/{project}/issue/factory/no-critic-yet
+    checks:
+      - visible: [station.critique]
+      - text_contains: { target: station.critique, text: "No critic has read this issue yet" }
+      - text_contains: { target: station.critique, text: "issue-cli critique factory/no-critic-yet" }
+      - text_contains: { target: station.critique, text: "in design → backlog" }

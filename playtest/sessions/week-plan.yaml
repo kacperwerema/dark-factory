@@ -13,7 +13,7 @@ steps:
     title: The GTM room shows the latest week report, its counts and its file
     proves: [AC2]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.room.week }
     checks:

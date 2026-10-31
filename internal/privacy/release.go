@@ -1,8 +1,10 @@
 package privacy
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -134,6 +136,9 @@ func Cut(root, cut, from string, cfg *tracker.PrivacyConfig) (CutResult, error) 
 		return res, fmt.Errorf("not cutting %s: %w", cut, err)
 	}
 	if _, err := git(root, "rev-parse", "-q", "--verify", "refs/heads/"+res.Branch); err != nil {
+		if milestone.IsPatch(cut) {
+			return res, fmt.Errorf("%s is a patch release: it goes on %s, which does not exist. Cut %s.0 first", cut, res.Branch, strings.TrimPrefix(res.Branch, "release/"))
+		}
 		if _, err := git(root, "branch", res.Branch, from); err != nil {
 			return res, err
 		}
@@ -185,19 +190,45 @@ func NotSwitched(root string, cfg *tracker.PrivacyConfig) error {
 	return fmt.Errorf("privacy.code is snapshots, but there is no %s remote, so origin (%s) may still be the public repo and nothing is pushed to it. Switch first: issue-cli release setup --dev <private dev repo url>", remote, valueOr(origin, "none"))
 }
 
-// PickResult is the commits Pick applied.
+// PickOptions are Pick's settings; the zero value is main and CHANGELOG.md.
+type PickOptions struct {
+	Main      string // the branch done issues landed on (default main)
+	Changelog string // the changelog, relative to the root (default CHANGELOG.md)
+}
+
+// PickResult is the commits Pick applied and what it checked after.
 type PickResult struct {
 	Picked  []string // short shas, in order
 	Already []string // items whose commits the branch already has
+	// Changelog is set when a pick's changelog conflict was resolved by
+	// keeping the branch's ## Unreleased plus the picked commit's own lines.
+	Changelog bool
+	// Built is set when go build and go vet ran in the release worktree (it
+	// has a go.mod); BuildFailed is their output when they failed.
+	Built       bool
+	BuildFailed string
+}
+
+// BuildHint is what to do when the branch no longer builds after a pick.
+func (r PickResult) BuildHint() string {
+	return "a picked commit needs one that is not on the release branch: find it on main (git log main -- <file named above>) and pick it too (issue-cli release pick <sha>), or drop the pick (git reset --hard on the release branch)"
 }
 
 // Pick cherry-picks onto the release branch, in its worktree, each item's
 // commits the branch lacks: for an issue slug the commits of work/<slug>
-// (git cherry), else the item as a commit. A conflict aborts the whole pick.
-func Pick(root, cut string, items []string) (PickResult, error) {
+// (git cherry), else the item as a commit, else (a done issue, its branch
+// deleted at close) the commits on main whose Refs: trailer names the
+// slug, oldest first, merges skipped. Commits apply one by one; a conflict
+// puts the branch back where it was and names the commit and files, except
+// one only in the changelog, which keeps the branch's ## Unreleased plus
+// the commit's own lines. With a go.mod in the worktree, go build and go
+// vet run after the pick (PickResult.BuildFailed).
+func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error) {
 	var res PickResult
 	branch := milestone.ReleaseBranch(cut)
 	wt := filepath.Join(root, ".worktrees", milestone.ReleaseWorktreeName(cut))
+	mainBranch := valueOr(opts.Main, "main")
+	changelog := valueOr(opts.Changelog, "CHANGELOG.md")
 	if b, err := git(wt, "rev-parse", "--abbrev-ref", "HEAD"); err != nil || b != branch {
 		return res, fmt.Errorf("no release worktree on %s at %s: cut the release first (issue-cli release cut %s)", branch, wt, cut)
 	}
@@ -208,15 +239,9 @@ func Pick(root, cut string, items []string) (PickResult, error) {
 	for _, item := range items {
 		ref := "work/" + item
 		if _, err := git(root, "rev-parse", "-q", "--verify", "refs/heads/"+ref); err == nil {
-			out, err := git(root, "cherry", branch, ref)
+			mine, err := cherryNew(root, branch, ref)
 			if err != nil {
 				return res, err
-			}
-			var mine []string
-			for _, l := range lines(out) {
-				if sha, ok := strings.CutPrefix(l, "+ "); ok {
-					mine = append(mine, sha)
-				}
 			}
 			if len(mine) == 0 {
 				res.Already = append(res.Already, item)
@@ -224,27 +249,261 @@ func Pick(root, cut string, items []string) (PickResult, error) {
 			shas = append(shas, mine...)
 			continue
 		}
-		sha, err := git(root, "rev-parse", "-q", "--verify", item+"^{commit}")
-		if err != nil {
-			return res, fmt.Errorf("%s is neither an issue with a work/%s branch nor a commit", item, item)
-		}
-		if _, err := git(root, "merge-base", "--is-ancestor", sha, branch); err == nil {
-			res.Already = append(res.Already, item)
+		if sha, err := git(root, "rev-parse", "-q", "--verify", item+"^{commit}"); err == nil {
+			if _, err := git(root, "merge-base", "--is-ancestor", sha, branch); err == nil {
+				res.Already = append(res.Already, item)
+				continue
+			}
+			shas = append(shas, sha)
 			continue
 		}
-		shas = append(shas, sha)
+		refs, err := refsCommits(root, mainBranch, item)
+		if err != nil {
+			return res, err
+		}
+		if len(refs) == 0 {
+			return res, fmt.Errorf("%s is not a commit, has no work/%s branch, and no commit on %s has the trailer Refs: %s", item, item, mainBranch, item)
+		}
+		lacking, err := cherryNew(root, branch, mainBranch)
+		if err != nil {
+			return res, err
+		}
+		want := map[string]bool{}
+		for _, s := range lacking {
+			want[s] = true
+		}
+		var mine []string
+		for _, s := range refs {
+			if want[s] {
+				mine = append(mine, s)
+			}
+		}
+		if len(mine) == 0 {
+			res.Already = append(res.Already, item)
+		}
+		shas = append(shas, mine...)
 	}
 	if len(shas) == 0 {
 		return res, nil
 	}
-	if _, err := git(wt, append([]string{"-c", "commit.gpgsign=false", "cherry-pick", "-x"}, shas...)...); err != nil {
-		git(wt, "cherry-pick", "--abort")
-		return res, fmt.Errorf("cherry-pick onto %s stopped (nothing applied): %w. Resolve it by hand in %s, or fix main first", branch, err, wt)
+	start, err := git(wt, "rev-parse", "HEAD")
+	if err != nil {
+		return res, err
 	}
-	for _, s := range shas {
-		res.Picked = append(res.Picked, short(s))
+	for _, sha := range shas {
+		if _, err := git(wt, "-c", "commit.gpgsign=false", "cherry-pick", "-x", sha); err != nil {
+			out, _ := git(wt, "diff", "--name-only", "--diff-filter=U")
+			conflicted := lines(out)
+			if len(conflicted) == 1 && conflicted[0] == changelog {
+				if rerr := resolveChangelogPick(wt, changelog, sha); rerr == nil {
+					res.Changelog = true
+					res.Picked = append(res.Picked, short(sha))
+					continue
+				}
+			}
+			git(wt, "cherry-pick", "--abort")
+			git(wt, "reset", "-q", "--hard", start)
+			subj, _ := git(root, "log", "-1", "--format=%s", sha)
+			why := "in " + strings.Join(conflicted, ", ")
+			if len(conflicted) == 0 {
+				why = "(" + err.Error() + ")"
+			}
+			return PickResult{Already: res.Already}, fmt.Errorf("%s %q conflicts with %s %s: nothing picked, %s is as it was. Pick the commits it builds on first, or apply it by hand in %s", short(sha), subj, branch, why, branch, wt)
+		}
+		res.Picked = append(res.Picked, short(sha))
 	}
+	res.Built, res.BuildFailed = CheckBuild(root, cut)
 	return res, nil
+}
+
+// builtKey is the git config key holding the release branch tip that last
+// passed go build and go vet (CheckBuild): the Status card's build check.
+func builtKey(branch string) string { return "issue-cli-release." + branch + ".built" }
+
+// CheckBuild runs go build and go vet in cut's release worktree when it has
+// a go.mod (ran false without one) and records the tip that passed, or
+// clears the record when they fail (failed is their output).
+func CheckBuild(root, cut string) (ran bool, failed string) {
+	branch := milestone.ReleaseBranch(cut)
+	wt := filepath.Join(root, ".worktrees", milestone.ReleaseWorktreeName(cut))
+	if !fileExistsAt(filepath.Join(wt, "go.mod")) {
+		return false, ""
+	}
+	failed = buildCheck(wt)
+	if failed != "" {
+		git(root, "config", "--unset", builtKey(branch))
+		return true, failed
+	}
+	if tip, err := git(wt, "rev-parse", "HEAD"); err == nil {
+		git(root, "config", builtKey(branch), tip)
+	}
+	return true, ""
+}
+
+// BuiltTip is the release branch tip CheckBuild last passed; "" for none.
+func BuiltTip(root, branch string) string {
+	tip, _ := git(root, "config", "--get", builtKey(branch))
+	return tip
+}
+
+// cherryNew is the commits of ref, oldest first, that branch has no
+// equivalent of (git cherry's + lines).
+func cherryNew(root, branch, ref string) ([]string, error) {
+	out, err := git(root, "cherry", branch, ref)
+	if err != nil {
+		return nil, err
+	}
+	var mine []string
+	for _, l := range lines(out) {
+		if sha, ok := strings.CutPrefix(l, "+ "); ok {
+			mine = append(mine, sha)
+		}
+	}
+	return mine, nil
+}
+
+// refsCommits is the non-merge commits on mainBranch, oldest first, with a
+// Refs: trailer that is exactly slug.
+func refsCommits(root, mainBranch, slug string) ([]string, error) {
+	out, err := git(root, "log", "-z", "--reverse", "--no-merges", "--format=%H%n%(trailers:key=Refs,valueonly,separator=%x1f)", mainBranch)
+	if err != nil {
+		return nil, err
+	}
+	var shas []string
+	for _, rec := range strings.Split(out, "\x00") {
+		sha, vals, _ := strings.Cut(strings.TrimSpace(rec), "\n")
+		for _, v := range strings.Split(vals, "\x1f") {
+			if strings.TrimSpace(v) == slug {
+				shas = append(shas, sha)
+				break
+			}
+		}
+	}
+	return shas, nil
+}
+
+// unreleasedEntries is the non-blank lines of text's ## Unreleased section
+// (the heading left out).
+func unreleasedEntries(text string) []string {
+	s, e, ok := section(text, func(h string) bool { return unreleasedRe.MatchString(h) })
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(text[s:e], "\n")[1:] {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// addedEntries is the ## Unreleased lines sha added to changelog, in its
+// order.
+func addedEntries(dir, sha, changelog string) []string {
+	after, _ := git(dir, "show", sha+":"+changelog)
+	before, _ := git(dir, "show", sha+"^:"+changelog)
+	had := map[string]int{}
+	for _, l := range unreleasedEntries(before) {
+		had[l]++
+	}
+	var out []string
+	for _, l := range unreleasedEntries(after) {
+		if had[l] > 0 {
+			had[l]--
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// resolveChangelogPick ends a cherry-pick stopped on a changelog conflict:
+// the branch's changelog with the commit's own ## Unreleased lines put at
+// the top of the section, nothing else from the commit's side.
+func resolveChangelogPick(wt, changelog, sha string) error {
+	ours, err := git(wt, "show", "HEAD:"+changelog)
+	if err != nil {
+		return err
+	}
+	text, ok := insertUnreleased(ours+"\n", addedEntries(wt, sha, changelog))
+	if !ok {
+		return fmt.Errorf("no ## Unreleased in the branch's %s", changelog)
+	}
+	if err := os.WriteFile(filepath.Join(wt, changelog), []byte(text), 0o644); err != nil {
+		return err
+	}
+	if _, err := git(wt, "add", "--", changelog); err != nil {
+		return err
+	}
+	if _, err := git(wt, "-c", "commit.gpgsign=false", "-c", "core.editor=true", "cherry-pick", "--continue"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// insertUnreleased puts entries at the top of text's ## Unreleased
+// section, after the heading's blank line; without that heading it opens
+// one above the first ## heading. ok is false with no ## heading at all.
+func insertUnreleased(text string, entries []string) (string, bool) {
+	loc := unreleasedRe.FindStringIndex(text)
+	if loc == nil {
+		// A branch that was published has no ## Unreleased: open one above
+		// the newest release's heading.
+		at := regexp.MustCompile(`(?m)^## `).FindStringIndex(text)
+		if at == nil {
+			return text, false
+		}
+		if len(entries) == 0 {
+			return text, true
+		}
+		return text[:at[0]] + "## Unreleased\n\n" + strings.Join(entries, "\n") + "\n\n" + text[at[0]:], true
+	}
+	if len(entries) == 0 {
+		return text, true
+	}
+	pos := loc[1]
+	for pos < len(text) && (text[pos] == '\n' || text[pos] == '\r') {
+		pos++
+	}
+	add := strings.Join(entries, "\n") + "\n"
+	if pos >= len(text) || strings.HasPrefix(text[pos:], "## ") {
+		add += "\n"
+	}
+	return text[:loc[1]] + "\n\n" + add + text[pos:], true
+}
+
+// buildCheck runs go build and go vet in dir; it returns their output when
+// either fails, "" when both pass.
+var buildCheck = func(dir string) string {
+	for _, args := range [][]string{{"build", "./..."}, {"vet", "./..."}} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		cmd := exec.CommandContext(ctx, "go", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		cancel()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return "go " + strings.Join(args, " ") + ": " + firstLines(msg, 12)
+		}
+	}
+	return ""
+}
+
+func firstLines(s string, n int) string {
+	ls := strings.Split(s, "\n")
+	if len(ls) > n {
+		ls = append(ls[:n], "…")
+	}
+	return strings.Join(ls, "\n")
+}
+
+func fileExistsAt(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func short(sha string) string {
@@ -343,7 +602,8 @@ func Publish(in PublishInput) (PublishResult, error) {
 		if data, err := os.ReadFile(path); err == nil {
 			text := string(data)
 			heading := "## " + in.Cut + " — " + in.Now.Format("2006-01-02")
-			if t, ok := renameUnreleased(text, heading); ok {
+			_, _, written := section(text, func(h string) bool { return strings.HasPrefix(h, "## "+in.Cut+" ") || h == "## "+in.Cut })
+			if t, ok := renameUnreleased(text, heading); ok && !written {
 				text, renamed = t, true
 				if !in.DryRun {
 					if err := os.WriteFile(path, []byte(text), 0o644); err != nil {

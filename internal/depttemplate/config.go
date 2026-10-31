@@ -308,3 +308,96 @@ func deleteLines(lines []string, from, to int) []byte {
 	}
 	return b.Bytes()
 }
+
+// SetField replaces the value of a one-line scalar in department name's
+// item in project slug's departments:, when it still reads old: keys is
+// ["role"], ["mission"] or ["goals", "<id>", "name"]. Only that value's
+// text on its line changes, so comments and the rest of the file stay.
+func SetField(configPath, slug, name string, keys []string, old, value string) error {
+	path, raw, proj, err := readProject(configPath, slug)
+	if err != nil {
+		return err
+	}
+	_, depts := mapValue(proj, "departments")
+	if depts == nil || depts.Kind != yaml.SequenceNode {
+		return fmt.Errorf("%s: project %s has no departments: list", path, slug)
+	}
+	var item *yaml.Node
+	for _, it := range depts.Content {
+		if _, nv := mapValue(it, "name"); nv != nil && tracker.DepartmentKey(nv.Value) == tracker.DepartmentKey(name) {
+			item = it
+		}
+	}
+	if item == nil {
+		return fmt.Errorf("%s: project %s has no department %s", path, slug, name)
+	}
+	n := item
+	for i := 0; i < len(keys) && n != nil; i++ {
+		if n.Kind == yaml.SequenceNode {
+			// keys[i] is a goal id: the item with that id:.
+			var found *yaml.Node
+			for _, g := range n.Content {
+				if _, id := mapValue(g, "id"); id != nil && strings.EqualFold(id.Value, keys[i]) {
+					found = g
+				}
+			}
+			n = found
+			continue
+		}
+		_, n = mapValue(n, keys[i])
+	}
+	where := strings.Join(keys, ".")
+	if n == nil || n.Kind != yaml.ScalarNode || n.Value != old || strings.Contains(n.Value, "\n") || n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		return fmt.Errorf("%s: department %s's %s no longer reads %q: left as it is", path, name, where, old)
+	}
+	lines := splitLines(raw)
+	if n.Line-1 >= len(lines) {
+		return fmt.Errorf("%s: department %s's %s is not where the parser says", path, name, where)
+	}
+	line := []rune(lines[n.Line-1])
+	if n.Column-1 > len(line) {
+		return fmt.Errorf("%s: department %s's %s is not where the parser says", path, name, where)
+	}
+	head, rest := string(line[:n.Column-1]), string(line[n.Column-1:])
+	// The value's own text: what is left of the line, up to a comment.
+	text, tail := strings.TrimRight(rest, "\r\n"), ""
+	if i := strings.Index(text, " #"); i >= 0 {
+		text, tail = text[:i], text[i:]
+	}
+	var check string
+	if err := yaml.Unmarshal([]byte(text), &check); err != nil || check != old {
+		return fmt.Errorf("%s: department %s's %s is written in a way this can't change: edit it by hand to %q", path, name, where, value)
+	}
+	quoted, err := yaml.Marshal(value)
+	if err != nil {
+		return err
+	}
+	lines[n.Line-1] = head + strings.TrimRight(string(quoted), "\n") + strings.TrimRight(tail, " ") + "\n"
+	if !strings.HasSuffix(rest, "\n") {
+		lines[n.Line-1] = strings.TrimSuffix(lines[n.Line-1], "\n")
+	}
+	out := []byte(strings.Join(lines, ""))
+	return writeChecked(path, out, func(p *tracker.Project) error {
+		d := p.DepartmentByKey(name)
+		if d == nil {
+			return fmt.Errorf("department %s is gone from the result", name)
+		}
+		got := ""
+		switch keys[0] {
+		case "role":
+			got = d.Role
+		case "mission":
+			got = d.Mission
+		case "goals":
+			for _, g := range d.Goals {
+				if strings.EqualFold(g.ID, keys[1]) {
+					got = g.Name
+				}
+			}
+		}
+		if got != value {
+			return fmt.Errorf("department %s's %s reads %q in the result, not %q", name, where, got, value)
+		}
+		return nil
+	}, slug)
+}

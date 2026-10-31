@@ -21,7 +21,7 @@ Rules the owner and the lead have already settled for department and Factory wor
 
 - **Secrets are references.** A connector names `env:<VAR>` or `keychain:<service>`, never a value; the owner creates the value, the engine never writes, prints or copies it, and pages show only set / missing. A connector reaches only its department's lead and workers, never the CEO or Product (the owner uses `--as-owner`). Tests use fakes in a sandbox project, never real credentials. Sources: factory/department-connectors#D-1, #D-2, #D-3, #D-4, #D-5, #D-6, #D-7; see [Connectors](#connectors).
 - **Private projects stay private.** Content from the owner's private projects (their names, client rosters, client sites, Keychain service names) stays in that project's repo or tracker. This repo, its tests, fixtures, docs and prompts don't name such a project: they use placeholders (`Orchard`, `orchard`, `client-site`). The names sit in a list outside the repo that the leak scan reads ([Private work and code](workflow.md#private-work-and-code)). Sources: factory/factory-benchmark-and-evals#D-10; the pilot's runbook below; factory/release-snapshot-leaks-a-fixture-with-a-user-path-and-brand-fixtures-naming-private-projects.
-- **Budgets are shown, never enforced.** A `budget:` is "x of y" beside the spend; nothing refuses, pauses or waits on it until the owner decides otherwise. Spend is read from this machine's Claude Code transcripts, numbers only, and the engine bundles no prices. Source: factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room#D-2, #D-3 (N-18).
+- **Budgets are shown, never enforced.** A `budget:` is "x of y" beside the spend; nothing refuses, pauses or waits on it until the owner decides otherwise. Spend is read from this machine's Claude Code transcripts, plus Codex's own session logs for the split by subscription (rollout files only, never its login), numbers only, and the engine bundles no prices. Source: factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room#D-2, #D-3 (N-18); Codex logs: factory/route-work-between-claude-and-codex-subscriptions-ccr-pick-the-agent-per-task-fall-back-when-one-hits-its-limit#D-4 (provisional).
 - **Business data sits with the work files.** Goal values, outputs and connector checks are logs under the issues dir (`.goals/`, `.outputs/`, `.connectors/`), so a private tracker keeps them private; the viewer holds no state of its own. Sources: factory/department-role-and-goals (values log), factory/department-outputs-shelf#D-1.
 - **One waiting-on-you count.** Every "waiting on you" number is the length of `needsYouRows` (`needs_you.go`). Anything department-level that waits on the owner (outputs to review, due jobs, a failing connector) adds rows there; no page counts its own waits on top. Sources: factory/needs-you-list-every-waiting-item-in-one-place-with-approve-all, factory/department-outputs-shelf#D-3.
 - **Box keys.** The boxes on the company page and in connections are `hq`, `product`, a department's key and a group's key (`tracker.DepartmentKey`: the name slugified). Use these keys in `requested_by:`, `data-box` and JSON, not display names. Source: factory/connections-between-boxes-requests-outputs-and-dependencies-drawn-between-departments-on-the-floor-map#D-3.
@@ -36,6 +36,7 @@ Rules the owner and the lead have already settled for department and Factory wor
 - **Engine requests go via the CEO.** A department that needs the engine changed files the request (`requested_by:` filled); the CEO forwards it to Product. Declared as `{from: <dept>, to: product, via: hq}` under `connections: requests:`, lint warns on a direct route. Sources: factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-8, factory/declared-connections-who-may-ask-whom-and-what-feeds-what-with-routing-rules#D-6.
 - **Nothing goes out without the owner's stamp.** Outputs start in review; only the owner approves; an agent publishes only an approved one. A step that publishes, sends or spends sits behind an `owner_only` gate, which YOLO never passes ([YOLO Mode](Workflow/yolo.md#gates-yolo-never-passes)). A job's standing start is off until the owner turns it on with their words. Sources: factory/department-outputs-shelf#D-2, factory/department-connectors#D-6, factory/department-recurring-jobs#D-3, factory/marketing-pilot-seo-as-the-first-department#D-4, workflow/an-owner-gate-yolo-never-passes-spending-money-and-publishing-outside.
 - **A pilot is rehearsed on a sandbox; go-live comes later.** A department pilot is first run end to end on a throwaway project with placeholder sites and stand-in connectors (a guided check script); going live on the real project follows from a runbook once the owner gives the repo and connectors. Source: factory/marketing-pilot-seo-as-the-first-department#D-2.
+- **A red newcomer walkthrough blocks shipping.** `TestNewcomerWalkthrough` (`newcomer_test.go`) builds both binaries and walks a clean HOME and PATH from `project init` to a first dispatch, `department add` and `lead spawn` on a private tmux server. `make validate` runs it (`make test` is plain `go test ./...`; it skips only under `-short`, without tmux or git, off Linux/macOS, or with `i3-msg` on PATH). When it fails, the branch doesn't ship: fix the step a newcomer would hit, don't skip the test. Onboarding work walks the guarded steps (dispatch, department add, lead spawn) in that test, because the worker guard refuses them from a worker's shell even on a sandbox config. Source: retro of factory/a-friend-forks-it-a-fresh-clone-to-a-first-issue-on-a-clean-machine-and-every-step-that-breaks-fixed; factory/the-newcomer-walkthrough-test-guards-main-factorys-settled-rules-call-it-a-blocker-and-onboarding-briefs-say-which-steps-the-worker-guard-keeps-in-a-go-test.
 - **Research watches memory.** Research steps run `mem-guard check` before a browser or bulk fetch, prefer plain fetches, and use one browser at a time; tests use fixtures, never the live web. Source: factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-2, #D-7.
 
 ## Config
@@ -112,8 +113,9 @@ projects:
 
 ## Where it shows
 
-- **Company page** (`/p/<project>/company`):
+- **Company page** (`/p/<project>/company`, the floor: one fixed map with an inspector rail, [UI](UI/overview.md#the-company-floor); the page described in this document's other entries stays at `?classic=1`):
   - **The header** shows HQ's first two goals, value / target with a bar in the project's colour.
+  - **On the floor** a tile shows its goals when the floor fits at more than 1.3x (a wide screen, a small company); a room's inspector (click its name) lists every goal, job, output, connector and handoff the tile has no room for.
   - **HQ** shows its mission, then each HQ goal with the department goals rolling into it, in their department's colour.
   - **Each department room and the Product line** show the mission and the first three goals.
   - A stale or unreadable goal is muted, and its tooltip says why.
@@ -299,6 +301,8 @@ A **department template** is a ready department: a workflow file, a role prompt 
 issue-cli department list                    # HQ, Product and the templates, installed or not
 issue-cli department add marketing --dry-run # the plan, nothing written
 issue-cli department add marketing           # install it
+issue-cli department add marketing --commit  # install it and commit the files it wrote
+issue-cli department update marketing        # newer template text, only where you never edited
 issue-cli department remove marketing
 ```
 
@@ -306,7 +310,8 @@ issue-cli department remove marketing
 
 - writes `workflows/<key>.yaml` (the template's workflow template, as `workflow init` writes it), `departments/<key>/role.md` and each job's brief as `departments/<key>/jobs/<id>.md`, relative to the project root. `<key>` is the department's name in lower case;
 - adds the department to the project in projects.yaml, under `departments:` (creating the key when the project has none): name, colour, role, mission, systems, `prompt:`, `workflow:`, the goals, each manual with no value yet, and the template's [recurring jobs](#recurring-jobs). Their standing start is off: a due run waits in Needs you until you start it or turn it on;
-- ends with the next steps: `department show <key>`, `create --department <key> --title …`, `lead spawn --department <key>`, the workflow's types of work (`Types of work: piece (default), seo-pass`), which files to edit (the role prompt and each job's brief), and `issue-cli connectors <key>` for the connector config, since templates carry none.
+- ends with the next steps: `department show <key>`, `create --department <key> --title …`, `lead spawn --department <key>`, the workflow's types of work (`Types of work: piece (default), seo-pass`), which files to edit (the role prompt and each job's brief), and `issue-cli connectors <key>` for the connector config, since templates carry none;
+- ends by naming the files it wrote that git does not track yet and the `git add … && git commit … -- <those files>` to run, so they aren't lost or swept into an unrelated commit. With `--commit` it commits exactly those files itself (`chore(departments): add the <name> department`), whatever else is staged; projects.yaml is never in that commit. Outside a git repository it says nothing (with `--commit`, that nothing was committed). `issue-cli health lint` warns about department files git does not track (check `untracked`: the role prompt, the workflow file, job briefs and everything under `departments/<key>/`; ignored files are your choice and not flagged).
 
 What it never does:
 
@@ -321,6 +326,8 @@ What it never does:
 
 The Updates page (`/p/<project>/updates`) has a **Departments you can add** section: each template the project hasn't installed, what it brings its **Add…** button (the preview below) and its `department add` command. It isn't counted in the sidebar's Updates number, which counts workflow features.
 
+**When a template's text changes.** The templates speak of your site(s), customers and the owner, whoever runs the project: one site of your own or many. A department installed from an earlier text (the marketing template's "client sites" before 2026-10-31) keeps what it has until you ask: `issue-cli department update <name>` replaces a file (`role.md`, a job's brief, the workflow file) or a `role:`, `mission:` or goal `name:` in projects.yaml **only when it still holds an earlier template's text byte for byte**, known by the hashes and values in `internal/depttemplate/update.go`. Anything you edited is kept and named; `--side` writes the template's text next to each edited file (`role.template.md`, `marketing.template.yaml`) to compare, never over a side file that is already there with other text; lint's `untracked` check names a copy left in place apart, with `rm` as its fix: delete it once compared, never commit it. `--dry-run` says what would change. projects.yaml values are spliced in as text, comments kept; if one fails, what was replaced before it stays replaced and running the update again finishes it. The workflow file follows the same rule, narrower: only an earlier text that differs from today's in wording alone is listed (the marketing file just before this rewording), so an update never brings in a catalog feature (a gate, a status) behind `workflow upgrade`'s offer and Decline; `TestEarlierWorkflowsDifferInWordingOnly` holds that. A file one byte away from it (upgraded, edited, or older) is kept, and `--side` puts the new bundled file next to it. A wording change in a workflow template is not a catalog feature, so `workflow upgrade` doesn't offer it. `--commit` on add unstages the files again when git refuses the commit (a hook), so they never ride along with a later one. The Updates page has a **Departments with new template text** section: each installed department with something to replace, what it replaces, what it keeps, and the commands. Whoever changes a template's text adds the old file's sha256 and old values there, and the old file under `internal/depttemplate/testdata/earlier/<key>/<path>.<n>` (`TestEarlierHashesAreBacked` checks every hash has its file and none is today's text).
+
 **From the company page.** The **+ New department** tile on `/p/<project>/company` opens a form: one choice per bundled template the project hasn't added (a group template says which departments it installs) and, once the project has a group, **Under which group?** (none, or each group; ignored for a group template). With every template added the tile says "Every department template is added" and has no form. **Preview →** opens `/p/<project>/departments/new?template=<key>`, the plan `department add --dry-run` prints: each file with its state (written, already there, or your edited file kept), the projects.yaml path and the exact entry. Nothing is written before **Add <name>**, which runs the same install (internal/depttemplate), reads the project back from projects.yaml so the room shows without restarting the viewer, and returns to the company page with "✓ Added <name>: …" and the new room outlined. Start its lead from the room. The viewer adds departments only from the templates. A template the project has is refused on the preview with the reason, and Add answers 409 with it, writing nothing. Add (`POST /p/<project>/departments/add`) takes only the owner's browser: a cross-origin request, or one that sends neither `Sec-Fetch-Site: same-origin` nor a same-host `Origin` (an agent's curl), gets 403; agents use `issue-cli department add` with the owner's words. A project without a projects.yaml shows the tile with no form. A department added with the CLI while the viewer runs still shows after a restart.
 
 **Adding a template**: a folder `cmd/issue-cli/templates/departments/<name>/` with `department.yaml` (`name`, `description`, `color`, `role`, `mission`, `systems`, `workflow`: a bundled workflow template, `goals`, `jobs`: each with its `brief:` a file in the folder, `jobs/<id>.md`) and `role.md`. The file is read strictly: an unknown key, a job whose schedule doesn't parse or a missing brief is an error. Marketing ships `weekly-seo-pass` (Mondays 07:00, `type: seo-pass`). Templates don't carry connectors yet: add them by hand under the installed department ([Connectors](#connectors)).
@@ -334,7 +341,7 @@ The bundled `marketing` workflow (`cmd/issue-cli/templates/workflow/marketing.ya
 | Type | Path | For |
 |:--|:--|:--|
 | `piece` (default) | brief → draft → owner review → publish → done | one post, page or email |
-| `seo-pass` | brief → draft → owner review → publish → **measure** → done | an SEO pass over the client sites (system `SEO`) |
+| `seo-pass` | brief → draft → owner review → publish → **measure** → done | an SEO pass over your site(s) (system `SEO`) |
 | `foundation` | research → brand → icp → owner review → publish → done | the brand and the ICP, settled with the owner |
 | `market-size` | research → market size → owner review → publish → done | TAM / SAM / SOM, later or again |
 
@@ -372,7 +379,7 @@ A Marketing department installed before channels has the `content` workflow in `
 
 ### Brand foundation and research mode
 
-Before any channel, Marketing settles who the brand is and who it is for. Without that, every brief has to guess. The foundation is two types of work in the same workflow file, both in **research mode**. The owner names a topic (the business, a product, a market), the worker researches it (the client's own sites, competitors, search results, reviews, forums), and proposes answers. The owner settles them at a review gate. The worker helps them decide and doesn't decide for them.
+Before any channel, Marketing settles who the brand is and who it is for. Without that, every brief has to guess. The foundation is two types of work in the same workflow file, both in **research mode**. The owner names a topic (the business, a product, a market), the worker researches it (your own site(s), competitors, search results, reviews, forums), and proposes answers. The owner settles them at a review gate. The worker helps them decide and doesn't decide for them.
 
 **`foundation`**: the basics, needed before channel work.
 
@@ -409,7 +416,7 @@ issue-cli create --department marketing --type market-size --title "Market size:
 
 ## Recurring jobs
 
-A department can have work it does on a calendar: a weekly SEO pass over the client sites, a daily lead search, monthly invoice chasing. Each is a **job** in its `departments:` entry, and each time a job is due it makes a **run**: an issue in the department, started like any worker.
+A department can have work it does on a calendar: a weekly SEO pass over your site(s), a daily lead search, monthly invoice chasing. Each is a **job** in its `departments:` entry, and each time a job is due it makes a **run**: an issue in the department, started like any worker.
 
 ```yaml
 departments:
@@ -429,6 +436,8 @@ departments:
 ```
 
 A job's key is `<department>/<id>` (`marketing/weekly-seo-pass`).
+
+`brief:` is a file from the project root, or `builtin:<name>` for a brief bundled with the engine (`cmd/issue-cli/templates/jobs/<name>.md`; today `builtin:memory-consolidate`, [Shared Memory](memory.md#the-consolidation-pack-and-job)). A bundled brief needs no file in the project and changes with the engine; lint names the bundled ones when a `builtin:` is unknown.
 
 ### A run is an issue
 
@@ -671,7 +680,9 @@ What each box spent: tokens and an estimated cost in USD, by week (from Monday, 
 | the project folder, no name (your own sessions) | **unattributed**: listed by `issue-cli spend`, never in a box |
 | the project folder, another project's lead or worker | skipped |
 
-A **group** shows its own (its lead's) plus its departments'; **HQ** shows everything attributed. Only Claude Code writes these transcripts: other agents (codex) count as zero. Files last changed before the window are skipped and each file's numbers are kept in memory until it changes, so the polled company page doesn't re-read them.
+A **group** shows its own (its lead's) plus its departments'; **HQ** shows everything attributed. Only Claude Code writes these transcripts, so the boxes count Claude Code only.
+
+**By subscription.** The report also splits the project's spend by agent CLI: `claude` is every box plus your own sessions, and `codex` comes from Codex's session logs (`$CODEX_HOME/sessions/**/rollout-*.jsonl`, else `~/.codex/sessions`). Each session counts when its `session_meta` cwd is the project checkout or one of its worktrees, from its `token_count` events' `last_token_usage` (input without the cached part, cached input as cache read, output). Codex tokens are unpriced, since a subscription is a flat fee. Nothing else in Codex's folder is opened. `issue-cli spend` prints `By subscription (this week · last 4 weeks)`, and HQ's Spend block shows `By subscription: claude 1.2M tokens · codex 300k tokens this week` once both have spent something (factory/route-work-between-claude-and-codex-subscriptions-ccr-pick-the-agent-per-task-fall-back-when-one-hits-its-limit#D-4). Files last changed before the window are skipped and each file's numbers are kept in memory until it changes, so the polled company page doesn't re-read them.
 
 ### Prices: the estimate
 
@@ -723,9 +734,9 @@ An executive summary of the company in HQ: `/p/<project>/hq/report`, linked as *
 The owner's steps to run a real department, in order, with Marketing's weekly SEO pass as the example. Each command is one the pilot's guided check ran on a throwaway project (`scripts/checks/marketing-pilot.sh` on the branch `work/factory/marketing-pilot-seo-as-the-first-department`; check scripts never reach main), so the steps are known to work together. Names in angle brackets are yours; client names, URLs and Keychain service names belong in your project, never in the engine's repo.
 
 1. **Register the project** in `~/.config/ai-workflow-engine/projects.yaml` (`name`, `issues:`, `workdir:`). If its work files hold client data, give it a private tracker first ([Private work and code](workflow.md#private-work-and-code)).
-2. **Install the department**: `issue-cli --project <project> department add marketing --dry-run`, then without `--dry-run`. It writes `workflows/marketing.yaml`, `departments/marketing/role.md` and `departments/marketing/jobs/weekly-seo-pass.md`, and adds the entry with its goals and the job. SEO is the first [channel](#channels-as-types) (`seo-pass`); the others come later as types.
+2. **Install the department**: `issue-cli --project <project> department add marketing --dry-run`, then without `--dry-run`. It writes `workflows/marketing.yaml`, `departments/marketing/role.md` and `departments/marketing/jobs/weekly-seo-pass.md`, and adds the entry with its goals and the job. Commit the files it names (or add with `--commit`). SEO is the first [channel](#channels-as-types) (`seo-pass`); the others come later as types.
 3. **Settle the brand and the ICP**: `issue-cli create --department marketing --type foundation --title "Brand foundation: <topic>"`, then approve its `publish` once the brand and ICP read right ([Brand foundation and research mode](#brand-foundation-and-research-mode)). Channel briefs can't move to draft before that.
-4. **Say what the department should know.** In `departments/marketing/role.md`: the client sites, the tone of voice, what to check before a draft goes to review. In the job brief: what a pass covers per site.
+4. **Say what the department should know.** In `departments/marketing/role.md`: your site(s), the tone of voice, what to check before a draft goes to review. In the job brief: what a pass covers per site.
 5. **Give it a business goal to count towards** (optional): an HQ goal under `company: goals:`, and `rolls_up: <hq goal id>` on the department goal that feeds it (`marketing/pages`).
 6. **Add the connectors.** `issue-cli connectors marketing` prints the config. A read-only one first (Search Console as an `mcp` server) is the safer start; a publishing one (WordPress as a `tool`) gets `sends: true`. Each secret is a reference: `env:<VAR>` or `keychain:<service>`. Create the value yourself, for example `security add-generic-password -s <service> -a "$USER" -w`.
 7. **Check them**: `issue-cli connector check marketing`. Both should be ok; `issue-cli connectors marketing` shows each secret set.

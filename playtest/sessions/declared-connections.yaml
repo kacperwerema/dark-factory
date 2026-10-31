@@ -13,7 +13,7 @@ steps:
     title: The company page draws six roads and signs the one off the declared routes
     proves: [AC3]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.connections.road.link }
     checks:

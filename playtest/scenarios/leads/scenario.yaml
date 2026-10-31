@@ -11,5 +11,6 @@ project:
   slug: crew
 issues: tracker
 workflow: workflow.yaml
-# files/attach holds an image and a text file for the CEO chat's Attach.
+# files/attach holds an image, a text file, an empty file and a zip for the
+# CEO chat's Attach.
 root: files

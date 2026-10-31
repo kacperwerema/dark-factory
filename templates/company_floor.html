@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Lot.Name}}</head>
+<body class="wb">
+<div class="wb-app wb-fl-app">
+{{template "wb/fl-header" .}}
+{{with .Header.YOLO}}{{template "wb/fl-yolo" .}}{{with .Dialog}}{{template "wb/yolo-dialog" .}}{{end}}{{end}}
+<main class="wb-fl-main">
+<section class="wb-fl-floor" aria-label="{{.Lot.Name}}: the company floor">
+    <div class="wb-fl-titlebar">
+        <h1 class="wb-fl-h1">{{.Lot.Name}}</h1>
+        <span class="wb-fl-subtitle">{{.Departments}} departments · CEO <span class="wb-fl-mono">{{.Lot.CEO.Session}}</span>{{with .Lot.Kind}} · {{.}}{{end}}</span>
+        <span class="wb-grow"></span>
+        <a class="wb-fl-classic" href="?classic=1" title="The company page as it was, every block stacked" data-testid="floor.classic">Classic page</a>
+        {{template "wb/view-toggle" .Toggle}}
+    </div>
+    {{with .Added}}<p class="wb-flash wb-fl-flash" role="status" data-testid="company.added">{{.}}</p>{{end}}
+    <div class="wb-fl-view" data-lod="normal" data-scale="1" data-testid="floor.view">
+        <div class="wb-fl-plan" style="width:{{.Plan.W}}px;height:{{.Plan.H}}px" data-w="{{.Plan.W}}" data-h="{{.Plan.H}}" data-testid="floor.plan">
+            {{template "wb/fl-roads" .Plan}}
+            {{range .Plan.Tiles}}{{template "wb/fl-tile" .}}{{end}}
+        </div>
+    </div>
+    <div class="wb-fl-legend">
+        <span><b>Click a room name</b> to inspect it →</span>
+        <span>· <b>Chat with the CEO</b> (or a lead) is one click on its room</span>
+        <span>· roads: {{if .Plan.Roads}}what moves between the rooms (hover a road){{else}}no traffic yet (handoffs, requests and outputs will move on them){{end}}</span>
+        <span>· <b class="wb-fl-you-text">orange</b> = your decision · <b>stripes</b> = YOLO</span>
+    </div>
+</section>
+{{template "wb/fl-rail" .}}
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/workshop-yolo.js" defer></script>
+<script src="/static/company-floor.js"></script>
+</body>
+</html>

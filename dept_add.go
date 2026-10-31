@@ -197,19 +197,8 @@ func (s *Server) renderDeptNew(w http.ResponseWriter, code int, d DeptNewData) {
 	}
 }
 
-// fromOwnerBrowser is a write the owner's browser sent from this viewer's
-// own page: Sec-Fetch-Site same-origin, or an Origin naming this host.
-// sameOriginOnly lets a client that sends neither (curl, an agent's
-// session) through; adding a department doesn't.
-func fromOwnerBrowser(r *http.Request) bool {
-	if r.Header.Get("Sec-Fetch-Site") == "same-origin" {
-		return true
-	}
-	return r.Header.Get("Origin") != "" && !crossOrigin(r)
-}
-
 func (s *Server) handleDeptAdd(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	if !fromOwnerBrowser(r) {
+	if !s.fromOwner(r) {
 		http.Error(w, "only the owner adds a department, from the company page in the browser; an agent asks the CEO on its issue trail (issue-cli comment <slug> \"question: …\")", http.StatusForbidden)
 		return
 	}

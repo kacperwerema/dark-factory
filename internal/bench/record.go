@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -114,6 +115,22 @@ type Setup struct {
 	IssueCLIVersion string `json:"issue_cli_version,omitempty"`
 	Workflow        string `json:"workflow,omitempty"`
 	Label           string `json:"label,omitempty"`
+	// WorkerHome is the benchmark's worker_home: for this run (sandbox or
+	// owner; "" in runs from before it existed: owner).
+	WorkerHome string `json:"worker_home,omitempty"`
+	// Agent is the worker command's CLI (its first word: claude, codex),
+	// so runs of the same tasks on two agents can be compared (routing).
+	Agent string `json:"agent,omitempty"`
+}
+
+// WorkerAgent is the agent CLI a worker command runs: its first word, the
+// path's base name.
+func WorkerAgent(worker string) string {
+	f := strings.Fields(worker)
+	if len(f) == 0 {
+		return ""
+	}
+	return filepath.Base(f[0])
 }
 
 // Holdout is the holdout's aggregate, the only part of it a Run shows.

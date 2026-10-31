@@ -197,17 +197,26 @@ func (s *Server) handleShelfReview(w http.ResponseWriter, r *http.Request, proj 
 }
 
 // handleShelfFile serves a file output add copied onto the shelf; nothing
-// outside .outputs/files. A sandbox CSP keeps an SVG or HTML file from
-// running script on the viewer's origin.
+// outside .outputs/files, symlinks resolved (F-15, as /files/ does). A
+// sandbox CSP keeps an SVG or HTML file from running script on the viewer's
+// origin.
 func (s *Server) handleShelfFile(w http.ResponseWriter, r *http.Request, proj *tracker.Project, rel string) {
-	root := outputs.FilesDir(proj)
-	path := filepath.Join(root, filepath.FromSlash(rel))
-	if back, err := filepath.Rel(root, path); err != nil || back == "." || back == ".." || strings.HasPrefix(back, ".."+string(filepath.Separator)) {
+	root, err := filepath.EvalSymlinks(outputs.FilesDir(proj))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(filepath.Clean("/"+rel))))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if back, ok := relWithinRoot(root, path); !ok || back == "." {
 		http.NotFound(w, r)
 		return
 	}
 	st, err := os.Stat(path)
-	if err != nil || st.IsDir() {
+	if err != nil || !st.Mode().IsRegular() {
 		http.NotFound(w, r)
 		return
 	}

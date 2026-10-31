@@ -46,6 +46,21 @@ func Changed(repo, base, ref string) ([]string, error) {
 	return strings.Split(out, "\n"), nil
 }
 
+// FileAt is the content of repo-relative path at ref; nil, nil when ref has
+// no such file.
+func FileAt(repo, ref, path string) ([]byte, error) {
+	cmd := exec.Command("git", "-C", repo, "cat-file", "blob", ref+":"+path)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		if _, e := git(repo, "cat-file", "-e", ref+":"+path); e != nil {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("git cat-file %s:%s: %w", ref, path, err)
+	}
+	return out.Bytes(), nil
+}
+
 // TopLevel is the root of the repository dir is in.
 func TopLevel(dir string) (string, error) { return git(dir, "rev-parse", "--show-toplevel") }
 

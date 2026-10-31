@@ -76,12 +76,15 @@ func SharedSession(proj *tracker.Project) string {
 // Target returns the tmux target for the agent (or editor) called name: the
 // session itself by default, or the window name inside the project's shared
 // session. The "=" prefixes force exact matches so that agent-foo never
-// resolves to an existing agent-foo-bar window.
+// resolves to an existing agent-foo-bar session or window: a bare name is a
+// prefix (then fnmatch) match in tmux. The trailing ":" makes "=name" a
+// session in every target kind (pane, window, session); without it a pane
+// target looks the name up as a window first.
 func Target(proj *tracker.Project, name string) string {
 	if shared := SharedSession(proj); shared != "" {
 		return "=" + shared + ":=" + name
 	}
-	return name
+	return "=" + name + ":"
 }
 
 // SessionAgent names the agent the live session called name was started
@@ -237,7 +240,7 @@ func KillTmux(proj *tracker.Project, name string) error {
 	if SharedSession(proj) != "" {
 		return exec.Command("tmux", "kill-window", "-t", Target(proj, name)).Run()
 	}
-	return exec.Command("tmux", "kill-session", "-t", name).Run()
+	return exec.Command("tmux", "kill-session", "-t", Target(proj, name)).Run()
 }
 
 func defaultSessionAttached(session string) bool {

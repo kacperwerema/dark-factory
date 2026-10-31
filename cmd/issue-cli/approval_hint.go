@@ -97,3 +97,12 @@ func issueURL(proj *tracker.Project, slug string) string {
 	}
 	return fmt.Sprintf("%s/issue/%s", base, slug)
 }
+
+// yoloReviewURL is the project's review after YOLO: the whole after-the-fact
+// queue by issue, with evidence, Agree / Back to and Agree all.
+func yoloReviewURL(proj *tracker.Project) string {
+	if proj == nil {
+		return viewerBaseURL(nil) + "/"
+	}
+	return fmt.Sprintf("%s/p/%s/yolo/review", viewerBaseURL(proj), proj.Slug)
+}

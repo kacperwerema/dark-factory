@@ -21,14 +21,16 @@ import (
 // DeptHealthRow is one department's measures, as words.
 type DeptHealthRow struct {
 	Key, Name string
-	// OnTrack is "72%", "" when the department has nothing to measure.
-	OnTrack string
-	Pct     int
-	Tone    string
-	Goals   string
-	Outputs string
-	Jobs    string
-	Handoff string
+	// OnTrack is "72%", "" when the department has nothing to measure;
+	// then NotMeasured says what would start measuring it.
+	OnTrack     string
+	NotMeasured string
+	Pct         int
+	Tone        string
+	Goals       string
+	Outputs     string
+	Jobs        string
+	Handoff     string
 	// Old: its oldest open inbox handoff is past health.limits.handoff_age_days.
 	Old bool
 }
@@ -39,6 +41,9 @@ type DeptHealth struct {
 	// Empty says why there are no rows and what fills them.
 	Empty   string
 	Command string
+	// NotMeasured is the note under the table when a department has
+	// nothing to measure yet: what would start measuring it.
+	NotMeasured string
 }
 
 func deptHealthCommand(p *tracker.Project) string {
@@ -59,7 +64,11 @@ func deptHealth(p *tracker.Project, s *health.Snapshot, cfg *tracker.HealthConfi
 		return d
 	}
 	for _, dept := range p.Departments {
-		d.Rows = append(d.Rows, deptHealthRow(s, dept, cfg))
+		r := deptHealthRow(s, dept, cfg)
+		if r.NotMeasured != "" {
+			d.NotMeasured = r.NotMeasured
+		}
+		d.Rows = append(d.Rows, r)
 	}
 	return d
 }
@@ -78,6 +87,8 @@ func deptHealthRow(s *health.Snapshot, dept tracker.Department, cfg *tracker.Hea
 	if v, ok := get(deptfamily.OnTrack); ok {
 		r.Pct = int(math.Round(v * 100))
 		r.OnTrack, r.Tone = fmt.Sprintf("%d%%", r.Pct), shareTone(v)
+	} else {
+		r.NotMeasured = notMeasuredHint
 	}
 	if v, ok := get(deptfamily.GoalsProgress); ok {
 		r.Goals = fmt.Sprintf("%.0f%% to target", v)
@@ -99,6 +110,8 @@ func deptHealthRow(s *health.Snapshot, dept tracker.Department, cfg *tracker.Hea
 		missed, _ := get(deptfamily.JobsMissed)
 		due, _ := get(deptfamily.JobsDue)
 		r.Jobs = fmt.Sprintf("%.0f%% on time · %d due · %s", v*100, int(due), plural(int(missed), "period missed", "periods missed"))
+	} else if due, ok := get(deptfamily.JobsDue); ok {
+		r.Jobs = fmt.Sprintf("no run yet · %d due", int(due))
 	}
 	if in, ok := get(deptfamily.HandoffsOpen, "dir", "in"); ok {
 		out, _ := get(deptfamily.HandoffsOpen, "dir", "out")
@@ -113,6 +126,21 @@ func deptHealthRow(s *health.Snapshot, dept tracker.Department, cfg *tracker.Hea
 	return r
 }
 
+// notMeasuredHint is the tooltip and table line for a department with no
+// on-track share yet.
+const notMeasuredHint = "Not measured yet: it starts with " + deptfamily.StartsMeasuring + "."
+
+// hasDeptFamily: the snapshot has the departments family's rows (its
+// project count row), so a department without a row has nothing to
+// measure rather than no measurement.
+func hasDeptFamily(s *health.Snapshot) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.Value(deptfamily.Count, nil)
+	return ok
+}
+
 // shareTone is an on-track share's colour, as the score's sub-scores: good
 // from 0.7, bad below 0.4.
 func shareTone(v float64) string {
@@ -120,14 +148,15 @@ func shareTone(v float64) string {
 }
 
 // deptFootItem is a room's "♥ N% on track" foot item from the snapshot;
-// nil when the snapshot has no row for the box.
+// "♥ not measured yet" when the family ran but the box has nothing to
+// measure; nil without the family.
 func deptFootItem(s *health.Snapshot, prefix, box string) *WbFootItem {
-	if s == nil {
+	if !hasDeptFamily(s) {
 		return nil
 	}
 	v, ok := s.Value(deptfamily.OnTrack, map[string]string{"department": box})
 	if !ok {
-		return nil
+		return &WbFootItem{Text: "♥ not measured yet", URL: prefix + "/health#departments", Title: notMeasuredHint}
 	}
 	tone := map[string]string{"good": "green", "medium": "amber", "bad": "red"}[shareTone(v)]
 	var parts []string
@@ -153,20 +182,26 @@ func addDeptFoot(room *WbRoomDept, s *health.Snapshot, prefix string) {
 }
 
 // deptHealthLine is the Report Health card's line: "Departments: 72% on
-// track · 2 outputs waiting"; "" without the family's project row.
+// track · 2 outputs waiting", "Departments: not measured yet (…)" when the
+// family ran with nothing to measure; "" without the family.
 func deptHealthLine(s *health.Snapshot) string {
-	if s == nil {
+	if !hasDeptFamily(s) {
 		return ""
 	}
 	v, ok := s.Value(deptfamily.OnTrack, nil)
 	if !ok {
-		return ""
+		return "Departments: not measured yet (starts with " + deptfamily.StartsMeasuring + ")"
 	}
 	waiting := 0.0
 	for _, r := range s.Rows(deptfamily.OutputsWaiting) {
 		waiting += r.Value
 	}
 	line := fmt.Sprintf("Departments: %.0f%% on track", v*100)
+	if n, ok := s.Value(deptfamily.Count, nil); ok {
+		if m, ok := s.Value(deptfamily.Measured, nil); ok && m < n {
+			line += fmt.Sprintf(" (%d of %d measured)", int(m), int(n))
+		}
+	}
 	if waiting > 0 {
 		line += " · " + plural(int(waiting), "output waiting", "outputs waiting")
 	}

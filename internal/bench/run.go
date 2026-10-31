@@ -32,7 +32,9 @@ type Env struct {
 	Projects func(slug string) *tracker.Project
 	// IssueCLI is the issue-cli binary under test.
 	IssueCLI string
-	// Home holds ~/.claude/projects (transcripts); "" skips them.
+	// Home is the owner's home: where a sandbox HOME's login links point,
+	// and where the transcripts are read under worker_home: owner ("" skips
+	// them there and links nothing).
 	Home string
 	// TmpRoot is where sandboxes go (outside any .worktrees/).
 	TmpRoot string
@@ -83,7 +85,11 @@ func NewRunID(at time.Time) string { return at.UTC().Format("20060102-150405") }
 
 // Execute runs every task of b in order and saves the run after each task.
 func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, error) {
+	if err := validWorkerHome(b.WorkerHome); err != nil {
+		return nil, err
+	}
 	run := &Run{Benchmark: b.Name, Setup: opt.Setup, Budget: b.Budget, StartedBy: opt.StartedBy, Quote: opt.Quote}
+	run.Setup.WorkerHome = b.HomeMode()
 	var records []TaskRecord
 	if opt.Resume != "" {
 		prev, err := LoadRun(b.Name, opt.Resume)
@@ -108,6 +114,7 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 	if env.Poll <= 0 {
 		env.Poll = 30 * time.Second
 	}
+	env.logf("%s", HomeNote(b.HomeMode(), env.Home))
 	if env.MemPoll <= 0 {
 		env.MemPoll = time.Minute
 	}
@@ -208,8 +215,11 @@ func waitMemory(ctx context.Context, env *Env) string {
 // sandbox is one task's throwaway project.
 type sandbox struct {
 	dir, repo, tracker, config, state, issue, work, slug string
-	proj                                                 *tracker.Project
-	wf                                                   *tracker.WorkflowConfig
+	// home is the worker's HOME under worker_home: sandbox, "" when it
+	// keeps the owner's.
+	home string
+	proj *tracker.Project
+	wf   *tracker.WorkflowConfig
 }
 
 func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *Env, opt Options) TaskRecord {
@@ -223,7 +233,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	if p == nil {
 		return fail(OutcomeError, "no project "+t.Project)
 	}
-	sb, err := newSandbox(env, run.ID, n, t, p, opt)
+	sb, err := newSandbox(env, run.ID, n, t, p, opt, b.HomeMode())
 	if !env.Keep && sb != nil {
 		defer os.RemoveAll(sb.dir)
 	}
@@ -234,7 +244,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	if err != nil {
 		return fail(OutcomeError, err.Error())
 	}
-	graded := ev != nil && ev.ScoreKind() != tracker.EvalScoreTests
+	graded := ev != nil && ev.Graded()
 	if ev != nil {
 		rec.Eval = ev.ID
 		if graded && len(ev.Assert) == 0 && (len(ev.Rubric) == 0 || strings.TrimSpace(b.Grader) == "") {
@@ -286,7 +296,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	if worker == "" {
 		worker = DefaultWorker
 	}
-	stdout, werr := runWorker(wctx, sb.work, worker, prompt, sb.env(env))
+	stdout, stderr, werr := runWorker(wctx, sb.work, worker, prompt, sb.env(env))
 	close(stopWatch)
 	rec.WallSec = env.now().Sub(rec.Started).Seconds()
 
@@ -315,6 +325,8 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	case ctx.Err() != nil:
 		rec.Outcome, rec.Reason = OutcomeError, "interrupted"
 		return rec
+	case werr != nil && sb.home != "" && saysNoLogin(stdout, stderr):
+		rec.Outcome, rec.Reason = OutcomeError, NoLoginReason
 	}
 
 	rec.DiffLines = diffLines(sb.work, t.Base)
@@ -329,7 +341,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	}
 	if graded {
 		if rec.Outcome == "" {
-			scoreEval(ctx, b, t, ev, sb, &rec)
+			scoreEval(ctx, b, t, ev, sb, workerDiff, &rec)
 		}
 	} else if rec.Outcome == "" {
 		switch {
@@ -348,7 +360,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	return rec
 }
 
-func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt Options) (*sandbox, error) {
+func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt Options, homeMode string) (*sandbox, error) {
 	root := env.TmpRoot
 	if root == "" {
 		root = filepath.Join(os.TempDir(), "awe-bench")
@@ -364,6 +376,12 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	for _, d := range []string{sb.tracker, sb.state, sb.xdgConfig()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return sb, err
+		}
+	}
+	if homeMode == WorkerHomeSandbox {
+		sb.home = filepath.Join(sb.dir, "home")
+		if _, err := prepareWorkerHome(sb.home, env.Home); err != nil {
+			return sb, fmt.Errorf("worker home: %w", err)
 		}
 	}
 	src, err := git(p.Root(), "rev-parse", "--show-toplevel")
@@ -434,6 +452,16 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 // gets the sandbox as its socket folder, so no live session is seen).
 func (sb *sandbox) env(env *Env) []string {
 	out := isolatedEnviron()
+	if sb.home != "" {
+		// Its own HOME and agent config dirs (<home>/.claude, <home>/.codex),
+		// the caches kept where they are.
+		out = slices.DeleteFunc(out, func(kv string) bool {
+			k, _, _ := strings.Cut(kv, "=")
+			return k == "HOME" || k == "CLAUDE_CONFIG_DIR" || k == "CODEX_HOME"
+		})
+		out = append(out, "HOME="+sb.home)
+		out = append(out, cacheEnv(env.Home)...)
+	}
 	path := os.Getenv("PATH")
 	if env.IssueCLI != "" {
 		path = filepath.Dir(env.IssueCLI) + string(os.PathListSeparator) + path
@@ -529,7 +557,11 @@ func (sb *sandbox) prompt(ctx context.Context, env *Env) (string, error) {
 // after its working directory, which may be the resolved path (/private/var
 // for /var on macOS), so both are read.
 func (sb *sandbox) transcript(env *Env) Transcript {
-	if env.Home == "" {
+	home := env.Home
+	if sb.home != "" {
+		home = sb.home
+	}
+	if home == "" {
 		return Transcript{}
 	}
 	dirs := []string{sb.work}
@@ -542,7 +574,7 @@ func (sb *sandbox) transcript(env *Env) Transcript {
 	}
 	var tr Transcript
 	for _, d := range dirs {
-		if got := ReadTranscripts(TranscriptDir(env.Home, d), roots...); got.Usage.Known || len(got.Outside) > 0 {
+		if got := ReadTranscripts(TranscriptDir(home, d), roots...); got.Usage.Known || len(got.Outside) > 0 {
 			tr = got
 		}
 	}
@@ -665,16 +697,21 @@ var judgeReason = regexp.MustCompile(`(?im)^\s*REASON:\s*(.+)$`)
 // JudgePrompt is what the judge reads: the issue, the known good diff and
 // the worker's diff, each cut to limit bytes.
 func JudgePrompt(issue, merged, worker string) string {
-	const limit = 60000
-	cut := func(s string) string {
-		if len(s) > limit {
-			return s[:limit] + "\n… (cut)\n"
-		}
-		return s
-	}
+	cut := cutDiff
 	return "You judge one benchmark task. Compare the WORKER DIFF with the KNOWN GOOD DIFF for the ISSUE: does it do what the issue asks, as well as the known good one? Different code that meets the issue is fine.\n" +
 		"Answer with exactly two lines:\nSCORE: <0-5>  (5 = as good or better, 0 = nothing useful)\nREASON: <one line>\n\n" +
 		"## ISSUE\n\n" + cut(issue) + "\n\n## KNOWN GOOD DIFF\n\n" + cut(merged) + "\n\n## WORKER DIFF\n\n" + cut(worker) + "\n"
+}
+
+// diffLimit caps each text the judge and a diff eval read.
+const diffLimit = 60000
+
+// cutDiff cuts s to diffLimit bytes.
+func cutDiff(s string) string {
+	if len(s) > diffLimit {
+		return s[:diffLimit] + "\n… (cut)\n"
+	}
+	return s
 }
 
 func judge(ctx context.Context, b *Benchmark, t Task, sb *sandbox, workerDiff string, rec *TaskRecord) {
@@ -682,7 +719,7 @@ func judge(ctx context.Context, b *Benchmark, t Task, sb *sandbox, workerDiff st
 	merged, _ := git(sb.repo, "diff", t.Base, t.Merged)
 	jctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	out, err := runWorker(jctx, sb.dir, b.Judge, JudgePrompt(string(issue), merged, workerDiff), gitEnv(os.Environ()))
+	out, _, err := runWorker(jctx, sb.dir, b.Judge, JudgePrompt(string(issue), merged, workerDiff), gitEnv(os.Environ()))
 	if err != nil && len(out) == 0 {
 		rec.JudgeReason = "judge: " + err.Error()
 		return
@@ -715,18 +752,33 @@ func judge(ctx context.Context, b *Benchmark, t Task, sb *sandbox, workerDiff st
 
 // runWorker runs command in dir through sh with prompt on stdin, in its own
 // process group so a stop ends every process it started.
-func runWorker(ctx context.Context, dir, command, prompt string, env []string) ([]byte, error) {
+func runWorker(ctx context.Context, dir, command, prompt string, env []string) (stdout, stderr []byte, err error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(prompt)
 	var out bytes.Buffer
+	errTail := &tailBuffer{max: 4096}
 	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
+	cmd.Stderr = errTail
 	ownGroup(cmd)
 	cmd.WaitDelay = 10 * time.Second
-	err := cmd.Run()
-	return out.Bytes(), err
+	err = cmd.Run()
+	return out.Bytes(), errTail.buf, err
+}
+
+// tailBuffer keeps the last max bytes written to it.
+type tailBuffer struct {
+	buf []byte
+	max int
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > t.max {
+		t.buf = append([]byte(nil), t.buf[len(t.buf)-t.max:]...)
+	}
+	return len(p), nil
 }
 
 // shell runs command in dir and reports whether it exited 0, with its

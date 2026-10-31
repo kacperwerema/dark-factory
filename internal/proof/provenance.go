@@ -47,7 +47,7 @@ func foreignCommits(root, issuesDir, ownStats, ref string, own tracker.StatsStor
 			return nil
 		}
 		if d.IsDir() {
-			if p != issuesDir && strings.HasPrefix(d.Name(), ".") {
+			if p != issuesDir && tracker.NotIssueFolder(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil

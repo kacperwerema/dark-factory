@@ -25,15 +25,17 @@ func writeOwnerBoxIssue(t *testing.T, proj tracker.Project) *tracker.Issue {
 	return loadTestIssue(t, proj, "boxes-below-code")
 }
 
-// postAs posts JSON to the issue's path; browser adds the headers the
-// owner's browser sends from the viewer's own page.
+// postAs posts JSON to the issue's path; browser is the owner's signed-in
+// browser (newTestServer's session), else a script that forges the browser's
+// headers without the session.
 func postAs(t *testing.T, url string, browser bool, payload map[string]interface{}) (int, map[string]string) {
 	t.Helper()
 	body, _ := json.Marshal(payload)
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	if browser {
-		req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	if !browser {
+		req.Header.Set(strangerHeader, "1")
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

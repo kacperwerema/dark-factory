@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -155,4 +156,71 @@ func NewOutputTask(ctx context.Context, p *tracker.Project, issue *tracker.Issue
 		return t, warnings, err
 	}
 	return t, warnings, os.WriteFile(SnapshotPath(t), snap, 0o644)
+}
+
+// OutputCandidates lists the done issues of department key that could be
+// output tasks: proposed (Why empty) when the issue has an output the owner
+// approved with a file and the department's workflow has an eval for its
+// type. It reads the shelf and the workflow file only; tasks already in
+// in are left out. Newest done first, proposed before the rest.
+func OutputCandidates(p *tracker.Project, issues []*tracker.Issue, key string, in *Benchmark) ([]Candidate, error) {
+	d := p.DepartmentByKey(key)
+	if d == nil {
+		return nil, fmt.Errorf("project %s has no department %q", p.Slug, key)
+	}
+	wf, err := p.WorkflowFor(d.Name)
+	if err != nil {
+		return nil, err
+	}
+	list, _ := outputs.Load(p)
+	var out []Candidate
+	for _, is := range issues {
+		if tracker.DepartmentKey(p.DepartmentOf(is)) != key || !p.IssueDone(is) {
+			continue
+		}
+		if in != nil {
+			if _, t := in.Task(p.Slug + "/" + is.Slug); t != nil {
+				continue
+			}
+		}
+		c := Candidate{Project: p.Slug, Slug: is.Slug, Type: is.Type, Done: is.DoneAt, System: is.System, Workflow: key}
+		o, why := approvedOutput(list, is.Slug)
+		if o != nil {
+			c.Output, c.OutputTitle = o.ID, o.Title
+		}
+		ev := wf.EvalFor(is.Type)
+		if ev != nil {
+			c.Eval, c.EvalScore = ev.ID, ev.ScoreKind()
+		}
+		switch {
+		case o == nil:
+			c.Why = why
+		case ev == nil:
+			c.Why = fmt.Sprintf("the %s workflow has no eval for type %q (add one to evals: in %s)", key, orNone(is.Type), orNone(wf.File))
+		}
+		out = append(out, c)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if (out[i].Why == "") != (out[j].Why == "") {
+			return out[i].Why == ""
+		}
+		return out[i].Done > out[j].Done
+	})
+	return out, nil
+}
+
+// EvalDepartments are the keys of the project's departments whose workflow
+// file of its own declares at least one eval, in projects.yaml order.
+func EvalDepartments(p *tracker.Project) []string {
+	var keys []string
+	for _, d := range p.Departments {
+		if p.DepartmentWorkflowPath(d.Name) == "" {
+			continue
+		}
+		wf, err := p.WorkflowFor(d.Name)
+		if err == nil && wf != nil && len(wf.Evals) > 0 {
+			keys = append(keys, tracker.DepartmentKey(d.Name))
+		}
+	}
+	return keys
 }

@@ -1,10 +1,11 @@
 # The departments health family. Marketing (system SEO) has two manual
 # goals, a daily job and an open handoff from HQ created 2026-10-01 (older
-# than handoff_age_days); Sales has nothing to measure. One fixture snapshot
+# than handoff_age_days); Sales has nothing to measure ("not measured yet"). One fixture snapshot
 # from 2026-10-01 holds Marketing's goal progress then (pages 10, posts 80),
 # so after `goal set marketing/pages 30` (75%) and `goal set marketing/posts 5`
 # (50%) one goal of two moved: goals moving 50%. The daily job is due today
-# at 00:00 and never more than a day late, so jobs on time is 100% and
+# at 00:00 and never more than a day late (it ran once, on 2026-10-01: a job
+# that has never run is not measured yet), so jobs on time is 100% and
 # Marketing is 75% on track whatever the date. Sessions add one output
 # (waiting) and take a snapshot with `cli: [health, snapshot]`.
 title: Marketing and Sales with goals, a job, an output and a handoff to measure

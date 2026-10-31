@@ -125,12 +125,19 @@ type WbYOLOReview struct {
 type WbYOLOPass struct {
 	Status, From, Back, By, At string
 	Check, What, Why           string
+	// Question is an assumed clarify answer's id (Q2); Link where the owner
+	// answers it (the Station's Clarify card).
+	Question, Link string
 }
 
-// Key is what the review names: the box of an owner check, else the status.
+// Key is what the review names: the box of an owner check, the id of an
+// assumed answer, else the status.
 func (p WbYOLOPass) Key() string {
 	if p.Check != "" {
 		return p.Check
+	}
+	if p.Question != "" {
+		return p.Question
 	}
 	return p.Status
 }
@@ -147,7 +154,7 @@ func stationYOLOReview(issue *tracker.Issue, wf *tracker.WorkflowConfig, comment
 		if t, ok := tracker.CommentTime(p.At); ok {
 			at = t.Format("Mon 2 Jan, 15:04")
 		}
-		r.Passes = append(r.Passes, WbYOLOPass{Status: p.Status, From: p.From, Back: yolo.BackTo(wf, p), By: p.By, At: at, Check: p.Check, What: p.What, Why: p.Why})
+		r.Passes = append(r.Passes, WbYOLOPass{Status: p.Status, From: p.From, Back: yolo.BackTo(wf, p), By: p.By, At: at, Check: p.Check, What: p.What, Why: p.Why, Question: p.Question})
 	}
 	return r
 }
@@ -168,25 +175,27 @@ func yoloMarked(issues []*tracker.Issue) map[string]bool {
 	return out
 }
 
-// WbYOLORow is one row of the company's "To review after YOLO" list.
+// WbYOLORow is one issue of the after-the-fact queue in a list: the
+// company's "To review after YOLO", Needs you's After the fact.
 type WbYOLORow struct {
-	Slug   string `json:"slug"`
-	Status string `json:"status"`
-	// What is an owner check's box text ("" for a gate pass).
-	What string `json:"what,omitempty"`
-	URL  string `json:"url"`
+	Slug string `json:"slug"`
+	// Detail is "3 gates, 2 owner checks".
+	Detail string `json:"detail"`
+	Gates  int    `json:"gates"`
+	Checks int    `json:"checks"`
+	URL    string `json:"url"`
 }
 
-// yoloQueueRows is the queue as the company's rows, max at most.
+// yoloQueueRows is the queue as rows, one per issue, max at most.
 func yoloQueueRows(b *YOLOBand, prefix string, max int) (rows []WbYOLORow, more int) {
 	if b == nil {
 		return nil, 0
 	}
-	for i, p := range b.Queue {
+	for i, e := range b.Queue {
 		if i == max {
 			return rows, len(b.Queue) - max
 		}
-		rows = append(rows, WbYOLORow{Slug: p.Slug, Status: p.Label(), What: p.What, URL: prefix + "/issue/" + p.Slug + "#yolo"})
+		rows = append(rows, WbYOLORow{Slug: e.Slug, Detail: e.Detail(), Gates: len(e.Gates), Checks: len(e.Checks), URL: prefix + "/issue/" + e.Slug + "#yolo"})
 	}
 	return rows, 0
 }

@@ -357,7 +357,7 @@ func TestLeadChatKey(t *testing.T) {
 			t.Errorf("key %q: %d, want 400", key, code)
 		}
 	}
-	if strings.Join(st.keys, ",") != "lead-agents Escape" {
+	if strings.Join(st.keys, ",") != "=lead-agents: Escape" {
 		t.Errorf("pressed %v", st.keys)
 	}
 	st.live = false
@@ -393,7 +393,7 @@ func TestLeadChatKeyChord(t *testing.T) {
 			t.Fatalf("%s: %d %v", key, code, out)
 		}
 	}
-	want := "lead-agents C-x,lead-agents C-s,lead-agents C-o,lead-agents C-b,lead-agents C-b,lead-agents BTab"
+	want := "=lead-agents: C-x,=lead-agents: C-s,=lead-agents: C-o,=lead-agents: C-b,=lead-agents: C-b,=lead-agents: BTab"
 	if got := strings.Join(st.keys, ","); got != want {
 		t.Errorf("pressed %s, want %s", got, want)
 	}
@@ -416,7 +416,7 @@ func TestLeadChatCtrlCGuard(t *testing.T) {
 	if code, out := leadChatPost(t, url, "application/json", `{"key":"CtrlC"}`); code != http.StatusTooManyRequests || out["status"] != "too-soon" {
 		t.Errorf("second Ctrl+C: %d %v, want 429 too-soon", code, out)
 	}
-	if got := strings.Join(st.keys, ","); got != "lead-agents C-c" {
+	if got := strings.Join(st.keys, ","); got != "=lead-agents: C-c" {
 		t.Errorf("pressed %s, want one C-c", got)
 	}
 	if !leadChatCtrlCAllowed("lead-other", time.Now()) {
@@ -467,7 +467,7 @@ func TestLeadChatCtrlCDuringSend(t *testing.T) {
 	if code := <-sent; code != 200 {
 		t.Errorf("send: %d", code)
 	}
-	if got := strings.Join(st.keys, ","); got != "lead-agents C-c" {
+	if got := strings.Join(st.keys, ","); got != "=lead-agents: C-c" {
 		t.Errorf("pressed %s, want one C-c", got)
 	}
 }
@@ -537,7 +537,7 @@ func TestLeadsOverview(t *testing.T) {
 		st.mu.Lock()
 		defer st.mu.Unlock()
 		st.asked = append(st.asked, target)
-		return target == "lead-agents"
+		return target == "=lead-agents:"
 	}
 	ts := newTestServer(t, []tracker.Project{a, b})
 	defer ts.Close()

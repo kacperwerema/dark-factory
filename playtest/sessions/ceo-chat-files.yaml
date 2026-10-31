@@ -1,0 +1,57 @@
+session: ceo-chat-files
+issue: ui/ceo-chat-takes-any-file-the-terminal-takes-zip-pdf-and-text-files-next-to-images
+title: "Files in the CEO chat box: attach a zip, send its path line, see it as a chip in your turn"
+scenario: leads
+
+# The lead is faked on the scenario's private tmux server (cat echoes the
+# paste), as in ceo-chat-images.yaml. attach/floor.zip (from files/) sits in
+# the scenario's project root; its content hash names its folder, so TP4 and
+# TP5 can name the path the send used. The runner's browser is signed in as
+# the owner (lead/file is an owner route); the runner's http check is not,
+# so the download answers it 403.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: "Attach a .zip: its file chip shows ready with its name and size, and Send pastes one [File: <absolute path>] line"
+    proves: [AC6, AC1]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, -x, "300", -y, "40", cat]
+      - open: /p/{project}/lead
+    act:
+      - upload: { target: lead_chat.image_input, path: attach/floor.zip }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - check: { count: { pattern: lead_chat.file, equals: 1 } }
+      - check: { text_contains: { target: lead_chat.file, text: "floor.zip" } }
+      - check: { text_contains: { target: lead_chat.file, text: "312 B" } }
+      - check: { css: { target: lead_chat.file, property: opacity, equals: "1" } }
+      - type: { target: lead_chat.text, text: "build the floor from the zip" }
+      - key: Enter
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
+    checks:
+      - tmux: { pane: lead-crew, contains: "build the floor from the zip" }
+      - tmux: { pane: lead-crew, contains: "[File: {dir}/.agent-logs/lead-crew/chat/files/cd67be36ab6074c1a44d2fb5708d0b29/floor.zip]" }
+      - count: { pattern: lead_chat.file, equals: 0 }
+      - value_equals: { target: lead_chat.text, value: "" }
+
+  - id: TP5
+    title: "The owner's turn shows the sent zip as a file chip; the download is the owner's only"
+    proves: [AC5]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+      - upload: { target: lead_chat.image_input, path: attach/floor.zip }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - tmux: [kill-session, -t, lead-crew]
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> build the floor' '  [File: {dir}/.agent-logs/lead-crew/chat/files/cd67be36ab6074c1a44d2fb5708d0b29/floor.zip]' '' '⏺ Unzipping it.'; exec cat"]
+      - reload: true
+    checks:
+      - visible: lead_chat.turn.files
+      - count: { pattern: lead_chat.turn.file, equals: 1 }
+      - text_contains: { target: lead_chat.turn.file, text: "floor.zip" }
+      - text_contains: { target: lead_chat.turn.you, text: "build the floor" }
+      - http: { path: "/p/{project}/lead/file/cd67be36ab6074c1a44d2fb5708d0b29/floor.zip", status: 403 }

@@ -82,7 +82,7 @@ func TestCompanyRadio_CommentsBelowTheCEO(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, html,
 		`<span class="wb-msg-from">agent-ui-child</span><span>on <a href="/p/agents/issue/ui/child" data-testid="company.radio.issue">ui/child</a></span>`,
 		`<span class="wb-msg-kind wb-msg-kind--progress" data-testid="company.radio.kind">progress</span><span class="wb-msg-when">1 h</span>`,
@@ -98,7 +98,7 @@ func TestCompanyRadio_Empty(t *testing.T) {
 	stubAgentsGit(t)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, html, `and progress: and question: comments on the issues from the last week.`)
 }
 

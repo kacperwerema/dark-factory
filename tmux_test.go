@@ -29,11 +29,13 @@ func TestSessionMatchesIssue(t *testing.T) {
 }
 
 func TestAgentTmuxTarget(t *testing.T) {
-	if got := agentTmuxTarget(&tracker.Project{}, "agent-foo"); got != "agent-foo" {
-		t.Fatalf("per-session target = %q, want agent-foo", got)
+	// F-14: a bare name is a prefix match in tmux (agent-foo would reach
+	// agent-foo-bar), so the per-session target is exact too.
+	if got := agentTmuxTarget(&tracker.Project{}, "agent-foo"); got != "=agent-foo:" {
+		t.Fatalf("per-session target = %q, want exact-match =agent-foo:", got)
 	}
-	if got := agentTmuxTarget(nil, "agent-foo"); got != "agent-foo" {
-		t.Fatalf("nil project target = %q, want agent-foo", got)
+	if got := agentTmuxTarget(nil, "agent-foo"); got != "=agent-foo:" {
+		t.Fatalf("nil project target = %q, want =agent-foo:", got)
 	}
 	shared := &tracker.Project{TmuxSession: "work"}
 	if got := agentTmuxTarget(shared, "agent-foo"); got != "=work:=agent-foo" {

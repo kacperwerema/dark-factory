@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M1 14h14v1.5H1zM2 9h2.5v4H2zm4.5-4H9v8H6.5zm4.5 2h2.5v6H11z' fill='%2358a6ff'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -78,7 +79,7 @@
             <input type="hidden" name="tab" value="metrics">
             {{if .Systems}}
             <label class="metrics-field"><span class="label">System</span>
-                <select name="system" data-testid="metrics.filter.system" onchange="this.form.submit()">
+                <select name="system" data-testid="metrics.filter.system" data-autosubmit>
                     <option value="">All systems</option>
                     {{range .Systems}}<option value="{{.}}"{{if eq . $.Filter.System}} selected{{end}}>{{.}}</option>{{end}}
                 </select>
@@ -89,7 +90,7 @@
             <a href="{{.URL (kv "group" "")}}" class="chip{{if eq .Filter.Group ""}} chip-on{{end}}">All</a>
             {{range .Groups}}<a href="{{$.URL (kv "group" .Name)}}" class="chip{{if eq $.Filter.Group .Name}} chip-on{{end}}">{{.Name}} {{.Count}}</a>{{end}}
             {{end}}
-            <label class="metrics-check"><input type="checkbox" name="only" value="off" data-testid="metrics.filter.offonly"{{if .Filter.Only}} checked{{end}} onchange="this.form.submit()"> Near or off only</label>
+            <label class="metrics-check"><input type="checkbox" name="only" value="off" data-testid="metrics.filter.offonly"{{if .Filter.Only}} checked{{end}} data-autosubmit> Near or off only</label>
             {{if .Filter.Group}}<input type="hidden" name="group" value="{{.Filter.Group}}">{{end}}
             <input type="search" name="q" value="{{.Filter.Q}}" placeholder="Filter by name or id…" aria-label="Filter metrics" class="metrics-search">
         </form>
@@ -142,7 +143,7 @@
             <input type="hidden" name="tab" value="knobs">
             {{if .Systems}}
             <label class="metrics-field"><span class="label">System</span>
-                <select name="system" onchange="this.form.submit()">
+                <select name="system" data-autosubmit>
                     <option value="">All systems</option>
                     {{range .Systems}}<option value="{{.}}"{{if eq . $.Filter.System}} selected{{end}}>{{.}}</option>{{end}}
                 </select>
@@ -150,14 +151,14 @@
             {{end}}
             {{if gt (len .KnobFiles) 1}}
             <label class="metrics-field"><span class="label">File</span>
-                <select name="file" onchange="this.form.submit()">
+                <select name="file" data-autosubmit>
                     <option value="">All files</option>
                     {{range .KnobFiles}}<option value="{{.}}"{{if eq . $.Filter.File}} selected{{end}}>{{.}}</option>{{end}}
                 </select>
             </label>
             {{end}}
-            <label class="metrics-check"><input type="checkbox" name="edited" value="1" data-testid="knobs.filter.edited"{{if .Filter.Edited}} checked{{end}} onchange="this.form.submit()"> Edited on a branch only</label>
-            <label class="metrics-check"><input type="checkbox" name="recent" value="1"{{if .Filter.Recent}} checked{{end}} onchange="this.form.submit()"> Changed in the last 30 days</label>
+            <label class="metrics-check"><input type="checkbox" name="edited" value="1" data-testid="knobs.filter.edited"{{if .Filter.Edited}} checked{{end}} data-autosubmit> Edited on a branch only</label>
+            <label class="metrics-check"><input type="checkbox" name="recent" value="1"{{if .Filter.Recent}} checked{{end}} data-autosubmit> Changed in the last 30 days</label>
             <input type="search" name="q" value="{{.Filter.Q}}" placeholder="Filter by name or comment…" aria-label="Filter knobs" class="metrics-search">
         </form>
 
@@ -168,7 +169,7 @@
                 <thead><tr><th>Knob</th><th>Value</th><th>Comment</th><th>Last change</th><th>System</th></tr></thead>
                 <tbody>
                 {{range $k := .Knobs}}
-                <tr class="knob-row" data-testid="knobs.row.{{tid $k.Name}}" onclick="toggleKnob(this, event)">
+                <tr class="knob-row" data-testid="knobs.row.{{tid $k.Name}}" data-click="{{onCall "toggleKnob" "$this" "$event"}}">
                     <td>
                         <button type="button" class="knob-toggle" aria-expanded="false" aria-controls="knob-{{tid $k.Name}}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg><span class="mono knob-name">{{$k.Name}}</span></button>
                         {{if $k.Line}}<div class="mono muted knob-line">line {{$k.Line}}</div>{{end}}
@@ -268,7 +269,7 @@
     </main>
 </div>
 </div>
-<script>
+<script nonce="{{cspNonce}}">
 // A click anywhere on a knob row (the chevron button included) opens it;
 // links inside the row keep their own click.
 function toggleKnob(tr, ev) {

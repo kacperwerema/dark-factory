@@ -1,0 +1,30 @@
+id: agent-routing
+version: v0.59.0
+category: dispatch
+propose: true
+sources: ["internal/tracker/routing.go", "internal/routing/**", "internal/agentrun/route.go", "internal/lint/routing.go"]
+title: "Routing: pick claude or codex per start, fall back when one rests"
+what: |
+  A top-level `routing:` block picks which of your installed agent CLIs starts each worker,
+  lead and job run (dispatch, ▶ on the page, lead spawn, job run, auto-start): rules on
+  type, label, status, department or `lead: true`, first match wins, then `default:`. When
+  a CLI shows its usage-limit message in a live pane ("You've hit your 5-hour limit ·
+  resets 5pm", "You’ve hit your usage limit … try again at 6:30 PM"), that subscription
+  rests until the reset and new starts take the next agent in `fallback:`; auto-start holds
+  when none is free. A running worker is left alone and shown on the Crew page. `--agent`
+  still wins. No keys, accounts or logins: only which installed CLI starts next.
+why: |
+  With two subscriptions, docs and reports can go to one and design to the other, and a
+  usage limit on one no longer stalls every new start until someone notices.
+where: "routing: at the top level of the workflow file (a department's own file routes its own work)"
+question: "Do you have both Claude Code and Codex logged in on this machine? Should starts be routed between them by kind of work, with a fallback when one hits its limit?"
+snippet: |
+  routing:
+    default: claude
+    fallback: [claude, codex]
+    rules:
+      - {type: docs, agent: codex}
+      - {label: design, agent: claude}
+      - {lead: true, agent: claude}
+detect:
+  - path: routing

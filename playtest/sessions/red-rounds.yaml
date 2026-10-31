@@ -1,0 +1,23 @@
+session: red-rounds
+issue: factory/stop-after-four-red-rounds-a-check-still-red-after-four-fix-rounds-or-one-the-worker-cannot-fix-becomes-a-question
+title: The Station shows how many rounds a check has been red
+scenario: red-rounds
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP2
+    title: A check red for three fix rounds shows "red 3 of 4" in the Station's Tests and proofs panel, and issue-cli rounds says the same
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    checks:
+      - visible: [station.tests, station.tests.red_rounds]
+      - text_contains: { target: station.tests.red_rounds, text: "red 3 of 4" }
+      - text_contains: { target: station.tests.red_rounds, text: "gate:criteria_proven" }
+      - text_contains: { target: station.tests.red_rounds, text: "TestLabelPrints fails" }
+      - cli: { args: [rounds, shop/label-printer], contains: "red 3 of 4 · gate:criteria_proven" }

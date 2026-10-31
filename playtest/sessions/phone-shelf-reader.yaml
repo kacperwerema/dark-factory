@@ -1,0 +1,28 @@
+session: phone-shelf-reader
+issue: ui/phone-width-pass-needs-you-the-station-the-ceo-chat-the-shelf-reader-and-the-hq-report-work-at-390px
+title: "The shelf reader at phone width: the margin becomes a sheet under the document"
+scenario: shelf
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The reader at 390px fits the screen; comments sit below the document, Approve and Comment are 44px
+    proves: [AC1, AC2]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Brand and ICP: Dark Factory", --kind, report, --file, out/brand.md]
+      - open: /p/acme/shelf
+      - click: shelf.title
+      - wait_for: { enabled: odoc.comment }
+    checks:
+      - visible: [odoc.sheet, odoc.margin, odoc.approve, odoc.reject, odoc.raw]
+      - below: [odoc.sheet, odoc.margin]
+      - size: { target: odoc.approve, min_height: 44 }
+      - size: { target: odoc.reject, min_height: 44 }
+      - size: { target: odoc.raw, min_height: 44 }
+      - size: { target: odoc.sheet.day, min_height: 44 }
+      - size: { target: odoc.new.text, min_height: 44 }
+      - size: { target: odoc.comment, min_height: 44 }

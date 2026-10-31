@@ -57,7 +57,7 @@ func TestYOLOSwitchAndBand(t *testing.T) {
 
 	// Off, but a pass waits: the sidebar shows the after-the-fact queue.
 	page := pageGet(t, ts.URL+"/p/yp/board?classic=1")
-	for _, want := range []string{`data-testid="nav.yolo"`, "1 after the fact", `data-testid="nav.yolo.row.shop"`, "Back to in design"} {
+	for _, want := range []string{`data-testid="nav.yolo"`, "1 after the fact", `data-testid="nav.yolo.row.shop"`, "shop</a> · 1 gate", `href="/p/yp/yolo/review" data-testid="nav.yolo.review_all"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("sidebar lacks %q", want)
 		}
@@ -166,9 +166,10 @@ func TestYOLOOwnerCheckOnThePages(t *testing.T) {
 
 	assertContains(t, pageGet(t, ts.URL+"/p/yp/issue/shop"),
 		`data-status="AC2"`, `data-testid="station.yolo.owner_check"`, `<b>AC2: owner check, not done</b> · The owner likes the colours`, `(playtest judgement step TP9)`, `Back to in design`)
-	assertContains(t, pageGet(t, ts.URL+"/p/yp/company"), `YOLO · AC2: owner check, not done`)
-	assertContains(t, pageGet(t, ts.URL+"/p/yp/needs-you"), `AC2: owner check, not done · The owner likes the colours`)
-	assertContains(t, pageGet(t, ts.URL+"/p/yp/board?classic=1"), `· AC2: owner check, not done`, `data-status="AC2"`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/company?classic=1"), `YOLO · 1 owner check`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/needs-you"), `<span class="wb-muted">1 owner check</span>`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/board?classic=1"), `shop</a> · 1 owner check`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/yolo/review"), `data-key="AC2" data-text="The owner likes the colours"`, `(playtest judgement step TP9)`)
 
 	if code, out := postJSON(t, ts.URL+"/p/yp/issue/shop/yolo-review", `{"verdict":"agree","status":"AC2","words":"saw it, fine"}`); code != 200 {
 		t.Fatalf("agree: %d %v", code, out)

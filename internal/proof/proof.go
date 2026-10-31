@@ -254,6 +254,20 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 			}
 		}
 	}
+	// A trailer's test that is gone, with a newer test link on the same
+	// criterion: the old commit can't be reworded, so say what replaced it.
+	found := func(n string) bool { return c.tests[n].OK }
+	for i := range r.Criteria {
+		links := r.Criteria[i].Links
+		for j, l := range links {
+			if l.Kind != tracker.ProofTest || c.tests[l.Ref].OK {
+				continue
+			}
+			if newer, ok := supersededIn(links, j, found); ok {
+				links[j].Check = Check{State: "superseded by " + newer.Ref + " (" + linkFrom(newer.Link) + "); prove --run skips it"}
+			}
+		}
+	}
 	r.markOwner(issue, judgementSteps(runs), ownerPassedSteps(runs), guidedOwnerBoxes(root, worktree, issue.Slug))
 	return r
 }

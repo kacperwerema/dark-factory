@@ -1,0 +1,16 @@
+statuses:
+  - name: "in design"
+    description: "Being designed"
+  - name: "backlog"
+    description: "Ready to work on"
+  - name: "done"
+    description: "Finished"
+
+transitions:
+  - from: "in design"
+    to: "backlog"
+    actions:
+      - type: "require_human_approval"
+        status: "backlog"
+  - from: "backlog"
+    to: "done"

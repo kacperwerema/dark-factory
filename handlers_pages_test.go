@@ -354,3 +354,64 @@ func mustReq(t *testing.T, method, url string) *http.Request {
 	}
 	return req
 }
+
+// F-16 (docs/API/security.md): a page at the project root made "." a page
+// folder, so every .json, .js and .html under the root was servable, .ci/,
+// .health/ and .worktrees/ included. Now a root page serves only itself,
+// and no path through a dot-folder or to a dot-file is served anywhere.
+func TestProjectPages_RootPageAndDotFolders(t *testing.T) {
+	proj, root := setupPagesProject(t, `statuses:
+  - name: "idea"
+workbench:
+  status_page: status.html
+  pages:
+    - title: "Report"
+      path: docs/status/index.html
+`)
+	for rel, content := range map[string]string{
+		"status.html":                     "<h1>root page</h1>",
+		"other.html":                      "<h1>other</h1>",
+		"data.json":                       `{"x":1}`,
+		".ci/state.json":                  `{"secret":true}`,
+		".worktrees/w/docs/status/a.html": "<h1>worktree</h1>",
+		"docs/status/.hidden/x.json":      `{"secret":true}`,
+		"docs/status/.env.json":           `{"secret":true}`,
+	} {
+		path := filepath.Join(root, rel)
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	base := ts.URL + "/p/atlas/page-raw/"
+	for _, ok := range []string{"status.html", "docs/status/index.html", "docs/status/style.css"} {
+		if resp, _ := pageResp(t, mustReq(t, "GET", base+ok)); resp.StatusCode != http.StatusOK {
+			t.Errorf("raw %s = %d, want 200", ok, resp.StatusCode)
+		}
+	}
+	for _, bad := range []string{"other.html", "data.json", ".ci/state.json", ".worktrees/w/docs/status/a.html", "docs/status/.hidden/x.json", "docs/status/.env.json", "docs/status/%2Ehidden/x.json"} {
+		if resp, _ := pageResp(t, mustReq(t, "GET", base+bad)); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("raw %s = %d, want 404", bad, resp.StatusCode)
+		}
+	}
+}
+
+// F-13: the raw page's CSP keeps fetches, beacons and form posts on the
+// viewer, so a page can't send the status it is posted anywhere else.
+func TestProjectPages_RawCSPKeepsConnectionsHome(t *testing.T) {
+	proj, _ := setupPagesProject(t, pagesWorkflow)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	resp, _ := pageResp(t, mustReq(t, "GET", ts.URL+"/p/atlas/page-raw/docs/status/index.html"))
+	csp := resp.Header.Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "connect-src 'self'", "form-action 'none'", "base-uri 'none'", "object-src 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP %q lacks %q", csp, want)
+		}
+	}
+	if strings.Contains(csp, "*") || strings.Contains(csp, "https:") {
+		t.Errorf("CSP %q allows other hosts", csp)
+	}
+}

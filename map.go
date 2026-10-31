@@ -103,6 +103,8 @@ type MapLot struct {
 	// reuse instead of reading them again.
 	issues []*tracker.Issue
 	agents *AgentsModel
+	// waits is waitingOnOwner over the open issues, for the company page.
+	waits []WaitingItem
 }
 
 func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +246,8 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 			lot.CI, lot.CILine = "red", ciRedLine(st)
 		}
 	}
-	queue := needsYouRows(p, color, prefix, open, now)
+	lot.waits = waitingOnOwner(p, open)
+	queue := needsYouRowsWith(p, color, prefix, lot.waits, now)
 	lot.Waiting = len(queue)
 
 	if plan := projectUpgradePlan(p); plan != nil {

@@ -77,17 +77,29 @@ func shelfOutput(p *tracker.Project, slug string) (string, string) {
 	return string(data), ""
 }
 
-// scoreEval grades an output task with the benchmark's scorer and
-// sets the record's eval fields and outcome.
-func scoreEval(ctx context.Context, b *Benchmark, t Task, ev *tracker.WorkflowEval, sb *sandbox, rec *TaskRecord) {
-	text, why := shelfOutput(sb.proj, t.Slug)
+// scoreEval grades an output or diff task with the benchmark's scorer and
+// sets the record's eval fields and outcome. workerDiff is the worker's
+// diff against the base (what a diff eval grades).
+func scoreEval(ctx context.Context, b *Benchmark, t Task, ev *tracker.WorkflowEval, sb *sandbox, workerDiff string, rec *TaskRecord) {
+	var text, why, ref string
+	if ev.ScoreKind() == tracker.EvalScoreDiff {
+		text, why = cutDiff(workerDiff), ""
+		if strings.TrimSpace(workerDiff) == "" {
+			why = "no diff against the base"
+		}
+		if t.Merged != "" {
+			known, _ := git(sb.repo, "diff", t.Base, t.Merged)
+			ref = cutDiff(known)
+		}
+	} else {
+		text, why = shelfOutput(sb.proj, t.Slug)
+	}
 	if why != "" {
 		rec.EvalScore = 0
 		rec.Outcome, rec.Reason = OutcomeFail, why
 		return
 	}
-	var ref string
-	if p := ReferencePath(t); p != "" {
+	if p := ReferencePath(t); p != "" && ref == "" {
 		data, _ := os.ReadFile(p)
 		ref = string(data)
 	}
@@ -149,6 +161,11 @@ type WorkflowVerdict struct {
 	WallB       float64  `json:"wall_b_sec"`
 	Regressions []string `json:"regressions"`
 	Improved    []string `json:"improved"`
+	// Mark is changed or control when the comparison has a branch
+	// (Comparison.MarkChanged), ChangedBy the branch's files that reached
+	// the workflow.
+	Mark      string   `json:"mark,omitempty"`
+	ChangedBy []string `json:"changed_by,omitempty"`
 }
 
 // taskScore is a record's quality score 0-1: its eval score, else its judge

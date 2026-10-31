@@ -135,11 +135,17 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	tickProvenBeforeGate(ctx, wf, issue, to)
 
-	gate, err := passYOLOGate(ctx, wf, issue, issues, to, fields)
+	rounds, err := startRedRounds(ctx, wf, issue)
 	if err != nil {
 		return err
 	}
+	gate, err := passYOLOGate(ctx, wf, issue, issues, to, fields)
+	if err != nil {
+		rounds.finish(nil)
+		return err
+	}
 	from, result, err := wf.ApplyTransitionToFileWithFields(issue.FilePath, to, fields)
+	err = rounds.finish(err)
 	if err != nil {
 		if b := blockedRefusal(gate, "failed to transition", err); b != nil {
 			return b
@@ -162,12 +168,16 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	if !ctx.JSONOutput {
 		printYOLOGate(ctx.Stdout, gate, from, to, ctx.now())
+		printWarnings(ctx.Stdout, criteriaWarnings(wf, issue, from, to))
 		if isShipStatus(wf, to) {
 			fmt.Fprintln(ctx.Stdout)
 			printShippingBlock(ctx, issue, issues)
 		}
 	}
 	if err := writeYOLOOwnerChecks(ctx, wf, issue, from, to, gate.Passed); err != nil {
+		return err
+	}
+	if err := clarifyOnTransition(ctx, wf, issue, from, gate.Passed); err != nil {
 		return err
 	}
 	if to == "done" {
@@ -178,8 +188,11 @@ func runTransition(ctx *Context, args []string) error {
 		endOut = ctx.Stderr
 	}
 	handoffEnded(ctx, endOut, wf, issue.Slug, to)
+	queueMarkShipped(ctx, endOut, wf, issue.Slug, to)
+	postmortemAtTransition(ctx, endOut, wf, issue, to)
 	if to == "done" && !ctx.JSONOutput {
 		printCIAfterDone(ctx, wf)
+		printMemoryReflection(ctx.Stdout, ctx, issue)
 	}
 	if !ctx.JSONOutput {
 		printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
@@ -230,6 +243,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 	if isShipStatus(wf, to) {
 		out.Warnings = openDepWarnings(shipDeps(ctx, issue, issues))
 	}
+	out.Warnings = append(out.Warnings, criteriaWarnings(wf, issue, from, to)...)
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)
 		out.SideEffects = sectionDryRunEffects(wf, issue, from, to, fields, out.SideEffects)

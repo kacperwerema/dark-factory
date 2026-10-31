@@ -1,0 +1,29 @@
+session: leads-queue
+issue: factory/the-leads-queue-as-an-engine-feature-an-ordered-plan-of-items-the-leads-tick-starts-while-memory-and-cpu-allow
+title: Report - the lead's Queue card, its next items, blocked and the refill line
+scenario: basic
+
+# The queue is filled with issue-cli in the scenario's own tracker. The
+# verdict line depends on this machine's mem-guard and load, so it is
+# checked for being there, not by text. cli: calls pass --project.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The Report shows the Queue card with the next items, a blocked one and the refill line
+    proves: [AC4]
+    setup:
+      - cli: [--project, "{project}", queue, add, cli/export-issues-as-csv, --quote, "ensure you have plenty of things to iterate on"]
+      - cli: [--project, "{project}", queue, add, cli/faster-list-command, --blocked-on, "1"]
+      - cli: [--project, "{project}", queue, add, --idea, "a bulk review page"]
+      - open: /p/{project}/status
+    checks:
+      - visible: [report.page, status.queue, status.queue.count, status.queue.blocked, status.queue.item.1, status.queue.item.2, status.queue.item.3, status.queue.refill, status.queue.verdict]
+      - text_equals: { target: status.queue.count, text: "3" }
+      - text_contains: { target: status.queue.blocked, text: "1 blocked" }
+      - text_contains: { target: status.queue.refill, text: "Out of work: think up more" }
+      - cli: { args: [--project, "{project}", queue, list], contains: "2. [ ] cli/faster-list-command · blocked on #1" }

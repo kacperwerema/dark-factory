@@ -7,13 +7,17 @@ session_checks:
   viewports: [1440x900, 390x844]
   layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
   console: no_errors
+  # Check now lands on the company floor with Marketing's inspector open,
+  # scrolled to its connectors inside the rail: the rail scrolls, so the
+  # inspector's clipped part lies under Waiting on you and the message box.
+  layout_ignore: [floor.inspector.marketing]
 
 steps:
   - id: TP4
     title: The Marketing room lists its connectors with secrets set or missing, and Needs you names the missing one
     proves: [AC7]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
       - click: company.room.connectors
     checks:
       - visible: [company.room.connectors, company.room.connectors.failing, company.room.connectors.check_now]
@@ -41,7 +45,7 @@ steps:
     title: Check now runs the checks and the room reloads with their results
     proves: [AC6, AC7]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
       - click: company.room.connectors
     act:
       - click: company.room.connectors.check_now

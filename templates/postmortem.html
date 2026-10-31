@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="postmortem.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Post-mortem{{if .Pending}} <span class="wb-ny-count" data-testid="postmortem.count">{{.Pending}}</span>{{end}}</h1>
+        <span class="wb-sub"><a href="{{.IssueURL}}">{{.IssueTitle}}</a> · written by a fresh agent from the run · each action names one place · one round: agree or refuse them all, then Submit</span>
+    </div>
+    <div class="wb-oc" data-pm-root data-decide-url="{{.DecideURL}}">
+    {{if .NoPostmortem}}
+        <div class="wb-oc-empty" data-testid="postmortem.empty">{{.Slug}} has no post-mortem yet. One starts when the issue reaches done (workflow postmortem:), or by hand: issue-cli postmortem start {{.Slug}} --quote "…"</div>
+    {{else}}
+        <section class="wb-oc-issue" data-testid="postmortem.sections">
+            <div class="wb-oc-issue-head"><h2 class="wb-oc-issue-title">What the post-mortem read</h2><span class="wb-slug">{{.File}}</span></div>
+            {{range .Sections}}<details class="wb-pm-row" data-testid="postmortem.section.{{tid .Name}}"><summary><b class="wb-oc-id">{{.Name}}</b></summary><div class="wb-mono wb-pm-pre">{{.Text}}</div></details>{{end}}
+        </section>
+        <section class="wb-oc-issue" data-testid="postmortem.actions">
+            <div class="wb-oc-issue-head"><h2 class="wb-oc-issue-title">Proposed actions</h2><span class="wb-oc-bar-sum">{{len .Actions}} proposed · {{.Pending}} wait for you</span></div>
+            {{if .None}}<div class="wb-oc-empty" data-testid="postmortem.none">The post-mortem proposes no actions: nothing for you to agree to.</div>{{end}}
+            {{range .Actions}}
+            <div class="wb-pm-row" data-pm-action data-id="{{.ID}}" data-testid="postmortem.action.{{tid .ID}}">
+                <div class="wb-oc-text">
+                    <div><b class="wb-oc-id">{{.ID}}</b> {{.Title}}</div>
+                    <div class="wb-oc-meta"><span class="wb-chip wb-chip--idle" data-testid="postmortem.action.{{tid .ID}}.place">{{.PlaceString}}</span>{{with .Under}}<span class="wb-mono">under “{{.}}”</span>{{end}}</div>
+                    <div class="wb-oc-meta"><b>Differently:</b> {{.Differently}}</div>
+                    {{with .Text}}<div class="wb-mono wb-pm-pre">{{.}}</div>{{end}}
+                    {{if .Applied}}<div class="wb-ny-msg wb-ny-msg--ok" data-testid="postmortem.action.{{tid .ID}}.outcome">Applied: {{.Applied}}</div>
+                    {{else if .Refused}}<div class="wb-ny-msg wb-ny-msg--err" data-testid="postmortem.action.{{tid .ID}}.outcome">Refused: {{.Refused}}</div>
+                    {{else}}
+                    <div class="wb-pm-answer" data-testid="postmortem.action.{{tid .ID}}.answer">
+                        <label><input type="radio" name="pm-{{.ID}}" value="agree" data-pm-agree> Agree</label>
+                        <label><input type="radio" name="pm-{{.ID}}" value="refuse" data-pm-refuse> Refuse</label>
+                        <input type="text" class="wb-pm-note" placeholder="note (optional)" data-pm-note aria-label="Note on {{.ID}}">
+                    </div>
+                    <div class="wb-ny-msg" role="status" data-pm-msg data-testid="postmortem.action.{{tid .ID}}.msg"></div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+            {{if .Pending}}
+            <div class="wb-pm-foot">
+                <button type="button" class="wb-btn" data-pm-submit data-testid="postmortem.submit">Submit all {{.Pending}}</button>
+                <div class="wb-ny-msg" role="status" data-pm-status data-testid="postmortem.status"></div>
+            </div>
+            {{end}}
+        </section>
+    {{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/postmortem.js"></script>
+</body>
+</html>

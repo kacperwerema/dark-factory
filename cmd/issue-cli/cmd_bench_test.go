@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -492,5 +493,18 @@ func TestBenchBudgetLineShowsTheCacheReadDefault(t *testing.T) {
 	b.Budget.Tokens = 250_000_000
 	if note := lowTokensNote(b.Budget); note != "" {
 		t.Errorf("250M note = %q", note)
+	}
+}
+
+func TestBenchReportShowsTheRunsWorkerHome(t *testing.T) {
+	var out bytes.Buffer
+	printRun(&out, &bench.Run{Benchmark: "b", ID: "r1", Setup: bench.Setup{WorkerHome: bench.WorkerHomeSandbox}})
+	if !strings.Contains(out.String(), "worker home sandbox") {
+		t.Errorf("report:\n%s", out.String())
+	}
+	out.Reset()
+	printRun(&out, &bench.Run{Benchmark: "b", ID: "r0"})
+	if !strings.Contains(out.String(), "worker home owner") {
+		t.Errorf("an old run's report:\n%s", out.String())
 	}
 }

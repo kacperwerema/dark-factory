@@ -48,10 +48,12 @@ Commands:
   shots    -list FILE -base URL -out DIR [-only a.png,b.png]
                                shoot each page in the list at 1280 px, 2x, light
                                theme, into DIR (make readme-shots stages the demo)
-  shot     -url URL [-w W] [-h H] [-full] [-out FILE]
+  shot     -url URL [-w W] [-h H] [-full] [-scroll SEL] [-out FILE]
                                one screenshot of one page (default 1280x800,
                                .playtest/shot.png); waits for load, not for
-                               the network to go idle (make shot)
+                               the network to go idle (make shot); -full on a
+                               page that doesn't scroll unrolls its biggest
+                               inner scroller, -scroll SEL that one
 
 Common flags: -sessions DIR, -scenarios DIR, -runs DIR, -project NAME
 Runs are kept in .playtest/runs/<session>/<time>-<mode>/ (gitignored).
@@ -68,7 +70,7 @@ type opts struct {
 	project                   string
 	results                   string
 	list, base, out, only     string
-	url                       string
+	url, scroll               string
 	repeat, width, height     int
 	keep, headed, apply, full bool
 }
@@ -93,7 +95,7 @@ func run(args []string, out, errw io.Writer) int {
 	fs.StringVar(&o.issue, "issue", "", "only sessions for this issue slug")
 	fs.StringVar(&o.session, "s", "", "only this session")
 	fs.StringVar(&o.steps, "step", "", "only these step ids (comma-separated)")
-	fs.StringVar(&o.project, "project", envOr("PLAYTEST_PROJECT", "issue-viewer"), "issue-cli --project for the real issue")
+	fs.StringVar(&o.project, "project", "", "issue-cli --project for the real issue (default $PLAYTEST_PROJECT; for report also $ISSUE_VIEWER_PROJECT and the configured project whose issues dir is this repo's; else issue-viewer)")
 	fs.StringVar(&o.results, "results", resultsDefault(), "ux-test: also write the e2e results (sessions, steps, times) here; default $CI_RESULTS_DIR/e2e.json in local CI")
 	fs.IntVar(&o.repeat, "repeat", 1, "run N times and fail if results differ")
 	fs.BoolVar(&o.keep, "keep", false, "keep scenario temp dirs")
@@ -106,9 +108,22 @@ func run(args []string, out, errw io.Writer) int {
 	fs.IntVar(&o.width, "w", 0, "shot: viewport width in CSS pixels (default 1280)")
 	fs.IntVar(&o.height, "h", 0, "shot: viewport height in CSS pixels (default 800)")
 	fs.BoolVar(&o.full, "full", false, "shot: the whole page, not just the viewport")
+	fs.StringVar(&o.scroll, "scroll", "", "shot: unroll this scrolling element (CSS selector) and shoot the whole page")
 	fs.StringVar(&o.only, "only", "", "shots: only these files (comma-separated)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
+	}
+	switch {
+	case o.project != "":
+	case cmd == "report":
+		// report writes to the issue: it must reach a project this
+		// machine has.
+		o.project = defaultProject(os.Getenv, listProjects, repoIssueDirs(repo))
+	default:
+		// check reads step ids against the board only where
+		// PLAYTEST_PROJECT asks for it; elsewhere ids are checked for
+		// shape (the old default).
+		o.project = envOr("PLAYTEST_PROJECT", "issue-viewer")
 	}
 
 	switch cmd {
@@ -240,7 +255,10 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 		return 2
 	}
 	defer b.Close()
-	r := &Runner{Repo: repo, ScenarioDir: o.scenarios, RunsRoot: o.runs, Build: BuildID(repo), Keep: o.keep, Out: out, OwnIssue: OwnIssue(repo, o.issue)}
+	r := &Runner{Repo: repo, ScenarioDir: o.scenarios, RunsRoot: o.runs, Build: BuildID(repo), Keep: o.keep, Out: out, OwnIssue: OwnIssue(repo, o.issue), Named: o.session}
+	if o.runs == filepath.Join(repo, ".playtest", "runs") {
+		r.EvidenceRuns = EvidenceRunsDir(repo)
+	}
 	code := 0
 	e2e := testresults.Playtest{Started: time.Now()}
 	defer func() {
@@ -289,6 +307,67 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "✗ ux-test failed")
 	}
 	return code
+}
+
+// defaultProject is the issue-cli project for the real issue when -project
+// is not given: $PLAYTEST_PROJECT, the dispatched worker's
+// $ISSUE_VIEWER_PROJECT, the configured project (issue-cli --json projects)
+// whose issue_dir is one of issueDirs, and only then "issue-viewer", the
+// engine board's old name. A name this machine doesn't have makes every
+// issue-cli call fail, so APPLY ticks nothing.
+func defaultProject(getenv func(string) string, list func() ([]byte, error), issueDirs []string) string {
+	for _, k := range []string{"PLAYTEST_PROJECT", "ISSUE_VIEWER_PROJECT"} {
+		if v := strings.TrimSpace(getenv(k)); v != "" {
+			return v
+		}
+	}
+	if raw, err := list(); err == nil {
+		var ps []struct {
+			Slug     string `json:"slug"`
+			IssueDir string `json:"issue_dir"`
+		}
+		if json.Unmarshal(raw, &ps) == nil {
+			for _, d := range issueDirs {
+				for _, p := range ps {
+					if p.IssueDir != "" && samePath(p.IssueDir, d) {
+						return p.Slug
+					}
+				}
+			}
+		}
+	}
+	return "issue-viewer"
+}
+
+func samePath(a, b string) bool {
+	clean := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return filepath.Clean(p)
+	}
+	return clean(a) == clean(b)
+}
+
+// repoIssueDirs is where this repo's board can live: issues/ in this
+// checkout and in the primary checkout a worktree belongs to.
+func repoIssueDirs(repo string) []string {
+	dirs := []string{filepath.Join(repo, "issues")}
+	cmd := exec.Command("git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if raw, err := cmd.Output(); err == nil {
+		if common := strings.TrimSpace(string(raw)); common != "" {
+			dirs = append(dirs, filepath.Join(filepath.Dir(common), "issues"))
+		}
+	}
+	return dirs
+}
+
+func listProjects() ([]byte, error) {
+	bin, err := exec.LookPath(issueCLI())
+	if err != nil {
+		return nil, err
+	}
+	return exec.Command(bin, "--json", "projects").Output()
 }
 
 // issueCLI is the real issue-cli, used to read and update the real issue.

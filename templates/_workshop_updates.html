@@ -142,6 +142,33 @@ updates/reopen.
 </section>
 {{end}}{{end}}
 
+{{define "wb/dept-updates"}}{{if .}}
+<section class="upd-section" aria-label="Departments with new template text" data-testid="upd.dept_updates">
+    <div class="upd-section-head">
+        <h2 class="upd-h2">Departments with new template text</h2>
+        <span class="upd-section-note">the update replaces only text you never edited; your own is kept</span>
+    </div>
+    <div class="upd-cards">{{range .}}
+    <article class="upd-card" aria-label="{{.Name}}" data-testid="upd.dept_update.{{tid .Key}}">
+        <div class="upd-card-head">
+            <div class="upd-badge" aria-hidden="true"{{with .Color}} style="background: {{.}}"{{end}}>{{slice .Name 0 1}}</div>
+            <div class="upd-card-titles">
+                <h3 class="upd-card-title">{{.Name}}</h3>
+                <div class="upd-card-meta"><span class="upd-mono-sm">template: {{.Template}}</span></div>
+            </div>
+        </div>
+        <p class="upd-card-text" data-testid="upd.dept_update.{{tid .Key}}.replace">Replaces: {{range $i, $f := .Replace}}{{if $i}}, {{end}}<span class="upd-mono-sm">{{$f}}</span>{{end}}</p>
+        {{if .Keep}}<p class="upd-card-text" data-testid="upd.dept_update.{{tid .Key}}.keep">Keeps (changed since the template): {{range $i, $f := .Keep}}{{if $i}}, {{end}}<span class="upd-mono-sm">{{$f}}</span>{{end}}</p>{{end}}
+        <div class="wb-grow"></div>
+        <span class="upd-label">See it first</span>
+        <code class="upd-key">{{.Preview}}</code>
+        <span class="upd-label">From the terminal</span>
+        <code class="upd-key" data-testid="upd.dept_update.{{tid .Key}}.command">{{.Command}}</code>
+    </article>{{end}}
+    </div>
+</section>
+{{end}}{{end}}
+
 {{define "wb/declined"}}{{if .}}
 <section class="upd-declined" id="upd-declined" aria-label="Declined" data-testid="upd.declined">
     <h2 class="upd-more-title">Declined · {{len .}} <span class="wb-muted">never proposed again until re-opened</span></h2>

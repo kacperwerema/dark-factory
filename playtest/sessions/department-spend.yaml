@@ -13,7 +13,7 @@ steps:
     title: Marketing's room shows this week's tokens and its token budget; open, it lists the weeks and its top issues
     proves: [AC1, AC3]
     setup:
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     act:
       - click: company.room.spend.box.marketing
     checks:
@@ -29,7 +29,7 @@ steps:
     title: GTM and HQ roll up; Sales spent nothing and its unreadable budget is marked
     proves: [AC2, AC3]
     setup:
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     checks:
       - text_contains: { target: company.room.spend.box.gtm, text: "1.5M tokens · cost unknown this week" }
       - text_contains: { target: company.room.spend.box.gtm, text: "incl. 2 departments" }
@@ -43,7 +43,7 @@ steps:
     title: issue-cli spend prints the boxes, the unattributed session and where prices go
     proves: [AC1, AC2]
     setup:
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     checks:
       - cli: { args: [--project, "{project}", spend], contains: "== Marketing (in group gtm) ==" }
       - cli: { args: [--project, "{project}", spend, marketing], contains: "Budget: 1.5M of 2M tokens this week" }

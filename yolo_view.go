@@ -26,9 +26,10 @@ type YOLOBand struct {
 	End    string // "08:00", "until turned off"
 	Passed int
 	Valves string // "CI guards · no releases"
-	// Queue is the passes waiting for the owner's review: shown after YOLO
-	// ends too, until it is empty.
-	Queue []yolo.Pass
+	// Queue is the issues waiting for the owner's review after the fact,
+	// one entry per issue (its gates and owner checks): every count is its
+	// length. Shown after YOLO ends too, until it is empty.
+	Queue []yolo.Entry
 	// EndReason is why the last window closed.
 	EndReason string
 	Ended     time.Time
@@ -56,7 +57,7 @@ func yoloBand(proj *tracker.Project, issues []*tracker.Issue, now time.Time) *YO
 		log.Printf("yolo: %s: %v", proj.Slug, err)
 		return nil
 	}
-	b := &YOLOBand{On: on, Queue: yolo.Queue(issues), EndReason: st.EndReason, Ended: st.Ended}
+	b := &YOLOBand{On: on, Queue: yolo.QueueEntries(issues), EndReason: st.EndReason, Ended: st.Ended}
 	if !on {
 		return b
 	}
@@ -142,7 +143,7 @@ func (s *Server) handleYOLO(w http.ResponseWriter, r *http.Request, proj *tracke
 			return
 		}
 		if b.Queue == nil {
-			b.Queue = []yolo.Pass{}
+			b.Queue = []yolo.Entry{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(b)
@@ -226,55 +227,65 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 		writeYOLOError(w, http.StatusBadRequest, "bad request")
 		return
 	}
-	words := strings.TrimSpace(req.Words)
+	if code, msg := reviewYOLOPass(proj, issue, req.Status, req.Verdict, req.Words); code != 0 {
+		writeYOLOError(w, code, msg)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// reviewYOLOPass records the owner's verdict on one unreviewed pass of the
+// issue: key names it (the approved status or an owner check's box; ""
+// takes the first waiting). Agree adds the owner's yolo-review: comment;
+// back moves the issue back to the status it left at the gate, then adds
+// it. It returns 0 on success, else an HTTP status and why (-1: the move
+// back failed, msg is the transition error). The station's review and the
+// review page's Agree all both go through it.
+func reviewYOLOPass(proj *tracker.Project, issue *tracker.Issue, key, verdict, words string) (int, string) {
+	words = strings.TrimSpace(words)
 	comments, _ := tracker.LoadComments(issue.FilePath)
 	var pass *yolo.Pass
 	for _, p := range yolo.Unreviewed(issue, comments) {
-		if req.Status == "" || strings.EqualFold(p.Key(), req.Status) {
+		if key == "" || strings.EqualFold(p.Key(), key) {
 			pass = &p
 			break
 		}
 	}
 	if pass == nil {
-		writeYOLOError(w, http.StatusConflict, "no YOLO pass waits for review on this issue")
-		return
+		if key != "" {
+			return http.StatusConflict, key + " no longer waits for review on this issue"
+		}
+		return http.StatusConflict, "no YOLO pass waits for review on this issue"
 	}
 	date := time.Now().Format("2006-01-02")
-	switch req.Verdict {
+	switch verdict {
 	case "agree":
 		if words == "" {
 			words = "agreed"
 		}
 		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment("agreed", words, "viewer", date, pass.Key()), "app", tracker.OwnerAuthor); err != nil {
-			writeYOLOError(w, http.StatusInternalServerError, err.Error())
-			return
+			return http.StatusInternalServerError, err.Error()
 		}
 	case "back":
 		if words == "" {
-			writeYOLOError(w, http.StatusBadRequest, "say why it goes back: your words reach the agent")
-			return
+			return http.StatusBadRequest, "say why it goes back: your words reach the agent"
 		}
 		wf := proj.LoadWorkflowForIssue(issue)
 		back := yolo.BackTo(wf, *pass)
 		if back == "" {
-			writeYOLOError(w, http.StatusConflict, "no status to go back to")
-			return
+			return http.StatusConflict, "no status to go back to"
 		}
 		if !strings.EqualFold(issue.Status, back) {
 			if _, err := wf.MoveBack(issue.FilePath, back); err != nil {
-				writeTransitionError(w, err)
-				return
+				return http.StatusConflict, err.Error()
 			}
 		}
-		verdict := "back to " + back
-		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment(verdict, words, "viewer", date, pass.Key()), "app", tracker.OwnerAuthor); err != nil {
-			writeYOLOError(w, http.StatusInternalServerError, err.Error())
-			return
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment("back to "+back, words, "viewer", date, pass.Key()), "app", tracker.OwnerAuthor); err != nil {
+			return http.StatusInternalServerError, err.Error()
 		}
 	default:
-		writeYOLOError(w, http.StatusBadRequest, "verdict is agree or back")
-		return
+		return http.StatusBadRequest, "verdict is agree or back"
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	return 0, ""
 }

@@ -128,7 +128,8 @@ Do not wait, poll or re-run commands to check for the approval: the human messag
    Continue when the human messages you that it is approved.`,
 			"ask_rule": `4. If you are unsure about something or need clarification, ask the user in chat (or post a question: comment) before proceeding.
    When the human decides something, record it in their words:
-   issue-cli decide <slug> --text "<what was decided>" --quote "<their words>"`,
+   issue-cli decide <slug> --text "<what was decided>" --quote "<their words>"
+   Questions for the owner go only in the design's clarify round: all at once under ## Clarify, options and cost, the recommendation first (issue-cli clarify <slug>). Outside it, a question: comment is for a blocker only.`,
 			"gate_stop": `   If the transition needs human approval, tell the human what to approve, then stop and end your turn.`,
 		}
 	}
@@ -139,7 +140,8 @@ Do not wait, poll or re-run commands to check for an approval.`,
 		"start_wait": `   It claims the issue and shows your checklist and next steps; under YOLO it passes a missing approval itself.`,
 		"ask_rule": `4. If you are unsure about something, decide it yourself and record it as provisional:
    issue-cli decide <slug> --provisional --text "<what you decided>"
-   Put what you can't decide in a question: comment and go on; the owner confirms provisional decisions later.`,
+   Put what you can't decide in a question: comment and go on; the owner confirms provisional decisions later.
+   Questions for the owner go only in the design's clarify round: all at once under ## Clarify, options and cost, the recommendation first (issue-cli clarify <slug>). Outside it, a question: comment is for a blocker only.`,
 		"gate_stop": `   If the transition needs human approval, YOLO passes it and marks it for review after the fact: don't stop.`,
 	}
 }

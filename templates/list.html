@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='2' width='14' height='2' rx='1' fill='%238b949e'/><rect x='1' y='6' width='14' height='2' rx='1' fill='%238b949e'/><rect x='1' y='10' width='14' height='2' rx='1' fill='%238b949e'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -21,28 +22,28 @@
             <input type="hidden" name="classic" value="1">
             <input type="search" name="search" data-testid="list.search" placeholder="Search issues..." value="{{.Filter.Search}}">
 
-            <select name="status" data-testid="list.filter.status" onchange="this.form.submit()">
+            <select name="status" data-testid="list.filter.status" data-autosubmit>
                 <option value="">All statuses</option>
                 {{range .Statuses}}
                 <option value="{{.}}" {{if eq . $.Filter.Status}}selected{{end}}>{{.}}</option>
                 {{end}}
             </select>
 
-            <select name="system" data-testid="list.filter.system" onchange="this.form.submit()">
+            <select name="system" data-testid="list.filter.system" data-autosubmit>
                 <option value="">All systems</option>
                 {{range .Systems}}
                 <option value="{{.}}" {{if eq . $.Filter.System}}selected{{end}}>{{.}}</option>
                 {{end}}
             </select>
 
-            <select name="priority" data-testid="list.filter.priority" onchange="this.form.submit()">
+            <select name="priority" data-testid="list.filter.priority" data-autosubmit>
                 <option value="">All priorities</option>
                 {{range .Priorities}}
                 <option value="{{.}}" {{if eq . $.Filter.Priority}}selected{{end}}>{{.}}</option>
                 {{end}}
             </select>
 
-            <select name="assignee" data-testid="list.filter.assignee" onchange="this.form.submit()">
+            <select name="assignee" data-testid="list.filter.assignee" data-autosubmit>
                 <option value="">All assignees</option>
                 <option value="_claimed" {{if eq .Filter.Assignee "_claimed"}}selected{{end}}>Claimed</option>
                 <option value="_unclaimed" {{if eq .Filter.Assignee "_unclaimed"}}selected{{end}}>Unclaimed</option>
@@ -52,7 +53,7 @@
             </select>
 
             {{if .WorkTypes}}
-            <select name="type" data-testid="list.filter.type" onchange="this.form.submit()">
+            <select name="type" data-testid="list.filter.type" data-autosubmit>
                 <option value="">All types</option>
                 {{range .WorkTypes}}
                 <option value="{{.Name}}" title="{{.Path}}" {{if eq .Name $.Filter.Type}}selected{{end}}>{{.Name}}</option>
@@ -60,7 +61,7 @@
             </select>
             {{end}}
 
-            <select name="label" data-testid="list.filter.label" onchange="this.form.submit()">
+            <select name="label" data-testid="list.filter.label" data-autosubmit>
                 <option value="">All labels</option>
                 {{range .Labels}}
                 <option value="{{.}}" {{if eq . $.Filter.Label}}selected{{end}}>{{.}}</option>

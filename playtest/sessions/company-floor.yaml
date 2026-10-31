@@ -1,0 +1,73 @@
+session: company-floor
+issue: factory/company-floor-v2-the-whole-company-on-one-screen-a-fixed-map-with-an-inspector-panel
+title: The whole company on one screen, a fixed map with an inspector rail
+scenario: company-floor
+
+session_checks:
+  viewports: [1440x900, 1280x800, 1024x700]
+  layout: [no_page_scroll, inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The floor fits the view with no page scroll; HQ, Product, the GTM wing and the rail all show
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - visible: [floor.tile.hq, floor.tile.product, floor.tile.group, floor.rail, floor.waiting]
+      - text_contains: { target: floor.tile.group, text: "Marketing" }
+    targets: [floor.plan, floor.rail]
+
+  - id: TP5
+    title: Clicking Marketing's name opens its inspector under Waiting on you; After YOLO is a tab; the message box is below
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - click: floor.head.marketing
+    checks:
+      - visible: [floor.inspector.marketing, floor.tab.yolo, company.message]
+      - hidden: floor.inspector.product
+      # One inspector at a time.
+      - count: { pattern: floor.inspector.*, equals: 1 }
+      - text_contains: { target: floor.tab.room, text: "Marketing" }
+      - below: [floor.waiting, floor.inspector.marketing]
+      - below: [floor.tab.room, company.message]
+    targets: [floor.head.marketing, floor.inspector.marketing]
+
+  - id: TP8
+    title: With YOLO on, the strip is 34px with since, passed, never passes, Extend and Turn off
+    proves: [AC5]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "4h", words: "go" }, status: 200 }
+      - open: /p/{project}/company
+    checks:
+      - visible: [floor.yolo, floor.yolo.since, floor.yolo.passed, floor.yolo.never, floor.yolo.extend, floor.yolo.off, floor.tab.yolo]
+      - size: { target: floor.yolo, min_height: 33, max_height: 35 }
+      # "since 17:01 · until 21:01" is a clock time, different every run:
+      # its words are asserted in TestYOLOWorkshopSwitchDialogAndBand.
+      - count: { pattern: floor.yolo.since, equals: 1 }
+      - text_contains: { target: floor.yolo.passed, text: "passed" }
+      - text_contains: { target: floor.yolo.never, text: "never passes:" }
+    targets: [floor.yolo]
+
+  - id: TP9
+    title: "A link to #dept-marketing (Needs you, Check now) opens Marketing's inspector"
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/company#dept-marketing
+    checks:
+      - visible: floor.inspector.marketing
+      - hidden: floor.inspector.product
+      - text_contains: { target: floor.tab.room, text: "Marketing" }
+
+  - id: TP10
+    title: The floor next to the owner's mockup
+    proves: [AC9]
+    judgement_step: true
+    setup:
+      - open: /p/{project}/company
+    do: Open the company page at 1440x900 beside the mockup you shared for this issue. Click a room's name, then HQ's CEO robot.
+    expect: The layout, the tiles, the rail, and the YOLO strip match the mockup closely enough for you to call it the same page.
+    why: ux-test checks sizes, texts and what moves; only you can say it matches the mockup.

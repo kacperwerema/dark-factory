@@ -84,6 +84,9 @@ type ActiveRow struct {
 	Agent string
 	Gate  string
 	Age   Age
+	// CLI is the agent CLI the worker runs (claude, codex); Limit the
+	// usage-limit message its pane shows now.
+	CLI, Limit string
 }
 
 // AgentChip is a live agent on an issue not yet in flight (still in design).
@@ -169,6 +172,9 @@ type StatusModel struct {
 	// ReleaseWait is the Waiting for release card; nil when it has nothing
 	// to show.
 	ReleaseWait *ReleaseWait
+	// Behind is the installed build behind main; set only on the engine
+	// project (build_behind.go).
+	Behind *BehindRow
 
 	// Milestone is the Current milestone card; nil without a version to
 	// cut (then the card shows All issues).
@@ -184,8 +190,12 @@ type StatusModel struct {
 	Shelf []WbShelfWait
 	// AutoStart is the Auto-start card; nil when it is off.
 	AutoStart *AutoStartView
+	// Queue is the lead's queue card; nil when the project has none.
+	Queue *QueueView
 	// Jobs is the recurring jobs' one line (jobsStatusLine); "" without jobs.
 	Jobs string
+	// Agents is the agent CLIs' subscriptions line (agentsStatusLine).
+	Agents string
 	// HQReport is the HQ report's text (/hq/report.md); "" without
 	// departments.
 	HQReport string
@@ -331,6 +341,7 @@ func buildStatus(proj *tracker.Project, issues []*tracker.Issue, agents *AgentsM
 			row := ActiveRow{Issue: issue, Age: ageOf(a.Since, a.SinceApprox, now)}
 			if n, ok := live[issue.Slug]; ok {
 				row.Agent, row.Gate = agentLabel(n.State), n.Gate
+				row.CLI, row.Limit = n.Agent, n.Limit
 			} else if _, ok := stopped[issue.Slug]; ok {
 				row.Agent = "stopped"
 			}
@@ -619,10 +630,20 @@ func statusMarkdown(m *StatusModel) string {
 		if a.Paused {
 			state = "paused"
 		}
-		fmt.Fprintf(&b, "Auto-start: %s below %d%% memory, cap %d (owner: %q) · now: %s\n", state, a.Below, a.Cap, a.Words, a.Verdict)
+		load := ""
+		if a.Load != "" {
+			load = " · " + a.Load
+		}
+		fmt.Fprintf(&b, "Auto-start: %s below %d%% memory, cap %d (owner: %q)%s · now: %s\n", state, a.Below, a.Cap, a.Words, load, a.Verdict)
+	}
+	if line := queueStatusLine(m.Queue); line != "" {
+		b.WriteString(line + "\n")
 	}
 	if m.Jobs != "" {
 		b.WriteString(m.Jobs + "\n")
+	}
+	if m.Agents != "" {
+		b.WriteString(m.Agents + "\n")
 	}
 	if m.HQReport != "" {
 		fmt.Fprintf(&b, "Departments: the HQ report, one line each, at %s (issue-cli status --hq)\n", m.HQReport)
@@ -673,6 +694,12 @@ func statusMarkdown(m *StatusModel) string {
 			if r.Gate != "" {
 				agent += " → " + r.Gate
 			}
+			if r.CLI != "" {
+				agent += ", " + r.CLI
+			}
+			if r.Limit != "" {
+				agent += "; usage limit: " + r.Limit
+			}
 		}
 		approx := ""
 		if r.Age.Approx {
@@ -718,6 +745,7 @@ func statusMarkdown(m *StatusModel) string {
 	}
 	ciMarkdown(&b, m.CI)
 	healthMarkdown(&b, m.Health)
+	behindMarkdown(&b, m.Behind)
 	if m.ReleaseWait != nil {
 		releaseWaitMarkdown(&b, m.ReleaseWait, m.AsOf)
 	}

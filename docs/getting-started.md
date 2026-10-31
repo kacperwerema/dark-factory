@@ -37,7 +37,7 @@ cd ~/src/shop && git init && git add -A && git commit -m "Start the shop"
 issue-viewer -config ~/.config/ai-workflow-engine/projects.yaml
 ```
 
-Open <http://localhost:8080> and click the Shop lot. Leave the viewer running. While it runs, `issue-cli --project shop …` works from any folder.
+Open <http://localhost:8080> and click the Shop lot. Leave the viewer running. While it runs, `issue-cli --project shop …` works from any folder. To approve anything on the board, sign in as the owner: click **YOU** (or open `/owner`), press **Show me a code** and type the code the viewer shows (in a dialog on a Mac, otherwise in the viewer's terminal).
 
 **4. Write a first issue.**
 
@@ -249,6 +249,7 @@ This mode can't set dispatch options such as `terminal`, so use a `projects.yaml
 | `-host`    | `127.0.0.1` | Interface to listen on                    |
 | `-port`    | `8080`      | HTTP port                                 |
 | `-record-viewer` | see above | Write `viewer.json` even for a sandbox viewer (`=false`: never write it) |
+| `-owner-code` | `auto` | Where the owner sign-in code shows: `dialog` (macOS), `terminal` (the viewer's stderr), `auto` (the dialog, else the terminal) |
 | `-version` | `false`     | Print the version and exit                |
 
 The server listens on loopback only. Its POST endpoints start agents, tmux sessions and editors on your machine, so binding to another interface (`-host 0.0.0.0`) lets anyone who can reach the port drive them; it is an explicit opt-in and the server prints a warning at startup. Writes from another site in your browser are refused either way (see [API: Design Considerations](API/overview.md#design-considerations)).
@@ -261,6 +262,8 @@ allowed_hosts:
 ```
 
 A name other than loopback, or any request that came through a proxy or tunnel, is **public**. The viewer answers it only when `identity:` is configured in `projects.yaml` and the request carries a Cloudflare Access token for one of the owners. Without `identity:`, the viewer refuses every public request with 403, LAN and VPN names included. Before you point a tunnel at the viewer, work through the go-public checklist in [API: Security](API/security.md).
+
+Owner decisions (approving a gate, YOLO, reviews, workflow edits) need your browser signed in as the owner, even on loopback. Click the **YOU** circle (or open `/owner`), press **Show me a code**, and type the code the viewer shows in a dialog on your Mac (or on its terminal). The browser stays signed in until the viewer restarts. Agents and issue-cli can't sign in; they ask on the issue trail. See [Owner sign-in](API/security.md#owner-sign-in).
 
 ### Stopping the server
 

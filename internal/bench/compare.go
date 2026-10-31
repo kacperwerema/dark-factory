@@ -41,6 +41,10 @@ type Comparison struct {
 	Warnings      []string `json:"warnings"`
 	// Workflows is each workflow's verdict (CompareByWorkflow).
 	Workflows []WorkflowVerdict `json:"workflows"`
+	// Branch is the ref whose files marked the workflows (MarkChanged),
+	// NotMapped its files no workflow reads; empty without --branch.
+	Branch    string   `json:"branch,omitempty"`
+	NotMapped []string `json:"not_mapped,omitempty"`
 }
 
 // Regressed reports whether B is worse than A: a task that passed in A fails

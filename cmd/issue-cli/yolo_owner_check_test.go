@@ -76,7 +76,7 @@ func TestYOLOOwnerCheckWaitsInsteadOfBlocking(t *testing.T) {
 	if err := runYOLOQueue(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, stdout.String(), `cli/sample  AC2: owner check, not done (playtest judgement step TP9) "The owner likes the colours"  from testing`)
+	assertContains(t, stdout.String(), `      AC2: owner check, not done (playtest judgement step TP9) "The owner likes the colours"  from testing`)
 
 	// The owner agrees without the check: it leaves the queue.
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
@@ -140,8 +140,8 @@ func TestYOLOHumanTestingBoxJoinsTheQueue(t *testing.T) {
 	if err := runYOLOQueue(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, stdout.String(), `testing  HT1: owner check, not done (Human Testing box) "Human verification complete if required"  from human-testing`)
-	assertContains(t, stdout.String(), `testing  TP1: owner check, not done (marked (owner)) "Repro steps re-run and the bug is gone (owner)"  from human-testing`)
+	assertContains(t, stdout.String(), `      HT1: owner check, not done (Human Testing box) "Human verification complete if required"  from human-testing`)
+	assertContains(t, stdout.String(), `      TP1: owner check, not done (marked (owner)) "Repro steps re-run and the bug is gone (owner)"  from human-testing`)
 	if strings.Contains(stdout.String(), "TP2") {
 		t.Fatalf("the ticked worker box was queued:\n%s", stdout.String())
 	}

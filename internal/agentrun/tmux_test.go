@@ -39,7 +39,7 @@ func TestAttachCmdNamesPrivateServer(t *testing.T) {
 func TestSwitchCmd(t *testing.T) {
 	t.Setenv("TMUX_TMPDIR", "/tmp/lsbx-tmux-1000")
 	proj := &tracker.Project{Slug: "p"}
-	if got := SwitchCmd(proj, "agent-x"); got != "tmux switch-client -t agent-x" {
+	if got := SwitchCmd(proj, "agent-x"); got != "tmux switch-client -t '=agent-x:'" {
 		t.Errorf("own session: %q", got)
 	}
 	shared := &tracker.Project{Slug: "p", TmuxSession: "work"}
@@ -268,5 +268,28 @@ func TestUnderDirRelativeRoot(t *testing.T) {
 	}
 	if underDir("/elsewhere", "demo") {
 		t.Error("an unrelated path is not under a relative workdir")
+	}
+}
+
+// F-14 (docs/API/security.md): outside shared mode the target used to be the
+// bare name, which tmux matches as a prefix, so agent-foo reached a live
+// agent-foo-bar. Against a real tmux server, a dead agent's target matches
+// nothing and the live one's still works.
+func TestTargetIsExactOnARealServer(t *testing.T) {
+	isolateTmux(t)
+	if err := exec.Command("tmux", "new-session", "-d", "-s", "agent-foo-bar").Run(); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	if HasSession(Target(nil, "agent-foo")) {
+		t.Error("agent-foo's target reached agent-foo-bar")
+	}
+	if !HasSession(Target(nil, "agent-foo-bar")) {
+		t.Error("agent-foo-bar's own target missed it")
+	}
+	if _, err := CaptureHistory(Target(nil, "agent-foo"), 10); err == nil {
+		t.Error("capture-pane on agent-foo's target read agent-foo-bar's pane")
+	}
+	if _, err := CaptureHistory(Target(nil, "agent-foo-bar"), 10); err != nil {
+		t.Errorf("capture-pane on agent-foo-bar: %v", err)
 	}
 }

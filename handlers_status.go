@@ -30,12 +30,19 @@ func (s *Server) loadStatusWith(proj *tracker.Project, prefix string) (*StatusMo
 	m := buildStatus(proj, issues, agents, time.Now())
 	m.Prefix = prefix
 	m.AutoStart = autostartView(proj, issues, prefix, m.AsOf)
+	m.Queue = queueView(proj, issues, prefix, m.AsOf)
 	m.Jobs = jobsStatusLine(viewerJobs(proj, issues, m.AsOf))
+	if agents != nil {
+		m.Agents = agentsStatusLine(agents.Subscriptions)
+	}
 	if len(proj.Departments) > 0 {
 		m.HQReport = hqReportURL(m.Prefix) + ".md"
 	}
 	if rw := m.ReleaseWait; rw != nil && rw.Milestone != nil && rw.Milestone.Candidate != nil && proj.Slug == s.engine {
 		rw.Milestone.addSoak(soakInput{projects: s.projects, issues: issues, cs: newCanvasStatuses(proj.LoadWorkflow()), viewer: Version})
+	}
+	if proj.Slug == s.engine {
+		m.Behind = projectBehind(proj, Version)
 	}
 	return m, issues, agents, nil
 }

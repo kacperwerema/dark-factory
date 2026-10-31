@@ -167,7 +167,7 @@ issue-cli --project shop dispatch ui/add-a-dark-mode-toggle --quote "try the dar
 tmux attach -t agent-ui-add-a-dark-mode-toggle
 ```
 
-The worker reads the workflow with `issue-cli process`, works the issue and stops at the first gate. Approve it on the issue's page or in **Needs you**. Or press **Start CEO** on the company page and let the project lead dispatch workers for you. [Getting started](docs/getting-started.md) walks the same steps one by one, with a department from a template, what each optional tool adds, and what to do when a step fails.
+The worker reads the workflow with `issue-cli process`, works the issue and stops at the first gate. Sign in on the board as the owner (**YOU**, then **Show me a code**) to approve it. Or press **Start CEO** on the company page and let the project lead dispatch workers for you. [Getting started](docs/getting-started.md) walks the same steps one by one, with a department from a template, what each optional tool adds, and what to do when a step fails.
 
 Just looking? Clone the repo and run `make demo` to open Acme Shop, the sample project in these pictures.
 

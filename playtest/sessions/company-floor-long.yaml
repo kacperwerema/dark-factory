@@ -1,0 +1,70 @@
+session: company-floor-long
+issue: factory/company-floor-v2-the-whole-company-on-one-screen-a-fixed-map-with-an-inspector-panel
+title: The company floor with long content, a five-department wing and YOLO on keeps every tile at its plan size
+scenario: company-floor-long
+
+session_checks:
+  viewports: [1440x900, 1280x800]
+  layout: [no_page_scroll, inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP12
+    title: With long content and YOLO on, every kind of tile renders at its plan size, and the page doesn't scroll
+    proves: [AC1, AC2]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "4h", words: "go" }, status: 200 }
+      - open: /p/{project}/company
+    act:
+      - wait_for: floor.yolo
+    checks:
+      # Computed sizes are the laid-out box before the view's scale: a
+      # min-height or a growing child would show here. Plan sizes from
+      # floorPlan (company_floor.go) for this scenario.
+      - css: { target: floor.tile.hq, property: height, equals: "250px" }
+      - css: { target: floor.tile.hq, property: width, equals: "250px" }
+      - css: { target: floor.tile.product, property: height, equals: "250px" }
+      - css: { target: floor.tile.product, property: width, equals: "760px" }
+      - css: { target: floor.tile.group, property: height, equals: "440px" }
+      - css: { target: floor.tile.group, property: width, equals: "842px" }
+      - css: { target: floor.sub, property: height, equals: "180px" }
+      - css: { target: floor.sub, property: width, equals: "202px" }
+      # The first department tile is Research, the one with the most in it.
+      - text_contains: { target: floor.tile.dept, text: "Research" }
+      - css: { target: floor.tile.dept, property: height, equals: "330px" }
+      - css: { target: floor.tile.dept, property: width, equals: "240px" }
+      - count: { pattern: floor.sub, within: floor.tile.group, equals: 5 }
+    targets: [floor.plan, floor.yolo]
+
+  - id: TP13
+    title: The tall plan fits whole at Fit; the bottom row's room name is on screen and picks its room
+    proves: [AC1, AC4]
+    setup:
+      - open: /p/{project}/company
+    act:
+      # Read before any click (a click scrolls its target into view): the
+      # bottom row and the plot below it lie inside the view at Fit.
+      - check: { inside: { target: floor.tile.dept, within: floor.view } }
+      - check: { inside: { target: floor.head.data, within: floor.view } }
+      - check: { inside: { target: floor.new_dept, within: floor.view } }
+      - check: { css: { target: floor.view, property: --lod, equals: "far" } }
+      - click: floor.head.data
+    checks:
+      - text_contains: { target: floor.tab.room, text: "Data" }
+      - visible: floor.inspector.data
+    targets: [floor.head.data]
+
+  - id: TP14
+    title: Research's inspector holds what its tile drops - six goals, five jobs, the long outputs
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - click: floor.head.research
+    checks:
+      - visible: floor.inspector.research
+      - text_contains: { target: floor.inspector.research, text: "GOALS · 6" }
+      - text_contains: { target: floor.inspector.research, text: "Insights adopted by Product" }
+      - text_contains: { target: floor.inspector.research, text: "Segment review" }
+      - text_contains: { target: floor.inspector.research, text: "Monthly research digest for the whole company" }
+    targets: [floor.inspector.research]

@@ -293,3 +293,24 @@ func TestNewcomerWalkthrough(t *testing.T) {
 		}
 	}
 }
+
+// TestNewcomerWalkthroughNamedWhereItBlocks keeps the settled rule and the
+// worker briefing pointing at this file's test: renaming it breaks both.
+func TestNewcomerWalkthroughNamedWhereItBlocks(t *testing.T) {
+	for _, f := range []string{"docs/departments.md", "internal/tracker/dispatch_prompt.go"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), "TestNewcomerWalkthrough") || !strings.Contains(string(b), "newcomer_test.go") {
+			t.Errorf("%s no longer names TestNewcomerWalkthrough in newcomer_test.go", f)
+		}
+	}
+	src, err := os.ReadFile("newcomer_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "func TestNewcomerWalkthrough(t *testing.T)") {
+		t.Error("TestNewcomerWalkthrough is gone: update docs/departments.md's Settled rules and the briefing")
+	}
+}

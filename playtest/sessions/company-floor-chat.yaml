@@ -1,0 +1,74 @@
+session: company-floor-chat
+issue: factory/company-floor-one-click-on-hq-or-the-ceo-opens-the-chat-no-moving-around-while-everything-fits-on-screen
+title: The company floor, one click from HQ or a room to its chat, always fit with nothing to move
+scenario: company-floor
+
+session_checks:
+  viewports: [1440x900, 1280x800]
+  layout: [no_page_scroll, inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: One click on HQ's CEO robot lands on the CEO chat
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - check: { text_contains: { target: floor.hq.chat, text: "Chat with the CEO" } }
+      - click: floor.hq.chat
+      - wait_for: { visible: lead_chat.page }
+    checks:
+      - url: { matches: "^/p/[^/]+/lead$" }
+    targets: [floor.tile.hq]
+
+  - id: TP4
+    title: One click on Marketing's chat link inside the GTM wing lands on Marketing's lead chat
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - check: { text_contains: { target: floor.group.chat, text: "Chat with the" } }
+      - click: floor.sub.chat
+      - wait_for: { visible: lead_chat.page }
+    checks:
+      - url: { matches: "^/p/[^/]+/lead[?]dept=marketing$" }
+    targets: [floor.tile.group]
+
+  - id: TP5
+    title: The floor is fit with every tile in the view, no pan, zoom or minimap, and no page scroll
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - visible: [floor.tile.hq, floor.tile.product, floor.tile.group, floor.new_dept, floor.rail, floor.hq.chat, floor.group.chat, floor.sub.chat]
+      - inside: { target: floor.tile.group, within: floor.view }
+      - inside: { target: floor.new_dept, within: floor.view }
+      # Nothing to scroll or drag inside the view.
+      - css: { target: floor.view, property: overflow, equals: "hidden" }
+      - css: { target: floor.view, property: cursor, equals: "auto" }
+    targets: [floor.view]
+
+  - id: TP6
+    title: HQ's inspector starts with Chat with the CEO, one click to the chat
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - click: floor.head.hq
+      - wait_for: { visible: floor.inspector.hq }
+      - check: { text_contains: { target: floor.inspector.hq, text: "Chat with the CEO" } }
+      - click: floor.chat
+      - wait_for: { visible: lead_chat.page }
+    checks:
+      - url: { matches: "^/p/[^/]+/lead$" }
+    targets: [floor.inspector.hq]
+
+  - id: AC4
+    title: The owner clicks HQ and lands in the chat
+    judgement_step: true
+    setup:
+      - open: /p/{project}/company
+    do: On the company floor, click the CEO's robot on the HQ tile (Chat with the CEO →). Then go back and click Marketing's Chat link inside the GTM wing.
+    expect: Each is one click and lands on that chat; nothing on the floor moves, zooms or scrolls.
+    why: ux-test proves where the links go; only you can say the way into the chat is now easy.

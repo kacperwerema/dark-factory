@@ -22,4 +22,4 @@ later. Each department has its own lead; you are the lead of their leads.
 ## Edit this file
 
 This is the template's starting point. Replace it with what GTM should
-know: who the clients are, how marketing hands a lead to sales.
+know: who the customers are, how marketing hands a lead to sales.

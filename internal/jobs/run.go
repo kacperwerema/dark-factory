@@ -106,13 +106,9 @@ func (e *ExistsError) Error() string {
 // Brief is the job's brief file with {{period}}, {{date}}, {{last_run}} and
 // {{department}} (the department's key) filled in.
 func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error) {
-	path := strings.TrimSpace(r.Job.Brief)
-	if path == "" {
-		return "", fmt.Errorf("job %s has no brief: file", r.Key)
-	}
-	data, err := os.ReadFile(filepath.Join(p.Root(), filepath.FromSlash(path)))
+	data, err := BriefText(p, r.Job)
 	if err != nil {
-		return "", fmt.Errorf("job %s: brief %s: %w", r.Key, path, err)
+		return "", fmt.Errorf("job %s: %w", r.Key, err)
 	}
 	last := n.Previous
 	if last == "" {
@@ -123,7 +119,7 @@ func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error)
 		"{{date}}", now.Format("2006-01-02"),
 		"{{last_run}}", last,
 		"{{department}}", tracker.DepartmentKey(r.Department),
-	).Replace(strings.TrimSpace(string(data))), nil
+	).Replace(strings.TrimSpace(data)), nil
 }
 
 // WriteRun writes n's issue file: type, department, job, run, the job's priority,

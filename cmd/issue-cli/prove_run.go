@@ -32,7 +32,8 @@ var goTestRunner = func(dir string, args []string) (stdout, stderr []byte, err e
 func runProveTests(ctx *Context, issue *tracker.Issue) (*proof.TestRun, error) {
 	root := projectRoot(ctx.Project)
 	comments, _ := tracker.LoadComments(issue.FilePath)
-	names := proof.TestNames(proof.Collect(root, issue, comments))
+	report := proof.Collect(root, issue, comments)
+	names := proof.TestNames(report)
 	manual := fmt.Sprintf("issue-cli comment %s --text \"tests: ...\"", issue.Slug)
 	if len(names) == 0 {
 		return nil, fmt.Errorf("%s has no test links to run: add a `Proves: AC1 <TestName>` trailer on the commit that adds the test (or issue-cli prove %s AC1 --test <TestName>), then run prove --run again", issue.Slug, issue.Slug)
@@ -51,7 +52,7 @@ func runProveTests(ctx *Context, issue *tracker.Issue) (*proof.TestRun, error) {
 	if len(dirty) > 0 {
 		return nil, fmt.Errorf("uncommitted code in the worktree (%s): commit it first, then run prove --run (a code commit after the tests: comment makes it stale)", strings.Join(dirty, ", "))
 	}
-	run := proof.PlanGoRun(worktree, names)
+	run := proof.PlanReportRun(worktree, report)
 	run.Head = proof.ShortHead(worktree)
 	if len(run.Packages) == 0 {
 		return &run, nil
@@ -121,6 +122,8 @@ func writeTestRun(w io.Writer, slug string, run *proof.TestRun) {
 		switch res.Outcome {
 		case proof.RunPass:
 			fmt.Fprintf(w, "✓ %s (%s)\n", res.Name, res.Package)
+		case proof.RunSuperseded:
+			fmt.Fprintf(w, "– %s — superseded by %s: not in the worktree, only an older trailer names it; skipped\n", res.Name, res.SupersededBy)
 		case proof.RunNotFound:
 			fmt.Fprintf(w, "✗ %s — not found: no tracked _test.go in the worktree declares it as a Go test (Test…, Example… or Fuzz…)\n", res.Name)
 		default:
@@ -136,7 +139,7 @@ func writeTestRun(w io.Writer, slug string, run *proof.TestRun) {
 	}
 	failed := 0
 	for _, res := range run.Results {
-		if res.Outcome != proof.RunPass {
+		if res.Outcome != proof.RunPass && res.Outcome != proof.RunSuperseded {
 			failed++
 		}
 	}

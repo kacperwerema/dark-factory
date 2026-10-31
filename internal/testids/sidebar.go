@@ -16,6 +16,7 @@ func init() {
 		"nav.yolo.extend",
 		"nav.yolo.off", "nav.yolo.never",
 		"nav.yolo.queue",
+		"nav.yolo.review_all",
 		"nav.yolo.row.*",
 		"nav.panel",
 		"nav.panel.system.*",

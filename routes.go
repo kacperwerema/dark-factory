@@ -38,6 +38,9 @@ type Server struct {
 	// telemetryData is projects.yaml's telemetry_data: the collector store
 	// the /telemetry page reads; "" when not configured.
 	telemetryData string
+	// owner holds the owner's sign-in sessions (owner.go): the credential
+	// every O route of docs/API/security.md needs on loopback.
+	owner *ownerAuth
 }
 
 // AgentSession is one live tmux session (or shared-session window).
@@ -67,6 +70,7 @@ func NewServer(projects []tracker.Project) (*Server, error) {
 		bg:       newBackground(context.Background()),
 		stats:    newStatsCache(),
 		engine:   engineSlug(&tracker.ProjectsConfig{Projects: projects}),
+		owner:    newOwnerAuth(),
 	}
 	tmpl.Funcs(template.FuncMap{"sidebar": s.sidebarNav})
 	return s, nil
@@ -92,6 +96,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/ceos", redirectTo("/leads"))
 	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
+	mux.HandleFunc("/owner", s.handleOwner)
+	mux.HandleFunc("/owner/", s.handleOwner)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	// Outside in: headers on every answer, Host allowlist (DNS rebinding),
 	// the identity gate for public requests, cross-origin writes refused
@@ -130,6 +136,13 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 
 	prefix := "/p/" + projectSlug
 
+	// Owner decisions need the owner's credential, not a header any local
+	// client can send (owner.go, docs/API/security.md).
+	if ownerOnlyRoute(r.Method, rest) && !s.fromOwner(r) {
+		refuseNonOwner(w, r, rest)
+		return
+	}
+
 	switch {
 	case rest == "" || rest == "/":
 		if r.URL.Query().Get("classic") == "1" {
@@ -150,7 +163,7 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		kind, key, _ := strings.Cut(strings.TrimPrefix(rest, "hall/"), "/")
 		s.handleHallPart(w, r, proj, prefix, kind, key)
 	case rest == "company" && r.Method == http.MethodGet:
-		s.handleCompany(w, r, proj, prefix)
+		s.handleCompanyFloor(w, r, proj, prefix)
 	case rest == "hq/report" && r.Method == http.MethodGet:
 		s.handleHQReport(w, r, proj, prefix)
 	case rest == "hq/report.md" && r.Method == http.MethodGet:
@@ -161,6 +174,16 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleNeedsYouJSON(w, r, proj, prefix)
 	case rest == "needs-you/approve" && r.Method == http.MethodPost:
 		s.handleNeedsYouApprove(w, r, proj, prefix)
+	case rest == "memory" && r.Method == http.MethodGet:
+		s.handleMemory(w, r, proj, prefix)
+	case rest == "memory.json" && r.Method == http.MethodGet:
+		s.handleMemoryJSON(w, r, proj)
+	case (rest == "memory/edit" || rest == "memory/delete" || rest == "memory/pin" || rest == "memory/unpin") && r.Method == http.MethodPost:
+		s.handleMemoryWrite(w, r, proj, prefix, strings.TrimPrefix(rest, "memory/"))
+	case strings.HasPrefix(rest, "postmortem/") && strings.HasSuffix(rest, "/decide") && r.Method == http.MethodPost:
+		s.handlePostmortemDecide(w, r, proj, prefix, strings.TrimSuffix(strings.TrimPrefix(rest, "postmortem/"), "/decide"))
+	case strings.HasPrefix(rest, "postmortem/") && r.Method == http.MethodGet:
+		s.handlePostmortem(w, r, proj, prefix, strings.TrimPrefix(rest, "postmortem/"))
 	case rest == "owner-checks" && r.Method == http.MethodGet:
 		s.handleOwnerChecks(w, r, proj, prefix)
 	case rest == "owner-checks/tick" && r.Method == http.MethodPost:
@@ -253,6 +276,10 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleLeadChatSend(w, r, proj, prefix)
 	case rest == "lead/image" && r.Method == http.MethodPost:
 		s.handleCEOImage(w, r, proj, prefix)
+	case rest == "lead/file" && r.Method == http.MethodPost:
+		s.handleCEOFile(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "lead/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		s.handleCEOFileGet(w, r, proj, rest)
 	case rest == "lead/key" && r.Method == http.MethodPost:
 		s.handleLeadChatKey(w, r, proj, prefix)
 	case rest == "lead/answer" && r.Method == http.MethodPost:
@@ -347,6 +374,10 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handlePlaytest(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
+	case rest == "yolo/review" && r.Method == http.MethodGet:
+		s.handleYOLOReviewPage(w, r, proj, prefix)
+	case rest == "yolo/review" && r.Method == http.MethodPost:
+		s.handleYOLOReviewIssue(w, r, proj)
 	case rest == "yolo.json" && r.Method == http.MethodGet:
 		s.handleYOLO(w, r, proj, "json")
 	case strings.HasPrefix(rest, "yolo/") && r.Method == http.MethodPost:
@@ -357,6 +388,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleAutostart(w, r, proj, strings.TrimPrefix(rest, "autostart/"))
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
 		s.handleYOLOReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/clarify") && r.Method == http.MethodPost:
+		s.handleClarifyAnswer(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/send-back") && r.Method == http.MethodPost:
 		s.handleSendBack(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:

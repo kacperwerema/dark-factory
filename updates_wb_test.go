@@ -307,7 +307,7 @@ func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
 		`data-testid="upd.dept.marketing"`,
 		"workflow: marketing · 2 goals · role prompt",
 		`style="background: #E2559B"`,
-		"SEO and content: refreshed client pages and posts",
+		"SEO and content: refreshed pages and posts on your site(s)",
 		`data-testid="upd.dept.marketing.command">issue-cli --project test-project department add marketing</code>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -349,4 +349,43 @@ func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
 		t.Error("Marketing installed as Growth is still offered")
 	}
 	assertContains(t, body, `data-testid="upd.dept.gtm"`)
+}
+
+// TestUpdatesWbOffersNewDepartmentText: a department installed from an
+// earlier template is offered the new text, naming what is replaced and
+// what the owner edited and is kept; the page itself writes nothing.
+func TestUpdatesWbOffersNewDepartmentText(t *testing.T) {
+	proj := updatesProject(t)
+	root := proj.Root()
+	role := filepath.Join(root, "departments", "marketing", "role.md")
+	if err := os.MkdirAll(filepath.Dir(role), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(role, []byte("# Our own role\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.Departments = []tracker.Department{{Name: "Marketing", Prompt: "departments/marketing/role.md",
+		Role: "SEO and content for the client sites", Mission: "Your site(s) refreshed every week",
+		Goals: []tracker.Goal{{ID: "pages", Name: "Client pages refreshed"}}}}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	_, body := getBody(t, ts.URL+"/p/test-project/updates")
+	assertContains(t, body, `data-testid="upd.dept_updates"`, "Departments with new template text",
+		`data-testid="upd.dept_update.marketing"`,
+		`<span class="upd-mono-sm">role in projects.yaml</span>, <span class="upd-mono-sm">goal pages name in projects.yaml</span>`,
+		`Keeps (changed since the template): <span class="upd-mono-sm">departments/marketing/role.md</span>`,
+		`data-testid="upd.dept_update.marketing.command">issue-cli --project test-project department update marketing</code>`,
+		"issue-cli --project test-project department update marketing --dry-run")
+	if b, _ := os.ReadFile(role); string(b) != "# Our own role\n" {
+		t.Fatalf("the page wrote role.md: %q", b)
+	}
+
+	// Up to date: no section.
+	proj.Departments[0].Role, proj.Departments[0].Goals[0].Name = "SEO and content for your site(s)", "Pages refreshed"
+	ts2 := newTestServer(t, []tracker.Project{proj})
+	defer ts2.Close()
+	_, body = getBody(t, ts2.URL+"/p/test-project/updates")
+	if strings.Contains(body, `data-testid="upd.dept_updates"`) {
+		t.Error("an up-to-date department is offered an update")
+	}
 }

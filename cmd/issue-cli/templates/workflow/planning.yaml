@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: planning@v0.58.0
+template: planning@v0.59.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -10,7 +10,7 @@ template: planning@v0.58.0
 features:
   installed:
     - status-prompts@v0.36.0
-    - week-plan@v0.58.0
+    - week-plan@v0.59.0
     - human-approval-gates@v0.36.0
     - checklist-gates@v0.36.0
     - body-structure-gates@v0.36.0
@@ -47,7 +47,7 @@ statuses:
     description: "Writing what each department does this week"
     prompt: |
       Write `## Week plan` in this issue (`issue-cli append <slug> --body "## Week plan ..."`): a `### <department>` heading per department, what it does this week and why, each line tied to a goal, an output, a job or a handoff from the pack.
-      File each piece of new work as an issue in its department: `issue-cli create --department <dept> --title "..." --body "..."`. It lands at its first status and waits for the owner's start like any other; link it in the plan.
+      File each piece of new work as an issue in its department: `issue-cli create --department <dept> --title "..."`, then `issue-cli append <slug> --body "..."`. It lands at its first status and waits for the owner's start like any other; link it in the plan.
       For a due job, name it with the command the owner or its lead runs (`issue-cli job run <job> --quote "<the owner's words>"`); never run it yourself.
       Never dispatch, approve, run a job, or move any issue but this one. Anything that publishes, sends or spends waits for the owner at its own owner-only gate: say so in the plan.
   - name: "report"

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/routing"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -199,4 +201,52 @@ func TestCrewPanelDisplayAttachAndChecked(t *testing.T) {
 	if p == nil || p.Display != "shared:lead-p" || p.Command != "tmux attach -t shared:lead-p" || p.CommandLabel != "From a shell, once it runs again" {
 		t.Errorf("panel = %+v", p)
 	}
+}
+
+// Each live card names its agent CLI; a worker whose pane shows its CLI's
+// usage limit says so and is left running; the header shows each
+// subscription's state, and status.md has the Agents: line.
+func TestCrewShowsAgentLimitAndSubscriptions(t *testing.T) {
+	proj := setupAgentsProject(t)
+	proj.TmuxSession = "work"
+	stubAgentsGit(t)
+	withMockTmuxSessions(t, []AgentSession{{Name: "work:agent-ui-child"}, {Name: "work:agent-ui-asker"}})
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	origScan, origAgent, origInst := scanPaneLimits, sessionAgent, routing.Installed
+	t.Cleanup(func() { scanPaneLimits, sessionAgent, routing.Installed = origScan, origAgent, origInst })
+	routing.Installed = func(a string) bool { return a == "claude" || a == "codex" }
+	sessionAgent = func(_ *tracker.Project, name string) string {
+		if name == "agent-ui-asker" {
+			return "codex"
+		}
+		return "claude"
+	}
+	now := time.Now()
+	reset := now.Add(2 * time.Hour).Truncate(time.Minute)
+	scanPaneLimits = func(p *tracker.Project, root string, at time.Time) []agentrun.PaneLimit {
+		l := routing.Limit{Agent: "codex", Line: "You’ve hit your usage limit. Try again at 6:30 PM.", Until: reset, KnownReset: true}
+		routing.Mark(agentrun.SubscriptionsDir(), l, p.Slug, "agent-ui-asker", at)
+		return []agentrun.PaneLimit{{Session: "agent-ui-asker", Limit: l}}
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getBody(t, ts.URL+"/p/agents/agents")
+	// As the pages say it: "Sun 00:15" once now+2h is past midnight.
+	until := routing.RestUntilText(routing.Rest{Until: reset, KnownReset: true}, now)
+	assertContains(t, html,
+		`data-testid="crew.card.agent-ui-child.agent">claude</span>`,
+		`data-testid="crew.card.agent-ui-asker.agent">codex</span>`,
+		`data-testid="crew.card.agent-ui-asker.limit">You’ve hit your usage limit. Try again at 6:30 PM. — resets `+until+`</div>`,
+		`data-testid="crew.subs"`,
+		`data-testid="crew.subs.claude"><b>claude</b> <span class="wb-chip wb-chip--green">`,
+		`data-testid="crew.subs.codex"><b>codex</b> <span class="wb-chip wb-chip--sand">`, `resting until `+until+` (limit seen in agent-ui-asker)`,
+	)
+	// The asker waits on the owner's answer: that state wins over the limit.
+	assertContains(t, html, `asked a question`)
+
+	_, md := getBody(t, ts.URL+"/p/agents/status.md")
+	assertContains(t, md, "Agents: claude working · codex resting until "+until+" (limit seen in agent-ui-asker) (issue-cli agents)")
+	_, js := getBody(t, ts.URL+"/p/agents/agents.json")
+	assertContains(t, js, `"agent":"codex"`, `"limit":"You’ve hit your usage limit.`, `"subscriptions":[{"agent":"claude","installed":true,"state":"working"`)
 }

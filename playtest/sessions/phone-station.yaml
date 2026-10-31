@@ -1,0 +1,24 @@
+session: phone-station
+issue: ui/phone-width-pass-needs-you-the-station-the-ceo-chat-the-shelf-reader-and-the-hq-report-work-at-390px
+title: "The Station at phone width: Approve, Send back and the tabs fit and are tappable"
+scenario: issue-tab
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (as in send-back).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP2
+    title: The Station at 390px fits the screen; Approve and Send back are at least 44px tall
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/issue/ui/folded-brief
+    checks:
+      - visible: [station.title, station.stamp, station.stamp.go, station.stamp.back, approve_words.station]
+      - size: { target: station.stamp.go, min_height: 44 }
+      - size: { target: station.stamp.back, min_height: 44 }
+      - size: { target: approve_words.station, min_height: 44 }
+      - size: { target: station.classic, min_height: 44 }

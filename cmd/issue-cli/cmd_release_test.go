@@ -186,3 +186,49 @@ func TestReleasePublishDryRunShowsThePublicCommit(t *testing.T) {
 		t.Errorf("real publish = %v", err)
 	}
 }
+
+// A patch release (v0.54.1) is cut on the existing release/v0.54 without
+// the milestone check, and publish reads the card's patch row.
+func TestReleaseCutAndPublishAPatch(t *testing.T) {
+	proj, root, _ := makePrivacyFixture(t, "")
+	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.54","cut":"v0.54.0","rc":true,"ready":false,"cut_next":"v0.54.0-rc.1","checks":[]}}`)
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"cut", "v0.54.1"}); err == nil || !strings.Contains(err.Error(), "Cut v0.54.0 first") {
+		t.Errorf("a patch before its release = %v", err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"cut", "v0.54.0"}); err != nil {
+		t.Fatal(err)
+	}
+	// The card now names v0.55 as the milestone: the patch cut ignores it.
+	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.55","cut":"v0.55.0","rc":true,"checks":[]}}`)
+	os.WriteFile(filepath.Join(root, "fix.go"), []byte("package main // fix\n"), 0o644)
+	gitIn(t, root, "add", "fix.go")
+	gitIn(t, root, "commit", "-q", "-m", "fix: P\n\nRefs: ui/p")
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"pick", "ui/p"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"cut", "v0.54.1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "✓ Tagged v0.54.1-rc.1 on release/v0.54 (a patch release on the existing branch")
+	if got := gitOut(t, root, "rev-parse", "v0.54.1-rc.1^{commit}"); got != gitOut(t, root, "rev-parse", "release/v0.54") {
+		t.Error("the patch candidate is not on the branch tip")
+	}
+
+	proj, _, _ = makePrivacyFixture(t, snapshotsBlock)
+	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.55","cut":"v0.55.0","rc":true,"checks":[]}}`)
+	ctx, _, _ = newTestContext(proj, false)
+	err := runRelease(ctx, []string{"publish", "v0.54.1"})
+	if err == nil || !strings.Contains(err.Error(), "does not say a v0.54.1 candidate is soaking") || !strings.Contains(err.Error(), "no candidate of it on the card") {
+		t.Errorf("no patch on the card = %v", err)
+	}
+	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.55","cut":"v0.55.0","rc":true,"checks":[]},"patch":{"version":"0.54.1","cut":"v0.54.1","rc":true,"ready":true,"soaking":true,"candidate":"v0.54.1-rc.1","branch":"release/v0.54","checks":[]}}`)
+	ctx, _, _ = newTestContext(proj, false)
+	err = runRelease(ctx, []string{"publish", "v0.54.1"})
+	if err == nil || strings.Contains(err.Error(), "does not say") || !strings.Contains(err.Error(), "publish runs on release/v0.54") {
+		t.Errorf("a soaking patch = %v, want past the card to the worktree check", err)
+	}
+}

@@ -113,6 +113,18 @@ Every pass waits in the "after the fact" queue until the owner reviews it:
 
 The queue is derived from comments: a YOLO approval with no later `yolo-review:` for the same status.
 
+### Reviewing the queue together
+
+The review unit is the issue. The queue holds one entry per issue (`yolo.Entry`: its gates passed without the owner, and the owner checks they left open), and every count is the number of issues, with "N gates, M owner checks" as detail: the header's "N issues to review after the fact", the map's lot, the classic sidebar, Needs you's After the fact (`needs-you.json` `after_count`, `after_gates`, `after_checks`), `yolo.json` and `issue-cli yolo status` / `yolo queue` (`--json` lists the entries).
+
+`/p/<project>/yolo/review` (yolo_review.go) is the whole queue on one page: one card per issue, the issue with the oldest waiting item first, 15 issues a page. Each card shows the issue's evidence from its Evidence tab (up to two playtest shots, the last `tests:` line and whether it ran after the last change, the branch's commits, files, lines and top areas), its gates, and its owner checks:
+
+- **Agree** (one per issue) covers every gate still waiting: one `yolo-review: agreed …` comment per gate. The owner checks stay.
+- Each **owner check** is the owner's on its own: **Tick** (`…/owner-checks/tick`, the box is ticked on the issue) or **Agree without it** (the box stays unticked).
+- **Back to <status>** (one per issue, words required) moves the issue once, to the status it left at its latest gate, and settles its gates and owner checks with `yolo-review: back to <status> …`.
+
+Every write is the owner's: `yolo/review`, `…/yolo-review` and `owner-checks/tick` are owner-only routes (docs/API/security.md), so an agent, curl or a forged header gets 403. The page is linked from the header's count, the company's "To review after YOLO", Needs you and `issue-cli yolo status` / `yolo queue`.
+
 ### Owner checks
 
 A box only the owner can check (see [Proof Links](proof.md#owner-checks): a playtest judgement step, a guided
@@ -143,6 +155,17 @@ script and lists every box on the issue still the owner's (`Left to the owner on
 
 An experiment's owner checks still block, like its gates. With YOLO off nothing changes.
 
+### Assumed answers
+
+Under YOLO the design's questions are not asked; they are answered. When a YOLO gate passes on an issue whose `## Clarify` still has open answers, `transition` marks each one `assumed — YOLO: took the recommendation` and prints `YOLO: clarify Q1, Q2 assumed`. This replaces `decide --provisional` lines and `question:` comments for those questions ([The clarify round](../workflow.md#the-clarify-round)).
+
+Each assumed answer on an issue that has a YOLO pass joins that issue's entry (`yolo.Entry.Questions`, "1 gate, 2 assumed answers"). It is listed on the review page (with a link to the Station's Clarify card) and under Passed in YOLO on the Station. It leaves the queue in either of two ways:
+
+- **The owner answers it** in the Clarify form. The assumed line becomes the owner's answer and a D-n decision.
+- **The owner reviews it**: the issue's Agree covers its gates and its assumed answers together (one `yolo-review: agreed … → Q2` per answer), and Back to settles them with the gates.
+
+An assumed answer is never counted twice: while the review holds it, it is not a Needs you Clarify row. An assumed answer on an issue that YOLO never passed waits on Needs you like an open one.
+
 ## Where it shows
 
 - Every classic project page: a hazard line in the sidebar while on (until, passed, valves, Extend / Turn off now), and "N after the fact" with Agree / Back until the queue is empty.
@@ -158,8 +181,9 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 
 ## Endpoints
 
-- `GET /p/<project>/yolo.json`: state, passes, queue.
+- `GET /p/<project>/yolo.json`: state, passes, queue (one entry per issue: `slug`, `gates`, `checks`, `oldest`).
 - `POST /p/<project>/yolo/on` `{until, words, ci_valve, releases}`, `/yolo/extend` `{until}`, `/yolo/off` `{reason}`.
 - `POST /p/<project>/issue/<slug>/yolo-review` `{status, verdict: agree|back, words}`.
+- `GET /p/<project>/yolo/review[?page=N]`: the review page; `POST /p/<project>/yolo/review` `{slug, verdict: agree|back, words}`: the owner's verdict on one issue's entry, answers `{ok, verdict, settled, checks_left, to}`.
 
 All writes go through the usual same-origin check.

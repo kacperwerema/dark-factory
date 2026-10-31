@@ -441,7 +441,7 @@ func TestStartIssueBodyEditor_ReattachWhenSessionExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startIssueBodyEditor returned error on reattach: %v", err)
 	}
-	if probedSession != expectedSession {
+	if probedSession != "="+expectedSession+":" {
 		t.Errorf("agentrun.HasSession probed %q, want %q", probedSession, expectedSession)
 	}
 	if !resp.Reattached {
@@ -454,7 +454,7 @@ func TestStartIssueBodyEditor_ReattachWhenSessionExists(t *testing.T) {
 		t.Errorf("response.Session = %q, want %q", resp.Session, expectedSession)
 	}
 	// terminal: none hands back both ways in: from inside tmux and from a shell.
-	for _, want := range []string{"inside tmux: tmux switch-client -t " + expectedSession, "from a shell: ", "tmux attach -t " + expectedSession} {
+	for _, want := range []string{"inside tmux: tmux switch-client -t '=" + expectedSession + ":'", "from a shell: ", "tmux attach -t " + expectedSession} {
 		if !strings.Contains(resp.Message, want) {
 			t.Errorf("response.Message = %q, want it to contain %q", resp.Message, want)
 		}

@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='1' width='4' height='14' rx='1' fill='%23f0b866'/><rect x='6' y='1' width='4' height='10' rx='1' fill='%238b949e'/><rect x='11' y='1' width='4' height='12' rx='1' fill='%238b949e'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -31,7 +32,7 @@
                 {{if .System}}<input type="hidden" name="system" value="{{.System}}">{{end}}
                 {{if .WaitingOnly}}<input type="hidden" name="waiting" value="1">{{end}}
                 <label class="label" for="workboard-version">Version</label>
-                <select id="workboard-version" name="version" data-testid="workboard.filter.version" onchange="this.form.submit()">
+                <select id="workboard-version" name="version" data-testid="workboard.filter.version" data-autosubmit>
                     <option value="">All</option>
                     {{range .Versions}}<option value="{{.}}"{{if eq . $.Version}} selected{{end}}>{{.}}</option>{{end}}
                 </select>
@@ -41,7 +42,7 @@
             <a href="{{.WaitingHref}}" class="chip chip-amber workboard-toggle{{if .WaitingOnly}} active{{end}}" data-testid="workboard.filter.waiting"{{if .WaitingOnly}} aria-current="true"{{end}}>Waiting on you · {{.WaitingCount}}</a>
             {{if .WaitingCount}}<a href="{{.Prefix}}/needs-you" class="chip workboard-toggle" data-testid="workboard.needs_you" title="Every item that waits on you, with Approve all">List →</a>{{end}}
             <a href="{{.AllHref}}" class="chip workboard-toggle{{if .ShowAll}} active{{end}}" data-testid="workboard.filter.all"{{if .ShowAll}} aria-current="true"{{end}} title="{{if .ShowAll}}Back to the cards that need attention{{else}}Also show quiet cards: no marker and no agent{{end}}">{{if .ShowAll}}Showing all{{else}}Show all · {{.QuietCount}} quiet{{end}}</a>
-            <input type="search" class="workboard-search" data-testid="workboard.search" aria-label="Filter cards" placeholder="Filter cards…" oninput="filterWorkboard(this.value)">
+            <input type="search" class="workboard-search" data-testid="workboard.search" aria-label="Filter cards" placeholder="Filter cards…" data-input="{{onCall "filterWorkboard" "$value"}}">
         </div>
     </header>
 
@@ -97,7 +98,7 @@
         {{if not .Total}}<p class="workboard-empty" data-testid="workboard.empty">{{if .WaitingOnly}}Nothing is waiting on you.{{else if .QuietCount}}Nothing needs attention. Show all lists the {{.QuietCount}} quiet cards.{{else}}No issues match.{{end}}</p>{{end}}
     </div>
 
-    <script>
+    <script nonce="{{cspNonce}}">
     // Search filters the cards on the board in place.
     function filterWorkboard(text) {
         var q = text.trim().toLowerCase();

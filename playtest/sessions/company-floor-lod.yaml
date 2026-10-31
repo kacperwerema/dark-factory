@@ -1,0 +1,28 @@
+session: company-floor-lod
+issue: factory/company-floor-v2-the-whole-company-on-one-screen-a-fixed-map-with-an-inspector-panel
+title: The company floor's level of detail at Fit, read from the view's --lod with what it shows
+scenario: company-floor
+
+# The floor is always fit (no zoom since
+# factory/company-floor-one-click-on-hq-or-the-ceo-opens-the-chat-no-moving-around-while-everything-fits-on-screen):
+# the level is the fit scale's, just under 1 here (compact). The thresholds
+# are 0.6, 1 and 1.3 (static/company-floor.js lod()); far is at Fit on the
+# tall plan (company-floor-long TP13).
+
+session_checks:
+  viewports: [1440x900]
+  layout: [no_page_scroll, inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP16
+    title: "At Fit the floor is compact: names, numbers and jobs; no outputs, goals or spend on the tiles"
+    proves: [AC6]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - css: { target: floor.view, property: --lod, equals: "compact" }
+      - hidden: floor.lod.normal
+      - hidden: floor.lod.detail
+      - visible: [floor.job, floor.head.marketing, floor.head.product, floor.hq.chat]
+    targets: [floor.view]

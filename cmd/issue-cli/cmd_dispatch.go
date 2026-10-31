@@ -8,6 +8,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
 	"github.com/michal-franc/issue-viewer/internal/autostart"
+	"github.com/michal-franc/issue-viewer/internal/queue"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/yolo"
 )
@@ -77,7 +78,7 @@ func runDispatch(ctx *Context, args []string) error {
 		return err
 	}
 	fs := newFlagSet("dispatch", ctx)
-	agentFlag := fs.String("agent", "claude", "agent to run: claude or codex")
+	agentFlag := fs.String("agent", "", "agent to run: claude or codex (default: the workflow's routing: rules, else claude)")
 	force := fs.Bool("force", false, "dispatch even though the issue waits on the owner's approval")
 	reprompt := fs.Bool("reprompt", false, "re-send the current briefing into the live worker")
 	quoteFlag := fs.String("quote", "", "the human's words that ask for this worker (required)")
@@ -95,9 +96,12 @@ func runDispatch(ctx *Context, args []string) error {
 		if line := autostartLine(ctx); line != "" && !strings.HasPrefix(line, "Auto-start: paused") {
 			msg += "\n\nAuto-start is on for this project: " + tracker.InjectProject(ctx.Project, "issue-cli autostart next")
 		}
+		if queue.Exists(ctx.Project.IssueDir) {
+			msg += "\n\nThe project has a queue; items carry the owner's words: " + tracker.InjectProject(ctx.Project, "issue-cli queue next")
+		}
 		return &usageError{msg: msg}
 	}
-	if *agentFlag != "claude" && *agentFlag != "codex" {
+	if *agentFlag != "" && *agentFlag != "claude" && *agentFlag != "codex" {
 		return &usageError{msg: fmt.Sprintf("--agent must be claude or codex, got %q", *agentFlag)}
 	}
 	if *reprompt && (*force || flagSet(fs, "agent")) {
@@ -247,6 +251,9 @@ func dispatchAutostart(ctx *Context, issue *tracker.Issue, issues []*tracker.Iss
 		spec, refused := agentrun.DispatchSpec(proj, issue, agentType, projectRoot(proj), yoloOn)
 		if refused != nil {
 			return nil, &exitCodeError{Code: exitWaitingOnGate, Msg: fmt.Sprintf("✗ Not auto-started: %s waits on the owner's approval for %q. Nothing was started.", issue.Slug, refused.Gate)}
+		}
+		if spec.Route != nil && spec.Route.Hold != "" {
+			return nil, &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.\nA wrong rest: %s", spec.Route.Hold, tracker.InjectProject(proj, "issue-cli agents clear <agent>"))}
 		}
 		comment := autostartComment(st, v, now)
 		if me.Name != "" {

@@ -1,0 +1,60 @@
+session: yolo-review
+issue: ui/the-yolo-review-queue-review-many-after-the-fact-items-at-once
+title: Review after YOLO - one entry per issue, with evidence, one Agree for its gates
+scenario: yolo-review
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The page lists one entry per issue, oldest first, with its gates, owner checks and evidence
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/yolo/review
+    checks:
+      - visible: [yolo_review.page, yolo_review.summary, yolo_review.group, yolo_review.group.evidence, yolo_review.gate, yolo_review.check, yolo_review.check.tick, yolo_review.check.agree, yolo_review.agree, yolo_review.back]
+      - text_contains: { target: yolo_review.issues, text: "3" }
+      - text_contains: { target: yolo_review.group, text: "Price history per item" }
+      - text_contains: { target: yolo_review.group.detail, text: "2 gates, 1 owner check" }
+      - text_contains: { target: yolo_review.check, text: "AC2 · owner check" }
+      - text_contains: { target: yolo_review.group.evidence, text: "18 passed" }
+      - text_contains: { target: yolo_review.agree, text: "Agree all 2 gates" }
+
+  - id: TP5
+    title: One Agree covers the oldest issue's gates and leaves its owner check; Needs you counts issues and links here
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/yolo/review
+    act:
+      - click: yolo_review.agree
+      - wait_for: { visible: yolo_review.msg, ms: 8000 }
+      - check: { text_contains: { target: yolo_review.msg, text: "Agreed" } }
+      - check: { text_contains: { target: yolo_review.msg, text: "owner check(s) still yours" } }
+      - open: /p/{project}/needs-you
+    checks:
+      - visible: [needs_you.after.summary, needs_you.after.review_all]
+      - text_contains: { target: needs_you.after.summary, text: "3 issues · 2 gates, 1 owner check" }
+
+  - id: TP6
+    title: The review page reads like the Workshop Board and is quick to clear a night's queue
+    judgement_step: true
+    setup:
+      - open: /p/{project}/yolo/review
+    checks:
+      - visible: [yolo_review.page, yolo_review.group.evidence]
+    targets:
+      - { id: yolo_review.group, note: "one issue: its evidence strip, gates, owner checks, Agree and Back to" }
+    do: |
+      1. Read the oldest issue's card: the tests line, the change, its gates and its owner check.
+      2. Agree its gates with one click, then tick or agree the owner check.
+      3. Narrow the window to phone width and look again.
+    expect: |
+      Each card is one issue: what was passed without you and what proves
+      it, so you can agree from the page without opening the issue. One
+      Agree settles all its gates; each owner box is yours to tick. A
+      cleared card folds to "All reviewed ✓". At phone width the buttons
+      wrap under the text and nothing is cut off.
+    why: ux-test checks the parts are there; only you can say it is fast enough to clear a night's queue.

@@ -128,14 +128,15 @@ func TestOwnerCheckTickIsTheOwnersOnly(t *testing.T) {
 	before, _ := os.ReadFile(path)
 	tick := `{"slug":"child","id":"TP1","text":"The page reads like the Workshop Board (owner's look)"}`
 	for name, headers := range map[string]map[string]string{
-		"no headers (curl, agent)": nil,
+		"no headers (curl, agent)": {strangerHeader: "1"},
+		"forged same-origin":       {strangerHeader: "1", "Sec-Fetch-Site": "same-origin"},
 		"cross-site":               {"Sec-Fetch-Site": "cross-site"},
 		"other origin":             {"Origin": "http://evil.example"},
 	} {
 		// A cross-site write stops at sameOriginOnly (plain text); the rest
-		// at the tick's own owner check.
+		// at the owner gate (no owner session).
 		code, out := postTick(t, url, tick, headers)
-		if code != http.StatusForbidden || (headers == nil && !strings.Contains(errText(out), "only the owner ticks")) {
+		if code != http.StatusForbidden || (headers[strangerHeader] != "" && !strings.Contains(errText(out), ownerRefused)) {
 			t.Errorf("%s: status %d %v, want 403", name, code, out)
 		}
 	}

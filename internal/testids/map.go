@@ -7,6 +7,8 @@ func init() {
 		"map.agents",
 		"map.done_week",
 		"map.waiting",
+		// The YOU avatar: the owner sign-in page (/owner).
+		"map.owner",
 		"map.lot.*",
 		"map.lot.buildings",
 		"map.lot.group",

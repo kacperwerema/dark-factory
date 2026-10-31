@@ -17,7 +17,7 @@ func TestExpandTerminal(t *testing.T) {
 		t.Errorf("shared: %q, want %q", got, want)
 	}
 	own := &tracker.Project{Slug: "p"}
-	if got := ExpandTerminal(own, "{{window}} {{role}}", "agent-a", "agent-a", RoleOf("agent-a")); got != "agent-a worker" {
+	if got := ExpandTerminal(own, "{{window}} {{role}}", "agent-a", "agent-a", RoleOf("agent-a")); got != "'=agent-a:' worker" {
 		t.Errorf("per-agent: %q", got)
 	}
 	if RoleOf("lead-p") != RoleLead || RoleOf("agent-x") != RoleWorker {

@@ -25,7 +25,7 @@ import (
 // "(owner)") across an epic and its children, each with the playtest shot
 // that goes with it. The tick (POST …/owner-checks/tick) is the owner's
 // own: only a request from the viewer's page in a browser passes
-// (fromOwnerBrowser); curl and agent sessions are refused.
+// (s.fromOwner); curl and agent sessions are refused.
 
 // ownerChecksAll is the epic value that lists every issue in the project.
 const ownerChecksAll = "all"
@@ -248,7 +248,7 @@ var errOwnerBox = errors.New("owner box")
 // open, the owner's and worded as the page showed it. It adds the owner's
 // owner-check: comment on the issue.
 func (s *Server) handleOwnerCheckTick(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	if !fromOwnerBrowser(r) {
+	if !s.fromOwner(r) {
 		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": ownerCheckRefused})
 		return
 	}

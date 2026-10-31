@@ -19,7 +19,7 @@ steps:
       - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Acme: FAQ refresh", --kind, page, --url, "https://acme.example/faq"]
       - cli: [output, add, --department, marketing, --job, weekly-pass, --title, Hero banner, --kind, design, --file, out/hero.png]
       - cli: [output, add, --title, October report, --kind, report, --path, docs/report.md]
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     checks:
       - text_contains: { target: company.room.dept, text: "📦 2 to review" }
       - text_contains: { target: company.room.dept, text: "2 made this week" }

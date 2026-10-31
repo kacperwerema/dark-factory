@@ -38,7 +38,7 @@ func TestProjectInitGivesABoardWithTheNewDepartmentTile(t *testing.T) {
 			t.Errorf("%s: status %d", page, code)
 		}
 	}
-	code, body := getBody(t, ts.URL+"/p/shop/company")
+	code, body := getBody(t, ts.URL+"/p/shop/company?classic=1")
 	if code != http.StatusOK {
 		t.Fatalf("company: status %d", code)
 	}

@@ -99,6 +99,7 @@ func LeadBrief(wf *WorkflowConfig, in LeadBriefInput) string {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString("- Queue: issue-cli queue keeps the project's ordered plan (add <slug> or --idea, move, block, list). At each check-in run issue-cli queue next --start: it starts the first startable item while memory and CPU allow and marks it; shipped items are marked done with their SHA. Queue an item with the human's words (--quote); without them it starts only while auto-start is on. When only \"think up more\" is left, refill it.\n")
 	n := 0
 	if proj != nil {
 		for _, d := range proj.Departments {
@@ -106,6 +107,7 @@ func LeadBrief(wf *WorkflowConfig, in LeadBriefInput) string {
 		}
 	}
 	b.WriteString(JobsBrief(n, true))
+	b.WriteString(MemoryLeadLine(proj, lead, ""))
 	if proj != nil && len(proj.Departments) > 0 {
 		b.WriteString(HandoffsCEOBrief)
 		b.WriteString(HQReportCEOBrief)

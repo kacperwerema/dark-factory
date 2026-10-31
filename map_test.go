@@ -328,7 +328,7 @@ func TestCompanyPage(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
 
-	code, html := getBody(t, ts.URL+"/p/agents/company")
+	code, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if code != 200 {
 		t.Fatalf("status %d: %s", code, html)
 	}
@@ -426,7 +426,7 @@ func TestDepartmentsOnlyWhenConfigured(t *testing.T) {
 	// By default: HQ and Product, nothing else.
 	ts := newTestServer(t, []tracker.Project{a})
 	_, home := getBody(t, ts.URL+"/")
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	ts.Close()
 	if n := strings.Count(home, `class="wb-bld"`); n != 2 {
 		t.Errorf("buildings by default = %d, want HQ and Product", n)
@@ -442,7 +442,7 @@ func TestDepartmentsOnlyWhenConfigured(t *testing.T) {
 	ts = newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
 	_, home = getBody(t, ts.URL+"/")
-	_, company = getBody(t, ts.URL+"/p/agents/company")
+	_, company = getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, home, `title="Marketing: 4 open"`, `background-color:#E2559B`)
 	assertContains(t, company, `3 departments`, `data-testid="company.room.dept"`, `>Marketing</span>`, `Social posts and release notes`, `systems: UI`)
 	if n := strings.Count(home, `class="wb-bld"`); n != 3 {

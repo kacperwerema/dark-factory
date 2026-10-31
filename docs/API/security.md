@@ -31,7 +31,7 @@ The review behind it ran on 2026-10-31, as issue `api/security-review-and-pentes
 2. **A signed-in user who is not the owner.** For example, someone else in the Cloudflare Access team, or a GitHub login the Access policy lets in.
 3. **A malicious page in the owner's browser.** It can send cross-site requests, use DNS rebinding, frame the viewer, or open a sandboxed iframe whose origin is `null`.
 4. **Poisoned content.** This means issue text, comments, outputs, docs, workflow text or sidecars written by an agent, by a GitHub import, or by a merged branch. It reaches the pages (XSS) and the shell (frontmatter in commands).
-5. **A local agent.** It runs as the same user, so on loopback the viewer can't technically stop it. The owner-only routes are policy for agents, not a barrier (see Known gaps).
+5. **A local agent.** It runs as the same user and can reach every loopback route. The O routes need the owner's sign-in (see Owner sign-in), which an agent can't get by sending a request. An agent that sets out to steal it on purpose is a known gap.
 
 ## Barriers
 
@@ -42,10 +42,13 @@ Every request passes these layers, from the outside in (`Routes` in `routes.go`)
    - `X-Frame-Options: SAMEORIGIN`
    - `Referrer-Policy: same-origin`
    - `Cross-Origin-Opener-Policy: same-origin`
-   - a base CSP: `frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'`
+   - a CSP: `frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'nonce-<per request>'`. Only `/static` scripts and the inline `<script>` blocks the templates wrote run. An injected `<script>` or `on…=` attribute does not (`csp.go`).
+   - error bodies (plain text or JSON, status 400 and up) show the home folder as `~` (`csp.go`, `errorPathScrub`)
    - a body cap of 4 MiB, or 12 MiB for image uploads
 
-   Routes that serve untrusted files set a stricter CSP of their own: `/files/`, `/attachments/`, the shelf, `/page-raw/` and CI logs.
+   Routes that serve untrusted files set a stricter CSP of their own: `/files/`, `/attachments/`, the shelf, `/page-raw/` and CI logs. The nonce writer leaves those answers untouched.
+
+   How the script CSP works: templates can't see the request, so an inline script is written `<script nonce="{{cspNonce}}">`. That writes a random marker fixed for the process, and `nonceWriter` swaps it for the request's nonce on the way out. Templates use no `on…=` handlers. An element carries `data-click`, `data-change`, `data-input`, `data-keydown` or `data-blur` with a JSON call written by the `onCall` template func (`data-click="{{onCall "fn" .Slug "$this"}}"`). It can also carry `data-stop` (stop propagation) or `data-autosubmit` (submit the form on change). `static/events.js`, loaded in every page head, binds them per element, and a MutationObserver binds elements added later. HTML a script builds as a string uses `dataCall('click', ['fn', arg])`.
 2. **`hostAllowed`** (`origin.go`) answers `421` to any `Host` that is not loopback, not in `allowed_hosts:`, and not the bind address. This stops DNS rebinding.
 3. **`identityGate`** (`identity.go`) decides whether a request is **public**. A request is public when:
    - its Host is not a loopback name, or
@@ -57,6 +60,7 @@ Every request passes these layers, from the outside in (`Routes` in `routes.go`)
 
    Everything else gets `403`. **Without `identity:` the viewer refuses every public request, so it fails closed.** If `identity:` is present but incomplete, the viewer refuses to start.
 4. **`sameOriginOnly`** (`origin.go`) answers `403` to a non-GET request a browser sends for another site. That covers `Sec-Fetch-Site: cross-site`, a foreign `Origin`, and `Origin: null`.
+5. **The owner gate** (`ownerOnlyRoute` and `fromOwner` in `owner.go`, checked in `handleProjectRoutes`) answers `403` (`owner sign-in needed`) to an O route of the inventory unless the request is the owner's: the owner's sign-in cookie on loopback, or the verified identity on a public name. Browser headers (`Sec-Fetch-Site`, `Origin`) don't count, since any client can send them.
 
 Inside the handlers:
 
@@ -69,13 +73,28 @@ Inside the handlers:
 - **Issue bodies.** Markdown renders without raw HTML, and `javascript:` links are blanked. Only one plain HTML comment survives as is: the `<!-- data -->` marker, or notes to agents.
 - **Uploads.** An upload is saved under the extension of its sniffed image type (png, jpg, gif or webp). `/attachments/` serves only those hash-named, regular files, with `nosniff` and a sandbox CSP. It never serves a listing or a symlink.
 - **`/page-raw/` CORS.** The `Origin: null` CORS grant needs a Referer on this viewer. Any site's sandboxed iframe also sends `Origin: null`.
-- **Owner-only actions.** On loopback, `departments/add`, `owner-checks/tick` and owner-box ticks through the body editor require `fromOwnerBrowser`, which is a header check (see Known gaps). On a public name, every route requires the verified owner identity.
+- **`/page-raw/` reach.** The CSP keeps a project page's fetches, images, fonts and forms on the viewer (`default-src 'self'`, `connect-src 'self'`, `form-action 'none'`). The frame posts the status with target `*`, because the frame's origin is opaque. So it posts only while the frame shows the page the viewer loaded: a load the viewer didn't start stops the posting until the next reload. The route serves files under the page folders only. It never serves a path through a dot-folder or to a dot-file. A page at the project root serves only itself, never the root's other files.
+- **Shelf files.** `shelf/file/` resolves symlinks and serves only regular files inside `.outputs/files`, as `/files/` does.
+- **tmux targets.** Every tmux command addresses an agent as `=name:` (or `=session:=window` in shared mode), an exact match. A bare name is a prefix match in tmux, so `agent-foo` would reach `agent-foo-bar`.
+- **Owner-only actions.** Every O route goes through the owner gate. Owner-box ticks through the body editor (`POST issue/<slug>`, a W route) check the same `fromOwner`. On a public name, every route requires the verified owner identity.
+
+### Owner sign-in
+
+On loopback the owner, issue-cli and every agent reach the same port as the same user. What makes a request the owner's is a session cookie that only a person can get:
+
+- **The cookie.** `iv_owner`: `HttpOnly`, `SameSite=Strict`, `Path=/`, 32 random bytes. The viewer keeps only its SHA-256, in memory. No file holds a session, so none can be read or written to mint one. A restart of the viewer signs the owner out. Sessions last at most 30 days.
+- **How the browser gets it.** At `/owner` (the YOU circle in the header), the owner presses **Show me a code**. The viewer makes an 8-digit one-time code and shows it outside HTTP: in a macOS dialog, or on the viewer's own terminal (`-owner-code dialog|terminal|auto`; `auto` is the dialog, else the terminal). The owner types it into the same page, and `POST /owner/pair` sets the cookie. **Sign out** (`POST /owner/signout`) ends the session.
+- **The code.** One use, 5 minutes, 5 wrong tries burn it, at most one new code every 30 seconds (so a loop of requests can't flood the owner with dialogs). Only the browser that types it is signed in, so a code an agent asked for is useless to that agent.
+- **Why an agent's `curl` can't get it.** No HTTP answer ever carries the code or a session. A cookie handed out on a top-level GET would be no barrier, because `curl` sends any `Sec-Fetch-*` header it likes. The session lives only in the viewer's memory.
+- **Agents and issue-cli.** R, W and X routes don't need the cookie. An agent that needs an owner decision asks on its issue trail (`issue-cli comment <slug> "question: …"`). The issue-approve Claude Code mod runs inside an agent's session, so its approve press gets `403`; the owner approves in the browser.
+- **Tests and sandboxes.** `owner_test.go` sends one request per O route without the cookie, with forged browser headers, and with a made-up cookie. The playtest runner starts its boards with `-owner-code terminal`, reads the code from its own board's stderr, and signs its browser in. `scripts/security-check.sh` does the same and attacks every O route without the cookie.
 
 ### Keeping them
 
 - **Go tests:**
   - `security_test.go`: one test per finding.
   - `identity_test.go`: fail closed, token verification, the key refetch limit, headers and the body cap.
+  - `owner_test.go`: every O route refuses a request without the owner's sign-in, the code's limits, the cookie's flags, and the O rows of this page kept in step with the gate.
   - `origin_test.go`, plus tests in `internal/tracker/validations`, `internal/timeline` and `internal/tracker`.
 
   They run in `make validate`.
@@ -85,6 +104,7 @@ Inside the handlers:
   - Never put a request value into a shell string without `ShellWord`.
   - Never put request or file data into `innerHTML` without escaping it.
   - Never serve a user-written file without `nosniff` and a CSP of its own.
+  - No `on…=` attribute and no inline `<script>` without `nonce="{{cspNonce}}"` in a template or in HTML built in Go. `TestTemplatesHaveNoInlineHandlers` fails on one, and `TestDataCallsNameRealFunctions` checks that every `data-*` call names a function that exists.
 
 ## Going public: the barrier checklist
 
@@ -125,7 +145,7 @@ Here is who may call each route class:
 |---|---|---|---|
 | R | Reads a page or JSON | anyone on the machine | verified owner |
 | W | Writes issue or board files | anyone on the machine | verified owner |
-| O | An owner decision | the owner (policy; see Known gaps) | verified owner |
+| O | An owner decision | the owner's signed-in browser (Owner sign-in) | verified owner |
 | X | Starts a process (agent, tmux, nvim, script, `gh`, git commit) | anyone on the machine | verified owner |
 
 Every route is under `/p/<project>/` unless it starts with `/`.
@@ -134,28 +154,35 @@ Every route is under `/p/<project>/` unless it starts with `/`.
 |---|---|---|---|
 | `/`, `/stats`, `/updates`, `/leads`, `/ceos`, `/needs-you`, `/telemetry`, `/project-for?cwd=` | GET | R | Map, cross-project pages, the telemetry collector's data, project lookup by folder |
 | `/static/…` | GET | R | Embedded assets |
-| `/p/<project>/` (issues), `hall`, `hall/ci`, `hall/station/<s>`, `hall/gate/<s>`, `company`, `hq/report`, `hq/report.md`, `needs-you`, `needs-you.json`, `owner-checks`, `connectors.json`, `connections`, `connections.json`, `reports/<g>/<w>`, `shelf`, `board`, `graph`, `workboard`, `canvas`, `status`, `status.md`, `status.json`, `release.json`, `pages/<n>`, `github`, `stats`, `health`, `agents`, `agents.json`, `agents/detail`, `lead`, `ceo`, `lead.json`, `retros`, `decisions`, `updates`, `departments/new`, `metrics`, `metrics.json`, `balance`, `systems[/…]`, `hash`, `issues.json`, `docs[/…]`, `yolo.json` | GET | R | Pages and JSON |
+| `/owner` | GET | R | Owner sign-in page |
+| `/owner/code`, `/owner/pair`, `/owner/signout` | POST | W | Ask for a sign-in code (shown outside HTTP), type it in, sign out. Rate limited; the code never comes back in an answer |
+| `/p/<project>/` (issues), `hall`, `hall/ci`, `hall/station/<s>`, `hall/gate/<s>`, `company`, `hq/report`, `hq/report.md`, `needs-you`, `needs-you.json`, `owner-checks`, `postmortem/<slug>`, `connectors.json`, `connections`, `connections.json`, `reports/<g>/<w>`, `shelf`, `board`, `graph`, `workboard`, `canvas`, `status`, `status.md`, `status.json`, `release.json`, `pages/<n>`, `github`, `stats`, `health`, `agents`, `agents.json`, `agents/detail`, `lead`, `ceo`, `lead.json`, `retros`, `decisions`, `updates`, `departments/new`, `metrics`, `metrics.json`, `balance`, `systems[/…]`, `hash`, `issues.json`, `docs[/…]`, `yolo.json`, `yolo/review` | GET | R | Pages and JSON |
 | `issue/<slug>`, `…/comments`, `…/approvals.json`, `…/transition?to=` | GET | R | Issue page, comments, approvals, transition preview. The preview runs `command_succeeds` validators, which are config, with quoted values |
 | `…/dispatch-prompt`, `…/playtest` | GET | R | Prompt text, playtest state |
 | `shelf/read/<id>` | GET | R | Output reader: markdown rendered without raw HTML |
 | `shelf/file/…`, `ci/log/<name>`, `page-raw/…`, `files/…`, `attachments/<hash>.<img>` | GET | R | Files: confined to their folder, with their own CSP |
+| `lead/file/<hash>/<name>` | GET | O | A file the owner attached in a lead chat, back to the owner only: `application/octet-stream`, `Content-Disposition: attachment`, `nosniff`, `CSP: sandbox`; read through `os.Root` (no link leads out), never unpacked or rendered |
 | `issues/create`, `issue/<slug>` | POST | W | Create or update an issue |
 | `…/comments`, `…/comments/toggle`, `…/comments/delete` | POST | W | Comments |
 | `…/data`, `…/data/<id>/status\|tier\|comment` | POST | W | Data sidecar |
 | `…/data/<id>` | DELETE | W | Data sidecar |
 | `…/checkbox`, `…/type`, `…/delete`, `upload`, `lead/image` | POST | W | Boxes, type, delete, image uploads |
-| `shelf/comment`, `shelf/comment/resolve` | POST | W | Comments on an output |
 | `retros/retro/<n>/status`, `retros/bug/<n>/status`, `updates/decline`, `updates/reopen` | POST | W | Retro, bug and update records |
 | `…/approve`, `needs-you/approve` | POST | O | Approve gates (and nudge the agent) |
 | `…/send-back`, `…/yolo-review` | POST | O | Send back for fixes, YOLO review |
-| `yolo/on\|extend\|off`, `autostart/pause\|resume\|off` | POST | O | YOLO window, auto-start |
-| `owner-checks/tick` | POST | O | Owner boxes (`fromOwnerBrowser`) |
-| `departments/add` | POST | O | Department from a template (`fromOwnerBrowser`) |
+| `…/clarify` | POST | O | The owner's answers to the clarify round (Station form); each a D-n decision with their words |
+| `yolo/on\|extend\|off\|review`, `autostart/pause\|resume\|off` | POST | O | YOLO window, an issue's Agree / Back to on the review after YOLO, auto-start |
+| `owner-checks/tick` | POST | O | Owner boxes |
+| `departments/add` | POST | O | Department from a template |
 | `shelf/review`, `decisions/<slug>/<D-n>/confirm` | POST | O | Output review, decision confirm |
-| `hall/station/<s>/edit/preview`, `…/edit/save` | POST | O | Edit a station of `workflow.yaml` (commits on main) |
+| `shelf/comment`, `shelf/comment/resolve` | POST | O | The owner's comments on an output (agents answer with `issue-cli output reply`) |
+| `hall/station/<s>/edit/preview`, `hall/station/<s>/edit/save` | POST | O | Edit a station of `workflow.yaml` (commits on main) |
+| `memory/edit\|delete\|pin\|unpin` | POST | O | The owner's edit, delete or pin of a shared memory (agents use `issue-cli memory`) |
+| `postmortem/<slug>/decide` | POST | O | The owner's one round on a post-mortem's actions: memories, one-file commits on main, experiment proposals |
 | `health/recommendation/<id>/file\|dismiss` | POST | O | File or dismiss a health recommendation |
 | `…/dispatch`, `…/dispatch/reprompt`, `retros/review`, `lead/spawn` | POST | X | Start an agent: tmux plus a login shell; agent name validated |
-| `lead/send`, `lead/key`, `lead/answer` | POST | X | Paste into or press keys in the CEO's session |
+| `lead/file` | POST | O | Attach any file to a lead chat (.zip, PDF, text; 50 MB): streamed into `.agent-logs/<lead>/chat/files/<hash>/<name>` (0600, name cleaned to ASCII) through `os.Root`, never unpacked |
+| `lead/send`, `lead/key`, `lead/answer` | POST | X | Paste into or press keys in the CEO's session. `lead/send` pastes `[Image: <path>]` and `[File: <path>]` lines only for files already in the chat's store |
 | `agents/open` | POST | X | Open a terminal on an agent |
 | `…/action/<id>`, `action/<id>` | POST | X | Custom actions from `workflow.yaml` |
 | `…/check-script`, `…/playtest` | POST | X | Run guided checks or a playtest in tmux |
@@ -166,11 +193,12 @@ Every route is under `/p/<project>/` unless it starts with `/`.
 
 ## Known gaps (follow-up issues)
 
-- **The owner/agent boundary on loopback.** On loopback, an agent with `curl` can call the O routes, and `fromOwnerBrowser` is a header any client can send. This needs an owner credential that agents can't read, such as a session cookie set only through a flow the owner runs. Until then, "only the owner approves" is a rule agents follow, not a barrier. Filed as a high bugfix issue.
-- **A script CSP.** Templates use inline scripts and `on…=` handlers, so the CSP can't restrict scripts yet. The next step is moving to nonces and `script-src 'self' 'nonce-…'`. Project pages' `/page-raw/` CSP has no `connect-src`, and the frame posts `status.json` to `'*'`. Filed with the hardening follow-ups.
+- **The owner/agent boundary on loopback (what's left).** The O routes need the owner's sign-in now (Owner sign-in), so an agent's request alone can't make an owner decision. Agents run as the same user, though, and one that sets out to break the rule still can: read the viewer's terminal pane while a code shows (use the dialog; `-owner-code terminal` only where no agent reads that terminal), script the macOS dialog (needs Accessibility access for its terminal app), read the browser's cookie store, or run its own server on another loopback port that the owner then opens in the same browser (cookies are per host, not per port). The files issue-cli writes (approvals, YOLO state) are outside this gate: there the worker guard is the barrier. A hardware-backed or keychain-gated credential would close more of this.
+- **Styles are not restricted.** `style-src` stays open: templates use `style=` attributes. A style injection can't run script, but it can restyle a page.
+- **A project page can still navigate.** CSP can't stop a page from navigating itself or opening a popup to another site with data in the URL, because `navigate-to` was dropped from the spec. A project page is the project's own HTML. The viewer stops posting status once the frame leaves the page.
 - **cmd/telemetry-collector** is a separate binary and was not part of this review. If it is ever exposed to the internet, it needs its own review.
-- **Low findings.** These are listed in the review issue:
-  - tmux targets without `=` exact match;
-  - `shelf/file/` follows a symlink placed inside the shelf;
-  - `page-raw` with a page folder of `.`;
-  - error messages with absolute paths.
+- **Accepted leaks (F-17, info).**
+  - `lead/image` and `lead/file` return the stored file's absolute path. The chat box sends that path back with the message, and the agent reads it as `[Image: <path>]` or `[File: <path>]`. Only a same-origin page can read the answer, and a public request needs the verified owner.
+  - A chat file's path shows on the lead chat page (class R: the turn chip's title and `lead.json`), and `lead/send` (class X) pastes a `[File: <path>]` line for any stored chat file. So a caller who may paste into the lead could have it read a file the owner attached, which only the owner may download. It is not a new power: the same caller can already paste any instruction, such as "read <path>", into the lead. The path names only files already in the chat's store.
+  - `/files/` serves any image under the project root, chat images included. The issue pages link images by their path from the root, so a narrower rule would break them. The same identity gate applies.
+  - A path outside the home folder (a project under `/srv`) still shows in an error body. Only a same-origin page can read the body.

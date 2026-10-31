@@ -12,7 +12,7 @@ import (
 // ProjectWideKeys are the workflow.yaml keys only Product's file sets: a
 // department file takes them from it, and lint warns when one shows up in a
 // department file (factory/department-workflow-files#D-1).
-var ProjectWideKeys = []string{"workbench", "ci", "health", "privacy", "leads", "project_actions", "allow_shell"}
+var ProjectWideKeys = []string{"workbench", "ci", "health", "privacy", "leads", "project_actions", "allow_shell", "max_red_rounds"}
 
 // DepartmentNamed is the department called name (any case), or nil.
 func (p *Project) DepartmentNamed(name string) *Department {
@@ -86,6 +86,7 @@ func (p *Project) WorkflowFor(dept string) (*WorkflowConfig, error) {
 	wf.Leads = product.Leads
 	wf.ProjectActions = product.ProjectActions
 	wf.AllowShell = product.AllowShell
+	wf.MaxRedRounds = product.MaxRedRounds
 	// The playtest runner is the repository's: a department file may name its
 	// own, else it uses Product's.
 	if own.PlaytestCommand == "" {

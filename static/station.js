@@ -25,6 +25,30 @@
     return bad ? bad.name + (bad.detail ? ': ' + bad.detail : '') : (body.error || body.message || 'unknown error');
   }
 
+  // The clarify round: every question's picked option and words, posted
+  // together; each answer is recorded on its own and the reply says which.
+  document.querySelectorAll('[data-clarify-send]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('[data-clarify-url]');
+      var answers = [];
+      card.querySelectorAll('fieldset[data-clarify-q]:not([disabled])').forEach(function (q) {
+        var pick = q.querySelector('input[type="radio"]:checked');
+        if (!pick) return;
+        var words = q.querySelector('[data-clarify-words]');
+        answers.push({ id: q.getAttribute('data-clarify-q'), option: parseInt(pick.value, 10), words: words ? words.value : '', text: q.getAttribute('data-text') });
+      });
+      if (!answers.length) { say(btn, 'Pick an option first.'); return; }
+      btn.disabled = true;
+      say(btn, 'Recording…');
+      post(card.getAttribute('data-clarify-url'), { answers: answers }).then(function (res) {
+        var bad = (res.body.results || []).filter(function (r) { return r.error; });
+        if (!res.ok && !bad.length) { btn.disabled = false; say(btn, res.body.error || 'Could not record the answers.'); return; }
+        if (bad.length) { btn.disabled = false; say(btn, bad.map(function (r) { return r.error; }).join(' · ')); return; }
+        location.reload();
+      }, function () { btn.disabled = false; say(btn, 'The viewer did not answer.'); });
+    });
+  });
+
   // Copy a command.
   document.querySelectorAll('[data-copy]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -268,7 +292,8 @@
     box.querySelectorAll('[data-st-agent]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var agent = btn.getAttribute('data-st-agent');
-        run(box.getAttribute('data-st-dispatch'), { agent: agent, force: false }, 'Dispatching to ' + agent, btn);
+        // "" lets the workflow's routing: rules pick the agent.
+        run(box.getAttribute('data-st-dispatch'), { agent: agent, force: false }, agent ? 'Dispatching to ' + agent : 'Dispatching (routing)', btn);
       });
     });
     box.querySelectorAll('[data-st-action]').forEach(function (btn) {

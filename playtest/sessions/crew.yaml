@@ -76,7 +76,7 @@ steps:
       - wait_for: crew.chart
     checks:
       - url: { matches: "^/p/[^/]+/agents$" }
-      - http: { path: "/p/{project}/company", contains: 'href="/p/crew/agents">Crew →</a>' }
+      - http: { path: "/p/{project}/company?classic=1", contains: 'href="/p/crew/agents">Crew →</a>' }
 
   - id: TP8
     title: Crew reads as a Workshop Board page at desktop and phone width

@@ -60,7 +60,7 @@ func TestCompanyNewDeptTileIsAFormOverTheTemplates(t *testing.T) {
 	_, proj := deptSandbox(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	code, body := getBody(t, ts.URL+"/p/acme/company")
+	code, body := getBody(t, ts.URL+"/p/acme/company?classic=1")
 	if code != http.StatusOK {
 		t.Fatalf("status %d", code)
 	}
@@ -165,9 +165,11 @@ func TestDeptAddInstallsAndTheRoomShows(t *testing.T) {
 	}
 	for _, want := range []string{
 		`data-testid="company.added">✓ Added Marketing: 2 files written, 1 edited file of yours kept. Start its lead from the room.</p>`,
-		`wb-room--added" data-box="marketing" data-testid="company.room.dept"`,
+		// The floor opens the added room's tile and inspector.
+		`wb-fl-tile wb-fl-tile--added" style="left:`,
+		`id="room-marketing" data-room="marketing" data-title="Marketing" data-testid="floor.inspector.marketing"`,
 		// A template installs once: only GTM is left.
-		`From a template: GTM`,
+		`1 template left`,
 		`<input type="radio" name="template" value="gtm" checked>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -228,7 +230,9 @@ func TestDeptAddOnlyFromTheOwnersBrowser(t *testing.T) {
 	for name, headers := range map[string]map[string]string{
 		"cross-site":        {"Sec-Fetch-Site": "cross-site"},
 		"other origin":      {"Origin": "http://evil.example"},
-		"no headers (curl)": nil,
+		"no headers (curl)": {strangerHeader: "1"},
+		// A browser's headers without the owner's session: forged.
+		"forged same-origin": {strangerHeader: "1", "Sec-Fetch-Site": "same-origin"},
 	} {
 		if resp := postAdd(t, ts.URL, url.Values{"template": {"marketing"}}, headers); resp.StatusCode != http.StatusForbidden {
 			t.Errorf("%s: status %d, want 403", name, resp.StatusCode)
@@ -237,10 +241,10 @@ func TestDeptAddOnlyFromTheOwnersBrowser(t *testing.T) {
 	if after, _ := os.ReadFile(config); string(after) != string(before) {
 		t.Error("a refused POST changed projects.yaml")
 	}
-	// The browser's Origin for this host is the owner's.
+	// The owner's signed-in browser (newTestServer adds the session).
 	host := strings.TrimPrefix(ts.URL, "http://")
 	if resp := postAdd(t, ts.URL, url.Values{"template": {"marketing"}}, map[string]string{"Origin": "http://" + host}); resp.StatusCode != http.StatusSeeOther {
-		t.Errorf("same Origin: status %d, want 303", resp.StatusCode)
+		t.Errorf("owner: status %d, want 303", resp.StatusCode)
 	}
 }
 

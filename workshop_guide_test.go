@@ -174,3 +174,87 @@ func wbClassClashes(css string) []string {
 	sort.Strings(clashes)
 	return clashes
 }
+
+// A lost "}" puts every rule after it inside the block it left open: the
+// memory page's phone @media once swallowed the HQ report's and the reader's
+// rules, so both pages rendered unstyled on a desktop while every phone
+// check passed. Each stylesheet closes every block before the next banner
+// and before the end of the file.
+func TestStylesheetsCloseEveryBlock(t *testing.T) {
+	for _, name := range []string{"static/workshop.css", "static/style.css"} {
+		css, err := fs.ReadFile(staticFS, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range unclosedBlocks(string(css)) {
+			t.Errorf("%s: %s", name, p)
+		}
+	}
+}
+
+func TestUnclosedBlocks(t *testing.T) {
+	cases := []struct {
+		name, css string
+		want      int
+	}{
+		{"closed", "/* ---- a ---- */\n.x { a: b; }\n@media (max-width: 1px) { .x { a: c; } }\n/* ---- b ---- */\n.y { a: b; }", 0},
+		{"open at a banner", "@media (max-width: 1px) {\n .x { a: c; }\n/* ---- b ---- */\n.y { a: b; }\n}", 1},
+		{"open at the end", ".x { a: b; }\n@media (max-width: 1px) {\n .x { a: c; }", 1},
+		{"braces in a comment", "/* { */\n.x { a: b; }", 0},
+	}
+	for _, c := range cases {
+		if got := unclosedBlocks(c.css); len(got) != c.want {
+			t.Errorf("%s: got %q, want %d problems", c.name, got, c.want)
+		}
+	}
+}
+
+// unclosedBlocks names each block still open at a "/* ---- <block> ---- */"
+// banner or at the end of the file, with the line it opened on.
+func unclosedBlocks(css string) []string {
+	banner := regexp.MustCompile(`^/\*\s*-{2,}\s*(.*?)\s*-{2,}`)
+	type open struct {
+		line int
+		head string
+	}
+	var stack []open
+	var problems []string
+	start, line := 0, 1
+	report := func(where string) {
+		o := stack[len(stack)-1]
+		problems = append(problems, fmt.Sprintf("%q opened on line %d is still open %s", o.head, o.line, where))
+		stack = nil
+	}
+	for i := 0; i < len(css); i++ {
+		switch {
+		case strings.HasPrefix(css[i:], "/*"):
+			end := strings.Index(css[i+2:], "*/")
+			if end < 0 {
+				end = len(css) - i - 4
+			}
+			comment := css[i : i+end+4]
+			if m := banner.FindStringSubmatch(comment); m != nil && len(stack) > 0 {
+				report(fmt.Sprintf("at the banner %q on line %d", m[1], line))
+			}
+			line += strings.Count(comment, "\n")
+			i += len(comment) - 1
+			start = i + 1
+		case css[i] == '\n':
+			line++
+		case css[i] == '{':
+			stack = append(stack, open{line, strings.TrimSpace(css[start:i])})
+			start = i + 1
+		case css[i] == '}':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			start = i + 1
+		case css[i] == ';':
+			start = i + 1
+		}
+	}
+	if len(stack) > 0 {
+		report("at the end of the file")
+	}
+	return problems
+}

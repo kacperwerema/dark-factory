@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="memory.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Memory</h1>
+        <span class="wb-sub">what agents learned, with its source and history · they read the matching ones at start · you edit, pin or delete any</span>
+    </div>
+    <div class="wb-mem">
+        {{with .Flash}}<div class="wb-mem-flash" role="status" data-testid="memory.flash">✓ {{.}}</div>{{end}}
+        {{with .Error}}<div class="wb-mem-flash wb-mem-flash--error" role="alert" data-testid="memory.error">{{.}}</div>{{end}}
+        {{with .LoadError}}<div class="wb-mem-flash wb-mem-flash--error" role="alert">Could not read the memories: {{.}}</div>{{end}}
+        {{template "wb/mem-filters" .Filters}}
+        {{template "wb/mem-entities" .}}
+        {{template "wb/mem-recent" .Recent}}
+        <section class="wb-mem-list" data-testid="memory.list">
+            <div class="wb-mem-list-head">
+                <h2 class="wb-h2">Memories</h2>
+                <span class="wb-chip wb-chip--idle" data-testid="memory.count">{{len .Rows}} of {{.Total}}</span>
+                <span class="wb-mem-path wb-mono-inline" title="where the memories are kept">{{.ProjectPath}} · {{.MachinePath}}</span>
+            </div>
+            {{if .Grouped}}{{range .Groups}}{{template "wb/mem-group" .}}{{else}}{{template "wb/mem-empty" $}}{{end}}{{else}}{{range .Rows}}{{template "wb/mem-row" .}}{{else}}{{template "wb/mem-empty" $}}{{end}}{{end}}
+        </section>
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/memory.js"></script>
+</body>
+</html>

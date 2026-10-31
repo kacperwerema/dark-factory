@@ -16,8 +16,9 @@ crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
     </a>
     <div class="wb-crew-state" data-testid="crew.card.{{tid .Name}}.state">{{template "wb/chip" .Chip}}</div>
     {{with .Issue}}<a class="wb-crew-issue" href="{{.URL}}" data-testid="crew.card.{{tid $.Name}}.issue">{{.Label}}</a>{{end}}
-    {{if or .Status .Epic .Notes}}<div class="wb-crew-tags">{{with .Status}}<span class="wb-tag-pill">{{.}}</span>{{end}}{{with .Epic}}<span class="wb-tag-pill wb-tag-pill--epic" title="Epic">{{.}}</span>{{end}}{{range .Notes}}<span class="wb-tag-pill wb-tag-pill--note">{{.}}</span>{{end}}</div>{{end}}
+    {{if or .Status .Epic .Notes .Agent}}<div class="wb-crew-tags">{{with .Agent}}<span class="wb-tag-pill wb-tag-pill--agent" title="Agent CLI" data-testid="crew.card.{{tid $.Name}}.agent">{{.}}</span>{{end}}{{with .Status}}<span class="wb-tag-pill">{{.}}</span>{{end}}{{with .Epic}}<span class="wb-tag-pill wb-tag-pill--epic" title="Epic">{{.}}</span>{{end}}{{range .Notes}}<span class="wb-tag-pill wb-tag-pill--note">{{.}}</span>{{end}}</div>{{end}}
     {{with .LastCall}}<div class="wb-crew-meta">{{.}}</div>{{end}}
+    {{with .Limit}}<div class="wb-crew-meta wb-crew-limit" data-testid="crew.card.{{tid $.Name}}.limit">{{.}}</div>{{end}}
     {{with .Command}}{{template "wb/copy-cmd" .}}{{end}}
     {{if and .SpawnURL (eq .Robot.State "off")}}<div class="wb-crew-spawn" data-spawn-box><button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="{{.SpawnURL}}" data-spawn-what="{{.SpawnWhat}}" data-testid="crew.card.{{tid .Name}}.spawn">Start {{.SpawnWhat}}</button><div class="wb-site-msg" role="status"></div></div>{{end}}
 </article>

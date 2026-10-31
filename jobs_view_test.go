@@ -70,7 +70,7 @@ func TestJobsView_DueJobInNeedsYouAndStartRun(t *testing.T) {
 			t.Errorf("needs-you misses %q", want)
 		}
 	}
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	for _, want := range []string{`data-testid="company.room.jobs"`, `<b>Daily lead search</b>`, `daily 00:00`, `due · waits for you`, `auto off`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("company room misses %q", want)
@@ -127,7 +127,7 @@ func TestJobsView_StandingStartLeavesItToTheLead(t *testing.T) {
 	if strings.Contains(body, `data-kind="job"`) {
 		t.Error("a job with a standing start is in Needs you")
 	}
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if !strings.Contains(html, `due · lead starts it`) || !strings.Contains(html, `auto on`) {
 		t.Error("room doesn't say the lead starts it")
 	}

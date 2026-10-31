@@ -39,6 +39,9 @@ type State struct {
 	Below       int       `json:"below"`
 	MaxWorkers  int       `json:"max_workers"`
 	GapMinutes  int       `json:"gap_minutes"`
+	// MaxLoad is the 1-minute load average a start must be under; 0 is
+	// the machine's core count.
+	MaxLoad float64 `json:"max_load,omitempty"`
 	// Ended / EndReason are set when the window closed.
 	Ended     time.Time `json:"ended,omitempty"`
 	EndReason string    `json:"end_reason,omitempty"`
@@ -128,6 +131,9 @@ func TurnOn(root, project string, next State, now time.Time) error {
 	}
 	if next.GapMinutes <= 0 {
 		next.GapMinutes = DefaultGapMinutes
+	}
+	if next.MaxLoad < 0 {
+		next.MaxLoad = 0
 	}
 	next.On, next.Since = true, now
 	next.Paused, next.PausedAt, next.PauseReason = false, time.Time{}, ""

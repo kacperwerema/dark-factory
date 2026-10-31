@@ -30,6 +30,7 @@ prices:                       # USD per million tokens, when the worker reports 
 worker: ""                    # default: claude -p --output-format json --permission-mode bypassPermissions --disallowedTools SendMessage,ListAgents
 judge: ""                     # optional: a command that reads the judge prompt on stdin and prints SCORE: 0-5 and REASON: …
 grader: ""                    # optional: grades evals' rubric lines (prompt on stdin, {reason, pass, score} out), e.g. claude -p --model claude-haiku-5-5
+worker_home: sandbox          # default; owner keeps the owner's HOME for the worker (see The worker's home)
 scorer: ""                    # default: npx --yes promptfoo@0.124.1 (output evals, see Evals)
 tasks:
   - project: dark-factory
@@ -118,23 +119,43 @@ evals:
       - {type: not-icontains, value: "lorem ipsum"}
     pass: 0.7                       # mean score 0-1 a task needs (default 0.7)
     checks: ["test -f departments/marketing/brand.md"]   # optional shell commands
+  - id: docs
+    types: [docs]
+    score: diff                     # the worker's diff against the base (new files too)
+    rubric: ["The changed docs say what the issue asks and match the code"]
+    assert:
+      - {type: not-icontains, value: "TODO"}
 ```
 
-The development template has `code` and `report`; the marketing template has `foundation` (foundation, market-size), `piece` and `seo-pass`. Catalog entry: `workflow-evals`.
+`score:` is `tests` (the default), `output` (the run's newest output on the shelf) or `diff` (the worker's diff against the task's base, for a change in files with no hidden tests, such as docs). `output` and `diff` are graded by the rubric and assertions; for `diff`, `{{reference}}` is the known good diff (base → merged commit), and both are cut to 60 kB like the judge's.
+
+The development template has `code`, `report` and `docs` (a diff eval); the marketing template has `foundation` (foundation, market-size), `piece` and `seo-pass`; the content template has `content`, with no `types:` (the file has none, so it covers every issue). Catalog entry: `workflow-evals`.
 
 A department's golden task is a done issue whose output the **owner** approved on the shelf. `issue-cli bench task add <benchmark> <slug> [--output <id>] [--base <sha>] [--start <status>] [--snapshot <file>]` (owner only) copies the approved file as the task's reference (`{{reference}}` in a rubric line) and runs the task on the department's own workflow file. An output in review, rejected or link-only is refused.
 
+`issue-cli bench candidates --department <key> [--all] [--benchmark <name>] [--json]` lists those tasks before anyone adds one: the department's done issues with an approved output that has a file and an eval for the issue's type in the department's workflow, as `<slug>  <type> · output <id> (<title>) · eval <id> (<score>)`. `--all` adds the rest with why (no output, an output in review or rejected, a link only, the file gone, no eval for the type). It reads the shelf and the workflow file and writes nothing; `--replay` is refused with it (output tasks have no hidden tests, D-1 of factory/evals-help-agents-find-output-tasks-and-the-evals-a-workflow-declares). Plain `bench candidates` ends with an `Output tasks:` line naming the departments whose own workflow file declares evals.
+
+`issue-cli process workflow [--department <key>]` prints an `Evals:` line: each eval as `<id> (<score>, types …)`, or `none` when the file declares no evals (hidden tests alone score its runs).
+
 ### Checking them
 
-`issue-cli health lint --check evals` (and every `health lint`) warns about an eval with no id or a repeated one, a `score` other than `tests` or `output`, a `pass` outside 0-1, or a type the file doesn't define.
+`issue-cli health lint --check evals` (and every `health lint`) warns about:
+
+- an eval with no id or a repeated one, a `score` other than `tests`, `output` or `diff`, a `pass` outside 0-1, or a type the file doesn't define;
+- an `output` or `diff` eval with no `rubric:` and no `assert:` (nothing grades it; `bench run` refuses its tasks);
+- an `assert:` type the scorer doesn't pass through. Passed through are promptfoo 0.124.1's model-free types and their `not-` forms: equals, contains, icontains, contains-all/any, icontains-all/any, starts-with, regex, is-json, contains-json, is-html, contains-html, is-sql, contains-sql, is-xml, contains-xml, levenshtein, word-count, rouge-n, bleu, gleu. A type that needs a model (llm-rubric, g-eval, similar, factuality, …) goes under `rubric:`; one that runs code or calls out (javascript, python, ruby, webhook) is never passed through;
+- two evals listing one type (the first scores it, the second never does), or two evals with no `types:`;
+- when the file has `types:` and no eval without types, each type no eval lists (its tasks would be scored by hidden tests only).
+
+Every finding is a warning.
 
 ### When they run
 
 Only inside `bench run`, which the owner starts: from their own shell, or by an agent with `--quote "<the owner's words>"` (and `experiment run`, which calls it the same way). Nothing runs on a schedule, no other command calls a model, and nothing is adopted by itself.
 
 1. **Before**, `bench run` prints an estimate: the task count × the newest finished run's mean time and cost per task, or "no previous run". The budget caps stay as above.
-2. **Each task** runs in its own sandbox (below). The worker works the issue. Then a `tests` eval runs the hidden tests and checks, and an `output` eval runs promptfoo on the newest output the run put on the sandbox's shelf. No output is a **fail**.
-3. **promptfoo** (MIT, local, pinned 0.124.1, `npx --yes promptfoo@0.124.1`; `scorer:` in the benchmark replaces it) gets a config whose "model" is its `echo` provider over the output text, with `reference.txt` and `brief.md` as vars. Each rubric line becomes an `llm-rubric` assertion graded by the benchmark's `grader:` command: the prompt on stdin, `{reason, pass, score}` JSON out, for example `claude -p --model claude-haiku-5-5`. Without a grader, rubric lines are left out and listed in the record's `eval_skipped`. An eval with nothing it can grade stops the task as `error` before the worker starts. **pass** = score ≥ `pass` and checks green.
+2. **Each task** runs in its own sandbox (below). The worker works the issue. Then a `tests` eval runs the hidden tests and checks, an `output` eval runs promptfoo on the newest output the run put on the sandbox's shelf, and a `diff` eval runs it on the worker's diff. No output, or no diff, is a **fail**.
+3. **promptfoo** (MIT, local, pinned 0.124.1, `npx --yes promptfoo@0.124.1`; `scorer:` in the benchmark replaces it) gets a config whose "model" is its `echo` provider over the output (or diff) text, with `reference.txt` and `brief.md` as vars. Each rubric line becomes an `llm-rubric` assertion graded by the benchmark's `grader:` command: the prompt on stdin, `{reason, pass, score}` JSON out, for example `claude -p --model claude-haiku-5-5`. Without a grader, rubric lines are left out and listed in the record's `eval_skipped`. An eval with nothing it can grade stops the task as `error` before the worker starts. **pass** = score ≥ `pass` and checks green.
 4. **Time and cost**: every task records the worker's wall time plus scoring time (`score_wall_sec`), and tokens and cost for the worker and grader. Cost uses the benchmark's `prices:`, then `prices.yaml` as the rooms' spend does. `bench report` shows them per task.
 
 Why promptfoo (D-1, provisional): its YAML assertions are what a workflow file declares, it is one pinned command with no venv, and `exec:` lets the owner's own command grade. Inspect (MIT, Python) owns the agent loop and sandboxes the benchmark already has. DeepEval sends telemetry unless you opt out, and its LLM metrics default to OpenAI. OpenAI Evals is mostly unmaintained.
@@ -146,9 +167,28 @@ Each task's sandbox is `$TMPDIR/awe-bench/<run>/<n>/`, removed after the task (`
 - a `git clone --shared` of the project at the task's base with no remote, and a scratch tracker holding only the snapshot and the workflow under test;
 - for the worker and the scorer: `XDG_STATE_HOME` and `XDG_CONFIG_HOME` in the sandbox (no owner's viewer.json, projects.yaml, prices or YOLO state), `ISSUE_VIEWER_CONFIG` the sandbox's projects.yaml, tmux's socket folder in the sandbox (no live session is visible), git with no global config, and `ISSUE_VIEWER_BENCH_DIR`, the `TMUX*` and lead/worker variables removed, so the benchmark folder and its holdout aren't visible;
 - for the scorer, also `HOME` in the sandbox (`eval/home`), with promptfoo's config and cache under `eval/.promptfoo`, telemetry, update check and sharing off, and `--no-write` (no results database). npm's cache stays where it is, so npx downloads promptfoo once. Its network use is that first download and whatever the grader command does.
-- The worker keeps the owner's `HOME` (D-10): Claude Code's login and the transcripts the usage is read from live there. Files its tools wrote outside the sandbox are recorded (`outside_touched`) and shown in `bench report`.
+- for the worker, also its own `HOME` (`home/`, below), so the owner's Claude Code settings, hooks, plugins, skills and history don't reach it. Files its tools wrote outside the sandbox are recorded (`outside_touched`) and shown in `bench report`.
 
-A test runs a whole task with a worker and scorer that write a viewer.json, a projects.yaml and a HOME file, and checks that all of them land in the sandbox and nothing reaches the real state or config dirs.
+#### The worker's home
+
+The worker runs with `HOME=<sandbox>/home` and `CLAUDE_CONFIG_DIR` and `CODEX_HOME` removed, so Claude Code's config dir is `<sandbox>/home/.claude` (codex's `<sandbox>/home/.codex`) and Claude Code's transcripts, the usage is read from, land there. That home gets exactly this from the owner's (factory/bench-run-the-worker-in-its-own-home#D-1):
+
+| In the sandbox home | What it is | Why |
+|---|---|---|
+| `Library/Keychains` | symlink to the owner's `~/Library/Keychains`, when it exists | macOS: Claude Code's login is a keychain item, and the keychain search list is found through `$HOME/Library/Keychains` |
+| `.claude/.credentials.json` | symlink to `$CLAUDE_CONFIG_DIR/.credentials.json`, else `~/.claude/.credentials.json`, when it exists | Linux: the login is that file |
+| `.codex/auth.json` | symlink to `$CODEX_HOME/auth.json`, else `~/.codex/auth.json`, when it exists | a `codex` worker (`worker: codex exec …`): its login file |
+| `.claude.json` | a new file: `hasCompletedOnboarding: true`, plus `oauthAccount` and `userID` copied from the owner's `~/.claude.json` | the CLI starts without onboarding; no history, project settings or MCP servers |
+
+Links, never copies: the engine never reads, copies or prints a credential ([Settled rules](departments.md#settled-rules), "Secrets are references"), and when the worker refreshes a token it updates the owner's one store. Nothing else is linked. `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` pass through the environment as before. `GOPATH`, `GOMODCACHE`, `GOCACHE` and `npm_config_cache`, when unset, are pinned to the owner's, so a task doesn't re-download modules or rebuild the Go cache.
+
+`bench run` says at start what it linked: `worker home: sandbox, login linked: keychain` (or `credentials file`, `codex login`), or `no login found to link`. A worker that exits with Claude Code's "Not logged in", "Invalid API key" or "Please run /login" ends as `error` with a reason pointing here.
+
+Known gap: on macOS with `CLAUDE_CONFIG_DIR` set, the keychain item's name is tied to that folder, so the sandbox's CLI doesn't find it. Use `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in the environment, or `worker_home: owner`.
+
+`worker_home: owner` in the benchmark file keeps the owner's `HOME` for the worker (the parent issue's D-10) and reads the usage from the owner's `~/.claude/projects`. The run records its mode (`setup.worker_home` in run.json, shown in `bench report`'s setup line; runs from before it are `owner`), so a comparison across the switch is visible. The judge and the grader keep the owner's environment (factory/bench-run-the-worker-in-its-own-home#D-2).
+
+A test runs a whole task with a worker and scorer that write a viewer.json, a projects.yaml and a HOME file, and checks that all of them land in the sandbox and nothing reaches the real state or config dirs. Another gives the run a stand-in owner home (no real credential) and checks the worker sees only the two links and the minimal `.claude.json`, not the owner's settings, and that its transcript is read from the sandbox home.
 
 ### The verdict per workflow
 
@@ -158,6 +198,29 @@ A test runs a whole task with a worker and scorer that write a viewer.json, a pr
 - **net negative**: a task that passed now fails, the pass rate drops by at least one task (1/n), or the score drops by 0.05 or more; or the quality holds and tokens or cost rise by 10% or more, or wall time by 25% or more (D-5, D-9);
 - **net positive**: the same gains with no regression, or the quality holds and tokens or cost fall by 10%, or wall time by 25%;
 - **no change**: anything else.
+
+### Which workflows a branch changed
+
+`bench compare <a> <b> --branch <ref>` marks each workflow **changed** (with the files that reached it) or **control**. It reads `git diff --name-only main...<ref>` in the current repository, drops the work records (issue files, sidecars, retros, as the experiment guard does) and maps each file by the first rule that matches:
+
+1. a workflow's own file (Product's `workflow.yaml` or `workflow:`, a department's `workflow:`) → that workflow;
+2. a department's `prompt:` file or anything under `departments/<key>/` → that department;
+3. a bundled template `cmd/issue-cli/templates/workflow/<name>.yaml` → every workflow whose file is stamped `template: <name>@…` (the stamp as the branch has it);
+4. engine code (`cmd/issue-cli/`, `internal/`, `go.mod`, `go.sum`, `CLAUDE.md`, `AGENTS.md`) → every workflow;
+5. anything else (docs, viewer code, static files) → no workflow, listed on the `Branch <ref>: N not mapped` line.
+
+Workflows are box keys: `product` and each department with a workflow file of its own (a department without one runs on Product's file). `--json` adds `mark` and `changed_by` to each workflow, and `branch` and `not_mapped` to the comparison. A control that turns net negative gets a `⚠ control <key> is net negative` line: the runs are noisy, or the change reaches further than meant. It is a warning; nothing is refused or adopted. Without `--branch`, a block with more than one workflow ends with the command that marks them.
+
+```
+By workflow (A → B):
+  product: no change · 4 tasks [control]
+      pass 75% → 75% · score 0.80 → 0.80
+      wall 12m0s → 11m30s (-4%) · tokens 1.2M → 1.1M (-5%) · cost $4.10 → $3.95 (-4%)
+      same quality, tokens -5%, cost -4%, wall -4%
+  marketing: net positive · 2 tasks [changed: workflows/marketing.yaml]
+      ...
+  Branch work/factory/tighter-briefs: 1 not mapped to a workflow (docs/departments.md)
+```
 
 ## Interface for the experiment loop
 

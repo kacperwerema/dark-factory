@@ -254,6 +254,7 @@ Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold i
    - **rejected**: a task that passed now fails, the pass rate drops, or the target misses its threshold. A pass-rate move under one task counts as no change;
    - **promising**: otherwise.
 5. Record. The block, an `experiment:` comment with the numbers (holdout only as passed n/m), and on promising a `## Experiment result` table.
+6. By workflow. Beside the verdict, each workflow's own verdict (`bench compare`'s By workflow), marked changed or control by the files the candidate's commit changed since main ([which workflows a branch changed](benchmark.md#which-workflows-a-branch-changed)). They go in the block as `workflows:` (with `workflows_note:` when they are missing or unmarked), on the `experiment:` comment's `workflows:` tail, in a By workflow table under `## Experiment result`, and in `experiment show`. They are advice: the overall verdict and its target are unchanged, and a control turning net negative is a warning line.
 
 `--dry-run` prints the guard and the plan and runs nothing. `experiment record <slug> --baseline <run> --candidate <run>` judges two runs that already exist. Runs start only from a session the owner started; there is no schedule.
 

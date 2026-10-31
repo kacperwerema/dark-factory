@@ -1,0 +1,30 @@
+session: company-floor-chat-far
+issue: factory/company-floor-one-click-on-hq-or-the-ceo-opens-the-chat-no-moving-around-while-everything-fits-on-screen
+title: On the tall plan, fit at the far level, every room keeps its one-click chat link
+scenario: company-floor-long
+
+session_checks:
+  viewports: [1440x900, 1280x800]
+  layout: [no_page_scroll, inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP7
+    title: At far the CEO's, the GTM wing's, a sub-room's and Research's chat links show as Chat →; the wing's lands on its lead's chat
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - check: { css: { target: floor.view, property: --lod, equals: "far" } }
+      - check: { visible: [floor.hq.chat, floor.group.chat, floor.sub.chat, floor.dept.chat] }
+      - check: { text_equals: { target: floor.group.chat, text: "Chat →" } }
+      - check: { text_equals: { target: floor.dept.chat, text: "Chat →" } }
+      - check: { inside: { target: floor.group.chat, within: floor.tile.group } }
+      - check: { inside: { target: floor.dept.chat, within: floor.tile.dept } }
+      - check: { inside: { target: floor.sub.chat, within: floor.sub } }
+      - check: { text_equals: { target: floor.sub.chat, text: "Chat →" } }
+      - click: floor.group.chat
+      - wait_for: { visible: lead_chat.page }
+    checks:
+      - url: { matches: "^/p/[^/]+/lead[?]dept=gtm$" }
+    targets: [floor.tile.group]

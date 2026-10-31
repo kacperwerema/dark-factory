@@ -113,14 +113,15 @@ func ceoTurnImages(proj *tracker.Project, prefix, text string) (string, []CEOIma
 	return strings.TrimSpace(rest), imgs
 }
 
-// withTurnImages fills the owner's turns' Images and drops the image lines
-// from their text.
-func withTurnImages(proj *tracker.Project, prefix string, turns []CEOTurn) {
+// withTurnAttachments fills the owner's turns' Images and Files and drops
+// their lines from the text.
+func withTurnAttachments(proj *tracker.Project, prefix string, turns []CEOTurn) {
 	for i, t := range turns {
 		if t.From != "you" || len(t.Text) == 0 {
 			continue
 		}
 		turns[i].Text[0], turns[i].Images = ceoTurnImages(proj, prefix, t.Text[0])
+		turns[i].Text[0], turns[i].Files = ceoTurnFiles(proj, prefix, turns[i].Text[0])
 	}
 }
 

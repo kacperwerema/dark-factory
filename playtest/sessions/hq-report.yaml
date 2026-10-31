@@ -18,7 +18,7 @@ steps:
     act:
       - wait_for: { visible: hq_report.page }
     checks:
-      - http: { path: "/p/{project}/company", contains: "href=\"/p/acme/hq/report\"" }
+      - http: { path: "/p/{project}/company?classic=1", contains: "href=\"/p/acme/hq/report\"" }
       - count: { pattern: "hq_report.box.*", equals: 6 }
       - below: [hq_report.box.hq, hq_report.box.product]
       - below: [hq_report.box.product, hq_report.box.gtm]
@@ -54,7 +54,7 @@ steps:
       - text_contains: { target: hq_report.row.marketing.lead, text: "three case studies drafted" }
       - text_contains: { target: hq_report.row.gtm.week_report, text: "Week 2026-W44: 1 goal moved · 0 outputs shipped, 0 reviewed · 1 blocked" }
       - text_contains: { target: hq_report.row.factory.blocked, text: "on the owner · an open question: comment" }
-      - text_contains: { target: hq_report.row.factory.health, text: "not measured in the last snapshot" }
+      - text_contains: { target: hq_report.row.factory.health, text: "not measured yet: it starts with" }
       - text_contains: { target: hq_report.row.factory.lead, text: "home and pricing pages built" }
       - text_contains: { target: hq_report.row.hq.goals, text: "Paying clients" }
       - text_contains: { target: hq_report.empty.sales, text: "Nothing here yet: no goals, outputs, jobs, handoffs, open work or spend." }

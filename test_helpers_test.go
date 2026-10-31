@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -111,7 +112,32 @@ func newTestServer(t *testing.T, projects []tracker.Project) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return httptest.NewServer(srv.Routes())
+	return httptest.NewServer(asOwner(t, srv))
+}
+
+// strangerHeader marks a test request that must not carry the owner's
+// session: curl, an agent's script. Without it, newTestServer's requests come
+// from the owner's signed-in browser.
+const strangerHeader = "X-Test-Stranger"
+
+// asOwner is srv's handler with every request signed in as the owner (the
+// session cookie added), unless it carries strangerHeader or a cookie of
+// its own.
+func asOwner(t *testing.T, srv *Server) http.Handler {
+	t.Helper()
+	token, err := srv.owner.newSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Routes()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(strangerHeader) == "" {
+			if _, err := r.Cookie(ownerCookie); err != nil {
+				r.AddCookie(&http.Cookie{Name: ownerCookie, Value: token})
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 func withMockTmuxSessions(t *testing.T, sessions []AgentSession) {

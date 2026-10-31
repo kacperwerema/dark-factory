@@ -559,7 +559,7 @@ func startIssueBodyEditor(bg *background, proj *tracker.Project, issue *tracker.
 	}()
 
 	if sharedTmuxSession(proj) == "" {
-		exec.Command("tmux", "rename-window", "-t", session, issue.Slug).Run()
+		exec.Command("tmux", "rename-window", "-t", agentTmuxTarget(proj, session), issue.Slug).Run()
 	}
 
 	if agentrun.TerminalNone(proj) {
@@ -831,11 +831,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *trac
 }
 
 // refuseOwnerTicks answers 403 and reports true when a request that isn't
-// from the owner's browser (fromOwnerBrowser: curl, an agent's script)
+// from the owner (s.fromOwner: the owner cookie; curl, an agent's script)
 // would tick an owner box by writing next as the issue's body. The rule is
 // proof.OwnerTicks, the one issue-cli's write paths use.
 func (s *Server) refuseOwnerTicks(w http.ResponseWriter, r *http.Request, proj *tracker.Project, issue *tracker.Issue, next string) bool {
-	if fromOwnerBrowser(r) {
+	if s.fromOwner(r) {
 		return false
 	}
 	if _, ticked := tracker.CountCheckboxes(next); ticked == 0 {

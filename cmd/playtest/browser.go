@@ -13,6 +13,7 @@ import (
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/michal-franc/issue-viewer/internal/playtestruns"
@@ -158,6 +159,22 @@ func (b *Browser) NewPage(vp *Viewport, scripts ...string) (*Page, error) {
 		}
 	}()
 	return p, nil
+}
+
+// SignInOwner gives the page's browser context the owner's sign-in cookie
+// for base, as the owner's browser has it after typing the code at /owner.
+func (p *Page) SignInOwner(ctx context.Context, base, session string) error {
+	if session == "" {
+		return nil
+	}
+	yes := true
+	return p.Do(ctx, chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, network.SetCookie, network.SetCookieParams{
+			Name: "iv_owner", Value: session, URL: base + "/", Path: "/",
+			HTTPOnly: &yes, SameSite: network.CookieSameSiteStrict,
+		})
+		return err
+	}))
 }
 
 // Close ends the tab (and its browser context).

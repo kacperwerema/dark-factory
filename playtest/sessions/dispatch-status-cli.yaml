@@ -41,7 +41,7 @@ steps:
       - open: /p/{project}/issue/ui/child?classic=1
     checks:
       - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], contains: "Already live: agent-ui-child" }
-      - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], contains: "Inside tmux:  tmux switch-client -t agent-ui-child" }
+      - cli: { args: [--project, crew, dispatch, ui/child, --quote, "start child"], contains: "Inside tmux:  tmux switch-client -t '=agent-ui-child:'" }
       - cli: { args: [--project, crew, dispatch, ui/child, --agent, gpt, --quote, "start child"], exit: 2, contains: "--agent must be claude or codex" }
 
   - id: TP6

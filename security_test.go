@@ -187,7 +187,13 @@ func TestSecurity_IssueBodyRendersNoScript(t *testing.T) {
 // the workflow is taken.
 func TestSecurity_ApproveTakesOnlyAWorkflowStatus(t *testing.T) {
 	srv, _, _ := secServer(t)
-	rec := secDo(t, srv, "POST", "/p/test-project/issue/bug-in-login/approve", "application/json", []byte(`{"status":"done\u001b[201~\nrm -rf ~"}`))
+	token, _ := srv.owner.newSession()
+	req := httptest.NewRequest("POST", "/p/test-project/issue/bug-in-login/approve", strings.NewReader(`{"status":"done\u001b[201~\nrm -rf ~"}`))
+	req.Host = "localhost"
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: ownerCookie, Value: token})
+	rec := httptest.NewRecorder()
+	srv.Routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("approve with a crafted status = %d %s, want 400", rec.Code, rec.Body)
 	}

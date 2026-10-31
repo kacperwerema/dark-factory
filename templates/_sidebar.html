@@ -33,18 +33,17 @@ A page with a screen panel renders "sidebar-open", its panel, then
             <summary>{{len .Queue}} after the fact</summary>
             {{range .Queue}}
             <div class="sidebar-yolo-row" data-testid="nav.yolo.row.{{tid .Slug}}">
-                <a href="{{$.Prefix}}/issue/{{.Slug}}" class="mono">{{.Slug}}</a> {{if .Check}}· {{.Label}}{{else}}→ {{.Status}}{{end}}
-                <button type="button" class="btn btn-small" data-yolo="agree" data-slug="{{.Slug}}" data-status="{{.Key}}">Agree</button>
-                <button type="button" class="btn btn-small" data-yolo="back" data-slug="{{.Slug}}" data-status="{{.Key}}">Back{{if .From}} to {{.From}}{{end}}</button>
+                <a href="{{$.Prefix}}/issue/{{.Slug}}#yolo" class="mono">{{.Slug}}</a> · {{.Detail}}
             </div>
             {{end}}
+            <a class="btn btn-small" href="{{$.Prefix}}/yolo/review" data-testid="nav.yolo.review_all">Review all</a>
         </details>
         {{end}}
     </section>
     <script src="/static/yolo.js" defer></script>
     {{end}}{{end}}
     {{if .CreateInPage}}
-    <button type="button" class="btn btn-primary sidebar-create" data-testid="nav.create" onclick="openCreateModal('')">
+    <button type="button" class="btn btn-primary sidebar-create" data-testid="nav.create" data-click="{{onCall "openCreateModal" ""}}">
     {{else}}
     <a href="{{.Prefix}}/?classic=1&amp;new=1" class="btn btn-primary sidebar-create" data-testid="nav.create">
     {{end}}
@@ -104,9 +103,9 @@ A page with a screen panel renders "sidebar-open", its panel, then
     <div class="sidebar-foot">
         <div class="sidebar-group" data-testid="nav.actions">
             <span class="label">Actions</span>
-            <button type="button" class="btn" data-testid="actions.spawn_lead" title="Start (or re-attach) the CEO, tmux session lead-&lt;project&gt;" onclick="spawnProjectLead('{{.Prefix}}')">Start the CEO</button>
+            <button type="button" class="btn" data-testid="actions.spawn_lead" title="Start (or re-attach) the CEO, tmux session lead-&lt;project&gt;" data-click="{{onCall "spawnProjectLead" .Prefix}}">Start the CEO</button>
             {{range .ProjectActions}}
-            <button type="button" class="btn" onclick="dispatchProjectAction('{{$.Prefix}}', '{{.ID}}', '{{.Label}}')">{{.Label}}</button>
+            <button type="button" class="btn" data-click="{{onCall "dispatchProjectAction" $.Prefix .ID .Label}}">{{.Label}}</button>
             {{end}}
         </div>
         <div class="sidebar-group">
@@ -120,7 +119,7 @@ A page with a screen panel renders "sidebar-open", its panel, then
     </div>
 </aside>
 {{template "project-actions-modal" .}}
-<script>
+<script nonce="{{cspNonce}}">
 // The More group starts open on a view inside it (data-pinned); elsewhere it
 // keeps the open/closed state this browser last left it in.
 (function() {

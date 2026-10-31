@@ -26,6 +26,8 @@ type Entry struct {
 	Body         string
 	ModTime      time.Time
 	ReviewStatus string
+	// Kind is "postmortem" for a post-mortem (internal/postmortem), else "".
+	Kind string
 }
 
 // Time is when the retro was written: its Date line, else the file's time.
@@ -66,7 +68,7 @@ func Load(dir string) ([]*Entry, error) {
 		out = append(out, &Entry{
 			FileName: d.Name(), FilePath: path,
 			IssueSlug: meta["Issue"], IssueTitle: meta["Title"], Status: meta["Status"],
-			System: meta["System"], Date: meta["Date"], ReviewStatus: meta["ReviewStatus"],
+			System: meta["System"], Date: meta["Date"], ReviewStatus: meta["ReviewStatus"], Kind: meta["Kind"],
 			Body: body, ModTime: fi.ModTime(),
 		})
 		return nil
@@ -79,7 +81,7 @@ func Load(dir string) ([]*Entry, error) {
 }
 
 // Parse splits a retro into its header lines (Issue:, Title:, Status:,
-// System:, Date:, ReviewStatus:, after an optional "# " title) and the body.
+// System:, Date:, ReviewStatus:, Kind:, after an optional "# " title) and the body.
 // A file without those lines is all body.
 func Parse(raw string) (map[string]string, string) {
 	content := strings.ReplaceAll(raw, "\r\n", "\n")
@@ -106,7 +108,7 @@ func Parse(raw string) (map[string]string, string) {
 		}
 		key, val, ok := strings.Cut(line, ":")
 		switch key {
-		case "Issue", "Title", "Status", "System", "Date", "ReviewStatus":
+		case "Issue", "Title", "Status", "System", "Date", "ReviewStatus", "Kind":
 		default:
 			ok = false
 		}

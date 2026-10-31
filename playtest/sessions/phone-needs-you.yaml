@@ -1,0 +1,24 @@
+session: phone-needs-you
+issue: ui/phone-width-pass-needs-you-the-station-the-ceo-chat-the-shelf-reader-and-the-hq-report-work-at-390px
+title: "Needs you at phone width: no sideways scroll, approve buttons a thumb can hit"
+scenario: needs-you
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP1
+    title: Needs you at 390px fits the screen and every action is at least 44px tall
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/needs-you
+    checks:
+      - visible: [needs_you.bar, needs_you.select_all, needs_you.approve_selected, needs_you.approve, needs_you.run, map.owner]
+      - size: { target: needs_you.select_all_label, min_height: 44 }
+      - size: { target: needs_you.approve_selected, min_height: 44 }
+      - size: { target: needs_you.approve, min_height: 44, min_width: 44 }
+      - size: { target: needs_you.run, min_height: 44 }
+      - size: { target: needs_you.open, min_height: 44 }
+      - size: { target: needs_you.pick_area, min_height: 44, min_width: 44 }

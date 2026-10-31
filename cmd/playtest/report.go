@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -165,6 +166,7 @@ func cmdReport(o opts, out, errw io.Writer) int {
 		}
 	}
 	fmt.Fprintf(out, "== playtest report: %s ==\n", o.issue)
+	fmt.Fprintf(out, "project: %s (issue-cli --project; -project or PLAYTEST_PROJECT to change)\n", o.project)
 	if repo, err := repoRoot(); err == nil {
 		build := BuildID(repo)
 		for _, r := range p.Runs {
@@ -200,7 +202,31 @@ func cmdReport(o opts, out, errw io.Writer) int {
 		cmd.Stdout, cmd.Stderr = out, errw
 		return cmd.Run()
 	}
-	return applyPlan(p, o.issue, fresh, run, out, errw)
+	verify := func() (map[string]bool, bool) { return issueChecked(bin, o.project, o.issue) }
+	return applyPlan(p, o.issue, fresh, run, verify, out, errw)
+}
+
+// issueChecked reads which of an issue's boxes are ticked, by id, through
+// the real issue-cli. ok is false when it can't be read.
+func issueChecked(bin, project, slug string) (map[string]bool, bool) {
+	raw, err := exec.Command(bin, "--project", project, "--json", "checklist", slug).Output()
+	if err != nil {
+		return nil, false
+	}
+	var doc struct {
+		Items []struct {
+			ID      string `json:"id"`
+			Checked bool   `json:"checked"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil, false
+	}
+	m := map[string]bool{}
+	for _, it := range doc.Items {
+		m[strings.ToUpper(it.ID)] = it.Checked
+	}
+	return m, true
 }
 
 // applyPlan ticks the plan's boxes and posts its fresh comments through run
@@ -208,7 +234,11 @@ func cmdReport(o opts, out, errw io.Writer) int {
 // steps in a call of their own: for an agent issue-cli refuses them, and
 // they stay for the owner (Owner checks page, or the owner's own
 // make playtest-report APPLY=1) while the comments are still posted.
-func applyPlan(p *Plan, issue string, fresh []string, run func(args ...string) error, out, errw io.Writer) int {
+//
+// verify (nil skips it) reads the checklist back afterwards: a box the
+// plan ticked that is still open is named and the run fails, so a call
+// that went to the wrong project or ticked nothing can't pass as done.
+func applyPlan(p *Plan, issue string, fresh []string, run func(args ...string) error, verify func() (map[string]bool, bool), out, errw io.Writer) int {
 	owner := map[string]bool{}
 	for _, id := range p.OwnerTick {
 		owner[id] = true
@@ -226,12 +256,32 @@ func applyPlan(p *Plan, issue string, fresh []string, run func(args ...string) e
 		}
 	}
 	ticked, code := len(machine), 0
+	expect := append([]string{}, machine...)
 	if len(p.OwnerTick) > 0 {
 		if err := run(append([]string{"check", issue}, p.OwnerTick...)...); err != nil {
 			fmt.Fprintf(errw, "issue-cli check %s: %v\n  the owner's judgement steps were not ticked: they stay for the owner (the Owner checks page, or make playtest-report APPLY=1 in the owner's own shell)\n", strings.Join(p.OwnerTick, " "), err)
 			code = 1
 		} else {
 			ticked += len(p.OwnerTick)
+			expect = append(expect, p.OwnerTick...)
+		}
+	}
+	if verify != nil && len(expect) > 0 {
+		if got, ok := verify(); !ok {
+			fmt.Fprintf(errw, "✗ could not read %s's checklist back to confirm the ticks\n", issue)
+			code = 1
+		} else {
+			var open []string
+			for _, id := range expect {
+				if !got[strings.ToUpper(id)] {
+					open = append(open, id)
+				}
+			}
+			if len(open) > 0 {
+				fmt.Fprintf(errw, "✗ issue-cli check passed, but %s still unticked: %s\n", issue, strings.Join(open, " "))
+				ticked -= len(open)
+				code = 1
+			}
 		}
 	}
 	var done []string
@@ -254,6 +304,10 @@ func applyPlan(p *Plan, issue string, fresh []string, run func(args ...string) e
 			_ = os.WriteFile(filepath.Join(d, reportedFile), b, 0o644)
 		}
 	}
-	fmt.Fprintf(out, "✓ ticked %d, commented %d\n", ticked, len(done))
+	mark := "✓"
+	if code != 0 {
+		mark = "✗"
+	}
+	fmt.Fprintf(out, "%s ticked %d, commented %d\n", mark, ticked, len(done))
 	return code
 }

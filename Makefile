@@ -77,7 +77,7 @@ security-check:
 #                                             machine checks, headless, desktop + phone
 #   make playtest [ISSUE=slug] [S=session]    the owner's judgement steps, in an overlay
 #   make playtest-report ISSUE=slug [APPLY=1] tick passed boxes, comment failures
-#   make shot URL=… [W=390] [H=844] [FULL=1] [OUT=file.png]
+#   make shot URL=… [W=390] [H=844] [FULL=1] [SCROLL=sel] [OUT=file.png]
 #                                             one screenshot of one page (headless)
 # In a dispatched worktree (branch work/<slug>) ISSUE defaults to <slug>, so a
 # plain `make playtest` runs that issue's sessions. Pass ISSUE= to run them all.
@@ -100,4 +100,4 @@ playtest-report:
 	@$(PLAYTEST) report -issue $(or $(ISSUE),$(BRANCH_ISSUE)) $(if $(S),-s $(S)) $(if $(APPLY),-apply)
 
 shot:
-	@$(PLAYTEST) shot -url '$(URL)' $(if $(W),-w $(W)) $(if $(H),-h $(H)) $(if $(FULL),-full) $(if $(OUT),-out $(OUT))
+	@$(PLAYTEST) shot -url '$(URL)' $(if $(W),-w $(W)) $(if $(H),-h $(H)) $(if $(FULL),-full) $(if $(SCROLL),-scroll '$(SCROLL)') $(if $(OUT),-out $(OUT))

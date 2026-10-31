@@ -24,6 +24,15 @@ type Runner struct {
 	// branch). An auto run of another issue's session keeps no shots except
 	// failing ones; "" keeps every shot. See OwnIssue().
 	OwnIssue string
+	// Named is the session asked for by name (-s, make ux-test S=). It
+	// keeps its shots even when it is another issue's: someone asked for
+	// that session's evidence.
+	Named string
+	// EvidenceRuns is the project root's .playtest/runs, where the Evidence
+	// tab reads every issue's runs. A named session of another issue writes
+	// its run there, not in this worktree, which only its own issue reads.
+	// "" keeps every run under RunsRoot.
+	EvidenceRuns string
 
 	// shotsSkipped: a shot was left out for another issue's session, said
 	// once per invocation.
@@ -45,8 +54,41 @@ type Runner struct {
 
 // keepsShots: an auto run keeps the shots of the run's own issue's
 // sessions, and every shot when the run has no own issue.
+// A session asked for by name keeps its shots whoever's it is.
 func (r *Runner) keepsShots(s *Session) bool {
-	return r.OwnIssue == "" || s.Issue == r.OwnIssue
+	return r.OwnIssue == "" || s.Issue == r.OwnIssue || (r.Named != "" && s.Name == r.Named)
+}
+
+// runsRoot is where s's run folder goes: the project root's runs for a
+// named session of another issue (the Evidence tab reads the root and the
+// issue's own worktree, and prune clears other issues' runs from a
+// worktree), RunsRoot for everything else.
+func (r *Runner) runsRoot(s *Session) string {
+	if r.EvidenceRuns != "" && r.Named != "" && s.Name == r.Named && r.OwnIssue != "" && s.Issue != r.OwnIssue {
+		return r.EvidenceRuns
+	}
+	return r.RunsRoot
+}
+
+// EvidenceRunsDir is the project root's .playtest/runs when repo is a
+// linked worktree of it (git's common dir is the root's .git), else "".
+func EvidenceRunsDir(repo string) string {
+	out, err := exec.Command("git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	common := strings.TrimSpace(string(out))
+	if filepath.Base(common) != ".git" {
+		return ""
+	}
+	root := filepath.Dir(common)
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	if r, err := filepath.EvalSymlinks(repo); err == nil && r == root {
+		return ""
+	}
+	return filepath.Join(root, ".playtest", "runs")
 }
 
 // ShotsNote is the one line ux-test prints when it left shots out.
@@ -77,8 +119,8 @@ func OwnIssue(repo, flag string) string {
 const stepTimeout = 90 * time.Second
 
 // newRunDir creates .playtest/runs/<session>/<time>-<mode>/.
-func (r *Runner) newRunDir(session, mode string) (string, error) {
-	dir := filepath.Join(r.RunsRoot, session, time.Now().Format("20060102-150405.000")+"-"+mode)
+func (r *Runner) newRunDir(root, session, mode string) (string, error) {
+	dir := filepath.Join(root, session, time.Now().Format("20060102-150405.000")+"-"+mode)
 	for _, d := range []string{"logs", "shots"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			return "", err
@@ -123,9 +165,13 @@ func (r *Runner) UXTest(b *Browser, s *Session, only map[string]bool) (*Results,
 	if err != nil {
 		return nil, "", err
 	}
-	dir, err := r.newRunDir(s.Name, "auto")
+	root := r.runsRoot(s)
+	dir, err := r.newRunDir(root, s.Name, "auto")
 	if err != nil {
 		return nil, "", err
+	}
+	if root != r.RunsRoot {
+		fmt.Fprintf(r.Out, "%s is %s's session: its run goes to %s, where that issue's Evidence tab reads it\n", s.Name, s.Issue, root)
 	}
 	res := &Results{Session: s.Name, Issue: s.Issue, Title: s.Title, Mode: "auto", Build: r.Build, Started: time.Now().Format(time.RFC3339)}
 	fmt.Fprintf(r.Out, "\n== ux-test %s (%s) ==\n", s.Name, s.Issue)
@@ -225,6 +271,9 @@ func (r *Runner) runStep(b *Browser, bins *Binaries, s *Session, st *Step, vp Vi
 
 	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
 	defer cancel()
+	if err := pg.SignInOwner(ctx, sc.Base, sc.OwnerSession); err != nil {
+		return fail("browser: owner sign-in: %v", err)
+	}
 	if s.Checks.ReducedMotion {
 		if err := pg.ReduceMotion(ctx); err != nil {
 			return fail("browser: reduced motion: %v", err)

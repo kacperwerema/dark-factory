@@ -13,10 +13,43 @@ const (
 	// EvalScoreOutput: the newest output the run put on the shelf for the
 	// issue, its file's text graded by the rubric and assertions.
 	EvalScoreOutput = "output"
+	// EvalScoreDiff: the worker's diff against the task's base, graded by
+	// the rubric and assertions (a change in files with no hidden tests,
+	// such as docs).
+	EvalScoreDiff = "diff"
 )
 
 // EvalScores are the values Score takes.
-var EvalScores = []string{EvalScoreTests, EvalScoreOutput}
+var EvalScores = []string{EvalScoreTests, EvalScoreOutput, EvalScoreDiff}
+
+// EvalAssertTypes are the promptfoo assertion types an eval's assert:
+// passes through: the ones that grade text without a model, a network
+// call or code (read from promptfoo 0.124.1's BaseAssertionTypesSchema).
+// Each also takes promptfoo's not- prefix.
+var EvalAssertTypes = []string{
+	"equals", "contains", "icontains", "contains-all", "contains-any", "icontains-all", "icontains-any",
+	"starts-with", "regex", "is-json", "contains-json", "is-html", "contains-html", "is-sql", "contains-sql",
+	"is-xml", "contains-xml", "levenshtein", "word-count", "rouge-n", "bleu", "gleu",
+}
+
+// EvalAssertModelTypes are promptfoo assertion types that need a model:
+// they belong under rubric:, graded by the benchmark's grader.
+var EvalAssertModelTypes = []string{
+	"llm-rubric", "g-eval", "agent-rubric", "search-rubric", "similar", "similar:cosine", "similar:dot", "similar:euclidean",
+	"factuality", "model-graded-closedqa", "model-graded-factuality", "answer-relevance", "context-faithfulness",
+	"context-recall", "context-relevance", "conversation-relevance", "classifier", "moderation", "is-refusal", "select-best", "pi", "guardrails",
+}
+
+// EvalAssertCodeTypes are promptfoo assertion types that run code or call
+// out; an eval never passes them through.
+var EvalAssertCodeTypes = []string{"javascript", "python", "ruby", "webhook"}
+
+// Graded is true for evals the scorer grades (output, diff), false for
+// hidden tests.
+func (e WorkflowEval) Graded() bool {
+	k := e.ScoreKind()
+	return k == EvalScoreOutput || k == EvalScoreDiff
+}
 
 // DefaultEvalPass is the mean score (0-1) a task needs when an eval sets
 // no pass:.
@@ -30,7 +63,7 @@ type WorkflowEval struct {
 	ID          string       `yaml:"id" json:"id" desc:"Unique name of the eval in this file; a benchmark task names it with eval:"`
 	Description string       `yaml:"description,omitempty" json:"description,omitempty" desc:"What a good run looks like, one line"`
 	Types       []string     `yaml:"types,omitempty" json:"types,omitempty" desc:"Issue types this eval scores; empty = every type no other eval lists"`
-	Score       string       `yaml:"score,omitempty" json:"score,omitempty" desc:"How a run is scored: tests (hidden Go tests + checks, the default) or output (the run's output on the shelf)"`
+	Score       string       `yaml:"score,omitempty" json:"score,omitempty" desc:"How a run is scored: tests (hidden Go tests + checks, the default), output (the run's output on the shelf) or diff (the worker's diff against the base), the last two by the rubric and assertions"`
 	Rubric      []string     `yaml:"rubric,omitempty" json:"rubric,omitempty" desc:"Lines a grader model checks the output against (promptfoo llm-rubric, graded by the benchmark's judge: command)"`
 	Assert      []EvalAssert `yaml:"assert,omitempty" json:"assert,omitempty" desc:"promptfoo assertions without a model, passed through: contains, icontains, not-contains, regex, is-json, … (type, value)"`
 	Checks      []string     `yaml:"checks,omitempty" json:"checks,omitempty" desc:"Shell commands that must pass in the task's checkout"`
@@ -39,7 +72,7 @@ type WorkflowEval struct {
 
 // EvalAssert is one promptfoo assertion an eval passes through.
 type EvalAssert struct {
-	Type  string `yaml:"type" json:"type" desc:"promptfoo assertion type (contains, icontains, not-contains, not-icontains, regex, not-regex, starts-with, is-json, contains-json, equals, levenshtein, word-count)"`
+	Type  string `yaml:"type" json:"type" desc:"promptfoo assertion type without a model (contains, icontains, contains-any, regex, starts-with, is-json, contains-json, equals, levenshtein, word-count, …; each with not-)"`
 	Value any    `yaml:"value,omitempty" json:"value,omitempty" desc:"The assertion's value: text, a pattern or a number"`
 }
 

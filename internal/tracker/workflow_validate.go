@@ -15,7 +15,17 @@ func (w *WorkflowConfig) ValidateTransition(issue *Issue, fromStatus, toStatus s
 	for _, action := range w.transitionActions(fromStatus, toStatus) {
 		switch action.Type {
 		case "validate":
-			if err := w.checkValidateAction(action, issue, comments); err != nil {
+			key, isCheck := CheckKey(action)
+			if isCheck && w.CheckHold != nil {
+				if err := w.CheckHold(key); err != nil {
+					return err
+				}
+			}
+			err := w.checkValidateAction(action, issue, comments)
+			if isCheck && w.CheckDone != nil {
+				w.CheckDone(key, err)
+			}
+			if err != nil {
 				return err
 			}
 		case "require_human_approval":
@@ -129,6 +139,8 @@ func validationSummary(rule string) string {
 		return "Validate every acceptance criterion has a proof link that passes its check (issue-cli prove <slug> --list)"
 	case commitsReferenceRule:
 		return "Validate a commit on the branch references the issue (its slug in a subject, or a Refs: <slug> line)"
+	case CritiqueRule:
+		return "Validate a fresh critic found no blocks finding (issue-cli critique <slug>)"
 	case hasOutputRule:
 		if arg == "" {
 			return "Validate the issue has an output on the shelf (issue-cli output add --issue <slug>)"
@@ -195,6 +207,8 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		return w.checkCommitsReference(issue)
 	case hasOutputRule:
 		return w.checkHasOutput(ruleArg, issue)
+	case CritiqueRule:
+		return w.checkCritique(issue)
 	case "has_assignee":
 		if issue.Assignee == "" {
 			// start re-claims and moves the issue on (backlog clears the
@@ -251,7 +265,7 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 			}
 		}
 	default:
-		return fmt.Errorf("unknown validation rule: %s", ruleName)
+		return &UnknownRuleError{Rule: ruleName, Version: BuildVersion}
 	}
 	return nil
 }

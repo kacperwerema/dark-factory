@@ -13,7 +13,7 @@ steps:
     title: The company page draws Outbound's room inside GTM's and Sales's inside Outbound's; HQ's goal rolls up from them
     proves: [AC1]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.room.group }
     checks:

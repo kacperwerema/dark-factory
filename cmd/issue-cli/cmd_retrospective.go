@@ -74,5 +74,6 @@ Date: %s
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Retrospective saved for %s\n", issue.Slug)
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", path)
+	printMemoryReflection(ctx.Stdout, ctx, issue)
 	return nil
 }

@@ -36,7 +36,7 @@ func TestRoomsAndLineShowHandoffs(t *testing.T) {
 	withHandoffs(t, &a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company,
 		`data-testid="company.room.handoffs"`,
 		`data-testid="company.room.handoffs.forward"`,
@@ -67,7 +67,7 @@ func TestRoomsWithoutHandoffsShowNoBlock(t *testing.T) {
 	withConnections(t, &a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if strings.Contains(company, `company.room.handoffs`) {
 		t.Error("a plain request is no handoff: no Handoffs block")
 	}

@@ -32,6 +32,11 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component.
   (swept 2026-10-31): each row moved, sent to a child issue, or dropped
   with a decision. Before retiring a classic page, check its rows there;
   before adding to a classic page, add the Workshop half too.
+- **Thumb-sized at phone width.** At 640px and below every button, link and
+  key the owner acts with is at least 44px tall (square keys 44px wide). The
+  rule lives in one block at the end of `static/workshop.css` ("phone width:
+  tap targets"): add a new button class there, and give the page's phone
+  session a `size: { target: …, min_height: 44 }` check (`phone-*.yaml`).
 - **Visual changes are the owner's call.** A worker shows a screenshot
   (`make shot URL=…`) and leaves an owner box; it never ticks it.
 
@@ -246,6 +251,21 @@ longer defined. Add the row when you add the component.
 | `wb/doc-agents` | issues and decisions tied to the doc | `*WbDocSide` |
 | `wb/doc-edit` | Edit in nvim | `string (POST URL)` |
 
+### templates/_workshop_floor.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/fl-header` | one header row: crumbs, goal chips, counts | `FloorData` |
+| `wb/fl-yolo` | the 34px YOLO strip (and the YOLO script's hook) | `WbYOLO` |
+| `wb/fl-tile` | one room on the plan (HQ, Product, dept, wing, plot) | `FloorTile` |
+| `wb/fl-stations` | a line as a fixed strip | `FloorTile` |
+| `wb/fl-sub` | a department or nested group inside a wing | `FloorSub` |
+| `wb/fl-roads` | corridors and connection roads under the tiles | `FloorPlan` |
+| `wb/fl-rail` | Waiting on you, Room | After YOLO, message box | `FloorData` |
+| `wb/fl-insp` | one room in the rail | `FloorInspector` |
+| `wb/fl-num` | one of a tile's three numbers | `FloorNum` |
+| `wb/fl-goals` | a tile's goals as bars (detail level) | `[]WbGoal` |
+
 ### templates/_workshop_hall_edit.html
 
 | Component | What it draws | Data |
@@ -315,7 +335,7 @@ longer defined. Add the row when you add the component.
 | `wb/ny-group` | one project's sections | `NeedsYouGroup` |
 | `wb/ny-section` | one kind of row: To approve, To test, … | `NeedsYouSection` |
 | `wb/ny-row` | one item waiting on you, its actions | `WbQueueCard` |
-| `wb/ny-after` | YOLO's after-the-fact queue | `[]WbYOLORow` |
+| `wb/ny-after` | YOLO's after-the-fact queue: counts, oldest age, Review all, at most 8 rows | `NeedsYouGroup` |
 | `wb/ny-empty` | nothing is waiting | `none` |
 | `wb/ny-confirm` | the Approve dialog | `none` |
 
@@ -328,6 +348,29 @@ longer defined. Add the row when you add the component.
 | `wb/oc-issue` | one issue's open owner boxes | `OwnerChecksIssue` |
 | `wb/oc-box` | one box: tick, text, why, shot | `OwnerCheckBox` |
 | `wb/oc-empty` | nothing waits for the owner's eyes | `OwnerChecksData` |
+
+### templates/_workshop_yolo_review.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/yr-summary` | issues, gates, owner checks, oldest, page | `YOLOReviewData` |
+| `wb/yr-group` | one issue: head, evidence, gates, checks, its Agree and Back to | `YOLOReviewGroup` |
+| `wb/yr-evidence` | the issue's shots, tests line and change | `YOLOReviewEvidence` |
+| `wb/yr-gate` | one gate passed without the owner | `WbYOLOPass` |
+| `wb/yr-check` | one owner box left open: Tick, Agree without it | `WbYOLOPass` |
+| `wb/yr-question` | one answer the agent assumed in its clarify round, linked to the Station's form | `WbYOLOPass` |
+| `wb/yr-pager` | newer / older issues | `YOLOReviewData` |
+
+### templates/_workshop_memory.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/mem-filters` | the scope, kind, state, pin and group seg links | `[]MemoryFilter` |
+| `wb/mem-entities` | the entity index: each #topic and @name with its count and who knows it, a link that filters to it (`?entity=`) | `MemoryData` |
+| `wb/mem-group` | the memories under one entity (`?group=entity`), "No entity" last | `MemoryGroup` |
+| `wb/mem-recent` | what agents learned in the last 7 days | `[]MemoryEventLine` |
+| `wb/mem-row` | one memory: kind, scope, state, pin, source, links, the text to edit, Save / Pin / Delete, history | `MemoryRow` |
+| `wb/mem-empty` | no memory matches, and the add command | `MemoryData` |
 
 ### templates/_workshop_report.html
 
@@ -353,9 +396,11 @@ longer defined. Add the row when you add the component.
 | `wb/check-mark` | a met / not-met mark | `bool` |
 | `wb/release` | Waiting for release: milestone, checks, release candidate, next steps, open issues, ## Unreleased, unpushed commits | `*StatusModel` |
 | `wb/ci` | Local CI: state, last runs, what failed | `*StatusModel` |
+| `wb/behind` | the installed build behind main (engine project only): `installed <describe> · main is N commits ahead`, the changelog entries since, the install command | `*StatusModel` |
 | `wb/active-list` | Working on: each issue in flight with its status, age and agent; agents on issues not started | `WbActiveList` |
 | `wb/active-row` | one issue in flight | `WbActiveRow` |
 | `wb/released` | Recently released: the newest releases, or what the first one will be | `WbReleased` |
+| `wb/queue` | the lead's Queue card: next 5, blocked, done today, the refill line, the verdict | `*StatusModel` |
 | `wb/autostart` | the Auto-start card | `*StatusModel` |
 | `wb/bench` | the Benchmark card | `*WbBench` |
 
@@ -400,6 +445,8 @@ longer defined. Add the row when you add the component.
 | `wb/move-task` | one numbered step before the stamp | `WbMoveTask` |
 | `wb/stamp` | the gate approval with your words | `*WbStamp` |
 | `wb/quality-card` | one card of the quality check | `WbQualityCard` |
+| `wb/clarify` | the clarify round as one form: every question, its options with the cost, the recommendation first, Answer all | `*WbClarify` |
+| `wb/clarify-q` | one question: options as radios, the owner's words, its assumed or answered state | `WbClarifyQuestion` |
 | `wb/decisions` | the D-n list | `WbDecisions` |
 | `wb/decision` | one decision | `WbDecision` |
 | `wb/change-card` | the files the work branch changed | `WbChangeCard` |
@@ -420,6 +467,7 @@ longer defined. Add the row when you add the component.
 | `wb/dispatch` | Dispatch to Claude / Codex, the workflow's custom actions, the steps, the dispatch prompt | `WbDispatch` |
 | `wb/station-missing` | the sources the page could not read | `[]string` |
 | `wb/station-outputs` | what the issue made, from the shelf | `*WbStationOutputs` |
+| `wb/station-critique` | the fresh critic's newest run: verdict, blocks and should with path:line, notes folded, Coverage (docs/Workflow/critique.md) | `*WbStationCritique` |
 
 ### templates/_workshop_stats.html
 
@@ -478,6 +526,7 @@ longer defined. Add the row when you add the component.
 | `wb/upgrade-card` | one proposed feature and its actions | `WbUpgradeCard` |
 | `wb/upgrade-more` | the "N more" row | `WbUpgradeMore` |
 | `wb/dept-templates` | Departments you can add | `[]WbDeptTemplate` |
+| `wb/dept-updates` | Departments with new template text (`department update`) | `[]WbDeptUpdate` |
 | `wb/declined` | declined features with Re-open | `[]WbDeclinedRow` |
 | `wb/upd-tally` | the numbers across projects | `[]WbUpdTally` |
 | `wb/upd-project` | one project's template and state | `UpdatesOverviewRow` |

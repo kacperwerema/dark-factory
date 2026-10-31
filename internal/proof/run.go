@@ -23,6 +23,9 @@ const (
 	RunSkip     = "skip"
 	RunNotRun   = "not run"
 	RunNotFound = "not found"
+	// RunSuperseded: not found, and only older trailers name it; a newer
+	// link on each of its criteria names a test that is there. Skipped.
+	RunSuperseded = "superseded"
 )
 
 // RunResult is one test name a test link gives, and what go test said.
@@ -30,6 +33,9 @@ type RunResult struct {
 	Name    string `json:"name"`
 	Package string `json:"package,omitempty"`
 	Outcome string `json:"outcome"`
+	// SupersededBy describes the newer link that superseded a
+	// RunSuperseded name ("TestB (trailer on abc1234)").
+	SupersededBy string `json:"superseded_by,omitempty"`
 	// Output is the tail of the test's output (its package's when it did
 	// not run), kept for a test that didn't pass.
 	Output []string `json:"output,omitempty"`
@@ -44,14 +50,20 @@ type TestRun struct {
 	Posted   bool        `json:"posted"`
 }
 
-// Passed reports whether every named test ran and passed.
+// Passed reports whether every named test ran and passed, superseded ones
+// aside, and at least one did.
 func (r TestRun) Passed() bool {
+	passed := false
 	for _, res := range r.Results {
-		if res.Outcome != RunPass {
+		switch res.Outcome {
+		case RunPass:
+			passed = true
+		case RunSuperseded:
+		default:
 			return false
 		}
 	}
-	return len(r.Results) > 0
+	return passed
 }
 
 // Names returns the run's names with the given outcome.
@@ -72,7 +84,86 @@ func (r TestRun) Comment() string {
 	if r.Head != "" {
 		at = " at " + r.Head
 	}
-	return fmt.Sprintf("tests: prove --run%s: %s — %d passed: %s", at, r.Command, len(names), strings.Join(names, ", "))
+	c := fmt.Sprintf("tests: prove --run%s: %s — %d passed: %s", at, r.Command, len(names), strings.Join(names, ", "))
+	if old := r.Names(RunSuperseded); len(old) > 0 {
+		c += fmt.Sprintf("; %d superseded: %s", len(old), strings.Join(old, ", "))
+	}
+	return c
+}
+
+// PlanReportRun is PlanGoRun over the test names r's links give, with each
+// name not found that a newer link supersedes (Superseded) marked
+// RunSuperseded instead: a Proves: trailer pins its commit, and a test
+// renamed or removed later can't be taken out of it.
+func PlanReportRun(dir string, r Report) TestRun {
+	run := PlanGoRun(dir, TestNames(r))
+	found := func(n string) bool {
+		for _, res := range run.Results {
+			if res.Name == n {
+				return res.Outcome != RunNotFound
+			}
+		}
+		return false
+	}
+	for i, res := range run.Results {
+		if res.Outcome != RunNotFound {
+			continue
+		}
+		if by, ok := Superseded(r, res.Name, found); ok {
+			run.Results[i].Outcome, run.Results[i].SupersededBy = RunSuperseded, by
+		}
+	}
+	return run
+}
+
+// Superseded reports whether the test name is superseded on every
+// criterion it is linked to, and by what (the first one's newer link). On
+// a criterion, a trailer link to name is superseded by a test link whose
+// test is found: from a newer commit's trailer (trailer links come newest
+// commit first) or from issue-cli prove. A link from issue-cli prove to
+// name is never superseded: prove --remove takes it out.
+func Superseded(r Report, name string, found func(string) bool) (string, bool) {
+	by := ""
+	for _, c := range r.Criteria {
+		for j, l := range c.Links {
+			if l.Kind != tracker.ProofTest || l.Ref != name {
+				continue
+			}
+			newer, ok := supersededIn(c.Links, j, found)
+			if !ok {
+				return "", false
+			}
+			if by == "" {
+				by = newer.Ref + " (" + linkFrom(newer.Link) + ")"
+			}
+		}
+	}
+	return by, by != ""
+}
+
+// supersededIn finds the link that supersedes links[j] (see Superseded).
+func supersededIn(links []CheckedLink, j int, found func(string) bool) (CheckedLink, bool) {
+	old := links[j]
+	if old.Source != SourceTrailer {
+		return CheckedLink{}, false
+	}
+	for k, l := range links {
+		if l.Kind != tracker.ProofTest || l.Ref == old.Ref || !found(l.Ref) {
+			continue
+		}
+		if l.Source == SourceProve || (l.Source == SourceTrailer && k < j && l.From != old.From) {
+			return l, true
+		}
+	}
+	return CheckedLink{}, false
+}
+
+// linkFrom says where a link was declared: "trailer on abc1234", "prove".
+func linkFrom(l Link) string {
+	if l.Source == SourceTrailer && l.From != "" {
+		return "trailer on " + l.From
+	}
+	return l.Source
 }
 
 // TestNames are the test names r's test links give, in criteria order,
@@ -215,7 +306,7 @@ func ReadGoTestJSON(run *TestRun, data []byte) {
 		return output[best]
 	}
 	for i, res := range run.Results {
-		if res.Outcome == RunNotFound {
+		if res.Outcome == RunNotFound || res.Outcome == RunSuperseded {
 			continue
 		}
 		name := strings.ReplaceAll(res.Name, " ", "_")

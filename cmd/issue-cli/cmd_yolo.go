@@ -96,13 +96,15 @@ func yoloNotWorker(ctx *Context, what string) error {
 }
 
 type yoloStatusJSON struct {
-	On        bool        `json:"on"`
-	Since     time.Time   `json:"since,omitempty"`
-	Until     string      `json:"until,omitempty"`
-	Valves    yolo.Valves `json:"valves"`
-	Passed    int         `json:"passed"`
-	Queue     []yolo.Pass `json:"queue"`
-	EndReason string      `json:"end_reason,omitempty"`
+	On     bool        `json:"on"`
+	Since  time.Time   `json:"since,omitempty"`
+	Until  string      `json:"until,omitempty"`
+	Valves yolo.Valves `json:"valves"`
+	Passed int         `json:"passed"`
+	// Queue is one entry per issue waiting for review after the fact (its
+	// gates and owner checks): the review unit every count counts.
+	Queue     []yolo.Entry `json:"queue"`
+	EndReason string       `json:"end_reason,omitempty"`
 	// NeverPasses is the gates YOLO never passes (yolo.OwnerGates).
 	NeverPasses []yolo.OwnerGate `json:"never_passes"`
 }
@@ -121,11 +123,11 @@ func runYOLOStatus(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	queue := yolo.Queue(issues)
+	queue := yolo.QueueEntries(issues)
 	out := yoloStatusJSON{On: on, Valves: st.Valves, Queue: queue, EndReason: st.EndReason,
 		NeverPasses: yolo.OwnerGates(ctx.Project, st.Valves)}
 	if queue == nil {
-		out.Queue = []yolo.Pass{}
+		out.Queue = []yolo.Entry{}
 	}
 	if on {
 		out.Since, out.Until = st.Since, st.EndLabel(now)
@@ -146,9 +148,10 @@ func runYOLOStatus(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "  valves: %s\n", yoloValvesLine(st.Valves))
 	}
 	printYOLONeverPasses(w, out.NeverPasses)
-	fmt.Fprintf(w, "To review after the fact: %d\n", len(queue))
+	fmt.Fprintf(w, "To review after the fact: %s\n", yoloQueueCount(queue))
 	if len(queue) > 0 {
 		fmt.Fprintln(w, "  "+tracker.InjectProject(ctx.Project, "issue-cli yolo queue"))
+		fmt.Fprintln(w, "  the owner reviews them together: "+yoloReviewURL(ctx.Project))
 	}
 	return nil
 }
@@ -316,10 +319,10 @@ func runYOLOQueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	queue := yolo.Queue(issues)
+	queue := yolo.QueueEntries(issues)
 	if ctx.JSONOutput {
 		if queue == nil {
-			queue = []yolo.Pass{}
+			queue = []yolo.Entry{}
 		}
 		return writeJSON(ctx.Stdout, queue)
 	}
@@ -327,21 +330,39 @@ func runYOLOQueue(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, "Nothing to review after the fact.")
 		return nil
 	}
-	fmt.Fprintf(ctx.Stdout, "== To review after YOLO (%d) ==\n", len(queue))
-	for _, p := range queue {
-		from := p.From
-		if from == "" {
-			from = "?"
+	fmt.Fprintf(ctx.Stdout, "== To review after YOLO: %s ==\n", yoloQueueCount(queue))
+	for _, e := range queue {
+		fmt.Fprintf(ctx.Stdout, "  %s  (%s)\n", e.Slug, e.Detail())
+		for _, p := range e.Gates {
+			from := p.From
+			if from == "" {
+				from = "?"
+			}
+			fmt.Fprintf(ctx.Stdout, "      gate %s → %s  by %s  %s\n", from, p.Status, p.By, tracker.CommentDay(p.At))
 		}
-		if p.Check != "" {
-			fmt.Fprintf(ctx.Stdout, "  %s  %s (%s) %q  from %s  %s\n", p.Slug, p.Label(), p.Why, p.What, from, tracker.CommentDay(p.At))
-			continue
+		for _, p := range e.Checks {
+			fmt.Fprintf(ctx.Stdout, "      %s (%s) %q  from %s  %s\n", p.Label(), p.Why, p.What, p.From, tracker.CommentDay(p.At))
 		}
-		fmt.Fprintf(ctx.Stdout, "  %s  %s → %s  by %s  %s\n", p.Slug, from, p.Status, p.By, tracker.CommentDay(p.At))
 	}
-	fmt.Fprintln(ctx.Stdout, "The owner reviews each on the issue page (Agree / Back to <status>), or:")
+	fmt.Fprintln(ctx.Stdout, "The owner reviews them by issue, with evidence: one Agree covers an issue's gates, owner boxes are ticked one by one: "+yoloReviewURL(ctx.Project))
+	fmt.Fprintln(ctx.Stdout, "Or one at a time on the issue page (Agree / Back to <status>), or:")
 	fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli yolo review <slug> --agree --quote \"<owner's words>\""))
 	return nil
+}
+
+// yoloQueueCount is "3 issues (5 gates, 2 owner checks)": the issue is the
+// review unit, its gates and owner checks the detail.
+func yoloQueueCount(queue []yolo.Entry) string {
+	gates, checks := yolo.Totals(queue)
+	unit := "issues"
+	if len(queue) == 1 {
+		unit = "issue"
+	}
+	s := fmt.Sprintf("%d %s", len(queue), unit)
+	if detail := (yolo.Entry{Gates: make([]yolo.Pass, gates), Checks: make([]yolo.Pass, checks)}).Detail(); detail != "" {
+		s += " (" + detail + ")"
+	}
+	return s
 }
 
 func runYOLOReview(ctx *Context, args []string) error {

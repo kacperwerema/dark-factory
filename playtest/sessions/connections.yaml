@@ -13,7 +13,7 @@ steps:
     title: The company page lists four connections and draws them as five roads with a parcel on each
     proves: [AC6]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.connections.road.link }
     checks:

@@ -20,7 +20,9 @@ func TestAutostartCard(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	orig := autostart.ReadMemory
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
-	t.Cleanup(func() { autostart.ReadMemory = orig })
+	origLoad := autostart.ReadLoad
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4.28, Cores: 14} }
+	t.Cleanup(func() { autostart.ReadMemory, autostart.ReadLoad = orig, origLoad })
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
@@ -41,7 +43,7 @@ func TestAutostartCard(t *testing.T) {
 	page = pageGet(t, ts.URL+"/p/yp/status")
 	for _, want := range []string{
 		`data-testid="status.autostart"`, "on below 50%", "“start a job under 50%”", "turned on by lead-yp in the lead chat",
-		"start shop (memory 31% &lt; 50%, 0/2 workers)", "Last start on this machine: golf g/x", `data-testid="status.autostart.pause"`,
+		"start shop (memory 31% &lt; 50%, load 4.3 &lt; 14 on 14 cores, 0/2 workers)", `data-testid="status.autostart.load"`, "CPU: load 4.3 on 14 cores (max 14)", "Last start on this machine: golf g/x", `data-testid="status.autostart.pause"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Auto-start card lacks %q", want)
@@ -51,7 +53,7 @@ func TestAutostartCard(t *testing.T) {
 		t.Error("sidebar lacks the Auto-start line")
 	}
 	md := pageGet(t, ts.URL+"/p/yp/status.md")
-	if !strings.Contains(md, `Auto-start: on below 50% memory, cap 2 (owner: "start a job under 50%") · now: start shop`) {
+	if !strings.Contains(md, `Auto-start: on below 50% memory, cap 2 (owner: "start a job under 50%") · load 4.3 on 14 cores (max 14) · now: start shop`) {
 		t.Errorf("status.md lacks the Auto-start line:\n%s", md)
 	}
 

@@ -170,6 +170,8 @@ var volatile = []struct {
 	{regexp.MustCompile(`127\.0\.0\.1:\d+`), "127.0.0.1:<port>"},
 	// Relative ages ("main green at bb47fba (3s ago)") move with a slow first run.
 	{regexp.MustCompile(`\b\d+[smhd] ago\b`), "<n> ago"},
+	// A memory issue-cli memory add writes gets a random id (m-… project, s-… machine).
+	{regexp.MustCompile(`\b[ms]-[0-9a-f]{6}\b`), "<memory id>"},
 }
 
 // sameTruncated reports whether two lines are the same text cut off at

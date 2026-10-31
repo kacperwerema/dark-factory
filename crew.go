@@ -38,6 +38,15 @@ type CrewData struct {
 	// Checked is when tmux was read for this page (unix ms): the page
 	// says "live · tmux checked Ns ago" from it.
 	Checked int64
+	// Subs are the agent CLIs' subscriptions: working, resting until
+	// HH:MM, or unknown (routing).
+	Subs []WbCrewSub
+}
+
+// WbCrewSub is one agent CLI's subscription on the Crew page.
+type WbCrewSub struct {
+	Agent, State, Tone string
+	Installed          bool
 }
 
 // WbCrewRow is a titled row of cards; hidden when it has none.
@@ -70,7 +79,10 @@ type WbCrewCard struct {
 	Epic        string
 	// LastCall is "last issue-cli call 4 m ago", empty when unknown.
 	LastCall string
-	Notes    []string
+	// Agent is the CLI the live session runs (claude, codex); Limit the
+	// usage-limit message its pane shows now (the agent is left running).
+	Agent, Limit string
+	Notes        []string
 	// Command restarts a stopped job (issue-cli dispatch <slug>).
 	Command string
 	// SpawnURL starts a lead that is not running; SpawnWhat names it.
@@ -92,12 +104,12 @@ type WbCrewPanel struct {
 	Command, CommandLabel string
 	// Display is where the agent lives in tmux when that differs from its
 	// name (shared:name in shared mode).
-	Display string
-	LastCmd string
-	Gate, ApproveURL      string
-	Branch, Against       string
-	DiffStat              string
-	Comments              []WbCrewComment
+	Display          string
+	LastCmd          string
+	Gate, ApproveURL string
+	Branch, Against  string
+	DiffStat         string
+	Comments         []WbCrewComment
 }
 
 // WbCrewComment is one of the issue's last comments.
@@ -233,6 +245,20 @@ func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected stri
 		}
 	}
 	d.Count = WbStat{Value: fmt.Sprint(live), Label: plural0(live, "live agent", "live agents")}
+	for _, sv := range m.Subscriptions {
+		tone := "idle"
+		switch {
+		case sv.Resting:
+			tone = "sand"
+		case sv.Live > 0:
+			tone = "green"
+		}
+		state := sv.State
+		if !sv.Installed {
+			state, tone = "not installed", "idle"
+		}
+		d.Subs = append(d.Subs, WbCrewSub{Agent: sv.Agent, State: state, Tone: tone, Installed: sv.Installed})
+	}
 	d.Summary = crewSummary(gates, questions, len(d.Stopped.Cards))
 	return d
 }
@@ -266,7 +292,10 @@ func (c WbCrewCard) Chip() WbChip { return WbChip{Tone: c.Tone, Text: c.State} }
 
 // crewCard is one agent node as a card.
 func crewCard(n AgentNode, kind, prefix string, now time.Time) WbCrewCard {
-	c := WbCrewCard{Name: n.Name, URL: prefix + "/agents?agent=" + url.QueryEscape(n.Name), Kind: kind, gate: n.Gate, live: n.Live, lastCmd: n.LastCmd}
+	c := WbCrewCard{Name: n.Name, URL: prefix + "/agents?agent=" + url.QueryEscape(n.Name), Kind: kind, gate: n.Gate, live: n.Live, lastCmd: n.LastCmd, Agent: n.Agent}
+	if n.Live {
+		c.Limit = n.Limit
+	}
 	if n.Issue != nil {
 		c.Issue = &WbLink{Label: n.Issue.Title, URL: n.Issue.URL}
 		c.Status, c.slug = n.Issue.Status, n.Issue.Slug
@@ -318,8 +347,21 @@ func crewCard(n AgentNode, kind, prefix string, now time.Time) WbCrewCard {
 		default:
 			c.State, c.Tone = "working", "green"
 		}
+		if c.Limit != "" && n.State != "at-gate" && n.State != "question" {
+			c.State, c.Tone = "hit its "+valueOrAgent(n.Agent)+" usage limit · left running", "sand"
+		}
 	}
 	return c
+}
+
+// Chip is the subscription's state chip.
+func (s WbCrewSub) Chip() WbChip { return WbChip{Tone: s.Tone, Text: s.State} }
+
+func valueOrAgent(agent string) string {
+	if agent == "" {
+		return "agent's"
+	}
+	return agent
 }
 
 // crewPanel is the side panel for the selected card.

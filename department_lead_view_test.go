@@ -131,7 +131,7 @@ func TestCompanyRoom_DepartmentLead(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
-	_, html := getBody(t, ts.URL+"/p/agents/company")
+	_, html := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	for _, want := range []string{`data-testid="company.room.dept.lead"`, `>lead-agents-marketing</span>`, `data-spawn-lead="/p/agents/lead/spawn?dept=marketing" data-testid="company.room.dept.lead.start"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("room (not running) lacks %q", want)
@@ -140,7 +140,10 @@ func TestCompanyRoom_DepartmentLead(t *testing.T) {
 	st.mu.Lock()
 	st.live = true
 	st.mu.Unlock()
-	_, html = getBody(t, ts.URL+"/p/agents/company")
+	// The room reads its lead from the session list (as the Crew page does),
+	// not one tmux has-session per room.
+	withMockTmuxSessions(t, []AgentSession{{Name: "lead-agents-marketing"}})
+	_, html = getBody(t, ts.URL+"/p/agents/company?classic=1")
 	if !strings.Contains(html, `href="/p/agents/lead?dept=marketing" data-testid="company.room.dept.lead.talk">Talk to the Marketing lead</a>`) {
 		t.Errorf("room (live) lacks the Talk link")
 	}

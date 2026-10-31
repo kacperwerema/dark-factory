@@ -145,6 +145,10 @@ func (j *judge) start(ctx context.Context, i int) {
 	j.mu.Lock()
 	j.sc = sc
 	j.mu.Unlock()
+	if err := j.page.SignInOwner(ctx, sc.Base, sc.OwnerSession); err != nil {
+		j.setErr("owner sign-in: %v", err)
+		return
+	}
 	env := &stepEnv{sc: sc, page: j.page, snaps: j.snaps, log: j.log}
 	acts := chain(j.s, st)
 	opened := false
@@ -245,7 +249,7 @@ func (r *Runner) Playtest(b *Browser, s *Session, auto *Results) (*Results, stri
 		fmt.Fprintf(r.Out, "%s: no judgement steps (expect:), nothing for the owner\n", s.Name)
 		return nil, "", nil
 	}
-	dir, err := r.newRunDir(s.Name, "judge")
+	dir, err := r.newRunDir(r.runsRoot(s), s.Name, "judge")
 	if err != nil {
 		return nil, "", err
 	}
@@ -387,13 +391,16 @@ func cmdPlaytest(repo string, o opts, out, errw io.Writer) int {
 	if len(sel) == 0 {
 		return 1
 	}
-	r := &Runner{Repo: repo, ScenarioDir: o.scenarios, RunsRoot: o.runs, Build: BuildID(repo), Keep: o.keep, Out: out}
+	r := &Runner{Repo: repo, ScenarioDir: o.scenarios, RunsRoot: o.runs, Build: BuildID(repo), Keep: o.keep, Out: out, OwnIssue: OwnIssue(repo, o.issue), Named: o.session}
+	if o.runs == filepath.Join(repo, ".playtest", "runs") {
+		r.EvidenceRuns = EvidenceRunsDir(repo)
+	}
 	// The owner sees each step's machine result: reuse the last ux-test of
 	// this build, or run it now.
 	autos := map[string]*Results{}
 	var headless *Browser
 	for _, s := range sel {
-		if _, res := LatestRun(o.runs, s.Name, "auto", r.Build); res != nil {
+		if _, res := LatestRun(r.runsRoot(s), s.Name, "auto", r.Build); res != nil {
 			autos[s.Name] = res
 			continue
 		}

@@ -75,7 +75,7 @@ func TestGroupRoomColourDiffersFromHQ(t *testing.T) {
 	withGTMGroup(&a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 
 	assertContains(t, company,
 		`data-testid="company.room.head.hq" style="background:`+companyHQColor+`"`,

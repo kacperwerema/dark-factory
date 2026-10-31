@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
 // TestMain points XDG_DATA_HOME at an empty directory so no test reads this
@@ -14,9 +18,14 @@ func TestMain(m *testing.M) {
 	if err == nil {
 		os.Setenv("XDG_DATA_HOME", dir)
 		os.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+		// No test reads the owner's Codex session logs.
+		os.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
 		// No test reads the owner's Claude Code transcripts.
 		os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude"))
 	}
+	// No test reads a real tmux pane for limits or agents (routing).
+	scanPaneLimits = func(*tracker.Project, string, time.Time) []agentrun.PaneLimit { return nil }
+	sessionAgent = func(*tracker.Project, string) string { return "" }
 	code := m.Run()
 	if err == nil {
 		os.RemoveAll(dir)

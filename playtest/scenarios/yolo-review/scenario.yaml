@@ -1,0 +1,9 @@
+# The review after YOLO: three issues with gates YOLO passed without the
+# owner overnight, one of them with an owner check left open, for
+# /p/<project>/yolo/review (grouped by issue, oldest first, Agree all).
+title: Three issues waiting for review after a YOLO night
+project:
+  name: Yolo Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

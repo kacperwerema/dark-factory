@@ -125,11 +125,12 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	fs := newFlagSet("department add", ctx)
 	parent := fs.String("parent", "", "put the department under this group (a department of the project)")
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
+	commit := fs.Bool("commit", false, "commit the files the add wrote (only those) in the project's git repository")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
+		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--commit] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
 	}
 	proj := ctx.Project
 	tmpl, err := depttemplate.Load(fs.Arg(0))
@@ -145,16 +146,19 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var gitState addedFiles
 	if !*dry {
 		if err := plan.Apply(proj); err != nil {
 			return err
 		}
+		gitState = commitAdded(plan, *commit)
 	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, struct {
 			*depttemplate.Plan
 			DryRun bool `json:"dry_run"`
-		}{plan, *dry})
+			addedFiles
+		}{plan, *dry, gitState})
 	}
 	w := ctx.Stdout
 	if *dry {
@@ -223,7 +227,72 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	fmt.Fprintln(w, ".")
 	fmt.Fprintf(w, "Templates carry no connectors: %s prints the config to add the outside tools it uses.\n",
 		tracker.InjectProject(proj, "issue-cli connectors "+plan.Key))
+	gitState.print(w)
+	if depttemplate.ConfigUncommitted(plan.Root, plan.Config) {
+		fmt.Fprintf(w, "%s is in this repository and has uncommitted changes, the new department entry among them: commit it too (--commit leaves projects.yaml to you)\n", plan.Config)
+	}
 	return nil
+}
+
+// addedFiles is what became of the files department add wrote in git.
+type addedFiles struct {
+	// Untracked are the written files git does not track (relative to the
+	// project root); Committed is the commit --commit made of them.
+	Untracked []string `json:"untracked,omitempty"`
+	Committed string   `json:"committed,omitempty"`
+	Commit    string   `json:"commit_command,omitempty"`
+	GitError  string   `json:"git_error,omitempty"`
+	subject   string
+}
+
+// commitAdded finds the files plan wrote that git does not track and, with
+// commit, commits exactly those.
+func commitAdded(plan *depttemplate.Plan, commit bool) addedFiles {
+	var paths []string
+	for _, p := range append([]*depttemplate.Plan{plan}, plan.Children...) {
+		for _, f := range p.Files {
+			if f.State == depttemplate.FileWrite {
+				paths = append(paths, f.Path)
+			}
+		}
+	}
+	a := addedFiles{subject: "chore(departments): add the " + plan.Name + " department"}
+	files, err := depttemplate.Untracked(plan.Root, paths)
+	if err != nil {
+		a.GitError = err.Error()
+		return a
+	}
+	a.Untracked = files
+	if len(files) == 0 {
+		if commit && !depttemplate.InRepo(plan.Root) {
+			a.GitError = plan.Root + " is not in a git repository: nothing committed"
+		}
+		return a
+	}
+	a.Commit = depttemplate.CommitCommand(plan.Root, files, a.subject)
+	if commit {
+		sha, err := depttemplate.CommitFiles(plan.Root, files, a.subject)
+		if err != nil {
+			a.GitError = err.Error()
+			return a
+		}
+		a.Committed = sha
+	}
+	return a
+}
+
+func (a addedFiles) print(w io.Writer) {
+	switch {
+	case a.Committed != "":
+		fmt.Fprintf(w, "✓ Committed %s (%d files): %s\n", a.Committed, len(a.Untracked), strings.Join(a.Untracked, ", "))
+	case a.GitError != "" && len(a.Untracked) > 0:
+		fmt.Fprintf(w, "Not committed (%s). New files git does not track yet: %s\nCommit them: %s\n", a.GitError, strings.Join(a.Untracked, ", "), a.Commit)
+	case a.GitError != "":
+		fmt.Fprintf(w, "Could not ask git about the new files: %s\n", a.GitError)
+	case len(a.Untracked) > 0:
+		fmt.Fprintf(w, "New files git does not track yet: %s\nCommit them, so they aren't lost or swept into an unrelated commit: %s\n(or add with --commit next time)\n",
+			strings.Join(a.Untracked, ", "), a.Commit)
+	}
 }
 
 // printPlan prints a plan's files and the projects.yaml entry it adds.
@@ -345,4 +414,106 @@ func departmentWorkflowNotes(w io.Writer, proj *tracker.Project, plan *depttempl
 	names[0] += " (default)"
 	fmt.Fprintf(w, "Types of work: %s. Pick one with %s\n", strings.Join(names, ", "),
 		tracker.InjectProject(proj, "issue-cli create --department "+plan.Key+" --type <type> --title \"...\""))
+}
+
+func runDepartmentUpdate(ctx *Context, args []string) error {
+	fs := newFlagSet("department update", ctx)
+	dry := fs.Bool("dry-run", false, "say what would change, change nothing")
+	side := fs.Bool("side", false, "write the template's text next to each file you edited (<name>.template.md), to compare")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return &usageError{msg: "usage: issue-cli department update <name> [--dry-run] [--side]"}
+	}
+	proj := ctx.Project
+	d := proj.DepartmentByKey(fs.Arg(0))
+	if d == nil {
+		return fmt.Errorf("no department %q (departments: %s)", fs.Arg(0), strings.Join(proj.DepartmentKeys(), ", "))
+	}
+	var tmpl *depttemplate.Template
+	for _, t := range depttemplate.List() {
+		if got := t.InstalledAs(proj); got != nil && got.Name == d.Name {
+			tmpl = t
+		}
+	}
+	if tmpl == nil {
+		return fmt.Errorf("%s was not added from a bundled template: there is no newer text for it", d.Name)
+	}
+	u, err := depttemplate.NewUpdate(proj, tmpl)
+	if err != nil {
+		return err
+	}
+	if !*dry {
+		if err := refuseWorker(ctx, "update departments"); err != nil {
+			return err
+		}
+		if err := u.Apply(proj); err != nil {
+			return err
+		}
+	}
+	var sides []depttemplate.SideFile
+	if *side && !*dry {
+		if sides, err = u.SideFiles(); err != nil {
+			return err
+		}
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, map[string]any{"update": u, "dry_run": *dry, "side_files": sides})
+	}
+	w := ctx.Stdout
+	switch {
+	case u.Pending() == 0 && u.Edited() == 0:
+		fmt.Fprintf(w, "%s is up to date with the %s template.\n", d.Name, tmpl.Key)
+	case u.Pending() == 0:
+		fmt.Fprintf(w, "Nothing to update in %s: what differs from the %s template is your own text, kept.\n", d.Name, tmpl.Key)
+	case *dry:
+		fmt.Fprintf(w, "Dry run: department update %s (nothing changed)\n", tracker.DepartmentKey(d.Name))
+	default:
+		fmt.Fprintf(w, "✓ Updated %s to the %s template's text\n", d.Name, tmpl.Key)
+	}
+	for _, it := range u.Items {
+		word := ""
+		switch it.State {
+		case depttemplate.UpdateOld:
+			word = "updated"
+			if *dry {
+				word = "would update"
+			}
+			if !it.File {
+				word += fmt.Sprintf(": %q → %q", it.Have, it.Want)
+			}
+		case depttemplate.UpdateEdited:
+			word = "kept: not an earlier template's text (you or workflow upgrade changed it)"
+		default:
+			continue
+		}
+		where := it.What
+		if !it.File {
+			where = it.What + " (" + proj.ConfigPath + ")"
+		}
+		fmt.Fprintf(w, "  %s: %s\n", where, word)
+	}
+	for _, s := range sides {
+		if s.Kept {
+			fmt.Fprintf(w, "Kept %s: it is already there with other text (delete it to get the template's)\n", s.Path)
+		} else {
+			fmt.Fprintf(w, "Wrote the template's text next to your file: %s (a copy to compare: delete it when done, don't commit it)\n", s.Path)
+		}
+	}
+	if u.Edited() > 0 && !*side {
+		fmt.Fprintf(w, "To compare an edited file with the new text: %s\n", tracker.InjectProject(proj, "issue-cli department update "+tracker.DepartmentKey(d.Name)+" --side"))
+	}
+	if !*dry && u.Pending() > 0 {
+		var files []string
+		for _, it := range u.Items {
+			if it.File && it.State == depttemplate.UpdateOld {
+				files = append(files, it.What)
+			}
+		}
+		if len(files) > 0 {
+			fmt.Fprintf(w, "Commit the new text: %s\n", depttemplate.CommitCommand(proj.Root(), files, "chore(departments): "+d.Name+" to the template's new text"))
+		}
+	}
+	return nil
 }

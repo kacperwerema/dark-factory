@@ -1,0 +1,8 @@
+{
+  "transitions": [],
+  "rounds": [
+    {"check": "gate:criteria_proven", "red": true, "at": "2026-10-31T10:00:00Z", "head": "1111111", "why": "AC1 has no proof link"},
+    {"check": "gate:criteria_proven", "red": true, "at": "2026-10-31T10:20:00Z", "head": "2222222", "why": "AC1 has no proof link"},
+    {"check": "gate:criteria_proven", "red": true, "at": "2026-10-31T10:40:00Z", "head": "3333333", "why": "AC1: TestLabelPrints fails"}
+  ]
+}

@@ -40,7 +40,14 @@ const (
 	HandoffsOldest = "departments.handoffs.oldest_days"
 	OnTrack        = "departments.on_track"
 	Count          = "departments.count"
+	// Measured is how many departments have an on-track row; the rest have
+	// nothing to measure yet (StartsMeasuring).
+	Measured = "departments.measured"
 )
+
+// StartsMeasuring is what gives a department its first measure, for the
+// pages' "not measured yet".
+const StartsMeasuring = "a goal value with one from 7 days before, an output reviewed (or past its review window), or a job's first run"
 
 // Windows the measures look over.
 const (
@@ -143,7 +150,9 @@ func Measure(in Input) []health.Metric {
 				Help: "Department on track: mean of goals moving, outputs reviewed in time and jobs on time"})
 		}
 	}
-	out = append(out, health.Metric{Name: Count, Value: float64(len(p.Departments)), Unit: health.UnitCount, Help: "Departments in projects.yaml"})
+	out = append(out,
+		health.Metric{Name: Count, Value: float64(len(p.Departments)), Unit: health.UnitCount, Help: "Departments in projects.yaml"},
+		health.Metric{Name: Measured, Value: float64(len(tracked)), Unit: health.UnitCount, Help: "Departments with something to measure (an on-track share)"})
 	if len(tracked) > 0 {
 		out = append(out, health.Metric{Name: OnTrack, Value: round(mean(tracked)), Unit: health.UnitShare,
 			Help: "Department on track: mean of goals moving, outputs reviewed in time and jobs on time"})
@@ -234,34 +243,42 @@ func outputRows(list []*outputs.Output, key string, days float64, now time.Time,
 	return out
 }
 
-// jobRows: of the department's jobs, the share not late (due over a day
-// with no run), how many are due and how many periods were missed.
+// jobRows: of the department's jobs that have run at least once, the share
+// not late (due over a day with no run); how many are due and how many
+// periods were missed. A job that has never run has nothing to measure
+// yet: it counts as due, not as late.
 func jobRows(statuses []jobs.Status, name string, now time.Time, l labeler, dm *dept) []health.Metric {
-	total, late, due, missed := 0, 0, 0, 0
+	total, ran, late, due, missed := 0, 0, 0, 0, 0
 	for _, s := range statuses {
 		if s.Department != name || s.Verdict == jobs.VerdictError {
 			continue
 		}
 		total++
+		if s.Runs > 0 {
+			ran++
+		}
 		if !s.Due {
 			continue
 		}
 		due++
 		missed += s.Missed
-		if now.Sub(s.DueAt) > jobGrace {
+		if s.Runs > 0 && now.Sub(s.DueAt) > jobGrace {
 			late++
 		}
 	}
 	if total == 0 {
 		return nil
 	}
-	share := round(float64(total-late) / float64(total))
-	dm.shares = append(dm.shares, share)
-	return []health.Metric{
-		{Name: JobsOnTime, Labels: l(), Value: share, Unit: health.UnitShare, Help: "Department jobs not late (due for over a day without a run)"},
+	out := []health.Metric{
 		{Name: JobsDue, Labels: l(), Value: float64(due), Unit: health.UnitCount, Help: "Department jobs due now"},
 		{Name: JobsMissed, Labels: l(), Value: float64(missed), Unit: health.UnitCount, Help: "Job periods missed since each job's last run"},
 	}
+	if ran == 0 {
+		return out
+	}
+	share := round(float64(ran-late) / float64(ran))
+	dm.shares = append(dm.shares, share)
+	return append([]health.Metric{{Name: JobsOnTime, Labels: l(), Value: share, Unit: health.UnitShare, Help: "Department jobs that have run, not late (due for over a day without a run)"}}, out...)
 }
 
 // handoffRows: open handoffs to (in) and from (out) the department, and the

@@ -1,0 +1,29 @@
+session: department-not-measured
+issue: factory/departments-health-reads-0-when-a-department-has-no-goals-or-outputs-yet-say-not-measured-instead
+title: Departments health - a department with nothing to measure reads "not measured yet", not 0%
+scenario: department-health
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: Sales (nothing to measure) says not measured yet on Health, its room and the Report; Marketing alone makes the share
+    proves: [AC3]
+    setup:
+      - cli: [--project, "{project}", goal, set, marketing/pages, "30"]
+      - cli: [--project, "{project}", goal, set, marketing/posts, "5"]
+      - cli: { args: [--project, "{project}", health, snapshot], contains: "departments" }
+      - open: /p/{project}/health
+    act:
+      - wait_for: health.departments
+    checks:
+      - text_contains: { target: health.departments.row.sales, text: "not measured yet" }
+      - visible: [health.departments.not_measured, health.departments.not_measured_note]
+      - text_contains: { target: health.departments.not_measured_note, text: "a job's first run" }
+      - text_contains: { target: health.departments.row.marketing, text: "75%" }
+      - http: { path: "/p/{project}/company?classic=1", contains: "♥ not measured yet" }
+      - http: { path: "/p/{project}/status.md", contains: "Departments: 75% on track (1 of 2 measured)" }
+    targets: [health.departments]

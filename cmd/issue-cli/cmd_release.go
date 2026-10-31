@@ -34,10 +34,16 @@ Subcommands:
       next candidate): creates release/vX.Y from main with its worktree
       .worktrees/release-vX.Y, and tags the next <version>-rc.N on it (never
       pushed). With code: snapshots the branch goes to origin. Main moves on.
+      A patch (v0.N.1) tags v0.N.1-rc.K on the existing release/v0.N, with no
+      milestone check, once go build and go vet pass in its worktree.
   pick [--release <version>] <slug|sha>...
-      Cherry-picks (with -x) an issue's commits (work/<slug>) or a commit onto the
-      release branch, in its worktree. Fixes land on main first; nothing is fixed
-      on the branch itself. A pick after the newest candidate needs the next one.
+      Cherry-picks (with -x) an issue's commits (work/<slug>, or for a done issue
+      the commits on main with Refs: <slug>) or a commit onto the release branch,
+      in its worktree. A conflict names the commit and files and leaves the
+      branch as it was; the branch's ## Unreleased gets only the picked lines.
+      Then go build and go vet run there. Fixes land on main first; nothing is
+      fixed on the branch itself. A pick after the newest candidate needs the
+      next one.
   publish <version> [--first] [--dry-run]
       Only on the owner's ok on a soaked candidate, from the release worktree.
       Names the changelog heading on the branch, pushes the branch tip's tree as
@@ -53,7 +59,8 @@ Subcommands:
       The leak scan).
 
 cut and publish read the viewer's Waiting for release card and refuse unless it
-says the same (ready to cut; soaking).`,
+says the same (ready to cut; soaking). A patch's publish reads the card's patch
+row; its cut reads no card.`,
 	Run:         runRelease,
 	Subcommands: []string{"setup", "cut", "pick", "publish"},
 }
@@ -155,28 +162,48 @@ type releaseCard struct {
 	} `json:"checks"`
 }
 
-// fetchReleaseCard reads the card from the running viewer.
+// fetchReleaseCard reads the card's milestone from the running viewer.
 func fetchReleaseCard(ctx *Context) (*releaseCard, error) {
+	ms, _, err := fetchReleaseRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ms == nil {
+		return nil, fmt.Errorf("Waiting for release has no milestone to cut (every version is released, or no issue has a version:)")
+	}
+	return ms, nil
+}
+
+// fetchPatchCard reads the card's patch candidate (a vX.Y.Z-rc.N on an
+// existing release branch); nil without one.
+func fetchPatchCard(ctx *Context) (*releaseCard, error) {
+	_, patch, err := fetchReleaseRows(ctx)
+	return patch, err
+}
+
+// fetchReleaseRows reads release.json: the milestone and the patch row.
+func fetchReleaseRows(ctx *Context) (*releaseCard, *releaseCard, error) {
 	url := fmt.Sprintf("%s/p/%s/release.json", viewerBaseURL(ctx.Project), ctx.Project.Slug)
 	body, err := viewerGet(url)
 	if err != nil {
-		return nil, fmt.Errorf("can't read Waiting for release from the viewer at %s: %v\n\nStart it: issue-viewer --config %s\nRunning elsewhere? Set viewer_url in projects.yaml.", url, err, valueOr(ctx.ConfigPath, "<projects.yaml>"))
+		return nil, nil, fmt.Errorf("can't read Waiting for release from the viewer at %s: %v\n\nStart it: issue-viewer --config %s\nRunning elsewhere? Set viewer_url in projects.yaml.", url, err, valueOr(ctx.ConfigPath, "<projects.yaml>"))
 	}
 	var doc struct {
 		Milestone *releaseCard `json:"milestone"`
+		Patch     *releaseCard `json:"patch"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("reading %s: %w", url, err)
+		return nil, nil, fmt.Errorf("reading %s: %w", url, err)
 	}
-	if doc.Milestone == nil {
-		return nil, fmt.Errorf("Waiting for release has no milestone to cut (every version is released, or no issue has a version:)")
-	}
-	return doc.Milestone, nil
+	return doc.Milestone, doc.Patch, nil
 }
 
 // unmet lists the card's failing checks, one per line.
 func (c *releaseCard) unmet() string {
 	var b strings.Builder
+	if c.Cut == "" && len(c.Checks) == 0 {
+		return "  ✗ no candidate of it on the card: cut one first (issue-cli release cut <version>)\n"
+	}
 	for _, ch := range c.Checks {
 		if ch.OK {
 			continue
@@ -201,6 +228,9 @@ func runReleaseCut(ctx *Context, args []string) error {
 	cut, err := privacy.ParseVersion(fs.Arg(0))
 	if err != nil {
 		return &usageError{msg: err.Error()}
+	}
+	if milestone.IsPatch(cut) {
+		return runReleaseCutPatch(ctx, cut)
 	}
 	card, err := fetchReleaseCard(ctx)
 	if err != nil {
@@ -239,6 +269,35 @@ func runReleaseCut(ctx *Context, args []string) error {
   - Tell the leads of the projects that run it; their issue-cli report-bug files join %s.
   - Fixes land on main as usual; pick them onto the branch: issue-cli release pick <slug>. Each pick needs the next candidate (issue-cli release cut %s).
 `, res.Worktree, card.Version, cut)
+	return nil
+}
+
+// runReleaseCutPatch tags the next candidate of a patch release (vX.Y.Z,
+// Z > 0) on the existing release/vX.Y: no new branch, no milestone check.
+// go build and go vet run on the branch first; a failure stops the cut.
+func runReleaseCutPatch(ctx *Context, cut string) error {
+	wf := ctx.Project.LoadWorkflow()
+	root := privacy.MainCheckout(ctx.Project.TelemetryRoot())
+	branch := milestone.ReleaseBranch(cut)
+	if _, err := os.Stat(filepath.Join(root, ".worktrees", milestone.ReleaseWorktreeName(cut))); err == nil {
+		if ran, failed := privacy.CheckBuild(root, cut); ran && failed != "" {
+			return fmt.Errorf("not cutting %s: %s does not build: %s\nPick the missing commit from main (issue-cli release pick <sha>), then cut again", cut, branch, failed)
+		}
+	}
+	res, err := privacy.Cut(root, cut, branch, wf.Privacy)
+	if err != nil {
+		return err
+	}
+	out := ctx.Stdout
+	fmt.Fprintf(out, "✓ Tagged %s on %s (a patch release on the existing branch; local, never push a candidate tag)\n", res.Tag, res.Branch)
+	if res.Pushed {
+		fmt.Fprintf(out, "✓ Pushed %s to origin (the dev repo)\n", res.Branch)
+	}
+	fmt.Fprintf(out, `Next:
+  - Install the candidate from the release worktree: cd %s && make install, then restart what runs it.
+  - Waiting for release shows the patch candidate and its checks; publish only on the owner's ok: cd %s && issue-cli release publish %s.
+  - More fixes: issue-cli release pick <slug|sha>, then cut the next candidate (issue-cli release cut %s).
+`, res.Worktree, res.Worktree, cut, cut)
 	return nil
 }
 
@@ -281,7 +340,7 @@ func runReleasePick(ctx *Context, args []string) error {
 			return &usageError{msg: fmt.Sprintf("more than one release worktree (%s): pass --release <version>", strings.Join(names, ", "))}
 		}
 	}
-	res, err := privacy.Pick(root, cut, fs.Args())
+	res, err := privacy.Pick(root, cut, fs.Args(), privacy.PickOptions{Changelog: ctx.Project.LoadWorkflow().Workbench.Changelog})
 	if err != nil {
 		return err
 	}
@@ -294,6 +353,15 @@ func runReleasePick(ctx *Context, args []string) error {
 		return nil
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Picked %d %s onto %s: %s\n", len(res.Picked), pluralWord(len(res.Picked), "commit", "commits"), branch, strings.Join(res.Picked, " "))
+	if res.Changelog {
+		fmt.Fprintf(ctx.Stdout, "✓ The changelog's ## Unreleased on %s kept its own lines plus the picked ones (main's other entries left out)\n", branch)
+	}
+	if res.BuildFailed != "" {
+		return fmt.Errorf("the commits are picked, but %s does not build: %s\nHint: %s; cut no candidate until it builds", branch, res.BuildFailed, res.BuildHint())
+	}
+	if res.Built {
+		fmt.Fprintf(ctx.Stdout, "✓ go build and go vet pass on %s\n", branch)
+	}
 	fmt.Fprintf(ctx.Stdout, "Next: cut the next candidate so the fix soaks: issue-cli release cut <version> (Waiting for release names it).\n")
 	return nil
 }
@@ -326,7 +394,15 @@ func runReleasePublish(ctx *Context, args []string) error {
 	if !wf.Privacy.Snapshots() {
 		return fmt.Errorf("privacy.code is not snapshots: this project publishes by pushing main (docs/roadmap.md, Cutting a release)")
 	}
-	card, err := fetchReleaseCard(ctx)
+	var card *releaseCard
+	if milestone.IsPatch(cut) {
+		card, err = fetchPatchCard(ctx)
+		if err == nil && card == nil {
+			card = &releaseCard{}
+		}
+	} else {
+		card, err = fetchReleaseCard(ctx)
+	}
 	switch {
 	case err != nil && !*dryRun:
 		return err

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -109,9 +110,17 @@ func autostartLine(ctx *Context) string {
 		return ""
 	}
 	if st.Paused {
-		return fmt.Sprintf("Auto-start: paused (on below %d%%, cap %d). %s", st.Below, st.MaxWorkers, tracker.InjectProject(ctx.Project, "issue-cli autostart resume"))
+		return fmt.Sprintf("Auto-start: paused (on below %d%%, %s, cap %d). %s", st.Below, loadLimitWords(st), st.MaxWorkers, tracker.InjectProject(ctx.Project, "issue-cli autostart resume"))
 	}
-	return fmt.Sprintf("Auto-start: on below %d%% memory, cap %d workers (owner: %q). At each check-in: %s", st.Below, st.MaxWorkers, st.Words, tracker.InjectProject(ctx.Project, "issue-cli autostart next"))
+	return fmt.Sprintf("Auto-start: on below %d%% memory and %s, cap %d workers (owner: %q). At each check-in: %s", st.Below, loadLimitWords(st), st.MaxWorkers, st.Words, tracker.InjectProject(ctx.Project, "issue-cli autostart next"))
+}
+
+// loadLimitWords is "load under 10.5" or "load under the core count (14)".
+func loadLimitWords(st *autostart.State) string {
+	if st.MaxLoad > 0 {
+		return "load under " + autostart.FormatLimit(st.MaxLoad)
+	}
+	return fmt.Sprintf("load under the core count (%d)", runtime.NumCPU())
 }
 
 type autostartStatusJSON struct {
@@ -156,7 +165,7 @@ func runAutostartStatus(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "Auto-start: on since %s\n", st.Since.Format("Mon 15:04"))
 	}
 	fmt.Fprintf(w, "  turned on by %s (%s): %q\n", st.By, st.How, st.Words)
-	fmt.Fprintf(w, "  limits: memory under %d%% · at most %d workers · one start per %d min across all projects\n", st.Below, st.MaxWorkers, st.GapMinutes)
+	fmt.Fprintf(w, "  limits: memory under %d%% · %s · at most %d workers · one start per %d min across all projects\n", st.Below, loadLimitWords(st), st.MaxWorkers, st.GapMinutes)
 	if last != nil {
 		fmt.Fprintf(w, "  last start on this machine: %s %s at %s (memory %d%%)\n", last.Project, last.Slug, last.At.Format("Mon 15:04"), last.Memory)
 	}
@@ -164,11 +173,11 @@ func runAutostartStatus(ctx *Context, args []string) error {
 	return nil
 }
 
-// verdictLine is "start <slug> (memory 31% < 50%, 1/2 workers)" or
-// "hold: <reason>".
+// verdictLine is "start <slug> (memory 31% < 50%, load 4.3 < 14 on 14
+// cores, 1/2 workers)" or "hold: <reason>".
 func verdictLine(v autostart.Verdict) string {
 	if v.Start {
-		return fmt.Sprintf("start %s (memory %d%% < %d%%, %d/%d workers)", v.Slug, v.Memory, v.Below, v.Workers, v.Cap)
+		return fmt.Sprintf("start %s (memory %d%% < %d%%, %s, %d/%d workers)", v.Slug, v.Memory, v.Below, v.LoadPart(), v.Workers, v.Cap)
 	}
 	return "hold: " + v.Reason
 }
@@ -180,6 +189,7 @@ func runAutostartOn(ctx *Context, args []string) error {
 	below := fs.Int("below", autostart.DefaultBelow, "start only while memory used is under this %")
 	maxWorkers := fs.Int("max-workers", autostart.DefaultMaxWorkers, "at most this many live workers in the project")
 	gap := fs.Int("gap", autostart.DefaultGapMinutes, "minutes between two starts, across all projects")
+	maxLoad := fs.Float64("max-load", 0, "start only while the 1-minute load average is under this (default: the core count)")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -187,8 +197,8 @@ func runAutostartOn(ctx *Context, args []string) error {
 	if quote == "" {
 		return &usageError{msg: "autostart on needs --quote: the owner's words turning it on\n\nExample:\n  issue-cli autostart on --quote \"start a new job when memory is under 50%\""}
 	}
-	if *below <= 0 || *below > 100 || *maxWorkers <= 0 || *gap <= 0 {
-		return &usageError{msg: "autostart on: --below is 1–100, --max-workers and --gap are at least 1"}
+	if *below <= 0 || *below > 100 || *maxWorkers <= 0 || *gap <= 0 || *maxLoad < 0 {
+		return &usageError{msg: "autostart on: --below is 1–100, --max-workers and --gap are at least 1, --max-load is not negative"}
 	}
 	by, err := autostartNotWorker(ctx, "turn auto-start on")
 	if err != nil {
@@ -198,14 +208,14 @@ func runAutostartOn(ctx *Context, args []string) error {
 	if how == "" {
 		how = "in the lead chat"
 	}
-	st := autostart.State{By: by, Words: quote, How: how, Below: *below, MaxWorkers: *maxWorkers, GapMinutes: *gap}
+	st := autostart.State{By: by, Words: quote, How: how, Below: *below, MaxWorkers: *maxWorkers, GapMinutes: *gap, MaxLoad: *maxLoad}
 	if err := autostart.TurnOn(yoloRoot(ctx.Project), ctx.Project.Slug, st, ctx.now()); err != nil {
 		if strings.Contains(err.Error(), "already on") {
 			return fmt.Errorf("auto-start is already on. Turn it off first to change it:\n  %s", tracker.InjectProject(ctx.Project, "issue-cli autostart off"))
 		}
 		return err
 	}
-	fmt.Fprintf(ctx.Stdout, "✓ Auto-start on: memory under %d%%, at most %d workers, one start per %d min across all projects\n", *below, *maxWorkers, *gap)
+	fmt.Fprintf(ctx.Stdout, "✓ Auto-start on: memory under %d%%, %s, at most %d workers, one start per %d min across all projects\n", *below, loadLimitWords(&st), *maxWorkers, *gap)
 	fmt.Fprintf(ctx.Stdout, "  owner's words: %q (%s)\n", quote, how)
 	fmt.Fprintln(ctx.Stdout, "  at each check-in: "+tracker.InjectProject(ctx.Project, "issue-cli autostart next"))
 	return nil
@@ -304,7 +314,7 @@ func runAutostartNext(ctx *Context, args []string) error {
 // autostartComment is the dispatch: line of an auto-started worker: the
 // owner's stored words, who turned it on and when, and the reading.
 func autostartComment(st *autostart.State, v autostart.Verdict, now time.Time) string {
-	how := fmt.Sprintf("auto-start, turned on by %s %s %s; memory %d%% < %d%%, %d/%d workers",
-		st.By, st.How, st.Since.Format("2006-01-02"), v.Memory, v.Below, v.Workers, v.Cap)
+	how := fmt.Sprintf("auto-start, turned on by %s %s %s; memory %d%% < %d%%, %s, %d/%d workers",
+		st.By, st.How, st.Since.Format("2006-01-02"), v.Memory, v.Below, v.LoadPart(), v.Workers, v.Cap)
 	return tracker.DispatchComment(st.Words, how, now.Format("2006-01-02"))
 }

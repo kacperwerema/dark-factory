@@ -469,6 +469,8 @@ func candidateMarkdown(b *strings.Builder, c *CandidateRow, now time.Time) {
 // checks the card shows.
 type releaseJSON struct {
 	Milestone *releaseJSONMilestone `json:"milestone"`
+	// Patch is a patch release's candidate on an existing release branch.
+	Patch *releaseJSONMilestone `json:"patch,omitempty"`
 }
 
 type releaseJSONMilestone struct {
@@ -486,16 +488,24 @@ type releaseJSONMilestone struct {
 
 func buildReleaseJSON(m *StatusModel) releaseJSON {
 	var out releaseJSON
-	if m.ReleaseWait == nil || m.ReleaseWait.Milestone == nil {
+	if m.ReleaseWait == nil {
 		return out
 	}
-	ms := m.ReleaseWait.Milestone
-	out.Milestone = &releaseJSONMilestone{Version: ms.Version, Cut: ms.Cut, RC: ms.RC, Ready: ms.Ready, CutNext: ms.CutNext,
+	out.Milestone = releaseJSONRow(m.ReleaseWait.Milestone)
+	out.Patch = releaseJSONRow(m.ReleaseWait.Patch)
+	return out
+}
+
+func releaseJSONRow(ms *MilestoneRow) *releaseJSONMilestone {
+	if ms == nil {
+		return nil
+	}
+	row := &releaseJSONMilestone{Version: ms.Version, Cut: ms.Cut, RC: ms.RC, Ready: ms.Ready, CutNext: ms.CutNext,
 		Soaking: ms.Soaking, Branch: ms.Branch, Unpicked: ms.Unpicked, Checks: ms.Checks}
 	if ms.Candidate != nil {
-		out.Milestone.Candidate = ms.Candidate.Tag
+		row.Candidate = ms.Candidate.Tag
 	}
-	return out
+	return row
 }
 
 func (s *Server) handleReleaseJSON(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {

@@ -1,0 +1,33 @@
+session: department-update
+issue: factory/marketing-template-says-client-sites-department-add-leaves-departments-and-workflows-untracked
+title: Updates page - a department installed from an earlier template is offered the new text
+scenario: dept-update
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    proves: [AC3]
+    title: Marketing's untouched role.md, role and goal name are offered the new text; the edited mission is kept and not offered
+    setup:
+      - open: /p/{project}/updates
+      - hover: upd.dept_update.marketing
+    checks:
+      - visible: [upd.page, upd.dept_updates, upd.dept_update.marketing, upd.dept_update.marketing.replace, upd.dept_update.marketing.command]
+      - text_contains: { target: upd.dept_updates, text: "Departments with new template text" }
+      - text_contains: { target: upd.dept_update.marketing.replace, text: "departments/marketing/role.md" }
+      - text_contains: { target: upd.dept_update.marketing.replace, text: "role in projects.yaml" }
+      - text_contains: { target: upd.dept_update.marketing.replace, text: "goal pages name in projects.yaml" }
+      - text_contains: { target: upd.dept_update.marketing.keep, text: "mission in projects.yaml" }
+      - text_contains: { target: upd.dept_update.marketing.command, text: "department update marketing" }
+    do: |
+      Look at the Departments with new template text section on the Updates page.
+    expect: |
+      One Marketing card in its pink badge: what the update replaces, what it
+      keeps (your edited mission), the dry-run and the update command, laid
+      out like the other cards; on the phone width the commands wrap inside
+      the card.
+    why: the look of a new section needs the owner's eye.

@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: marketing@v0.58.0
+template: marketing@v0.59.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -12,8 +12,8 @@ features:
     - status-prompts@v0.36.0
     - types-of-work@v0.36.0
     - measure-after-publish@v0.58.0
-    - brand-foundation@v0.58.0
-    - workflow-evals@v0.58.0
+    - brand-foundation@v0.59.0
+    - workflow-evals@v0.59.0
     - human-approval-gates@v0.36.0
     - owner-only-gates@v0.58.0
     - publish-stamp@v0.55.0
@@ -65,7 +65,7 @@ statuses:
     description: "Research mode: sources on the topic the owner named"
     prompt: |
       Research mode. The issue names the topic: the business, product or market to research. If it doesn't, ask the owner what to research, then end your turn.
-      Gather sources: the client's own sites and material, competitors, search results, reviews, forums where the audience talks. List each under ## Research with its link and one line on what it says.
+      Gather sources: your own site(s) and material, competitors, search results, reviews, forums where the audience talks. List each under ## Research with its link and one line on what it says.
       Memory: run `mem-guard check` before opening a browser or fetching many pages, where mem-guard is installed, and don't start while it says BLOCKED. Prefer plain page fetches to a browser, keep one browser at a time and close it when done.
       You propose; the owner decides. Note open questions for the owner as you go, then move to the next status.
   - name: "brand"
@@ -292,7 +292,7 @@ types:
       - name: "publish"
         prompt: |
           Write exactly what the owner approved: ## Brand to departments/<department>/brand.md and ## ICP to departments/<department>/icp.md (next to the department's role.md), with the date and the issue slug at the top.
-          Mark the shelf report published (`issue-cli output publish <id> --path departments/<department>/brand.md`), then move to done.
+          Mark the shelf report published (`issue-cli output publish <id>`; no --url: the docs are the published copy, and the shelf needs the version the owner approved), then move to done.
     transitions:
       - from: "owner review"
         to: "publish"
@@ -305,7 +305,7 @@ types:
             title: "Published"
             body: |
               - [ ] departments/<department>/brand.md and icp.md hold the approved text
-              - [ ] Shelf report marked published (issue-cli output publish <id> --path ...)
+              - [ ] Shelf report marked published (issue-cli output publish <id>)
       - from: "publish"
         to: "done"
         actions:
@@ -331,7 +331,7 @@ types:
       - name: "publish"
         prompt: |
           Write exactly what the owner approved from ## Market size to departments/<department>/market.md, with the date and the issue slug at the top.
-          Mark the shelf report published (`issue-cli output publish <id> --path departments/<department>/market.md`), then move to done.
+          Mark the shelf report published (`issue-cli output publish <id>`; no --url: market.md is the published copy, and the shelf needs the version the owner approved), then move to done.
     transitions:
       - from: "owner review"
         to: "publish"
@@ -344,7 +344,7 @@ types:
             title: "Published"
             body: |
               - [ ] departments/<department>/market.md holds the approved text
-              - [ ] Shelf report marked published (issue-cli output publish <id> --path ...)
+              - [ ] Shelf report marked published (issue-cli output publish <id>)
       - from: "publish"
         to: "done"
         actions:
@@ -364,11 +364,11 @@ types:
           - type: "validate"
             rule: "section_checkboxes_checked: Published"
 
-  # SEO channel (system SEO): one pass over the client sites. Each page or
+  # SEO channel (system SEO): one pass over your site(s). Each page or
   # post it changes goes on the shelf, the owner approves before publish, and
   # the pass ends by measuring.
   seo-pass:
-    description: "SEO pass over the client sites: refresh pages, FAQs and schema, then measure (system SEO)"
+    description: "SEO pass over your site(s): refresh pages, FAQs and schema, then measure (system SEO)"
     path: [brief, draft, owner review, publish, measure, done]
     statuses:
       - name: "brief"

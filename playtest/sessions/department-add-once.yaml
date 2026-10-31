@@ -13,7 +13,7 @@ steps:
     title: After GTM (with Marketing inside) is added the tile offers no form and says every template is added
     proves: [AC1]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - click: tile.new_department
       - wait_for: { visible: company.new_dept.form }

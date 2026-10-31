@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -235,6 +237,28 @@ func writeFileAtomically(filePath string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// warnOut is where LoadIssues reports a file it skips (tests swap it).
+var warnOut io.Writer = os.Stderr
+
+// warnedPaths holds the files already warned about: a process loads the
+// board many times, and one warning per file is enough.
+var warnedPaths sync.Map
+
+// NotIssueFolder reports whether a folder under the issues dir holds no
+// issues: dot folders keep the work files' logs and reports (.goals,
+// .outputs, .jobs, .reports), underscore folders the evidence
+// (_evidence/: READMEs, reports, shots).
+func NotIssueFolder(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
+}
+
+func warnSkip(path string, err error) {
+	if _, seen := warnedPaths.LoadOrStore(path, true); seen {
+		return
+	}
+	fmt.Fprintf(warnOut, "warning: skipping %s: %v\n", path, err)
+}
+
 func LoadIssues(dir string) ([]*Issue, error) {
 	var issues []*Issue
 
@@ -242,9 +266,7 @@ func LoadIssues(dir string) ([]*Issue, error) {
 		if err != nil {
 			return err
 		}
-		// Dot folders under the issues dir hold the work files' logs and
-		// reports (.goals, .outputs, .jobs, .reports): never issues.
-		if d.IsDir() && path != dir && strings.HasPrefix(d.Name(), ".") {
+		if d.IsDir() && path != dir && NotIssueFolder(d.Name()) {
 			return filepath.SkipDir
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
@@ -253,13 +275,13 @@ func LoadIssues(dir string) ([]*Issue, error) {
 
 		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", path, err)
+			warnSkip(path, err)
 			return nil
 		}
 
 		issue, err := ParseIssue(d.Name(), data)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", path, err)
+			warnSkip(path, err)
 			return nil
 		}
 

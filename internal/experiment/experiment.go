@@ -157,6 +157,55 @@ type Block struct {
 	Reasons   []string `json:"reasons,omitempty"`
 	Result    *Result  `json:"result,omitempty"`
 	Adopted   *Adopted `json:"adopted,omitempty"`
+	// Workflows are the per-workflow verdicts of the two runs, each marked
+	// changed or control by the candidate's files (internal/bench
+	// CompareByWorkflow, AffectedWorkflows); WorkflowsNote says why they
+	// are missing or unmarked. Advice beside Verdict, never instead of it.
+	Workflows     []WorkflowResult `json:"workflows,omitempty"`
+	WorkflowsNote string           `json:"workflows_note,omitempty"`
+}
+
+// WorkflowResult is one workflow's verdict in the experiment, in the
+// shape internal/bench's WorkflowVerdict writes (fields added, never
+// renamed).
+type WorkflowResult struct {
+	Workflow  string   `json:"workflow"`
+	Mark      string   `json:"mark,omitempty"` // changed | control
+	ChangedBy []string `json:"changed_by,omitempty"`
+	Tasks     int      `json:"tasks"`
+	Verdict   string   `json:"verdict"`
+	Why       []string `json:"why"`
+	PassRateA float64  `json:"pass_rate_a"`
+	PassRateB float64  `json:"pass_rate_b"`
+	ScoreA    float64  `json:"score_a"` // -1: no score
+	ScoreB    float64  `json:"score_b"`
+	TokensA   int64    `json:"tokens_a"`
+	TokensB   int64    `json:"tokens_b"`
+	USDA      float64  `json:"usd_a"`
+	USDB      float64  `json:"usd_b"`
+	WallA     float64  `json:"wall_a_sec"`
+	WallB     float64  `json:"wall_b_sec"`
+}
+
+// Line is "marketing net negative (changed)".
+func (w WorkflowResult) Line() string {
+	s := w.Workflow + " " + w.Verdict
+	if w.Mark != "" {
+		s += " (" + w.Mark + ")"
+	}
+	return s
+}
+
+// WorkflowsLine is the per-workflow verdicts on one line, "" when none.
+func (b *Block) WorkflowsLine() string {
+	if b == nil {
+		return ""
+	}
+	var parts []string
+	for _, w := range b.Workflows {
+		parts = append(parts, w.Line())
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Load reads the block of the issue at issuePath; nil when it has none.

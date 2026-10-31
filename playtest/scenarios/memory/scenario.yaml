@@ -1,0 +1,22 @@
+# Shared memory: Acme with Marketing (system SEO) and Product, and three
+# memories in tracker/.memory/events.jsonl with fixed ids:
+# - m-aaa001 (convention, project): the engine pages use wb components,
+#   from engine/engine-report; it superseded m-aaa003.
+# - m-aaa002 (pitfall, department:marketing): check robots.txt first, from
+#   seo/weekly-seo-pass; the worker suggested pinning it.
+# - m-aaa003 (convention, project): superseded by m-aaa001, shown only
+#   under state=invalid or all.
+# No machine memories: the runner's HOME keeps the machine store empty.
+title: Acme with three memories, one superseded
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client roster
+        systems: [SEO]
+issues: tracker
+workflow: workflow.yaml
+root: files

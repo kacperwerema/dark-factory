@@ -148,7 +148,7 @@ func TestLeadSpawn_PrintsSwitchAndAttach(t *testing.T) {
 	if err := runLead(ctx, []string{"spawn"}); err != nil {
 		t.Fatal(err)
 	}
-	want := "Inside tmux:  tmux switch-client -t lead-proj\nFrom a shell: tmux attach -t lead-proj\n"
+	want := "Inside tmux:  tmux switch-client -t '=lead-proj:'\nFrom a shell: tmux attach -t lead-proj\n"
 	if !strings.Contains(stdout.String(), want) {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}

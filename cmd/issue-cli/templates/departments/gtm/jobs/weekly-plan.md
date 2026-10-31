@@ -9,7 +9,7 @@ It lists, per department: the goals and how far each moved in the last 7 days, o
 Write `## Week plan` in this issue, with a `### <department>` heading each:
 
 - What the department does this week and why: each line tied to a goal that lags, an output to finish or fix, a due job, a handoff to answer, or something blocked.
-- New work: file it as an issue in the department (`issue-cli create --department <dept> --title "..." --body "..."`), then link it. It lands at its first status and waits for the owner's start like any other issue.
+- New work: file it as an issue in the department (`issue-cli create --department <dept> --title "..."`, then `issue-cli append <slug> --body "..."`), then link it. It lands at its first status and waits for the owner's start like any other issue.
 - Due jobs: name the job and the command the owner or its lead runs (`issue-cli job run <job> --quote "<the owner's words>"`). Don't run it.
 - What waits on whom: outputs for the owner's review, gates, forwards a lead owes.
 

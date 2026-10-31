@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z' fill='%2358a6ff'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -68,7 +69,7 @@
 {{define "system-bar"}}{{if .}}<div class="sys-bar" data-testid="system.statusbar" role="img" aria-label="{{range $i, $s := .}}{{if $i}}, {{end}}{{$s.Count}} {{$s.Status}}{{end}}">{{range .}}<span class="sys-seg tone-{{if .Tone}}{{.Tone}}{{else}}neutral{{end}}" style="flex: {{.Count}}" title="{{.Count}} {{.Status}}"></span>{{end}}</div>{{end}}{{end}}
 
 {{define "system-reload"}}
-<script>
+<script nonce="{{cspNonce}}">
 // Generated view: reload when any issue file changes (baseline: the hash at
 // render time, so a change before the first poll is not missed).
 (function() {

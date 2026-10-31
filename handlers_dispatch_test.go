@@ -71,7 +71,7 @@ func TestStartAgentSession_ReattachWhenSessionExists(t *testing.T) {
 	session := tmuxSessionName("bug-in-login")
 
 	withMockTmuxHasSession(t, func(name string) bool {
-		if name != session {
+		if name != "="+session+":" {
 			t.Errorf("agentrun.HasSession called with %q, want %q", name, session)
 		}
 		return true
@@ -302,6 +302,8 @@ func TestBuildAgentPrompt_AppendsWorktreeBlockWhenSet(t *testing.T) {
 		"work/fix-foo",
 		"Leave the worktree in place",
 		"primary checkout (master)",
+		"refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox",
+		"TestNewcomerWalkthrough (newcomer_test.go)",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("expected prompt to contain %q\n%s", want, prompt)

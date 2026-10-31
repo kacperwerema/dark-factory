@@ -11,6 +11,7 @@
             <h1 class="wb-h1 wb-h1--big">Crew</h1>
             <div class="wb-dechero-sub">Who works on {{.Project}}, what each agent is doing and how to reach it. <a href="{{.ClassicURL}}" data-testid="crew.classic">Classic view</a></div>
             <div class="wb-crew-live" data-checked="{{.Checked}}" data-testid="crew.live">live · tmux checked just now</div>
+            {{if .Subs}}<div class="wb-crew-subs" data-testid="crew.subs"><span class="wb-note">Subscriptions</span>{{range .Subs}}<span class="wb-crew-sub" data-testid="crew.subs.{{tid .Agent}}"><b>{{.Agent}}</b> {{template "wb/chip" .Chip}}</span>{{end}}</div>{{end}}
         </div>
         <div class="wb-dechero-stats">
             <div data-testid="crew.count">{{template "wb/stat-big" .Count}}</div>

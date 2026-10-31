@@ -447,7 +447,7 @@ func runJobRun(ctx *Context, args []string) error {
 	scheduled := fs.Bool("scheduled", false, "start the due run on the job's standing start (unattended)")
 	again := fs.Bool("again", false, "make another run in a period that already has one")
 	dryRun := fs.Bool("dry-run", false, "print the run it would create; create and start nothing")
-	agentFlag := fs.String("agent", "claude", "agent to run: claude or codex")
+	agentFlag := fs.String("agent", "", "agent to run: claude or codex (default: the workflow's routing: rules, else claude)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func runJobRun(ctx *Context, args []string) error {
 	if *scheduled && *again {
 		return &usageError{msg: "--again is for a run the owner asks for (--quote); a scheduled run is one per period"}
 	}
-	if *agentFlag != "claude" && *agentFlag != "codex" {
+	if *agentFlag != "" && *agentFlag != "claude" && *agentFlag != "codex" {
 		return &usageError{msg: fmt.Sprintf("--agent must be claude or codex, got %q", *agentFlag)}
 	}
 	proj := ctx.Project

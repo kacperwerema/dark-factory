@@ -43,6 +43,10 @@ type StatusTabs struct {
 }
 
 var funcMap = template.FuncMap{
+	// Script CSP (csp.go): nonce="{{cspNonce}}" on inline scripts,
+	// data-click="{{onCall "fn" arg…}}" instead of on*= handlers.
+	"cspNonce":      cspNonce,
+	"onCall":        onCall,
 	"releaseBranch": milestone.ReleaseBranch,
 	// commentDay is the day of a comment date stored as RFC3339 or a day.
 	"commentDay": tracker.CommentDay,
@@ -119,9 +123,10 @@ var funcMap = template.FuncMap{
 	},
 	// tid turns a status or slug into one data-testid segment (see
 	// internal/testids).
-	"tid":     testids.Segment,
-	"plural":  plural,
-	"ceoMode": ceoModeLabel,
+	"tid":        testids.Segment,
+	"plural":     plural,
+	"stripLabel": stripLabel,
+	"ceoMode":    ceoModeLabel,
 	// handoffList is one of a room's handoff lists (handoffs_view.go).
 	"handoffList": handoffList,
 	// wbTone, wbVerdictTone and wbVerdictText draw the classic tones and

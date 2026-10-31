@@ -99,8 +99,8 @@ func TestShelfReaderCommentsAndTrail(t *testing.T) {
 	defer ts.Close()
 	base := ts.URL + "/p/agents/shelf/comment"
 
-	// Not the owner's browser: no Sec-Fetch-Site, no Origin (curl, an agent).
-	code, out := postOdoc(t, base, map[string]any{"id": o.ID, "text": "hi"}, nil)
+	// Not the owner: no session, even with the browser's headers (curl, an agent).
+	code, out := postOdoc(t, base, map[string]any{"id": o.ID, "text": "hi"}, map[string]string{strangerHeader: "1", "Sec-Fetch-Site": "same-origin"})
 	if code != http.StatusForbidden || !strings.Contains(out["error"].(string), "issue-cli output comments") {
 		t.Fatalf("agent write = %d %v", code, out)
 	}
@@ -169,7 +169,7 @@ func TestShelfReaderCommentsAndTrail(t *testing.T) {
 
 	// Resolve, then the counts drop.
 	resolve := ts.URL + "/p/agents/shelf/comment/resolve"
-	if code, _ := postOdoc(t, resolve, map[string]any{"id": o.ID, "thread": whole}, nil); code != http.StatusForbidden {
+	if code, _ := postOdoc(t, resolve, map[string]any{"id": o.ID, "thread": whole}, map[string]string{strangerHeader: "1"}); code != http.StatusForbidden {
 		t.Errorf("agent resolve = %d", code)
 	}
 	if code, out := postOdoc(t, resolve, map[string]any{"id": o.ID, "thread": whole}, map[string]string{"Origin": ts.URL}); code != http.StatusOK || out["resolved"] != true {

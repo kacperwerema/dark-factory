@@ -239,3 +239,48 @@ func TestTransitionGateRequiresProofAndTicks(t *testing.T) {
 		t.Fatalf("transition with every criterion proven: %v", err)
 	}
 }
+
+// TestProveHintWhenCriteriaMissing: with no Acceptance Criteria heading the
+// hint is append --section (replace refuses a missing section); with the
+// heading but no boxes it stays replace. Both hints run as printed.
+func TestProveHintWhenCriteriaMissing(t *testing.T) {
+	cases := []struct {
+		name, body, want string
+	}{
+		{"no section", "## Repro\nsteps\n", `issue-cli append cli/sample --section "Acceptance Criteria" --body "- [ ] ..."`},
+		{"section without boxes", "## Acceptance Criteria\nTBD\n", `issue-cli replace cli/sample --section "Acceptance Criteria" --body "- [ ] ..."`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			proj, issuePath, _ := makeProofFixture(t, "2026-10-23")
+			raw, err := os.ReadFile(issuePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			front := string(raw)[:strings.Index(string(raw), "## Acceptance Criteria")]
+			if err := os.WriteFile(issuePath, []byte(front+c.body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			ctx, _, _ := newTestContext(proj, false)
+			err = runProve(ctx, []string{"cli/sample"})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("prove: got %v, want hint %q", err, c.want)
+			}
+
+			// The printed command works.
+			args := []string{"cli/sample", "--section", "Acceptance Criteria", "--body", "- [ ] The count shows"}
+			run := runAppend
+			if strings.HasPrefix(c.want, "issue-cli replace") {
+				run = runReplace
+			}
+			ctx, _, _ = newTestContext(proj, false)
+			if err := run(ctx, args); err != nil {
+				t.Fatalf("hint command: %v", err)
+			}
+			ctx, _, _ = newTestContext(proj, false)
+			if err := runProve(ctx, []string{"cli/sample"}); err != nil {
+				t.Errorf("prove after the hint: %v", err)
+			}
+		})
+	}
+}

@@ -3,6 +3,9 @@ package agentrun
 import (
 	"fmt"
 	"path/filepath"
+	"time"
+
+	"github.com/michal-franc/issue-viewer/internal/routing"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -22,6 +25,11 @@ const StatusWaitingOnGate = "waiting-on-gate"
 // a worker started there would only stop at the same gate. Start nothing and
 // return refused as the response. A live session is never refused: Start
 // re-attaches to it.
+//
+// agentType is the owner's explicit agent (--agent, an action's agent:);
+// "" routes it by the workflow's routing: rules (RouteAgent), and spec.Route
+// says which and why. A Route.Hold (every agent resting) still starts the
+// routed agent here, with a warning: auto-start checks Hold and holds.
 func DispatchSpec(proj *tracker.Project, issue *tracker.Issue, agentType, workDir string, force bool) (spec Spec, refused *Response) {
 	if workDir == "" {
 		workDir = ProjectWorkDir(proj)
@@ -44,10 +52,12 @@ func DispatchSpec(proj *tracker.Project, issue *tracker.Issue, agentType, workDi
 		}
 	}
 	dp := tracker.BuildDispatchPrompt(proj, issue, wf, workDir, func(name string) bool { return IsLive(proj, name) })
+	route := RouteAgent(proj, wf, workDir, routing.IssueSubject(proj, issue), agentType, time.Now())
 	return Spec{
 		Session:      session,
 		Prompt:       dp.Prompt,
-		AgentType:    agentType,
+		AgentType:    route.Agent,
+		Route:        &route,
 		IssueSlug:    issue.Slug,
 		WorkDir:      workDir,
 		Worktree:     tracker.IssueWorktree(workDir, issue, wf),

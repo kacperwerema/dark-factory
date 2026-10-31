@@ -459,11 +459,11 @@ func (m *StatusModel) NeedsSummary() string {
 	if m.CI.Red() {
 		parts = append(parts, "local CI red")
 	}
-	for _, k := range []struct{ kind, label string }{{"gate", "to approve"}, {"playtest", "to playtest"}, {"checks", "to check"}, {"question", "question"}} {
+	for _, k := range []struct{ kind, label string }{{"gate", "to approve"}, {"playtest", "to playtest"}, {"checks", "to check"}, {"question", "question"}, {"clarify", "clarify round"}} {
 		if n := len(m.WaitingOf(k.kind)); n > 0 {
 			label := k.label
-			if k.kind == "question" && n > 1 {
-				label = "questions"
+			if (k.kind == "question" || k.kind == "clarify") && n > 1 {
+				label += "s"
 			}
 			parts = append(parts, fmt.Sprintf("%d %s", n, label))
 		}

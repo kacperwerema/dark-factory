@@ -1,0 +1,22 @@
+# A Marketing department installed from the earlier marketing template:
+# its role: and goal name still read "client sites" / "Client pages
+# refreshed" and role.md is the earlier bundled text byte for byte, while
+# the mission was edited by the owner. The Updates page offers the new
+# template text for what was never edited and names what it keeps.
+title: Updates - a department with new template text
+project:
+  name: Harbor
+  slug: harbor
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client sites
+        mission: "Our own shop's site, fresh every week"
+        prompt: departments/marketing/role.md
+        systems: [SEO]
+        goals:
+          - {id: pages, name: Client pages refreshed, target: 10, period: week}
+issues: tracker
+workflow: workflow.yaml
+root: files

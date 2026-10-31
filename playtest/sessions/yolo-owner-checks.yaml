@@ -10,7 +10,7 @@ session_checks:
 
 steps:
   - id: TP2
-    title: '"AC2: owner check, not done" waits under Passed in YOLO and in the company''s queue'
+    title: '"AC2: owner check, not done" waits under Passed in YOLO; the company''s queue counts it on the issue'
     proves: [AC2]
     setup:
       # What the testing → human-testing transition writes under YOLO for a box only the owner can check.
@@ -25,18 +25,28 @@ steps:
       - check: { text_contains: { target: station.yolo.owner_check, text: "Scans in under a second" } }
       - check: { text_contains: { target: station.yolo.owner_check, text: "playtest judgement step TP9" } }
       - check: { visible: [station.yolo.agree, station.yolo.back] }
+      # The company page is the floor since v2: its After YOLO tab lists the queue.
+      # One row per issue since the review after YOLO (becb563): the row names the
+      # issue and counts its open owner checks; the box text is on the Station only.
+      # The yolo scenario has no owner check of its own, so this one is the "1".
       - open: /p/{project}/company
+      - click: floor.tab.yolo
+      - wait_for: floor.after_yolo.row
+      - check: { text_contains: { target: floor.after_yolo.panel, text: "1 owner check shop/barcode-scan" } }
+      - open: /p/{project}/company?classic=1
     checks:
       - visible: company.yolo_queue
-      - text_contains: { target: company.yolo_queue, text: "AC2: owner check, not done" }
+      - text_contains: { target: company.yolo_queue, text: "1 owner check shop/barcode-scan" }
     targets:
       - { id: station.yolo.owner_check, note: "The owner check under Passed in YOLO" }
-      - { id: company.yolo_queue, note: "To review after YOLO" }
+      - { id: floor.after_yolo.panel, note: "The floor's After YOLO tab" }
+      - { id: company.yolo_queue, note: "To review after YOLO (classic company page)" }
     do: |
       1. Open the Barcode scan issue: under Passed in YOLO, read the owner check.
-      2. On the company page, find it in To review after YOLO.
+      2. On the company page, open the After YOLO tab and find the issue.
     expect: |
       The issue says which box was never checked (AC2), its text, why only
       you can check it, and that YOLO left it unticked for you, with Agree
-      and Back to backlog. The company's queue lists it by name.
-    why: ux-test checks the text and the buttons; only you can say whether it reads as "this was never really checked".
+      and Back to backlog. The company's After YOLO list names the issue
+      with its open owner check counted (1 owner check).
+    why: ux-test checks the text and the buttons on the Station, and that the company's queue counts the owner check on the issue (the queue shows counts, not box text, since becb563); only you can say whether it reads as "this was never really checked".

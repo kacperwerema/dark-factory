@@ -188,3 +188,69 @@ func TestStaleTestLinkHintNamesProveRun(t *testing.T) {
 	}
 	assertContains(t, stdout.String(), "— no tests: report\n      → issue-cli prove cli/sample --run (runs the named tests and posts the tests: comment)")
 }
+
+// commitInWorktree writes files in the worktree and commits them with msg.
+func commitInWorktree(t *testing.T, worktree string, files map[string]string, msg string) {
+	t.Helper()
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(worktree, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", msg}} {
+		cmd := exec.Command("git", append([]string{"-C", worktree}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// An older commit's trailer names TestCount; a later commit renamed it to
+// TestCountCard and says so in its own trailer. Old commits can't be
+// reworded, so the old name is superseded: shown, skipped, and the run
+// posts when the current tests pass.
+func TestProveRunSkipsATestALaterTrailerSuperseded(t *testing.T) {
+	proj, issuePath, worktree := makeRunFixture(t)
+	commitInWorktree(t, worktree, map[string]string{
+		"count_test.go": "package sample\n\nimport \"testing\"\n\nfunc TestCountCard(t *testing.T) {\n\tif Count() != 2 {\n\t\tt.Fatal(\"count\")\n\t}\n}\n",
+	}, "test: rename after D-1\n\nProves: AC1 TestCountCard")
+	calls := stubGoTest(t, `{"Action":"run","Package":"sample","Test":"TestCountCard"}
+{"Action":"pass","Package":"sample","Test":"TestCountCard"}
+`)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runProve(ctx, []string{"cli/sample", "--run"}); err != nil {
+		t.Fatalf("prove --run: %v\n%s", err, stdout.String())
+	}
+	if len(*calls) != 1 || (*calls)[0] != "test -json -run ^(TestCountCard)$ ." {
+		t.Errorf("go calls = %q, want only TestCountCard run", *calls)
+	}
+	out := stdout.String()
+	assertContains(t, out, "✓ TestCountCard (.)")
+	assertContains(t, out, "– TestCount — superseded by TestCountCard (trailer on ")
+	assertContains(t, out, "✗ test TestCount (trailer on ")
+	assertContains(t, out, ") — superseded by TestCountCard (trailer on ")
+	assertContains(t, out, "✓ Posted to cli/sample: tests: prove --run at ")
+	comments, _ := tracker.LoadComments(issuePath)
+	if len(comments) != 1 || !strings.Contains(comments[0].Text, "— 1 passed: TestCountCard; 1 superseded: TestCount") {
+		t.Errorf("comments = %+v, want one tests: comment naming TestCountCard and the superseded TestCount", comments)
+	}
+}
+
+// The newest trailer naming a test that isn't there is a mistake, not a
+// rename: an older found test doesn't excuse it.
+func TestProveRunStillBlocksOnTheNewestTrailersMissingTest(t *testing.T) {
+	proj, issuePath, worktree := makeRunFixture(t)
+	commitInWorktree(t, worktree, map[string]string{"NOTES.md": "x"}, "docs: notes\n\nProves: AC1 TestCountTypo")
+	stubGoTest(t, `{"Action":"run","Package":"sample","Test":"TestCount"}
+{"Action":"pass","Package":"sample","Test":"TestCount"}
+`)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runProve(ctx, []string{"cli/sample", "--run"}); err == nil || !strings.Contains(err.Error(), "no tests: comment posted") {
+		t.Fatalf("prove --run = %v, want the not-posted error\n%s", err, stdout.String())
+	}
+	assertContains(t, stdout.String(), "✗ TestCountTypo — not found")
+	if comments, _ := tracker.LoadComments(issuePath); len(comments) != 0 {
+		t.Errorf("comments = %+v, want none", comments)
+	}
+}

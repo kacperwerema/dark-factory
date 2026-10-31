@@ -245,8 +245,8 @@ type WbHQGoal struct {
 type WbRoomHead struct {
 	Title, Color, Meta string
 	// ID names the head for tests (company.room.head.<ID>); optional.
-	ID string
-	Chips              []WbChip
+	ID    string
+	Chips []WbChip
 }
 
 // WbFootItem is one line in a room's footer; Tone green for done work, URL
@@ -278,9 +278,12 @@ type WbDeptLead struct {
 type WbRoomHQ struct {
 	// Box is the room's connections key (hq); static/connections.js finds
 	// the room by it.
-	Box     string
-	Head    WbRoomHead
-	Desk    WbCEODesk
+	Box  string
+	Head WbRoomHead
+	Desk WbCEODesk
+	// Open is the project's open issues (the foot's "N open"; the floor's
+	// HQ number).
+	Open    int
 	Mission string
 	Goals   []WbHQGoal
 	Shelf   *WbHQShelf
@@ -321,7 +324,10 @@ type WbRoomDept struct {
 	WorkflowFile, WorkflowError string
 	Mission                     string
 	Goals                       []WbGoal
-	Shelf                       *WbShelfLink
+	// AllGoals is every goal (Goals shows the first few), for the floor's
+	// inspector.
+	AllGoals []WbGoal
+	Shelf    *WbShelfLink
 	// Connectors are the department's outside tools; nil when none.
 	Connectors *WbConnectors
 	// Jobs are the department's recurring jobs (jobs_view.go).
@@ -349,6 +355,9 @@ type WbRoomFactory struct {
 	Mission  string
 	Goals    []WbGoal
 	Stations []WbStation
+	// AllGoals is every goal (Goals shows the first few), for the floor's
+	// inspector.
+	AllGoals []WbGoal
 	Waiting  int
 	HallURL  string
 	Shelf    *WbShelfLink

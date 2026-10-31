@@ -13,7 +13,7 @@ steps:
     title: GTM's room head is the group teal, HQ's stays yellow, Marketing keeps its pink
     proves: [AC1, AC2]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.room.group }
     checks:

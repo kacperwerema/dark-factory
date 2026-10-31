@@ -18,11 +18,14 @@ import (
 // must be read-only by commandAccess. TestReadSamplesCoverEveryReadCommand
 // makes a new read command add one, so the sandbox test runs it.
 var readSamples = map[string][]string{
+	"agents":          {"agents", "status"},
 	"autostart":       {"autostart", "status"},
+	"queue":           {"queue", "list"},
 	"balance":         {"balance", "--list"},
 	"bench":           {"bench", "candidates"},
 	"check-script":    {"check-script", "--lib"},
 	"checklist":       {"checklist", "cli/sample"},
+	"clarify":         {"clarify", "cli/sample"},
 	"ci":              {"ci", "status"},
 	"connections":     {"connections"},
 	"connectors":      {"connectors"},
@@ -32,6 +35,7 @@ var readSamples = map[string][]string{
 	"department":      {"department", "list"},
 	"dispatch-prompt": {"dispatch-prompt", "cli/sample"},
 	"experiment":      {"experiment", "candidates"},
+	"postmortem":      {"postmortem", "list"},
 	"goals":           {"goals"},
 	"handoffs":        {"handoffs"},
 	"health":          {"health", "lint"},
@@ -40,6 +44,7 @@ var readSamples = map[string][]string{
 	"jobs":            {"jobs"},
 	"lead":            {"lead", "whoami"},
 	"list":            {"list"},
+	"memory":          {"memory", "list"},
 	"next":            {"next"},
 	"output":          {"output", "show", "nothing"},
 	"outputs":         {"outputs"},

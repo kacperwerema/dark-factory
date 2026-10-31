@@ -39,7 +39,7 @@ func TestCompanyPageListsConnections(t *testing.T) {
 	withConnections(t, &a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company,
 		`data-testid="company.connections"`,
 		`data-from="marketing" data-to="product" data-via="hq" data-kind="request" data-open="1"`,
@@ -60,7 +60,7 @@ func TestCompanyPageConnectionsEmptyAndNone(t *testing.T) {
 	stubLeadPane(t, "")
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{a})
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	ts.Close()
 	if strings.Contains(company, `data-testid="company.connections"`) {
 		t.Error("no departments, no Connections block")
@@ -69,7 +69,7 @@ func TestCompanyPageConnectionsEmptyAndNone(t *testing.T) {
 	a.Departments = []tracker.Department{{Name: "Marketing", Systems: []string{"SEO"}}}
 	ts = newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company = getBody(t, ts.URL+"/p/agents/company")
+	_, company = getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `data-testid="company.connections.empty"`, `No connections yet`, `issue-cli output use`)
 	_, page := getBody(t, ts.URL+"/p/agents/connections")
 	assertContains(t, page, `data-testid="connections.empty"`, `No connections yet`)
@@ -123,7 +123,7 @@ func TestCompanyPageMarksDeclaredConnections(t *testing.T) {
 	}
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company,
 		`against the routes declared in projects.yaml`,
 		`data-from="marketing" data-to="product" data-via="hq" data-kind="request" data-open="1" data-color="#E2559B" data-route="undeclared"`,

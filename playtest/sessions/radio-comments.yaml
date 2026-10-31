@@ -33,7 +33,7 @@ steps:
           json: { block: 0, text: "question: ship the chips this week?" }
           status: 201
       - cli: [comment, engine/goal-chips-on-the-company-page, "ci: main red at abc123"]
-      - open: /p/{project}/company
+      - open: /p/{project}/company?classic=1
     checks:
       - visible: company.radio
       - count: { pattern: company.radio.issue, equals: 3 }

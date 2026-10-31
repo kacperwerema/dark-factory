@@ -130,6 +130,8 @@ func TestCheckDepartmentsJobs(t *testing.T) {
 		{ID: "nobrief", Every: "day"},
 		{ID: "gone", Every: "month", On: "last", Brief: "jobs/gone.md"},
 		{ID: "typed", Every: "day", Brief: "jobs/weekly.md", Type: "seo-pass"},
+		{ID: "memory-consolidate", Every: "week", Brief: "builtin:memory-consolidate"},
+		{ID: "nobuiltin", Every: "week", Brief: "builtin:no-such-brief"},
 		{Every: "day"},
 	}}}
 	env.Issues = []*tracker.Issue{
@@ -151,14 +153,15 @@ func TestCheckDepartmentsJobs(t *testing.T) {
 		"projects.yaml (Marketing): job gone: brief jobs/gone.md does not exist",
 		"projects.yaml (Marketing): a job has no id:",
 		`projects.yaml (Marketing): job typed: type "seo-pass": the workflow defines no types`,
+		"projects.yaml (Marketing): job nobuiltin: brief builtin:no-such-brief is not a bundled brief (bundled: builtin:memory-consolidate)",
 		`seo/old-run: open run of job "marketing/old", which projects.yaml no longer has`,
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing %q in:\n%s", want, all)
 		}
 	}
-	if len(got) != 9 {
-		t.Errorf("want 9 findings, got %d:\n%s", len(got), all)
+	if len(got) != 10 {
+		t.Errorf("want 10 findings, got %d:\n%s", len(got), all)
 	}
 }
 

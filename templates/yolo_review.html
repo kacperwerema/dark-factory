@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="yolo_review.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Review after YOLO</h1>
+        <span class="wb-sub">gates YOLO passed without you and owner checks it left open · by issue · oldest first</span>
+    </div>
+    <div class="wb-yr" data-issue-url="{{.IssueURL}}" data-tick-url="{{.TickURL}}">
+    {{if .Groups}}
+        {{template "wb/yr-summary" .}}
+        {{range .Groups}}{{template "wb/yr-group" .}}{{end}}
+        {{template "wb/yr-pager" .}}
+    {{else}}
+        <div class="wb-oc-empty" data-testid="yolo_review.empty">Nothing waits for your review after the fact. Gates YOLO passes without you, and owner checks it leaves open, land here.</div>
+    {{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/yolo-review.js"></script>
+</body>
+</html>

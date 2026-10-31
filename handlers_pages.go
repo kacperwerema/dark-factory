@@ -25,9 +25,12 @@ import (
 // the viewer's cookies or storage, or read viewer API responses.
 const pageSandbox = "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
 
-// pageRawCSP keeps a raw page sandboxed when it is opened directly, and lets
-// only the viewer frame it.
-const pageRawCSP = "sandbox " + pageSandbox + "; frame-ancestors 'self'"
+// pageRawCSP keeps a raw page sandboxed when it is opened directly, lets
+// only the viewer frame it, and keeps everything it loads or sends on the
+// viewer (F-13): no fetch, beacon, image or form to another host, so a page
+// can't send the status it is posted elsewhere. Inline script and style
+// stay allowed; a page is the project's own HTML.
+const pageRawCSP = "sandbox " + pageSandbox + "; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'"
 
 // pageHashFileCap bounds the files /hash stats under the page folders.
 const pageHashFileCap = 500
@@ -98,7 +101,8 @@ func resolvePageFile(proj *tracker.Project, wb tracker.WorkbenchConfig, rel stri
 	if err != nil {
 		return "", false
 	}
-	if _, ok := relWithinRoot(root, target); !ok {
+	inside, ok := relWithinRoot(root, target)
+	if !ok || hasDotSegment(rel) || hasDotSegment(inside) {
 		return "", false
 	}
 	if _, ok := pageContentTypes[strings.ToLower(filepath.Ext(target))]; !ok {
@@ -113,9 +117,34 @@ func resolvePageFile(proj *tracker.Project, wb tracker.WorkbenchConfig, rel stri
 	return target, true
 }
 
+// hasDotSegment reports whether a slash- or OS-separated path names a dot
+// folder or dot file (.ci, .health, .worktrees, .git, .env): never a page
+// or its asset (F-16).
+func hasDotSegment(path string) bool {
+	for _, seg := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
 // underPageDir reports whether target lies under a configured page folder.
+// A page at the project root makes no folder servable: the root holds the
+// work files, so only that page file itself is served (F-16).
 func underPageDir(root string, wb tracker.WorkbenchConfig, target string) bool {
+	for _, p := range wb.PagePaths() {
+		if filepath.Dir(filepath.Clean(p)) != "." {
+			continue
+		}
+		if abs, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(filepath.Clean(p)))); err == nil && abs == target {
+			return true
+		}
+	}
 	for _, dir := range wb.PageDirs() {
+		if dir == "." {
+			continue
+		}
 		abs, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(dir)))
 		if err != nil {
 			continue

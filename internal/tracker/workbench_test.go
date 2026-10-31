@@ -194,6 +194,8 @@ func TestWorkbenchConfig_ValidatePages(t *testing.T) {
 			{Title: "Abs", Path: "/srv/report.html"},
 			{Title: "No path"},
 			{Title: "Fine", Path: "docs/fine.htm"},
+			{Title: "Hidden", Path: ".ci/report.html"},
+			{Title: "Root", Path: "./status.html"},
 		},
 	}
 	joined := strings.Join(wb.Validate(), "\n")
@@ -203,13 +205,14 @@ func TestWorkbenchConfig_ValidatePages(t *testing.T) {
 		`workbench.pages[1].path: "docs/notes.md" is not an .html file`,
 		"workbench.pages[2].path:",
 		"workbench.pages[3]: path is required",
+		`workbench.pages[5].path: ".ci/report.html" is inside a dot-folder`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "pages[4]") {
-		t.Errorf("a valid .htm page was reported:\n%s", joined)
+	if strings.Contains(joined, "pages[4]") || strings.Contains(joined, "pages[6]") {
+		t.Errorf("a valid page was reported:\n%s", joined)
 	}
 	if dirs := wb.PageDirs(); strings.Contains(strings.Join(dirs, ","), "..") || strings.Contains(strings.Join(dirs, ","), "/srv") {
 		t.Errorf("PageDirs keeps an invalid path: %v", dirs)

@@ -39,6 +39,8 @@ var keyMap = map[string]string{
 	"Delete": kb.Delete, "ArrowUp": kb.ArrowUp, "ArrowDown": kb.ArrowDown,
 	"ArrowLeft": kb.ArrowLeft, "ArrowRight": kb.ArrowRight, "Home": kb.Home, "End": kb.End,
 	"PageUp": kb.PageUp, "PageDown": kb.PageDown, "Space": " ",
+	// Single keys a page binds itself (the company floor: F, +, -, 1–4).
+	"1": "1", "2": "2", "3": "3", "4": "4", "f": "f", "+": "+", "-": "-",
 }
 
 type ptResult struct {
@@ -131,7 +133,12 @@ func (e *stepEnv) do(ctx context.Context, a Action) error {
 		}
 		return nil
 	case "key":
-		return e.page.Do(ctx, chromedp.KeyEvent(keyMap[argString(a.Arg)]))
+		name := argString(a.Arg)
+		if mod, k, ok := strings.Cut(name, "+"); ok && k != "" {
+			m := map[string]chromedp.Modifier{"Control": chromedp.ModifierCtrl, "Meta": chromedp.ModifierMeta}[mod]
+			return e.page.Do(ctx, chromedp.KeyEvent(k, chromedp.KeyModifiers(m)))
+		}
+		return e.page.Do(ctx, chromedp.KeyEvent(keyMap[name]))
 	case "drag":
 		m, _ := argMap(a.Arg)
 		return e.drag(ctx, fmt.Sprint(m["target"]), fmt.Sprint(m["to"]))
@@ -325,6 +332,11 @@ func (e *stepEnv) post(ctx context.Context, m map[string]any) (int, string, erro
 	}
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
+	}
+	// The owner's browser posts with its sign-in cookie; a step that sends
+	// its own Cookie header (or "Cookie": "" for a stranger) sets its own.
+	if e.sc.OwnerSession != "" {
+		req.AddCookie(&http.Cookie{Name: "iv_owner", Value: e.sc.OwnerSession})
 	}
 	if h, ok := m["headers"].(map[string]any); ok {
 		for k, v := range h {

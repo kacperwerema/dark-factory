@@ -1,6 +1,7 @@
 package proof
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -137,5 +138,49 @@ func TestDirtyCodeIgnoresNonCodeFiles(t *testing.T) {
 	}
 	if dirty, _ := DirtyCode(dir); !reflect.DeepEqual(dirty, []string{"main.go"}) {
 		t.Errorf("DirtyCode = %v, want [main.go]", dirty)
+	}
+}
+
+func TestSupersededNeedsANewerFoundLinkOnEveryCriterion(t *testing.T) {
+	tl := func(ref, src, from string) CheckedLink {
+		return CheckedLink{Link: Link{Kind: tracker.ProofTest, Ref: ref, Source: src, From: from}}
+	}
+	found := func(n string) bool { return n == "TestNew" }
+	for _, tc := range []struct {
+		name     string
+		criteria [][]CheckedLink
+		want     string
+	}{
+		{"newer trailer", [][]CheckedLink{{tl("TestNew", SourceTrailer, "bbb"), tl("TestOld", SourceTrailer, "aaa")}}, "TestNew (trailer on bbb)"},
+		{"prove link", [][]CheckedLink{{tl("TestOld", SourceTrailer, "aaa"), tl("TestNew", SourceProve, "")}}, "TestNew (prove)"},
+		{"older trailer only", [][]CheckedLink{{tl("TestOld", SourceTrailer, "bbb"), tl("TestNew", SourceTrailer, "aaa")}}, ""},
+		{"same commit", [][]CheckedLink{{tl("TestNew", SourceTrailer, "aaa"), tl("TestOld", SourceTrailer, "aaa")}}, ""},
+		{"prove link to the old name", [][]CheckedLink{{tl("TestNew", SourceTrailer, "bbb"), tl("TestOld", SourceProve, "")}}, ""},
+		{"one criterion without a newer link", [][]CheckedLink{
+			{tl("TestNew", SourceTrailer, "bbb"), tl("TestOld", SourceTrailer, "aaa")},
+			{tl("TestOld", SourceTrailer, "aaa")},
+		}, ""},
+	} {
+		var r Report
+		for i, links := range tc.criteria {
+			r.Criteria = append(r.Criteria, Criterion{ID: fmt.Sprintf("AC%d", i+1), Links: links})
+		}
+		got, ok := Superseded(r, "TestOld", found)
+		if got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%s: Superseded = %q, %v; want %q", tc.name, got, ok, tc.want)
+		}
+	}
+}
+
+func TestPassedAndCommentWithSupersededNames(t *testing.T) {
+	run := TestRun{Command: "go test", Results: []RunResult{{Name: "TestNew", Outcome: RunPass}, {Name: "TestOld", Outcome: RunSuperseded}}}
+	if !run.Passed() {
+		t.Error("Passed = false, want true: a superseded name doesn't block")
+	}
+	if got := run.Comment(); got != "tests: prove --run: go test — 1 passed: TestNew; 1 superseded: TestOld" {
+		t.Errorf("Comment = %q", got)
+	}
+	if (TestRun{Results: []RunResult{{Name: "TestOld", Outcome: RunSuperseded}}}).Passed() {
+		t.Error("Passed with only superseded names = true, want false")
 	}
 }

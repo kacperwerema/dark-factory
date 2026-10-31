@@ -112,7 +112,12 @@ func runProve(ctx *Context, args []string) error {
 	}
 	criteria := tracker.Criteria(issue.BodyRaw)
 	if len(criteria) == 0 {
-		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli replace %s --section %q --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, issue.Slug, tracker.CriteriaSection)
+		// replace refuses a missing section; append --section creates it.
+		verb := "replace"
+		if !tracker.HasSection(issue.BodyRaw, tracker.CriteriaSection) {
+			verb = "append"
+		}
+		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli %s %s --section %q --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, verb, issue.Slug, tracker.CriteriaSection)
 	}
 
 	if *runFlag {

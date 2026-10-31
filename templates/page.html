@@ -7,6 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 13h12v1.5H2zM3 8h2v4H3zm4-3h2v7H7zm4-3h2v10h-2z' fill='%2358a6ff'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
+    <script src="/static/events.js"></script>
 </head>
 <body>
 <div class="app">
@@ -34,7 +35,7 @@
 </div>
 </div>
 {{if not .Problem}}
-<script>
+<script nonce="{{cspNonce}}">
 // Project page frame (docs/workbench-files.md, "Project pages"). Reloads the
 // iframe when a file under the page folders changes (/hash "pages") and
 // posts the Status model to the page: on load, when the issues change, and
@@ -56,14 +57,33 @@
             s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
     }
 
+    // The frame has an opaque origin, so "*" is the only postMessage target
+    // there is. That would hand the status to any site the frame navigated
+    // itself to (F-13), so it is posted only while the frame shows the page
+    // this script loaded: every load the script didn't start (a link, a
+    // location change inside the page) stops the posting until the next
+    // reload from here.
+    var expectLoad = true;
+    var onPage = false;
+
     function postStatus() {
+        if (!onPage) return;
         fetch(prefix + '/status.json').then(function(r) { return r.json(); }).then(function(status) {
-            // The frame has an opaque origin, so "*" is the only target.
-            if (frame.contentWindow) frame.contentWindow.postMessage({type: 'issue-viewer.status', project: project, status: status}, '*');
+            if (onPage && frame.contentWindow) frame.contentWindow.postMessage({type: 'issue-viewer.status', project: project, status: status}, '*');
         }).catch(function() {});
     }
 
-    frame.addEventListener('load', postStatus);
+    function reloadFrame() {
+        expectLoad = true;
+        onPage = false;
+        frame.src = frame.getAttribute('src');
+    }
+
+    frame.addEventListener('load', function() {
+        onPage = expectLoad;
+        expectLoad = false;
+        postStatus();
+    });
     window.addEventListener('message', function(e) {
         if (e.source !== frame.contentWindow || !e.data || e.data.type !== 'issue-viewer.status.request') return;
         postStatus();
@@ -74,7 +94,7 @@
             if ((data.pages || '') !== pagesHash) {
                 pagesHash = data.pages || '';
                 changed = Date.now();
-                frame.src = frame.src; // reload; the load event posts the status
+                reloadFrame(); // the load event posts the status
                 if (reloaded) reloaded.hidden = false;
             } else if (issuesHash !== null && data.hash !== issuesHash) {
                 postStatus();

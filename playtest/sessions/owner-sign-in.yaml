@@ -1,0 +1,58 @@
+session: owner-sign-in
+issue: api/owner-only-routes-need-an-owner-credential-on-loopback
+title: Owner decisions need the owner's sign-in; the signed-in browser still decides
+scenario: send-back
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (not this issue's).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP2
+    title: The signed-in browser sends an issue back; a request without the sign-in is refused; signing out and asking for a code work
+    proves: [AC2]
+    setup:
+      # The runner signed this browser in the way the owner does: it asked
+      # for a code and typed the one its own board printed.
+      - open: /owner
+    act:
+      - check: { visible: [owner.page, owner.signed_in, owner.signout, map.owner] }
+      # An owner decision from the signed-in browser goes through.
+      - open: /p/{project}/issue/shop/label-printer
+      - type: { target: approve_words.station, text: "The label is cut off on the right" }
+      - click: station.stamp.back
+      - wait_for: { text_contains: { target: station.stamp, text: "Sent back to testing" }, ms: 8000 }
+      # The same decision from a script with the browser's headers but no
+      # sign-in (an agent's curl) is refused.
+      - post: { path: "/p/{project}/issue/shop/label-printer/approve", json: { status: human-testing }, headers: { Cookie: "", Sec-Fetch-Site: same-origin }, status: 403 }
+      - post: { path: "/p/{project}/yolo/on", json: {}, headers: { Cookie: "" }, status: 403 }
+      # Sign out, then ask for a new code. The runner asked for one moments
+      # ago to sign in, so the page says to use that one: a loop of requests
+      # can't flood the owner with dialogs.
+      - open: /owner
+      - click: owner.signout
+      - wait_for: { visible: owner.signed_out, ms: 6000 }
+      - click: owner.send
+      - wait_for: { visible: owner.error, ms: 6000 }
+      - check: { text_contains: { target: owner.error, text: "use that one" } }
+      - check: { visible: [owner.code, owner.pair] }
+    checks:
+      - issue: { slug: shop/label-printer, field: status, equals: testing }
+      - issue: { slug: shop/label-printer, comment_contains: "rejected: \"The label is cut off on the right\"" }
+    targets:
+      - { id: owner.signed_in, note: the signed-in card with Sign out }
+      - { id: owner.signed_out, note: the sign-in card with Show me a code and the code box }
+    do: |
+      1. Open /owner on your own viewer (the YOU circle at the top right).
+      2. Press Show me a code. A dialog on your Mac shows an 8-digit code.
+      3. Type it in the Code box and press Sign in.
+      4. Open an issue waiting at a gate and approve it.
+    expect: |
+      The dialog shows the code and says to type it only if you asked. After
+      Sign in the page says this browser is signed in as the owner. Approve
+      works as before. Without signing in, Approve says "owner sign-in
+      needed" and names /owner.
+    why: ux-test runs the flow with the code printed on the sandbox board's terminal; only you can see the dialog on your own Mac and judge the steps read clearly.

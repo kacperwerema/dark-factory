@@ -82,7 +82,7 @@ func TestCompanyPageCarriesRoads(t *testing.T) {
 	withConnections(t, &a)
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `<template data-road-parts>`, `data-testid="company.connections.road"`, `data-testid="company.connections.parcel"`)
 	m := regexp.MustCompile(`(?s)<script type="application/json" data-roads>(.*?)</script>`).FindStringSubmatch(company)
 	if m == nil {

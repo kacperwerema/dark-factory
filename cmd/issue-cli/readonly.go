@@ -25,7 +25,9 @@ var commandAccess = map[string]readOnly{
 	"append":          writes,
 	"approve":         writes,
 	"ask":             writes,
+	"agents":          readSubs("status"),
 	"autostart":       readSubs("status", "next"),
+	"queue":           readSubsUnlessFlag("start", "list", "next"),
 	"balance":         readWithFlag("list"),
 	"bench":           readSubs("candidates", "show", "report", "compare"),
 	"check":           writes,
@@ -35,6 +37,7 @@ var commandAccess = map[string]readOnly{
 	"checklist":       reads,
 	"ci":              readSubs("status"),
 	"claim":           writes,
+	"clarify":         readUnlessFlags("assume", "answer"),
 	"close":           writes,
 	"comment":         writes,
 	"connections":     reads,
@@ -50,6 +53,7 @@ var commandAccess = map[string]readOnly{
 	"dispatch-prompt": reads,
 	"done":            writes,
 	"experiment":      readSubs("candidates", "show", "list"),
+	"postmortem":      readSubs("brief", "show", "list"),
 	"goal":            writes,
 	"goals":           reads,
 	"handoff":         writes,
@@ -61,6 +65,7 @@ var commandAccess = map[string]readOnly{
 	"jobs":            reads,
 	"lead":            readSubs("whoami", "list"),
 	"list":            reads,
+	"memory":          readSubs("search", "list", "show", "candidates", "consolidate"),
 	"next":            reads,
 	"output":          readSubs("show"),
 	"outputs":         reads,
@@ -69,7 +74,9 @@ var commandAccess = map[string]readOnly{
 	"process":         reads,
 	"project":         writes,
 	"projects":        reads,
+	"critique":        writes,
 	"prove":           writes,
+	"rounds":          writes,
 	"release":         writes,
 	"replace":         writes,
 	"report-bug":      writes,
@@ -107,6 +114,19 @@ func readSubs(subs ...string) readOnly {
 // readWithFlag: read-only only when --name is passed.
 func readWithFlag(name string) readOnly {
 	return func(args []string) bool { return hasFlag(args, name) }
+}
+
+// readUnlessFlags: read-only unless one of the --names is passed (clarify
+// --assume or --answer).
+func readUnlessFlags(names ...string) readOnly {
+	return func(args []string) bool {
+		for _, n := range names {
+			if hasFlag(args, n) {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 // readSubsUnlessFlag: readSubs, but a --name flag makes the call write

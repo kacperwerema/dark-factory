@@ -1,0 +1,31 @@
+id: clarify-round
+version: v0.59.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["internal/tracker/clarify.go", "cmd/issue-cli/cmd_clarify.go", "clarify_view.go"]
+title: "One clarify round per design"
+what: |
+  The design step writes every question for the owner once, under `## Clarify`: each
+  a `### Q<n>.` with 2–4 options, what each costs, and the recommendation first citing
+  the work, then an open `**Answer:** —`. With nothing to ask, the section is one line,
+  `Nothing to ask: <why>.` The owner answers them in one go on the issue's Station (one
+  form; Needs you lists one Clarify row per issue), and each answer becomes a D-n
+  decision in the owner's words. An answer the agent took alone is `assumed — <reason>`
+  (`issue-cli clarify <slug> --assume`); under YOLO the gate out of design marks the open
+  ones assumed and the review after YOLO lists them. Outside the round, a `question:`
+  comment is for a blocker only.
+why: |
+  Questions reached the owner one at a time, as `question:` comments, chat lines and,
+  under YOLO, a provisional list, with no options or costs laid out. One round with the
+  recommendation first lets the owner decide in one sitting.
+where: "the idea and in design status prompts"
+snippet: |
+  statuses:
+    - name: "in design"
+      prompt: |
+        Write the clarify round once, in a `## Clarify` section: every question at once, each a `### Q1. <question>` with 2–4 numbered options `1. **<option>** (recommended) <why, citing the work>. Cost: <cost>.`, the recommendation first, then an open `**Answer:** —` line. With no question, the section is one line: `Nothing to ask: <why>.` An answer you take alone is `**Answer:** assumed — <reason>` (`issue-cli clarify <slug> --assume`); `issue-cli clarify <slug>` shows the round and its format problems. Questions go only in this round; outside it a `question:` comment is for a blocker only.
+question: "Should the design step ask the owner once, every question in a ## Clarify round with options, cost and the recommendation first?"
+detect:
+  - path: statuses[].prompt
+    contains: "## Clarify"

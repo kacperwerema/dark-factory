@@ -8,12 +8,14 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -292,6 +294,11 @@ type Scenario struct {
 	commits int // scenario commits made so far (pins their dates)
 	log     io.Writer
 	env     []string
+	// OwnerSession is the owner's sign-in cookie on this board (the runner
+	// signs in with the code its own board prints): the browser pages and
+	// post: steps carry it, as the owner's browser would.
+	OwnerSession string
+	codes        *codeWatch
 }
 
 // StartScenario copies the fixtures from scenarioDir/<name> into a fresh
@@ -394,8 +401,12 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	if err := s.buildHistory(src); err != nil {
 		return fail(fmt.Errorf("scenario %s: %v", name, err))
 	}
-	s.board = s.command(bins.Viewer, "-config", s.ConfigPath(), "-port", fmt.Sprint(s.Port))
-	s.board.Stdout, s.board.Stderr = log, log
+	// -owner-code terminal: the board prints its sign-in code on stderr,
+	// which only the runner reads (codeWatch), never a dialog on the
+	// owner's desktop.
+	s.board = s.command(bins.Viewer, "-config", s.ConfigPath(), "-port", fmt.Sprint(s.Port), "-owner-code", "terminal")
+	s.codes = &codeWatch{w: log}
+	s.board.Stdout, s.board.Stderr = log, s.codes
 	s.board.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := s.board.Start(); err != nil {
 		return fail(fmt.Errorf("start board: %v", err))
@@ -403,7 +414,84 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	if err := waitHTTP(s.Base+"/", 10*time.Second); err != nil {
 		return fail(fmt.Errorf("board on %s: %v", s.Base, err))
 	}
+	if s.OwnerSession, err = s.signInOwner(); err != nil {
+		return fail(fmt.Errorf("owner sign-in on %s: %v", s.Base, err))
+	}
 	return s, nil
+}
+
+// ownerCodeLine is the line the viewer prints with -owner-code terminal.
+var ownerCodeLine = regexp.MustCompile(`Owner sign-in code: (\d{4})-(\d{4})`)
+
+// codeWatch passes the board's stderr to the log and keeps the last sign-in
+// code it printed.
+type codeWatch struct {
+	w    io.Writer
+	mu   sync.Mutex
+	buf  []byte
+	code string
+}
+
+func (c *codeWatch) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	c.buf = append(c.buf, p...)
+	if m := ownerCodeLine.FindAllSubmatch(c.buf, -1); len(m) > 0 {
+		last := m[len(m)-1]
+		c.code = string(last[1]) + string(last[2])
+	}
+	if i := bytes.LastIndexByte(c.buf, '\n'); i >= 0 {
+		c.buf = c.buf[i+1:]
+	}
+	c.mu.Unlock()
+	return c.w.Write(p)
+}
+
+func (c *codeWatch) take() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	code := c.code
+	c.code = ""
+	return code
+}
+
+// signInOwner runs the owner's sign-in against the board over HTTP: ask for
+// a code, read it off the board's stderr, type it in, keep the cookie.
+func (s *Scenario) signInOwner() (string, error) {
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	post := func(path string, form url.Values) (*http.Response, error) {
+		req, err := http.NewRequest(http.MethodPost, s.Base+path, strings.NewReader(form.Encode()))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", s.Base)
+		return client.Do(req)
+	}
+	resp, err := post("/owner/code", nil)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	var code string
+	for deadline := time.Now().Add(5 * time.Second); code == "" && time.Now().Before(deadline); {
+		if code = s.codes.take(); code == "" {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if code == "" {
+		return "", fmt.Errorf("the board printed no sign-in code")
+	}
+	resp, err = post("/owner/pair", url.Values{"code": {code}})
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	for _, c := range resp.Cookies() {
+		if c.Name == "iv_owner" && c.Value != "" {
+			return c.Value, nil
+		}
+	}
+	return "", fmt.Errorf("pair answered %d without a session", resp.StatusCode)
 }
 
 // buildHistory applies the spec's commits on main and creates its branches.

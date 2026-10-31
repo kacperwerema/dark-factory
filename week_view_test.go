@@ -22,7 +22,7 @@ func TestGroupRoomShowsTheWeekReport(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{a})
 	defer ts.Close()
 
-	_, company := getBody(t, ts.URL+"/p/agents/company")
+	_, company := getBody(t, ts.URL+"/p/agents/company?classic=1")
 	assertContains(t, company, `data-testid="company.room.week.empty"`, "No week report yet: <code>issue-cli --project agents department week gtm --write</code>")
 	if strings.Count(company, `data-testid="company.room.week`) != 1 {
 		t.Error("only the group's room has a Week block")
@@ -36,7 +36,7 @@ func TestGroupRoomShowsTheWeekReport(t *testing.T) {
 	if _, _, err := weekplan.Write(&a, w); err != nil {
 		t.Fatal(err)
 	}
-	_, company = getBody(t, ts.URL+"/p/agents/company")
+	_, company = getBody(t, ts.URL+"/p/agents/company?classic=1")
 	url := "/p/agents/reports/gtm/" + w.Key
 	assertContains(t, company, `data-testid="company.room.week"`, `href="`+url+`"`, "Week "+w.Key,
 		"2 goals moved · 1 output shipped, 3 reviewed · 1 blocked", ">with plan<", ".reports/gtm/"+w.Key+".md")

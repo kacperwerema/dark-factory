@@ -1,0 +1,53 @@
+# The company floor with more than fits: a GTM wing with five departments
+# (a big wing on a row of its own), Research with a long role, six goals,
+# five jobs and outputs with long titles, Design and Data beside it, and a
+# departments: entry for Product (its mission, not a room). Every tile keeps
+# its plan size; the overflow is in the inspector.
+title: A floor with long content and a five-department wing
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: Grow the client roster
+      goals:
+        - {id: sites, name: Client sites live, target: 26}
+        - {id: studies, name: Case studies, target: 10}
+    departments:
+      - name: Product
+        mission: Ship the engine
+      - name: GTM
+        color: "#F2A541"
+        role: Brings in the next clients
+        mission: A steady pipeline of new clients
+        goals:
+          - {id: pipeline, name: New client conversations, target: 8, period: month}
+        jobs:
+          - {id: weekly-plan, name: Week plan and report, every: week, on: mon, at: "08:00"}
+      - {name: Marketing, color: "#E2559B", role: SEO and content for the client sites, systems: [SEO], parent: GTM}
+      - {name: Sales, color: "#17A2B8", role: Leads and deals, systems: [Leads], parent: GTM}
+      - {name: Partnerships, color: "#8E5CD9", role: Resellers and integrations, systems: [Partners], parent: GTM}
+      - {name: Events, color: "#D9822B", role: Meetups and talks, systems: [Talks], parent: GTM}
+      - {name: Community, color: "#2E9E5B", role: Forum and newsletter, systems: [Forum], parent: GTM}
+      - name: Research
+        color: "#8BC34A"
+        role: Market and user research across every client segment, with interviews, surveys, desk research and a monthly digest that nobody has time to read in full
+        mission: Know the market better than anyone else in the room, every single week of the year
+        systems: [Studies]
+        goals:
+          - {id: interviews, name: User interviews held with paying clients this month, target: 12, period: month}
+          - {id: surveys, name: Survey answers collected, target: 300, period: month}
+          - {id: digests, name: Monthly digests published, target: 1, period: month}
+          - {id: segments, name: Client segments described in depth, target: 6}
+          - {id: competitors, name: Competitor teardown pages, target: 10}
+          - {id: insights, name: Insights adopted by Product, target: 4, period: month}
+        jobs:
+          - {id: digest, name: Monthly research digest for the whole company, every: month, on: last}
+          - {id: interviews, name: User interviews summary, every: week, on: fri}
+          - {id: survey, name: Survey export and cleanup, every: week, on: mon}
+          - {id: teardown, name: Competitor teardown refresh, every: week, on: wed}
+          - {id: segments, name: Segment review, every: month, on: last}
+      - {name: Design, color: "#E25555", role: Brand and product design, systems: [Visual]}
+      - {name: Data, color: "#2A5BD7", role: Metrics and reports, systems: [Metrics]}
+issues: tracker
+workflow: workflow.yaml

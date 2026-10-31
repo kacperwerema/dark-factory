@@ -13,7 +13,7 @@ steps:
     title: The 26 connections are drawn as 21 roads with parcels moving on them; the list under the floor is unchanged
     proves: [AC1, AC2, AC4]
     setup:
-      - open: /p/acme/company
+      - open: /p/acme/company?classic=1
     act:
       - wait_for: { visible: company.connections.road.link }
     checks:

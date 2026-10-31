@@ -246,7 +246,7 @@ func TestYOLOCommand(t *testing.T) {
 	}
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
 	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
-	if out, _ = run("queue"); !strings.Contains(out, "design  in design → backlog  by agent-design") {
+	if out, _ = run("queue"); !strings.Contains(out, "To review after YOLO: 1 issue (1 gate)") || !strings.Contains(out, "  design  (1 gate)\n      gate in design → backlog  by agent-design") {
 		t.Fatalf("queue:\n%s", out)
 	}
 	if _, err := run("review", "design", "--quote", "fine"); err == nil {
