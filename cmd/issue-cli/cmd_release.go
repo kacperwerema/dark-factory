@@ -48,7 +48,9 @@ Subcommands:
       the snapshot is the bundle. --first accepts a public tip that is the old
       history. --dry-run runs the checks and shows the parent, the message and
       what the commit changes, and writes nothing (YOLO and the card are
-      reported, not refused).
+      reported, not refused). Both refuse a tree with a user home path,
+      a scratchpad path or a name from the private-names list (docs/workflow.md,
+      The leak scan).
 
 cut and publish read the viewer's Waiting for release card and refuse unless it
 says the same (ready to cut; soaking).`,
@@ -342,8 +344,9 @@ func runReleasePublish(ctx *Context, args []string) error {
 		return err
 	}
 	root := privacy.MainCheckout(ctx.Project.TelemetryRoot())
+	privateNames, _ := privacy.PrivateNames()
 	res, err := privacy.Publish(privacy.PublishInput{
-		Root: root, Worktree: cwd, Cut: cut, Cfg: wf.Privacy, Changelog: wf.Workbench.Changelog, First: *first, DryRun: *dryRun, Now: ctx.Now(),
+		Root: root, Worktree: cwd, Cut: cut, Cfg: wf.Privacy, Changelog: wf.Workbench.Changelog, First: *first, DryRun: *dryRun, Now: ctx.Now(), PrivateNames: privateNames,
 	})
 	if err != nil {
 		return err

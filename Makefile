@@ -18,8 +18,11 @@ install:
 	go install -ldflags "$(LDFLAGS)" .
 	@echo "Installed issue-cli and issue-viewer $(VERSION) via go install"
 
+# make demo PORT=8081 when your own viewer already has 8080.
+PORT ?= 8080
+
 demo: build
-	./issue-viewer -config demo/projects.yaml -port 8080
+	./issue-viewer -config demo/projects.yaml -port $(PORT)
 
 # The README's screenshots (docs/images/shots.yaml) from a staged copy of the
 # demo, with a CEO and workers on a private tmux server. Needs Chrome

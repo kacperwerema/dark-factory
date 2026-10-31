@@ -482,6 +482,18 @@ A public dev repo publishes how the work was done, not just the result: commit m
 
 `issue-cli privacy hook` reinstalls it. A clone without the hook (another machine, a cloud session) is the gap it can't close, which is why everyone works against the dev repo. For a PR opened on GitHub, `.github/workflows/privacy-guard.yml` reads the same `privacy:` block: a PR touching a work path fails (`work_files: tracker`), and with `code: snapshots` every PR on the public repo fails, pointing at the dev repo. Copy it into a project that turns the feature on.
 
+### The leak scan
+
+Tracked files must not carry this machine's private data. The scan (`internal/privacy/leaks.go`) looks at every tracked text file for:
+
+- a user home path: `/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\`, and Claude Code's encoded folder names (`-Users-<name>-`);
+- a Claude Code scratchpad path (`/claude-<uid>/`);
+- a name from the owner's private-names list, `$XDG_CONFIG_HOME/ai-workflow-engine/private-names.txt` (default `~/.config/ai-workflow-engine/private-names.txt`): one name per line, `#` for comments, matched as a whole word without case. The list stays outside the repo, so the names never reach it. With no list, only the path patterns run.
+
+`TestTrackedFilesCarryNoLeaks` (internal/privacy) runs it over the repo, so `make validate` fails on a hit and names the file and line. `issue-cli release publish` runs it over the release branch's tree and refuses, the `--dry-run` too, before anything goes public.
+
+A test input or doc that needs a home path uses a placeholder user: `someone`, `owner`, `me`, `u`, `a` and the others in `placeholderUsers` in leaks.go. Add a made-up name there when a test needs another one, never a real one. For a sample project, use a placeholder such as `Orchard` / `orchard`.
+
 ### What Status shows
 
 A **Work** and a **Code** badge after the word Status, their lines at the foot of the Health card (or a Privacy card without one), and markers on the projects list and the `/stats` overview. All local: `git ls-files`, the tracker's git folder and its sync file; no network.

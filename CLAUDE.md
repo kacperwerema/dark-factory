@@ -28,7 +28,8 @@ It has to pass on macOS as well as Linux. On a Mac, `t.TempDir()` is under
 resolved dir (`realTempDir` in cmd/issue-cli). That dir is also too deep for
 a tmux socket (~104 bytes), so `isolateTmux` keeps `TMUX_TMPDIR` under `/tmp`.
 BSD `script` has no `-c` (internal/checks `ptyCommand`), and tests that
-dispatch use `terminal: none`; the default terminal is i3-msg.
+dispatch use `terminal: none`; an unset terminal is i3-msg where it is on
+PATH and headless elsewhere (`agentrun.TerminalNone`).
 
 It also has to pass on a loaded machine: CI runs while several workers run
 `make validate`. A timing test keeps its absolute limit for a quiet machine
@@ -42,8 +43,10 @@ load, `scripts/under-load.sh [-c cpu] [-m mb] -- <command>` runs it beside
 a CPU and memory hog it starts and stops itself (refuses when `mem-guard
 check` is blocked, stops at 70%).
 
-Shell on this machine (the worker briefing's `## Shell on this machine`
-section says the same, detected from `$SHELL`, the OS and `rtk` on PATH):
+Shell on the author's machine, a Mac with zsh and rtk (the worker briefing's
+`## Shell on this machine` section says what applies on yours, detected from
+`$SHELL`, the OS and `rtk` on PATH; mem-guard and rtk are optional,
+docs/getting-started.md#optional-tools):
 
 - zsh: a `$VAR` holding a command doesn't word-split, so use a shell
   function; `$B:h` is a modifier; quote globs (`--include='*.go'`).

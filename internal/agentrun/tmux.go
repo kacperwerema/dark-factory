@@ -143,11 +143,39 @@ func AttachHint(proj *tracker.Project, name string) string {
 	return "Inside tmux:  " + SwitchCmd(proj, name) + "\nFrom a shell: " + AttachCmd(proj, name)
 }
 
-// TerminalNone reports whether proj is headless (terminal: none): agents get
-// their tmux home and nothing on screen changes.
+// TerminalNone reports whether proj is headless: agents get their tmux home
+// and nothing on screen changes. That is terminal: none, and also a project
+// that leaves terminal: unset on a machine without i3 (no i3_workspace, no
+// i3-msg on PATH), such as a Mac: the i3 + alacritty default could only fail
+// there, so the attach command is printed instead.
 func TerminalNone(proj *tracker.Project) bool {
-	return proj != nil && strings.TrimSpace(proj.Terminal) == "none"
+	if proj == nil {
+		return false
+	}
+	switch strings.TrimSpace(proj.Terminal) {
+	case "none":
+		return true
+	case "":
+		return NoTerminalDefault(proj)
+	}
+	return false
 }
+
+// NoTerminalDefault reports whether proj leaves terminal: unset on a
+// machine where the i3 + alacritty default can't run: headless by default.
+func NoTerminalDefault(proj *tracker.Project) bool {
+	if proj == nil || strings.TrimSpace(proj.Terminal) != "" || proj.I3Workspace != "" {
+		return false
+	}
+	_, err := lookPath("i3-msg")
+	return err != nil
+}
+
+// lookPath is exec.LookPath; tests stand in for a machine with or without i3.
+var lookPath = exec.LookPath
+
+// headlessDefaultDetail says why a project without terminal: is headless.
+const headlessDefaultDetail = "no terminal: in projects.yaml and no i3 here; set terminal: to a command that opens a window, or terminal: none to keep this"
 
 // shellWord single-quotes s unless it is safe to type unquoted. A leading
 // "=" is not: zsh expands =word to a command's path.
@@ -549,7 +577,11 @@ func openTerminal(proj *tracker.Project, session, name string, steps *[]Step) bo
 	}
 
 	if TerminalNone(proj) {
-		*steps = append(*steps, Step{Name: "Terminal: headless — attach manually", Status: "ok"})
+		step := Step{Name: "Terminal: headless — attach manually", Status: "ok"}
+		if NoTerminalDefault(proj) {
+			step.Detail = headlessDefaultDetail
+		}
+		*steps = append(*steps, step)
 		return true
 	}
 

@@ -20,7 +20,7 @@ Nothing shows unless it is configured. A project without `company:` and goals lo
 Rules the owner and the lead have already settled for department and Factory work. Don't derive them again from a lead message: follow them, and cite the decision when a design leans on one. A rule changes only by a new decision on the issue that changes it, and then this list changes with it.
 
 - **Secrets are references.** A connector names `env:<VAR>` or `keychain:<service>`, never a value; the owner creates the value, the engine never writes, prints or copies it, and pages show only set / missing. A connector reaches only its department's lead and workers, never the CEO or Product (the owner uses `--as-owner`). Tests use fakes in a sandbox project, never real credentials. Sources: factory/department-connectors#D-1, #D-2, #D-3, #D-4, #D-5, #D-6, #D-7; see [Connectors](#connectors).
-- **Private projects stay private.** Content from the owner's private projects (golf-rpg, meals, Jemik, client rosters, client sites, Keychain service names) stays in that project's repo or tracker. This repo, its tests, fixtures, docs and prompts name such a project by name and slug only, with placeholders for the rest. Source: factory/factory-benchmark-and-evals#D-10; the pilot's runbook below.
+- **Private projects stay private.** Content from the owner's private projects (their names, client rosters, client sites, Keychain service names) stays in that project's repo or tracker. This repo, its tests, fixtures, docs and prompts don't name such a project: they use placeholders (`Orchard`, `orchard`, `client-site`). The names sit in a list outside the repo that the leak scan reads ([Private work and code](workflow.md#private-work-and-code)). Sources: factory/factory-benchmark-and-evals#D-10; the pilot's runbook below; factory/release-snapshot-leaks-a-fixture-with-a-user-path-and-brand-fixtures-naming-private-projects.
 - **Budgets are shown, never enforced.** A `budget:` is "x of y" beside the spend; nothing refuses, pauses or waits on it until the owner decides otherwise. Spend is read from this machine's Claude Code transcripts, numbers only, and the engine bundles no prices. Source: factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room#D-2, #D-3 (N-18).
 - **Business data sits with the work files.** Goal values, outputs and connector checks are logs under the issues dir (`.goals/`, `.outputs/`, `.connectors/`), so a private tracker keeps them private; the viewer holds no state of its own. Sources: factory/department-role-and-goals (values log), factory/department-outputs-shelf#D-1.
 - **One waiting-on-you count.** Every "waiting on you" number is the length of `needsYouRows` (`needs_you.go`). Anything department-level that waits on the owner (outputs to review, due jobs, a failing connector) adds rows there; no page counts its own waits on top. Sources: factory/needs-you-list-every-waiting-item-in-one-place-with-approve-all, factory/department-outputs-shelf#D-3.
@@ -42,7 +42,7 @@ Rules the owner and the lead have already settled for department and Factory wor
 
 ```yaml
 projects:
-  - name: Jemik
+  - name: Orchard
     issues: ./issues
     company:                              # HQ
       mission: "Grow the clients' local search traffic"

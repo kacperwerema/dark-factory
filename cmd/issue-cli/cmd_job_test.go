@@ -15,7 +15,7 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
-const jobWords = "1. It can be a lead per department. 2. Inside company/project secrets for now 3. pilot projects on Jemik 4. for now all."
+const jobWords = "1. It can be a lead per department. 2. Inside company/project secrets for now 3. pilot projects on Orchard 4. for now all."
 
 // jobNow is Thursday 2026-10-29 12:00: week 44's Monday 07:00 run is due.
 var jobNow = time.Date(2026, 10, 29, 12, 0, 0, 0, time.Local)

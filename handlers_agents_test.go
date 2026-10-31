@@ -263,6 +263,9 @@ func TestAgentOpen_LeadFollowsLeadTerminal(t *testing.T) {
 
 func TestAgentOpenAndDetail(t *testing.T) {
 	proj := setupAgentsProject(t)
+	// A project whose terminal: opens a window (attachAgent is stubbed, so
+	// nothing runs); unset is headless on a machine without i3.
+	proj.Terminal = "alacritty -e tmux attach -t {{session}}"
 	stubAgentsGit(t)
 	var opened []string
 	origLive, origAttach := agentSessionLive, attachAgent

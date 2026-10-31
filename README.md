@@ -146,40 +146,30 @@ More of what the board does: manual checks as [playtests](docs/patterns/playtest
 
 ## Quickstart
 
-You need Linux or macOS. To dispatch agents you also need `tmux`, `git`, and the `claude` or `codex` CLI on your `PATH`.
+You need Linux or macOS, `git`, `tmux`, and the `claude` or `codex` CLI on your `PATH` (Go 1.25+ to build from a clone). Nothing else: `mem-guard`, `rtk` and i3, named elsewhere in the docs, are optional.
 
 ```bash
-# 1. Install issue-viewer (the board) and issue-cli (the agent CLI) into ~/.local/bin
+# 1. Install issue-cli (the agent CLI) and issue-viewer (the board) into ~/.local/bin
 curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
+#    or, from a clone or your fork:
+GOBIN="$HOME/.local/bin" make install
 
-# 2. In your repo: write workflow.yaml and create issues/ and docs/
-cd my-project
-issue-cli init --template development     # or: review, writing
+# 2. A project: issues/, docs/, workflow.yaml and its entry in projects.yaml
+issue-cli project init ~/src/shop --name "Shop" --config ~/.config/ai-workflow-engine/projects.yaml
+cd ~/src/shop && git init && git add -A && git commit -m "Start the shop"
 
-# 3. Capture a first issue
-issue-cli create --title "Add a dark mode toggle" --system UI
+# 3. The board on http://localhost:8080 (it listens on 127.0.0.1 only)
+issue-viewer -config ~/.config/ai-workflow-engine/projects.yaml
+
+# 4. In another shell: a first issue, and a worker on it
+issue-cli --project shop create --title "Add a dark mode toggle" --system UI
+issue-cli --project shop dispatch ui/add-a-dark-mode-toggle --quote "try the dark mode toggle"
+tmux attach -t agent-ui-add-a-dark-mode-toggle
 ```
 
-Tell the board where things live with a `projects.yaml` in the same folder:
+The worker reads the workflow with `issue-cli process`, works the issue and stops at the first gate. Approve it on the issue's page or in **Needs you**. Or press **Start CEO** on the company page and let the project lead dispatch workers for you. [Getting started](docs/getting-started.md) walks the same steps one by one, with a department from a template, what each optional tool adds, and what to do when a step fails.
 
-```yaml
-projects:
-  - name: "My Project"
-    slug: "my-project"
-    issues: "./issues"
-    docs: "./docs"
-    workdir: "."
-    terminal: "none"   # print the tmux attach command instead of opening a window
-```
-
-```bash
-# 4. Open the board on http://localhost:8080 (it listens on 127.0.0.1 only)
-issue-viewer -config projects.yaml
-```
-
-Open your project from the map and press **Start CEO** to talk to the lead; it dispatches workers when you ask. To start one worker yourself, run `issue-cli dispatch <slug> --quote "<what you want>"`. The worker starts in a tmux session (`tmux attach -t agent-<slug>`), reads the workflow with `issue-cli process`, works the issue, and stops at the first gate for you.
-
-Just looking? Clone the repo and run `make demo` (Go 1.25+) to open Acme Shop, the sample project in these pictures. Other install options (a pinned version, manual download, building from source) are in [docs/getting-started.md](docs/getting-started.md).
+Just looking? Clone the repo and run `make demo` to open Acme Shop, the sample project in these pictures.
 
 ## An issue's life
 
@@ -210,7 +200,7 @@ agent  → done, then files a retrospective on the workflow
 |---|---|
 | `name`, `slug` | Display name and URL slug (`/p/<slug>/`) |
 | `issues`, `docs`, `workflow`, `workdir` | Where the files live; `workdir` is where agents start |
-| `terminal` | Command that opens a window on a worker's session, with `{{session}}`, `{{project}}`, `{{name}}`, `{{role}}`, `{{window}}` substituted; `none` for headless. Unset means i3 + alacritty |
+| `terminal` | Command that opens a window on a worker's session, with `{{session}}`, `{{project}}`, `{{name}}`, `{{role}}`, `{{window}}` substituted; `none` for headless. Unset means i3 + alacritty where `i3-msg` is on `PATH`, headless elsewhere |
 | `lead_terminal`, `lead_window_session`, `lead_window` | What opens for the project lead: unset or `none` is headless, `tmux-window` adds the lead as a background tab in your own tmux session (`lead_window_session`, optionally at index `lead_window`), anything else is a command like `terminal` ([docs/agent-dispatch.md](docs/agent-dispatch.md#lead-terminal)) |
 | `tmux_session` | Run every agent of the project as a window in one shared session |
 | `tmux_session_per_project` | Top level: give each project one session for its lead and workers (with `terminal: none`, nothing opens a window) |
@@ -256,6 +246,8 @@ It runs with one project lead and a handful of workers at a time.
 
 ## What's new
 
+- **v0.58, departments that report:** a markdown output on the shelf opens as a document you comment on in the margin; HQ links to a one-minute report on the whole company; each room shows its spend and budget; department health joins the daily snapshot; a group's lead plans and reports its week; groups nest; declared connections say who may ask whom; workflows declare `evals:` so a workflow change gets a benchmark verdict.
+- **v0.57, departments that run:** add a department from a template, a lead per department, recurring jobs, connectors to outside tools, the factory benchmark and the experiment loop, and auto-start (your standing start, one worker at a time while memory is low).
 - **v0.56, edit the workflow from the hall:** open a station in the Product hall and press **Edit** to change its prompt, its ways in and out and their gates, with a preview and checks before the one-file commit. This README and its pictures now show the Workshop Board.
 - **v0.55, the Workshop Board and departments:**
   - The viewer's new look: a map of the company, HQ and the department rooms, the Product hall (the workflow.yaml line, where any station, gate or the CI scanner opens to show what is inside), the Report at `/status` and the station for each issue.
@@ -273,7 +265,7 @@ Every change is in [cmd/issue-cli/CHANGELOG.md](cmd/issue-cli/CHANGELOG.md) and 
 
 ## Status and roadmap
 
-Version 0.56 (October 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
+Version 0.58 (October 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
 
 Next, in order, from [docs/roadmap.md](docs/roadmap.md):
 

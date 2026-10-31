@@ -119,10 +119,10 @@ func TestReportComponentsStandAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, data := range map[string]any{
-		"wb/view-toggle":  wbViewToggle("/p/meals", "report"),
+		"wb/view-toggle":  wbViewToggle("/p/orchard", "report"),
 		"wb/lock-icon":    nil,
 		"wb/badge":        WbBadge{Tone: "red", Label: "No backup", URL: "#unlock"},
-		"wb/report-title": WbReportTitle{Title: "Report · Jemik", Session: "lead-meals", MDURL: "/p/meals/status.md"},
+		"wb/report-title": WbReportTitle{Title: "Report · Orchard", Session: "lead-orchard", MDURL: "/p/orchard/status.md"},
 		"wb/action":       WbAction{Label: "Copy", Copy: "issue-cli ci status", TestID: "ci"},
 		"wb/stack-bar":    []WbSegment{{Value: 2, Color: "#F57A1F", Label: "gates"}},
 		"wb/squares":      []WbSquare{{Color: "#2BB673", Title: "ui/a · working"}},

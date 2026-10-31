@@ -12,7 +12,7 @@ The board and detail views can dispatch issues to AI agents (Claude or Codex) vi
 - **tmux** is mandatory (3.2 or newer). The whole dispatch lifecycle is tmux: the agent starts as the command of a new session or window, with its environment and working directory set by tmux.
 - **The agent CLI**: `claude` or `codex` on the `PATH` of the server.
 - **git**, when the workflow sets `worktree: true`.
-- **A terminal command**, or `terminal: "none"` to attach yourself (see [Terminal Configuration](#terminal-configuration)). The default, i3 + alacritty, is only needed if you leave `terminal` unset.
+- **A terminal command**, or `terminal: "none"` to attach yourself (see [Terminal Configuration](#terminal-configuration)). Left unset, it is i3 + alacritty where `i3-msg` is on `PATH`, and headless (like `none`) everywhere else, such as a Mac.
 
 > **Tip.** Not sure which `terminal` value fits your setup? Ask your coding agent: *"Look at my OS, window manager and installed terminals, then set the `terminal:` field in `projects.yaml` to something that works here."* It can detect i3, GNOME, macOS or WSL, check what's on `$PATH`, and pick the right command, or fall back to `"none"`.
 
@@ -150,7 +150,7 @@ The handler fills in the placeholders below and runs the command via `sh -c`. Ea
 | macOS + Terminal.app       | `osascript -e 'tell app "Terminal" to do script "tmux attach -t {{session}}"'` |
 | Headless (attach manually) | `none`                                                                       |
 
-If `terminal` is unset, defaults to i3 + alacritty, with the window titled after the session (`alacritty -T <session>`). On i3, opening an agent from the agents canvas when its session already has a terminal focuses the window with that exact title instead of opening another, so give your own `terminal` command `-T {{session}}` (or your terminal's equivalent) to get the same. Set to `none` to only create the tmux session. Nothing on screen changes, and the response carries two ways to reach the agent:
+If `terminal` is unset and `i3-msg` is on `PATH` (or `i3_workspace` is set), it defaults to i3 + alacritty, with the window titled after the session (`alacritty -T <session>`). On i3, opening an agent from the agents canvas when its session already has a terminal focuses the window with that exact title instead of opening another, so give your own `terminal` command `-T {{session}}` (or your terminal's equivalent) to get the same. Unset on a machine without i3 (a Mac, most Linux desktops) is headless, and the dispatch step says how to set `terminal:` to get a window. Set to `none` to only create the tmux session. Nothing on screen changes, and the response carries two ways to reach the agent:
 
 - `switch_cmd` is for a shell already inside tmux, e.g. `tmux switch-client -t agent-<slug>`. A plain `tmux attach` refuses to nest there.
 - `attach_cmd` is for a plain shell, e.g. `tmux attach -t agent-<slug>`.
@@ -416,7 +416,7 @@ The `issue-approve` Claude Code mod (`claude-mods/issue-approve/` in this repo) 
 Install it once, at user scope, from this repo's folder:
 
 ```
-claude plugin marketplace add ~/Work/issue-viewer/claude-mods
+claude plugin marketplace add <your clone>/claude-mods
 claude plugin install issue-approve@ai-workflow-engine --scope user
 ```
 

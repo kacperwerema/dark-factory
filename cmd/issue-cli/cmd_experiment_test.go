@@ -35,9 +35,9 @@ func makeExperimentProject(t *testing.T) (*tracker.Project, string) {
 		write(filepath.Join("retros", "r"+string(rune('0'+n))+".md"),
 			"# Retrospective\n\nIssue: "+slug+"\nDate: "+time.Now().Format(time.RFC3339)+"\n\n"+line+"\nTooling/workflow friction: none\n")
 	}
-	retro(1, "meals/a", "Base workflow: agents skip check-script before testing.")
-	retro(2, "meals/b", "Subsystem workflow for UI: name check-script in the guidance.")
-	retro(3, "meals/c", "Base workflow: check-script is never run.")
+	retro(1, "orchard/a", "Base workflow: agents skip check-script before testing.")
+	retro(2, "orchard/b", "Subsystem workflow for UI: name check-script in the guidance.")
+	retro(3, "orchard/c", "Base workflow: check-script is never run.")
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", filepath.Join(root, "bench"))
 	return &tracker.Project{Slug: "proj", Name: "Proj", IssueDir: filepath.Join(root, "issues"), WorkDir: root}, root
 }
@@ -136,7 +136,7 @@ func TestExperimentCandidatesWritesNothing(t *testing.T) {
 	if err := runExperiment(ctx, []string{"candidates"}); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, out.String(), "check-script — 3 issues: meals/a, meals/b, meals/c")
+	assertContains(t, out.String(), "check-script — 3 issues: orchard/a, orchard/b, orchard/c")
 	if after := snapshotTree(t, root); after != before {
 		t.Fatalf("candidates wrote files:\nbefore %s\nafter  %s", before, after)
 	}

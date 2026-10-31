@@ -221,7 +221,7 @@ func TestSortMapQueueBlockingFirstThenOldest(t *testing.T) {
 func TestMapLotTakesKindAndColorFromConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "projects.yaml")
-	os.WriteFile(cfg, []byte("projects:\n  - name: Jemik\n    slug: meals\n    kind: aplikacja PWA\n    color: \"#13A386\"\n    issues: ./issues\n"), 0644)
+	os.WriteFile(cfg, []byte("projects:\n  - name: Orchard\n    slug: orchard\n    kind: aplikacja PWA\n    color: \"#13A386\"\n    issues: ./issues\n"), 0644)
 	pc, err := tracker.LoadProjectsConfig(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -239,33 +239,33 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	progress := &WbProgress{Label: "Epic: Hall", Done: 2, Total: 7}
-	card := WbQueueCard{Label: "Question", Tone: "you", Project: "Jemik", ProjectSlug: "meals", Slug: "zakupy/x", CTA: "Answer", URL: "/p/meals/issue/zakupy/x"}
+	card := WbQueueCard{Label: "Question", Tone: "you", Project: "Orchard", ProjectSlug: "orchard", Slug: "zakupy/x", CTA: "Answer", URL: "/p/orchard/issue/zakupy/x"}
 	for name, data := range map[string]any{
 		"wb/head":         "Map",
-		"wb/header":       WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status"), Working: 2, Waiting: 3},
+		"wb/header":       WbHeader{Crumbs: wbCrumbs(1, "Orchard", "/p/orchard/status"), Working: 2, Waiting: 3},
 		"wb/robot":        WbRobot{State: "agent", Label: "ui/b → ui/a"},
 		"wb/robots":       wbCrew([]WbRobot{{State: "working"}}),
 		"wb/chip":         *wbCIChip("red", "make validate"),
 		"wb/chips":        wbCountChips(1, 1, 1, 2),
-		"wb/ceo":          WbCEO{Session: "lead-meals", Live: true, Quote: "Three things for you."},
+		"wb/ceo":          WbCEO{Session: "lead-orchard", Live: true, Quote: "Three things for you."},
 		"wb/progress":     progress,
 		"wb/bang":         3,
 		"wb/skyline":      []WbBuilding{{Name: "Plan", Open: 3, Color: "#3D7BF7", Width: 48, Height: 25}},
-		"wb/lot":          MapLot{Name: "Jemik", Slug: "meals", Color: "#13A386", Progress: progress, Waiting: 1},
+		"wb/lot":          MapLot{Name: "Orchard", Slug: "orchard", Color: "#13A386", Progress: progress, Waiting: 1},
 		"wb/queue-card":   card,
 		"wb/queue-row":    card,
 		"wb/goal":         WbGoal{Progress: *progress, Color: "#13A386"},
 		"wb/room-head":    WbRoomHead{Title: "HQ · CEO", Color: "#F2B233", Meta: "1/1 desk"},
 		"wb/room-foot":    []WbFootItem{{Text: "✓ 2 this week", Tone: "green"}},
-		"wb/ceo-desk":     WbCEODesk{CEO: WbCEO{Session: "lead-meals"}, SpawnURL: "/p/meals/lead/spawn"},
+		"wb/ceo-desk":     WbCEODesk{CEO: WbCEO{Session: "lead-orchard"}, SpawnURL: "/p/orchard/lead/spawn"},
 		"wb/room-hq":      WbRoomHQ{Head: WbRoomHead{Title: "HQ · CEO"}},
 		"wb/stations":     []WbStation{{Label: "gate", Gate: true}, {Label: "in progress", Count: 2, Crew: wbCrew([]WbRobot{{State: "working"}})}},
 		"wb/room-dept":    WbRoomDept{Head: WbRoomHead{Title: "Marketing", Color: "#E2559B"}, Role: "Posts", Crew: wbCrew(nil)},
-		"wb/room-factory": WbRoomFactory{Head: WbRoomHead{Title: "Product"}, HallURL: "/p/meals/board"},
+		"wb/room-factory": WbRoomFactory{Head: WbRoomHead{Title: "Product"}, HallURL: "/p/orchard/board"},
 		"wb/new-tile":     WbNewTile{Title: "New department", TestID: "new_department"},
-		"wb/radio":        []WbMessage{{From: "lead-meals", To: "you", Initials: "CEO", Tone: "ceo", Text: "Hi"}},
-		"wb/message-box":  WbMessageBox{Session: "lead-meals", SendURL: "/p/meals/lead/send"},
-		"wb/site":         MapLot{Name: "Cost Estimator", Slug: "cost-estimator"},
+		"wb/radio":        []WbMessage{{From: "lead-orchard", To: "you", Initials: "CEO", Tone: "ceo", Text: "Hi"}},
+		"wb/message-box":  WbMessageBox{Session: "lead-orchard", SendURL: "/p/orchard/lead/send"},
+		"wb/site":         MapLot{Name: "Client Site", Slug: "client-site"},
 		"wb/plan-card":    WbPlanCard{Label: "MISSING STAGE", Title: "Retro and feedback", TestID: "retro"},
 		"wb/crate":        WbCrate{Slug: "ui/a", Robot: &WbRobot{State: "you"}, Question: true, CI: true},
 		"wb/gate-card":    WbGateCard{Name: "Gate", Status: "backlog", Waiting: 2},
@@ -285,14 +285,14 @@ func TestWorkshopComponentsStandAlone(t *testing.T) {
 		}
 	}
 	var b strings.Builder
-	srv.tmpl.ExecuteTemplate(&b, "wb/header", WbHeader{Crumbs: wbCrumbs(1, "Jemik", "/p/meals/status")})
-	assertContains(t, b.String(), `<a class="wb-crumb wb-crumb--link" href="/">Map</a>`, `aria-current="page">Jemik</span>`, `title="Pick a project, then its hall">Hall</span>`)
+	srv.tmpl.ExecuteTemplate(&b, "wb/header", WbHeader{Crumbs: wbCrumbs(1, "Orchard", "/p/orchard/status")})
+	assertContains(t, b.String(), `<a class="wb-crumb wb-crumb--link" href="/">Map</a>`, `aria-current="page">Orchard</span>`, `title="Pick a project, then its hall">Hall</span>`)
 }
 
 func TestMapEngineHubAndBuildingSite(t *testing.T) {
 	engine, _ := setupTestProject(t)
 	engine.Name, engine.Slug = "Dark Factory", "dark-factory"
-	site := tracker.Project{Name: "Cost Estimator", Slug: "cost-estimator", Description: "AI cost estimates for building projects.", IssueDir: filepath.Join(t.TempDir(), "issues")}
+	site := tracker.Project{Name: "Client Site", Slug: "client-site", Description: "AI cost estimates for building projects.", IssueDir: filepath.Join(t.TempDir(), "issues")}
 	os.MkdirAll(site.IssueDir, 0755)
 	app, _ := setupTestProject(t)
 	srv, err := NewServer([]tracker.Project{site, engine, app})
@@ -304,7 +304,7 @@ func TestMapEngineHubAndBuildingSite(t *testing.T) {
 	if data.Engine != "dark-factory" || data.Active != 2 || data.Sites != 1 {
 		t.Fatalf("engine %q, active %d, sites %d", data.Engine, data.Active, data.Sites)
 	}
-	if last := data.Lots[len(data.Lots)-1]; !last.Site || last.Slug != "cost-estimator" {
+	if last := data.Lots[len(data.Lots)-1]; !last.Site || last.Slug != "client-site" {
 		t.Errorf("building sites come after the projects at work, got last %+v", last.Slug)
 	}
 
@@ -314,8 +314,8 @@ func TestMapEngineHubAndBuildingSite(t *testing.T) {
 	assertContains(t, html,
 		`class="wb-lots wb-lots--hub" id="lots" data-engine="dark-factory"`,
 		`class="wb-lot wb-lot--engine" id="lot-dark-factory"`, `>ENGINE</div>`,
-		`id="lot-cost-estimator" data-slug="cost-estimator" data-site="1"`, `data-testid="plan.site_cost_estimator"`, `AI cost estimates for building projects.`,
-		`data-spawn-lead="/p/cost-estimator/lead/spawn"`,
+		`id="lot-client-site" data-slug="client-site" data-site="1"`, `data-testid="plan.site_client_site"`, `AI cost estimates for building projects.`,
+		`data-spawn-lead="/p/client-site/lead/spawn"`,
 		`2 active · 1 building site · roads lead to the engine`,
 	)
 }

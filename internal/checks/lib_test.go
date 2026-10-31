@@ -21,11 +21,17 @@ type libRun struct {
 	root string
 }
 
-func needBash(t *testing.T) {
+// needBash is the bash 4 or newer the scripts run with (FindBash, as
+// check-script finds it), or skips: a stock Mac has only bash 3.2, which
+// lib.sh refuses, and the owner-run tests then hung until the 10-minute
+// test timeout.
+func needBash(t *testing.T) string {
 	t.Helper()
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("no bash")
+	bash, err := FindBash()
+	if err != nil {
+		t.Skip("no bash 4 or newer (brew install bash on macOS)")
 	}
+	return bash
 }
 
 // fakeIssueCLI writes an issue-cli stand-in that records its arguments and
@@ -65,11 +71,11 @@ func libEnv(t *testing.T, root, bin string, extra ...string) []string {
 
 func runMachine(t *testing.T, body string, extra ...string) libRun {
 	t.Helper()
-	needBash(t)
+	bash := needBash(t)
 	root := t.TempDir()
 	bin, _ := fakeIssueCLI(t, t.TempDir())
 	path := writeScript(t, root, "demo", "#!/usr/bin/env bash\n# issue: demo/thing\nsource \"$CHECKS_LIB\"\n"+body)
-	cmd := exec.Command("bash", path)
+	cmd := exec.Command(bash, path)
 	cmd.Dir = root
 	cmd.Env = libEnv(t, root, bin, extra...)
 	cmd.Stdin = strings.NewReader("")
@@ -86,11 +92,11 @@ func runMachine(t *testing.T, body string, extra ...string) libRun {
 // runOwner runs body on a pseudo-terminal with input typed line by line.
 func runOwner(t *testing.T, body, input string) (libRun, string) {
 	t.Helper()
-	needBash(t)
+	bash := needBash(t)
 	root := t.TempDir()
 	bin, calls := fakeIssueCLI(t, t.TempDir())
 	path := writeScript(t, root, "demo", "#!/usr/bin/env bash\n# issue: demo/thing\nsource \"$CHECKS_LIB\"\n"+body)
-	cmd := ptyCommand(t, "bash", path)
+	cmd := ptyCommand(t, bash, path)
 	cmd.Dir = root
 	cmd.Env = libEnv(t, root, bin)
 	cmd.Stdin = strings.NewReader(input)
@@ -119,9 +125,44 @@ func ptyCommand(t *testing.T, argv ...string) *exec.Cmd {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("no python3 for a pseudo-terminal")
 	}
-	spawn := "import os, pty, sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))"
-	return exec.Command("python3", append([]string{"-c", spawn}, argv...)...)
+	return exec.Command("python3", append([]string{"-c", ptySpawn}, argv...)...)
 }
+
+// ptySpawn is pty.spawn that also ends when the child does: macOS's system
+// Python (3.9, /usr/bin/python3) never sees EOF on the pty after the child
+// exits, so a plain pty.spawn waited for the 10-minute test timeout on a
+// PATH without a newer python3.
+const ptySpawn = `import os, pty, select, sys
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(sys.argv[1], sys.argv[1:])
+stdin, status, out = sys.stdin.fileno(), None, sys.stdout.buffer
+while True:
+    fds = [fd] + ([stdin] if stdin is not None else [])
+    r, _, _ = select.select(fds, [], [], 0.1)
+    if fd in r:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            data = b""
+        if data:
+            out.write(data); out.flush()
+        elif status is not None:
+            break
+    if stdin is not None and stdin in r:
+        data = os.read(stdin, 4096)
+        if data:
+            os.write(fd, data)
+        else:
+            stdin = None
+    if status is None:
+        done, st = os.waitpid(pid, os.WNOHANG)
+        if done:
+            status = st
+    if status is not None and fd not in r:
+        break
+sys.exit(os.waitstatus_to_exitcode(status))
+`
 
 func record(t *testing.T, root, mode string) string {
 	t.Helper()
@@ -242,12 +283,12 @@ echo body
 }
 
 func TestLibCleanupRunsOnInterrupt(t *testing.T) {
-	needBash(t)
+	bash := needBash(t)
 	root := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "cleaned")
 	bin, _ := fakeIssueCLI(t, t.TempDir())
 	path := writeScript(t, root, "demo", "#!/usr/bin/env bash\nsource \"$CHECKS_LIB\"\non_exit touch "+marker+"\necho started\nsleep 30 & wait\n")
-	cmd := exec.Command("bash", path)
+	cmd := exec.Command(bash, path)
 	cmd.Env = libEnv(t, root, bin)
 	stdout, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -450,10 +491,10 @@ func TestLibNeedsBash4(t *testing.T) {
 // bash -n catches what shellcheck would, on a machine without it: a quote
 // in a ${var:-word} default once broke every helper after it.
 func TestLibParses(t *testing.T) {
-	needBash(t)
+	bash := needBash(t)
 	path := filepath.Join(t.TempDir(), "lib.sh")
 	os.WriteFile(path, Lib, 0o644)
-	if out, err := exec.Command("bash", "-n", path).CombinedOutput(); err != nil {
+	if out, err := exec.Command(bash, "-n", path).CombinedOutput(); err != nil {
 		t.Fatalf("bash -n:\n%s", out)
 	}
 }

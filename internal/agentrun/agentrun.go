@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/telemetry"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -140,6 +141,7 @@ func WritePrompt(sessionLogDir, prompt string) (string, error) {
 	if err := os.MkdirAll(sessionLogDir, 0755); err != nil {
 		return "", err
 	}
+	telemetry.IgnoreAgentLogs(sessionLogDir)
 	path := filepath.Join(sessionLogDir, "dispatch-prompt.txt")
 	return path, os.WriteFile(path, []byte(prompt), 0644)
 }
@@ -361,6 +363,7 @@ func PasteSubmit(proj *tracker.Project, session, text, textFile string) Response
 	var steps []Step
 	textPath := textFile
 	err := os.MkdirAll(filepath.Dir(textFile), 0755)
+	telemetry.IgnoreAgentLogs(textFile)
 	if err == nil {
 		err = os.WriteFile(textFile, []byte(text), 0644)
 	}

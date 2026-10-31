@@ -87,6 +87,7 @@ func AppendLine(path string, line []byte, max int64) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	IgnoreAgentLogs(path)
 	unlock, err := LockFile(path, 500*time.Millisecond)
 	if err != nil {
 		return err

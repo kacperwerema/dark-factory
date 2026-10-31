@@ -220,12 +220,12 @@ func TestCandidates(t *testing.T) {
 		return &retro.Entry{FileName: file, IssueSlug: slug, Body: body, ModTime: now.Add(-age)}
 	}
 	entries := []*retro.Entry{
-		mk("1.md", "meals/a", "Base workflow: agents forget check-script before testing.\nTooling/workflow friction: check-script is slow.", time.Hour),
-		mk("2.md", "meals/b", "Subsystem workflow for UI: name check-script in the guidance.", 2*time.Hour),
-		mk("3.md", "meals/c", "Base workflow: (1) check-script is never run (2) the playtest-check box is unclear", 3*time.Hour),
-		mk("4.md", "meals/d", "Base workflow: none", time.Hour),
-		mk("5.md", "meals/e", "Base workflow: old note about worktree-cleanup.", 60*24*time.Hour),
-		mk("6.md", "meals/f", "Missing system-specific instructions: check-script docs.", time.Hour),
+		mk("1.md", "orchard/a", "Base workflow: agents forget check-script before testing.\nTooling/workflow friction: check-script is slow.", time.Hour),
+		mk("2.md", "orchard/b", "Subsystem workflow for UI: name check-script in the guidance.", 2*time.Hour),
+		mk("3.md", "orchard/c", "Base workflow: (1) check-script is never run (2) the playtest-check box is unclear", 3*time.Hour),
+		mk("4.md", "orchard/d", "Base workflow: none", time.Hour),
+		mk("5.md", "orchard/e", "Base workflow: old note about worktree-cleanup.", 60*24*time.Hour),
+		mk("6.md", "orchard/f", "Missing system-specific instructions: check-script docs.", time.Hour),
 	}
 	open := []Open{{Slug: "factory/exp-1", Source: []string{"retros/2.md"}}}
 	patterns, singles := Candidates(entries, open, map[string]bool{"issue-cli": true}, 3, now)

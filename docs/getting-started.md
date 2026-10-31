@@ -3,6 +3,82 @@ title: "Getting Started"
 order: 1
 ---
 
+## From zero to a running factory
+
+This page takes you from a fresh machine to a board with a project, a first issue and a worker on it. Every step was walked on a clean account (empty home folder, no config) and is re-run by a test (`TestNewcomerWalkthrough`), so if one breaks for you, that's a bug ([When a step fails](#when-a-step-fails)).
+
+**You need:** Linux or macOS, `git` with your name and email set (`git config --global user.name …`), `tmux`, and the `claude` or `codex` CLI, signed in, on your `PATH`. To build from a clone you also need Go 1.25 or newer. Nothing else: the tools named `mem-guard`, `rtk` and `i3` in other pages are optional (see [Optional tools](#optional-tools)).
+
+**1. Install the two binaries.** Pick one:
+
+```bash
+# a release, into ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
+
+# or from a clone (or your fork)
+git clone https://github.com/<you>/ai-workflow-engine && cd ai-workflow-engine
+GOBIN="$HOME/.local/bin" make install
+```
+
+Both put `issue-cli` and `issue-viewer` in `~/.local/bin`; make sure it is on your `PATH`. Plain `make install` uses `go install`, which writes to `$(go env GOPATH)/bin` (usually `~/go/bin`), often not on `PATH`. Check with `issue-cli version`.
+
+**2. Make a project.**
+
+```bash
+issue-cli project init ~/src/shop --name "Shop" --config ~/.config/ai-workflow-engine/projects.yaml
+cd ~/src/shop && git init && git add -A && git commit -m "Start the shop"
+```
+
+`project init` creates `issues/`, `docs/` and `workflow.yaml` (the `development` template) and writes the project into that `projects.yaml`. Use your own repo's folder instead of `~/src/shop` to run the factory on existing code; it never overwrites a file.
+
+**3. Open the board.**
+
+```bash
+issue-viewer -config ~/.config/ai-workflow-engine/projects.yaml
+```
+
+Open <http://localhost:8080> and click the Shop lot. Leave the viewer running. While it runs, `issue-cli --project shop …` works from any folder.
+
+**4. Write a first issue.**
+
+```bash
+issue-cli --project shop create --title "Add a dark mode toggle" --system UI
+```
+
+It appears on the board in `idea`, its first status.
+
+**5. Start a worker on it.**
+
+```bash
+issue-cli --project shop dispatch ui/add-a-dark-mode-toggle --quote "try the dark mode toggle"
+tmux attach -t agent-ui-add-a-dark-mode-toggle
+```
+
+The worker is `claude` (or `codex`) in a tmux session, given a briefing built from the workflow. Nothing opens on screen unless you set `terminal:` in `projects.yaml` ([Terminal Configuration](agent-dispatch.md#terminal-configuration)); the dispatch prints the attach command. The worker walks the issue status by status and stops at the first gate. Approve it on the issue's page or in **Needs you**: the viewer tells the worker in its session, and it carries on.
+
+**6. Talk to the CEO.** Instead of starting workers yourself, start the project lead: **Start CEO** on the company page, or `issue-cli --project shop lead spawn`. Chat with it at `/p/shop/lead`: it grooms ideas into issues, dispatches workers and relays their questions. It records an approval only after you said yes in the chat.
+
+**7. Add a department.** `issue-cli --project shop department list` shows the templates; `issue-cli --project shop department add marketing` (or the **New department** tile on the company page) adds Marketing, with its own workflow, role prompt, goals and a weekly job. It writes files into the project and an entry into `projects.yaml`, and never overwrites one.
+
+That's a running factory. Commit `issues/`, `departments/` and `workflows/` with your code if you want them in git history; the tools' own state (`.agent-logs/`, `.health/`, `.ci/`) ignores itself.
+
+### Optional tools
+
+None of these is needed. Each one adds something:
+
+| Tool | What it adds | Without it |
+|:--|:--|:--|
+| `mem-guard` | A memory check before work that can start agents unattended. Your own small script on `PATH`: `mem-guard check` exits non-zero (or prints `BLOCKED`) when memory is too full to start more, and `mem-guard used` prints the percentage used, e.g. `42%`. | Dispatch, the CEO and everything above work. [Auto-start](agent-dispatch.md#auto-start) and scheduled job runs refuse to start, `issue-cli bench run` warns and starts anyway, and [shared memory](memory.md) search uses keywords only. |
+| `rtk` | Shorter command output for agents. issue-cli only notices it to warn workers that `rtk` shortens `git log`. | Nothing changes. |
+| i3 + alacritty | The default window for a worker when `terminal:` is unset. | Headless: the dispatch prints the `tmux attach` command. Set `terminal:` to open a window ([examples](agent-dispatch.md#examples)). |
+
+### When a step fails
+
+- **The project or the config isn't found**: `issue-cli projects` prints which `projects.yaml` it read and why. Start the viewer with `-config`, or pass `--config <path>` ([How issue-cli finds the config](#how-issue-cli-finds-the-config)).
+- **`workers can't dispatch`**, **`workers never add departments`**: the command ran inside an agent's session (its `ISSUE_VIEWER_ISSUE_SLUG` is set). Run it from your own shell.
+- **Port 8080 in use**: `issue-viewer -config … -port 8081`.
+- Anything else: open an issue on [the repo](https://github.com/michal-franc/ai-workflow-engine/issues) with the command and its output.
+
 ## Install
 
 One line for Linux and macOS. It detects your OS and architecture, downloads the latest release and puts `issue-viewer` (the board) and `issue-cli` (the agent CLI) into `~/.local/bin`:
@@ -35,6 +111,8 @@ make install      # both, via go install
 make validate     # go vet, tests and the issue-cli coverage gate
 ```
 
+`make install` runs `go install`, which writes to `$GOBIN`, else `$(go env GOPATH)/bin`. Put that folder on your `PATH`, or install somewhere already on it: `GOBIN="$HOME/.local/bin" make install`.
+
 ### Privacy: usage stats
 
 `issue-cli` keeps a local, names-only log of its calls (`.agent-logs/telemetry.jsonl` in each project). Once a day it also sends an **anonymous summary** of that log:
@@ -56,7 +134,7 @@ It never sends project names, paths, issue text or flag values. This is **on by 
 From a checkout of this repo:
 
 ```bash
-make demo
+make demo            # or make demo PORT=8081 while your own viewer has 8080
 # http://localhost:8080
 ```
 

@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,7 +52,21 @@ func TestSwitchCmd(t *testing.T) {
 	}
 }
 
+// withI3 stands in for a machine with or without i3-msg on PATH.
+func withI3(t *testing.T, has bool) {
+	t.Helper()
+	old := lookPath
+	lookPath = func(name string) (string, error) {
+		if has && name == "i3-msg" {
+			return "/usr/bin/i3-msg", nil
+		}
+		return "", exec.ErrNotFound
+	}
+	t.Cleanup(func() { lookPath = old })
+}
+
 func TestTerminalNone(t *testing.T) {
+	withI3(t, true)
 	for _, c := range []struct {
 		terminal string
 		want     bool
@@ -62,6 +77,33 @@ func TestTerminalNone(t *testing.T) {
 	}
 	if TerminalNone(nil) {
 		t.Error("TerminalNone(nil) = true")
+	}
+}
+
+// A project without terminal: on a machine without i3 (a Mac, most Linux
+// desktops) is headless: the i3 + alacritty default could only fail there,
+// and a newcomer's first dispatch did ("✗ Open alacritty", exit 1).
+func TestTerminalUnsetWithoutI3IsHeadless(t *testing.T) {
+	withI3(t, false)
+	if !TerminalNone(&tracker.Project{}) {
+		t.Error("unset terminal without i3-msg should be headless")
+	}
+	if TerminalNone(&tracker.Project{I3Workspace: "3"}) {
+		t.Error("i3_workspace asks for i3: not headless")
+	}
+	if TerminalNone(&tracker.Project{Terminal: "open -a Terminal"}) {
+		t.Error("a terminal command is not headless")
+	}
+	var steps []Step
+	if !OpenTerminalStep(&tracker.Project{}, "agent-x", &steps) {
+		t.Fatalf("steps = %+v", steps)
+	}
+	if len(steps) != 1 || steps[0].Status != "ok" || !strings.Contains(steps[0].Detail, "terminal:") {
+		t.Errorf("headless step should say how to get a window: %+v", steps)
+	}
+	withI3(t, true)
+	if TerminalNone(&tracker.Project{}) {
+		t.Error("with i3-msg on PATH the default stays i3 + alacritty")
 	}
 }
 

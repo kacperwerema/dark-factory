@@ -12,12 +12,12 @@ import (
 
 func TestReportBenchCardShowsTheLastRunAgainstThePreviousOne(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
-	proj := &tracker.Project{Slug: "meals"}
+	proj := &tracker.Project{Slug: "orchard"}
 	if got := reportBench(proj, time.Now()); got != nil {
 		t.Fatalf("no benchmark: card = %+v", got)
 	}
 	b := bench.New("factory-v1")
-	b.Tasks = []bench.Task{{Project: "meals", Slug: "a"}, {Project: "meals", Slug: "b"}, {Project: "meals", Slug: "secret-one", Holdout: true}}
+	b.Tasks = []bench.Task{{Project: "orchard", Slug: "a"}, {Project: "orchard", Slug: "b"}, {Project: "orchard", Slug: "secret-one", Holdout: true}}
 	if err := b.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,8 +36,8 @@ func TestReportBenchCardShowsTheLastRunAgainstThePreviousOne(t *testing.T) {
 	}
 	start := time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC)
 	for i, records := range [][]bench.TaskRecord{
-		{rec("meals/a", bench.OutcomePass, false), rec("meals/b", bench.OutcomePass, false), rec("meals/secret-one", bench.OutcomePass, true)},
-		{rec("meals/a", bench.OutcomePass, false), rec("meals/b", bench.OutcomeFail, false), rec("meals/secret-one", bench.OutcomeFail, true)},
+		{rec("orchard/a", bench.OutcomePass, false), rec("orchard/b", bench.OutcomePass, false), rec("orchard/secret-one", bench.OutcomePass, true)},
+		{rec("orchard/a", bench.OutcomePass, false), rec("orchard/b", bench.OutcomeFail, false), rec("orchard/secret-one", bench.OutcomeFail, true)},
 	} {
 		at := start.Add(time.Duration(i) * time.Hour)
 		r := &bench.Run{ID: at.Format("20060102-150405"), Benchmark: "factory-v1", Started: at, Ended: at.Add(30 * time.Minute), Stop: bench.StopDone, SpentTokens: 4500, SpentUSD: 1.5}

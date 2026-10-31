@@ -150,12 +150,12 @@ func TestProveRefusals(t *testing.T) {
 	assertContains(t, stdout.String(), "✗ shot shots/glow.png (prove) — missing")
 
 	// The feature from the template alone is no runner: a lead's notes in
-	// sessions/ and no playtest/sessions/ (the meals report).
+	// sessions/ and no playtest/sessions/ (the orchard report).
 	runner, _, _ := makeProofFixture(t, "2026-10-23", "playtest-sessions@v0.36.0")
 	if err := os.MkdirAll(filepath.Join(runner.Root(), "sessions"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runner.Root(), "sessions", "2026-10-26-lead-meals.md"), []byte("# notes\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(runner.Root(), "sessions", "2026-10-26-lead-orchard.md"), []byte("# notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ctx, _, _ = newTestContext(runner, false)

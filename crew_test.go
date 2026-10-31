@@ -67,6 +67,7 @@ func TestCrewPage(t *testing.T) {
 func TestCrewPanel(t *testing.T) {
 	proj := setupAgentsProject(t)
 	proj.TmuxSession = "work"
+	proj.Terminal = "alacritty -e tmux attach -t {{session}}" // opens a window; unset is headless without i3
 	stubAgentsGit(t)
 	withMockTmuxSessions(t, []AgentSession{{Name: "work:agent-ui-child"}})
 	ts := newTestServer(t, []tracker.Project{proj})

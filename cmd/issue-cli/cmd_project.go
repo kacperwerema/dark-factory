@@ -133,7 +133,7 @@ func projectInitNext(p *projectinit.Plan) []string {
 	cli := "issue-cli --config " + quoteArg(cfg) + " --project " + p.Slug
 	var next []string
 	if !p.GitRepo {
-		next = append(next, "git -C "+shellQuote(p.Dir)+" init   # workers work in git worktrees")
+		next = append(next, "git -C "+shellQuote(p.Dir)+" init   # workers commit their work with git (worktree: true in workflow.yaml gives each issue its own)")
 	}
 	next = append(next,
 		"issue-viewer -config "+quoteArg(cfg)+"   # then open /p/"+p.Slug+"/company: the New department tile adds a department",

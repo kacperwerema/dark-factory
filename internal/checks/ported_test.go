@@ -17,7 +17,7 @@ var inlinedHelper = regexp.MustCompile(`(?m)^\s*(step|run|expect|ask|pause|begin
 var macOSMissing = regexp.MustCompile(`/usr/bin/(cp|mv|rm|mkdir|ln)\b`)
 
 func TestPortedScriptsUseTheLibrary(t *testing.T) {
-	needBash(t)
+	bash := needBash(t)
 	files, _ := filepath.Glob(filepath.Join("testdata", "ported", "*.sh"))
 	if len(files) != 3 {
 		t.Fatalf("want the three ported scripts, got %v", files)
@@ -41,7 +41,7 @@ func TestPortedScriptsUseTheLibrary(t *testing.T) {
 		if m := macOSMissing.Find(data); m != nil {
 			t.Errorf("%s: calls %q, which macOS doesn't have; call it by name", f, m)
 		}
-		if out, err := exec.Command("bash", "-n", f).CombinedOutput(); err != nil {
+		if out, err := exec.Command(bash, "-n", f).CombinedOutput(); err != nil {
 			t.Errorf("%s: bash -n: %s", f, out)
 		}
 		if shellcheck == nil {

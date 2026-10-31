@@ -285,6 +285,22 @@ func TestPublishRefusals(t *testing.T) {
 	}
 	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
 
+	// Private data in the tree: a home path and a private name, refused
+	// by the dry run too.
+	write(t, filepath.Join(cut.Worktree, "testdata", "r.json"), "{\"out\": \"/Users/"+"jdoe/x\"}\n")
+	write(t, filepath.Join(cut.Worktree, "testdata", "b.md"), "runs the engine and Secret-Game\n")
+	run(t, cut.Worktree, "git", "add", "testdata")
+	run(t, cut.Worktree, "git", "commit", "-q", "-m", "fixtures")
+	leaky := in
+	leaky.DryRun = true
+	leaky.PrivateNames = []string{"secret-game"}
+	_, err = Publish(leaky)
+	if err == nil || !strings.Contains(err.Error(), "2 private-data hit(s) in release/v0.54's tree") ||
+		!strings.Contains(err.Error(), "testdata/r.json:1: a user home path") || !strings.Contains(err.Error(), "testdata/b.md:1: a private name") {
+		t.Errorf("leaks = %v", err)
+	}
+	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
+
 	// The public tip moved past the base to a dev commit.
 	run(t, r.root, "git", "commit", "-q", "--allow-empty", "-m", "dev work")
 	run(t, r.root, "git", "push", "-q", "--no-verify", "public", "main:main")

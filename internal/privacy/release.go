@@ -263,7 +263,10 @@ type PublishInput struct {
 	Changelog string // the changelog's path relative to the root, "" for none
 	First     bool   // accept a public tip that isn't a snapshot (the old history)
 	DryRun    bool   // run the checks and say what would go public; write and push nothing
-	Now       time.Time
+	// PrivateNames is the owner's private-names list (PrivateNames()): a
+	// tree naming one is refused, as is one with a user home path.
+	PrivateNames []string
+	Now          time.Time
 }
 
 // PublishResult says what Publish did.
@@ -306,6 +309,13 @@ func Publish(in PublishInput) (PublishResult, error) {
 	paths := in.Cfg.Paths()
 	if out, _ := git(in.Worktree, append([]string{"ls-tree", "-r", "--name-only", "HEAD", "--"}, paths...)...); out != "" {
 		return res, fmt.Errorf("work files are in %s's tree (%s): they would go public. Untrack them on main (git rm -r --cached), pick that commit, cut a new rc", branch, firstFew(lines(out), 3))
+	}
+	leaks, err := ScanLeaks(in.Worktree, "HEAD", in.PrivateNames)
+	if err != nil {
+		return res, err
+	}
+	if len(leaks) > 0 {
+		return res, leakError(branch, leaks)
 	}
 	tracking := "refs/remotes/" + remote + "/" + pubBranch
 	if _, err := git(in.Root, "fetch", "-q", "--no-tags", remote, "+refs/heads/"+pubBranch+":"+tracking); err != nil && !strings.Contains(err.Error(), "couldn't find remote ref") {

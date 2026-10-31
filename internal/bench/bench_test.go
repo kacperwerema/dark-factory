@@ -527,20 +527,20 @@ func TestBenchmarkSaveLoadAndTaskLookup(t *testing.T) {
 func TestBenchFamilyReportsTheNewestFinishedRunOfBenchmarksWithTheProject(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
 	b := New("factory-v1")
-	b.Tasks = []Task{{Project: "meals", Slug: "a"}}
+	b.Tasks = []Task{{Project: "orchard", Slug: "a"}}
 	if err := b.Save(); err != nil {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC)
 	done := &Run{ID: "r1", Benchmark: "factory-v1", Started: at, Ended: at.Add(time.Hour), Stop: StopDone, Setup: Setup{Label: "baseline"}}
-	if err := Save(done, []TaskRecord{{Task: "meals/a", Outcome: OutcomePass, Judge: 5, Usage: Usage{Known: true, Input: 7}}}); err != nil {
+	if err := Save(done, []TaskRecord{{Task: "orchard/a", Outcome: OutcomePass, Judge: 5, Usage: Usage{Known: true, Input: 7}}}); err != nil {
 		t.Fatal(err)
 	}
 	paused := &Run{ID: "r2", Benchmark: "factory-v1", Started: at.Add(2 * time.Hour), Ended: at.Add(3 * time.Hour), Stop: StopPaused}
 	if err := Save(paused, nil); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := benchFamily(context.Background(), health.Env{Project: &tracker.Project{Slug: "meals"}})
+	rows, err := benchFamily(context.Background(), health.Env{Project: &tracker.Project{Slug: "orchard"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestBenchFamilyReportsTheNewestFinishedRunOfBenchmarksWithTheProject(t *tes
 	if rows, _ := benchFamily(context.Background(), health.Env{Project: &tracker.Project{Slug: "other-game"}}); len(rows) != 0 {
 		t.Errorf("a project with no task got rows: %v", rows)
 	}
-	if _, err := benchFamily(context.Background(), health.Env{Project: &tracker.Project{Slug: "meals"}, Backfill: true}); err != health.ErrNoPast {
+	if _, err := benchFamily(context.Background(), health.Env{Project: &tracker.Project{Slug: "orchard"}, Backfill: true}); err != health.ErrNoPast {
 		t.Errorf("backfill: err = %v", err)
 	}
 }
