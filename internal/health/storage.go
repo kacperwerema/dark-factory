@@ -27,12 +27,13 @@ var StorageAreas = []struct{ Metric, Label string }{
 	{"storage.playtest_mb", "playtest shots"},
 	{"storage.git_mb", ".git"},
 	{"storage.agent_logs_mb", ".agent-logs"},
+	{"storage.ci_mb", "local CI (.ci)"},
 	{"storage.attachments_mb", "attachments"},
 }
 
 type storageSizes struct {
-	total, git, worktrees, playtest, agentLogs, attachments int64
-	worktreeCount                                           int
+	total, git, worktrees, playtest, agentLogs, ci, attachments int64
+	worktreeCount                                               int
 }
 
 func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
@@ -57,6 +58,7 @@ func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
 		{Name: "storage.worktrees", Value: float64(s.worktreeCount), Unit: UnitCount, Help: "Worktrees under .worktrees/"},
 		{Name: "storage.playtest_mb", Value: mb(s.playtest), Unit: UnitMB, Help: "Playtest runs and shots: .playtest/ in the checkout and in every worktree"},
 		{Name: "storage.agent_logs_mb", Value: mb(s.agentLogs), Unit: UnitMB, Help: "The .agent-logs folder (clilogs, dispatch prompts)"},
+		{Name: "storage.ci_mb", Value: mb(s.ci), Unit: UnitMB, Help: "Local CI's .ci folder: run records, logs, kept red logs, test results"},
 		{Name: "storage.attachments_mb", Value: mb(s.attachments), Unit: UnitMB, Help: "Issue attachments (mockups and their screenshots)"},
 	}, nil
 }
@@ -102,6 +104,8 @@ func measureStorage(ctx context.Context, root, attachments string) (storageSizes
 			s.playtest += size
 		case first == ".agent-logs":
 			s.agentLogs += size
+		case first == ".ci":
+			s.ci += size
 		}
 		if attachments != "" && within(attachments, p) {
 			s.attachments += size

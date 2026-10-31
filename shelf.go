@@ -52,6 +52,10 @@ type WbShelfRow struct {
 	Job, By, When     string
 	State             string
 	Review            bool
+	// Raw is the sandboxed file when Link is the reader; Version the newest
+	// version (shown from 2); Open the comments not resolved.
+	Raw           string
+	Version, Open int
 }
 
 // WbShelfLink is a room's way to its shelf: in review and made this week.
@@ -92,12 +96,14 @@ func shelfURL(prefix, dept, state string) string {
 func shelfColors(p *tracker.Project) map[string]string {
 	colors := map[string]string{goals.ProductKey: companyProductColor}
 	for i, d := range p.Departments {
-		colors[outputs.DeptKey(d.Name)] = deptColor(d, i)
+		colors[outputs.DeptKey(d.Name)] = deptColorOf(p, d, i)
 	}
 	return colors
 }
 
-func shelfRow(p *tracker.Project, prefix string, o *outputs.Output, colors map[string]string) WbShelfRow {
+// shelfRow is one output as a row; talk is the comments per output id (nil
+// for none). A markdown output's title opens the reader.
+func shelfRow(p *tracker.Project, prefix string, o *outputs.Output, colors map[string]string, talk map[string][]*outputs.Thread) WbShelfRow {
 	row := WbShelfRow{
 		ID: o.ID, Short: o.ID[strings.LastIndex(o.ID, "-")+1:], Icon: o.Icon(), Kind: o.Kind, Title: o.Title,
 		Missing: o.Missing, Dept: o.Name, Color: colors[o.Department], Job: o.Job, By: o.By,
@@ -117,6 +123,10 @@ func shelfRow(p *tracker.Project, prefix string, o *outputs.Output, colors map[s
 	case o.Path != "":
 		row.Path = o.Path
 	}
+	if o.URL == "" && o.IsMarkdown() {
+		row.Raw, row.Link = row.Link, shelfReadURL(prefix, o.ID)
+	}
+	row.Version, row.Open = o.Version(), outputs.OpenCount(talk[o.ID])
 	if o.Issue != "" {
 		row.Issue, row.IssueURL = o.Issue, prefix+"/issue/"+o.Issue
 	}
@@ -138,6 +148,7 @@ func (s *Server) buildShelf(p *tracker.Project, prefix, dept, state string, now 
 	d.Header.Crumbs[2] = WbCrumb{Label: "Shelf", Current: true}
 
 	all, _ := outputs.Load(p)
+	talk, _ := outputs.LoadComments(p)
 	d.Empty = len(all) == 0
 	d.Example = "issue-cli output add --issue <slug> --title \"...\" --kind page --url <link>"
 	colors := shelfColors(p)
@@ -153,7 +164,7 @@ func (s *Server) buildShelf(p *tracker.Project, prefix, dept, state string, now 
 		d.States = append(d.States, WbShelfTab{Label: st, URL: shelfURL(prefix, dept, st), Count: len(outputs.Select(inDept, outputs.Filter{State: st})), Current: state == st})
 	}
 	for _, o := range outputs.Select(inDept, outputs.Filter{State: state}) {
-		d.Rows = append(d.Rows, shelfRow(p, prefix, o, colors))
+		d.Rows = append(d.Rows, shelfRow(p, prefix, o, colors, talk))
 	}
 	return d
 }
@@ -178,7 +189,11 @@ func (s *Server) handleShelfReview(w http.ResponseWriter, r *http.Request, proj 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	http.Redirect(w, r, shelfURL(prefix, r.FormValue("dept"), r.FormValue("state")), http.StatusSeeOther)
+	back := shelfURL(prefix, r.FormValue("dept"), r.FormValue("state"))
+	if b := r.FormValue("back"); strings.HasPrefix(b, prefix+"/shelf/read/") && !strings.ContainsAny(b, "\\\r\n") {
+		back = b
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
 // handleShelfFile serves a file output add copied onto the shelf; nothing
@@ -209,6 +224,7 @@ func companyShelf(p *tracker.Project, prefix string, now time.Time) (map[string]
 		return nil, nil, nil
 	}
 	colors := shelfColors(p)
+	talk, _ := outputs.LoadComments(p)
 	links := map[string]*WbShelfLink{}
 	hq := &WbHQShelf{URL: shelfURL(prefix, "", "")}
 	var waits []WbShelfWait
@@ -228,7 +244,7 @@ func companyShelf(p *tracker.Project, prefix string, now time.Time) (map[string]
 		if i == companyShelfLatest {
 			break
 		}
-		hq.Latest = append(hq.Latest, shelfRow(p, prefix, o, colors))
+		hq.Latest = append(hq.Latest, shelfRow(p, prefix, o, colors, talk))
 	}
 	return links, hq, waits
 }

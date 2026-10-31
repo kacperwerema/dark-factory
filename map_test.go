@@ -339,7 +339,7 @@ func TestCompanyPage(t *testing.T) {
 		`data-testid="company.room.product"`, `>Product · software factory</span>`, `2 workers`,
 		`data-testid="company.line"`, `<div class="wb-station-label">in progress</div>`, `<div class="wb-station-label">gate</div>`,
 		`href="/p/agents/hall" data-testid="company.enter_hall"`,
-		`data-testid="tile.new_department"`, `Add one under departments: in projects.yaml`,
+		`data-testid="tile.new_department"`, `From a template: Marketing`, `This project has no projects.yaml entry`,
 		`data-testid="company.queue.row"`, `>Question</span>`,
 		// The Radio: the CEO's lines, newest first, without tool calls.
 		`I sent two workers to Product.`, `data-send="/p/agents/lead/send"`,

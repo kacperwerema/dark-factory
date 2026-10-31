@@ -108,6 +108,23 @@ func TestShowNamesTheDepartmentAndItsFile(t *testing.T) {
 	assertContains(t, out.String(), "Department: Product")
 }
 
+func TestShowNamesADepartmentWithGoalsOnce(t *testing.T) {
+	proj := makeDepartmentProject(t)
+	proj.Departments[0].Mission = "Every client site refreshed every week"
+	proj.Departments[0].Goals = []tracker.Goal{{ID: "pages", Name: "Client pages refreshed"}}
+	ctx, out, _ := newTestContext(proj, false)
+	for _, run := range []func(*Context, []string) error{runShow, runStart} {
+		out.Reset()
+		if err := run(ctx, []string{"seo/faq-page"}); err != nil {
+			t.Fatal(err)
+		}
+		if n := strings.Count(out.String(), "Department: Marketing"); n != 1 {
+			t.Fatalf("Department: Marketing printed %d times, want once:\n%s", n, out)
+		}
+		assertContains(t, out.String(), "Department: Marketing (Every client site refreshed every week) — goals: issue-cli goals marketing")
+	}
+}
+
 func TestBrokenDepartmentFileStopsOnlyItsIssues(t *testing.T) {
 	proj := makeDepartmentProject(t)
 	writeDeptFile(t, proj.DepartmentWorkflowPath("Marketing"), "statuses: [: broken\n")

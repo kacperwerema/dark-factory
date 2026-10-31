@@ -1,0 +1,16 @@
+session: reports-redesign
+issue: ui/reports-redesign
+mode: auto
+started: "2026-10-30T10:00:00Z"
+steps:
+  - id: TP2
+    title: Filters work
+    status: pass
+  - id: TP3
+    title: The page reads like the rest of the app
+    status: pass
+    judgement_step: true
+    viewports:
+      - viewport: 1440x900
+        status: pass
+        screenshot: shots/TP3-1440x900.png

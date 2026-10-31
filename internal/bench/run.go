@@ -54,8 +54,11 @@ type Env struct {
 // Options are one run's choices.
 type Options struct {
 	Setup Setup
-	// Workflow replaces each project's workflow file in the sandbox.
-	Workflow string
+	// Workflow replaces Product's workflow file in the sandbox of every
+	// product task; Workflows replaces a box's (product or a department's
+	// key) for its tasks, and wins over Workflow.
+	Workflow  string
+	Workflows map[string]string
 	// Resume continues run id: tasks with a final outcome are kept.
 	Resume string
 	// StartedBy and Quote go into the run (Run.StartedBy, Run.Quote).
@@ -131,7 +134,7 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 		if err := ctx.Err(); err != nil {
 			return finish(StopError, "interrupted")
 		}
-		if over := overBudget(b.Budget, run, env.now(), 0, 0); over != "" {
+		if over := overBudget(b.Budget, len(b.Tasks), run, env.now(), 0, 0); over != "" {
 			for _, rest := range b.Tasks[i:] {
 				if !done[rest.ID()] {
 					records = append(records, TaskRecord{Task: rest.ID(), Project: rest.Project, Type: rest.Type, Holdout: rest.Holdout, Outcome: OutcomeBudget, Reason: over, Judge: -1})
@@ -164,11 +167,12 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 }
 
 // overBudget names the cap a run has spent, counting extra tokens and usd
-// a running task used so far; "" while within budget.
-func overBudget(b Budget, run *Run, now time.Time, tokens int64, usd float64) string {
-	switch {
-	case b.Tokens > 0 && run.SpentTokens+tokens >= b.Tokens:
-		return fmt.Sprintf("token budget spent (%d of %d)", run.SpentTokens+tokens, b.Tokens)
+// a running task used so far; "" while within budget. With no tokens set
+// the token cap is DefaultTaskTokens for each of the run's tasks.
+func overBudget(b Budget, tasks int, run *Run, now time.Time, tokens int64, usd float64) string {
+	switch limit := b.TokenCap(tasks); {
+	case run.SpentTokens+tokens >= limit:
+		return fmt.Sprintf("token budget spent (%d of %d)", run.SpentTokens+tokens, limit)
 	case b.USD > 0 && run.SpentUSD+usd >= b.USD:
 		return fmt.Sprintf("cost budget spent ($%.2f of $%.2f)", run.SpentUSD+usd, b.USD)
 	case b.WallDur() > 0 && now.Sub(run.Started) >= b.WallDur():
@@ -209,7 +213,7 @@ type sandbox struct {
 }
 
 func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *Env, opt Options) TaskRecord {
-	rec := TaskRecord{Task: t.ID(), Project: t.Project, Type: t.Type, Holdout: t.Holdout, Judge: -1, Started: env.now()}
+	rec := TaskRecord{Task: t.ID(), Project: t.Project, Type: t.Type, Holdout: t.Holdout, Judge: -1, EvalScore: -1, Workflow: t.WorkflowKey(), Started: env.now()}
 	fail := func(outcome, reason string) TaskRecord {
 		rec.Outcome, rec.Reason = outcome, reason
 		rec.WallSec = env.now().Sub(rec.Started).Seconds()
@@ -225,6 +229,17 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	}
 	if err != nil {
 		return fail(OutcomeError, "sandbox: "+err.Error())
+	}
+	ev, err := TaskEval(t, sb.wf)
+	if err != nil {
+		return fail(OutcomeError, err.Error())
+	}
+	graded := ev != nil && ev.ScoreKind() != tracker.EvalScoreTests
+	if ev != nil {
+		rec.Eval = ev.ID
+		if graded && len(ev.Assert) == 0 && (len(ev.Rubric) == 0 || strings.TrimSpace(b.Grader) == "") {
+			return fail(OutcomeError, "eval "+ev.ID+": "+ErrNothingToScore.Error())
+		}
 	}
 	if t.Check != "" {
 		if ok, out := shell(ctx, sb.work, t.Check, nil, 30*time.Minute); !ok {
@@ -257,7 +272,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 			case <-tick.C:
 				tr := sb.transcript(env)
 				Cost(&tr.Usage, b.Prices)
-				if over := overBudget(b.Budget, run, env.now(), tr.Usage.Tokens(), tr.Usage.USD); over != "" {
+				if over := overBudget(b.Budget, len(b.Tasks), run, env.now(), tr.Usage.Tokens(), tr.Usage.USD); over != "" {
 					mu.Lock()
 					budgetHit = over
 					mu.Unlock()
@@ -305,7 +320,18 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	rec.DiffLines = diffLines(sb.work, t.Base)
 	workerDiff, _ := git(sb.work, "diff", t.Base)
 	score(ctx, sb, t, &rec)
-	if rec.Outcome == "" {
+	if ev != nil {
+		for _, c := range ev.Checks {
+			if ok, _ := shell(ctx, sb.work, c, nil, 30*time.Minute); !ok {
+				rec.CheckOK = false
+			}
+		}
+	}
+	if graded {
+		if rec.Outcome == "" {
+			scoreEval(ctx, b, t, ev, sb, &rec)
+		}
+	} else if rec.Outcome == "" {
 		switch {
 		case werr != nil && rec.HiddenTotal == 0 && t.Check == "":
 			rec.Outcome, rec.Reason = OutcomeError, "worker: "+werr.Error()
@@ -335,7 +361,7 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	sb.tracker = filepath.Join(sb.dir, "tracker")
 	sb.state = filepath.Join(sb.dir, "state")
 	sb.config = filepath.Join(sb.dir, "projects.yaml")
-	for _, d := range []string{sb.tracker, sb.state} {
+	for _, d := range []string{sb.tracker, sb.state, sb.xdgConfig()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return sb, err
 		}
@@ -370,9 +396,15 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	if err := os.WriteFile(sb.issue, snap, 0o644); err != nil {
 		return sb, err
 	}
-	wfSrc := opt.Workflow
+	key := t.WorkflowKey()
+	wfSrc := opt.Workflows[key]
+	if wfSrc == "" && key == ProductWorkflow {
+		wfSrc = opt.Workflow
+	}
 	if wfSrc == "" {
-		wfSrc = p.WorkflowPath()
+		if wfSrc, err = DepartmentWorkflowFile(p, key); err != nil {
+			return sb, err
+		}
 	}
 	wfPath := filepath.Join(sb.tracker, "workflow.yaml")
 	if wfSrc != "" {
@@ -401,7 +433,21 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 // and nothing that points at the owner's tmux, leads or real tracker (tmux
 // gets the sandbox as its socket folder, so no live session is seen).
 func (sb *sandbox) env(env *Env) []string {
-	drop := []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ISSUE_VIEWER_LEAD_SCOPE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_CONFIG", "AGENT_NAME", "XDG_STATE_HOME", "PATH"}
+	out := isolatedEnviron()
+	path := os.Getenv("PATH")
+	if env.IssueCLI != "" {
+		path = filepath.Dir(env.IssueCLI) + string(os.PathListSeparator) + path
+	}
+	out = append(out, "PATH="+path, "ISSUE_VIEWER_CONFIG="+sb.config, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(),
+		"TMUX_TMPDIR="+sb.state, "ISSUE_VIEWER_ISSUE_SLUG="+sb.slug, "AGENT_NAME="+tracker.AgentSessionName(sb.slug))
+	return gitEnv(out)
+}
+
+// isolatedEnviron is this process's environment without what points at the
+// owner's sessions, state, config or benchmark (the holdout lives there):
+// every child of a run starts from it.
+func isolatedEnviron() []string {
+	drop := []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ISSUE_VIEWER_LEAD_SCOPE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_BENCH_DIR", "AGENT_NAME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "PATH"}
 	var out []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -409,12 +455,35 @@ func (sb *sandbox) env(env *Env) []string {
 			out = append(out, kv)
 		}
 	}
-	path := os.Getenv("PATH")
-	if env.IssueCLI != "" {
-		path = filepath.Dir(env.IssueCLI) + string(os.PathListSeparator) + path
+	return out
+}
+
+// xdgConfig is the sandbox's XDG_CONFIG_HOME: no owner's projects.yaml,
+// prices or benchmark is visible.
+func (sb *sandbox) xdgConfig() string { return filepath.Join(sb.dir, "config") }
+
+// scorerEnv is the scorer's environment: isolated like the worker's, and
+// HOME in the sandbox too (promptfoo needs no login), with npm's cache kept
+// where it is so npx downloads the pinned promptfoo once, not per task.
+func (sb *sandbox) scorerEnv() []string {
+	cache := os.Getenv("npm_config_cache")
+	if cache == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			cache = filepath.Join(home, ".npm")
+		}
 	}
-	out = append(out, "PATH="+path, "ISSUE_VIEWER_CONFIG="+sb.config, "XDG_STATE_HOME="+sb.state,
-		"TMUX_TMPDIR="+sb.state, "ISSUE_VIEWER_ISSUE_SLUG="+sb.slug, "AGENT_NAME="+tracker.AgentSessionName(sb.slug))
+	var out []string
+	for _, kv := range isolatedEnviron() {
+		if k, _, _ := strings.Cut(kv, "="); k != "HOME" && k != "npm_config_cache" {
+			out = append(out, kv)
+		}
+	}
+	home := filepath.Join(sb.dir, "eval", "home")
+	_ = os.MkdirAll(home, 0o755)
+	out = append(out, "PATH="+os.Getenv("PATH"), "HOME="+home, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(), "TMUX_TMPDIR="+sb.state)
+	if cache != "" {
+		out = append(out, "npm_config_cache="+cache)
+	}
 	return gitEnv(out)
 }
 
@@ -550,6 +619,12 @@ func score(ctx context.Context, sb *sandbox, t Task, rec *TaskRecord) {
 // goHidden runs the hidden Go tests in their packages and returns the ones
 // that passed; a test that never ran (the package does not build) failed.
 func goHidden(ctx context.Context, dir string, t Task) map[string]bool {
+	return goHiddenEnv(ctx, dir, t, nil)
+}
+
+// goHiddenEnv is goHidden with the go command's environment (nil: this
+// process's).
+func goHiddenEnv(ctx context.Context, dir string, t Task, env []string) map[string]bool {
 	pkgs := map[string]bool{}
 	for _, h := range t.Hidden {
 		if strings.HasSuffix(h, "_test.go") {
@@ -568,6 +643,7 @@ func goHidden(ctx context.Context, dir string, t Task) map[string]bool {
 	defer cancel()
 	cmd := exec.CommandContext(tctx, "go", args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	out, _ := cmd.Output()
 	want := map[string]bool{}
 	for _, n := range t.HiddenTests {

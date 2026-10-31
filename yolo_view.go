@@ -32,6 +32,17 @@ type YOLOBand struct {
 	// EndReason is why the last window closed.
 	EndReason string
 	Ended     time.Time
+	// Never is the gates YOLO never passes while on (yolo.OwnerGates).
+	Never []yolo.OwnerGate
+}
+
+// NeverLabels is the never-pass gates as one line each, for a title.
+func (b *YOLOBand) NeverLabels() string {
+	var lines []string
+	for _, g := range b.Never {
+		lines = append(lines, g.Label())
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Show reports whether the band (or the after-the-fact counter) has
@@ -51,6 +62,7 @@ func yoloBand(proj *tracker.Project, issues []*tracker.Issue, now time.Time) *YO
 	}
 	b.Since, b.End = st.Since, st.EndLabel(now)
 	b.Valves = yoloValvesShort(st.Valves)
+	b.Never = yolo.OwnerGates(proj, st.Valves)
 	for _, issue := range issues {
 		comments, err := tracker.LoadComments(issue.FilePath)
 		if err != nil {
@@ -218,7 +230,7 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 	comments, _ := tracker.LoadComments(issue.FilePath)
 	var pass *yolo.Pass
 	for _, p := range yolo.Unreviewed(issue, comments) {
-		if req.Status == "" || strings.EqualFold(p.Status, req.Status) {
+		if req.Status == "" || strings.EqualFold(p.Key(), req.Status) {
 			pass = &p
 			break
 		}
@@ -233,7 +245,7 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 		if words == "" {
 			words = "agreed"
 		}
-		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment("agreed", words, "viewer", date, pass.Status), "app", tracker.OwnerAuthor); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment("agreed", words, "viewer", date, pass.Key()), "app", tracker.OwnerAuthor); err != nil {
 			writeYOLOError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -255,7 +267,7 @@ func (s *Server) handleYOLOReview(w http.ResponseWriter, r *http.Request, proj *
 			}
 		}
 		verdict := "back to " + back
-		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment(verdict, words, "viewer", date, pass.Status), "app", tracker.OwnerAuthor); err != nil {
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOReviewComment(verdict, words, "viewer", date, pass.Key()), "app", tracker.OwnerAuthor); err != nil {
 			writeYOLOError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

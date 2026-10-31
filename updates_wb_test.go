@@ -40,7 +40,8 @@ func TestUpdatesWbPage(t *testing.T) {
 		`href="/p/test-project/updates?classic=1" data-testid="upd.classic"`,
 		"development@v0.36.0 → " + latest,
 		`data-testid="chip.upd_state">behind`,
-		"<b>1</b> installed · 1 declined",
+		`<a href="#upd-installed" data-testid="upd.tree.installed"><b>1</b> installed</a> · <a href="#upd-declined" data-testid="upd.tree.declined">1 declined</a>`,
+		`data-testid="upd.installed"><summary>Installed · 1</summary>`,
 		`data-testid="chip.to_decide">`,
 		`upd-sq upd-sq--installed" title="status-prompts · installed"`,
 		`upd-sq upd-sq--declined" title="scoring · declined"`,
@@ -230,7 +231,7 @@ func TestUpdatesWbComponentsStandAlone(t *testing.T) {
 			`data-testid="upd.card.local-ci.measured"`, "Measured by experiment <code>factory/exp-1</code>: promising — gates_first_try 0.60→0.70"}},
 		"wb/unlocks":      {card.Unlocks, []string{"Unlocks", "Hall: the CI scanner on the line"}},
 		"wb/delivery":     {WbDelivery{From: "development@v0.36.0", To: "v0.54.0", State: &WbChip{Tone: "you", Text: "behind"}}, []string{"Delivery from the engine", "development@v0.36.0 → v0.54.0", "behind"}},
-		"wb/upgrade-tree": {WbUpgradeTree{Installed: 2, ToDecide: 1, Recorded: true, Squares: []WbTreeSquare{{ID: "a", State: "installed"}, {ID: "b", State: "decide"}}, Pill: WbChip{Tone: "you", Text: "1 to decide"}}, []string{"Upgrade tree", "<b>2</b> installed · 0 declined", "upd-sq--decide", "1 to decide"}},
+		"wb/upgrade-tree": {WbUpgradeTree{Installed: 2, ToDecide: 1, Recorded: true, Squares: []WbTreeSquare{{ID: "a", State: "installed"}, {ID: "b", State: "decide"}}, Pill: WbChip{Tone: "you", Text: "1 to decide"}}, []string{"Upgrade tree", "<b>2</b> installed</a> · 0 declined", "upd-sq--decide", "1 to decide"}},
 		"wb/filters":      {[]WbFilterChip{{Label: "All", Count: 3, URL: "/u", TestID: "all", Active: true}}, []string{`data-testid="upd.filter.all"`, "All · 3", "upd-filter--on"}},
 		"wb/upgrade-more": {WbUpgradeMore{Count: 2, Groups: []string{"Gates 1", "Board 1"}, ShowURL: "/u?all=1"}, []string{"2 more", "Gates 1 · Board 1", "Show all"}},
 		"wb/declined":     {[]WbDeclinedRow{{UpdateRecordRow: UpdateRecordRow{ID: "scoring", Title: "Ticket scoring"}, Prefix: "/p/x"}}, []string{`data-testid="upd.declined.scoring"`, `action="/p/x/updates/reopen"`, "Re-open"}},
@@ -304,7 +305,7 @@ func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
 		`data-testid="upd.departments"`,
 		"Departments you can add",
 		`data-testid="upd.dept.marketing"`,
-		"workflow: content · 2 goals · role prompt",
+		"workflow: marketing · 2 goals · role prompt",
 		`style="background: #E2559B"`,
 		"SEO and content: refreshed client pages and posts",
 		`data-testid="upd.dept.marketing.command">issue-cli --project test-project department add marketing</code>`,
@@ -321,7 +322,31 @@ func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
 	}
 	ts = newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	if _, body := getBody(t, ts.URL+"/p/test-project/updates"); strings.Contains(body, `data-testid="upd.departments"`) {
+	_, body = getBody(t, ts.URL+"/p/test-project/updates")
+	if strings.Contains(body, `data-testid="upd.dept.marketing"`) {
 		t.Error("an installed template is still offered")
 	}
+	// The GTM group, not installed, still is.
+	assertContains(t, body, `data-testid="upd.dept.gtm"`, "group: installs marketing · 1 goal · role prompt")
+
+	// Installed under another name (the old --name): its workflow file's
+	// stamp names the template, so it is not offered either.
+	wf, err := workflowupgrade.ReadTemplate("marketing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(proj.Root(), "workflows"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj.Root(), "workflows", "growth.yaml"), wf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.Departments = []tracker.Department{{Name: "Growth", Workflow: "workflows/growth.yaml"}}
+	ts2 := newTestServer(t, []tracker.Project{proj})
+	defer ts2.Close()
+	_, body = getBody(t, ts2.URL+"/p/test-project/updates")
+	if strings.Contains(body, `data-testid="upd.dept.marketing"`) {
+		t.Error("Marketing installed as Growth is still offered")
+	}
+	assertContains(t, body, `data-testid="upd.dept.gtm"`)
 }

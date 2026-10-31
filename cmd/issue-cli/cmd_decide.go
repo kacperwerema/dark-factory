@@ -28,6 +28,11 @@ open issues that still cite them, so they can be revised.
   --quote      the human's own words, quoted after the text
   --replaces   repeatable: <slug>#D-n (or D-n in this issue) it replaces
   --deferred   the decision is to decide later
+  --provisional
+               the decision waits for the owner's words: its how gets
+               "provisional" (e.g. "YOLO, provisional"), the Decisions log
+               lists it as waiting, and --confirm clears the mark. Under
+               YOLO, record every answer you gave yourself this way.
   --confirm    D-n: record the human's --quote on that existing decision
                instead of a new line: its "(provisional…)" mark goes, its
                how ends "confirmed by owner <date>", and its ref and
@@ -41,6 +46,8 @@ Examples:
     --replaces sim/gdd-match-phases#D-1
   issue-cli decide ai/fantasy-classes --deferred --how chat \
     --text "Balance classes once more elements are in place."
+  issue-cli decide ai/fantasy-classes --provisional \
+    --text "Healers get one slot per team until the owner says otherwise."
   issue-cli decide ai/fantasy-classes --confirm D-2 \
     --quote "Yes, keep the healer slot."`,
 	Run: runDecide,
@@ -91,6 +98,7 @@ func runDecide(ctx *Context, args []string) error {
 	howFlag := fs.String("how", "", `how it was made: "chat", "project rule", "playtest" (default "recorded by agent")`)
 	quoteFlag := fs.String("quote", "", "the human's own words")
 	deferredFlag := fs.Bool("deferred", false, "the decision is deferred (decide later)")
+	provisionalFlag := fs.Bool("provisional", false, "the decision waits for the owner's words (marks its how provisional)")
 	confirmFlag := fs.String("confirm", "", "D-n: record --quote on this existing decision (clears its provisional mark)")
 	var replaces []string
 	fs.Func("replaces", "repeatable: <slug>#D-n (or D-n in this issue) this decision replaces", func(v string) error {
@@ -106,7 +114,7 @@ func runDecide(ctx *Context, args []string) error {
 		return err
 	}
 	if strings.TrimSpace(*confirmFlag) != "" {
-		if *textFlag != "" || *howFlag != "" || *deferredFlag || len(replaces) > 0 {
+		if *textFlag != "" || *howFlag != "" || *deferredFlag || *provisionalFlag || len(replaces) > 0 {
 			return fmt.Errorf("--confirm takes only --quote: it records the human's words on %s as it stands", *confirmFlag)
 		}
 		return runDecideConfirm(ctx, issue, issues, *confirmFlag, *quoteFlag)
@@ -116,6 +124,9 @@ func runDecide(ctx *Context, args []string) error {
 		if _, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on {
 			how = "YOLO" // made without the owner's words while YOLO is on: the Decisions log asks them later
 		}
+	}
+	if *provisionalFlag {
+		how = tracker.MarkProvisional(how)
 	}
 	nd := tracker.NewDecision{Text: *textFlag, How: how, Quote: *quoteFlag, Deferred: *deferredFlag}
 	if err := tracker.ValidateNewDecision(nd); err != nil {

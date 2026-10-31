@@ -528,10 +528,12 @@ type LeadRow struct {
 	Departments []LeadDeptRow
 }
 
-// LeadDeptRow is one department lead on /leads.
+// LeadDeptRow is one department lead on /leads; a group's lead lists its
+// departments' leads in Children.
 type LeadDeptRow struct {
 	Department, Session, ChatURL string
 	Live                         bool
+	Children                     []LeadDeptRow
 }
 
 // handleLeads serves GET /leads: every configured project's lead, live or
@@ -559,12 +561,28 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 				ChatURL: "/p/" + p.Slug + "/lead",
 				Color:   s.projectColor(p),
 			}
-			for _, d := range p.Departments {
+			row := func(d tracker.Department) LeadDeptRow {
 				lead := tracker.DepartmentLeadName(p, d.Name)
-				rows[i].Departments = append(rows[i].Departments, LeadDeptRow{
+				return LeadDeptRow{
 					Department: d.Name, Session: agentDisplayName(p, lead), Live: agentrun.IsLive(p, lead),
 					ChatURL: "/p/" + p.Slug + "/lead" + chatQuery(&d),
-				})
+				}
+			}
+			// nested is d's row with its departments' under it, a nested
+			// group's own under it.
+			var nested func(d tracker.Department) LeadDeptRow
+			nested = func(d tracker.Department) LeadDeptRow {
+				r := row(d)
+				for _, c := range p.Children(d.Name) {
+					r.Children = append(r.Children, nested(c))
+				}
+				return r
+			}
+			for _, d := range p.Departments {
+				if p.GroupOf(d.Name) != nil {
+					continue
+				}
+				rows[i].Departments = append(rows[i].Departments, nested(d))
 			}
 		}(i)
 	}

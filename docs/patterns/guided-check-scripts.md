@@ -138,7 +138,12 @@ API reference.
 - Inside a step: `run <cmd…>` (sets `$out` and `$code`), `expect '<cond>'
   "<meaning>"`, `eventually '<cond>' "<meaning>" [seconds]` (retried, for
   things that happen a moment later), `ask "<question>"`, `skip "<why>"`,
-  `show <image>`. `step_active` is true while the step runs (not skipped);
+  `show <image>` (keeps a copy, opens it in an owner run: `xdg-open`, or
+  `open` on macOS), `keep <file> [name]` (copies it to
+  `.agent-logs/checks/<name>/files/`, sets `$kept`). In `expect` and
+  `eventually`, `$?` is the exit code of the command before them:
+  `wait_for_url "$url" 30; expect '[ $? = 0 ]' "the viewer answers"`.
+  `step_active` is true while the step runs (not skipped);
   `step_end` closes it early.
 
 ### Machine run and owner run
@@ -162,10 +167,17 @@ These come from the first scripts' mistakes:
 
 - `sandbox_dir [var]`: a temp folder outside any `.worktrees/`, removed on
   exit. Scratch projects inside `.worktrees/` make issue-cli take the caller
-  for a worker and refuse dispatch and lead spawn.
+  for a worker and refuse dispatch and lead spawn. Its path is resolved
+  (`pwd -P`): no `//` from a `TMPDIR` ending in a slash, and `/private/var`
+  rather than `/var` on macOS, so it matches the paths issue-cli and a viewer
+  print. The first `sandbox_dir` points `XDG_STATE_HOME` and
+  `XDG_CONFIG_HOME` at its `state/` and `config/`: a viewer or issue-cli the
+  script starts never reads or writes the shared `viewer.json` or
+  `projects.yaml`. Later ones leave them where they are.
 - `sandbox_project <name> [template]`: a throwaway project (git repo,
-  `issue-cli init`, its own projects.yaml). `XDG_STATE_HOME` and
-  `ISSUE_VIEWER_CONFIG` point into it. `sic …` runs issue-cli against it;
+  `issue-cli init`, its own projects.yaml). `XDG_STATE_HOME`,
+  `XDG_CONFIG_HOME` and `ISSUE_VIEWER_CONFIG` point into it. Ticking the
+  real issue at the end runs with the caller's own values. `sic …` runs issue-cli against it;
   `SANDBOX_ISSUE_CLI` picks the binary, e.g. a build of the branch.
 - `private_tmux [--clean]` and `ptmux …`: a tmux server of the script's own
   (a short `TMUX_TMPDIR`, `$CHECKS_TMUX_DIR`, and a marker file). On exit
@@ -185,9 +197,11 @@ These come from the first scripts' mistakes:
 - `background <var> [clean_shell] <cmd…>` (a sandbox viewer, a server: its
   pid in `$var`, killed on exit), `free_port [var]`, `wait_for_url <url>`.
 - `sandbox_project` also takes `--workflow <file>` (a copy instead of `init`)
-  and `--name <display name>`; its config is headless (`terminal: "none"`),
-  and more settings can be appended to `$SANDBOX_CONFIG`. `sic` goes through
-  `clean_shell` once a stand-in exists. `sandbox_git_identity` gives sandbox
+  and `--name <display name>`; its config is headless (`terminal: "none"`).
+  The project's own settings can be appended to `$SANDBOX_CONFIG` indented
+  four spaces (they land under the project); top-level keys such as
+  `viewer_url` and `allowed_hosts` go above `projects:`, unindented.
+  `sic` goes through `clean_shell` once a stand-in exists. `sandbox_git_identity` gives sandbox
   git commands an author and no global config (no signing, hooks or aliases).
 - `step … --touches-real "<what it creates>"`: for anything in the owner's
   real environment, such as a window in their tmux session. It lists what it
@@ -197,8 +211,54 @@ These come from the first scripts' mistakes:
 - `on_exit <cmd…>`: cleanup that runs on exit, `q`, Ctrl-C or a kill, last
   registered first.
 
+`clean_shell` starts its command with `env -i`, and that drops a worker's
+identity (`AGENT_NAME`, its tmux session) along with the profile: the worker
+guards don't see a worker any more. Never use it, or `sic` once a stand-in
+exists, to run an owner-only command (`department add`, `job run`,
+`connector check`, `output review`, a transition of another issue, `yolo on`)
+from a worker's run. Skip those steps when `$AGENT_NAME` is set and leave
+them to the owner's run. A sanctioned way for a sandbox is an open design
+(the sandbox marker in
+`cli/guided-checks-owner-only-commands-on-a-sandbox-and-the-shared-stand-ins`),
+waiting for the owner.
+
 The sandbox variables are exported for the rest of the script. Ticking the
 real issue at the end runs with the environment the script started with.
+
+### Shared stand-ins
+
+Stand-ins that check scripts kept writing for themselves, now in the library:
+
+- `stand_in_viewer`: a stand-in viewer, `python3 -m http.server` on a free
+  port serving `$STAND_IN_VIEWER_DIR`, killed on exit. Put what issue-cli
+  fetches under it (`p/<project>/release.json`); `$VIEWER_URL` is its address,
+  and `viewer_url:` goes at the top of `$SANDBOX_CONFIG`.
+
+  ```bash
+  sandbox_project relcut
+  stand_in_viewer
+  mkdir -p "$STAND_IN_VIEWER_DIR/p/relcut"
+  echo '{"milestone":{"version":"0.54"}}' > "$STAND_IN_VIEWER_DIR/p/relcut/release.json"
+  ```
+
+- `stand_in_claude_box <session> [--swallow-first-enter]`: a stand-in for
+  Claude Code's input box in a `ptmux` session (after `private_tmux`):
+  submitted lines above a `❯` line between two rules, `⏵⏵ auto mode on`
+  under it. `--swallow-first-enter` takes the first Enter after a paste as
+  part of the paste, as the real box sometimes does: the stand-in for paste
+  and nudge bugs. `expect_box_submitted <session> "<text>"` checks a line was
+  submitted, `expect_box_empty <session>` that nothing is left typed.
+- `sandbox_yolo_on`: turns YOLO on in the sandbox by writing its own
+  `.yolo/<project>.json` (`sic yolo on` refuses a worker). Check it with
+  `sic yolo status`.
+- `seed_department <template> [--parent <group>]`: puts a department
+  template on the sandbox as `department add` would, without running it (a
+  worker is refused). It reads `sic department add <template> --dry-run`,
+  writes the files the plan writes (workflow files with `issue-cli workflow
+  init --out`, the rest from `$SEED_DEPARTMENT_TEMPLATES`, by default the
+  engine's `cmd/issue-cli/templates/departments`), and adds the plan's
+  `departments:` entry to `$SANDBOX_CONFIG`. Call it after the project's other
+  settings: the entry goes at the end.
 
 ### Gotchas
 
@@ -210,10 +270,15 @@ real issue at the end runs with the environment the script started with.
   first (`build=`) and put `# shellcheck source=/dev/null
   disable=SC2034,SC2154` above the source line (`--new` writes it).
 - A viewer writes `viewer.json` under `XDG_STATE_HOME`: start sandbox viewers
-  after `sandbox_project`, which moves it into the sandbox, or the owner's
-  real `viewer.json` is overwritten.
+  after `sandbox_dir` or `sandbox_project`, which move it into the sandbox
+  (the project's own when there is one). Without them a
+  viewer with a temp-folder config leaves the shared `viewer.json` alone,
+  so issue-cli outside the script can't find it. Never pass
+  `-record-viewer` from a script.
 - Read anything you need from the owner's real environment (their tmux
   session, `$TMUX`) before `private_tmux`, and only in an owner run.
+- `sandbox_dir` is removed on exit, with any screenshot in it: `show` or
+  `keep` the file so it stays next to the run record.
 - Don't `set -e`: a failing check is recorded against its step, not a reason
   to stop the script.
 
@@ -221,7 +286,20 @@ real issue at the end runs with the environment the script started with.
 
 Scripts stay **on the issue branch**. They are committed there for the owner
 to run from the worktree, and a last commit removes them before the merge, so
-main never collects them. The Shipping section has a box for it. The library
+main never collects them. The Shipping section has a box for it.
+
+The owner's run may still be due after the merge. When the issue's checkout
+has no script for it, `check-script <slug>` looks in git history: the newest
+commit reachable from main (and from `work/<slug>`, while that branch exists)
+that removed a `scripts/checks/*.sh` whose `# issue:` line names the slug. It
+runs that copy from the project folder and says where it came from:
+
+```
+scripts/checks/nudge-delivery.sh from history (removed in ea7e704 before the merge): running it from /home/me/issue-viewer
+```
+
+`--list` marks it `from history: removed in <sha> before the merge`, and
+`--list --json` adds `"from": "<commit>"`. A script on disk always wins. The library
 is versioned with issue-cli, so a branch's script runs with the library of
 the issue-cli that runs it.
 
@@ -232,7 +310,9 @@ whatever its folder is called. Without one (a slug with a space, such as
 project check-script runs from, and only from the main checkout the project
 folder.
 `--new` writes there, and `--list`, `--yes`, the owner's run and ▶ Run checks
-look there.
+look there, except once the branch is merged: a worktree whose HEAD is
+already on main and that holds no uncommitted change is older than main, so
+they run from the project folder and say so.
 
 The library needs bash 4 or newer. issue-cli runs the scripts with bash from
 PATH when it is new enough, else `/opt/homebrew/bin/bash`,
@@ -244,6 +324,15 @@ for a passing machine run: each script's newest record under
 `.agent-logs/checks/<name>/*-machine.txt` must have no failed step (needs
 your eyes and skipped are fine). `--dry-run` lists it with the fix,
 `issue-cli check-script <slug> --yes`.
+
+Fine for the gate, but not checked: the boxes of a step the newest machine run
+left to the owner (needs your eyes, or skipped) are the owner's. No `Proves:`
+trailer ticks such a box, and under YOLO the transition lists each one still
+unticked in the after-the-fact queue as "TP3: owner check, not done"
+([YOLO Mode](../Workflow/yolo.md#owner-checks)). A passing machine run says
+so: each script's summary ends "Left to the owner: TP3." (instead of the old
+"Nothing ticked."), and `check-script --yes` then lists every box on the issue
+still the owner's, HT1 among them.
 
 ## How it is wired
 

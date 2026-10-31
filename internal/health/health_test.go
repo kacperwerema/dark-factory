@@ -44,7 +44,11 @@ func TestRegisterTwicePanics(t *testing.T) {
 func TestTakeKeepsGoingPastBrokenFamilies(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 10, 23, 14, 5, 0, 0, time.Local)
-	env := Env{Root: root, Project: &tracker.Project{Slug: "p"}, Config: &tracker.HealthConfig{Timeout: "50ms"}, Branch: "main", Commit: "c55d815aaaa", Now: now}
+	// 1 s, not less: a family that returns at once must never lose the race
+	// to its timeout on a loaded machine. slow blocks until the test ends.
+	hung := make(chan struct{})
+	t.Cleanup(func() { close(hung) })
+	env := Env{Root: root, Project: &tracker.Project{Slug: "p"}, Config: &tracker.HealthConfig{Timeout: "1s"}, Branch: "main", Commit: "c55d815aaaa", Now: now}
 	fams := []registered{
 		{"bad", func(context.Context, Env) ([]Metric, error) { return nil, errors.New("boom") }},
 		{"good", func(_ context.Context, e Env) ([]Metric, error) {
@@ -54,7 +58,7 @@ func TestTakeKeepsGoingPastBrokenFamilies(t *testing.T) {
 			}, nil
 		}},
 		{"panics", func(context.Context, Env) ([]Metric, error) { panic("oops") }},
-		{"slow", func(ctx context.Context, _ Env) ([]Metric, error) { time.Sleep(time.Second); return nil, nil }},
+		{"slow", func(context.Context, Env) ([]Metric, error) { <-hung; return nil, nil }},
 	}
 	Describe("good", "tables: /stats")
 	defer Describe("good", "")
@@ -68,7 +72,7 @@ func TestTakeKeepsGoingPastBrokenFamilies(t *testing.T) {
 	if snap.Run.Date != "2026-10-23T14:05" || snap.Run.Commit != "c55d815" || snap.Run.Trigger != "manual" || snap.Run.Project != "p" {
 		t.Fatalf("run = %+v", snap.Run)
 	}
-	for name, want := range map[string]string{"bad": "boom", "panics": "panic: oops", "slow": "timed out after 50ms"} {
+	for name, want := range map[string]string{"bad": "boom", "panics": "panic: oops", "slow": "timed out after 1s"} {
 		if got := snap.Families[name].Error; got != want {
 			t.Errorf("families[%s].error = %q, want %q", name, got, want)
 		}

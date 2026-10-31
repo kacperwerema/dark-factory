@@ -2,6 +2,19 @@
 // (POST agents/open), which opens the agent's tmux session or brings the one
 // already open to the front; it never opens a second window.
 (function () {
+  // "live · tmux checked Ns ago": how old the page's reading of tmux is
+  // (the page reloads itself; see workshop.js).
+  var live = document.querySelector('[data-checked]');
+  if (live) {
+    var at = Number(live.getAttribute('data-checked')) || Date.now();
+    var tick = function () {
+      var s = Math.max(0, Math.round((Date.now() - at) / 1000));
+      live.textContent = 'live · tmux checked ' + (s < 2 ? 'just now' : s < 90 ? s + 's ago' : Math.round(s / 60) + ' min ago');
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+
   document.querySelectorAll('[data-copy]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var text = btn.getAttribute('data-copy');

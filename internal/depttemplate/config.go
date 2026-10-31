@@ -12,8 +12,8 @@ import (
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
-// projects.yaml is the owner's hand-written file. AddEntry and RemoveEntry
-// change it as text: the YAML tree only finds the lines, so every byte
+// projects.yaml is the owner's hand-written file. AddEntry, RemoveEntry and
+// SetParent change it as text: the YAML tree only finds the lines, so every byte
 // outside the one departments: item stays as it was (comments, quoting,
 // order). The result must load and say what was asked before it replaces
 // the file (factory/department-templates-add-a-department-to-any-project#D-2).
@@ -90,6 +90,42 @@ func RemoveEntry(configPath, slug, name string) error {
 		}
 		return nil
 	}, slug)
+}
+
+// SetParent adds parent: <parent> to department name's item in the
+// departments: of project slug, right under its name: line. It refuses an
+// item that has a parent: already.
+func SetParent(configPath, slug, name, parent string) error {
+	path, raw, proj, err := readProject(configPath, slug)
+	if err != nil {
+		return err
+	}
+	_, depts := mapValue(proj, "departments")
+	if depts == nil || depts.Kind != yaml.SequenceNode || depts.Style&yaml.FlowStyle != 0 {
+		return fmt.Errorf("%s: project %s has no departments: list", path, slug)
+	}
+	key := tracker.DepartmentKey(name)
+	for _, item := range depts.Content {
+		nk, nv := mapValue(item, "name")
+		if nv == nil || tracker.DepartmentKey(nv.Value) != key {
+			continue
+		}
+		if k, _ := mapValue(item, "parent"); k != nil {
+			return fmt.Errorf("%s: department %s has a parent: already", path, name)
+		}
+		if item.Style&yaml.FlowStyle != 0 {
+			return fmt.Errorf("%s: department %s is written in flow style; add parent: %s by hand", path, name, parent)
+		}
+		line := strings.Repeat(" ", nk.Column-1) + "parent: " + parent + "\n"
+		out := insertAfter(splitLines(raw), lastLine(nv), line)
+		return writeChecked(path, out, func(p *tracker.Project) error {
+			if g := p.GroupOf(name); g == nil || tracker.DepartmentKey(g.Name) != tracker.DepartmentKey(parent) {
+				return fmt.Errorf("department %s is not under %s in the result", name, parent)
+			}
+			return nil
+		}, slug)
+	}
+	return fmt.Errorf("%s: project %s has no department %s", path, slug, name)
 }
 
 // readProject reads the config (through a symlink) and finds project

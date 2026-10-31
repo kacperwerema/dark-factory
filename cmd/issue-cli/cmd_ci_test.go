@@ -214,6 +214,19 @@ func TestCIRunRedGreenReporting(t *testing.T) {
 	if st, _ := ci.ReadState(root); st.State != ci.Green || len(st.Blamed) != 0 {
 		t.Errorf("state = %+v", st)
 	}
+	// Green again, ci status still names the red run's kept log.
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCI(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "Last red log: "+filepath.Join(root, ".ci", "red")+"/")
+	st, _ := ci.ReadState(root)
+	if data, err := os.ReadFile(filepath.Join(root, st.LastRedLog)); err != nil || !strings.Contains(string(data), "TestBroken") {
+		t.Errorf("kept red log %q: %v", st.LastRedLog, err)
+	}
+	ctx, stdout, _ = newTestContext(proj, true)
+	_ = runCI(ctx, []string{"status"})
+	assertContains(t, stdout.String(), `"last_red_log": "`+filepath.Join(root, st.LastRedLog))
 
 	// The slow tier runs on request and leaves main green.
 	ctx, stdout, _ = newTestContext(proj, false)

@@ -11,7 +11,8 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
   wb/decision-row    one D-n line                          data: WbDecisionRow
   wb/you-quote       the owner's words, with the YOU face  data: string
   wb/decision-alone  "no words from you" / provisional: Confirm (records your words) / Question it (to the CEO)  data: WbDecisionRow
-  wb/bars            a titled list of bars                 data: WbBars
+  wb/bars            a titled list of bars, the rest under "+N more"  data: WbBars
+  wb/count-bar       one bar of wb/bars                    data: WbCountBar
   wb/command-card    a titled note with the command to run data: WbCommandCard
 */}}
 
@@ -58,10 +59,11 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
         {{with .Quote}}<div data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.quote">{{template "wb/you-quote" .}}</div>{{end}}
         {{template "wb/decision-alone" .}}
         <div class="wb-drow-meta">
+            {{with .Date}}<span class="wb-drow-date" data-testid="decisions.row.{{tid $.Slug}}.{{tid $.ID}}.date">{{.}}</span>{{end}}
             <span class="wb-drow-by"><i class="wb-by wb-by--{{.ByTone}}" aria-hidden="true"></i>recorded by: {{.By}}</span>
-            <span data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.cited">cited by: {{range $i, $c := .Cited}}{{if $i}}, {{end}}<a class="wb-mono-inline" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}nobody yet{{end}}{{if .CitedMore}} +{{.CitedMore}}{{end}}</span>
+            <span data-testid="decisions.row.{{tid .Slug}}.{{tid .ID}}.cited">cited by: {{range $i, $c := .Cited}}{{if $i}}, {{end}}<a class="wb-mono-inline" href="{{$c.URL}}">{{$c.Label}}</a>{{else}}nobody yet{{end}}{{if .CitedMore}} +{{.CitedMore}}{{end}}{{if and .Stale .CitedOpen}} · <b class="wb-tone-red">{{plural .CitedOpen "open issue still cites it" "open issues still cite it"}}</b>{{end}}</span>
             {{if .RefersTo}}<span>refers to {{range $i, $r := .RefersTo}}{{if $i}}, {{end}}<a class="wb-mono-inline wb-drow-ref" href="{{$r.URL}}">{{$r.Label}}</a>{{end}}</span>{{end}}
-            {{with .ReplacedBy}}<span>superseded by <a class="wb-mono-inline wb-drow-ref" href="{{.URL}}">{{.Label}}</a></span>{{end}}
+            {{with .ReplacedBy}}<span>superseded by <a class="wb-mono-inline wb-drow-ref" href="{{.URL}}">{{.Label}}</a>{{with $.ReplacedOn}} on {{.}}{{end}}</span>{{end}}
             {{with .Also}}<span>also considered: {{.}}</span>{{end}}
         </div>
     </div>
@@ -84,9 +86,12 @@ decisions_wb.go, styles in static/workshop.css ("L2: decisions log").
 {{define "wb/bars"}}
 <div class="wb-bars" data-testid="bars.{{.Key}}">
     <h2 class="wb-h2">{{.Title}}</h2>
-    {{range .Rows}}<a class="wb-bar{{if .On}} wb-bar--on{{end}}" href="{{.URL}}"><span class="wb-bar-label">{{.Label}}</span><span class="wb-bar-track"><i style="width:{{.Pct}}%"></i></span><span class="wb-bar-count">{{.Count}}</span></a>{{else}}<div class="wb-empty">{{.Empty}}</div>{{end}}
+    {{range .Rows}}{{template "wb/count-bar" .}}{{else}}<div class="wb-empty">{{.Empty}}</div>{{end}}
+    {{with .More}}<details class="wb-bars-more" data-testid="bars.{{$.Key}}.more"><summary>+{{len .}} more</summary>{{range .}}{{template "wb/count-bar" .}}{{end}}</details>{{end}}
 </div>
 {{end}}
+
+{{define "wb/count-bar"}}<a class="wb-bar{{if .On}} wb-bar--on{{end}}" href="{{.URL}}"><span class="wb-bar-label">{{.Label}}</span><span class="wb-bar-track"><i style="width:{{.Pct}}%"></i></span><span class="wb-bar-count">{{.Count}}</span></a>{{end}}
 
 {{define "wb/command-card"}}
 <div class="wb-cmdcard" data-testid="command.{{.Key}}">

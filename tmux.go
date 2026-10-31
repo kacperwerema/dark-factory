@@ -11,9 +11,14 @@ import (
 // The tmux mechanics live in internal/agentrun (shared with issue-cli's
 // `lead spawn`). These are the server's seams over them: tests stub
 // listTmuxSessions and tmuxSendKeys here, and agentrun.HasSession,
-// agentrun.SessionAttached and agentrun.CapturePane there.
+// agentrun.SessionAttached and agentrun.CapturePane there. tmuxSendKeys
+// nudges a worker (agentrun.Nudge: the text must reach the conversation);
+// tmuxTypeCommand types a command into a shell, with no delivery check.
 var listTmuxSessions = func() []AgentSession { return agentrun.ListSessions() }
-var tmuxSendKeys = func(target string, lines []string) error { return agentrun.SendKeys(target, lines) }
+var tmuxSendKeys = func(target string, lines []string) error {
+	return agentrun.Nudge(target, strings.Join(lines, "\n"))
+}
+var tmuxTypeCommand = func(target string, lines []string) error { return agentrun.SendKeys(target, lines) }
 
 func tmuxSessionName(slug string) string {
 	return tracker.AgentSessionName(slug)

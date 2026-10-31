@@ -33,6 +33,7 @@ var healthSensorGroups = []struct {
 }{
 	{"Code", []string{"big_files", "long_funcs", "hotspots", "lint"}},
 	{"Tests", []string{"unit_wait", "unit_cost_trend", "e2e_wait", "e2e_coverage", "flaky", "test_balance"}},
+	{"Departments", []string{"departments"}},
 }
 
 // healthUnlock is how to give a component data, for the "shortest way"
@@ -48,6 +49,7 @@ var healthUnlock = map[string]string{
 	"long_funcs":      "Take a new measurement: issue-cli health snapshot.",
 	"hotspots":        "It needs commits in the last 30 days, then issue-cli health snapshot.",
 	"lint":            "Take a new measurement: issue-cli health snapshot.",
+	"departments":     "Give a department goals (issue-cli goal set), outputs (issue-cli output add) or jobs, then issue-cli health snapshot.",
 }
 
 // healthWaits are the sensors only time unlocks (a 30-day comparison).
@@ -75,6 +77,8 @@ type HealthWbPage struct {
 	TrendsLabel string
 	Trends      []WbTrendCard
 	Setup       WbHealthSetup
+	// Departments is the departments family's table; nil without departments.
+	Departments *DeptHealth
 }
 
 // WbHallTabs is the hall's view toggle in the header: Line | Report |
@@ -170,7 +174,11 @@ type WbHealthOpinion struct {
 	Assessment, Empty             string
 	Recs                          []WbHealthRec
 	Decided                       int
-	ReviewURL, Command            string
+	// DecidedRecs are the recommendations already filed or dismissed.
+	DecidedRecs []RecView
+	// Date and Reviewer say when and by whom the review was made.
+	Date, Reviewer     string
+	ReviewURL, Command string
 }
 
 // WbHealthRec is one proposed recommendation with its actions.
@@ -236,6 +244,9 @@ type WbTrendCard struct {
 	Summary    string
 	Charts     []template.HTML
 	Legend     []LegendItem
+	// Sub is the chart's subtitle; Tables are its numbers, folded.
+	Sub    string
+	Tables []WbTable
 }
 
 // WbHealthSetup is "Measurement setup": the newest snapshot's family
@@ -243,8 +254,10 @@ type WbTrendCard struct {
 type WbHealthSetup struct {
 	Warnings []HealthWarning
 	Lint     *LintPanel
-	// Rows are the first lint findings, More the rest's count.
+	// Rows are the first lint findings, Rest the others listed (folded),
+	// More the count past what the panel lists.
 	Rows []lint.Finding
+	Rest []lint.Finding
 	More int
 }
 
@@ -283,12 +296,13 @@ func buildHealthWb(in healthWbIn, classic *HealthPage) *HealthWbPage {
 	p.TrendsLabel = "Trends · " + classic.RangeLabel
 	p.Trends = healthTrends(classic)
 	p.Setup = WbHealthSetup{Warnings: classic.Warnings, Lint: classic.Lint}
+	p.Departments = deptHealth(in.Proj, in.Snapshot, cfg)
 	if l := classic.Lint; l != nil && l.Err == "" {
 		p.Setup.Rows = l.Findings
 		if len(p.Setup.Rows) > healthSetupRows {
-			p.Setup.Rows = p.Setup.Rows[:healthSetupRows]
+			p.Setup.Rows, p.Setup.Rest = l.Findings[:healthSetupRows], l.Findings[healthSetupRows:]
 		}
-		p.Setup.More = l.Warnings - len(p.Setup.Rows)
+		p.Setup.More = l.Warnings - len(l.Findings)
 	}
 	return p
 }
@@ -525,9 +539,11 @@ func healthOpinionCard(in healthWbIn, review *ReviewView) WbHealthOpinion {
 		}
 	}
 	if review != nil {
+		o.Date, o.Reviewer = review.Date, review.Reviewer
 		for _, r := range review.Recs {
 			if !r.Proposed {
 				o.Decided++
+				o.DecidedRecs = append(o.DecidedRecs, r)
 				continue
 			}
 			o.Recs = append(o.Recs, WbHealthRec{RecView: r, FileURL: in.Prefix + "/health/recommendation/" + r.ID + "/file",
@@ -641,13 +657,21 @@ func sortedRows(s *health.Snapshot, metric string) []health.Row {
 // healthTrends are the classic page's charts as cards: locked with what each
 // lacks and how to unlock it while it has nothing to draw.
 func healthTrends(c *HealthPage) []WbTrendCard {
-	scores := WbTrendCard{Key: "scores", Title: "Health score"}
+	scores := WbTrendCard{Key: "scores", Title: "Health score", Sub: c.Scores.Sub}
 	if c.Scores.Empty != "" {
 		scores.Locked, scores.Need, scores.Cmd = true, "Measurements compute the score from now on. Compute it backwards to see the past days.", "issue-cli health backfill"
 	} else {
 		scores.Charts, scores.Legend = []template.HTML{c.Scores.SVG}, c.Scores.Legend
+		scores.Tables = trendTables(c.Scores)
 	}
 	out := []WbTrendCard{scores}
+	loc := WbTrendCard{Key: "loc", Title: "Lines of code", Sub: c.LOC.Sub}
+	if c.LOC.Empty != "" {
+		loc.Locked, loc.Need, loc.Cmd = true, "Needs the codebase family in a snapshot: snapshots measure it from now on.", "issue-cli health backfill"
+	} else {
+		loc.Charts, loc.Legend, loc.Tables = []template.HTML{c.LOC.SVG}, c.LOC.Legend, trendTables(c.LOC)
+	}
+	out = append(out, loc)
 	for _, pair := range c.Pairs {
 		t := WbTrendCard{Key: pair.ID, Title: strings.Replace(pair.Title, ": count vs runtime", ": count and time", 1)}
 		if pair.Empty != "" {
@@ -660,6 +684,7 @@ func healthTrends(c *HealthPage) []WbTrendCard {
 		} else {
 			t.Summary = pair.Summary
 			t.Charts = []template.HTML{pair.Count.SVG, pair.Runtime.SVG}
+			t.Tables = trendTables(pair.Count, pair.Runtime)
 			t.Legend = append(append([]LegendItem{}, pair.Count.Legend...), pair.Runtime.Legend...)
 		}
 		out = append(out, t)
@@ -699,4 +724,47 @@ func (s *Server) handleHealthWb(w http.ResponseWriter, r *http.Request, proj *tr
 	if err := s.tmpl.ExecuteTemplate(w, "health_wb.html", page); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// trendTables are the charts' numbers as tables, titled by chart, for the
+// fold under a trend card; charts without rows give none.
+func trendTables(cards ...ChartCard) []WbTable {
+	var out []WbTable
+	for _, c := range cards {
+		if len(c.Table.Rows) == 0 {
+			continue
+		}
+		t := chartTable(c)
+		t.Title = c.Title
+		out = append(out, t)
+	}
+	return out
+}
+
+// locChart is lines of code over the range, with the newest test ratio in
+// the subtitle: the trend the classic Stats page drew.
+func locChart(snaps []*health.Snapshot, from, to time.Time) ChartCard {
+	c := ChartCard{ID: "loc", Title: "Lines of code", Sub: "Code and test lines at each snapshot's commit",
+		Legend: []LegendItem{{Name: "lines", Class: "s-all"}}}
+	l := chart.Line{Label: "Lines of code", From: from, To: to, Unit: chart.Count, Gap: pointGap}
+	ser := chart.Series{Name: "lines", Class: "s-all"}
+	ratio := -1.0
+	for _, s := range snaps {
+		if v, ok := s.Value("codebase.source_lines", nil); ok {
+			ser.Points = append(ser.Points, chart.Point{At: s.Time(), Value: v})
+		}
+		if v, ok := s.Value("codebase.test_ratio", nil); ok {
+			ratio = v
+		}
+	}
+	l.Series = []chart.Series{ser}
+	if ratio >= 0 {
+		c.Sub += fmt.Sprintf(" · test ratio %.2f", ratio)
+	}
+	if l.Empty() {
+		c.Empty = "No lines-of-code measurement in this range."
+		return c
+	}
+	c.SVG, c.Table = l.SVG(), l.Table()
+	return c
 }

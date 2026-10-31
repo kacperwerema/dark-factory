@@ -39,14 +39,25 @@ prove is the fallback, and the only way to record a measured value:
                                                         for a criterion ending in (visual)
   issue-cli prove <slug> <AC-id> --clear                removes this criterion's prove links
   issue-cli prove <slug> [--list] [--json]              every criterion, its links and checks
+  issue-cli prove <slug> --run [--json]                 run the tests the test links name and
+                                                        post the tests: comment when all pass
 
 Checks:
   test    a test file on the branch has the name, and a tests: comment is
-          newer than the branch's last non-merge commit
+          newer than the branch's last code commit (merges and commits that
+          only touch docs, Markdown, CHANGELOG, playtest/sessions/,
+          scripts/checks/, issues/, retros/ or sessions/ don't count)
   step    the step's latest playtest result passed
   commit  reachable from the work branch or its merge
   value   none: shown as "reported"
   shot    the file exists
+
+The order for a test: commit it with its Proves: trailer, then run
+prove <slug> --run after the last code commit. --run (Go projects) runs
+go test -run for the named tests in the issue's worktree (after mem-guard
+check, when installed) and posts "tests: prove --run at <sha>: …" only
+when every named test passed; it refuses uncommitted code. Elsewhere, run
+the tests and post the tests: comment yourself.
 
 A criterion is proven when one of its links passes. prove, prove --list and
 the transition that checks proof (criteria_proven) tick the proven boxes;
@@ -64,6 +75,8 @@ type proveOutput struct {
 	Proven int      `json:"proven"`
 	Total  int      `json:"total"`
 	Ticked []string `json:"ticked"`
+	// Run is what prove --run ran (nil without --run).
+	Run *proof.TestRun `json:"run,omitempty"`
 }
 
 func runProve(ctx *Context, args []string) error {
@@ -84,6 +97,7 @@ func runProve(ctx *Context, args []string) error {
 		})
 	}
 	clearFlag := fs.Bool("clear", false, "remove this criterion's prove links")
+	runFlag := fs.Bool("run", false, "run the tests the test links name and post the tests: comment when all pass")
 	fs.Bool("list", false, "list every criterion with its links and checks (the default without a criterion)")
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
@@ -99,6 +113,23 @@ func runProve(ctx *Context, args []string) error {
 	criteria := tracker.Criteria(issue.BodyRaw)
 	if len(criteria) == 0 {
 		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli replace %s --section %q --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, issue.Slug, tracker.CriteriaSection)
+	}
+
+	if *runFlag {
+		if fs.NArg() == 1 || *clearFlag || len(links) > 0 {
+			return fmt.Errorf("--run runs every test link of the issue: use it alone, issue-cli prove %s --run", issue.Slug)
+		}
+		run, err := runProveTests(ctx, issue)
+		if err != nil {
+			return err
+		}
+		if err := printProof(ctx, issue, run); err != nil {
+			return err
+		}
+		if !run.Posted {
+			return fmt.Errorf("prove --run: no tests: comment posted, not every named test passed")
+		}
+		return nil
 	}
 
 	if fs.NArg() == 1 {
@@ -120,7 +151,7 @@ func runProve(ctx *Context, args []string) error {
 		return fmt.Errorf("name the criterion: issue-cli prove %s <AC-id> ... (criteria: %s)", issue.Slug, criteriaIDs(criteria))
 	}
 
-	return printProof(ctx, issue)
+	return printProof(ctx, issue, nil)
 }
 
 func criteriaIDs(items []tracker.CheckboxItem) string {
@@ -204,7 +235,7 @@ func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem,
 	return tracker.SaveData(issue.FilePath, store)
 }
 
-func printProof(ctx *Context, issue *tracker.Issue) error {
+func printProof(ctx *Context, issue *tracker.Issue, run *proof.TestRun) error {
 	comments, _ := tracker.LoadComments(issue.FilePath)
 	report := proof.Collect(projectRoot(ctx.Project), issue, comments)
 	ticked, err := proof.TickProven(issue.FilePath, report)
@@ -218,13 +249,16 @@ func printProof(ctx *Context, issue *tracker.Issue) error {
 			}
 		}
 	}
-	out := proveOutput{Report: report, Total: len(report.Criteria), Ticked: ticked}
+	out := proveOutput{Report: report, Total: len(report.Criteria), Ticked: ticked, Run: run}
 	out.Proven = out.Total - len(report.Unproven())
 	if out.Ticked == nil {
 		out.Ticked = []string{}
 	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, out)
+	}
+	if run != nil {
+		writeTestRun(ctx.Stdout, issue.Slug, run)
 	}
 	writeProofReport(ctx.Stdout, out)
 	wf := ctx.Project.LoadWorkflowForIssue(issue)
@@ -253,6 +287,9 @@ func writeProofReport(w io.Writer, out proveOutput) {
 			state = "proven"
 		}
 		fmt.Fprintf(w, "%s %s %s  %s\n", c.ID, box, state, c.Text)
+		if c.Owner != "" && !c.Checked && !c.OwnerProven() {
+			fmt.Fprintf(w, "    owner check (%s): only the owner ticks it; no trailer, test or value does\n", c.Owner)
+		}
 		for _, l := range c.Links {
 			mark := "✗"
 			if l.Check.OK {

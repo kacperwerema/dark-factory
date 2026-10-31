@@ -44,13 +44,16 @@ The Workshop page (one system, system_wb.go) adds:
         <h2 class="wb-workshop-name"><a href="{{.URL}}">{{.Name}}</a></h2>
         <span class="wb-grow"></span>
         {{if .Gates}}<span class="wb-gates-pill" title="{{.GatesTitle}}" data-testid="systems.wb.gates">{{plural .Gates "gate" "gates"}}</span>{{end}}
-        <span class="wb-workshop-counts">{{.Open}} open · {{.Done}} done</span>
+        <span class="wb-workshop-counts">{{.Open}} open · {{.Done}} done{{with .Side}} · {{.}}{{end}}</span>
     </div>
+    {{with .Summary}}<p class="wb-workshop-summary" data-testid="systems.wb.summary">{{.}}</p>{{end}}
     <div class="wb-crates" role="img" aria-label="{{.Aria}}" data-testid="systems.wb.crates">{{range .Crates}}{{template "wb/crate-dot" .}}{{end}}{{if .More}}<span class="wb-cdot-more">+{{.More}}</span>{{end}}</div>
+    {{with .Families}}<div class="wb-workshop-fams" data-testid="systems.wb.families">{{range .}}<a class="wb-tag-pill" href="{{.URL}}">{{.Label}}</a>{{end}}</div>{{end}}
     <div class="wb-code-row" data-testid="systems.wb.code"><span class="wb-code-label">CODE</span>{{range .Code}}{{template "wb/code-chip" .}}{{else}}<span class="wb-code-chip wb-code-chip--none">{{.CodeNone}}</span>{{end}}</div>
     <div class="wb-workshop-foot">
         <a href="{{.DecisionsURL}}" data-testid="systems.wb.decisions">Decisions · {{.Decisions}}</a>
         <a href="{{.LineURL}}" data-testid="systems.wb.line">On the line</a>
+        {{if .DocURL}}<a class="wb-workshop-doc" href="{{.DocURL}}" data-testid="systems.wb.doc">{{.Doc}}</a>{{else}}{{with .Doc}}<span class="wb-workshop-doc" data-testid="systems.wb.doc">{{.}}</span>{{end}}{{end}}
         {{with .Note}}<span class="wb-workshop-note">{{.}}</span>{{end}}
     </div>
 </article>
@@ -154,7 +157,7 @@ The Workshop page (one system, system_wb.go) adds:
     {{else}}
     <div class="wb-code-pkg">
         <div class="wb-code-pkg-name">{{.Current}} current{{if .Changed}} · {{.Changed}} changed on {{plural .Branches "open branch" "open branches"}}{{end}} · {{.Stale}} stale{{if .ScanSkipped}} · branch scan skipped{{end}}</div>
-        {{range .Sections}}<div class="wb-code-file" data-testid="system.wb.doc.section.{{tid .Title}}" data-state="{{.State}}">{{if .Href}}<a class="wb-doc-title" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="wb-doc-title">{{.Title}}</span>{{end}}{{if .Note}}{{if .NoteHref}}<a class="wb-code-file-sys" href="{{.NoteHref}}" title="{{.Note}}">{{.Note}}</a>{{else}}<span class="wb-code-file-sys" title="{{.Note}}">{{.Note}}</span>{{end}}{{end}}<span class="wb-chip wb-chip--{{wbTone .Tone}}">{{.State}}</span></div>{{else}}<div class="wb-code-file wb-code-file--more">The doc has no ## sections.</div>{{end}}
+        {{range .Sections}}<div class="wb-code-file" data-testid="system.wb.doc.section.{{tid .Title}}" data-state="{{.State}}">{{if .Href}}<a class="wb-sysdoc-title" href="{{.Href}}">{{.Title}}</a>{{else}}<span class="wb-sysdoc-title">{{.Title}}</span>{{end}}{{if .Note}}{{if .NoteHref}}<a class="wb-code-file-sys" href="{{.NoteHref}}" title="{{.Note}}">{{.Note}}</a>{{else}}<span class="wb-code-file-sys" title="{{.Note}}">{{.Note}}</span>{{end}}{{end}}<span class="wb-chip wb-chip--{{wbTone .Tone}}">{{.State}}</span></div>{{else}}<div class="wb-code-file wb-code-file--more">The doc has no ## sections.</div>{{end}}
     </div>
     {{end}}
 </section>
@@ -162,9 +165,9 @@ The Workshop page (one system, system_wb.go) adds:
 
 {{define "wb/guard-metrics"}}{{with .}}
 <section class="wb-sys-side" data-testid="system.wb.metrics" aria-labelledby="wb-met-h">
-    <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-met-h">Guard metrics</h2>{{with .Run}}<div class="wb-note">{{$.Scope}} · <span class="wb-mono-inline">{{.File}}</span>{{if .Date}} · {{.Date}}{{end}}{{if .N}} · N = {{.N}}{{end}}</div>{{end}}</div>
+    <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-met-h">Guard metrics</h2>{{with .Run}}<div class="wb-note">{{$.Scope}} · <span class="wb-mono-inline">{{.File}}</span>{{if .Date}} · {{.Date}}{{end}}{{if .Commit}} · <span class="wb-mono-inline" data-testid="system.wb.metrics.commit">{{shortSha .Commit}}</span>{{end}}{{if .N}} · N = {{.N}}{{end}}</div>{{end}}</div>
     <div class="wb-code-pkg">
-        {{range .Rows}}<div class="wb-code-file" data-testid="system.wb.metrics.row.{{tid .ID}}"><span class="wb-code-file-name" title="{{.ID}}">{{.Name}}</span><span class="wb-code-file-sys">{{masterValue .}} · {{bandText .Band}}</span><span class="wb-chip wb-chip--{{wbVerdictTone .Verdict}}">{{wbVerdictText .Verdict}}</span></div>{{end}}
+        {{range $m := .Rows}}<div class="wb-code-file wb-code-file--metric" data-testid="system.wb.metrics.row.{{tid .ID}}"><span class="wb-code-file-name" title="{{.ID}}">{{.Name}}</span><span class="wb-code-file-sys">{{masterValue .}} · {{bandText .Band}}</span><span class="wb-chip wb-chip--{{wbVerdictTone .Verdict}}">{{wbVerdictText .Verdict}}</span>{{if ne .Name .ID}}<span class="wb-sysmet-id">{{.ID}}</span>{{end}}{{range $b := .Branches}}<span class="wb-sysmet-branch" data-testid="system.wb.metrics.branch">{{if $b.Missing}}not measured on {{shortBranch $b.Branch}}{{else}}<b class="wb-tone-{{wbVerdictTone $b.Verdict}}">{{metricValue $m $b.MetricValue}}</b> · {{shortBranch $b.Branch}}{{end}}</span>{{end}}</div>{{end}}
         <div class="wb-code-file wb-code-file--more">{{len .Rows}} of {{.Total}}{{if .Off}} · {{.Off}} off{{end}} · <a href="{{.Link}}">All metrics</a></div>
     </div>
 </section>
@@ -174,7 +177,7 @@ The Workshop page (one system, system_wb.go) adds:
 <section class="wb-sys-side" data-testid="system.wb.knobs" aria-labelledby="wb-knob-h">
     <div class="wb-code-map-head"><h2 class="wb-h2 wb-h2--lg" id="wb-knob-h">Knobs this system moves</h2><div class="wb-note">recently changed first</div></div>
     <div class="wb-code-pkg">
-        {{range .Rows}}<div class="wb-code-file wb-code-file--knob" data-testid="system.wb.knobs.row.{{tid .Name}}"><span class="wb-code-file-name">{{.Name}} = {{.Value}}</span><span class="wb-code-file-sys">{{with .Last}}{{.Label}} · {{.Date}}{{else}}unchanged{{end}}</span></div>{{end}}
+        {{range $k := .Rows}}<div class="wb-code-file wb-code-file--knob" data-testid="system.wb.knobs.row.{{tid .Name}}"><span class="wb-code-file-name"{{with .File}} title="{{.}}{{if $k.Line}}:{{$k.Line}}{{end}}"{{end}}>{{.Name}} = {{.Value}}</span><span class="wb-code-file-sys">{{with .Last}}{{.Label}} · {{.Date}}{{else}}unchanged{{end}}</span>{{if .File}}<span class="wb-sysknob-where">{{.File}}{{if .Line}}:{{.Line}}{{end}}{{with .Last}}{{with .Subject}} · {{.}}{{end}}{{end}}</span>{{end}}{{with .Comment}}<span class="wb-sysknob-comment">{{.}}</span>{{end}}{{with .Edits}}<span class="wb-tag-pill" data-testid="system.wb.knobs.edits">also edited on {{plural (len .) "branch" "branches"}}</span>{{end}}</div>{{end}}
         <div class="wb-code-file wb-code-file--more">{{len .Rows}} of {{.Total}} · <a href="{{.Link}}">All knobs</a></div>
     </div>
 </section>

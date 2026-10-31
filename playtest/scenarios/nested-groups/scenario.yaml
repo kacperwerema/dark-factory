@@ -1,0 +1,49 @@
+# Nested groups: GTM over Outbound (itself a group) and Marketing; Outbound
+# over Sales. Goals roll up every level: Sales's calls into Outbound's
+# meetings, meetings into GTM's pipeline, pipeline into HQ's clients. Ops
+# stands alone. The company page draws Sales's room inside Outbound's
+# inside GTM's; the map draws Outbound's building inside GTM's
+# (factory/nested-groups-a-group-inside-a-group-with-goals-rolling-up-and-the-map-drawing-it).
+title: A group inside a group, goals rolling up every level
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: "A steady stream of new clients"
+      goals:
+        - {id: clients, name: New clients, target: 10, period: quarter}
+    departments:
+      - name: GTM
+        color: "#F2A541"
+        role: Go to market
+        mission: A steady pipeline of new clients
+        goals:
+          - {id: pipeline, name: Pipeline, target: 10, period: month, rolls_up: clients}
+      - name: Outbound
+        color: "#7AA2F7"
+        role: Cold outreach and meetings
+        mission: Book meetings with good-fit clients
+        parent: GTM
+        goals:
+          - {id: meetings, name: Meetings booked, target: 10, period: month, rolls_up: pipeline}
+      - name: Sales
+        color: "#17A2B8"
+        role: Calls and deals
+        systems: [Deals]
+        parent: Outbound
+        goals:
+          - {id: calls, name: Discovery calls, target: 10, period: week, rolls_up: meetings}
+          - {id: demos, name: Demos, target: 10, period: week, rolls_up: meetings}
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+        goals:
+          - {id: pages, name: Pages refreshed, target: 10, period: week, rolls_up: pipeline}
+      - name: Ops
+        color: "#6C7A96"
+        role: Running the company
+issues: tracker
+workflow: workflow.yaml

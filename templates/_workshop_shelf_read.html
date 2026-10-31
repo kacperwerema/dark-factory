@@ -1,0 +1,79 @@
+{{/*
+Workshop Board components of the output reader (shelf_read.go has their view
+models, static/workshop.css their styles in the "L2: output reader" block,
+static/shelf-read.js their behaviour).
+
+  wb/odoc-toc      the contents: headings with open comment counts   data: []OdocTocItem
+  wb/odoc-head     state, department, kind, version, issue; title    data: ShelfReadData
+  wb/odoc-bar      Read | Changes, Day | Night, Raw file, Approve    data: ShelfReadData
+  wb/odoc-sheet    the document, or the honest missing-file state    data: ShelfReadData
+  wb/odoc-diff     the previous version against this one             data: *OdocDiff
+  wb/odoc-margin   the comment box, open, moved and resolved threads data: ShelfReadData
+  wb/odoc-thread   one thread with its messages, Reply and Resolve   data: OdocThread
+*/}}
+
+{{define "wb/odoc-toc"}}<details class="wb-odoc-toc" open data-odoc-toc data-testid="odoc.toc">
+    <summary class="wb-odoc-toc-head">Contents <span class="wb-muted">{{len .}}</span></summary>
+    <nav class="wb-odoc-toc-list" aria-label="Contents">
+    {{range .}}<a class="wb-odoc-toc-item wb-odoc-toc-item--{{.Level}}" href="#{{.ID}}" data-testid="odoc.toc.item"><span class="wb-odoc-toc-text">{{.Text}}</span>{{if .Open}}<span class="wb-odoc-count" title="open comments">{{.Open}}</span>{{else if .Resolved}}<span class="wb-odoc-count wb-odoc-count--idle" title="resolved comments">✓{{.Resolved}}</span>{{end}}</a>
+    {{else}}<span class="wb-muted wb-odoc-toc-none">No headings.</span>{{end}}
+    </nav>
+</details>{{end}}
+
+{{define "wb/odoc-head"}}<div class="wb-odoc-head">
+    <div class="wb-odoc-meta">
+        <span class="wb-shelf-state wb-shelf-state--{{.Row.State}}" data-testid="odoc.state">{{.Row.State}}</span>
+        <span><i class="wb-shelf-dot wb-odoc-dot" style="background:{{.Row.Color}}"></i> {{.Row.Dept}}</span>
+        <span>{{.Row.Icon}} {{.Row.Kind}}</span>
+        <span class="wb-shelf-ver" data-testid="odoc.version">v{{.Row.Version}}</span>
+        {{with .Revised}}<span>revised {{.}}</span>{{else}}<span>{{.Row.When}}</span>{{end}}
+        {{if .Row.Issue}}<a href="{{.Row.IssueURL}}" data-testid="odoc.issue">{{.Row.Issue}}</a>{{else if .Row.Job}}<span>job {{.Row.Job}}</span>{{end}}
+        {{with .Row.By}}<span>by {{.}}</span>{{end}}
+        <span class="wb-mono-inline">{{.Row.Short}}</span>
+    </div>
+    <h1 class="wb-odoc-title" data-testid="odoc.title">{{.Title}}</h1>
+</div>{{end}}
+
+{{define "wb/odoc-bar"}}<div class="wb-odoc-bar">
+    {{if gt .Row.Version 1}}<nav class="wb-odoc-seg" aria-label="View"><a href="{{.ReadURL}}"{{if eq .View "read"}} aria-current="page"{{end}} data-testid="odoc.view.read">Read</a><a href="{{.ChangesURL}}"{{if eq .View "changes"}} aria-current="page"{{end}} data-testid="odoc.view.changes">Changes since v{{.Prev}}</a></nav>{{end}}
+    <div class="wb-odoc-seg" role="group" aria-label="Sheet"><button type="button" data-sheet-set="day" aria-pressed="true" data-testid="odoc.sheet.day">Day</button><button type="button" data-sheet-set="night" aria-pressed="false" data-testid="odoc.sheet.night">Night</button></div>
+    {{with .Row.Raw}}<a class="wb-odoc-link" href="{{.}}" rel="noopener noreferrer" data-testid="odoc.raw">Raw file</a>{{end}}
+    {{if .Row.Review}}<div class="wb-odoc-acts">
+        <form method="post" action="{{.ReviewURL}}"><input type="hidden" name="id" value="{{.Row.ID}}"><input type="hidden" name="verdict" value="approve"><input type="hidden" name="back" value="{{.Back}}"><button class="wb-shelf-btn wb-shelf-btn--yes" type="submit" data-testid="odoc.approve">Approve</button></form>
+        <form method="post" action="{{.ReviewURL}}"><input type="hidden" name="id" value="{{.Row.ID}}"><input type="hidden" name="verdict" value="reject"><input type="hidden" name="back" value="{{.Back}}"><button class="wb-shelf-btn" type="submit" data-testid="odoc.reject">Reject</button></form>
+    </div>{{end}}
+</div>{{end}}
+
+{{define "wb/odoc-sheet"}}{{if .Missing}}<div class="wb-odoc-empty" data-testid="odoc.missing">The file is gone from the shelf (<span class="wb-mono-inline">{{.Row.Path}}{{.Row.Raw}}</span>). The comments stay in the margin; the agent adds a new version with <code>issue-cli output revise {{.Row.Short}} --file &lt;file&gt;</code>.</div>
+{{else}}<div class="wb-odoc-sheet wb-md" data-sheet="day" data-testid="odoc.sheet">{{.Body}}</div>{{end}}{{end}}
+
+{{define "wb/odoc-diff"}}<div class="wb-odoc-diff" data-testid="odoc.diff">
+    <div class="wb-odoc-diff-head"><span>{{.From}} → {{.To}}</span><b class="wb-odoc-add">+{{.Add}} line{{if ne .Add 1}}s{{end}}</b><b class="wb-odoc-del">−{{.Del}} line{{if ne .Del 1}}s{{end}}</b></div>
+    {{range .Lines}}{{if eq .Kind "gap"}}<div class="wb-odoc-diff-gap">⋯ {{.Gap}} unchanged lines</div>{{else}}<div class="wb-odoc-diff-line{{if ne .Kind "same"}} wb-odoc-diff-line--{{.Kind}}{{end}}" data-op="{{.Op}}">{{.Text}}</div>{{end}}
+    {{else}}<div class="wb-odoc-diff-gap">No line changed.</div>{{end}}
+</div>{{end}}
+
+{{define "wb/odoc-margin"}}<aside class="wb-odoc-margin" aria-label="Comments" data-testid="odoc.margin">
+    <div class="wb-odoc-margin-head">Comments <span class="wb-muted" data-testid="odoc.open">{{.Open}} open{{with .Resolved}} · {{len .}} resolved{{end}}</span></div>
+    <form class="wb-odoc-new" data-odoc-new data-testid="odoc.new">
+        <div class="wb-odoc-where" data-odoc-new-where>On the whole document</div>
+        <blockquote class="wb-odoc-new-quote" data-odoc-new-quote hidden></blockquote>
+        <textarea name="text" required maxlength="4000" placeholder="A note on the whole document, or select a passage to comment on it" aria-label="Comment" data-testid="odoc.new.text"></textarea>
+        <div class="wb-odoc-new-row"><button class="wb-shelf-btn" type="submit" disabled data-odoc-ready data-testid="odoc.comment">Comment</button><button class="wb-odoc-link" type="button" data-odoc-new-clear hidden>On the whole document instead</button></div>
+        <div class="wb-odoc-trail">{{if .NoIssue}}No issue made this output: comments stay on the shelf.{{else}}Goes to the agent as <code>revise:</code> on {{.Row.Issue}}.{{end}}</div>
+        <div class="wb-site-msg" role="status" data-odoc-msg></div>
+    </form>
+    {{range .Threads}}{{template "wb/odoc-thread" .}}{{end}}
+    {{if .Gone}}<details class="wb-odoc-fold" open data-testid="odoc.gone"><summary>{{len .Gone}} not in v{{.Row.Version}}</summary>{{range .Gone}}{{template "wb/odoc-thread" .}}{{end}}</details>{{end}}
+    {{if .Resolved}}<details class="wb-odoc-fold" data-testid="odoc.resolved"><summary>{{len .Resolved}} resolved</summary>{{range .Resolved}}{{template "wb/odoc-thread" .}}{{end}}</details>{{end}}
+    {{if not (or .Threads .Gone .Resolved)}}<div class="wb-odoc-empty" data-testid="odoc.none">No comments yet. Select a passage, use 💬 on a heading, or write on the whole document above. The agent reads them with <code>{{.Command}}</code>.</div>{{end}}
+</aside>{{end}}
+
+{{define "wb/odoc-thread"}}<div title="thread {{.ID}}" class="wb-odoc-thread{{if .Resolved}} wb-odoc-thread--resolved{{else if eq .Place "gone"}} wb-odoc-thread--moved{{end}}" id="thread-{{.ID}}" data-thread="{{.ID}}" data-testid="odoc.thread">
+    <div class="wb-odoc-where">{{if .Resolved}}<span>✓ resolved</span>{{else}}<span class="wb-odoc-count">open</span>{{end}} {{if .WhereURL}}<a href="{{.WhereURL}}">{{.Where}}</a>{{else}}<span>{{.Where}}</span>{{end}}</div>
+    {{with .Quote}}<blockquote class="wb-odoc-quote">{{.}}</blockquote>{{end}}
+    {{with .Note}}<div class="wb-odoc-trail">{{.}}</div>{{end}}
+    {{range .Messages}}<div class="wb-odoc-msg"><div class="wb-odoc-who">{{.Who}} <span class="wb-muted">{{.When}}{{if .Version}} · v{{.Version}}{{end}}</span></div><p>{{.Text}}</p></div>{{end}}
+    <div class="wb-odoc-thread-acts">{{if .Resolved}}<button type="button" class="wb-odoc-link" data-odoc-reopen data-testid="odoc.reopen">Reopen</button>{{else}}<button type="button" class="wb-odoc-link" data-odoc-reply-open data-testid="odoc.reply">Reply</button><button type="button" class="wb-odoc-link" data-odoc-resolve data-testid="odoc.resolve">Resolve</button>{{end}}</div>
+    {{if not .Resolved}}<form class="wb-odoc-reply" data-odoc-reply><textarea name="text" required maxlength="4000" placeholder="Reply…" aria-label="Reply" data-testid="odoc.reply.text"></textarea><div class="wb-odoc-new-row"><button class="wb-shelf-btn" type="submit" disabled data-odoc-ready data-testid="odoc.reply.send">Reply</button><button class="wb-odoc-link" type="button" data-odoc-reply-cancel>Cancel</button></div><div class="wb-site-msg" role="status" data-odoc-msg></div></form>{{end}}
+</div>{{end}}

@@ -32,6 +32,14 @@ const LeadRules = `- Answering workers: when a worker asks for clarification, an
 - Tick a gate only with the human's quoted approval from this chat: issue-cli approve <slug> --to <status> --quote "<the human's words>".
 `
 
+// HandoffsCEOBrief is the CEO's line on handoffs (issue-cli handoff):
+// the ones routed via HQ wait for its forward or decline.
+const HandoffsCEOBrief = "- Handoffs: a department's request routed via HQ (engine work for Product) waits for you. issue-cli handoffs --waiting lists them; forward with issue-cli handoff forward <slug> [--note \"...\"], or decline with issue-cli handoff decline <slug> --reason \"...\" (it is parked and the asker is told). A forward writes a comment only: it starts no worker and passes no gate; dispatching stays the human's call.\n"
+
+// HQReportCEOBrief points the CEO at the HQ report: the company in a
+// minute, one line per department, derived (no agent writes it).
+const HQReportCEOBrief = "- The company in a minute: issue-cli status --hq prints the HQ report (one headline per department and group: on track, goals moved, outputs to review, jobs, blocked and on whom, handoffs, spend; then each one's detail). Read it at check-ins instead of walking every department; the human sees the same page from HQ's Report link.\n"
+
 // LeadBriefInput is what a lead brief is rendered from.
 type LeadBriefInput struct {
 	Project *Project
@@ -42,6 +50,9 @@ type LeadBriefInput struct {
 	// AutoStart is the project's auto-start when the owner turned it on;
 	// nil when it is off.
 	AutoStart *AutoStartBrief
+	// Live reports whether a lead session is running (a group's brief
+	// names its departments' leads with it); nil means none is.
+	Live func(name string) bool
 }
 
 // AutoStartBrief is what the lead is told of the project's auto-start.
@@ -95,6 +106,10 @@ func LeadBrief(wf *WorkflowConfig, in LeadBriefInput) string {
 		}
 	}
 	b.WriteString(JobsBrief(n, true))
+	if proj != nil && len(proj.Departments) > 0 {
+		b.WriteString(HandoffsCEOBrief)
+		b.WriteString(HQReportCEOBrief)
+	}
 	if wf != nil && wf.CI.Enabled() {
 		b.WriteString("- Local CI: the ci: commands run on the integration branch after every move, without you. CI never messages you: read issue-cli ci status (or the Status page) when the human asks, at each check-in and before any push. When it is red, bring it to the human and decide together whether to revert, fix forward or dispatch a fix. Never push a release while it is red.\n")
 	}

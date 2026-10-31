@@ -118,6 +118,9 @@ func runDispatch(ctx *Context, args []string) error {
 	if refusal := outOfScope(proj, me, issue, "dispatches"); refusal != "" {
 		return fmt.Errorf("%s", refusal)
 	}
+	if refusal := relayRefusal(proj, me, issue); refusal != "" {
+		return fmt.Errorf("%s", refusal)
+	}
 	if *auto {
 		return dispatchAutostart(ctx, issue, issues, me, *agentFlag)
 	}

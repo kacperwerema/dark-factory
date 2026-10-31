@@ -122,6 +122,8 @@ var funcMap = template.FuncMap{
 	"tid":     testids.Segment,
 	"plural":  plural,
 	"ceoMode": ceoModeLabel,
+	// handoffList is one of a room's handoff lists (handoffs_view.go).
+	"handoffList": handoffList,
 	// wbTone, wbVerdictTone and wbVerdictText draw the classic tones and
 	// metric verdicts as Workshop Board chips (system_wb.go).
 	"wbTone":        wbTone,

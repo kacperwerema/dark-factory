@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/yuin/goldmark"
 	gast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/renderer"
-	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
@@ -122,8 +122,10 @@ func ToggleIssueTaskBox(filePath, baseHash string, line int, checked bool) (stri
 func newIssueMarkdown() goldmark.Markdown {
 	return goldmark.New(
 		goldmark.WithExtensions(extension.TaskList, extension.Table),
+		// No html.WithUnsafe: raw HTML in a body is dropped and javascript:
+		// links blanked. Bodies come from agents and GitHub imports, and
+		// the page they render on can approve gates (docs/API/security.md).
 		goldmark.WithRendererOptions(
-			html.WithUnsafe(),
 			renderer.WithNodeRenderers(util.Prioritized(taskBoxLineRenderer{}, 100)),
 		),
 	)
@@ -133,6 +135,70 @@ type taskBoxLineRenderer struct{}
 
 func (taskBoxLineRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(extast.KindTaskCheckBox, renderTaskBoxWithLine)
+	reg.Register(gast.KindHTMLBlock, renderCommentOnlyBlock)
+	reg.Register(gast.KindRawHTML, renderCommentOnlyInline)
+}
+
+// omittedHTML replaces raw HTML that isn't one plain comment.
+const omittedHTML = "<!-- raw HTML omitted -->"
+
+// renderCommentOnlyBlock keeps an HTML block that is exactly one comment
+// (the <!-- data --> marker, notes to agents) and drops any other raw HTML:
+// "<!-- x --><script>" is one HTML block to goldmark, so the whole block
+// must be a single comment to pass.
+func renderCommentOnlyBlock(w util.BufWriter, src []byte, node gast.Node, entering bool) (gast.WalkStatus, error) {
+	if !entering {
+		return gast.WalkContinue, nil
+	}
+	n := node.(*gast.HTMLBlock)
+	var raw bytes.Buffer
+	for i := 0; i < n.Lines().Len(); i++ {
+		seg := n.Lines().At(i)
+		raw.Write(seg.Value(src))
+	}
+	if n.HasClosure() {
+		raw.Write(n.ClosureLine.Value(src))
+	}
+	if SafeHTMLComment(raw.String()) {
+		_, _ = w.Write(raw.Bytes())
+	} else {
+		_, _ = w.WriteString(omittedHTML + "\n")
+	}
+	return gast.WalkSkipChildren, nil
+}
+
+func renderCommentOnlyInline(w util.BufWriter, src []byte, node gast.Node, entering bool) (gast.WalkStatus, error) {
+	if !entering {
+		return gast.WalkSkipChildren, nil
+	}
+	n := node.(*gast.RawHTML)
+	var raw bytes.Buffer
+	for i := 0; i < n.Segments.Len(); i++ {
+		seg := n.Segments.At(i)
+		raw.Write(seg.Value(src))
+	}
+	if SafeHTMLComment(raw.String()) {
+		_, _ = w.Write(raw.Bytes())
+	} else {
+		_, _ = w.WriteString(omittedHTML)
+	}
+	return gast.WalkSkipChildren, nil
+}
+
+// SafeHTMLComment reports whether s (surrounding whitespace aside) is one
+// HTML comment and nothing else: it opens with <!--, ends with the only
+// --> in it, and holds no other way a browser ends a comment (--!>, an
+// abrupt <!--> or <!--->).
+func SafeHTMLComment(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 7 || !strings.HasPrefix(s, "<!--") || !strings.HasSuffix(s, "-->") {
+		return false
+	}
+	inner := s[4 : len(s)-3]
+	if strings.HasPrefix(inner, ">") || strings.HasPrefix(inner, "->") {
+		return false
+	}
+	return !strings.Contains(inner, "-->") && !strings.Contains(inner, "--!>") && !strings.HasSuffix(inner, "-")
 }
 
 func renderTaskBoxWithLine(w util.BufWriter, src []byte, node gast.Node, entering bool) (gast.WalkStatus, error) {

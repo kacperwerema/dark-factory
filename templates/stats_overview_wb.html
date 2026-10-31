@@ -20,7 +20,7 @@
             {{template "wb/seg-links" (wbSeg "Sort by" "overview-sort" .Sorts)}}
         </div>
         <div class="wb-pstats">{{range .Rows}}{{template "wb/project-stat" .}}{{else}}{{template "wb/empty" (wbEmpty "No project has a health snapshot yet." "issue-cli --project <slug> health snapshot")}}{{end}}</div>
-        {{if .None}}<div data-testid="stats.overview.none">{{template "wb/empty" (wbEmpty .NoneLine "issue-cli --project <slug> health snapshot")}}</div>{{end}}
+        {{if .None}}<div data-testid="stats.overview.none">{{template "wb/empty" (wbEmpty .NoneLine "issue-cli --project <slug> health snapshot")}}{{template "wb/empty" (wbEmpty "Or draw the past days from git history and the issues' recorded transitions:" "issue-cli --project <slug> health backfill")}}</div>{{end}}
     </section>
 </main>
 </div>

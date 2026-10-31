@@ -93,6 +93,12 @@ type WbWorkshop struct {
 	DecisionsURL string
 	LineURL      string
 	Note         string
+	// From workbench.systems (empty when the system has no entry): the
+	// one-line summary, the design doc (DocURL when it is under docs/), the
+	// families with their progress; Side counts issues in side statuses.
+	Summary, Doc, DocURL string
+	Families             []WbLink
+	Side                 string
 }
 
 // Aria describes the crate row for screen readers.
@@ -222,8 +228,23 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 	code := newCodeIndex(root, snap)
 
 	totalOpen, totalGates := 0, 0
+	bySlug := issuesBySlug(issues)
 	for _, g := range groups {
 		ws := systemWorkshop(st, prefix, g, waits, workerOf, decisionsOf, code)
+		ws.Summary, ws.Doc = g.Config.Summary, g.Config.DesignDoc
+		if ws.Doc != "" {
+			ws.DocURL = designDocHref(p, prefix, ws.Doc)
+		}
+		_, _, ws.Side = st.counts(g.Members)
+		for _, fname := range g.Config.FamilyNames() {
+			fam := g.Config.Families[fname]
+			label := fname
+			if bySlug[strings.ToLower(fam.Umbrella)] != nil {
+				dn, t := doneTotal(st, childrenOf(g.Members, fam.Umbrella))
+				label += fmt.Sprintf(" · %d/%d", dn, t)
+			}
+			ws.Families = append(ws.Families, WbLink{Label: label, URL: familyHref(prefix, g.Name, fname)})
+		}
 		totalOpen += ws.Open
 		totalGates += ws.Gates
 		d.Workshops = append(d.Workshops, ws)

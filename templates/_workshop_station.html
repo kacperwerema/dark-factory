@@ -20,19 +20,44 @@ behaviour in static/station.js. templates/station.html composes them.
   wb/sessions      tmux sessions on the issue              data: WbSessionList
   wb/station-outputs what the issue made, from the shelf   data: *WbStationOutputs
   wb/body-index    the body by section, with counts        data: WbBodyIndex
-  wb/fields        a titled list of fields                 data: WbFields
+  wb/fields        the fields: edited in place, then rows  data: WbFields
+  wb/move-preview  a status change's preview and approval  data: *WbFieldEdit
+  wb/brief         what this is, your words, the epic      data: *WbBrief
+  wb/approving     what you're approving since the gate    data: WbApproving
+  wb/mockups       the issue's mockups                     data: *WbMockups
+  wb/relations     depends on, depended on by, decided by  data: *WbRelations
+  wb/epic-children an epic's children by version           data: *WbEpicChildren
+  wb/full-body     the body by section: boxes, the editor  data: WbBody
+  wb/dispatch      Claude / Codex, custom actions, steps   data: WbDispatch
+  wb/station-missing sources the page could not read       data: []string
 */}}
 
 {{define "wb/issue-title"}}
 <div class="wb-ititle" data-testid="station.title">
     <div class="wb-ititle-crate" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="#E9D7B5" stroke="#1B1F2A" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10" fill="none"/></svg></div>
     <div class="wb-ititle-main">
-        <h1 class="wb-ititle-h">{{.Title}}</h1>
+        <div class="wb-st-titlerow">
+            <h1 class="wb-ititle-h" data-st-title>{{.Title}}</h1>
+            {{if .EditURL}}<button type="button" class="wb-btn wb-btn--quiet wb-btn--sm" data-st-rename data-testid="station.rename">Rename</button>{{end}}
+        </div>
+        {{if .EditURL}}<form class="wb-st-rename" data-st-rename-form="{{.EditURL}}" data-hold-open data-slug="{{.Slug}}" data-prefix="{{.Prefix}}" hidden>
+            <label class="wb-words-label" for="st-title">Title</label>
+            <input id="st-title" class="wb-st-input wb-st-input--title" type="text" name="title" value="{{.Title}}" data-testid="station.rename.input">
+            <div class="wb-step-actions"><button type="submit" class="wb-btn wb-btn--ink" data-testid="station.rename.save">Save</button><button type="button" class="wb-btn wb-btn--link" data-st-rename-cancel>Cancel</button></div>
+            <div class="wb-site-msg" role="status"></div>
+        </form>{{end}}
         <div class="wb-ititle-meta">
             {{range .Chips}}{{template "wb/chip" .}}{{end}}
             <span class="wb-ititle-slug">{{.Slug}}</span>
             <a class="wb-ititle-classic" href="{{.ClassicURL}}" data-testid="station.classic">Classic view</a>
+            {{if .DeleteURL}}<button type="button" class="wb-btn wb-btn--sm wb-st-danger" data-st-delete="{{.DeleteURL}}" data-store="{{.StoreURL}}" data-testid="station.delete">Delete…</button>{{end}}
         </div>
+        {{if .DeleteURL}}<div class="wb-st-confirm" data-st-delete-confirm data-hold-open hidden data-testid="station.delete.confirm">
+            <span>Delete <b>{{.Title}}</b>? The file goes; git keeps its history.</span>
+            <button type="button" class="wb-btn wb-btn--sm wb-st-danger" data-st-delete-go data-testid="station.delete.go">Delete it</button>
+            <button type="button" class="wb-btn wb-btn--sm wb-btn--link" data-st-delete-cancel data-testid="station.delete.keep">Keep it</button>
+            <span class="wb-site-msg" role="status"></span>
+        </div>{{end}}
     </div>
 </div>
 {{end}}
@@ -76,6 +101,10 @@ behaviour in static/station.js. templates/station.html composes them.
     {{if or .Tasks .Stamp}}<div class="wb-move-steps">
         {{range .Tasks}}{{template "wb/move-task" .}}{{end}}
         {{with .Stamp}}{{template "wb/stamp" .}}{{end}}
+    </div>{{end}}
+    {{if or .Also (and .Stamp .Command)}}<div class="wb-st-also">
+        {{with .Also}}<div class="wb-note" data-testid="station.also">Also waiting: {{range $i, $a := .}}{{if $i}} · {{end}}{{$a}}{{end}}</div>{{end}}
+        {{if and .Stamp .Command}}<div class="wb-note" data-testid="station.ceo_command">or tell the CEO: <code class="wb-mono-inline">{{.Command}}</code></div>{{end}}
     </div>{{end}}
 </section>
 {{end}}
@@ -187,7 +216,7 @@ behaviour in static/station.js. templates/station.html composes them.
 
 {{define "wb/tests-card"}}
 <section class="wb-panel" id="tests" aria-labelledby="tests-h" data-testid="station.tests">
-    <div class="wb-panel-head"><h2 class="wb-panel-h" id="tests-h">Tests and proofs</h2>{{with .CI}}<span class="wb-panel-right">{{template "wb/chip" .}}</span>{{end}}</div>
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="tests-h">Tests and proofs</h2>{{with .Label}}<span data-testid="station.tests.label">{{template "wb/chip" .}}</span>{{end}}{{with .CI}}<span class="wb-panel-right">{{template "wb/chip" .}}</span>{{end}}</div>
     <div class="wb-panel-body">
         {{if or .Big .Tests}}<div class="wb-tests-row">
             {{if .Big}}<div class="wb-tests-big"><div class="wb-tests-num">{{.Big}}</div><div class="wb-tests-label">{{.BigLabel}}</div></div>{{end}}
@@ -232,9 +261,22 @@ behaviour in static/station.js. templates/station.html composes them.
     {{if .Facts}}<dl class="wb-facts">{{range .Facts}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>{{end}}
     <div class="wb-sagent-actions">
         <button type="button" class="wb-btn wb-btn--paper" data-open-session="{{.Name}}" data-open-url="{{.OpenURL}}" data-testid="station.agent.open"{{if not .Live}} disabled title="The agent's tmux session is not running"{{end}}>Open in tmux</button>
-        <button type="button" class="wb-btn wb-btn--paper" data-reprompt="{{.PromptURL}}" data-testid="station.agent.prompt"{{if not .Live}} disabled title="The agent's tmux session is not running"{{end}}>Send the prompt</button>
+        <button type="button" class="wb-btn wb-btn--paper" data-reprompt="{{.PromptURL}}" data-testid="station.agent.prompt"{{if not .Live}} title="The session is not running: the steps say what failed"{{end}}>Send the prompt</button>
     </div>
     <div class="wb-site-msg" role="status"></div>
+    {{template "wb/dispatch" .Dispatch}}
+</div>
+{{end}}
+
+{{define "wb/dispatch"}}
+<div class="wb-st-dispatch" data-st-dispatch="{{.URL}}" data-testid="station.dispatch">
+    <div class="wb-st-btns">
+        <button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>
+        <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-agent="codex" data-testid="station.dispatch.codex">Codex</button>
+        {{range .Actions}}<button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-action="{{$.ActionURL}}{{.ID}}" data-label="{{.Label}}" data-testid="station.dispatch.action.{{tid .ID}}">{{.Label}}</button>{{end}}
+    </div>
+    <a class="wb-fields-link" href="{{.PromptURL}}" target="_blank" rel="noopener" data-testid="station.dispatch.prompt">The dispatch prompt</a>
+    <div class="wb-st-steps" role="status" aria-live="polite" data-st-steps data-testid="station.dispatch.steps" hidden></div>
 </div>
 {{end}}
 
@@ -258,10 +300,133 @@ behaviour in static/station.js. templates/station.html composes them.
 {{define "wb/fields"}}
 <div class="wb-fields" data-testid="station.fields">
     <div class="wb-eyebrow">{{.Title}}</div>
-    <dl class="wb-facts">{{range .Rows}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>
-    {{with .LinkURL}}<a class="wb-fields-link" href="{{.}}">{{$.LinkText}}</a>{{end}}
+    {{with .Edit}}<div class="wb-st-fields" data-st-fields="{{.URL}}" data-type-url="{{.TypeURL}}" data-preview-url="{{.PreviewURL}}" data-approve-url="{{.ApproveURL}}" data-status="{{.Status}}" data-type="{{.Type}}">
+        <label class="wb-st-label" for="st-status">Status</label>
+        <select id="st-status" class="wb-st-input" data-st-field="status" data-testid="station.field.status">{{range .Statuses}}<option value="{{.}}"{{if eq . $.Edit.Status}} selected{{end}}>{{.}}</option>{{end}}</select>
+        {{if .Types}}<label class="wb-st-label" for="st-type">Type</label>
+        <select id="st-type" class="wb-st-input" data-st-type data-testid="station.field.type">{{range .Types}}<option value="{{.Name}}" title="{{.Description}} — {{.Path}}"{{if eq .Name $.Edit.Type}} selected{{end}}>{{.Name}}</option>{{end}}</select>{{end}}
+        <label class="wb-st-label" for="st-priority">Priority</label>
+        <select id="st-priority" class="wb-st-input" data-st-field="priority" data-testid="station.field.priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.Edit.Priority}} selected{{end}}>{{if .}}{{.}}{{else}}—{{end}}</option>{{end}}</select>
+        <label class="wb-st-label" for="st-assignee">Assignee</label>
+        <input id="st-assignee" class="wb-st-input" type="text" data-st-field="assignee" value="{{.Assignee}}" placeholder="Unassigned" data-testid="station.field.assignee">
+        <label class="wb-st-label" for="st-version">Version</label>
+        <input id="st-version" class="wb-st-input" type="text" data-st-field="version" value="{{.Version}}" placeholder="—" data-testid="station.field.version">
+        <span class="wb-st-label">Labels</span>
+        <div class="wb-st-labels" data-st-labels data-testid="station.field.labels">
+            {{range .Labels}}<span class="wb-st-label-pill" data-label="{{.}}">{{.}}<button type="button" aria-label="Remove {{.}}" data-st-label-remove>×</button></span>{{end}}
+            <input class="wb-st-input wb-st-input--label" type="text" aria-label="Add a label" placeholder="add" data-st-label-add data-testid="station.field.label_input">
+        </div>
+    </div>
+    {{with .TypeWarning}}<div class="wb-note">⚠ {{.}}</div>{{end}}
+    <div class="wb-st-typepick" data-st-typepick data-hold-open hidden>
+        <div class="wb-note" data-st-typepick-msg></div>
+        <select class="wb-st-input" aria-label="Status on the new path" data-st-typepick-status></select>
+        <div class="wb-step-actions"><button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-typepick-go>Move</button><button type="button" class="wb-btn wb-btn--link wb-btn--sm" data-st-typepick-cancel>Cancel</button></div>
+    </div>
+    {{template "wb/move-preview" .}}
+    <div class="wb-site-msg" role="status" data-st-fields-msg></div>{{end}}
+    {{if .Rows}}<dl class="wb-facts">{{range .Rows}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{if .URL}}<a href="{{.URL}}"{{if .External}} target="_blank" rel="noopener"{{end}}>{{.Value}}</a>{{else}}{{.Value}}{{end}}{{with .List}}<ul class="wb-st-list">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}{{with .Detail}}<details class="wb-st-detail"><summary>breakdown</summary><ul class="wb-st-list">{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}</dd>{{end}}</dl>{{end}}
 </div>
 {{end}}
+
+{{define "wb/move-preview"}}
+<form class="wb-st-preview" data-st-preview data-hold-open hidden data-testid="station.move_preview">
+    <div class="wb-st-preview-h" data-st-preview-title></div>
+    <ul class="wb-st-checks" data-st-preview-steps></ul>
+    <div data-st-preview-fields></div>
+    <div data-st-preview-approve hidden>
+        <label class="wb-words-label" for="st-move-words">Your words <span>— saved with the approval</span></label>
+        <textarea id="st-move-words" class="wb-words" rows="2" name="words" placeholder="Why you approve this move" data-testid="station.move_preview.words"></textarea>
+    </div>
+    <div class="wb-step-actions">
+        <button type="submit" class="wb-btn wb-btn--ink" data-st-preview-go data-testid="station.move_preview.go">Move</button>
+        <button type="button" class="wb-btn wb-btn--link" data-st-preview-cancel data-testid="station.move_preview.cancel">Cancel</button>
+    </div>
+    <div class="wb-site-msg" role="status"></div>
+</form>
+{{end}}
+
+{{define "wb/brief"}}{{with .}}
+<section class="wb-panel" aria-labelledby="brief-h" data-testid="station.brief">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="brief-h">What this is</h2></div>
+    <div class="wb-panel-body">
+        {{if .Text}}<p class="wb-st-brief">{{inlineMarkdown .Text}}</p>{{else}}<div class="wb-panel-empty">No brief: the body has no lead paragraph.</div>{{end}}
+        {{with .Words}}<figure class="wb-st-words"><blockquote class="wb-quote">“{{.Quote}}”</blockquote><figcaption class="wb-note">{{.Who}} · {{if .Href}}<a href="{{.Href}}">{{.Ref}}</a>{{else}}{{.Ref}}{{end}}</figcaption></figure>{{end}}
+        {{with .Epic}}<div class="wb-st-epicline"><span class="wb-eyebrow">EPIC</span><a href="{{.Href}}">{{.Title}}</a><span class="wb-st-bar" aria-hidden="true"><i style="width:{{.Pct}}%"></i></span><span class="wb-note">{{.Done}} of {{.Total}} done</span></div>{{end}}
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/approving"}}
+<section class="wb-panel" aria-labelledby="approving-h" data-testid="station.approving">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="approving-h">What you're approving</h2><span class="wb-panel-sub">since {{.From}}{{with .Since}} · {{.}}{{end}}</span></div>
+    {{if .Counts}}<div class="wb-st-counts">{{range .Counts}}<div class="wb-st-count" data-testid="station.approving.count.{{.Key}}"><b>{{.N}}</b><span>{{.Label}}{{if .Detail}}: {{.Detail}}{{end}}</span></div>{{end}}</div>{{end}}
+    {{if .Rows}}<ol class="wb-tl">
+        {{range .Rows}}<li class="wb-tl-row"><span class="wb-tl-at">{{.At}}</span><i class="wb-tl-dot wb-tl-dot--{{.Tone}}"></i><span class="wb-tl-text">{{.Text}}{{with .Quote}}<span class="wb-tl-quote">“{{.}}”</span>{{end}}</span>{{with .Kind}}<span class="wb-tl-kind">{{.}}</span>{{end}}</li>{{end}}
+    </ol>{{else}}<div class="wb-panel-empty">{{.Empty}}</div>{{end}}
+    {{if .More}}<div class="wb-panel-foot">{{.More}} earlier · <a href="{{.FullURL}}">the full timeline</a></div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/mockups"}}{{with .}}
+<section class="wb-panel" id="mockups" aria-labelledby="mockups-h" data-testid="station.mockups">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="mockups-h">Mockups · {{len .Shots}}</h2>{{with .URL}}<a class="wb-panel-right" href="{{.}}" target="_blank" rel="noopener">Open the canvas</a>{{end}}</div>
+    {{if .Shots}}<div class="wb-st-shots">{{range .Shots}}<figure class="wb-st-shot"><a href="{{.Src}}" target="_blank" rel="noopener"><img src="{{.Src}}" alt="{{.Title}}" loading="lazy"></a><figcaption>{{.Title}}</figcaption></figure>{{end}}</div>
+    {{else}}<div class="wb-panel-empty">No mockup image in the body; the canvas has them.</div>{{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/relations"}}{{with .}}
+<div class="wb-st-rel" data-testid="station.relations">
+    <div class="wb-eyebrow">RELATIONS</div>
+    {{range .Groups}}<div class="wb-st-relgroup" data-testid="station.relations.{{tid .Kind}}">
+        <div class="wb-st-label">{{.Kind}}</div>
+        {{range .Rows}}<div class="wb-st-relrow">{{if .URL}}<a class="wb-mono-inline" href="{{.URL}}">{{.Target}}</a>{{else}}<span class="wb-mono-inline">{{.Target}}</span>{{end}}<span class="wb-chip wb-chip--{{.Tone}}">{{.State}}</span></div>{{end}}
+    </div>{{end}}
+</div>
+{{end}}{{end}}
+
+{{define "wb/epic-children"}}{{with .}}
+<section class="wb-panel" id="epic" aria-labelledby="epic-h" data-testid="station.epic">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="epic-h">Children · {{.Done}}/{{.Total}} closed</h2><span class="wb-panel-sub">{{len .Versions}} {{if eq (len .Versions) 1}}version{{else}}versions{{end}}</span></div>
+    {{with .Hint}}<div class="wb-panel-empty">{{.}}</div>{{end}}
+    {{range .Versions}}<details class="wb-st-ver" open data-testid="station.epic.version.{{tid .Version}}">
+        <summary><span class="wb-mono-inline">{{.Version}}</span><span class="wb-st-bar" aria-hidden="true"><i style="width:{{.Pct}}%"></i></span><span class="wb-note">{{.Done}}/{{.Total}}</span></summary>
+        {{range .Children}}<div class="wb-st-child"><div class="wb-st-child-main"><a href="{{.URL}}">{{.Title}}</a><span class="wb-note wb-mono-inline">{{.Meta}}</span></div><span class="wb-chip wb-chip--{{if .Closed}}green{{else}}idle{{end}}">{{.Status}}</span></div>{{end}}
+    </details>{{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/full-body"}}
+<section class="wb-panel" id="body" aria-labelledby="fullbody-h" data-testid="station.fullbody" data-st-body="{{.URL}}" data-checkbox-url="{{.CheckboxURL}}" data-body-hash="{{.Hash}}">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="fullbody-h">Body</h2>
+        <span class="wb-panel-right wb-st-btns">
+            <button type="button" class="wb-btn wb-btn--quiet wb-btn--sm" data-st-expand data-testid="station.fullbody.expand">Expand all</button>
+            <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-edit data-testid="station.fullbody.edit">Edit</button>
+        </span>
+    </div>
+    <div class="wb-st-body" data-st-body-view>
+        {{range .Parts}}<details class="wb-st-sec" id="body-{{.ID}}"{{if .Intro}} open{{end}} data-testid="station.fullbody.section.{{.ID}}">
+            <summary><span class="wb-st-sec-title">{{.Title}}</span>{{if .Count}}<span class="wb-chip wb-chip--{{.Tone}}">{{.Count}}</span>{{end}}</summary>
+            <div class="wb-md wb-st-md">{{.HTML}}</div>
+        </details>{{else}}<div class="wb-panel-empty">The body is empty.</div>{{end}}
+    </div>
+    <form class="wb-st-editor" data-st-editor data-hold-open hidden>
+        <label class="wb-words-label" for="st-body">The body, as markdown</label>
+        <textarea id="st-body" class="wb-words wb-st-textarea" name="body" rows="18" data-testid="station.fullbody.textarea">{{.Raw}}</textarea>
+        <div class="wb-step-actions"><button type="submit" class="wb-btn wb-btn--ink" data-testid="station.fullbody.save">Save</button><button type="button" class="wb-btn wb-btn--link" data-st-edit-cancel>Cancel</button></div>
+    </form>
+    <div class="wb-site-msg wb-st-bodymsg" role="status" data-st-body-msg></div>
+    <script>document.querySelectorAll('[data-st-body] .wb-st-md input[type=checkbox][data-line]').forEach(function (cb, i) { cb.dataset.testid = 'station.fullbody.box.' + i; });</script>
+</section>
+{{end}}
+
+{{define "wb/station-missing"}}{{if .}}
+<div class="wb-st-missing" role="status" data-testid="station.missing">
+    <b>Could not read {{len .}} {{if eq (len .) 1}}source{{else}}sources{{end}}</b>: the page leaves out what they hold.
+    <ul class="wb-st-list">{{range .}}<li>{{.}}</li>{{end}}</ul>
+</div>
+{{end}}{{end}}
 
 {{define "wb/station-outputs"}}{{with .}}
 <section class="wb-panel" aria-labelledby="outputs-h" data-testid="station.outputs">

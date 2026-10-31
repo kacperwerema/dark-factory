@@ -26,7 +26,7 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
     <div class="wb-hazard-card">
         <span class="wb-hazard-title">YOLO MODE</span>
         <span class="wb-hazard-text"><b>Gates pass without you · since {{.Since}} · {{if eq .End "until turned off"}}until turned off{{else}}turns off at {{.End}}{{end}}</b></span>
-        <span class="wb-hazard-meta">passed: <b data-testid="yolo.band.passed">{{.Passed}}</b>{{with .Valves}} · {{.}}{{end}}</span>
+        <span class="wb-hazard-meta">passed: <b data-testid="yolo.band.passed">{{.Passed}}</b>{{with .Valves}} · {{.}}{{end}}{{if .Never}} · <span title="{{.NeverList}}" data-testid="yolo.band.never">never passes: <b>{{.Never}}</b></span>{{end}}</span>
         <span class="wb-grow"></span>
         <details class="wb-hazard-extend">
             <summary class="wb-btn wb-btn--paper" data-testid="yolo.band.extend">Extend</summary>
@@ -97,10 +97,11 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 <section class="wb-yolo-review" id="yolo" aria-labelledby="yolo-review-h" data-review="{{.ReviewURL}}" data-testid="station.yolo">
     <div class="wb-yolo-review-head"><i class="wb-hazard-sq" aria-hidden="true"></i><h2 class="wb-move-h" id="yolo-review-h">Passed in YOLO</h2><span class="wb-move-meta">review after the fact</span></div>
     {{range .Passes}}
-    <form class="wb-yolo-pass" data-status="{{.Status}}" data-testid="station.yolo.pass">
-        <p class="wb-move-text">{{with .From}}<b>{{.}}</b> → {{end}}<b>{{.Status}}</b> passed without you{{with .By}} · {{.}}{{end}}{{with .At}} · {{.}}{{end}}. You don't approve it now: you agree, or send it back.</p>
-        <label class="wb-words-label" for="yolo-words-{{statusFragment .Status}}">Your words <span>— reach the agent; required to send it back</span></label>
-        <textarea id="yolo-words-{{statusFragment .Status}}" name="words" rows="2" class="wb-words" placeholder="Fine, or what to fix"></textarea>
+    <form class="wb-yolo-pass" data-status="{{.Key}}" data-testid="station.yolo.pass">
+        {{if .Check}}<p class="wb-move-text" data-testid="station.yolo.owner_check"><b>{{.Check}}: owner check, not done</b> · {{.What}}{{with .Why}} <span class="wb-muted">({{.}})</span>{{end}}. YOLO passed{{with .From}} <b>{{.}}</b>{{end}} without it and left the box for you{{with .At}} · {{.}}{{end}}: check it and tick the box, agree without it, or send it back.</p>
+        {{else}}<p class="wb-move-text">{{with .From}}<b>{{.}}</b> → {{end}}<b>{{.Status}}</b> passed without you{{with .By}} · {{.}}{{end}}{{with .At}} · {{.}}{{end}}. You don't approve it now: you agree, or send it back.</p>{{end}}
+        <label class="wb-words-label" for="yolo-words-{{statusFragment .Key}}">Your words <span>— reach the agent; required to send it back</span></label>
+        <textarea id="yolo-words-{{statusFragment .Key}}" name="words" rows="2" class="wb-words" placeholder="Fine, or what to fix"></textarea>
         <div class="wb-step-actions">
             <button type="submit" name="verdict" value="agree" class="wb-btn wb-btn--youshadow" data-testid="station.yolo.agree">Agree</button>
             {{with .Back}}<button type="submit" name="verdict" value="back" class="wb-btn wb-btn--paper" data-testid="station.yolo.back">Back to {{.}}</button>{{end}}

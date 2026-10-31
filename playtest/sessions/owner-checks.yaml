@@ -1,0 +1,52 @@
+session: owner-checks
+issue: ui/workshop-board-epic-close-out-whats-left-and-every-owner-visual-box-on-one-page
+title: Every box only the owner can tick under an epic, on one page
+scenario: owner-checks
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The epic's owner boxes are listed by issue, with the judgement step's shot and the Evidence link
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/owner-checks?epic=ui/reports-epic
+    checks:
+      - text_contains: { target: owner_checks.count, text: "4" }
+      - visible: [owner_checks.box.ui/reports-epic.ac1, owner_checks.box.ui/reports-redesign.tp3.shot, owner_checks.box.ui/reports-redesign.ht1.tick, owner_checks.box.ui/export-csv.ht1, owner_checks.issue.ui/reports-redesign.evidence]
+      - text_contains: { target: owner_checks.box.ui/reports-redesign.tp3.why, text: "playtest judgement step TP3" }
+      - absent: [owner_checks.box.ui/reports-redesign.tp4, owner_checks.issue.ui/chart-colors, owner_checks.issue.ui/other-work]
+
+  - id: TP5
+    title: Ticking a box from the page ticks it on the issue and the row says so
+    setup:
+      - open: /p/{project}/owner-checks?epic=ui/reports-epic
+    act:
+      - click: owner_checks.box.ui/export-csv.ht1.tick
+      - wait_for: { visible: owner_checks.box.ui/export-csv.ht1.msg, ms: 8000 }
+    checks:
+      - text_contains: { target: owner_checks.box.ui/export-csv.ht1.msg, text: "Ticked by you" }
+      - issue: { slug: ui/export-csv, body_contains: "- [x] Human verification complete if required" }
+
+  - id: TP6
+    title: The page reads like the Workshop Board at desktop and phone width
+    proves: [AC4]
+    judgement_step: true
+    setup:
+      - open: /p/{project}/owner-checks?epic=ui/reports-epic
+    checks:
+      - visible: [owner_checks.page, owner_checks.pick, owner_checks.box.ui/reports-redesign.tp3.shot]
+    targets:
+      - { id: owner_checks.box.ui/reports-redesign.tp3, note: the judgement step box with its shot }
+    do: |
+      1. Look at the page: the epic bar, then one card per issue with its boxes.
+      2. Narrow the window to phone width and look again.
+    expect: |
+      Each box reads as "only you can tick this": the tick square, the box text,
+      the orange reason chip and the shot beside it. The epic bar names the
+      epic and the counts. At phone width the shot drops under the text and
+      nothing is cut off.
+    why: ux-test checks the parts are there; only you can say the page reads as the Workshop Board.

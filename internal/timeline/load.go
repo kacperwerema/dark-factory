@@ -277,16 +277,24 @@ func GitRef(root, slug string, rows []tracker.TransitionStat) (ref, name string)
 	if out, err := git(root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}"); err == nil && out != "" {
 		return strings.TrimSpace(out), branch
 	}
-	if h := lastBranchHead(rows); h != "" {
+	// Recorded heads come from the stats sidecar, which agents write: only
+	// a hex sha is used, so "--output=<file>" never reaches git as an
+	// option (docs/API/security.md).
+	if h := lastBranchHead(rows); IsSHA(h) {
 		return h, "the recorded branch head " + ShortSHA(h)
 	}
 	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].MergeSHA != "" {
+		if IsSHA(rows[i].MergeSHA) {
 			return rows[i].MergeSHA, "the merge " + ShortSHA(rows[i].MergeSHA)
 		}
 	}
 	return "", ""
 }
+
+var shaRe = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
+
+// IsSHA reports whether s is a (short or full) hex commit id.
+func IsSHA(s string) bool { return shaRe.MatchString(s) }
 
 // LoadCommits walks the first-parent chain from ref back to since, so a
 // merge of main into the branch is one commit and other issues' commits that

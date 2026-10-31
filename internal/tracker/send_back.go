@@ -108,6 +108,11 @@ const rejectedPrefix = "rejected: "
 //
 //	rejected: "<words>" (<how>, <date>) → back to <status>
 //	rejected: "<words>" (<how>, <date>) → stays in <status>
+// IsRejectedComment reports whether text is a comment RejectedComment wrote.
+func IsRejectedComment(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), rejectedPrefix)
+}
+
 func RejectedComment(words, how, date, from, to string) string {
 	where := "back to " + to
 	if strings.EqualFold(from, to) {

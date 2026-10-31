@@ -1,0 +1,40 @@
+session: department-add-once
+issue: ui/the-add-department-form-offers-only-templates-the-project-doesnt-have-yet
+title: A department template installs once; the tile says when every one is added
+scenario: new-department
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: After GTM (with Marketing inside) is added the tile offers no form and says every template is added
+    proves: [AC1]
+    setup:
+      - open: /p/acme/company
+    act:
+      - click: tile.new_department
+      - wait_for: { visible: company.new_dept.form }
+      - click: company.new_dept.template.gtm
+      - click: company.new_dept.preview
+      - wait_for: { visible: dept_new.add }
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+    checks:
+      - text_contains: { target: tile.new_department, text: "Every department template is added" }
+      - absent: [company.new_dept.form, company.new_dept.preview]
+    targets: [tile.new_department]
+
+  - id: TP4
+    title: Previewing Marketing again shows the refusal and no Add
+    from: TP3
+    proves: [AC2]
+    act:
+      - open: /p/acme/departments/new?template=marketing
+      - wait_for: { visible: dept_new.error }
+    checks:
+      - text_contains: { target: dept_new.error, text: "a template installs once" }
+      - absent: dept_new.add
+    targets: [dept_new.error]

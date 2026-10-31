@@ -31,6 +31,7 @@ Jobs live in projects.yaml under a department:
           on: mon            # week: mon..sun; month: 1..28 or last
           at: "07:00"        # local time
           brief: departments/marketing/jobs/weekly-seo-pass.md
+          type: seo-pass     # optional: the run's type of work (default_type)
 
 See docs/departments.md, "Recurring jobs", and issue-cli help job.
 
@@ -99,6 +100,7 @@ const jobsSnippet = `No recurring jobs. Add them to a department in projects.yam
           on: mon
           at: "07:00"
           brief: departments/marketing/jobs/weekly-seo-pass.md
+          type: seo-pass   # optional: the run's type of work
 See docs/departments.md, "Recurring jobs".`
 
 func runJob(ctx *Context, args []string) error {
@@ -141,16 +143,22 @@ func jobInput(ctx *Context, last *autostart.Start) (jobs.Input, error) {
 }
 
 // jobsInScope keeps the jobs this session ticks: a department lead its own
-// department's, the CEO those of departments whose lead is not live, anyone
+// department's (a group's lead its departments' too), the CEO those of
+// departments with no live lead of their own or of their group, anyone
 // else every job.
 func jobsInScope(proj *tracker.Project, me Identity, all []jobs.Status) []jobs.Status {
 	var keep func(dept string) bool
 	switch me.Role {
 	case tracker.RoleDepartmentLead:
-		keep = func(dept string) bool { return tracker.DepartmentKey(dept) == tracker.DepartmentKey(me.Department) }
+		keep = func(dept string) bool { return proj.InScope(me.Department, dept) }
 	case tracker.RoleProjectLead:
 		live := sessionLive(proj)
-		keep = func(dept string) bool { return !live(tracker.DepartmentLeadName(proj, dept)) }
+		keep = func(dept string) bool {
+			if g := proj.GroupOf(dept); g != nil && live(tracker.DepartmentLeadName(proj, g.Name)) {
+				return false
+			}
+			return !live(tracker.DepartmentLeadName(proj, dept))
+		}
 	default:
 		return all
 	}
@@ -472,8 +480,8 @@ func runJobRun(ctx *Context, args []string) error {
 	if me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers never start runs: a recurring job is started by its lead or the owner. Ask your lead with a question: comment on your issue")
 	}
-	if me.Role == tracker.RoleDepartmentLead && tracker.DepartmentKey(r.Department) != tracker.DepartmentKey(me.Department) {
-		return fmt.Errorf("%s is %s's job, not %s's: a department lead starts only its own department's jobs. Ask the CEO %s", r.Key, r.Department, me.Department, tracker.LeadSessionName(proj))
+	if me.Role == tracker.RoleDepartmentLead && !proj.InScope(me.Department, r.Department) {
+		return fmt.Errorf("%s is %s's job, not %s's: a department lead starts only its own department's jobs (a group's lead, its departments' too). Ask the CEO %s", r.Key, r.Department, me.Department, tracker.LeadSessionName(proj))
 	}
 	by := valueOr(me.Name, "owner")
 	rs := agentrun.RunStart{Words: quote, By: by, Agent: *agentFlag, Again: *again}

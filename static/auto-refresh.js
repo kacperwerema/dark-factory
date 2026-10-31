@@ -49,6 +49,15 @@
     function statusColor(s) { return statusColors[s] || '#6b7280'; }
     function statusTextColor(s) { return statusTextColors[s] || '#ffffff'; }
     function priorityColor(p) { return priorityColors[p] || '#6b7280'; }
+    // setAssignee shows a dot and the assignee as text: the name comes from
+    // frontmatter, so it never goes through innerHTML.
+    function setAssignee(el, color, name) {
+        var dot = document.createElement('span');
+        dot.className = 'assignee-dot';
+        dot.style.background = color;
+        el.replaceChildren(dot, document.createTextNode(' ' + name));
+    }
+
     function assigneeColor(name) {
         if (!name) return '';
         var h = 0;
@@ -172,7 +181,7 @@
                     assigneeEl.className = 'board-card-assignee';
                     card.appendChild(assigneeEl);
                 }
-                assigneeEl.innerHTML = '<span class="assignee-dot" style="background:' + assigneeColor(iss.assignee) + '"></span> ' + iss.assignee;
+                setAssignee(assigneeEl, assigneeColor(iss.assignee), iss.assignee);
             } else if (assigneeEl) {
                 assigneeEl.remove();
             }
@@ -238,7 +247,7 @@
                 }
                 var ac = assigneeColor(iss.assignee);
                 assigneeTag.style.borderColor = ac;
-                assigneeTag.innerHTML = '<span class="assignee-dot" style="background:' + ac + '"></span> ' + iss.assignee;
+                setAssignee(assigneeTag, ac, iss.assignee);
             } else if (assigneeTag) {
                 assigneeTag.remove();
             }

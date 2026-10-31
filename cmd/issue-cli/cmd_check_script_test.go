@@ -300,6 +300,153 @@ func TestCheckScriptUsesTheIssueBranchWorktreeWhenTheWorkflowHasNone(t *testing.
 	assertContains(t, out.String(), "lead-tab  "+filepath.Join(wt, "scripts", "checks", "lead-tab.sh"))
 }
 
+// A merged work/<slug> keeps its worktree, with the code and scripts it had
+// when it branched: the checks run from the project folder (main) instead.
+func TestCheckScriptRunsAMergedBranchFromTheProjectFolder(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+	git := func(in string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", in, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	old := filepath.Join(wt, "scripts", "checks", "lead-tab.sh")
+	os.MkdirAll(filepath.Dir(old), 0o755)
+	os.WriteFile(old, []byte(checks.Skeleton(checkSlug, "lead-tab", nil)), 0o755)
+	git(wt, "add", "scripts")
+	git(wt, "commit", "-q", "-m", "check script")
+	git(dir, "merge", "-q", "--ff-only", "work/"+checkSlug)
+	// main moves on and fixes the script; the worktree keeps the old copy.
+	os.WriteFile(filepath.Join(dir, "scripts", "checks", "lead-tab.sh"), []byte(checks.Skeleton(checkSlug, "lead-tab", nil)+"# fixed\n"), 0o755)
+	git(dir, "commit", "-q", "-am", "fix the script")
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v", err)
+	}
+	assertContains(t, out.String(), "lead-tab  "+filepath.Join(dir, "scripts", "checks", "lead-tab.sh"))
+	assertContains(t, out.String(), "work/"+checkSlug+" is merged into main")
+
+	// --new still writes into the issue's worktree.
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--new", "second"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Wrote "+filepath.Join(wt, "scripts", "checks", "second.sh"))
+
+	// Uncommitted work there: the worktree is in use again.
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v", err)
+	}
+	assertContains(t, out.String(), "lead-tab  "+old)
+}
+
+// The shipping step removes the scripts in a last commit before the merge:
+// after it, check-script runs them from history, from the project folder.
+func TestCheckScriptRunsAScriptTheMergeRemovedFromHistory(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+	git := func(in string, args ...string) string {
+		cmd := exec.Command("git", append([]string{"-C", in, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	writeCheckScript(t, wt, "lead-tab", checkSlug, `
+echo "RAN from=$CHECKS_ROOT name=$CHECKS_NAME"
+step TP3 "passes"
+expect true fine
+summary
+`)
+	writeCheckScript(t, wt, "other-issue", "cli/other", "echo OTHER\n")
+	git(wt, "add", "scripts")
+	git(wt, "commit", "-q", "-m", "check scripts")
+	git(wt, "rm", "-q", "-r", "scripts")
+	git(wt, "commit", "-q", "-m", "drop the check scripts before the merge")
+	removedIn := git(wt, "rev-parse", "--short=7", "HEAD")
+	// main moved meanwhile: a merge commit, which git log -- <path> would
+	// simplify away (main never had the file) without --full-history.
+	git(dir, "commit", "-q", "--allow-empty", "-m", "main moves on")
+	git(dir, "merge", "-q", "--no-ff", "-m", "merge", "work/"+checkSlug)
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "lead-tab  scripts/checks/lead-tab.sh  (no owner run yet; from history: removed in "+removedIn+" before the merge)")
+	assertNotContains(t, out.String(), "other-issue")
+
+	ctx, out, _ = newTestContext(proj, true)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), `"from": "`+removedIn)
+
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "scripts/checks/lead-tab.sh from history (removed in "+removedIn+" before the merge): running it from "+dir)
+	assertContains(t, out.String(), "RAN from="+dir+" name=lead-tab")
+	assertContains(t, out.String(), "✓ TP3 pass")
+	if !pathExists(filepath.Join(dir, ".agent-logs", "checks", "lead-tab")) {
+		t.Fatal("the run record isn't in the project folder")
+	}
+
+	// With the branch gone, only main's history holds it.
+	git(dir, "worktree", "remove", "--force", wt)
+	git(dir, "branch", "-q", "-D", "work/"+checkSlug)
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list without the branch: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "from history: removed in "+removedIn)
+
+	// A script back on disk wins over history.
+	writeCheckScript(t, dir, "lead-tab", checkSlug, "summary\n")
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatal(err)
+	}
+	assertNotContains(t, out.String(), "from history")
+}
+
+// With the issue's worktree gone too, history is read from the project folder.
+func TestCheckScriptFromHistoryWithoutItsWorktree(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "worktree: true\nstatuses:\n  - name: \"human-testing\"\n")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	writeCheckScript(t, dir, "lead-tab", checkSlug, "summary\n")
+	git("add", "scripts")
+	git("commit", "-q", "-m", "check script")
+	git("rm", "-q", "-r", "scripts")
+	git("commit", "-q", "-m", "drop it")
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "lead-tab  scripts/checks/lead-tab.sh")
+}
+
 // A system with a space ("Level Design") gives a slug with a space: it has no
 // work/<slug> branch, so the worker's worktree is the one it runs from.
 func TestCheckScriptFindsScriptsForASlugWithASpace(t *testing.T) {
@@ -396,4 +543,33 @@ func TestHumanTestingWaitsForAPassingMachineRun(t *testing.T) {
 	if p := checkScriptGate(plain, plain.LoadWorkflowForIssue(issue), issue, "human-testing"); p != nil {
 		t.Fatalf("without the feature: %+v", p)
 	}
+}
+
+// A passing machine run ticks nothing and says which boxes are the owner's:
+// the steps left for their eyes, and HT1.
+func TestCheckScriptYesNamesTheOwnersBoxes(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	writeCheckScript(t, dir, "lead-tab", checkSlug, `
+step TP3 "opens"
+expect true fine
+step TP4 "twice"
+ask "One tab?"
+summary
+`)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	got := out.String()
+	assertContains(t, got, "Machine run: 0 failed, 1 need the owner's eyes, 0 skipped. Left to the owner: TP4.")
+	assertNotContains(t, got, "Nothing ticked")
+	assertContains(t, got, "Machine run passed. Left to the owner on cli/lead-tab (never tick these yourself):")
+	assertContains(t, got, `TP4  "Spawning twice adds nothing"  (guided check lead-tab step TP4: needs your eyes)`)
+	assertContains(t, got, `HT1  "Owner checked it"  (Human Testing box)`)
+	assertNotContains(t, got, `TP3  "The tab opens detached"`)
+	body, _ := os.ReadFile(filepath.Join(proj.IssueDir, "CLI", "lead-tab.md"))
+	assertNotContains(t, string(body), "[x] Owner checked it")
 }

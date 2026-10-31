@@ -1,0 +1,62 @@
+session: declared-connections
+issue: factory/declared-connections-who-may-ask-whom-and-what-feeds-what-with-routing-rules
+title: Declared routes and feeds drawn as roads next to the derived ones, with the mismatches marked
+scenario: declared-connections
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The company page draws six roads and signs the one off the declared routes
+    proves: [AC3]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.connections.road.link }
+    checks:
+      - count: { pattern: "company.connections.row", equals: 7 }
+      - count: { pattern: "company.connections.mark", equals: 4 }
+      - text_contains: { target: company.connections, text: "against the routes declared in projects.yaml" }
+      - text_contains: { target: company.connections, text: "not declared" }
+      - text_contains: { target: company.connections, text: "declared, no traffic" }
+      - text_contains: { target: company.connections, text: "brand and ICP" }
+      - count: { pattern: "company.connections.road.link", equals: 6 }
+      - count: { pattern: "company.connections.sign", equals: 1 }
+    targets: [company.connections, company.connections.lines]
+
+  - id: TP5
+    title: The connections page says why each mismatch is marked and keeps the legend
+    from: TP4
+    proves: [AC3]
+    setup:
+      - open: /p/acme/connections
+    act:
+      - wait_for: { visible: connections.page }
+    checks:
+      - count: { pattern: "connections.edge.unused", equals: 2 }
+      - text_contains: { target: connections.page, text: "Sales → Product · 1 request · not declared" }
+      - text_contains: { target: connections.page, text: "Sales → GTM → Marketing · request · declared, no traffic" }
+      - text_contains: { target: connections.legend.declared, text: "traffic off the declared routes" }
+    targets: [connections.edge, connections.legend.declared]
+
+  - id: AC4
+    title: Owner check - the map with declared roads reads right
+    from: TP4
+    proves: [AC4]
+    targets: [company.connections.lines, company.room.group]
+    do: >-
+      Look at the company page's floor: HQ, Product, and the GTM room with
+      Marketing and Sales inside, then the Connections list under it.
+    expect: >-
+      The roads from the connections scenario are still there. The road
+      between Sales and Product (CRM fields, nobody declared it) carries a
+      red "!" sign and its row says "not declared". The Connections list
+      still marks Sales → GTM → Marketing (a request) and the Marketing →
+      Sales feed ("brand and ICP") "declared, no traffic"; Marketing → HQ →
+      Product reads "declared". You can tell a road off the routes from
+      ordinary traffic at a glance, and the signs don't hide the room heads
+      or buttons.
+    why: The owner asked to see declared lines next to the derived ones; this is the first look at both together.

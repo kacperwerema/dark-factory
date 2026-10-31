@@ -90,6 +90,8 @@ func init() {
 		"status.ci.blamed",
 		"status.ci.error",
 		"status.ci.log",
+		"status.ci.lastred",
+		"status.ci.lastred.link",
 		"status.release_wait",
 		"status.release_wait.state",
 		"status.release_wait.milestone",

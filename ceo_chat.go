@@ -179,7 +179,7 @@ func (s *Server) buildCEOChat(p *tracker.Project, prefix string, dept *tracker.D
 		{Label: "HQ · CEO", Color: companyHQColor, Current: true},
 	}
 	if dept != nil {
-		d.Header.Crumbs[2] = WbCrumb{Label: dept.Name + " · lead", Color: deptColor(*dept, deptIndex(p, dept.Name)), Current: true}
+		d.Header.Crumbs[2] = WbCrumb{Label: dept.Name + " · lead", Color: deptColorOf(p, *dept, deptIndex(p, dept.Name)), Current: true}
 	}
 	d.Title = CEOTitle{
 		Who: who, Session: m.Session, Display: m.Display, Color: color, Live: m.Live,

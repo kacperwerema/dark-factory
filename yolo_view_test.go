@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +141,99 @@ func TestYOLOBandValve(t *testing.T) {
 	}
 	if b = yoloBand(&proj, issues, now.Add(2*time.Hour)); b.On || b.EndReason != "expired" || !b.Show() {
 		t.Fatalf("band after the end = %+v", b)
+	}
+}
+
+// A box only the owner can check that a YOLO gate passed without waits on
+// the Station, the company's queue, Needs you and the sidebar by name, and
+// the owner's review settles it like a pass.
+func TestYOLOOwnerCheckOnThePages(t *testing.T) {
+	proj := setupYOLOProject(t)
+	withMockTmuxSessions(t, nil)
+	path := filepath.Join(proj.IssueDir, "shop.md")
+	if err := tracker.AddComment(path, 0, tracker.YOLOReviewComment("agreed", "ok", "viewer", "2026-10-29", "backlog"), "app"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\ntitle: \"Shop\"\nstatus: \"backlog\"\n---\n\n## Acceptance Criteria\n- [ ] The shop opens\n- [ ] The owner likes the colours\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check := tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: "AC2", Why: "playtest judgement step TP9", Text: "The owner likes the colours", From: "in design"})
+	if err := tracker.AddComment(path, 0, check, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/issue/shop"),
+		`data-status="AC2"`, `data-testid="station.yolo.owner_check"`, `<b>AC2: owner check, not done</b> · The owner likes the colours`, `(playtest judgement step TP9)`, `Back to in design`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/company"), `YOLO · AC2: owner check, not done`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/needs-you"), `AC2: owner check, not done · The owner likes the colours`)
+	assertContains(t, pageGet(t, ts.URL+"/p/yp/board?classic=1"), `· AC2: owner check, not done`, `data-status="AC2"`)
+
+	if code, out := postJSON(t, ts.URL+"/p/yp/issue/shop/yolo-review", `{"verdict":"agree","status":"AC2","words":"saw it, fine"}`); code != 200 {
+		t.Fatalf("agree: %d %v", code, out)
+	}
+	comments, _ := tracker.LoadComments(path)
+	if last := comments[len(comments)-1].Text; !strings.HasSuffix(last, "→ AC2") {
+		t.Fatalf("review comment = %q", last)
+	}
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	if q := yolo.Queue(issues); len(q) != 0 {
+		t.Fatalf("queue after the review = %+v", q)
+	}
+}
+
+// An owner_only gate with YOLO on: the issue waits in Needs you as with
+// YOLO off, and the bands and yolo.json list the gates YOLO never passes.
+func TestYOLOOwnerOnlyGateOnThePages(t *testing.T) {
+	proj := setupYOLOProject(t)
+	raw, _ := os.ReadFile(proj.WorkflowFile)
+	wf := strings.Replace(string(raw), "        status: \"backlog\"\n", "        status: \"backlog\"\n        owner_only: true\n", 1)
+	if err := os.WriteFile(proj.WorkflowFile, []byte(wf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj.IssueDir, "launch.md"), []byte("---\ntitle: \"Launch\"\nstatus: \"in design\"\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := yolo.TurnOn(proj.WorkDir, proj.Slug, yolo.State{Until: now.Add(time.Hour), By: "owner", Words: "go", How: "viewer"}, now); err != nil {
+		t.Fatal(err)
+	}
+	withMockTmuxSessions(t, nil)
+	stubAgentsGit(t)
+	prev := unsentBugReports
+	unsentBugReports = func() int { return 0 }
+	t.Cleanup(func() { unsentBugReports = prev })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, js := getResp(t, ts.URL+"/p/yp/needs-you.json")
+	var ny NeedsYouJSON
+	if err := json.Unmarshal([]byte(js), &ny); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range ny.Rows {
+		found = found || r.Slug == "launch"
+	}
+	if !found {
+		t.Fatalf("owner_only gate not in Needs you: %+v", ny.Rows)
+	}
+
+	_, js = getResp(t, ts.URL+"/p/yp/yolo.json")
+	var band YOLOBand
+	if err := json.Unmarshal([]byte(js), &band); err != nil {
+		t.Fatal(err)
+	}
+	if len(band.Never) == 0 || band.Never[0].From != "in design" || band.Never[0].To != "backlog" {
+		t.Fatalf("yolo.json never = %+v", band.Never)
+	}
+	page := pageGet(t, ts.URL+"/p/yp/board?classic=1")
+	if !strings.Contains(page, `data-testid="nav.yolo.never"`) || !strings.Contains(page, "in design → backlog") {
+		t.Error("sidebar band lacks the never-pass gates")
+	}
+	page = pageGet(t, ts.URL+"/p/yp/status")
+	if !strings.Contains(page, `data-testid="yolo.band.never"`) {
+		t.Error("hazard band lacks the never-pass count")
 	}
 }

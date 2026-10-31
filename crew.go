@@ -35,6 +35,9 @@ type CrewData struct {
 	Stopped   WbCrewRow
 	Others    WbCrewRow
 	Panel     *WbCrewPanel
+	// Checked is when tmux was read for this page (unix ms): the page
+	// says "live · tmux checked Ns ago" from it.
+	Checked int64
 }
 
 // WbCrewRow is a titled row of cards; hidden when it has none.
@@ -49,6 +52,8 @@ type WbCrewColumn struct {
 	Name, Color, Key string
 	Lead             *WbCrewCard
 	Workers          []WbCrewCard
+	// Children are a group's departments, as columns inside its own.
+	Children []WbCrewColumn
 }
 
 // WbCrewCard is one agent: the CEO, a lead, a worker, a stopped job or a
@@ -85,7 +90,10 @@ type WbCrewPanel struct {
 	// Command reaches the session by hand: attach from a shell, or switch
 	// from inside tmux on a terminal: none project.
 	Command, CommandLabel string
-	LastCmd               string
+	// Display is where the agent lives in tmux when that differs from its
+	// name (shared:name in shared mode).
+	Display string
+	LastCmd string
 	Gate, ApproveURL      string
 	Branch, Against       string
 	DiffStat              string
@@ -132,7 +140,7 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request, proj *tracke
 // project's departments in projects.yaml order; selected is the ?agent=
 // session (already validated), "" for none.
 func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected string, now time.Time) CrewData {
-	d := CrewData{Project: m.Project, ClassicURL: prefix + "/agents?classic=1"}
+	d := CrewData{Project: m.Project, ClassicURL: prefix + "/agents?classic=1", Checked: now.UnixMilli()}
 	epics := map[string]string{}
 	for _, e := range m.Epics {
 		epics[e.Issue.Slug] = e.Issue.Title
@@ -152,7 +160,7 @@ func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected stri
 	byDept := map[string]int{}
 	cols := []WbCrewColumn{product}
 	for i, dept := range depts {
-		col := WbCrewColumn{Name: dept.Name, Color: deptColor(dept, i), Key: strings.ToLower(dept.Name)}
+		col := WbCrewColumn{Name: dept.Name, Color: deptColorOf(&tracker.Project{Departments: depts}, dept, i), Key: strings.ToLower(dept.Name)}
 		for _, l := range m.DepartmentLeads {
 			if strings.EqualFold(l.Department, dept.Name) {
 				lc := card(l, "lead")
@@ -173,7 +181,7 @@ func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected stri
 			return rank[cols[i].Workers[a].Robot.State] < rank[cols[i].Workers[b].Robot.State]
 		})
 	}
-	d.Columns = cols
+	d.Columns = crewGroupColumns(depts, cols, byDept)
 	d.NoWorkers = len(m.Workers) == 0
 
 	d.Stopped = WbCrewRow{Key: "stopped", Title: "Stopped jobs", Note: "Work in flight with no agent on it: a worktree or an active status."}
@@ -187,13 +195,20 @@ func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected stri
 
 	live, gates, questions := 0, 0, 0
 	all := []*WbCrewCard{&d.CEO}
+	var addCol func(c *WbCrewColumn)
+	addCol = func(c *WbCrewColumn) {
+		if c.Lead != nil {
+			all = append(all, c.Lead)
+		}
+		for j := range c.Workers {
+			all = append(all, &c.Workers[j])
+		}
+		for j := range c.Children {
+			addCol(&c.Children[j])
+		}
+	}
 	for i := range d.Columns {
-		if d.Columns[i].Lead != nil {
-			all = append(all, d.Columns[i].Lead)
-		}
-		for j := range d.Columns[i].Workers {
-			all = append(all, &d.Columns[i].Workers[j])
-		}
+		addCol(&d.Columns[i])
 	}
 	for i := range d.Stopped.Cards {
 		all = append(all, &d.Stopped.Cards[i])
@@ -220,6 +235,30 @@ func buildCrew(m *AgentsModel, depts []tracker.Department, prefix, selected stri
 	d.Count = WbStat{Value: fmt.Sprint(live), Label: plural0(live, "live agent", "live agents")}
 	d.Summary = crewSummary(gates, questions, len(d.Stopped.Cards))
 	return d
+}
+
+// crewGroupColumns moves a group's departments' columns into the group's
+// column, in projects.yaml order. byDept is each department's index in cols.
+func crewGroupColumns(depts []tracker.Department, cols []WbCrewColumn, byDept map[string]int) []WbCrewColumn {
+	p := &tracker.Project{Departments: depts}
+	// column is dept's column with its departments' inside, a nested
+	// group's own inside it (factory/nested-groups-…#D-1).
+	var column func(dept tracker.Department) WbCrewColumn
+	column = func(dept tracker.Department) WbCrewColumn {
+		col := cols[byDept[strings.ToLower(dept.Name)]]
+		for _, c := range p.Children(dept.Name) {
+			col.Children = append(col.Children, column(c))
+		}
+		return col
+	}
+	out := []WbCrewColumn{cols[0]}
+	for _, dept := range depts {
+		if p.GroupOf(dept.Name) != nil {
+			continue
+		}
+		out = append(out, column(dept))
+	}
+	return out
 }
 
 // Chip is the card's state as a pill.
@@ -288,13 +327,22 @@ func crewPanel(c WbCrewCard, m *AgentsModel, prefix string) *WbCrewPanel {
 	p := &WbCrewPanel{Card: c, LastCmd: c.lastCmd}
 	if c.live {
 		p.OpenURL = prefix + "/agents/open"
-		for _, n := range crewNodes(m) {
-			if n.Name == c.Name {
-				p.Command, p.CommandLabel = n.AttachCmd, "From a shell"
-				if m.TerminalNone {
-					p.Command, p.CommandLabel = n.SwitchCmd, "Inside tmux"
-				}
-			}
+	}
+	for _, n := range crewNodes(m) {
+		if n.Name != c.Name {
+			continue
+		}
+		if n.Display != "" && n.Display != n.Name {
+			p.Display = n.Display
+		}
+		// The way in by hand; for an agent that is not running it works
+		// once its session is back (the classic panel offered it too).
+		p.Command, p.CommandLabel = n.AttachCmd, "From a shell"
+		if m.TerminalNone && n.SwitchCmd != "" {
+			p.Command, p.CommandLabel = n.SwitchCmd, "Inside tmux"
+		}
+		if !c.live && p.Command != "" {
+			p.CommandLabel += ", once it runs again"
 		}
 	}
 	if c.gate != "" && c.slug != "" {

@@ -4,6 +4,11 @@
 /cmd/issue-cli/issue-cli
 cover.out
 
+# Profile run outputs: go test -cpuprofile/-memprofile writes <pkg>.test and
+# the .prof file in the working folder
+*.test
+*.prof
+
 # User-specific config
 projects.yaml
 projects-*.yaml

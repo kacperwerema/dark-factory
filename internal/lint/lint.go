@@ -47,15 +47,20 @@ var checks = []Check{
 	{"template", "the template: stamp against the template bundled in this issue-cli", checkTemplate},
 	{"placeholders", "{{name}} placeholders the field never fills, so the agent sees them as written", checkPlaceholders},
 	{"sections", "checkbox and test-plan gates on sections no template writes the way the gate needs", checkSections},
-	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields; outputs shelf lines, gone files, outputs waiting for review", checkDepartments},
+	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields; connections: routes; outputs shelf lines, gone files, outputs waiting for review", checkDepartments},
 	{"paths", "workbench.systems paths: globs that match no file in the repository or leave it", checkPaths},
+	{"owner-only", "steps that spend or publish (publish/launch/send statuses, sends: connectors) behind a gate YOLO may pass: no owner_only", checkOwnerOnly},
+	{"na-boxes", "ticked N/A boxes on open issues whose reason is not in a named form (issue-cli check --help), or that sit on the owner's box", checkNABoxes},
+	{"owner-marker", "open acceptance criteria that read like the owner's check (\"the owner confirms …\") without the (owner) marker", checkOwnerMarker},
+	{"reports", "issues past a has_output gate (the report type) whose output is gone from the shelf: never added, file deleted, or rejected and not replaced", checkReports},
+	{"evals", "evals: entries the factory benchmark can't use: no or repeated id, unknown score, pass outside 0-1, a type the file doesn't define", checkEvals},
 	{"department", "department workflow files (projects.yaml departments: workflow:) that don't load, project-wide keys in them, issues whose status their department's file lacks", checkDepartment},
 }
 
 // boardChecks read the board or the repository, not only a workflow file:
 // they run once. The other checks run on Product's file and again on each
 // department's own (workbench: is project-wide, so paths runs on Product's).
-var boardChecks = map[string]bool{"undated": true, "department": true, "departments": true, "paths": true}
+var boardChecks = map[string]bool{"undated": true, "na-boxes": true, "owner-marker": true, "reports": true, "department": true, "departments": true, "paths": true}
 
 // Checks lists every check in run order.
 func Checks() []Check { return append([]Check(nil), checks...) }
@@ -70,6 +75,9 @@ type Env struct {
 	Raw    []byte
 	Issues []*tracker.Issue
 	Now    time.Time
+	// Department is the department whose own workflow file this is; ""
+	// for Product's.
+	Department string
 }
 
 // Load reads the project's workflow.yaml and issues.
@@ -180,7 +188,7 @@ func (env *Env) departmentEnvs() []*Env {
 				issues = append(issues, issue)
 			}
 		}
-		out = append(out, &Env{Project: env.Project, Workflow: wf, File: path, Raw: raw, Issues: issues, Now: env.Now})
+		out = append(out, &Env{Project: env.Project, Workflow: wf, File: path, Raw: raw, Issues: issues, Now: env.Now, Department: d.Name})
 	}
 	return out
 }

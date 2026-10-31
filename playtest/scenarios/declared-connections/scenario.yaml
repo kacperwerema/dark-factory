@@ -1,0 +1,33 @@
+# Declared connections next to the derived ones: the connections scenario
+# (GTM over Marketing and Sales; Marketing → HQ → Product, Product →
+# Marketing, Marketing → Sales, HQ → Sales) plus Sales asking Product
+# straight for CRM fields, and projects.yaml declaring Marketing → Product
+# via HQ (used), Sales → Marketing via GTM (no traffic) and a feed
+# Marketing → Sales (no traffic). Sales → Product is traffic off the routes.
+title: Declared routes and feeds next to the lines that flow
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: GTM
+        color: "#7B61FF"
+        role: Go to market
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+      - name: Sales
+        color: "#17A2B8"
+        role: Leads and deals
+        systems: [Leads]
+        parent: GTM
+    connections:
+      requests:
+        - {from: marketing, to: product, via: hq}
+        - {from: sales, to: marketing, via: gtm}
+      feeds:
+        - {from: marketing, to: sales, what: "brand and ICP"}
+issues: tracker
+workflow: workflow.yaml

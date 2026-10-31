@@ -28,6 +28,16 @@ func init() {
 		"retro.finding.send",
 		"retro.bin.*",
 		"retro.pattern",
+		// The Bugs view (?view=bugs); a card is keyed by the report's file.
+		"retro.bugs",
+		"retro.bugs.open",
+		"retro.bugs.closed",
+		"retro.bugs.empty",
+		"retro.bug.*",
+		"retro.bug.*.status",
+		"retro.bug.*.open",
+		"retro.bug.*.fixed",
+		"retro.bug.*.wontfix",
 		"retro.pattern.experiment",
 	)
 }

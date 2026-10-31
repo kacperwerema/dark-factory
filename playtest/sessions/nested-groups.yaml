@@ -1,0 +1,55 @@
+session: nested-groups
+issue: factory/nested-groups-a-group-inside-a-group-with-goals-rolling-up-and-the-map-drawing-it
+title: A group inside a group on the company page and the map, goals rolling up every level
+scenario: nested-groups
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC1
+    title: The company page draws Outbound's room inside GTM's and Sales's inside Outbound's; HQ's goal rolls up from them
+    proves: [AC1]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.room.group }
+    checks:
+      - count: { pattern: company.room.group, equals: 2 }
+      - count: { pattern: company.room.group.departments, equals: 2 }
+      - count: { pattern: company.room.dept, equals: 3 }
+      - text_contains: { target: company.room.group, text: "2 departments" }
+      - text_contains: { target: company.room.group.departments, text: "Outbound" }
+      - text_contains: { target: company.room.group.departments, text: "Sales" }
+      - text_contains: { target: company.room.group.departments, text: "Marketing" }
+    targets: [company.room.group, company.room.group.departments, company.room.dept]
+
+  - id: AC4
+    title: The map draws GTM as one building with Outbound's building inside it
+    proves: [AC4]
+    setup:
+      - open: /
+    act:
+      - wait_for: { visible: map.lot.acme }
+    checks:
+      - count: { pattern: map.lot.group, equals: 2 }
+      - size: { target: map.lot.acme, max_width: 342 }
+    targets: [map.lot.acme, map.lot.buildings, map.lot.group]
+
+  - id: AC5
+    title: "Owner check after shipping: nested groups read right"
+    proves: [AC5]
+    from: AC1
+    targets: [company.room.group, company.room.group.departments]
+    do: >-
+      On this sandbox project, look at the company page, then the map on the
+      front page, on a laptop and on a phone.
+    expect: >-
+      GTM's room holds Outbound's room (its own lead, goal and Start lead)
+      with Sales's room inside it, and Marketing's room beside Outbound. HQ's
+      New clients goal shows the roll-up from GTM's pipeline. On the map,
+      the GTM building holds a smaller Outbound building with Sales inside,
+      and nothing runs off the lot.
+    why: Groups can nest now (GTM → Outbound → Sales); the owner checks the look once.

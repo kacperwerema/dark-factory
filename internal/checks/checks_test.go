@@ -182,6 +182,41 @@ func TestIssueWorktreeFindsTheCheckoutOnTheIssueBranch(t *testing.T) {
 	}
 }
 
+func TestMergedIntoOnlyForACleanWorktreeOnMain(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	main := t.TempDir()
+	commit := func(dir, msg string) {
+		gitRun(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", msg)
+	}
+	gitRun(t, main, "init", "-q", "-b", "main")
+	commit(main, "init")
+	wt := filepath.Join(main, ".worktrees", "fix")
+	gitRun(t, main, "worktree", "add", "-q", "-b", "work/plan/fix", wt)
+	if got := MergedInto(main, main); got != "" {
+		t.Fatalf("the main checkout itself: %q", got)
+	}
+	// A fresh worktree with a new script not committed yet is in use.
+	os.WriteFile(filepath.Join(wt, "new.sh"), []byte("x"), 0o644)
+	if got := MergedInto(main, wt); got != "" {
+		t.Fatalf("uncommitted work: %q", got)
+	}
+	gitRun(t, wt, "add", "new.sh")
+	commit(wt, "script")
+	if got := MergedInto(main, wt); got != "" {
+		t.Fatalf("a commit main lacks: %q", got)
+	}
+	gitRun(t, main, "merge", "-q", "--ff-only", "work/plan/fix")
+	commit(main, "main moves on")
+	if got := MergedInto(main, wt); got != "main" {
+		t.Fatalf("merged and clean: %q, want main", got)
+	}
+	if got := MergedInto(t.TempDir(), wt); got != "" {
+		t.Fatalf("not a repo: %q", got)
+	}
+}
+
 func TestWorktreeHoldingFindsTheCheckoutADirIsIn(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")

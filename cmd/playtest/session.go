@@ -36,6 +36,9 @@ type SessionChecks struct {
 	ConsoleIgnore []string `yaml:"console_ignore"`
 	Screenshots   string   `yaml:"screenshots"`
 	SettleMS      int      `yaml:"settle_ms"`
+	// ReducedMotion: the browser reports prefers-reduced-motion: reduce,
+	// for a session that checks a page's still version.
+	ReducedMotion bool `yaml:"reduced_motion"`
 }
 
 // Step is one checkbox's worth of checks.

@@ -69,6 +69,7 @@ func doWorkflowInit(template string, force bool, in io.Reader, out io.Writer, is
 	} else {
 		fmt.Fprintf(out, "✓ Wrote %s (template: %s)\n", target, chosen)
 	}
+	fmt.Fprintln(out, "For the board, the CEO and departments the project also needs a projects.yaml entry: issue-cli project init . --config <file> adds it (and keeps this workflow.yaml)")
 	return askPrivacy(target, br, out, isTTY, time.Now())
 }
 

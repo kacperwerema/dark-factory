@@ -1,0 +1,43 @@
+session: classic-gaps-pages
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: Systems, Decisions and Docs show what only their classic pages showed
+scenario: systems
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP14
+    title: A workshop card shows summary, design doc and families; a state pill filters the decision log and the replaced row names its date; the binder folds folders
+    proves: [AC3]
+    setup:
+      - open: "/p/{project}/systems"
+    act:
+      - check: { visible: [systems.wb.card.ai, systems.wb.summary, systems.wb.doc, systems.wb.families] }
+      - check: { text_contains: { target: systems.wb.summary, text: "How teams choose their plays" } }
+      - check: { text_contains: { target: systems.wb.families, text: "Play calls" } }
+      - open: "/p/{project}/decisions"
+      - click: filter.state_active
+      - wait_for: { url: { contains: state=active } }
+      - check: { selected: filter.state_active }
+      - click: filter.state_active
+      - wait_for: { url: { equals: /p/rl/decisions } }
+      - open: "/p/{project}/docs"
+    checks:
+      - exists: docs.folder.ai
+      - http: { path: "/p/{project}/decisions", contains: "on 2026-10-03" }
+      - http: { path: "/p/{project}/decisions", contains: "Active ·" }
+    targets:
+      - { id: systems.wb.card.ai, note: the AI workshop card }
+    do: |
+      1. Open Systems and read the AI card.
+      2. Open Decisions, press Active, then press it again.
+      3. Open Docs and fold the ai folder.
+    expect: |
+      The AI card says what the system is, names its design doc and lists
+      the Play calls family. The state pill narrows the log and clears on a
+      second press; the replaced decision says when it was replaced. Docs
+      folders fold, the one you are reading stays open.
+    why: ux-test checks the words and the filter; only you can say the cards stay readable with the extra lines.

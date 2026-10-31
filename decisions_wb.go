@@ -95,8 +95,16 @@ type WbDecisionRow struct {
 	By, ByTone   string // ByTone: ceo, agent or other
 	Cited        []WbLink
 	CitedMore    int
-	RefersTo     []WbLink
-	ReplacedBy   *WbLink
+	// CitedOpen is how many of the citing issues are still open (they come
+	// first in Cited, each labelled with its status).
+	CitedOpen  int
+	RefersTo   []WbLink
+	ReplacedBy *WbLink
+	// ReplacedOn is the day the replacing decision was recorded.
+	ReplacedOn string
+	// Date is the day it was recorded, shown where no day label groups the
+	// rows (a system page's recent decisions).
+	Date string
 	Also         string
 	State        WbChip
 	Confirm      *WbConfirm
@@ -122,6 +130,8 @@ type WbConfirm struct {
 type WbBars struct {
 	Title, Empty, Key string
 	Rows              []WbCountBar
+	// More are the rows past the first ones, folded under "+N more".
+	More []WbCountBar
 }
 
 // WbCountBar is one bar: Pct of the longest row.
@@ -295,12 +305,26 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 		}
 		d.Search.Filters = append(d.Search.Filters, WbFilterPill{Label: p.label, URL: g.url(prefix), Tone: p.tone, On: f.Who == p.who, Key: "who_" + id})
 	}
+	// State (the classic page's chips): set one, or press it again to clear.
+	for _, st := range []struct {
+		key, label string
+		n          int
+	}{{tracker.DecisionActive, "Active", active}, {tracker.DecisionDeferred, "Deferred", deferred}, {tracker.DecisionReplaced, "Superseded", replaced}, {tracker.DecisionStale, "Stale citations", stale}} {
+		g := f
+		on := f.State == st.key
+		g.State = st.key
+		if on {
+			g.State = ""
+		}
+		d.Search.Filters = append(d.Search.Filters, WbFilterPill{Label: fmt.Sprintf("%s · %d", st.label, st.n), URL: g.url(prefix), On: on, Key: "state_" + st.key})
+	}
 	if f.System != "" {
 		g := f
 		g.System = ""
 		d.Search.Filters = append(d.Search.Filters, WbFilterPill{Label: "System: " + f.System, URL: g.url(prefix), Remove: true, Key: "clear_system"})
 	}
-	if f.State != "" {
+	// A state the pills don't name (an old link) still gets a way out.
+	if f.State != "" && !knownDecisionState(f.State) {
 		g := f
 		g.State = ""
 		d.Search.Filters = append(d.Search.Filters, WbFilterPill{Label: "State: " + f.State, URL: g.url(prefix), Remove: true, Key: "clear_state"})
@@ -367,6 +391,7 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 		staleTone = "red"
 	}
 	d.Hygiene = WbNumbers{Title: "Log hygiene", Rows: []WbFact{
+		{Label: "Active", Value: fmt.Sprint(active)},
 		{Label: "Deferred", Value: fmt.Sprint(deferred)},
 		{Label: "Superseded", Value: fmt.Sprint(replaced)},
 		{Label: "Stale citations", Value: fmt.Sprint(stale), Tone: staleTone},
@@ -377,8 +402,17 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 		example = entries[0].ID
 	}
 	d.HygieneTip = "A decision nobody cites is easy to lose. When an agent cites " + example + " in a new issue, the log shows it still holds the code in line."
-	d.Add = WbCommandCard{Title: "Add a decision", Text: "Tell the CEO in chat, or an agent records it itself:", Command: "issue-cli decide <slug> --text \"…\"", Key: "decide"}
+	d.Add = WbCommandCard{Title: "Add a decision", Text: "Tell the CEO in chat, or an agent records it itself. Cite one from another issue as <slug>#D-n; replace one with issue-cli decide <slug> --replaces <slug>#D-n --text \"…\".", Command: "issue-cli decide <slug> --text \"…\"", Key: "decide"}
 	return d
+}
+
+// knownDecisionState reports whether a state has its own filter pill.
+func knownDecisionState(st string) bool {
+	switch st {
+	case tracker.DecisionActive, tracker.DecisionDeferred, tracker.DecisionReplaced, tracker.DecisionStale:
+		return true
+	}
+	return false
 }
 
 // decisionsRow is one entry as a row of the log.
@@ -392,8 +426,13 @@ func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
 			row.CitedMore = len(cites) - decisionsCitedMax
 			break
 		}
-		row.Cited = append(row.Cited, WbLink{Label: c.Slug, URL: prefix + "/issue/" + c.Slug})
+		label := c.Slug
+		if c.Status != "" {
+			label += " (" + c.Status + ")"
+		}
+		row.Cited = append(row.Cited, WbLink{Label: label, URL: prefix + "/issue/" + c.Slug})
 	}
+	row.CitedOpen = len(e.CitedOpen)
 	for _, ref := range e.Replaces {
 		slug, id, _ := strings.Cut(ref, "#")
 		label := ref
@@ -408,6 +447,9 @@ func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
 			label = r.ID
 		}
 		row.ReplacedBy = &WbLink{Label: label, URL: prefix + "/issue/" + r.Slug}
+		if !r.Date.IsZero() {
+			row.ReplacedOn = r.Date.Format("2006-01-02")
+		}
 	}
 	switch e.State {
 	case tracker.DecisionActive:

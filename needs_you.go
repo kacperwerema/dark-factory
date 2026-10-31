@@ -45,6 +45,8 @@ type NeedsYouData struct {
 	Groups []NeedsYouGroup
 	// Ready is how many gates can be selected, on the whole page.
 	Ready int
+	// OwnerChecksURL is the project's Owner checks page ("" across projects).
+	OwnerChecksURL string
 }
 
 // NeedsYouGroup is one project's rows, by section.
@@ -229,7 +231,7 @@ func readyCount(groups []NeedsYouGroup) int {
 func (s *Server) buildNeedsYou(p *tracker.Project, prefix string, now time.Time) NeedsYouData {
 	color := s.projectColor(p)
 	lot, rows := s.buildLot(p, color, now)
-	d := NeedsYouData{Title: p.Name + " · Needs you", Count: len(rows)}
+	d := NeedsYouData{Title: p.Name + " · Needs you", Count: len(rows), OwnerChecksURL: prefix + "/owner-checks"}
 	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Needs you", Current: true}

@@ -11,7 +11,7 @@
         {{if .Summary}}<div class="wb-pagehead-sub" data-testid="system.wb.summary">{{.Summary}}</div>
         {{else if .Hint}}<div class="wb-pagehead-sub wb-pagehead-hint" data-testid="system.wb.hint">{{.Hint}}</div>{{end}}
         <div class="wb-sys-meta">
-            {{with .Umbrella}}<a class="wb-chip wb-chip--{{if .Found}}agent{{else}}red{{end}}" href="{{.Href}}" data-testid="system.wb.umbrella"{{with .Whole}} title="{{.}}"{{end}}>{{if .Found}}{{.Label}}{{else}}umbrella {{.Slug}} not found{{end}}</a>{{end}}
+            {{with .Umbrella}}<a class="wb-chip wb-chip--{{if .Found}}agent{{else}}red{{end}}" href="{{.Href}}" data-testid="system.wb.umbrella"{{with .Whole}} title="{{.}}"{{end}}>{{if .Found}}{{.Label}}{{else}}umbrella {{.Slug}} not found{{end}}</a>{{with .Whole}}<span class="wb-sys-whole" data-testid="system.wb.umbrella.whole">{{.}}</span>{{end}}{{end}}
             {{template "wb/link-row" .Links}}
         </div>
     </div>

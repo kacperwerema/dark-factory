@@ -10,6 +10,7 @@ func init() {
 		"crew.no_workers",
 		"crew.column.*",
 		"crew.column.*.empty",
+		"crew.column.*.departments",
 		"crew.card.*",
 		"crew.card.*.pick",
 		"crew.card.*.state",
@@ -28,5 +29,8 @@ func init() {
 		"crew.panel.diff",
 		"crew.panel.comments",
 		"crew.panel.empty",
+		"crew.panel.display",
+		"crew.panel.status",
+		"crew.live",
 	)
 }

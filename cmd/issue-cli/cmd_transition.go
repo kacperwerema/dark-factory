@@ -66,6 +66,8 @@ type transitionOutput struct {
 	NextCommand          string                    `json:"next_command,omitempty"`
 	NextCommandNote      string                    `json:"next_command_note,omitempty"`
 	Guidance             []string                  `json:"guidance,omitempty"`
+	// YOLORule replaces the guidance's ask and stop sentences while YOLO is on.
+	YOLORule string `json:"yolo_rule,omitempty"`
 }
 
 func runTransition(ctx *Context, args []string) error {
@@ -111,6 +113,10 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	if err := ownIssueOnly(ctx, issues, issue, "transition"); err != nil {
+		if wf, wfErr := issueWorkflow(ctx, issue); wfErr == nil && wf.IsSideStatus(to) {
+			return fmt.Errorf("%w\n\nA duplicate of your issue, or one your change fixes, you may close yourself when your lead asks:\n  %s", err,
+				tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli close %s --duplicate-of <your slug>   # or --fixed-by", issue.Slug)))
+		}
 		return err
 	}
 	wf, err := issueWorkflow(ctx, issue)
@@ -118,9 +124,10 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
+	wf.DeferOwnerProof = yoloDefersOwnerProof(ctx, issue)
 
 	if *dryRun {
-		return runTransitionDryRun(ctx, wf, issue, slug, to, fields)
+		return runTransitionDryRun(ctx, wf, issue, issues, slug, to, fields)
 	}
 
 	if p := checkScriptGate(ctx.Project, wf, issue, to); p != nil {
@@ -134,8 +141,10 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	from, result, err := wf.ApplyTransitionToFileWithFields(issue.FilePath, to, fields)
 	if err != nil {
-		printYOLOGate(ctx.Stderr, gate, issue.Status, to, ctx.now())
-		return fmt.Errorf("failed to transition: %w", err)
+		if b := blockedRefusal(gate, "failed to transition", err); b != nil {
+			return b
+		}
+		return yoloRefusal(ctx.Stderr, gate, issue.Status, to, ctx.now(), fmt.Errorf("failed to transition: %w", err))
 	}
 
 	issue, _, err = findIssueOrErr(ctx, slug)
@@ -144,6 +153,7 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	out := buildTransitionOutput(wf, issue, from, to, result)
 	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
+	out.Guidance, out.YOLORule = yoloGuidance(ctx, issue.Slug, out.Guidance)
 	if gate.Passed {
 		out.SideEffects = append(out.SideEffects, "YOLO: gate passed without the owner, marked for review after the fact")
 	}
@@ -152,10 +162,22 @@ func runTransition(ctx *Context, args []string) error {
 	}
 	if !ctx.JSONOutput {
 		printYOLOGate(ctx.Stdout, gate, from, to, ctx.now())
+		if isShipStatus(wf, to) {
+			fmt.Fprintln(ctx.Stdout)
+			printShippingBlock(ctx, issue, issues)
+		}
+	}
+	if err := writeYOLOOwnerChecks(ctx, wf, issue, from, to, gate.Passed); err != nil {
+		return err
 	}
 	if to == "done" {
 		archivePlaytestRuns(ctx, issue)
 	}
+	endOut := ctx.Stdout
+	if ctx.JSONOutput {
+		endOut = ctx.Stderr
+	}
+	handoffEnded(ctx, endOut, wf, issue.Slug, to)
 	if to == "done" && !ctx.JSONOutput {
 		printCIAfterDone(ctx, wf)
 	}
@@ -201,10 +223,13 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 // runTransitionDryRun reports every unmet requirement for issue → to and
 // changes nothing. Exits 1 (silently — the report is the message) when any
 // requirement is unmet so scripts can branch on it.
-func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, slug, to string, fields map[string]string) error {
+func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue, slug, to string, fields map[string]string) error {
 	from := issue.Status
 	problems, yoloNote := yoloDryRun(ctx, wf, issue, from, to, collectTransitionProblems(ctx, wf, issue, slug, from, to, fields))
 	out := dryRunOutput{DryRun: true, Ready: len(problems) == 0, From: from, To: to, Slug: slug, Problems: problems}
+	if isShipStatus(wf, to) {
+		out.Warnings = openDepWarnings(shipDeps(ctx, issue, issues))
+	}
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)
 		out.SideEffects = sectionDryRunEffects(wf, issue, from, to, fields, out.SideEffects)
@@ -222,10 +247,12 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		if yoloNote != "" {
 			fmt.Fprintln(ctx.Stdout, yoloNote)
 		}
+		printWarnings(ctx.Stdout, out.Warnings)
 		renderNextTransitionContract(ctx.Stdout, nil, out.SideEffects)
 	} else {
 		fmt.Fprintf(ctx.Stdout, "== Dry run: %s → %s ==\n", from, to)
 		printProblemReport(ctx.Stdout, problems)
+		printWarnings(ctx.Stdout, out.Warnings)
 		if yoloNote != "" {
 			fmt.Fprintln(ctx.Stdout, yoloNote)
 		}
@@ -357,6 +384,8 @@ func sectionEffects(result tracker.TransitionResult) []string {
 			out = append(out, fmt.Sprintf("## %s appended", sec.Title))
 		case sec.BoxesAdded > 0:
 			out = append(out, fmt.Sprintf("## %s existed — added %s", sec.Title, missingBoxes(sec.BoxesAdded)))
+		case sec.StartersSkipped > 0:
+			out = append(out, fmt.Sprintf("## %s existed with its own boxes — kept them, left out the %d starter box(es)", sec.Title, sec.StartersSkipped))
 		}
 	}
 	return out
@@ -375,6 +404,9 @@ func sectionDryRunEffects(wf *tracker.WorkflowConfig, issue *tracker.Issue, from
 		line := fmt.Sprintf("Side-effect: ## %s exists with all its boxes — left as is", sec.Title)
 		if sec.BoxesAdded > 0 {
 			line = fmt.Sprintf("Side-effect: ## %s exists — adds %s", sec.Title, missingBoxes(sec.BoxesAdded))
+		}
+		if sec.StartersSkipped > 0 {
+			line = fmt.Sprintf("Side-effect: ## %s exists with its own boxes — kept, starter boxes left out", sec.Title)
 		}
 		static := fmt.Sprintf("Side-effect: appends ## %s section", sec.Title)
 		for i, e := range effects {
@@ -467,14 +499,17 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 		}
 		if hint {
 			fmt.Fprintf(w, "Tick done boxes by id, several at once: issue-cli check %s <id> [<id>...]\n", slug)
-			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\"\n", slug)
+			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\" (untick: issue-cli uncheck %s <id>; drop, other ids stay: issue-cli check-remove %s <id>)\n", slug, slug, slug)
 		}
 		fmt.Fprintln(w)
 	}
-	if len(guidance) > 0 {
+	if len(guidance) > 0 || output.YOLORule != "" {
 		fmt.Fprintln(w, "== Guidance ==")
 		for _, prompt := range guidance {
 			fmt.Fprintf(w, "- %s\n", prompt)
+		}
+		if output.YOLORule != "" {
+			fmt.Fprintf(w, "- %s\n", output.YOLORule)
 		}
 		fmt.Fprintln(w)
 	}

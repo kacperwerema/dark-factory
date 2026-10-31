@@ -35,16 +35,21 @@ func TestBackgroundWait_NamesStragglersAndCancelsHard(t *testing.T) {
 		close(stopped)
 	})
 	bg.Go("quick", func() {})
+	waitUntil(t, "quick has returned", func() bool {
+		bg.mu.Lock()
+		defer bg.mu.Unlock()
+		return bg.running["quick"] == 0
+	})
 
-	deadline, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	time.Sleep(10 * time.Millisecond) // let quick finish
+	// A deadline already past: Wait names what is left at once.
+	deadline, cancel := context.WithCancel(context.Background())
+	cancel()
 	if left := bg.Wait(deadline); !reflect.DeepEqual(left, []string{"stuck"}) {
 		t.Fatalf("Wait = %v, want [stuck]", left)
 	}
 	select {
 	case <-stopped:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("hard context was not cancelled at the deadline")
 	}
 }
@@ -207,6 +212,17 @@ func writeScript(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// waitUntil polls cond until it holds. The 15 s deadline is only there to
+// end a hung test; on a loaded machine the wait itself can take seconds.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); !cond(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting until %s", what)
+		}
 	}
 }
 

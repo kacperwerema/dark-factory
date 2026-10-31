@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -72,28 +71,17 @@ func TestPlaceholderStable(t *testing.T) {
 	}
 }
 
-// TestBoolFlagsCoverCLI keeps boolFlags in step with the bool flags
-// cmd/issue-cli defines, so a positional after one is not redacted as its
-// value.
-func TestBoolFlagsCoverCLI(t *testing.T) {
-	files, err := filepath.Glob("../../cmd/issue-cli/*.go")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no cmd/issue-cli sources: %v", err)
+// TestRedactCallAsksIsBool: the flags isBool names take no value, so the
+// token after one stays a positional; any other flag hides its value.
+func TestRedactCallAsksIsBool(t *testing.T) {
+	isBool := func(name string) bool { return name == "brand-new-switch" }
+	got := RedactCall([]string{"show", "--brand-new-switch", "cli/foo", "--other", "v", "--brand-new-switch=false"}, isBool)
+	want := []string{"show", "--brand-new-switch", "cli/foo", "--other", Placeholder("v"), "--brand-new-switch=false"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("RedactCall:\n got %q\nwant %q", got, want)
 	}
-	re := regexp.MustCompile(`\.Bool(?:Var)?\([^"\n]*"([a-z0-9-]+)"`)
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
-			if !boolFlags[m[1]] {
-				t.Errorf("%s defines bool flag --%s; add it to boolFlags", filepath.Base(f), m[1])
-			}
-		}
+	if got := RedactCall([]string{"--yes", "cli/foo"}, nil); got[1] != Placeholder("cli/foo") {
+		t.Fatalf("nil isBool must take the next token as the value: %q", got)
 	}
 }
 

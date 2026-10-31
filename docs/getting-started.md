@@ -35,6 +35,22 @@ make install      # both, via go install
 make validate     # go vet, tests and the issue-cli coverage gate
 ```
 
+### Privacy: usage stats
+
+`issue-cli` keeps a local, names-only log of its calls (`.agent-logs/telemetry.jsonl` in each project). Once a day it also sends an **anonymous summary** of that log:
+- command and flag names with counts
+- error classes and durations
+- the bundled workflow template and feature ids in use
+- the number of projects, issues and departments
+- the version and OS
+- a random install id
+
+It never sends project names, paths, issue text or flag values. This is **on by default**. The first call says so once on stderr. Until a collector URL is set (none is built in yet), nothing is sent.
+
+- Turn it off: `issue-cli telemetry share off`, or `ISSUE_CLI_TELEMETRY=off` (which also stops the local log).
+- See what was sent: `issue-cli telemetry sent`.
+- Every field: [CLI Usage Telemetry](CLI/telemetry.md#sharing-usage).
+
 ## Try the demo
 
 From a checkout of this repo:
@@ -48,7 +64,16 @@ The demo is Acme Shop, the sample project in the README's pictures: an HQ with b
 
 ## Bootstrap a project
 
-In your project's directory, write a `workflow.yaml` and the standard `issues/` and `docs/` layout in one go:
+One command makes a new project the board shows:
+
+```bash
+issue-cli project init ~/src/shop --name "Shop" --config ~/.config/ai-workflow-engine/projects.yaml
+issue-viewer -config ~/.config/ai-workflow-engine/projects.yaml
+```
+
+It creates the folder with `issues/`, `docs/` and a `workflow.yaml` from the `development` template, and adds the project to the projects.yaml you name with `--config` (a new file if there is none; every other line of an existing one stays as it was). Leave `--config` out and it prints the entry for you to add instead. It never overwrites a file, so running it again only reports what is already there; `--dry-run` lists every change first. Then it prints the next steps: open `/p/shop/company`, where the New department tile adds a department from a template, start the CEO with `issue-cli --project shop lead spawn`, and create the first issue. See [CLI Overview → project init](CLI/overview.md#project-init).
+
+To set up only the workflow in the current directory, without a projects.yaml entry:
 
 ```bash
 issue-cli init --template development
@@ -108,6 +133,8 @@ issue-viewer -config projects.yaml
 
 `allowed_hosts:` lists Host names the viewer answers to besides loopback; see [Server flags](#server-flags).
 
+`telemetry_data:` points the viewer's `/telemetry` page at a telemetry collector's data folder (`cmd/telemetry-collector -data <dir>`). It is only for whoever runs a collector; see [Sharing usage](CLI/telemetry.md#the-owners-view).
+
 `viewer_url:` is the address the viewer is reached at, e.g. `viewer_url: "https://viewer.lan"`. Every link the viewer and issue-cli print uses it, and `issue-cli status` calls it. That covers approval links, `show`'s Timeline, and the issue-approve buttons in an agent's session. Without it, issue-cli uses the running viewer's own address from `viewer.json`, then `http://localhost:8080`. Its host is added to `allowed_hosts` by itself. It doesn't change where the viewer listens: that is still `-host` / `-port`. The value must be an `http://` or `https://` URL with a host; a path prefix behind a reverse proxy is kept.
 
 `engine_project: <slug>` names the project that `issue-cli report-bug` files issue-cli bugs into. Without it, report-bug uses the project whose `repo:` is `michal-franc/ai-workflow-engine`; see [`report-bug`](CLI/overview.md#report-bug).
@@ -121,10 +148,10 @@ issue-cli needs the same `projects.yaml` as the viewer, from whatever folder it 
 1. `--config <path>`
 2. `$ISSUE_VIEWER_CONFIG` (the viewer sets it for the agents it dispatches)
 3. `./projects.yaml`, only if it exists
-4. the running viewer's config: at start, `issue-viewer -config …` writes `~/.local/state/ai-workflow-engine/viewer.json` (`$XDG_STATE_HOME`) with the absolute config path, URL, pid and start time. The entry is used while that config file exists, even after the viewer stops
+4. the running viewer's config: at start, `issue-viewer -config …` writes `~/.local/state/ai-workflow-engine/viewer.json` (`$XDG_STATE_HOME`) with the absolute config path, URL, pid and start time. The entry is used while that config file exists and that pid is alive. A sandbox viewer doesn't write the file: one whose config is in a temp folder (`$TMPDIR`, `/tmp`, `/var/folders`) while the state dir isn't, or one started while another live viewer holds the file for a different config. It says so on stderr. `-record-viewer` writes it anyway, `-record-viewer=false` never
 5. `~/.config/ai-workflow-engine/projects.yaml` (`$XDG_CONFIG_HOME`)
 
-So once the viewer has started with `-config` on this machine, `issue-cli --project <slug> …` and `issue-cli report-bug` work from any folder with no env var. `issue-cli projects` prints the chosen config and why on its first line, and `issue-cli --debug <command>` prints it on stderr. When nothing is found, the error lists every place checked and the fix: `export ISSUE_VIEWER_CONFIG=/path/to/projects.yaml`, or start the viewer.
+So once the viewer has started with `-config` on this machine, `issue-cli --project <slug> …` and `issue-cli report-bug` work from any folder with no env var. `issue-cli projects` prints the chosen config and why on its first line, and `issue-cli --debug <command>` prints it on stderr. When nothing is found, the error lists every place checked and the fix: `export ISSUE_VIEWER_CONFIG=/path/to/projects.yaml`, or start the viewer. When `--project` names a project the config doesn't list, the error names the config file and where it came from (`Config from: …`).
 
 For a quick look at a single folder without a config file:
 
@@ -143,6 +170,7 @@ This mode can't set dispatch options such as `terminal`, so use a `projects.yaml
 | `-docs`    | `./docs`    | Docs directory (single-project mode)      |
 | `-host`    | `127.0.0.1` | Interface to listen on                    |
 | `-port`    | `8080`      | HTTP port                                 |
+| `-record-viewer` | see above | Write `viewer.json` even for a sandbox viewer (`=false`: never write it) |
 | `-version` | `false`     | Print the version and exit                |
 
 The server listens on loopback only. Its POST endpoints start agents, tmux sessions and editors on your machine, so binding to another interface (`-host 0.0.0.0`) lets anyone who can reach the port drive them; it is an explicit opt-in and the server prints a warning at startup. Writes from another site in your browser are refused either way (see [API: Design Considerations](API/overview.md#design-considerations)).
@@ -153,6 +181,8 @@ The server also answers only to loopback names: a request whose `Host` is not `l
 allowed_hosts:
   - viewer.lan
 ```
+
+A name other than loopback, or any request that came through a proxy or tunnel, is **public**. The viewer answers it only when `identity:` is configured in `projects.yaml` and the request carries a Cloudflare Access token for one of the owners. Without `identity:`, the viewer refuses every public request with 403, LAN and VPN names included. Before you point a tunnel at the viewer, work through the go-public checklist in [API: Security](API/security.md).
 
 ### Stopping the server
 

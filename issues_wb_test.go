@@ -237,9 +237,10 @@ func TestCrateStorePage(t *testing.T) {
 		`data-testid="search.issues"`, `data-testid="filter.show_you">Waiting on you</a>`,
 		`data-testid="issues.shelf.in_progress"`, `<span>in progress · 1</span>`,
 		`data-testid="issues.crate.bug-in-login"`, `href="/p/test-project/issue/bug-in-login" data-testid="issues.crate.bug-in-login.title">Bug in login</a>`,
-		`<a class="wb-tag-pill" href="/p/test-project/?system=Auth">Auth</a>`, `>v1.0</span>`,
+		`<a class="wb-tag-pill" href="/p/test-project/?system=Auth">Auth</a>`, `href="/p/test-project/?version=1.0">v1.0</a>`,
 		`<a class="wb-tag-pill wb-tag-pill--label" href="/p/test-project/?label=urgent">urgent</a>`,
-		`data-testid="bars.issues_system"`, `href="/p/test-project/?classic=1&amp;new=1" data-testid="issues.new">New issue</a>`,
+		`data-testid="bars.issues_system"`, `href="/p/test-project/?new=1" data-create-open data-testid="issues.new">New issue</a>`,
+		`data-testid="issues.create"`, `data-post="/p/test-project/issues/create"`, `data-testid="bars.issues_status"`, `data-testid="bars.issues_version"`,
 	)
 	if strings.Contains(html, `data-testid="nav.sidebar"`) || strings.Contains(html, "list.row.") {
 		t.Error("the crate store renders the classic list")
@@ -274,4 +275,73 @@ func TestCrateStoreNewIssueOpensCreateForm(t *testing.T) {
 	assertContains(t, board, `href="/p/test-project/?classic=1&amp;new=1" class="btn btn-primary sidebar-create"`)
 	_, list := getBody(t, ts.URL+"/p/test-project/?classic=1&new=1")
 	assertContains(t, list, `id="create-modal"`, `params.get('new') === '1'`)
+}
+
+// Proves: AC3 — the store filters by status and version from its facets,
+// and a facet past storeFacetMax folds the rest under "+N more"
+// (classic-page-gaps G7, G8, G9).
+func TestCrateStoreStatusVersionFacetsAndMore(t *testing.T) {
+	var items []storeIssue
+	for i := 0; i < storeFacetMax+3; i++ {
+		it := storeItem(fmt.Sprintf("s-%d", i), "idea", fmt.Sprintf("Sys%02d", i), "")
+		if i < 2 {
+			it.Version = "0.10"
+		}
+		items = append(items, it)
+	}
+	items = append(items, storeItem("b-1", "backlog", "Sys00", ""))
+	d := buildIssuesWb(items, storeWorkflow(), "/p/x", storeFilter{})
+	byKey := map[string]WbBars{}
+	for _, b := range d.Facets {
+		byKey[b.Key] = b
+	}
+	st := byKey["issues_status"]
+	if len(st.Rows) != 2 || st.Rows[0].Label != "idea" || st.Rows[0].URL != "/p/x/?status=idea" {
+		t.Fatalf("status facet = %+v", st.Rows)
+	}
+	ver := byKey["issues_version"]
+	if len(ver.Rows) != 1 || ver.Rows[0].Label != "0.10" || ver.Rows[0].Count != 2 || ver.Rows[0].URL != "/p/x/?version=0.10" {
+		t.Fatalf("version facet = %+v", ver.Rows)
+	}
+	sys := byKey["issues_system"]
+	if len(sys.Rows) != storeFacetMax || len(sys.More) != 3 {
+		t.Fatalf("system facet: %d rows, %d more; want %d and 3", len(sys.Rows), len(sys.More), storeFacetMax)
+	}
+
+	d = buildIssuesWb(items, storeWorkflow(), "/p/x", storeFilter{Version: "0.10"})
+	if got := crateSlugs(d); strings.Join(got, ",") != "s-0,s-1" {
+		t.Fatalf("version filter shows %v", got)
+	}
+	found := false
+	for _, p := range d.Search.Filters {
+		if p.Key == "clear_version" && p.URL == "/p/x/" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("no removable Version pill")
+	}
+}
+
+// Proves: AC3 — New issue opens the store's own dialog, not the classic
+// page: statuses and templates from createOptions, system from the filter
+// (classic-page-gaps G5, G6).
+func TestCrateStoreCreateDialog(t *testing.T) {
+	wf := storeWorkflow()
+	d := buildIssuesWb(nil, wf, "/p/x", storeFilter{FilterParams: FilterParams{System: "UI"}})
+	if d.NewURL != "/p/x/?new=1" {
+		t.Errorf("NewURL = %q", d.NewURL)
+	}
+	if d.Create.PostURL != "/p/x/issues/create" || d.Create.System != "UI" {
+		t.Errorf("create = %+v", d.Create)
+	}
+	if strings.Join(d.Create.Statuses, ",") != "idea" {
+		t.Errorf("creatable statuses = %v", d.Create.Statuses)
+	}
+	if got := createStatus([]string{"idea", "in design"}, "In Design"); got != "in design" {
+		t.Errorf("createStatus preset = %q", got)
+	}
+	if got := createStatus([]string{"idea"}, "done"); got != "idea" {
+		t.Errorf("createStatus fallback = %q", got)
+	}
 }

@@ -96,14 +96,14 @@ func (e Entry) appliesTo(template string) bool {
 	return false
 }
 
+// Catalog is the bundled feature catalog: workflow-features.yaml and the
+// one-entry files beside it (ParseCatalog).
 func Catalog() ([]Entry, error) {
-	var doc struct {
-		Entries []Entry `yaml:"entries"`
-	}
-	if err := yaml.Unmarshal(catalogYAML(), &doc); err != nil {
+	entries, err := ParseCatalog(catalogYAML(), bundledSplitCatalog(), false)
+	if err != nil {
 		return nil, fmt.Errorf("parsing bundled feature catalog: %w", err)
 	}
-	return doc.Entries, nil
+	return entries, nil
 }
 
 func catalogIndex(entries []Entry) map[string]Entry {

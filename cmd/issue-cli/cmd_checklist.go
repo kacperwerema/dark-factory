@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/proof"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -66,6 +67,16 @@ func printProofHint(ctx *Context, issue *tracker.Issue) {
 	}
 	comments, _ := tracker.LoadComments(issue.FilePath)
 	r := proof.Collect(projectRoot(ctx.Project), issue, comments)
-	fmt.Fprintf(ctx.Stdout, "Acceptance criteria are ticked by their proof, not by hand: %d/%d proven. See each link and what is missing: issue-cli prove %s --list\n",
-		len(r.Criteria)-len(r.Unproven()), len(r.Criteria), issue.Slug)
+	var proven []string
+	for _, c := range r.Criteria {
+		if c.Proven() {
+			proven = append(proven, c.ID)
+		}
+	}
+	which := ""
+	if len(proven) > 0 {
+		which = " (" + strings.Join(proven, " ") + ")"
+	}
+	fmt.Fprintf(ctx.Stdout, "Acceptance criteria are ticked by their proof, not by hand: %d/%d proven%s. See each link and what is missing: issue-cli prove %s --list\n",
+		len(proven), len(r.Criteria), which, issue.Slug)
 }

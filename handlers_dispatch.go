@@ -182,7 +182,10 @@ func (s *Server) handleRetrosReviewDispatch(w http.ResponseWriter, r *http.Reque
 		Agent string `json:"agent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && strings.TrimSpace(body.Agent) != "" {
-		agentType = body.Agent
+		agentType = strings.TrimSpace(body.Agent)
+	}
+	if refuseAgentType(w, agentType) {
+		return
 	}
 
 	prompt := buildRetrosReviewPrompt(proj, retros, bugs)
@@ -228,6 +231,9 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request, pro
 	}
 
 	agentType := strings.TrimSpace(action.Agent)
+	if agentType != "" && refuseAgentType(w, agentType) {
+		return
+	}
 	if agentType == "" {
 		agentType = "claude"
 	}
@@ -268,6 +274,9 @@ func (s *Server) handleCustomAction(w http.ResponseWriter, r *http.Request, proj
 	}
 
 	agentType := strings.TrimSpace(action.Agent)
+	if agentType != "" && refuseAgentType(w, agentType) {
+		return
+	}
 	if agentType == "" {
 		agentType = "claude"
 	}
@@ -296,8 +305,11 @@ func (s *Server) handleDispatchAgent(w http.ResponseWriter, r *http.Request, pro
 		Agent string `json:"agent"`
 		Force bool   `json:"force"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Agent != "" {
-		agentType = body.Agent
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && strings.TrimSpace(body.Agent) != "" {
+		agentType = strings.TrimSpace(body.Agent)
+	}
+	if refuseAgentType(w, agentType) {
+		return
 	}
 
 	// The same spec `issue-cli dispatch` starts.
@@ -352,4 +364,15 @@ func (s *Server) handleDispatchReprompt(w http.ResponseWriter, r *http.Request, 
 		w.WriteHeader(http.StatusConflict)
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+// refuseAgentType answers 400 and reports true when agent isn't a plain
+// command name (agentrun.ValidAgentType): the agent is the first word of a
+// shell command line, so a request must never choose shell text.
+func refuseAgentType(w http.ResponseWriter, agent string) bool {
+	if agentrun.ValidAgentType(agent) {
+		return false
+	}
+	http.Error(w, fmt.Sprintf("agent %q refused: an agent is a command name such as claude or codex", agent), http.StatusBadRequest)
+	return true
 }

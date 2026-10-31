@@ -9,6 +9,7 @@ func init() {
 		"map.waiting",
 		"map.lot.*",
 		"map.lot.buildings",
+		"map.lot.group",
 		"map.lot.robots",
 		"map.lot.quote",
 		"map.lot.progress",

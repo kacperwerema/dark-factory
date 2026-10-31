@@ -39,6 +39,33 @@ func IssueWorktree(root, slug string) string {
 	return ""
 }
 
+// MergedInto names the main branch (main, else master) of the repository at
+// root when the worktree wt is a stale copy of it: its HEAD is already on
+// that branch and it holds no uncommitted change. "" otherwise, also for a
+// fresh worktree with a new script not yet committed: that one is in use.
+func MergedInto(root, wt string) string {
+	if root == "" || wt == "" || resolved(root) == resolved(wt) {
+		return ""
+	}
+	git := func(dir string, args ...string) (string, error) {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	for _, main := range []string{"main", "master"} {
+		if _, err := git(root, "rev-parse", "--verify", "--quiet", "refs/heads/"+main); err != nil {
+			continue
+		}
+		if _, err := git(wt, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+main); err != nil {
+			return ""
+		}
+		if status, err := git(wt, "status", "--porcelain"); err != nil || status != "" {
+			return ""
+		}
+		return main
+	}
+	return ""
+}
+
 // WorktreeHolding is the git worktree of the repository at root that holds
 // dir, when that isn't root itself, or "". A slug with a space has no
 // work/<slug> branch, so a worker on such an issue names its own: the
@@ -128,19 +155,69 @@ func findBash(candidates []string) (string, error) {
 // under root: ran is false when there is none, ok when no step failed in it
 // (steps needing the owner's eyes, or skipped, are not failures).
 func MachineRunPassed(root, name string) (ok, ran bool) {
+	steps, ran := machineRunSteps(root, name)
+	for _, st := range steps {
+		if st.Verdict == "fail" {
+			return false, true
+		}
+	}
+	return ran, ran
+}
+
+// RunStep is one step line of a run record.
+type RunStep struct {
+	ID, Verdict string
+	Boxes       []string
+}
+
+// OwnerLeft reports whether a machine run left the step to the owner: it
+// needs their eyes, or it was skipped.
+func (s RunStep) OwnerLeft() bool { return s.Verdict == "eyes" || s.Verdict == "skip" }
+
+// MachineRunOwnerSteps is the steps the newest machine run of the script
+// name under root left to the owner, with the boxes each names.
+func MachineRunOwnerSteps(root, name string) []RunStep {
+	steps, _ := machineRunSteps(root, name)
+	var out []RunStep
+	for _, st := range steps {
+		if st.OwnerLeft() {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
+// machineRunSteps reads the step lines of the newest machine run record
+// ("step <id> <verdict> boxes=<a,b> note=…"); ran is false when there is none.
+func machineRunSteps(root, name string) (steps []RunStep, ran bool) {
 	runs, _ := filepath.Glob(filepath.Join(root, RecordDir, name, "*-machine.txt"))
 	if len(runs) == 0 {
-		return false, false
+		return nil, false
 	}
 	sort.Strings(runs)
 	data, err := os.ReadFile(runs[len(runs)-1])
 	if err != nil {
-		return false, true
+		return []RunStep{{Verdict: "fail"}}, true
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if f := strings.Fields(line); len(f) >= 3 && f[0] == "step" && f[2] == "fail" {
-			return false, true
+		f := strings.Fields(line)
+		if len(f) < 3 || f[0] != "step" {
+			continue
 		}
+		st := RunStep{ID: f[1], Verdict: f[2]}
+		if len(f) > 3 {
+			if boxes, ok := strings.CutPrefix(f[3], "boxes="); ok {
+				for _, b := range strings.Split(boxes, ",") {
+					if b != "" {
+						st.Boxes = append(st.Boxes, b)
+					}
+				}
+			}
+		}
+		if len(st.Boxes) == 0 {
+			st.Boxes = []string{st.ID}
+		}
+		steps = append(steps, st)
 	}
-	return true, true
+	return steps, true
 }

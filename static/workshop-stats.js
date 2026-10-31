@@ -25,6 +25,8 @@
         } else if (!params.has('days')) {
             localStorage.setItem(key, params.toString());
         }
+        var note = document.querySelector('.wb-stats-saved');
+        if (note && localStorage.getItem(key)) note.hidden = false;
     } catch (e) {
         // No storage (private window, blocked site data): options stay in
         // the URL only.

@@ -347,6 +347,9 @@ type SectionAppend struct {
 	Title      string `json:"title"`
 	Created    bool   `json:"created,omitempty"`
 	BoxesAdded int    `json:"boxes_added,omitempty"`
+	// StartersSkipped is the starter boxes left out because the section
+	// already holds the author's own boxes and no rule gates it.
+	StartersSkipped int `json:"starters_skipped,omitempty"`
 }
 
 // Changed reports whether the append wrote anything.
@@ -412,6 +415,14 @@ func parseGateGroups(content string) []gateGroup {
 // sub-heading in content go under the matching sub-heading of the section,
 // which is appended when missing.
 func appendGateSection(body, heading, content string) (string, SectionAppend) {
+	return appendSection(body, heading, content, true)
+}
+
+// appendSection is appendGateSection for a section a rule may not gate.
+// When gated is false and the section already holds checkboxes, content's
+// boxes are starters for the author (Acceptance Criteria's "First
+// observable requirement") and none are added.
+func appendSection(body, heading, content string, gated bool) (string, SectionAppend) {
 	heading = normalizeHeading(heading)
 	content = strings.TrimSpace(content)
 	level, title, ok := parseHeadingLine(heading)
@@ -443,6 +454,16 @@ func appendGateSection(body, heading, content string) (string, SectionAppend) {
 				present[key] = true
 			}
 		}
+	}
+	if !gated && len(present) > 0 {
+		for _, g := range groups {
+			for _, box := range g.Boxes {
+				if key, _ := checkboxKey(box); !present[key] {
+					res.StartersSkipped++
+				}
+			}
+		}
+		return body, res
 	}
 	for _, g := range groups {
 		var missing []string

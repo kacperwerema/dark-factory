@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="owner_checks.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Owner checks{{if and .Epic (not .Unknown)}} <span class="wb-ny-count" data-testid="owner_checks.count">{{.Count}}</span>{{end}}</h1>
+        <span class="wb-sub">{{if and .Epic (not .Unknown)}}boxes only you can tick · agents never tick them · grouped by issue{{else}}pick an epic: its children's boxes only you can tick{{end}}</span>
+    </div>
+    <div class="wb-oc" data-tick-url="{{.TickURL}}">
+    {{if and .Epic (not .Unknown)}}
+        {{template "wb/oc-epic-bar" .}}
+        {{range .Issues}}{{template "wb/oc-issue" .}}{{else}}{{template "wb/oc-empty" .}}{{end}}
+    {{else}}
+        {{if or .Unknown (not .Epics)}}{{template "wb/oc-empty" .}}{{end}}
+        {{template "wb/oc-pick" .}}
+    {{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/owner-checks.js"></script>
+</body>
+</html>

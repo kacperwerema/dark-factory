@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/bench"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 )
@@ -111,11 +112,12 @@ var claudeProjectsDir = func() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
-// claudeSlugChars are what Claude Code turns into "-" in a cwd's folder name.
+// claudeSlugChars are what Claude Code turns into "-" in a cwd's folder name
+// (bench.TranscriptFolders has the rule; tests build folders with it).
 var claudeSlugChars = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 // claudeSlugMax is the longest folder name Claude Code keeps whole.
-const claudeSlugMax = 200
+const claudeSlugMax = bench.TranscriptSlugMax
 
 // leadTranscript is the newest transcript under the cwd's folder whose
 // agent-name or custom-title record is session; ok is false when there is
@@ -128,13 +130,12 @@ func leadTranscript(cwd, session string) (string, bool) {
 	if abs, err := filepath.Abs(cwd); err == nil {
 		cwd = abs
 	}
-	slug := claudeSlugChars.ReplaceAllString(cwd, "-")
-	pattern := filepath.Join(root, slug, "*.jsonl")
-	if len(slug) > claudeSlugMax {
-		// A long cwd's folder is its first 200 characters and a hash.
-		pattern = filepath.Join(root, slug[:claudeSlugMax]+"-*", "*.jsonl")
+	// A long cwd's folder is its first 200 characters and a hash.
+	var matches []string
+	for _, folder := range bench.TranscriptFolders(root, cwd) {
+		m, _ := filepath.Glob(filepath.Join(folder, "*.jsonl"))
+		matches = append(matches, m...)
 	}
-	matches, _ := filepath.Glob(pattern)
 	type file struct {
 		path string
 		mod  time.Time

@@ -23,7 +23,7 @@ type HealthConfig struct {
 	// Limits are the thresholds the stats page's gauges draw (and that
 	// trend alerts may use): waiting_share 0.25 (share of issue time waiting
 	// on the owner), big_files 10. A key set to 0 turns that limit off.
-	Limits map[string]float64 `yaml:"limits,omitempty" desc:"Thresholds for the stats page gauges: waiting_share (default 0.25), big_files (default 10); 0 turns one off"`
+	Limits map[string]float64 `yaml:"limits,omitempty" desc:"Thresholds for the stats page gauges and the departments family: waiting_share (default 0.25), big_files (default 10), outputs_review_days (default 7), handoff_age_days (default 7); 0 turns one off"`
 	// E2ESessions are the playtest session files the tests family counts.
 	E2ESessions []string `yaml:"e2e_sessions,omitempty" desc:"Globs of the playtest session files the tests family counts (default playtest/sessions/*.yaml)"`
 	// LongFuncLines: a function longer than this is long (shape family).
@@ -82,6 +82,10 @@ func ParseScoreBound(s string) (float64, error) {
 var HealthLimitDefaults = map[string]float64{
 	"waiting_share": 0.25,
 	"big_files":     10,
+	// The departments family: days within which an output counts as
+	// reviewed in time, and the age at which an open handoff is old.
+	"outputs_review_days": 7,
+	"handoff_age_days":    7,
 }
 
 const (

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -27,7 +28,7 @@ func fail(action Action, issue *IssueView, problem, defaultHint string) error {
 }
 
 // renderTemplate applies text/template substitution with {{slug}}, {{number}},
-// {{repo}}, {{system}} as zero-arg template funcs (so the no-dot syntax works).
+// {{repo}}, {{system}}, {{department}} as zero-arg template funcs (so the no-dot syntax works).
 func renderTemplate(s string, issue *IssueView) (string, error) {
 	tmpl, err := template.New("v").Funcs(templateFuncs(issue)).Parse(s)
 	if err != nil {
@@ -42,11 +43,47 @@ func renderTemplate(s string, issue *IssueView) (string, error) {
 
 func templateFuncs(issue *IssueView) template.FuncMap {
 	return template.FuncMap{
-		"slug":   func() string { return issue.Slug },
-		"number": func() int { return issue.Number },
-		"repo":   func() string { return issue.Repo },
-		"system": func() string { return issue.System },
+		"slug":       func() string { return issue.Slug },
+		"number":     func() int { return issue.Number },
+		"repo":       func() string { return issue.Repo },
+		"system":     func() string { return issue.System },
+		"department": func() string { return issue.Department },
 	}
+}
+
+// shellSafe is a value that means the same quoted or not.
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9._/@+-]*$`)
+
+// renderShellTemplate is renderTemplate for a command line: a value with
+// anything a shell would act on ($, ;, quotes, spaces) is single-quoted, so
+// frontmatter (system:, repo:) can't run a command (docs/API/security.md).
+// Plain values are inserted as they are, so existing commands don't change.
+func renderShellTemplate(s string, issue *IssueView) (string, error) {
+	funcs := template.FuncMap{}
+	for name, f := range templateFuncs(issue) {
+		switch f := f.(type) {
+		case func() string:
+			funcs[name] = func() string { return shellQuote(f()) }
+		default:
+			funcs[name] = f
+		}
+	}
+	tmpl, err := template.New("v").Funcs(funcs).Parse(s)
+	if err != nil {
+		return s, err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, nil); err != nil {
+		return s, err
+	}
+	return buf.String(), nil
+}
+
+func shellQuote(v string) string {
+	if shellSafe.MatchString(v) {
+		return v
+	}
+	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
 }
 
 // TemplateNames lists the {{name}} placeholders a validator's hint and

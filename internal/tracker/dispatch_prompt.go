@@ -34,9 +34,11 @@ func BuildDispatchPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, workDi
 	}
 	wt := IssueWorktree(workDir, issue, wf)
 	route := LeadFor(proj, issue, issues, live)
-	prompt := BuildAgentPrompt(proj, issue, wf, wt.Path, wt.Branch)
+	yoloOn := YOLOOn != nil && proj != nil && YOLOOn(workDir, proj.Slug)
+	prompt := buildAgentPrompt(proj, issue, wf, wt.Path, wt.Branch, yoloOn)
 	prompt += InjectProject(proj, DepartmentPromptSection(proj, issue))
 	prompt += InjectProject(proj, LeadPromptSection(issue, route))
+	prompt += ShellPromptSection(DetectShell())
 	prompt += InjectProject(proj, CIPromptSection(workDir, wf))
 	return DispatchPrompt{
 		Prompt:   prompt,
@@ -76,8 +78,12 @@ func LeadPromptSection(issue *Issue, route LeadRoute) string {
 	var b strings.Builder
 	b.WriteString("\n\n## Your lead\n\n")
 	switch {
+	case route.Covering && route.GroupLead != "" && route.Lead == route.GroupLead:
+		fmt.Fprintf(&b, "You report to the %s lead %s (%s), covering for the %s lead %s, which is not running (the human starts it: issue-cli lead spawn --department %s). %s reports to the CEO %s.", route.Group, route.Lead, state, route.Department, route.DepartmentLead, DepartmentKey(route.Department), route.Group, route.CEO)
 	case route.Covering:
 		fmt.Fprintf(&b, "You report to the CEO %s (%s), covering for the %s lead %s, which is not running (the human starts it: issue-cli lead spawn --department %s).", route.Lead, state, route.Department, route.DepartmentLead, DepartmentKey(route.Department))
+	case route.GroupLead != "":
+		fmt.Fprintf(&b, "You report to the %s lead %s (%s), who reports to the %s lead %s, under the CEO %s.", route.Department, route.Lead, state, route.Group, route.GroupLead, route.CEO)
 	case route.Department != "":
 		fmt.Fprintf(&b, "You report to the %s lead %s (%s), who reports to the CEO %s.", route.Department, route.Lead, state, route.CEO)
 	default:
@@ -89,6 +95,7 @@ func LeadPromptSection(issue *Issue, route LeadRoute) string {
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "- Your lead follows your issue trail: ask with `issue-cli comment %s \"question: ...\"` and report with `progress:` comments. It relays questions and approvals to the human.\n", issue.Slug)
 	fmt.Fprintf(&b, "- Don't message %s or any other agent (SendMessage) unless the human, in your chat, gives you permission or asks you to. Ask the human in your chat, or post a question: comment. Your address is %s, in case the lead messages you.\n", route.Lead, AgentSessionName(issue.Slug))
+	b.WriteString("- To agree a format with a sibling issue's worker (one you build on, or one your brief names): `issue-cli ask <sibling> \"...\"`. It shows on that worker's next issue-cli call, and its `issue-cli answer` shows on yours; don't wait for it. " + NotAnApproval + "\n")
 	b.WriteString("- Only the human decides; a worker never ticks a gate.\n")
 	b.WriteString("- `issue-cli lead whoami` shows your lead and whether it is live right now.\n")
 	return b.String()
@@ -97,8 +104,18 @@ func LeadPromptSection(issue *Issue, route LeadRoute) string {
 // AgentSessionName is the tmux session (or shared-session window) name a
 // dispatched agent for slug runs in.
 func AgentSessionName(slug string) string {
-	r := strings.NewReplacer("/", "-", ".", "-", " ", "-")
-	return "agent-" + r.Replace(slug)
+	// Only [a-z0-9_-] survive: the name is a tmux target and is typed into
+	// shells, so ":", "*", "$" or quotes from a crafted system folder must
+	// not reach either (docs/API/security.md).
+	return "agent-" + strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' {
+			return r
+		}
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return '-'
+	}, slug)
 }
 
 // AgentDisplayName is the human-facing name of the agent's tmux location,
@@ -126,6 +143,12 @@ func ResolveWorktree(workdir, slug string, wf *WorkflowConfig) (path, branch str
 // --project into every issue-cli command, and appends the worktree section
 // when the agent runs in one.
 func BuildAgentPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, worktreePath, worktreeBranch string) string {
+	return buildAgentPrompt(proj, issue, wf, worktreePath, worktreeBranch, false)
+}
+
+// buildAgentPrompt is BuildAgentPrompt; with yoloOn the stop lines, the
+// status guidance and the reminder carry the YOLO rule instead.
+func buildAgentPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, worktreePath, worktreeBranch string, yoloOn bool) string {
 	currentPrompt := "Use issue-cli to inspect the current workflow requirements for this status before making changes."
 	if wf != nil {
 		if prompt := wf.StatusPrompt(issue.Status); strings.TrimSpace(prompt) != "" {
@@ -140,6 +163,13 @@ func BuildAgentPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, worktreeP
 	case "backlog":
 		statusReminder = "Tell the human in chat that this needs `in progress` approval in the issue viewer, then stop and end your turn. Continue when the human messages you that it is approved."
 	}
+	if yoloOn {
+		currentPrompt, _ = YOLOGuidance(currentPrompt)
+		currentPrompt = strings.TrimSpace(currentPrompt + "\n" + YOLORule(issue.Slug))
+		if statusReminder != "" {
+			statusReminder = "YOLO passes the approval this status waits for: when the rest is done, run the transition (from backlog, issue-cli start); don't stop."
+		}
+	}
 
 	// Typed issues get a Type line under Status in the metadata block, so the
 	// agent knows its path before reading any workflow output.
@@ -148,7 +178,7 @@ func BuildAgentPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, worktreeP
 		statusField += fmt.Sprintf("\n  Type: %s (%s)", wf.ActiveType, wf.PathLine())
 	}
 
-	prompt := renderPromptTemplate(AgentDispatchPromptTemplate, agentPromptFields(issue, currentPrompt, statusReminder, statusField))
+	prompt := renderPromptTemplate(AgentDispatchPromptTemplate, agentPromptFields(issue, currentPrompt, statusReminder, statusField, yoloOn))
 
 	// Inject --project so dispatched bots in a multi-project projects.yaml
 	// setup don't silently run against the default project. The web app
@@ -166,15 +196,16 @@ You are already in an isolated git worktree at %s on branch %s.
 - Do your code work and make commits here on %s. Do not switch this checkout to another branch.
 - Issue management is NOT code work. The issues/ tree is excluded from this worktree on purpose — it lives on the primary checkout (master). Run every issue-cli command exactly as written: --project already points it at the primary checkout, so it manages the issue on master regardless of your worktree branch. Do not cd into the primary checkout, and do not try to create or edit issue files inside this worktree.
 - Leave the worktree in place after the issue ships: do not remove it, and nobody has to clean it up.
+- A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
 `, worktreePath, worktreeBranch, worktreeBranch)
 	}
 	return prompt
 }
 
 // agentPromptFields is the value of each {{name}} placeholder in
-// AgentDispatchPromptTemplate.
-func agentPromptFields(issue *Issue, statusGuidance, statusReminder, statusField string) map[string]string {
-	return map[string]string{
+// AgentDispatchPromptTemplate, with the stop lines for yoloOn.
+func agentPromptFields(issue *Issue, statusGuidance, statusReminder, statusField string, yoloOn bool) map[string]string {
+	fields := map[string]string{
 		"slug":            issue.Slug,
 		"system":          issue.System,
 		"status_guidance": statusGuidance,
@@ -184,6 +215,10 @@ func agentPromptFields(issue *Issue, statusGuidance, statusReminder, statusField
 		"priority":        issue.Priority,
 		"body":            issue.BodyRaw,
 	}
+	for name, value := range dispatchGateLines(yoloOn) {
+		fields[name] = value
+	}
+	return fields
 }
 
 // renderPromptTemplate replaces each {{name}} in tmpl with fields[name]. The

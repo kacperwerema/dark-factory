@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -67,6 +68,25 @@ func needsYouURL(proj *tracker.Project) string {
 		return viewerBaseURL(nil) + "/needs-you"
 	}
 	return fmt.Sprintf("%s/p/%s/needs-you", viewerBaseURL(proj), proj.Slug)
+}
+
+// ownerChecksURL is the project's Owner checks page for the issue's epic
+// (every issue when it has none): where the owner ticks the boxes only they
+// can tick.
+func ownerChecksURL(proj *tracker.Project, issue *tracker.Issue) string {
+	epic := "all"
+	if issue != nil {
+		if p := tracker.ParentSlug(issue); p != "" {
+			epic = p
+		} else {
+			epic = issue.Slug
+		}
+	}
+	slug := ""
+	if proj != nil {
+		slug = proj.Slug
+	}
+	return fmt.Sprintf("%s/p/%s/owner-checks?epic=%s", viewerBaseURL(proj), slug, url.QueryEscape(epic))
 }
 
 // issueURL is the viewer link to an issue's detail page.

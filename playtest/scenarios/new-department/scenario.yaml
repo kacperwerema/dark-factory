@@ -1,0 +1,11 @@
+# A project with no departments yet, in its own projects.yaml: the New
+# department tile adds Marketing from its template. files/ has an edited
+# departments/marketing/role.md, so the plan keeps it.
+title: A project with no departments, ready to add Marketing from the tile
+project:
+  name: Acme
+  slug: acme
+issues: tracker
+workflow: workflow.yaml
+root: files
+worktree: true

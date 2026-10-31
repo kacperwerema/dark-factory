@@ -39,7 +39,7 @@ steps:
       - text_contains: { target: system.issues.more, text: "All 14 in the list" }
       - absent: system.hint
       # The testing child is the furthest along, so it is the first row.
-      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "href=\"/p/rl/board?classic=1&amp;system=AI\"" }
+      - http: { path: "/p/{project}/systems/AI?classic=1", contains: "href=\"/p/rl/hall\"" }
       - http: { path: "/p/{project}/systems/AI?classic=1", contains: "<li class=\"sys-row\" data-testid=\"system.issue.ai/caller-fit\">" }
       - selected: nav.panel.system.ai
       # Header across the top; issues on the left, families and the

@@ -11,6 +11,8 @@ features:
     - wildcard-transitions@v0.36.0
     - transition-fields@v0.36.0
     - types-of-work@v0.36.0
+    - docs-type@v0.58.0
+    - report-type@v0.58.0
     - system-overlays@v0.36.0
     - human-approval-gates@v0.36.0
     - checklist-gates@v0.36.0
@@ -19,7 +21,8 @@ features:
     - comment-evidence-gates@v0.36.0
     - body-structure-gates@v0.36.0
     - failure-hints@v0.36.0
-    - proof-links@v0.54.0
+    - proof-links@v0.58.0
+    - commit-references-issue@v0.58.0
     - checklist-sections@v0.36.0
     - transition-prompts@v0.36.0
     - set-fields@v0.36.0
@@ -42,6 +45,7 @@ features:
     - playtest-owner-switch@v0.55.0
     - guided-check-scripts@v0.54.0
     - testing-unrelated-failures@v0.36.0
+    - testing-na-forms@v0.58.0
     - local-merge-shipping@v0.54.0
   declined:
     - shell-gate
@@ -234,6 +238,7 @@ statuses:
       Review the relevant context before proposing changes.
       Turn the problem into explicit checklists, assumptions, and open questions.
       Write the design into the issue body under the relevant sections before checking the related boxes.
+      A criterion only the owner can check (a look, a read-through, a decision) carries the owner marker: `- [ ] The board reads well on a phone (owner)`. "(owner)" anywhere counts, and so does a box starting "Owner visual check …"; no proof ticks it, and under YOLO it waits in the review queue.
       Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
       Describe how agents will discover and use the change. Prefer hints in CLI output and error messages over prompt text, which does not reach other projects' workflows or non-dispatched sessions.
       When the design is complete, tell the human in chat that it needs approval in the issue viewer: `backlog` to queue it, or `in progress` to start straight away. Then stop and end your turn. When the human says it is approved, run `issue-cli context <slug>` and transition to the status in `human_approval`.
@@ -247,7 +252,8 @@ statuses:
     prompt: |
       Implement the accepted design and keep the issue body, implementation checklist, and test plan accurate as work progresses.
       Record implementation notes and planned verification steps in the issue body; checkboxes mark completion but do not replace written content.
-      Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. `issue-cli prove <slug> --list` shows what is proven.
+      Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. Then, after the last code commit, post the test results: `issue-cli prove <slug> --run` runs the named tests and posts the `tests:` comment (or run them and post `issue-cli comment <slug> --text "tests: ..."`); a test trailer reads UNPROVEN until then, and a later code commit stales it. `issue-cli prove <slug> --list` shows what is proven.
+      Run `issue-cli workflow catalog-check` in your worktree now and after each change to code a catalog entry lists as sources:, not first at the end of `make validate`: it checks uncommitted changes too, and each entry it flags needs a version bump or a `Catalog: n/a <id>[,<id>] <why>` line in a commit message (entry id first).
   - name: "testing"
     description: "Under verification"
     prompt: |
@@ -256,6 +262,7 @@ statuses:
       Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in its page's file under internal/testids/.
       Run `make playtest-check`, single `make ux-test ISSUE=<slug>` runs while fixing, and `make ux-test ISSUE=<slug> REPEAT=2` once, as the final run before handing over. The runner builds the scenario: never point a session at the real projects.yaml, issues tree, user state or tmux server.
       A manual check a session can't drive (CLI commands, API routes, tmux, a terminal-only flow) comes as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib` (sandbox_project, private_tmux, clean_shell with a stand-in claude, --touches-real for anything in the owner's real session), name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself. Its sandbox never touches the real projects.yaml, issues tree, user state or tmux server.
+      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), or a reason in a few words. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     description: "Manual verification by humans"
     prompt: |
@@ -272,8 +279,11 @@ statuses:
       Ship by merging into the local main checkout. There are no pull requests (never open one) and you never push: the lead pushes main to origin when the owner asks, usually to cut a release.
       You reach shipping only after the owner has checked your work and approved documentation, so merging into local main is part of your job here: do it without asking first.
       1. Add your user-facing change summary under `## Unreleased` at the top of `cmd/issue-cli/CHANGELOG.md` (create the heading if a release just took it). Do not add a version heading or bump the version: the lead cuts releases per milestone (docs/roadmap.md). Never create or push tags.
-      2. Commit on your branch with a message referencing the issue. Then remove your scripts/checks/<name>.sh in its own commit: check scripts stay on the issue branch and never reach main.
-      3. `git merge main` (the local branch, not origin/main), resolve any conflicts, and run `make validate`. Keep both sides' entries under `## Unreleased` when the CHANGELOG conflicts.
+      Commit messages are conventional commits (the commit hook rejects anything else, `wip:` and git's default merge message included): `docs(changelog): <what>`, `chore(checks): remove scripts/checks/<name>.sh`, `chore(merge): main into <slug>`.
+      2. Commit on your branch (`docs(changelog): …` for step 1). Then remove your scripts/checks/<name>.sh in its own commit (`chore(checks): …`): check scripts stay on the issue branch and never reach main.
+      3. `git merge main -m "chore(merge): main into <slug>"` (the local branch, not origin/main), resolve any conflicts, and run `make validate`. Keep both sides' entries under `## Unreleased` when the CHANGELOG conflicts. The merge's subject naming the slug is how the branch references the issue; without a merge, put a `Refs: <slug>` line in one commit's message.
+      Before step 4, run `issue-cli transition <slug> --to done --dry-run`: its "references the issue" line must pass (commits_reference_issue). If it fails, add the commit it shows; never reword an older commit, since Proves: trailers pin their shas.
+      After merging main, check that your CHANGELOG entry still sits under `## Unreleased` and appears once: the file merges with `merge=union` (.gitattributes), so a release that renamed Unreleased can leave it under the new version heading without a conflict (`TestChangelogBranchEntriesUnreleased` in `make validate` fails then).
       4. Fast-forward the main checkout (the first path in `git worktree list`) to your branch: `git -C <main checkout> merge --ff-only <your branch>`. If it refuses because main moved, repeat step 3. If it refuses because the main checkout has uncommitted changes in files you touch, stop and tell the lead. Never force anything and never `git push`.
       After the fast-forward, local CI tests main by itself (`issue-cli ci status`). Never wait for it: if it goes red on your merge, the lead may re-open your issue.
       Before closing, post a `risk:` comment (`issue-cli comment <slug> --text "risk: ..."`) for anything to watch after the ship, or "risk: none".
@@ -356,7 +366,7 @@ transitions:
           
           ### Manual
           - [ ] Throwaway sandbox scenario prepared (worktree-only, gitignored e.g. under `.agent-logs/<name>-sandbox/`, never committed; isolated config/issues/state; never touches real projects.yaml, issues, or user state)
-          - [ ] Manual checks that aren't playtests come as `scripts/checks/<name>.sh` (`issue-cli check-script <slug> --new <name>`), or N/A with the reason
+          - [ ] Manual checks that aren't playtests come as `scripts/checks/<name>.sh` (`issue-cli check-script <slug> --new <name>`), or `issue-cli check <slug> <id> --na "<reason>"`
   - from: "backlog"
     to: "in progress"
     actions:
@@ -377,8 +387,8 @@ transitions:
           - [ ] Automated verification recorded
           
           ### Manual
-          - [ ] Manual checks written as a playtest session (`playtest/sessions/<name>.yaml`, step id = checkbox id; judgement steps only for what needs the owner) and `make playtest-check` passes (or N/A with reason)
-          - [ ] Manual checks that aren't playtests come as `scripts/checks/<name>.sh` (`issue-cli check-script <slug> --new <name>`), or N/A with the reason
+          - [ ] Manual checks written as a playtest session (`playtest/sessions/<name>.yaml`, step id = checkbox id; judgement steps only for what needs the owner) and `make playtest-check` passes (or `issue-cli check <slug> <id> --na "<reason>"`)
+          - [ ] Manual checks that aren't playtests come as `scripts/checks/<name>.sh` (`issue-cli check-script <slug> --new <name>`), or `issue-cli check <slug> <id> --na "<reason>"`
   - from: "in progress"
     to: "testing"
     actions:
@@ -392,7 +402,7 @@ transitions:
           - [ ] Relevant tests for changed code passing
           - [ ] Known unrelated failures documented if full suite is red
           - [ ] Test results logged as comment (`issue-cli comment <slug> --text "tests: ..."`)
-          - [ ] `make ux-test ISSUE=<slug> REPEAT=2` passed, run once before handoff (or N/A: no playtest session, with reason)
+          - [ ] `make ux-test ISSUE=<slug> REPEAT=2` passed, run once before handoff (or `issue-cli check <slug> <id> --na "no page changes"`)
       - type: "inject_prompt"
         prompt: |
           Run the relevant tests for the changed code, record results, and capture any remaining manual checks.
@@ -435,7 +445,7 @@ transitions:
       - type: "append_section"
         title: "Shipping"
         body: |
-          - [ ] Changes committed with a message referencing the issue
+          - [ ] Changes committed with a message referencing the issue: the merge commit's subject names the slug (`chore(merge): main into <slug>`), or one commit has a `Refs: <slug>` line
           - [ ] `cmd/issue-cli/CHANGELOG.md` entry added under `## Unreleased` (no version bump; the lead cuts releases per milestone)
           - [ ] Local `main` merged into the branch and `make validate` green after the merge
           - [ ] Local main fast-forwarded to the branch (`git -C <main checkout> merge --ff-only <branch>`; no push, no pull request)
@@ -445,6 +455,8 @@ transitions:
     actions:
       - type: "validate"
         rule: "section_checkboxes_checked: Shipping"
+      - type: "validate"
+        rule: "commits_reference_issue"
   # Park from anywhere (blocked, deferred, or won't do); leave to any status.
   - from: "*"
     to: "parked"
@@ -485,6 +497,9 @@ leads:
     - Talk to a worker: SendMessage to agent-<slug>. For coordination only; decisions come from the human.
     - Lead epics yourself (one lead per project). Epic children branch from main
       and ship to main like any other issue.
+    - Pick the type when you file an issue (create --type, or set-type at idea): report for
+      research or a report only (the report goes on the shelf, no code, no commit), docs for docs
+      or screenshots, bugfix, tweak, else feature. Code fixes a report finds are their own issues.
     - Bring questions to the human one at a time, with the asker's recommendation and yours,
       and record each answer in the human's words:
       issue-cli decide <slug> --text "..." --how "lead chat" --quote "<their words>".
@@ -627,6 +642,26 @@ systems:
           Reference docs/Workflow/overview.md for the current workflow documentation structure.
     transitions:
       []
+  Factory:
+    # No "idea" status prompt: it would replace the bugfix and epic types'
+    # idea prompts (lint). The idea → in design edge carries the pointer.
+    statuses:
+      - name: "in design"
+        prompt: |
+          Review the relevant context before proposing changes.
+          Turn the problem into explicit checklists, assumptions, and open questions.
+          Write the design into the issue body under the relevant sections before checking the related boxes.
+          Follow "Settled rules" in docs/departments.md and cite the decision behind each rule the design leans on. A design that needs a rule changed says so as an open question for the owner.
+          Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
+          Describe how agents will discover and use the change. Prefer hints in CLI output and error messages over prompt text, which does not reach other projects' workflows or non-dispatched sessions.
+          When the design is complete, tell the human in chat that it needs approval in the issue viewer: `backlog` to queue it, or `in progress` to start straight away. Then stop and end your turn. When the human says it is approved, run `issue-cli context <slug>` and transition to the status in `human_approval`.
+    transitions:
+      - from: "idea"
+        to: "in design"
+        actions:
+          - type: "inject_prompt"
+            prompt: |
+              Factory: read "Settled rules" in docs/departments.md before designing: secrets, private projects, the waiting-on-you count, box keys, projects.yaml writes, lint checks and pilots are decided there. Don't ask again what a rule there answers; cite its decision.
 
 # Types of work (docs/Workflow/types.md): an issue's `type:` picks its path.
 # Unset or unknown types get default_type, so existing issues keep the full path.
@@ -680,11 +715,101 @@ types:
           - type: "append_section"
             title: "Shipping"
             body: |
-              - [ ] Changes committed with a message referencing the issue
+              - [ ] Changes committed with a message referencing the issue: the merge commit's subject names the slug (`chore(merge): main into <slug>`), or one commit has a `Refs: <slug>` line
               - [ ] `cmd/issue-cli/CHANGELOG.md` entry added under `## Unreleased` (no version bump; the lead cuts releases per milestone)
               - [ ] Local `main` merged into the branch and `make validate` green after the merge
               - [ ] Local main fast-forwarded to the branch (`git -C <main checkout> merge --ff-only <branch>`; no push, no pull request)
               - [ ] Check scripts (scripts/checks/<name>.sh) removed in a last commit before the merge, or none
+
+  docs:
+    description: "Docs, README or screenshots only: no code or behaviour change, so no playtest or check script"
+    path: [idea, in progress, shipping, done, parked]
+    statuses:
+      - name: "in progress"
+        prompt: |
+          Docs: change the docs, README or screenshots the body names, nothing else. There is no Test Plan: `make validate` (links, doc tests) is the check.
+          If it turns out to need a code change, say in chat that the type should change to tweak or feature (in the issue viewer) and end your turn.
+    transitions:
+      - from: "idea"
+        to: "in progress"
+        actions:
+          - type: "validate"
+            rule: "body_not_empty"
+          - type: "require_human_approval"
+            status: "in progress"
+          - type: "validate"
+            rule: "has_assignee"
+          - type: "append_section"
+            title: "Implementation"
+            body: |
+              - [ ] Docs or screenshots changed as the body says, no code
+              - [ ] `make validate` green (links, doc tests)
+      - from: "in progress"
+        to: "shipping"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Implementation"
+          - type: "validate"
+            rule: "has_comment_prefix: docs:"
+            hint: "issue-cli comment {{slug}} --text \"docs: <pages changed>\""
+          - type: "require_human_approval"
+            status: "shipping"
+          - type: "append_section"
+            title: "Shipping"
+            body: |
+              - [ ] Changes committed with a message referencing the issue
+              - [ ] `cmd/issue-cli/CHANGELOG.md` entry added under `## Unreleased` (no version bump; the lead cuts releases per milestone)
+              - [ ] Local `main` merged into the branch and `make validate` green after the merge
+              - [ ] Local main fast-forwarded to the branch (`git -C <main checkout> merge --ff-only <branch>`; no push, no pull request)
+
+  report:
+    description: "Research or report only: the report goes on the outputs shelf for the owner's review; no code, no commit"
+    path: [idea, in progress, human-testing, done, parked]
+    statuses:
+      - name: "in progress"
+        prompt: |
+          Report: research what the body asks and write the report as one file (markdown is fine) anywhere outside the repo, for example your scratchpad. Nothing is built or committed on this issue, and there is no branch to ship.
+          Put the report on the shelf with the issue: `issue-cli output add --issue <slug> --kind report --title "<title>" --file <report.md>` (it is copied with the work files, under <issues>/.outputs/files/, and listed on the issue's page). Re-run it with a new file if the report changes.
+          Code fixes the research turns up are not built here: list each under "Follow-ups" in the report and in the `report:` comment, and file each as its own issue (`issue-cli create`, or ask the lead to).
+          If it turns out the work is a code or docs change, say in chat that the type should change to feature, tweak or docs (in the issue viewer) and end your turn.
+      - name: "human-testing"
+        prompt: |
+          Owner review: the owner reads the report on the issue page (its shelf row) and approves or rejects it on the shelf. The Owner Review box is theirs: never tick it. Tell the human in chat that the report waits for them and that `done` needs their approval in the issue viewer, then stop and end your turn. Under YOLO the `done` gate passes and the review waits in the after-the-fact queue.
+    transitions:
+      - from: "idea"
+        to: "in progress"
+        actions:
+          - type: "validate"
+            rule: "body_not_empty"
+          - type: "require_human_approval"
+            status: "in progress"
+          - type: "validate"
+            rule: "has_assignee"
+          - type: "append_section"
+            title: "Research"
+            body: |
+              - [ ] The questions the report answers are listed in the body
+              - [ ] Report written and on the shelf (`issue-cli output add --issue <slug> --kind report --file <report.md>`)
+              - [ ] Code fixes it found filed as their own issues, or none (none built here)
+      - from: "in progress"
+        to: "human-testing"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Research"
+          - type: "validate"
+            rule: "has_output: report"
+          - type: "validate"
+            rule: "has_comment_prefix: report:"
+            hint: "issue-cli comment {{slug}} --text \"report: <the findings in a paragraph>; follow-ups: <issues filed, or none>\""
+          - type: "append_section"
+            title: "Owner Review"
+            body: |
+              - [ ] Report read; approved or rejected on the shelf (owner)
+      - from: "human-testing"
+        to: "done"
+        actions:
+          - type: "require_human_approval"
+            status: "done"
 
   epic:
     description: "Tracking only: groups work under one goal; children carry parent: <epic slug>, their own type and version, and ship to main as usual"
@@ -747,7 +872,7 @@ types:
               - [ ] Automated verification recorded
 
               ### Manual
-              - [ ] Repro steps re-run and the bug is gone (a playtest session when it shows on the board, a guided check script when it runs from a shell)
+              - [ ] Repro steps re-run and the bug is gone (a playtest session when it shows on the board, a guided check script when it runs from a shell) (owner)
 
 # Where the work lives (docs/workflow.md, privacy). Work files stay in the
 # private tracker; development stays in the private dev repo and the public

@@ -1,0 +1,8 @@
+{
+  "run": {"date": "2026-10-01T23:59", "project": "acme", "branch": "main", "trigger": "daily", "duration_ms": 10},
+  "families": {"departments": {"ms": 1, "metrics": 2}},
+  "metrics": [
+    {"id": "departments.goal.progress{department=marketing,goal=pages}", "metric": "departments.goal.progress", "labels": {"department": "marketing", "goal": "pages"}, "value": 10, "group": "departments"},
+    {"id": "departments.goal.progress{department=marketing,goal=posts}", "metric": "departments.goal.progress", "labels": {"department": "marketing", "goal": "posts"}, "value": 80, "group": "departments"}
+  ]
+}

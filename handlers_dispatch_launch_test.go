@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +16,12 @@ import (
 // fakeAgentScript stands in for claude and codex: it records its arguments
 // (NUL-separated), working directory and environment under $FAKE_AGENT_OUT,
 // then prints its last argument, as the agent renders the prompt it was
-// launched with.
+// launched with. Each record is written aside and renamed into place, so a
+// reader never sees one half written.
 const fakeAgentScript = `#!/bin/sh
-printf '%s\0' "$@" > "$FAKE_AGENT_OUT.args"
-pwd -P > "$FAKE_AGENT_OUT.pwd"
-env > "$FAKE_AGENT_OUT.env"
+printf '%s\0' "$@" > "$FAKE_AGENT_OUT.args.tmp" && mv "$FAKE_AGENT_OUT.args.tmp" "$FAKE_AGENT_OUT.args"
+pwd -P > "$FAKE_AGENT_OUT.pwd.tmp" && mv "$FAKE_AGENT_OUT.pwd.tmp" "$FAKE_AGENT_OUT.pwd"
+env > "$FAKE_AGENT_OUT.env.tmp" && mv "$FAKE_AGENT_OUT.env.tmp" "$FAKE_AGENT_OUT.env"
 for last; do :; done
 printf '%s\n' "$last"
 `
@@ -44,9 +46,12 @@ func installFakeAgents(t *testing.T) string {
 }
 
 // waitForFile returns the contents of path once the fake agent has written it.
+// 15 s, like the dispatch tests' delivery wait: a codex dispatch returns
+// without waiting for its pane, and on a loaded machine the agent's login
+// shell can take longer than 5 s to start.
 func waitForFile(t *testing.T, path string) string {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 			return string(data)
@@ -55,6 +60,39 @@ func waitForFile(t *testing.T, path string) string {
 			t.Fatalf("the agent never started: %s was not written", path)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// waitForFile takes the first non-empty read, so the fake agent's records
+// must never be seen half written. sh line-buffers printf: written in place,
+// a multi-line prompt lands one line per write and a reader polling at the
+// wrong moment (a loaded machine widens it) sees only the first line.
+func TestFakeAgentRecordsAreNeverSeenHalfWritten(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(script, []byte(fakeAgentScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := "first line\n\nsecond line\nlast line"
+	want := prompt + "\x00"
+	dir := t.TempDir()
+	for i := 0; i < 100; i++ {
+		out := filepath.Join(dir, strconv.Itoa(i))
+		cmd := exec.Command(script, prompt)
+		cmd.Env = append(os.Environ(), "FAKE_AGENT_OUT="+out)
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			if data, err := os.ReadFile(out + ".args"); err == nil && len(data) > 0 {
+				if string(data) != want {
+					t.Fatalf("run %d: read %q, want the whole record %q", i, data, want)
+				}
+				break
+			}
+		}
+		if err := cmd.Wait(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

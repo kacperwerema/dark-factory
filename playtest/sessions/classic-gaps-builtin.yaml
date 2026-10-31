@@ -1,0 +1,22 @@
+session: classic-gaps-builtin
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: With a project status page, the Built-in tab is the Report
+scenario: project-pages
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP9
+    title: The Built-in tab opens the Report with Project page | Report on top, and Project page goes back
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/status?view=builtin
+    act:
+      - check: { visible: [report.page, report.views, view.project, view.builtin] }
+      - click: view.project
+    checks:
+      - visible: [page.frame, status.tab.builtin]
+      - absent: report.page

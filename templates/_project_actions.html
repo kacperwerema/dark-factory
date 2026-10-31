@@ -58,13 +58,13 @@ function dispatchProjectAction(prefix, id, label) {
             else { icon = '&#10007;'; cls = 'error'; }
             html += '<div class="dispatch-step ' + cls + '">'
                 + '<span class="dispatch-step-icon">' + icon + '</span> '
-                + step.name
-                + (step.detail ? ' <span class="dispatch-step-detail">(' + step.detail + ')</span>' : '')
+                + String(step.name).replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; })
+                + (step.detail ? ' <span class="dispatch-step-detail">(' + String(step.detail).replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; }) + ')</span>' : '')
                 + '</div>';
         });
         stepsEl.innerHTML = html;
     }).catch(function(err) {
-        stepsEl.innerHTML = '<div class="dispatch-step error">Failed: ' + err.message + '</div>';
+        stepsEl.innerHTML = '<div class="dispatch-step error">Failed: ' + String(err.message).replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; }) + '</div>';
     });
 }
 </script>

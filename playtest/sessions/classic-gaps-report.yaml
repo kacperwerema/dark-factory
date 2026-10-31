@@ -1,0 +1,41 @@
+session: classic-gaps-report
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: The Report carries what only the classic Status page showed
+scenario: status
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP8
+    title: Working on, the full plan, backlog and parked links, Recently released and the hall link are on the Report
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/status
+    act:
+      - check: { visible: [report.page, report.active, report.released, report.card.next] }
+      - click: report.next.full
+    checks:
+      - text_contains: { target: report.active, text: "Export routes as GPX" }
+      - text_contains: { target: report.active, text: "agent stopped" }
+      - text_contains: { target: report.next.full, text: "Ship" }
+      - text_contains: { target: report.card.next, text: "in backlog" }
+      - text_contains: { target: report.card.next, text: "parked" }
+      - text_contains: { target: report.released, text: "v1.4.0" }
+      - text_contains: { target: report.card.waiting, text: "See the hall" }
+    targets:
+      - { id: report.active, note: Working on, under the bottleneck banner }
+      - { id: report.released, note: Recently released, in the side column }
+    do: |
+      1. Open the Report (Status) of Atlas.
+      2. Read Working on, then open "Full plan" in What's next.
+      3. Look at Recently released on the right.
+    expect: |
+      Working on lists each issue in flight with its status, how long it has
+      sat there (red when a week or more) and its agent or "no agent".
+      Full plan shows the CEO's whole ## Next with the slugs linked. What's
+      next links "in backlog" and "parked". Recently released shows v1.4.0
+      with its date and summary.
+    why: ux-test sees the elements and texts; only you can judge the new cards read as part of the Report.

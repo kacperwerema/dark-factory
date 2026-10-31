@@ -26,6 +26,9 @@ type WbYOLO struct {
 	// Queue is how many passes wait for the owner's review.
 	Queue  int
 	Valves string
+	// Never is how many gates YOLO never passes; NeverList names them.
+	Never     int
+	NeverList string
 	// EndReason is why the last window closed, shown while the queue waits.
 	EndReason string
 	// Switch draws the switch in the header (the company, L1); Dialog is its
@@ -43,6 +46,7 @@ func wbYOLO(b *YOLOBand, prefix string) *WbYOLO {
 	y := &WbYOLO{Prefix: prefix, On: b.On, Passed: b.Passed, Queue: len(b.Queue), Valves: b.Valves, EndReason: b.EndReason}
 	if b.On {
 		y.Since, y.End = b.Since.Format("15:04"), b.End
+		y.Never, y.NeverList = len(b.Never), b.NeverLabels()
 	}
 	return y
 }
@@ -85,6 +89,11 @@ func yoloDialog(p *tracker.Project, wf *tracker.WorkflowConfig) *WbYOLODialog {
 	if d.CI {
 		d.Guards = append(d.Guards, WbFact{Label: "CI", Value: "local CI on every merge"})
 	}
+	for _, g := range yolo.OwnerGates(p, yolo.Valves{Releases: true}) {
+		if g.From != "" {
+			d.Guards = append(d.Guards, WbFact{Label: "Yours even in YOLO", Value: g.Label() + " (spends or publishes)"})
+		}
+	}
 	d.Guards = append(d.Guards,
 		WbFact{Label: "Agent tests", Value: "testing, proofs"},
 		WbFact{Label: "Agent code review", Value: "findings on the issue"},
@@ -110,9 +119,20 @@ type WbYOLOReview struct {
 	Passes    []WbYOLOPass
 }
 
-// WbYOLOPass is one gate the issue passed without the owner.
+// WbYOLOPass is one gate the issue passed without the owner, or one box
+// only the owner can check that a gate passed without (Check: the box id,
+// What its text, Why what makes it the owner's).
 type WbYOLOPass struct {
 	Status, From, Back, By, At string
+	Check, What, Why           string
+}
+
+// Key is what the review names: the box of an owner check, else the status.
+func (p WbYOLOPass) Key() string {
+	if p.Check != "" {
+		return p.Check
+	}
+	return p.Status
 }
 
 // stationYOLOReview is the issue's unreviewed passes; nil when none waits.
@@ -127,7 +147,7 @@ func stationYOLOReview(issue *tracker.Issue, wf *tracker.WorkflowConfig, comment
 		if t, ok := tracker.CommentTime(p.At); ok {
 			at = t.Format("Mon 2 Jan, 15:04")
 		}
-		r.Passes = append(r.Passes, WbYOLOPass{Status: p.Status, From: p.From, Back: yolo.BackTo(wf, p), By: p.By, At: at})
+		r.Passes = append(r.Passes, WbYOLOPass{Status: p.Status, From: p.From, Back: yolo.BackTo(wf, p), By: p.By, At: at, Check: p.Check, What: p.What, Why: p.Why})
 	}
 	return r
 }
@@ -152,7 +172,9 @@ func yoloMarked(issues []*tracker.Issue) map[string]bool {
 type WbYOLORow struct {
 	Slug   string `json:"slug"`
 	Status string `json:"status"`
-	URL    string `json:"url"`
+	// What is an owner check's box text ("" for a gate pass).
+	What string `json:"what,omitempty"`
+	URL  string `json:"url"`
 }
 
 // yoloQueueRows is the queue as the company's rows, max at most.
@@ -164,7 +186,7 @@ func yoloQueueRows(b *YOLOBand, prefix string, max int) (rows []WbYOLORow, more 
 		if i == max {
 			return rows, len(b.Queue) - max
 		}
-		rows = append(rows, WbYOLORow{Slug: p.Slug, Status: p.Status, URL: prefix + "/issue/" + p.Slug + "#yolo"})
+		rows = append(rows, WbYOLORow{Slug: p.Slug, Status: p.Label(), What: p.What, URL: prefix + "/issue/" + p.Slug + "#yolo"})
 	}
 	return rows, 0
 }

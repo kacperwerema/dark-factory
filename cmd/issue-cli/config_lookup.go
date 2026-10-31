@@ -28,6 +28,7 @@ type configSource struct {
 //  2. $ISSUE_VIEWER_CONFIG
 //  3. ./projects.yaml, only if it exists
 //  4. the config of the running viewer (viewer.json), if that config exists
+//     and the viewer's pid is alive
 //  5. ~/.config/ai-workflow-engine/projects.yaml, if it exists
 //
 // Steps 1 and 2 are taken even when the file is missing: the user named it,
@@ -64,6 +65,8 @@ func findConfig(flagValue string) configSource {
 			check(path + ": names no config")
 		case !isRegularFile(state.Config):
 			check(fmt.Sprintf("%s: config %s no longer exists", path, state.Config))
+		case state.PID > 0 && !viewerstate.Alive(state.PID):
+			check(fmt.Sprintf("%s: its viewer (pid %d, config %s) is not running", path, state.PID, state.Config))
 		default:
 			src.Path = state.Config
 			src.Why = fmt.Sprintf("the running viewer's, %s pid %d, recorded in %s", state.URL, state.PID, path)
@@ -102,7 +105,7 @@ func (c configSource) notFound() error {
 	for i, line := range c.Checked {
 		fmt.Fprintf(&b, "  %d. %s\n", i+1, line)
 	}
-	return fmt.Errorf("%w. Checked, in order:\n%s\nFix: export ISSUE_VIEWER_CONFIG=/path/to/projects.yaml, or start the viewer (issue-viewer --config /path/to/projects.yaml)", errNoConfig, b.String())
+	return fmt.Errorf("%w. Checked, in order:\n%s\nFix: export ISSUE_VIEWER_CONFIG=/path/to/projects.yaml, or start the viewer (issue-viewer --config /path/to/projects.yaml)\nNew project? issue-cli project init <dir> --config /path/to/projects.yaml", errNoConfig, b.String())
 }
 
 // describe is the one line `projects` and --debug print.

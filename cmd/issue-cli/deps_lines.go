@@ -17,16 +17,31 @@ const sharedFilesShown = 10
 func printDepLines(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue) {
 	closed := tracker.ClosedIssueFunc(ctx.Project)
 	deps := tracker.IssueDeps(issue, issues, tracker.BuildDecisionIndex(issues, closed), closed)
+	askHint := ""
 	for _, kind := range []string{"depends on", "depended on by", "decided by"} {
 		var parts []string
 		for _, d := range deps {
-			if d.Kind == kind {
-				parts = append(parts, fmt.Sprintf("%s (%s)", d.Target, d.State))
+			if d.Kind != kind {
+				continue
 			}
+			state := d.State
+			if kind != "decided by" && d.Slug != "" {
+				// The sibling channel between the two (issue-cli ask).
+				switch between := tracker.AskBetween(issue, tracker.FindIssue(issues, d.Slug)); {
+				case between != "":
+					state += " · " + between
+				case kind == "depends on" && !d.Closed && askHint == "":
+					askHint = d.Slug
+				}
+			}
+			parts = append(parts, fmt.Sprintf("%s (%s)", d.Target, state))
 		}
 		if len(parts) > 0 {
 			fmt.Fprintf(ctx.Stdout, "%s: %s\n", strings.ToUpper(kind[:1])+kind[1:], strings.Join(parts, ", "))
 		}
+	}
+	if askHint != "" {
+		fmt.Fprintf(ctx.Stdout, "Building on %s's format? Agree it with its worker: %s\n", askHint, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli ask %s \"...\"", askHint)))
 	}
 	if line := guardMetricsLine(ctx.Project, issue); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)

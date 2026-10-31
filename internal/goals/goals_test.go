@@ -162,3 +162,89 @@ func TestProgressBounds(t *testing.T) {
 		}
 	}
 }
+
+// Marketing's pages roll into GTM's pipeline, GTM's pipeline and Sales's
+// calls (straight to HQ) into HQ's clients.
+func TestResolveGroupRollUp(t *testing.T) {
+	p := project(t)
+	p.Product = nil
+	p.Departments = []tracker.Department{
+		{Name: "GTM", Goals: []tracker.Goal{{ID: "pipeline", Target: num(10), RollsUp: "clients"}}},
+		{Name: "Marketing", Parent: "gtm", Goals: []tracker.Goal{
+			{ID: "pages", Target: num(40), RollsUp: "pipeline"},
+			{ID: "posts", Target: num(4), RollsUp: "pipeline"},
+		}},
+		{Name: "Sales", Parent: "gtm", Goals: []tracker.Goal{{ID: "calls", Target: num(10), RollsUp: "clients"}}},
+	}
+	for _, e := range []Entry{
+		{Goal: "marketing/pages", Value: 20, Date: "2026-10-29"},
+		{Goal: "marketing/posts", Value: 4, Date: "2026-10-29"},
+		{Goal: "sales/calls", Value: 2, Date: "2026-10-29"},
+	} {
+		if err := Append(p, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep := Resolve(p, now)
+	if o := rep.Find("marketing"); o == nil || o.Parent != "gtm" {
+		t.Fatalf("marketing owner = %+v, want parent gtm", o)
+	}
+	pipeline := rep.Goal("gtm/pipeline")
+	if !pipeline.RolledUp || pipeline.Pct() != 75 || len(pipeline.Children) != 2 {
+		t.Errorf("pipeline rolled %v pct %d children %d, want mean of 50 and 100 = 75 over 2", pipeline.RolledUp, pipeline.Pct(), len(pipeline.Children))
+	}
+	clients := rep.Goal("hq/clients")
+	if !clients.RolledUp || clients.Pct() != 48 || len(clients.Children) != 2 {
+		t.Errorf("clients rolled %v pct %d children %d, want mean of pipeline 75 and calls 20 = 48 over 2", clients.RolledUp, clients.Pct(), len(clients.Children))
+	}
+
+	// Without HQ the group still rolls up.
+	p.Company = nil
+	if g := Resolve(p, now).Goal("gtm/pipeline"); !g.RolledUp || g.Pct() != 75 {
+		t.Errorf("no HQ: pipeline rolled %v pct %d", g.RolledUp, g.Pct())
+	}
+}
+
+// Nested groups: Sales's calls roll into Outbound's meetings, Outbound's
+// meetings into GTM's pipeline, GTM's pipeline into HQ's clients: every
+// level averages from the one below
+// (factory/nested-groups-a-group-inside-a-group-with-goals-rolling-up-and-the-map-drawing-it#D-1).
+func TestResolveNestedGroupRollUp(t *testing.T) {
+	p := project(t)
+	p.Product = nil
+	p.Departments = []tracker.Department{
+		{Name: "GTM", Goals: []tracker.Goal{{ID: "pipeline", Target: num(10), RollsUp: "clients"}}},
+		{Name: "Outbound", Parent: "gtm", Goals: []tracker.Goal{{ID: "meetings", Target: num(10), RollsUp: "pipeline"}}},
+		// Listed before its group on purpose: the order is by depth.
+		{Name: "Sales", Parent: "outbound", Goals: []tracker.Goal{
+			{ID: "calls", Target: num(10), RollsUp: "meetings"},
+			{ID: "demos", Target: num(10), RollsUp: "meetings"},
+		}},
+		{Name: "Marketing", Parent: "gtm", Goals: []tracker.Goal{{ID: "pages", Target: num(10), RollsUp: "pipeline"}}},
+	}
+	for _, e := range []Entry{
+		{Goal: "sales/calls", Value: 2, Date: "2026-10-29"},
+		{Goal: "sales/demos", Value: 6, Date: "2026-10-29"},
+		{Goal: "marketing/pages", Value: 10, Date: "2026-10-29"},
+	} {
+		if err := Append(p, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep := Resolve(p, now)
+	if o := rep.Find("sales"); o == nil || o.Parent != "outbound" {
+		t.Fatalf("sales owner = %+v, want parent outbound", o)
+	}
+	meetings := rep.Goal("outbound/meetings")
+	if !meetings.RolledUp || meetings.Pct() != 40 || len(meetings.Children) != 2 {
+		t.Errorf("meetings rolled %v pct %d children %d, want mean of 20 and 60 = 40", meetings.RolledUp, meetings.Pct(), len(meetings.Children))
+	}
+	pipeline := rep.Goal("gtm/pipeline")
+	if !pipeline.RolledUp || pipeline.Pct() != 70 || len(pipeline.Children) != 2 {
+		t.Errorf("pipeline rolled %v pct %d children %d, want mean of meetings 40 and pages 100 = 70", pipeline.RolledUp, pipeline.Pct(), len(pipeline.Children))
+	}
+	clients := rep.Goal("hq/clients")
+	if !clients.RolledUp || clients.Pct() != 70 || len(clients.Children) != 1 {
+		t.Errorf("clients rolled %v pct %d children %d, want pipeline's 70 alone", clients.RolledUp, clients.Pct(), len(clients.Children))
+	}
+}

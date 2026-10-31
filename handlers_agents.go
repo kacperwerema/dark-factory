@@ -183,6 +183,7 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		model.Epics = append(model.Epics, g)
 	}
 
+	wfs := proj.WorkflowMemo()
 	for _, issue := range issues {
 		name := tracker.AgentSessionName(issue.Slug)
 		claimed[name] = true
@@ -199,7 +200,7 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		if !n.Live && issue.Status == "done" {
 			continue
 		}
-		wf := proj.LoadWorkflowForIssue(issue)
+		wf := wfs.ForIssue(issue)
 		wt, _, _ := resolveWorktree(workDir, issue.Slug, wf)
 		if n.Live {
 			comments, _ := tracker.LoadComments(issue.FilePath)
@@ -454,6 +455,9 @@ func (s *Server) handleLeadSpawn(w http.ResponseWriter, r *http.Request, proj *t
 	spec.AgentType = strings.TrimSpace(body.Agent)
 	if spec.AgentType == "" {
 		spec.AgentType = "claude"
+	}
+	if refuseAgentType(w, spec.AgentType) {
+		return
 	}
 	resp := startLead(proj, spec)
 	w.Header().Set("Content-Type", "application/json")

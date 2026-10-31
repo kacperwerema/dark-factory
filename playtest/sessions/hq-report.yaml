@@ -1,0 +1,97 @@
+session: hq-report
+issue: factory/hq-report-an-executive-summary-of-each-department-in-the-ceos-hq
+title: The HQ report - every department in one line, then its detail, and the same as text
+scenario: hq-report
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC1
+    title: HQ links to the Report; one folded section per box in the company tree, headline first
+    proves: [AC1]
+    setup:
+      - cli: [health, snapshot]
+      - open: /p/{project}/hq/report
+    act:
+      - wait_for: { visible: hq_report.page }
+    checks:
+      - http: { path: "/p/{project}/company", contains: "href=\"/p/acme/hq/report\"" }
+      - count: { pattern: "hq_report.box.*", equals: 6 }
+      - below: [hq_report.box.hq, hq_report.box.product]
+      - below: [hq_report.box.product, hq_report.box.gtm]
+      - below: [hq_report.box.gtm, hq_report.box.marketing]
+      - below: [hq_report.box.marketing, hq_report.box.sales]
+      - below: [hq_report.box.sales, hq_report.box.factory]
+      - text_contains: { target: hq_report.headline.marketing, text: "% on track" }
+      - text_contains: { target: hq_report.headline.marketing, text: "1 output to review" }
+      - text_contains: { target: hq_report.headline.marketing, text: "1 blocked (on Product" }
+      - text_contains: { target: hq_report.headline.factory, text: "1 blocked (on the owner)" }
+      - text_contains: { target: hq_report.headline.sales, text: "nothing here yet" }
+      - hidden: hq_report.row.marketing.goals
+    targets: [hq_report.list, hq_report.headline.marketing]
+
+  - id: AC2
+    title: Unfolded, each section shows health, goals, outputs, jobs, blocked, handoffs, spend, the week report and the lead's line
+    from: AC1
+    proves: [AC2, AC4]
+    setup:
+      - cli: [health, snapshot]
+      - open: /p/{project}/hq/report
+    act:
+      - wait_for: { visible: hq_report.page }
+      - click: hq_report.expand
+    checks:
+      - text_contains: { target: hq_report.row.marketing.health, text: "% on track · " }
+      - text_contains: { target: hq_report.row.marketing.goals, text: "Client pages refreshed: 7 of 10" }
+      - text_contains: { target: hq_report.row.marketing.outputs, text: "waiting on your review: Acme: launch post (post, 2026-10-28)" }
+      - text_contains: { target: hq_report.row.marketing.jobs, text: "Weekly SEO pass (every Mon 00:00)" }
+      - text_contains: { target: hq_report.row.marketing.blocked, text: "Case study pages (in progress) · on Product (engine/case-study-template, in progress)" }
+      - text_contains: { target: hq_report.row.marketing.handoffs, text: "Refresh the pricing page · from GTM" }
+      - text_contains: { target: hq_report.row.marketing.spend, text: "this week · budget" }
+      - text_contains: { target: hq_report.row.marketing.lead, text: "three case studies drafted" }
+      - text_contains: { target: hq_report.row.gtm.week_report, text: "Week 2026-W44: 1 goal moved · 0 outputs shipped, 0 reviewed · 1 blocked" }
+      - text_contains: { target: hq_report.row.factory.blocked, text: "on the owner · an open question: comment" }
+      - text_contains: { target: hq_report.row.factory.health, text: "not measured in the last snapshot" }
+      - text_contains: { target: hq_report.row.factory.lead, text: "home and pricing pages built" }
+      - text_contains: { target: hq_report.row.hq.goals, text: "Paying clients" }
+      - text_contains: { target: hq_report.empty.sales, text: "Nothing here yet: no goals, outputs, jobs, handoffs, open work or spend." }
+      - visible: hq_report.row.marketing.goals
+    targets: [hq_report.box.marketing, hq_report.box.factory, hq_report.box.sales]
+
+  - id: AC3
+    title: The markdown twin has the headlines first, then each box's detail
+    proves: [AC3]
+    setup:
+      - cli: [health, snapshot]
+      - open: /p/{project}/hq/report
+    checks:
+      - http: { path: "/p/{project}/hq/report.md", contains: "# Acme · HQ report · week " }
+      - http: { path: "/p/{project}/hq/report.md", contains: "## Headlines\n\n- **HQ** — " }
+      - http: { path: "/p/{project}/hq/report.md", contains: "  - **Marketing** — ♥ " }
+      - http: { path: "/p/{project}/hq/report.md", contains: "  - **Sales** — nothing here yet" }
+      - http: { path: "/p/{project}/hq/report.md", contains: "## GTM › Marketing\n\n- Health: " }
+      - http: { path: "/p/{project}/hq/report.md", contains: "## GTM › Sales\n\nNothing here yet" }
+      - http: { path: "/p/{project}/hq/report.md", contains: "- Blocked:\n  - Case study pages (in progress) · on Product" }
+
+  - id: AC5
+    title: Owner check - the HQ report tells you what you need
+    from: AC2
+    proves: [AC5]
+    targets: [hq_report.list]
+    do: >-
+      Open the company page, click "Report →" in HQ's room. Read the closed
+      page top to bottom: one line for HQ, Product, GTM, Marketing, Sales and
+      Factory. Then Expand all and read Marketing's and Factory's detail. On
+      a phone, open it again.
+    expect: >-
+      Closed, each line says whether the box is on track and what matters
+      this week: goals moved, outputs to review, jobs due, what is blocked
+      and on whom, handoffs, spend. Sales says it has nothing yet. Opened,
+      each row backs its headline with the issue or output behind it, GTM
+      names its week report, and each department lead's last progress line
+      is there. At phone width the rows stack and nothing runs off the
+      screen.
+    why: Whether the summary tells the owner what they need is the owner's call.

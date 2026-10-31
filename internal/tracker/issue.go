@@ -242,6 +242,11 @@ func LoadIssues(dir string) ([]*Issue, error) {
 		if err != nil {
 			return err
 		}
+		// Dot folders under the issues dir hold the work files' logs and
+		// reports (.goals, .outputs, .jobs, .reports): never issues.
+		if d.IsDir() && path != dir && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
 			return nil
 		}
@@ -979,6 +984,9 @@ func CreateIssueFileOpts(issueDir string, opts CreateIssueOpts) (filePath, slug 
 		opts.Status = "idea"
 	}
 
+	if err := ValidSystemDir(opts.System); err != nil {
+		return "", "", err
+	}
 	dir := issueDir
 	if opts.System != "" {
 		dir = filepath.Join(dir, opts.System)
@@ -987,28 +995,33 @@ func CreateIssueFileOpts(issueDir string, opts CreateIssueOpts) (filePath, slug 
 
 	slug = Slugify(opts.Title)
 	filename := filepath.Join(dir, slug+".md")
+	// Create never replaces an issue: a title that slugs to an existing
+	// file is refused, as issue-cli create refuses it.
+	if _, err := os.Lstat(filename); err == nil {
+		return "", "", fmt.Errorf("%w: %s (use update to change it)", ErrIssueExists, slug)
+	}
 
 	var content strings.Builder
 	content.WriteString("---\n")
-	content.WriteString(fmt.Sprintf("title: \"%s\"\n", strings.ReplaceAll(opts.Title, "\"", "\\\"")))
-	content.WriteString(fmt.Sprintf("status: \"%s\"\n", opts.Status))
+	content.WriteString("title: " + yamlQuote(opts.Title) + "\n")
+	content.WriteString("status: " + yamlQuote(opts.Status) + "\n")
 	content.WriteString(CreatedLine(opts.Now))
 	if opts.System != "" {
-		content.WriteString(fmt.Sprintf("system: \"%s\"\n", opts.System))
+		content.WriteString("system: " + yamlQuote(opts.System) + "\n")
 	}
 	if opts.Version != "" {
-		content.WriteString(fmt.Sprintf("version: \"%s\"\n", opts.Version))
+		content.WriteString("version: " + yamlQuote(opts.Version) + "\n")
 	}
 	if opts.Priority != "" {
-		content.WriteString(fmt.Sprintf("priority: \"%s\"\n", opts.Priority))
+		content.WriteString("priority: " + yamlQuote(opts.Priority) + "\n")
 	}
 	if opts.Type != "" {
-		content.WriteString(fmt.Sprintf("type: \"%s\"\n", opts.Type))
+		content.WriteString("type: " + yamlQuote(opts.Type) + "\n")
 	}
 	if len(opts.Labels) > 0 {
 		content.WriteString("labels:\n")
 		for _, l := range opts.Labels {
-			content.WriteString(fmt.Sprintf("  - %s\n", l))
+			content.WriteString("  - " + yamlQuote(l) + "\n")
 		}
 	}
 	content.WriteString("---\n")
@@ -1030,6 +1043,53 @@ func CreateIssueFileOpts(issueDir string, opts CreateIssueOpts) (filePath, slug 
 	}
 
 	return filename, slug, nil
+}
+
+// ErrIssueExists and ErrBadSystem are create's refusals of the request
+// itself (an HTTP 409 and 400).
+var (
+	ErrIssueExists = errors.New("issue already exists")
+	ErrBadSystem   = errors.New("bad system")
+)
+
+// ValidSystemDir refuses a system that isn't one plain folder name: a
+// system is the subfolder an issue is written to, so "../x", "/abs", "a/b"
+// or a dot-folder would write outside the issues tree
+// (docs/API/security.md).
+func ValidSystemDir(system string) error {
+	if system == "" {
+		return nil
+	}
+	if system != strings.TrimSpace(system) || strings.HasPrefix(system, ".") || strings.ContainsAny(system, "/\\:\x00\n\r") {
+		return fmt.Errorf("%w: system %q is not one folder name (no /, \\, :, leading dot or surrounding spaces)", ErrBadSystem, system)
+	}
+	return nil
+}
+
+// yamlQuote writes s as a YAML double-quoted scalar: quotes, backslashes,
+// newlines and control characters escaped, so a value can't end its line
+// and add frontmatter keys.
+func yamlQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"':
+			b.WriteString(`\"`)
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // CollectSubdirSystems returns the names of immediate subdirectories in dir.
@@ -1246,6 +1306,14 @@ func ListCheckboxes(body string) []CheckboxItem {
 			checked = true
 		case strings.HasPrefix(trimmed, "- [ ]"):
 			checked = false
+		case strings.HasPrefix(trimmed, removedBoxMarker):
+			// A removed box keeps its slot, so the boxes after it keep
+			// their ids; it is not listed.
+			perSection[section]++
+			if _, ok := abbrevs[section]; !ok {
+				abbrevs[section] = nextSectionAbbrev(section, taken)
+			}
+			continue
 		default:
 			continue
 		}
@@ -1322,6 +1390,85 @@ func EditCheckboxText(body, ref, text string) (string, CheckboxItem, error) {
 	marker := strings.Index(line, "- [")
 	lines[item.Line] = line[:marker+len("- [ ]")] + " " + text
 	return strings.Join(lines, "\n"), item, nil
+}
+
+// removedBoxMarker starts the line check-remove leaves in place of a box:
+// "<!-- removed AC6: <text> -->". ListCheckboxes counts it as a slot.
+const removedBoxMarker = "<!-- removed "
+
+// resolveBoxes resolves every ref against body's boxes, all or nothing: an
+// error names the refs that match no box and lists the issue's ids.
+func resolveBoxes(body string, refs []string) ([]CheckboxItem, error) {
+	items := ListCheckboxes(body)
+	var found []CheckboxItem
+	var missing []string
+	seen := map[int]bool{}
+	for _, ref := range refs {
+		it, st := ResolveCheckboxRef(items, ref)
+		if st != RefFound {
+			missing = append(missing, ref)
+			continue
+		}
+		if !seen[it.Line] {
+			seen[it.Line] = true
+			found = append(found, it)
+		}
+	}
+	if len(missing) > 0 {
+		var ids []string
+		for _, it := range items {
+			if it.ID != "" {
+				ids = append(ids, it.ID)
+			}
+		}
+		return nil, fmt.Errorf("no checkbox %s; ids in this issue: %s", strings.Join(missing, ", "), strings.Join(ids, " "))
+	}
+	return found, nil
+}
+
+// UncheckBoxes unticks the boxes refs name (short or long ids), all or
+// nothing. Returns the new body, the boxes it unticked and the ones that
+// were already open.
+func UncheckBoxes(body string, refs []string) (string, []CheckboxItem, []CheckboxItem, error) {
+	found, err := resolveBoxes(body, refs)
+	if err != nil {
+		return body, nil, nil, err
+	}
+	lines := strings.Split(body, "\n")
+	var unticked, already []CheckboxItem
+	for _, it := range found {
+		if !it.Checked {
+			already = append(already, it)
+			continue
+		}
+		line := lines[it.Line]
+		i := strings.Index(line, "- [")
+		lines[it.Line] = line[:i] + "- [ ]" + line[i+len("- [x]"):]
+		unticked = append(unticked, it)
+	}
+	return strings.Join(lines, "\n"), unticked, already, nil
+}
+
+// RemoveBoxes replaces the boxes refs name with a removed-box line
+// ("<!-- removed AC6: <text> -->") that keeps each one's slot, so every other
+// box keeps its id and no id is reused. All or nothing.
+func RemoveBoxes(body string, refs []string) (string, []CheckboxItem, error) {
+	found, err := resolveBoxes(body, refs)
+	if err != nil {
+		return body, nil, err
+	}
+	lines := strings.Split(body, "\n")
+	for _, it := range found {
+		line := lines[it.Line]
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		text := strings.ReplaceAll(it.Text, "--", "- -")
+		id := it.ID
+		if id == "" {
+			id = fmt.Sprintf("#%d", it.Index)
+		}
+		lines[it.Line] = fmt.Sprintf("%s%s%s: %s -->", indent, removedBoxMarker, id, text)
+	}
+	return strings.Join(lines, "\n"), found, nil
 }
 
 // MatchUncheckedByText returns every unchecked checkbox whose label contains

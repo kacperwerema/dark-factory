@@ -1,0 +1,63 @@
+session: week-plan
+issue: factory/the-lead-of-leads-at-work-the-gtm-lead-plans-its-departments-week-and-reports-on-the-company-page
+title: A group's week report in its room on the company page and on its own page
+scenario: week-plan
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The GTM room shows the latest week report, its counts and its file
+    proves: [AC2]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.room.week }
+    checks:
+      - count: { pattern: "company.room.week", equals: 1 }
+      - count: { pattern: "company.room.week.empty", equals: 0 }
+      - text_contains: { target: company.room.week, text: "Week 2026-W44" }
+      - text_contains: { target: company.room.week.counts, text: "1 goal moved · 0 outputs shipped, 0 reviewed · 1 blocked" }
+      - text_contains: { target: company.room.week, text: "with plan" }
+      - text_contains: { target: company.room.week, text: ".reports/gtm/2026-W44.md" }
+    targets: [company.room.week, company.room.group]
+
+  - id: TP5
+    title: The report page renders the plan and each department's week
+    from: TP4
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/acme/reports/gtm/2026-W44
+    act:
+      - wait_for: { visible: week_report.page }
+    checks:
+      - text_contains: { target: week_report.page, text: "GTM · week 2026-W44" }
+      - text_contains: { target: week_report.path, text: ".reports/gtm/2026-W44.md" }
+      - text_contains: { target: week_report.body, text: "Refresh the pricing page (seo/refresh-the-pricing-page, filed at backlog; waits for your start)." }
+      - text_contains: { target: week_report.body, text: "New client conversations: 3 of 8 (38%) · +2 this week (from 1)" }
+      - text_contains: { target: week_report.body, text: "o-launch Acme: launch post (post, review)" }
+      - text_contains: { target: week_report.body, text: "seo/refresh-the-pricing-page (Refresh the pricing page, backlog) to Marketing" }
+      - text_contains: { target: week_report.body, text: "on Product (engine/case-study-template, in progress)" }
+    targets: [week_report.body]
+
+  - id: AC4
+    title: Owner check - a sample week plan and report read right
+    from: TP5
+    proves: [AC4]
+    targets: [week_report.body, company.room.week]
+    do: >-
+      On the company page, find the GTM room and its Week block, then open
+      it. Read the report from the top: the counts line, the plan, then GTM's
+      and Marketing's goals, outputs, jobs, handoffs and what is blocked.
+    expect: >-
+      The Week block says week 2026-W44 with "1 goal moved · 0 outputs
+      shipped, 0 reviewed · 1 blocked", marks that it has a plan and names
+      the file. The report's plan says what each department does this week,
+      and every line in it matches a fact further down: the pipeline went
+      from 1 to 3, the launch post waits on your review, the pricing page was
+      asked of Marketing and waits for your start, and the case study pages
+      wait on Product's template. Nothing in it says anything was started.
+    why: The owner reads a sample week plan and report before relying on the weekly job.

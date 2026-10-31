@@ -1,0 +1,27 @@
+# Connections between rooms: GTM (a group) with Marketing (system SEO) and
+# Sales (system Leads) inside, next to HQ and Product. Product's brand
+# fields were requested by Marketing and relayed by the CEO (via HQ);
+# Marketing's landing page waits on Product's engine work; Sales' pitch
+# deck waits on Marketing's brand foundation; HQ asked Sales for an
+# outreach list.
+title: GTM with Marketing and Sales, and issues that cross the rooms
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: GTM
+        color: "#7B61FF"
+        role: Go to market
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+      - name: Sales
+        color: "#17A2B8"
+        role: Leads and deals
+        systems: [Leads]
+        parent: GTM
+issues: tracker
+workflow: workflow.yaml

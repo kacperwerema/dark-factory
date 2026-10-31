@@ -1,0 +1,1 @@
+Fixture copies of Marketing's first output (ab00, "Brand and ICP: Dark Factory", 2026-10-31) for the output reader's tests and playtest. brand-v1.md is the output as added; brand-v2.md a revision made for the tests (a "What you settle" section, line C dropped, one more Don't). Never point tests at the live file.

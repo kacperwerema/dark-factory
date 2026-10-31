@@ -58,6 +58,8 @@ type WbBinder struct {
 type WbBinderGroup struct {
 	Name  string
 	Items []WbBinderItem
+	// Open: the group holds the document on show (its fold starts open).
+	Open bool
 }
 
 // WbBinderItem is one document in the binder.
@@ -303,6 +305,9 @@ func buildBinder(pages []*tracker.DocPage, metas map[string]docMeta, prefix stri
 			Chips:   docChips(metas[page.Slug], ""),
 			Current: page == selected,
 		})
+		if page == selected {
+			g.Open = true
+		}
 	}
 	return b
 }
@@ -558,8 +563,8 @@ func startDocEditor(proj *tracker.Project, slug, abs string) (BodyEditResponse, 
 	if err := createCmd.Run(); err != nil {
 		return BodyEditResponse{}, fmt.Errorf("create tmux session: %w", err)
 	}
-	editCmd := fmt.Sprintf("nvim %q; exit", abs)
-	if err := tmuxSendKeys(target, []string{editCmd}); err != nil {
+	editCmd := fmt.Sprintf("nvim %s; exit", agentrun.ShellWord(abs))
+	if err := tmuxTypeCommand(target, []string{editCmd}); err != nil {
 		killAgentTmux(proj, session)
 		return BodyEditResponse{}, fmt.Errorf("start nvim: %w", err)
 	}

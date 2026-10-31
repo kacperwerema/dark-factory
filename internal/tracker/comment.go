@@ -26,6 +26,61 @@ type Comment struct {
 	// before v0.57 and from a shell with no session; read it through
 	// CommentAuthor.
 	Author string `json:"author,omitempty"`
+	// Edits are the comment's earlier versions, oldest first: each the
+	// text it had and when that text was replaced. EditComment adds one
+	// per edit; Text is always the current version and Date stays when the
+	// comment was first made.
+	Edits []CommentEdit `json:"edits,omitempty"`
+}
+
+// CommentEdit is one earlier version of a comment.
+type CommentEdit struct {
+	Date string `json:"date"`
+	Text string `json:"text"`
+}
+
+// LatestCommentBy is the newest comment author wrote (ok false when none).
+func LatestCommentBy(comments []Comment, author string) (Comment, bool) {
+	if author == "" {
+		return Comment{}, false
+	}
+	for i := len(comments) - 1; i >= 0; i-- {
+		if CommentAuthor(comments[i]) == author {
+			return comments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
+// EditComment replaces comment id's text, keeping the old text in its Edits
+// dated now. check runs under the issue lock on the comments as they are
+// and may refuse the edit.
+func EditComment(filePath string, id int, text string, now time.Time, check func(comments []Comment, c Comment) error) (Comment, error) {
+	var edited Comment
+	err := withIssueLock(filePath, func() error {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", filePath, err)
+		}
+		_, comments := ParseComments(string(data))
+		for i := range comments {
+			if comments[i].ID != id {
+				continue
+			}
+			if check != nil {
+				if err := check(comments, comments[i]); err != nil {
+					return err
+				}
+			}
+			c := &comments[i]
+			c.Edits = append(c.Edits, CommentEdit{Date: now.Format(time.RFC3339), Text: c.Text})
+			c.Text = text
+			edited = *c
+			return saveCommentsLocked(filePath, comments)
+		}
+		return fmt.Errorf("no comment #%d", id)
+	})
+	return edited, err
 }
 
 // OwnerAuthor is the author of every comment the viewer writes: the owner

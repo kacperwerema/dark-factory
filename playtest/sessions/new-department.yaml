@@ -1,0 +1,55 @@
+session: new-department
+issue: ui/the-company-pages-new-department-tile-adds-a-department-from-a-template
+title: The company page's New department tile adds Marketing from its template
+scenario: new-department
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The tile opens the form over the templates; Preview shows the plan and keeps the edited role.md
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/acme/company
+    act:
+      - click: tile.new_department
+      - wait_for: { visible: company.new_dept.form }
+      - click: company.new_dept.preview
+      - wait_for: { visible: dept_new.plan }
+    checks:
+      - url: { matches: "^/p/acme/departments/new\\?template=marketing$" }
+      - text_contains: { target: dept_new.file.write, text: "workflows/marketing.yaml" }
+      - text_contains: { target: dept_new.file.keep, text: "departments/marketing/role.md" }
+      - text_contains: { target: dept_new.entry, text: "- name: Marketing" }
+      - text_contains: { target: dept_new.add, text: "Add Marketing" }
+    targets: [dept_new.plan, dept_new.add]
+
+  - id: TP5
+    title: Add puts the Marketing room on the company page with the added line
+    from: TP4
+    proves: [AC3]
+    act:
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+    checks:
+      - url: { matches: "^/p/acme/company\\?" }
+      - text_contains: { target: company.added, text: "Added Marketing: 2 files written, 1 edited file of yours kept" }
+      - text_contains: { target: company.room.dept, text: "Marketing" }
+    targets: [company.added, company.room.dept]
+
+  - id: AS1
+    title: Owner check after shipping - adding Marketing from the tile works end to end
+    from: TP5
+    targets: [company.room.dept, tile.new_department]
+    do: >-
+      On this sandbox project, open the New department tile, pick Marketing,
+      press Preview, read the plan, press Add Marketing.
+    expect: >-
+      The form lists Marketing; the preview names the files and the
+      projects.yaml entry before anything changes; after Add you are back on
+      the company page with a green line and a Marketing room outlined, its
+      lead startable from the room.
+    why: The owner's next department is Marketing, added from this button.

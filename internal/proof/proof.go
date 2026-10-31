@@ -8,6 +8,7 @@ package proof
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -24,7 +25,14 @@ import (
 
 func init() {
 	tracker.SetProofChecker(func(w *tracker.WorkflowConfig, issue *tracker.Issue, comments []tracker.Comment) error {
-		return GateError(Collect(w.RepoRoot, issue, comments))
+		r := Collect(w.RepoRoot, issue, comments)
+		if w.DeferOwnerProof {
+			return YOLOGateError(r)
+		}
+		return GateError(r)
+	})
+	tracker.SetReferenceChecker(func(w *tracker.WorkflowConfig, issue *tracker.Issue) error {
+		return ReferenceError(w.RepoRoot, issue)
 	})
 }
 
@@ -46,6 +54,12 @@ type Link struct {
 	// Changed: a prove link whose criterion text differs from the text it
 	// was linked to (the box was rewritten or renumbered since).
 	Changed bool `json:"changed,omitempty"`
+	// Owner: a link to a playtest judgement step, which only the owner's
+	// playtest passes.
+	Owner bool `json:"owner,omitempty"`
+	// Stale: a playtest link from a run whose step id is no longer in the
+	// session file (renumbered or removed since); it proves nothing.
+	Stale bool `json:"stale,omitempty"`
 }
 
 // Check is a link's check result.
@@ -60,15 +74,22 @@ type Check struct {
 type CheckedLink struct {
 	Link
 	Check Check `json:"check"`
+	// OwnerPassed: an Owner link whose step the owner's own playtest (a
+	// judge-mode run) passed last. A ux-test pass of a judgement step only
+	// checks the parts are there; it is not the owner's look.
+	OwnerPassed bool `json:"owner_passed,omitempty"`
 }
 
 // Criterion is one acceptance criterion with its links.
 type Criterion struct {
-	ID      string        `json:"id"`
-	Text    string        `json:"text"`
-	Checked bool          `json:"checked"`
-	Visual  bool          `json:"visual"`
-	Links   []CheckedLink `json:"links"`
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	Checked bool   `json:"checked"`
+	Visual  bool   `json:"visual"`
+	// Owner says why only the owner can prove the criterion; "" when anyone
+	// can (owner.go).
+	Owner string        `json:"owner,omitempty"`
+	Links []CheckedLink `json:"links"`
 }
 
 // Proven reports whether any link passes its check.
@@ -94,6 +115,9 @@ type Report struct {
 	RefName  string      `json:"ref_name,omitempty"`
 	Criteria []Criterion `json:"criteria"`
 	Strays   []Stray     `json:"strays,omitempty"`
+	// OwnerBoxes is the unticked boxes other than criteria that are the
+	// owner's: a guided check left them, ## Human Testing, or "(owner)".
+	OwnerBoxes []OwnerItem `json:"owner_boxes,omitempty"`
 	// Missing names the sources that could not be read.
 	Missing []string `json:"missing,omitempty"`
 	// TestsAt is the newest tests: comment (zero: none). LastChange and
@@ -135,6 +159,7 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 	stats, _ := tracker.LoadStats(issue.FilePath)
 	r.Ref, r.RefName = timeline.GitRef(root, issue.Slug, stats.Transitions)
 	c := &checker{root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
+	c.goModule = IsGoModule(worktree) || IsGoModule(root)
 	if r.Ref == "" {
 		r.Missing = append(r.Missing, "work/"+issue.Slug+": no branch, recorded branch head or merge sha; test and commit links can't be checked")
 	}
@@ -178,8 +203,13 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 	runs, problems := timeline.LoadPlaytestRuns(nil, issue.Slug, root, worktree)
 	r.Missing = append(r.Missing, problems...)
 	c.steps = latestSteps(runs)
+	current := currentSessionSteps(root, issue)
 	for _, d := range declaredSteps(runs) {
-		add(d.criterion, Link{Kind: tracker.ProofStep, Ref: d.step, Source: SourcePlaytest, From: d.session})
+		l := Link{Kind: tracker.ProofStep, Ref: d.step, Source: SourcePlaytest, From: d.session}
+		if ids, ok := current[d.session]; ok && !ids[strings.ToUpper(d.step)] {
+			l.Stale = true
+		}
+		add(d.criterion, l)
 	}
 
 	// issue-cli prove links.
@@ -211,11 +241,20 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 		}
 	}
 	c.findTests(tests)
+	steps := stepSessions(runs)
 	for i := range r.Criteria {
 		for j := range r.Criteria[i].Links {
-			r.Criteria[i].Links[j].Check = c.check(r.Criteria[i].Links[j].Link)
+			l := r.Criteria[i].Links[j].Link
+			r.Criteria[i].Links[j].Check = c.check(l)
+			if l.Stale {
+				r.Criteria[i].Links[j].Check = staleStep(l, current[l.From])
+			}
+			if fix := stepIDHint(issue, steps, r.Criteria[i].ID, l); fix != "" && !r.Criteria[i].Links[j].Check.OK {
+				r.Criteria[i].Links[j].Check.Fix = fix
+			}
 		}
 	}
+	r.markOwner(issue, judgementSteps(runs), ownerPassedSteps(runs), guidedOwnerBoxes(root, worktree, issue.Slug))
 	return r
 }
 
@@ -250,32 +289,48 @@ type commit struct {
 	at      time.Time
 	merge   bool
 	parents []string
+	subject string
 	proves  []string
+	refs    []string
 	files   []string
 }
 
 // lastChange is the time of the newest commit that changed code: merging
-// main into the branch, or a commit that only touches docs, doesn't make a
-// tests: report stale.
+// main into the branch, or a commit that only touches non-code files, doesn't
+// make a tests: report stale.
 func lastChange(commits []commit) (commit, bool) {
 	for _, c := range commits {
-		if !c.merge && !docsOnly(c.files) {
+		if !c.merge && !nonCodeOnly(c.files) {
 			return c, true
 		}
 	}
 	return commit{}, false
 }
 
-// docsOnly reports whether every file is documentation: under docs/, a
-// Markdown file, or a CHANGELOG, in any folder. No files is not docs only.
-func docsOnly(files []string) bool {
+// nonCodeOnly reports whether every file is NonCode. No files is not.
+func nonCodeOnly(files []string) bool {
 	for _, f := range files {
-		base := path.Base(f)
-		if !strings.HasPrefix(f, "docs/") && !strings.EqualFold(path.Ext(f), ".md") && !strings.HasPrefix(strings.ToUpper(base), "CHANGELOG") {
+		if !NonCode(f) {
 			return false
 		}
 	}
 	return len(files) > 0
+}
+
+// nonCodeDirs hold files no test reads: docs, playtest sessions (run by the
+// playtest runner, not go test), guided check scripts and the tracker's notes.
+var nonCodeDirs = []string{"docs/", "playtest/sessions/", "scripts/checks/", "issues/", "retros/", "sessions/"}
+
+// NonCode reports whether a change to path can't change a test's result: a
+// file under nonCodeDirs, a Markdown file or a CHANGELOG, in any folder.
+// Other non-Go files (templates, static assets, testdata, embedded YAML) can.
+func NonCode(file string) bool {
+	for _, d := range nonCodeDirs {
+		if strings.HasPrefix(file, d) {
+			return true
+		}
+	}
+	return strings.EqualFold(path.Ext(file), ".md") || strings.HasPrefix(strings.ToUpper(path.Base(file)), "CHANGELOG")
 }
 
 // lastTestsComment is the time of the newest tests: comment.
@@ -314,6 +369,68 @@ func latestSteps(runs []timeline.PlaytestRun) map[string]stepVerdict {
 		}
 	}
 	return out
+}
+
+// stepSessions maps each step id (upper case) in the runs to its session.
+func stepSessions(runs []timeline.PlaytestRun) map[string]string {
+	out := map[string]string{}
+	for _, run := range runs {
+		for _, st := range run.Steps {
+			out[strings.ToUpper(st.ID)] = run.Session
+		}
+	}
+	return out
+}
+
+// stepIDHint is the Fix for a trailer test word that is really a box or
+// playtest step id ("Proves: AC1 TP4"): step ids are the issue's box ids, so
+// the step proves the criterion through proves: in its session, not a
+// trailer. "" when the link is not such a word.
+func stepIDHint(issue *tracker.Issue, steps map[string]string, criterion string, l Link) string {
+	if l.Kind != tracker.ProofTest || l.Source != SourceTrailer || !idShapeRe.MatchString(l.Ref) {
+		return ""
+	}
+	id := strings.ToUpper(l.Ref)
+	session, isStep := steps[id]
+	if !isStep {
+		if _, st := tracker.ResolveCheckboxRef(tracker.ListCheckboxes(issue.BodyRaw), id); st != tracker.RefFound {
+			return ""
+		}
+	}
+	where := "its playtest session"
+	if session != "" {
+		where = "the session " + session
+	}
+	return fmt.Sprintf("%s is a box or playtest step id, not a test: a trailer reads it as a test name. To prove %s with that step, add `proves: [%s]` to step %s in %s, or run: issue-cli prove %s %s --step %s",
+		id, criterion, criterion, id, where, issue.Slug, criterion, id)
+}
+
+// currentSessionSteps maps each playtest session of the issue that has a
+// session file (the issue's worktree first, then the checkout) to its step
+// ids in upper case. A session without a file (archived, or another
+// project's runner) is not in the map: its runs' ids can't be checked.
+func currentSessionSteps(root string, issue *tracker.Issue) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, s := range tracker.IssuePlaytestSessions(root, issue.Slug) {
+		ids := map[string]bool{}
+		for _, st := range s.Steps {
+			ids[strings.ToUpper(strings.TrimSpace(st.ID))] = true
+		}
+		out[s.Session] = ids
+	}
+	return out
+}
+
+// staleStep is the check of a stale step link: an old run's step id the
+// session no longer has.
+func staleStep(l Link, ids map[string]bool) Check {
+	have := make([]string, 0, len(ids))
+	for id := range ids {
+		have = append(have, id)
+	}
+	sort.Strings(have)
+	return Check{State: "stale: " + l.From + " has no step " + l.Ref + " now (an old run's id)",
+		Fix: "the session's steps are " + strings.Join(have, ", ") + "; put proves: on the step that now covers it and run the session again"}
 }
 
 type declared struct{ criterion, step, session string }

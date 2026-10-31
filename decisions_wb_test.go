@@ -40,7 +40,7 @@ func TestDecisionsLogPage(t *testing.T) {
 		`recorded by: CEO chat`, `recorded by: chat`,
 		`refers to <a class="wb-mono-inline wb-drow-ref" href="/p/wb/issue/sim/phases">sim/phases#D-1</a>`,
 		`superseded by <a class="wb-mono-inline wb-drow-ref" href="/p/wb/issue/sim/pivot">sim/pivot#D-1</a>`,
-		`cited by: <a class="wb-mono-inline" href="/p/wb/issue/sim/creeps">sim/creeps</a>`, `cited by: nobody yet`,
+		`cited by: <a class="wb-mono-inline" href="/p/wb/issue/sim/creeps">sim/creeps (backlog)</a>`, `cited by: nobody yet`,
 		`also considered: A Reset`,
 		// Chips: active, deferred, stale.
 		`wb-chip wb-chip--green">active</span>`, `wb-chip wb-chip--idle">deferred</span>`, `wb-chip wb-chip--red">superseded · still cited</span>`,
@@ -191,5 +191,54 @@ func TestDecisionsByAndDayLabel(t *testing.T) {
 	}
 	if got := decisionsDayLabel(time.Date(2025, 10, 29, 0, 0, 0, 0, time.Local), now); got != "Wed 29 Oct 2025" {
 		t.Errorf("other year = %q", got)
+	}
+}
+
+// Proves: AC3 — the log's state pills set ?state= (what the classic chips
+// did), with counts; an Active row in the hygiene numbers; a replaced
+// decision names the day (classic-page-gaps G52, G53).
+func TestDecisionsLogStatePillsAndReplacedDate(t *testing.T) {
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	newer := &tracker.DecisionEntry{Decision: tracker.Decision{Slug: "sim/b", ID: "D-1", Ref: "sim/b#D-1"}, Issue: &tracker.Issue{Slug: "sim/b", Title: "B"}}
+	newer.Date = now
+	newer.State = tracker.DecisionActive
+	old := &tracker.DecisionEntry{Decision: tracker.Decision{Slug: "sim/a", ID: "D-1", Ref: "sim/a#D-1"}, Issue: &tracker.Issue{Slug: "sim/a", Title: "A"}, ReplacedBy: newer,
+		CitedOpen: []*tracker.Issue{{Slug: "sim/c", Status: "backlog"}}}
+	old.Date = now.Add(-48 * time.Hour)
+	old.State = tracker.DecisionStale
+	d := buildDecisionsWb([]*tracker.DecisionEntry{newer, old}, "/p/x", decisionsFilter{}, now)
+	pills := map[string]WbFilterPill{}
+	for _, p := range d.Search.Filters {
+		pills[p.Key] = p
+	}
+	if p := pills["state_active"]; p.URL != "/p/x/decisions?state=active" || p.Label != "Active · 1" {
+		t.Errorf("active pill = %+v", p)
+	}
+	if p := pills["state_stale"]; p.Label != "Stale citations · 1" {
+		t.Errorf("stale pill = %+v", p)
+	}
+	if d.Hygiene.Rows[0].Label != "Active" || d.Hygiene.Rows[0].Value != "1" {
+		t.Errorf("hygiene = %+v", d.Hygiene.Rows)
+	}
+	d = buildDecisionsWb([]*tracker.DecisionEntry{newer, old}, "/p/x", decisionsFilter{State: "stale"}, now)
+	if p := pills["state_stale"]; p.On {
+		t.Error("unfiltered page marks a state on")
+	}
+	var row WbDecisionRow
+	for _, day := range d.Days {
+		for _, th := range day.Threads {
+			row = th.Rows[0]
+		}
+	}
+	if row.Slug != "sim/a" || row.ReplacedOn != "2026-10-31" || row.CitedOpen != 1 || row.Cited[0].Label != "sim/c (backlog)" {
+		t.Errorf("stale row = %+v", row)
+	}
+	for _, p := range d.Search.Filters {
+		if p.Key == "state_stale" && (!p.On || p.URL != "/p/x/decisions") {
+			t.Errorf("an applied state pill clears itself: %+v", p)
+		}
+		if p.Key == "clear_state" {
+			t.Error("a known state gets a second remove pill")
+		}
 	}
 }

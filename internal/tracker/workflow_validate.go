@@ -75,10 +75,14 @@ func DescribeAction(action WorkflowAction, defaultStatus string) string {
 		if status == "" {
 			status = defaultStatus
 		}
-		if status == "" {
-			return "Must be human-approved in the issue viewer"
+		owner := ""
+		if action.OwnerOnly {
+			owner = " (owner only: YOLO never passes it)"
 		}
-		return fmt.Sprintf("Must be human-approved for %q in the issue viewer", status)
+		if status == "" {
+			return "Must be human-approved in the issue viewer" + owner
+		}
+		return fmt.Sprintf("Must be human-approved for %q in the issue viewer%s", status, owner)
 	case "append_section":
 		title := strings.TrimSpace(action.Title)
 		if title == "" {
@@ -123,6 +127,13 @@ func validationSummary(rule string) string {
 		return fmt.Sprintf("Validate every item in section %s is a checkbox with its own text", arg)
 	case "criteria_proven":
 		return "Validate every acceptance criterion has a proof link that passes its check (issue-cli prove <slug> --list)"
+	case commitsReferenceRule:
+		return "Validate a commit on the branch references the issue (its slug in a subject, or a Refs: <slug> line)"
+	case hasOutputRule:
+		if arg == "" {
+			return "Validate the issue has an output on the shelf (issue-cli output add --issue <slug>)"
+		}
+		return fmt.Sprintf("Validate the issue has a %s on the shelf (issue-cli output add --issue <slug> --kind %s)", arg, arg)
 	case "has_assignee":
 		return "Validate issue has assignee"
 	case "all_checkboxes_checked":
@@ -180,9 +191,15 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		return w.checkCriteriaCheckboxes(ruleArg, issue)
 	case criteriaProvenRule:
 		return w.checkCriteriaProven(ruleArg, issue, comments)
+	case commitsReferenceRule:
+		return w.checkCommitsReference(issue)
+	case hasOutputRule:
+		return w.checkHasOutput(ruleArg, issue)
 	case "has_assignee":
 		if issue.Assignee == "" {
-			return fmt.Errorf("no assignee — claim the issue first:\n\n  issue-cli claim %s --assignee \"your-name\"", issue.Slug)
+			// start re-claims and moves the issue on (backlog clears the
+			// assignee); claim only sets the name.
+			return fmt.Errorf("no assignee — re-claim the issue with:\n\n  issue-cli start %s\n\n(or only set the name: issue-cli claim %s --assignee \"your-name\")", issue.Slug, issue.Slug)
 		}
 	case "all_checkboxes_checked":
 		items := ListCheckboxes(issue.BodyRaw)

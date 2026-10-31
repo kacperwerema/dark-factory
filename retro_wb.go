@@ -48,6 +48,29 @@ type RetroWbPage struct {
 	Pattern  *WbRetroPattern
 	// Empty explains a page without retros.
 	Empty string
+	// Bugs is the Bugs view (?view=bugs): the tool bug reports linked to
+	// this project's issues. nil on the sorting room.
+	Bugs *WbRetroBugs
+	// View switches between the sorting room and the Bugs view.
+	View WbSegLinks
+}
+
+// WbRetroBugs is the Bugs view: counts, a status filter, one card per bug
+// report (what the classic page's #bugs section showed).
+type WbRetroBugs struct {
+	Open, Closed int
+	Filters      []WbFilterPill
+	Cards        []WbRetroBug
+	Empty        string
+}
+
+// WbRetroBug is one tool bug report and its status buttons (POST
+// retros/bug/<file>/status).
+type WbRetroBug struct {
+	FileName, IssueSlug, IssueURL string
+	Tool, When, Description       string
+	Status, StatusText, Tone      string
+	StatusURL                     string
 }
 
 // WbRetroPresort is "Let an agent pre-sort": the Claude | Codex choice and
@@ -332,6 +355,9 @@ type retroWbIn struct {
 	All        bool
 	Presort    WbRetroPresort
 	StatusStop []string
+	// View is "bugs" for the Bugs view; BugStatus its filter (open by
+	// default, as on the classic page; "all" shows every report).
+	View, BugStatus string
 }
 
 // buildRetroWb builds the page from the retros (newest first) and the
@@ -364,7 +390,13 @@ func buildRetroWb(in retroWbIn) *RetroWbPage {
 	}
 
 	p.Loop = WbRetroLoop{DoneURL: prefix + "/hall", LineURL: prefix + "/hall", Open: len(open), Processed: len(done), LinkedBugs: len(in.Bugs),
-		Steps: []WbRetroLoopStep{{"Docs", prefix + "/docs"}, {"Decisions", prefix + "/decisions"}, {"Workflow", prefix + "/updates"}, {"Bugs", base + "?classic=1#bugs"}}}
+		Steps: []WbRetroLoopStep{{"Docs", prefix + "/docs"}, {"Decisions", prefix + "/decisions"}, {"Workflow", prefix + "/updates"}, {"Bugs", base + "?view=bugs"}}}
+	p.View = WbSegLinks{Label: "View", Name: "retro_view", Items: []statsOption{
+		{Key: "room", Label: "Sorting room", Href: base, On: in.View != "bugs"},
+		{Key: "bugs", Label: fmt.Sprintf("Bugs · %d", len(in.Bugs)), Href: base + "?view=bugs", On: in.View == "bugs"}}}
+	if in.View == "bugs" {
+		p.Bugs = retroBugs(in.Bugs, prefix, in.BugStatus)
+	}
 
 	// The selected retro: the one asked for, else the newest to sort, else
 	// the newest processed.
@@ -465,6 +497,62 @@ func buildRetroWb(in retroWbIn) *RetroWbPage {
 	return p
 }
 
+// retroBugs is the Bugs view over the related tool bug reports.
+func retroBugs(bugs []*ToolBugReportView, prefix, want string) *WbRetroBugs {
+	base := prefix + "/retros"
+	filter := "open"
+	if strings.EqualFold(strings.TrimSpace(want), "all") {
+		filter = "all"
+	} else if want != "" {
+		filter = normalizeBugStatus(want)
+	}
+	counts := countBugsByStatus(bugs)
+	v := &WbRetroBugs{Open: counts["open"], Closed: counts["fixed"] + counts["wontfix"]}
+	for _, f := range []struct{ key, label, tone string }{{"open", "Open", "red"}, {"fixed", "Fixed", ""}, {"wontfix", "Won't fix", ""}, {"all", "All", ""}} {
+		q := url.Values{"view": {"bugs"}, "bug_status": {f.key}}
+		label := f.label
+		if f.key != "all" {
+			label = fmt.Sprintf("%s · %d", f.label, counts[f.key])
+		}
+		v.Filters = append(v.Filters, WbFilterPill{Label: label, URL: base + "?" + q.Encode(), On: filter == f.key, Key: "bugs_" + f.key})
+	}
+	for _, b := range bugs {
+		st := normalizeBugStatus(b.Status)
+		if filter != "all" && st != filter {
+			continue
+		}
+		c := WbRetroBug{FileName: b.FileName, IssueSlug: b.IssueSlug, Tool: b.Tool, When: b.Timestamp, Description: strings.TrimSpace(b.Description),
+			Status: st, StatusText: bugStatusWords(st), Tone: "idle", StatusURL: base + "/bug/" + url.PathEscape(b.FileName) + "/status"}
+		if st == "open" {
+			c.Tone = "red"
+		} else if st == "fixed" {
+			c.Tone = "green"
+		}
+		if b.IssueSlug != "" {
+			c.IssueURL = prefix + "/issue/" + b.IssueSlug
+		}
+		v.Cards = append(v.Cards, c)
+	}
+	switch {
+	case len(bugs) == 0:
+		v.Empty = "No tool bug reports name this project's issues. A worker files one with issue-cli report-bug \"…\"; it lands under bugs/ and shows here."
+	case len(v.Cards) == 0:
+		v.Empty = "No bug report with this status."
+	}
+	return v
+}
+
+// bugStatusWords names a bug report's status as the buttons do.
+func bugStatusWords(st string) string {
+	switch st {
+	case "fixed":
+		return "fixed"
+	case "wontfix":
+		return "won't fix"
+	}
+	return "open"
+}
+
 func binURL(key string, loop WbRetroLoop) string {
 	for _, s := range loop.Steps {
 		if strings.EqualFold(s.Label, key) {
@@ -497,7 +585,7 @@ func (s *Server) handleRetroWb(w http.ResponseWriter, r *http.Request, proj *tra
 	sort.Strings(statuses)
 	q := r.URL.Query()
 	page := buildRetroWb(retroWbIn{Proj: proj, Prefix: prefix, Header: h, Retros: retros, Bugs: bugs, CEO: company.Message,
-		Selected: q.Get("retro"), All: q.Get("all") != "", StatusStop: statuses,
+		Selected: q.Get("retro"), All: q.Get("all") != "", StatusStop: statuses, View: q.Get("view"), BugStatus: q.Get("bug_status"),
 		Presort: WbRetroPresort{URL: prefix + "/retros/review", Session: session, Live: agentSessionLive(proj, session),
 			AttachCmd: agentAttachCmd(proj, session), Agents: []string{"claude", "codex"}}})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

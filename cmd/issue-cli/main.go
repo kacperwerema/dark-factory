@@ -20,6 +20,7 @@ import (
 
 	// Register the milestone and workflow health families, so snapshots
 	// taken by the CLI include them.
+	_ "github.com/michal-franc/issue-viewer/internal/deptfamily"
 	_ "github.com/michal-franc/issue-viewer/internal/milestone"
 	_ "github.com/michal-franc/issue-viewer/internal/timeline"
 )
@@ -69,7 +70,7 @@ func fetchReleasesFromGitHub(repo string) ([]githubRelease, error) {
 // project's clilog (the global one without a project), to $ISSUE_CLI_LOG,
 // and to the issue assignee's per-agent clilog. The record carries the start
 // time, exit code, error class and duration, with free text redacted
-// (clilog.Redact). It feeds the Timeline tab, the agents canvas and the
+// (clilog.RedactCall, bool flags from the FlagSets parsed). It feeds the Timeline tab, the agents canvas and the
 // retry hint (countRecentRetries).
 type callLog struct {
 	args  []string
@@ -102,22 +103,26 @@ func (l *callLog) write(inv *invocation, runErr error, panicked bool) {
 		TS:       l.start.UTC().Format(time.RFC3339),
 		PID:      os.Getpid(),
 		PPID:     os.Getppid(),
-		Args:     clilog.Redact(l.args),
+		Args:     clilog.RedactCall(l.args, inv.boolFlag),
 		Exit:     &exit,
 		ErrClass: class,
 		DurMS:    &dur,
 	}
 
+	// A read-only call on a project the caller isn't working in leaves no
+	// line there: it goes to the caller's own project or the machine log.
+	proj, foreign := logProject(inv)
 	l.shared = clilog.GlobalPath()
-	if inv.ctx != nil && inv.ctx.Project != nil {
-		if root := inv.ctx.Project.TelemetryRoot(); root != "" {
-			l.shared = clilog.ProjectPath(root)
-		}
+	if root := proj.TelemetryRoot(); root != "" {
+		l.shared = clilog.ProjectPath(root)
 	}
 	agentPath := l.agentPath
-	if agentPath == "" {
+	if agentPath == "" && !foreign {
 		// `start` sets the assignee during the call.
 		agentPath = resolveAgentClilog(l.args)
+	}
+	if foreign {
+		agentPath = ""
 	}
 	seen := map[string]bool{}
 	for _, p := range []string{l.shared, strings.TrimSpace(os.Getenv("ISSUE_CLI_LOG")), agentPath} {
@@ -290,6 +295,7 @@ func main() {
 	err := runTraced(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, inv)
 	log.write(inv, err, false)
 	recordTelemetry(inv, os.Args[1:], err, start, false)
+	shareNotice(os.Stderr, start)
 	if err != nil {
 		var codeErr *exitCodeError
 		if errors.As(err, &codeErr) {
@@ -347,6 +353,7 @@ func run(args []string, in io.Reader, out, errw io.Writer) error {
 func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation) error {
 	global := flag.NewFlagSet("issue-cli", flag.ContinueOnError)
 	global.SetOutput(errw)
+	inv.globalFS = global
 	// The config path itself comes from findConfig (config_lookup.go):
 	// --config, $ISSUE_VIEWER_CONFIG, ./projects.yaml, the running viewer's
 	// config, the user config.
@@ -413,9 +420,12 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	// always surface the error — the project-agnostic bypass is only for
 	// discovery without --project.
 	inv.cmd = cmd
-	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "check-script" && checkScriptLibOnly(rest.args))
+	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "project" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "check-script" && checkScriptLibOnly(rest.args))
 	if errors.Is(projErr, errNoConfig) {
 		projErr = cfgSrc.notFound()
+	}
+	if errors.Is(projErr, errProjectNotFound) {
+		projErr = fmt.Errorf("%w\nConfig from: %s\nWrong config? Pass --config <path> or export ISSUE_VIEWER_CONFIG", projErr, cfgSrc.Why)
 	}
 	if projErr != nil && (!bypassProjErr || *projectSlug != "") {
 		inv.phase = phaseProject
@@ -436,6 +446,9 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	inv.ctx = ctx
 
 	err = cmd.Run(ctx, rest.args)
+	// The sibling channel rides on every call that looked up an issue: its
+	// open asks and undelivered answers (cmd_ask.go).
+	printSiblingAsks(ctx, rest.command)
 	if errors.Is(err, flag.ErrHelp) {
 		// FlagSet already wrote usage to ctx.Stderr; suppress the duplicate
 		// error message in main()'s error path.

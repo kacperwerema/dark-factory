@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · %s" .Title .Name)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-odoc" data-testid="odoc.page" data-output="{{.Row.ID}}" data-comment-url="{{.CommentURL}}" data-resolve-url="{{.ResolveURL}}">
+{{template "wb/odoc-toc" .Toc}}
+<article class="wb-odoc-reader" data-testid="odoc.reader">
+    {{template "wb/odoc-head" .}}
+    {{template "wb/odoc-bar" .}}
+    {{if .Diff}}{{template "wb/odoc-diff" .Diff}}{{else}}{{template "wb/odoc-sheet" .}}{{end}}
+</article>
+{{template "wb/odoc-margin" .}}
+<button type="button" class="wb-odoc-pop" data-odoc-pop hidden data-testid="odoc.pop">💬 Comment on this passage</button>
+</main>
+</div>
+<script type="application/json" id="odoc-marks">{{.Marks}}</script>
+<script src="/static/workshop.js"></script>
+<script src="/static/shelf-read.js"></script>
+</body>
+</html>

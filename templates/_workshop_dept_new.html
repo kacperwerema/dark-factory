@@ -1,0 +1,37 @@
+{{/* The preview page of adding a department (dept_add.go, templates/dept_new.html). */}}
+
+{{define "wb/dept-new-files"}}
+    <h2 class="wb-h2">Files <span class="wb-muted">under <span class="wb-mono-inline">{{.Root}}</span></span></h2>
+    <ul class="wb-deptnew-files">{{range .Files}}
+        <li data-testid="dept_new.file.{{tid .State}}"><span class="wb-deptnew-state wb-deptnew-state--{{.State}}">{{.State}}</span><span class="wb-mono-inline">{{.Path}}</span><span class="wb-muted">{{.Word}}</span></li>{{end}}
+    </ul>
+    <h2 class="wb-h2">projects.yaml <span class="wb-muted">added under departments: in <span class="wb-mono-inline">{{.Config}}</span>{{with .Parent}}, under the group {{.}}{{end}}</span></h2>
+    <pre class="wb-deptnew-entry" data-testid="dept_new.entry">{{.Entry}}</pre>
+{{end}}
+
+{{define "wb/dept-new-plan"}}
+<div class="wb-part-panel wb-deptnew-panel" data-testid="dept_new.plan">
+    {{template "wb/dept-new-files" .Plan}}
+    {{range .Plan.Children}}<div class="wb-deptnew-child" data-testid="dept_new.child.{{tid .Key}}">
+        <h2 class="wb-h2">In the group: {{.Name}}</h2>
+        {{template "wb/dept-new-files" .}}
+    </div>{{end}}
+    {{range .Plan.Reparent}}<p class="wb-note" data-testid="dept_new.reparent">{{.}} is already a department: it moves under {{$.Plan.Name}} (parent: {{$.Plan.Key}}); its files stay as they are.</p>{{end}}
+    {{range .Plan.Notes}}<p class="wb-note">{{.}}</p>{{end}}
+    <form class="wb-deptnew-actions" method="post" action="{{.AddURL}}">
+        <input type="hidden" name="template" value="{{.Template}}">
+        <input type="hidden" name="parent" value="{{.Parent}}">
+        <button type="submit" class="wb-btn wb-btn--youshadow" data-testid="dept_new.add">Add {{.Plan.Name}}</button>
+        <a class="wb-btn wb-btn--paper" href="{{.CompanyURL}}">Back to the company</a>
+    </form>
+</div>
+{{end}}
+
+{{define "wb/dept-new-refused"}}
+<div class="wb-part-panel wb-part-panel--red wb-deptnew-panel">
+    <p class="wb-flash wb-flash--err" role="alert" data-testid="dept_new.error">{{.Error}}</p>
+    <div class="wb-deptnew-actions">
+        <a class="wb-btn wb-btn--paper" href="{{.CompanyURL}}">Back to the company</a>
+    </div>
+</div>
+{{end}}

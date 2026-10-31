@@ -61,6 +61,24 @@ func SetProofChecker(fn func(w *WorkflowConfig, issue *Issue, comments []Comment
 
 const criteriaProvenRule = "criteria_proven"
 
+// referenceChecker runs the commits_reference_issue check, registered by
+// internal/proof like proofChecker: it reads the work branch's commits.
+var referenceChecker func(w *WorkflowConfig, issue *Issue) error
+
+// SetReferenceChecker registers the commits_reference_issue check.
+func SetReferenceChecker(fn func(w *WorkflowConfig, issue *Issue) error) {
+	referenceChecker = fn
+}
+
+const commitsReferenceRule = "commits_reference_issue"
+
+func (w *WorkflowConfig) checkCommitsReference(issue *Issue) error {
+	if referenceChecker == nil {
+		return fmt.Errorf("commits_reference_issue needs git, which this program doesn't include — run the transition with issue-cli")
+	}
+	return referenceChecker(w, issue)
+}
+
 // ProofGateSince returns the date of the workflow's criteria_proven rule
 // ("criteria_proven: since 2026-10-24"), and whether the workflow has one.
 func (w *WorkflowConfig) ProofGateSince() (string, bool) {
@@ -157,7 +175,7 @@ func (w *WorkflowConfig) checkCriteriaCheckboxes(section string, issue *Issue) e
 			plain = append(plain, item)
 		}
 	}
-	placeholders := w.sectionPlaceholders(section)
+	placeholders := w.SectionBoxes(section)
 	var unchanged []CheckboxItem
 	for _, it := range ListCheckboxes(issue.BodyRaw) {
 		if strings.EqualFold(it.Section, section) && placeholders[strings.TrimSpace(it.Text)] {
@@ -175,7 +193,13 @@ func (w *WorkflowConfig) checkCriteriaCheckboxes(section string, issue *Issue) e
 	for _, it := range unchanged {
 		fmt.Fprintf(&b, "\n  - %s still has the template text: %s", it.ID, it.Text)
 	}
-	fmt.Fprintf(&b, "\n\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %q --body \"- [ ] ...\"", issue.Slug, section)
+	if len(unchanged) > 0 {
+		id := unchanged[0].ID
+		fmt.Fprintf(&b, "\n\nReword a template box, or drop it (the other boxes keep their ids):\n  issue-cli check-edit %s %s --text \"<what someone can observe when it works>\"\n  issue-cli check-remove %s %s", issue.Slug, id, issue.Slug, id)
+	}
+	if len(plain) > 0 {
+		fmt.Fprintf(&b, "\n\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %q --body \"- [ ] ...\"", issue.Slug, section)
+	}
 	return fmt.Errorf("%s", b.String())
 }
 
@@ -193,10 +217,10 @@ func listItemText(line string) (string, bool) {
 	return strings.TrimSpace(m[1]), true
 }
 
-// sectionPlaceholders collects the checkbox texts the workflow's
-// append_section actions write into section: a box still holding one was
-// never filled in.
-func (w *WorkflowConfig) sectionPlaceholders(section string) map[string]bool {
+// SectionBoxes collects the checkbox texts the workflow's append_section
+// actions write into section: in the criteria section a box still holding
+// one was never filled in; in a gated section they are the gate's boxes.
+func (w *WorkflowConfig) SectionBoxes(section string) map[string]bool {
 	out := map[string]bool{}
 	for _, t := range w.Transitions {
 		for _, a := range t.Actions {
@@ -248,4 +272,44 @@ func (w *WorkflowConfig) HasFeature(id string) bool {
 		}
 	}
 	return false
+}
+
+// outputChecker runs the has_output check, registered by internal/outputs
+// (which imports tracker): it reads the outputs shelf under the issues
+// folder. kind is the rule's argument, "" for any kind.
+var outputChecker func(w *WorkflowConfig, issue *Issue, kind string) error
+
+// SetOutputChecker registers the has_output check.
+func SetOutputChecker(fn func(w *WorkflowConfig, issue *Issue, kind string) error) {
+	outputChecker = fn
+}
+
+const hasOutputRule = "has_output"
+
+func (w *WorkflowConfig) checkHasOutput(kind string, issue *Issue) error {
+	if outputChecker == nil {
+		return fmt.Errorf("has_output needs the outputs shelf, which this program doesn't include — run the transition with issue-cli")
+	}
+	return outputChecker(w, issue, strings.TrimSpace(kind))
+}
+
+// HasOutputRule reports whether the workflow gates any edge on has_output:
+// the first such edge's target status and the kind its rule names ("" for
+// any kind).
+func (w *WorkflowConfig) HasOutputRule() (to, kind string, ok bool) {
+	if w == nil {
+		return "", "", false
+	}
+	for _, t := range w.Transitions {
+		for _, a := range t.Actions {
+			if a.Type != "validate" {
+				continue
+			}
+			name, arg, _ := strings.Cut(a.Rule, ":")
+			if strings.TrimSpace(name) == hasOutputRule {
+				return t.To, strings.TrimSpace(arg), true
+			}
+		}
+	}
+	return "", "", false
 }

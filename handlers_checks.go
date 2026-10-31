@@ -14,6 +14,8 @@ import (
 // checkRoots are the checkouts that may hold the issue's guided check
 // scripts: its worktree first (scripts stay on the branch), then the project.
 // Without the workflow's worktree, the git worktree on work/<slug> counts.
+// A worktree already merged into main and left clean comes after the
+// project: main has the newer scripts.
 func checkRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) []string {
 	roots := playtestRoots(proj, issue, wf)
 	if len(roots) == 1 {
@@ -21,7 +23,7 @@ func checkRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Workflo
 			roots = append(roots, wt)
 		}
 	}
-	if len(roots) == 2 {
+	if len(roots) == 2 && checks.MergedInto(projectRoot(proj), roots[1]) == "" {
 		roots[0], roots[1] = roots[1], roots[0]
 	}
 	return roots

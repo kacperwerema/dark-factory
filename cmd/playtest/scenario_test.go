@@ -253,3 +253,23 @@ func TestLoadScenarioSpec_RejectsBadGenerate(t *testing.T) {
 		t.Errorf("err = %v, want a generate[0] error", err)
 	}
 }
+
+func TestWriteTranscripts(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	err := writeTranscripts(dir, "/tmp/pt-1/proj", []ScenarioTranscript{
+		{Cwd: ".worktrees/seo/page", Messages: []ScenarioMessage{{Ago: "-7d", Model: "m", Input: 5}}},
+		{Agent: "lead-acme", Messages: []ScenarioMessage{{Model: "m", Output: 2}}},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "-tmp-pt-1-proj--worktrees-seo-page", "session-0.jsonl"))
+	if err != nil || !strings.Contains(string(b), `"timestamp":"2026-10-23T12:00:00Z"`) || !strings.Contains(string(b), `"input_tokens":5`) {
+		t.Errorf("worktree session = %s (%v)", b, err)
+	}
+	b, _ = os.ReadFile(filepath.Join(dir, "-tmp-pt-1-proj", "session-1.jsonl"))
+	if !strings.HasPrefix(string(b), `{"type":"agent-name","agentName":"lead-acme"}`) {
+		t.Errorf("root session = %s", b)
+	}
+}

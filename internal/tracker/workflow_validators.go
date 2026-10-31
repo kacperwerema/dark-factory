@@ -19,8 +19,9 @@ func isStructuredRule(name string) bool {
 // view the validators expect.
 func (w *WorkflowConfig) checkAction(action WorkflowAction, issue *Issue, _ []Comment) error {
 	cfg := validations.Config{
-		AllowShell: w.AllowShell,
-		IssuesRoot: w.IssuesRoot,
+		AllowShell:  w.AllowShell,
+		IssuesRoot:  w.IssuesRoot,
+		ProjectRoot: w.ProjectRoot,
 	}
 	if w.LookupIssue != nil {
 		cfg.Lookup = func(slug string) *validations.IssueView {
@@ -40,7 +41,22 @@ func (w *WorkflowConfig) checkAction(action WorkflowAction, issue *Issue, _ []Co
 			return out
 		}
 	}
-	return validations.Check(toAction(action), toIssueView(issue), cfg)
+	view := toIssueView(issue)
+	view.Department = w.departmentKey(issue)
+	return validations.Check(toAction(action), view, cfg)
+}
+
+// departmentKey is the key of the department issue's workflow belongs to:
+// the department file this config came from, else the issue's department:
+// field; "" for Product.
+func (w *WorkflowConfig) departmentKey(issue *Issue) string {
+	if w.Department != "" {
+		return DepartmentKey(w.Department)
+	}
+	if issue != nil {
+		return DepartmentKey(strings.TrimSpace(issue.Field("department")))
+	}
+	return ""
 }
 
 func toAction(a WorkflowAction) validations.Action {
@@ -50,6 +66,7 @@ func toAction(a WorkflowAction) validations.Action {
 		Pattern:        a.Pattern,
 		Section:        a.Section,
 		Command:        a.Command,
+		Path:           a.Path,
 		RefKey:         a.RefKey,
 		LinkedStatus:   a.LinkedStatus,
 		Hint:           a.Hint,
@@ -156,6 +173,8 @@ func structuredSummary(action WorkflowAction) string {
 		return fmt.Sprintf("Validate section %q has ≤%d chars", action.Section, action.Max)
 	case "no_todo_markers":
 		return "Validate body has no TODO/FIXME markers"
+	case "file_exists":
+		return fmt.Sprintf("Validate file %s exists", action.Path)
 	case "command_succeeds":
 		cmd := action.Command
 		if len(cmd) > 60 {

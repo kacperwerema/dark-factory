@@ -1,0 +1,32 @@
+# Group template: what `issue-cli department add gtm` installs. GTM
+# (go-to-market) is a group: the departments in children: are installed
+# with it, each from its own template, with parent: gtm in projects.yaml.
+# Its lead (lead-<project>-gtm) is the lead of their leads. Its own issues
+# (the weekly plan's runs) walk the planning workflow, written to
+# workflows/gtm.yaml; role.md is written to departments/gtm/role.md. See
+# docs/departments.md#groups.
+name: GTM
+description: "Go-to-market: the group over Marketing (and Sales, later), with one lead over their leads and a weekly plan"
+color: "#F2A541"
+role: "Brings in the next clients: marketing and sales under one lead"
+mission: "A steady pipeline of new clients"
+group: true
+children: [marketing]
+workflow: planning
+goals:
+  - id: pipeline
+    name: New client conversations
+    target: 8
+    period: month
+# The week plan: each Monday's run reads the departments' goals, outputs,
+# jobs and handoffs, writes ## Week plan and the week report shown in the
+# group's room (docs/departments.md, "The week plan and report"). A due run
+# waits in Needs you until the owner starts it or turns its standing start
+# on: issue-cli job auto on gtm/weekly-plan.
+jobs:
+  - id: weekly-plan
+    name: Week plan and report
+    every: week
+    on: mon
+    at: "08:00"
+    brief: jobs/weekly-plan.md

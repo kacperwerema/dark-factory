@@ -19,6 +19,7 @@ block). templates/health_wb.html composes them.
   wb/refactor        file a refactor issue for a file on both lists data: *WbRefactor
   wb/trend-card      a trend chart, or locked with what it lacks   data: WbTrendCard
   wb/health-setup    "Measurement setup": warnings and lint        data: WbHealthSetup
+  wb/lint-row        one lint finding with its fix                 data: lint.Finding
 */}}
 
 {{define "wb/hall-tabs"}}
@@ -101,6 +102,7 @@ block). templates/health_wb.html composes them.
     <p class="wb-opinion-text wb-opinion-text--clamp">{{.Assessment}}</p>
     <details class="wb-opinion-more"><summary>Read the whole assessment</summary><p class="wb-opinion-text">{{.Assessment}}</p></details>
     {{with .Context}}<p class="wb-muted wb-small">{{.}}</p>{{end}}
+    {{if or .Date .Reviewer}}<p class="wb-muted wb-small" data-testid="health.opinion.by">Reviewed {{.Date}}{{with .Reviewer}} by <span class="wb-mono-inline">{{.}}</span>{{end}}</p>{{end}}
     {{if .Recs}}<a class="wb-opinion-recs" href="#recs">{{len .Recs}} recommendation{{if gt (len .Recs) 1}}s{{end}} wait for you ↓</a>{{end}}
     {{with .Decided}}<p class="wb-muted wb-small">{{.}} decided before (filed or dismissed).</p>{{end}}
     {{else}}<p class="wb-opinion-text" data-testid="health.opinion.empty">{{.Empty}}</p>{{end}}
@@ -113,13 +115,17 @@ block). templates/health_wb.html composes them.
 </section>
 {{end}}
 
-{{define "wb/health-recs"}}{{if .Recs}}
+{{define "wb/health-recs"}}{{if or .Recs .DecidedRecs}}
 <section class="wb-hsec" id="recs" aria-labelledby="health-recs-h">
     <div class="wb-hsec-head">
         <h2 id="health-recs-h" class="wb-h2">Recommendations</h2>
         <span class="wb-hsec-sub">the review was {{.Age}} · filing one makes an issue (status idea); your click is the decision</span>
     </div>
-    <div class="wb-rec-grid">{{range .Recs}}{{template "wb/health-rec" .}}{{end}}</div>
+    {{if .Recs}}<div class="wb-rec-grid">{{range .Recs}}{{template "wb/health-rec" .}}{{end}}</div>{{end}}
+    {{with .DecidedRecs}}<details class="wb-hdecided" data-testid="health.decided"{{if not $.Recs}} open{{end}}>
+        <summary>Decided · {{len .}}</summary>
+        <ul class="wb-hdecided-list">{{range .}}<li data-testid="health.decided.row"><span class="wb-mono-inline wb-muted">{{.ID}}</span> <span>{{.Title}}</span> {{if eq .State "filed"}}<span class="wb-chip wb-chip--green">filed{{if .Issue}}: <a href="{{.IssueHref}}" class="wb-mono-inline">{{.Issue}}</a>{{end}}</span>{{else}}<span class="wb-chip wb-chip--idle">dismissed{{with .Reason}}: {{.}}{{end}}</span>{{end}}</li>{{end}}</ul>
+    </details>{{end}}
 </section>
 {{end}}{{end}}
 
@@ -140,6 +146,24 @@ block). templates/health_wb.html composes them.
 {{end}}
 
 {{define "wb/copy-cmd"}}<span class="wb-copy"><code>{{.}}</code><button type="button" class="wb-copy-btn" data-copy="{{.}}" aria-label="Copy: {{.}}">Copy</button></span>{{end}}
+
+{{define "wb/health-departments"}}{{with .}}
+<section class="wb-hsec" id="departments" aria-labelledby="health-departments-h" data-testid="health.departments">
+    <div class="wb-hsec-head">
+        <h2 id="health-departments-h" class="wb-h2">Departments</h2>
+        <span class="wb-hsec-sub">from the latest measurement · on track = mean of goals moving, outputs reviewed in time and jobs on time · limits in <span class="wb-mono-inline">health.limits</span></span>
+    </div>
+    {{if .Rows}}<table class="wb-dept-health">
+        <thead><tr><th scope="col">Department</th><th scope="col">On track</th><th scope="col">Goals</th><th scope="col">Outputs</th><th scope="col">Jobs</th><th scope="col">Handoffs</th></tr></thead>
+        <tbody>{{range .Rows}}<tr data-testid="health.departments.row.{{.Key}}">
+            <th scope="row">{{.Name}}</th>
+            <td>{{if .OnTrack}}<b class="wb-score--{{.Tone}}">{{.OnTrack}}</b>{{else}}<span class="wb-muted">nothing to measure</span>{{end}}</td>
+            <td>{{.Goals}}</td><td>{{.Outputs}}</td><td>{{.Jobs}}</td>
+            <td{{if .Old}} class="wb-dept-health--old"{{end}}>{{.Handoff}}</td>
+        </tr>{{end}}</tbody>
+    </table>{{else}}<p class="wb-empty" data-testid="health.departments.empty">{{.Empty}} Run <code class="wb-code">{{.Command}}</code> to take it now.</p>{{end}}
+</section>
+{{end}}{{end}}
 
 {{define "wb/sensor-group"}}
 <div class="wb-sgroup" data-testid="health.sensor_group.{{.Key}}">
@@ -196,9 +220,11 @@ block). templates/health_wb.html composes them.
     <div class="wb-trend-need">{{.Need}}</div>
     {{if .URL}}<a class="wb-trend-cmd" href="{{.URL}}">{{.Cmd}}</a>{{else}}<code class="wb-trend-cmd">{{.Cmd}}</code>{{end}}
     {{else}}
+    {{with .Sub}}<div class="wb-trend-need">{{.}}</div>{{end}}
     {{with .Summary}}<div class="wb-trend-need">{{.}}</div>{{end}}
     {{range .Charts}}<div class="wb-trend-plot">{{.}}</div>{{end}}
     {{if .Legend}}<div class="wb-trend-legend">{{range .Legend}}<span class="{{.Class}}"><i></i>{{.Name}}</span>{{end}}</div>{{end}}
+    {{with .Tables}}<details class="wb-chart-table" data-testid="health.chart_table"><summary>Table</summary>{{range .}}{{with .Title}}<div class="wb-small wb-muted">{{.}}</div>{{end}}{{template "wb/data-table" .}}{{end}}</details>{{end}}
     {{end}}
 </div>
 {{end}}
@@ -210,14 +236,17 @@ block). templates/health_wb.html composes them.
         {{range .Warnings}}<li class="wb-setup-row"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A3172A" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg><span><span class="wb-mono-inline">{{.Family}}</span>: {{.Text}}</span></li>{{end}}
     </ul>{{end}}
     {{with .Lint}}
-    <div class="wb-setup-row" data-testid="health.lint">
+    <div class="wb-setup-row" id="lint" data-testid="health.lint">
         {{if .Err}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A3172A" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg><span data-testid="health.lint.error">Lint did not run: {{.Err}}</span>
         {{else if .Warnings}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A5A00" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg><span>Lint: <b data-testid="health.lint.count">{{plural .Warnings "warning" "warnings"}}</b> in workflow.yaml and the issues</span>
         {{else}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#136B3A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg><span>Lint: <b data-testid="health.lint.count">0 warnings</b> in workflow.yaml and the issues</span>{{end}}
         <code class="wb-setup-cmd" data-testid="health.lint.cmd">{{.Command}}</code>
     </div>
     {{end}}
-    {{if .Rows}}<ul class="wb-setup-findings">{{range .Rows}}<li data-testid="health.lint.row"><span class="wb-mono-inline">{{.Check}} · {{.Where}}</span> {{.Message}}</li>{{end}}</ul>
+    {{if .Rows}}<ul class="wb-setup-findings">{{range .Rows}}{{template "wb/lint-row" .}}{{end}}</ul>
+    {{with .Rest}}<details class="wb-setup-rest" data-testid="health.lint.rest"><summary>{{plural (len .) "more warning" "more warnings"}}</summary><ul class="wb-setup-findings">{{range .}}{{template "wb/lint-row" .}}{{end}}</ul></details>{{end}}
     {{with .More}}<p class="wb-small wb-muted" data-testid="health.lint.more">and {{plural . "more warning" "more warnings"}}: the command above lists them all.</p>{{end}}{{end}}
 </section>
 {{end}}
+
+{{define "wb/lint-row"}}<li data-testid="health.lint.row"><span class="wb-mono-inline">{{.Check}} · {{.Where}}</span> {{.Message}}{{with .Fix}} <span class="wb-muted" data-testid="health.lint.fix">· {{.}}</span>{{end}}</li>{{end}}

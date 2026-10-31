@@ -54,9 +54,10 @@ func newMarkerCtxFor(proj *tracker.Project, prefix string, all, shown []*tracker
 	for _, issue := range all {
 		ctx.bySlug[strings.ToLower(issue.Slug)] = issue
 	}
+	wfs := proj.WorkflowMemo()
 	for _, issue := range shown {
 		if issue.Status != "done" {
-			ctx.attention[issue.Slug] = ownerAttention(proj, issue)
+			ctx.attention[issue.Slug] = attentionWith(proj, issue, wfs.ForIssue(issue))
 		}
 	}
 	if st := ciRedState(proj); st != nil {
@@ -95,7 +96,7 @@ func cardMarkers(ctx *markerCtx, issue *tracker.Issue) []Marker {
 		out = append(out, Marker{Kind: "question", Tone: "amber", Label: "question",
 			Title: "The newest comment is a question: nobody has answered it"})
 	}
-	for _, slug := range blockedOn(issue) {
+	for _, slug := range tracker.BlockedOn(issue) {
 		target := ctx.bySlug[strings.ToLower(slug)]
 		switch {
 		case target == nil:
@@ -138,27 +139,6 @@ func ciMarkers(ctx *markerCtx, issue *tracker.Issue) []Marker {
 	st := ctx.ciState
 	return []Marker{{Kind: "ci-red", Tone: "red", Label: "CI red · " + clip(st.Failed, 28),
 		Title: fmt.Sprintf("Local CI went red on %s at %s; this issue landed since the last green run (%s). issue-cli ci status", st.Branch, ci.Short(st.RedSince), ci.Short(st.GreenSha))}}
-}
-
-// blockedOn is the issue's blocked_on frontmatter: one slug or a list.
-func blockedOn(issue *tracker.Issue) []string {
-	for _, f := range issue.ExtraFields {
-		if f.Key != "blocked_on" {
-			continue
-		}
-		vals := f.Values
-		if !f.IsList {
-			vals = []string{f.Value}
-		}
-		var out []string
-		for _, v := range vals {
-			if v = strings.TrimSpace(v); v != "" {
-				out = append(out, v)
-			}
-		}
-		return out
-	}
-	return nil
 }
 
 // needsRevision reports a needs-revision label or needs_revision field, with

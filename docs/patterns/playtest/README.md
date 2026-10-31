@@ -61,7 +61,8 @@ steps:
 The rules:
 
 - A step's `id` is a checkbox id from the issue (`issue-cli checklist <slug>`
-  shows them, e.g. `TP3`). That is how a result finds its box.
+  shows them, e.g. `TP3`). That is how a result finds its box. See
+  [How a step id maps to a box](#how-a-step-id-maps-to-a-box).
 - **A step with `expect:` is a judgement step.** Only judgement steps reach
   the owner. A step without one is machine-only.
 - `proves:` lists the acceptance criteria the step shows working (ids from
@@ -77,6 +78,35 @@ The rules:
   still has all its text, so give the vocabulary a way to say where things
   are and that styling applied (the web runner's `beside`, `below`, `size`
   and `styles_applied`; a game's `primary`).
+
+#### How a step id maps to a box
+
+A box id is its `## ` section's abbreviation followed by the box's
+position in that section, counting ticked boxes, unticked boxes and
+removed-box slots (`<!-- removed … -->`). `issue-cli checklist <slug>`
+prints them; read the ids from there, not from the heading.
+
+- The abbreviation is the initials of the heading's words: `## Test Plan`
+  gives `TP`, `## Acceptance Criteria` gives `AC`.
+- A one-word heading gives its first letter: `## Reports` gives `R` (so
+  its boxes are `R1`, `R2`, not `RP1`).
+- When an earlier section already took that abbreviation, the first word
+  grows one letter at a time: after `## Repro` took `R`, `## Reports`
+  gives `Re`. The sections are taken in order of their first box.
+- Ids never shift once a box exists: ticking, editing or removing a box
+  (`check-remove` leaves a slot) keeps every other id.
+
+A session written in design, before in progress appends `## Test Plan`,
+can already use `TP1`, `TP2`, …: when the Test Plan is appended, it
+starts with one box per such step (`TP1: <step title> (playtest <session>)`,
+a gap kept as a removed slot), and its own boxes number after them
+(`TP4` …). The session is read from the issue's worktree, then the
+checkout. A Test Plan that already exists is never renumbered.
+
+When a step is renumbered or removed in the session file, a run made
+before still lists the old id. `issue-cli prove <slug> --list` shows that
+run's `proves:` link as `stale: <session> has no step <id> now` and it
+proves nothing; run the session again to link the new id.
 
 ### A run's results.yaml
 

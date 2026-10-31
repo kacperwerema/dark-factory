@@ -14,9 +14,15 @@ import (
 // Plan is what the last runs mean for an issue: boxes to tick, comments to
 // post, and steps with no usable result.
 type Plan struct {
-	Tick     []string
-	Comments []string
-	Missing  []string
+	Tick []string
+	// OwnerTick is the judgement steps in Tick: the owner passed them, and
+	// they are owner boxes. issue-cli check ticks them for the owner in
+	// their own shell and refuses an agent (proof.OwnerTicks), so they are
+	// ticked in a call of their own and a refusal leaves the machine
+	// steps ticked.
+	OwnerTick []string
+	Comments  []string
+	Missing   []string
 	// Runs lists the runs the plan read, one line each.
 	Runs []string
 	// sources are the run dirs the plan read; applying it marks them.
@@ -77,6 +83,7 @@ func BuildPlan(sessions []*Session, runsRoot string) *Plan {
 				p.Missing = append(p.Missing, fmt.Sprintf("%s (%s): skipped by the owner", st.ID, s.Name))
 			case jr.Status == StatusPass && (len(st.checks) == 0 || autoOK):
 				p.Tick = append(p.Tick, st.ID)
+				p.OwnerTick = append(p.OwnerTick, st.ID)
 			case jr.Status == StatusPass:
 				p.Missing = append(p.Missing, fmt.Sprintf("%s (%s): the owner passed it, but its ux-test did not", st.ID, s.Name))
 			}
@@ -193,15 +200,43 @@ func cmdReport(o opts, out, errw io.Writer) int {
 		cmd.Stdout, cmd.Stderr = out, errw
 		return cmd.Run()
 	}
-	if len(p.Tick) > 0 {
-		if err := run(append([]string{"check", o.issue}, p.Tick...)...); err != nil {
+	return applyPlan(p, o.issue, fresh, run, out, errw)
+}
+
+// applyPlan ticks the plan's boxes and posts its fresh comments through run
+// (issue-cli). The machine steps are ticked first; the owner's judgement
+// steps in a call of their own: for an agent issue-cli refuses them, and
+// they stay for the owner (Owner checks page, or the owner's own
+// make playtest-report APPLY=1) while the comments are still posted.
+func applyPlan(p *Plan, issue string, fresh []string, run func(args ...string) error, out, errw io.Writer) int {
+	owner := map[string]bool{}
+	for _, id := range p.OwnerTick {
+		owner[id] = true
+	}
+	var machine []string
+	for _, id := range p.Tick {
+		if !owner[id] {
+			machine = append(machine, id)
+		}
+	}
+	if len(machine) > 0 {
+		if err := run(append([]string{"check", issue}, machine...)...); err != nil {
 			fmt.Fprintf(errw, "issue-cli check: %v\n", err)
 			return 1
 		}
 	}
+	ticked, code := len(machine), 0
+	if len(p.OwnerTick) > 0 {
+		if err := run(append([]string{"check", issue}, p.OwnerTick...)...); err != nil {
+			fmt.Fprintf(errw, "issue-cli check %s: %v\n  the owner's judgement steps were not ticked: they stay for the owner (the Owner checks page, or make playtest-report APPLY=1 in the owner's own shell)\n", strings.Join(p.OwnerTick, " "), err)
+			code = 1
+		} else {
+			ticked += len(p.OwnerTick)
+		}
+	}
 	var done []string
 	for _, c := range fresh {
-		if err := run("comment", o.issue, "--text", c); err != nil {
+		if err := run("comment", issue, "--text", c); err != nil {
 			fmt.Fprintf(errw, "issue-cli comment: %v\n", err)
 			return 1
 		}
@@ -219,6 +254,6 @@ func cmdReport(o opts, out, errw io.Writer) int {
 			_ = os.WriteFile(filepath.Join(d, reportedFile), b, 0o644)
 		}
 	}
-	fmt.Fprintf(out, "✓ ticked %d, commented %d\n", len(p.Tick), len(done))
-	return 0
+	fmt.Fprintf(out, "✓ ticked %d, commented %d\n", ticked, len(done))
+	return code
 }

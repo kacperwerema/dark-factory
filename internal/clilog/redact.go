@@ -22,27 +22,42 @@ var keptValueFlags = map[string]bool{
 	"type": true, "version": true, "workflow": true,
 }
 
-// boolFlags are issue-cli's flags that take no value, so the token after one
-// is a positional. TestBoolFlagsCoverCLI keeps the list in step with
-// cmd/issue-cli. A missing entry only over-redacts the next positional.
-var boolFlags = map[string]bool{
+// legacyBoolFlags are the flags without a value that clilogs written before
+// v0.58 can hold. Only Redact uses it: tools/clilog-scrub rewrites old logs
+// and has no CLI to ask. issue-cli itself redacts with RedactCall and the
+// FlagSets the call parsed, so a new bool flag needs no edit here: never add
+// one. A flag missing here only over-redacts the next positional.
+var legacyBoolFlags = map[string]bool{
 	"again": true, "agree": true, "all": true, "allow-releases": true, "as-owner": true, "attach": true, "autostart": true, "clear": true, "debug": true,
 	"deferred": true, "design": true, "detach": true, "dry-run": true,
 	"force": true, "global": true, "headless": true, "help": true, "h": true, "holdout": true,
 	"if-untested": true, "import": true, "json": true, "keep": true, "lib": true, "list": true,
-	"first": true, "md": true, "no-ci-valve": true, "no-verify": true, "once": true, "quiet": true, "rename": true, "reprompt": true, "scheduled": true, "schema": true,
-	"send": true, "spawn": true, "yes": true,
+	"first": true, "md": true, "no-ci-valve": true, "no-verify": true, "once": true, "provisional": true, "quiet": true, "rename": true, "replay": true, "reprompt": true, "run": true, "scheduled": true, "schema": true,
+	"send": true, "spawn": true, "waiting": true, "write": true, "yes": true,
 }
 
 // maxKeptPositional is the longest positional kept verbatim: slugs, box ids
 // and status names fit, prose does not.
 const maxKeptPositional = 100
 
-// Redact returns args with free text replaced by Placeholder: values of
+// Redact is RedactCall with the flags old clilogs can hold (legacyBoolFlags),
+// for logs no CLI call is around to describe.
+func Redact(args []string) []string {
+	return RedactCall(args, func(name string) bool { return legacyBoolFlags[name] })
+}
+
+// RedactCall returns args with free text replaced by Placeholder: values of
 // flags outside keptValueFlags (for --field, the part after "="), and
 // positionals with whitespace or longer than maxKeptPositional. Commands,
-// flag names, slugs, box ids and structural values stay as typed.
-func Redact(args []string) []string {
+// flag names, slugs, box ids and structural values stay as typed. isBool
+// says which flags take no value, so the token after one is a positional;
+// issue-cli derives it from the FlagSets the call parsed. A nil isBool, or
+// a flag it doesn't know, takes the next token as its value: hidden unless
+// structural.
+func RedactCall(args []string, isBool func(name string) bool) []string {
+	if isBool == nil {
+		isBool = func(string) bool { return false }
+	}
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -59,17 +74,17 @@ func Redact(args []string) []string {
 			continue
 		}
 		if eq := strings.IndexByte(a, '='); eq >= 0 {
-			out = append(out, a[:eq+1]+redactValue(name, a[eq+1:]))
+			out = append(out, a[:eq+1]+redactValue(name, a[eq+1:], isBool(name)))
 			continue
 		}
 		out = append(out, a)
 		// Like the flag package, a non-bool flag takes the next token as its
 		// value even when it starts with "-".
-		if boolFlags[name] || i+1 >= len(args) {
+		if isBool(name) || i+1 >= len(args) {
 			continue
 		}
 		i++
-		out = append(out, redactValue(name, args[i]))
+		out = append(out, redactValue(name, args[i], false))
 	}
 	return out
 }
@@ -87,8 +102,9 @@ func IsPlaceholder(s string) bool {
 	return strings.HasPrefix(s, "‹text n=") && strings.HasSuffix(s, "›")
 }
 
-func redactValue(flag, v string) string {
-	if keptValueFlags[flag] || boolFlags[flag] || IsPlaceholder(v) {
+// redactValue redacts the value of --flag; isBool keeps --flag=false.
+func redactValue(flag, v string, isBool bool) string {
+	if keptValueFlags[flag] || isBool || IsPlaceholder(v) {
 		return v
 	}
 	if flag == "field" {

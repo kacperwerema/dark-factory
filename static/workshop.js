@@ -153,8 +153,42 @@
   // is open.
   setInterval(function () {
     var typing = document.activeElement && document.activeElement.tagName === 'INPUT' && document.activeElement.value;
-    if (document.visibilityState === 'visible' && !document.querySelector('details[open]') && !typing) location.reload();
+    if (document.visibilityState === 'visible' && !document.querySelector('details[open], [data-hold-open]:not([hidden])') && !typing) location.reload();
   }, 60000);
+
+  // Live refresh, as the classic pages do: a project page polls the
+  // project's /hash every 4 s and reloads when an issue, its status or an
+  // agent session changed. It holds off while you type, a dialog is open or
+  // a fold marked data-hold or a shown [data-hold-open] form is open, or for 10 s after a click (so a
+  // button's result line can be read), and reloads once that ends.
+  var proj = location.pathname.match(/^\/p\/[^/]+/);
+  // The CEO chat polls its own pane and a station's Edit form holds a
+  // draft: neither reloads on its own.
+  if (proj && window.fetch && !/\/(lead|edit)$/.test(location.pathname)) {
+    var last = null, pending = false, acted = 0;
+    ['click', 'submit', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { acted = Date.now(); }, true); });
+    var held = function () {
+      if (Date.now() - acted < 10000) return true;
+      var a = document.activeElement;
+      if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return true;
+      return !!document.querySelector('dialog[open], details[data-hold][open], [data-hold-refresh], [data-hold-open]:not([hidden])');
+    };
+    setInterval(function () {
+      if (document.visibilityState !== 'visible') return;
+      if (pending) { if (!held()) location.reload(); return; }
+      fetch(proj[0] + '/hash', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.hash) return;
+          if (last !== null && d.hash !== last) {
+            pending = true;
+            if (!held()) location.reload();
+          }
+          last = d.hash;
+        })
+        .catch(function () {});
+    }, 4000);
+  }
 })();
 
 // Decisions log (L2): copy a decision's ref, and "Question it" starts a

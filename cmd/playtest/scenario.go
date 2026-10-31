@@ -58,6 +58,33 @@ type ScenarioSpec struct {
 	// scenarios that need volume (hundreds of issues) without a committed
 	// fixture per issue.
 	Generate []ScenarioGenerate `yaml:"generate"`
+	// Transcripts are Claude Code sessions written under the scenario's
+	// home (~/.claude/projects), for views that read spend.
+	Transcripts []ScenarioTranscript `yaml:"transcripts"`
+	// TelemetryData, when set, is a folder in the scenario holding a
+	// telemetry collector's batches.jsonl: copied beside the project and
+	// named by telemetry_data: in projects.yaml, for the /telemetry page.
+	TelemetryData string `yaml:"telemetry_data"`
+}
+
+// ScenarioTranscript is one Claude Code session run in Cwd (relative to the
+// project root: "" for the root, ".worktrees/<slug>" for an issue's
+// worktree), named Agent ("" for none), with one assistant message per
+// Messages entry: numbers only.
+type ScenarioTranscript struct {
+	Cwd      string            `yaml:"cwd"`
+	Agent    string            `yaml:"agent"`
+	Messages []ScenarioMessage `yaml:"messages"`
+}
+
+// ScenarioMessage is one assistant message: Ago is "-3d" (days before the
+// run; "" is now), Model its model, and its token counts.
+type ScenarioMessage struct {
+	Ago       string `yaml:"ago"`
+	Model     string `yaml:"model"`
+	Input     int64  `yaml:"input"`
+	Output    int64  `yaml:"output"`
+	CacheRead int64  `yaml:"cache_read"`
 }
 
 // ScenarioGenerate writes Count issues titled Title (a fmt pattern with one
@@ -155,6 +182,36 @@ func generateIssues(dir string, gens []ScenarioGenerate) error {
 			if err := os.WriteFile(p, []byte(b.String()), 0o644); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// writeTranscripts writes each session as Claude Code would: in
+// projectsDir/<cwd with every non-alphanumeric as ->/<n>.jsonl.
+func writeTranscripts(projectsDir, proj string, ts []ScenarioTranscript, now time.Time) error {
+	slug := regexp.MustCompile(`[^A-Za-z0-9]`)
+	for i, t := range ts {
+		cwd := filepath.Join(proj, filepath.FromSlash(t.Cwd))
+		dir := filepath.Join(projectsDir, slug.ReplaceAllString(cwd, "-"))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		var b strings.Builder
+		if t.Agent != "" {
+			fmt.Fprintf(&b, "{\"type\":\"agent-name\",\"agentName\":%q}\n", t.Agent)
+		}
+		for j, m := range t.Messages {
+			at := now
+			if m := daysAgoRe.FindStringSubmatch(m.Ago); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				at = now.AddDate(0, 0, -n)
+			}
+			fmt.Fprintf(&b, "{\"type\":\"assistant\",\"timestamp\":%q,\"message\":{\"id\":\"msg-%d-%d\",\"model\":%q,\"usage\":{\"input_tokens\":%d,\"output_tokens\":%d,\"cache_read_input_tokens\":%d}}}\n",
+				at.UTC().Format(time.RFC3339), i, j, m.Model, m.Input, m.Output, m.CacheRead)
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("session-%d.jsonl", i)), []byte(b.String()), 0o644); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -276,6 +333,9 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	if err := pinIssueTimes(filepath.Join(s.Proj, "issues")); err != nil {
 		return fail(err)
 	}
+	if err := writeTranscripts(filepath.Join(root, "home", ".claude", "projects"), s.Proj, spec.Transcripts, time.Now()); err != nil {
+		return fail(fmt.Errorf("scenario %s: transcripts: %v", name, err))
+	}
 	if err := copyFile(filepath.Join(src, spec.Workflow), filepath.Join(s.Proj, "workflow.yaml")); err != nil {
 		return fail(fmt.Errorf("scenario %s: workflow: %v", name, err))
 	}
@@ -298,7 +358,15 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 		return fail(err)
 	}
 	s.Base = fmt.Sprintf("http://127.0.0.1:%d", s.Port)
-	cfg := fmt.Sprintf("viewer_url: %q\nprojects:\n  - name: %q\n    slug: %q\n    issues: %q\n    docs: %q\n    workdir: %q\n    terminal: \"none\"\n",
+	telemetryLine := ""
+	if spec.TelemetryData != "" {
+		dst := filepath.Join(s.Root, "telemetry-data")
+		if err := copyTree(filepath.Join(src, spec.TelemetryData), dst); err != nil {
+			return fail(fmt.Errorf("scenario %s: telemetry_data: %v", name, err))
+		}
+		telemetryLine = fmt.Sprintf("telemetry_data: %q\n", dst)
+	}
+	cfg := telemetryLine + fmt.Sprintf("viewer_url: %q\nprojects:\n  - name: %q\n    slug: %q\n    issues: %q\n    docs: %q\n    workdir: %q\n    terminal: \"none\"\n",
 		s.Base, spec.Project.Name, spec.Project.Slug, filepath.Join(s.Proj, "issues"), filepath.Join(s.Proj, "docs"), s.Proj)
 	if spec.Project.Repo != "" {
 		cfg += fmt.Sprintf("    repo: %q\n", spec.Project.Repo)
@@ -486,6 +554,7 @@ var isolatedVars = []string{
 	"XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_URL",
 	"ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_SERVER_PWD", "ISSUE_CLI_LOG", "AGENT_NAME",
 	"AI_AGENT", "CLAUDECODE", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+	"CLAUDE_CONFIG_DIR",
 }
 
 // scenarioEnv builds a scenario's environment from base: the isolated

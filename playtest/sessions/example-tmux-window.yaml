@@ -1,0 +1,29 @@
+# The guide's example of a tmux window started from a button
+# (docs/patterns/playtest/web-app.md#pitfalls). The board runs the command
+# in a window that ends with "Press Enter to close this window."; the step
+# waits for that line, presses Enter on the private tmux server, and checks
+# what the page shows once the window is gone.
+session: example-tmux-window
+issue: ui/playtest-guide-the-pitfalls-workers-keep-hitting
+title: A tmux window started from ▶ Run playtest, waited for and closed
+scenario: run-playtest
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: Click the button, wait for the window's last line, press Enter, check the page
+    setup:
+      - open: /p/{project}/issue/ui/play-due?classic=1
+    act:
+      - click: detail.needs.run_playtest
+      # The window exists before its command finishes: wait for the line, not the session.
+      - wait_for: { tmux: { pane: playtest-ui-play-due, contains: "Press Enter to close" }, ms: 15000 }
+      - tmux: [send-keys, -t, playtest-ui-play-due, Enter]
+      - wait_for: { text_contains: { target: detail.needs.playtest_result, text: "Playtest done: 1 passed, 1 failed." }, ms: 15000 }
+    checks:
+      - tmux: { session: playtest-ui-play-due, present: false }
+      - visible: detail.needs.playtest_tick

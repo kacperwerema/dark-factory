@@ -1,6 +1,7 @@
 package checks
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,7 +168,7 @@ summary --all TP1
 		"━━ S1 · second part ━━  (box TP2, TP6)",
 		"✓ S1 pass", "✗ S2 fail: exit 0", "? S3 needs your eyes",
 		"Boxes passed: TP2 TP6\n",
-		"Machine run: 1 failed, 1 need the owner's eyes, 0 skipped. Nothing ticked.")
+		"Machine run: 1 failed, 1 need the owner's eyes, 0 skipped. Left to the owner: TP5.")
 	rec := record(t, r.root, "machine")
 	contains(t, rec, "issue: demo/thing", "mode: machine", "step S1 pass boxes=TP2,TP6", "step S2 fail boxes=TP3,TP4 note=exit 0", "step S3 eyes boxes=TP5", "boxes passed: TP2 TP6")
 }
@@ -381,6 +382,11 @@ sic list
 	if _, err := os.Stat(dir); err == nil {
 		t.Fatalf("the sandbox %s outlived the script", dir)
 	}
+	// Its own state dir: a viewer the script starts records itself there,
+	// never in the shared viewer.json.
+	if state := between(r.out, "STATE=", " "); state != filepath.Join(filepath.Dir(dir), "state") {
+		t.Fatalf("XDG_STATE_HOME = %q, want the sandbox's own state dir next to %s", state, dir)
+	}
 }
 
 func between(s, a, b string) string {
@@ -438,6 +444,17 @@ ptmux has-session -t sbx && echo PRIVATE-UP
 func TestLibNeedsBash4(t *testing.T) {
 	if !strings.Contains(string(Lib), `"${BASH_VERSINFO[0]}" -lt 4`) {
 		t.Fatal("the bash 4 guard is gone")
+	}
+}
+
+// bash -n catches what shellcheck would, on a machine without it: a quote
+// in a ${var:-word} default once broke every helper after it.
+func TestLibParses(t *testing.T) {
+	needBash(t)
+	path := filepath.Join(t.TempDir(), "lib.sh")
+	os.WriteFile(path, Lib, 0o644)
+	if out, err := exec.Command("bash", "-n", path).CombinedOutput(); err != nil {
+		t.Fatalf("bash -n:\n%s", out)
 	}
 }
 
@@ -570,4 +587,266 @@ cat "$CHECKS_STAND_IN_DIR/which"
 	if !strings.Contains(r.out, "/bin/claude") || !strings.Contains(r.out, "ck-") {
 		t.Fatalf("the pane didn't find the stand-in first:\n%s", r.out)
 	}
+}
+
+// wait_for_url …; expect '[ $? = 0 ]' is the common pattern: expect's own
+// skip test must not overwrite the caller's $?.
+func TestLibExpectSeesTheCallersExitCode(t *testing.T) {
+	r := runMachine(t, `
+step S1 a
+true; expect '[ $? = 0 ]' "the last command passed"
+false; expect '[ $? = 1 ]' "the last command failed"
+false; eventually '[ $? = 1 ]' "eventually sees it too" 1
+summary
+`)
+	contains(t, r.out, "✓ the last command passed", "✓ the last command failed", "✓ eventually sees it too")
+	if r.code != 0 {
+		t.Fatalf("exit %d:\n%s", r.code, r.out)
+	}
+}
+
+// A screenshot in a sandbox_dir is gone after the run: show and keep copy it
+// next to the run records first.
+func TestLibShowKeepsAFileFromTheSandbox(t *testing.T) {
+	r := runMachine(t, `
+shot=; sandbox_dir shot
+echo png > "$shot/page.png"
+step S1 a
+show "$shot/page.png"
+keep "$shot/page.png" second.png
+expect '[ -f "$kept" ]' "kept"
+summary
+`)
+	files, _ := filepath.Glob(filepath.Join(r.root, RecordDir, "demo", "files", "*"))
+	if len(files) != 2 {
+		t.Fatalf("kept files = %v, want 2:\n%s", files, r.out)
+	}
+	contains(t, r.out, "Look at "+filepath.Join(r.root, RecordDir, "demo", "files"), "-second.png", "✓ kept")
+}
+
+func TestLibStandInViewerServesFilesAndSetsViewerURL(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	r := runMachine(t, `
+sandbox_project sbx
+stand_in_viewer
+mkdir -p "$STAND_IN_VIEWER_DIR/p/sbx"
+echo '{"milestone":{"version":"0.9"}}' > "$STAND_IN_VIEWER_DIR/p/sbx/release.json"
+curl -fsS "$VIEWER_URL/p/sbx/release.json"
+echo
+stand_in_viewer
+grep -c '^viewer_url:' "$SANDBOX_CONFIG"
+head -n 2 "$SANDBOX_CONFIG"
+echo "URL=$VIEWER_URL"
+`)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	contains(t, r.out, `{"milestone":{"version":"0.9"}}`, "\n1\nviewer_url: \"http://127.0.0.1:", "\nprojects:\n")
+	url := between(r.out, "URL=", "\n")
+	if err := exec.Command("curl", "-fsS", "--max-time", "1", url+"/").Run(); err == nil {
+		t.Fatalf("the stand-in viewer at %s outlived the script", url)
+	}
+}
+
+func TestLibStandInClaudeBoxSwallowsTheFirstEnter(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	r := runMachine(t, `
+step S1 box
+private_tmux
+stand_in_claude_box plain
+stand_in_claude_box deaf --swallow-first-enter
+for s in plain deaf; do
+	ptmux send-keys -t "$s" -l 'approved: in progress'
+	ptmux send-keys -t "$s" Enter
+done
+expect_box_submitted plain "approved: in progress"
+expect_box_empty plain
+sleep 0.5
+expect '! grep -q approved "$CHECKS_BOX_DIR/deaf.submitted"' "the first Enter was swallowed"
+expect 'ptmux capture-pane -p -t deaf | grep -q "^❯ approved: in progress"' "the text is still typed in the box"
+ptmux send-keys -t deaf Enter
+expect_box_submitted deaf "approved: in progress"
+expect_box_empty deaf
+summary
+`)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	contains(t, r.out, "S1 passed")
+}
+
+func TestLibSandboxYoloOnWritesTheSandboxWindowOnly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	r := runMachine(t, `
+sandbox_project sbx
+sandbox_yolo_on
+echo "DIR=$SANDBOX_PROJECT_DIR"
+cat "$SANDBOX_PROJECT_DIR/.yolo/sbx.json"
+`)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	contains(t, r.out, `"on": true`, `"forever": true`, `"by": "owner"`)
+	var st struct {
+		On      bool      `json:"on"`
+		Since   time.Time `json:"since"`
+		Forever bool      `json:"forever"`
+	}
+	raw := r.out[strings.Index(r.out, "{"):]
+	if err := json.Unmarshal([]byte(raw), &st); err != nil || !st.On || !st.Forever || st.Since.IsZero() {
+		t.Fatalf("not a YOLO window the engine reads (%v): %s", err, raw)
+	}
+
+	r = runMachine(t, "sandbox_yolo_on\necho NOT-REACHED\n")
+	if r.code == 0 || strings.Contains(r.out, "NOT-REACHED") {
+		t.Fatalf("sandbox_yolo_on ran without a sandbox:\n%s", r.out)
+	}
+	contains(t, r.out, "needs sandbox_project first")
+}
+
+func TestLibSeedDepartmentAppliesTheDryRunPlan(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	// The stand-in issue-cli answers the dry run with a plan, and writes the
+	// workflow file workflow init --out asks for. A real run never happens.
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "issue-cli")
+	calls := filepath.Join(dir, "calls.txt")
+	body := `#!/bin/sh
+echo "$*" >> ` + calls + `
+case "$*" in
+*"init --template development") mkdir -p issues docs && echo "statuses: []" > workflow.yaml ;;
+*"department add marketing --dry-run")
+	cat << 'JSON'
+{"name":"Marketing","key":"marketing","files":[
+ {"path":"workflows/marketing.yaml","state":"write"},
+ {"path":"departments/marketing/role.md","state":"write"},
+ {"path":"departments/marketing/notes.md","state":"keep"}],
+ "entry":"- name: Marketing\n  prompt: departments/marketing/role.md\n  workflow: workflows/marketing.yaml\n"}
+JSON
+	;;
+*"department add nope --dry-run") echo "no template nope" >&2; exit 1 ;;
+*"workflow init --template marketing --out workflows/marketing.yaml") echo "statuses: [{name: brief}]" > workflows/marketing.yaml ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmpl := filepath.Join(t.TempDir(), "departments")
+	os.MkdirAll(filepath.Join(tmpl, "marketing"), 0o755)
+	os.WriteFile(filepath.Join(tmpl, "marketing", "role.md"), []byte("# Marketing role\n"), 0o644)
+	r := runMachine(t, `
+sandbox_project sbx
+seed_department marketing
+cat "$SANDBOX_CONFIG"
+cat "$SANDBOX_PROJECT_DIR/workflows/marketing.yaml" "$SANDBOX_PROJECT_DIR/departments/marketing/role.md"
+ls "$SANDBOX_PROJECT_DIR/departments/marketing"
+`, "SANDBOX_ISSUE_CLI="+bin, "SEED_DEPARTMENT_TEMPLATES="+tmpl)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	contains(t, r.out, "    terminal: \"none\"\n    departments:\n      - name: Marketing\n        prompt: departments/marketing/role.md\n",
+		"statuses: [{name: brief}]", "# Marketing role")
+	if strings.Contains(r.out, "notes.md") {
+		t.Errorf("a file the plan keeps was written:\n%s", r.out)
+	}
+	data, _ := os.ReadFile(calls)
+	if strings.Contains(string(data), "department add marketing\n") {
+		t.Fatalf("seed_department ran department add itself:\n%s", data)
+	}
+
+	r = runMachine(t, "sandbox_project sbx\nseed_department nope\necho NOT-REACHED\n", "SANDBOX_ISSUE_CLI="+bin)
+	if r.code == 0 || strings.Contains(r.out, "NOT-REACHED") {
+		t.Fatalf("seed_department went on after a failed dry run:\n%s", r.out)
+	}
+	contains(t, r.out, "no template nope")
+}
+
+// TMPDIR ends in a slash on macOS (/var/folders/…/T/) and /var links to
+// /private/var: sandbox_dir's path is the resolved one, as issue-cli and a
+// viewer print it.
+func TestLibSandboxDirPathIsResolved(t *testing.T) {
+	tmp := t.TempDir()
+	r := runMachine(t, `
+sandbox_dir
+echo "SBX=$SANDBOX"
+echo "PHYS=$(cd "$SANDBOX" && pwd -P)"
+`, "TMPDIR="+tmp+"/")
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	sbx := between(r.out, "SBX=", "\n")
+	if strings.Contains(sbx, "//") {
+		t.Fatalf("sandbox_dir path has a double slash: %q", sbx)
+	}
+	if phys := between(r.out, "PHYS=", "\n"); sbx != phys {
+		t.Fatalf("sandbox_dir path %q, want the resolved %q", sbx, phys)
+	}
+	resolved, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(sbx) != resolved {
+		t.Fatalf("sandbox_dir path %q, want it under %q", sbx, resolved)
+	}
+}
+
+// sandbox_dir alone keeps a viewer or issue-cli the script starts off the
+// shared state and config; a later sandbox_dir keeps the first sandbox's,
+// sandbox_project moves both into its own; ticking the real issue gets the
+// caller's back.
+func TestLibSandboxDirIsolatesState(t *testing.T) {
+	r := runMachine(t, `
+sandbox_dir
+echo "SBX=$SANDBOX"
+echo "STATE=$XDG_STATE_HOME"
+echo "CONF=$XDG_CONFIG_HOME"
+[ -d "$XDG_STATE_HOME" ] && [ -d "$XDG_CONFIG_HOME" ] && echo DIRS=ok
+other=; sandbox_dir other
+echo "STATE2=$XDG_STATE_HOME"
+_ck_real sh -c 'echo "REAL=$XDG_STATE_HOME $XDG_CONFIG_HOME"'
+`, "XDG_CONFIG_HOME=/real/config")
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	sbx := between(r.out, "SBX=", "\n")
+	if got := between(r.out, "STATE=", "\n"); got != sbx+"/state" {
+		t.Errorf("XDG_STATE_HOME = %q, want %q", got, sbx+"/state")
+	}
+	if got := between(r.out, "CONF=", "\n"); got != sbx+"/config" {
+		t.Errorf("XDG_CONFIG_HOME = %q, want %q", got, sbx+"/config")
+	}
+	contains(t, r.out, "DIRS=ok", "STATE2="+sbx+"/state\n", "REAL=/real/state /real/config")
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	p := runMachine(t, `
+sandbox_dir
+sandbox_project sbx
+echo "PDIR=$SANDBOX_PROJECT_DIR"
+echo "STATE=$XDG_STATE_HOME"
+echo "CONF=$XDG_CONFIG_HOME"
+`, "XDG_CONFIG_HOME=/real/config")
+	if p.code != 0 {
+		t.Fatalf("exit %d\n%s", p.code, p.out)
+	}
+	dir := filepath.Dir(between(p.out, "PDIR=", "\n"))
+	contains(t, p.out, "STATE="+dir+"/state\n", "CONF="+dir+"/config\n")
 }

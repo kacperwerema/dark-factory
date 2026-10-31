@@ -2,8 +2,8 @@
 """Screenshot Claude artifact mockups offline with Playwright.
 
 Usage:
-  tools/mockup-shots/shots.py <dir-or-file> [--width W] [--scheme dark|light]
-                              [--shot CSS=NAME ...] [--selector CSS] [--out DIR]
+  uv run --with playwright tools/mockup-shots/shots.py <dir-or-file> [--width W] [--scheme dark|light]
+      [--shot CSS=NAME ...] [--selector CSS] [--out DIR]
 
 Takes a saved artifact: Design canvas artboards (*.dc.html) or plain HTML
 pages (*.html). For a directory, every *.dc.html in it is shot (and every
@@ -28,8 +28,9 @@ Design artboards need the claude.ai runtime, so they are rendered with a
 small shim (dc-shim.js) that fills {{holes}}, <sc-for>, <sc-if> and
 renderVals(). Rendering is static: each screen shows its initial state.
 
-Needs Python Playwright with Chromium (`pip install playwright` and
-`playwright install chromium`).
+Needs Python Playwright with Chromium. Without it installed, run it as
+`uv run --with playwright tools/mockup-shots/shots.py …` (once:
+`uv run --with playwright playwright install chromium`).
 """
 import argparse
 import json

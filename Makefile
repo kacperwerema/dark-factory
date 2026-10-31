@@ -1,4 +1,4 @@
-.PHONY: build build-cli install demo readme-shots clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report
+.PHONY: build build-cli install demo readme-shots clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report shot security-check
 
 # The build's version is `git describe`: the tag on a release or release
 # candidate (v0.54.0-rc.1), "<tag>-N-g<sha>" past one, "-dirty" with
@@ -60,6 +60,13 @@ catalog-check:
 validate: vet test cover-cli catalog-check playtest-check
 	@echo "✓ validate passed"
 
+# The security barriers end to end (docs/API/security.md): a throwaway viewer
+# on loopback attacked as if it were public, then govulncheck. Not part of
+# validate (govulncheck needs the network); the same barriers are Go tests.
+security-check:
+	@scripts/security-check.sh
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # Playtest sessions (playtest/sessions/*.yaml): an issue's manual checks run
 # against a throwaway scenario board in Chrome. See docs/patterns/playtest/.
 #   make playtest-check                       validate every session (no browser)
@@ -67,9 +74,13 @@ validate: vet test cover-cli catalog-check playtest-check
 #                                             machine checks, headless, desktop + phone
 #   make playtest [ISSUE=slug] [S=session]    the owner's judgement steps, in an overlay
 #   make playtest-report ISSUE=slug [APPLY=1] tick passed boxes, comment failures
+#   make shot URL=… [W=390] [H=844] [FULL=1] [OUT=file.png]
+#                                             one screenshot of one page (headless)
 # In a dispatched worktree (branch work/<slug>) ISSUE defaults to <slug>, so a
 # plain `make playtest` runs that issue's sessions. Pass ISSUE= to run them all.
-ISSUE ?= $(patsubst work/%,%,$(filter work/%,$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)))
+# With S= the branch's slug isn't used: S= runs that session, whoever's it is.
+BRANCH_ISSUE := $(patsubst work/%,%,$(filter work/%,$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)))
+ISSUE ?= $(if $(S),,$(BRANCH_ISSUE))
 PLAYTEST = go run ./cmd/playtest
 PLAYTEST_SEL = $(if $(ISSUE),-issue $(ISSUE)) $(if $(S),-s $(S))
 
@@ -83,4 +94,7 @@ playtest:
 	@$(PLAYTEST) playtest $(PLAYTEST_SEL)
 
 playtest-report:
-	@$(PLAYTEST) report -issue $(ISSUE) $(if $(S),-s $(S)) $(if $(APPLY),-apply)
+	@$(PLAYTEST) report -issue $(or $(ISSUE),$(BRANCH_ISSUE)) $(if $(S),-s $(S)) $(if $(APPLY),-apply)
+
+shot:
+	@$(PLAYTEST) shot -url '$(URL)' $(if $(W),-w $(W)) $(if $(H),-h $(H)) $(if $(FULL),-full) $(if $(OUT),-out $(OUT))

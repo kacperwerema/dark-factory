@@ -1,0 +1,16 @@
+# Owner checks: one epic, ui/reports-epic, with three children.
+# - ui/reports-redesign (done): TP3 is a playtest judgement step with a shot
+#   (the reports-redesign session's latest ux-test run), TP4 a worker's box,
+#   and its Human Testing box is open.
+# - ui/export-csv (done): only its Human Testing box is open.
+# - ui/chart-colors (done): every box ticked, so it is not listed.
+# The epic has one criterion marked "(owner)". ui/other-work belongs to no
+# epic and has an open Human Testing box: listed only under Every issue.
+# Expected under the epic: 4 boxes on 3 issues.
+title: Owner checks - every box only you can tick under an epic
+project:
+  name: Owner Checks Demo
+  slug: oc
+issues: tracker
+workflow: workflow.yaml
+root: files

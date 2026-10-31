@@ -126,7 +126,7 @@
 {{define "wb/project-stat"}}
 <a class="wb-pstat" href="{{.Href}}" data-testid="stats.overview.row" data-project="{{.Slug}}">
     <div class="wb-pstat-name"><strong>{{.Name}}</strong><span class="wb-muted wb-mono-inline">{{.Slug}}</span>
-        <span class="wb-pstat-privacy">{{range .Privacy}}<span class="wb-chip wb-chip--idle" data-testid="stats.overview.privacy.{{.Kind}}" data-level="{{.Level}}" title="{{.Sentence}}">{{.Icon}}{{.Marker}}</span>{{end}}</span>
+        <span class="wb-pstat-privacy">{{range .Privacy}}{{$l := printf "%v" .Level}}<span class="wb-chip wb-chip--{{if eq $l "green"}}green{{else if or (eq $l "red") (eq $l "amber")}}red{{else}}idle{{end}}" data-testid="stats.overview.privacy.{{.Kind}}" data-level="{{.Level}}" title="{{.Sentence}}">{{.Icon}}{{.Marker}}</span>{{end}}</span>
     </div>
     {{if .Waiting.Has}}
     <div class="wb-pstat-cell"><span class="wb-muted">Waiting on you</span><span class="wb-pstat-v">{{.Waiting.Value}}</span>
@@ -139,7 +139,7 @@
     {{end}}
     <div class="wb-pstat-cell"><span class="wb-muted">Done, 30 days</span><span class="wb-pstat-v">{{.Done}}</span></div>
     <div class="wb-pstat-cell"><span class="wb-muted">Lines of code</span>{{if .LOC.Has}}<span class="wb-pstat-v">{{.LOC.Value}}</span><span class="s-all">{{.LOC.Spark}}</span>{{else}}<span class="wb-pstat-v">—</span>{{end}}</div>
-    <div class="wb-pstat-cell"><span class="wb-muted">Test ratio · big files</span><span class="wb-pstat-v">{{if .HasRatio}}{{printf "%.2f" .TestRatio}}{{else}}—{{end}} · {{if .HasBig}}{{.BigFiles}}{{else}}—{{end}}</span></div>
+    <div class="wb-pstat-cell"><span class="wb-muted">Test ratio · big files</span><span class="wb-pstat-v">{{if .HasRatio}}{{printf "%.2f" .TestRatio}}{{else}}—{{end}} · {{if .HasBig}}{{.BigFiles}}{{else}}—{{end}}</span>{{if .HasRatio}}<span class="wb-meter" role="img" aria-label="test ratio {{printf "%.2f" .TestRatio}}" data-testid="stats.overview.ratio"><i style="width: {{.Pct .TestRatio}}%"></i></span>{{end}}</div>
     <div class="wb-pstat-cell"><span class="wb-muted">Latest snapshot</span><span class="wb-mono-inline">{{.Latest}}</span></div>
 </a>
 {{end}}

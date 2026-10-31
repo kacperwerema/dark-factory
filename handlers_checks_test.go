@@ -221,4 +221,19 @@ func TestCheckRootsFindTheBranchWorktreeWithoutWorktreeConfig(t *testing.T) {
 	if !reflect.DeepEqual(a.Checks, []string{"own"}) {
 		t.Fatalf("checks due = %v, want the branch worktree's script", a.Checks)
 	}
+
+	// Merged into main and left clean: main's checkout comes first.
+	wtGit := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", wt, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	wtGit("add", "scripts")
+	wtGit("commit", "-q", "-m", "check script")
+	git("merge", "-q", "--ff-only", "work/cli/lead-tab")
+	if roots := checkRoots(&proj, issue, proj.LoadWorkflowForIssue(issue)); roots[0] != root {
+		t.Fatalf("roots = %v, want the project first once work/cli/lead-tab is merged", roots)
+	}
 }

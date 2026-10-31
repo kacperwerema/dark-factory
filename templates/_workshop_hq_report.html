@@ -1,0 +1,32 @@
+{{/*
+Workshop Board components of the HQ report (hq_report.go has their view
+models, static/workshop.css their styles under "L1: HQ report").
+/p/<project>/hq/report renders them; /hq/report.md is the same model as text.
+
+  wb/hqr-box        one box's section: a fold whose summary is the headline   data: HQRBox
+  wb/hqr-headline   the dot, the box's name and its headline parts            data: HQRBox
+  wb/hqr-rows       the detail: labelled rows of lines, or the empty line     data: HQRBox
+*/}}
+
+{{define "wb/hqr-box"}}
+<details class="wb-hqr-box{{if eq .Kind "hq"}} wb-hqr-box--hq{{end}}" data-kind="{{.Kind}}" style="--hqr-color: {{.Color}}; --hqr-depth: {{.Depth}}" data-box="{{.Key}}" data-testid="hq_report.box.{{.Key}}">
+    <summary class="wb-hqr-summary" data-testid="hq_report.headline.{{.Key}}">{{template "wb/hqr-headline" .}}</summary>
+    {{template "wb/hqr-rows" .}}
+</details>
+{{end}}
+
+{{define "wb/hqr-headline"}}
+<span class="wb-hqr-dot wb-hqr-dot--{{.Tone}}" aria-hidden="true"></span>
+<span class="wb-hqr-name">{{.Name}}{{if eq .Kind "group"}} <span class="wb-hqr-kind">group</span>{{end}}</span>
+<span class="wb-hqr-parts">{{with .OnTrack}}<span class="wb-hqr-part wb-hqr-part--{{$.Tone}}">{{.}}</span>{{end}}{{range .Parts}}<span class="wb-hqr-part{{with .Tone}} wb-hqr-part--{{.}}{{end}}">{{.Text}}</span>{{end}}{{if and (not .OnTrack) (not .Parts)}}<span class="wb-hqr-part wb-hqr-part--none">nothing here yet</span>{{end}}</span>
+{{end}}
+
+{{define "wb/hqr-rows"}}
+<div class="wb-hqr-detail">
+    {{with .Empty}}<p class="wb-hqr-empty" data-testid="hq_report.empty.{{$.Key}}">{{.}}</p>{{end}}
+    {{if .Rows}}<dl class="wb-hqr-rows">{{range .Rows}}
+        <div class="wb-hqr-row" data-testid="hq_report.row.{{$.Key}}.{{.Key}}"><dt>{{.Label}}</dt><dd>{{range .Lines}}<div class="wb-hqr-line{{with .Tone}} wb-hqr-line--{{.}}{{end}}">{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}</div>{{end}}</dd></div>{{end}}
+    </dl>{{end}}
+    {{with .Link}}<a class="wb-hqr-open" href="{{.}}">{{$.LinkText}} →</a>{{end}}
+</div>
+{{end}}

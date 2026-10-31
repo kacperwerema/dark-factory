@@ -1,0 +1,63 @@
+# The HQ report: HQ with a company goal, GTM (a group) over Marketing and
+# Sales, and a Factory department, next to Product. Marketing has a goal
+# that moved, a weekly job, an output waiting on review and one published,
+# a request from GTM, an issue blocked on Product and its lead's progress:
+# line; Factory has a goal, an issue blocked on an open question and its
+# lead's progress line; Sales has nothing (its section says so). GTM's week
+# report is under tracker/.reports/gtm/. The viewer's health watcher takes
+# today's snapshot at start (the departments family's on-track rows);
+# transcripts give this week's spend (no prices: "cost unknown"), and
+# Marketing has a token budget.
+title: HQ, GTM over Marketing and Sales, and Factory, in one report
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: Grow the client roster
+      goals:
+        - {id: clients, name: Paying clients, target: 20, period: quarter}
+    departments:
+      - name: GTM
+        color: "#F2A541"
+        role: Go to market
+        mission: A steady pipeline of new clients
+        goals:
+          - {id: pipeline, name: New client conversations, target: 8, period: month, rolls_up: clients}
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+        budget: {tokens: 2000000, period: week}
+        goals:
+          - {id: pages, name: Client pages refreshed, target: 10, period: week}
+        jobs:
+          - {id: seo-pass, name: Weekly SEO pass, every: week, brief: briefs/seo-pass.md}
+      - name: Sales
+        color: "#17A2B8"
+        role: Leads and deals
+        systems: [Leads]
+        parent: GTM
+      - name: Factory
+        color: "#2BB673"
+        role: Builds the client sites
+        systems: [Factory]
+        goals:
+          - {id: sites, name: Sites live, target: 5}
+issues: tracker
+workflow: workflow.yaml
+root: files
+transcripts:
+  - cwd: .worktrees/seo/case-study-pages
+    messages:
+      - {model: claude-test, input: 20000, output: 9000, cache_read: 1200000}
+  - cwd: .worktrees/engine/case-study-template
+    messages:
+      - {model: claude-test, input: 40000, output: 15000, cache_read: 1500000}
+  - agent: lead-acme
+    messages:
+      - {model: claude-test, input: 5000, output: 2000, cache_read: 300000}
+  - agent: lead-acme-factory
+    messages:
+      - {model: claude-test, input: 3000, output: 1000, cache_read: 200000}

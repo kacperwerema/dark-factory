@@ -1,0 +1,4 @@
+# Every shipping branch adds a line at the top of ## Unreleased: keep both
+# sides' new lines instead of conflicting. TestChangelogBranchEntriesUnreleased
+# catches a line that lands under a released heading.
+cmd/issue-cli/CHANGELOG.md merge=union

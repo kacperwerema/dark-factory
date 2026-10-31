@@ -169,6 +169,11 @@ func TestHostGuard_AllowedHostsFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv.allowedHosts = allowedHostsFor(defaultHost, []string{"Viewer.LAN", "box.tail1234.ts.net:8080", "[fd00::7]"})
+	// A name past loopback is public: it is answered only with a verified
+	// identity (identity.go).
+	f := newAccessFixture(t)
+	srv.identity = f.checker
+	token := f.token(t, nil)
 	ts := httptest.NewServer(srv.Routes())
 	defer ts.Close()
 
@@ -182,6 +187,7 @@ func TestHostGuard_AllowedHostsFromConfig(t *testing.T) {
 	} {
 		req := mustReq(t, "GET", ts.URL+"/p/test-project/issue/bug-in-login")
 		req.Host = host
+		req.Header.Set(cfAccessHeader, token)
 		resp, body := pageResp(t, req)
 		if resp.StatusCode != want {
 			t.Errorf("Host %s = %d, want %d", host, resp.StatusCode, want)

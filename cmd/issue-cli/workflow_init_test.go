@@ -26,7 +26,7 @@ func chdir(t *testing.T, dir string) {
 
 func TestAvailableWorkflowTemplatesIncludesEveryBundledOne(t *testing.T) {
 	got := workflowupgrade.Templates()
-	want := map[string]bool{"development": false, "review": false, "writing": false, "content": false}
+	want := map[string]bool{"development": false, "review": false, "writing": false, "content": false, "planning": false}
 	for _, name := range got {
 		if _, ok := want[name]; ok {
 			want[name] = true

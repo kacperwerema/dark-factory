@@ -180,3 +180,22 @@ func TestCrewPageWorkshopBoardOnly(t *testing.T) {
 		t.Error("the page carries Polish text")
 	}
 }
+
+// Proves: AC3 — the Crew panel carries what the classic canvas panel did:
+// the tmux display name, the attach command even when the agent is not
+// running, and the time tmux was read (classic-page-gaps G47, G49).
+func TestCrewPanelDisplayAttachAndChecked(t *testing.T) {
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	m := &AgentsModel{
+		Project:     "P",
+		ProjectLead: AgentNode{Name: "lead-p", Display: "shared:lead-p", AttachCmd: "tmux attach -t shared:lead-p", Live: false},
+	}
+	d := buildCrew(m, nil, "/p/p", "lead-p", now)
+	if d.Checked != now.UnixMilli() {
+		t.Errorf("checked = %d", d.Checked)
+	}
+	p := d.Panel
+	if p == nil || p.Display != "shared:lead-p" || p.Command != "tmux attach -t shared:lead-p" || p.CommandLabel != "From a shell, once it runs again" {
+		t.Errorf("panel = %+v", p)
+	}
+}

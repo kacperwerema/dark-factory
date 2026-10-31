@@ -1,0 +1,42 @@
+session: yolo-owner-checks
+issue: workflow/yolo-and-owner-judgement-criteria-wait-for-the-owner-after-the-fact-instead-of-blocking-or-passing-silently
+title: YOLO owner checks - a box only the owner can check waits on the Station and the company's queue by name
+scenario: yolo
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: '"AC2: owner check, not done" waits under Passed in YOLO and in the company''s queue'
+    proves: [AC2]
+    setup:
+      # What the testing → human-testing transition writes under YOLO for a box only the owner can check.
+      - post:
+          path: /p/{project}/issue/shop/barcode-scan/comments
+          json: { block: 0, text: 'yolo-owner-check: AC2: owner check, not done (playtest judgement step TP9) "Scans in under a second" · from backlog' }
+          status: 201
+      - open: /p/{project}/issue/shop/barcode-scan
+    act:
+      - wait_for: station.yolo.owner_check
+      - check: { text_contains: { target: station.yolo.owner_check, text: "AC2: owner check, not done" } }
+      - check: { text_contains: { target: station.yolo.owner_check, text: "Scans in under a second" } }
+      - check: { text_contains: { target: station.yolo.owner_check, text: "playtest judgement step TP9" } }
+      - check: { visible: [station.yolo.agree, station.yolo.back] }
+      - open: /p/{project}/company
+    checks:
+      - visible: company.yolo_queue
+      - text_contains: { target: company.yolo_queue, text: "AC2: owner check, not done" }
+    targets:
+      - { id: station.yolo.owner_check, note: "The owner check under Passed in YOLO" }
+      - { id: company.yolo_queue, note: "To review after YOLO" }
+    do: |
+      1. Open the Barcode scan issue: under Passed in YOLO, read the owner check.
+      2. On the company page, find it in To review after YOLO.
+    expect: |
+      The issue says which box was never checked (AC2), its text, why only
+      you can check it, and that YOLO left it unticked for you, with Agree
+      and Back to backlog. The company's queue lists it by name.
+    why: ux-test checks the text and the buttons; only you can say whether it reads as "this was never really checked".

@@ -1,0 +1,68 @@
+session: classic-gaps-store
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: The crate store creates issues and filters by status itself; Crew says how fresh it is
+scenario: basic
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP11
+    title: New issue opens the store's own dialog and Create opens the new issue's station
+    proves: [AC3]
+    setup:
+      - open: "/p/{project}/"
+    act:
+      - click: issues.new
+      - wait_for: issues.create.title
+      - check: { url: { equals: /p/demo/ } }
+      - type: { target: issues.create.title, text: "Print shipping labels" }
+      - select: { target: issues.create.priority, value: high }
+      - type: { target: issues.create.labels, text: "warehouse, labels" }
+      - type: { target: issues.create.body, text: "Print a label for every packed order." }
+      - click: issues.create.submit
+      - wait_for: { url: { contains: /issue/print-shipping-labels }, ms: 8000 }
+    checks:
+      - issue: { slug: print-shipping-labels, field: title, equals: "Print shipping labels" }
+      - issue: { slug: print-shipping-labels, field: priority, equals: high }
+      - issue: { slug: print-shipping-labels, field: status, equals: idea }
+      - issue: { slug: print-shipping-labels, body_contains: "Print a label for every packed order." }
+    targets:
+      - { id: issues.create, note: the New issue dialog over the store }
+    do: |
+      1. Open the Issues tab (the crate store) and press New issue in the side column.
+      2. Fill in a title, a priority, two labels and a line of body, then press Create.
+    expect: |
+      The dialog opens on the store (no classic page), in the Workshop Board
+      look: thick outline, the fields in a grid. Create takes you to the new
+      issue's station.
+    why: ux-test checks the file and the jump; only you can say the dialog reads as part of the board.
+
+  - id: TP12
+    title: The By status facet filters the store and its pill clears; Crew says how old its tmux reading is
+    proves: [AC3]
+    setup:
+      - open: "/p/{project}/?new=1"
+    act:
+      - wait_for: issues.create
+      - check: { visible: issues.create.title }
+      - key: Escape
+      - wait_for: { hidden: issues.create, ms: 3000 }
+      - check: { text_contains: { target: bars.issues_status, text: backlog } }
+      - open: "/p/{project}/?status=backlog"
+      - check: { count: { pattern: issues.crate.*, equals: 2 } }
+      - click: filter.clear_status
+      - wait_for: { url: { equals: /p/demo/ } }
+      - check: { count: { pattern: issues.crate.*, equals: 5 } }
+      - open: "/p/{project}/agents"
+    checks:
+      - text_contains: { target: crew.live, text: "live · tmux checked" }
+    do: |
+      1. Look at the store's side column: By status lists each status with its count.
+      2. Open Crew and read the line under the title.
+    expect: |
+      By status sits with the other facets. Crew says "live · tmux checked
+      Ns ago" and the seconds count up until the page reloads.
+    why: the facet and the label are checked by ux-test; the owner only looks.

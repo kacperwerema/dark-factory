@@ -61,9 +61,12 @@ type Run struct {
 	Error    string          `json:"error,omitempty"`
 	Commands []CommandResult `json:"commands"`
 	// Failed is the command that stopped the run ("" when green).
-	Failed    string   `json:"failed,omitempty"`
-	Failures  []string `json:"failures,omitempty"`
-	Log       string   `json:"log"`
+	Failed   string   `json:"failed,omitempty"`
+	Failures []string `json:"failures,omitempty"`
+	Log      string   `json:"log"`
+	// KeptLog is the red run's copy of Log under .ci/red, which outlives
+	// the next green run ("" for a green run, or once pruned).
+	KeptLog   string   `json:"kept_log,omitempty"`
 	LogTail   []string `json:"log_tail,omitempty"`
 	RangeFrom string   `json:"range_from,omitempty"`
 	// Results are the parsed test results per kind (unit, e2e), from the
@@ -107,6 +110,13 @@ type State struct {
 	Log      string    `json:"log,omitempty"`
 	LogTail  []string  `json:"log_tail,omitempty"`
 	Updated  time.Time `json:"updated"`
+	// LastRedLog is the newest kept red log (.ci/red, any tier), with its
+	// commit, tier and finish time. A green run leaves them: they point at
+	// the last failure after the branch is green again.
+	LastRedLog  string    `json:"last_red_log,omitempty"`
+	LastRedSha  string    `json:"last_red_sha,omitempty"`
+	LastRedTier string    `json:"last_red_tier,omitempty"`
+	LastRedAt   time.Time `json:"last_red_at,omitempty"`
 	// Tiers holds the newest run of each non-default tier.
 	Tiers map[string]TierState `json:"tiers,omitempty"`
 }

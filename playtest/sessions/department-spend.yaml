@@ -1,0 +1,53 @@
+session: department-spend
+issue: factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room
+title: Each room shows what it spent, groups and HQ roll up, a budget is "x of y"
+scenario: spend
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Marketing's room shows this week's tokens and its token budget; open, it lists the weeks and its top issues
+    proves: [AC1, AC3]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - click: company.room.spend.box.marketing
+    checks:
+      - text_contains: { target: company.room.spend.box.marketing, text: "1.5M tokens · cost unknown this week" }
+      - text_contains: { target: company.room.spend.box.marketing, text: "1.5M of 2M tokens this week" }
+      - count: { pattern: company.room.spend.issue, within: company.room.spend.box.marketing, equals: 2 }
+      - text_contains: { target: company.room.spend.box.marketing, text: "seo/landing-page" }
+      - text_contains: { target: company.room.spend.box.marketing, text: "Estimates · Claude Code on this machine · never enforced" }
+      - text_contains: { target: company.room.spend.box.product, text: "1.6M tokens · cost unknown this week" }
+    targets: [company.room.spend.box.marketing, company.room.spend.box.product]
+
+  - id: TP5
+    title: GTM and HQ roll up; Sales spent nothing and its unreadable budget is marked
+    proves: [AC2, AC3]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - text_contains: { target: company.room.spend.box.gtm, text: "1.5M tokens · cost unknown this week" }
+      - text_contains: { target: company.room.spend.box.gtm, text: "incl. 2 departments" }
+      - text_contains: { target: company.room.spend.box.hq, text: "3.4M tokens · cost unknown this week" }
+      - text_contains: { target: company.room.spend.box.hq, text: "incl. 4 boxes" }
+      - text_contains: { target: company.room.spend.box.sales, text: "No spend recorded yet" }
+      - text_contains: { target: company.room.spend.box.sales, text: "budget unreadable" }
+    targets: [company.room.spend.box.gtm, company.room.spend.box.hq, company.room.spend.box.sales]
+
+  - id: TP6
+    title: issue-cli spend prints the boxes, the unattributed session and where prices go
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - cli: { args: [--project, "{project}", spend], contains: "== Marketing (in group gtm) ==" }
+      - cli: { args: [--project, "{project}", spend, marketing], contains: "Budget: 1.5M of 2M tokens this week" }
+      - cli: { args: [--project, "{project}", spend], contains: "Unattributed (sessions in the project folder with no agent name, yours): 400 tokens" }
+      - cli: { args: [--project, "{project}", spend], contains: "No price for claude-test" }
+      - cli: { args: [--project, "{project}", department, show, sales], contains: "budget unreadable (budget: is not a mapping" }
+    targets: [company.room.spend.box.hq]

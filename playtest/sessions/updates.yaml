@@ -87,10 +87,14 @@ steps:
     setup:
       - open: /updates
     checks:
-      - visible: [updates.overview, updates.overview.stats, updates.overview.row]
-      - text_contains: { target: updates.overview, text: "development@v0.36.0" }
-      - text_contains: { target: updates.overview.row, text: "behind" }
+      # /updates is a Workshop Board page since 27bbeab (one card per
+      # project); the classic table stays at ?classic=1 and is checked too.
+      - visible: [updates_overview.page, updates_overview.tally, updates_overview.card.harbor]
+      - text_contains: { target: updates_overview.card.harbor.template, text: "development@v0.36.0" }
+      - text_contains: { target: updates_overview.card.harbor.state, text: "behind" }
+      - text_contains: { target: updates_overview.tally.projects, text: "1 project" }
       - http: { path: "/updates", contains: "href=\"/p/harbor/updates\"" }
+      - http: { path: "/updates?classic=1", contains: "data-testid=\"updates.overview.row\"" }
 
   - id: TP9
     proves: [AC10]

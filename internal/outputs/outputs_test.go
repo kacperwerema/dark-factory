@@ -225,3 +225,30 @@ func TestLoadOrdersSameInstantByLog(t *testing.T) {
 		t.Errorf("order = %v, want the newest recorded first %v", got, want)
 	}
 }
+
+func TestMarkUsedFoldsIntoUses(t *testing.T) {
+	p := project(t)
+	o, err := Add(p, AddInput{Department: "marketing", Title: "ICP", Kind: "report", URL: "https://acme.example/icp"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MarkUsed(p, o.ID, "", "x", now); err == nil {
+		t.Error("a use without --by is refused")
+	}
+	got, err := MarkUsed(p, o.ID, "product", "lead-acme-marketing", now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Uses) != 1 || got.Uses[0].For != "product" || got.Uses[0].By != "lead-acme-marketing" {
+		t.Errorf("uses = %+v", got.Uses)
+	}
+	if _, err := Review(p, o.ID, StateRejected, "no", "", "owner", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MarkUsed(p, o.ID, "product", "", now); err == nil || !strings.Contains(err.Error(), "rejected") {
+		t.Errorf("using a rejected output: %v", err)
+	}
+	if _, bad := Load(p); len(bad) != 0 {
+		t.Errorf("bad lines: %+v", bad)
+	}
+}

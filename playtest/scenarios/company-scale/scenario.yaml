@@ -1,0 +1,52 @@
+# The company page at scale: 15 departments. Three groups (GTM over
+# Marketing, Sales and Partnerships; Ops over Finance, Legal and People;
+# Support over Help desk and Docs) and four departments straight under HQ
+# (Research, Design, Data, Security): the company nests HQ → group →
+# department. Requests, outputs and dependencies cross the floor (derived),
+# projects.yaml declares routes and feeds (some idle, one crossed), three
+# handoffs wait at different stops, and five departments run jobs.
+# 20+ lines on the floor: the many-lines fade and the one-room highlight.
+title: Fifteen departments, three groups, the floor stays readable
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - {name: GTM, color: "#F2A541", role: Go to market, mission: A steady pipeline of new clients}
+      - {name: Marketing, color: "#E2559B", role: SEO and content, systems: [SEO], parent: GTM,
+         jobs: [{id: weekly-post, name: Weekly post, every: week, on: mon}]}
+      - {name: Sales, color: "#17A2B8", role: Leads and deals, systems: [Leads], parent: GTM}
+      - {name: Partnerships, color: "#8E5CD9", role: Resellers and integrations, systems: [Partners], parent: GTM}
+      - {name: Ops, color: "#6C7A96", role: Running the company}
+      - {name: Finance, color: "#2E9E5B", role: Books and invoices, systems: [Books], parent: Ops,
+         jobs: [{id: month-close, name: Month close, every: month, on: last}]}
+      - {name: Legal, color: "#B07A4F", role: Contracts and terms, systems: [Contracts], parent: Ops}
+      - {name: People, color: "#D9822B", role: Hiring and onboarding, systems: [Hiring], parent: Ops}
+      - {name: Support, color: "#13A386", role: Customers who need help}
+      - {name: Help desk, color: "#0F7C9E", role: Tickets and replies, systems: [Tickets], parent: Support,
+         jobs: [{id: triage, name: Ticket triage, every: day, at: "09:00"}]}
+      - {name: Docs, color: "#5B5FE0", role: Guides and reference, systems: [Guides], parent: Support}
+      - {name: Research, color: "#8BC34A", role: Market and user research, systems: [Studies],
+         jobs: [{id: interviews, name: User interviews digest, every: week, on: fri}]}
+      - {name: Design, color: "#E25555", role: Brand and product design, systems: [Visual]}
+      - {name: Data, color: "#2A5BD7", role: Metrics and reports, systems: [Metrics],
+         jobs: [{id: kpi, name: KPI report, every: week, on: mon}]}
+      - {name: Security, color: "#4A4F5C", role: Audits and access, systems: [Audit]}
+    connections:
+      requests:
+        - {from: marketing, to: product, via: hq}
+        - {from: sales, to: marketing, via: gtm}
+        - {from: help-desk, to: product, via: hq}
+        - {from: finance, to: data}
+        - {from: legal, to: security}
+        - {from: partnerships, to: legal, via: hq}
+      feeds:
+        - {from: research, to: design, what: "interview notes"}
+        - {from: data, to: hq, what: "KPI report"}
+        - {from: design, to: marketing, what: "brand kit"}
+issues: tracker
+workflow: workflow.yaml
+generate:
+  - {count: 6, dir: Engine, title: "Product work %d", status: "backlog"}
+  - {count: 4, dir: SEO, title: "Article %d", status: "backlog"}
+  - {count: 3, dir: Tickets, title: "Ticket batch %d", status: "in progress"}

@@ -87,6 +87,22 @@ type TaskRecord struct {
 	FinalStatus    string   `json:"final_status,omitempty"`
 	OutsideTouched []string `json:"outside_touched,omitempty"`
 	DiffLines      int      `json:"diff_lines"`
+
+	// Workflow is the task's workflow box key (product, a department);
+	// Eval the eval that scored it ("" scored by hidden tests alone).
+	Workflow string `json:"workflow,omitempty"`
+	Eval     string `json:"eval,omitempty"`
+	// EvalScore is the eval's mean score 0-1, -1 when no eval graded the
+	// task; EvalPassed of EvalTotal assertions passed; EvalFailed the
+	// failing ones with why, EvalSkipped what was left out.
+	EvalScore   float64  `json:"eval_score"`
+	EvalPassed  int      `json:"eval_passed,omitempty"`
+	EvalTotal   int      `json:"eval_total,omitempty"`
+	EvalFailed  []string `json:"eval_failed,omitempty"`
+	EvalSkipped []string `json:"eval_skipped,omitempty"`
+	// ScoreWallSec is how long scoring the eval took (the grader's time);
+	// a task's whole time is WallSec + ScoreWallSec.
+	ScoreWallSec float64 `json:"score_wall_sec,omitempty"`
 }
 
 // Setup is what a run measured: the issue-cli and workflow under test.

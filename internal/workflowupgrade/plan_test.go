@@ -77,7 +77,7 @@ func TestWorkflowFeatureCatalogMatchesBundledTemplates(t *testing.T) {
 					continue
 				}
 				if CompareVersions(e.Version, latest) > 0 {
-					t.Errorf("%s: entry version %s is newer than the template stamp %s — bump the stamp", e.ID, e.Version, latest)
+					t.Errorf("%s: entry version %s is newer than the template stamp %s — run: issue-cli workflow catalog-bump %s --version %s (moves the stamps and record lines with it)", e.ID, e.Version, latest, e.ID, e.Version)
 				}
 				if e.Version == latest {
 					hasStampEntry = true
@@ -95,7 +95,7 @@ func TestWorkflowFeatureCatalogMatchesBundledTemplates(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(res.Changes) > 0 || strings.Join(res.Record.Installed, ",") != strings.Join(rec.Installed, ",") {
-				t.Errorf("%s.yaml features: record is stale; re-run issue-cli workflow scan on it. Changes: %v", name, res.Changes)
+				t.Errorf("%s.yaml features: record is stale; re-run issue-cli workflow scan on it (a version bump: issue-cli workflow catalog-bump <id> --version <its version>). Changes: %v", name, res.Changes)
 			}
 			if len(rec.Declined) > 0 {
 				t.Errorf("a bundled template declines nothing; got %v", rec.Declined)

@@ -30,6 +30,7 @@ func TestStorageFamilyMeasuresEachArea(t *testing.T) {
 	writeSized(t, filepath.Join(root, ".worktrees", "cli", "b", ".git"), 100)
 	writeSized(t, filepath.Join(root, ".playtest", "runs", "s", "r", "shots", "TP1.png"), 1*mb)
 	writeSized(t, filepath.Join(root, ".agent-logs", "clilog.jsonl"), mb/2)
+	writeSized(t, filepath.Join(root, ".ci", "red", "20261031T110000Z-abc1234.first.log"), mb/2)
 	writeSized(t, filepath.Join(root, "issues", "attachments", "x", "Main.png"), mb)
 	writeSized(t, filepath.Join(root, "main.go"), mb)
 	if err := os.Symlink(filepath.Join(root, ".git"), filepath.Join(root, "link")); err != nil {
@@ -49,12 +50,13 @@ func TestStorageFamilyMeasuresEachArea(t *testing.T) {
 		}
 	}
 	want := map[string]float64{
-		"storage.total_mb":       12.5,
+		"storage.total_mb":       13,
 		"storage.git_mb":         2,
 		"storage.worktrees_mb":   3,
 		"storage.worktrees":      2,
 		"storage.playtest_mb":    5,
 		"storage.agent_logs_mb":  0.5,
+		"storage.ci_mb":          0.5,
 		"storage.attachments_mb": 1,
 	}
 	for name, v := range want {

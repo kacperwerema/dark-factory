@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Telemetry, other installs"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-hhead">
+    <div class="wb-hhead-text">
+        <h1 class="wb-h1 wb-h1--xl">Telemetry, other installs</h1>
+        <div class="wb-hhead-sub" data-testid="telemetry.sub">anonymous, names-only daily batches from a collector{{with .Sub}} · {{.}}{{end}}</div>
+        <div class="wb-hhead-sub">{{if .Source}}reads <span class="wb-mono-inline wb-telemetry-source" data-testid="telemetry.source">{{.Source}}</span>{{if .Skipped}} · <span data-testid="telemetry.skipped">{{.Skipped}} lines skipped (not a valid batch)</span>{{end}} · {{end}}what is sent: <span class="wb-mono-inline">docs/CLI/telemetry.md</span>, “Sharing usage” · this machine's own calls: <a href="/stats">Stats</a></div>
+    </div>
+    {{template "wb/seg-links" (wbSeg "Range" "telemetry-range" .Ranges)}}
+</section>
+<main class="wb-hmain wb-stats" data-testid="telemetry.page">
+    {{with .Error}}<p class="wb-flash wb-flash--err" data-testid="telemetry.error">{{.}}</p>{{end}}
+    {{if .Empty}}
+    <section class="wb-hsec" data-testid="telemetry.empty">{{template "wb/empty" .Empty}}</section>
+    {{else}}
+    <section class="wb-hsec" aria-labelledby="telemetry-use-h" data-testid="telemetry.use">
+        <div class="wb-hsec-head">
+            <h2 id="telemetry-use-h" class="wb-h2">Use · last {{if .Days}}{{.Days}} days{{else}}all time{{end}}</h2>
+            <span class="wb-hsec-sub">a re-sent day replaces the earlier one</span>
+        </div>
+        <div class="wb-trend-grid wb-trend-grid--two">
+            {{range .Charts}}{{template "wb/chart-card" .}}{{end}}
+        </div>
+    </section>
+    <section class="wb-hsec" aria-labelledby="telemetry-err-h" data-testid="telemetry.errors">
+        <div class="wb-hsec-head">
+            <h2 id="telemetry-err-h" class="wb-h2">Errors</h2>
+        </div>
+        <div class="wb-tgrid">{{range .Tables}}{{template "wb/table-card" .}}{{end}}</div>
+    </section>
+    {{end}}
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

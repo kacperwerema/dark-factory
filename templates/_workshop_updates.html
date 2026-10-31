@@ -36,10 +36,11 @@ updates/reopen.
 <div class="upd-box upd-tree" data-testid="upd.tree">
     <div class="upd-tree-head">
         <span class="upd-label">Upgrade tree</span>
-        <span class="upd-tree-count"><b>{{.Installed}}</b> installed · {{.Declined}} declined{{if not .Recorded}} <span class="wb-muted">(detected: no features record yet)</span>{{end}}</span>
+        <span class="upd-tree-count">{{if .Installed}}<a href="#upd-installed" data-testid="upd.tree.installed"><b>{{.Installed}}</b> installed</a>{{else}}<b>0</b> installed{{end}} · {{if .Declined}}<a href="#upd-declined" data-testid="upd.tree.declined">{{.Declined}} declined</a>{{else}}0 declined{{end}}{{if not .Recorded}} <span class="wb-muted">(detected: no features record yet; <span class="wb-mono-inline">issue-cli workflow scan</span> writes it)</span>{{end}}</span>
         {{if .ToDecide}}<span class="upd-tree-pill">{{template "wb/chip" .Pill}}</span>{{end}}
     </div>
     <div class="upd-squares" role="img" aria-label="{{.Installed}} installed, {{.Declined}} declined, {{.ToDecide}} to decide">{{range .Squares}}<span class="upd-sq upd-sq--{{.State}}" title="{{.Label}}"></span>{{end}}</div>
+    {{with .InstalledIDs}}<details class="upd-installed" id="upd-installed" data-testid="upd.installed"><summary>Installed · {{len .}}</summary><div class="upd-installed-ids">{{range .}}<span class="upd-mono-sm upd-installed-id">{{.}}</span>{{end}}</div></details>{{end}}
 </div>
 {{end}}
 
@@ -128,11 +129,12 @@ updates/reopen.
             <div class="upd-badge" aria-hidden="true"{{with .Color}} style="background: {{.}}"{{end}}>{{slice .Name 0 1}}</div>
             <div class="upd-card-titles">
                 <h3 class="upd-card-title">{{.Name}}</h3>
-                <div class="upd-card-meta"><span class="upd-mono-sm">workflow: {{.Workflow}} · {{.Goals}} goal{{if ne .Goals 1}}s{{end}} · role prompt</span></div>
+                <div class="upd-card-meta"><span class="upd-mono-sm">{{if .Children}}group: installs {{.Children}}{{else}}workflow: {{.Workflow}}{{end}} · {{.Goals}} goal{{if ne .Goals 1}}s{{end}} · role prompt</span></div>
             </div>
         </div>
         <p class="upd-card-text">{{.Description}}</p>
         <div class="wb-grow"></div>
+        {{if .AddURL}}<div><a class="upd-btn upd-btn--ink" href="{{.AddURL}}" data-testid="upd.dept.{{tid .Key}}.add">Add…</a></div>{{end}}
         <span class="upd-label">From the terminal</span>
         <code class="upd-key" data-testid="upd.dept.{{tid .Key}}.command">{{.Command}}</code>
     </article>{{end}}
@@ -141,7 +143,7 @@ updates/reopen.
 {{end}}{{end}}
 
 {{define "wb/declined"}}{{if .}}
-<section class="upd-declined" aria-label="Declined" data-testid="upd.declined">
+<section class="upd-declined" id="upd-declined" aria-label="Declined" data-testid="upd.declined">
     <h2 class="upd-more-title">Declined · {{len .}} <span class="wb-muted">never proposed again until re-opened</span></h2>
     {{range .}}
     <div class="upd-declined-row{{if .Just}} upd-declined-row--just{{end}}" data-testid="upd.declined.{{tid .ID}}">

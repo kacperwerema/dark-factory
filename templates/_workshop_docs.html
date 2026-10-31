@@ -20,8 +20,8 @@ static/workshop.css their styles in the "L2: docs" block).
 <nav class="wb-binder" aria-label="Docs" data-testid="docs.binder">
     <div class="wb-binder-head"><span class="wb-binder-title">Binder</span><span class="wb-binder-count">{{.Count}}</span></div>
     {{range .Groups}}
-    {{with .Name}}<div class="wb-binder-group">{{.}}</div>{{end}}
-    {{range .Items}}{{template "wb/binder-item" .}}{{end}}
+    {{if .Name}}<details class="wb-binder-fold"{{if .Open}} open{{end}} data-testid="docs.folder.{{tid .Name}}"><summary class="wb-binder-group">{{.Name}} <span class="wb-binder-n">{{len .Items}}</span></summary>{{range .Items}}{{template "wb/binder-item" .}}{{end}}</details>
+    {{else}}{{range .Items}}{{template "wb/binder-item" .}}{{end}}{{end}}
     {{end}}
     <div class="wb-binder-new">{{template "wb/new-tile" .New}}</div>
 </nav>

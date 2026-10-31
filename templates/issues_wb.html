@@ -38,13 +38,15 @@
     {{if .Total}}{{range .Facets}}<div class="wb-decside-block">{{template "wb/bars" .}}</div>{{end}}{{end}}
     <div class="wb-decside-block">
         {{template "wb/command-card" .Add}}
-        <a class="wb-btn wb-btn--paper wb-btn--block" href="{{.NewURL}}" data-testid="issues.new">New issue</a>
+        <a class="wb-btn wb-btn--paper wb-btn--block" href="{{.NewURL}}" data-create-open data-testid="issues.new">New issue</a>
     </div>
 </aside>
 </main>
 </div>
 </div>
+{{template "wb/create-issue" .Create}}
 <div class="wb-toast" role="status" aria-live="polite"></div>
 <script src="/static/workshop.js"></script>
+<script src="/static/workshop-issues.js"></script>
 </body>
 </html>

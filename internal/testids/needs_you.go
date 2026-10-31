@@ -25,5 +25,6 @@ func init() {
 		"needs_you.confirm.list",
 		"needs_you.confirm.words",
 		"needs_you.confirm.ok",
+		"needs_you.owner_checks",
 	)
 }

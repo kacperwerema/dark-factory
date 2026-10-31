@@ -32,7 +32,8 @@ import (
 
 // Budget caps a run. Zero fields are no cap.
 type Budget struct {
-	// Tokens is the run's cap on input+output+cache tokens.
+	// Tokens is the run's cap on input+output+cache tokens; unset, the cap
+	// is DefaultTaskTokens per task (TokenCap).
 	Tokens int64 `yaml:"tokens,omitempty" json:"tokens,omitempty"`
 	// USD is the run's cap on cost (from Prices).
 	USD float64 `yaml:"usd,omitempty" json:"usd,omitempty"`
@@ -55,6 +56,21 @@ func (b Budget) TaskWallDur() time.Duration {
 
 // DefaultTaskWall caps a task when the benchmark sets no task_wall.
 const DefaultTaskWall = 45 * time.Minute
+
+// DefaultTaskTokens is one task's share of the token cap when the benchmark
+// sets no tokens. Tokens count cache reads, which are most of them: a
+// dark-factory task re-reads its cached context on every turn, about 15M
+// tokens a task (2026-10-31), against well under 1M of input and output.
+const DefaultTaskTokens int64 = 25_000_000
+
+// TokenCap is the run's token cap: Tokens when set, else DefaultTaskTokens
+// for each of tasks.
+func (b Budget) TokenCap(tasks int) int64 {
+	if b.Tokens > 0 {
+		return b.Tokens
+	}
+	return DefaultTaskTokens * int64(max(tasks, 1))
+}
 
 func parseDur(s string) time.Duration {
 	d, err := time.ParseDuration(strings.TrimSpace(s))
@@ -94,6 +110,29 @@ type Task struct {
 	Check   string `yaml:"check,omitempty"`
 	Holdout bool   `yaml:"holdout,omitempty"`
 	Added   string `yaml:"added,omitempty"`
+	// Workflow is the box whose workflow file the task runs on: product
+	// (Product's file, also when empty) or a department's key.
+	Workflow string `yaml:"workflow,omitempty"`
+	// Eval is the workflow file's eval that scores the task (evals: id);
+	// empty: the eval for the task's type (WorkflowConfig.EvalFor), and
+	// none at all scores by hidden tests as before.
+	Eval string `yaml:"eval,omitempty"`
+	// Output is the shelf output the task came from, the one the owner
+	// approved; Reference its file, copied next to the snapshot
+	// (ReferencePath).
+	Output    string `yaml:"output,omitempty"`
+	Reference string `yaml:"reference,omitempty"`
+}
+
+// ProductWorkflow is the box key of Product's workflow file.
+const ProductWorkflow = "product"
+
+// WorkflowKey is the task's workflow box key, product when unset.
+func (t Task) WorkflowKey() string {
+	if w := strings.TrimSpace(t.Workflow); w != "" {
+		return w
+	}
+	return ProductWorkflow
 }
 
 // ID is the task's name in records: <project>/<slug>.
@@ -110,7 +149,14 @@ type Benchmark struct {
 	// Judge is the command that scores a finished task 0-5, the judge
 	// prompt on stdin; empty: no judge score.
 	Judge string `yaml:"judge,omitempty"`
-	Tasks []Task `yaml:"tasks"`
+	// Grader is the command that grades an eval's rubric lines, the prompt
+	// on stdin and a JSON {pass, score, reason} on stdout (e.g. claude -p
+	// --model claude-haiku-5-5); empty: rubric lines are left out and named.
+	Grader string `yaml:"grader,omitempty"`
+	// Scorer is the promptfoo command output and diff evals run; default
+	// DefaultScorer (the pinned promptfoo through npx).
+	Scorer string `yaml:"scorer,omitempty"`
+	Tasks  []Task `yaml:"tasks"`
 
 	path string
 }
@@ -173,6 +219,15 @@ func BenchmarkPath(name string) string { return filepath.Join(Dir(), name+".yaml
 // TaskDir holds a task's issue snapshot.
 func TaskDir(project, slug string) string {
 	return filepath.Join(Dir(), "tasks", project, filepath.FromSlash(slug))
+}
+
+// ReferencePath is the task's reference file (the owner-approved output),
+// "" when it has none.
+func ReferencePath(t Task) string {
+	if t.Reference == "" {
+		return ""
+	}
+	return filepath.Join(TaskDir(t.Project, t.Slug), filepath.Base(t.Reference))
 }
 
 // SnapshotPath is the task's issue as it stood at its start.

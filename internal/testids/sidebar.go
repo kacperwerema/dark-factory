@@ -14,7 +14,7 @@ func init() {
 		"nav.autostart",
 		"nav.yolo",
 		"nav.yolo.extend",
-		"nav.yolo.off",
+		"nav.yolo.off", "nav.yolo.never",
 		"nav.yolo.queue",
 		"nav.yolo.row.*",
 		"nav.panel",

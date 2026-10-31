@@ -84,3 +84,23 @@ func TestCommandSucceeds_HintTemplated(t *testing.T) {
 		t.Fatalf("expected templated hint, got %v", err)
 	}
 }
+
+// Frontmatter is attacker-writable (GitHub import, agents): a value with
+// shell syntax reaches the command as one quoted word and runs nothing
+// (docs/API/security.md).
+func TestCommandSucceeds_TemplateValuesCannotRunCommands(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("posix shell required")
+	}
+	marker := filepath.Join(t.TempDir(), "pwned")
+	issue := sampleIssue()
+	issue.System = "x;touch " + marker + ";$(touch " + marker + ")`touch " + marker + "`'"
+	issue.Repo = "o/r"
+	cmd := `test -n {{system}} && [ {{repo}} = o/r ]`
+	if err := CommandSucceeds(Action{Rule: "command_succeeds", Command: cmd}, issue, Config{AllowShell: true}); err != nil {
+		t.Fatalf("quoted template failed: %v", err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a frontmatter value ran a command")
+	}
+}

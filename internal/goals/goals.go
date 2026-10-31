@@ -66,7 +66,8 @@ type Goal struct {
 	// RolledFrom is how many of them had a progress to average.
 	RolledUp   bool `json:"rolled_up,omitempty"`
 	RolledFrom int  `json:"rolled_from,omitempty"`
-	// Children are the department goals rolling up into this HQ goal.
+	// Children are the department goals rolling up into this HQ (or
+	// group) goal.
 	Children []*Goal `json:"children,omitempty"`
 	// Err says why the source could not be read.
 	Err string `json:"error,omitempty"`
@@ -129,6 +130,9 @@ type Owner struct {
 	Role    string  `json:"role,omitempty"`
 	Prompt  string  `json:"prompt,omitempty"`
 	Goals   []*Goal `json:"goals"`
+	// Parent is the key of the group this department sits under ("" when
+	// none): its goals may roll up into the group's before HQ's.
+	Parent string `json:"parent,omitempty"`
 }
 
 // Report is every owner's goals; HQ's goals carry their Children.
@@ -245,7 +249,8 @@ func readLog(p *tracker.Project) map[string][]Entry {
 }
 
 // Resolve reads every goal's value and rolls the department goals up into
-// HQ's. It never fails: a source it cannot read sets the goal's Err.
+// their group's, then group and department goals into HQ's. It never fails:
+// a source it cannot read sets the goal's Err.
 func Resolve(p *tracker.Project, now time.Time) *Report {
 	log := readLog(p)
 	rep := &Report{Departments: []*Owner{}}
@@ -256,11 +261,13 @@ func Resolve(p *tracker.Project, now time.Time) *Report {
 		rep.Product = newOwner(p, ProductKey, tracker.ProductName, d.Mission, d.Role, d.Prompt, d.Goals, log, now)
 	}
 	for _, d := range p.Departments {
-		rep.Departments = append(rep.Departments, newOwner(p, DeptKey(d.Name), d.Name, d.Mission, d.Role, d.Prompt, d.Goals, log, now))
+		o := newOwner(p, DeptKey(d.Name), d.Name, d.Mission, d.Role, d.Prompt, d.Goals, log, now)
+		if g := p.GroupOf(d.Name); g != nil {
+			o.Parent = DeptKey(g.Name)
+		}
+		rep.Departments = append(rep.Departments, o)
 	}
-	if rep.HQ != nil {
-		rollUp(rep)
-	}
+	rollUp(rep)
 	return rep
 }
 
@@ -414,12 +421,44 @@ func readFile(p *tracker.Project, spec string) (float64, string, error) {
 	return 0, "", fmt.Errorf("%s: no metric %q", path, id)
 }
 
-// rollUp hangs every department goal under the HQ goal it names; an HQ
-// goal with no value of its own gets the mean of its children's progress.
+// rollUp hangs every goal of a department under a group on the group goal
+// its rolls_up: names, level by level up nested groups, then every other goal of Product and the departments
+// (groups' included) under the HQ goal it names. A parent goal with no
+// value of its own gets the mean of its children's progress, so a group
+// goal averaged from its departments counts in HQ's mean like any other.
 func rollUp(rep *Report) {
-	hq := map[string]*Goal{}
-	for _, g := range rep.HQ.Goals {
-		hq[strings.ToLower(g.ID)] = g
+	hung := map[*Goal]bool{}
+	// Deepest first, so a nested group's goals are averaged from its
+	// departments before they hang on its own group's goal
+	// (factory/nested-groups-…#D-1). depth is bounded: Parent is set only
+	// for a good chain.
+	depth := func(o *Owner) int {
+		n := 0
+		for cur := o; cur != nil && cur.Parent != "" && n <= len(rep.Departments); n++ {
+			cur = rep.Find(cur.Parent)
+		}
+		return n
+	}
+	order := append([]*Owner{}, rep.Departments...)
+	sort.SliceStable(order, func(i, j int) bool { return depth(order[i]) > depth(order[j]) })
+	for _, o := range order {
+		average(o.Goals)
+		if o.Parent == "" {
+			continue
+		}
+		group := rep.Find(o.Parent)
+		if group == nil {
+			continue
+		}
+		for _, g := range o.Goals {
+			if parent := goalByID(group.Goals, g.RollsUp); parent != nil {
+				parent.Children = append(parent.Children, g)
+				hung[g] = true
+			}
+		}
+	}
+	if rep.HQ == nil {
+		return
 	}
 	var others []*Owner
 	if rep.Product != nil {
@@ -428,12 +467,31 @@ func rollUp(rep *Report) {
 	others = append(others, rep.Departments...)
 	for _, o := range others {
 		for _, g := range o.Goals {
-			if parent := hq[strings.ToLower(g.RollsUp)]; g.RollsUp != "" && parent != nil {
+			if parent := goalByID(rep.HQ.Goals, g.RollsUp); parent != nil && !hung[g] {
 				parent.Children = append(parent.Children, g)
 			}
 		}
 	}
-	for _, g := range rep.HQ.Goals {
+	average(rep.HQ.Goals)
+}
+
+// goalByID is the goal of gs with id (any case); nil for "" or none.
+func goalByID(gs []*Goal, id string) *Goal {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	for _, g := range gs {
+		if strings.EqualFold(g.ID, id) {
+			return g
+		}
+	}
+	return nil
+}
+
+// average gives every goal of gs with children and no value of its own the
+// mean of its children's progress.
+func average(gs []*Goal) {
+	for _, g := range gs {
 		if g.Value != nil || g.Err != "" || len(g.Children) == 0 {
 			continue
 		}
@@ -449,4 +507,19 @@ func rollUp(rep *Report) {
 			g.Progress, g.RolledUp, g.RolledFrom = &pr, true, n
 		}
 	}
+}
+
+// History is the values log by goal key (lower case), oldest first in log
+// order: what the week plan reads to say how far a goal moved.
+func History(p *tracker.Project) map[string][]Entry { return readLog(p) }
+
+// EntryTime parses a values-log date (RFC3339 or a day); false when it
+// doesn't parse.
+func EntryTime(date string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, strings.TrimSpace(date), time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }

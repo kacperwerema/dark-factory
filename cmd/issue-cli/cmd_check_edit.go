@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/michal-franc/issue-viewer/internal/proof"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -18,8 +19,9 @@ Examples:
   issue-cli check-edit <slug> "Design#3" --text "..."
 
 Don't start the text with the id: the CLI prints the id in front of the box
-already (a leading copy of it is dropped). To change other lines in a
-section, use: issue-cli replace <slug> --section <name> --line N --text "..."`,
+already (a leading copy of it is dropped). To drop a box instead, keeping
+the other boxes' ids: issue-cli check-remove <slug> <id>. To change other
+lines in a section, use: issue-cli replace <slug> --section <name> --line N --text "..."`,
 	Run: runCheckEdit,
 }
 
@@ -54,6 +56,9 @@ func runCheckEdit(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseOwnerBoxEdit(ctx, issue, ref, text); err != nil {
+		return err
+	}
 	var before tracker.CheckboxItem
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		next, item, err := tracker.EditCheckboxText(body, ref, text)
@@ -71,4 +76,29 @@ func runCheckEdit(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "  now: %s\n", tracker.StripCheckboxID(before.ID, text))
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", issue.FilePath)
 	return nil
+}
+
+// refuseOwnerBoxEdit refuses an agent session an edit that would take an
+// owner box from the owner: an N/A written into it, or its "(owner)"
+// marker dropped. Other edits to the wording pass.
+func refuseOwnerBoxEdit(ctx *Context, issue *tracker.Issue, ref, text string) error {
+	who := agentSession(ctx)
+	if who == "" {
+		return nil
+	}
+	it, st := tracker.ResolveCheckboxRef(tracker.ListCheckboxes(issue.BodyRaw), ref)
+	if st != tracker.RefFound {
+		return nil
+	}
+	why := boxProofReport(ctx, issue).OwnerBoxWhy(it)
+	if why == "" {
+		return nil
+	}
+	_, na := tracker.NAClaim(text)
+	dropsMarker := proof.IsOwnerCriterion(it.Text) && !proof.IsOwnerCriterion(text)
+	if !na && !dropsMarker {
+		return nil
+	}
+	return fmt.Errorf("%s is the owner's box (%s): %s can't write an N/A into it or drop its (owner) marker, and nothing changed. Leave it for the owner; under YOLO it waits in the review queue.\n\nAsk on your issue trail:\n  %s",
+		it.ID, why, who, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", issue.Slug)))
 }

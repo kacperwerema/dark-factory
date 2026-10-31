@@ -24,12 +24,14 @@ crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
 {{end}}
 
 {{define "wb/crew-column"}}
-<section class="wb-crew-col" style="--dept: {{.Color}}" data-testid="crew.column.{{tid .Key}}">
-    <h2 class="wb-crew-col-head"><span>{{.Name}}</span><span class="wb-crew-col-count">{{len .Workers}}</span></h2>
+<section class="wb-crew-col{{if .Children}} wb-crew-col--group{{end}}" style="--dept: {{.Color}}" data-testid="crew.column.{{tid .Key}}">
+    <h2 class="wb-crew-col-head"><span>{{.Name}}{{if .Children}} · group{{end}}</span><span class="wb-crew-col-count">{{len .Workers}}</span></h2>
     {{with .Lead}}{{template "wb/crew-card" .}}{{else}}<div class="wb-note wb-crew-led">Run by the CEO</div>{{end}}
+    {{if .Children}}<div class="wb-note">The lead of its departments' leads; it covers a department whose lead is not running.</div>{{end}}
     <div class="wb-crew-workers">
-        {{range .Workers}}{{template "wb/crew-card" .}}{{else}}<div class="wb-note wb-crew-none" data-testid="crew.column.{{tid $.Key}}.empty">No workers here right now</div>{{end}}
+        {{range .Workers}}{{template "wb/crew-card" .}}{{else}}{{if not .Children}}<div class="wb-note wb-crew-none" data-testid="crew.column.{{tid $.Key}}.empty">No workers here right now</div>{{end}}{{end}}
     </div>
+    {{if .Children}}<div class="wb-crew-cols wb-crew-cols--group" data-testid="crew.column.{{tid .Key}}.departments">{{range .Children}}{{template "wb/crew-column" .}}{{end}}</div>{{end}}
 </section>
 {{end}}
 
@@ -45,7 +47,7 @@ crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
 {{with .}}
     <div class="wb-crew-panel-head">
         {{template "wb/robot" .Card.Robot}}
-        <div><h2 class="wb-h2 wb-h2--small wb-crew-name" data-testid="crew.panel.name">{{.Card.Name}}</h2><div class="wb-note">{{.Card.Kind}}</div></div>
+        <div><h2 class="wb-h2 wb-h2--small wb-crew-name" data-testid="crew.panel.name">{{.Card.Name}}</h2><div class="wb-note">{{.Card.Kind}}{{with .Display}} · tmux <span class="wb-mono-inline" data-testid="crew.panel.display">{{.}}</span>{{end}}</div></div>
     </div>
     <div class="wb-crew-state">{{template "wb/chip" .Card.Chip}}</div>
     {{if .OpenURL}}
@@ -53,7 +55,8 @@ crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
         <button type="button" class="wb-btn wb-btn--ink" data-open-session="{{.OpenURL}}" data-session="{{.Card.Name}}" data-testid="crew.panel.open">Open in a terminal</button>
         <div class="wb-site-msg" role="status" data-testid="crew.panel.open_status"></div>
     </div>
-    {{with .Command}}{{template "wb/side-label" $.CommandLabel}}<div data-testid="crew.panel.command">{{template "wb/copy-cmd" .}}</div>{{end}}
+    {{end}}
+    {{if .OpenURL}}{{with .Command}}{{template "wb/side-label" $.CommandLabel}}<div data-testid="crew.panel.command">{{template "wb/copy-cmd" .}}</div>{{end}}
     {{else if .Card.SpawnURL}}
     <div class="wb-note">Not running.</div>
     <div data-spawn-box><button type="button" class="wb-btn wb-btn--paper" data-spawn-lead="{{.Card.SpawnURL}}" data-spawn-what="{{.Card.SpawnWhat}}" data-testid="crew.panel.spawn">Start {{.Card.SpawnWhat}}</button><div class="wb-site-msg" role="status"></div></div>
@@ -61,7 +64,8 @@ crew.go, styles in static/workshop.css ("L1: crew"), JS in static/crew.js.
     <div class="wb-note">No agent is running on this job. Start one again:</div>
     {{template "wb/copy-cmd" .Card.Command}}
     {{end}}
-    {{with .Card.Issue}}{{template "wb/side-label" "Issue"}}<a class="wb-crew-issue" href="{{.URL}}" data-testid="crew.panel.issue">{{.Label}}</a>{{with $.Card.Status}}<div class="wb-crew-tags"><span class="wb-tag-pill">{{.}}</span></div>{{end}}{{end}}
+    {{if not .OpenURL}}{{with .Command}}{{template "wb/side-label" $.CommandLabel}}<div data-testid="crew.panel.command">{{template "wb/copy-cmd" .}}</div>{{end}}{{end}}
+    {{with .Card.Issue}}{{template "wb/side-label" "Issue"}}<a class="wb-crew-issue" href="{{.URL}}" data-testid="crew.panel.issue">{{.Label}}</a>{{with $.Card.Status}}<div class="wb-crew-tags"><span class="wb-chip wb-chip--idle" data-testid="crew.panel.status"><span class="wb-chip-dot" style="background:{{statusColor .}}"></span>{{.}}</span></div>{{end}}{{end}}
     {{if .ApproveURL}}<a class="wb-btn wb-btn--you" href="{{.ApproveURL}}" data-testid="crew.panel.approve">Approve the {{.Gate}} gate at the station →</a>{{end}}
     {{with .LastCmd}}{{template "wb/side-label" "Last issue-cli call"}}<code class="wb-crew-code" data-testid="crew.panel.last_call">{{.}}</code>{{with $.Card.LastCall}}<div class="wb-note">{{.}}</div>{{end}}{{end}}
     {{if .Branch}}{{template "wb/side-label" "Branch"}}<div class="wb-note"><span class="wb-mono-inline">{{.Branch}}</span> against <span class="wb-mono-inline">{{.Against}}</span></div>

@@ -104,7 +104,7 @@ func (w *WorkflowConfig) previewTransition(issue *Issue, fromStatus, toStatus, s
 			step.Message = fmt.Sprintf("Issue human-approved for %q", status)
 		case "append_section":
 			step.Summary = fmt.Sprintf("Append section %s", action.Title)
-			newBody, sec := appendGateSection(working.BodyRaw, action.Title, action.Body)
+			newBody, sec := appendSection(working.BodyRaw, action.Title, action.Body, w.GatesSection(action.Title))
 			switch {
 			case sec.Created:
 				working.BodyRaw = newBody
@@ -114,6 +114,9 @@ func (w *WorkflowConfig) previewTransition(issue *Issue, fromStatus, toStatus, s
 				working.BodyRaw = newBody
 				step.Outcome = "changed"
 				step.Message = "Section exists — would add " + pluralBoxes(sec.BoxesAdded)
+			case sec.StartersSkipped > 0:
+				step.Outcome = "skipped"
+				step.Message = "Section exists with its own boxes — starter boxes left out"
 			case sec.Title != "":
 				step.Outcome = "skipped"
 				step.Message = "Section exists with all its boxes"

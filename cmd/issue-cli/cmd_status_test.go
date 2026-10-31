@@ -15,6 +15,7 @@ import (
 func TestStatus_PrintsTheViewersPage(t *testing.T) {
 	const md = "# Proj status, 2026-10-23 10:00\n\n## Waiting on you (0)\n- Nothing\n"
 	const js = `{"project":"Proj","open":3}` + "\n"
+	const hq = "# Proj · HQ report · week 2026-W44\n\n## Headlines\n"
 	var paths []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
@@ -23,6 +24,8 @@ func TestStatus_PrintsTheViewersPage(t *testing.T) {
 			w.Write([]byte(md))
 		case "/p/proj/status.json":
 			w.Write([]byte(js))
+		case "/p/proj/hq/report.md":
+			w.Write([]byte(hq))
 		default:
 			http.NotFound(w, r)
 		}
@@ -39,6 +42,7 @@ func TestStatus_PrintsTheViewersPage(t *testing.T) {
 		{nil, false, md},
 		{[]string{"--md"}, false, md},
 		{nil, true, js},
+		{[]string{"--hq"}, false, hq},
 	} {
 		ctx, stdout, _ := newTestContext(proj, tc.json)
 		if err := runStatus(ctx, tc.args); err != nil {
@@ -48,7 +52,7 @@ func TestStatus_PrintsTheViewersPage(t *testing.T) {
 			t.Errorf("%v json=%v: stdout = %q, want %q", tc.args, tc.json, stdout.String(), tc.want)
 		}
 	}
-	if want := "GET /p/proj/status.md GET /p/proj/status.md GET /p/proj/status.json"; strings.Join(paths, " ") != want {
+	if want := "GET /p/proj/status.md GET /p/proj/status.md GET /p/proj/status.json GET /p/proj/hq/report.md"; strings.Join(paths, " ") != want {
 		t.Errorf("requests = %v, want %s", paths, want)
 	}
 }
@@ -88,6 +92,9 @@ func TestStatus_UsageErrors(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, true)
 	if err := runStatus(ctx, []string{"--md"}); exitOf(err) != 2 {
 		t.Fatalf("--md --json: err = %v", err)
+	}
+	if err := runStatus(ctx, []string{"--hq"}); exitOf(err) != 2 || !strings.Contains(err.Error(), "--hq") {
+		t.Fatalf("--hq --json: err = %v", err)
 	}
 }
 

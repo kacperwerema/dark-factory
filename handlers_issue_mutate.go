@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -106,6 +107,10 @@ func (s *Server) handleUpdateIssue(w http.ResponseWriter, r *http.Request, proj 
 		update.ExtraFields = nil
 	}
 
+	if update.Body != nil && s.refuseOwnerTicks(w, r, proj, found, *update.Body) {
+		return
+	}
+
 	var bodyHash string
 	switch {
 	case update.Body != nil && payload.BaseBodyHash != "":
@@ -164,6 +169,11 @@ func (s *Server) handleToggleCheckbox(w http.ResponseWriter, r *http.Request, pr
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Line < 1 || payload.BaseBodyHash == "" {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "line and base_body_hash required"})
 		return
+	}
+	if payload.Checked && tracker.BodyHash(issue.BodyRaw) == payload.BaseBodyHash {
+		if next, err := tracker.ToggleTaskBox(issue.BodyRaw, payload.Line, true); err == nil && s.refuseOwnerTicks(w, r, proj, issue, next) {
+			return
+		}
 	}
 	body, err := tracker.ToggleIssueTaskBox(issue.FilePath, payload.BaseBodyHash, payload.Line, payload.Checked)
 	switch {
@@ -271,6 +281,12 @@ func (s *Server) handleApproveIssue(w http.ResponseWriter, r *http.Request, proj
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Status == "" {
 		http.Error(w, `{"error":"status required"}`, http.StatusBadRequest)
+		return
+	}
+	// The status is quoted to the agent's session; only a status of the
+	// issue's workflow is taken (docs/API/security.md).
+	if !hasStatusFold(proj.LoadWorkflowForIssue(issue), body.Status) {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("unknown status %q", body.Status)})
 		return
 	}
 
@@ -452,7 +468,7 @@ func openEditorTerminal(proj *tracker.Project, session string) (string, error) {
 			return "", fmt.Errorf("switch i3 workspace: %w", err)
 		}
 	}
-	if err := exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -e tmux attach -t %s", session)).Run(); err != nil {
+	if err := exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -e tmux attach -t %s", agentrun.ShellWord(session))).Run(); err != nil {
 		return "", fmt.Errorf("open alacritty: %w", err)
 	}
 	return "", nil
@@ -555,7 +571,7 @@ func startIssueBodyEditor(bg *background, proj *tracker.Project, issue *tracker.
 
 	time.Sleep(500 * time.Millisecond)
 
-	editCmd := fmt.Sprintf("nvim %q; code=$?; printf '%%s' \"$code\" > %q; tmux wait-for -S %q; exit $code", editPath, statusPath, waitSignal)
+	editCmd := fmt.Sprintf("nvim %s; code=$?; printf '%%s' \"$code\" > %s; tmux wait-for -S %s; exit $code", agentrun.ShellWord(editPath), agentrun.ShellWord(statusPath), agentrun.ShellWord(waitSignal))
 	if err := exec.Command("tmux", "send-keys", "-t", target, editCmd, "Enter").Run(); err != nil {
 		return BodyEditResponse{}, fmt.Errorf("start nvim: %w", err)
 	}
@@ -717,13 +733,52 @@ func (s *Server) handleCreateIssue(w http.ResponseWriter, r *http.Request, proj 
 		Body:     req.Body,
 	})
 	if err != nil {
-		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
+		code := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, tracker.ErrIssueExists):
+			code = http.StatusConflict
+		case errors.Is(err, tracker.ErrBadSystem):
+			code = http.StatusBadRequest
+		}
+		http.Error(w, "create failed: "+err.Error(), code)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "slug": slug})
+}
+
+// uploadExt maps the image types an upload may be to the extension it is
+// saved and served with.
+var uploadExt = map[string]string{
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+}
+
+// attachmentName is the only file name /attachments/ serves: what upload
+// writes, a hash and an image extension.
+var attachmentName = regexp.MustCompile(`^[0-9a-f]{32}\.(png|jpg|gif|webp)$`)
+
+// handleAttachment serves one upload: a hash-named image, a regular file
+// (no symlinks, no listing, no dot-files), nosniff and a CSP that runs
+// nothing even when opened directly.
+func handleAttachment(w http.ResponseWriter, r *http.Request, proj *tracker.Project, name string) {
+	if !attachmentName.MatchString(name) {
+		http.NotFound(w, r)
+		return
+	}
+	path := filepath.Join(proj.IssueDir, "attachments", name)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	http.ServeFile(w, r, path)
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
@@ -734,7 +789,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 
-	file, header, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "missing file", http.StatusBadRequest)
 		return
@@ -747,26 +802,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 
-	contentType := http.DetectContentType(data)
-	if !strings.HasPrefix(contentType, "image/") {
-		http.Error(w, "only image files allowed", http.StatusBadRequest)
+	// The extension comes from the sniffed type, never the client's file
+	// name: GIF89a<script>… named x.html sniffs as an image but would be
+	// served as HTML on the viewer's origin (docs/API/security.md).
+	ext, ok := uploadExt[http.DetectContentType(data)]
+	if !ok {
+		http.Error(w, "only PNG, JPEG, GIF or WebP images allowed", http.StatusBadRequest)
 		return
-	}
-
-	ext := filepath.Ext(header.Filename)
-	if ext == "" {
-		switch contentType {
-		case "image/png":
-			ext = ".png"
-		case "image/jpeg":
-			ext = ".jpg"
-		case "image/gif":
-			ext = ".gif"
-		case "image/webp":
-			ext = ".webp"
-		default:
-			ext = ".png"
-		}
 	}
 
 	hash := sha256.Sum256(data)
@@ -786,4 +828,41 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *trac
 	urlPath := prefix + "/attachments/" + filename
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"url": urlPath})
+}
+
+// refuseOwnerTicks answers 403 and reports true when a request that isn't
+// from the owner's browser (fromOwnerBrowser: curl, an agent's script)
+// would tick an owner box by writing next as the issue's body. The rule is
+// proof.OwnerTicks, the one issue-cli's write paths use.
+func (s *Server) refuseOwnerTicks(w http.ResponseWriter, r *http.Request, proj *tracker.Project, issue *tracker.Issue, next string) bool {
+	if fromOwnerBrowser(r) {
+		return false
+	}
+	if _, ticked := tracker.CountCheckboxes(next); ticked == 0 {
+		return false
+	}
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	ticks := evidenceReport(proj, issue, comments).OwnerTicks(issue.BodyRaw, next)
+	if len(ticks) == 0 {
+		return false
+	}
+	var ids []string
+	for _, o := range ticks {
+		ids = append(ids, strings.TrimSpace(o.ID+" "+o.Text)+" ("+o.Why+")")
+	}
+	writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": ownerCheckRefused + ": " + strings.Join(ids, "; ")})
+	return true
+}
+
+// hasStatusFold reports whether wf has status, ignoring case as approvals do.
+func hasStatusFold(wf *tracker.WorkflowConfig, status string) bool {
+	if wf == nil {
+		return false
+	}
+	for _, st := range wf.Statuses {
+		if strings.EqualFold(st.Name, status) {
+			return true
+		}
+	}
+	return false
 }

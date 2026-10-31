@@ -29,11 +29,14 @@ type WorkflowAction struct {
 	Type   string `yaml:"type" desc:"Action type (see 'Action types' below)"`
 	Rule   string `yaml:"rule,omitempty" desc:"Rule spec for type=validate (see 'Validation rules' below)"`
 	Status string `yaml:"status,omitempty" desc:"Status for type=require_human_approval"`
-	Title  string `yaml:"title,omitempty" desc:"Section title for type=append_section"`
-	Body   string `yaml:"body,omitempty" desc:"Section body for type=append_section"`
-	Prompt string `yaml:"prompt,omitempty" desc:"Prompt text for type=inject_prompt"`
-	Field  string `yaml:"field,omitempty" desc:"Field name for type=set_fields, frontmatter validators, and has_label"`
-	Value  string `yaml:"value,omitempty" desc:"Field value for type=set_fields (empty string clears)"`
+	// OwnerOnly marks an approval YOLO never passes: the step spends money
+	// or publishes outside the machine (docs/Workflow/yolo.md).
+	OwnerOnly bool   `yaml:"owner_only,omitempty" desc:"For type=require_human_approval: the owner's gate even in YOLO (spends money or publishes outside the machine)"`
+	Title     string `yaml:"title,omitempty" desc:"Section title for type=append_section"`
+	Body      string `yaml:"body,omitempty" desc:"Section body for type=append_section"`
+	Prompt    string `yaml:"prompt,omitempty" desc:"Prompt text for type=inject_prompt"`
+	Field     string `yaml:"field,omitempty" desc:"Field name for type=set_fields, frontmatter validators, and has_label"`
+	Value     string `yaml:"value,omitempty" desc:"Field value for type=set_fields (empty string clears)"`
 
 	// Structured-validator parameters. Used when Rule is one of the new
 	// rule names (field_in, field_matches, has_section, …); see
@@ -44,6 +47,7 @@ type WorkflowAction struct {
 	Min            int      `yaml:"min,omitempty" desc:"Lower length bound for section_min_length"`
 	Max            int      `yaml:"max,omitempty" desc:"Upper length bound for section_max_length"`
 	Command        string   `yaml:"command,omitempty" desc:"Shell command for command_succeeds (templated with {{slug}}/{{number}}/{{repo}}/{{system}})"`
+	Path           string   `yaml:"path,omitempty" desc:"File path for file_exists, relative to the project root (templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}})"`
 	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" desc:"Per-action timeout for command_succeeds (default 10)"`
 	RefKey         string   `yaml:"ref_key,omitempty" desc:"Frontmatter key holding the linked issue slug for linked_issue_in_status"`
 	LinkedStatus   string   `yaml:"linked_status,omitempty" desc:"Required status of the linked issue for linked_issue_in_status"`
@@ -213,6 +217,10 @@ type WorkflowConfig struct {
 	// make targets (PlaytestCommandFor, PlaytestReportFor).
 	PlaytestCommand string `yaml:"playtest_command,omitempty" desc:"Command ▶ Run playtest runs for an issue (default: make playtest ISSUE={slug}); {slug} is the issue's slug"`
 	PlaytestReport  string `yaml:"playtest_report,omitempty" desc:"Command Tick passed boxes runs after a playtest (default: make playtest-report ISSUE={slug} APPLY=1); {slug} is the issue's slug"`
+	// Evals say how the factory benchmark scores a run of this file's types
+	// (docs/benchmark.md, Evals). Per file; overlays don't change them.
+	Evals []WorkflowEval `yaml:"evals,omitempty" desc:"Benchmark evals: per type, how a run is scored (tests or output), rubric, assertions, checks and pass bar (see docs/benchmark.md, Evals)"`
+
 	// AllowShell opts in to the command_succeeds validator. When false, any
 	// transition with a command_succeeds rule fails at validate time.
 	AllowShell bool `yaml:"allow_shell,omitempty" desc:"Permit command_succeeds validators to run shell commands (default false)"`
@@ -247,9 +255,16 @@ type WorkflowConfig struct {
 	// LookupIssue by attachRuntime.
 	ChildrenOf func(slug string) []*Issue `yaml:"-" json:"-"`
 	IssuesRoot string                     `yaml:"-" json:"-"`
+	// ProjectRoot is the project's folder (Project.Root), what file_exists
+	// paths are relative to.
+	ProjectRoot string `yaml:"-" json:"-"`
 	// RepoRoot is the project's checkout (Project.TelemetryRoot), where a
 	// transition looks up the work/<slug> branch head and the merge sha.
 	RepoRoot string `yaml:"-" json:"-"`
+	// DeferOwnerProof is set by issue-cli while YOLO is on: criteria_proven
+	// lets the criteria only the owner can prove wait for them after the
+	// fact instead of blocking (internal/proof YOLOGateError).
+	DeferOwnerProof bool `yaml:"-" json:"-"`
 
 	// Set by ForType/ForIssue on a scoped config. ActiveType is the resolved
 	// type ("" when the project has no types); typePath is the set of statuses
@@ -542,6 +557,17 @@ func (w *WorkflowConfig) RequiredHumanApproval(fromStatus, toStatus string) stri
 		return status
 	}
 	return ""
+}
+
+// OwnerOnlyGate reports whether the from → to approval is marked
+// owner_only: YOLO never passes it.
+func (w *WorkflowConfig) OwnerOnlyGate(fromStatus, toStatus string) bool {
+	for _, action := range w.transitionActions(fromStatus, toStatus) {
+		if action.Type == "require_human_approval" {
+			return action.OwnerOnly
+		}
+	}
+	return false
 }
 
 func (w *WorkflowConfig) GetStatusOrder() []string {

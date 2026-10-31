@@ -13,15 +13,21 @@
 </section>
 <main class="wb-l3">
 <div class="wb-l3-main">
+    {{template "wb/station-missing" .Missing}}
+    {{template "wb/brief" .Brief}}
     {{with .YOLO}}{{template "wb/yolo-review" .}}{{end}}
     {{template "wb/your-move" .Move}}
+    {{template "wb/approving" .Approving}}
     <section class="wb-quality" aria-labelledby="quality-h" data-testid="station.quality">
         <div class="wb-titlebar wb-titlebar--flush"><h2 class="wb-h1 wb-h1--sm" id="quality-h">Quality check</h2><span class="wb-sub">what the agent checked, and what is left for you</span></div>
         <div class="wb-qcards">{{range .Quality}}{{template "wb/quality-card" .}}{{end}}</div>
     </section>
+    {{template "wb/epic-children" .Epic}}
+    {{template "wb/mockups" .Mockups}}
     {{template "wb/decisions" .Decisions}}
     {{template "wb/change-card" .Change}}
     {{template "wb/tests-card" .Tests}}
+    {{template "wb/full-body" .FullBody}}
     {{template "wb/timeline-list" .Timeline}}
 </div>
 <aside class="wb-l3-side" aria-label="Agent and fields">
@@ -30,9 +36,11 @@
     {{template "wb/station-outputs" .Outputs}}
     {{template "wb/body-index" .Body}}
     {{template "wb/fields" .Fields}}
+    {{template "wb/relations" .Relations}}
 </aside>
 </main>
 </div>
+<script src="/static/workshop.js"></script>
 <script src="/static/station.js"></script>
 <script src="/static/playtest-run.js"></script>
 </body>

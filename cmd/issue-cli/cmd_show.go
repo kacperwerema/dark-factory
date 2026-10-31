@@ -44,6 +44,9 @@ func runShow(ctx *Context, args []string) error {
 		if wf.Department != "" {
 			out["department"] = wf.Department
 		}
+		if base := baseJSON(issue); base != nil {
+			out["base"] = base
+		}
 		if wf.ActiveType != "" {
 			out["type"] = wf.ActiveType
 			out["type_path"] = typePath(wf)
@@ -62,6 +65,12 @@ func runShow(ctx *Context, args []string) error {
 	}
 	printTypeWarnings(ctx.Stdout, wf, issue)
 	printLeadLines(ctx, issue)
+	if line := baseLine(issue); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
+	if _, rule := yoloGuidance(ctx, issue.Slug, nil); rule != "" {
+		fmt.Fprintln(ctx.Stdout, rule)
+	}
 	printDepLines(ctx, issue, issues)
 	// Where the issue's time went, to hand the owner a link.
 	fmt.Fprintf(ctx.Stdout, "Timeline: %s?tab=timeline\n", issueURL(ctx.Project, issue.Slug))
@@ -110,7 +119,11 @@ func runShow(ctx *Context, args []string) error {
 			if c.Status == "done" {
 				status = " [done]"
 			}
-			fmt.Fprintf(ctx.Stdout, "  [%s]%s %s\n", tracker.CommentDay(c.Date), status, c.Text)
+			edited := ""
+			if len(c.Edits) > 0 {
+				edited = " (edited)"
+			}
+			fmt.Fprintf(ctx.Stdout, "  [%s]%s %s%s\n", tracker.CommentDay(c.Date), status, c.Text, edited)
 		}
 	}
 	return nil

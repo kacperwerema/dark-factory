@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/michal-franc/issue-viewer/internal/playtestruns"
@@ -161,6 +162,18 @@ func (b *Browser) NewPage(vp *Viewport, scripts ...string) (*Page, error) {
 
 // Close ends the tab (and its browser context).
 func (p *Page) Close() { p.cancel() }
+
+// ReduceMotion makes the page match prefers-reduced-motion: reduce
+// (session_checks reduced_motion: a step that proves a page's still
+// version).
+func (p *Page) ReduceMotion(ctx context.Context) error {
+	return p.Do(ctx, chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		_, err := cdp.Call(ctx, t, emulation.SetEmulatedMedia, emulation.SetEmulatedMediaParams{
+			Features: []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}},
+		})
+		return err
+	}))
+}
 
 // Console returns the errors and exceptions seen so far.
 func (p *Page) Console() []string {

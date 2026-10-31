@@ -28,15 +28,14 @@ steps:
       - http: { path: "/p/{project}/status", contains: "sandbox=\"allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation\"" }
 
   - id: TP5
-    title: The Built-in tab shows the built-in Status page; status.md stays built-in
+    title: The Built-in tab shows the built-in Status page (the Report since classic-page-gaps); status.md stays built-in
     setup:
       - open: /p/{project}/status
     act:
       - click: status.tab.builtin
     checks:
       - url: { contains: "view=builtin" }
-      - visible: [status.milestone, status.tabs]
-      - selected: status.tab.builtin
+      - visible: [report.page, report.views, view.project, view.builtin]
       - absent: page.frame
       - http: { path: "/p/{project}/status.md", contains: "# Atlas status" }
 

@@ -220,6 +220,13 @@ func TestEveryEntryHasSourcesThatExist(t *testing.T) {
 				t.Errorf("%s: source %s matches no tracked file", e.ID, s)
 				continue
 			}
+			watched := false
+			for _, f := range matched {
+				watched = watched || !Exempt(f)
+			}
+			if !watched {
+				t.Errorf("%s: source %s matches only files in ExemptSources (tests, testdata, scenario fixtures): catalog-check would never watch it", e.ID, s)
+			}
 			if hasSym {
 				if len(matched) != 1 || filepath.Ext(matched[0]) != ".go" {
 					t.Errorf("%s: %s: a #symbol source names one Go file, matched %v", e.ID, s, matched)

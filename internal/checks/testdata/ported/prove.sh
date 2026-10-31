@@ -64,7 +64,7 @@ MD
 sandbox() {
 	mkdir -p "$tmp/bin" "$proj" "$issues/Demo" || return 1
 	go build -o "$ic_bin" ./cmd/issue-cli || return 1
-	/usr/bin/cp workflow.yaml "$proj/workflow.yaml"
+	cp workflow.yaml "$proj/workflow.yaml"
 	cat > "$tmp/projects.yaml" << YAML
 projects:
   - name: "Sandbox"

@@ -58,19 +58,28 @@ type UpdatesWbData struct {
 // command that adds it.
 type WbDeptTemplate struct {
 	Key, Name, Description, Color, Workflow, Command string
-	Goals                                            int
+	// AddURL is the preview page Add… opens.
+	AddURL string
+	Goals  int
+	// Children are a group template's departments' keys, joined; "" for a
+	// department template.
+	Children string
 }
 
 // updatesDepartments are the bundled department templates proj hasn't
 // installed.
-func updatesDepartments(proj *tracker.Project) []WbDeptTemplate {
+func updatesDepartments(proj *tracker.Project, prefix string) []WbDeptTemplate {
 	var out []WbDeptTemplate
 	for _, t := range depttemplate.List() {
 		if t.Installed(proj) {
 			continue
 		}
 		out = append(out, WbDeptTemplate{Key: t.Key, Name: t.Name, Description: t.Description, Color: t.Color, Workflow: t.Workflow, Goals: len(t.Goals),
-			Command: tracker.InjectProject(proj, "issue-cli department add "+t.Key)})
+			Children: strings.Join(t.Children, ", "),
+			Command:  tracker.InjectProject(proj, "issue-cli department add "+t.Key)})
+		if proj.ConfigPath != "" {
+			out[len(out)-1].AddURL = prefix + "/departments/new?template=" + url.QueryEscape(t.Key)
+		}
 	}
 	return out
 }
@@ -99,6 +108,8 @@ type WbUpgradeTree struct {
 	Squares                       []WbTreeSquare
 	// Pill is "N to decide".
 	Pill WbChip
+	// InstalledIDs are the installed features, listed in the tree's fold.
+	InstalledIDs []string
 }
 
 // WbTreeSquare is one feature in the tree. State is installed, declined or
@@ -234,13 +245,13 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 	category := q.Get("category")
 	classic := buildUpdatesData(p, prefix, plan, "", q.Get("install"))
 	d := UpdatesWbData{
-		Header:     s.updatesHeader(p, prefix, now),
-		Prefix:     prefix,
-		Project:    p.Name,
-		ClassicURL: prefix + "/updates?classic=1",
+		Header:      s.updatesHeader(p, prefix, now),
+		Prefix:      prefix,
+		Project:     p.Name,
+		ClassicURL:  prefix + "/updates?classic=1",
 		ToDecide:    classic.Total,
 		Expanded:    q.Get("all") == "1" || category != "",
-		Departments: updatesDepartments(p),
+		Departments: updatesDepartments(p, prefix),
 	}
 	if text, undo, isErr := updatesFlash(q); text != "" {
 		d.Flash = WbUpgradeFlash{Text: text, Undo: undo, Error: isErr, Prefix: prefix}
@@ -268,6 +279,7 @@ func (s *Server) buildUpdatesWb(p *tracker.Project, prefix string, plan *workflo
 	for _, id := range classic.Installed {
 		d.Tree.Squares = append(d.Tree.Squares, WbTreeSquare{ID: id, State: "installed"})
 	}
+	d.Tree.InstalledIDs = classic.Installed
 	for _, row := range classic.Declined {
 		d.Tree.Squares = append(d.Tree.Squares, WbTreeSquare{ID: row.ID, State: "declined"})
 	}

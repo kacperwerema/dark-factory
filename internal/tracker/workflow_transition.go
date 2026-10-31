@@ -190,6 +190,39 @@ func branchShas(repo, slug, toStatus string) (head, merge string) {
 	return head, tip
 }
 
+// GatesSection reports whether a rule anywhere in the workflow waits for
+// every box of section title to be ticked (section_checkboxes_checked, or
+// all_checkboxes_checked). A transition tops such a section up with the
+// boxes it lacks; any other section that already has boxes is the author's.
+func (w *WorkflowConfig) GatesSection(title string) bool {
+	_, title, _ = parseHeadingLine(normalizeHeading(title))
+	gates := func(rule string) bool {
+		name, arg, _ := strings.Cut(rule, ":")
+		switch strings.TrimSpace(name) {
+		case "all_checkboxes_checked":
+			return true
+		case "section_checkboxes_checked":
+			return strings.EqualFold(strings.TrimSpace(arg), title)
+		}
+		return false
+	}
+	for _, t := range w.Transitions {
+		for _, a := range t.Actions {
+			if a.Type == "validate" && gates(a.Rule) {
+				return true
+			}
+		}
+	}
+	for _, s := range w.Statuses {
+		for _, rule := range s.Validation {
+			if gates(rule) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (w *WorkflowConfig) transitionActions(from, to string) []WorkflowAction {
 	if t := w.ResolveTransition(from, to); t != nil {
 		return append([]WorkflowAction(nil), t.Actions...)
@@ -255,7 +288,11 @@ func (w *WorkflowConfig) ApplyTransitionWithFields(issue *Issue, fromStatus, toS
 	for _, action := range w.transitionActions(fromStatus, toStatus) {
 		switch action.Type {
 		case "append_section":
-			newBody, sec := appendGateSection(issue.BodyRaw, action.Title, action.Body)
+			content := action.Body
+			if lead := w.sessionStepBoxes(issue, action.Title); lead != "" && strings.TrimSpace(content) != "" {
+				content = lead + "\n\n" + strings.TrimSpace(content)
+			}
+			newBody, sec := appendSection(issue.BodyRaw, action.Title, content, w.GatesSection(action.Title))
 			if sec.Title != "" {
 				result.Sections = append(result.Sections, sec)
 			}

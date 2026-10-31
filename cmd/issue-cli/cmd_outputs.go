@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/michal-franc/issue-viewer/internal/connections"
 	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/outputs"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
@@ -16,7 +17,7 @@ const outputAddUsage = `usage: issue-cli output add --title "..." --kind <kind> 
 
 var outputCommand = &Command{
 	Name:      "output",
-	ShortHelp: "Record what a department made, and its review (output add|review|publish|show)",
+	ShortHelp: "Record what a department made, and its review (output add|review|publish|show|revise|comments|reply)",
 	LongHelp: `Put an output on the department's shelf: a post, design, page, site,
 report or invoice an issue or a job made. It goes into
 <issues>/.outputs/outputs.jsonl in review; the owner approves or rejects
@@ -31,7 +32,20 @@ it, and only an approved output is published.
       The owner's stamp, recorded by the owner or the lead; never a worker.
   output publish <id> [--url <where it went out>]
       Only once approved.
+  output use <id> --by <department|issue>
+      Another department (or one of its issues) uses the output: drawn as
+      an output line between the two rooms on the company page.
   output show <id>
+  output revise <id> --file <new version> [--note "..."]
+      A new version of a file output (v2, v3…): copied onto the shelf next
+      to the earlier ones, back in review. The reader shows what changed.
+  output comments <id> [--all]
+      The owner's comments on the output (from its reader page on the
+      shelf): open threads, where each sits in the newest version, the
+      quoted passage and the messages. --all adds resolved ones.
+  output reply <id> <thread> --text "..."
+      Answer a thread (say what the new version changed). Only the owner
+      comments and resolves, from the page.
 
 <id> is the full id (o-20261030-a1b2) or its last part (a1b2). Kinds with
 an icon: post, design, site, page, report, invoice; any word works.
@@ -40,9 +54,13 @@ Examples:
   issue-cli output add --issue seo/acme-weekly --title "Acme: FAQ refresh" --kind page --url https://acme.example/faq
   issue-cli output add --department marketing --job weekly-pass --title "Hero banner" --kind design --file out/hero.png
   issue-cli output review a1b2 approve --quote "ok, ship it"
-  issue-cli output publish a1b2 --url https://acme.example/faq`,
+  issue-cli output publish a1b2 --url https://acme.example/faq
+  issue-cli output use a1b2 --by sales
+  issue-cli output comments ab00
+  issue-cli output revise ab00 --file brand.md --note "answers the owner's comments"
+  issue-cli output reply ab00 c-1a2b --text "v2 makes B the line"`,
 	Run:         runOutput,
-	Subcommands: []string{"add", "review", "publish", "show"},
+	Subcommands: []string{"add", "review", "publish", "use", "show", "revise", "comments", "reply"},
 }
 
 var outputsCommand = &Command{
@@ -68,7 +86,7 @@ func init() {
 
 func runOutput(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return &usageError{msg: "usage: issue-cli output add|review|publish|show ... (issue-cli help output)"}
+		return &usageError{msg: "usage: issue-cli output add|review|publish|use|show|revise|comments|reply ... (issue-cli help output)"}
 	}
 	switch args[0] {
 	case "add":
@@ -77,10 +95,18 @@ func runOutput(ctx *Context, args []string) error {
 		return runOutputReview(ctx, args[1:])
 	case "publish":
 		return runOutputPublish(ctx, args[1:])
+	case "use":
+		return runOutputUse(ctx, args[1:])
 	case "show":
 		return runOutputShow(ctx, args[1:])
+	case "revise":
+		return runOutputRevise(ctx, args[1:])
+	case "comments":
+		return runOutputComments(ctx, args[1:])
+	case "reply":
+		return runOutputReply(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown output command %q: add, review, publish or show", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown output command %q: add, review, publish, use, show, revise, comments or reply", args[0])}
 }
 
 func runOutputAdd(ctx *Context, args []string) error {
@@ -130,6 +156,7 @@ func runOutputAdd(ctx *Context, args []string) error {
 	printOutput(ctx.Stdout, o, "  ")
 	fmt.Fprintf(ctx.Stdout, "Shelf: %s\n", shelfURL(p, o.Department))
 	fmt.Fprintf(ctx.Stdout, "It waits for the owner's review. Once approved: issue-cli output publish %s --url <where it went out>\n", shortID(o.ID))
+	fmt.Fprintf(ctx.Stdout, "When another department uses it: issue-cli output use %s --by <department|issue>\n", shortID(o.ID))
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", outputs.LogPath(p))
 	return nil
 }
@@ -231,6 +258,49 @@ func runOutputPublish(ctx *Context, args []string) error {
 	return nil
 }
 
+const outputUseUsage = "usage: issue-cli output use <id> --by <department|issue>"
+
+// runOutputUse records that a department, or one of its issues, uses an
+// output: the company page draws it from the maker's room to theirs.
+func runOutputUse(ctx *Context, args []string) error {
+	fs := newFlagSet("output use", ctx)
+	by := fs.String("by", "", "the department (marketing, product, hq) or issue slug that uses it")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || strings.TrimSpace(*by) == "" {
+		return &usageError{msg: outputUseUsage}
+	}
+	p := ctx.Project
+	issues, _ := tracker.LoadIssues(p.IssueDir)
+	forWhat, to := "", ""
+	if box := connections.ResolveBox(p, *by); box != "" {
+		forWhat, to = box, box
+	} else if issue := tracker.FindIssue(issues, strings.TrimSpace(*by)); issue != nil {
+		forWhat, to = issue.Slug, connections.BoxOf(p, issue)
+	} else {
+		return fmt.Errorf("output use --by %q: no department or issue by that name (departments: %s)", *by, strings.Join(connections.Boxes(p), ", "))
+	}
+	list, _ := outputs.Load(p)
+	if o, err := outputs.Find(list, fs.Arg(0)); err == nil && o.Department == to {
+		return fmt.Errorf("output use: %s is %s's own output; a use is by another department", shortID(o.ID), o.Name)
+	}
+	o, err := outputs.MarkUsed(p, fs.Arg(0), forWhat, whoAmI(p, issues).sender(), ctx.now())
+	if err != nil {
+		return err
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, o)
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ %s uses %s: %s\n", connections.BoxName(p, to), shortID(o.ID), o.Title)
+	fmt.Fprintf(ctx.Stdout, "Drawn as an output %s → %s on the company page (issue-cli connections).\n", o.Name, connections.BoxName(p, to))
+	if connections.DeclaresKind(p, connections.Output) && !connections.IsDeclared(p, o.Department, to, connections.Output) {
+		fmt.Fprintf(ctx.Stdout, "No declared feed %s → %s (projects.yaml connections: feeds:): the line is marked not declared until the owner adds - {from: %s, to: %s}.\n", o.Name, connections.BoxName(p, to), o.Department, to)
+	}
+	fmt.Fprintf(ctx.Stdout, "file: %s\n", outputs.LogPath(p))
+	return nil
+}
+
 func runOutputShow(ctx *Context, args []string) error {
 	pos, err := parsePositionals(ctx, "output show", args, 1)
 	if err != nil {
@@ -257,6 +327,12 @@ func runOutputShow(ctx *Context, args []string) error {
 	}
 	if !o.Published.IsZero() {
 		fmt.Fprintf(ctx.Stdout, "Published: %s\n", o.Published.Local().Format("2006-01-02 15:04"))
+	}
+	for _, u := range o.Uses {
+		fmt.Fprintf(ctx.Stdout, "Used by: %s, %s%s\n", u.For, u.Date.Local().Format("2006-01-02 15:04"), byWho(u.By))
+	}
+	if line := commentsLine(ctx.Project, o); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
 	}
 	fmt.Fprintf(ctx.Stdout, "Shelf: %s\n", shelfURL(ctx.Project, o.Department))
 	return nil
@@ -338,12 +414,19 @@ func runOutputs(ctx *Context, args []string) error {
 // printOutput is an output on two lines: id, state, kind and title; then
 // where it is, what made it, who and when.
 func printOutput(w io.Writer, o *outputs.Output, indent string) {
-	fmt.Fprintf(w, "%s%s %s [%s] %s · %s\n", indent, o.Icon(), shortID(o.ID), o.State, o.Kind, o.Title)
+	ver := ""
+	if o.Version() > 1 {
+		ver = fmt.Sprintf(" v%d", o.Version())
+	}
+	fmt.Fprintf(w, "%s%s %s%s [%s] %s · %s\n", indent, o.Icon(), shortID(o.ID), ver, o.State, o.Kind, o.Title)
 	where := o.Where()
 	if o.Missing {
 		where += " (missing)"
 	}
 	parts := []string{where}
+	if n := o.OpenComments; n > 0 {
+		parts = append(parts, fmt.Sprintf("💬 %d open (issue-cli output comments %s)", n, shortID(o.ID)))
+	}
 	switch {
 	case o.Issue != "":
 		parts = append(parts, "issue "+o.Issue)
@@ -354,6 +437,15 @@ func printOutput(w io.Writer, o *outputs.Output, indent string) {
 		parts = append(parts, "by "+o.By)
 	}
 	parts = append(parts, o.Added.Local().Format("2006-01-02 15:04"))
+	if n := len(o.Uses); n > 0 {
+		var who []string
+		for _, u := range o.Uses {
+			if !slices.Contains(who, u.For) {
+				who = append(who, u.For)
+			}
+		}
+		parts = append(parts, "used by "+strings.Join(who, ", "))
+	}
 	fmt.Fprintf(w, "%s    %s\n", indent, strings.Join(parts, " · "))
 }
 
@@ -386,7 +478,13 @@ func outputsLine(p *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowC
 	mine := outputs.Select(list, outputs.Filter{Issue: issue.Slug})
 	if len(mine) > 0 {
 		review := len(outputs.Select(mine, outputs.Filter{State: outputs.StateReview}))
-		return fmt.Sprintf("Outputs: %d (%d to review) · issue-cli outputs --issue %s", len(mine), review, issue.Slug)
+		line := fmt.Sprintf("Outputs: %d (%d to review) · issue-cli outputs --issue %s", len(mine), review, issue.Slug)
+		for _, o := range mine {
+			if n := o.OpenComments; n > 0 {
+				line += fmt.Sprintf("\n  💬 %d open %s from the owner on %s: issue-cli output comments %s", n, pluralWord(n, "comment", "comments"), shortID(o.ID), shortID(o.ID))
+			}
+		}
+		return line
 	}
 	if !wantsOutputs(p, issue, wf) {
 		return ""
@@ -394,10 +492,14 @@ func outputsLine(p *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowC
 	return "Outputs: none yet · record what this makes: " + outputAddExample(issue.Slug)
 }
 
-// wantsOutputs: the issue belongs to a department other than Product, or
-// walks the content workflow, so what it makes belongs on a shelf.
+// wantsOutputs: the issue belongs to a department other than Product,
+// walks the content workflow, or its path gates on has_output (the report
+// type), so what it makes belongs on a shelf.
 func wantsOutputs(p *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) bool {
 	if p.DepartmentOf(issue) != "" {
+		return true
+	}
+	if _, _, ok := wf.HasOutputRule(); ok {
 		return true
 	}
 	return wf != nil && strings.HasPrefix(wf.Template, "content@")
@@ -420,4 +522,12 @@ func outputsTransitionHint(p *tracker.Project, issue *tracker.Issue, wf *tracker
 		return ""
 	}
 	return "Made something? Put it on the shelf: " + outputAddExample(issue.Slug)
+}
+
+// byWho is " (by x)" or "".
+func byWho(by string) string {
+	if by == "" {
+		return ""
+	}
+	return " (by " + by + ")"
 }

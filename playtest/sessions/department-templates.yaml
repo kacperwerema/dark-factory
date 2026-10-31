@@ -17,7 +17,7 @@ steps:
     checks:
       - visible: [upd.page, upd.departments, upd.dept.marketing, upd.dept.marketing.command]
       - text_contains: { target: upd.departments, text: "Departments you can add" }
-      - text_contains: { target: upd.dept.marketing, text: "workflow: content · 2 goals · role prompt" }
+      - text_contains: { target: upd.dept.marketing, text: "workflow: marketing · 2 goals · role prompt" }
       - text_contains: { target: upd.dept.marketing.command, text: "department add marketing" }
     do: |
       Look at the Departments you can add section on the Updates page.

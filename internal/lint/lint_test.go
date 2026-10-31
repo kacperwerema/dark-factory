@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
 )
@@ -91,7 +93,7 @@ func TestMinimalWorkflowIsClean(t *testing.T) {
 	if len(rep.Findings) != 0 {
 		t.Errorf("findings on a clean workflow: %+v", rep.Findings)
 	}
-	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,paths,department" {
+	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,paths,owner-only,na-boxes,owner-marker,reports,evals,department" {
 		t.Errorf("checks = %v", rep.Checks)
 	}
 }
@@ -336,5 +338,155 @@ func TestFileRunsTheFileChecksOnRawText(t *testing.T) {
 	}
 	if _, err := File("w.yaml", []byte("statuses: [\n"), time.Now()); err == nil {
 		t.Error("broken YAML parsed")
+	}
+}
+
+// A box in a named N/A form passes; one out of form, or on the owner's
+// box, is a warning. Closed issues are not read.
+func TestNABoxes(t *testing.T) {
+	issue := func(title, status, boxes string) string {
+		return "---\ntitle: \"" + title + "\"\nstatus: " + status + "\ncreated: \"2026-10-30\"\n---\n\n## Testing\n" + boxes
+	}
+	env := lintProject(t, minimalWorkflow, map[string]string{
+		"S/named.md": issue("named", "idea", "- [x] ux-test passed (N/A: no page changes)\n"+
+			"- [x] Guided check (N/A: the repro is an automated test (TestStatsPageFastOnABigProject))\n"+
+			"- [x] Runner check (N/A: runner-internal, covered by TestShotRetry)\n"+
+			"- [x] Session (N/A: a read-only card covered by the template test)\n"+
+			"- [ ] Open box (N/A:)\n"+
+			"- [x] Manual checks come as scripts, or N/A with the reason\n"),
+		"S/bad.md": issue("bad", "idea", "- [x] Guided check (N/A: the repro is an automated test)\n"+
+			"- [x] ux-test passed (n/a: none)\n"+
+			"- [x] Repro re-run (owner) (N/A: no page changes)\n"+
+			"\n## Human Testing\n- [x] Human verification (N/A: no page changes)\n"),
+		"S/closed.md": issue("closed", "done", "- [x] ux-test passed (N/A: none)\n"),
+	})
+	rep, err := Run(env, "na-boxes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range rep.Findings {
+		got = append(got, f.Where+": "+f.Message)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{
+		`s/bad T1: "the repro is an automated test" needs the test's name`,
+		`s/bad T2: the N/A reason "none" is too short`,
+		`s/bad T3: T3 is marked "(owner)" with an N/A: an N/A never skips the owner's box`,
+		`s/bad HT1: HT1 is a Human Testing box with an N/A`,
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing finding %q in:\n%s", want, all)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("want 4 findings (named forms and closed issues give none), got:\n%s", all)
+	}
+}
+
+// The docs type, in this repo's workflow.yaml and the bundled development
+// template, walks idea → in progress → shipping → done and writes no box
+// about playtests, ux-test or check scripts.
+func TestDocsTypeHasNoTestBoxes(t *testing.T) {
+	dev, err := workflowupgrade.ReadTemplate("development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile("../../workflow.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, raw := range map[string][]byte{"development template": dev, "workflow.yaml": repo} {
+		var wf tracker.WorkflowConfig
+		if err := yaml.Unmarshal(raw, &wf); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := wf.Types["docs"]; !ok {
+			t.Errorf("%s: no docs type", name)
+			continue
+		}
+		docs := wf.ForType("docs")
+		var path []string
+		for _, s := range docs.Statuses {
+			if s.Name != "parked" {
+				path = append(path, s.Name)
+			}
+		}
+		if got := strings.Join(path, " → "); got != "idea → in progress → shipping → done" {
+			t.Errorf("%s: docs path = %s", name, got)
+		}
+		for _, tr := range docs.Transitions {
+			for _, a := range tr.Actions {
+				if a.Type != "append_section" {
+					continue
+				}
+				if a.Title == "Test Plan" || a.Title == "Testing" {
+					t.Errorf("%s: docs %s → %s appends %s", name, tr.From, tr.To, a.Title)
+				}
+				low := strings.ToLower(a.Body)
+				for _, word := range []string{"playtest", "ux-test", "check-script", "scripts/checks"} {
+					if strings.Contains(low, word) {
+						t.Errorf("%s: docs %s → %s box mentions %s:\n%s", name, tr.From, tr.To, word, a.Body)
+					}
+				}
+			}
+		}
+	}
+}
+
+// The testing prompt, in this repo's workflow.yaml and the bundled
+// development template, lists every named N/A form and check --na.
+func TestTestingPromptListsTheNAForms(t *testing.T) {
+	dev, err := workflowupgrade.ReadTemplate("development")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile("../../workflow.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, raw := range map[string][]byte{"development template": dev, "workflow.yaml": repo} {
+		var wf tracker.WorkflowConfig
+		if err := yaml.Unmarshal(raw, &wf); err != nil {
+			t.Fatal(err)
+		}
+		prompt := ""
+		for _, s := range wf.Statuses {
+			if s.Name == "testing" {
+				prompt = s.Prompt
+			}
+		}
+		if !strings.Contains(prompt, `issue-cli check <slug> <id> --na "<reason>"`) {
+			t.Errorf("%s: the testing prompt doesn't name check --na", name)
+		}
+		for _, f := range tracker.NAForms[:len(tracker.NAForms)-1] {
+			if !strings.Contains(prompt, "`"+f.Form+"`") {
+				t.Errorf("%s: the testing prompt doesn't list the form %q", name, f.Form)
+			}
+		}
+	}
+}
+
+func TestOwnerMarkerFlagsAnUnmarkedOwnerCheck(t *testing.T) {
+	issue := func(title, status, boxes string) string {
+		return "---\ntitle: \"" + title + "\"\nstatus: " + status + "\ncreated: \"2026-10-30\"\n---\n\n## Acceptance Criteria\n" + boxes
+	}
+	env := lintProject(t, minimalWorkflow, map[string]string{
+		"S/open.md": issue("open", "idea", "- [ ] The page renders and the owner confirms it reads well\n"+
+			"- [ ] Lists every box (owner)\n"+
+			"- [ ] Owner visual check of the board (after ship)\n"+
+			"- [ ] The `(owner)` marker counts anywhere (tests)\n"+
+			"- [x] the owner looks at the shot\n"+
+			"\n## Notes\n- [ ] the owner reviews the notes\n"),
+		"S/closed.md": issue("closed", "done", "- [ ] the owner decides the price\n"),
+	})
+	rep, err := Run(env, "owner-marker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 1 || rep.Findings[0].Where != "s/open AC1" ||
+		!strings.Contains(rep.Findings[0].Message, "reads like the owner's check") ||
+		!strings.Contains(rep.Findings[0].Fix, "check-edit s/open AC1") || !strings.Contains(rep.Findings[0].Fix, "(owner)") {
+		t.Fatalf("findings = %+v, want one on s/open AC1 with a check-edit fix adding (owner)", rep.Findings)
 	}
 }

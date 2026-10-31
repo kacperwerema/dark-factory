@@ -39,6 +39,8 @@ type Comparison struct {
 	HoldoutA      Holdout  `json:"holdout_a"`
 	HoldoutB      Holdout  `json:"holdout_b"`
 	Warnings      []string `json:"warnings"`
+	// Workflows is each workflow's verdict (CompareByWorkflow).
+	Workflows []WorkflowVerdict `json:"workflows"`
 }
 
 // Regressed reports whether B is worse than A: a task that passed in A fails
@@ -124,6 +126,7 @@ func Compare(a, b *Run) Comparison {
 	c.TokensDelta = b.SpentTokens - a.SpentTokens
 	c.USDDelta = b.SpentUSD - a.SpentUSD
 	c.WallDelta = b.Summary.WallSec - a.Summary.WallSec
+	c.Workflows = CompareByWorkflow(a, b)
 	return c
 }
 

@@ -225,6 +225,11 @@ func (r *Runner) runStep(b *Browser, bins *Binaries, s *Session, st *Step, vp Vi
 
 	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
 	defer cancel()
+	if s.Checks.ReducedMotion {
+		if err := pg.ReduceMotion(ctx); err != nil {
+			return fail("browser: reduced motion: %v", err)
+		}
+	}
 	env := &stepEnv{sc: sc, page: pg, snaps: map[string]string{}, log: logf}
 
 	// shoot saves the page; screenshot: is relative to the run folder, so

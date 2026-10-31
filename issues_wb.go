@@ -45,6 +45,21 @@ type IssuesWbData struct {
 	Facets     []WbBars
 	Add        WbCommandCard
 	NewURL     string
+	Create     WbCreateIssue
+}
+
+// WbCreateIssue is the store's New issue dialog (wb/create-issue): the
+// classic create modal's fields, posting to /issues/create. Open (from
+// ?new=1) shows it on load with Status preset.
+type WbCreateIssue struct {
+	PostURL   string
+	Statuses  []string
+	Templates map[string]string
+	Systems   []string
+	WorkTypes []WorkTypeOption
+	System    string // pre-set from the store's system filter
+	Status    string
+	Open      bool
 }
 
 // WbShelf is one status's crates. More counts the crates folded away,
@@ -76,6 +91,7 @@ type WbCrateCard struct {
 // storeFilter is the page's query: the classic list's filters plus show.
 type storeFilter struct {
 	FilterParams
+	Version    string
 	Show, Sort string
 }
 
@@ -88,13 +104,13 @@ func storeFilterFrom(q url.Values) storeFilter {
 		Assignee: q.Get("assignee"),
 		Search:   q.Get("search"),
 		Type:     q.Get("type"),
-	}, Show: q.Get("show"), Sort: strings.TrimSpace(q.Get("sort"))}
+	}, Version: q.Get("version"), Show: q.Get("show"), Sort: strings.TrimSpace(q.Get("sort"))}
 }
 
 func (f storeFilter) url(prefix string) string {
 	v := url.Values{}
 	for k, val := range map[string]string{"status": f.Status, "system": f.System, "priority": f.Priority, "label": f.Label,
-		"assignee": f.Assignee, "search": f.Search, "type": f.Type, "show": f.Show, "sort": f.Sort} {
+		"assignee": f.Assignee, "search": f.Search, "type": f.Type, "version": f.Version, "show": f.Show, "sort": f.Sort} {
 		if val != "" {
 			v.Set(k, val)
 		}
@@ -106,7 +122,7 @@ func (f storeFilter) url(prefix string) string {
 }
 
 func (f storeFilter) any() bool {
-	return f.Status != "" || f.System != "" || f.Priority != "" || f.Label != "" || f.Assignee != "" || f.Search != "" || f.Type != "" || f.Show != ""
+	return f.Status != "" || f.System != "" || f.Priority != "" || f.Label != "" || f.Assignee != "" || f.Search != "" || f.Type != "" || f.Version != "" || f.Show != ""
 }
 
 // storeIssue is an issue with what the store knows about it.
@@ -149,6 +165,12 @@ func (s *Server) handleIssuesWb(w http.ResponseWriter, r *http.Request, proj *tr
 		items = append(items, it)
 	}
 	data := buildIssuesWb(items, wf, prefix, storeFilterFrom(r.URL.Query()))
+	_, systems, _, _, _ := tracker.CollectFilterValues(issues)
+	data.Create.Systems = mergeSubdirSystems(systems, proj.IssueDir)
+	if q := r.URL.Query(); q.Get("new") == "1" {
+		data.Create.Open = true
+		data.Create.Status = createStatus(data.Create.Statuses, q.Get("status"))
+	}
 	lot, queue := s.decisionsLot(proj, now)
 	data.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "issues"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: queue, HideDone: true}
 	data.Header.Crumbs[1].Color = lot.Color
@@ -158,6 +180,20 @@ func (s *Server) handleIssuesWb(w http.ResponseWriter, r *http.Request, proj *tr
 	if err := s.tmpl.ExecuteTemplate(w, "issues_wb.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// createStatus is the dialog's preset status: want when the dialog offers
+// it, else the first creatable status (as the classic modal falls back).
+func createStatus(statuses []string, want string) string {
+	for _, st := range statuses {
+		if strings.EqualFold(st, want) {
+			return st
+		}
+	}
+	if len(statuses) > 0 {
+		return statuses[0]
+	}
+	return ""
 }
 
 // waitingWords is what an item asks of the owner, for a crate's chip.
@@ -179,6 +215,9 @@ func (f storeFilter) match(it storeIssue, wf *tracker.WorkflowConfig) bool {
 		return false
 	}
 	if f.Type != "" && wf.HasTypes() && it.Type != f.Type {
+		return false
+	}
+	if f.Version != "" && !strings.EqualFold(it.Version, f.Version) {
 		return false
 	}
 	switch f.Show {
@@ -205,7 +244,7 @@ func buildIssuesWb(items []storeIssue, wf *tracker.WorkflowConfig, prefix string
 		f.Sort = "score"
 	}
 	byScore := f.Sort == "score" && scoring
-	d := IssuesWbData{Total: len(items), ClearURL: prefix + "/", ClassicURL: prefix + "/?classic=1", NewURL: prefix + "/?classic=1&new=1"}
+	d := IssuesWbData{Total: len(items), ClearURL: prefix + "/", ClassicURL: prefix + "/?classic=1", NewURL: prefix + "/?new=1"}
 
 	var shown []storeIssue
 	you, working := 0, 0
@@ -239,7 +278,9 @@ func buildIssuesWb(items []storeIssue, wf *tracker.WorkflowConfig, prefix string
 
 	d.Search = storeSearch(prefix, f, wf)
 	d.Facets = storeFacets(items, wf, prefix, f)
-	d.Add = WbCommandCard{Title: "New issue", Text: "Ask the CEO, or create it from a shell. The form opens the classic create dialog.", Command: `issue-cli create "<title>"`, Key: "issues.create"}
+	d.Add = WbCommandCard{Title: "New issue", Text: "Ask the CEO, create it from a shell, or fill in the form.", Command: `issue-cli create "<title>"`, Key: "issues.create"}
+	statuses, templates := createOptions(wf)
+	d.Create = WbCreateIssue{PostURL: prefix + "/issues/create", Statuses: statuses, Templates: templates, WorkTypes: workTypeOptions(wf), System: f.System}
 
 	if byScore {
 		views := make([]*IssueView, len(shown))
@@ -343,7 +384,7 @@ func storeCrate(it storeIssue, prefix string, f storeFilter) WbCrateCard {
 		c.Tags = append(c.Tags, tag(it.Type, func(g *storeFilter) { g.Type = it.Type }))
 	}
 	if it.Version != "" {
-		c.Tags = append(c.Tags, WbLink{Label: "v" + it.Version})
+		c.Tags = append(c.Tags, tag("v"+it.Version, func(g *storeFilter) { g.Version = it.Version }))
 	}
 	if it.Priority != "" {
 		tone := "idle"
@@ -364,7 +405,7 @@ func storeCrate(it storeIssue, prefix string, f storeFilter) WbCrateCard {
 func storeSearch(prefix string, f storeFilter, wf *tracker.WorkflowConfig) WbSearchBar {
 	sb := WbSearchBar{Action: prefix + "/", Name: "search", Value: f.Search, Placeholder: "title, slug or body", Key: "issues"}
 	for _, k := range []struct{ name, val string }{{"status", f.Status}, {"system", f.System}, {"priority", f.Priority}, {"label", f.Label},
-		{"assignee", f.Assignee}, {"type", f.Type}, {"show", f.Show}, {"sort", f.Sort}} {
+		{"assignee", f.Assignee}, {"type", f.Type}, {"version", f.Version}, {"show", f.Show}, {"sort", f.Sort}} {
 		if k.val != "" {
 			sb.Keep = append(sb.Keep, WbHiddenField{Name: k.name, Value: k.val})
 		}
@@ -401,6 +442,7 @@ func storeSearch(prefix string, f storeFilter, wf *tracker.WorkflowConfig) WbSea
 		{"system", "System", f.System, func(g *storeFilter) { g.System = "" }},
 		{"priority", "Priority", f.Priority, func(g *storeFilter) { g.Priority = "" }},
 		{"type", "Type", f.Type, func(g *storeFilter) { g.Type = "" }},
+		{"version", "Version", f.Version, func(g *storeFilter) { g.Version = "" }},
 		{"assignee", "Assignee", assigneeWords(f.Assignee), func(g *storeFilter) { g.Assignee = "" }},
 		{"label", "Label", f.Label, func(g *storeFilter) { g.Label = "" }},
 		{"search", "Search", f.Search, func(g *storeFilter) { g.Search = "" }},
@@ -437,6 +479,7 @@ func storeFacets(items []storeIssue, wf *tracker.WorkflowConfig, prefix string, 
 		all               bool // list every value, not the top storeFacetMax
 	}
 	facets := []facet{
+		{"By status", "status", "No issue has a status.", func(it storeIssue) []string { return nonEmpty(it.Status) }, f.Status, func(g *storeFilter, v string) { g.Status = v }, true},
 		{"By system", "system", "No issue has a system.", func(it storeIssue) []string { return nonEmpty(it.System) }, f.System, func(g *storeFilter, v string) { g.System = v }, false},
 		{"By priority", "priority", "No issue has a priority.", func(it storeIssue) []string { return nonEmpty(it.Priority) }, f.Priority, func(g *storeFilter, v string) { g.Priority = v }, true},
 	}
@@ -444,6 +487,7 @@ func storeFacets(items []storeIssue, wf *tracker.WorkflowConfig, prefix string, 
 		facets = append(facets, facet{"By type", "type", "No types.", func(it storeIssue) []string { return nonEmpty(it.Type) }, f.Type, func(g *storeFilter, v string) { g.Type = v }, true})
 	}
 	facets = append(facets,
+		facet{"By version", "version", "No issue has a version.", func(it storeIssue) []string { return nonEmpty(it.Version) }, f.Version, func(g *storeFilter, v string) { g.Version = v }, false},
 		facet{"By assignee", "assignee", "Nobody has claimed an issue.", func(it storeIssue) []string { return nonEmpty(it.Assignee) }, f.Assignee, func(g *storeFilter, v string) { g.Assignee = v }, false},
 		facet{"Labels", "label", "No issue has a label.", func(it storeIssue) []string { return it.Labels }, f.Label, func(g *storeFilter, v string) { g.Label = v }, false},
 	)
@@ -474,12 +518,16 @@ func storeFacets(items []storeIssue, wf *tracker.WorkflowConfig, prefix string, 
 			}
 			return keys[i] < keys[j]
 		})
+		var rest []string
 		if !fc.all && len(keys) > storeFacetMax {
-			// Keep the applied value listed even when it isn't in the top rows.
-			top := keys[:storeFacetMax]
+			// Keep the applied value listed even when it isn't in the top
+			// rows; the others fold under "+N more".
+			top := append([]string(nil), keys[:storeFacetMax]...)
 			for _, k := range keys[storeFacetMax:] {
 				if strings.EqualFold(k, fc.cur) {
 					top = append(top, k)
+				} else {
+					rest = append(rest, k)
 				}
 			}
 			keys = top
@@ -492,7 +540,7 @@ func storeFacets(items []storeIssue, wf *tracker.WorkflowConfig, prefix string, 
 		for _, k := range keys {
 			most = max(most, counts[k])
 		}
-		for _, k := range keys {
+		bar := func(k string) WbCountBar {
 			g := f
 			on := strings.EqualFold(k, fc.cur)
 			if on {
@@ -500,7 +548,13 @@ func storeFacets(items []storeIssue, wf *tracker.WorkflowConfig, prefix string, 
 			} else {
 				fc.set(&g, k)
 			}
-			b.Rows = append(b.Rows, WbCountBar{Label: k, URL: g.url(prefix), Count: counts[k], Pct: counts[k] * 100 / most, On: on})
+			return WbCountBar{Label: k, URL: g.url(prefix), Count: counts[k], Pct: counts[k] * 100 / most, On: on}
+		}
+		for _, k := range keys {
+			b.Rows = append(b.Rows, bar(k))
+		}
+		for _, k := range rest {
+			b.More = append(b.More, bar(k))
 		}
 		if fc.key == "assignee" {
 			for _, sp := range []struct{ val, label string }{{"_claimed", "Claimed"}, {"_unclaimed", "Unclaimed"}} {

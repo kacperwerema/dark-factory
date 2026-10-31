@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/michal-franc/issue-viewer/internal/connections"
 	"github.com/michal-franc/issue-viewer/internal/connectors"
 	"github.com/michal-franc/issue-viewer/internal/goals"
+	"github.com/michal-franc/issue-viewer/internal/spend"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/michal-franc/issue-viewer/internal/weekplan"
 )
 
 // goalsConfigSnippet is what issue-cli goals prints when no goal is
@@ -88,26 +91,46 @@ var departmentCommand = &Command{
                                 (workflows/<key>.yaml), role prompt
                                 (departments/<key>/role.md) and an entry with
                                 its goals in projects.yaml. A file already
-                                there is never overwritten. --name <Name>
-                                installs it under another name, --dry-run
-                                prints the plan only
+                                there is never overwritten. A template
+                                installs once, under its own name: one the
+                                project has is refused. --parent <group>
+                                puts it under a group, --dry-run prints the
+                                plan only. A group template (gtm) installs
+                                the group and its departments, and moves one
+                                you already have under it
   department remove <name>      take the entry out of projects.yaml (its
-                                files stay); refused while it has open issues
+                                files stay); refused while it has open
+                                issues, or departments under it (a group)
   department show <name>        mission, role, the role prompt (path and
-                                content) and goals; <name> is hq, product or
+                                content), goals, the open connections
+                                in and out (issue-cli connections) and its
+                                spend this week (issue-cli spend); <name> is hq, product or
                                 a department from projects.yaml
+  department week <name>        the week of a group (and its departments)
+                                or a department: goals and how far each
+                                moved in the last 7 days, outputs waiting
+                                on review / reviewed / shipped, jobs,
+                                handoffs in and out, what is blocked and on
+                                whom, and the run issue's ## Week plan.
+                                --write writes the week report to
+                                <issues>/.reports/<key>/<ISO week>.md
+                                (replacing this week's), shown in the
+                                group's room on the company page. It only
+                                reads and writes that file: nothing starts
 
 add and remove edit the owner's projects.yaml: workers are refused.
 
 Examples:
   issue-cli department list
   issue-cli department add marketing --dry-run
-  issue-cli department add marketing --name SEO
-  issue-cli department remove seo
+  issue-cli department add marketing
+  issue-cli department remove marketing
   issue-cli department show marketing
-  issue-cli department show hq --json`,
+  issue-cli department show hq --json
+  issue-cli department week gtm
+  issue-cli department week gtm --write`,
 	Run:         runDepartment,
-	Subcommands: []string{"list", "add", "remove", "show"},
+	Subcommands: []string{"list", "add", "remove", "show", "week"},
 }
 
 func init() {
@@ -149,10 +172,14 @@ func runGoals(ctx *Context, args []string) error {
 	return nil
 }
 
-// printOwnerGoals prints an owner's heading and goals; an HQ goal lists
-// the goals rolling up into it underneath.
+// printOwnerGoals prints an owner's heading (with its group) and goals; an
+// HQ or group goal lists the goals rolling up into it underneath.
 func printOwnerGoals(w io.Writer, o *goals.Owner) {
-	fmt.Fprintf(w, "== %s ==\n", o.Name)
+	if o.Parent != "" {
+		fmt.Fprintf(w, "== %s (in group %s) ==\n", o.Name, o.Parent)
+	} else {
+		fmt.Fprintf(w, "== %s ==\n", o.Name)
+	}
 	if o.Mission != "" {
 		fmt.Fprintf(w, "Mission: %s\n", o.Mission)
 	}
@@ -276,6 +303,11 @@ type departmentShow struct {
 	PromptError   string `json:"prompt_error,omitempty"`
 	// Connectors are a department's (issue-cli connectors).
 	Connectors []connectors.Status `json:"connectors,omitempty"`
+	// Connections are the open items on lines into and out of it (issue-cli
+	// connections); nil without departments.
+	Connections *connections.Counts `json:"connections,omitempty"`
+	// Spend is what it spent by week (issue-cli spend).
+	Spend *spend.Box `json:"spend,omitempty"`
 }
 
 func runDepartment(ctx *Context, args []string) error {
@@ -290,9 +322,11 @@ func runDepartment(ctx *Context, args []string) error {
 		return runDepartmentAdd(ctx, args[1:])
 	case "remove":
 		return runDepartmentRemove(ctx, args[1:])
+	case "week":
+		return runDepartmentWeek(ctx, args[1:])
 	case "show":
 	default:
-		return &usageError{msg: "usage: issue-cli department list|add <template>|remove <name>|show <name>"}
+		return &usageError{msg: "usage: issue-cli department list|add <template>|remove <name>|show <name>|week <name>"}
 	}
 	pos, err := parsePositionals(ctx, "department show", args[1:], 1)
 	if err != nil {
@@ -318,6 +352,13 @@ func runDepartment(ctx *Context, args []string) error {
 	if d := ctx.Project.DepartmentByKey(pos[0]); d != nil {
 		out.Connectors = connectors.List(ctx.Project, d.Name)
 	}
+	if len(ctx.Project.Departments) > 0 {
+		issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
+		c := connections.CountsByBox(connections.Load(ctx.Project, issues, ctx.now()))[o.Key]
+		out.Connections = &c
+	}
+	sp := loadSpend(ctx)
+	out.Spend = sp.Find(o.Key)
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, out)
 	}
@@ -325,6 +366,19 @@ func runDepartment(ctx *Context, args []string) error {
 	printOwnerGoals(w, o)
 	if o.Role != "" {
 		fmt.Fprintf(w, "Role: %s\n", o.Role)
+	}
+	if c := out.Connections; c != nil {
+		fmt.Fprintf(w, "Connections: in %d · out %d open (issue-cli connections --to %s, --from %s)\n", c.In, c.Out, o.Key, o.Key)
+	}
+	if line := spendLine(sp, o.Key); line != "" {
+		fmt.Fprintln(w, line)
+	}
+	if d := ctx.Project.DepartmentByKey(o.Key); d != nil && ctx.Project.IsGroup(d.Name) {
+		week := "none yet"
+		if h := weekplan.Latest(ctx.Project, o.Key); h != nil {
+			week = h.Week + ": " + h.Counts.Line() + " (" + h.Path + ")"
+		}
+		fmt.Fprintf(w, "Week report: %s. The week: issue-cli department week %s [--write]\n", week, o.Key)
 	}
 	if len(out.Connectors) > 0 {
 		fmt.Fprintln(w, "Connectors:")

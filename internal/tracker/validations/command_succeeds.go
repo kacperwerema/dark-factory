@@ -33,7 +33,7 @@ func CommandSucceeds(action Action, issue *IssueView, cfg Config) error {
 	if cmd == "" {
 		return fmt.Errorf("command_succeeds requires 'command'")
 	}
-	rendered, err := renderTemplate(cmd, issue)
+	rendered, err := renderShellTemplate(cmd, issue)
 	if err != nil {
 		return fmt.Errorf("command_succeeds: template error: %w", err)
 	}

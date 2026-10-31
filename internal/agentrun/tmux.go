@@ -41,7 +41,8 @@ var (
 // prompt to show up in the agent's pane before reporting it undelivered.
 var PromptDeliveryTimeout = 20 * time.Second
 
-const promptDeliveryPoll = 500 * time.Millisecond
+// promptDeliveryPoll is a var so tests that stub the pane poll fast.
+var promptDeliveryPoll = 500 * time.Millisecond
 
 // managedPrefixes are the window names that are agents (or leads) when they
 // live inside a shared session.
@@ -150,6 +151,10 @@ func TerminalNone(proj *tracker.Project) bool {
 
 // shellWord single-quotes s unless it is safe to type unquoted. A leading
 // "=" is not: zsh expands =word to a command's path.
+// ShellWord quotes s as one POSIX shell word (single quotes unless it is
+// plainly safe); every value typed into a shell goes through it.
+func ShellWord(s string) string { return shellWord(s) }
+
 func shellWord(s string) string {
 	if safeShellWord.MatchString(s) {
 		return s
@@ -391,35 +396,141 @@ func defaultSendKey(target, key string) error {
 // defaultSendText types text into target as literal keys (send-keys -l):
 // what a person would type into a TUI's text field, never key names.
 func defaultSendText(target, text string) error {
-	return exec.Command("tmux", "send-keys", "-t", target, "-l", text).Run()
+	return exec.Command("tmux", "send-keys", "-t", target, "-l", "--", text).Run()
 }
 
 // PromptDeliveryStep polls the agent's pane until the prompt's delivery
-// marker appears, and records whether it did. It never re-sends: a missing
-// prompt is reported as a failed step for the human to act on.
+// marker is in the conversation, and records whether it got there. A prompt
+// still typed in Claude Code's input box is not delivered: the TUI can take
+// the Enter as part of the paste, so once the text has sat in the box for
+// promptStuckPolls polls, Enter is pressed again, up to promptResubmits
+// times. The text itself is never re-sent: a prompt that doesn't land is
+// reported as a failed step for the human to act on.
 func PromptDeliveryStep(steps *[]Step, target, prompt, repromptHint string) {
-	marker := tracker.PromptDeliveryMarker(prompt)
-	if marker == "" {
+	d := awaitDelivery(target, prompt)
+	switch {
+	case d.blank:
+		return
+	case d.delivered:
+		step := Step{Name: "Prompt delivered", Status: "ok"}
+		if d.resubmits > 0 {
+			step.Detail = fmt.Sprintf("it sat in the input box; Enter pressed again %s", times(d.resubmits))
+		}
+		*steps = append(*steps, step)
 		return
 	}
-	deadline := time.Now().Add(PromptDeliveryTimeout)
-	for {
-		if pane, err := CapturePane(target); err == nil && strings.Contains(pane, marker) {
-			*steps = append(*steps, Step{Name: "Prompt delivered", Status: "ok"})
-			return
-		}
-		if !time.Now().Before(deadline) {
-			break
-		}
-		time.Sleep(promptDeliveryPoll)
-	}
-	detail := fmt.Sprintf("its last line was not visible in the pane after %s; nothing was re-sent. Check the session, then ", PromptDeliveryTimeout)
+	detail := d.problem() + "; nothing was re-sent. Check the session, then "
 	if repromptHint != "" {
 		detail += "use Re-send prompt or run: " + repromptHint
 	} else {
 		detail += "paste the prompt from this response by hand"
 	}
 	*steps = append(*steps, Step{Name: "Prompt not delivered", Status: "error", Detail: detail})
+}
+
+// promptStuckPolls is how many polls in a row the prompt sits in the input
+// box before Enter is pressed again; promptResubmits caps those presses.
+const (
+	promptStuckPolls = 2
+	promptResubmits  = 2
+)
+
+// delivery is what awaitDelivery saw: the prompt in the conversation, or
+// where it was when time ran out.
+type delivery struct {
+	blank, delivered, inBox bool
+	resubmits               int
+}
+
+func (d delivery) problem() string {
+	if d.inBox {
+		return fmt.Sprintf("it is still typed in the input box, not sent, after %s and Enter pressed again %s", PromptDeliveryTimeout, times(d.resubmits))
+	}
+	return fmt.Sprintf("its last line was not visible in the pane after %s", PromptDeliveryTimeout)
+}
+
+func times(n int) string {
+	if n == 1 {
+		return "once"
+	}
+	return fmt.Sprintf("%d times", n)
+}
+
+// awaitDelivery polls target's pane for up to PromptDeliveryTimeout until
+// prompt is in the conversation, pressing Enter again when it sits in the
+// input box (PromptDeliveryStep).
+func awaitDelivery(target, prompt string) delivery {
+	marker := tracker.PromptDeliveryMarker(prompt)
+	if marker == "" {
+		return delivery{blank: true}
+	}
+	var d delivery
+	stuck := 0
+	deadline := time.Now().Add(PromptDeliveryTimeout)
+	for {
+		if pane, err := CapturePane(target); err == nil {
+			var sent bool
+			d.inBox, sent = PromptPlace(pane, marker)
+			if sent {
+				d.delivered = true
+				return d
+			}
+			if !d.inBox {
+				stuck = 0
+			} else if stuck++; stuck >= promptStuckPolls && d.resubmits < promptResubmits {
+				if SendKey(target, "Enter") == nil {
+					d.resubmits++
+				}
+				stuck = 0
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return d
+		}
+		time.Sleep(promptDeliveryPoll)
+	}
+}
+
+// PromptPlace reads where marker is in a Claude Code pane: inBox when the
+// input box (the prompt line under a rule, down to the rule below it) holds
+// it or a "[Pasted text" placeholder, sent when it is in the conversation
+// above the box and the box doesn't hold it. A pane with no input box is
+// all conversation.
+func PromptPlace(pane, marker string) (inBox, sent bool) {
+	lines := strings.Split(strings.ReplaceAll(pane, "\r", ""), "\n")
+	top, bottom := -1, len(lines)
+	for i := len(lines) - 1; i > 0; i-- {
+		t := boxText(lines[i])
+		if (t == ">" || t == "❯" || strings.HasPrefix(t, "> ") || strings.HasPrefix(t, "❯ ")) && isRule(lines[i-1]) {
+			top = i
+			break
+		}
+	}
+	conversation := lines
+	if top >= 0 {
+		for j := top + 1; j < len(lines); j++ {
+			if isRule(lines[j]) {
+				bottom = j
+				break
+			}
+		}
+		box := strings.Join(lines[top:bottom], "\n")
+		inBox = strings.Contains(box, marker) || strings.Contains(box, "[Pasted text")
+		conversation = lines[:top-1]
+	}
+	return inBox, !inBox && strings.Contains(strings.Join(conversation, "\n"), marker)
+}
+
+// paneRule is a box border or a horizontal rule: nothing but drawing.
+var paneRule = regexp.MustCompile(`^[─━═╭╮╰╯┌┐└┘├┤\-\s]+$`)
+
+func isRule(line string) bool {
+	return strings.TrimSpace(line) != "" && paneRule.MatchString(line)
+}
+
+// boxText is a pane line without box borders and padding.
+func boxText(line string) string {
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│┃|"))
 }
 
 // OpenTerminalStep opens a terminal attached to the given tmux session.
@@ -463,7 +574,7 @@ func openTerminal(proj *tracker.Project, session, name string, steps *[]Step) bo
 	// The window is titled after the session, so a later click can focus it
 	// (FocusTerminal) instead of opening another.
 	return RunStep(steps, "Open alacritty",
-		exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -T %s -e %stmux attach -t %s", session, envFlag, session)))
+		exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -T %s -e %stmux attach -t %s", shellWord(session), envFlag, shellWord(session))))
 }
 
 // Roles {{role}} expands to in terminal commands.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -22,7 +23,7 @@ benchmark against main. The verdict is advice: the owner adopts the change,
 even in YOLO (YOLO passes no gate of an issue labelled experiment).
 
   1. candidates            what retros keep asking for (read-only)
-  2. init <slug> ...       write the experiment block on an issue labelled experiment
+  2. init <slug> ...       turn a proposal (any status, e.g. idea) into an experiment
   3. run <slug>            benchmark main and the branch, compare, record the verdict
   then the owner adopts it at its gates, or it is parked as rejected.
 
@@ -33,6 +34,8 @@ Subcommands:
       Each row names the open experiment that already uses its retros.
   init <slug> --hypothesis "..." --target <metric>:<up|down>:<threshold>
        [--source retros/<file>]... [--change <glob>]... [--benchmark <name>]
+      Adds the experiment label when the issue lacks it (other labels kept,
+      status unchanged), then writes the experiment block.
       Metrics: pass_rate, gates_first_try, rework, judge (in their units);
       tokens, cost, wall (threshold is a fraction of the baseline).
   show <slug>
@@ -175,7 +178,7 @@ func runExperimentCandidates(ctx *Context, args []string) error {
 			printCandidateTail(w, c)
 		}
 	}
-	fmt.Fprintln(w, "\nNext: propose one on the issue trail; the lead or the owner creates the issue (label experiment), then")
+	fmt.Fprintln(w, "\nNext: propose one on the issue trail; the lead or the owner files the issue (at idea is fine), then")
 	fmt.Fprintln(w, "  issue-cli experiment init <slug> --hypothesis \"...\" --target <metric>:<up|down>:<threshold> --source <retro>")
 	return nil
 }
@@ -202,10 +205,24 @@ func experimentIssue(ctx *Context, slug string) (*tracker.Issue, error) {
 		return nil, err
 	}
 	if !experiment.Is(issue.Labels) {
-		return nil, fmt.Errorf("%s is not labelled %s: an experiment is an issue with that label (issue-cli update %s --labels ...,%s)",
-			issue.Slug, experiment.Label, issue.Slug, experiment.Label)
+		return nil, fmt.Errorf("%s is not labelled %s: an experiment is an issue with that label; issue-cli experiment init %s --hypothesis \"...\" --target <metric>:<up|down>:<threshold> adds it",
+			issue.Slug, experiment.Label, issue.Slug)
 	}
 	return issue, nil
+}
+
+// labelExperiment adds the experiment label to a proposal (any status,
+// other labels kept); false when it already had it.
+func labelExperiment(issue *tracker.Issue) (bool, error) {
+	if experiment.Is(issue.Labels) {
+		return false, nil
+	}
+	labels := append(slices.Clone(issue.Labels), experiment.Label)
+	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{Labels: labels}); err != nil {
+		return false, err
+	}
+	issue.Labels = labels
+	return true, nil
 }
 
 func runExperimentInit(ctx *Context, args []string) error {
@@ -230,7 +247,7 @@ func runExperimentInit(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	issue, err := experimentIssue(ctx, slug)
+	issue, _, err := findIssueOrErr(ctx, slug)
 	if err != nil {
 		return err
 	}
@@ -254,8 +271,15 @@ func runExperimentInit(ctx *Context, args []string) error {
 	if *bench != "" {
 		b.Benchmark = *bench
 	}
+	labelled, err := labelExperiment(issue)
+	if err != nil {
+		return err
+	}
 	if err := experiment.Save(issue.FilePath, b); err != nil {
 		return err
+	}
+	if labelled {
+		fmt.Fprintf(ctx.Stdout, "✓ Labelled %s %s\n", issue.Slug, experiment.Label)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Experiment block written on %s: %s\n", issue.Slug, t)
 	fmt.Fprintf(ctx.Stdout, "Next: make the change on the branch, then issue-cli experiment run %s --dry-run\n", issue.Slug)
@@ -534,7 +558,7 @@ func runExperimentRun(ctx *Context, args []string) error {
 	}
 	bench := lookupCommand("bench")
 	if bench == nil {
-		return fmt.Errorf("this issue-cli has no bench command yet (factory/factory-benchmark-and-evals): run the two benchmark runs when it lands, then issue-cli experiment record %s --baseline <run> --candidate <run>", issue.Slug)
+		return fmt.Errorf("this build has no bench command yet (factory/factory-benchmark-and-evals): run the two benchmark runs when it lands, then issue-cli experiment record %s --baseline <run> --candidate <run>", issue.Slug)
 	}
 	benchDir := experiment.BenchDir()
 	runBench := func(sha, label string) (*experiment.Run, error) {

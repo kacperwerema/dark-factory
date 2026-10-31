@@ -312,3 +312,20 @@ func TestSystemsWbPagePaths(t *testing.T) {
 		}
 	}
 }
+
+// Proves: AC3 — a workshop card carries what the classic index card had:
+// the summary, the design doc and the families from workbench.systems
+// (classic-page-gaps G55).
+func TestSystemsWbCardSummaryDocFamilies(t *testing.T) {
+	proj, root := setupTestProject(t)
+	withMockTmuxSessions(t, nil)
+	os.WriteFile(filepath.Join(proj.IssueDir, "login-copy.md"), []byte("---\ntitle: \"Login copy\"\nstatus: \"backlog\"\nsystem: \"Auth\"\n---\n\nx\n"), 0644)
+	proj.WorkflowFile = filepath.Join(root, "workflow.yaml")
+	os.WriteFile(proj.WorkflowFile, []byte("statuses:\n  - name: \"backlog\"\n  - name: \"done\"\nworkbench:\n  systems:\n    Auth:\n      summary: Who may sign in.\n      design_doc: docs/auth.md\n      families:\n        Sessions:\n          umbrella: nope/missing\n"), 0644)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getBody(t, ts.URL+"/p/test-project/systems")
+	assertContains(t, html, `data-testid="systems.wb.summary">Who may sign in.</p>`, `data-testid="systems.wb.doc">docs/auth.md</span>`,
+		`data-testid="systems.wb.families"><a class="wb-tag-pill" href="/p/test-project/systems/Auth/Sessions">Sessions</a>`)
+}

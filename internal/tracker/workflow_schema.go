@@ -33,7 +33,7 @@ type SchemaNamedDoc struct {
 var WorkflowActionTypes = []SchemaNamedDoc{
 	{Name: "validate", Description: "Run a validation rule (see 'Validation rules'); blocks the transition on failure"},
 	{Name: "require_human_approval", Description: "Require the issue to be human-approved for the target status before transitioning"},
-	{Name: "append_section", Description: "Append a '## <title>' section with the given body; when a '## <title>' section already exists, add only the body's checkboxes it lacks (ticked boxes keep their ticks)"},
+	{Name: "append_section", Description: "Append a '## <title>' section with the given body; when a '## <title>' section already exists, add only the body's checkboxes it lacks (ticked boxes keep their ticks), and only if a section_checkboxes_checked (or all_checkboxes_checked) rule gates it: an ungated section that already has boxes is the author's and gets none. A new section whose id prefix a playtest session for the issue already uses (TP1, TP2, …) starts with one box per such step, so its own boxes number after them"},
 	{Name: "inject_prompt", Description: "Inject prompt text into the agent's entry guidance on this transition"},
 	{Name: "set_fields", Description: "Set or clear a frontmatter field (field=assignee|priority|status|human_approval, value=\"\" to clear)"},
 }
@@ -49,6 +49,8 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "section_has_checkboxes: <Title>", Description: "Named '## <Title>' section must contain at least one checkbox"},
 	{Name: "criteria_checkboxes: <Title>", Description: "Every list item in '## <Title>' is a checkbox, and none still has the text the workflow's append_section put there"},
 	{Name: "criteria_proven: since <YYYY-MM-DD>", Description: "Every Acceptance Criteria box has a proof link that passes its check (issue-cli prove); issues created before the date, and issues without criteria, pass"},
+	{Name: "commits_reference_issue", Description: "One of the work branch's own commits references the issue: its subject names the slug (chore(merge): main into <slug>) or a 'Refs: <slug>' line in its message does"},
+	{Name: "has_output: <kind>", Description: "The outputs shelf has an output for the issue (issue-cli output add --issue <slug>) of the given kind (any kind when omitted) that isn't rejected and whose file is still there"},
 	{Name: "has_assignee", Description: "Issue must have a non-empty assignee"},
 	{Name: "all_checkboxes_checked", Description: "Every checkbox in the body must be checked"},
 	{Name: "section_checkboxes_checked: <Title>", Description: "'## <Title>' section must exist with at least one checkbox, and every checkbox in it must be checked"},
@@ -70,6 +72,7 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "section_min_length", Description: "Section '## <action.section>' has at least action.min non-whitespace chars"},
 	{Name: "section_max_length", Description: "Section '## <action.section>' has at most action.max non-whitespace chars (missing section passes)"},
 	{Name: "no_todo_markers", Description: "Body contains no whole-word TODO or FIXME markers"},
+	{Name: "file_exists", Description: "File action.path, relative to the project root, exists and isn't empty; templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}}; runs no shell"},
 	{Name: "command_succeeds", Description: "Shell command in action.command exits 0; templated with {{slug}}/{{number}}/{{repo}}/{{system}}; requires top-level allow_shell=true"},
 }
 

@@ -3,7 +3,9 @@ package viewerstate
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,4 +66,68 @@ func TestBaseURL(t *testing.T) {
 	if got := BaseURL("https://issues.example.com/viewer/", served); got != "https://issues.example.com/viewer" {
 		t.Fatalf("viewer_url wins: got %q", got)
 	}
+}
+
+func TestClaim(t *testing.T) {
+	sandbox, shared := t.TempDir(), t.TempDir()
+	old := SandboxRoots
+	SandboxRoots = func() []string { return []string{sandbox} }
+	t.Cleanup(func() { SandboxRoots = old })
+	t.Setenv("XDG_STATE_HOME", shared)
+	owner := filepath.Join(shared, "projects.yaml")
+	if err := os.WriteFile(owner, []byte("projects: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(sandbox, "sub", "proj-18752.yaml")
+
+	if ok, why := Claim(scratch, 99); ok || !strings.Contains(why, "temp folder") {
+		t.Fatalf("sandbox config with shared state: Claim = %v %q, want refused", ok, why)
+	}
+	if ok, _ := Claim(owner, 99); !ok {
+		t.Fatal("no viewer.json yet: the owner's viewer must record itself")
+	}
+
+	// A live viewer (this test process) holds the record for owner.
+	if err := Write(State{Config: owner, URL: "http://127.0.0.1:8090", PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(shared, "other.yaml")
+	if ok, why := Claim(other, os.Getpid()+1); ok || !strings.Contains(why, "8090") {
+		t.Fatalf("another live viewer's record: Claim = %v %q, want refused naming it", ok, why)
+	}
+	if ok, _ := Claim(owner, os.Getpid()+1); !ok {
+		t.Fatal("a restart for the same config must record itself")
+	}
+	// The holder is gone: the record is free.
+	if err := Write(State{Config: owner, PID: deadPID(t)}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := Claim(other, os.Getpid()); !ok {
+		t.Fatal("a dead viewer's record must be free to take")
+	}
+
+	// A sandbox with its own state dir records into it.
+	t.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, "state"))
+	if ok, why := Claim(scratch, 99); !ok {
+		t.Fatalf("sandbox config with sandbox state: refused: %s", why)
+	}
+}
+
+func TestAlive(t *testing.T) {
+	if !Alive(os.Getpid()) {
+		t.Fatal("this process is alive")
+	}
+	if Alive(0) || Alive(-1) || Alive(deadPID(t)) {
+		t.Fatal("0, -1 and an exited process are not alive")
+	}
+}
+
+// deadPID is the pid of a process that has exited and been reaped.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
 }

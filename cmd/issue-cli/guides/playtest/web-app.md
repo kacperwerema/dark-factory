@@ -109,6 +109,27 @@ generate:
 - **Example:** `playtest/scenarios/workboard-scale/` (~520 issues for the
   workboard).
 
+### Claude Code transcripts (spend)
+
+A view that reads spend (`internal/spend`) needs Claude Code sessions. List
+them under `transcripts:`; the runner writes each as a session file under
+the scenario's home (`~/.claude/projects/<cwd slug>/`), numbers only.
+`CLAUDE_CONFIG_DIR` is dropped from the scenario's environment, so the real
+transcripts never show.
+
+```yaml
+transcripts:
+  - cwd: .worktrees/seo/landing-page          # an issue's worktree; "" is the project root
+    messages:
+      - {model: claude-test, input: 20000, output: 9000, cache_read: 1200000}
+      - {ago: -7d, model: claude-test, input: 10000}   # last week
+  - agent: lead-acme-marketing                 # a named session in the project root
+    messages:
+      - {model: claude-test, input: 2000}
+```
+
+- **Example:** `playtest/scenarios/spend/`.
+
 ### Git history and branches
 
 A scenario that needs git history or open branches (a view over branches, knob history) adds these keys to `scenario.yaml`, next to `root:`. Each `files:` names a folder in the scenario:
@@ -138,8 +159,9 @@ branches:
 
 ## The runner (cmd/playtest)
 
-- **Browser:** chromedp. It drives the installed Chrome; set
-  `PLAYTEST_CHROME` for another. ux-test runs headless, with a new browser
+- **Browser:** chromedp. It drives the installed Chrome or Chromium, else
+  the newest Chrome for Testing under `~/Library/Caches/ms-playwright`
+  (a Mac without Chrome in /Applications); set `PLAYTEST_CHROME` for another. ux-test runs headless, with a new browser
   context per step and viewport, so storage and cookies start empty.
 - **Injected scripts:** `checks.js` is added to every document with
   `Page.addScriptToEvaluateOnNewDocument`. A second script turns off CSS
@@ -152,6 +174,11 @@ branches:
   - So a navigation or a fetch never needs a sleep.
 - **Viewports:** `session_checks.viewports`, by default `1440x900` and
   `390x844`.
+- **Reduced motion:** `session_checks.reduced_motion: true` makes the
+  browser report `prefers-reduced-motion: reduce` (Emulation.setEmulatedMedia)
+  for every step of the session, to check a page's still version. SVG
+  animations (`animateMotion`) keep running otherwise: the injected script
+  only stops CSS ones.
 - **What fails a step:**
   - **Console:** an error or exception in the console, unless
     `console_ignore` matches it.
@@ -270,6 +297,23 @@ A list such as `visible: [a, b]` becomes one check per item.
   `comment … --text "playtest: …"`. It records posted comments in the run's
   `reported.yaml`, so a second APPLY doesn't repeat them.
 
+## One screenshot (make shot)
+
+`make shot URL=<page> [W=390] [H=844] [FULL=1] [OUT=file.png]` runs
+`playtest shot`: the same browser, one page, one PNG (default 1280x800 into
+`.playtest/shot.png`; `FULL=1` takes the whole page). It waits for the load
+event and the body, then 300 ms, never for the network to go idle, so
+Workshop pages that poll don't hang it. Point it at a throwaway board (the
+demo staged by `scripts/readme-shots.sh --serve`, or a scenario), not the
+owner's viewer.
+
+## Picking sessions (ISSUE= and S=)
+
+On a work branch `ISSUE` defaults to the branch's slug. `S=<session>` drops
+that default and runs the named session whoever's issue it is. With both
+`ISSUE=` and `S=` given and no match, the error names the issue filter and,
+when the session belongs to another issue, that issue.
+
 ## README screenshots (playtest shots)
 
 `make readme-shots` reuses the runner's browser for the README's pictures.
@@ -281,6 +325,44 @@ workers on a private tmux socket, and starts the viewer on a free port.
 then shoots each page at 1280 px, 2x, in the light theme. `-only a.png,b.png`
 retakes some. Teardown kills only that socket's server and that viewer.
 Look at every picture before committing: the repo is public.
+
+## Pitfalls
+
+Each of these has cost a worker a full ux-test run to find. One line and one
+example each.
+
+- **REPEAT=2 compares each check's text, so check stable values only.** Ids,
+  shas, times and ports differ in run 2 (scenario commits have fixed dates,
+  so their shas hold). Check the words and counts around them:
+  `text_contains: { target: company.room.dept, text: "📦 2 to review" }`,
+  not the random output id the shelf also shows.
+- **`cli:` runs issue-cli in the scenario folder, which names the project
+  `proj`.** Per-project commands need the board's slug:
+  `cli: [--project, "{project}", autostart, status]`.
+- **playtest-report defaults to the engine's board and the branch's slug.** On
+  another board pass the project, and the issue when the branch isn't
+  `work/<slug>` (a session that lives on a sibling issue's branch):
+  `PLAYTEST_PROJECT=dark-factory make playtest-report ISSUE=factory/yolo-mode`.
+- **The first health snapshot lands seconds after the board starts.** A step
+  that reads snapshot data (Stats charts like Disk use, the Health score
+  components, the Status Health card's lint line) waits for it first:
+  `wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }`.
+- **A tmux window started from a button ends with "Press Enter to close this
+  window."** Wait for that line (the window exists before its command is
+  done), press Enter, then check the page:
+  `wait_for: { tmux: { pane: playtest-ui-play-due, contains: "Press Enter to close" }, ms: 15000 }`
+  then `tmux: [send-keys, -t, playtest-ui-play-due, Enter]`. The whole step
+  is `playtest/sessions/example-tmux-window.yaml`.
+- **go test doesn't run the sessions' `contains:` checks, so a rename misses
+  them.** After changing words the owner sees, search the sessions and run
+  the ones that match:
+  `/usr/bin/grep -rln "Lead" playtest/sessions` then
+  `make ux-test ISSUE= S=<session>`.
+- **A step's shot is its last page.** To show two pages, split the step and
+  chain the second with `from: <first step's id>`.
+- **playtest-report reads runs by build.** It marks a run from before your last
+  merge of main "not the current build", so run the final `REPEAT=2` after
+  that merge.
 
 ## Gotchas found while building it
 
@@ -306,11 +388,6 @@ Look at every picture before committing: the repo is public.
   `http:` check on it carries the same query. When a sidebar tab now leads
   to a Workshop page, the step checks the URL after the click, then opens the
   classic page for its checks.
-- The board takes its daily health snapshot a few seconds after it starts,
-  so a session's first page can load before it. A step that reads snapshot
-  data (Stats charts like Disk use, the Health score components, the Status
-  Health card's lint line) waits for it first:
-  `wait_for: { http: { path: "/p/{project}/stats?range=all", contains: 'data-testid="stats.chart.storage"' }, ms: 30000 }`.
 - On macOS the scenario lives under `/var`, a link to `/private/var`, and
   tmux can report a session's folder resolved. Code that matches paths
   (agentrun.ForProject) has to accept both forms.

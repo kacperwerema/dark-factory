@@ -9,6 +9,7 @@
     <div class="wb-titlebar">
         <h1 class="wb-h1">Needs you <span class="wb-ny-count" data-testid="needs_you.count">{{.Count}}</span></h1>
         <span class="wb-sub">{{if .All}}every project · {{end}}what blocks others first, then the oldest · <span class="wb-you-text">ready gates</span> can be approved together</span>
+        {{with .OwnerChecksURL}}<a class="wb-titlebar-end wb-oc-bar-link" href="{{.}}" data-testid="needs_you.owner_checks">Owner checks under an epic ›</a>{{end}}
     </div>
     <div class="wb-ny">
     {{template "wb/ny-bar" .}}

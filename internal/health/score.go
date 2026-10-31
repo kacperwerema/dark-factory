@@ -37,7 +37,11 @@ type Component struct {
 	Unit string
 	// Missing is why there is often no data, for the Health view.
 	Missing string
-	measure func(cur, past *Snapshot) (float64, bool)
+	// Optional: without data the component is left out entirely (no weight
+	// row, not in the coverage), so a project it doesn't apply to keeps its
+	// score. The departments component is optional.
+	Optional bool
+	measure  func(cur, past *Snapshot) (float64, bool)
 }
 
 // DefaultComponents is the score with its defaults, in display order.
@@ -63,6 +67,8 @@ func DefaultComponents() []Component {
 			Missing: "no churn in 30 days", measure: row("shape.churn.big_share", "window", "30d")},
 		{Name: "lint", Help: "issue-cli health lint warnings: workflow.yaml problems and undated issues", Good: 0, Bad: 20, Weight: 10, Unit: UnitCount,
 			Missing: "no lint family in the snapshot (taken before it existed)", measure: row("lint.warnings")},
+		{Name: "departments", Help: "Departments on track: goals moving, outputs reviewed in time, jobs run when due", Good: 0.9, Bad: 0.5, Weight: 10, Unit: UnitShare,
+			Missing: "no departments in projects.yaml, or no goals, outputs or jobs yet", Optional: true, measure: row("departments.on_track")},
 	}
 }
 
@@ -109,10 +115,13 @@ func Derive(cur, past *Snapshot, comps []Component) []Metric {
 		if c.Weight <= 0 {
 			continue
 		}
+		v, ok := c.measure(cur, past)
+		if !ok && c.Optional {
+			continue
+		}
 		total += c.Weight
 		l := map[string]string{"component": c.Name}
 		out = append(out, Metric{Name: "score.component.weight", Labels: l, Value: c.Weight, Help: "Weight of each score component (configured)"})
-		v, ok := c.measure(cur, past)
 		if !ok {
 			continue
 		}

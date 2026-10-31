@@ -36,10 +36,10 @@ type Attention struct {
 	Playtests   []string
 	// ChecksDue is set in human-testing when a guided check script names the
 	// issue and has no owner run yet; Checks lists those scripts.
-	ChecksDue bool
-	Checks    []string
-	Parked      bool
-	ParkReason  string
+	ChecksDue  bool
+	Checks     []string
+	Parked     bool
+	ParkReason string
 	// Since is when the issue entered its current status: the last stats
 	// sidecar transition into it, else the file's mtime (SinceApprox).
 	Since       time.Time
@@ -79,7 +79,12 @@ func openQuestion(comments []tracker.Comment) bool {
 
 // ownerAttention collects what the issue needs from the owner.
 func ownerAttention(proj *tracker.Project, issue *tracker.Issue) Attention {
-	wf := proj.LoadWorkflowForIssue(issue)
+	return attentionWith(proj, issue, proj.LoadWorkflowForIssue(issue))
+}
+
+// attentionWith is ownerAttention with the issue's workflow already loaded
+// (a pass over many issues reads it from a tracker.WorkflowMemo).
+func attentionWith(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) Attention {
 	comments, _ := tracker.LoadComments(issue.FilePath)
 	var a Attention
 	if _, gate := tracker.NextGate(wf, issue); gate != "" {
@@ -107,8 +112,9 @@ func ownerAttention(proj *tracker.Project, issue *tracker.Issue) Attention {
 // passing a subset (one system's issues).
 func waitingOnOwner(proj *tracker.Project, issues []*tracker.Issue) []WaitingItem {
 	var items []WaitingItem
+	wfs := proj.WorkflowMemo()
 	for _, issue := range issues {
-		a := ownerAttention(proj, issue)
+		a := attentionWith(proj, issue, wfs.ForIssue(issue))
 		if a.Gate != nil && a.Gate.Ready {
 			items = append(items, WaitingItem{Issue: issue, Kind: "gate", Target: a.Gate.Target, Since: a.Since, Approx: a.SinceApprox})
 		}

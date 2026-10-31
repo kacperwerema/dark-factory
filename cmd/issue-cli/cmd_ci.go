@@ -120,6 +120,9 @@ func runCIStatus(ctx *Context, args []string) error {
 
 	if ctx.JSONOutput {
 		out := map[string]any{"configured": true, "branch": branch, "line": line, "state": st, "runs": runs}
+		if rel := st.LastRedLogPath(root); rel != "" {
+			out["last_red_log"] = filepath.Join(root, rel)
+		}
 		if alive {
 			out["running"] = lock
 		}
@@ -144,6 +147,9 @@ func runCIStatus(ctx *Context, args []string) error {
 			fmt.Fprintf(ctx.Stdout, "Fix tracked in: %s\n", st.RedIssue)
 		}
 		fmt.Fprintf(ctx.Stdout, "Log: %s\n", filepath.Join(root, st.Log))
+	}
+	if l := st.LastRedLine(root, ctx.now()); l != "" {
+		fmt.Fprintln(ctx.Stdout, l)
 	}
 	if len(runs) > 0 {
 		fmt.Fprintln(ctx.Stdout, "\nRecent runs:")

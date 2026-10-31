@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,5 +198,36 @@ func TestCountRecentRetriesCountsFailedRepeatsFromThisSession(t *testing.T) {
 	}
 	if got := countRecentRetries(filepath.Join(t.TempDir(), "none")); got != 0 {
 		t.Fatalf("missing log: %d", got)
+	}
+}
+
+// TestCallLogBoolFlagsComeFromTheParsedFlagSets: a bool flag is known to
+// the redaction because the call parsed it, not from a list kept by hand.
+// The positional after it stays readable; a flag no FlagSet has hides the
+// token after it.
+func TestCallLogBoolFlagsComeFromTheParsedFlagSets(t *testing.T) {
+	fs := newFlagSet("brand-new", &Context{})
+	fs.Bool("brand-new-switch", false, "a bool flag only this test defines")
+	fs.String("brand-new-text", "", "a value flag")
+	inv := &invocation{ctx: &Context{flagSets: []*flag.FlagSet{fs}}}
+	got := clilog.RedactCall([]string{"brand-new", "--brand-new-switch", "cli/sample", "--brand-new-text", "words", "--unknown", "cli/other"}, inv.boolFlag)
+	want := []string{"brand-new", "--brand-new-switch", "cli/sample", "--brand-new-text", clilog.Placeholder("words"), "--unknown", clilog.Placeholder("cli/other")}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("redacted\n got %q\nwant %q", got, want)
+	}
+	if !inv.boolFlag("help") || inv.boolFlag("brand-new-text") {
+		t.Fatal("help is bool, a String flag is not")
+	}
+
+	f := newCallLogFixture(t, "in design", "agent-sample", "")
+	if _, err := runLogged(t, "--json", "--project", "demo", "check", "--all", "cli/sample", "--section", "Design"); err != nil {
+		t.Logf("check --all: %v", err) // the record is what counts
+	}
+	recs := readRecords(t, clilog.ProjectPath(f.root))
+	if len(recs) != 1 {
+		t.Fatalf("%d records", len(recs))
+	}
+	if joined := strings.Join(recs[0].Args, " "); joined != "--json --project demo check --all cli/sample --section Design" {
+		t.Fatalf("args %q: the global --json and check's --all are bool flags", joined)
 	}
 }

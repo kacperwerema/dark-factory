@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/depttemplate"
@@ -17,6 +19,10 @@ type departmentListRow struct {
 	Workflow    string `json:"workflow,omitempty"`
 	Installed   bool   `json:"installed"`
 	Add         string `json:"add,omitempty"`
+	// Group lists a group's departments (a group template's children, or
+	// a configured group's); Parent is the group a department is under.
+	Group  []string `json:"group,omitempty"`
+	Parent string   `json:"parent,omitempty"`
 }
 
 // departmentRows are HQ and Product, each bundled template, then the
@@ -29,15 +35,31 @@ func departmentRows(proj *tracker.Project) []departmentListRow {
 	byTemplate := map[string]bool{}
 	for _, t := range depttemplate.List() {
 		r := departmentListRow{Key: t.Key, Name: t.Name, Kind: "template", Description: t.Description, Workflow: t.Workflow, Installed: t.Installed(proj)}
+		if t.Group {
+			r.Group = append([]string{}, t.Children...)
+		}
+		if g := proj.GroupOf(t.Name); g != nil {
+			r.Parent = g.Name
+		}
 		if !r.Installed {
 			r.Add = tracker.InjectProject(proj, "issue-cli department add "+t.Key)
 		}
 		byTemplate[tracker.DepartmentKey(t.Name)] = true
+		if d := t.InstalledAs(proj); d != nil {
+			byTemplate[tracker.DepartmentKey(d.Name)] = true
+		}
 		rows = append(rows, r)
 	}
 	for _, d := range proj.Departments {
 		if key := tracker.DepartmentKey(d.Name); !byTemplate[key] {
-			rows = append(rows, departmentListRow{Key: key, Name: d.Name, Kind: "configured", Description: d.Role, Workflow: d.Workflow, Installed: true})
+			r := departmentListRow{Key: key, Name: d.Name, Kind: "configured", Description: d.Role, Workflow: d.Workflow, Installed: true}
+			for _, c := range proj.Children(d.Name) {
+				r.Group = append(r.Group, tracker.DepartmentKey(c.Name))
+			}
+			if g := proj.GroupOf(d.Name); g != nil {
+				r.Parent = g.Name
+			}
+			rows = append(rows, r)
 		}
 	}
 	return rows
@@ -69,6 +91,12 @@ func runDepartmentList(ctx *Context, args []string) error {
 		case r.Kind == "template":
 			state = " (not installed)"
 		}
+		if len(r.Group) > 0 {
+			state = " (group: " + strings.Join(r.Group, ", ") + ")" + state
+		}
+		if r.Parent != "" {
+			state += " · in group " + r.Parent
+		}
 		fmt.Fprintf(w, "  %-10s %s%s\n", r.Key, r.Name, state)
 		desc := r.Description
 		if r.Workflow != "" {
@@ -95,13 +123,13 @@ func refuseWorker(ctx *Context, what string) error {
 
 func runDepartmentAdd(ctx *Context, args []string) error {
 	fs := newFlagSet("department add", ctx)
-	name := fs.String("name", "", "install the template under this department name (default: the template's)")
+	parent := fs.String("parent", "", "put the department under this group (a department of the project)")
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli department add <template> [--name <Name>] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
+		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
 	}
 	proj := ctx.Project
 	tmpl, err := depttemplate.Load(fs.Arg(0))
@@ -113,7 +141,7 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 			return err
 		}
 	}
-	plan, err := depttemplate.NewPlan(proj, tmpl, *name)
+	plan, err := depttemplate.NewPlanUnder(proj, tmpl, *parent)
 	if err != nil {
 		return err
 	}
@@ -134,6 +162,72 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	} else {
 		fmt.Fprintf(w, "✓ Added department %s (template %s)\n", plan.Name, tmpl.Key)
 	}
+	verb := "Added to"
+	if *dry {
+		verb = "Would add to"
+	}
+	printPlan(w, plan, proj, verb, *dry)
+	for _, c := range plan.Children {
+		fmt.Fprintf(w, "\nIn group %s: department %s (template %s)\n", plan.Name, c.Name, c.Template.Key)
+		printPlan(w, c, proj, verb, *dry)
+	}
+	for _, n := range plan.Reparent {
+		if *dry {
+			fmt.Fprintf(w, "Would move %s under %s (parent: %s in projects.yaml; its files stay as they are)\n", n, plan.Name, plan.Key)
+		} else {
+			fmt.Fprintf(w, "Moved %s under %s (parent: %s in projects.yaml; its files stay as they are)\n", n, plan.Name, plan.Key)
+		}
+	}
+	for _, n := range plan.Notes {
+		fmt.Fprintln(w, n)
+	}
+	if *dry {
+		args := tmpl.Key
+		if *parent != "" {
+			args += " --parent " + *parent
+		}
+		fmt.Fprintf(w, "Apply: %s\n", tracker.InjectProject(proj, "issue-cli department add "+args))
+		return nil
+	}
+	fmt.Fprintln(w, "Next:")
+	for _, c := range []string{
+		"issue-cli department show " + plan.Key,
+		"issue-cli create --department " + plan.Key + " --title \"<first brief>\"",
+		"issue-cli lead spawn --department " + plan.Key,
+	} {
+		fmt.Fprintf(w, "  %s\n", tracker.InjectProject(proj, c))
+	}
+	if tmpl.Group {
+		fmt.Fprintf(w, "%s is a group: its lead is the lead of its departments' leads. Add another department under it: %s\n", plan.Name,
+			tracker.InjectProject(proj, "issue-cli department add <template> --parent "+plan.Key))
+	}
+	var roles, briefs []string
+	files := append([]depttemplate.FileAction{}, plan.Files...)
+	for _, c := range plan.Children {
+		files = append(files, c.Files...)
+	}
+	for _, f := range files {
+		switch {
+		case strings.HasSuffix(f.Path, "/role.md"):
+			roles = append(roles, f.Path)
+		case strings.Contains(f.Path, "/jobs/"):
+			briefs = append(briefs, f.Path)
+		case strings.HasPrefix(f.Path, "workflows/"):
+			departmentWorkflowNotes(w, proj, plan, tmpl.Workflow, f)
+		}
+	}
+	fmt.Fprintf(w, "Edit %s to say what this department should know", strings.Join(roles, " and "))
+	if len(briefs) > 0 {
+		fmt.Fprintf(w, ", and each job's brief (%s)", strings.Join(briefs, ", "))
+	}
+	fmt.Fprintln(w, ".")
+	fmt.Fprintf(w, "Templates carry no connectors: %s prints the config to add the outside tools it uses.\n",
+		tracker.InjectProject(proj, "issue-cli connectors "+plan.Key))
+	return nil
+}
+
+// printPlan prints a plan's files and the projects.yaml entry it adds.
+func printPlan(w io.Writer, plan *depttemplate.Plan, proj *tracker.Project, verb string, dry bool) {
 	fmt.Fprintf(w, "Files (under %s):\n", plan.Root)
 	for _, f := range plan.Files {
 		word := map[string]string{
@@ -141,37 +235,12 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 			depttemplate.FileSame:  "already there, same as the template",
 			depttemplate.FileKeep:  "kept your edited file (differs from the template, not overwritten)",
 		}[f.State]
-		if f.State == depttemplate.FileWrite && !*dry {
+		if f.State == depttemplate.FileWrite && !dry {
 			word = "wrote"
 		}
 		fmt.Fprintf(w, "  %s: %s\n", f.Path, word)
 	}
-	verb := "Added to"
-	if *dry {
-		verb = "Would add to"
-	}
 	fmt.Fprintf(w, "%s project %s in %s, under departments:\n%s", verb, proj.Slug, plan.Config, indentLines(plan.Entry, "  "))
-	if *dry {
-		fmt.Fprintf(w, "Apply: %s\n", tracker.InjectProject(proj, "issue-cli department add "+tmpl.Key+nameArg(*name)))
-		return nil
-	}
-	fmt.Fprintln(w, "Next:")
-	for _, c := range []string{
-		"issue-cli department show " + plan.Key,
-		"issue-cli create --department " + plan.Key + " \"<first brief>\"",
-		"issue-cli lead spawn --department " + plan.Key,
-	} {
-		fmt.Fprintf(w, "  %s\n", tracker.InjectProject(proj, c))
-	}
-	fmt.Fprintf(w, "Edit %s to say what this department should know.\n", plan.Files[len(plan.Files)-1].Path)
-	return nil
-}
-
-func nameArg(name string) string {
-	if name == "" {
-		return ""
-	}
-	return fmt.Sprintf(" --name %q", name)
 }
 
 func indentLines(s, pad string) string {
@@ -207,6 +276,13 @@ func runDepartmentRemove(ctx *Context, args []string) error {
 		if err := refuseWorker(ctx, "remove departments"); err != nil {
 			return err
 		}
+	}
+	if kids := proj.Children(d.Name); len(kids) > 0 {
+		var names []string
+		for _, c := range kids {
+			names = append(names, tracker.DepartmentKey(c.Name))
+		}
+		return fmt.Errorf("%s is a group with departments under it (%s); remove them first (issue-cli department remove <name>), or drop their parent: %s in projects.yaml", d.Name, strings.Join(names, ", "), tracker.DepartmentKey(d.Name))
 	}
 	issues, err := tracker.LoadIssues(proj.IssueDir)
 	if err != nil {
@@ -250,4 +326,23 @@ func runDepartmentRemove(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "Files left in place (delete them by hand if you don't need them): %s\n", strings.Join(left, ", "))
 	}
 	return nil
+}
+
+// departmentWorkflowNotes names the types of work the department's workflow
+// file has (a channel each, in the marketing template) and, when add kept an
+// edited file, how to put the bundled template next to it to compare.
+func departmentWorkflowNotes(w io.Writer, proj *tracker.Project, plan *depttemplate.Plan, template string, f depttemplate.FileAction) {
+	if f.State == depttemplate.FileKeep {
+		side := strings.TrimSuffix(f.Path, ".yaml") + ".template.yaml"
+		fmt.Fprintf(w, "Your %s was kept. To compare it with the %s template, write the template next to it: %s\n", f.Path, template,
+			tracker.InjectProject(proj, "issue-cli workflow init --template "+template+" --out "+side))
+	}
+	wf, err := tracker.LoadWorkflow(filepath.Join(plan.Root, filepath.FromSlash(f.Path)))
+	if err != nil || !wf.HasTypes() {
+		return
+	}
+	names := wf.TypeNames()
+	names[0] += " (default)"
+	fmt.Fprintf(w, "Types of work: %s. Pick one with %s\n", strings.Join(names, ", "),
+		tracker.InjectProject(proj, "issue-cli create --department "+plan.Key+" --type <type> --title \"...\""))
 }

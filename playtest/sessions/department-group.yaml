@@ -1,0 +1,57 @@
+session: department-group
+issue: factory/department-groups-a-parent-with-a-lead-of-leads-gtm-over-marketing-and-sales
+title: The New department tile adds GTM, a group with Marketing inside
+scenario: department-group
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Preview of GTM lists the group's role file and Marketing's files under it, keeping the edited role.md
+    proves: [AC6]
+    setup:
+      - open: /p/acme/departments/new?template=gtm
+    act:
+      - wait_for: { visible: dept_new.plan }
+    checks:
+      - text_contains: { target: dept_new.entry, text: "- name: GTM" }
+      - text_contains: { target: dept_new.child.marketing, text: "parent: gtm" }
+      - text_contains: { target: dept_new.file.keep, text: "departments/marketing/role.md" }
+      - text_contains: { target: dept_new.add, text: "Add GTM" }
+    targets: [dept_new.plan, dept_new.add]
+
+  - id: TP5
+    title: Add puts the GTM room on the company page with the Marketing room inside
+    from: TP4
+    proves: [AC5]
+    act:
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+    checks:
+      - url: { matches: "^/p/acme/company\\?" }
+      - text_contains: { target: company.added, text: "Added GTM" }
+      - text_contains: { target: company.room.group, text: "GTM" }
+      - text_contains: { target: company.room.group.departments, text: "Marketing" }
+      # GTM brings Marketing: every template is in, so the tile has no form
+      # (ui/the-add-department-form-offers-only-templates-the-project-doesnt-have-yet).
+      - text_contains: { target: tile.new_department, text: "Every department template is added" }
+      - absent: company.new_dept.form
+    targets: [company.room.group, company.room.group.departments]
+
+  - id: AS1
+    title: Owner check after shipping - GTM with Marketing inside, from the Add button
+    from: TP5
+    targets: [company.room.group, tile.new_department]
+    do: >-
+      On this sandbox project, open the New department tile, pick GTM, press
+      Preview, read the plan, press Add GTM.
+    expect: >-
+      The tile lists GTM as "group: installs Marketing under it"; the preview
+      shows GTM's role file and, under "In the group: Marketing", Marketing's
+      files with your edited role.md kept. After Add, the company page shows
+      one GTM room with its lead, goal and Start lead, and the Marketing room
+      inside it. The New department tile now says every department template is added.
+    why: The owner's GTM group (Marketing now, Sales later) is added from this button.

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // apiUsage is the usage block of Claude Code's JSON result and of each
@@ -99,11 +100,65 @@ func ReadTranscripts(dir string, roots ...string) Transcript {
 }
 
 func readTranscript(path string, roots []string, tr *Transcript, seen, outside, models map[string]bool) {
+	EachMessage(path, seen, func(m Message) {
+		if m.Version != "" {
+			tr.Usage.ToolVersion = m.Version
+		}
+		if tr.Usage.SessionID == "" {
+			tr.Usage.SessionID = m.SessionID
+		}
+		for _, p := range m.Wrote {
+			if !withinAny(roots, p) {
+				outside[p] = true
+			}
+		}
+		if !m.Counted {
+			return
+		}
+		if m.Model != "" {
+			models[m.Model] = true
+		}
+		tr.Usage.Known = true
+		tr.Usage.Input += m.Input
+		tr.Usage.Output += m.Output
+		tr.Usage.CacheRead += m.CacheRead
+		tr.Usage.CacheWrite += m.CacheWrite
+		tr.Usage.Turns++
+	})
+}
+
+// Message is one assistant message of a transcript: the numbers only, never
+// its text. Counted is false for a message without usage or one already
+// counted (seen by message id), whose files written still count.
+type Message struct {
+	// ID is the API message id; "" when the transcript has none.
+	ID                 string
+	SessionID, Version string
+	// Model is "" for Claude Code's own placeholders ("<synthetic>").
+	Model                                string
+	Timestamp                            time.Time
+	Counted                              bool
+	Input, Output, CacheRead, CacheWrite int64
+	// Wrote are the file_path / notebook_path inputs of its tool calls.
+	Wrote []string
+}
+
+// Tokens is every token the message used.
+func (m Message) Tokens() int64 { return m.Input + m.Output + m.CacheRead + m.CacheWrite }
+
+// EachMessage calls fn for each assistant message in the transcript at
+// path. seen is the message ids already counted (shared across a session's
+// files); nil counts each message of this file once. A file it can't open
+// calls fn never.
+func EachMessage(path string, seen map[string]bool, fn func(Message)) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	if seen == nil {
+		seen = map[string]bool{}
+	}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
@@ -111,6 +166,7 @@ func readTranscript(path string, roots []string, tr *Transcript, seen, outside, 
 			Type      string `json:"type"`
 			SessionID string `json:"sessionId"`
 			Version   string `json:"version"`
+			Timestamp string `json:"timestamp"`
 			Message   struct {
 				ID      string    `json:"id"`
 				Model   string    `json:"model"`
@@ -125,36 +181,29 @@ func readTranscript(path string, roots []string, tr *Transcript, seen, outside, 
 		if json.Unmarshal(sc.Bytes(), &line) != nil || line.Type != "assistant" {
 			continue
 		}
-		if line.Version != "" {
-			tr.Usage.ToolVersion = line.Version
-		}
-		if tr.Usage.SessionID == "" {
-			tr.Usage.SessionID = line.SessionID
+		m := Message{ID: line.Message.ID, SessionID: line.SessionID, Version: line.Version}
+		if t, err := time.Parse(time.RFC3339Nano, line.Timestamp); err == nil {
+			m.Timestamp = t
 		}
 		for _, c := range line.Message.Content {
 			if c.Type != "tool_use" {
 				continue
 			}
 			for _, key := range []string{"file_path", "notebook_path"} {
-				if p, ok := c.Input[key].(string); ok && p != "" && !withinAny(roots, p) {
-					outside[p] = true
+				if p, ok := c.Input[key].(string); ok && p != "" {
+					m.Wrote = append(m.Wrote, p)
 				}
 			}
 		}
-		u := line.Message.Usage
-		if u == nil || (line.Message.ID != "" && seen[line.Message.ID]) {
-			continue
+		if u := line.Message.Usage; u != nil && (line.Message.ID == "" || !seen[line.Message.ID]) {
+			seen[line.Message.ID] = true
+			m.Counted = true
+			m.Input, m.Output, m.CacheRead, m.CacheWrite = u.Input, u.Output, u.CacheRead, u.CacheWrite
+			if !strings.HasPrefix(line.Message.Model, "<") {
+				m.Model = line.Message.Model
+			}
 		}
-		seen[line.Message.ID] = true
-		if line.Message.Model != "" && !strings.HasPrefix(line.Message.Model, "<") {
-			models[line.Message.Model] = true
-		}
-		tr.Usage.Known = true
-		tr.Usage.Input += u.Input
-		tr.Usage.Output += u.Output
-		tr.Usage.CacheRead += u.CacheRead
-		tr.Usage.CacheWrite += u.CacheWrite
-		tr.Usage.Turns++
+		fn(m)
 	}
 }
 
@@ -189,4 +238,64 @@ func Cost(u *Usage, prices map[string]Price) {
 	u.USD = (float64(u.Input)*p.In + float64(u.Output)*p.Out +
 		float64(u.CacheRead)*p.CacheRead + float64(u.CacheWrite)*p.CacheWrite) / 1e6
 	u.USDKnown = true
+}
+
+// TranscriptSlugMax is the longest transcript folder name Claude Code keeps
+// whole; a longer cwd's folder is its first TranscriptSlugMax characters,
+// "-" and a hash.
+const TranscriptSlugMax = 200
+
+// TranscriptFolders are the folders under projectsDir (~/.claude/projects)
+// that may hold the transcripts of sessions run in cwd: the cwd's slug, or
+// for a long cwd every folder with its cut slug and a hash (and the uncut
+// one when it is there).
+func TranscriptFolders(projectsDir, cwd string) []string {
+	if projectsDir == "" || cwd == "" {
+		return nil
+	}
+	slug := nonAlnum.ReplaceAllString(cwd, "-")
+	if len(slug) <= TranscriptSlugMax {
+		return []string{filepath.Join(projectsDir, slug)}
+	}
+	out, _ := filepath.Glob(filepath.Join(projectsDir, slug[:TranscriptSlugMax]+"-*"))
+	// An older Claude Code kept the whole name.
+	if st, err := os.Stat(filepath.Join(projectsDir, slug)); err == nil && st.IsDir() {
+		out = append([]string{filepath.Join(projectsDir, slug)}, out...)
+	}
+	return out
+}
+
+// SessionFiles are a transcript folder's sessions: each <id>.jsonl with its
+// subagents' transcripts (<id>/subagents/*.jsonl), which count as the same
+// session.
+func SessionFiles(folder string) map[string][]string {
+	out := map[string][]string{}
+	tops, _ := filepath.Glob(filepath.Join(folder, "*.jsonl"))
+	for _, f := range tops {
+		id := strings.TrimSuffix(filepath.Base(f), ".jsonl")
+		subs, _ := filepath.Glob(filepath.Join(folder, id, "subagents", "*.jsonl"))
+		out[f] = append([]string{f}, subs...)
+	}
+	return out
+}
+
+// PriceFor is the price of model: its own key, else the longest key that is
+// a prefix of it ("claude-opus-5" prices "claude-opus-5-5"). ok is false
+// when no key matches.
+func PriceFor(model string, prices map[string]Price) (Price, bool) {
+	if p, ok := prices[model]; ok {
+		return p, true
+	}
+	best, found := "", false
+	for k := range prices {
+		if k != "" && strings.HasPrefix(model, k) && len(k) > len(best) {
+			best, found = k, true
+		}
+	}
+	return prices[best], found && model != ""
+}
+
+// USD is what the tokens cost at p.
+func (p Price) USD(in, out, cacheRead, cacheWrite int64) float64 {
+	return (float64(in)*p.In + float64(out)*p.Out + float64(cacheRead)*p.CacheRead + float64(cacheWrite)*p.CacheWrite) / 1e6
 }

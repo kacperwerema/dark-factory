@@ -355,6 +355,7 @@ How much disk the project takes, by area: one walk of the main checkout, sizes f
 | `storage.worktrees` | none | worktrees under `.worktrees/` (count) |
 | `storage.playtest_mb` | none | playtest runs and shots: `.playtest/` in the checkout and in every worktree |
 | `storage.agent_logs_mb` | none | `.agent-logs/` (clilogs, dispatch prompts) |
+| `storage.ci_mb` | none | local CI's `.ci/`: run records and logs, kept red logs (`.ci/red/`), test results |
 | `storage.attachments_mb` | none | the issues dir's `attachments/` (walked on its own when it is outside the checkout) |
 
 On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
@@ -371,6 +372,10 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `placeholders`: `{{name}}` a field never fills.
   - `sections`: gates on sections no template writes the way the gate needs.
   - `paths`: a `workbench.systems` `paths:` glob that matches no file in the repository, or leaves it.
+  - `owner-only`: a step that spends or publishes behind a gate YOLO may pass: a path entering `publish` / `launch` / `send` without an `owner_only` gate, a department with a `sends: true` connector whose workflow has none, `owner_only` on a non-approval action ([YOLO Mode](Workflow/yolo.md#gates-yolo-never-passes)).
+  - `owner-marker`: an open acceptance criterion on an open issue that reads like the owner's check ("the owner confirms it reads well") but has no `(owner)` marker, so `criteria_proven` counts it as the agent's. The fix is `issue-cli check-edit <slug> <id> --text "… (owner)"`.
+  - `na-boxes`: a ticked box on an open issue whose N/A reason is out of form (empty, a `<placeholder>` left, a named form without its test or session, under three words), or an N/A on the owner's box (`## Human Testing`, `(owner)`). The forms: `issue-cli check --help` ([N/A boxes](CLI/overview.md#na-boxes-check---na)).
+  - `reports`: an issue past a `has_output` gate (the `report` type's `in progress → human-testing`) whose output is gone from the shelf: never added (a hand edit), its file deleted, or rejected and not replaced. Fix: `issue-cli output add --issue <slug> --kind report --file <file>`. See [Types of Work](Workflow/types.md#the-report-type).
 
   [CLI: health](CLI/overview.md#health) has each rule.
 - **When it runs:** in every snapshot: the one `issue-cli ci run` takes after each run, and the viewer's daily one. It reads the present files, so backfill leaves it out. The Health view also runs lint live: its **Lint** section lists every warning with its fix (50, then the command for the rest). The Status page's Health card shows the snapshot's count (`3 lint warnings`), linking to it.
@@ -396,8 +401,10 @@ After the families ran, every snapshot gets the derived health score. It isn't a
 | `test_balance` | change in `codebase.test_ratio` vs 30 days ago (without that snapshot: from the 30-day growth rows); a rise counts as 0 | −0.02 → −0.15 | 10 |
 | `hotspots` | `shape.churn.big_share{window=30d}` | 10% → 50% | 5 |
 | `lint` | `lint.warnings` (issue-cli health lint) | 0 → 20 | 10 |
+| `departments` | `departments.on_track` ([the departments family](#the-departments-family)); optional | 90% → 50% | 10 |
 
 - **Missing data:** a component without data is left out and the weights are renormalised over the rest.
+- **Optional components** (`departments`) without data are left out entirely: no weight row and not in the coverage, so a project without departments scores exactly as before.
 - **The total** is written only when at least half the weight has data. Below that the Health view says what is missing.
 - **No data at all:** no score rows, not a zero.
 
@@ -464,6 +471,30 @@ The newest finished run of every [factory benchmark](benchmark.md) with a task i
 | `bench.wall` | same | wall time summed over the tasks, seconds |
 | `bench.cli_refused`, `bench.rework` | same | refused issue-cli calls, backward transitions |
 
+### The departments family
+
+Per department in `projects.yaml` (`internal/deptfamily`): are its goals moving, does the owner review its outputs in time, do its jobs run when due, do handoffs sit. A project without departments gets no rows, and its score is unchanged (the `departments` component is optional). It reads the present logs (`.goals/`, `.outputs/`, `.jobs/`, the handoff issues), so backfill leaves it out. Rows carry box keys and goal ids, never titles.
+
+- **On track** is the mean of the shares a department has: goals moving, outputs reviewed in time, jobs on time. A department with none of them has no `on_track` row; the project's `departments.on_track` is the mean over departments and drives the `departments` score component.
+- **Limits** (`health.limits`): `outputs_review_days` (default 7: an output counts as reviewed in time within this many days of being added) and `handoff_age_days` (default 7: the Health view marks a department whose oldest open inbox handoff is older). 0 turns `handoff_age_days` off.
+- **Where it shows:** the Health view's **Departments** table (`/health#departments`), a `♥ N% on track` item on each room's foot on the company page (title: the three shares), the Report's Health card and `/status.md` (`Departments: N% on track · M outputs waiting`), and the Stats card "Departments on track", one line per department.
+- **Spend** joins once department budgets land (`departments.spend{department}`); the family has the hook.
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `departments.count` | none | departments in projects.yaml |
+| `departments.on_track` | none, or `department` | mean of the shares below (`share`) |
+| `departments.goal.progress` | `department`, `goal` | each goal's progress, 0–100 |
+| `departments.goals.progress` | `department` | mean progress of its goals |
+| `departments.goals.moving` | `department` | goals whose progress rose in 7 days or is at 100, of those also in the snapshot 7 days before (`share`; needs that snapshot) |
+| `departments.goals.delta` | `department` | mean progress change over 7 days, points |
+| `departments.outputs.reviewed` | `department` | outputs of the last 30 days reviewed within `outputs_review_days`, of those reviewed or older than that (`share`) |
+| `departments.outputs.waiting` | `department` | outputs in review now |
+| `departments.jobs.on_time` | `department` | jobs not late, i.e. not due for over a day without a run (`share`) |
+| `departments.jobs.due`, `departments.jobs.missed` | `department` | jobs due now; periods missed since each job's last run |
+| `departments.handoffs.open` | `department`, `dir` (`in`, `out`) | open handoffs to and from it |
+| `departments.handoffs.oldest_days` | `department` | age of its oldest open inbox handoff, days |
+
 ### Adding a family
 
 A family is a Go function registered from `init()` in a package both binaries import (the server and `issue-cli`), so every snapshot includes it, whoever takes it:
@@ -496,7 +527,7 @@ workbench:
       path: docs/reports/balance.html
 ```
 
-- **`status_page`:** `/status` shows the page inside the normal viewer frame (sidebar and header). Two tabs sit at the top: **Project status** (the default) and **Built-in** (`/status?view=builtin`), the generated Status page. The built-in page is always one click away, and `/status.md` stays built-in.
+- **`status_page`:** `/status` shows the page inside the normal viewer frame (sidebar and header). Two tabs sit at the top: **Project status** (the default) and **Built-in** (`/status?view=builtin`), the Report, which then carries a Project page | Report switch. The built-in page is always one click away, and `/status.md` stays built-in.
 - **`pages`:** each entry is an indented row under Status in the sidebar, at `/p/<project>/pages/<n>` (`n` is its place in the list, from 0), in the same frame without the tabs.
 - **Paths:** relative to the project root, inside it, ending in `.html` or `.htm`. Each `pages` entry needs a `title`. `issue-cli process workflow` prints a bad key under `== Warnings (workflow.yaml) ==`. A configured file that is missing shows a card in place of the page, naming the key and the fix. On `/status` the card also links to the built-in page.
 - **The header** shows the page's path, how long ago it changed and an **Open raw** link.

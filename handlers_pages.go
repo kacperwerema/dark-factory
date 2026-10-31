@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -155,8 +156,13 @@ func (s *Server) handlePageRaw(w http.ResponseWriter, r *http.Request, proj *tra
 	h.Set("Content-Security-Policy", pageRawCSP)
 	h.Set("Cache-Control", "no-cache")
 	// The sandboxed page's own fetch("data.json") comes from origin null.
-	if r.Header.Get("Origin") == "null" {
+	// Any site's sandboxed frame does too, so the read is allowed only when
+	// the Referer is this viewer: the page's document URL is ours even
+	// though its origin is opaque (docs/API/security.md).
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	if r.Header.Get("Origin") == "null" && refererIsSelf(r) {
 		h.Set("Access-Control-Allow-Origin", "null")
+		h.Set("Vary", "Origin, Referer")
 	}
 	http.ServeContent(w, r, "", info.ModTime(), f)
 }
@@ -372,4 +378,10 @@ func (s *Server) handleStatusJSON(w http.ResponseWriter, r *http.Request, proj *
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(buildStatusJSON(m))
+}
+
+// refererIsSelf reports whether r's Referer is on this viewer's Host.
+func refererIsSelf(r *http.Request) bool {
+	u, err := url.Parse(r.Header.Get("Referer"))
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
 }

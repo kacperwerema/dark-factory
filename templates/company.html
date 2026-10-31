@@ -11,20 +11,24 @@
         <span class="wb-sub">{{.Departments}} departments · CEO <span class="wb-mono-inline">{{.Lot.CEO.Session}}</span>{{with .Lot.Kind}} · {{.}}{{end}}</span>
         <span class="wb-titlebar-end">{{template "wb/view-toggle" .Toggle}}</span>
     </div>
-    <div class="wb-company">
+    {{with .Added}}<p class="wb-flash wb-company-flash" role="status" data-testid="company.added">{{.}}</p>{{end}}
+    <div class="wb-company" data-connections{{with .Connections}}{{if .Dense}} data-dense{{end}}{{end}}>
         <div class="wb-company-row">
             {{template "wb/room-hq" .HQ}}
             <div class="wb-corridor{{if .Lot.Working}} wb-corridor--flow{{end}}" aria-hidden="true"></div>
             {{template "wb/room-factory" .Product}}
         </div>
         <div class="wb-company-row wb-company-row--plan">
-            {{range .Rooms}}{{template "wb/room-dept" .}}{{end}}
-            {{template "wb/new-tile" .NewDept}}
+            {{range .Rooms}}{{if .Children}}{{template "wb/room-group" .}}{{else}}{{template "wb/room-dept" .}}{{end}}{{end}}
+            {{template "wb/new-dept-tile" .NewDept}}
         </div>
+        {{with .Connections}}<svg class="wb-conn-lines" data-testid="company.connections.lines" role="group" aria-label="Roads between the rooms"></svg><template data-road-parts><svg><path data-part="bed" class="wb-road-bed" data-testid="company.connections.road"/><a data-part="link" class="wb-road-link" data-testid="company.connections.road.link"></a><g data-part="parcel" class="wb-parcel" data-testid="company.connections.parcel"></g><g data-part="sign" class="wb-road-sign" data-testid="company.connections.sign"></g><g data-part="tally" class="wb-road-tally" data-testid="company.connections.tally"></g></svg></template><script type="application/json" data-roads>{{.Roads}}</script>{{end}}
     </div>
+    {{with .Connections}}<p class="wb-conn-focus" role="status" aria-live="polite" data-testid="company.connections.focus"{{if not .Dense}} hidden{{end}}>{{if .Dense}}{{len .Roads}} roads: hover, focus or tap a room or a road to see what moves on it{{end}}</p>{{end}}
+    {{template "wb/connections" .Connections}}
     <div class="wb-legend">
-        <span><b>Corridors</b> = communication between departments</span>
-        <span>· moving dashes = work flowing</span>
+        <span><b>Roads</b> = rooms that pass work, moving on them: {{template "wb/parcel-key" "request"}} request · {{template "wb/parcel-key" "handoff"}} handoff · {{template "wb/parcel-key" "output"}} output · {{template "wb/parcel-key" "dependency"}} dependency</span>
+        <span>· thin road = declared, no traffic · <b class="wb-road-sign-key">!</b> = off the declared routes</span>
         <span>· <b class="wb-you-text">orange</b> = your decision</span>
     </div>
 </section>
@@ -45,5 +49,6 @@
 </main>
 </div>
 <script src="/static/workshop.js"></script>
+<script src="/static/connections.js"></script>
 </body>
 </html>

@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"html"
+	"html/template"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -53,6 +55,16 @@ type StationData struct {
 	Fields     WbFields
 	IssueURL   string
 	ClassicURL string
+	// What the station took over from the classic page (station_more.go):
+	// the brief, what you're approving, mockups, relations, an epic's
+	// children, the body itself and the sources it could not read.
+	Brief     *WbBrief
+	Approving WbApproving
+	Mockups   *WbMockups
+	Relations *WbRelations
+	Epic      *WbEpicChildren
+	FullBody  WbBody
+	Missing   []string
 }
 
 // WbStationOutputs is what the issue made, from the outputs shelf.
@@ -68,6 +80,10 @@ type WbIssueTitle struct {
 	Title, Slug string
 	Chips       []WbChip
 	ClassicURL  string
+	// EditURL renames the issue (POST {title}); DeleteURL deletes it, then
+	// the page goes to StoreURL.
+	EditURL, DeleteURL, StoreURL string
+	Prefix                       string
 }
 
 // WbBelt is an issue's own belt: its path through the statuses.
@@ -106,6 +122,9 @@ type WbYourMove struct {
 	Tasks       []WbMoveTask
 	Stamp       *WbStamp
 	Also        []string
+	// Command is the lead's approve line, for the owner who'd rather tell
+	// the CEO than press the stamp.
+	Command string
 }
 
 // WbMoveTask is one numbered step before the stamp. Kind is checks,
@@ -182,6 +201,8 @@ type WbTestsCard struct {
 	Groups         []WbCheckGroup
 	Done, Total    int
 	Short          string
+	// Label is the Evidence tab's word for the proofs ("3/4 proven").
+	Label *WbChip
 }
 
 // WbCriterion is one acceptance criterion and its proof.
@@ -234,6 +255,7 @@ type WbStationAgent struct {
 	Facts              []WbFact
 	OpenURL, PromptURL string
 	AgentsURL          string
+	Dispatch           WbDispatch
 }
 
 // WbSessionList is the tmux sessions on the issue.
@@ -260,11 +282,12 @@ type WbBodySection struct {
 	Title, Count, Tone, URL string
 }
 
-// WbFields is a titled list of fields with an edit link.
+// WbFields is the issue's fields: the editable ones (Edit, nil on a page
+// that only shows them) and read-only rows under them.
 type WbFields struct {
-	Title             string
-	Rows              []WbFact
-	LinkText, LinkURL string
+	Title string
+	Edit  *WbFieldEdit
+	Rows  []WbFieldRow
 }
 
 // stationPage reports whether GET /issue/<slug> shows the station: not
@@ -311,13 +334,20 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	wt, _, _ := resolveWorktree(ca.workDir, issue.Slug, wf)
 	call, known := lastCliCall(p.Slug, agentLogPaths(ca.workDir, wt, tracker.AgentSessionName(issue.Slug), issue.Assignee)...)
 	footer := ca.footer(wf, issue, att)
+	root, mdDir := projectRoot(p), filepath.Dir(issue.FilePath)
 	tab := buildIssueTab(issueTabInput{
 		Project: p.Slug, Issue: issue, WF: wf, Src: src, TL: tl, Att: att, Targets: targets,
 		Parent: tracker.FindIssue(issues, tracker.ParentSlug(issue)), Footer: footer,
+		Epic: epicProgress(p, prefix, issue, issues),
 		Call: call, Known: known, Now: now, Prefix: prefix,
+		ImgSrc: func(path string) string {
+			if m := imgSrcRe.FindStringSubmatch(rewriteRelativeImages(`<img src="`+template.HTMLEscapeString(path)+`">`, prefix, mdDir, root)); m != nil {
+				return html.UnescapeString(m[2])
+			}
+			return path
+		},
 	})
 	report := evidenceReport(p, issue, src.Comments)
-	root := projectRoot(p)
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
@@ -332,6 +362,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	})
 
 	d.Title = stationTitle(wf, issue, d.ClassicURL)
+	d.Title.EditURL, d.Title.DeleteURL, d.Title.StoreURL, d.Title.Prefix = issueURL, issueURL+"/delete", prefix+"/", prefix
 	d.Belt = stationBelt(wf, issue, tab.Path, att, hallURL)
 	d.Time = stationTime(tl)
 	d.Move = stationMove(p.Slug, wf, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
@@ -339,13 +370,33 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	d.Decisions = stationDecisions(src.Decisions)
 	d.Change = stationChange(ev.Change)
 	d.Tests = stationTests(ev, src.Boxes, tl.CI)
+	if lbl := evidenceLabel(report, wf.ProofRequired(issue)); lbl.Text != "" {
+		tone := map[string]string{"green": "green", "amber": "you", "red": "red"}[lbl.Class]
+		if tone == "" {
+			tone = "idle"
+		}
+		d.Tests.Label = &WbChip{Text: lbl.Text, Tone: tone}
+	}
 	d.Quality = stationQuality(d, issue)
 	d.Timeline = stationTimeline(tl, issueURL, d.ClassicURL, now)
 	d.Agent = stationAgent(prefix, issueURL, issue, tab.Agent, footer, wt, root, now)
+	d.Agent.Dispatch = stationDispatch(wf, issueURL)
 	sessions, _ := sessionsByIssueSlug(p, []*tracker.Issue{issue})
 	d.Sessions = stationSessions(sessions[issue.Slug], tracker.AgentSessionName(issue.Slug), d.Move.On)
 	d.Body = stationBody(tab.Fold, tab.NotStarted, len(src.Comments), len(src.Decisions), d.ClassicURL, issueURL)
-	d.Fields = stationFields(wf, issue, d.ClassicURL)
+	closed := tracker.ClosedIssueFunc(p)
+	d.Fields = WbFields{Title: "FIELDS", Edit: stationFieldEdit(wf, issue, issueURL),
+		Rows: stationFieldRows(wf, issue, prefix, detailLead(p, issue, issues).Route, tracker.IssueSharedFiles(projectRoot(p), issue, issues), now)}
+
+	d.Brief = stationBrief(tab)
+	d.Approving = stationApproving(tab.Approving, d.Timeline.FullURL, now)
+	d.Mockups = stationMockups(tab)
+	d.Relations = stationRelations(tracker.IssueDeps(issue, issues, tracker.BuildDecisionIndex(issues, closed), closed), prefix)
+	d.Epic = stationEpic(buildEpicTab(wf, issue, issues), issue.Slug, prefix, wf)
+	d.FullBody = WbBody{Raw: issue.BodyRaw, Hash: tracker.BodyHash(issue.BodyRaw), URL: issueURL, CheckboxURL: issueURL + "/checkbox",
+		Parts: stationBodyParts(issue, prefix, projectRoot(p), stationSlugMap(issues), tab.Fold, d.ClassicURL)}
+	d.FullBody.Empty = len(d.FullBody.Parts) == 0
+	d.Missing = stationMissing(tl, ev)
 	return d
 }
 
@@ -502,10 +553,12 @@ func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issu
 			st.Note = "The gate's checklist is still open: you can stamp ahead, the agent continues once it is done."
 		}
 		m.Stamp = st
+		m.Command = needs.Command
 		if att.Gate != nil && att.Gate.Ready || len(m.Tasks) > 0 {
 			names = append(names, "the stamp")
 		}
 	}
+	m.Also = needs.Also
 	if m.On {
 		m.Title = "Your move: " + joinAnd(names)
 		if len(names) == 0 {
@@ -518,8 +571,7 @@ func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issu
 		return m
 	}
 	m.Title = needs.Label + ": " + strings.TrimSuffix(needs.Title, ".")
-	// The classic page's side column has the dispatch buttons.
-	m.Text = strings.ReplaceAll(needs.Text, "from the side column", "from the classic view")
+	m.Text = needs.Text
 	m.Meta = needs.Meta
 	return m
 }
@@ -818,11 +870,11 @@ func stationSessions(sessions []AgentSession, agent string, waits bool) WbSessio
 }
 
 // stationBody is the body by "## " section with its counts, each linking
-// the section on the classic page.
+// its section in the station's own body panel.
 func stationBody(fold []foldSection, notStarted []string, comments, decisions int, classic, issueURL string) WbBodyIndex {
 	b := WbBodyIndex{NotStarted: notStarted, Comments: comments, EditURL: issueURL + "/edit-in-nvim"}
 	for _, f := range fold {
-		s := WbBodySection{Title: f.Title, URL: classic + "#" + f.ID, Tone: "idle"}
+		s := WbBodySection{Title: f.Title, URL: "#body-" + f.ID, Tone: "idle"}
 		switch {
 		case f.Total > 0:
 			s.Count = fmt.Sprintf("%d/%d", f.Done, f.Total)
@@ -840,36 +892,6 @@ func stationBody(fold []foldSection, notStarted []string, comments, decisions in
 	return b
 }
 
-// stationFields is the issue's frontmatter fields.
-func stationFields(wf *tracker.WorkflowConfig, issue *tracker.Issue, classic string) WbFields {
-	f := WbFields{Title: "FIELDS", LinkText: "Edit the fields", LinkURL: classic}
-	dash := func(s string) string {
-		if s == "" {
-			return "—"
-		}
-		return s
-	}
-	f.Rows = append(f.Rows,
-		WbFact{Label: "Status", Value: issue.Status, Mono: true},
-		WbFact{Label: "Type", Value: dash(firstNonEmpty(issue.Type, wf.ActiveType))},
-		WbFact{Label: "Priority", Value: dash(issue.Priority)},
-		WbFact{Label: "System", Value: dash(issue.System)},
-		WbFact{Label: "Version", Value: dash(issue.Version)},
-	)
-	created := issue.Created
-	if t, err := time.Parse("2006-01-02", issue.Created); err == nil {
-		created = t.Format("2 Jan 2006")
-	}
-	f.Rows = append(f.Rows, WbFact{Label: "Created", Value: dash(created)})
-	if p := tracker.ParentSlug(issue); p != "" {
-		f.Rows = append(f.Rows, WbFact{Label: "Epic", Value: p, Mono: true})
-	}
-	if len(issue.Labels) > 0 {
-		f.Rows = append(f.Rows, WbFact{Label: "Labels", Value: strings.Join(issue.Labels, ", ")})
-	}
-	return f
-}
-
 // stationOutputs is the issue's outputs on the shelf; nil when it made none.
 func stationOutputs(p *tracker.Project, prefix string, issue *tracker.Issue) *WbStationOutputs {
 	all, _ := outputs.Load(p)
@@ -878,12 +900,25 @@ func stationOutputs(p *tracker.Project, prefix string, issue *tracker.Issue) *Wb
 		return nil
 	}
 	colors := shelfColors(p)
+	talk, _ := outputs.LoadComments(p)
 	out := &WbStationOutputs{URL: shelfURL(prefix, "", "")}
 	for _, o := range mine {
-		out.Rows = append(out.Rows, shelfRow(p, prefix, o, colors))
+		out.Rows = append(out.Rows, shelfRow(p, prefix, o, colors, talk))
 		if o.State == outputs.StateReview {
 			out.ToReview++
 		}
 	}
 	return out
+}
+
+// stationSlugMap maps every way the body may name an issue (file name, slug,
+// last segment) to its slug, as the classic page links issue refs.
+func stationSlugMap(issues []*tracker.Issue) map[string]string {
+	m := map[string]string{}
+	for _, is := range issues {
+		m[strings.TrimSuffix(filepath.Base(is.FilePath), ".md")] = is.Slug
+		m[is.Slug] = is.Slug
+		m[filepath.Base(is.Slug)] = is.Slug
+	}
+	return m
 }

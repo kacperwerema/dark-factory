@@ -45,11 +45,15 @@ func storageCard(d *Dashboard, daily []*health.Snapshot, latest *health.Snapshot
 	c.Sub += ". Tidy playtest shots: issue-cli playtest prune --all"
 	largest := 0.0
 	vals := make([]float64, len(health.StorageAreas))
+	has := make([]bool, len(health.StorageAreas))
 	for i, a := range health.StorageAreas {
-		vals[i], _ = newest.Value(a.Metric, nil)
+		vals[i], has[i] = newest.Value(a.Metric, nil)
 		largest = max(largest, vals[i])
 	}
 	for i, a := range health.StorageAreas {
+		if !has[i] {
+			continue // an area newer than the snapshot
+		}
 		pct := 0
 		if largest > 0 {
 			pct = max(1, int(vals[i]/largest*100+0.5))

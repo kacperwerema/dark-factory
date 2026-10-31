@@ -47,6 +47,20 @@ func provisionalHow(how string) bool {
 	return false
 }
 
+// MarkProvisional is how with "provisional" added (decide --provisional),
+// the mark NeedsOwnerWords reads and confirming drops. An empty how is the
+// default one.
+func MarkProvisional(how string) string {
+	how = strings.TrimSpace(how)
+	if how == "" {
+		how = defaultDecisionHow
+	}
+	if provisionalWordRe.MatchString(how) {
+		return how
+	}
+	return how + ", provisional"
+}
+
 // confirmedHow drops the YOLO and provisional words from how and adds
 // "confirmed by owner <date>".
 func confirmedHow(how string, now time.Time) string {

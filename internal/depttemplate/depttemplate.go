@@ -43,13 +43,19 @@ type Template struct {
 	// a standing start on. Each brief: is a file in the template's folder
 	// (jobs/<id>.md), installed as departments/<key>/jobs/<id>.md.
 	Jobs []tracker.Job `yaml:"jobs" json:"jobs,omitempty"`
+	// Group marks a group template: it installs the group, then each of
+	// Children (template keys) under it with parent: <group>. A group may
+	// have no workflow: (its own issues then run on Product's); GTM's runs
+	// the planning workflow (its weekly plan).
+	Group    bool     `yaml:"group" json:"group,omitempty"`
+	Children []string `yaml:"children" json:"children,omitempty"`
 	// RolePrompt is role.md's content.
 	RolePrompt []byte `yaml:"-" json:"-"`
 	// JobBriefs are the jobs' brief files' content, by job id.
 	JobBriefs map[string][]byte `yaml:"-" json:"-"`
 }
 
-// List is every bundled template, by key.
+// List is every bundled template, by key: departments, then groups.
 func List() []*Template {
 	entries, err := fs.ReadDir(templates.FS, templatesDir)
 	if err != nil {
@@ -64,7 +70,12 @@ func List() []*Template {
 			out = append(out, t)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return !out[i].Group
+		}
+		return out[i].Key < out[j].Key
+	})
 	return out
 }
 
@@ -98,8 +109,23 @@ func Load(key string) (*Template, error) {
 	if strings.TrimSpace(t.Name) == "" {
 		return nil, fmt.Errorf("department template %s: no name", key)
 	}
-	if _, err := workflowupgrade.ReadTemplate(t.Workflow); err != nil {
-		return nil, fmt.Errorf("department template %s: workflow %q is not a bundled workflow template", key, t.Workflow)
+	// A group may have no workflow file: its own issues run on Product's.
+	if !t.Group || t.Workflow != "" {
+		if _, err := workflowupgrade.ReadTemplate(t.Workflow); err != nil {
+			return nil, fmt.Errorf("department template %s: workflow %q is not a bundled workflow template", key, t.Workflow)
+		}
+	}
+	if len(t.Children) > 0 && !t.Group {
+		return nil, fmt.Errorf("department template %s: children: needs group: true", key)
+	}
+	for _, c := range t.Children {
+		ct, err := Load(c)
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("department template %s: child %s: %w", key, c, err)
+		case ct.Group:
+			return nil, fmt.Errorf("department template %s: child %s is a group: groups are one level", key, c)
+		}
 	}
 	if t.RolePrompt, err = fs.ReadFile(templates.FS, path.Join(templatesDir, key, "role.md")); err != nil {
 		return nil, fmt.Errorf("department template %s: no role.md", key)
@@ -118,9 +144,56 @@ func Load(key string) (*Template, error) {
 	return t, nil
 }
 
-// Installed reports whether proj has a department by t's name (any case).
+// InstalledAs is proj's department installed from t, nil when there is
+// none: one by t's name (any case), or one whose workflow file is stamped
+// with t's workflow (installed under another name, which --name allowed
+// before a template installed once).
+func (t *Template) InstalledAs(proj *tracker.Project) *tracker.Department {
+	if d := proj.DepartmentByKey(t.Name); d != nil {
+		return d
+	}
+	// A group is found by its name only: another group may run the same
+	// workflow template (planning).
+	if t.Workflow == "" || t.Group {
+		return nil
+	}
+	for i := range proj.Departments {
+		d := &proj.Departments[i]
+		if d.Workflow == "" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(proj.Root(), filepath.FromSlash(d.Workflow)))
+		if err != nil {
+			continue
+		}
+		if name, _, ok := workflowupgrade.ParseStamp(workflowupgrade.ReadStamp(raw)); ok && name == t.Workflow {
+			return d
+		}
+	}
+	return nil
+}
+
+// Installed reports whether proj has a department installed from t.
 func (t *Template) Installed(proj *tracker.Project) bool {
-	return proj.DepartmentByKey(t.Name) != nil
+	return t.InstalledAs(proj) != nil
+}
+
+// InstalledError is NewPlan's refusal of a template proj already has: a
+// template installs once, under its own name.
+type InstalledError struct {
+	Template *Template
+	Dept     *tracker.Department
+	Project  *tracker.Project
+}
+
+func (e *InstalledError) Error() string {
+	as := ""
+	if !strings.EqualFold(e.Dept.Name, e.Template.Name) {
+		as = " as " + e.Dept.Name
+	}
+	return fmt.Sprintf("%s is already a department of %s%s (%s): a template installs once. To add it again, remove it first: %s",
+		e.Template.Name, e.Project.Name, as, e.Project.ConfigPath,
+		tracker.InjectProject(e.Project, "issue-cli department remove "+tracker.DepartmentKey(e.Dept.Name)))
 }
 
 // File states in a plan.
@@ -149,39 +222,129 @@ type Plan struct {
 	Files    []FileAction `json:"files"`
 	// Entry is the departments: item added to the project in projects.yaml.
 	Entry string `json:"entry"`
+	// Parent is the group the department goes under ("" when none).
+	Parent string `json:"parent,omitempty"`
+	// Children are a group's departments to install with it; Reparent the
+	// ones already in projects.yaml with no parent:, which get parent:
+	// <group>; Notes say what is left as it is.
+	Children []*Plan  `json:"children,omitempty"`
+	Reparent []string `json:"reparent,omitempty"`
+	Notes    []string `json:"notes,omitempty"`
 }
 
-// NewPlan plans installing t into proj as department name ("" is the
-// template's own name). It refuses HQ, Product and a department proj
-// already has.
-func NewPlan(proj *tracker.Project, t *Template, name string) (*Plan, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = t.Name
+// NewPlan plans installing t into proj under t's own name. It refuses HQ,
+// Product and a template proj already has (*InstalledError). A group
+// template's plan carries its children's.
+func NewPlan(proj *tracker.Project, t *Template) (*Plan, error) {
+	return NewPlanUnder(proj, t, "")
+}
+
+// NewPlanUnder is NewPlan with the department under group parent (a
+// department proj has, "" for none). A group may go under a group too,
+// while its departments stay within tracker.MaxGroupDepth.
+func NewPlanUnder(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
+	if d := t.InstalledAs(proj); d != nil {
+		return nil, &InstalledError{Template: t, Dept: d, Project: proj}
 	}
+	if parent = strings.TrimSpace(parent); parent != "" {
+		g := proj.DepartmentByKey(parent)
+		switch {
+		case tracker.DepartmentKey(parent) == "hq" || tracker.DepartmentKey(parent) == strings.ToLower(tracker.ProductName):
+			return nil, fmt.Errorf("%s is built in and never a group; groups: %s", parent, groupNames(proj))
+		case g == nil:
+			return nil, fmt.Errorf("no department %q to put it under; groups: %s", parent, groupNames(proj))
+		}
+		// Groups nest, at most tracker.MaxGroupDepth groups above a
+		// department (factory/nested-groups-…#D-1).
+		above, problem := proj.ParentChain(g.Name)
+		if problem != "" {
+			return nil, fmt.Errorf("%s's own parent: chain is broken (issue-cli health lint --check departments says why); fix it first", g.Name)
+		}
+		depth := len(above) + 1 // groups above the new department
+		if t.Group {
+			depth++ // its departments sit one deeper
+		}
+		if depth > tracker.MaxGroupDepth {
+			where := "the department"
+			if t.Group {
+				where = t.Name + "'s departments"
+			}
+			return nil, fmt.Errorf("under %s, %s would sit %d groups deep: groups nest at most %d deep; put it under a group higher up (%s)", g.Name, where, depth, tracker.MaxGroupDepth, chainNames(g, above))
+		}
+		parent = tracker.DepartmentKey(g.Name)
+	}
+	p, err := newPlan(proj, t, parent)
+	if err != nil || !t.Group {
+		return p, err
+	}
+	for _, c := range t.Children {
+		ct, err := Load(c)
+		if err != nil {
+			return nil, err
+		}
+		if d := ct.InstalledAs(proj); d != nil {
+			switch have := strings.TrimSpace(d.Parent); {
+			case have == "":
+				p.Reparent = append(p.Reparent, d.Name)
+			case tracker.DepartmentKey(have) != p.Key:
+				p.Notes = append(p.Notes, fmt.Sprintf("%s is already under %s: left there (change its parent: to move it)", d.Name, have))
+			default:
+				p.Notes = append(p.Notes, fmt.Sprintf("%s is already under %s", d.Name, p.Name))
+			}
+			continue
+		}
+		cp, err := newPlan(proj, ct, p.Key)
+		if err != nil {
+			return nil, fmt.Errorf("child %s: %w", c, err)
+		}
+		p.Children = append(p.Children, cp)
+	}
+	return p, nil
+}
+
+// groupNames lists proj's groups for an error, "none yet" without one.
+func groupNames(proj *tracker.Project) string {
+	var out []string
+	for _, g := range proj.Groups() {
+		out = append(out, tracker.DepartmentKey(g.Name))
+	}
+	if len(out) == 0 {
+		return "none yet (add one: issue-cli department add gtm)"
+	}
+	return strings.Join(out, ", ")
+}
+
+func newPlan(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
+	name := t.Name
 	key := tracker.DepartmentKey(name)
 	switch {
 	case key == "":
 		return nil, fmt.Errorf("department name %q has no letters or digits", name)
 	case key == "hq" || key == strings.ToLower(tracker.ProductName):
 		return nil, fmt.Errorf("%s is built in: every project has HQ and Product (Product runs the development workflow). Give its mission, prompt and goals in projects.yaml (docs/departments.md)", name)
-	case proj.DepartmentByKey(name) != nil:
-		return nil, fmt.Errorf("department %s is already in projects.yaml (%s); pick another name with --name, or remove it first: issue-cli department remove %s", proj.DepartmentByKey(name).Name, proj.ConfigPath, key)
 	}
 	if proj.ConfigPath == "" {
 		return nil, fmt.Errorf("this project has no projects.yaml entry to add the department to; run with --project <name> and a projects config")
 	}
-	wf, err := workflowupgrade.ReadTemplate(t.Workflow)
-	if err != nil {
-		return nil, err
-	}
-	p := &Plan{Template: t, Name: name, Key: key, Root: proj.Root(), Config: proj.ConfigPath}
+	p := &Plan{Template: t, Name: name, Key: key, Root: proj.Root(), Config: proj.ConfigPath, Parent: parent}
 	workflowRel := "workflows/" + key + ".yaml"
 	promptRel := "departments/" + key + "/role.md"
 	files := []struct {
 		rel  string
 		data []byte
-	}{{workflowRel, wf}, {promptRel, t.RolePrompt}}
+	}{{promptRel, t.RolePrompt}}
+	if t.Workflow == "" {
+		workflowRel = ""
+	} else {
+		wf, err := workflowupgrade.ReadTemplate(t.Workflow)
+		if err != nil {
+			return nil, err
+		}
+		files = append([]struct {
+			rel  string
+			data []byte
+		}{{workflowRel, wf}}, files...)
+	}
 	briefs := map[string]string{}
 	for _, j := range t.Jobs {
 		briefs[j.ID] = "departments/" + key + "/jobs/" + j.ID + ".md"
@@ -202,7 +365,7 @@ func NewPlan(proj *tracker.Project, t *Template, name string) (*Plan, error) {
 		}
 		p.Files = append(p.Files, a)
 	}
-	entry, err := renderEntry(t, name, workflowRel, promptRel, briefs)
+	entry, err := renderEntry(t, name, parent, workflowRel, promptRel, briefs)
 	if err != nil {
 		return nil, err
 	}
@@ -234,12 +397,26 @@ func (p *Plan) Apply(proj *tracker.Project) error {
 			return fmt.Errorf("writing %s: %w", f.abs, werr)
 		}
 	}
-	return AddEntry(p.Config, proj.Slug, p.Name, p.Entry)
+	if err := AddEntry(p.Config, proj.Slug, p.Name, p.Entry); err != nil {
+		return err
+	}
+	for _, c := range p.Children {
+		if err := c.Apply(proj); err != nil {
+			return fmt.Errorf("%s added, but its department %s: %w", p.Name, c.Name, err)
+		}
+	}
+	for _, name := range p.Reparent {
+		if err := SetParent(p.Config, proj.Slug, name, p.Key); err != nil {
+			return fmt.Errorf("%s added, but moving %s under it: %w", p.Name, name, err)
+		}
+	}
+	return nil
 }
 
 // entry is a departments: item as projects.yaml spells it.
 type entry struct {
 	Name     string      `yaml:"name"`
+	Parent   string      `yaml:"parent,omitempty"`
 	Color    string      `yaml:"color,omitempty"`
 	Role     string      `yaml:"role,omitempty"`
 	Mission  string      `yaml:"mission,omitempty"`
@@ -258,6 +435,7 @@ type entryJob struct {
 	At       string `yaml:"at,omitempty"`
 	Brief    string `yaml:"brief"`
 	Priority string `yaml:"priority,omitempty"`
+	Type     string `yaml:"type,omitempty"`
 	Overlap  bool   `yaml:"overlap,omitempty"`
 }
 
@@ -275,13 +453,13 @@ type entryGoal struct {
 // renderEntry is the department's departments: item, starting "- name:",
 // indented by two spaces per level. briefs are the jobs' installed brief
 // paths, by job id.
-func renderEntry(t *Template, name, workflow, prompt string, briefs map[string]string) (string, error) {
-	e := entry{Name: name, Color: t.Color, Role: t.Role, Mission: t.Mission, Systems: t.Systems, Prompt: prompt, Workflow: workflow}
+func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[string]string) (string, error) {
+	e := entry{Name: name, Parent: parent, Color: t.Color, Role: t.Role, Mission: t.Mission, Systems: t.Systems, Prompt: prompt, Workflow: workflow}
 	for _, g := range t.Goals {
 		e.Goals = append(e.Goals, entryGoal{ID: g.ID, Name: g.Name, Target: g.Target, Unit: g.Unit, Period: g.Period, Direction: g.Direction, Source: g.Source, RollsUp: g.RollsUp})
 	}
 	for _, j := range t.Jobs {
-		e.Jobs = append(e.Jobs, entryJob{ID: j.ID, Name: j.Name, Every: j.Every, On: j.On, At: j.At, Brief: briefs[j.ID], Priority: j.Priority, Overlap: j.Overlap})
+		e.Jobs = append(e.Jobs, entryJob{ID: j.ID, Name: j.Name, Every: j.Every, On: j.On, At: j.At, Brief: briefs[j.ID], Priority: j.Priority, Type: j.Type, Overlap: j.Overlap})
 	}
 	var b bytes.Buffer
 	enc := yaml.NewEncoder(&b)
@@ -293,4 +471,13 @@ func renderEntry(t *Template, name, workflow, prompt string, briefs map[string]s
 		return "", err
 	}
 	return b.String(), nil
+}
+
+// chainNames is group g and the groups above it, "Outbound → GTM".
+func chainNames(g *tracker.Department, above []*tracker.Department) string {
+	names := []string{g.Name}
+	for _, a := range above {
+		names = append(names, a.Name)
+	}
+	return strings.Join(names, " → ")
 }

@@ -33,7 +33,8 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
    All three accept flags anywhere in `args` (see [Flags, `--help` and exit codes](#flags---help-and-exit-codes)), record the flag names for [usage telemetry](telemetry.md), and let help and the never-used report introspect the command's flags. `TestEveryCommandRejectsUnknownFlags` and `TestEveryCommandHelpNeedsNoProject` run every registered command and subcommand, so a new command that skips them fails the build.
    - Group commands set `Subcommands` (and `SubAliases`) on the `Command`. Flags parsed by hand go in `ExtraFlags`.
 4. Reach the project via `ctx.Project`, write to `ctx.Stdout` / `ctx.Stderr`, and consult `ctx.JSONOutput` for output mode. The package-global `jsonOutput` no longer exists.
-5. The new command appears in `issue-cli help` automatically.
+5. Add the command to `commandAccess` in `cmd/issue-cli/readonly.go`: `reads`, `writes`, or read-only for some subcommands or flags. A command with a read mode also gets a sample call in `readSamples` (readonly_test.go). A read-only call on a project the caller isn't working in leaves nothing in that repo, not even its log line (see [Read-only calls on another project](telemetry.md#read-only-calls-on-another-project)). `TestEveryCommandHasAccess` fails without an entry; mark `writes` when unsure.
+6. The new command appears in `issue-cli help` automatically.
 
 ## Commands
 
@@ -44,16 +45,17 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli list`                 | List issues with filters; `--all` drops the default project-version filter. Supports `--sort score` and emits `Score`/`ScoreBreakdown` in `--json` when scoring is enabled |
 | `issue-cli start <slug>`         | Pick up issue from any status — claim + auto-advance handoff states (announced with a banner) |
 | `issue-cli transition <slug>`    | Attempt the next workflow transition. `--dry-run` lists every unmet requirement |
-| `issue-cli comment <slug>`       | Add a comment to an issue                |
+| `issue-cli comment <slug>`       | Add a comment to an issue. `comment edit <slug> <id\|last> --text "..."` corrects your own latest comment; the old text stays in its `edits` history and `show` marks it `(edited)`. The owner's, other agents' and approval:/dispatch:/yolo-review:/yolo-owner-check: comments can't be edited |
+| `issue-cli ask <sibling> "…"` / `issue-cli answer <asker> "…"` | Agree a format with a sibling issue's worker: an `ask:` comment on its issue, the `answer:` back on yours; each shows on the other worker's next issue-cli call. Never an approval. See [Sibling asks](#ask-and-answer-sibling-asks) |
 | `issue-cli decide <slug>`        | Record a decision as a `D-n` line under `## Decisions`; `--replaces <slug>#D-n` lists the open issues still citing the old one |
-| `issue-cli prove <slug> [<AC-id>]` | Link an acceptance criterion to its proof (`--test`, `--step`, `--commit`, `--value`, `--shot`, `--clear`); without an id, list every criterion with its links and checks. See [`prove`](#prove) |
+| `issue-cli prove <slug> [<AC-id>]` | Link an acceptance criterion to its proof (`--test`, `--step`, `--commit`, `--value`, `--shot`, `--clear`); without an id, list every criterion with its links and checks; `--run` runs the test links' tests and posts the `tests:` comment. See [`prove`](#prove) |
 | `issue-cli check-script <slug>`  | Run the issue's guided check scripts (`scripts/checks/<name>.sh`) from its worktree: the owner's run from a terminal, or `--yes` (machine checks only, never ticks); `--list`, `--new <name>`, `--lib`. See [`check-script`](#check-script) |
 | `issue-cli playtest prune <slug>` | Tidy a worktree's `.playtest/runs` to what the Evidence tab needs; `--all` for every issue's worktree, `--dry-run` to report the MB first. See [`playtest prune`](#playtest-prune) |
 | `issue-cli balance <slug>`       | Add a typed balance note (`--metric`, `--state`, `--hypothesis`, `--change`, `--evidence`, `--verdict`, `--pass`); `balance --list` prints the current notes |
 | `issue-cli decisions`            | List the project's decisions (active, deferred, replaced, stale) with `--system`, `--state`, `--issue`, `--json` |
 | `issue-cli lead <sub>` (alias `ceo`) | The CEO (the project lead): `spawn`, `whoami`, `list`, `message <target> "text"`. See [`lead`](#lead) |
 | `issue-cli dispatch <slug> --quote "…"` | Start (or re-attach to) the issue's worker exactly like ▶ on the board; needs the human's words (`--quote`) and leaves a `dispatch:` comment; refuses, exit 3, while the issue only waits on your approval. `--how`, `--agent`, `--force`, `--reprompt`. See [`dispatch` and `status`](#dispatch-and-status) |
-| `issue-cli status`               | The project's stand-up from the running viewer (its `status.md`; `--json` for `status.json`). See [`dispatch` and `status`](#dispatch-and-status) |
+| `issue-cli status`               | The project's stand-up from the running viewer (its `status.md`; `--json` for `status.json`; `--hq` for the HQ report). See [`dispatch` and `status`](#dispatch-and-status) |
 | `issue-cli ci <sub>`             | Local CI on the integration branch: `status`, `run`, `reset`, `watch`, `gotest`. See [`ci`](#ci) |
 | `issue-cli tracker <sub>`        | The private tracker repo for the work files: `init [--remote <url>]`, `sync [--quiet]`. See [`tracker` and `privacy`](#tracker-and-privacy) |
 | `issue-cli release <sub>`        | A release on its branch: `setup --dev <url>`, `cut <version>`, `pick <slug\|sha>...`, `publish <version> [--first]`. See [`release`](#release) |
@@ -66,13 +68,16 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli jobs [<dept>]`        | The departments' recurring jobs: schedule, next due, last run (status, token estimate, outputs), standing start on/off; `--json`. See [Recurring jobs](../departments.md#recurring-jobs) |
 | `issue-cli job <sub>`            | Recurring jobs: `due` (what the lead's check-in starts, waits for you or holds), `run <dept>/<job> --quote …` (a run on your words; `--again`, `--dry-run`), `run <dept>/<job> --scheduled` (on the job's standing start, inside the auto-start budget), `auto on <job>\|--all --quote …` / `auto off`. See [Recurring jobs](../departments.md#recurring-jobs) |
 | `issue-cli yolo <sub>`           | YOLO mode: gates pass without the owner for a window, reviewed after the fact: `status`, `on --until … --quote …`, `extend`, `off`, `queue`, `review <slug> --agree`. See [YOLO Mode](../Workflow/yolo.md) |
-| `issue-cli check <slug> <id>...` | Tick checkboxes by id (several at once), whole section (`--section X --all`), text, or `--section` + `--index` |
+| `issue-cli check <slug> <id>...` | Tick checkboxes by id (several at once), whole section (`--section X --all`), text, or `--section` + `--index`; `--na "<reason>"` ticks one box that doesn't fit the change, see [N/A boxes](#na-boxes-check---na) |
 | `issue-cli check-edit <slug> <id> --text "…"` | Change one box's text; it keeps its tick and id. See [`check-edit`](#check-edit) |
+| `issue-cli uncheck <slug> <id>...` | Untick boxes by id (several at once). See [`uncheck` and `check-remove`](#uncheck-and-check-remove) |
+| `issue-cli check-remove <slug> <id>...` | Remove boxes by id; every other box keeps its id. See [`uncheck` and `check-remove`](#uncheck-and-check-remove) |
 | `issue-cli checklist <slug>`     | List checkboxes grouped by section, each with its id (`D3`, `AC2`) |
 | `issue-cli append <slug>`        | Append content to issue body             |
 | `issue-cli replace <slug>`       | Replace content of an existing section, or one line of it (`--line N`, `--match RE`). See [`replace`](#replace) |
 | `issue-cli update <slug>`        | Change the title (the slug is kept; `--rename` moves it) and/or replace the body. See [`update`](#update) |
 | `issue-cli set-meta <slug>`      | Set or clear a frontmatter field, replacing its whole old value (list items and block lines included); refuses a write whose YAML would not parse (refuses `type` in projects with types — use `set-type`; `created` only on an issue that has none, `YYYY-MM-DD`, never changed or cleared; checks every slug in `depends_on`, and writes two or more as a YAML list; `--key department|system` is refused when the issue's status isn't in the target department's workflow file, and `--status <s>` moves it with a status from that file) |
+| `issue-cli close <slug> --duplicate-of <other>` | Park an issue another one covers (`--fixed-by <other>` for one its change fixes) from any status, with a link both ways. See [`close`](#close) |
 | `issue-cli set-type <slug> <t>`  | Change an issue's type of work; agents only while it is at its type's first status. See [Types of Work](../Workflow/types.md) |
 | `issue-cli process workflow`     | Print the workflow file in use (`Workflow file:`), the active workflow, the `== Types ==` block and `workflow.yaml` lint warnings; `--type <t>` prints one type's lifecycle |
 | `issue-cli process transitions`  | Print transition rules (default workflow, or scoped via `--system <name>`, `--type <t>` or `<issue-slug>`) |
@@ -83,19 +88,28 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli retrospective <slug>` | Save a workflow retrospective            |
 | `issue-cli data <sub> <slug>`    | Per-issue structured data store — see [Per-issue Data Store](../data-store.md) |
 | `issue-cli workflow init`        | Bootstrap a new project: writes `workflow.yaml` from a bundled template and scaffolds `issues/`, `docs/` |
+| `issue-cli project init <dir>`   | A whole new project in one command: `<dir>` with `issues/`, `docs/` and a stamped `workflow.yaml`, plus its projects.yaml entry (printed, or added to the `--config <file>` you name), then the viewer, CEO and department commands. Never overwrites a file; `--dry-run`, `--json`. See [`project init`](#project-init) |
 | `issue-cli workflow upgrade`     | Read-only: propose catalog features `workflow.yaml` lacks, item by item, plus the upgrade steps. Alias `issue-cli upgrade`. `--all` lists the whole catalog |
 | `issue-cli workflow scan`        | Detect which catalog features `workflow.yaml` has and write its `features:` record. `--dry-run`, `--installed`, `--declined`, `--forget` |
+| `issue-cli workflow catalog-bump <id>` | issue-cli developers: set a catalog entry's `version:` (default the next release) and carry every bundled template's stamp and `features:` record line with it. `--version`, `--dry-run`, `--json` |
 | `issue-cli workflow catalog-check` | issue-cli developers: fail when a work branch changes a catalog feature's code or a bundled template without a version bump (`make validate` runs it). `--base main` |
 | `issue-cli goals [<dept>]`       | HQ's and the departments' goals, each HQ goal with the department goals rolling up into it (value, target, progress, period, stale, source); `--json`. See [Departments](../departments.md) |
 | `issue-cli goal set <dept>/<id> <value>` | Record a manual goal's value (`--note`, `--date`) in `<issues>/.goals/values.jsonl`; an unknown key lists the valid ones |
-| `issue-cli department show <name>` | A department's (or `hq`'s, `product`'s) mission, role, role prompt file (path and content) and goals; `--json` |
+| `issue-cli department show <name>` | A department's (or `hq`'s, `product`'s) mission, role, role prompt file (path and content), goals and a `Spend:` line (this week, 4 weeks, budget); `--json` |
+| `issue-cli spend [<box>]` | What HQ, Product and each department spent: tokens and estimated cost by week for 4 weeks, top 5 issues, the budget as "x of y" (never enforced), unattributed sessions; from Claude Code transcripts on this machine, prices from `prices.yaml`; `--json`. See [Spend and budgets](../departments.md#spend-and-budgets) |
+| `issue-cli department week <group\|department>` | The week a group's lead plans from: per department, goals and how far each moved in the last 7 days, outputs waiting on review / reviewed / shipped, jobs, handoffs in and out, what is blocked and on whom, and the run issue's `## Week plan`. `--write` writes the week report to `<issues>/.reports/<key>/<ISO week>.md` (this week's replaced), shown in the group's room; `--json`. Only reads; nothing starts (docs/departments.md#the-week-plan-and-report) |
 | `issue-cli department list` | HQ and Product (built in) and the bundled department templates, each marked installed or with its `department add` command; `--json` |
-| `issue-cli department add <template>` | Install a department template: its workflow file (`workflows/<key>.yaml`), role prompt (`departments/<key>/role.md`) and a `departments:` entry with its goals in projects.yaml. Never overwrites a file; `--name <Name>`, `--dry-run`; workers refused |
+| `issue-cli department add <template>` | Install a department template: its workflow file (`workflows/<key>.yaml`), role prompt (`departments/<key>/role.md`) and a `departments:` entry with its goals in projects.yaml. Never overwrites a file; a template installs once, under its own name (a second add is refused); `--parent <group>` (under a group, docs/departments.md#groups), `--dry-run`; workers refused. A group template (`gtm`) installs the group and its departments |
 | `issue-cli department remove <name>` | Take a department's entry out of projects.yaml (its files stay); refused while it has open issues, listing each with its `set-meta` fix; `--dry-run`; workers refused |
 | `issue-cli output add --title "…" --kind <kind> (--url \| --file \| --path)` | Put what an issue or job made on its department's shelf (`--issue`, `--department`, `--job`, `--note`), in review; `<issues>/.outputs/outputs.jsonl`. See [Departments](../departments.md#outputs-shelf) |
 | `issue-cli output review <id> approve\|reject --quote "…"` | The owner's stamp on an output (the owner or the lead; never a worker) |
 | `issue-cli output publish <id> [--url]` / `output show <id>` | Mark an approved output published; show one output |
 | `issue-cli outputs [<dept>]` | The shelf by department, newest first (`--state`, `--issue`, `--json`) |
+| `issue-cli output use <id> --by <dept\|issue>` | Another department (or its issue) uses the output: a `use` event, drawn as an output line on the company page |
+| `issue-cli output comments <id> [--all]` / `output reply <id> <thread> --text "..."` | The owner's comments on an output (from its reader page), with where each thread sits in the newest version; answer one |
+| `issue-cli output revise <id> --file <file> [--note "..."]` | A new version of a file output: copied next to the earlier ones, back in review; the reader shows the changes |
+| `issue-cli connections [--from <box>] [--to <box>] [--kind request\|output\|dependency]` | What passes between HQ, Product and the departments, with each line's open and recently closed issues (`--json`). `create` fills `requested_by:` for a department lead or another department's worker (`--requested-by`). With `connections: requests:` in projects.yaml, `create` and `set-meta --key requested_by` refuse a request off the declared routes (naming the routes the asker has), `dispatch` by a department lead waits for the declared forwarder, and each line is marked declared / not declared / declared, no traffic (`route:` in `--json`). See [Departments](../departments.md#declared-connections-and-routing) |
+| `issue-cli handoff <to> --title … --why … [--for <slug>]`, `handoff forward <slug> [--note …]`, `handoff decline <slug> --reason …`, `issue-cli handoffs [--from] [--to] [--waiting]` | One box asks another for work as an issue: `requested_by:`, `handoff_route:` and `handoff_for:` recorded, routed by the declared routes (via HQ for engine work); the relay lead forwards or declines; the asker's issue gets a `handoff:` comment when it is done or declined. See [Departments](../departments.md#handoffs) |
 | `issue-cli connectors [<dept>]` | The departments' connectors: kind, sends, last check and its age, each secret's reference as set or missing (never the value); `--json`. See [Departments](../departments.md#connectors) |
 | `issue-cli connector exec <dept>/<name> [-- <cmd> …]` | Run a connector with its secrets in the child's environment only: the MCP server, or a tool's command. That department's lead and workers only; the owner's shell with `--as-owner` |
 | `issue-cli connector check [<dept>[/<name>]]` | Run the read-only `check:` commands (20 s timeout, output thrown away) and record ok / failing / missing / no-check in `<issues>/.connectors/checks.jsonl`; the owner or the department's lead; exit 1 when one fails |
@@ -149,9 +163,27 @@ Every command parses its arguments the same way:
 
 `issue-cli start <slug>` is the single entry point for picking up an issue. It claims the issue (sets the assignee if unset), prints the checklist, status guidance, and next-transition contract, and is idempotent on re-runs.
 
-From a **handoff status** (`backlog`, `human-testing`) it also *auto-advances* to the next work status when the matching approval is present — `backlog → in progress`, `human-testing → documentation`. The target is the next non-optional status in the workflow, not a hardcoded value; only the handoff set is fixed. Because crossing into implementation from a re-claim is surprising, the advance is **never silent**: it is announced with a prominent `⚠ AUTO-ADVANCED  <from> → <to>` banner that also notes the consumed approval. If the approval is missing, `start` fails without mutating assignee or status, unless [YOLO](../Workflow/yolo.md) is on and would pass the gate: then `start` passes it as `transition` does (the `approval: "YOLO"` marker, the `YOLO: gate … passed` line under the banner), judging it as if already claimed, so an unclaimed backlog issue still advances. From any non-handoff status, `start` only claims and reports `Status unchanged`.
+From a **handoff status** (`backlog`, `human-testing`) it also *auto-advances* to the next work status when the matching approval is present — `backlog → in progress`, `human-testing → documentation`. The target is the next non-optional status in the workflow, not a hardcoded value; only the handoff set is fixed. Because crossing into implementation from a re-claim is surprising, the advance is **never silent**: it is announced with a prominent `⚠ AUTO-ADVANCED  <from> → <to>` banner that also notes the consumed approval. If the approval is missing, `start` fails without mutating assignee or status, unless [YOLO](../Workflow/yolo.md) is on and would pass the gate: then `start` passes it as `transition` does (the `approval: "YOLO"` marker, the `YOLO: gate … passed` line under the banner), judging it as if already claimed, so an unclaimed backlog issue still advances. From any non-handoff status, `start` only claims and reports `Status unchanged`. A transition refused for a missing assignee (backlog clears it) points at `issue-cli start <slug>`, which re-claims the issue and moves it on, and does not blame an approval that is in place or that YOLO would pass.
 
 When the approval is missing, the agent stops and ends its turn; the approval message from the viewer resumes it (see [At a human-approval gate](#at-a-human-approval-gate)). The advance is recorded in the stats sidecar like any other transition.
+
+Under the header `start` also prints, so a worker doesn't need a lead message to know them:
+- `Base: main at 4d4d4e7 (cut by the dispatch on 2026-10-30)`: the branch and commit the issue's work branch was cut from, as recorded by the dispatch that created it (the stats sidecar's `dispatches[].base_branch`/`base_sha`). No line for an issue never dispatched, or dispatched before dispatch recorded its base.
+- `Depends on: cli/a (in progress, branch work/cli/a), cli/b (done)`: each `depends_on` issue with its status, and its `work/<slug>` branch while it is open (where its code is until it ships).
+
+#### The ship status
+
+The **ship status** is the last status on the issue's path before its first closed status: `shipping` on the development template, `documentation` on a path that goes `documentation → done`. When `start` prints the guidance of the ship status, or `transition` moves an issue into it, a `== Shipping ==` block follows the static guidance with what it can't know:
+
+```
+== Shipping ==
+Main checkout: /home/me/repo on main
+Ships into main: fast-forward it in the main checkout.
+Ships after cli/a (in progress)
+⚠ cli/a is not done: fast-forward only after it ships, or ask the lead.
+```
+
+When the main checkout (the first `git worktree list` entry) has another branch checked out than the issue's recorded base (with no base recorded: anything but `main` or `master`), the second line becomes `⚠ The main checkout has <branch> checked out, not <base>. Stop and ask the lead which branch this issue ships into before fast-forwarding.` A detached HEAD shows as `detached at <sha>`.
 
 ### `append`
 
@@ -218,7 +250,7 @@ Tick done boxes by id, several at once: issue-cli check <slug> <id> [<id>...]
 
 - An id is the section's **initials** (first letter of each word, uppercased) plus the box's **1-based index within that section**: `D3` is the 3rd box under `## Design`, `AC2` the 2nd under `## Acceptance Criteria`, `TP1` the 1st under `## Test Plan`.
 - When two sections share initials, the section that holds a checkbox **first in the document** keeps the short form. A later one extends its first word until it is unique: with `Design` holding `D`, `Documentation` becomes `Do` and `Deployment` `De`. In the default workflow `## Idea` holds boxes and claims `I`, so a later `## Implementation` is `Im`.
-- Ids are **stable**. Indexes count checked and unchecked boxes, and workflow transitions append sections at the end, so a box's id never changes as work progresses.
+- Ids are **stable**. Indexes count checked and unchecked boxes, workflow transitions append sections at the end, and a box removed with `check-remove` keeps its slot, so a box's id never changes as work progresses. Rewriting a section's boxes with `replace` does renumber them.
 - Ids are case-insensitive (`d3` = `D3`). The long form `<Section>#<n>` (`Design#3`, `"Acceptance Criteria#2"`) always works.
 - Boxes before any `## ` heading have no id and show as `1.`; reach them with `--index`.
 - Boxes inside fenced code blocks are illustrative, not workflow state. They get no id and are not counted by `checklist`, the progress line, or transition gates.
@@ -227,6 +259,7 @@ Tick done boxes by id, several at once: issue-cli check <slug> <id> [<id>...]
 #### Behaviour
 
 - **Several ids are all-or-nothing.** If any id doesn't exist (`check <slug> D2 D9`), nothing is ticked: `check` prints `No checkbox with id D9 — nothing was ticked.`, lists the boxes, and exits non-zero. Duplicate ids are collapsed. A box that is already checked is reported as `Already checked`, not as an error. All boxes are ticked in one locked write.
+- **Criteria among other ids are skipped, not the whole call.** Under the proof gate, `check <slug> D1 D2 AC3` ticks D1 and D2 and prints `✗ Not ticked: AC3 is ticked by its proof, not by hand (issue-cli prove <slug> --list)`; it exits non-zero only when nothing was ticked (criteria alone, or every other box already done). Unknown ids and the owner's boxes still refuse the whole call.
 - **Id or text?** Positional args are read as ids when every arg is shaped like an id and at least one names a section of this issue. Otherwise they are joined into a text query, so a word like `phase1` (no section abbreviates to `PHASE`) is still matched as text, and so is unquoted multi-word text.
 - **`--section X --all`** ticks every open box in that section. It cannot be combined with ids, text, or `--index`. On a complete section it prints `Nothing to check: section "X" already complete (n/n)` and exits 0. A section with no boxes is an error.
 - **Text queries** match a box whose label contains the query. If it matches **more than one unchecked box**, `check` errors, lists every candidate with its id and `[Section #index]` label, and suggests `issue-cli check <slug> <id>`.
@@ -268,7 +301,58 @@ Before v0.30.0 this read `2/4 checkboxes incomplete`, where 2 was the number of 
 file: …
 ```
 
-An unknown id lists the issue's ids. The text must be one line.
+An unknown id lists the issue's ids. The text must be one line. From an agent session it refuses an edit that writes an N/A into the owner's box or drops its `(owner)` marker; rewording that keeps the marker passes.
+
+### N/A boxes (`check --na`)
+
+Some boxes don't fit the change: a test-only fix has no playtest session, a tmux bug has no page for ux-test. `issue-cli check <slug> <id> --na "<reason>"` ticks one box and writes the reason into it as `(N/A: <reason>)`, replacing an earlier N/A in the text (such as the template's own "(or N/A: …)"). The reason must be in a named form (`tracker.NAForms`; `check --help` lists them):
+
+| Form | When |
+|:--|:--|
+| `the repro is an automated test (<TestName>)` | a test-only fix, or a bug whose repro is a go test |
+| `no page changes` | a CLI, tmux, runner or docs change: nothing a playtest session or ux-test can see |
+| `runner-internal, covered by <TestName>` | playtest runner, CI or check library internals |
+| `covered by playtest session <name>` | the guided-check box when a playtest session drives the manual check |
+| `<why, in a few words>` | anything else |
+
+It refuses (nothing changes, the error lists the forms): an empty reason, a `<placeholder>` left in it, a named form without its test or session, a reason under three words, more than one id. It refuses the owner's boxes for anyone, owner included: a `## Human Testing` box, a box marked `(owner)`, a criterion only the owner proves, a box a guided check left to the owner. Those wait for the owner, or under YOLO in the review queue.
+
+```
+$ issue-cli check cli/x T4 --na "no page changes"
+✓ Checked: T4 [Testing #4] `make ux-test ISSUE=<slug> REPEAT=2` passed, run once before handoff (N/A: no page changes)
+```
+
+Lint check `na-boxes` (`issue-cli health lint`) reads the same rules over ticked boxes on open issues.
+
+### `uncheck` and `check-remove`
+
+`issue-cli uncheck <slug> <id>...` turns ticked boxes back into open ones. `issue-cli check-remove <slug> <id>...` removes boxes. Both take the ids `check` takes, several at once, and both are all-or-nothing: an unknown id changes nothing and lists the issue's ids.
+
+```
+✓ Unchecked: D2 [Design #2] Dependencies identified
+  Already open: D3 [Design #3] Overlap reviewed
+  Progress: 4/11
+file: …
+```
+
+A removed box is replaced by a hidden line that keeps its slot, `<!-- removed AC6: <text> -->`. Every other box keeps its id: after `check-remove <slug> AC6`, AC7 is still AC7, and the `Proves: AC7` trailers already on commits still prove it. A removed id is never reused (the next box added to the section gets the next number). Links that proved the removed box are listed and show as strays in `prove --list`.
+
+```
+✓ Removed: AC6 [Acceptance criteria #6] First observable requirement
+  The other boxes keep their ids.
+  Progress: 9/16
+file: …
+```
+
+Refusals (nothing changes):
+
+- `check-remove` refuses a box the workflow's `append_section` wrote into a section a gate waits on (`section_checkboxes_checked`, such as Design or Implementation), because removing it would get round the gate. Tick it, or say why it doesn't apply with `check <slug> <id> --na "<reason>"` in a named form (below). The author's own boxes in that section can go.
+- From an agent session (a lead, a worker, or any Claude Code session), both commands refuse the owner's boxes: a `## Human Testing` box, a box marked `(owner)` (anywhere, or starting `Owner visual check …`), a criterion only a playtest judgement step proves, and a box a guided check left to the owner. The owner, in their own shell, can change them.
+- Ticking is refused the same way: from an agent session, `check` (ids, text, `--index`, `--section … --all`) and `append`, `replace` and `update --body` that would write `[x]` into one of the owner's boxes (or add one already ticked) refuse with `these boxes are the owner's; <who> can't tick them, and nothing changed:`, the boxes with why, and the Owner checks page. Several ids in one call are all-or-nothing. The rule is one function, `internal/proof/ownerbox.go`; see [Proof Links: Agents never tick an owner box](../Workflow/proof.md#agents-never-tick-an-owner-box).
+
+`uncheck` on an acceptance criterion whose proof still passes notes that the proof will tick it again. `issue-cli prove <slug> <id> --clear` drops its prove links; a trailer stays on its commit.
+
+`checklist` names the proven criteria next to the count: `Acceptance criteria are ticked by their proof, not by hand: 2/7 proven (AC1 AC3).`
 
 ### `replace`
 
@@ -319,6 +403,19 @@ issue-cli list --json | jq '.[] | select(.Score != null) | {Slug, Score}'
 issue-cli list --sort score --status open
 ```
 
+### `close`
+
+`issue-cli close <slug> --duplicate-of <other>` (or `--fixed-by <other>`) parks an issue that another one covers, from any status, in one step:
+
+- runs the workflow's park transition (the side status every status can move to, `parked` in the bundled templates), answering its required fields with "Duplicate of <other>." / "Fixed by <other>.";
+- sets `duplicate_of: <other>` or `fixed_by: <other>` on the closed issue;
+- comments `closed: duplicate of <other> (was <status>)` on it and `closed: <slug> as duplicate of this issue` on the other;
+- changes no checkbox on either issue, and prints the undo (`issue-cli transition <slug> --to "<previous status>"`).
+
+Who closes: the lead and the human close any issue; a worker closes only duplicates of its own issue (`--duplicate-of` or `--fixed-by` its own slug), when its lead asks. Any other worker, or a session whose issue is unknown, is refused and nothing changes. The worker brief says the same sentence, and a worker refused `transition <other> --to parked` is pointed here.
+
+It refuses, changing nothing: neither flag or both, the issue naming itself, an unknown issue, an issue already done or parked, a workflow without a park status.
+
 ### `transition`
 
 `issue-cli transition <slug> --to "<status>"` runs the workflow engine — same path the board uses for drag-and-drop, so behavior matches.
@@ -354,7 +451,9 @@ issue-cli transition <slug> --to "waiting-for-team-input"
 Nothing was changed.
 ```
 
-Kinds are `order` (not a legal next step), `field` (a required `--field` answer is missing), `validator`, and `approval`. In text output a `→` fix line is left out when the validator's message already contains that command. JSON always carries it in `fix[]`. When nothing is unmet, the output is `✓ Ready: <from> → <to>` plus the `Will:` side-effects. It exits 0 when ready and 1 otherwise. `--json` returns `{dry_run, ready, from, to, slug, problems[{kind, requirement, message, fix[]}], side_effects}`.
+Kinds are `order` (not a legal next step), `field` (a required `--field` answer is missing), `validator`, and `approval`. In text output a `→` fix line is left out when the validator's message already contains that command. JSON always carries it in `fix[]`. When nothing is unmet, the output is `✓ Ready: <from> → <to>` plus the `Will:` side-effects. It exits 0 when ready and 1 otherwise. `--json` returns `{dry_run, ready, from, to, slug, problems[{kind, requirement, message, fix[]}], side_effects, warnings}`.
+
+Into the [ship status](#the-ship-status), each `depends_on` issue that isn't done adds a warning: `⚠ depends_on cli/a is testing, not done: this issue ships after it.` (`warnings[]` in JSON). A warning never makes the transition unready or changes the exit code; the real transition prints the same facts in its `== Shipping ==` block and moves the issue.
 
 It is built on `WorkflowConfig.PreviewTransitionAll`. That is the engine behind the viewer's transition preview, without the stop at the first failure, so the CLI and the viewer agree on what is missing.
 
@@ -391,6 +490,7 @@ Questions for the owner stay in chat (Claude Code or Codex; agents can message t
 - `--how` says how the decision was made (`chat`, `project rule`, `playtest`; default `recorded by agent`; no `:`).
 - `--quote` adds the human's words.
 - `--deferred` marks it as decide-later.
+- `--provisional` adds `provisional` to the how (`chat, provisional`; `YOLO, provisional` under YOLO; `recorded by agent, provisional` by default): the decision waits for the owner's words in the Decisions log until `--confirm` (or the Confirm button) drops the mark. Under YOLO the rule `start` and `show` print says to record every answer you gave yourself this way. Not with `--confirm`.
 - `--confirm D-n --quote "…"` records the human's words on an existing decision of the issue instead of a new line, the same rewrite as the Decisions log's Confirm (`POST …/decisions/<slug>/<D-n>/confirm`): quote set, `(provisional…)` mark removed, how ending `confirmed by owner <date>`. Only `--quote` goes with it, and it is required. A superseded decision, or one that already has the human's words, is refused. `--replaces` on a decision of the same issue that only lacks words prints the `--confirm` command instead.
 - `--replaces <slug>#D-n` (repeatable, or `D-n` in the same issue) marks older decisions as replaced. Each ref must exist, or nothing is written and the error points at `issue-cli decisions --issue <slug>`.
 
@@ -405,7 +505,12 @@ commit trailer, a playtest step's `proves:`, or `prove`), each link's check resu
 ticks the criteria that are proven, and ends with `Evidence (with the playtest shots): <viewer url>?tab=evidence`, the
 issue page's [Evidence tab](../UI/overview.md#the-evidence-tab), which shows the same report next to the shots.
 `--json` returns the same report, plus `tests_at`, `last_change` and `last_change_sha` (the newest `tests:` comment and
-the last commit that changed code; docs-only commits don't count).
+the last commit that changed code; commits touching only docs, Markdown, CHANGELOG, playtest sessions, guided check
+scripts or tracker notes don't count).
+
+`issue-cli prove <slug> --run [--json]` (Go projects) runs the tests the issue's test links name with `go test -run` in
+its worktree and posts the `tests:` comment when every one passed; otherwise it prints the failures, posts nothing and
+exits non-zero. Refusals and output: [Proof Links](../Workflow/proof.md).
 
 `issue-cli prove <slug> <AC-id> --test <Name> | --step <id> | --commit <sha> | --value "…" | --shot <path>` adds
 links (repeatable) to the data sidecar; `--clear` removes that criterion's prove links. Most links need no call:
@@ -439,7 +544,8 @@ The CLI works out who is asking from `ISSUE_VIEWER_LEAD_SCOPE`, `ISSUE_VIEWER_IS
 - `start`, `claim` and `transition` from a worker on any slug but its own: "you work on <own-slug> only; ask your lead", and nothing changes. `start` and `claim` default the assignee to the worker's session name (`agent-<slug>`, `/` as `-`), its `SendMessage` address.
 
 `show` also prints, under the header:
-- `Depends on:` / `Depended on by:` lines from `depends_on`, each slug with its status;
+- `Base: <branch> at <sha> (cut by the dispatch on <date>)`, as `start` does (see [`start`](#start)); `show --json` carries it as `base: {branch, sha, at}`;
+- `Depends on:` / `Depended on by:` lines from `depends_on`, each slug with its status, plus `· ask open` or `· agreed` when the two issues' workers used [`ask`](#ask-and-answer-sibling-asks); an open dependency with no ask yet adds `Building on <slug>'s format? Agree it with its worker: issue-cli ask <slug> "..."`;
 - `Decided by:`, the decisions the body cites, with their state;
 - `Guard metrics for <system>: N off (ids), N near. See <viewer>/metrics?system=<system>`, when `workbench.metrics` lists metrics for the issue's system.
 
@@ -448,6 +554,23 @@ When the issue's `work/<slug>` branch is open, `show` also prints `== Shared fil
 `show` and `start` print a `Lead:` line naming the issue's lead and whether it is live. On an issue linked with the legacy `umbrella:` key they also print the `set-meta … --key parent` rename hint.
 
 The lead's brief comes from `leads.project` in `workflow.yaml` (see `issue-cli process schema`), else a built-in default, plus a fixed footer with the role, authority and handoff note. An old `leads.epic` is ignored, and `process workflow` warns about it.
+
+### `ask` and `answer` (sibling asks)
+
+Two workers whose issues build on each other (one reads the record or format the other writes) agree it through comments. They don't use SendMessage, a tmux paste or any other transport.
+
+| Command | Writes | Shows |
+|:--|:--|:--|
+| `issue-cli ask <sibling> "…" [--from <slug>]` | `ask: from <your slug>: <words>` on the sibling's issue | at the bottom of the sibling's next issue-cli call on its issue, every call until answered |
+| `issue-cli answer <asker> "…" [--from <slug>]` | `answer: from <your slug> (ask #<id>): <words>` on the asker's issue, and closes those asks (comment status `done`) | at the bottom of the asker's next issue-cli call on its issue, once |
+
+- Your slug is `ISSUE_VIEWER_ISSUE_SLUG` (every dispatched worker has it), else `--from`.
+- The block is `== Sibling asks (<slug>) ==`. It follows any command that looked up an issue (`show`, `checklist`, `check`, `transition`, …), lists the open asks with the `issue-cli answer …` line to run and the answers not yet delivered, and ends with "An ask or answer is between workers: it never approves a gate." `--json` output never carries it.
+- An answer counts as delivered only when the issue's own worker was shown it. The lead running `show` on the asker's issue sees it without using it up.
+- Refused, writing nothing: asking yourself, asking a done or parked issue (nobody is there to answer), no words, words starting with `approval:`, no slug for you, and `answer` with no open ask from that issue (the channel answers asks; it doesn't start them).
+- Neither is an approval. The words sit after `ask: from …:` / `answer: from …:`, which no gate parser reads; an `answer:` saying "approved" still leaves the gate waiting.
+- The lead sees the open asks in `issue-cli status` (status.md: `## Open asks between siblings (N)`, `asker → sibling (#id, age): words`) and in status.json's `SiblingAsks`. They don't count as waiting on the owner.
+- The worker briefing's lead section names the channel. `show`'s `Depends on:` line marks it (above).
 
 ### `dispatch` and `status`
 
@@ -467,6 +590,7 @@ These two commands do what leads used to do with `curl` against the viewer. One 
 **`issue-cli status [--md|--json]`** prints `GET <viewer>/p/<project>/status.md` exactly as served, or with `--json`, `/status.json` (its `as_of` is each request's time). The viewer builds the Status model, so it must be running.
 - When it doesn't answer, or answers with an error, the command exits 1 with `viewer not reachable at <url>: …`, how to start it, and the `viewer_url` hint.
 - A slug by mistake (`status <slug>`) is a usage error pointing at `issue-cli show <slug>`.
+- `--hq` prints `/p/<project>/hq/report.md` instead: the HQ report, one headline per department and group, then each one's detail ([Departments](../departments.md#the-hq-report)). It takes neither `--md` nor `--json`.
 
 **The viewer's address** for `status` and every link issue-cli prints (approval hints, `show`'s Timeline, Balance, Decisions, Metrics) comes from `viewerBaseURL` → `viewerstate.BaseURL`, in this order:
 1. `viewer_url:` at the top of `projects.yaml`
@@ -481,7 +605,7 @@ Local CI runs the `ci:` commands of `workflow.yaml` on the integration branch af
 
 | Subcommand | Does |
 |:--|:--|
-| `ci status [--tier <t>]` | The first line is the one-liner (contract below). While red it then lists `Landed since green <sha>:`, the bugfix issue (`Fix tracked in:`) and the log path, then `Recent runs:` (the last 5: sha, state, age, duration, tier, what failed). `--tier slow` adds the tier's newest result. `--json`: `{configured, branch, line, state, runs, running?}` |
+| `ci status [--tier <t>]` | The first line is the one-liner (contract below). While red it then lists `Landed since green <sha>:`, the bugfix issue (`Fix tracked in:`) and the log path. Green or red, `Last red log: <path> (<sha>[ tier <t>], <age> ago)` names the newest kept red log (`.ci/red/`) while it exists. Then `Recent runs:` (the last 5: sha, state, age, duration, tier, what failed). `--tier slow` adds the tier's newest result. `--json`: `{configured, branch, line, state, runs, running?, last_red_log?}` |
 | `ci run [--tier <t>] [--detach] [--if-untested]` | Runs in the foreground and streams the output. It re-tests the head, then keeps going while new commits land, testing only the newest. Exits 0 when green, 1 when red or CI can't run. A live run makes it print `already running at <sha> (pid N); it tests the newest head when done` and exit 0. `--detach` starts the same command in tmux `ci-<project>` (or a background process without tmux) and returns. `--if-untested` skips a head already tested; the watchers pass it. `--json` writes the runs to stdout and the live output to stderr |
 | `ci reset` | Removes `.worktrees/.ci`, ignored build output included; the next run creates it again (a cold build). Refuses while a run is live |
 | `ci watch [--interval 5s] [--once]` | Polls the branch head and starts a detached run when it is untested. For projects without the viewer running |
@@ -534,7 +658,7 @@ Project health snapshots: dated JSON files in `.health/snapshots/` of the main c
 | `health review show` | The newest review: score, age, reviewer, assessment, and each recommendation with its kind, effort, state (`filed → <slug>`), evidence and expected effect |
 | `health review file <R#> --quote "<owner's words>" [--how "lead chat"]` | Creates an `idea` issue from a proposed recommendation, records the owner's decision on it and marks the recommendation filed. Without `--quote`: `needs the owner's approval: ask them, then pass --quote "<their words>"`. A filed or dismissed one, or an unknown id (the error lists the ids), is refused |
 | `health review dismiss <R#> --quote "<owner's words>" [--reason "..."]` | Marks a proposed recommendation dismissed. Needs `--quote` like `file` |
-| `health lint [--check a,b] [--list] [--all]` | Checks workflow.yaml, each department's workflow file (the file checks run once per file, the department's prefixed with its file) and the board (`internal/lint`) and prints each warning as `<check> <where>: <message>` with `  fix: <command or edit>` under it, then `N warnings; the health score's lint component counts them`. Checks: `undated` (no `created:`; the fix is a `set-meta … --key created --value <earliest recorded date>`), `workflow` (the `process workflow` warnings: types:, workbench:, ci:, health:), `schema` (keys the parser doesn't know, with `did you mean`; no `statuses:` or `transitions:`; deprecated keys: `actions:`, `statuses[].template`/`validation`/`side_effects`), `template` (the `template:` stamp behind the bundled template, unknown, malformed or missing), `placeholders` (a `{{name}}` its field never fills, `{{ name }}` with spaces where plain replacement fills it, any `{{…}}` in an untemplated field such as a status prompt) `department` (a department's workflow file that doesn't load, a project-wide key such as `ci:` in a department file, an issue whose status isn't in its department's file, with the `set-meta … --status` fix), `paths` (a `workbench.systems.<name>.paths` glob that matches no file in the repository, or is absolute or has `..`, with its workflow.yaml line; the fix is to correct or remove the glob) and `sections` (a checkbox gate on a section no `append_section` or status template writes, or writes without a box; a `has_test_plan` template without exact `### Automated`/`### Manual`). Every finding is a warning: exit 0, 2 on bad usage or an unknown `--check`. Text shows 20 warnings per check (`--all` for every one). `--list` names the checks. `--json`: `{project, checks, findings: [{check, where, message, fix}], warnings}`. The [lint family](../workbench-files.md#the-lint-family) records the count, and /health lists the warnings live |
+| `health lint [--check a,b] [--list] [--all]` | Checks workflow.yaml, each department's workflow file (the file checks run once per file, the department's prefixed with its file) and the board (`internal/lint`) and prints each warning as `<check> <where>: <message>` with `  fix: <command or edit>` under it, then `N warnings; the health score's lint component counts them`. Checks: `undated` (no `created:`; the fix is a `set-meta … --key created --value <earliest recorded date>`), `workflow` (the `process workflow` warnings: types:, workbench:, ci:, health:), `schema` (keys the parser doesn't know, with `did you mean`; no `statuses:` or `transitions:`; deprecated keys: `actions:`, `statuses[].template`/`validation`/`side_effects`), `template` (the `template:` stamp behind the bundled template, unknown, malformed or missing), `placeholders` (a `{{name}}` its field never fills, `{{ name }}` with spaces where plain replacement fills it, any `{{…}}` in an untemplated field such as a status prompt) `department` (a department's workflow file that doesn't load, a project-wide key such as `ci:` in a department file, an issue whose status isn't in its department's file, with the `set-meta … --status` fix), `paths` (a `workbench.systems.<name>.paths` glob that matches no file in the repository, or is absolute or has `..`, with its workflow.yaml line; the fix is to correct or remove the glob), `owner-only` (a path entering `publish`/`launch`/`send` through a gate without `owner_only`, a department with a `sends: true` connector whose workflow has no `owner_only` gate, `owner_only` on a non-approval action; the fix names the edge), `na-boxes` (a ticked box on an open issue whose N/A reason is out of form, or an N/A on the owner's box; the fix is `check <slug> <id> --na "…"`, see [N/A boxes](#na-boxes-check---na)) `owner-marker` (an open acceptance criterion that reads like the owner's check, "the owner confirms …", without the `(owner)` marker; the fix is `check-edit <slug> <id> --text "… (owner)"`) and `sections` (a checkbox gate on a section no `append_section` or status template writes, or writes without a box; a `has_test_plan` template without exact `### Automated`/`### Manual`). Every finding is a warning: exit 0, 2 on bad usage or an unknown `--check`. Text shows 20 warnings per check (`--all` for every one). `--list` names the checks. `--json`: `{project, checks, findings: [{check, where, message, fix}], warnings}`. The [lint family](../workbench-files.md#the-lint-family) records the count, and /health lists the warnings live |
 | `health snapshot` | Takes a snapshot now (trigger `manual`), prints `✓ Snapshot written: <path>`, then the same summary. Fails with `health snapshots are off for this project (health.off: true in workflow.yaml)` or `<dir>: not in a git repository`. `--json` prints the snapshot |
 | `health backfill [--days 90]` | Computes one snapshot (trigger `backfill`) for each of the last N days that has none, as it stood at 23:59 that day: the codebase at the commit the branch had then, the workflow over the issues done by then. Prints one line per day (the path, `skipped: has a snapshot`, or `(before the first commit: no codebase)`), then `✓ Backfilled W of N days (S skipped, F failed) · charts: <url>`. The milestone family is left out (it knows only the present). `--days` outside 1–3650 is a usage error (exit 2). `--json` prints `{written, skipped, failed, days: [{day, path, skipped, error, no_commit}], charts}` |
 
@@ -545,7 +669,7 @@ The [factory benchmark](../benchmark.md) (`cmd/issue-cli/cmd_bench.go`, `interna
 | Subcommand | Behaviour |
 |:--|:--|
 | `bench` | The benchmarks, task counts (holdout), the last run's line; with none, the next steps (`candidates`, `task add`) |
-| `bench candidates [--all] [--benchmark <name>]` | Done issues of the project usable as tasks: `<slug>  <type> · N lines in F files · H hidden test files (T tests) · base..merged`. `--all` adds the rest with why (`no recorded branch head`, `no test files in its commits`, `N lines (over 600)`). Writes nothing |
+| `bench candidates [--all] [--benchmark <name>] [--replay [<slug>...]]` | Done issues of the project usable as tasks: `<slug>  <type> · N lines in F files · H hidden test files (T tests) · base..merged`. `--all` adds the rest with why (`no recorded branch head`, `no test files in its commits`, `N lines (over 600)`). `--replay` replays each proposed one in a throwaway worktree and adds `replay: solvable \| needs later main \| doesn't replay \| tests pass on base \| not checked — <why>` (go test after mem-guard, no model call). Writes nothing |
 | `bench task add <benchmark> <slug> [--base --merged --start --check --holdout --snapshot --no-verify]` | Owner only. Finds base, merged, hidden tests and the snapshot, checks merged and base once in a throwaway clone; a failing check refuses with `<slug> not added: the check fails at the base: …` |
 | `bench task remove <benchmark> <task>`, `bench holdout <benchmark> <task> on\|off` | Owner only. `<task>` is `<project>/<slug>` or a unique slug |
 | `bench budget <benchmark> [--tokens --usd --wall --task-wall]` | Prints the budget; with a value (owner only) sets it |
@@ -574,7 +698,7 @@ issue-cli playtest prune --all [--dry-run]    # every worktree that belongs to a
 
 ### `check-script`
 
-Runs an issue's [guided check scripts](../patterns/guided-check-scripts.md): `scripts/checks/<name>.sh` files whose first lines carry `# issue: <slug>`, found in the issue's worktree: the workflow's, else the git worktree on `work/<slug>`; when the workflow has no worktrees, the worktree you run it from, else the project folder. The slug may hold a space (`# issue: level design/rock-sentinel`); words after it are a comment. Runs with a bash 4 or newer (PATH, then Homebrew and MacPorts folders; `brew install bash` on stock macOS). With the feature on, `transition --to human-testing` needs each script's newest `--yes` run to have no failed step.
+Runs an issue's [guided check scripts](../patterns/guided-check-scripts.md): `scripts/checks/<name>.sh` files whose first lines carry `# issue: <slug>`, found in the issue's worktree: the workflow's, else the git worktree on `work/<slug>`; when the workflow has no worktrees, the worktree you run it from, else the project folder. Once that worktree's branch is merged into main and the worktree holds no uncommitted change, it runs from the project folder instead and says so (`--new` still writes into the worktree). The slug may hold a space (`# issue: level design/rock-sentinel`); words after it are a comment. Runs with a bash 4 or newer (PATH, then Homebrew and MacPorts folders; `brew install bash` on stock macOS). With the feature on, `transition --to human-testing` needs each script's newest `--yes` run to have no failed step.
 
 ```
 issue-cli check-script <slug>               # the owner's run (stdin a terminal): questions, then the tick offer
@@ -587,7 +711,8 @@ issue-cli check-script --lib                # print the helper library (needs no
 
 - The script runs under bash in its checkout with `CHECKS_LIB` (the library, written to a cache file named after its content), `CHECKS_SLUG`, `CHECKS_PROJECT`, `CHECKS_ROOT`, `CHECKS_NAME`, `CHECKS_ISSUE_CLI` (this binary: the tick uses it) and `ISSUE_VIEWER_CONFIG` (the config this call resolved). A machine run is also what you get when stdin isn't a terminal.
 - Exit codes: 0 when every script passed, 1 when one failed (`check script failed: <names>`) or none was found (the message says how to start one), 130 when the owner stopped with `q` or Ctrl-C.
-- With worktrees on and the issue's worktree missing, it says which worktree and the `git worktree add` line.
+- With worktrees on and the issue's worktree missing, it says which worktree and the `git worktree add` line, unless git history has the issue's script (below).
+- After the merge: shipping removes the scripts before the merge, so when the checkout has none for the slug, check-script reads git history (`git log --full-history`, reachable from HEAD and from `work/<slug>` while that branch exists) for the newest commit that removed a `scripts/checks/*.sh` whose `# issue:` line names the slug. It writes that copy to a temp folder and runs it from the project folder, first printing `scripts/checks/<name>.sh from history (removed in <sha> before the merge): running it from <root>`. `--list` adds `from history: removed in <sha> before the merge`; `--list --json` adds `"from": "<commit>"`. A script on disk always wins.
 - `show`, `start` and `transition` print a **Guided checks** block at testing and human-testing when the workflow uses the feature (a testing or human-testing prompt names `check-script`): the scripts and who runs what, or, with open Manual boxes and no script, the `--new` line.
 
 ### `approve`
@@ -724,6 +849,25 @@ Behaviour:
 - Templates live as plain YAML under `cmd/issue-cli/templates/workflow/*.yaml` and are embedded at build time via `//go:embed`. The list of valid `--template` names is derived from the embedded directory, so adding a new template is just dropping a new `<name>.yaml` file there and rebuilding.
 - Each template starts with a `template: <name>@<release>` stamp and a `features:` record, so a new project is stamped and recorded from the start. A new template needs both; run `issue-cli workflow scan` on it to write the record. See [Template Stamp and Feature Record](../Workflow/overview.md#template-stamp-and-feature-record).
 
+### `project init`
+
+`issue-cli project init <dir>` makes a new project the viewer can show: the folder with `issues/`, `docs/` and `workflow.yaml` (a bundled template, with its `template:` stamp and `features:` record), and the project's projects.yaml entry with absolute paths (`issues`, `docs`, `workflow`, `workdir`).
+
+```bash
+issue-cli project init ~/src/shop --dry-run                    # list every folder, file and config change
+issue-cli project init ~/src/shop --name "Acme Shop" --config ./projects.yaml
+issue-cli project init ~/src/shop --template writing           # entry printed only
+```
+
+Behaviour:
+
+- `--name` (default: the folder's name), `--slug` (default: from the name), `--template` (default `development`).
+- `--config <file>` is the command's own flag, after `project init`. A file that doesn't exist is written with `projects:` and the entry; an existing one gets the entry spliced into its `projects:` list as text, every other line kept, and the result must load before it replaces the file (the same code as `department add`). Without `--config` the entry is printed and no config is touched: not the one issue-cli reads, not the viewer's. The global `--config` only picks what issue-cli reads.
+- Nothing is overwritten. A folder already there is reported "already there"; a `workflow.yaml` the same as the template "already there, same as the template"; one that differs "kept your file". A config that has the project for this folder is left as it is; a project with the same slug elsewhere is refused (pick `--slug`). A second run lists what is there and exits 0.
+- A worker is refused when `--config` is the config issue-cli reads (the owner's projects.yaml); a dry run or a sandbox config is fine.
+- After it, `Next:` lists `git init` (when the folder is no git repo: workers work in git worktrees), `issue-viewer -config <file>` (the company page `/p/<slug>/company` has the New department tile), `lead spawn` (the CEO), `department list`, `create` and `workflow upgrade` (privacy and newer features), each with `--config` and `--project`.
+- `--json` gives the plan: `dir`, `name`, `slug`, `template`, `files` (`path`, `kind`, `state`: create, write, there, same, keep), `config` (`path`, `state`: print, create, add, there; `entry`), `git_repo`, `dry_run`, `next`.
+
 ### `workflow upgrade`
 
 `issue-cli workflow upgrade` (alias `issue-cli upgrade`) tells an agent which `workflow.yaml` features the project could adopt. It is **read-only**, always exits 0, and never writes a file.
@@ -782,7 +926,7 @@ issue-cli --json workflow scan --dry-run
 
 ### `workflow catalog-check`
 
-For issue-cli developers, in the issue-viewer repository; `make validate` runs it after the tests.
+For issue-cli developers, in the issue-viewer repository; `make validate` runs it after the tests, and the in progress guidance asks for it while the work is under way. It checks the git checkout of the current directory (a worktree checks its own branch, whatever `--project` names).
 
 ```bash
 issue-cli workflow catalog-check               # compare the work branch with main
@@ -790,10 +934,25 @@ issue-cli workflow catalog-check --base main   # the branch it merges into
 issue-cli --json workflow catalog-check
 ```
 
-- **What it compares:** the files changed since `git merge-base <base> HEAD` (commits, the working tree, untracked files) against each catalog entry's `sources:` (a glob, or `file.go#Symbol`: that declaration's code, doc comments ignored) and against `cmd/issue-cli/templates/workflow/*.yaml`. The catalog, templates and changelog are read from the working tree, so it works with any binary.
-- **Passes** when each touched entry's `version:` is newer than the last release (the newest `## vX.Y.Z` in `cmd/issue-cli/CHANGELOG.md`), or a commit on the branch carries `Catalog: n/a <id>[,<id>] <why>`; and each touched template's stamp is newer than the last release.
-- **Fails** with, per entry: the changed files, the entry's version, the next release, and both fixes (set `version:` to the next release and update its what/snippet, or add the trailer). A template gets the stamp to set and a reminder to re-run `workflow scan` on it.
-- **Skips** (exit 0) on main and when there is no merge-base. Outside the issue-viewer repository it fails.
+- **What it compares:** the files changed since `git merge-base <base> HEAD` (commits, the working tree, untracked files), less those whose working-tree content is the base branch's (the branch has them from a merge of main, one in progress too), against each catalog entry's `sources:` (a glob, or `file.go#Symbol`: that declaration's code, doc comments ignored) and against `cmd/issue-cli/templates/workflow/*.yaml`. The catalog, templates and changelog are read from the working tree, so it works with any binary.
+- **Passes** when each touched entry's `version:` is newer than the last release (the newest `## vX.Y.Z` in `cmd/issue-cli/CHANGELOG.md`), or a commit on the branch carries `Catalog: n/a <id>[,<id>] <why>`; and each touched template's stamp is newer than the last release. The `Catalog:` line counts in any paragraph of the message (also one before `Co-Authored-By`) and on merge commits; it is read with the same parser as `Proves:` (`proof.MessageLines`).
+- **Fails** on a `Catalog:` line that marks nothing: not an n/a, no entry id after `n/a`, or an id the catalog doesn't have (`Catalog: n/a refactor only`). The output names the commit and the problem, shows the form, and lists the entries the branch touches; reword the commit, or drop the line. `--json` carries them as `bad_trailers` (`commit`, `value`, `problem`).
+- **Output:** one line per touched entry, template and bad trailer first (`✓ catalog <id>: bumped to …`, `✗ catalog <id>: needs a bump or an n/a (changes …)`, `✗ trailer on <sha>: …`), then the details, and a closing count (`catalog-check failed: 1 of 2 entries and 0 of 0 templates need a bump or an n/a; 0 Catalog: lines mark nothing`), so both the head and a truncated tail say what failed.
+- **Fails** with, per entry: the changed files, the entry's version, the next release, and both fixes (`issue-cli workflow catalog-bump <id>` and update its what/snippet, or add the trailer). The split catalog (`workflow-features/<id>.yaml`) is read too. A template gets the stamp to set and a reminder to re-run `workflow scan` on it.
+- **Skips** (exit 0) when the base branch itself is checked out (or HEAD is detached at it) and when there is no merge-base. A work branch with no commits yet is checked: its uncommitted changes count. Outside the issue-viewer repository it fails.
+
+### `workflow catalog-bump`
+
+For issue-cli developers, in the issue-viewer repository: one step for a catalog version bump.
+
+```bash
+issue-cli workflow catalog-bump status-prompts                    # to the next release
+issue-cli workflow catalog-bump a,b --version v0.58.0 --dry-run   # list the lines it would change
+```
+
+- **Changes:** the entry's `version:` line (in `workflow-features.yaml`, or the entry's own file under `workflow-features/`; a snippet's nested `version:` is left alone), the `template: <name>@` stamp of every bundled template the entry applies to when it is older, and that template's record line `- <id>@<old>`. Nothing else in any file changes.
+- **Refuses** an unknown id, a version that isn't `vX.Y.Z`, and one older than the entry's. Bumping to the version it has only brings the templates in line ("nothing to change" when they are).
+- **Output:** each changed file with what changed in it; `--json` the plan (`version`, `changes[]` with `path` and `what`).
 
 ### `projects` and multi-project resolution
 
@@ -814,7 +973,7 @@ Which `projects.yaml` issue-cli reads (`findConfig`, `cmd/issue-cli/config_looku
 1. `--config <path>`
 2. `$ISSUE_VIEWER_CONFIG`
 3. `./projects.yaml`, **only if it exists**
-4. the config named in `~/.local/state/ai-workflow-engine/viewer.json` (`$XDG_STATE_HOME`), if that config file still exists. `issue-viewer -config` writes the file at start: `config` (absolute), `url`, `pid`, `started` (package `internal/viewerstate`)
+4. the config named in `~/.local/state/ai-workflow-engine/viewer.json` (`$XDG_STATE_HOME`), if that config file still exists and its `pid` is alive (a record with no pid is still used). `issue-viewer -config` writes the file at start: `config` (absolute), `url`, `pid`, `started` (package `internal/viewerstate`). A sandbox viewer leaves it alone (`viewerstate.Claim`): a config in a temp folder while the state dir isn't, or another live viewer's record for a different config; `-record-viewer` overrides
 5. `~/.config/ai-workflow-engine/projects.yaml` (`$XDG_CONFIG_HOME`), if it exists
 
 Steps 1 and 2 are used even when the file is missing: the user named that file, so loading it fails loud instead of falling through to another config. When nothing is found, a command that needs a project fails with:
@@ -828,6 +987,17 @@ no projects config found. Checked, in order:
   5. ~/.config/ai-workflow-engine/projects.yaml: not found
 
 Fix: export ISSUE_VIEWER_CONFIG=/path/to/projects.yaml, or start the viewer (issue-viewer --config /path/to/projects.yaml)
+```
+
+A dead viewer's record shows as `4. …/viewer.json: its viewer (pid N, config …) is not running`. A `--project` the chosen config doesn't list fails with the file and where it came from:
+
+```
+project "dark-factory" not found in config /tmp/…/proj-18752.yaml
+Available projects:
+  rl
+…
+Config from: the running viewer's, http://127.0.0.1:18752 pid 4242, recorded in ~/.local/state/ai-workflow-engine/viewer.json
+Wrong config? Pass --config <path> or export ISSUE_VIEWER_CONFIG
 ```
 
 (The real message shows the absolute paths.) Bootstrap mode (a cwd with `./issues/`) still picks the project; the lookup only decides which config it matches cwd against. Tests in `cmd/issue-cli` run with their own `XDG_STATE_HOME` and `XDG_CONFIG_HOME` and no `$ISSUE_VIEWER_CONFIG` (`main_testmain_test.go`), so they never read this machine's config.

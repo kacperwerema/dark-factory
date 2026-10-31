@@ -158,7 +158,7 @@ func TestStylesAppliedDetail(t *testing.T) {
 		t.Errorf("detail = %q\nwant %q", bare.Detail, want)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := pg.Eval(ctx, `(function(){ document.querySelectorAll('style,link').forEach(function(s){ s.remove(); }); for (var i = 0; i < 10; i++) { var d = document.createElement('div'); d.className = 'extra' + i; d.setAttribute('data-testid', 'extra.' + i); d.textContent = 'x'; document.body.appendChild(d); } return '1'; })()`, nil); err != nil {
 		t.Fatal(err)

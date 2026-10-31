@@ -1,0 +1,11 @@
+# The basic project, plus a telemetry collector's store with batches from
+# three made-up installs (installs 01…, 02…, 03…; no real data), named by
+# telemetry_data: for the /telemetry page. Batches are dated 2026-10-20..22:
+# sessions open /telemetry?range=all.
+title: Small project with a telemetry collector's batches
+project:
+  name: Playtest Demo
+  slug: demo
+issues: tracker
+workflow: workflow.yaml
+telemetry_data: collector

@@ -12,9 +12,11 @@ import (
 
 var telemetryCommand = &Command{
 	Name:      "telemetry",
-	ShortHelp: "Local usage telemetry (sub: report|path)",
+	ShortHelp: "Local usage telemetry, and anonymous sharing (sub: report|path|share|send|sent)",
 	LongHelp: `Inspect the local, names-only usage telemetry issue-cli records for every
-invocation. Nothing is ever sent off-machine.
+invocation. A daily anonymous summary of it (names and counts) is shared
+with the engine's makers unless you turn sharing off; nothing is sent
+while no collector URL is set.
 
 Subcommands:
   report [--since 30d|12h|2026-09-01|all] [--global] [--top N]
@@ -25,15 +27,28 @@ Subcommands:
   path
       Print the active telemetry file and whether telemetry is enabled.
 
+Sharing (on by default; docs/CLI/telemetry.md "Sharing usage"):
+  share on|off|status
+      Turn sending the daily, anonymous, names-only batch (command and
+      flag names, error classes, durations, templates, feature ids,
+      counts, version, OS) on or off. "off" forgets the random install
+      id. Nothing is sent until a collector URL is set
+      (ISSUE_CLI_TELEMETRY_URL or "url" in the settings file).
+  send [--quiet]
+      Send pending days now (retry with backoff). Runs by itself at most
+      once a day while sharing is on and a URL is set.
+  sent [--full]
+      List what was sent, when, where, and the collector's answer.
+
 Files:
   per project:  <workdir>/.agent-logs/telemetry.jsonl  (+ .1 after 10 MB)
   no project:   ${XDG_STATE_HOME:-~/.local/state}/issue-cli/telemetry.jsonl  (--global)
 
-Opt out: ISSUE_CLI_TELEMETRY=off, or "telemetry: false" on the project in
+Opt out of everything (recording and sharing): ISSUE_CLI_TELEMETRY=off, or "telemetry: false" on the project in
 projects.yaml. This does not affect the Timeline tab or retry hints, which
 use a separate log.`,
 	Run:         runTelemetry,
-	Subcommands: []string{"report", "path"},
+	Subcommands: []string{"report", "path", "share", "send", "sent"},
 }
 
 func init() {
@@ -42,15 +57,21 @@ func init() {
 
 func runTelemetry(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("telemetry requires a subcommand\n\nUsage:\n  issue-cli telemetry report [--since 30d] [--global] [--top N]\n  issue-cli telemetry path [--global]")
+		return fmt.Errorf("telemetry requires a subcommand\n\nUsage:\n  issue-cli telemetry report [--since 30d] [--global] [--top N]\n  issue-cli telemetry path [--global]\n  issue-cli telemetry share on|off|status\n  issue-cli telemetry send\n  issue-cli telemetry sent")
 	}
 	switch args[0] {
 	case "report":
 		return runTelemetryReport(ctx, args[1:])
 	case "path":
 		return runTelemetryPath(ctx, args[1:])
+	case "share":
+		return runTelemetryShare(ctx, args[1:])
+	case "send":
+		return runTelemetrySend(ctx, args[1:])
+	case "sent":
+		return runTelemetrySent(ctx, args[1:])
 	default:
-		return fmt.Errorf("unknown telemetry subcommand: %s\n\nValid: report, path", args[0])
+		return fmt.Errorf("unknown telemetry subcommand: %s\n\nValid: report, path, share, send, sent", args[0])
 	}
 }
 
@@ -114,6 +135,8 @@ func runTelemetryReport(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "note: telemetry recording is disabled (%s); showing previously recorded events\n\n", disabled)
 	}
 	telemetry.RenderText(ctx.Stdout, report)
+	fmt.Fprintln(ctx.Stdout)
+	fmt.Fprintln(ctx.Stdout, shareStatusLine())
 	return nil
 }
 
@@ -140,6 +163,7 @@ func runTelemetryPath(ctx *Context, args []string) error {
 	} else {
 		fmt.Fprintln(ctx.Stdout, "enabled")
 	}
+	fmt.Fprintln(ctx.Stdout, shareStatusLine())
 	return nil
 }
 

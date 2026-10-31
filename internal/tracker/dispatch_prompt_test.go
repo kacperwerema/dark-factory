@@ -44,12 +44,17 @@ func TestBuildDispatchPrompt(t *testing.T) {
 	if !strings.Contains(dp.Prompt, "Don't message lead-proj or any other agent (SendMessage) unless the human, in your chat, gives you permission or asks you to") || !strings.Contains(dp.Prompt, "Your address is agent-api-fix") {
 		t.Fatalf("prompt missing the no-messaging line: %q", dp.Prompt)
 	}
-	if !strings.Contains(dp.Prompt, "issue-cli --project proj ") || !strings.Contains(dp.Prompt, "## Worktree") {
+	if !strings.Contains(dp.Prompt, "issue-cli --project proj ") || !strings.Contains(dp.Prompt, "## Worktree") || !strings.Contains(dp.Prompt, "XDG_STATE_HOME=<sandbox>/state issue-viewer") {
 		t.Fatalf("prompt missing --project injection or worktree section")
 	}
 	// One task, then stop: the worker never picks the next issue.
 	if !strings.Contains(dp.Prompt, "This issue is your one task. When it reaches its last status, or a gate that waits on the human, stop there: do not run issue-cli --project proj next, do not start, claim or move another issue, and do not start other agents.") {
 		t.Fatalf("prompt missing the one-task rule: %q", dp.Prompt)
+	}
+	// The one exception: closing duplicates of its own issue, said as issue-cli close says it.
+	if !strings.Contains(dp.Prompt, CloseRule+"\n  issue-cli --project proj close <duplicate> --duplicate-of api/fix") ||
+		!strings.Contains(dp.Prompt, "unless your lead asks you to file a child issue of yours") {
+		t.Fatalf("prompt missing the close rule: %q", dp.Prompt)
 	}
 
 	noWT := BuildDispatchPrompt(nil, issue, nil, "/w", nil)
@@ -80,7 +85,7 @@ func TestBuildAgentPrompt_RetrospectiveNamesSlugNotSystem(t *testing.T) {
 // renamed or misspelt placeholder can't reach an agent unfilled.
 func TestAgentDispatchPromptTemplate_EveryPlaceholderFilled(t *testing.T) {
 	issue := &Issue{Slug: "the-slug", System: "the-system", Title: "the-title", Priority: "the-priority", BodyRaw: "the-body"}
-	fields := agentPromptFields(issue, "the-guidance", "the-reminder", "the-status")
+	fields := agentPromptFields(issue, "the-guidance", "the-reminder", "the-status", false)
 
 	used := map[string]bool{}
 	for _, m := range regexp.MustCompile(`\{\{(\w+)\}\}`).FindAllStringSubmatch(AgentDispatchPromptTemplate, -1) {

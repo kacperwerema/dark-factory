@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,8 +33,104 @@ type Candidate struct {
 	Files   int    `json:"files"`
 	Hidden  int    `json:"hidden_files"`
 	Tests   int    `json:"hidden_tests"`
+	System  string `json:"system,omitempty"`
+	// TestNames are the hidden Go tests that would judge it.
+	TestNames []string `json:"tests,omitempty"`
+	// Risks name what may make it a poor task though it is proposed (see
+	// CandidateRisks).
+	Risks []string `json:"risks,omitempty"`
 	// Why is set when the issue is not proposed: what it lacks.
 	Why string `json:"why,omitempty"`
+	// Replay and ReplayWhy are the solvability check's verdict and reason
+	// (CheckCandidates), set only by `bench candidates --replay`.
+	Replay    string `json:"replay,omitempty"`
+	ReplayWhy string `json:"replay_why,omitempty"`
+
+	repo   string
+	rng    Range
+	hidden []string
+}
+
+// BroadTests is the hidden test count over which a candidate is marked
+// broad: a branch that only changed tests is judged by every test in its
+// files, not by the change's own.
+const BroadTests = 20
+
+var (
+	riskTmux    = regexp.MustCompile(`(?i)tmux`)
+	riskBrowser = regexp.MustCompile(`(?i)chromedp|headless`)
+	riskTiming  = regexp.MustCompile(`time\.(Sleep|Since|After|Tick)\(|context\.WithTimeout\(`)
+)
+
+// CandidateRisks reads a proposed candidate's hidden test sources (path to
+// content at merged), the hidden test names and the issue body: tmux (the
+// tests start tmux: slow and flaky under load), browser (a headless
+// browser), timing (sleeps or time limits), broad (over BroadTests hidden
+// tests), owner steps (an "(owner)" box the worker cannot do). In Go files
+// only the hidden tests' own bodies are read, not the rest of the file.
+func CandidateRisks(sources map[string]string, tests []string, body string) []string {
+	var tmux, browser, timing bool
+	for f, src := range sources {
+		if strings.HasPrefix(f, "playtest/") {
+			browser = true
+		}
+		if !strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src = testBodies(src, tests)
+		browser = browser || riskBrowser.MatchString(src)
+		tmux = tmux || riskTmux.MatchString(src)
+		timing = timing || riskTiming.MatchString(src)
+	}
+	var out []string
+	if tmux {
+		out = append(out, "tmux")
+	}
+	if browser {
+		out = append(out, "browser")
+	}
+	if timing {
+		out = append(out, "timing")
+	}
+	if len(tests) > BroadTests {
+		out = append(out, fmt.Sprintf("broad (%d tests)", len(tests)))
+	}
+	if hasOwnerBox(body) {
+		out = append(out, "owner steps")
+	}
+	return out
+}
+
+// hasOwnerBox reports whether the body has a box the owner marker marks
+// (tracker.IsOwnerMarked, the engine's rule).
+func hasOwnerBox(body string) bool {
+	for _, it := range tracker.ListCheckboxes(body) {
+		if tracker.IsOwnerMarked(it.Label()) {
+			return true
+		}
+	}
+	return false
+}
+
+// testBodies is the source of the named Go test functions in src, each from
+// its func line to the next top-level func.
+func testBodies(src string, tests []string) string {
+	want := map[string]bool{}
+	for _, t := range tests {
+		want[t] = true
+	}
+	var b strings.Builder
+	keep := false
+	for _, l := range strings.SplitAfter(src, "\n") {
+		if strings.HasPrefix(l, "func ") {
+			m := goTestFunc.FindStringSubmatch(l)
+			keep = m != nil && want[m[1]]
+		}
+		if keep {
+			b.WriteString(l)
+		}
+	}
+	return b.String()
 }
 
 // Candidates looks at every done issue of p: proposed ones (Why empty) have
@@ -50,7 +147,7 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 		if !p.IssueDone(is) {
 			continue
 		}
-		c := Candidate{Project: p.Slug, Slug: is.Slug, Type: is.Type, Done: is.DoneAt}
+		c := Candidate{Project: p.Slug, Slug: is.Slug, Type: is.Type, Done: is.DoneAt, System: is.System}
 		if in != nil {
 			if _, t := in.Task(p.Slug + "/" + is.Slug); t != nil {
 				continue
@@ -65,13 +162,26 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 			c.Why = "no commits of its own"
 		default:
 			hidden := HiddenFiles(repo, r)
+			c.repo, c.rng, c.hidden = repo, r, hidden
 			c.Base, c.Merged, c.Lines, c.Files, c.Hidden = short(r.Base), short(r.Merged), r.Lines, len(r.Files), len(hidden)
-			c.Tests = len(HiddenTests(repo, r, hidden))
+			c.TestNames = HiddenTests(repo, r, hidden)
+			c.Tests = len(c.TestNames)
 			switch {
 			case len(hidden) == 0:
 				c.Why = "no test files in its commits"
+			case c.Tests == 0:
+				c.Why = "no Go tests in its test files (the scorer runs Go tests only, so just --check would judge it)"
 			case r.Lines > MaxCandidateLines:
 				c.Why = fmt.Sprintf("%d lines (over %d)", r.Lines, MaxCandidateLines)
+			default:
+				sources := map[string]string{}
+				for _, f := range hidden {
+					sources[f], _ = git(repo, "show", r.Merged+":"+f)
+				}
+				c.Risks = CandidateRisks(sources, c.TestNames, is.BodyRaw)
+				if n := len(ForeignFiles(repo, r)); n > 0 {
+					c.Risks = append(c.Risks, fmt.Sprintf("main merged in (%d files not its own)", n))
+				}
 			}
 		}
 		out = append(out, c)
@@ -83,6 +193,35 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 		return out[i].Done > out[j].Done
 	})
 	return out
+}
+
+// CheckCandidates replays each proposed candidate (Why empty) whose slug is
+// in only (all when only is empty), one at a time, and sets its Replay and
+// ReplayWhy (see Replay). progress, when set, is told before each one.
+// Nothing is written but the throwaway worktrees, which are removed.
+func CheckCandidates(ctx context.Context, cands []Candidate, only []string, env ReplayEnv, progress func(i, n int, c Candidate)) {
+	want := map[string]bool{}
+	for _, s := range only {
+		want[s] = true
+	}
+	var todo []int
+	for i, c := range cands {
+		if c.Why == "" && c.repo != "" && (len(want) == 0 || want[c.Slug]) {
+			todo = append(todo, i)
+		}
+	}
+	for k, i := range todo {
+		if ctx.Err() != nil {
+			cands[i].Replay, cands[i].ReplayWhy = ReplayNotChecked, "interrupted"
+			continue
+		}
+		if progress != nil {
+			progress(k+1, len(todo), cands[i])
+		}
+		c := &cands[i]
+		res := Replay(ctx, c.repo, c.rng, c.hidden, c.TestNames, env)
+		c.Replay, c.ReplayWhy = res.Verdict, res.Why
+	}
 }
 
 // AddOptions are `bench task add`'s choices; empty fields are found.

@@ -142,20 +142,27 @@ func departmentLeadIdentity(proj *tracker.Project, key, signal string) Identity 
 }
 
 // outOfScope is the refusal a department lead gets for an issue outside its
-// department ("" when the issue is its own, or me is not a department
-// lead). verb names what was refused.
+// department, or outside its group for a group's lead ("" when the issue is
+// in reach, or me is not a department lead). verb names what was refused.
 func outOfScope(proj *tracker.Project, me Identity, issue *tracker.Issue, verb string) string {
 	if me.Role != tracker.RoleDepartmentLead || issue == nil {
 		return ""
 	}
 	owner := proj.DepartmentOf(issue)
-	if owner != "" && proj.DepartmentByKey(me.Department) != nil && strings.EqualFold(owner, me.Department) {
+	if proj.InScope(me.Department, owner) {
 		return ""
+	}
+	ask := "the CEO " + tracker.LeadSessionName(proj)
+	if g := proj.GroupOf(owner); g != nil && !strings.EqualFold(g.Name, me.Department) {
+		ask = "the " + g.Name + " lead " + tracker.DepartmentLeadName(proj, g.Name) + " or " + ask
 	}
 	if owner == "" {
 		owner = tracker.ProductName
 	}
-	return fmt.Sprintf("%s is %s's, not %s's: a department lead %s only its own department's issues. Ask the CEO %s", issue.Slug, owner, me.Department, verb, tracker.LeadSessionName(proj))
+	if proj.IsGroup(me.Department) {
+		return fmt.Sprintf("%s is %s's, not in %s: a group lead %s only its group's and its departments' issues. Ask %s", issue.Slug, owner, me.Department, verb, ask)
+	}
+	return fmt.Sprintf("%s is %s's, not %s's: a department lead %s only its own department's issues. Ask %s", issue.Slug, owner, me.Department, verb, ask)
 }
 
 // sender is how a message from this identity is signed.

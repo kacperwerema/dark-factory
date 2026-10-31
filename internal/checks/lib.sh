@@ -30,7 +30,9 @@
 #   run <cmd…>          show the command, run it, show its output and exit code;
 #                       sets $out (stdout+stderr) and $code
 #   expect <cond> <meaning>
-#                       a machine check: eval's <cond>, ✓ or ✗; a ✗ fails the step
+#                       a machine check: eval's <cond>, ✓ or ✗; a ✗ fails the step.
+#                       $? in <cond> is the exit code of the command before
+#                       expect (wait_for_url …; expect '[ $? = 0 ]' …)
 #   ask <question>      the owner's y/n (q stops); a n fails the step. In a
 #                       machine run the step is marked "needs your eyes".
 #   eventually <cond> <meaning> [seconds]
@@ -41,7 +43,12 @@
 #   step_end            closes the open step now (its verdict), before summary
 #   checks_default_box <ids>
 #                       the boxes of every later step that names none (else its id)
-#   show <file>         opens an image or file in the desktop viewer, or prints its path
+#   keep <file> [name]  copies a file (a screenshot in a sandbox) next to the run
+#                       records, .agent-logs/checks/<name>/files/, so it outlives
+#                       the sandbox; prints that path and sets $kept
+#   show <file>         keeps the file, then opens the copy in the desktop viewer
+#                       (xdg-open, or open on macOS) in an owner run, else prints
+#                       its path
 #   pause               Enter to go on, q stops (interactive runs only)
 #   summary [--all <boxes>] [--then <text>]
 #                       one line per step, the boxes that passed, a run record
@@ -55,16 +62,23 @@
 # Cleanup and sandboxes
 #   on_exit <cmd…>      runs on exit, q, Ctrl-C or a kill; last registered runs first
 #   sandbox_dir [var]   a fresh temp folder outside any .worktrees/, removed on
-#                       exit; its path goes in $var (default SANDBOX)
+#                       exit; its resolved path (no //, symlinks resolved) goes
+#                       in $var (default SANDBOX). The first one exports
+#                       XDG_STATE_HOME and XDG_CONFIG_HOME into it (state/,
+#                       config/), so nothing the script starts touches the
+#                       shared viewer.json or projects.yaml
 #   sandbox_project <slug> [template] [--workflow <file>] [--name <name>]
 #                       a throwaway project in a sandbox_dir: a git repo, its
 #                       workflow (issue-cli init --template, default development,
 #                       or a copy of <file>), its own projects.yaml (headless:
-#                       terminal: "none"; append more settings to
-#                       $SANDBOX_CONFIG, indented four spaces). Sets
+#                       terminal: "none"). Append the project's own settings
+#                       to $SANDBOX_CONFIG indented four spaces (they go under
+#                       the project); top-level keys (viewer_url,
+#                       allowed_hosts) go above projects:, unindented
+#                       (stand_in_viewer does viewer_url). Sets
 #                       SANDBOX_PROJECT, SANDBOX_PROJECT_DIR and SANDBOX_CONFIG,
-#                       and exports XDG_STATE_HOME and ISSUE_VIEWER_CONFIG into
-#                       the sandbox. Scratch projects must live outside
+#                       and exports XDG_STATE_HOME, XDG_CONFIG_HOME and
+#                       ISSUE_VIEWER_CONFIG into the sandbox. Scratch projects must live outside
 #                       .worktrees/: there issue-cli takes the caller for a
 #                       worker and refuses dispatch and lead spawn.
 #   sandbox_git_identity
@@ -103,13 +117,46 @@
 #                       (env -i, SHELL set to a no-profile bash, stand-ins first
 #                       on PATH). Never use $SHELL -lic in a check that starts
 #                       agents: a login shell rereads the profile and the real
-#                       claude gets in front of the stand-in.
+#                       claude gets in front of the stand-in. env -i also drops
+#                       a worker's identity (AGENT_NAME, its tmux session), so
+#                       the worker guards don't see it: never use clean_shell
+#                       (or sic once a stand-in exists) to run an owner-only
+#                       command from a worker's run. Leave those steps to the
+#                       owner's run (skip them when $AGENT_NAME is set).
 #   background <var> [clean_shell] <cmd…>
 #                       starts <cmd> in the background (through clean_shell if
 #                       named), its pid in $var, killed on exit
 #   free_port [var]     a free local TCP port in $var (default PORT)
 #   wait_for_url <url> [seconds]
 #                       true once <url> answers (default 10 s)
+#
+# Shared stand-ins (each needs sandbox_project, the box private_tmux)
+#   stand_in_viewer     a stand-in viewer: python3's http.server on a free port
+#                       serving $STAND_IN_VIEWER_DIR (put release.json and the
+#                       like under it, e.g. p/<project>/release.json); sets
+#                       $VIEWER_URL and writes viewer_url: at the top of
+#                       $SANDBOX_CONFIG, replacing any; killed on exit
+#   stand_in_claude_box <session> [--swallow-first-enter]
+#                       a stand-in Claude Code input box in a ptmux session:
+#                       submitted lines above a ❯ line between rules, "⏵⏵ auto
+#                       mode on" under it. --swallow-first-enter takes the first
+#                       Enter after a paste as part of the paste, as the real
+#                       box sometimes does (paste and nudge bugs)
+#   expect_box_submitted <session> <text> [meaning]
+#                       eventually: the box submitted a line holding <text>
+#   expect_box_empty <session> [meaning]
+#                       eventually: the box's ❯ line is empty (nothing left typed)
+#   sandbox_yolo_on     turns YOLO on in the sandbox (sic yolo on refuses a
+#                       worker) by writing its own .yolo/<project>.json; check
+#                       it with sic yolo status
+#   seed_department <template> [--parent <group>]
+#                       a department template on the sandbox as department add
+#                       would put it, without running it (a worker is refused):
+#                       the dry run's files (workflows from issue-cli workflow
+#                       init --out, the rest from $SEED_DEPARTMENT_TEMPLATES,
+#                       default the engine's cmd/issue-cli/templates/departments)
+#                       and its departments: entry. Call it after the project's
+#                       other settings: the entry goes at the end of $SANDBOX_CONFIG
 #
 # Environment from check-script: CHECKS_LIB, CHECKS_SLUG, CHECKS_PROJECT (the
 # --project ticking uses), CHECKS_ROOT (the issue's checkout; the library cds
@@ -123,8 +170,13 @@
 #     first (build=; sandbox_dir build).
 #   - Don't set -e: a failed check belongs to its step, it doesn't stop the script.
 #   - A viewer writes viewer.json under XDG_STATE_HOME: run sandbox viewers
-#     after sandbox_project (which moves it into the sandbox), or the owner's
-#     real viewer.json is overwritten.
+#     after sandbox_dir or sandbox_project (which move it into the sandbox;
+#     the project's own state when there is one). Without them a
+#     viewer with a temp-folder config leaves the shared viewer.json alone,
+#     so issue-cli outside the script can't find it; never pass
+#     -record-viewer from a script.
+#   - sandbox_dir is removed on exit, and with it any screenshot in it: show
+#     or keep the file before the script ends.
 #   - shellcheck sees $out and $code used only inside expect strings, and
 #     variables set by sandbox_dir, as unused or unassigned: put
 #     `# shellcheck source=/dev/null disable=SC2034,SC2154` above the source line.
@@ -135,7 +187,7 @@
 # eyes", --touches-real steps are skipped, and nothing is ticked.
 # NO_COLOR, or stdout not a terminal, turns colour off.
 
-CHECKS_LIB_VERSION=2
+CHECKS_LIB_VERSION=3
 
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 	echo "guided checks need bash 4 or newer (this is bash ${BASH_VERSION:-unknown}): brew install bash, then run the script with issue-cli check-script <slug>, which finds it" >&2
@@ -167,7 +219,7 @@ fi
 
 # The caller's environment as it was before any sandbox helper changed it:
 # ticking the real issue runs with it (_ck_real).
-_ck_saved_vars=(TMUX TMUX_TMPDIR XDG_STATE_HOME ISSUE_VIEWER_CONFIG SHELL PATH)
+_ck_saved_vars=(TMUX TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG SHELL PATH)
 declare -A _ck_saved=() _ck_saved_set=()
 for _ck_v in "${_ck_saved_vars[@]}"; do
 	if [ -n "${!_ck_v+x}" ]; then
@@ -376,8 +428,14 @@ run() {
 	return 0
 }
 
+# _ck_rc sets $? to its argument: expect and eventually give <cond> the exit
+# code of the caller's last command, which their own tests overwrite.
+_ck_rc() { return "$1"; }
+
 expect() {
+	local _ck_last=$?
 	[ "$_ck_skipping" = 1 ] && return 0
+	_ck_rc "$_ck_last"
 	if eval "$1"; then
 		echo "  ${_ck_g}✓ $2${_ck_0}"
 		return 0
@@ -388,13 +446,16 @@ expect() {
 }
 
 eventually() {
+	local _ck_last=$?
 	[ "$_ck_skipping" = 1 ] && return 0
 	local tries=$((${3:-10} * 5))
 	while [ "$tries" -gt 0 ]; do
+		_ck_rc "$_ck_last"
 		eval "$1" && break
 		sleep 0.2
 		tries=$((tries - 1))
 	done
+	_ck_rc "$_ck_last"
 	expect "$1" "$2"
 }
 
@@ -420,12 +481,33 @@ pause() {
 	_ck_quit_if_q "$answer"
 }
 
+keep() {
+	local src=${1:?keep needs a file} dir="$CHECKS_ROOT/.agent-logs/checks/$CHECKS_NAME/files"
+	kept=$src
+	if [ ! -f "$src" ] || ! mkdir -p "$dir" 2> /dev/null; then
+		echo "  ${_ck_y}keep: can't keep $src${_ck_0}"
+		return 1
+	fi
+	kept="$dir/$(date -u +%Y%m%dT%H%M%SZ)-${2:-$(basename "$src")}"
+	cp -- "$src" "$kept" || return 1
+	echo "  Kept $kept"
+}
+
 show() {
-	if [ "$CHECKS_MODE" = owner ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open > /dev/null; then
-		xdg-open "$1" > /dev/null 2>&1 &
-		echo "  Opened $1"
+	local file=$1 opener=
+	keep "$file" > /dev/null && file=$kept
+	if [ "$CHECKS_MODE" = owner ]; then
+		if [ "$(uname)" = Darwin ] && command -v open > /dev/null; then
+			opener=open
+		elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open > /dev/null; then
+			opener=xdg-open
+		fi
+	fi
+	if [ -n "$opener" ]; then
+		"$opener" "$file" > /dev/null 2>&1 &
+		echo "  Opened $file"
 	else
-		echo "  Look at $1"
+		echo "  Look at $file"
 	fi
 }
 
@@ -436,8 +518,21 @@ _ck_tmp_base() {
 	echo "$base"
 }
 
+# _ck_sandbox_state points XDG_STATE_HOME and XDG_CONFIG_HOME into <dir>, so
+# a viewer or issue-cli the script starts never reads or writes the shared
+# viewer.json and projects.yaml. Ticking the real issue gets the caller's back
+# (_ck_real).
+_ck_sandbox_state() {
+	mkdir -p -- "$1/state" "$1/config"
+	export XDG_STATE_HOME=$1/state XDG_CONFIG_HOME=$1/config
+	_ck_state_isolated=1
+}
+
 # sandbox_dir's locals are prefixed: printf -v would set a local of the same
-# name instead of the caller's variable.
+# name instead of the caller's variable. The path is resolved (pwd -P): no //
+# from a TMPDIR ending in a slash, and /private/var for /var on macOS, as
+# issue-cli and a viewer print it. The first sandbox_dir isolates the state;
+# a later one keeps it where it is (sandbox_project moves it to its own).
 sandbox_dir() {
 	local _ck_sd_var=${1:-SANDBOX} _ck_sd_path
 	_ck_sd_path=$(mktemp -d "$(_ck_tmp_base)/ck-XXXXXX") || {
@@ -445,6 +540,11 @@ sandbox_dir() {
 		exit 2
 	}
 	on_exit rm -rf -- "$_ck_sd_path"
+	_ck_sd_path=$(cd -P -- "$_ck_sd_path" && pwd -P) || {
+		echo "sandbox_dir: could not resolve the sandbox path" >&2
+		exit 2
+	}
+	[ -n "${_ck_state_isolated:-}" ] || _ck_sandbox_state "$_ck_sd_path"
 	printf -v "$_ck_sd_var" '%s' "$_ck_sd_path"
 }
 
@@ -472,8 +572,9 @@ sandbox_project() {
 	SANDBOX_PROJECT=$name
 	SANDBOX_PROJECT_DIR=$dir/$name
 	SANDBOX_CONFIG=$dir/projects.yaml
-	mkdir -p "$SANDBOX_PROJECT_DIR" "$dir/state"
-	export XDG_STATE_HOME=$dir/state ISSUE_VIEWER_CONFIG=$SANDBOX_CONFIG
+	mkdir -p "$SANDBOX_PROJECT_DIR"
+	_ck_sandbox_state "$dir"
+	export ISSUE_VIEWER_CONFIG=$SANDBOX_CONFIG
 	cat > "$SANDBOX_CONFIG" << YAML
 projects:
   - name: "${display:-$name}"
@@ -603,7 +704,7 @@ expect_stand_in_got() {
 _ck_clean_argv() {
 	_ck_stand_in_dir
 	local keep=() v
-	for v in HOME TERM USER LANG TMUX_TMPDIR XDG_STATE_HOME ISSUE_VIEWER_CONFIG CHECKS_STAND_IN_DIR ${CLEAN_SHELL_KEEP:-}; do
+	for v in HOME TERM USER LANG TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG CHECKS_STAND_IN_DIR ${CLEAN_SHELL_KEEP:-}; do
 		[ -n "${!v+x}" ] && keep+=("$v=${!v}")
 	done
 	_ck_argv=(env -i "${keep[@]}" SHELL="$CHECKS_STAND_IN_DIR/shell" PATH="$CHECKS_STAND_IN_DIR/bin:$PATH"
@@ -651,6 +752,177 @@ wait_for_url() {
 		tries=$((tries - 1))
 	done
 	return 1
+}
+
+# ── Shared stand-ins ─────────────────────────────────────────────────
+_ck_need_sandbox() {
+	if [ -z "${SANDBOX_PROJECT_DIR:-}" ] || [ -z "${SANDBOX_CONFIG:-}" ]; then
+		echo "$1 needs sandbox_project first" >&2
+		exit 2
+	fi
+}
+
+# stand_in_viewer serves $STAND_IN_VIEWER_DIR with python's http.server, as
+# far as issue-cli is concerned the viewer (release.json and the like).
+stand_in_viewer() {
+	_ck_need_sandbox stand_in_viewer
+	if ! command -v python3 > /dev/null; then
+		echo "stand_in_viewer needs python3" >&2
+		exit 2
+	fi
+	local port='' pid=''
+	STAND_IN_VIEWER_DIR=''
+	sandbox_dir STAND_IN_VIEWER_DIR
+	free_port port || exit 2
+	background pid python3 -m http.server "$port" --bind 127.0.0.1 --directory "$STAND_IN_VIEWER_DIR"
+	VIEWER_URL=http://127.0.0.1:$port
+	# viewer_url is a top-level key: it goes above projects:, replacing any.
+	{
+		printf 'viewer_url: "%s"\n' "$VIEWER_URL"
+		grep -v '^viewer_url:' "$SANDBOX_CONFIG"
+	} > "$SANDBOX_CONFIG.tmp" && mv "$SANDBOX_CONFIG.tmp" "$SANDBOX_CONFIG"
+	if ! wait_for_url "$VIEWER_URL/" 10; then
+		echo "stand_in_viewer: the stand-in viewer at $VIEWER_URL did not answer" >&2
+		exit 2
+	fi
+}
+
+stand_in_claude_box() {
+	local session=${1:?stand_in_claude_box needs a session name} swallow=0
+	[ "${2:-}" = --swallow-first-enter ] && swallow=1
+	: "${CHECKS_TMUX_DIR:?stand_in_claude_box needs private_tmux first}"
+	if [ -z "${CHECKS_BOX_DIR:-}" ]; then
+		CHECKS_BOX_DIR=''
+		sandbox_dir CHECKS_BOX_DIR
+		# The input box: submitted lines ("> …") above a ❯ line between two
+		# rules. With $2 = 1 the first Enter after text arrives is taken as
+		# part of it. A submitted line is written aside and moved into place.
+		cat > "$CHECKS_BOX_DIR/box.sh" << 'SH'
+log=$1 swallow_first=$2 buf="" swallow=0
+draw() { printf '\033[H\033[2J'; [ -s "$log" ] && sed 's/^/> /' "$log"; echo; printf '%s\n' "────────────────────" "❯ $buf" "────────────────────" "  ⏵⏵ auto mode on"; }
+stty -icanon -echo min 1
+printf '\033[?2004h'
+: > "$log"
+draw
+while IFS= read -r -N1 c; do
+	case $c in
+	$'\e') IFS= read -r -N5 _ ;;
+	$'\r' | $'\n')
+		if [ "$swallow" = 1 ]; then
+			swallow=0
+		elif [ -n "$buf" ]; then
+			{ cat "$log"; printf '%s\n' "$buf"; } > "$log.new" && mv "$log.new" "$log"
+			buf=""
+		fi
+		;;
+	*)
+		[ -z "$buf" ] && [ "$swallow_first" = 1 ] && swallow=1
+		buf+=$c
+		;;
+	esac
+	draw
+done
+SH
+	fi
+	ptmux new-session -d -s "$session" -x 140 -y 30 "$BASH" "$CHECKS_BOX_DIR/box.sh" "$CHECKS_BOX_DIR/$session.submitted" "$swallow" || {
+		echo "stand_in_claude_box: could not start $session" >&2
+		exit 2
+	}
+	local tries=50
+	until ptmux capture-pane -p -t "$session" 2> /dev/null | grep -q 'auto mode on'; do
+		tries=$((tries - 1))
+		if [ "$tries" -le 0 ]; then
+			echo "stand_in_claude_box: $session never drew its box" >&2
+			exit 2
+		fi
+		sleep 0.2
+	done
+}
+
+expect_box_submitted() {
+	local session=${1:?expect_box_submitted needs a session} text=${2:?expect_box_submitted needs a text}
+	eventually "grep -qF -- $(printf '%q' "$text") $(printf '%q' "${CHECKS_BOX_DIR:-/nonexistent}/$session.submitted") 2> /dev/null" "${3:-$session submitted: $text}"
+}
+
+expect_box_empty() {
+	local session=${1:?expect_box_empty needs a session}
+	eventually "ptmux capture-pane -p -t $(printf '%q' "$session") | grep -q '^❯ *\$'" "${2:-the input box of $session is empty}"
+}
+
+# sandbox_yolo_on writes the sandbox's YOLO window (sic yolo on refuses a
+# worker): the sandbox's own .yolo/, never anywhere else.
+sandbox_yolo_on() {
+	_ck_need_sandbox sandbox_yolo_on
+	local dir=$SANDBOX_PROJECT_DIR/.yolo
+	case "$dir" in
+	"$(dirname "$SANDBOX_CONFIG")"/*) ;;
+	*)
+		echo "sandbox_yolo_on: $dir is outside the sandbox" >&2
+		exit 2
+		;;
+	esac
+	mkdir -p "$dir" || exit 2
+	printf '{"on": true, "since": "%s", "forever": true, "by": "owner", "words": "guided check sandbox", "how": "check script", "valves": {"ci_red_minutes": 0, "releases": false}}\n' \
+		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/.tmp" && mv "$dir/.tmp" "$dir/$SANDBOX_PROJECT.json"
+}
+
+# seed_department puts a department template on the sandbox the way
+# department add would, without running it (a worker is refused): it reads
+# the dry run's plan, writes its files and adds its entry to $SANDBOX_CONFIG.
+seed_department() {
+	_ck_need_sandbox seed_department
+	local tmpl=${1:?seed_department needs a template (issue-cli department list)} plan files entries src
+	shift
+	src=${SEED_DEPARTMENT_TEMPLATES:-$CHECKS_ROOT/cmd/issue-cli/templates/departments}
+	if ! plan=$(sic --json department add "$tmpl" "$@" --dry-run 2>&1); then
+		echo "seed_department: department add $tmpl --dry-run failed:" >&2
+		printf '%s\n' "$plan" >&2
+		exit 2
+	fi
+	files=$(python3 -I -c '
+import json, sys
+def walk(p):
+    yield p
+    for c in p.get("children") or []:
+        yield from walk(c)
+for p in walk(json.load(sys.stdin)):
+    for f in p.get("files") or []:
+        if f.get("state") == "write":
+            print(f["path"])
+' <<< "$plan") || exit 2
+	entries=$(python3 -I -c '
+import json, sys
+def walk(p):
+    yield p
+    for c in p.get("children") or []:
+        yield from walk(c)
+for p in walk(json.load(sys.stdin)):
+    for line in p["entry"].rstrip("\n").split("\n"):
+        print("      " + line)
+' <<< "$plan") || exit 2
+	local f name
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		mkdir -p "$SANDBOX_PROJECT_DIR/$(dirname "$f")"
+		case "$f" in
+		*.yaml)
+			name=$(basename "$f" .yaml)
+			if ! sic workflow init --template "$name" --out "$f" > /dev/null; then
+				echo "seed_department: could not write $f (workflow template $name)" >&2
+				exit 2
+			fi
+			;;
+		departments/*)
+			if [ -f "$src/${f#departments/}" ]; then
+				cp -- "$src/${f#departments/}" "$SANDBOX_PROJECT_DIR/$f"
+			else
+				printf '# %s\n\nSeeded by a guided check (no template source at %s).\n' "$(basename "$f")" "$src" > "$SANDBOX_PROJECT_DIR/$f"
+			fi
+			;;
+		esac
+	done <<< "$files"
+	grep -q '^    departments:' "$SANDBOX_CONFIG" || echo "    departments:" >> "$SANDBOX_CONFIG"
+	printf '%s\n' "$entries" >> "$SANDBOX_CONFIG"
 }
 
 # ── Summary ──────────────────────────────────────────────────────────
@@ -715,7 +987,19 @@ summary() {
 	fi
 
 	if [ "$CHECKS_MODE" = machine ]; then
-		echo "Machine run: ${#failed[@]} failed, ${#eyes[@]} need the owner's eyes, ${#skipped[@]} skipped. Nothing ticked."
+		# The boxes of steps that need the owner's eyes or were skipped: the
+		# machine run ticks nothing, and these are the owner's to check.
+		local owner_boxes=() r
+		for b in "${box_order[@]}"; do
+			for id in "${_ck_order[@]}"; do
+				r=${_ck_result[$id]:-fail}
+				if [[ " ${_ck_boxes[$id]} " == *" $b "* ]] && { [ "$r" = eyes ] || [ "$r" = skip ]; }; then
+					owner_boxes+=("$b")
+					break
+				fi
+			done
+		done
+		echo "Machine run: ${#failed[@]} failed, ${#eyes[@]} need the owner's eyes, ${#skipped[@]} skipped. Left to the owner: ${owner_boxes[*]:-none from this script}."
 		[ ${#failed[@]} = 0 ]
 		return
 	fi

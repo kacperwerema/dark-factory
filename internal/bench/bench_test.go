@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -465,6 +466,18 @@ func TestFindRangeAndHiddenTestsFromAnIssuesStats(t *testing.T) {
 	if tests := HiddenTests(repo, r, hidden); strings.Join(tests, ",") != "TestNew" {
 		t.Fatalf("hidden tests = %v", tests)
 	}
+	if f := ForeignFiles(repo, r); len(f) != 0 {
+		t.Errorf("a branch with only its own commits: foreign = %v", f)
+	}
+	// Main moves under the branch: b.go is not the branch's.
+	mustGit(t, repo, "checkout", "-q", "-b", "side", base)
+	side := commit(t0.Add(-20*time.Minute), "b.go", "package a\n")
+	mustGit(t, repo, "checkout", "-q", "main")
+	mustGit(t, repo, "merge", "-q", "--no-ff", "-m", "merge", side)
+	merge := mustGit(t, repo, "rev-parse", "HEAD")
+	if f := ForeignFiles(repo, Range{Base: r.Base, Merged: merge, Files: r.Files}); strings.Join(f, ",") != "b.go" {
+		t.Errorf("main merged in: foreign = %v, want b.go", f)
+	}
 	if _, err := FindRange(repo, tracker.StatsStore{}); err != ErrNoRange {
 		t.Errorf("no stats: err = %v", err)
 	}
@@ -569,5 +582,49 @@ func TestRunUsesTheSetupsIssueCLIAndWorkflow(t *testing.T) {
 	}
 	if saved, _ := LoadRun("t", run.ID); saved.Setup.Ref != "abc" || saved.Setup.Label != "B" {
 		t.Errorf("setup = %+v", saved.Setup)
+	}
+}
+
+func TestCandidateRisksReadOnlyTheHiddenTestsBodies(t *testing.T) {
+	src := "package a\n\nfunc TestNew(t *testing.T) {\n\tnewTmux(t)\n\ttime.Sleep(time.Millisecond)\n}\n\nfunc TestOther(t *testing.T) {\n\tchromedp.Run(nil)\n}\n"
+	got := CandidateRisks(map[string]string{"a_test.go": src}, []string{"TestNew"}, "## AC\n- [ ] (owner) The owner picks.\n")
+	if strings.Join(got, ",") != "tmux,timing,owner steps" {
+		t.Errorf("risks = %v, want tmux,timing,owner steps (TestOther's browser is not a hidden test)", got)
+	}
+	many := make([]string, BroadTests+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("Test%d", i)
+	}
+	got = CandidateRisks(map[string]string{"a_test.go": "package a\n", "playtest/sessions/x.yaml": "steps: []\n"}, many, "")
+	if strings.Join(got, ",") != fmt.Sprintf("browser,broad (%d tests)", BroadTests+1) {
+		t.Errorf("risks = %v", got)
+	}
+	if got := CandidateRisks(nil, nil, "- [ ] The owner tries it (owner)\n"); strings.Join(got, ",") != "owner steps" {
+		t.Errorf("a trailing (owner) box: %v", got)
+	}
+	if got := CandidateRisks(map[string]string{"a_test.go": src}, []string{"TestQuiet"}, "- [x] done\n"); len(got) != 0 {
+		t.Errorf("a task with no risks: %v", got)
+	}
+}
+
+// Tokens count cache reads, about 15M per dark-factory task: one task fits
+// the default cap, and a run with no tokens set is capped per task.
+func TestDefaultTokenCapFitsOneTaskWithCacheReads(t *testing.T) {
+	task := Usage{Input: 40_000, Output: 300_000, CacheRead: 15_000_000, CacheWrite: 900_000}
+	if task.Tokens() >= DefaultTaskTokens {
+		t.Fatalf("one task's %d tokens do not fit DefaultTaskTokens %d", task.Tokens(), DefaultTaskTokens)
+	}
+	if got := (Budget{}).TokenCap(3); got != 3*DefaultTaskTokens {
+		t.Errorf("unset cap for 3 tasks = %d", got)
+	}
+	if got := (Budget{Tokens: 1000}).TokenCap(3); got != 1000 {
+		t.Errorf("set cap = %d", got)
+	}
+	run := &Run{SpentTokens: 2 * task.Tokens()}
+	if over := overBudget(Budget{}, 3, run, time.Now(), task.Tokens(), 0); over != "" {
+		t.Errorf("three tasks under the default cap stopped: %s", over)
+	}
+	if over := overBudget(Budget{}, 1, run, time.Now(), 0, 0); !strings.Contains(over, "token budget") {
+		t.Errorf("two tasks' tokens on a one-task cap: %q", over)
 	}
 }

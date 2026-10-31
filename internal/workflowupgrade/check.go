@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Paths of the files catalog-check reads, relative to the repository root.
@@ -28,13 +26,32 @@ const PromptSource = "@prompt"
 
 // Branch is what catalog-check knows about a work branch: the files it
 // changes since the merge-base, their content on each side, and the
-// `Catalog: n/a <id>[,<id>] <why>` trailers on its own commits.
+// `Catalog: n/a <id>[,<id>] <why>` lines on its own commits.
 type Branch struct {
 	Changed []string
 	// Base and Head return a file's content; ok is false when it doesn't
 	// exist on that side.
 	Base, Head func(path string) (data []byte, ok bool)
-	Trailers   []string
+	// HeadDir lists the file names in a folder at the head (the split
+	// catalog); nil when there are none.
+	HeadDir  func(dir string) []string
+	Trailers []Trailer
+}
+
+// Trailer is the value of one Catalog: line and the commit it is on.
+type Trailer struct {
+	Commit string `json:"commit"`
+	Value  string `json:"value"`
+}
+
+// TrailerForm is the one form of Catalog: line catalog-check reads.
+const TrailerForm = "Catalog: n/a <id>[,<id>...] <why>"
+
+// BadTrailer is a Catalog: line that marks nothing: it isn't an n/a, names
+// no entry id, or names an entry the catalog doesn't have.
+type BadTrailer struct {
+	Trailer
+	Problem string `json:"problem"`
 }
 
 // CheckEntry is one catalog entry whose sources the branch changes.
@@ -61,10 +78,15 @@ type CheckReport struct {
 	NextRelease string          `json:"next_release"`
 	Entries     []CheckEntry    `json:"entries"`
 	Templates   []CheckTemplate `json:"templates"`
+	BadTrailers []BadTrailer    `json:"bad_trailers"`
 }
 
-// OK reports whether every touched entry and template is bumped or marked n/a.
+// OK reports whether every touched entry and template is bumped or marked
+// n/a, and every Catalog: line is one catalog-check reads.
 func (r *CheckReport) OK() bool {
+	if len(r.BadTrailers) > 0 {
+		return false
+	}
 	for _, e := range r.Entries {
 		if e.State == "stale" {
 			return false
@@ -103,24 +125,38 @@ func NextRelease(last string) string {
 // The catalog and templates are read from the branch head, so the check
 // sees the bumps the branch itself makes.
 func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
-	rep := &CheckReport{LastRelease: lastRelease, NextRelease: NextRelease(lastRelease), Entries: []CheckEntry{}, Templates: []CheckTemplate{}}
+	rep := &CheckReport{LastRelease: lastRelease, NextRelease: NextRelease(lastRelease), Entries: []CheckEntry{}, Templates: []CheckTemplate{}, BadTrailers: []BadTrailer{}}
 	raw, ok := b.Head(CatalogPath)
 	if !ok {
 		return nil, fmt.Errorf("%s not found: catalog-check runs in the issue-viewer repository", CatalogPath)
 	}
-	var doc struct {
-		Entries []Entry `yaml:"entries"`
+	var split []CatalogFile
+	if b.HeadDir != nil {
+		for _, name := range b.HeadDir(SplitCatalogPath) {
+			if path.Ext(name) != ".yaml" {
+				continue
+			}
+			if data, ok := b.Head(SplitCatalogPath + "/" + name); ok {
+				split = append(split, CatalogFile{Name: name, Data: data})
+			}
+		}
 	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", CatalogPath, err)
+	entries, err := ParseCatalog(raw, split, false)
+	if err != nil {
+		return nil, err
 	}
-	na := naTrailers(b.Trailers)
+	known := map[string]bool{}
+	for _, e := range entries {
+		known[e.ID] = true
+	}
+	na, bad := naTrailers(b.Trailers, known)
+	rep.BadTrailers = append(rep.BadTrailers, bad...)
 	newer := func(v string) bool { return CompareVersions(v, lastRelease) > 0 }
 
-	for _, e := range doc.Entries {
+	for _, e := range entries {
 		var files []string
 		for _, f := range b.Changed {
-			if sourceChanged(e.Sources, f, b) {
+			if !Exempt(f) && sourceChanged(e.Sources, f, b) {
 				files = append(files, f)
 			}
 		}
@@ -155,23 +191,44 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 	return rep, nil
 }
 
-// naTrailers parses `Catalog: n/a <id>[,<id>...] <why>` trailer values into
-// id → why.
-func naTrailers(values []string) map[string]string {
+var naTrailer = regexp.MustCompile(`(?i)^n/a(?:\s+([^\s,]+(?:\s*,\s*[^\s,]+)*)(?:\s+(.*))?)?$`)
+
+// naTrailers parses `Catalog: n/a <id>[,<id>...] <why>` values into id → why,
+// and returns the values that mark nothing as bad.
+func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []BadTrailer) {
 	out := map[string]string{}
-	for _, v := range values {
-		rest, ok := strings.CutPrefix(strings.TrimSpace(v), "n/a ")
-		if !ok {
+	var bad []BadTrailer
+	for _, t := range values {
+		t.Value = strings.TrimSpace(t.Value)
+		if t.Value == "" {
 			continue
 		}
-		ids, why, _ := strings.Cut(strings.TrimSpace(rest), " ")
-		for _, id := range strings.Split(ids, ",") {
-			if id = strings.TrimSpace(id); id != "" {
-				out[id] = strings.TrimSpace(why)
+		m := naTrailer.FindStringSubmatch(t.Value)
+		switch {
+		case m == nil:
+			bad = append(bad, BadTrailer{t, "only n/a is read in a Catalog: line"})
+			continue
+		case m[1] == "":
+			bad = append(bad, BadTrailer{t, "names no entry: the entry id comes right after n/a"})
+			continue
+		}
+		var ids, unknown []string
+		for _, id := range strings.Split(m[1], ",") {
+			if id = strings.TrimSpace(id); known[id] {
+				ids = append(ids, id)
+			} else {
+				unknown = append(unknown, fmt.Sprintf("%q", id))
 			}
 		}
+		if len(unknown) > 0 {
+			bad = append(bad, BadTrailer{t, "no catalog entry " + strings.Join(unknown, ", ") + " (the entry id comes right after n/a)"})
+			continue
+		}
+		for _, id := range ids {
+			out[id] = strings.TrimSpace(m[2])
+		}
 	}
-	return out
+	return out, bad
 }
 
 // sourceChanged reports whether the changed file f is one of the sources

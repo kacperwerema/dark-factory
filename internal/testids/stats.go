@@ -47,5 +47,10 @@ func init() {
 		"stats.table_card.*",
 		"stats.fold.*",
 		"stats.empty",
+		// Moved from the classic Stats page (classic-page-gaps).
+		"stats.all",
+		"stats.saved",
+		"stats.time_rules",
+		"stats.overview.ratio",
 	)
 }

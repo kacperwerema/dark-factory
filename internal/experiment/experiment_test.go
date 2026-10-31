@@ -242,6 +242,28 @@ func TestCandidates(t *testing.T) {
 	}
 }
 
+// A theme told in the workflow's own words (the tests: comment, Proves:
+// trailers) groups across issues like a code-like term does.
+func TestCandidatesGroupWorkflowPrefixes(t *testing.T) {
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	mk := func(file, slug, body string) *retro.Entry {
+		return &retro.Entry{FileName: file, IssueSlug: slug, Body: body, ModTime: now.Add(-time.Hour)}
+	}
+	entries := []*retro.Entry{
+		mk("1.md", "cli/a", "Base workflow: the proof wanted a tests: comment before the trailer counted."),
+		mk("2.md", "cli/b", "Base workflow: smooth. Friction: a tests: report goes stale on every commit."),
+		mk("3.md", "ui/c", "Subsystem workflow for UI: the Proves: trailer read UNPROVEN until the tests: comment."),
+	}
+	patterns, _ := Candidates(entries, nil, nil, 3, now)
+	var terms []string
+	for _, p := range patterns {
+		terms = append(terms, p.Term)
+	}
+	if len(patterns) != 1 || patterns[0].Term != "tests:" || len(patterns[0].Issues) != 3 {
+		t.Fatalf("patterns: %q", terms)
+	}
+}
+
 func gitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

@@ -28,6 +28,9 @@ type Project struct {
 	Departments []Department `yaml:"departments"`
 	// Company is HQ's mission, role prompt and business goals; optional.
 	Company *Company `yaml:"company"`
+	// Connections are the declared routes between boxes: who may ask whom
+	// and whose outputs feed whom (internal/connections); optional.
+	Connections *Connections `yaml:"connections"`
 	// Product is the departments: entry named Product, taken out of
 	// Departments on load: it gives Product a mission, prompt and goals but
 	// Product still owns every issue no other department claims.
@@ -168,6 +171,7 @@ func (p *Project) attachRuntime(wf *WorkflowConfig) {
 		return
 	}
 	wf.IssuesRoot = p.IssueDir
+	wf.ProjectRoot = p.Root()
 	wf.RepoRoot = p.TelemetryRoot()
 	if wf.LookupIssue == nil && p.IssueDir != "" {
 		dir := p.IssueDir
@@ -236,8 +240,34 @@ type ProjectsConfig struct {
 	// AllowedHosts are the Host names the viewer answers to besides
 	// loopback (localhost, 127.0.0.1, [::1], *.localhost): a LAN or VPN
 	// name it is reached by. Any other Host gets 421 (DNS rebinding).
-	AllowedHosts []string  `yaml:"allowed_hosts"`
-	Projects     []Project `yaml:"projects"`
+	AllowedHosts []string `yaml:"allowed_hosts"`
+	// Identity is the identity check a public request must pass: a Host
+	// that isn't loopback, or a request through a proxy or tunnel. Unset,
+	// the viewer refuses every public request (docs/API/security.md).
+	Identity *IdentityConfig `yaml:"identity"`
+	// TelemetryData is the path to a telemetry collector's data
+	// (cmd/telemetry-collector's batches.jsonl or its -data dir), which
+	// the viewer's /telemetry page reads. Relative to the config's folder;
+	// optional, set by hand, never written.
+	TelemetryData string    `yaml:"telemetry_data"`
+	Projects      []Project `yaml:"projects"`
+}
+
+// IdentityConfig is projects.yaml's identity: block. Cloudflare Access sits
+// in front of the public name; the viewer verifies the token it adds and
+// answers only the owners.
+type IdentityConfig struct {
+	CloudflareAccess struct {
+		// TeamDomain is <team>.cloudflareaccess.com, the token's issuer.
+		TeamDomain string `yaml:"team_domain"`
+		// Audience is the Access application's AUD tag.
+		Audience string `yaml:"audience"`
+		// CertsURL overrides https://<team_domain>/cdn-cgi/access/certs
+		// (tests point it at a local server).
+		CertsURL string `yaml:"certs_url"`
+	} `yaml:"cloudflare_access"`
+	// Owners are the emails allowed through; everyone else gets 403.
+	Owners []string `yaml:"owners"`
 }
 
 func LoadProjects(configPath string) ([]Project, error) {
@@ -268,6 +298,9 @@ func LoadProjectsConfig(configPath string) (*ProjectsConfig, error) {
 	absConfig := configPath
 	if abs, err := filepath.Abs(configPath); err == nil {
 		absConfig = abs
+	}
+	if td := strings.TrimSpace(cfg.TelemetryData); td != "" && !filepath.IsAbs(td) {
+		cfg.TelemetryData = filepath.Join(filepath.Dir(absConfig), td)
 	}
 
 	for i := range cfg.Projects {
@@ -339,6 +372,13 @@ type Department struct {
 	Connectors []Connector `yaml:"connectors"`
 	// Jobs are the department's recurring jobs (internal/jobs reads them).
 	Jobs []Job `yaml:"jobs"`
+	// Parent is the group (another department's name or key) this
+	// department sits under; "" reports straight to HQ. One level only
+	// (department_group.go).
+	Parent string `yaml:"parent"`
+	// Budget is what the department may spend, shown as "x of y" and never
+	// enforced (budget.go, docs/departments.md#spend-and-budgets).
+	Budget *Budget `yaml:"budget"`
 }
 
 // Job is one recurring job of a department: a schedule and the brief each
@@ -358,8 +398,32 @@ type Job struct {
 	Brief string `yaml:"brief" json:"brief"`
 	// Priority is the run issue's priority; optional.
 	Priority string `yaml:"priority" json:"priority,omitempty"`
+	// Type is the type of work (the department workflow's types:) a run is
+	// created with; optional, default_type when empty.
+	Type string `yaml:"type" json:"type,omitempty"`
 	// Overlap lets a new run start while the last one is still open.
 	Overlap bool `yaml:"overlap" json:"overlap,omitempty"`
+}
+
+// Connections are projects.yaml's declared connections between boxes (hq,
+// product, a department or group key). See docs/departments.md#connections.
+type Connections struct {
+	// Requests are who may ask whom; once any is declared, a request off
+	// these routes is refused.
+	Requests []Route `yaml:"requests"`
+	// Feeds are whose outputs another box uses; never enforced, only drawn.
+	Feeds []Route `yaml:"feeds"`
+}
+
+// Route is one declared connection from one box to another.
+type Route struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+	// Via is the box that forwards a request (hq, or the asker's group);
+	// "" is a straight line. Requests only.
+	Via string `yaml:"via"`
+	// What is a few words on what passes; optional.
+	What string `yaml:"what"`
 }
 
 // Company is HQ: the business's mission, the CEO's role prompt and the
@@ -373,6 +437,9 @@ type Company struct {
 	// Jobs are read only so lint can say HQ runs none: jobs belong to a
 	// department.
 	Jobs []Job `yaml:"jobs"`
+	// Budget is the whole project's: everything rolling up into HQ. Shown
+	// only, never enforced (budget.go).
+	Budget *Budget `yaml:"budget"`
 }
 
 // Goal is one goal / KPI of HQ or a department. See docs/departments.md.

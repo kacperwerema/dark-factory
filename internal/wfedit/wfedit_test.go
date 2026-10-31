@@ -318,7 +318,7 @@ func TestGateToggleOnRealFiles(t *testing.T) {
 				for _, l := range changedLines(pv.Diff) {
 					body := strings.TrimSpace(l[1:])
 					// A gate that was the edge's only action leaves actions: [].
-					if body != `- type: "require_human_approval"` && body != "- type: require_human_approval" && !strings.HasPrefix(body, "status: ") && body != "actions:" && body != "actions: []" {
+					if body != `- type: "require_human_approval"` && body != "- type: require_human_approval" && !strings.HasPrefix(body, "status: ") && !strings.HasPrefix(body, "owner_only: ") && body != "actions:" && body != "actions: []" {
 						t.Errorf("%s %s (gate on=%v): line outside the gate changed: %q\n%s", path, e.Label(), on, l, pv.Diff)
 						break
 					}

@@ -141,13 +141,20 @@ type LeadRoute struct {
 	Department string
 	// DepartmentLead is the department's lead session ("" for Product).
 	DepartmentLead string
+	// Group is the group the department sits under ("" when none), and
+	// GroupLead its lead session: next in line when DepartmentLead is not
+	// running. Under nested groups, when the department's lead is not
+	// running, they name the nearest group up the chain whose lead is.
+	Group     string
+	GroupLead string
 	// Covering is set when the CEO stands in for a department lead that is
 	// not running.
 	Covering bool
 }
 
 // LeadFor routes issue to its department's lead when that session is live,
-// else to the CEO, and names its epic. live reports whether a session name
+// else to its group's lead when that one is, else to the CEO, and names its
+// epic. live reports whether a session name
 // is running; nil means nothing is.
 func LeadFor(proj *Project, issue *Issue, issues []*Issue, live func(name string) bool) LeadRoute {
 	isLive := func(name string) bool { return live != nil && live(name) }
@@ -159,10 +166,23 @@ func LeadFor(proj *Project, issue *Issue, issues []*Issue, live func(name string
 		if dept := proj.DepartmentOf(issue); dept != "" {
 			route.Department = dept
 			route.DepartmentLead = DepartmentLeadName(proj, dept)
-			if isLive(route.DepartmentLead) {
+			if g := proj.GroupOf(dept); g != nil {
+				route.Group, route.GroupLead = g.Name, DepartmentLeadName(proj, g.Name)
+			}
+			switch {
+			case isLive(route.DepartmentLead):
 				route.Lead, route.Live = route.DepartmentLead, true
-			} else {
+			default:
 				route.Covering = true
+				// The nearest live group lead up the chain covers
+				// (factory/nested-groups-…#D-2), else the CEO.
+				for _, g := range proj.Ancestors(dept) {
+					if gl := DepartmentLeadName(proj, g.Name); isLive(gl) {
+						route.Lead, route.Live = gl, true
+						route.Group, route.GroupLead = g.Name, gl
+						break
+					}
+				}
 			}
 		}
 	}

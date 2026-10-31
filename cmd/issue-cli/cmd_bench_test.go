@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -177,6 +179,86 @@ func TestBenchCandidatesWritesNothing(t *testing.T) {
 	}
 }
 
+// TestBenchCandidatesLeavesOutTestsWithoutGoTestsAndNamesRisks: a done
+// issue whose only test file holds no Go test is judged by its check alone,
+// so it is left out with why; a proposed one names its risks and tests.
+func TestBenchCandidatesLeavesOutTestsWithoutGoTestsAndNamesRisks(t *testing.T) {
+	proj, base, merged := benchProject(t)
+	repo := proj.WorkDir
+	// The issues' work starts at t0; their commits come after it, the
+	// fixture's own before.
+	t0 := time.Now().Add(time.Hour)
+	at := t0
+	git := func(args ...string) string {
+		t.Helper()
+		at = at.Add(time.Minute)
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_AUTHOR_DATE="+at.Format(time.RFC3339), "GIT_COMMITTER_DATE="+at.Format(time.RFC3339))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	// fix-add gets a tmux test and an owner box; js-only adds a non-Go test.
+	if err := os.WriteFile(filepath.Join(repo, "add_test.go"), []byte("package calc\n\nimport \"testing\"\n\nfunc TestAddAdds(t *testing.T) {\n\t_ = \"tmux\"\n\tif Add(2, 3) != 5 {\n\t\tt.Fatal(\"2+3\")\n\t}\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("commit", "-qam", "tmux in the test")
+	merged = git("rev-parse", "HEAD")
+	t1 := at.Add(30 * time.Second)
+	if err := os.WriteFile(filepath.Join(repo, "ui.test.js"), []byte("test('x', () => {})\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "-A")
+	git("commit", "-qm", "js test")
+	jsHead := git("rev-parse", "HEAD")
+	fix := filepath.Join(proj.IssueDir, "calc", "fix-add.md")
+	if err := os.WriteFile(fix, []byte("---\ntitle: \"Fix add\"\nstatus: \"done\"\nsystem: \"calc\"\ntype: \"bugfix\"\n---\n\n- [ ] (owner) The owner tries it.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	js := filepath.Join(proj.IssueDir, "calc", "js-only.md")
+	if err := os.WriteFile(js, []byte("---\ntitle: \"Js only\"\nstatus: \"done\"\nsystem: \"calc\"\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stats := func(path string, start time.Time, from, head string) {
+		t.Helper()
+		s := tracker.StatsStore{Transitions: []tracker.TransitionStat{
+			{To: "in progress", TS: start, BranchHead: from},
+			{To: "done", TS: at, BranchHead: head, MergeSHA: head},
+		}}
+		s.Dispatches = []tracker.Dispatch{{At: start}}
+		if err := tracker.SaveStats(path, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stats(fix, t0, base, merged)
+	stats(js, t1, merged, jsHead)
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"risk: tmux, owner steps", "- calc/js-only  no Go tests in its test files"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("candidates --all lacks %q:\n%s", want, out)
+		}
+	}
+	ctx, out, _ = newTestContext(proj, true)
+	if err := runBench(ctx, []string{"candidates"}); err != nil {
+		t.Fatal(err)
+	}
+	var cands []bench.Candidate
+	if err := json.Unmarshal(out.Bytes(), &cands); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(cands) != 1 || cands[0].Slug != "calc/fix-add" || cands[0].System != "calc" || strings.Join(cands[0].TestNames, ",") != "TestAddAdds" {
+		t.Errorf("candidates --json = %+v", cands)
+	}
+}
+
 func TestBenchReportAndCompareShowTheHoldoutOnlyAsACountAndExitByVerdict(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
 	asWorker(t)
@@ -273,5 +355,142 @@ func TestBenchIssueCLIBuildsTheSetupRef(t *testing.T) {
 	}
 	if _, _, err := benchIssueCLI(t.Context(), "no-such-ref", engine, t.TempDir(), &log); err == nil {
 		t.Error("an unknown ref must fail")
+	}
+}
+
+// TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites: --check
+// labels the proposed candidate solvable with why, leaves no worktree or
+// temp folder behind, never runs a model (claude on PATH is a tripwire)
+// and writes no benchmark file.
+func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) {
+	proj, _, _ := benchProject(t)
+	repo := proj.WorkDir
+	t0 := time.Now().Add(time.Hour)
+	git := func(at time.Time, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if !at.IsZero() {
+			cmd.Env = append(cmd.Env, "GIT_AUTHOR_DATE="+at.Format(time.RFC3339), "GIT_COMMITTER_DATE="+at.Format(time.RFC3339))
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	// A base from before the issue started, then the issue's own fix.
+	if err := os.WriteFile(filepath.Join(repo, "calc.go"), []byte("package calc\n\nfunc Add(a, b int) int { return a - b }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(time.Time{}, "rm", "-q", "add_test.go")
+	git(time.Time{}, "commit", "-qam", "back to the bug")
+	base := git(time.Time{}, "rev-parse", "HEAD")
+	git(time.Time{}, "checkout", "-q", "HEAD~1", "--", "calc.go", "add_test.go")
+	git(t0.Add(time.Minute), "commit", "-qm", "fix add")
+	merged := git(time.Time{}, "rev-parse", "HEAD")
+	fix := filepath.Join(proj.IssueDir, "calc", "fix-add.md")
+	s := tracker.StatsStore{Transitions: []tracker.TransitionStat{
+		{To: "in progress", TS: t0, BranchHead: base},
+		{To: "done", TS: t0.Add(2 * time.Minute), BranchHead: merged, MergeSHA: merged},
+	}, Dispatches: []tracker.Dispatch{{At: t0}}}
+	if err := tracker.SaveStats(fix, s); err != nil {
+		t.Fatal(err)
+	}
+
+	tripwire := filepath.Join(t.TempDir(), "model-called")
+	bin := t.TempDir()
+	for _, name := range []string{"claude", "codex"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\ntouch "+tripwire+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	orig := replayMemGuard
+	replayMemGuard = func(io.Writer) func() (bool, string) { return nil }
+	t.Cleanup(func() { replayMemGuard = orig })
+
+	ctx, out, errb := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--replay"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "replay: solvable — 1 hidden tests fail on base and pass with its 1 own commits"; !strings.Contains(out.String(), want) {
+		t.Errorf("candidates --replay lacks %q:\n%s\nstderr:\n%s", want, out, errb)
+	}
+	if !strings.Contains(errb.String(), "replaying calc/fix-add (1/1)") {
+		t.Errorf("no progress on stderr:\n%s", errb)
+	}
+	ctx, out, _ = newTestContext(proj, true)
+	if err := runBench(ctx, []string{"candidates", "--replay", "calc/fix-add"}); err != nil {
+		t.Fatal(err)
+	}
+	var cands []bench.Candidate
+	if err := json.Unmarshal(out.Bytes(), &cands); err != nil || len(cands) != 1 || cands[0].Replay != bench.ReplaySolvable || cands[0].ReplayWhy == "" {
+		t.Errorf("candidates --replay --json = %+v (%v)\n%s", cands, err, out)
+	}
+	if wts := git(time.Time{}, "worktree", "list", "--porcelain"); strings.Count(wts, "worktree ") != 1 {
+		t.Errorf("--replay left a worktree behind:\n%s", wts)
+	}
+	if left, _ := os.ReadDir(tmp); len(left) != 0 {
+		t.Errorf("--replay left %d entries in TMPDIR", len(left))
+	}
+	if _, err := os.Stat(tripwire); err == nil {
+		t.Errorf("--replay called a model")
+	}
+	if _, err := os.Stat(bench.Dir()); !os.IsNotExist(err) {
+		t.Errorf("--replay created %s", bench.Dir())
+	}
+	// Slugs without --replay are a usage error; without --replay the footer
+	// names it.
+	ctx, out, _ = newTestContext(proj, false)
+	var usage *usageError
+	if err := runBench(ctx, []string{"candidates", "calc/fix-add"}); !errors.As(err, &usage) {
+		t.Errorf("candidates <slug> without --replay: err = %v", err)
+	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates"}); err != nil || !strings.Contains(out.String(), "bench candidates --replay") {
+		t.Errorf("candidates footer lacks the --replay hint (%v):\n%s", err, out)
+	}
+}
+
+func TestReplayGuardBlocksAtSeventyPercent(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		want bool
+	}{
+		{"ok: memory used 9% (< 75%)", false},
+		{"ok: memory used 70% (< 75%)", true},
+		{"BLOCKED: memory used 80% (>= 75%)", true},
+	} {
+		blocked, _ := replayGuard(func() (bool, string) { return strings.HasPrefix(tc.msg, "BLOCKED"), tc.msg })()
+		if blocked != tc.want {
+			t.Errorf("%q: blocked = %v, want %v", tc.msg, blocked, tc.want)
+		}
+	}
+	if replayGuard(nil) != nil {
+		t.Error("no mem-guard should mean no guard")
+	}
+}
+
+// The budget line names the per-task default when no tokens are set, and a
+// cap under one task (cache reads included) gets a note.
+func TestBenchBudgetLineShowsTheCacheReadDefault(t *testing.T) {
+	b := &bench.Benchmark{Name: "b", Tasks: []bench.Task{{}, {}}}
+	if got := budgetLine(b); !strings.Contains(got, "tokens 50000000 (default: 25M a task × 2, cache reads included)") {
+		t.Errorf("unset: %s", got)
+	}
+	b.Budget.Tokens = 6_000_000
+	if got := budgetLine(b); !strings.HasPrefix(got, "tokens 6000000,") {
+		t.Errorf("set: %s", got)
+	}
+	if note := lowTokensNote(b.Budget); !strings.Contains(note, "6M tokens is under one task") {
+		t.Errorf("6M note = %q", note)
+	}
+	b.Budget.Tokens = 250_000_000
+	if note := lowTokensNote(b.Budget); note != "" {
+		t.Errorf("250M note = %q", note)
 	}
 }

@@ -46,6 +46,17 @@
     });
   });
 
+  // A tool bug report's status (POST retros/bug/<file>/status), then reload.
+  document.querySelectorAll('[data-bug-status]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var msg = btn.parentNode.querySelector('.wb-site-msg');
+      btn.disabled = true;
+      fetch(btn.getAttribute('data-bug-status'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: btn.getAttribute('data-status') }) })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); location.reload(); })
+        .catch(function (e) { msg.textContent = 'Not saved: ' + e.message; btn.disabled = false; });
+    });
+  });
+
   // Sends marked in this browser: localStorage, per project and finding.
   function key(form) { return 'wb-retro-sent:' + project + ':' + form.getAttribute('data-mark'); }
   function store(k, on) { try { if (on) localStorage.setItem(k, '1'); else localStorage.removeItem(k); } catch (e) {} }

@@ -1,0 +1,37 @@
+session: workshop-board-guide
+issue: ui/workshop-board-guide-page-rules-component-catalog-css-class-collision-test
+title: Workshop Board guide - the docs title and the system page's doc list after the wb-* class clashes
+scenario: systems
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: The docs page title is the big title again, and the system page's design doc sections stay one line each
+    setup:
+      - open: /p/{project}/docs/ai/play-calls
+    act:
+      - wait_for: docs.title
+      # The system page's .wb-doc-title (12.5px, one line) used to win here.
+      - check: { css: { target: docs.title, property: font-size, equals: "38px" } }
+      - check: { css: { target: docs.title, property: white-space, not: nowrap } }
+      - open: /p/{project}/systems/AI
+      - wait_for: system.wb.doc
+    checks:
+      - visible: [system.wb.doc.section.rules, system.wb.doc.section.shouts_and_tempo, system.wb.doc.section.the_ai_caller]
+      - text_contains: { target: system.wb.doc.section.rules, text: Rules }
+      - size: { target: system.wb.doc.section.rules, max_height: 48 }
+    targets:
+      - { id: system.wb.doc, note: "The design doc's sections, now with their own class (wb-sysdoc-title)" }
+    do: |
+      1. Open a doc in the hall's Docs tab and look at its title.
+      2. Open the AI workshop on the Systems tab and look at the design doc
+         sections in the side panel.
+    expect: |
+      The doc title is the big bold heading above the section links. The
+      design doc sections on the system page are small one-line rows in the
+      body font; before, they borrowed the docs title's heading font.
+    why: ux-test checks sizes; only you can say the side panel rows look right in the plain font.

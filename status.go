@@ -186,6 +186,12 @@ type StatusModel struct {
 	AutoStart *AutoStartView
 	// Jobs is the recurring jobs' one line (jobsStatusLine); "" without jobs.
 	Jobs string
+	// HQReport is the HQ report's text (/hq/report.md); "" without
+	// departments.
+	HQReport string
+	// SiblingAsks are the open asks between sibling workers (issue-cli ask),
+	// oldest first: the lead's view of the channel.
+	SiblingAsks []tracker.SiblingAsk
 }
 
 // unsentBugReports counts this user's queued report-bug files. A var so
@@ -350,7 +356,7 @@ func buildStatus(proj *tracker.Project, issues []*tracker.Issue, agents *AgentsM
 	sort.Slice(m.DoneRecent, func(i, j int) bool { return m.DoneRecent[i].At.After(m.DoneRecent[j].At) })
 
 	m.Waiting = waitingOnOwner(proj, sorted)
-	m.CI = ciRow(proj, issues, now)
+	m.CI = ciRow(proj, m.Prefix, issues, now)
 	m.Health = healthCard(proj, now)
 	m.Privacy = privacyView(proj, m.Prefix, now)
 	m.UnsentBugReports = unsentBugReports()
@@ -389,6 +395,7 @@ func buildStatus(proj *tracker.Project, issues []*tracker.Issue, agents *AgentsM
 	}
 	m.EpicsByArea = buildEpicsView(cs, issues, m.Epics, current, released)
 	m.Shipped = groupShipped(m.DoneRecent)
+	m.SiblingAsks = tracker.ProjectOpenAsks(issues, tracker.ClosedIssueFunc(proj))
 	return m
 }
 
@@ -617,6 +624,9 @@ func statusMarkdown(m *StatusModel) string {
 	if m.Jobs != "" {
 		b.WriteString(m.Jobs + "\n")
 	}
+	if m.HQReport != "" {
+		fmt.Fprintf(&b, "Departments: the HQ report, one line each, at %s (issue-cli status --hq)\n", m.HQReport)
+	}
 
 	fmt.Fprintf(&b, "\n## Waiting on you (%d)\n", m.WaitingCount())
 	if m.CI.Red() {
@@ -684,6 +694,7 @@ func statusMarkdown(m *StatusModel) string {
 		}
 		fmt.Fprintf(&b, "- Agents on issues not yet in progress: %s\n", strings.Join(parts, ", "))
 	}
+	siblingAsksMarkdown(&b, m)
 
 	if ms := m.Milestone; ms != nil {
 		fmt.Fprintf(&b, "\n## Current milestone %s: %d/%d done\n", ms.Version, ms.Progress.Done, ms.Progress.Total)
@@ -804,6 +815,9 @@ func ciMarkdown(b *strings.Builder, c *CIRow) {
 		return
 	}
 	fmt.Fprintf(b, "- Local CI: %s\n", c.Line)
+	if l := c.LastRed; l != nil {
+		fmt.Fprintf(b, "  - Last red log: %s (%s)\n", l.Log, l.Sha)
+	}
 	if !c.Red() {
 		return
 	}
@@ -899,4 +913,24 @@ func upcomingVersions(all []Progress, released string) ([]Progress, Progress) {
 		sum.Total += v.Total
 	}
 	return out, sum
+}
+
+// siblingAsksMarkdown is status.md's open asks between sibling workers: who
+// asked whom, how long ago, the words clipped. Nothing without any.
+func siblingAsksMarkdown(b *strings.Builder, m *StatusModel) {
+	if len(m.SiblingAsks) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n## Open asks between siblings (%d)\n", len(m.SiblingAsks))
+	for i, a := range m.SiblingAsks {
+		if i == capMDList {
+			fmt.Fprintf(b, "- +%d more (issue-cli show <slug> lists an issue's asks)\n", len(m.SiblingAsks)-i)
+			break
+		}
+		age := ""
+		if t, ok := tracker.CommentTime(a.Date); ok {
+			age = " " + shortDuration(m.AsOf.Sub(t)) + " ago"
+		}
+		fmt.Fprintf(b, "- %s → %s (#%d%s): %s\n", a.From, a.On, a.ID, age, clip(a.Words, 100))
+	}
 }

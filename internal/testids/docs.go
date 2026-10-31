@@ -2,6 +2,8 @@ package testids
 
 func init() {
 	IDs = append(IDs,
+		// A folder of the binder (wb/binder), folded unless it holds the doc on show.
+		"docs.folder.*",
 		// Docs (templates/docs_wb.html, /p/<project>/docs): the binder (L2).
 		"docs.binder",
 		"docs.item.*",

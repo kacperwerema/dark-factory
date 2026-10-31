@@ -20,6 +20,30 @@ type Pass struct {
 	// Review is the owner's verdict ("agreed", "back to <status>"); empty
 	// while the pass waits in the queue.
 	Review string `json:"review,omitempty"`
+	// Check is set on an owner check instead of a gate: the id of a box only
+	// the owner can check, which the gate passed without (AC6). What is its
+	// text, Why what makes it the owner's.
+	Check string `json:"check,omitempty"`
+	What  string `json:"what,omitempty"`
+	Why   string `json:"why,omitempty"`
+}
+
+// Key is what the owner's review names: the box of an owner check, else the
+// approved status.
+func (p Pass) Key() string {
+	if p.Check != "" {
+		return p.Check
+	}
+	return p.Status
+}
+
+// Label is the entry in a few words: "AC6: owner check, not done", else
+// the approved status.
+func (p Pass) Label() string {
+	if p.Check != "" {
+		return p.Check + ": owner check, not done"
+	}
+	return p.Status
 }
 
 // Passes is every YOLO pass on one issue, oldest first, each with the
@@ -46,7 +70,56 @@ func Passes(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	return out
 }
 
-// Queue is the passes across issues still waiting for the owner's review.
+// OwnerChecks is every box a YOLO gate passed without on one issue (the
+// yolo-owner-check: comments), oldest first, once per box. One is settled
+// when the box is ticked ("ticked"), by the owner's review naming it, or
+// when the owner sends the issue back after it ("sent back"; a later gate
+// queues it again if it is still unticked).
+func OwnerChecks(issue *tracker.Issue, comments []tracker.Comment) []Pass {
+	var out []Pass
+	seen := map[string]int{}
+	for _, c := range comments {
+		if oc, ok := tracker.ParseYOLOOwnerCheckComment(c.Text); ok {
+			key := strings.ToUpper(oc.ID)
+			if i, dup := seen[key]; dup && out[i].Review == "" {
+				continue
+			}
+			seen[key] = len(out)
+			out = append(out, Pass{Slug: issue.Slug, Title: issue.Title, From: oc.From, By: c.Author, At: c.Date, Comment: c.ID, Check: oc.ID, What: oc.Text, Why: oc.Why})
+			continue
+		}
+		if r, ok := tracker.ParseYOLOReviewComment(c.Text); ok {
+			for i := range out {
+				if out[i].Review == "" && strings.EqualFold(out[i].Check, r.Status) {
+					out[i].Review = r.Verdict
+				}
+			}
+			continue
+		}
+		if c.Author == tracker.OwnerAuthor && tracker.IsRejectedComment(c.Text) {
+			for i := range out {
+				if out[i].Review == "" {
+					out[i].Review = "sent back"
+				}
+			}
+		}
+	}
+	ticked := map[string]bool{}
+	for _, it := range tracker.ListCheckboxes(issue.BodyRaw) {
+		if it.Checked && it.ID != "" {
+			ticked[strings.ToUpper(it.ID)] = true
+		}
+	}
+	for i := range out {
+		if out[i].Review == "" && ticked[strings.ToUpper(out[i].Check)] {
+			out[i].Review = "ticked"
+		}
+	}
+	return out
+}
+
+// Queue is the passes and owner checks across issues still waiting for the
+// owner's review.
 func Queue(issues []*tracker.Issue) []Pass {
 	var out []Pass
 	for _, issue := range issues {
@@ -54,19 +127,16 @@ func Queue(issues []*tracker.Issue) []Pass {
 		if err != nil || len(comments) == 0 {
 			continue
 		}
-		for _, p := range Passes(issue, comments) {
-			if p.Review == "" {
-				out = append(out, p)
-			}
-		}
+		out = append(out, Unreviewed(issue, comments)...)
 	}
 	return out
 }
 
-// Unreviewed is the issue's passes still waiting for review.
+// Unreviewed is the issue's passes, then its owner checks, still waiting
+// for review.
 func Unreviewed(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	var out []Pass
-	for _, p := range Passes(issue, comments) {
+	for _, p := range append(Passes(issue, comments), OwnerChecks(issue, comments)...) {
 		if p.Review == "" {
 			out = append(out, p)
 		}
@@ -98,7 +168,8 @@ type Gate struct {
 }
 
 // Gates is the project's gates YOLO passes: each forward step between two
-// neighbouring statuses on the base path that needs a human approval.
+// neighbouring statuses on the base path that needs a human approval and
+// isn't owner_only (OwnerGates lists those).
 func Gates(wf *tracker.WorkflowConfig) []Gate {
 	var out []Gate
 	order := wf.GetStatusOrder()
@@ -107,8 +178,110 @@ func Gates(wf *tracker.WorkflowConfig) []Gate {
 		if wf.IsSideStatus(to) {
 			continue
 		}
-		if req := wf.RequiredHumanApproval(order[i], to); req != "" {
+		if req := wf.RequiredHumanApproval(order[i], to); req != "" && !wf.OwnerOnlyGate(order[i], to) {
 			out = append(out, Gate{From: order[i], To: to, Approves: req})
+		}
+	}
+	return out
+}
+
+// OwnerGate is one gate YOLO never passes, for yolo status and the band.
+type OwnerGate struct {
+	Department string   `json:"department,omitempty"` // a department's own workflow file; "" Product's
+	From       string   `json:"from,omitempty"`
+	To         string   `json:"to,omitempty"`
+	Approves   string   `json:"approves,omitempty"`
+	Types      []string `json:"types,omitempty"` // the types whose path has it; none: every path
+	Why        string   `json:"why"`
+}
+
+// Label is "Marketing: owner review → publish (piece, seo-pass)", or the
+// rule itself for one that holds everywhere.
+func (g OwnerGate) Label() string {
+	if g.From == "" {
+		return g.Why
+	}
+	s := g.From + " → " + g.To
+	if g.Department != "" {
+		s = g.Department + ": " + s
+	}
+	if len(g.Types) > 0 {
+		s += " (" + strings.Join(g.Types, ", ") + ")"
+	}
+	return s
+}
+
+// OwnerGates lists the gates YOLO never passes in proj: each owner_only
+// approval on the paths of Product's workflow and of every department
+// with its own file, then the rules that hold everywhere (the Human
+// Testing approval, experiments' gates, release publish unless the owner
+// unlocked releases).
+func OwnerGates(proj *tracker.Project, v Valves) []OwnerGate {
+	wf := proj.LoadWorkflow()
+	out := WorkflowOwnerGates(wf, "")
+	for _, d := range proj.WorkflowDepartments() {
+		if dwf, err := proj.WorkflowFor(d.Name); err == nil {
+			out = append(out, WorkflowOwnerGates(dwf, d.Name)...)
+		}
+	}
+	if wf != nil {
+		for _, s := range wf.Statuses {
+			if strings.EqualFold(strings.ReplaceAll(s.Name, " ", "-"), "human-testing") {
+				out = append(out, OwnerGate{Why: "the Human Testing approval: the human's own"})
+				break
+			}
+		}
+	}
+	out = append(out, OwnerGate{Why: "every gate of an issue labelled experiment: the owner adopts experiments"})
+	if !v.Releases { // unlocked: the valves line says so
+		out = append(out, OwnerGate{Why: "release publish: external releases wait for the owner"})
+	}
+	return out
+}
+
+// WorkflowOwnerGates is wf's owner_only gates between neighbouring statuses
+// on each type's path (the base path without types), once each, with the
+// types that walk it when not all do.
+func WorkflowOwnerGates(wf *tracker.WorkflowConfig, dept string) []OwnerGate {
+	if wf == nil {
+		return nil
+	}
+	var out []OwnerGate
+	index := map[string]int{}
+	add := func(scoped *tracker.WorkflowConfig, typ string) {
+		order := scoped.GetStatusOrder()
+		for i := 0; i+1 < len(order); i++ {
+			from, to := order[i], order[i+1]
+			if !scoped.OwnerOnlyGate(from, to) {
+				continue
+			}
+			key := from + "\x00" + to
+			if j, ok := index[key]; ok {
+				if typ != "" {
+					out[j].Types = append(out[j].Types, typ)
+				}
+				continue
+			}
+			g := OwnerGate{Department: dept, From: from, To: to, Approves: scoped.RequiredHumanApproval(from, to),
+				Why: "owner_only: spends money or publishes outside the machine"}
+			if typ != "" {
+				g.Types = []string{typ}
+			}
+			index[key] = len(out)
+			out = append(out, g)
+		}
+	}
+	names := wf.TypeNames()
+	if len(names) == 0 {
+		add(wf, "")
+		return out
+	}
+	for _, name := range names {
+		add(wf.ForType(name), name)
+	}
+	for i := range out {
+		if len(out[i].Types) == len(names) {
+			out[i].Types = nil // every type walks it
 		}
 	}
 	return out

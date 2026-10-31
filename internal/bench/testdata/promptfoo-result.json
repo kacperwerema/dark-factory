@@ -1,0 +1,255 @@
+{
+ "evalId": "eval-dYj-2026-10-31T06:59:13",
+ "results": {
+  "version": 3,
+  "timestamp": "2026-10-31T06:59:13.616Z",
+  "prompts": [
+   {
+    "id": "343155ae77c81fd6d016484b639909bc6f4e68f7730061d1d2a8d7e707456d32",
+    "raw": "{{output}}",
+    "label": "{{output}}",
+    "provider": "echo",
+    "metrics": {
+     "score": 0.9,
+     "testPassCount": 1,
+     "testFailCount": 0,
+     "testErrorCount": 0,
+     "assertPassCount": 2,
+     "assertFailCount": 0,
+     "totalLatencyMs": 1,
+     "tokenUsage": {
+      "prompt": 0,
+      "completion": 0,
+      "cached": 0,
+      "total": 0,
+      "numRequests": 1,
+      "completionDetails": {
+       "reasoning": 0,
+       "acceptedPrediction": 0,
+       "rejectedPrediction": 0,
+       "cacheReadInputTokens": 0,
+       "cacheCreationInputTokens": 0
+      },
+      "assertions": {
+       "total": 0,
+       "prompt": 0,
+       "completion": 0,
+       "cached": 0,
+       "numRequests": 1,
+       "completionDetails": {
+        "reasoning": 0,
+        "acceptedPrediction": 0,
+        "rejectedPrediction": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0
+       }
+      }
+     },
+     "namedScores": {},
+     "namedScoresCount": {},
+     "namedScoreWeights": {},
+     "cost": 0
+    }
+   }
+  ],
+  "results": [
+   {
+    "cost": 0,
+    "gradingResult": {
+     "pass": true,
+     "score": 0.9,
+     "reason": "All assertions passed",
+     "namedScores": {},
+     "tokensUsed": {
+      "total": 0,
+      "prompt": 0,
+      "completion": 0,
+      "cached": 0,
+      "numRequests": 1,
+      "completionDetails": {
+       "reasoning": 0,
+       "acceptedPrediction": 0,
+       "rejectedPrediction": 0,
+       "cacheReadInputTokens": 0,
+       "cacheCreationInputTokens": 0
+      }
+     },
+     "componentResults": [
+      {
+       "pass": true,
+       "score": 1,
+       "reason": "Assertion passed",
+       "assertion": {
+        "type": "icontains",
+        "value": "hello"
+       }
+      },
+      {
+       "assertion": {
+        "type": "llm-rubric",
+        "value": "As good as the REFERENCE: {{reference}}"
+       },
+       "pass": true,
+       "score": 0.8,
+       "reason": "stub grader",
+       "tokensUsed": {
+        "total": 0,
+        "prompt": 0,
+        "completion": 0,
+        "cached": 0,
+        "numRequests": 0,
+        "completionDetails": {
+         "reasoning": 0,
+         "acceptedPrediction": 0,
+         "rejectedPrediction": 0
+        }
+       },
+       "metadata": {
+        "renderedAssertionValue": "As good as the REFERENCE: REF TEXT"
+       }
+      }
+     ]
+    },
+    "id": "af1a7b2e-87fd-46d4-822d-829f09cfd6d9",
+    "latencyMs": 1,
+    "namedScores": {},
+    "promptId": "343155ae77c81fd6d016484b639909bc6f4e68f7730061d1d2a8d7e707456d32",
+    "promptIdx": 0,
+    "provider": {
+     "id": "echo",
+     "label": ""
+    },
+    "response": {
+     "output": "A post. Hello.",
+     "raw": "A post. Hello.",
+     "cost": 0,
+     "cached": false,
+     "tokenUsage": {
+      "prompt": 0,
+      "completion": 0,
+      "cached": 0,
+      "total": 0,
+      "numRequests": 1,
+      "completionDetails": {
+       "reasoning": 0,
+       "acceptedPrediction": 0,
+       "rejectedPrediction": 0,
+       "cacheReadInputTokens": 0,
+       "cacheCreationInputTokens": 0
+      },
+      "assertions": {
+       "total": 0,
+       "prompt": 0,
+       "completion": 0,
+       "cached": 0,
+       "numRequests": 0,
+       "completionDetails": {
+        "reasoning": 0,
+        "acceptedPrediction": 0,
+        "rejectedPrediction": 0,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0
+       }
+      }
+     },
+     "isRefusal": false,
+     "metadata": {}
+    },
+    "score": 0.9,
+    "success": true,
+    "testIdx": 0,
+    "tokenUsage": {
+     "prompt": 0,
+     "completion": 0,
+     "cached": 0,
+     "total": 0,
+     "numRequests": 1,
+     "completionDetails": {
+      "reasoning": 0,
+      "acceptedPrediction": 0,
+      "rejectedPrediction": 0,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0
+     },
+     "assertions": {
+      "total": 0,
+      "prompt": 0,
+      "completion": 0,
+      "cached": 0,
+      "numRequests": 1,
+      "completionDetails": {
+       "reasoning": 0,
+       "acceptedPrediction": 0,
+       "rejectedPrediction": 0,
+       "cacheReadInputTokens": 0,
+       "cacheCreationInputTokens": 0
+      }
+     }
+    },
+    "vars": {
+     "output": "file:///tmp/pfrun/output.txt",
+     "reference": "file:///tmp/pfrun/reference.txt"
+    },
+    "metadata": {
+     "_promptfooFileMetadata": {}
+    },
+    "failureReason": 0
+   }
+  ],
+  "stats": {
+   "successes": 1,
+   "failures": 0,
+   "errors": 0,
+   "tokenUsage": {
+    "prompt": 0,
+    "completion": 0,
+    "cached": 0,
+    "total": 0,
+    "numRequests": 1,
+    "completionDetails": {
+     "reasoning": 0,
+     "acceptedPrediction": 0,
+     "rejectedPrediction": 0,
+     "cacheReadInputTokens": 0,
+     "cacheCreationInputTokens": 0
+    },
+    "assertions": {
+     "total": 0,
+     "prompt": 0,
+     "completion": 0,
+     "cached": 0,
+     "numRequests": 1,
+     "completionDetails": {
+      "reasoning": 0,
+      "acceptedPrediction": 0,
+      "rejectedPrediction": 0,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0
+     }
+    }
+   },
+   "durationMs": 3358,
+   "evaluationDurationMs": 3358
+  }
+ },
+ "shareableUrl": null,
+ "metadata": {
+  "promptfooVersion": "0.124.1",
+  "nodeVersion": "v22.23.3",
+  "platform": "darwin",
+  "arch": "arm64",
+  "exportedAt": "2026-10-31T06:59:16.990Z",
+  "evaluationCreatedAt": "2026-10-31T06:59:13.616Z"
+ },
+ "vars": [
+  "output",
+  "reference"
+ ],
+ "runtimeOptions": {
+  "eventSource": "cli",
+  "showProgressBar": true,
+  "repeat": 1,
+  "maxConcurrency": 4,
+  "cache": false
+ }
+}

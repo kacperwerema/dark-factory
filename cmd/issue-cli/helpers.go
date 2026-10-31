@@ -21,6 +21,10 @@ import (
 // other command fails loud with a list of the configured slugs.
 var errAmbiguousProject = errors.New("ambiguous project — pass --project")
 
+// errProjectNotFound is what resolveFromConfig returns for a --project the
+// config doesn't list; runTraced adds where that config came from.
+var errProjectNotFound = errors.New("not found in config")
+
 // loadProjectOrErr resolves the active project and returns the full
 // configured project list alongside it.
 //
@@ -137,7 +141,7 @@ func resolveFromConfig(configPath, projectSlug string) (*tracker.Project, []trac
 				return &projects[i], projects, nil
 			}
 		}
-		return nil, projects, fmt.Errorf("project %q not found in config\n%s", projectSlug, formatProjectList(projects, ""))
+		return nil, projects, fmt.Errorf("project %q %w %s\n%s", projectSlug, errProjectNotFound, configPath, formatProjectList(projects, ""))
 	}
 	if len(projects) == 0 {
 		return nil, projects, fmt.Errorf("no projects configured in %s", configPath)
@@ -348,7 +352,7 @@ func printTickHint(w io.Writer, slug, body string) {
 	for _, it := range tracker.ListCheckboxes(body) {
 		if !it.Checked && it.ID != "" {
 			fmt.Fprintf(w, "Tick done boxes by id, several at once: issue-cli check %s <id> [<id>...]\n", slug)
-			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\"\n", slug)
+			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\" (untick: issue-cli uncheck %s <id>; drop, other ids stay: issue-cli check-remove %s <id>)\n", slug, slug, slug)
 			return
 		}
 	}

@@ -56,6 +56,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		Workbench:       cloneWorkbench(w.Workbench),
 		CI:              cloneCI(w.CI),
 		Health:          cloneHealth(w.Health),
+		Evals:           cloneEvals(w.Evals),
 		Playtest:        w.Playtest,
 		AllowShell:      w.AllowShell,
 		PlaytestCommand: w.PlaytestCommand,
@@ -65,6 +66,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		LookupIssue:     w.LookupIssue,
 		ChildrenOf:      w.ChildrenOf,
 		IssuesRoot:      w.IssuesRoot,
+		ProjectRoot:     w.ProjectRoot,
 		RepoRoot:        w.RepoRoot,
 		DefaultType:     w.DefaultType,
 		ActiveType:      w.ActiveType,
@@ -267,4 +269,19 @@ func appendUniqueActions(base, extra []WorkflowAction) []WorkflowAction {
 		}
 	}
 	return base
+}
+
+func cloneEvals(in []WorkflowEval) []WorkflowEval {
+	if in == nil {
+		return nil
+	}
+	out := make([]WorkflowEval, len(in))
+	for i, e := range in {
+		e.Types = append([]string(nil), e.Types...)
+		e.Rubric = append([]string(nil), e.Rubric...)
+		e.Assert = append([]EvalAssert(nil), e.Assert...)
+		e.Checks = append([]string(nil), e.Checks...)
+		out[i] = e
+	}
+	return out
 }

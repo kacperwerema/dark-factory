@@ -10,10 +10,11 @@
             <h1 class="wb-h1 wb-h1--xl">Retro · sorting room</h1>
             <div class="wb-hhead-sub">After every issue the agent leaves a note in <span class="wb-mono-inline">retros/</span>. Here you take it apart into findings and send each one where it changes something for good. · <a href="{{.ClassicURL}}" data-testid="retro.classic">Classic view</a></div>
         </div>
-        {{template "wb/retro-presort" .Presort}}
+        <div class="wb-rtop-side">{{template "wb/seg-links" .View}}{{template "wb/retro-presort" .Presort}}</div>
     </div>
     {{template "wb/retro-loop" .Loop}}
 </section>
+{{with .Bugs}}<main class="wb-rbugs-main" data-testid="retro.page" data-project="{{$.Project}}">{{template "wb/retro-bugs" .}}</main>{{else}}
 <main class="wb-rmain" data-testid="retro.page" data-project="{{.Project}}">
     <nav class="wb-rinbox" aria-label="Retros">
         {{template "wb/retro-list" .ToSort}}
@@ -38,7 +39,7 @@
         {{template "wb/retro-pattern" .Pattern}}
         <p class="wb-rbins-foot">Retro closes the loop from the Line: processed findings come back as docs, decisions, updates or new ideas.</p>
     </aside>
-</main>
+</main>{{end}}
 </div>
 <script src="/static/workshop.js"></script>
 <script src="/static/workshop-retro.js"></script>

@@ -1,0 +1,10 @@
+# The station takes over the classic issue page: one issue in progress
+# with fields to edit, a body with sections and boxes, a dependency and an
+# epic, so the Fields card, the status move, the body and the side column
+# all have something to show.
+title: One issue in progress with fields, a body, a dependency and an epic
+project:
+  name: Station Shop
+  slug: shop
+issues: tracker
+workflow: workflow.yaml

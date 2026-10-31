@@ -30,12 +30,28 @@ changes as work progresses.
 
 Several ids in one call are all-or-nothing: if any id does not exist, nothing
 is ticked. A box that is already checked is reported, not an error.
+Acceptance criteria under the proof gate are the exception: among other ids
+they are skipped with one "Not ticked" line each and the rest are ticked; the
+call fails only when it ticked nothing (criteria alone, or every other box
+already done).
 
 A text query matches a box whose label contains it (case-insensitive). If it
 matches more than one unchecked box, check errors and lists the candidates
 with their ids. Flags may come before or after the ids or text.
 
-To change a box's text instead of ticking it: issue-cli check-edit <slug> <id> --text "..."`,
+A box that doesn't fit the change: tick it with its N/A reason, in a named form
+  issue-cli check <slug> T4 --na "no page changes"
+The forms:
+` + tracker.NAFormsHelp("  ") + `
+An agent never ticks an owner box (Human Testing, "(owner)", owner-only
+criteria, a playtest judgement step, a box a guided check left to the
+owner): check, and append/replace/update writing [x] into one, refuse it,
+and check --na can't skip it. Leave it for the owner; they tick it on the
+Owner checks page or in their own shell.
+
+To change a box's text instead of ticking it: issue-cli check-edit <slug> <id> --text "..."
+To untick a box: issue-cli uncheck <slug> <id>
+To drop a box (the other boxes keep their ids): issue-cli check-remove <slug> <id>`,
 	Run: runCheck,
 }
 
@@ -52,6 +68,7 @@ func runCheck(ctx *Context, args []string) error {
 	sectionFlag := fs.String("section", "", "section to scope the match to (\"## <name>\")")
 	indexFlag := fs.Int("index", 0, "1-based stable index of the checkbox within the section (or whole body)")
 	allFlag := fs.Bool("all", false, "check every open box in --section")
+	naFlag := fs.String("na", "", "tick one box as not applicable, with the reason in a named form")
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -59,6 +76,9 @@ func runCheck(ctx *Context, args []string) error {
 	positional := fs.Args()
 	query := strings.Join(positional, " ")
 
+	if *naFlag != "" && (*allFlag || *indexFlag != 0 || section != "" || len(positional) != 1) {
+		return fmt.Errorf("--na ticks one box by id\n\nExample:\n  issue-cli check %s T4 --na \"no page changes\"", slug)
+	}
 	if *allFlag {
 		if section == "" {
 			return fmt.Errorf("--all requires --section\n\nExample:\n  issue-cli check %s --section \"Design\" --all", slug)
@@ -79,17 +99,28 @@ func runCheck(ctx *Context, args []string) error {
 		return err
 	}
 
+	refs := section == "" && *naFlag == "" && !*allFlag && *indexFlag == 0 && looksLikeRefs(issue.BodyRaw, positional)
+	var proofOnly []string
+	if refs {
+		// Mixed ids: the plain ones are ticked, the criteria are skipped
+		// with a line each. Only criteria alone refuse the call.
+		if keep, crit := splitCriteriaRefs(ctx, issue, positional); len(crit) > 0 && len(keep) > 0 {
+			positional, proofOnly = keep, crit
+		}
+	}
 	if err := refuseCriteria(ctx, issue, section, *indexFlag, *allFlag, positional, query); err != nil {
 		return err
 	}
 
 	switch {
+	case *naFlag != "":
+		return checkNA(ctx, issue, positional[0], normalizeEscapedText(*naFlag))
 	case *allFlag:
 		return checkSectionAll(ctx, issue, section)
 	case *indexFlag != 0:
 		return checkByIndex(ctx, issue, section, *indexFlag)
-	case section == "" && looksLikeRefs(issue.BodyRaw, positional):
-		return checkByRefs(ctx, issue, positional)
+	case refs:
+		return checkByRefs(ctx, issue, positional, proofOnly)
 	}
 	return checkByText(ctx, issue, section, query)
 }
@@ -157,7 +188,29 @@ func printCheckResult(w io.Writer, issue *tracker.Issue, newBody string, ticked,
 	fmt.Fprintf(w, "file: %s\n", issue.FilePath)
 }
 
-func checkByRefs(ctx *Context, issue *tracker.Issue, refs []string) error {
+// splitCriteriaRefs splits ids into the ones check may tick and the
+// unchecked acceptance criteria among them, which the proof gate ticks
+// (none when the gate doesn't cover the issue).
+func splitCriteriaRefs(ctx *Context, issue *tracker.Issue, refs []string) (keep, criteria []string) {
+	if !ctx.Project.LoadWorkflowForIssue(issue).ProofRequired(issue) {
+		return refs, nil
+	}
+	items := tracker.ListCheckboxes(issue.BodyRaw)
+	for _, ref := range refs {
+		if it, st := tracker.ResolveCheckboxRef(items, ref); st == tracker.RefFound && !it.Checked && strings.EqualFold(it.Section, tracker.CriteriaSection) {
+			criteria = append(criteria, it.ID)
+			continue
+		}
+		keep = append(keep, ref)
+	}
+	return keep, criteria
+}
+
+// checkByRefs ticks the boxes refs name. proofOnly are criteria the call
+// named but the proof gate ticks: each gets a line, and the call fails when
+// it ticked nothing else.
+func checkByRefs(ctx *Context, issue *tracker.Issue, refs, proofOnly []string) error {
+	guard := ownerTickGuard(ctx, issue)
 	var ticked, already []tracker.CheckboxItem
 	var unknown []string
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
@@ -184,10 +237,11 @@ func checkByRefs(ctx *Context, issue *tracker.Issue, refs []string) error {
 		if len(unknown) > 0 || len(lines) == 0 {
 			return body, false, nil
 		}
-		return tracker.CheckLines(body, lines), true, nil
+		next := tracker.CheckLines(body, lines)
+		return next, true, guard(body, next)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update: %w", err)
+		return writeErr("failed to update", err)
 	}
 	if len(unknown) > 0 {
 		fmt.Fprintf(ctx.Stdout, "No checkbox with id %s — nothing was ticked.\n\n", strings.Join(unknown, ", "))
@@ -199,10 +253,57 @@ func checkByRefs(ctx *Context, issue *tracker.Issue, refs []string) error {
 		ticked[i].Checked = true
 	}
 	printCheckResult(ctx.Stdout, issue, newBody, ticked, already)
+	for _, id := range proofOnly {
+		fmt.Fprintf(ctx.Stdout, "✗ Not ticked: %s is ticked by its proof, not by hand (issue-cli prove %s --list)\n", id, issue.Slug)
+	}
+	if len(proofOnly) > 0 && len(ticked) == 0 {
+		return fmt.Errorf("nothing was ticked: acceptance criteria are ticked by their proof, not by hand: %s\n\nSee what proves each one and what is missing:\n  issue-cli prove %s --list", strings.Join(proofOnly, ", "), issue.Slug)
+	}
+	return nil
+}
+
+// checkNA ticks one box as not applicable: its reason, in a named form
+// (tracker.NAForms), goes into the box's text. The owner's boxes are
+// refused: an N/A never takes a box from the owner.
+func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if p := tracker.CheckNA(reason); p != "" {
+		return fmt.Errorf("%s; nothing was ticked.\n\nWrite it in one of these forms:\n%s\n\nExample:\n  issue-cli check %s %s --na \"no page changes\"",
+			p, tracker.NAFormsHelp("  "), issue.Slug, ref)
+	}
+	it, st := tracker.ResolveCheckboxRef(tracker.ListCheckboxes(issue.BodyRaw), ref)
+	if st != tracker.RefFound {
+		fmt.Fprintf(ctx.Stdout, "No checkbox with id %s — nothing was ticked.\n\nCheckboxes:\n", ref)
+		printCheckboxes(ctx.Stdout, issue.BodyRaw)
+		return fmt.Errorf("unknown checkbox id: %s", ref)
+	}
+	if why := boxProofReport(ctx, issue).OwnerBoxWhy(it); why != "" {
+		return fmt.Errorf("%s is the owner's box (%s): an N/A can't skip it, and nothing changed. Leave it for the owner; under YOLO it waits in the review queue.\n\nAsk on your issue trail if it really doesn't apply:\n  %s",
+			it.ID, why, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", issue.Slug)))
+	}
+	var item tracker.CheckboxItem
+	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
+		next, edited, err := tracker.EditCheckboxText(body, ref, tracker.WithNA(it.Label(), reason))
+		if err != nil {
+			return body, false, err
+		}
+		item = edited
+		return tracker.CheckLines(next, []int{edited.Line}), true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("%w\n\nRun: issue-cli checklist %s", err, issue.Slug)
+	}
+	for _, now := range tracker.ListCheckboxes(newBody) {
+		if now.Line == item.Line {
+			item = now
+		}
+	}
+	printCheckResult(ctx.Stdout, issue, newBody, []tracker.CheckboxItem{item}, nil)
 	return nil
 }
 
 func checkSectionAll(ctx *Context, issue *tracker.Issue, section string) error {
+	guard := ownerTickGuard(ctx, issue)
 	var ticked, inSection []tracker.CheckboxItem
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		var lines []int
@@ -219,10 +320,11 @@ func checkSectionAll(ctx *Context, issue *tracker.Issue, section string) error {
 		if len(lines) == 0 {
 			return body, false, nil
 		}
-		return tracker.CheckLines(body, lines), true, nil
+		next := tracker.CheckLines(body, lines)
+		return next, true, guard(body, next)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update: %w", err)
+		return writeErr("failed to update", err)
 	}
 	if len(inSection) == 0 {
 		fmt.Fprintf(ctx.Stdout, "No checkboxes in section %q\n\n", section)
@@ -244,15 +346,16 @@ func checkSectionAll(ctx *Context, issue *tracker.Issue, section string) error {
 }
 
 func checkByIndex(ctx *Context, issue *tracker.Issue, section string, index int) error {
+	guard := ownerTickGuard(ctx, issue)
 	var matched tracker.CheckboxItem
 	var already, ok bool
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		updated, item, was, found := tracker.CheckByIndex(body, section, index)
 		matched, already, ok = item, was, found
-		return updated, found && !was, nil
+		return updated, found && !was, guard(body, updated)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update: %w", err)
+		return writeErr("failed to update", err)
 	}
 	if !ok {
 		scope := "the body"
@@ -302,12 +405,13 @@ func checkByText(ctx *Context, issue *tracker.Issue, section, query string) erro
 	}
 
 	target := matches[0]
+	guard := ownerTickGuard(ctx, issue)
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		updated, _, _, found := tracker.CheckByIndex(body, target.Section, target.Index)
-		return updated, found, nil
+		return updated, found, guard(body, updated)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update: %w", err)
+		return writeErr("failed to update", err)
 	}
 	target.Checked = true
 	printCheckResult(ctx.Stdout, issue, newBody, []tracker.CheckboxItem{target}, nil)

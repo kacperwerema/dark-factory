@@ -11,7 +11,10 @@ import (
 
 const upgradeLongHelp = `Show which workflow.yaml features this project could adopt.
 
-Read-only: it never edits workflow.yaml. It compares the project's
+Read-only: it never edits workflow.yaml, and on another project it writes
+nothing there either. Its one write is the usual clilog line and telemetry
+event: in the project when you work in it, otherwise in your own project's
+.agent-logs/ or the machine log (docs/CLI/telemetry.md). It compares the project's
 ` + "`template: <name>@<version>`" + ` stamp and ` + "`features:`" + ` record with the template
 and feature catalog bundled in this issue-cli, and lists each missing feature
 as a numbered proposal: what it is, why it helps, where it goes, a YAML

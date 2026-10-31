@@ -33,7 +33,7 @@ func getStatsPage(t *testing.T) string {
 	defer ts.Close()
 	// The CLI usage report is read in the background; the page says so
 	// until it lands, like a reload a moment later would.
-	for i := 0; ; i++ {
+	for deadline := time.Now().Add(15 * time.Second); ; {
 		resp, err := http.Get(ts.URL + "/p/test-project/stats?classic=1")
 		if err != nil {
 			t.Fatal(err)
@@ -43,7 +43,7 @@ func getStatsPage(t *testing.T) string {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("stats page must not fail because of CLI usage, got %d:\n%s", resp.StatusCode, body)
 		}
-		if !strings.Contains(string(body), "being read in the background") || i == 200 {
+		if !strings.Contains(string(body), "being read in the background") || time.Now().After(deadline) {
 			return string(body)
 		}
 		time.Sleep(5 * time.Millisecond)

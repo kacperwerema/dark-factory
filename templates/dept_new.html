@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "New department · %s" .Project)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<section class="wb-ground wb-part wb-deptnew" aria-label="{{.Project}}: new department" data-testid="dept_new.page">
+    <div class="wb-titlebar">
+        <a class="wb-part-back" href="{{.CompanyURL}}" data-testid="dept_new.back">← {{.Project}}</a>
+        <h1 class="wb-h1">Add {{if .Plan}}{{.Plan.Name}}{{else if .TemplateName}}{{.TemplateName}}{{else}}a department{{end}} to {{.Project}}</h1>
+        <span class="wb-sub">{{with .Template}}template <span class="wb-mono-inline">{{.}}</span> · {{end}}nothing changed yet</span>
+    </div>
+    {{if .Plan}}{{template "wb/dept-new-plan" .}}{{else}}{{template "wb/dept-new-refused" .}}{{end}}
+</section>
+</div>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

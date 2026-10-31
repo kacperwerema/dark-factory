@@ -14,11 +14,13 @@
     <div class="wb-report-cols">
         <div class="wb-report-main">
             {{template "wb/bottleneck" .Bottleneck}}
+            {{template "wb/active-list" .Active}}
             {{template "wb/where" .Where}}
             {{template "wb/shipped" .Shipped}}
         </div>
         <div class="wb-report-side">
             {{with .Status}}{{template "wb/autostart" .}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
+            {{template "wb/released" .Released}}
             {{template "wb/health" .Health}}
             {{template "wb/bench" .Bench}}
             {{template "wb/unlock" .Unlock}}

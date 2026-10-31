@@ -28,7 +28,10 @@ Most links need no command: the agent declares them where it writes the proof.
   in its own paragraph before `Co-Authored-By` counts too):
   `Proves: AC1, AC3 TestA TestB` links AC1 and AC3 to both tests. Words shaped like a criterion id (the section's
   prefix plus a number) are ids, and the rest are test names, so a test name with spaces (an `it()` title) goes
-  through `prove --test` instead.
+  through `prove --test` instead. A playtest step id in a trailer (`Proves: AC1 TP4`) is read as a test that
+  isn't found. Its fix says so and points at `proves: [AC1]` on step TP4 in its session, or `prove --step`.
+  - Criteria ids stay put when a criterion goes: `issue-cli check-remove <slug> AC6` keeps AC6's slot, so AC7's
+    trailers still prove AC7. AC6's links become strays.
   - Only the work branch's own first-parent commits count. While the branch is live they are read as
     `main..work/<slug>`, so commits merged in from main never count.
   - After the merge they are read from the recorded branch head, back to the issue's first dispatch.
@@ -61,13 +64,27 @@ A criterion is **proven** when one of its links passes. Any kind counts on its o
 
 **The last code commit** is the newest of the branch's own first-parent commits that changed code. Two kinds don't count, so they never make a `tests:` report stale:
 - merges of main into the branch;
-- docs-only commits, where every file is under `docs/`, a Markdown file (`*.md`), or a `CHANGELOG` in any folder (`ui/evidence-tab-proof-shots-and-criteria` D-6). The docs commit an agent makes in the documentation status comes after its tests, and would otherwise make every test link read stale on a done issue.
+- non-code commits, where every file is under `docs/`, `playtest/sessions/`, `scripts/checks/`, `issues/`, `retros/` or `sessions/`, a Markdown file (`*.md`), or a `CHANGELOG` in any folder (`ui/evidence-tab-proof-shots-and-criteria` D-6, widened by `cli/prove-run-runs-the-trailers-tests-and-posts-the-tests-comment` D-3). The docs commit an agent makes in the documentation status, a playtest session or a guided check script added after the tests would otherwise make every test link read stale. Other non-Go files still count: templates, static assets, testdata and YAML read through `go:embed` change what a test sees.
+
+**Posting the report: `prove --run`.** In a Go project, `issue-cli prove <slug> --run` writes the `tests:` comment for
+you. It takes every test link of the issue (trailers and `prove --test`), finds the package of each in the issue's
+worktree (the tracked `_test.go` that declares `func <Name>(`; a sub-test `TestA/case` runs `TestA`), runs one
+`go test -json -run '^(…)$' <packages>` there, and posts
+`tests: prove --run at <sha>: <command> — N passed: <names>` only when every named test passed. A failing,
+skipped, not-run (its package didn't build) or not-found name prints its output and posts nothing; the command exits
+non-zero. It refuses, with the manual `issue-cli comment <slug> --text "tests: ..."` as the way out, when the issue has
+no test links, no worktree, or no `go.mod`; it refuses uncommitted code in the worktree (commit first: that commit
+would stale the report anyway) and runs `mem-guard check` first when `mem-guard` is on PATH. `--json` adds a `run`
+object (`command`, `head`, `packages`, `results` with each name's `outcome` and output tail, `posted`). The "no tests:
+report" and "stale" hints under a test link name `prove --run` in a Go project. So the order is: the test commit with
+its `Proves:` trailer, any further code commits, then `prove --run`.
 
 **Limits of the test check** (D-6): the engine checks that the test exists and that the report is newer than the
 code. It does not check:
 - that the commit carrying the trailer touched the test;
 - that the match is a test definition rather than a mention;
-- that the test passed. The `tests:` comment is free text, so "passed" is the agent's report.
+- that the test passed. The `tests:` comment is free text, so "passed" is the agent's report (a `prove --run`
+  comment is posted only after go test said so).
 
 `prove --shot` is for projects with no playtest runner. It is refused when the workflow records the
 `playtest-sessions` feature and the project has a runner behind it (`playtest_command:`, a
@@ -84,6 +101,7 @@ issue-cli prove <slug> <AC-id> --value "690 vs 380"
 issue-cli prove <slug> <AC-id> --shot <path>           # see above
 issue-cli prove <slug> <AC-id> --clear                 # removes this criterion's prove links
 issue-cli prove <slug> [--list] [--json]               # every criterion, its links and checks
+issue-cli prove <slug> --run [--json]                  # run the test links' tests, post the tests: comment
 ```
 
 The list shows each criterion as `proven` or `UNPROVEN`, and under it each link with where it came from and its
@@ -99,8 +117,58 @@ check result (with a `→` fix line when it fails).
 `prove`, `prove --list` and the transition that runs `criteria_proven` tick every proven criterion that is still
 unticked. A ticked box whose proof stops passing is reported, not unticked.
 
+### Owner checks
+
+Some criteria only the owner can prove. A criterion is the owner's when:
+
+- it links a playtest step with `judgement_step: true` (by `proves:` or `prove --step`);
+- a guided check step names it with `--box`, and that script's newest machine run (`check-script --yes`) left
+  the step to the owner: `needs your eyes` or `skipped`;
+- it is marked for the owner: `(owner)` anywhere in its text (`(owner) The owner picks …`, `… (owner)`), outside
+  quotes and backticks (`"(owner)"` names the marker), or it starts with `Owner ` and names a
+  check, read-through, review or decision (`Owner visual check of the board (after ship)`, `Owner decides the
+  price`). One rule (`tracker.IsOwnerMarked`, behind `proof.OwnerBoxWhy`) for every path: proof, the tick and
+  check-edit refusals, the YOLO queue, the owner-checks page, lint.
+
+Write an owner criterion as `- [ ] The board reads well on a phone (owner)`. Lint check `owner-marker` warns on
+an open criterion that reads like the owner's check ("the owner confirms it reads well") with no marker.
+
+Only the owner ticks such a box: a passing judgement step (their playtest) ticks it, and so does the owner
+ticking it by hand. A `Proves:` trailer, test, value or commit never does. `prove --list` shows
+`owner check (<why>): only the owner ticks it`. With YOLO off, the gate still counts every link as before.
+
+Under YOLO (not for experiments) `criteria_proven` skips unproven owner checks, and the transition leaves each
+unticked owner check (and any other box that is the owner's: one a guided check left to them, a box whose id is a
+playtest judgement step (step id = box id, as `TP7 … (owner's look)`), a `## Human Testing` box, a box marked
+`(owner)`) in the after-the-fact queue, by name.
+
+Every open owner box of an epic and its children is on one page, `/p/<project>/owner-checks?epic=<slug>`
+([UI](../UI/overview.md#owner-checks)), with its shot; only the owner's browser can tick there.
+See [YOLO Mode](yolo.md#owner-checks).
+
+#### Agents never tick an owner box
+
+One rule in `internal/proof/ownerbox.go` says which boxes are the owner's (`OwnerBoxWhy`: a Human Testing box, a
+box marked `(owner)`, an owner-only criterion, a box a guided check or a playtest judgement step leaves to the
+owner) and whether a write would tick one (`OwnerTicks`: ticked after, open or missing before). Every path that
+ticks or rewrites a box asks it, and refuses an agent; nothing is written and the refusal points at the Owner
+checks page:
+
+| Path | Agent | Owner |
+|---|---|---|
+| `issue-cli check` (ids, text, `--index`, `--section … --all`), `append`, `replace`, `update --body` | refused | ticks |
+| `issue-cli check --na`, `uncheck`, `check-remove`, `check-edit` dropping `(owner)` | refused | allowed |
+| `prove`, `prove --run`, the `criteria_proven` transition (`TickProven`) | an owner box ticks only from the owner's own playtest (a judge-mode pass of its judgement step) | same |
+| `playtest report -apply` (`make playtest-report APPLY=1`) | machine steps tick; the owner's judgement steps go in a call of their own, which `check` refuses | ticks both |
+| the viewer's box toggle and body save | 403 unless the request is from the owner's browser on the viewer's page | ticks |
+| Owner checks page tick | 403 for curl and agents | ticks, adds `owner-check:` |
+
+An agent is what the worker guard sees: a dispatched worker or lead, or any Claude Code session (`CLAUDECODE`).
+In the viewer, it is a request without the browser's same-origin headers. Workers never untick an owner box an
+agent ticked either; the owner unticks or keeps it.
+
 While the gate covers an issue, `issue-cli check <slug> AC2` (by id, text, index or `--section … --all`) is
-refused, with a pointer to `prove --list`. Ticking a box in the web UI stays allowed, because the owner decides.
+refused, with a pointer to `prove --list`. Ticking a box in the web UI from the owner's browser stays allowed, because the owner decides.
 `issue-cli checklist` adds a line with the count ("2/3 proven").
 
 ## The gates
@@ -134,7 +202,8 @@ The feature adds two status prompt lines:
 ## Code
 
 - `internal/proof/`: `Collect(root, issue, comments)` builds the report (criteria, links, checks); `GateError`
-  and `TickProven` work from it. The Evidence tab reads the same report.
+  and `TickProven` work from it. The Evidence tab reads the same report. owner.go: owner checks (`Owner`,
+  `Tickable`, `OwnerWaiting`, `YOLOGateError`).
 - `internal/tracker/proof.go`: the `ProofLink` sidecar type, `Criteria`, both rules, `ProofGateSince`,
   `ProofRequired`, `TransitionChecksProof`.
 - `cmd/issue-cli/cmd_prove.go`; the refusal is in `cmd_check.go`, and ticking before the gate in `cmd_transition.go`.

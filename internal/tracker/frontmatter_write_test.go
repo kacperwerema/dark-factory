@@ -187,17 +187,29 @@ func TestFrontmatterWrite_RefusesUnparsableResult(t *testing.T) {
 	}
 }
 
-func TestCreateIssueFile_RefusesUnparsableFrontmatter(t *testing.T) {
+// A value with quotes, backslashes or newlines is escaped, never able to
+// end its line and add frontmatter keys (docs/API/security.md).
+func TestCreateIssueFile_EscapesFieldValues(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := CreateIssueFileOpts(dir, CreateIssueOpts{Title: "Broken", Version: `0.1" bad: "x`})
-	if err == nil {
-		t.Fatal("create succeeded, want it refused")
+	version := `0.1" bad: "x`
+	label := "a\nassignee: evil"
+	fp, _, err := CreateIssueFileOpts(dir, CreateIssueOpts{Title: `Broken \`, Version: version, Priority: "high\"\nx: 1", Labels: []string{label}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "frontmatter would not parse") {
-		t.Errorf("error %q does not say why it refused", err)
+	data, _ := os.ReadFile(fp)
+	issue, err := ParseIssue(fp, data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "broken.md")); !os.IsNotExist(statErr) {
-		t.Errorf("issue file written despite the refusal")
+	if issue.Version != version || issue.Title != `Broken \` {
+		t.Errorf("values changed: version %q title %q", issue.Version, issue.Title)
+	}
+	if len(issue.Labels) != 1 || issue.Labels[0] != label {
+		t.Errorf("labels = %q", issue.Labels)
+	}
+	if issue.Assignee != "" || len(issue.ExtraFields) != 0 {
+		t.Errorf("injected keys: assignee %q extra %v", issue.Assignee, issue.ExtraFields)
 	}
 }
 

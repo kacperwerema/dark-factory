@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/michal-franc/issue-viewer/internal/viewerstate"
 )
 
 // lookupEnv gives a test its own state and config homes and no
@@ -29,7 +32,7 @@ func writeViewerJSON(t *testing.T, stateHome, cfg string) string {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := json.Marshal(map[string]any{"config": cfg, "url": "http://127.0.0.1:8080", "pid": 4242, "started": "2026-10-22T10:00:00Z"})
+	data, _ := json.Marshal(map[string]any{"config": cfg, "url": "http://127.0.0.1:8080", "pid": os.Getpid(), "started": "2026-10-22T10:00:00Z"})
 	path := filepath.Join(dir, "viewer.json")
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatal(err)
@@ -196,5 +199,49 @@ func TestRun_DebugAfterCommandHintsGlobalFlag(t *testing.T) {
 	err := run([]string{"list", "--debug"}, strings.NewReader(""), &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "issue-cli --debug list") {
 		t.Fatalf("want the global-flag hint, got %v", err)
+	}
+}
+
+// A sandbox viewer that has exited leaves its viewer.json behind; issue-cli
+// must not keep following it.
+func TestFindConfig_SkipsViewerJSONWhoseViewerIsDead(t *testing.T) {
+	lookupEnv(t)
+	withCwd(t, t.TempDir())
+	cfg := writeProjectsConfig(t, t.TempDir(), "rl")
+	exited := exec.Command("true")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := viewerstate.Write(viewerstate.State{Config: cfg, URL: "http://127.0.0.1:18752", PID: exited.Process.Pid}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := findConfig("")
+	if got.Path != "" {
+		t.Fatalf("a dead viewer's viewer.json must be skipped, got %+v", got)
+	}
+	if msg := got.notFound().Error(); !strings.Contains(msg, "is not running") || !strings.Contains(msg, cfg) {
+		t.Fatalf("the error should say the recorded viewer is gone, got:\n%s", msg)
+	}
+}
+
+// The 2026-10-31 message was `project "dark-factory" not found in config`
+// with no word on which config: name the file and where it came from.
+func TestRun_ProjectNotFoundNamesConfigAndSource(t *testing.T) {
+	state, _ := lookupEnv(t)
+	withCwd(t, t.TempDir())
+	cfg := writeProjectsConfig(t, t.TempDir(), "rl")
+	viewerJSON := writeViewerJSON(t, state, cfg)
+
+	var stdout, stderr bytes.Buffer
+	err := run([]string{"--project", "dark-factory", "next"}, strings.NewReader(""), &stdout, &stderr)
+	if err == nil {
+		t.Fatal("an unknown --project must fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{`project "dark-factory" not found in config ` + cfg, "Config from: the running viewer's", viewerJSON, "Available projects:", "  rl"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error should contain %q, got:\n%s", want, msg)
+		}
 	}
 }

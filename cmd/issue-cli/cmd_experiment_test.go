@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,11 +45,7 @@ func makeExperimentProject(t *testing.T) (*tracker.Project, string) {
 func TestExperimentInit(t *testing.T) {
 	proj, _ := makeExperimentProject(t)
 	ctx, out, _ := newTestContext(proj, false)
-	err := runExperiment(ctx, []string{"init", "factory/plain", "--hypothesis", "h", "--target", "rework:down:1"})
-	if err == nil || !strings.Contains(err.Error(), "not labelled experiment") {
-		t.Fatalf("plain issue: %v", err)
-	}
-	err = runExperiment(ctx, []string{"init", "factory/exp", "--hypothesis", "h", "--target", "speed:up:1"})
+	err := runExperiment(ctx, []string{"init", "factory/exp", "--hypothesis", "h", "--target", "speed:up:1"})
 	if err == nil || !strings.Contains(err.Error(), "unknown metric") {
 		t.Fatalf("unknown metric: %v", err)
 	}
@@ -63,6 +61,71 @@ func TestExperimentInit(t *testing.T) {
 	}
 	if line := experimentHeaderLine(proj, issue); !strings.Contains(line, "the owner adopts experiments, even in YOLO") || !strings.Contains(line, "experiment run factory/exp --dry-run") {
 		t.Fatalf("header line %q", line)
+	}
+}
+
+// A proposal filed at idea, without the label, becomes an experiment with the
+// one documented command: experiment init labels it and writes the block.
+func TestExperimentInitLabelsAProposalAtIdea(t *testing.T) {
+	proj, root := makeExperimentProject(t)
+	path := filepath.Join(root, "issues/Factory/proposal.md")
+	if err := os.WriteFile(path, []byte("---\ntitle: \"Proposal\"\nstatus: \"idea\"\nsystem: \"Factory\"\nlabels:\n  - workflow\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runExperiment(ctx, []string{"show", "factory/proposal"}); err == nil || !strings.Contains(err.Error(), "experiment init factory/proposal") {
+		t.Fatalf("show on a proposal should name experiment init: %v", err)
+	}
+	if err := runExperiment(ctx, []string{"init", "factory/proposal", "--hypothesis", "h", "--target", "rework:down:1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Labelled factory/proposal experiment")
+	issue := loadLeadIssue(t, proj, "factory/proposal")
+	if !experiment.Is(issue.Labels) || !slices.Contains(issue.Labels, "workflow") || issue.Status != "idea" {
+		t.Fatalf("labels %v status %q", issue.Labels, issue.Status)
+	}
+	if b, err := experiment.Load(issue.FilePath); err != nil || b == nil || b.Target.Metric != "rework" {
+		t.Fatalf("block %+v %v", b, err)
+	}
+	// Twice is fine: the label is not added again.
+	out.Reset()
+	if err := runExperiment(ctx, []string{"init", "factory/proposal", "--hypothesis", "h2", "--target", "rework:down:1"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Labelled") {
+		t.Fatalf("labelled twice: %s", out.String())
+	}
+}
+
+// Every issue-cli command a hint in cmd_experiment.go names exists, and so
+// does each --flag it gives that command (in the command's help).
+func TestExperimentHintsNameRealFlags(t *testing.T) {
+	src, err := os.ReadFile("cmd_experiment.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hintRe := regexp.MustCompile(`issue-cli ([a-z][a-z-]*)((?: [^\s"()]+)*)`)
+	flagRe := regexp.MustCompile(`--([a-z][a-z-]*)`)
+	n := 0
+	for _, m := range hintRe.FindAllStringSubmatch(string(src), -1) {
+		cmd := lookupCommand(m[1])
+		if cmd == nil {
+			t.Errorf("hint %q: no command %s", m[0], m[1])
+			continue
+		}
+		n++
+		help := cmd.ShortHelp + " " + cmd.LongHelp
+		for _, f := range flagRe.FindAllStringSubmatch(m[2], -1) {
+			if f[1] == "project" || f[1] == "json" || f[1] == "help" { // every command takes these
+				continue
+			}
+			if !strings.Contains(help, "--"+f[1]) {
+				t.Errorf("hint %q names --%s, which issue-cli %s does not take", strings.TrimSpace(m[0]), f[1], m[1])
+			}
+		}
+	}
+	if n < 5 {
+		t.Fatalf("found only %d hints", n)
 	}
 }
 
@@ -284,11 +347,11 @@ func TestYOLONeverPassesAnExperimentGate(t *testing.T) {
 	os.WriteFile(path, []byte("---\ntitle: \"Design\"\nstatus: \"in design\"\nlabels:\n  - experiment\n---\n\nBody.\n"), 0o644)
 	now := time.Now()
 	yoloOn(t, proj, now, time.Hour)
-	_, errOut, err := runYOLOTransition(t, proj, now, "design", "--to", "backlog")
+	_, _, err := runYOLOTransition(t, proj, now, "design", "--to", "backlog")
 	if err == nil {
 		t.Fatal("YOLO passed an experiment's gate")
 	}
-	assertContains(t, errOut, "experiments are adopted by the owner, even in YOLO")
+	assertContains(t, err.Error(), "experiments are adopted by the owner, even in YOLO")
 	issue := loadLeadIssue(t, proj, "design")
 	if comments, _ := tracker.LoadComments(issue.FilePath); len(comments) != 0 {
 		t.Fatalf("a YOLO approval was written: %+v", comments)

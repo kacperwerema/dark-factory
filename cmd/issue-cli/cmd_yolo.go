@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -18,12 +19,21 @@ issue's forward path pass without the owner. Each pass writes
 on the issue and waits in the "after the fact" queue for the owner's review.
 CI, tests, review, retros and the agents' permission prompts stay on. YOLO
 never passes backwards steps, optional statuses (parked), Human Testing
-approval itself, or release publish (unless unlocked with --allow-releases).
+approval itself, an experiment's gates, a gate marked owner_only (it spends
+money or publishes outside the machine), or release publish (unless
+unlocked with --allow-releases).
 Safety valve: CI red for more than 30 min turns YOLO off by itself.
+
+A box only the owner can check (a playtest judgement step, a guided check
+step left for the owner, a criterion marked "(owner)") doesn't block the
+proof gate under YOLO and is never ticked for them: it stays unticked and
+waits in the queue as "AC6: owner check, not done" until it is ticked or
+reviewed.
 
 Subcommands:
   status
-      On or off, until when, passes so far, valves, queue size.
+      On or off, until when, passes so far, valves, the gates it never
+      passes, queue size.
   on --until 08:00|4h|morning|off --quote "<owner's words>" [--how ...]
      [--no-ci-valve] [--allow-releases]
       Turn YOLO on. Always with an end; "off" means until turned off and must
@@ -34,9 +44,9 @@ Subcommands:
   off [--reason "..."]
       Turn YOLO off now.
   queue
-      Gates passed in YOLO the owner has not reviewed yet.
-  review <slug> --agree --quote "<owner's words>" [--status <status>]
-      Record the owner's agreement with a YOLO pass. "Back to <status>" is
+      Gates passed in YOLO, and owner checks, the owner has not reviewed yet.
+  review <slug> --agree --quote "<owner's words>" [--status <status>|<box>]
+      Record the owner's agreement with a YOLO pass or owner check. "Back to <status>" is
       the owner's, in the viewer.
 
 See docs/Workflow/yolo.md.`,
@@ -93,6 +103,8 @@ type yoloStatusJSON struct {
 	Passed    int         `json:"passed"`
 	Queue     []yolo.Pass `json:"queue"`
 	EndReason string      `json:"end_reason,omitempty"`
+	// NeverPasses is the gates YOLO never passes (yolo.OwnerGates).
+	NeverPasses []yolo.OwnerGate `json:"never_passes"`
 }
 
 func runYOLOStatus(ctx *Context, args []string) error {
@@ -110,7 +122,8 @@ func runYOLOStatus(ctx *Context, args []string) error {
 		return err
 	}
 	queue := yolo.Queue(issues)
-	out := yoloStatusJSON{On: on, Valves: st.Valves, Queue: queue, EndReason: st.EndReason}
+	out := yoloStatusJSON{On: on, Valves: st.Valves, Queue: queue, EndReason: st.EndReason,
+		NeverPasses: yolo.OwnerGates(ctx.Project, st.Valves)}
 	if queue == nil {
 		out.Queue = []yolo.Pass{}
 	}
@@ -132,6 +145,7 @@ func runYOLOStatus(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "  turned on by %s (%s): %q\n", st.By, st.How, st.Words)
 		fmt.Fprintf(w, "  valves: %s\n", yoloValvesLine(st.Valves))
 	}
+	printYOLONeverPasses(w, out.NeverPasses)
 	fmt.Fprintf(w, "To review after the fact: %d\n", len(queue))
 	if len(queue) > 0 {
 		fmt.Fprintln(w, "  "+tracker.InjectProject(ctx.Project, "issue-cli yolo queue"))
@@ -223,7 +237,21 @@ func runYOLOOn(ctx *Context, args []string) error {
 	for _, g := range yolo.Gates(wf) {
 		fmt.Fprintf(ctx.Stdout, "  passes: %s → %s\n", g.From, g.To)
 	}
+	printYOLONeverPasses(ctx.Stdout, yolo.OwnerGates(ctx.Project, valves))
 	return nil
+}
+
+// printYOLONeverPasses lists the gates YOLO never passes: they wait for the
+// owner with YOLO on (docs/Workflow/yolo.md, "Gates YOLO never passes").
+func printYOLONeverPasses(w io.Writer, gates []yolo.OwnerGate) {
+	fmt.Fprintln(w, "Never passes (the owner's, even in YOLO):")
+	for _, g := range gates {
+		if g.From == "" {
+			fmt.Fprintf(w, "  - %s\n", g.Why)
+			continue
+		}
+		fmt.Fprintf(w, "  - %s: %s\n", g.Label(), g.Why)
+	}
 }
 
 func runYOLOExtend(ctx *Context, args []string) error {
@@ -305,6 +333,10 @@ func runYOLOQueue(ctx *Context, args []string) error {
 		if from == "" {
 			from = "?"
 		}
+		if p.Check != "" {
+			fmt.Fprintf(ctx.Stdout, "  %s  %s (%s) %q  from %s  %s\n", p.Slug, p.Label(), p.Why, p.What, from, tracker.CommentDay(p.At))
+			continue
+		}
 		fmt.Fprintf(ctx.Stdout, "  %s  %s → %s  by %s  %s\n", p.Slug, from, p.Status, p.By, tracker.CommentDay(p.At))
 	}
 	fmt.Fprintln(ctx.Stdout, "The owner reviews each on the issue page (Agree / Back to <status>), or:")
@@ -321,7 +353,7 @@ func runYOLOReview(ctx *Context, args []string) error {
 	agree := fs.Bool("agree", false, "the owner agrees with the YOLO pass")
 	quoteFlag := fs.String("quote", "", "the owner's words (required)")
 	howFlag := fs.String("how", "", "how the words reached you (default: \"in the CEO chat\")")
-	statusFlag := fs.String("status", "", "which pass, when the issue has several (the approved status)")
+	statusFlag := fs.String("status", "", "which pass, when the issue has several (the approved status, or an owner check's box: AC6)")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -344,7 +376,7 @@ func runYOLOReview(ctx *Context, args []string) error {
 	if status := strings.ToLower(strings.TrimSpace(*statusFlag)); status != "" {
 		var only []yolo.Pass
 		for _, p := range pending {
-			if strings.EqualFold(p.Status, status) {
+			if strings.EqualFold(p.Key(), status) {
 				only = append(only, p)
 			}
 		}
@@ -359,11 +391,11 @@ func runYOLOReview(ctx *Context, args []string) error {
 	}
 	date := ctx.now().Format("2006-01-02")
 	for _, p := range pending {
-		comment := tracker.YOLOReviewComment("agreed", quote, how, date, p.Status)
+		comment := tracker.YOLOReviewComment("agreed", quote, how, date, p.Key())
 		if err := tracker.AddCommentBy(issue.FilePath, 0, comment, "cli", commentAuthor(ctx.Project, issue)); err != nil {
 			return err
 		}
-		fmt.Fprintf(ctx.Stdout, "✓ Agreed: %s → %s\n", issue.Slug, p.Status)
+		fmt.Fprintf(ctx.Stdout, "✓ Agreed: %s → %s\n", issue.Slug, p.Label())
 	}
 	return nil
 }

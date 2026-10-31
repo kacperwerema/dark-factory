@@ -272,3 +272,44 @@ func (p *Project) IssueDone(issue *Issue) bool {
 	}
 	return wf.IsLastStatus(issue.Status)
 }
+
+// WorkflowMemo parses each department's workflow once for a pass over many
+// issues: LoadWorkflowForIssue per issue parsed workflow.yaml again for
+// every one (15 departments and 60 issues took most of the company page's
+// time). ForIssue still derives each issue's own copy (ForType clones).
+type WorkflowMemo struct {
+	p  *Project
+	mu sync.Mutex
+	m  map[string]*WorkflowConfig
+}
+
+// WorkflowMemo starts an empty memo for p.
+func (p *Project) WorkflowMemo() *WorkflowMemo {
+	return &WorkflowMemo{p: p, m: map[string]*WorkflowConfig{}}
+}
+
+// ForIssue is LoadWorkflowForIssue with the department's file parsed once.
+func (m *WorkflowMemo) ForIssue(issue *Issue) *WorkflowConfig {
+	if m == nil {
+		return nil
+	}
+	if issue == nil {
+		return m.p.LoadWorkflowForIssue(nil)
+	}
+	dept := m.p.DepartmentOf(issue)
+	key := strings.ToLower(dept)
+	m.mu.Lock()
+	base, ok := m.m[key]
+	m.mu.Unlock()
+	if !ok {
+		wf, err := m.p.WorkflowFor(dept)
+		if err != nil {
+			return m.p.brokenWorkflow(dept, err)
+		}
+		base = wf
+		m.mu.Lock()
+		m.m[key] = base
+		m.mu.Unlock()
+	}
+	return base.ForIssue(issue)
+}

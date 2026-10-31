@@ -83,11 +83,11 @@ func activeOf(t *testing.T, session string) string {
 	return tmuxRun(t, "display-message", "-p", "-t", "="+session+":", "#{window_name}")
 }
 
-// waitFor polls cond for up to two seconds: the nested client starts
-// asynchronously in its pane.
+// waitFor polls cond until it holds: the nested client starts
+// asynchronously in its pane, and on a loaded machine that takes seconds.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if cond() {
 			return
 		}

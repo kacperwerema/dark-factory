@@ -50,6 +50,7 @@ func runProcess(ctx *Context, args []string) error {
 	fs.String("type", "", "type of work (workflow, transitions)")
 	fs.String("system", "", "system overlay (transitions)")
 	fs.String("workflow", "", "alias for --system (transitions)")
+	fs.String("department", "", "department with its own workflow file (workflow, transitions)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}

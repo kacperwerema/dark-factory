@@ -162,3 +162,16 @@ func TestLeadBrief_JobsRuleOnlyWithJobs(t *testing.T) {
 		t.Errorf("department brief:\n%s", dept)
 	}
 }
+
+// The CEO is pointed at the HQ report only when the project has departments.
+func TestLeadBriefNamesTheHQReportWithDepartments(t *testing.T) {
+	proj := &Project{Name: "P", Slug: "p"}
+	in := LeadBriefInput{Project: proj, Root: t.TempDir()}
+	if strings.Contains(LeadBrief(&WorkflowConfig{}, in), "status --hq") {
+		t.Error("no departments, but the brief names the HQ report")
+	}
+	proj.Departments = []Department{{Name: "Marketing"}}
+	if on := LeadBrief(&WorkflowConfig{}, in); !strings.Contains(on, "The company in a minute: issue-cli --project p status --hq") {
+		t.Errorf("brief missing the HQ report line:\n%s", on)
+	}
+}

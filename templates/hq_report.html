@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · HQ report" .Name)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="HQ report" data-testid="hq_report.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">HQ report · week {{.Week}}</h1>
+        <span class="wb-sub">every department in one line, then its detail · {{.Window}} · {{.Snapshot}}{{with .SnapshotCmd}} (<code>{{.}}</code>){{end}}</span>
+    </div>
+    <div class="wb-hqr">
+        <div class="wb-hqr-bar">
+            <button type="button" class="wb-hqr-btn" data-hqr-toggle aria-pressed="false" data-testid="hq_report.expand">Expand all</button>
+            <a class="wb-hqr-btn" href="{{.MDURL}}" data-testid="hq_report.md">Markdown</a>
+            <span class="wb-hqr-note">derived from goals, the shelf, jobs, handoffs, open issues, spend estimates and health snapshots; no agent writes it</span>
+        </div>
+        <div class="wb-hqr-list" data-testid="hq_report.list">
+            {{template "wb/hqr-box" .HQ}}
+            {{range .Boxes}}{{template "wb/hqr-box" .}}{{end}}
+        </div>
+        {{with .NoDepts}}<p class="wb-hqr-empty" data-testid="hq_report.no_departments">{{.}}</p>{{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/hq-report.js"></script>
+</body>
+</html>

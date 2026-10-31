@@ -191,6 +191,10 @@ Both flavors can mix freely in the same workflow. New validators should use the 
 
 - `criteria_checkboxes: <Title>` — every list item in `## <Title>` is a checkbox, and none still holds the text the workflow's `append_section` wrote there. Used on `Acceptance Criteria` at the design gates.
 - `criteria_proven[: since YYYY-MM-DD]` — every `Acceptance Criteria` box has a proof link that passes its check. Issues created before the date, and issues without criteria, pass. See [Proof Links](Workflow/proof.md).
+- `has_output[: <kind>]` — the outputs shelf holds an output for the issue (`issue-cli output add --issue <slug>`), of that kind when one is named, that isn't rejected and whose file is still there. The failure prints the `output add` command, and names a rejected or gone output. The `report` type runs `has_output: report` at `in progress → human-testing`; lint check `reports` warns on an issue past the gate whose output has since gone.
+- `commits_reference_issue` — one of the work branch's own commits references the issue: its subject names the slug (`chore(merge): main into <slug>`) or its message has a `Refs: <slug>` line, in any paragraph. Commits merged in from main don't count; after the fast-forward the walk starts at the issue's dispatch, so it passes at `done` too. The failure shows the commit to add (a merge of main or an empty commit with `Refs:`), never a reword, since `Proves:` trailers pin their shas. This project runs it at `shipping → done`, and the shipping guidance runs that transition's `--dry-run` before the fast-forward.
+
+A box that doesn't fit the change (no page for ux-test, a repro that is a go test) is ticked with a named N/A form, never free words: `issue-cli check <slug> <id> --na "no page changes"`. The forms and refusals are in [the CLI doc](CLI/overview.md#na-boxes-check---na); the testing prompt lists them (catalog entry `testing-na-forms`), and lint check `na-boxes` warns on a ticked N/A out of form or on the owner's box. Docs-only issues use the `docs` type, which has no Test Plan ([Types of Work](Workflow/types.md#the-docs-type)). Research and report-only issues use the `report` type: no build boxes and no commit ([The `report` type](Workflow/types.md#the-report-type)).
 
 `process transitions` annotates these in its output: `section_checkboxes_checked` rows read "(gates this transition)" and `section_has_checkboxes` rows read "(existence only — contents verified later)".
 
@@ -217,9 +221,24 @@ transitions:
 - Environment is scrubbed to `PATH`, `HOME`, `GH_TOKEN` only.
 - Timeout: `timeout_seconds` (default 10s). On non-zero exit or timeout, captured stdout/stderr (truncated to 400 chars) is included in the failure message.
 
+### Files
+
+`file_exists` passes when `action.path`, relative to the project root (`workdir:`, else the issues folder's parent), is a file with something besides whitespace in it. It runs no shell, so it needs no `allow_shell`. Use it when one piece of work needs another's result first. The marketing template uses it to keep channel briefs from moving to draft before the brand foundation is written ([Brand foundation and research mode](departments.md#brand-foundation-and-research-mode)).
+
+```yaml
+- type: validate
+  rule: file_exists
+  path: "departments/{{department}}/brand.md"
+  hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+```
+
+- `path` is templated with `{{slug}}`, `{{number}}`, `{{repo}}`, `{{system}}` and `{{department}}`, which is the key of the department whose workflow the issue walks (`marketing`, `growth-team`). A `{{department}}` path on a Product issue fails and says the issue belongs to no department.
+- A path outside the project root, either absolute or one that climbs out with `..`, is a config error.
+- `issue-cli health lint` (the `departments` check) warns about a file a department's base transitions gate on that isn't written yet, and gives the rule's hint as the fix. Gates on a type's own edges aren't listed, because those check files the type's issues write themselves.
+
 ### Failure hints
 
-Every validator returns a failure message of the form `<problem> — <hint>`, where `<hint>` is a concrete `issue-cli` command bots can run to fix the gate. Set `action.hint` on any structured validator to override the default hint with project-specific guidance (the override is templated with the same `{{slug}}/{{number}}/{{repo}}/{{system}}` vars as `command_succeeds`).
+Every validator returns a failure message of the form `<problem> — <hint>`, where `<hint>` is a concrete `issue-cli` command bots can run to fix the gate. Set `action.hint` on any structured validator to override the default hint with project-specific guidance (the override is templated with the same `{{slug}}/{{number}}/{{repo}}/{{system}}` vars as `command_succeeds`, plus `{{department}}`).
 
 ## Scoring
 
@@ -292,7 +311,7 @@ The owner can change a station of the Product line from the viewer: the Product 
 
 ## YOLO Mode
 
-For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).
+For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. A gate marked `owner_only: true` (a step that spends money or publishes outside the machine, like the marketing template's `owner review → publish`) is never passed: it waits for the owner. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).
 
 ## Local CI
 
@@ -372,14 +391,15 @@ Without the viewer, `issue-cli ci watch` does the polling; `--once` checks once.
 |:--|:--|
 | `.ci/state.json` | Where the branch stands: last tested sha, `green`/`red`/`error`, last green sha, red since, failing command and tests, what landed since green, the issues among it, the log tail. The viewer reads only this file and the lock |
 | `.ci/runs/<sha>.json` | One run: each command's exit code and duration, the failing command and tests, the commit range from the last green run, the merged branches and issues, the log tail. A non-default tier writes `<sha>.<tier>.json`. The newest 50 runs are kept |
-| `.ci/runs/<sha>.log` | The full output of the run |
+| `.ci/runs/<sha>.log` | The full output of the run. A re-run of the same head writes it again |
+| `.ci/red/<time>-<sha>[.<tier>][.first].log` | A red run's log, copied when the run ends so it outlives the next green run (and the 50-run prune). The run record's `kept_log` and the state's `last_red_log` (with `last_red_sha`, `last_red_tier`, `last_red_at`, kept while green) point at it; `.first` marks the first red after a green. The newest 10 are kept, none older than 30 days; the newest `.first` log stays past the count, not past the age |
 | `.ci/results/<sha>/` | The run's `CI_RESULTS_DIR`: the result files the commands wrote, and a `<kind>.tests.json` list per parsed file |
 | `.ci/lock` | The run in progress: pid, sha, tier, start |
 
 ### When it goes red
 
 - **Blame:** the run lists what landed between the last green commit and this one. That covers local branches whose tip is in the range (matched to issues by `work/<slug>`), branches named by merge commits, and commits made straight on the branch. A rewound branch counts from the merge-base, and the first run ever blames nothing.
-- **Status page:** the Local CI card shows the state chip, the one-line state and a Last runs row (the last 12 runs as green/red/amber boxes, oldest first, with a dashed box for a live run; each box's tooltip has the commit, result, age, duration and what failed). While red it also shows the failing command and tests, the issues that landed since green and the log tail. Red CI is the first item in the Needs you tile (Waiting on you in `status.md`) and counts in the sidebar's Status number. `status.md` carries the same line.
+- **Status page:** the Local CI card shows the state chip, the one-line state and a Last runs row (the last 12 runs as green/red/amber boxes, oldest first, with a dashed box for a live run; each box's tooltip has the commit, result, age, duration and what failed). While red it also shows the failing command and tests, the issues that landed since green and the log tail. Green or red, a **Last red log** line links the newest kept red log, and the red boxes link to theirs (`/p/<project>/ci/log/<name>`, plain text). Red CI is the first item in the Needs you tile (Waiting on you in `status.md`) and counts in the sidebar's Status number. `status.md` carries the same line.
 - **Card markers:** each issue merged since the last green run carries a red `CI red · <command>` chip while main is red, on the workboard (done cards too) and the system pages.
 - **`ci:` comments:** each of those issues gets a comment with the failing command, its tests, what else landed and the log path.
 - **The lead:** CI never messages it (nothing on a timer prompts a session). The lead reads `issue-cli ci status` when the owner asks, at check-ins and before a push, and decides with the owner whether to revert, fix forward or dispatch a fix. CI never reverts anything.

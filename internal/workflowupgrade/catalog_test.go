@@ -1,7 +1,6 @@
 package workflowupgrade
 
 import (
-	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -140,13 +139,8 @@ func detectedIDs(t *testing.T, raw string) []string {
 // A misspelled key (unlock: for unlocks:) would be dropped silently by the
 // lenient decode Catalog uses; the strict one names it.
 func TestCatalogHasOnlyKnownKeys(t *testing.T) {
-	var doc struct {
-		Entries []Entry `yaml:"entries"`
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(catalogYAML()))
-	dec.KnownFields(true)
-	if err := dec.Decode(&doc); err != nil {
-		t.Fatalf("workflow-features.yaml has a key Entry doesn't know (add the field or fix the name): %v", err)
+	if _, err := ParseCatalog(catalogYAML(), bundledSplitCatalog(), true); err != nil {
+		t.Fatalf("the catalog has a key Entry doesn't know (add the field or fix the name): %v", err)
 	}
 }
 

@@ -1,0 +1,85 @@
+session: output-reader
+issue: ui/outputs-as-documents-a-reader-for-markdown-outputs-with-comments-on-them
+title: Output reader - a markdown output as a document, comments in the margin, versions on the shelf
+scenario: shelf
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A markdown output on the shelf opens as a document with its contents
+    proves: [AC1]
+    setup:
+      # out/brand.md is a fixture copy of Marketing's first output (ab00), never the live file.
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Brand and ICP: Dark Factory", --kind, report, --file, out/brand.md]
+      - open: /p/acme/shelf
+    act:
+      - click: shelf.title
+      - wait_for: odoc.sheet
+    checks:
+      - text_equals: { target: odoc.title, text: "Brand and ICP: Dark Factory" }
+      - visible: [odoc.toc, odoc.sheet, odoc.margin, odoc.approve, odoc.raw]
+      # 20 headings, h2 to h4 (the contents start folded on a phone).
+      - text_contains: { target: odoc.toc, text: "Contents 20" }
+      - text_contains: { target: odoc.sheet, text: "Core idea: a dark factory with one lamp on, yours." }
+      - exists: odoc.none
+    targets:
+      - { id: odoc.toc, note: "Contents: the headings, with open comment counts" }
+      - { id: odoc.sheet, note: "The document" }
+
+  - id: TP5
+    title: A comment on the whole document shows in the margin, with Reply and Resolve
+    proves: [AC6]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Brand and ICP: Dark Factory", --kind, report, --file, out/brand.md]
+      - open: /p/acme/shelf
+      - click: shelf.title
+      - wait_for: { enabled: odoc.comment }
+    act:
+      - type: { target: odoc.new.text, text: "Lead with the five things I settle." }
+      - click: odoc.comment
+      - wait_for: odoc.thread
+    checks:
+      - text_contains: { target: odoc.open, text: "1 open" }
+      - text_contains: { target: odoc.thread, text: "Lead with the five things I settle." }
+      - text_contains: { target: odoc.thread, text: "Whole document" }
+      - visible: [odoc.reply, odoc.resolve]
+    do: |
+      1. Open the brand output from the shelf.
+      2. Select a few words of a line option (B), press "Comment on this passage", write a note and Comment.
+      3. Hover a heading such as Voice, press its 💬 and comment on it.
+      4. Reply to one thread, resolve another; switch the sheet to Night and back.
+      5. Go back to the shelf.
+    expect: |
+      The passage is lit lavender in the sheet and its thread sits in the
+      margin with the quote; clicking either lights the other. The heading's
+      thread names the heading. The contents show a purple count next to
+      each heading with open comments. Resolved threads fold under
+      "N resolved". Night darkens only the document. On the shelf the row
+      shows "💬 N open". On a phone the contents start folded and the
+      Comment button docks at the bottom.
+    why: ux-test types and posts only a whole-document comment; selecting text and reading the margin is yours to judge.
+    targets:
+      - { id: odoc.margin, note: "The comment margin" }
+      - { id: odoc.thread, note: "A thread" }
+
+  - id: TP6
+    title: The shelf row shows the open comment count
+    proves: [AC4]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Brand and ICP: Dark Factory", --kind, report, --file, out/brand.md]
+      - open: /p/acme/shelf
+      - click: shelf.title
+      - wait_for: { enabled: odoc.comment }
+    act:
+      - type: { target: odoc.new.text, text: "Drop line C." }
+      - click: odoc.comment
+      - wait_for: odoc.thread
+      - open: /p/acme/shelf
+      - wait_for: shelf.talk
+    checks:
+      - text_contains: { target: shelf.talk, text: "💬 1 open" }
+      - visible: shelf.raw

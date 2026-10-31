@@ -46,6 +46,21 @@ type Dispatch struct {
 	At      time.Time `json:"at"`
 	Session string    `json:"session"`
 	Agent   string    `json:"agent"`
+	// BaseBranch and BaseSHA are what the work branch was cut from, set only
+	// by the dispatch that created it (a redispatch reuses the branch).
+	BaseBranch string `json:"base_branch,omitempty"`
+	BaseSHA    string `json:"base_sha,omitempty"`
+}
+
+// DispatchBase returns the first dispatch that recorded a base: the one that
+// cut the issue's work branch. ok is false when none did.
+func DispatchBase(store StatsStore) (d Dispatch, ok bool) {
+	for _, d := range store.Dispatches {
+		if d.BaseSHA != "" {
+			return d, true
+		}
+	}
+	return Dispatch{}, false
 }
 
 // StatsStore is the per-issue workflow-stats sidecar persisted as

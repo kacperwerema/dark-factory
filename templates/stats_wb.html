@@ -7,10 +7,11 @@
 <section class="wb-ground wb-hhead">
     <div class="wb-hhead-text">
         <h1 class="wb-h1 wb-h1--xl">Hall stats</h1>
-        <div class="wb-hhead-sub" data-testid="stats.snapshots">{{.Sub}} · how we count: <span class="wb-mono-inline">docs/workflow-stats.md</span>, “Stats page”</div>
-        <div class="wb-hhead-sub"><a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
+        <div class="wb-hhead-sub" data-testid="stats.snapshots"{{with .AggTitle}} title="{{.}}"{{end}}>{{.Sub}} · how we count: <span class="wb-mono-inline">docs/workflow-stats.md</span>, “Stats page”</div>
+        <div class="wb-hhead-sub"><a href="{{.AllURL}}" data-testid="stats.all">All projects' stats</a> · <a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
     </div>
     {{template "wb/seg-links" .Range}}
+    <span class="wb-stats-saved wb-small wb-muted" hidden data-testid="stats.saved">Saved for this project</span>
 </section>
 <main class="wb-hmain wb-stats" data-testid="stats.page" data-project="{{.Project}}">
     <section class="wb-hsec" aria-labelledby="stats-now-h" data-testid="stats.now">
@@ -68,6 +69,7 @@
             <h2 id="time" class="wb-h2">Time tables</h2>
             <span class="wb-hsec-sub">the numbers behind the bars, split as each issue's Timeline tab splits it</span>
         </div>
+        <p class="wb-small wb-muted" data-testid="stats.time_rules">{{.TimeRules}}</p>
         {{range .TimeFolds}}{{template "wb/fold" .}}{{end}}
     </section>
 </main>

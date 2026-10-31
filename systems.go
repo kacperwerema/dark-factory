@@ -446,7 +446,7 @@ func (s *Server) buildSystemPage(proj *tracker.Project, issues []*tracker.Issue,
 		Summary:     g.Config.Summary,
 		Configured:  g.Has,
 		DesignDoc:   g.Config.DesignDoc,
-		BoardHref:   prefix + "/board?classic=1&system=" + url.QueryEscape(g.Name),
+		BoardHref:   prefix + "/hall", // the hall is the board now (factory/retire-board-canvas-graph)
 		ListHref:    prefix + "/?system=" + url.QueryEscape(g.Name),
 	}
 	d.DecisionsHref = prefix + "/decisions?system=" + url.QueryEscape(g.Name)

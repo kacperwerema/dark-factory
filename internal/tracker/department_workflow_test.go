@@ -150,3 +150,24 @@ func TestDepartmentFileCacheSeesEdits(t *testing.T) {
 		t.Fatal("the edit didn't show: the cache must key on size and mtime")
 	}
 }
+
+// A memo gives each issue what LoadWorkflowForIssue gives it, its own copy,
+// and a broken department file stays an error.
+func TestWorkflowMemoMatchesLoadWorkflowForIssue(t *testing.T) {
+	p := deptProject(t, marketingYAML)
+	m := p.WorkflowMemo()
+	seo, core := &Issue{Slug: "seo/a", System: "SEO"}, &Issue{Slug: "core/b", System: "Core"}
+	for _, issue := range []*Issue{seo, core, seo, nil} {
+		want, got := p.LoadWorkflowForIssue(issue), m.ForIssue(issue)
+		if strings.Join(got.GetStatusOrder(), ",") != strings.Join(want.GetStatusOrder(), ",") {
+			t.Errorf("%v: memo statuses %v, want %v", issue, got.GetStatusOrder(), want.GetStatusOrder())
+		}
+	}
+	if a, b := m.ForIssue(seo), m.ForIssue(&Issue{Slug: "seo/c", System: "SEO"}); a == b {
+		t.Error("two issues share one workflow")
+	}
+	broken := deptProject(t, "statuses: [")
+	if wf := broken.WorkflowMemo().ForIssue(seo); wf.LoadErr == nil {
+		t.Error("a broken department file loaded through the memo")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/michal-franc/issue-viewer/internal/checks"
+	"github.com/michal-franc/issue-viewer/internal/proof"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -26,7 +27,8 @@ comment the failures as "checks:".
 A script is scripts/checks/<name>.sh on the issue's branch, with a
 "# issue: <slug>" line in its first lines, sourcing the helper library
 issue-cli ships ($CHECKS_LIB). Scripts stay on the branch: remove them in a
-last commit before the merge.
+last commit before the merge. After the merge, check-script finds them in
+git history (the commit that removed them) and runs them from main.
 
 Usage:
   issue-cli check-script <slug>               run the issue's scripts (the owner, from a terminal)
@@ -78,18 +80,38 @@ func runCheckScript(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	root, rootErr := checkScriptRoot(ctx.Project, issue)
-
 	if *newFlag != "" {
-		if rootErr != nil {
-			return rootErr
+		checkout, err := issueCheckout(ctx.Project, issue)
+		if err != nil {
+			return err
 		}
-		return newCheckScript(ctx, issue, root, *newFlag)
+		return newCheckScript(ctx, issue, checkout, *newFlag)
+	}
+	root, rootErr := checkScriptRoot(ctx.Project, issue)
+	if rootErr == nil {
+		if checkout, err := issueCheckout(ctx.Project, issue); err == nil && checkout != root {
+			fmt.Fprintf(ctx.Stdout, "work/%s is merged into %s: running from %s, not its old worktree %s\n\n", issue.Slug, checks.MergedInto(root, checkout), root, checkout)
+		}
 	}
 
 	var found []checks.Script
 	if rootErr == nil {
 		found = checks.Find([]string{root}, issue.Slug)
+	}
+	// The shipping step removes the scripts before the merge: on main they are
+	// only in history, while the owner's run may still be due.
+	var removed []checks.Removed
+	if len(found) == 0 {
+		histRoot := root
+		if rootErr != nil {
+			histRoot = projectRoot(ctx.Project)
+		}
+		if removed = checks.FromHistory(histRoot, issue.Slug); len(removed) > 0 {
+			root, rootErr = histRoot, nil
+			for _, r := range removed {
+				found = append(found, checks.Script{Name: r.Name, Path: r.Path, Root: root, From: r.Commit})
+			}
+		}
 	}
 	if fs.NArg() == 2 {
 		found = filterScripts(found, fs.Arg(1))
@@ -103,15 +125,48 @@ func runCheckScript(ctx *Context, args []string) error {
 	if len(found) == 0 {
 		return noCheckScripts(issue, root, fs.Arg(1))
 	}
+	if len(removed) > 0 {
+		var keep []checks.Removed
+		for _, r := range removed {
+			if len(filterScripts(found, r.Name)) > 0 {
+				keep = append(keep, r)
+			}
+		}
+		written, cleanup, err := checks.WriteRemoved(root, keep)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		for _, r := range keep {
+			fmt.Fprintf(ctx.Stdout, "%s from history (removed in %s before the merge): running it from %s\n", r.Path, r.Short(), root)
+		}
+		fmt.Fprintln(ctx.Stdout)
+		found = written
+	}
 	return runCheckScripts(ctx, issue, found, *yesFlag)
 }
 
-// checkScriptRoot is where the issue's scripts live and run: its worktree,
-// else the git worktree on its branch (work/<slug>, kept even when the
-// workflow declares none), else, when the workflow has no worktrees, the
+// checkScriptRoot is where the issue's scripts live and run: its checkout
+// (issueCheckout), unless that is a worktree already merged into main and
+// left clean, whose code and scripts are older than main's: then the project
+// folder.
+func checkScriptRoot(proj *tracker.Project, issue *tracker.Issue) (string, error) {
+	checkout, err := issueCheckout(proj, issue)
+	if err != nil {
+		return "", err
+	}
+	if checks.MergedInto(projectRoot(proj), checkout) != "" {
+		return projectRoot(proj), nil
+	}
+	return checkout, nil
+}
+
+// issueCheckout is where the issue's work happens and --new writes: its
+// worktree, else the git worktree on its branch (work/<slug>, kept even when
+// the workflow declares none), else, when the workflow has no worktrees, the
 // worktree of the project it runs from (a slug with a space has no work/
 // branch), else the project folder.
-func checkScriptRoot(proj *tracker.Project, issue *tracker.Issue) (string, error) {
+func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) {
 	wf := proj.LoadWorkflowForIssue(issue)
 	path, branch, enabled := tracker.ResolveWorktree(projectRoot(proj), issue.Slug, wf)
 	if enabled && pathExists(path) {
@@ -146,20 +201,21 @@ func noCheckScripts(issue *tracker.Issue, root, name string) error {
 	if name != "" {
 		what = "no check script " + name
 	}
-	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shellQuote(issue.Slug))}
+	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s, nor removed from it in git history\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shellQuote(issue.Slug))}
 }
 
 type checkScriptEntry struct {
 	Name     string `json:"name"`
 	Path     string `json:"path"`
 	OwnerRun bool   `json:"owner_run"`
+	From     string `json:"from,omitempty"`
 }
 
 func listCheckScripts(ctx *Context, issue *tracker.Issue, root string, found []checks.Script) error {
 	if ctx.JSONOutput {
 		entries := []checkScriptEntry{}
 		for _, s := range found {
-			entries = append(entries, checkScriptEntry{Name: s.Name, Path: s.Path, OwnerRun: checks.OwnerRun([]string{s.Root}, s.Name)})
+			entries = append(entries, checkScriptEntry{Name: s.Name, Path: s.Path, OwnerRun: checks.OwnerRun([]string{s.Root}, s.Name), From: s.From})
 		}
 		if err := writeJSON(ctx.Stdout, entries); err != nil {
 			return err
@@ -179,6 +235,10 @@ func listCheckScripts(ctx *Context, issue *tracker.Issue, root string, found []c
 		run := "no owner run yet"
 		if checks.OwnerRun([]string{s.Root}, s.Name) {
 			run = "owner has run it"
+		}
+		if s.From != "" {
+			fmt.Fprintf(ctx.Stdout, "%s  %s  (%s; from history: removed in %.7s before the merge)\n", s.Name, s.Path, run, s.From)
+			continue
 		}
 		fmt.Fprintf(ctx.Stdout, "%s  %s  (%s)\n", s.Name, s.Path, run)
 	}
@@ -244,7 +304,26 @@ func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, 
 	if len(failed) > 0 {
 		return &exitCodeError{Code: 1, Msg: "check script failed: " + strings.Join(failed, ", ")}
 	}
+	if yes {
+		printOwnerBoxesLeft(ctx, issue)
+	}
 	return nil
+}
+
+// printOwnerBoxesLeft names, after a passing machine run, the issue's
+// unticked boxes only the owner can check: the run ticked none of them.
+func printOwnerBoxesLeft(ctx *Context, issue *tracker.Issue) {
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	left := proof.Collect(projectRoot(ctx.Project), issue, comments).OwnerWaiting()
+	fmt.Fprintln(ctx.Stdout)
+	if len(left) == 0 {
+		fmt.Fprintf(ctx.Stdout, "Machine run passed. No box on %s is left to the owner.\n", issue.Slug)
+		return
+	}
+	fmt.Fprintf(ctx.Stdout, "Machine run passed. Left to the owner on %s (never tick these yourself):\n", issue.Slug)
+	for _, it := range left {
+		fmt.Fprintf(ctx.Stdout, "  %s  %q  (%s)\n", it.ID, it.Text, it.Why)
+	}
 }
 
 func newCheckScript(ctx *Context, issue *tracker.Issue, root, name string) error {

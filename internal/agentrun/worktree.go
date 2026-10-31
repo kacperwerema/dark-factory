@@ -25,6 +25,42 @@ var RunGitWorktreeAdd = func(workdir, branch, wtPath, startPoint string) ([]byte
 	return exec.Command("git", args...).CombinedOutput()
 }
 
+// RunGitOutput runs git with args and returns its trimmed stdout. A seam so
+// tests need no repository.
+var RunGitOutput = func(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// WorktreeBase is the branch and sha a dispatch is about to cut wt's branch
+// from: wt.StartPoint when set, else the branch checked out in workdir
+// ("HEAD" when detached). ok is false when nothing will be cut (no
+// worktree, the worktree exists, or the branch does) or git can't say.
+func WorktreeBase(workdir string, wt tracker.WorktreeSpec) (branch, sha string, ok bool) {
+	if wt.Path == "" {
+		return "", "", false
+	}
+	if _, err := os.Stat(wt.Path); err == nil {
+		return "", "", false
+	}
+	if _, err := RunGitOutput("-C", workdir, "rev-parse", "--verify", "--quiet", "refs/heads/"+wt.Branch); err == nil {
+		return "", "", false
+	}
+	branch = wt.StartPoint
+	if branch == "" {
+		if b, err := RunGitOutput("-C", workdir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil && b != "" {
+			branch = b
+		} else {
+			branch = "HEAD"
+		}
+	}
+	sha, err := RunGitOutput("-C", workdir, "rev-parse", "--verify", "--quiet", branch+"^{commit}")
+	if err != nil || sha == "" {
+		return "", "", false
+	}
+	return branch, sha, true
+}
+
 // RunGitSparseCheckout configures sparse-checkout in the new worktree to
 // exclude the given paths. Patterns are built from the excludes ('/*' to
 // include everything, then '!/<path>' per exclude, anchored at the repo root) and passed to

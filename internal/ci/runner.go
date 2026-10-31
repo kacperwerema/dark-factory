@@ -99,6 +99,7 @@ func Execute(opts Options) ([]*Run, *Lock, error) {
 		me.Sha = head
 		updateLock(opts.Root, me)
 		run := runOnce(opts, branch, tier, head, prev)
+		keepRed(opts, run, prev)
 		next := applyRun(prev, run)
 		if err := writeRun(opts.Root, run); err != nil {
 			return runs, nil, err
@@ -111,11 +112,33 @@ func Execute(opts Options) ([]*Run, *Lock, error) {
 			opts.Report(prev, run, next)
 		}
 		prune(opts.Root)
+		pruneRedLogs(opts.Root, opts.now())
 		if tier != defaultTier {
 			break
 		}
 	}
 	return runs, nil, nil
+}
+
+// keepRed copies a red run's log to .ci/red. The first red after a green
+// (of its tier) is marked, so pruning keeps it past the count.
+func keepRed(opts Options, run *Run, prev *State) {
+	if run.State != Red {
+		return
+	}
+	var first bool
+	if run.Tier == defaultTier {
+		first = !prev.IsRed()
+	} else {
+		ts, ok := prev.Tier(run.Tier)
+		first = !ok || ts.State != Red
+	}
+	rel, err := keepRedLog(opts.Root, run, first)
+	if err != nil {
+		fmt.Fprintf(opts.Out, "CI could not keep the red log: %v\n", err)
+		return
+	}
+	run.KeptLog = rel
 }
 
 func hasTier(cfg *tracker.CIConfig, tier string) bool {
@@ -270,6 +293,9 @@ func applyRun(prev *State, run *Run) *State {
 		next = &cp
 	}
 	next.Branch, next.Updated = run.Branch, run.Finished
+	if run.KeptLog != "" {
+		next.LastRedLog, next.LastRedSha, next.LastRedTier, next.LastRedAt = run.KeptLog, run.Sha, run.Tier, run.Finished
+	}
 	if run.Tier != defaultTier {
 		tiers := map[string]TierState{}
 		for k, v := range next.Tiers {

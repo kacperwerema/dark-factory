@@ -181,3 +181,31 @@ func IssueSharedFiles(root string, issue *Issue, issues []*Issue) *SharedFiles {
 	}
 	return &SharedFiles{Branch: name, Files: files, Others: len(others)}
 }
+
+// BlockedOnField is the frontmatter key naming what an issue is blocked on:
+// one slug or a list. The card marker and the connections read it.
+const BlockedOnField = "blocked_on"
+
+// BlockedOn returns the issue's blocked_on values, trimmed, as written.
+func BlockedOn(issue *Issue) []string {
+	if issue == nil {
+		return nil
+	}
+	for _, f := range issue.ExtraFields {
+		if f.Key != BlockedOnField {
+			continue
+		}
+		vals := f.Values
+		if !f.IsList {
+			vals = []string{f.Value}
+		}
+		var out []string
+		for _, v := range vals {
+			if v = strings.TrimSpace(v); v != "" {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	return nil
+}

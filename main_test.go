@@ -135,7 +135,7 @@ func TestRun_SIGINTShutsDownCleanly(t *testing.T) {
 	// run registers the signal handler before it listens, so once the port
 	// answers SIGINT goes to it, not to the test binary's default handler.
 	url := "http://127.0.0.1:" + port + "/"
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		resp, err := http.Get(url)
 		if err == nil {
@@ -186,7 +186,7 @@ func TestRun_ConfigModeRecordsViewerForCLI(t *testing.T) {
 	go func() { runErr <- run([]string{"-config", cfg, "-port", port}) }()
 
 	var state viewerstate.State
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		if state, err = viewerstate.Read(); err == nil {
 			break
@@ -203,6 +203,77 @@ func TestRun_ConfigModeRecordsViewerForCLI(t *testing.T) {
 	}
 	if state.Config != cfg || state.URL != "http://127.0.0.1:"+port || state.PID != os.Getpid() || state.Started.IsZero() {
 		t.Fatalf("viewer.json = %+v, want config %s on port %s", state, cfg, port)
+	}
+
+	if err := syscall.Kill(syscall.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runErr:
+	case <-time.After(15 * time.Second):
+		t.Fatal("run did not return after SIGINT")
+	}
+}
+
+// The 2026-10-31 bug: a worker's sandbox viewer (config in its scratchpad,
+// no XDG_STATE_HOME of its own) replaced the owner's viewer.json, and every
+// issue-cli on the machine followed it to the sandbox config.
+func TestRun_SandboxConfigLeavesSharedViewerJSONAlone(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("ISSUE_VIEWER_CONFIG", "")
+	proj, _ := setupTestProject(t)
+	sandbox := t.TempDir()
+	// Only the sandbox folder counts as temp here, so state is the shared
+	// state dir it is on the owner's machine.
+	old := viewerstate.SandboxRoots
+	viewerstate.SandboxRoots = func() []string { return []string{sandbox} }
+	t.Cleanup(func() { viewerstate.SandboxRoots = old })
+
+	owner := viewerstate.State{Config: "/owner/projects.yaml", URL: "http://127.0.0.1:8090", PID: 1, Started: time.Date(2026, 10, 31, 2, 5, 0, 0, time.UTC)}
+	if err := viewerstate.Write(owner); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(viewerstate.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := filepath.Join(sandbox, "proj-18752.yaml")
+	body := "projects:\n  - name: T\n    slug: rl\n    issues: " + proj.IssueDir + "\n    docs: " + proj.DocsDir + "\n"
+	if err := os.WriteFile(cfg, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	ln.Close()
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- run([]string{"-config", cfg, "-port", port}) }()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := http.Get("http://127.0.0.1:" + port + "/")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		select {
+		case err := <-runErr:
+			t.Fatalf("run exited before serving: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	after, err := os.ReadFile(viewerstate.Path())
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("sandbox viewer touched the shared viewer.json:\nbefore %s\nafter  %s (%v)", before, after, err)
 	}
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGINT); err != nil {

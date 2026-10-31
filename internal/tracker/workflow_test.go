@@ -906,6 +906,14 @@ func TestApplyTransition_DoesNotDuplicateExistingSection(t *testing.T) {
 					{Type: "append_section", Title: "Design", Body: "- [ ] Acceptance criteria defined as checkboxes"},
 				},
 			},
+			{
+				From: "in design",
+				To:   "backlog",
+				Actions: []WorkflowAction{
+					{Type: "validate", Rule: "section_checkboxes_checked: Design"},
+					{Type: "validate", Rule: "section_checkboxes_checked: Idea"},
+				},
+			},
 		},
 	}
 
@@ -1475,6 +1483,11 @@ func TestPreviewTransition_SkipsExistingSection(t *testing.T) {
 				Actions: []WorkflowAction{
 					{Type: "append_section", Title: "Idea", Body: "- [ ] Problem described clearly"},
 				},
+			},
+			{
+				From:    "in design",
+				To:      "backlog",
+				Actions: []WorkflowAction{{Type: "validate", Rule: "section_checkboxes_checked: Idea"}},
 			},
 		},
 	}

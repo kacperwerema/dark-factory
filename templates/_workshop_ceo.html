@@ -228,8 +228,10 @@ static/ceo-chat.js).
             {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="leads.row.{{tid .Slug}}.live"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}
             {{if .Waiting}}<span class="wb-chip wb-chip--you">{{.Waiting}} waiting on you</span>{{else}}<span class="wb-chip wb-chip--idle">nothing waiting</span>{{end}}
         </div>
-        {{with .Departments}}<ul class="wb-ceo-card-depts" data-testid="leads.dept_leads">{{range .}}<li><a href="{{.ChatURL}}" data-testid="leads.dept_lead.{{tid .Department}}">{{.Department}} lead</a> <span class="wb-mono-inline">{{.Session}}</span> {{if .Live}}<span class="wb-chip wb-chip--green"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}</li>{{end}}</ul>{{end}}
+        {{with .Departments}}<ul class="wb-ceo-card-depts" data-testid="leads.dept_leads">{{range .}}{{template "wb/leads-dept" .}}{{end}}</ul>{{end}}
     </div>
     <a class="wb-btn wb-btn--ink" href="{{.ChatURL}}" data-testid="leads.row.{{tid .Slug}}.chat">Talk to the CEO</a>
 </div>
 {{end}}
+
+{{define "wb/leads-dept"}}<li><a href="{{.ChatURL}}" data-testid="leads.dept_lead.{{tid .Department}}">{{.Department}} lead</a> <span class="wb-mono-inline">{{.Session}}</span> {{if .Live}}<span class="wb-chip wb-chip--green"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle">not running</span>{{end}}{{with .Children}}<ul class="wb-ceo-card-depts wb-ceo-card-depts--group" data-testid="leads.group.{{tid $.Department}}">{{range .}}{{template "wb/leads-dept" .}}{{end}}</ul>{{end}}</li>{{end}}

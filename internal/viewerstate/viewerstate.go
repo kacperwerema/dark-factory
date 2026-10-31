@@ -7,9 +7,11 @@ package viewerstate
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -121,4 +123,75 @@ func sameFile(a, b string) bool {
 	aa, _ := filepath.Abs(a)
 	ba, _ := filepath.Abs(b)
 	return aa == ba
+}
+
+// SandboxRoots are the temp folders a sandbox config lives under. A var so
+// tests can say which folder counts.
+var SandboxRoots = func() []string {
+	return []string{os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"}
+}
+
+// InSandbox reports whether path lies under one of SandboxRoots, comparing
+// resolved paths (on a Mac /tmp and /var are links into /private).
+func InSandbox(path string) bool {
+	if path == "" {
+		return false
+	}
+	p := resolve(path)
+	for _, root := range SandboxRoots() {
+		if root == "" {
+			continue
+		}
+		r := resolve(root)
+		if p == r || strings.HasPrefix(p, r+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolve makes p absolute and resolves symlinks in its longest existing
+// prefix, so a file that doesn't exist yet still compares by its real folder.
+func resolve(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	p = filepath.Clean(p)
+	rest := ""
+	for dir := p; ; dir = filepath.Dir(dir) {
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(r, rest)
+		}
+		if filepath.Dir(dir) == dir {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
+}
+
+// Alive reports whether pid is a running process. A pid of 0 or less (a
+// record without one) is not.
+func Alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// Claim says whether a viewer serving config, running as pid self, may write
+// viewer.json; when it may not, why. It may not when the config is in a temp
+// folder while viewer.json is in the shared state dir (a sandbox viewer
+// started without XDG_STATE_HOME of its own), nor when another live viewer
+// holds the record for a different config. issue-viewer -record-viewer
+// writes it anyway.
+func Claim(config string, self int) (bool, string) {
+	if InSandbox(config) && !InSandbox(Dir()) {
+		return false, fmt.Sprintf("config %s is in a temp folder and %s is the shared state", config, Path())
+	}
+	s, err := Read()
+	if err == nil && s.PID != self && Alive(s.PID) && s.Config != "" && !sameFile(s.Config, config) {
+		return false, fmt.Sprintf("the viewer at %s (pid %d) holds it for %s", s.URL, s.PID, s.Config)
+	}
+	return true, ""
 }

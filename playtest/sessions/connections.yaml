@@ -1,0 +1,61 @@
+session: connections
+issue: factory/connections-between-boxes-requests-outputs-and-dependencies-drawn-between-departments-on-the-floor-map
+title: Roads between the rooms on the company page, and the drill-in behind each
+scenario: connections
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The company page lists four connections and draws them as five roads with a parcel on each
+    proves: [AC6]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.connections.road.link }
+    checks:
+      - count: { pattern: "company.connections.row", equals: 4 }
+      - text_contains: { target: company.connections, text: "Marketing → HQ → Product" }
+      - text_contains: { target: company.connections, text: "Product → Marketing" }
+      - text_contains: { target: company.connections, text: "Marketing → Sales" }
+      - text_contains: { target: company.connections, text: "HQ → Sales" }
+      - count: { pattern: "company.connections.road.link", equals: 5 }
+      - count: { pattern: "company.connections.parcel", equals: 5 }
+      - text_contains: { target: company.room.hq, text: "⇄ in 1 · out 2" }
+    targets: [company.connections, company.connections.lines]
+
+  - id: TP5
+    title: A connection's row (HQ → Sales, the first) opens the drill-in with that edge's issue and why
+    from: TP4
+    proves: [AC8]
+    act:
+      - click: company.connections.row
+      - wait_for: { visible: connections.page }
+    checks:
+      - url: { matches: "^/p/acme/connections\\?" }
+      - count: { pattern: "connections.edge", equals: 1 }
+      - text_contains: { target: connections.edge.title, text: "HQ → Sales · 1 request" }
+      - text_contains: { target: connections.item, text: "leads/outreach-list" }
+      - text_contains: { target: connections.item.why, text: "requested_by: HQ" }
+    targets: [connections.edge, connections.from]
+
+  - id: TP6
+    title: Owner check - the roads read as what passes between the rooms
+    from: TP4
+    proves: [AC7]
+    targets: [company.connections.lines, company.room.group]
+    do: >-
+      Look at the company page: HQ, Product, and the GTM room with Marketing
+      and Sales inside. Hover a road, then click it.
+    expect: >-
+      Roads run through the gaps between the rooms: Marketing to HQ and HQ
+      to Product (the request Marketing asked the CEO to pass on, a pink
+      triangle moving along them), Product to Marketing (a blue diamond: the
+      landing page waits on engine work), Marketing to Sales inside GTM, and
+      HQ to Sales (a yellow dot). Hovering a road names it with its open
+      counts under the floor, and clicking it opens the drill-in. The roads
+      don't hide the room heads or buttons.
+    why: The owner asked to "drive connections between boxes"; this is the first look at them drawn.

@@ -1,0 +1,38 @@
+session: classic-gaps-retro
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: The Retro page's Bugs view sets a tool bug's status
+scenario: classic-gaps-retro
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP13
+    title: The Bugs view lists the tool bug report, Fixed takes it off the open list and the Fixed filter shows it
+    proves: [AC3]
+    setup:
+      - open: "/p/{project}/retros"
+    act:
+      - click: seg.retro_view.bugs
+      - wait_for: retro.bugs
+      - check: { visible: [retro.bug.b1_json, retro.bugs.open] }
+      - check: { text_contains: { target: retro.bug.b1_json, text: "check-script misses worktrees" } }
+      - click: retro.bug.b1_json.fixed
+      - wait_for: { visible: retro.bugs.empty, ms: 6000 }
+      - click: filter.bugs_fixed
+      - wait_for: retro.bug.b1_json
+    checks:
+      - text_contains: { target: retro.bug.b1_json.status, text: fixed }
+      - http: { path: "/p/{project}/retros?view=bugs", contains: "0 open" }
+    targets:
+      - { id: retro.bugs, note: the Bugs view }
+    do: |
+      1. Open Retro and switch to Bugs in the header.
+      2. Press Fixed on the bug card, then pick the Fixed filter.
+    expect: |
+      Bugs reads as a third room of the Retro page: counts, a filter, one
+      card per report with the issue, tool, time and the words as filed.
+      Fixed takes it off the open list at once.
+    why: ux-test checks the status change; only you can say the view fits the Retro page.

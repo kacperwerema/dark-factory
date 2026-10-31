@@ -23,6 +23,8 @@ What already exists, and why it isn't enough:
 | `field_in` on a frontmatter key | gate a skip edge to `type: tweak` | hints, `process` and approve buttons still show the feature path |
 | conventions in prompt text | "Umbrella issues: …" paragraphs | every agent reads every branch; nothing is enforced |
 
+Types are not only for software work: a department's own workflow file can have them too. The Marketing template uses one type per channel (`piece`, `seo-pass`; see [Channels as types](../departments.md#channels-as-types)), and a recurring job picks its runs' type with `type:`.
+
 Parent/child links (epic ↔ children) are **not** part of this design. They belong to
 `umbrella-issue-grouping-multiple-issues`. Here, `epic` is only a type with its own path and prompts.
 
@@ -148,6 +150,52 @@ Every change is a hint in CLI output, so agents in any project find types withou
   `path` (the full base) and nothing changes for them. No file rewrites are needed.
 - **Stats**: transitions recorded before types carry no type. In slice 2 the `/stats` tab groups them under the
   default type.
+
+## The `docs` type
+
+The bundled `development` template and this repo's workflow.yaml have a fifth type for docs, README and screenshot
+issues (issue `workflow/test-plan-named-na-cases-and-a-docs-type-of-work`). Those walked the feature path and
+wrote N/A into every testing box.
+
+- Path: `idea → in progress → shipping → done` (plus `parked` here).
+- `idea → in progress`: body not empty, the owner's approval, an assignee; appends `## Implementation` (docs or
+  screenshots changed as the body says, no code; `make validate` green).
+- `in progress → shipping` (the type's own edge): Implementation ticked, a `docs:` comment, the owner's approval
+  (they read the docs); appends `## Shipping`.
+- No Test Plan, so no playtest, check-script or ux-test boxes. If the work needs code, the agent says the type should
+  become tweak or feature.
+- Catalog entry `docs-type` (requires `types-of-work`).
+
+Other changes that don't fit a testing box keep their type and tick the box with a named N/A form
+(`issue-cli check <slug> <id> --na "<reason>"`, [CLI](../CLI/overview.md#na-boxes-check---na)).
+
+## The `report` type
+
+Research and report-only issues (a benchmark pack, an upgrade plan, an experiment backlog) walked the feature path:
+13 boxes ticked N/A, and an empty commit made only so `commits_reference_issue` passed and main could be
+fast-forwarded. Their product is a file, and `sessions/` (gitignored, primary checkout only) was no place a worker could
+write from its worktree. The `report` type in the bundled `development` template and this repo's workflow.yaml (issue
+`workflow/a-report-type-of-work-research-and-report-only-issues-skip-the-build-path`):
+
+- Path: `idea → in progress → human-testing → done` (plus `parked` here). No new base statuses, so no new board
+  column and feature's path is unchanged. The type's prompts give the reused statuses their meaning: `in progress` is
+  research and writing, `human-testing` is the owner's review.
+- `idea → in progress`: body not empty, the owner's approval, an assignee; appends `## Research` (the questions listed
+  in the body, the report on the shelf, code fixes filed as their own issues).
+- `in progress → human-testing` (the type's own edge): Research ticked, `has_output: report`, a `report:` comment
+  (the findings in a paragraph and the follow-ups); appends `## Owner Review` with one box marked `(owner)`.
+- `human-testing → done` (the type's own edge): the owner's approval only. No Shipping, no `commits_reference_issue`:
+  nothing is committed. Under YOLO the gate passes, and the open `(owner)` box goes to the after-the-fact queue.
+- The report is an output on the departments' shelf, kind `report`:
+  `issue-cli output add --issue <slug> --kind report --title "..." --file <report.md>` copies it to
+  `<issues>/.outputs/files/`, with the work files (the private tracker too), from any folder. The issue's page lists it
+  under Outputs with a link to the file, and the owner approves or rejects it on the shelf (`output review` is never a
+  worker's).
+- `has_output` failing prints the `output add` command; `show`, `start` and `transition` print the shelf hint for an
+  issue whose path gates on it. Lint check `reports` warns on an issue past the gate whose report is gone (never added,
+  file deleted, or rejected and not replaced).
+- Catalog entry `report-type` (requires `types-of-work`). When the lead files an issue it picks the type
+  ([which type to file](../patterns/lead-session.md#which-type-to-file)).
 
 ## Slices
 

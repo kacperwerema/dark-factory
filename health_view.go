@@ -36,7 +36,9 @@ type HealthPage struct {
 	Coverage                     string
 	Review                       *ReviewView
 	Scores                       ChartCard
-	Pairs                        []CountRuntime
+	// LOC is lines of code over time (the Workshop page draws it).
+	LOC   ChartCard
+	Pairs []CountRuntime
 	Lists                        []HealthList
 	// Warnings are the newest snapshot's family warnings (a glob that
 	// matched no file), by family name.
@@ -158,6 +160,7 @@ func buildHealthPage(in healthIn) *HealthPage {
 	}
 	p.Lint = lintPanel(in.Proj, in.Now)
 	p.Scores = scoresChart(snaps, o, in.Root, from, in.Now)
+	p.LOC = locChart(snaps, from, in.Now)
 	for _, kind := range health.TestKinds {
 		p.Pairs = append(p.Pairs, countRuntime(kind, snaps, from, in.Now))
 	}
@@ -562,6 +565,9 @@ type HealthCard struct {
 	// Lint is "2 lint warnings" from the snapshot's lint family, "" when
 	// it has none; LintCommand lists them.
 	Lint, LintCommand string
+	// Departments is "Departments: 72% on track · 2 outputs waiting" from
+	// the departments family; "" without one.
+	Departments string
 }
 
 // healthCard reads the newest snapshot and opinion; nil without a snapshot.
@@ -589,6 +595,7 @@ func healthCard(proj *tracker.Project, now time.Time) *HealthCard {
 	c.WeakestPart = weakestPart(s, proj.LoadWorkflow().Health)
 	c.Weakest = c.WeakestPart.String()
 	c.Lint, c.LintCommand = lintLine(s), lintCommandFor(proj)
+	c.Departments = deptHealthLine(s)
 	return c
 }
 
@@ -656,4 +663,7 @@ func healthMarkdown(b *strings.Builder, c *HealthCard) {
 		fmt.Fprintf(b, "- %d recommendation(s) wait for the owner on the Health view\n", c.Proposed)
 	}
 	lintMarkdown(b, c.Lint, c.LintCommand)
+	if c.Departments != "" {
+		fmt.Fprintf(b, "- %s\n", c.Departments)
+	}
 }

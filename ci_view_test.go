@@ -227,3 +227,63 @@ func TestStatusPageShowsLastRuns(t *testing.T) {
 		}
 	}
 }
+
+// A green branch still points at the last red run's kept log: the card's
+// Last red log line and the red box link to it, served as plain text.
+func TestStatusCardLinksTheLastRedLog(t *testing.T) {
+	name := "20261031T110000Z-bbbbbbb222.first.log"
+	st := &ci.State{Branch: "main", LastSha: "ddddddd444", State: ci.Green, GreenSha: "ddddddd444", GreenAt: time.Now().Add(-5 * time.Minute),
+		LastRedLog: filepath.Join(".ci", "red", name), LastRedSha: "bbbbbbb222", LastRedTier: "default", LastRedAt: time.Now().Add(-40 * time.Minute)}
+	proj, root := ciViewProject(t, ciBlockOn, st)
+	if err := os.MkdirAll(ci.RedDir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ci.RedDir(root), name), []byte("--- FAIL: TestBackgroundWait <b>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now().Add(-time.Hour)
+	for _, r := range []ci.Run{
+		{Sha: "bbbbbbb222", Tier: "default", State: ci.Red, Failed: "make validate", KeptLog: st.LastRedLog, Started: t0, Finished: t0.Add(time.Minute)},
+		{Sha: "ddddddd444", Tier: "default", State: ci.Green, Started: t0.Add(10 * time.Minute), Finished: t0.Add(11 * time.Minute)},
+	} {
+		data, _ := json.Marshal(r)
+		if err := os.WriteFile(filepath.Join(ci.RunsDir(root), r.Sha+".json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	withMockTmuxSessions(t, nil)
+	stubAgentsGit(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	url := "/p/civ/ci/log/" + name
+	for _, page := range []string{"/p/civ/status?classic=1", "/p/civ/status"} {
+		_, body := getResp(t, ts.URL+page)
+		for _, want := range []string{
+			`data-testid="status.ci.lastred"`,
+			`href="` + url + `"`,
+			`data-testid="status.ci.run.bbbbbbb" data-state="red"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s missing %q", page, want)
+			}
+		}
+		if i := strings.Index(body, `data-testid="status.ci.run.bbbbbbb"`); i < 0 || !strings.Contains(body[max(0, i-200):i], `<a href="`+url+`"`) {
+			t.Errorf("%s: the red box does not link to its kept log", page)
+		}
+	}
+	_, md := getResp(t, ts.URL+"/p/civ/status.md")
+	if !strings.Contains(md, "Last red log: "+st.LastRedLog) {
+		t.Errorf("status.md:\n%s", md)
+	}
+
+	resp, body := getResp(t, ts.URL+url)
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") || !strings.Contains(body, "TestBackgroundWait <b>") {
+		t.Errorf("log: %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
+	for _, bad := range []string{"../state.json", "state.json", "20261031T110000Z-zzz.log", "20261031T120000Z-bbbbbbb222.log"} {
+		if resp, _ := getResp(t, ts.URL+"/p/civ/ci/log/"+bad); resp.StatusCode != 404 {
+			t.Errorf("%s: %d, want 404", bad, resp.StatusCode)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -158,4 +159,39 @@ func ParseYOLOReviewComment(text string) (YOLOReview, bool) {
 	}
 	r.Words, r.How, r.Date, r.Status = a.Words, a.How, a.Date, a.Statuses[0]
 	return r, true
+}
+
+const yoloOwnerCheckPrefix = "yolo-owner-check: "
+
+// YOLOOwnerCheck is a box only the owner can check that a YOLO gate passed
+// without: it waits in the after-the-fact queue until the box is ticked or
+// the owner reviews it (yolo-review: … → <ID>).
+type YOLOOwnerCheck struct {
+	ID   string
+	Why  string
+	Text string
+	// From is the status the issue left at the gate.
+	From string
+}
+
+var yoloOwnerCheckRe = regexp.MustCompile(`^yolo-owner-check: (\S+): owner check, not done \((.*?)\) ("(?:[^"\\]|\\.)*") · from (.+)$`)
+
+// YOLOOwnerCheckComment is the comment the gate writes:
+//
+//	yolo-owner-check: <id>: owner check, not done (<why>) "<text>" · from <status>
+func YOLOOwnerCheckComment(c YOLOOwnerCheck) string {
+	return fmt.Sprintf("%s%s: owner check, not done (%s) %q · from %s", yoloOwnerCheckPrefix, c.ID, c.Why, c.Text, c.From)
+}
+
+// ParseYOLOOwnerCheckComment reads a comment written by YOLOOwnerCheckComment.
+func ParseYOLOOwnerCheckComment(text string) (YOLOOwnerCheck, bool) {
+	m := yoloOwnerCheckRe.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return YOLOOwnerCheck{}, false
+	}
+	t, err := strconv.Unquote(m[3])
+	if err != nil {
+		return YOLOOwnerCheck{}, false
+	}
+	return YOLOOwnerCheck{ID: m[1], Why: m[2], Text: t, From: strings.TrimSpace(m[4])}, true
 }

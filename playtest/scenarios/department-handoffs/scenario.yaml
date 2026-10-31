@@ -1,0 +1,32 @@
+# Handoffs on the declared-connections scenario: Marketing handed Product
+# "Brand page" via HQ, still waiting for the CEO's forward (for
+# seo/brand-foundation); Sales handed Marketing "Call script" via GTM,
+# forwarded by GTM's lead, at backlog; HQ handed Sales "Price sheet"
+# straight, at backlog.
+title: Handoffs in the rooms and on the lines
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: GTM
+        color: "#7B61FF"
+        role: Go to market
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+      - name: Sales
+        color: "#17A2B8"
+        role: Leads and deals
+        systems: [Leads]
+        parent: GTM
+    connections:
+      requests:
+        - {from: marketing, to: product, via: hq}
+        - {from: sales, to: marketing, via: gtm}
+      feeds:
+        - {from: marketing, to: sales, what: "brand and ICP"}
+issues: tracker
+workflow: workflow.yaml

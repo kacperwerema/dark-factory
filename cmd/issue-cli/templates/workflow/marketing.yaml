@@ -1,0 +1,407 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: marketing@v0.58.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - status-prompts@v0.36.0
+    - types-of-work@v0.36.0
+    - measure-after-publish@v0.58.0
+    - brand-foundation@v0.58.0
+    - workflow-evals@v0.58.0
+    - human-approval-gates@v0.36.0
+    - owner-only-gates@v0.58.0
+    - publish-stamp@v0.55.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - body-structure-gates@v0.36.0
+    - file-exists-gates@v0.58.0
+    - failure-hints@v0.36.0
+    - checklist-sections@v0.36.0
+    - board-columns@v0.36.0
+    - board-card-fields@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# Marketing's own workflow file (projects.yaml departments: workflow:
+# workflows/marketing.yaml). The content workflow plus channels: each
+# marketing channel is a type of work below, with its own path, and a system
+# of the same name in the department (seo-pass ↔ SEO) for its room and the
+# board filter. Channels are types, not departments. Nothing goes out before
+# the owner stamps it: owner review → publish needs their approval, and it is
+# owner_only, so YOLO never passes it (docs/Workflow/yolo.md).
+# Adding a channel: docs/departments.md, "Channels as types".
+#
+# Before any channel: the brand foundation. A `foundation` issue researches a
+# topic the owner names and settles the brand and the ICP with them; at
+# publish they become departments/<key>/brand.md and icp.md, which every
+# channel brief needs before it can move to draft. `market-size` (TAM / SAM /
+# SOM) runs the same way, later or again, and gates nothing.
+# docs/departments.md, "Brand foundation and research mode".
+board:
+  columns:
+    - research
+    - brand
+    - icp
+    - market size
+    - brief
+    - draft
+    - owner review
+    - publish
+    - measure
+    - done
+  card_fields:
+    - type
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "research"
+    description: "Research mode: sources on the topic the owner named"
+    prompt: |
+      Research mode. The issue names the topic: the business, product or market to research. If it doesn't, ask the owner what to research, then end your turn.
+      Gather sources: the client's own sites and material, competitors, search results, reviews, forums where the audience talks. List each under ## Research with its link and one line on what it says.
+      Memory: run `mem-guard check` before opening a browser or fetching many pages, where mem-guard is installed, and don't start while it says BLOCKED. Prefer plain page fetches to a browser, keep one browser at a time and close it when done.
+      You propose; the owner decides. Note open questions for the owner as you go, then move to the next status.
+  - name: "brand"
+    description: "Brand traits, voice and guidelines, proposed for the owner to settle"
+    prompt: |
+      From the research, propose the brand under ## Brand: 3-5 traits, the voice (how it sounds, with a short example), and guidelines as do / don't lists. Give each its source.
+      List what the owner has to settle (a trait you're unsure of, two directions to pick from). Don't decide those for them.
+      Then move to icp.
+  - name: "icp"
+    description: "Who to target and how to reach them"
+    prompt: |
+      Propose the ideal customer profile under ## ICP: who (segments, roles, size, place), their problems in their own words, where they are (channels, communities, search terms), how to reach them (targeting and a message per segment), and who is not a target.
+      Give each its source; list what the owner has to settle.
+      Put the brand and ICP drafts on the shelf for the owner's review: `issue-cli output add --issue <slug> --title "Brand and ICP: <topic>" --kind report --file <draft>`. Then move to owner review.
+  - name: "market size"
+    description: "TAM / SAM / SOM with sources and assumptions"
+    prompt: |
+      Size the market under ## Market size: TAM, SAM and SOM, each with the number and unit, the method (top-down from a published figure, or bottom-up from counts × price), the sources and every assumption.
+      A number you can't support is "no value yet" with the reason, not a guess. Read departments/<department>/icp.md first, where it exists: SAM is the ICP's share of the market.
+      Put the draft on the shelf: `issue-cli output add --issue <slug> --title "Market size: <topic>" --kind report --file <draft>`. Then move to owner review.
+  - name: "brief"
+    description: "What to make, for whom, where it goes"
+    prompt: |
+      Read the department's brand and ICP first (departments/<department>/brand.md and icp.md, next to its role.md); the brief can't move to draft without them.
+      Write the brief: what this piece is, who it is for (which ICP segment), where it will be published (site, account, list) and what counts as done.
+      Ask the owner about anything the brief can't say on its own, then move to draft.
+  - name: "draft"
+    description: "Making the piece"
+    prompt: |
+      Make the piece the brief asks for. Put the full text (or a link to the file) in the issue under ## Draft,
+      and put the piece on the department's shelf: `issue-cli output add --issue <slug> --title "..." --kind <post|page|design|...> (--url | --file | --path)`.
+      Check facts, names, links and prices against their source.
+      When the draft is ready, move to owner review.
+  - name: "owner review"
+    description: "Waiting for the owner's yes before anything goes out"
+    prompt: |
+      Nothing is published yet. Say in chat what the owner reviews (the ## Draft section) and where it will go, and that publishing needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+      If the owner asks for changes, they leave a `revise:` comment: go back to draft.
+  - name: "publish"
+    description: "Putting the approved piece out"
+    prompt: |
+      Publish exactly what the owner approved, where the brief says. Do not change it on the way out.
+      Mark it published on the shelf with the link to what went out (`issue-cli output publish <id> --url <link>`; `issue-cli outputs --issue <slug>` lists the ids), record the link under ## Published, then move to the next status.
+  - name: "measure"
+    description: "What the change did: goal values and notes"
+    prompt: |
+      Record what went out and what it did. Set the department's goal values (`issue-cli goals <department>` lists them; `issue-cli goal set <department>/<id> <value>`)
+      and write under ## Measure what you can see so far (traffic, rankings, replies), with where the numbers came from. A number you can't read yet is "no value yet", not zero.
+      Then move to done.
+  - name: "done"
+    description: "Out, with the link and the numbers recorded"
+
+transitions:
+  # The brand foundation (types foundation and market-size). Each edge runs
+  # only on the path that has both its ends.
+  - from: "research"
+    to: "brand"
+    actions:
+      - type: "validate"
+        rule: "section_min_length"
+        section: "Research"
+        min: 200
+        hint: "list the sources under ## Research: issue-cli append {{slug}} --section Research --body \"...\""
+      - type: "append_section"
+        title: "Brand"
+        body: |
+          - [ ] Traits, voice and do / don't guidelines proposed, each with its source
+          - [ ] What the owner has to settle listed
+  - from: "research"
+    to: "market size"
+    actions:
+      - type: "validate"
+        rule: "section_min_length"
+        section: "Research"
+        min: 200
+        hint: "list the sources under ## Research: issue-cli append {{slug}} --section Research --body \"...\""
+      - type: "append_section"
+        title: "Market size"
+        body: |
+          - [ ] TAM, SAM and SOM, each with number, unit, method, sources and assumptions (or "no value yet" and why)
+          - [ ] Draft on the shelf (issue-cli output add --issue <slug> --kind report ...)
+  - from: "brand"
+    to: "icp"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Brand"
+      - type: "append_section"
+        title: "ICP"
+        body: |
+          - [ ] Who, their problems, where they are, how to reach them and who is not a target, each with its source
+          - [ ] Brand and ICP drafts on the shelf (issue-cli output add --issue <slug> --kind report ...)
+  - from: "icp"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: ICP"
+  - from: "market size"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Market size"
+  - from: "owner review"
+    to: "icp"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "owner review"
+    to: "market size"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  # Channel work.
+  - from: "brief"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      # Basic first: no channel work without the brand foundation.
+      - type: "validate"
+        rule: "file_exists"
+        path: "departments/{{department}}/brand.md"
+        hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+      - type: "validate"
+        rule: "file_exists"
+        path: "departments/{{department}}/icp.md"
+        hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Audience and channel stated
+          - [ ] What counts as done stated
+      - type: "append_section"
+        title: "Draft"
+        body: |
+          - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
+          - [ ] Facts, names and links checked
+  - from: "draft"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Draft"
+  - from: "owner review"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "owner review"
+    to: "publish"
+    actions:
+      - type: "require_human_approval"
+        status: "publish"
+        owner_only: true # it publishes outside the machine (or spends): the owner's even in YOLO
+      - type: "append_section"
+        title: "Published"
+        body: |
+          - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+  # No publish → done here: a channel that measures can't skip measure.
+  # A type without measure (piece) adds its own publish → done.
+  - from: "publish"
+    to: "measure"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Published"
+      - type: "append_section"
+        title: "Measure"
+        body: |
+          - [ ] Goal values recorded (issue-cli goal set <department>/<id> <value>), or "no value yet" with the reason
+          - [ ] What changed and where the numbers came from, written here
+  - from: "measure"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Measure"
+
+# Evals: how the factory benchmark scores a run of each type, so a workflow
+# change gets a verdict on the same work (docs/benchmark.md#evals). Golden
+# tasks come only from outputs the owner approved on the shelf; the approved
+# file is the task's reference. Cost and time are recorded for every eval.
+evals:
+  - id: foundation
+    description: "A brand and ICP the owner could settle as they are"
+    types: [foundation, market-size]
+    score: output
+    rubric:
+      - "Brand traits, voice and do / don't are specific to this business, not generic"
+      - "The ICP names who, their problems, where they are and how to reach them"
+      - "Claims and numbers name their sources; assumptions are marked as such"
+  - id: piece
+    description: "A post, page or email the owner would publish as it is"
+    types: [piece]
+    score: output
+    rubric:
+      - "Does what the brief asks for the reader the ICP names"
+      - "Sounds like the voice in brand.md; no invented facts, prices or quotes"
+      - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+    assert:
+      - type: not-icontains
+        value: "lorem ipsum"
+  - id: seo-pass
+    description: "Page changes that serve the search intent without hurting the page"
+    types: [seo-pass]
+    score: output
+    rubric:
+      - "Each changed page targets a clear search intent and keeps its facts right"
+      - "Titles, FAQs and schema changes are named per page, with why"
+      - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+
+# Types of work: one per channel (docs/Workflow/types.md). An issue without
+# type: is a piece. issue-cli create --department <dept> --type seo-pass
+# picks a channel; a recurring job picks one with type: (projects.yaml jobs:).
+default_type: piece
+types:
+  # The brand foundation: research mode on a topic the owner names, then the
+  # brand and the ICP for the owner to settle. Its docs gate every channel's
+  # brief → draft.
+  foundation:
+    description: "Brand foundation, research mode: brand traits, voice and guidelines, and the ICP, settled with the owner"
+    path: [research, brand, icp, owner review, publish, done]
+    statuses:
+      - name: "owner review"
+        prompt: |
+          Nothing is settled yet. Say in chat what the owner reviews (## Brand and ## ICP, and the shelf report), the questions they have to settle, and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to icp and update ## Brand or ## ICP.
+      - name: "publish"
+        prompt: |
+          Write exactly what the owner approved: ## Brand to departments/<department>/brand.md and ## ICP to departments/<department>/icp.md (next to the department's role.md), with the date and the issue slug at the top.
+          Mark the shelf report published (`issue-cli output publish <id> --path departments/<department>/brand.md`), then move to done.
+    transitions:
+      - from: "owner review"
+        to: "publish"
+        replace: true
+        actions:
+          - type: "require_human_approval"
+            status: "publish"
+            owner_only: true # settled with the owner: every channel builds on it, so not even YOLO passes it
+          - type: "append_section"
+            title: "Published"
+            body: |
+              - [ ] departments/<department>/brand.md and icp.md hold the approved text
+              - [ ] Shelf report marked published (issue-cli output publish <id> --path ...)
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/brand.md"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/icp.md"
+
+  # Market size: TAM / SAM / SOM in research mode. Not needed before channel
+  # work; run it once the ICP is settled, and again when the market moves.
+  market-size:
+    description: "Market size, research mode: TAM / SAM / SOM with sources and assumptions, settled with the owner"
+    path: [research, market size, owner review, publish, done]
+    statuses:
+      - name: "owner review"
+        prompt: |
+          Nothing is settled yet. Say in chat what the owner reviews (## Market size and the shelf report), the assumptions they have to settle, and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to market size.
+      - name: "publish"
+        prompt: |
+          Write exactly what the owner approved from ## Market size to departments/<department>/market.md, with the date and the issue slug at the top.
+          Mark the shelf report published (`issue-cli output publish <id> --path departments/<department>/market.md`), then move to done.
+    transitions:
+      - from: "owner review"
+        to: "publish"
+        replace: true
+        actions:
+          - type: "require_human_approval"
+            status: "publish"
+            owner_only: true # settled with the owner: every channel builds on it, so not even YOLO passes it
+          - type: "append_section"
+            title: "Published"
+            body: |
+              - [ ] departments/<department>/market.md holds the approved text
+              - [ ] Shelf report marked published (issue-cli output publish <id> --path ...)
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/market.md"
+
+  piece:
+    description: "One post, page or email: brief, draft, owner review, publish"
+    path: [brief, draft, owner review, publish, done]
+    transitions:
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+
+  # SEO channel (system SEO): one pass over the client sites. Each page or
+  # post it changes goes on the shelf, the owner approves before publish, and
+  # the pass ends by measuring.
+  seo-pass:
+    description: "SEO pass over the client sites: refresh pages, FAQs and schema, then measure (system SEO)"
+    path: [brief, draft, owner review, publish, measure, done]
+    statuses:
+      - name: "brief"
+        prompt: |
+          Read the department's brand and ICP first (departments/<department>/brand.md and icp.md); the brief can't move to draft without them.
+          Write the pass's brief: which sites and pages it covers (the department's role file has the roster), why each one (changed, lost traffic, out of date, due a post) and what counts as done.
+          Ask the owner about anything the roster can't tell you, then move to draft.
+          A site too big for one pass gets its own issue: `issue-cli create --department <department> --type seo-pass --system SEO --title "<site>: SEO pass"`.
+      - name: "draft"
+        prompt: |
+          Refresh what the brief lists: local pages, FAQs, schema, facts, opening hours, prices and links; draft a blog post where a site is due one.
+          Put each refreshed page and each draft on the shelf: `issue-cli output add --issue <slug> --title "<site>: <page>" --kind page --url <page>` (a post: `--kind post --file <draft>`).
+          List them under ## Draft with what changed on each, then move to owner review.
+      - name: "measure"
+        prompt: |
+          Record the pass's numbers: `issue-cli goal set <department>/pages <pages refreshed>` and `<department>/posts` once posts are out (`issue-cli goals <department>` lists the goals).
+          Under ## Measure, note per site what you can read so far (Search Console clicks, positions) and where it came from; until a rankings source is connected, write "no value yet". Then move to done.
+
+  # More channels: uncomment one, add its system to the department in
+  # projects.yaml (systems: [SEO, PPC]), and give it status prompts the way
+  # seo-pass does. Its issues show in the department as a room and a filter.
+  # Each one launches, posts or sends in publish, so it goes out only through
+  # the owner_only owner review → publish gate above: keep that gate on its
+  # path (health lint's owner-only check warns when it isn't).
+  #
+  # ppc:
+  #   description: "Paid search or social ads: brief, ad copy, owner review, launch, measure spend and results (system PPC)"
+  #   path: [brief, draft, owner review, publish, measure, done]
+  #
+  # social:
+  #   description: "Social posts: brief, post copy and images, owner review, post, measure reach (system Social)"
+  #   path: [brief, draft, owner review, publish, measure, done]
+  #
+  # cold-outreach:
+  #   description: "Cold outreach: brief with the list, email sequence, owner review, send, measure replies (system Outreach)"
+  #   path: [brief, draft, owner review, publish, measure, done]

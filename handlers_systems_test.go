@@ -149,7 +149,7 @@ func TestSystemPage_Configured(t *testing.T) {
 		"11 open · 2 done · 1 obsolete",
 		"Play calls · 1 of 2 done",
 		"workflow.yaml › workbench.systems.AI",
-		`href="/p/rd/board?classic=1&amp;system=AI"`, `href="/p/rd/decisions?system=AI"`,
+		`Open on <a href="/p/rd/hall">Board</a>`, `href="/p/rd/decisions?system=AI"`,
 		// furthest along first: the testing child before the in-progress umbrella
 		"system.issue.ai/caller-fit",
 		"epic · 1/2",

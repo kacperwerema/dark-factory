@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/michal-franc/issue-viewer/internal/connections"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -91,6 +92,16 @@ func runSetMeta(ctx *Context, args []string) error {
 			list = slugs
 		}
 	}
+	if key == connections.RequestedByField && !clear {
+		box := connections.ResolveBox(ctx.Project, value)
+		if box == "" {
+			return fmt.Errorf("set-meta: requested_by %q: no such department (one of: %s)", value, strings.Join(connections.Boxes(ctx.Project), ", "))
+		}
+		if _, err := checkRoute(ctx.Project, whoAmI(ctx.Project, nil), box, connections.BoxOf(ctx.Project, issue)); err != nil {
+			return fmt.Errorf("set-meta: %w", err)
+		}
+		value = connections.BoxName(ctx.Project, box)
+	}
 	switch {
 	case key == "created" && clear:
 		return fmt.Errorf("set-meta can't clear created: an issue's date is never removed")
@@ -111,9 +122,32 @@ func runSetMeta(ctx *Context, args []string) error {
 	}
 	if key == tracker.DependsOnField && !clear {
 		fmt.Fprintln(ctx.Stdout, "The detail page and show now list this dependency.")
+		printCrossDepartment(ctx, issue, strings.Split(value, ", "))
+	}
+	if key == connections.RequestedByField && !clear {
+		fmt.Fprintf(ctx.Stdout, "Drawn as a request %s → %s on the company page (issue-cli connections).\n", value, connections.BoxName(ctx.Project, connections.BoxOf(ctx.Project, issue)))
 	}
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", issue.FilePath)
 	return nil
+}
+
+// printCrossDepartment says which of an issue's dependencies sit in another
+// department: the company page draws those as lines between the rooms.
+func printCrossDepartment(ctx *Context, issue *tracker.Issue, slugs []string) {
+	if len(ctx.Project.Departments) == 0 {
+		return
+	}
+	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
+	to := connections.BoxOf(ctx.Project, issue)
+	for _, s := range slugs {
+		dep := tracker.FindIssue(issues, strings.TrimSpace(s))
+		if dep == nil {
+			continue
+		}
+		if from := connections.BoxOf(ctx.Project, dep); from != to {
+			fmt.Fprintf(ctx.Stdout, "Drawn as a dependency %s → %s on the company page (issue-cli connections).\n", connections.BoxName(ctx.Project, from), connections.BoxName(ctx.Project, to))
+		}
+	}
 }
 
 // checkDependsOn parses a depends_on value and checks every slug names

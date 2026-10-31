@@ -144,6 +144,8 @@ type WbBuilding struct {
 	Open          int
 	Color         string
 	Width, Height int
+	// Rooms are a group's departments, small buildings inside its own.
+	Rooms []WbBuilding
 }
 
 // WbProgress is a labelled bar: a goal or, for a project without goals, the
@@ -242,6 +244,8 @@ type WbHQGoal struct {
 // right ("1/1 desk") and chips.
 type WbRoomHead struct {
 	Title, Color, Meta string
+	// ID names the head for tests (company.room.head.<ID>); optional.
+	ID string
 	Chips              []WbChip
 }
 
@@ -249,6 +253,8 @@ type WbRoomHead struct {
 // makes it a link.
 type WbFootItem struct {
 	Text, Tone, URL string
+	// Title is the item's tooltip; optional.
+	Title string
 }
 
 // WbCEODesk is the CEO at its desk: the big crowned robot, its latest line
@@ -270,12 +276,19 @@ type WbDeptLead struct {
 
 // WbRoomHQ is HQ: the CEO's room, its mission and the business goals.
 type WbRoomHQ struct {
+	// Box is the room's connections key (hq); static/connections.js finds
+	// the room by it.
+	Box     string
 	Head    WbRoomHead
 	Desk    WbCEODesk
 	Mission string
 	Goals   []WbHQGoal
 	Shelf   *WbHQShelf
-	Foot    []WbFootItem
+	// Spend is what HQ and everything rolling up into it spent.
+	Spend *WbSpend
+	// Handoffs: what waits for the CEO's forward, what HQ asked for.
+	Handoffs *WbHandoffs
+	Foot     []WbFootItem
 }
 
 // WbStation is one stop on the factory line: a status from workflow.yaml,
@@ -291,7 +304,11 @@ type WbStation struct {
 
 // WbRoomDept is a department projects.yaml adds, as a room in the company.
 type WbRoomDept struct {
+	// Box is the department's connections key.
+	Box  string
 	Head WbRoomHead
+	// Added: the owner just added it from the New department tile.
+	Added bool
 	// Lead is the department's lead: live or not, and Talk or Start.
 	Lead    WbDeptLead
 	Crew    WbCrew
@@ -309,11 +326,25 @@ type WbRoomDept struct {
 	Connectors *WbConnectors
 	// Jobs are the department's recurring jobs (jobs_view.go).
 	Jobs []WbJobLine
-	Foot []WbFootItem
+	// Spend is what it spent by week (spend_view.go).
+	Spend *WbSpend
+	// Handoffs are what it asked others for and its inbox (handoffs_view.go).
+	Handoffs *WbHandoffs
+	Foot     []WbFootItem
+	// Children are a group's departments, as rooms inside its room;
+	// Waiting is how many of the group's and its departments' issues wait
+	// on the owner (shown only on a group).
+	Children []WbRoomDept
+	Waiting  int
+	// Week is a group's latest week report (week_view.go); nil on a
+	// department.
+	Week *WbWeekReport
 }
 
 // WbRoomFactory is Product, the software factory: its line of stations.
 type WbRoomFactory struct {
+	// Box is Product's connections key (product).
+	Box      string
 	Head     WbRoomHead
 	Mission  string
 	Goals    []WbGoal
@@ -321,6 +352,8 @@ type WbRoomFactory struct {
 	Waiting  int
 	HallURL  string
 	Shelf    *WbShelfLink
+	Spend    *WbSpend
+	Handoffs *WbHandoffs
 	Foot     []WbFootItem
 	// YOLO: while on, the gates on the line stand open and the room carries
 	// "YOLO · N" instead of the "!".

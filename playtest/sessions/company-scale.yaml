@@ -1,0 +1,106 @@
+session: company-scale
+issue: ui/the-map-at-scale-10-lots-and-nested-groups-stay-readable-and-fast
+title: Fifteen departments in three groups stay readable on the company page and the map
+scenario: company-scale
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The company page lays out 15 departments, three groups with their departments inside, no room over another
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.connections.focus }
+    checks:
+      - count: { pattern: company.room.group, equals: 3 }
+      - count: { pattern: company.room.group.departments, equals: 3 }
+      - count: { pattern: company.room.dept, within: company.room.group.departments, equals: 3 }
+      - count: { pattern: company.room.dept, equals: 12 }
+      - text_contains: { target: company.room.group, text: "3 departments" }
+      - text_contains: { target: company.room.group.departments, text: "Marketing" }
+      - count: { pattern: company.connections.row, equals: 26 }
+    targets: [company.room.group, company.room.group.departments, company.room.dept]
+
+  - id: TP5
+    title: On a dense floor the 26 connections are 21 roads, one parcel per kind of traffic, and the caption invites a pick
+    proves: [AC3]
+    from: TP4
+    checks:
+      - text_contains: { target: company.connections.focus, text: "21 roads: hover, focus or tap a room or a road" }
+      - count: { pattern: company.connections.road.link, equals: 21 }
+      - count: { pattern: company.connections.parcel, equals: 24 }
+    targets: [company.connections.focus, company.connections.lines]
+
+  - id: TP6
+    title: Hovering a room lights its roads and outlines the room
+    proves: [AC3]
+    from: TP4
+    act:
+      - hover: company.room.dept
+    checks:
+      - text_contains: { target: company.connections.focus, text: "Marketing: 4 roads" }
+    targets: [company.room.dept, company.connections.focus]
+
+  - id: TP7
+    title: Hovering a row of the Connections list lights its road
+    proves: [AC3]
+    from: TP4
+    act:
+      - hover: company.connections.row
+    checks:
+      - text_contains: { target: company.connections.focus, text: "Design → Marketing" }
+    targets: [company.connections.row]
+
+  - id: TP8
+    title: A tap pins a room's roads, Escape lets go, and keyboard focus inside a room lights them again
+    proves: [AC3]
+    from: TP4
+    act:
+      - click: company.room.dept.lead.session
+      - wait_for: { text_contains: { target: company.connections.focus, text: "GTM: 8 roads · tap the room again to let go" } }
+      - key: Escape
+      - wait_for: { text_contains: { target: company.connections.focus, text: "roads: hover" } }
+      - key: Tab
+    checks:
+      # GTM's lead comes first on the page: Tab from its session name lands
+      # on its Start lead, inside the GTM room.
+      - text_equals: { target: company.connections.focus, text: "GTM: 8 roads" }
+    targets: [company.room.dept.lead.session, company.connections.focus]
+
+  - id: TP9
+    title: The map keeps the 15-department lot on its 300px lot and on a phone, groups as nested buildings
+    proves: [AC1, AC2]
+    setup:
+      - open: /
+    act:
+      - wait_for: { visible: map.lot.acme }
+    checks:
+      - count: { pattern: map.lot.group, equals: 3 }
+      - size: { target: map.lot.acme, max_width: 342 }
+    targets: [map.lot.acme, map.lot.buildings, map.lot.group]
+
+  - id: AC5
+    title: "Owner check after shipping: the floor at scale reads right"
+    from: TP4
+    proves: [AC5]
+    judgement_step: true
+    targets:
+      - { id: company.connections.lines, note: Roads between the rooms on a dense floor }
+      - { id: company.room.group, note: GTM with Marketing, Sales and Partnerships inside }
+      - { id: company.connections.focus, note: Says whose roads are lit }
+    do: |
+      1. Scroll the company page: HQ and Product on top, then GTM, Ops and Support with their departments inside, then Research, Design, Data and Security.
+      2. Hover Marketing, then Finance, then a row of the Connections list.
+      3. Tab through a room's buttons; on a phone, tap a room and tap it again.
+    expect: |
+      No room sits on another; each group's departments are inside its box.
+      The roads run through the gaps between the rooms, not over their text.
+      A hovered, focused or tapped room gets an outline and its roads stay
+      full while the others fade; the caption under the floor names it.
+      A row lights its road.
+    why: Whether 21 roads read at a glance needs the owner's eye; counts and layout are machine-checked.

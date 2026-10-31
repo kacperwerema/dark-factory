@@ -56,7 +56,7 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
 {{define "wb/ny-after"}}
 <section class="wb-ny-sec wb-ny-sec--after" data-testid="needs_you.after">
     <h3 class="wb-ny-sec-h">After the fact <span class="wb-ny-n">{{len .}}</span> <span class="wb-ny-hint">gates YOLO passed without you, to review; not counted above</span></h3>
-    {{range .}}<a class="wb-ny-after" href="{{.URL}}" data-testid="needs_you.after.row"><span class="wb-slug">{{.Slug}}</span><span class="wb-muted">passed into {{.Status}}</span><span class="wb-qrow-go" aria-hidden="true">›</span></a>{{end}}
+    {{range .}}<a class="wb-ny-after" href="{{.URL}}" data-testid="needs_you.after.row"><span class="wb-slug">{{.Slug}}</span><span class="wb-muted">{{if .What}}{{.Status}} · {{.What}}{{else}}passed into {{.Status}}{{end}}</span><span class="wb-qrow-go" aria-hidden="true">›</span></a>{{end}}
 </section>
 {{end}}
 

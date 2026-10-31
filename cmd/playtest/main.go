@@ -7,8 +7,9 @@
 //	playtest playtest [-issue S] [-s N]  the owner's judgement steps, in an overlay
 //	playtest report -issue S [-apply]    tick passed boxes, comment failures
 //	playtest shots -list F -base U -out D the README's screenshots (make readme-shots)
+//	playtest shot -url U [-w W] [-out F]  one screenshot of one page (make shot)
 //
-// The make targets (playtest-check, ux-test, playtest, playtest-report) wrap
+// The make targets (playtest-check, ux-test, playtest, playtest-report, shot) wrap
 // these. The shared contract behind the format: `issue-cli process playtest`.
 package main
 
@@ -47,6 +48,10 @@ Commands:
   shots    -list FILE -base URL -out DIR [-only a.png,b.png]
                                shoot each page in the list at 1280 px, 2x, light
                                theme, into DIR (make readme-shots stages the demo)
+  shot     -url URL [-w W] [-h H] [-full] [-out FILE]
+                               one screenshot of one page (default 1280x800,
+                               .playtest/shot.png); waits for load, not for
+                               the network to go idle (make shot)
 
 Common flags: -sessions DIR, -scenarios DIR, -runs DIR, -project NAME
 Runs are kept in .playtest/runs/<session>/<time>-<mode>/ (gitignored).
@@ -63,8 +68,9 @@ type opts struct {
 	project                   string
 	results                   string
 	list, base, out, only     string
-	repeat                    int
-	keep, headed, apply       bool
+	url                       string
+	repeat, width, height     int
+	keep, headed, apply, full bool
 }
 
 func run(args []string, out, errw io.Writer) int {
@@ -95,7 +101,11 @@ func run(args []string, out, errw io.Writer) int {
 	fs.BoolVar(&o.apply, "apply", false, "report: tick and comment through issue-cli")
 	fs.StringVar(&o.list, "list", "", "shots: the shot list (docs/images/shots.yaml)")
 	fs.StringVar(&o.base, "base", "", "shots: the board's URL")
-	fs.StringVar(&o.out, "out", "", "shots: where the images go")
+	fs.StringVar(&o.out, "out", "", "shots: where the images go; shot: the PNG file")
+	fs.StringVar(&o.url, "url", "", "shot: the page")
+	fs.IntVar(&o.width, "w", 0, "shot: viewport width in CSS pixels (default 1280)")
+	fs.IntVar(&o.height, "h", 0, "shot: viewport height in CSS pixels (default 800)")
+	fs.BoolVar(&o.full, "full", false, "shot: the whole page, not just the viewport")
 	fs.StringVar(&o.only, "only", "", "shots: only these files (comma-separated)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -112,6 +122,8 @@ func run(args []string, out, errw io.Writer) int {
 		return cmdReport(o, out, errw)
 	case "shots":
 		return cmdShots(o, out, errw)
+	case "shot":
+		return cmdShot(repo, o, out, errw)
 	}
 	fmt.Fprintf(errw, "playtest: unknown command %q\n\n%s", cmd, usage)
 	return 2
@@ -182,9 +194,24 @@ func cmdCheck(o opts, out, errw io.Writer) int {
 func selectOrFail(o opts, all []*Session, errw io.Writer) []*Session {
 	sel := SelectSessions(all, o.session, o.issue)
 	if len(sel) == 0 {
-		fmt.Fprintf(errw, "playtest: no session matches (issue=%q session=%q) in %s\n", o.issue, o.session, o.sessions)
+		fmt.Fprintln(errw, noMatch(all, o))
 	}
 	return sel
+}
+
+// noMatch says why no session was selected: the filters used and, when
+// the named session exists under another issue, that issue.
+func noMatch(all []*Session, o opts) string {
+	msg := fmt.Sprintf("playtest: no session matches (issue=%q session=%q) in %s", o.issue, o.session, o.sessions)
+	if o.session == "" || o.issue == "" {
+		return msg
+	}
+	for _, s := range all {
+		if s.Name == o.session && s.Issue != o.issue {
+			return fmt.Sprintf("%s: session %q is for issue %q, not %q; drop ISSUE= or pass ISSUE=%s", msg, s.Name, s.Issue, o.issue, s.Issue)
+		}
+	}
+	return msg
 }
 
 func stepFilter(s string) map[string]bool {

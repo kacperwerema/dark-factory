@@ -30,10 +30,10 @@ func TestAgentLaunchCommand_CodexUsesPromptFile(t *testing.T) {
 // it by the same string; a name unsafe to type into the shell is dropped.
 func TestAgentLaunchCommand_ClaudeSessionName(t *testing.T) {
 	cases := map[string]string{
-		"agent-ui-child":    `claude -n agent-ui-child "$(cat "/p")"`,
-		"lead-issue-viewer": `claude -n lead-issue-viewer "$(cat "/p")"`,
-		"agent-x; rm -rf /": `claude "$(cat "/p")"`,
-		"":                  `claude "$(cat "/p")"`,
+		"agent-ui-child":    `claude -n agent-ui-child "$(cat /p)"`,
+		"lead-issue-viewer": `claude -n lead-issue-viewer "$(cat /p)"`,
+		"agent-x; rm -rf /": `claude "$(cat /p)"`,
+		"":                  `claude "$(cat /p)"`,
 	}
 	for session, want := range cases {
 		if got := agentLaunchCommand(nil, "claude", session, "/p"); got != want {
@@ -50,13 +50,13 @@ func TestAgentLaunchCommand_ModelSource(t *testing.T) {
 		agent string
 		want  string
 	}{
-		{"nil project", nil, "claude", `claude "$(cat "/p")"`},
-		{"default source is global", &tracker.Project{AgentModels: models}, "claude", `claude "$(cat "/p")"`},
-		{"explicit global", &tracker.Project{AgentModels: models, AgentModelSource: "global"}, "claude", `claude "$(cat "/p")"`},
-		{"project enforces claude", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "claude", `claude --model claude-opus-5-5 "$(cat "/p")"`},
-		{"project enforces codex", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "codex", `codex --model gpt-5 "$(cat "/p")"`},
-		{"project without model for agent", &tracker.Project{AgentModels: map[string]string{"codex": "gpt-5"}, AgentModelSource: "project"}, "claude", `claude "$(cat "/p")"`},
-		{"unsafe model ignored", &tracker.Project{AgentModels: map[string]string{"claude": "x; rm -rf /"}, AgentModelSource: "project"}, "claude", `claude "$(cat "/p")"`},
+		{"nil project", nil, "claude", `claude "$(cat /p)"`},
+		{"default source is global", &tracker.Project{AgentModels: models}, "claude", `claude "$(cat /p)"`},
+		{"explicit global", &tracker.Project{AgentModels: models, AgentModelSource: "global"}, "claude", `claude "$(cat /p)"`},
+		{"project enforces claude", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "claude", `claude --model claude-opus-5-5 "$(cat /p)"`},
+		{"project enforces codex", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "codex", `codex --model gpt-5 "$(cat /p)"`},
+		{"project without model for agent", &tracker.Project{AgentModels: map[string]string{"codex": "gpt-5"}, AgentModelSource: "project"}, "claude", `claude "$(cat /p)"`},
+		{"unsafe model ignored", &tracker.Project{AgentModels: map[string]string{"claude": "x; rm -rf /"}, AgentModelSource: "project"}, "claude", `claude "$(cat /p)"`},
 	}
 	for _, c := range cases {
 		if got := agentLaunchCommand(c.proj, c.agent, "", "/p"); got != c.want {

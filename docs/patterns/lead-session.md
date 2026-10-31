@@ -49,6 +49,17 @@ An epic is an issue that other issues name as their parent, or that has `type: e
 issue-cli set-meta <child-slug> --key parent --value <epic-slug>
 ```
 
+### Which type to file
+
+When the lead files an issue (`issue-cli create --type <t>`, or `issue-cli set-type <slug> <t>` while it is at idea), it picks the type from what the work makes ([Types of Work](../Workflow/types.md)):
+
+- `report`: research or a report only (a benchmark pack, an upgrade plan, an audit). The report goes on the outputs shelf with the issue and the owner reviews it; no code, no branch to ship, no commit. Code fixes it finds are filed as their own issues.
+- `docs`: docs, README or screenshots in the repo, no code.
+- `bugfix`: something that worked is broken. `tweak`: a small change the owner already decided. `epic`: tracking only.
+- `feature` otherwise.
+
+This repo's `leads.project` brief says the same in two lines.
+
 ### Brief
 
 The lead starts with the brief in `leads.project` of `workflow.yaml`. A workflow without it gets a built-in default, so every project has a lead without editing anything.
@@ -129,6 +140,7 @@ The lead recalls decisions; it never invents them. It answers a worker only from
 The dispatch prompt and the status prompts in `workflow.yaml` already tell workers these, but a short doc your `CLAUDE.md` points to helps sessions that weren't dispatched:
 
 - Own your issue only. New ideas become `idea` issues (`issue-cli create`), referenced with `#slug`. In a worker session, `start`, `claim` and `transition` on another slug fail ("you work on <own-slug> only; ask your lead").
+- Duplicates of your issue are the one exception. When the lead asks, a worker closes an issue that duplicates its own, or that its change fixes: `issue-cli close <dup> --duplicate-of <own-slug>` (or `--fixed-by <own-slug>`) parks it from any status in one step, sets `duplicate_of:` / `fixed_by:`, comments on both issues and leaves every checkbox alone. Any other worker is refused with the rule; the lead and the human close any issue. A worker may also file a child issue of its own when the lead asks; other new issues still need the human's ok.
 - One task, then stop. When the issue reaches its last status, or a gate that waits on the human, stop: don't run `issue-cli next`, don't pick up another issue, don't start other agents.
 - Stop at human gates. Ask once in chat, then stop and end your turn; don't wait or poll. Continue when the human messages you that it is approved. A "go" in your chat is not an approval.
 - Leave a trail: tick boxes as they're done, add `progress:` comments at milestones, and the comments your gates require (`tests:`, `docs:`, …).

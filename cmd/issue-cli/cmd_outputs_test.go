@@ -187,7 +187,7 @@ func TestOutputsList(t *testing.T) {
 		t.Error("output with no subcommand")
 	}
 	ctx, _ = goalsCtx(t, proj, false)
-	if err := runOutput(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "add, review, publish or show") {
+	if err := runOutput(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "add, review, publish, use, show, revise, comments or reply") {
 		t.Errorf("unknown subcommand: %v", err)
 	}
 }

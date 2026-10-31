@@ -6,11 +6,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/connections"
 	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/outputs"
+	"github.com/michal-franc/issue-viewer/internal/spend"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -54,8 +57,10 @@ type CompanyData struct {
 	Product     WbRoomFactory
 	// Rooms are the departments projects.yaml adds; none by default.
 	Rooms   []WbRoomDept
-	NewDept WbNewTile
-	Queue   []WbQueueCard
+	NewDept WbNewDeptTile
+	// Added is the line after a department was added from the tile.
+	Added string
+	Queue []WbQueueCard
 	// QueueMore is how many more wait on the owner than the panel lists.
 	QueueMore int
 	// Shelf is the departments with outputs waiting for the owner's review.
@@ -69,10 +74,20 @@ type CompanyData struct {
 	// reviewed; YOLOMore how many more than listed.
 	YOLOQueue []WbYOLORow
 	YOLOMore  int
+	// Connections are the lines between the rooms (connections_view.go);
+	// nil without departments.
+	Connections *WbConnections
 }
 
 func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	data := s.buildCompany(proj, prefix, time.Now())
+	if data.Added = addedFlash(r.URL.Query()); data.Added != "" {
+		for i := range data.Rooms {
+			if strings.EqualFold(data.Rooms[i].Head.Title, r.URL.Query().Get("added")) {
+				data.Rooms[i].Added = true
+			}
+		}
+	}
 	// After Check now the room polls until its checks are in.
 	if since, dept := r.URL.Query().Get("checking"), r.URL.Query().Get("dept"); since != "" {
 		for i := range data.Rooms {
@@ -107,9 +122,15 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 			queue = append(queue, row)
 		}
 	}
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	// The lot read the issues and the agents a moment ago.
+	issues, agents := lot.issues, lot.agents
+	if prefix != "/p/"+p.Slug || agents == nil {
+		agents, _ = s.buildAgentsModel(p, prefix)
+	}
 	wf := p.LoadWorkflow()
-	agents, _ := s.buildAgentsModel(p, prefix)
+	// What waits on the owner, read once: Product, the groups and the
+	// departments' lines each take their share.
+	waits := waitingOnOwner(p, openOnly(issues))
 
 	open, backlog := 0, 0
 	for _, issue := range issues {
@@ -121,6 +142,8 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		}
 	}
 	rep := goals.Resolve(p, now)
+	sp := companySpend(p, issues, now)
+	flag := projectFlag(p)
 	d := CompanyData{Lot: lot, Departments: 2, Queue: queue, Waiting: len(all)}
 	if len(d.Queue) > companyQueueRows {
 		d.Queue, d.QueueMore = d.Queue[:companyQueueRows], len(queue)-companyQueueRows
@@ -143,14 +166,16 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.YOLOQueue, d.YOLOMore = yoloQueueRows(lot.YOLO, prefix, companyQueueRows)
 
 	d.HQ = WbRoomHQ{
-		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk"},
+		Box:  connections.HQ,
+		Head: WbRoomHead{Title: "HQ · CEO", Color: companyHQColor, Meta: "1/1 desk", ID: "hq"},
 		Desk: WbCEODesk{CEO: lot.CEO, Color: color, ChatURL: prefix + "/lead", SpawnURL: prefix + "/lead/spawn"},
-		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}, {Text: "Crew →", URL: prefix + "/agents"}},
+		Foot: []WbFootItem{{Text: fmt.Sprintf("%d open", open)}, {Text: fmt.Sprintf("queue: %d in backlog", backlog)}, {Text: "Crew →", URL: prefix + "/agents"}, {Text: "Report →", URL: hqReportURL(prefix), Title: "HQ report: every department in one line"}},
 	}
 	if rep.HQ != nil {
 		d.HQ.Mission = rep.HQ.Mission
 		d.HQ.Goals = companyRollUp(p, rep.HQ, color)
 	}
+	d.HQ.Spend = roomSpend(sp, spend.HQ, prefix, flag)
 	shelf, hqShelf, shelfWaits := companyShelf(p, prefix, now)
 	d.HQ.Shelf, d.Shelf = hqShelf, shelfWaits
 
@@ -174,8 +199,9 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		}
 	}
 	product := WbRoomFactory{
+		Box:      connections.Product,
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
-		Stations: companyStations(wf, productIssues(p, issues), workers, waitingOnOwner(p, openOnly(productIssues(p, issues)))),
+		Stations: companyStations(wf, productIssues(p, issues), workers, waitsOf(waits, func(i *tracker.Issue) bool { return len(p.Departments) == 0 || p.DepartmentOf(i) == "" })),
 		Waiting:  lot.Waiting,
 		YOLO:     lot.YOLO,
 		HallURL:  prefix + "/hall",
@@ -185,6 +211,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		product.Mission, product.Goals = rep.Product.Mission, roomGoals(rep.Product, companyProductColor)
 	}
 	product.Shelf = shelf[goals.ProductKey]
+	product.Spend = roomSpend(sp, spend.Product, prefix, flag)
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		product.Head.Chips = append(product.Head.Chips, *c)
 	}
@@ -192,22 +219,70 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Product = product
 
 	allJobs := viewerJobs(p, issues, now)
+	// One goroutine per room: each asks tmux whether its lead is live, and
+	// one after another 15 departments waited on 15 tmux calls.
+	built := make([]WbRoomDept, len(p.Departments))
+	var wg sync.WaitGroup
 	for i, dept := range p.Departments {
-		room := companyDeptRoom(p, prefix, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], now)
-		room.Jobs = deptJobLines(prefix, dept.Name, allJobs, now)
-		if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
-			room.Mission, room.Goals = o.Mission, roomGoals(o, deptColor(dept, i))
+		wg.Add(1)
+		go func(i int, dept tracker.Department) {
+			defer wg.Done()
+			room := companyDeptRoom(p, prefix, dept, i, issues, deptWorkers[strings.ToLower(dept.Name)], waits, now)
+			room.Jobs = deptJobLines(prefix, dept.Name, allJobs, now)
+			if o := rep.Find(goals.DeptKey(dept.Name)); o != nil {
+				room.Mission, room.Goals = o.Mission, roomGoals(o, deptColorOf(p, dept, i))
+			}
+			room.Shelf = shelf[outputs.DeptKey(dept.Name)]
+			room.Connectors = roomConnectors(p, prefix, dept.Name, now)
+			room.Box = tracker.DepartmentKey(dept.Name)
+			room.Spend = roomSpend(sp, room.Box, prefix, flag)
+			built[i] = room
+		}(i, dept)
+	}
+	wg.Wait()
+	rooms := map[string]WbRoomDept{}
+	for i, dept := range p.Departments {
+		rooms[dept.Name] = built[i]
+	}
+	d.Rooms = companyGroupRooms(p, waits, rooms)
+	var addWeek func(r *WbRoomDept)
+	addWeek = func(r *WbRoomDept) {
+		if len(r.Children) == 0 {
+			return
 		}
-		room.Shelf = shelf[outputs.DeptKey(dept.Name)]
-		room.Connectors = roomConnectors(p, prefix, dept.Name, now)
-		d.Rooms = append(d.Rooms, room)
+		if g := p.DepartmentByKey(r.Box); g != nil {
+			r.Week = roomWeek(p, prefix, *g)
+		}
+		for i := range r.Children {
+			addWeek(&r.Children[i])
+		}
+	}
+	for i := range d.Rooms {
+		addWeek(&d.Rooms[i])
+	}
+
+	edges := connections.Load(p, issues, now)
+	d.Connections = companyConnections(p, prefix, edges)
+	counts := connections.CountsByBox(edges)
+	if f := connFoot(prefix, connections.HQ, counts); f != nil {
+		d.HQ.Foot = append(d.HQ.Foot, *f)
+	}
+	if f := connFoot(prefix, connections.Product, counts); f != nil {
+		d.Product.Foot = append(d.Product.Foot, *f)
+	}
+	snap := newestHealth(p, now)
+	for i := range d.Rooms {
+		addConnFoot(&d.Rooms[i], prefix, counts)
+		addDeptFoot(&d.Rooms[i], snap, prefix)
+	}
+	handoffs := roomHandoffs(p, prefix, issues, now)
+	d.HQ.Handoffs, d.Product.Handoffs = handoffs[connections.HQ], handoffs[connections.Product]
+	for i := range d.Rooms {
+		addRoomHandoffs(&d.Rooms[i], handoffs)
 	}
 	d.Departments = 2 + len(p.Departments)
 
-	d.NewDept = WbNewTile{
-		Title: "New department", Sub: "Sales · Finance · SEO · Custom", TestID: "new_department",
-		Note: "Add one under departments: in projects.yaml (name, color, role, systems, mission, prompt, goals, workflow); its issues carry department: <name> or sit in its systems, and walk its workflow: file (issue-cli workflow init --template content --out workflows/<name>.yaml).",
-	}
+	d.NewDept = newDeptTile(p, prefix)
 	if lot.CEO.Live {
 		if pane, err := agentrun.CaptureHistory(agentrun.Target(p, tracker.LeadSessionName(p)), leadChatScrollback); err == nil {
 			d.Radio = leadRadio(cleanPane(pane), lot.CEO.Session, companyRadioMax)
@@ -220,9 +295,52 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	return d
 }
 
+// companyGroupRooms puts the rooms in projects.yaml order, a group's
+// departments' rooms inside the group's room (nested groups inside theirs),
+// which counts what waits on the owner across them.
+func companyGroupRooms(p *tracker.Project, waits []WaitingItem, rooms map[string]WbRoomDept) []WbRoomDept {
+	// room is dept's room with its departments' rooms inside, a nested
+	// group's own inside it (factory/nested-groups-…#D-1).
+	var room func(dept tracker.Department) WbRoomDept
+	room = func(dept tracker.Department) WbRoomDept {
+		r := rooms[dept.Name]
+		kids := p.Children(dept.Name)
+		if len(kids) == 0 {
+			return r
+		}
+		r.Waiting = len(waitsOf(waits, func(i *tracker.Issue) bool { return p.InScope(dept.Name, p.DepartmentOf(i)) }))
+		for _, c := range kids {
+			r.Children = append(r.Children, room(c))
+		}
+		r.Head.Meta = plural(len(kids), "department", "departments") + " · " + r.Head.Meta
+		// The group's head is drawn by .wb-room--group's --group token.
+		r.Head.ID, r.Head.Color = "group", ""
+		return r
+	}
+	var out []WbRoomDept
+	for _, dept := range p.Departments {
+		if p.GroupOf(dept.Name) != nil {
+			continue
+		}
+		out = append(out, room(dept))
+	}
+	return out
+}
+
+// waitsOf is the rows of waits whose issue keep takes, in their order.
+func waitsOf(waits []WaitingItem, keep func(*tracker.Issue) bool) []WaitingItem {
+	var out []WaitingItem
+	for _, w := range waits {
+		if keep(w.Issue) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 // companyDeptRoom is a department projects.yaml adds, as a room: its
 // workers at their desks, its role, its open and done work.
-func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, now time.Time) WbRoomDept {
+func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department, i int, issues []*tracker.Issue, workers []AgentNode, waits []WaitingItem, now time.Time) WbRoomDept {
 	open, done := 0, 0
 	var own []*tracker.Issue
 	for _, issue := range issues {
@@ -243,9 +361,9 @@ func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department,
 	lead := tracker.DepartmentLeadName(p, dept.Name)
 	q := chatQuery(&dept)
 	room := WbRoomDept{
-		Head: WbRoomHead{Title: dept.Name, Color: deptColor(dept, i), Meta: plural(len(workers), "agent", "agents")},
+		Head: WbRoomHead{Title: dept.Name, Color: deptColorOf(p, dept, i), Meta: plural(len(workers), "agent", "agents")},
 		Lead: WbDeptLead{
-			Who: chatWho(&dept), Session: lead, Live: agentrun.IsLive(p, lead), Color: deptColor(dept, i),
+			Who: chatWho(&dept), Session: lead, Live: agentrun.IsLive(p, lead), Color: deptColorOf(p, dept, i),
 			ChatURL: prefix + "/lead" + q, SpawnURL: prefix + "/lead/spawn" + q,
 		},
 		Crew: wbCrew(robots),
@@ -262,7 +380,7 @@ func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department,
 			room.WorkflowError = err.Error()
 			room.Head.Chips = append(room.Head.Chips, WbChip{Tone: "red", Text: "workflow error"})
 		} else {
-			room.Stations = companyStations(wf, openOnly(own), workers, waitingOnOwner(p, openOnly(own)))
+			room.Stations = companyStations(wf, openOnly(own), workers, waitsOf(waits, func(i *tracker.Issue) bool { return p.DepartmentOf(i) == dept.Name }))
 		}
 	}
 	return room
@@ -299,7 +417,7 @@ func companyHeaderGoals(rep *goals.Report, issues []*tracker.Issue, color string
 func companyRollUp(p *tracker.Project, hq *goals.Owner, color string) []WbHQGoal {
 	colors := map[string]string{tracker.ProductName: companyProductColor}
 	for i, d := range p.Departments {
-		colors[d.Name] = deptColor(d, i)
+		colors[d.Name] = deptColorOf(p, d, i)
 	}
 	var out []WbHQGoal
 	for _, g := range hq.Goals {

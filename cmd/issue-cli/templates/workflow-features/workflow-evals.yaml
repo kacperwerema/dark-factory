@@ -1,0 +1,36 @@
+id: workflow-evals
+version: v0.58.0
+category: lifecycle
+propose: true
+templates: [development, marketing]
+sources: ["internal/tracker/evals.go", "internal/bench/evals.go", "internal/bench/scorer.go", "internal/lint/evals.go"]
+title: "Evals: how the benchmark scores each type"
+what: |
+  A top-level `evals:` list says, per type of work, what a good run looks like and how the
+  factory benchmark scores it: `tests` (hidden Go tests and checks) or `output` (the run's
+  output on the shelf, graded by `rubric:` lines through the benchmark's grader and `assert:`
+  items, promptfoo assertions without a model), with a `pass:` bar. Golden tasks for output
+  evals come from outputs the owner approved. `bench compare` then gives each workflow its
+  own verdict (net positive, net negative, no change), with pass rate, score, wall time,
+  tokens and cost side by side.
+why: |
+  Without evals the benchmark only measures code with hidden tests, so a change to a
+  department's workflow or to shared guidance can't be called a net positive or negative,
+  and a change that helps one workflow while hurting another reads as one blended number.
+where: "evals: at the top level of the workflow file (each department's own file has its own)"
+question: "Should the benchmark score this workflow's types with these evals, so workflow changes get a per-workflow verdict?"
+snippet: |
+  evals:
+    - id: piece
+      description: "A post the owner would publish as it is"
+      types: [piece]
+      score: output
+      rubric:
+        - "Does what the brief asks for the reader the ICP names"
+        - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+      assert:
+        - type: not-icontains
+          value: "lorem ipsum"
+      pass: 0.7
+detect:
+  - path: evals

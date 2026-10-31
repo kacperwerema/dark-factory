@@ -52,6 +52,7 @@ func run(args []string) error {
 	host := fs.String("host", defaultHost, "Interface to listen on; anything but loopback exposes agent dispatch to the network")
 	port := fs.Int("port", 8080, "Port to listen on")
 	versionFlag := fs.Bool("version", false, "Print version and exit")
+	recordViewer := fs.Bool("record-viewer", false, "Record this viewer in viewer.json even when it looks like a sandbox (default: a temp-folder config or another live viewer's record leaves the file alone)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -66,7 +67,8 @@ func run(args []string) error {
 
 	var projects []tracker.Project
 	var configuredHosts []string
-	absConfig, engine := "", ""
+	var identityCfg *tracker.IdentityConfig
+	absConfig, engine, telemetryData := "", "", ""
 
 	if *configFile != "" {
 		cfg, err := tracker.LoadProjectsConfig(*configFile)
@@ -74,6 +76,8 @@ func run(args []string) error {
 			return fmt.Errorf("load config: %w", err)
 		}
 		projects, configuredHosts, engine = cfg.Projects, configHosts(cfg), engineSlug(cfg)
+		identityCfg = cfg.Identity
+		telemetryData = cfg.TelemetryData
 		// Make the config path discoverable to dispatched bot sessions so the
 		// CLI doesn't fall back to its hard-coded "projects.yaml" default when
 		// the viewer was launched with a differently-named config.
@@ -101,6 +105,10 @@ func run(args []string) error {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 	srv.allowedHosts = allowedHostsFor(*host, configuredHosts)
+	if srv.identity, err = newIdentityChecker(identityCfg); err != nil {
+		return err
+	}
+	srv.telemetryData = telemetryData
 	if engine != "" {
 		srv.engine = engine
 	}
@@ -136,10 +144,20 @@ func run(args []string) error {
 	url := "http://" + listenAddr(displayHost(*host), *port)
 	// Shells and leads the viewer did not start have no ISSUE_VIEWER_CONFIG;
 	// viewer.json is how issue-cli finds this config from any folder.
+	// A sandbox viewer must not take the file over: every issue-cli on the
+	// machine would follow it to the sandbox config.
 	if absConfig != "" {
-		state := viewerstate.State{Config: absConfig, URL: url, PID: os.Getpid(), Started: time.Now()}
-		if err := viewerstate.Write(state); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not record the viewer for issue-cli in %s: %v\n", viewerstate.Path(), err)
+		record, why := viewerstate.Claim(absConfig, os.Getpid())
+		if flagSet(fs, "record-viewer") {
+			record = *recordViewer
+		}
+		if record {
+			state := viewerstate.State{Config: absConfig, URL: url, PID: os.Getpid(), Started: time.Now()}
+			if err := viewerstate.Write(state); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not record the viewer for issue-cli in %s: %v\n", viewerstate.Path(), err)
+			}
+		} else if why != "" {
+			fmt.Fprintf(os.Stderr, "Not recording this viewer in %s: %s. issue-cli elsewhere won't find this config; pass -record-viewer to take over, or set XDG_STATE_HOME to a folder of the sandbox\n", viewerstate.Path(), why)
 		}
 	}
 
@@ -150,6 +168,9 @@ func run(args []string) error {
 	if !isLoopbackHost(*host) {
 		fmt.Fprintf(os.Stderr, "WARNING: listening on %s, not loopback: anyone who can reach it can dispatch agents and edit issues\n", addr)
 		fmt.Fprintf(os.Stderr, "WARNING: answering Host %s; other names get 421 (add them under allowed_hosts: in projects.yaml)\n", hostList(srv.allowedHosts))
+	}
+	if srv.identity == nil && (!isLoopbackHost(*host) || len(srv.allowedHosts) > 0) {
+		fmt.Fprintf(os.Stderr, "WARNING: no identity: in projects.yaml, so every request from a non-loopback name or through a proxy gets 403 (docs/API/security.md)\n")
 	}
 	for _, p := range projects {
 		fmt.Printf("  Project: %s (issues: %s, docs: %s)\n", p.Name, p.IssueDir, p.DocsDir)
@@ -200,4 +221,15 @@ func serve(ctx context.Context, hs *http.Server, ln net.Listener, bg *background
 	}
 	log.Printf("shut down cleanly")
 	return nil
+}
+
+// flagSet reports whether the flag name was given on the command line.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }

@@ -63,6 +63,9 @@ func runUpdate(ctx *Context, args []string) error {
 	}
 	if bodySet {
 		b := normalizeEscapedText(*bodyFlag)
+		if err := ownerTickGuard(ctx, issue)(issue.BodyRaw, b); err != nil {
+			return writeErr("failed to update", err)
+		}
 		update.Body = &b
 	}
 	newPath := issue.FilePath

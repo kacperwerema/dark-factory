@@ -74,7 +74,7 @@ func TestDocsWbFirstDocSelected(t *testing.T) {
 	for _, want := range []string{
 		`data-testid="docs.binder"`,
 		`2 documents`,
-		`<div class="wb-binder-group">guide</div>`,
+		`<summary class="wb-binder-group">guide <span class="wb-binder-n">`,
 		`href="/p/test-project/docs/getting-started" aria-current="page" data-testid="docs.item.getting-started"`,
 		`data-testid="docs.item.guide/rules"`,
 		`<h1 class="wb-doc-title" data-testid="docs.title">Getting Started</h1>`,

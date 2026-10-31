@@ -207,23 +207,74 @@ func Items(text string) []string {
 // work/<slug>) a pattern can be made of.
 var TermRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_]*(?:[-/.][A-Za-z0-9_<>]+)+`)
 
-// Terms are the pattern terms of text, lower case, once each: TermRe
-// matches of 6+ characters, skipping stop words and dotted names without a
-// - or / (file.go, v0.1).
+// prefixRe finds the workflow's own comment and trailer prefixes (tests:,
+// question:, Proves:, Catalog:): a word and a colon before a space.
+var prefixRe = regexp.MustCompile(`\b[A-Za-z][a-z]{2,}:(?:\s|$)`)
+
+// capsRe finds all-caps names (CHANGELOG, UNPROVEN).
+var capsRe = regexp.MustCompile(`\b[A-Z]{6,}\b`)
+
+// labelWords are prose labels a retro writes before a colon ("Friction: …"),
+// never a prefix of the workflow's own.
+var labelWords = map[string]bool{"friction:": true, "example:": true, "result:": true, "update:": true, "because:": true}
+
+// Terms are the pattern terms of text, once each (case folded), in text
+// order: TermRe matches of 6+ characters, skipping stop words and dotted
+// names without a - or / (file.go, v0.1); a prefix such as tests: or
+// Proves: inside a sentence (not a label at its start, "Friction: …"); and
+// an all-caps name of 6+ letters that isn't a file name (CHANGELOG, not
+// CLAUDE.md).
 func Terms(text string, stop map[string]bool) []string {
+	type match struct {
+		at   int
+		term string
+	}
+	var ms []match
+	for _, loc := range TermRe.FindAllStringIndex(text, -1) {
+		term := strings.TrimRight(text[loc[0]:loc[1]], ".")
+		if len(term) < 6 || strings.Contains(term, ".") && !strings.ContainsAny(term, "-/") {
+			continue
+		}
+		ms = append(ms, match{loc[0], term})
+	}
+	for _, loc := range prefixRe.FindAllStringIndex(text, -1) {
+		term := strings.TrimSpace(text[loc[0]:loc[1]])
+		if len(term) < 6 || labelWords[strings.ToLower(term)] || labelStart(text[:loc[0]]) {
+			continue
+		}
+		ms = append(ms, match{loc[0], term})
+	}
+	for _, loc := range capsRe.FindAllStringIndex(text, -1) {
+		if rest := text[loc[1]:]; len(rest) > 1 && rest[0] == '.' && isLetter(rest[1]) {
+			continue
+		}
+		ms = append(ms, match{loc[0], text[loc[0]:loc[1]]})
+	}
+	sort.SliceStable(ms, func(i, j int) bool { return ms[i].at < ms[j].at })
 	seen := map[string]bool{}
 	var out []string
-	for _, term := range TermRe.FindAllString(text, -1) {
-		term = strings.TrimRight(term, ".")
-		lt := strings.ToLower(term)
-		if seen[lt] || stop[lt] || len(term) < 6 || strings.Contains(term, ".") && !strings.ContainsAny(term, "-/") {
+	for _, m := range ms {
+		lt := strings.ToLower(m.term)
+		if seen[lt] || stop[lt] {
 			continue
 		}
 		seen[lt] = true
-		out = append(out, term)
+		out = append(out, m.term)
 	}
 	return out
 }
+
+// labelStart is whether a word after before starts a sentence or a list
+// item: nothing before it, or a full stop, colon, semicolon or bracket.
+func labelStart(before string) bool {
+	b := strings.TrimRight(before, " \t\n")
+	if b == "" {
+		return true
+	}
+	return strings.ContainsRune(".!?:;()", rune(b[len(b)-1]))
+}
+
+func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 // SectionsText is the text of a retro's labelled sections (the part a
 // pattern is looked for in); the whole body when it has none.

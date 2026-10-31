@@ -356,3 +356,29 @@ func (w *WorkflowConfig) RetypeStatus(issue *Issue, newType, pick string) (strin
 	}
 	return target, nil
 }
+
+// ShipStatus is the status an issue ships (merges) in: the last status on
+// its path before the first closed one, `shipping` on the development
+// template. "" when the path has no status before it.
+func (w *WorkflowConfig) ShipStatus() string {
+	if w == nil {
+		return ""
+	}
+	var path []string
+	for _, s := range w.Statuses {
+		if !s.Optional {
+			path = append(path, s.Name)
+		}
+	}
+	done := len(path) - 1
+	for i, name := range path {
+		if strings.EqualFold(name, "done") {
+			done = i
+			break
+		}
+	}
+	if done < 1 {
+		return ""
+	}
+	return path[done-1]
+}

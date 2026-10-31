@@ -1,0 +1,23 @@
+session: classic-gaps-health
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: Health and Stats carry what only their classic pages showed
+scenario: health
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP10
+    title: The lines-of-code trend, decided recommendations, the reviewer and lint are on Health; Stats links every project
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/health?range=all
+    act:
+      - check: { visible: [health.trend.loc, health.decided, health.opinion.by, health.lint] }
+      - click: health.decided
+    checks:
+      - text_contains: { target: health.decided, text: "filed" }
+      - text_contains: { target: health.opinion.by, text: "agent-review" }
+      - http: { path: "/p/{project}/stats", contains: "data-testid=\"stats.all\"" }

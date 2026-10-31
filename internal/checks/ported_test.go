@@ -14,6 +14,8 @@ import (
 // source line, and none of the helpers they used to inline.
 var inlinedHelper = regexp.MustCompile(`(?m)^\s*(step|run|expect|ask|pause|begin|verdict|summary|quit_if_q|skip)\s*\(\)`)
 
+var macOSMissing = regexp.MustCompile(`/usr/bin/(cp|mv|rm|mkdir|ln)\b`)
+
 func TestPortedScriptsUseTheLibrary(t *testing.T) {
 	needBash(t)
 	files, _ := filepath.Glob(filepath.Join("testdata", "ported", "*.sh"))
@@ -34,6 +36,10 @@ func TestPortedScriptsUseTheLibrary(t *testing.T) {
 		}
 		if m := inlinedHelper.Find(data); m != nil {
 			t.Errorf("%s: defines its own %q: use the library's", f, m)
+		}
+		// macOS has no /usr/bin/cp: scripts copied from these must run there.
+		if m := macOSMissing.Find(data); m != nil {
+			t.Errorf("%s: calls %q, which macOS doesn't have; call it by name", f, m)
 		}
 		if out, err := exec.Command("bash", "-n", f).CombinedOutput(); err != nil {
 			t.Errorf("%s: bash -n: %s", f, out)

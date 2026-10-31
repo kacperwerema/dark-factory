@@ -1,0 +1,33 @@
+session: ci-red-log
+issue: workflow/local-ci-keeps-a-red-runs-log-past-the-next-green
+title: Local CI - a red run's log stays linked after main is green again
+scenario: local-ci
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: Main goes red, then green again; ci status and the Status card still point at the red run's log, which opens as text
+    setup:
+      - open: /p/{project}/status
+      - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
+      # An agent ships a break, then the fix lands on main.
+      - tmux: [new-session, -d, -s, land, -c, "{dir}", "git merge -q --ff-only work/ui/route-planner-panel"]
+      - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main red since" }, ms: 30000 }
+      - tmux: [new-session, -d, -s, fix, -c, "{dir}", "git rm -q broken.txt && GIT_AUTHOR_DATE=2026-10-31T10:00:00Z GIT_COMMITTER_DATE=2026-10-31T10:00:00Z git -c user.name=agent -c user.email=agent@test commit -q -m 'Fix the route planner'"]
+      - wait_for: { http: { path: "/p/{project}/status.md", contains: "- Local CI: main green at" }, ms: 30000 }
+      - reload: true
+    checks:
+      - text_equals: { target: status.ci.state, text: green }
+      - visible: [status.ci.lastred, status.ci.lastred.link]
+      - text_contains: { target: status.ci.lastred.link, text: "red at " }
+      - absent: [status.ci.log, status.ci.blamed]
+      - count: { pattern: status.ci.run.*, min: 3 }
+      - cli: { args: [ci, status], contains: "Last red log: " }
+      - http: { path: "/p/{project}/status.md", contains: "  - Last red log: .ci/red/" }
+    expect: The card is green, and a Last red log line under Last runs names the red commit and its age (the kept file's path in its tooltip). The red box in Last runs and that line both open the failed run's log (TestRoutePlanner) as plain text.
+    do: Look at the Local CI card, then click the Last red log line and go back and click the red box.
+    why: A flaky failure's log is still there after the next green run, so nobody has to reproduce it to read it.

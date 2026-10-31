@@ -21,18 +21,25 @@ The viewer builds the page, so it must be running. Its address is viewer_url
 in projects.yaml, else the running viewer's own (viewer.json), else
 http://localhost:8080; no host is typed. Read-only.
 
+With --hq, the HQ report instead (/p/<project>/hq/report.md): one headline
+line per box (HQ, Product, each group and department in the company tree),
+then each box's health, goals, outputs, jobs, blocked, handoffs, spend,
+week report and its lead's last progress line. Derived; no agent writes it.
+
 Not an issue's status: for that, issue-cli show <slug>.
 
 Flags:
   --md     the text stand-up (the default)
   --json   the Status model as JSON
+  --hq     the HQ report: an executive summary of every department
 
 Exit codes: 0 printed, 1 viewer not reachable (the URL it tried is printed),
 2 usage error.
 
 Examples:
   issue-cli status
-  issue-cli status --json`,
+  issue-cli status --json
+  issue-cli status --hq`,
 	Run: runStatus,
 }
 
@@ -46,6 +53,7 @@ var viewerHTTP = &http.Client{Timeout: 5 * time.Second}
 func runStatus(ctx *Context, args []string) error {
 	fs := newFlagSet("status", ctx)
 	md := fs.Bool("md", false, "the text stand-up (the default)")
+	hq := fs.Bool("hq", false, "the HQ report: an executive summary of every department")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -55,8 +63,14 @@ func runStatus(ctx *Context, args []string) error {
 	if *md && ctx.JSONOutput {
 		return &usageError{msg: "status: pick --md or --json, not both"}
 	}
+	if *hq && (*md || ctx.JSONOutput) {
+		return &usageError{msg: "status --hq prints the HQ report as text; it takes neither --md nor --json"}
+	}
 	file := "status.md"
-	if ctx.JSONOutput {
+	switch {
+	case *hq:
+		file = "hq/report.md"
+	case ctx.JSONOutput:
 		file = "status.json"
 	}
 	url := fmt.Sprintf("%s/p/%s/%s", viewerBaseURL(ctx.Project), ctx.Project.Slug, file)

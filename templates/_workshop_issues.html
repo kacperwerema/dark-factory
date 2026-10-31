@@ -1,4 +1,12 @@
-{{/* The crate store (issues_wb.go): the hall's Issues tab. */}}
+{{/*
+The crate store (issues_wb.go): the hall's Issues tab.
+
+  wb/shelf-label   a shelf's status label          data: string
+  wb/crate-icon    the crate drawing               data: none
+  wb/crate-card    one issue on a shelf            data: WbCrateCard
+  wb/shelf         one status's crates             data: WbShelf
+  wb/create-issue  the New issue dialog            data: WbCreateIssue
+*/}}
 
 {{define "wb/shelf-label"}}<div class="wb-day" data-testid="issues.shelf.label"><span>{{.}}</span><i aria-hidden="true"></i></div>{{end}}
 
@@ -33,4 +41,33 @@
     <ul class="wb-thread wb-shelf-crates">{{range .Crates}}{{template "wb/crate-card" .}}{{end}}</ul>
     {{if .More}}<a class="wb-shelf-more" href="{{.MoreURL}}" data-testid="issues.shelf.{{tid .Status}}.more">+{{.More}} more in {{.Status}}</a>{{end}}
 </section>
+{{end}}
+
+{{define "wb/create-issue"}}
+<dialog class="wb-newissue" data-create data-post="{{.PostURL}}" data-templates="{{toJSON .Templates}}"{{if .Open}} data-open{{end}} aria-labelledby="newissue-h" data-testid="issues.create">
+<form class="wb-newissue-form" method="dialog">
+    <h2 class="wb-h1 wb-h1--sm" id="newissue-h">New issue</h2>
+    <label class="wb-newissue-field" for="newissue-title">Title
+        <input id="newissue-title" type="text" name="title" required autocomplete="off" data-testid="issues.create.title"></label>
+    <div class="wb-newissue-grid">
+        <label class="wb-newissue-field" for="newissue-system">System
+            <select id="newissue-system" name="system" data-testid="issues.create.system"><option value="">No system</option>{{range .Systems}}<option value="{{.}}"{{if eq . $.System}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+        <label class="wb-newissue-field" for="newissue-status">Status
+            <select id="newissue-status" name="status" data-testid="issues.create.status">{{range .Statuses}}<option value="{{.}}"{{if eq . $.Status}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+        {{if .WorkTypes}}<label class="wb-newissue-field" for="newissue-type">Type
+            <select id="newissue-type" name="type" data-testid="issues.create.type">{{range .WorkTypes}}<option value="{{.Name}}" title="{{.Description}} · {{.Path}}"{{if .Default}} selected{{end}}>{{.Name}}{{if .Default}} (default){{end}}</option>{{end}}</select></label>{{end}}
+        <label class="wb-newissue-field" for="newissue-priority">Priority
+            <select id="newissue-priority" name="priority" data-testid="issues.create.priority"><option value="">No priority</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="critical">critical</option></select></label>
+    </div>
+    <label class="wb-newissue-field" for="newissue-labels">Labels <span class="wb-muted">(comma-separated)</span>
+        <input id="newissue-labels" type="text" name="labels" autocomplete="off" data-testid="issues.create.labels"></label>
+    <label class="wb-newissue-field" for="newissue-body">Body <span class="wb-muted" data-create-tpl-note>(the status's template until you type in it)</span>
+        <textarea id="newissue-body" name="body" rows="10" data-testid="issues.create.body"></textarea></label>
+    <div class="wb-newissue-error" role="alert" hidden data-create-error data-testid="issues.create.error"></div>
+    <div class="wb-newissue-acts">
+        <button type="button" class="wb-btn wb-btn--paper" data-create-cancel data-testid="issues.create.cancel">Cancel</button>
+        <button type="submit" class="wb-btn wb-btn--ink" data-create-submit data-testid="issues.create.submit">Create</button>
+    </div>
+</form>
+</dialog>
 {{end}}

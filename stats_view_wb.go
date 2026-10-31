@@ -30,6 +30,12 @@ type StatsWbPage struct {
 	Name       string
 	ClassicURL string
 	Sub        string
+	// AllURL is every project's stats compared (/stats); AggTitle says how
+	// long the cached aggregate took to build; TimeRules is how the time
+	// tables split an issue's time.
+	AllURL     string
+	AggTitle   string
+	TimeRules  string
 	Range      WbSegLinks
 	Group      WbSegLinks
 	Gauges     []WbGauge
@@ -180,6 +186,10 @@ func buildStatsWb(in statsWbIn) StatsWbPage {
 		p.Sub = "No health snapshot yet"
 	}
 	p.Sub += " · gauges and bars computed now"
+	p.AllURL = "/stats"
+	if d.AggMS > 0 {
+		p.AggTitle = fmt.Sprintf("The aggregate took %d ms to build; it is cached", d.AggMS)
+	}
 
 	backfill := "issue-cli --project " + in.Slug + " health backfill"
 	if d.Hint != "" {
@@ -210,6 +220,7 @@ func buildStatsWb(in statsWbIn) StatsWbPage {
 		p.TimeSub += fmt.Sprintf(", %d with CLI calls", d.Split)
 	}
 	p.TimeSub += "; each split into agent, waiting and idle exactly as its Timeline tab splits it"
+	p.TimeRules = "Agent while issue-cli calls or commits come less than 15 min apart; waiting on you in a status only you can move on, up to each approval; idle for the other gaps. Each cell is p50 / p90 across the issues. Rules: docs/workflow-stats.md, \"Timeline tab\"."
 	p.Legend = []LegendItem{{Name: "agent working", Class: chart.ClassAgent}, {Name: "waiting on you", Class: chart.ClassWaiting}, {Name: "idle", Class: "s-idle"}}
 	for _, c := range d.Bars {
 		p.Bars = append(p.Bars, wbChartCard(c, d))
@@ -253,7 +264,7 @@ func wbGauge(g GaugeCard, prefix, slug string) WbGauge {
 // Health page's, so this card gives the latest figure and links there.
 func codeShapeSeeAlso(c ChartCard, prefix string) WbSeeAlso {
 	s := WbSeeAlso{Key: "code-shape", Title: "Code shape is on Health", URL: prefix + "/health", Link: "Open Health",
-		Text: "Big files, long functions, hotspots and the test suites are measured and scored there."}
+		Text: "The lines-of-code trend, big files, long functions, hotspots and the test suites are measured and scored there."}
 	if n := len(c.Table.Rows); n > 0 && len(c.Table.Rows[n-1]) > 1 {
 		row := c.Table.Rows[n-1]
 		s.Text = "Latest lines of code: " + row[1] + " (" + row[0] + ")" + testRatioOf(c.Sub) + ". " + s.Text

@@ -205,6 +205,38 @@ func TestRunIssueAndOnePerPeriod(t *testing.T) {
 	}
 }
 
+// A job with type: creates its run as that type, at the type's first
+// status; a type the workflow lacks is refused with the types it has.
+func TestRunTakesTheJobsType(t *testing.T) {
+	p := project(t)
+	wf, err := os.ReadFile("../../cmd/issue-cli/templates/workflow/marketing.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(p.Root(), "workflows/marketing.yaml"), string(wf))
+	p.Departments[0].Jobs[0].Type = "seo-pass"
+	n := createRun(t, p, "2026-W44", false)
+	if n.Type != "seo-pass" || n.Status != "brief" {
+		t.Fatalf("run = %+v", n)
+	}
+	is := loadIssues(t, p)[0]
+	if is.Type != "seo-pass" {
+		t.Errorf("run issue type = %q, want seo-pass", is.Type)
+	}
+
+	p.Departments[0].Jobs[0].Type = ""
+	if n := createRun(t, p, "2026-W45", false); n.Type != "piece" {
+		t.Errorf("untyped job's run type = %q, want the default piece", n.Type)
+	}
+
+	p.Departments[0].Jobs[0].Type = "ppc"
+	r, _ := Find(p, "marketing/weekly-seo-pass")
+	_, err = PlanRun(p, r, nil, "2026-W46", false)
+	if err == nil || !strings.Contains(err.Error(), `type "ppc" is not in the workflow (types: piece, foundation, market-size, seo-pass)`) {
+		t.Fatalf("unknown type: %v", err)
+	}
+}
+
 func asExists(err error, target **ExistsError) bool {
 	e, ok := err.(*ExistsError)
 	if ok {
@@ -360,5 +392,53 @@ func TestLastRunTokensFromItsStats(t *testing.T) {
 	}
 	if s := evaluate(t, p, Input{State: &State{}}); s.LastTokens != 620 {
 		t.Fatalf("last tokens = %d", s.LastTokens)
+	}
+}
+
+// A group's week-plan run (the GTM template's weekly-plan) walks the
+// planning workflow from gather, and its brief names the group by
+// {{department}}.
+func TestGroupWeekPlanRunStartsAtGather(t *testing.T) {
+	root := t.TempDir()
+	issues := filepath.Join(root, "issues")
+	wf, err := os.ReadFile("../../cmd/issue-cli/templates/workflow/planning.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, err := os.ReadFile("../../cmd/issue-cli/templates/departments/gtm/jobs/weekly-plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "workflows/gtm.yaml"), string(wf))
+	writeFile(t, filepath.Join(root, "departments/gtm/jobs/weekly-plan.md"), string(brief))
+	if err := os.MkdirAll(issues, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := &tracker.Project{Slug: "acme", IssueDir: issues, WorkDir: root, Departments: []tracker.Department{
+		{Name: "GTM", Workflow: "workflows/gtm.yaml", Jobs: []tracker.Job{{ID: "weekly-plan", Name: "Week plan and report", Every: "week", On: "mon", At: "08:00", Brief: "departments/gtm/jobs/weekly-plan.md"}}},
+		{Name: "Marketing", Parent: "gtm"},
+	}}
+	r, err := Find(p, "gtm/weekly-plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := PlanRun(p, r, nil, "2026-W44", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Status != "gather" {
+		t.Errorf("run starts at %q, want gather", n.Status)
+	}
+	text, err := Brief(p, r, n, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Week plan and report for gtm, week 2026-W44", "issue-cli department week gtm\n", "issue-cli department week gtm --write", "never dispatch, approve, run a job"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("brief lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "{{") {
+		t.Errorf("unfilled placeholder:\n%s", text)
 	}
 }

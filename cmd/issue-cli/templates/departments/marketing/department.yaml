@@ -8,8 +8,12 @@ description: "SEO and content: refreshed client pages and posts, each reviewed b
 color: "#E2559B"
 role: "SEO and content for the client sites"
 mission: "Every client site refreshed every week"
+# Channels are types of work in the marketing workflow, each with a system
+# of the same name (its room and board filter): seo-pass ↔ SEO. Add PPC,
+# Social or Outreach here when you uncomment their type in
+# workflows/marketing.yaml (docs/departments.md, "Channels as types").
 systems: [SEO]
-workflow: content
+workflow: marketing
 goals:
   - id: pages
     name: Client pages refreshed
@@ -28,4 +32,5 @@ jobs:
     every: week
     on: mon
     at: "07:00"
+    type: seo-pass
     brief: jobs/weekly-seo-pass.md

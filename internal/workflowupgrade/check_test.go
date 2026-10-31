@@ -36,7 +36,11 @@ func fakeBranch(changed []string, base, head map[string]string, trailers ...stri
 			return []byte(s), ok
 		}
 	}
-	return Branch{Changed: changed, Base: get(base), Head: get(head), Trailers: trailers}
+	var ts []Trailer
+	for _, v := range trailers {
+		ts = append(ts, Trailer{Commit: "abc1234", Value: v})
+	}
+	return Branch{Changed: changed, Base: get(base), Head: get(head), Trailers: ts}
 }
 
 func entryStates(rep *CheckReport) string {
@@ -83,6 +87,35 @@ func TestCheckBranchPassesABumpOrATrailer(t *testing.T) {
 	}
 	if got := entryStates(rep); got != "health-tuning=n/a" || !rep.OK() || rep.Entries[0].Why != "rename only" {
 		t.Errorf("n/a: %s %+v", got, rep.Entries)
+	}
+}
+
+func TestCheckBranchRejectsTrailersThatMarkNothing(t *testing.T) {
+	for _, tc := range []struct{ value, problem string }{
+		{"n/a refactor only", `no catalog entry "refactor"`},
+		{"n/a", "names no entry"},
+		{"none, a refactor", "only n/a is read"},
+		{"n/a health-tuning,health-tunning typo", `no catalog entry "health-tunning"`},
+	} {
+		b := fakeBranch([]string{"internal/tracker/health.go"}, map[string]string{}, map[string]string{}, tc.value)
+		rep, err := CheckBranch(b, "v0.53.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.OK() || len(rep.BadTrailers) != 1 || !strings.Contains(rep.BadTrailers[0].Problem, tc.problem) || rep.BadTrailers[0].Commit != "abc1234" {
+			t.Errorf("%q: ok = %v, bad = %+v", tc.value, rep.OK(), rep.BadTrailers)
+		}
+	}
+
+	// Several ids with a space after the comma, an n/a for an entry the
+	// branch doesn't touch, and an upper-case N/A all mark something.
+	b := fakeBranch([]string{"internal/tracker/health.go"}, map[string]string{}, map[string]string{}, "n/a health-tuning, checklist-gates rename only", "N/A lead-handoff-prompts wording")
+	rep, err := CheckBranch(b, "v0.53.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.OK() || len(rep.BadTrailers) != 0 || rep.Entries[0].Why != "rename only" {
+		t.Errorf("good trailers: ok = %v, bad = %+v, entries = %+v", rep.OK(), rep.BadTrailers, rep.Entries)
 	}
 }
 
@@ -185,6 +218,74 @@ func TestMatchSource(t *testing.T) {
 	for _, c := range cases {
 		if got := MatchSource(c.glob, c.path); got != c.want {
 			t.Errorf("MatchSource(%s, %s) = %v", c.glob, c.path, got)
+		}
+	}
+}
+
+const playtestCatalog = `entries:
+  - id: health-tuning
+    version: v0.53.0
+    sources: ["internal/health/**"]
+  - id: playtest-sessions
+    version: v0.40.0
+    sources: ["cmd/playtest/**"]
+`
+
+func TestCheckBranchExemptTestOnly(t *testing.T) {
+	b := fakeBranch([]string{
+		"internal/health/score_test.go",
+		"internal/health/testdata/snap.json",
+		"cmd/playtest/scenario_test.go",
+		"playtest/scenarios/status/scenario.yaml",
+	}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+	rep, err := CheckBranch(b, "v0.53.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entryStates(rep); got != "" || !rep.OK() {
+		t.Errorf("test-only branch: states = %q, ok = %v", got, rep.OK())
+	}
+}
+
+func TestCheckBranchExemptFixtureKeysNotSessionKeys(t *testing.T) {
+	fixture := fakeBranch([]string{"cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+	rep, err := CheckBranch(fixture, "v0.53.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entryStates(rep); got != "" || !rep.OK() {
+		t.Errorf("fixture-only: states = %q, ok = %v", got, rep.OK())
+	}
+	for _, f := range []string{"cmd/playtest/session.go", "cmd/playtest/vocab.go"} {
+		session := fakeBranch([]string{f, "cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+		rep, err := CheckBranch(session, "v0.53.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := entryStates(rep); got != "playtest-sessions=stale" || rep.OK() {
+			t.Errorf("%s: states = %q, ok = %v", f, got, rep.OK())
+		}
+		if files := strings.Join(rep.Entries[0].Files, ","); files != f {
+			t.Errorf("%s: files = %s, want the session file only", f, files)
+		}
+	}
+}
+
+func TestExemptPaths(t *testing.T) {
+	for p, want := range map[string]bool{
+		"internal/health/score_test.go":             true,
+		"score_test.go":                             true,
+		"cmd/playtest/testdata/x/y.yaml":            true,
+		"playtest/scenarios/basic/tracker/A/a.md":   true,
+		"cmd/playtest/scenario.go":                  true,
+		"cmd/playtest/session.go":                   false,
+		"internal/health/score.go":                  false,
+		"internal/health/testdata.go":               false,
+		"playtest/sessions/x.yaml":                  false,
+		"cmd/issue-cli/templates/workflow/dev.yaml": false,
+	} {
+		if got := Exempt(p); got != want {
+			t.Errorf("Exempt(%q) = %v, want %v", p, got, want)
 		}
 	}
 }

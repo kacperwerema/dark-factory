@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"sort"
 	"strings"
@@ -57,6 +58,10 @@ type ReportData struct {
 	// Bench is the Benchmark card; nil without a benchmark for the project.
 	Bench  *WbBench
 	Unlock WbUnlock
+	// Active is Working on: each issue in flight and its agent.
+	Active WbActiveList
+	// Released is Recently released.
+	Released WbReleased
 	// Status is the model the classic Status page renders; wb/release and
 	// wb/ci read its ReleaseWait and CI (the release flow).
 	Status *StatusModel
@@ -94,6 +99,52 @@ type WbReportTitle struct {
 	AsOf    string
 	MDURL   string
 	Classic string
+	// Views is Project page | Report when workbench.status_page is set.
+	Views []WbViewTab
+}
+
+// WbActiveList is Working on: every issue between in progress and shipping
+// with its status, age and agent, then the agents on issues not started.
+type WbActiveList struct {
+	Rows      []WbActiveRow
+	More      []WbActiveRow
+	Design    []WbActiveChip
+	AgentsURL string
+}
+
+// Total is how many issues are in flight.
+func (l WbActiveList) Total() int { return len(l.Rows) + len(l.More) }
+
+// WbActiveChip is an agent on an issue not in flight yet, linking to it.
+type WbActiveChip struct {
+	Text, Tone, URL string
+}
+
+// WbActiveRow is one issue in flight. Tone colours the age: idle, or red
+// when it has sat in its status a week or more.
+type WbActiveRow struct {
+	Title, Slug, URL, Status string
+	Age, AgeTitle, Tone      string
+	Agent                    string
+}
+
+// WbReleased is Recently released: the newest releases from the changelog
+// or tags, or what the first one will be.
+type WbReleased struct {
+	Rows   []WbReleaseRow
+	Source string
+	URL    string
+	// First is "No releases yet: v0.1.0 will be the first." without any.
+	First string
+	// Hint asks for workbench.changelog when there is neither changelog
+	// nor tag.
+	Hint bool
+}
+
+// WbReleaseRow is one release.
+type WbReleaseRow struct {
+	Version, Date string
+	Summary       template.HTML
 }
 
 // WbSegment is one part of a stacked bar.
@@ -136,8 +187,11 @@ type WbCountCard struct {
 	Squares                 []WbSquare
 	Legend                  []WbLegendRow
 	Steps                   []string
-	Note                    string
-	Action                  *WbAction
+	// Full is the whole text behind Steps (the CEO's ## Next), in a fold.
+	Full     template.HTML
+	Note     string
+	NoteLink *WbAction
+	Action   *WbAction
 }
 
 // BarTotal is the sum of the bar's segments.
@@ -180,6 +234,15 @@ type WbWhere struct {
 	All        WbBar
 	Milestones []WbBar
 	MoreVers   int
+	// MoreMilestones are the versions past reportVersions, in a fold.
+	MoreMilestones []WbBar
+	// VersionsTotal is done/total over every upcoming version.
+	VersionsTotal string
+	// Segments, Legend and Areas break the current milestone down by
+	// status and by area.
+	Segments []WbSegment
+	Legend   []WbLegendRow
+	Areas    []WbChip
 	// Locked is the note shown instead of milestones; "" when there are some.
 	Locked    string
 	LockedWhy string
@@ -214,6 +277,10 @@ type WbHealth struct {
 	Lint     string
 	LintOK   bool
 	LintCmd  string
+	// Recs counts the review's recommendations waiting for the owner.
+	Recs int
+	// Departments is the departments family's line, "" without one.
+	Departments string
 }
 
 // WbScoreBox is a score in a small box: dashed when there is none.
@@ -234,6 +301,9 @@ type WbUnlockItem struct {
 	Key, Title, Text, Code string
 	Risk, On               bool
 	Action                 WbAction
+	// Note is quieter advice under the text (going public from a private
+	// repo).
+	Note string
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
@@ -243,6 +313,16 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 	data := buildReport(proj, s.projectColor(proj), m, issues, agents)
+	if proj.LoadWorkflow().Workbench.StatusPage != "" {
+		data.Title.Views = []WbViewTab{
+			{Label: "Project page", URL: prefix + "/status", TestID: "project"},
+			{Label: "Report", URL: prefix + "/status?view=builtin", TestID: "builtin", Current: true},
+		}
+		data.Title.Classic = prefix + "/status?view=builtin&classic=1"
+	}
+	if proj.SupportsGitHub && proj.Repo != "" {
+		data.Released.URL = "https://github.com/" + proj.Repo + "/releases"
+	}
 	data.Header.YOLO = headerYOLO(yoloBand(proj, issues, m.AsOf), m.Prefix)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "report.html", data); err != nil {
@@ -286,15 +366,25 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 		d.Title.Sub = p.Kind + " · " + d.Title.Sub
 	}
 	for _, b := range m.Privacy.badges() {
-		if b.Level == privacy.Amber || b.Level == privacy.Red {
-			d.Title.Badges = append(d.Title.Badges, WbBadge{Tone: "red", Label: b.Label, Title: b.Sentence, URL: "#unlock"})
+		tone := "idle"
+		switch b.Level {
+		case privacy.Amber, privacy.Red:
+			tone = "red"
+		case privacy.Green:
+			tone = "green"
 		}
+		d.Title.Badges = append(d.Title.Badges, WbBadge{Tone: tone, Label: b.Label, Title: b.Sentence, URL: "#unlock-" + map[string]string{"work": "tracker", "code": "code"}[b.Kind]})
 	}
 
 	robots := reportRobots(agents, issues)
 	d.Waiting = reportWaiting(m)
 	d.Agents = reportAgents(robots, agents, live)
 	d.Next = reportNext(m, prefix, live)
+	if m.Next.Found {
+		d.Next.Full = template.HTML(linkCodeSlugs(renderMarkdown(m.Next.Text), prefix, issues))
+	}
+	d.Active = reportActive(m, prefix)
+	d.Released = reportReleased(m)
 	d.Bottleneck = reportBottleneck(m, robots, prefix, live)
 	d.Where = reportWhere(m, issues, prefix)
 	d.Shipped = reportShipped(m, prefix)
@@ -340,7 +430,7 @@ func reportRobots(agents *AgentsModel, issues []*tracker.Issue) []reportRobot {
 		}
 		if r.State == "working" && w.Issue != nil {
 			if issue := tracker.FindIssue(issues, w.Issue.Slug); issue != nil {
-				for _, dep := range blockedOn(issue) {
+				for _, dep := range tracker.BlockedOn(issue) {
 					if working[strings.ToLower(dep)] {
 						r.State, r.Label = "agent", r.Label+" → "+dep
 						break
@@ -400,6 +490,7 @@ func reportWaiting(m *StatusModel) WbCountCard {
 		c.Note = "Nothing waits on you: no gate, playtest, check script or open question."
 	} else if m.NotReady > 0 {
 		c.Note = plural(m.NotReady, "more issue is", "more issues are") + " at a gate with its checklist still open."
+		c.NoteLink = &WbAction{Label: "See the hall", Tone: "link", TestID: "not_ready", URL: m.Prefix + "/hall"}
 	}
 	return c
 }
@@ -462,7 +553,8 @@ func reportNext(m *StatusModel, prefix string, live bool) WbCountCard {
 	} else {
 		c.Legend = append(c.Legend, WbLegendRow{Count: -1, Label: "No handoff note from the CEO yet"})
 	}
-	c.Legend = append(c.Legend, WbLegendRow{Count: len(m.Backlog), Label: "in backlog · " + fmt.Sprint(len(m.Parked)) + " parked"})
+	c.Legend = append(c.Legend, WbLegendRow{Count: len(m.Backlog), Label: "in backlog", URL: prefix + "/?status=backlog", Title: "The backlog in the issue list"})
+	c.Legend = append(c.Legend, WbLegendRow{Count: len(m.Parked), Label: "parked", URL: prefix + "/hall/station/parked", Title: "Parked issues and why"})
 	if c.Count == 0 && len(m.Backlog) == 0 {
 		c.Note = "The queue is empty: when you clear the gates, the CEO has nothing to hand out."
 	}
@@ -619,10 +711,6 @@ func reportWhere(m *StatusModel, issues []*tracker.Issue, prefix string) WbWhere
 		}
 	}
 	for i, v := range m.Versions {
-		if i == reportVersions {
-			w.MoreVers = len(m.Versions) - i
-			break
-		}
 		bar := WbBar{Label: "Version " + v.Label, Done: v.Done, Total: v.Total, Current: m.IsCurrent(v.Label)}
 		if bar.Current {
 			bar.Note = "current milestone"
@@ -630,7 +718,44 @@ func reportWhere(m *StatusModel, issues []*tracker.Issue, prefix string) WbWhere
 				bar.Note += " · becomes " + ms.Cut
 			}
 		}
+		if i >= reportVersions {
+			w.MoreMilestones = append(w.MoreMilestones, bar)
+			continue
+		}
 		w.Milestones = append(w.Milestones, bar)
+	}
+	w.MoreVers = len(w.MoreMilestones)
+	if len(m.Versions) > 1 {
+		w.VersionsTotal = fmt.Sprintf("%d/%d done over %s", m.VersionsProgress.Done, m.VersionsProgress.Total, plural(len(m.Versions), "version", "versions"))
+	}
+	if ms := m.Milestone; ms != nil {
+		color := funcMap["statusColor"].(func(string) string)
+		for _, sg := range ms.Segments {
+			c := color(sg.Status)
+			switch {
+			case sg.Done:
+				c = reportWorkingColor
+			case sg.Track:
+				c = reportIdleColor
+			}
+			w.Segments = append(w.Segments, WbSegment{Value: sg.Count, Color: c, Label: sg.Status})
+		}
+		for _, sg := range ms.Legend {
+			c := color(sg.Status)
+			switch {
+			case sg.Done:
+				c = reportWorkingColor
+			case sg.Track:
+				c = reportIdleColor
+			}
+			w.Legend = append(w.Legend, WbLegendRow{Color: c, Count: sg.Count, Label: sg.Status})
+		}
+		if ms.OpenEpics > 0 {
+			w.Areas = append(w.Areas, WbChip{Text: plural(ms.OpenEpics, "epic", "epics") + " open", Tone: "agent", Title: "Open epics count as open issues: the milestone is done when they are closed too"})
+		}
+		for _, a := range ms.OpenAreas {
+			w.Areas = append(w.Areas, WbChip{Text: fmt.Sprintf("%s %d", a.Area, a.Count), Tone: "idle"})
+		}
 	}
 	switch {
 	case !versioned:
@@ -671,8 +796,11 @@ func reportShipped(m *StatusModel, prefix string) WbShipped {
 		if top.Approx {
 			row.Date = "≈ " + row.Date
 		}
-		if sys := top.Issue.System; row.More > 0 && !g.Merged && sys != "" {
-			row.MoreURL = prefix + "/?status=done&system=" + sys
+		if row.More > 0 {
+			row.MoreURL = prefix + "/?status=done"
+			if sys := top.Issue.System; !g.Merged && sys != "" {
+				row.MoreURL += "&system=" + sys
+			}
 		}
 		s.Rows = append(s.Rows, row)
 	}
@@ -694,6 +822,7 @@ func reportHealth(m *StatusModel, p *tracker.Project, prefix string) WbHealth {
 		return h
 	}
 	h.Snapshot = true
+	h.Recs = c.Proposed
 	if c.HasDerived {
 		h.Derived.Has, h.Derived.Value, h.Derived.Line = true, c.Derived, c.DerivedLine
 	}
@@ -705,6 +834,7 @@ func reportHealth(m *StatusModel, p *tracker.Project, prefix string) WbHealth {
 	}
 	h.Weakest = c.WeakestPart
 	h.Lint, h.LintOK = c.Lint, c.Lint == "no lint warnings"
+	h.Departments = c.Departments
 	return h
 }
 
@@ -753,6 +883,7 @@ func reportUnlock(m *StatusModel, p *tracker.Project, issues []*tracker.Issue, p
 		if work.On {
 			work.Text = b.Sentence + "."
 		}
+		work.Note = b.Note
 	}
 	items = append(items, work)
 
@@ -766,6 +897,7 @@ func reportUnlock(m *StatusModel, p *tracker.Project, issues []*tracker.Issue, p
 		if b.FixIsCommand() {
 			code.Code, code.Action = b.Fix, WbAction{Label: "Copy", Copy: b.Fix, Tone: "paper"}
 		}
+		code.Note = b.Note
 	}
 	items = append(items, code)
 
@@ -826,4 +958,67 @@ func reportUnlock(m *StatusModel, p *tracker.Project, issues []*tracker.Issue, p
 	}
 	u.Items = items
 	return u
+}
+
+// reportActiveRows is how many in-flight issues Working on lists before
+// the fold.
+const reportActiveRows = 6
+
+// reportActive is Working on: the Status model's in-flight issues with
+// their age and agent, and the agents on issues not started yet.
+func reportActive(m *StatusModel, prefix string) WbActiveList {
+	l := WbActiveList{AgentsURL: prefix + "/agents"}
+	for i, a := range m.Active {
+		r := WbActiveRow{Title: a.Issue.Title, Slug: a.Issue.Slug, URL: prefix + "/issue/" + a.Issue.Slug, Status: a.Issue.Status,
+			Age: a.Age.Text, Tone: "idle", Agent: "no agent"}
+		if a.Age.Approx {
+			r.Age = "≈ " + r.Age
+			r.AgeTitle = "No transition recorded: the file's last change"
+		} else if !a.Age.Since.IsZero() {
+			r.AgeTitle = "Since " + a.Age.Since.Format("2 Jan 15:04")
+		}
+		if a.Age.Level != "" {
+			r.Tone = "red"
+		}
+		if a.Agent != "" {
+			r.Agent = "agent " + a.Agent
+			if a.Gate != "" {
+				r.Agent += " → " + a.Gate
+			}
+		}
+		if i < reportActiveRows {
+			l.Rows = append(l.Rows, r)
+		} else {
+			l.More = append(l.More, r)
+		}
+	}
+	for _, c := range m.InDesign {
+		tone := "agent"
+		if c.State == "at gate" || c.State == "question" {
+			tone = "you"
+		}
+		l.Design = append(l.Design, WbActiveChip{Text: c.Issue.Title + " · " + c.State, Tone: tone, URL: prefix + "/issue/" + c.Issue.Slug})
+	}
+	return l
+}
+
+// reportReleasedRows is how many releases Recently released lists.
+const reportReleasedRows = 3
+
+// reportReleased is Recently released from the Status model's releases.
+func reportReleased(m *StatusModel) WbReleased {
+	r := WbReleased{Source: m.ReleaseSource}
+	for i, rel := range m.Releases {
+		if i == reportReleasedRows {
+			break
+		}
+		r.Rows = append(r.Rows, WbReleaseRow{Version: rel.Version, Date: rel.Date, Summary: rel.SummaryHTML()})
+	}
+	if len(r.Rows) == 0 {
+		if ms := m.Milestone; ms != nil && ms.Cut != "" {
+			r.First = "No releases yet: " + ms.Cut + " will be the first."
+		}
+		r.Hint = !m.ChangelogDeclined
+	}
+	return r
 }

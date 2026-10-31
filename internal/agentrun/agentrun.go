@@ -99,7 +99,25 @@ func LaunchCommandWith(proj *tracker.Project, agentType, session, promptPath str
 	for _, f := range extra {
 		extraFlags += " " + shellWord(f)
 	}
-	return fmt.Sprintf("%s%s%s%s \"$(cat %q)\"", agentType, nameFlag, modelFlag, extraFlags, promptPath)
+	// agentType and promptPath reach a login shell: an agent that isn't a
+	// plain command name is single-quoted (and so fails to start), and the
+	// path is single-quoted, since Go's %q still expands $() and backticks
+	// inside the shell's double quotes (docs/API/security.md).
+	if !ValidAgentType(agentType) {
+		agentType = shellWord(agentType)
+	}
+	return fmt.Sprintf("%s%s%s%s \"$(cat %s)\"", agentType, nameFlag, modelFlag, extraFlags, shellWord(promptPath))
+}
+
+// validAgentType is a command name: what claude, codex or a configured
+// agent is called on PATH.
+var validAgentType = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,39}$`)
+
+// ValidAgentType reports whether agent may be launched: a plain command
+// name, never shell text. Routes that take an agent from a request refuse
+// anything else.
+func ValidAgentType(agent string) bool {
+	return validAgentType.MatchString(agent)
 }
 
 // AgentCommand wraps launch for running as a tmux window's own command: in
@@ -148,6 +166,10 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// lands in an isolated working tree. Concurrent issues then cannot stomp
 	// on each other's uncommitted state. On failure we abort: silently falling
 	// back to the primary checkout would defeat the safety guarantee.
+	// Read the base before the branch exists: afterwards it can't be told
+	// from a redispatch onto the same branch.
+	var base tracker.Dispatch
+	base.BaseBranch, base.BaseSHA, _ = WorktreeBase(workDir, spec.Worktree)
 	newDir, worktreeSteps, worktreeOK := EnsureWorktree(workDir, spec.Worktree, spec.Workflow)
 	if !worktreeOK {
 		return Response{Status: "error", Prompt: prompt, Session: session, Steps: worktreeSteps}
@@ -263,7 +285,7 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		return response
 	}
 	if spec.IssueSlug != "" {
-		recordDispatch(proj, spec, &steps)
+		recordDispatch(proj, spec, base, &steps)
 	}
 
 	// In shared mode the window is already named after the session so it can be
@@ -294,16 +316,17 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	return response
 }
 
-// recordDispatch appends this launch to the issue's stats sidecar. A failure
-// is a warning step; it never fails the dispatch.
-func recordDispatch(proj *tracker.Project, spec Spec, steps *[]Step) {
+// recordDispatch appends this launch to the issue's stats sidecar, with the
+// base its work branch was cut from when this launch cut it. A failure is a
+// warning step; it never fails the dispatch.
+func recordDispatch(proj *tracker.Project, spec Spec, base tracker.Dispatch, steps *[]Step) {
 	if proj == nil || proj.IssueDir == "" {
 		return
 	}
 	issues, err := tracker.LoadIssues(proj.IssueDir)
 	if err == nil {
 		if issue := tracker.FindIssue(issues, spec.IssueSlug); issue != nil {
-			err = tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: spec.Session, Agent: spec.AgentType})
+			err = tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: spec.Session, Agent: spec.AgentType, BaseBranch: base.BaseBranch, BaseSHA: base.BaseSHA})
 		}
 	}
 	if err != nil {
@@ -346,18 +369,55 @@ func PasteSubmit(proj *tracker.Project, session, text, textFile string) Response
 		response.Steps = []Step{{Name: "Write prompt file", Status: "error", Detail: err.Error()}}
 		return response
 	}
-	buffer := "issue-viewer-" + session
-	ok := RunStep(&steps, "Load prompt into tmux buffer "+buffer,
-		exec.Command("tmux", "load-buffer", "-b", buffer, textPath)) &&
-		RunStep(&steps, "Paste prompt into "+response.Session,
-			exec.Command("tmux", "paste-buffer", "-d", "-p", "-b", buffer, "-t", target))
-	if ok {
-		time.Sleep(200 * time.Millisecond)
-		ok = RunStep(&steps, "Submit prompt", exec.Command("tmux", "send-keys", "-t", target, "Enter"))
-	}
-	if !ok {
+	if !pasteSubmit(&steps, target, "issue-viewer-"+session, textPath, response.Session) {
 		response.Status = "error"
 	}
 	response.Steps = steps
 	return response
+}
+
+// pasteSubmit loads textPath into the named buffer, pastes it into target as
+// one bracketed paste (deleting the buffer) and presses Enter.
+func pasteSubmit(steps *[]Step, target, buffer, textPath, name string) bool {
+	ok := RunStep(steps, "Load prompt into tmux buffer "+buffer,
+		exec.Command("tmux", "load-buffer", "-b", buffer, textPath)) &&
+		RunStep(steps, "Paste prompt into "+name,
+			exec.Command("tmux", "paste-buffer", "-d", "-p", "-b", buffer, "-t", target))
+	if ok {
+		time.Sleep(200 * time.Millisecond)
+		ok = RunStep(steps, "Submit prompt", exec.Command("tmux", "send-keys", "-t", target, "Enter"))
+	}
+	return ok
+}
+
+// Nudge delivers text into the agent at the tmux target the way Paste does
+// (bracketed paste, Enter, then PromptDeliveryStep's check, pressing Enter
+// again while it sits in the input box) and says why when it did not land:
+// the viewer's approval and send-back lines to a worker.
+func Nudge(target, text string) error {
+	if !HasSession(target) {
+		return fmt.Errorf("session %s is not live", target)
+	}
+	tmp, err := os.CreateTemp("", "issue-nudge-*.txt")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.WriteString(text)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	buffer := "issue-viewer-" + strings.NewReplacer(":", "-", "=", "").Replace(target)
+	var steps []Step
+	if !pasteSubmit(&steps, target, buffer, tmp.Name(), target) {
+		last := steps[len(steps)-1]
+		return fmt.Errorf("%s: %s", last.Name, last.Detail)
+	}
+	if d := awaitDelivery(target, text); !d.blank && !d.delivered {
+		return fmt.Errorf("not delivered to %s: %s", target, d.problem())
+	}
+	return nil
 }

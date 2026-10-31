@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,42 @@ type invocation struct {
 	cmd     *Command // resolved command, nil when unknown
 	ctx     *Context // nil when run() failed before building one
 	phase   string   // where run() failed before the command ran, if it did
+	// globalFS is the global FlagSet (--json, --project, …); nil before
+	// runTraced builds it.
+	globalFS *flag.FlagSet
+	// introspected caches commandFlagSet's result for boolFlag.
+	introspected *flag.FlagSet
+	introspectOK bool
+}
+
+// boolFlag reports whether name is a flag without a value in this call: a
+// bool flag of the global FlagSet or of any FlagSet the command parsed.
+// clilog.RedactCall asks it, so a new fs.Bool needs no list kept by hand.
+// A command that failed before parsing its flags (flags before the slug)
+// has its FlagSet introspected instead; an unknown command's flags count
+// as taking a value, which only over-redacts.
+func (inv *invocation) boolFlag(name string) bool {
+	if name == "help" || name == "h" {
+		return true // the flag package's own
+	}
+	sets := []*flag.FlagSet{inv.globalFS}
+	if inv.ctx != nil {
+		sets = append(sets, inv.ctx.flagSets...)
+	}
+	if inv.ctx == nil || len(inv.ctx.flagSets) == 0 {
+		sets = append(sets, inv.commandFlagSet())
+	}
+	for _, fs := range sets {
+		if fs == nil {
+			continue
+		}
+		if f := fs.Lookup(name); f != nil {
+			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 const (
@@ -51,17 +88,22 @@ func recordTelemetry(inv *invocation, rawArgs []string, runErr error, start time
 	ev.TS = start.UTC().Format(time.RFC3339Nano)
 	ev.DurMS = time.Since(start).Milliseconds()
 	_ = telemetry.FileSink{Path: path}.Write(ev)
+	maybeAutoSend()
 }
 
-// telemetryPath picks the per-project file when a project resolved, else the
-// global fallback. ok is false when telemetry is off for the project or no
-// path can be determined.
+// telemetryPath picks the per-project file of logProject (the project the
+// call ran on, or for a read-only call on another project the caller's own),
+// else the global fallback. ok is false when telemetry is off for the target
+// or the chosen project, or no path can be determined.
 func telemetryPath(inv *invocation) (string, bool) {
-	if inv.ctx != nil && inv.ctx.Project != nil {
-		if !inv.ctx.Project.TelemetryEnabled() {
+	if inv.ctx != nil && inv.ctx.Project != nil && !inv.ctx.Project.TelemetryEnabled() {
+		return "", false
+	}
+	if proj, _ := logProject(inv); proj != nil {
+		if !proj.TelemetryEnabled() {
 			return "", false
 		}
-		if root := inv.ctx.Project.TelemetryRoot(); root != "" {
+		if root := proj.TelemetryRoot(); root != "" {
 			return telemetry.ProjectPath(root), true
 		}
 	}
@@ -303,6 +345,33 @@ func detectCaller() (caller, agent string, tmux bool) {
 var stdinIsTerminal = func() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// commandFlagSet is the FlagSet of the command (and subcommand) this call
+// named, introspected once; nil when there is none.
+func (inv *invocation) commandFlagSet() *flag.FlagSet {
+	if inv.introspectOK || inv.cmd == nil {
+		return inv.introspected
+	}
+	inv.introspectOK = true
+	sub := ""
+	if len(inv.args) > 0 {
+		for _, s := range inv.cmd.Subcommands {
+			if s == inv.args[0] {
+				sub = s
+			}
+		}
+	}
+	// An empty issues dir; one that doesn't exist is as empty when $TMPDIR
+	// can't take a new one.
+	dir, err := os.MkdirTemp("", "issue-cli-introspect-")
+	if err != nil {
+		dir = filepath.Join(os.TempDir(), "issue-cli-introspect-none")
+	} else {
+		defer os.RemoveAll(dir)
+	}
+	inv.introspected, _ = introspectFlagSet(inv.cmd, sub, dir)
+	return inv.introspected
 }
 
 // introspectedFlags is the panic payload parseFlags uses in introspection

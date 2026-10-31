@@ -1,0 +1,24 @@
+session: telemetry-view
+issue: factory/usage-telemetry-from-other-peoples-installs-opt-in-anonymous-and-a-view-for-the-owner
+title: The owner's /telemetry page over a collector's sandbox batches
+scenario: telemetry
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: /telemetry shows installs, versions, commands, features and errors from the collector's data
+    proves: [AC5]
+    setup:
+      - open: /telemetry?range=all
+    checks:
+      - visible: telemetry.page
+      - text_contains: { target: telemetry.sub, text: "3 installs · 9 daily batches" }
+      - visible: [stats.chart.installs, stats.chart.versions, stats.chart.commands, stats.chart.features, stats.chart.templates]
+      - text_contains: { target: stats.chart.versions, text: v0.54.2 }
+      - text_contains: { target: stats.chart.features, text: yolo }
+      - text_contains: { target: stats.table_card.telemetry-errors, text: "40.0%" }
+      - absent: telemetry.empty

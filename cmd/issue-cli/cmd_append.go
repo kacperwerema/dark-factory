@@ -62,14 +62,19 @@ func runAppend(ctx *Context, args []string) error {
 		return err
 	}
 
+	guard := ownerTickGuard(ctx, issue)
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
+		next, ok, err := tracker.AppendIssueBody(body, text)
 		if strings.TrimSpace(section) != "" {
-			return tracker.AppendIssueBodyToSection(body, section, text, force)
+			next, ok, err = tracker.AppendIssueBodyToSection(body, section, text, force)
 		}
-		return tracker.AppendIssueBody(body, text)
+		if err == nil && ok {
+			err = guard(body, next)
+		}
+		return next, ok, err
 	})
 	if err != nil {
-		return fmt.Errorf("failed to append: %w", err)
+		return writeErr("failed to append", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Appended to %s\n", issue.Slug)
 	return nil

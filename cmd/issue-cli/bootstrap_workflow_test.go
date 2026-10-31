@@ -234,3 +234,26 @@ func TestProcessTransitions_PrintsWorkflowFile(t *testing.T) {
 		t.Fatalf("process transitions should print the workflow file:\n%s", stdout.String())
 	}
 }
+
+// Budgets come from projects.yaml too, so issue-cli spend run from the
+// project root without --project shows them (Settled rules: bootstrap).
+func TestBootstrap_TakesBudgetsFromMatchingProject(t *testing.T) {
+	f := newBootstrapFixture(t, true)
+	mustWrite(t, f.cfg, "projects:\n  - name: proj\n    workdir: "+f.proj+"\n"+
+		"    company:\n      budget: {usd: 100, period: month}\n"+
+		"    departments:\n      - {name: Marketing, systems: [SEO], budget: {tokens: 5000}}\n"+
+		"      - {name: Sales, budget: lots}\n")
+	withCwd(t, f.proj)
+	proj, _, err := loadProjectOrErr(f.cfg, "")
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if proj.Company.Budget == nil || proj.Company.Budget.USD != 100 || proj.Departments[0].Budget.Tokens != 5000 || proj.Departments[1].Budget.Err == "" {
+		t.Fatalf("budgets: company %+v departments %+v", proj.Company.Budget, proj.Departments)
+	}
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runSpend(ctx, []string{"marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Budget: 0 of 5k tokens this week")
+}

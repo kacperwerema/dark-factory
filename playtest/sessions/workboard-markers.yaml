@@ -118,7 +118,11 @@ steps:
       - click: workboard.column.backlog.more
       - wait_for: { url: { contains: status=backlog } }
     checks:
-      - selected: nav.tab.list
+      # The list is the Workshop Board crate store now (Issues hall tab);
+      # nav.tab.list was the classic sidebar's.
+      - selected: hall.tab.issues
+      - visible: [issues.page, issues.shelf.backlog]
+      - text_contains: { target: filter.clear_status, text: "Status: backlog" }
 
   - id: TP9
     title: "Owner's eye: the workboard reads like the mockups and the markers make sense on real cards"

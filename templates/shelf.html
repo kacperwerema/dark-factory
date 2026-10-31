@@ -10,7 +10,7 @@
         <h1 class="wb-h1">Outputs shelf</h1>
         <span class="wb-sub">what each department made · <span class="wb-you-text">review</span> = waits for your yes before it goes out</span>
     </div>
-    <div class="wb-shelf">
+    <div class="wb-shelf-page">
         <nav class="wb-shelf-tabs" aria-label="Department" data-testid="shelf.depts">{{range .Depts}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{with .Color}}<i class="wb-shelf-dot" style="background:{{.}}"></i>{{end}}{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
         <nav class="wb-shelf-tabs" aria-label="State" data-testid="shelf.states">{{range .States}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
         <div class="wb-shelf-list" data-testid="shelf.list">
@@ -22,6 +22,9 @@
                     <div class="wb-shelf-meta">
                         <span><i class="wb-shelf-dot" style="background:{{.Color}};display:inline-block;vertical-align:-1px"></i> {{.Dept}}</span>
                         <span>{{.Kind}}</span>
+                        {{if gt .Version 1}}<span class="wb-shelf-ver" data-testid="shelf.version">v{{.Version}}</span>{{end}}
+                        {{if .Open}}<a class="wb-shelf-talk" href="{{.Link}}#comments" title="comments not resolved" data-testid="shelf.talk">💬 {{.Open}} open</a>{{end}}
+                        {{with .Raw}}<a href="{{.}}" rel="noopener noreferrer" data-testid="shelf.raw">raw</a>{{end}}
                         {{with .Path}}<span class="wb-mono-inline">{{.}}</span>{{end}}
                         {{if .Missing}}<span class="wb-shelf-missing" data-testid="shelf.missing">missing</span>{{end}}
                         {{if .Issue}}<a href="{{.IssueURL}}" data-testid="shelf.issue">{{.Issue}}</a>{{else if .Job}}<span>job {{.Job}}</span>{{end}}

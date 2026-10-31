@@ -53,5 +53,14 @@ func init() {
 		"health.trends",
 		"health.trend.*",
 		"health.setup",
+		// Moved from the classic Health page (classic-page-gaps).
+		"health.opinion.by",
+		"health.decided",
+		"health.decided.row",
+		"health.lint.rest",
+		"health.lint.fix",
+		"health.departments",
+		"health.departments.empty",
+		"health.departments.row.*",
 	)
 }

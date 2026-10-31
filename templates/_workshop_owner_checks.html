@@ -1,0 +1,58 @@
+{{/*
+Workshop Board components of the Owner checks page (owner_checks.go has
+their view models, static/workshop.css their styles, static/owner-checks.js
+reads the data-oc-* hooks). /p/<project>/owner-checks renders them.
+
+  wb/oc-epic-bar   the epic select, its status and counts   data: OwnerChecksData
+  wb/oc-pick       the epic cards to pick from              data: OwnerChecksData
+  wb/oc-issue      one issue's open owner boxes             data: OwnerChecksIssue
+  wb/oc-box        one box: tick, text, why, shot           data: OwnerCheckBox
+  wb/oc-empty      nothing waits for the owner's eyes       data: OwnerChecksData
+*/}}
+
+{{define "wb/oc-epic-bar"}}
+<form class="wb-oc-bar" method="get" data-testid="owner_checks.pick">
+    <label class="wb-oc-bar-label" for="oc-epic">Epic</label>
+    <select id="oc-epic" name="epic" class="wb-oc-select" data-oc-epic>
+        {{range .Epics}}<option value="{{.Slug}}"{{if .On}} selected{{end}}>{{.Title}} · {{.Children}} {{if eq .Children 1}}child{{else}}children{{end}}</option>{{end}}
+        <option value="all"{{if .All}} selected{{end}}>Every issue in the project</option>
+    </select>
+    <noscript><button class="wb-btn wb-btn--sm">Show</button></noscript>
+    {{with .EpicStatus}}<span class="wb-chip wb-chip--idle">{{.}}</span>{{end}}
+    {{with .EpicURL}}<a class="wb-oc-bar-link" href="{{.}}">open the epic ›</a>{{end}}
+    <span class="wb-oc-bar-sum">{{len .Issues}} {{if eq (len .Issues) 1}}issue{{else}}issues{{end}} with an open owner box · {{.Count}} {{if eq .Count 1}}box{{else}}boxes{{end}}</span>
+</form>
+{{end}}
+
+{{define "wb/oc-pick"}}
+<div class="wb-oc-epics">
+    {{range .Epics}}<a class="wb-oc-epic" href="{{.URL}}" data-testid="owner_checks.epic"><span class="wb-slug">{{.Slug}}</span><strong>{{.Title}}</strong><span class="wb-oc-epic-n">{{.Children}} {{if eq .Children 1}}child{{else}}children{{end}} · {{.Status}}</span></a>{{end}}
+    <a class="wb-oc-epic" href="?epic=all" data-testid="owner_checks.epic"><span class="wb-slug">all</span><strong>Every issue in the project</strong><span class="wb-oc-epic-n">slower: reads every issue's proof</span></a>
+</div>
+{{end}}
+
+{{define "wb/oc-issue"}}
+<section class="wb-oc-issue" data-oc-issue data-testid="owner_checks.issue.{{tid .Slug}}" data-slug="{{.Slug}}">
+    <div class="wb-oc-issue-head">
+        <h2 class="wb-oc-issue-title"><a href="{{.URL}}">{{.Title}}</a></h2>
+        <span class="wb-slug">{{.Slug}}</span>
+        <span class="wb-chip wb-chip--idle">{{.Status}}</span>
+        <a class="wb-oc-evidence" href="{{.EvidenceURL}}" data-testid="owner_checks.issue.{{tid .Slug}}.evidence">Evidence tab ›</a>
+    </div>
+    {{range .Boxes}}{{template "wb/oc-box" .}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/oc-box"}}
+<div class="wb-oc-box" data-oc-box data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}" data-id="{{.ID}}" data-text="{{.Text}}">
+    <button type="button" class="wb-oc-tick" data-oc-tick aria-label="Tick {{.ID}} as the owner" data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}.tick"></button>
+    <div class="wb-oc-text">
+        <div><b class="wb-oc-id">{{.ID}}</b> {{.Text}}</div>
+        <div class="wb-oc-meta"><span class="wb-chip wb-chip--you" data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}.why">{{.Why}}</span>{{with .RunLine}}<span class="wb-mono">{{.}}</span>{{end}}</div>
+        <div class="wb-ny-msg" role="status" data-oc-msg data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}.msg"></div>
+    </div>
+    {{if .Shot}}<a class="wb-oc-shot" href="{{.Shot}}" target="_blank" rel="noopener" title="{{.Step}} at {{.ShotLabel}}" data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}.shot"><img src="{{.Shot}}" alt="{{.Step}} at {{.ShotLabel}}" loading="lazy"></a>{{else}}<div class="wb-oc-noshot" data-testid="owner_checks.box.{{tid .Slug}}.{{tid .ID}}.noshot">No shot for this box · see the Evidence tab</div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/oc-empty"}}<div class="wb-oc-empty" data-testid="owner_checks.empty">{{if .Unknown}}No issue {{.Epic}} in this project. Pick an epic below.{{else if .Epic}}Nothing waits for your eyes {{if .All}}in this project{{else}}under this epic{{end}}. Owner boxes are playtest judgement steps, boxes a guided check left to you, Human Testing boxes and boxes marked "(owner)".{{else}}No issue in this project names a parent yet. Every issue is still listed below.{{end}}</div>{{end}}

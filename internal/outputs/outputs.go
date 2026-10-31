@@ -30,6 +30,8 @@ const (
 	OpAdd     = "add"
 	OpReview  = "review"
 	OpPublish = "publish"
+	OpUse     = "use"
+	OpRevise  = "revise"
 
 	StateReview    = "review"
 	StateApproved  = "approved"
@@ -82,6 +84,8 @@ type Event struct {
 	Quote string `json:"quote,omitempty"`
 	How   string `json:"how,omitempty"`
 	By    string `json:"by,omitempty"`
+	// use: the department key or issue slug that uses the output.
+	For string `json:"for,omitempty"`
 }
 
 // Output is an output with its events folded in.
@@ -109,6 +113,61 @@ type Output struct {
 	Published  time.Time `json:"published,omitempty"`
 	// Missing: the file or path is gone.
 	Missing bool `json:"missing,omitempty"`
+	// Uses are who recorded using it (issue-cli output use), oldest first.
+	Uses []Use `json:"uses,omitempty"`
+	// Versions are a file output's versions, oldest first: v1 is the file
+	// output add copied, each output revise adds one. File is the newest.
+	Versions []Version `json:"versions,omitempty"`
+	// OpenComments is how many of the owner's comment threads on it are
+	// not resolved (comments.go).
+	OpenComments int `json:"open_comments,omitempty"`
+}
+
+// Version is one version of a file output.
+type Version struct {
+	N    int       `json:"n"`
+	File string    `json:"file"`
+	Date time.Time `json:"date"`
+	By   string    `json:"by,omitempty"`
+	Note string    `json:"note,omitempty"`
+}
+
+// Version is the output's newest version number, 1 without revisions.
+func (o *Output) Version() int {
+	if len(o.Versions) == 0 {
+		return 1
+	}
+	return o.Versions[len(o.Versions)-1].N
+}
+
+// Previous is the version before the newest, nil for one version.
+func (o *Output) Previous() *Version {
+	if len(o.Versions) < 2 {
+		return nil
+	}
+	return &o.Versions[len(o.Versions)-2]
+}
+
+// IsMarkdown reports whether the output's file or path is markdown: the
+// shelf opens it in the reader.
+func (o *Output) IsMarkdown() bool {
+	name := o.File
+	if name == "" {
+		name = o.Path
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".md", ".markdown":
+		return true
+	}
+	return false
+}
+
+// Use is one use of an output by another department or issue.
+type Use struct {
+	// For is the department key or issue slug that uses it.
+	For  string    `json:"for"`
+	Date time.Time `json:"date"`
+	By   string    `json:"by,omitempty"`
 }
 
 // Icon is the output's kind icon.
@@ -248,7 +307,9 @@ func Load(p *tracker.Project) ([]*Output, []BadLine) {
 		}
 	}
 	out := make([]*Output, 0, len(byID))
+	talk, _ := LoadComments(p)
 	for _, o := range byID {
+		o.OpenComments = OpenCount(talk[o.ID])
 		o.Name = DepartmentName(p, o.Department)
 		o.Missing = missing(p, o)
 		out = append(out, o)
@@ -280,6 +341,9 @@ func apply(byID map[string]*Output, e Event) error {
 			URL: e.URL, File: e.File, Path: e.Path, Issue: e.Issue, Job: e.Job, Note: e.Note,
 			By: e.By, Added: when, State: StateReview,
 		}
+		if e.File != "" {
+			byID[e.ID].Versions = []Version{{N: 1, File: e.File, Date: when, By: e.By}}
+		}
 	case OpReview:
 		o, ok := byID[e.ID]
 		if !ok {
@@ -298,6 +362,28 @@ func apply(byID map[string]*Output, e Event) error {
 		if e.URL != "" {
 			o.URL = e.URL
 		}
+	case OpUse:
+		o, ok := byID[e.ID]
+		if !ok {
+			return fmt.Errorf("use of unknown output %s", e.ID)
+		}
+		if strings.TrimSpace(e.For) == "" {
+			return errors.New("use names no department or issue")
+		}
+		o.Uses = append(o.Uses, Use{For: strings.TrimSpace(e.For), Date: when, By: e.By})
+	case OpRevise:
+		o, ok := byID[e.ID]
+		if !ok {
+			return fmt.Errorf("revise of unknown output %s", e.ID)
+		}
+		if o.File == "" || e.File == "" {
+			return fmt.Errorf("revise of %s names no shelf file", e.ID)
+		}
+		if o.State == StatePublished {
+			return fmt.Errorf("revise of published output %s", e.ID)
+		}
+		o.Versions = append(o.Versions, Version{N: o.Version() + 1, File: e.File, Date: when, By: e.By, Note: e.Note})
+		o.File, o.State = e.File, StateReview
 	default:
 		return fmt.Errorf("unknown op %q", e.Op)
 	}
@@ -491,6 +577,36 @@ func copyFile(p *tracker.Project, dept, id, src string) (string, error) {
 	return rel, out.Close()
 }
 
+// Revise records a new version of a file output: src is copied onto the
+// shelf next to the earlier ones and the output goes back in review (the
+// owner looks again). A published output, or one that isn't a shelf file,
+// can't be revised.
+func Revise(p *tracker.Project, id, src, note, by string, now time.Time) (*Output, error) {
+	list, _ := Load(p)
+	o, err := Find(list, id)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case o.State == StatePublished:
+		return nil, fmt.Errorf("output %s is published: it went out as it is; add a new output for a new version", o.ID)
+	case o.File == "":
+		return nil, fmt.Errorf("output %s is not a file on the shelf (%s): only file outputs (output add --file) have versions", o.ID, o.Where())
+	case strings.TrimSpace(src) == "":
+		return nil, errors.New("output revise needs --file, the new version")
+	}
+	rel, err := copyFile(p, o.Department, fmt.Sprintf("%s-v%d", o.ID, o.Version()+1), src)
+	if err != nil {
+		return nil, err
+	}
+	e := Event{Op: OpRevise, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), File: rel, Note: strings.TrimSpace(note), By: by}
+	if err := Append(p, e); err != nil {
+		return nil, fmt.Errorf("recording the revision: %w", err)
+	}
+	list, _ = Load(p)
+	return Find(list, o.ID)
+}
+
 // Review records the owner's approve or reject. A published output can't
 // be reviewed again.
 func Review(p *tracker.Project, id, state, quote, how, by string, now time.Time) (*Output, error) {
@@ -533,6 +649,28 @@ func Publish(p *tracker.Project, id, link, by string, now time.Time) (*Output, e
 	}
 	if err := Append(p, Event{Op: OpPublish, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), URL: strings.TrimSpace(link), By: by}); err != nil {
 		return nil, fmt.Errorf("recording the publish: %w", err)
+	}
+	list, _ = Load(p)
+	return Find(list, o.ID)
+}
+
+// MarkUsed records that forWhat (a department key or an issue slug, checked
+// by the caller) uses the output. A rejected output can't be used.
+func MarkUsed(p *tracker.Project, id, forWhat, by string, now time.Time) (*Output, error) {
+	forWhat = strings.TrimSpace(forWhat)
+	if forWhat == "" {
+		return nil, errors.New("output use needs --by <department|issue>")
+	}
+	list, _ := Load(p)
+	o, err := Find(list, id)
+	if err != nil {
+		return nil, err
+	}
+	if o.State == StateRejected {
+		return nil, fmt.Errorf("output %s was rejected: nothing uses a rejected output", o.ID)
+	}
+	if err := Append(p, Event{Op: OpUse, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), For: forWhat, By: by}); err != nil {
+		return nil, fmt.Errorf("recording the use: %w", err)
 	}
 	list, _ = Load(p)
 	return Find(list, o.ID)

@@ -14,6 +14,8 @@ templates/retro_wb.html composes them.
   wb/retro-send      the "Send to" box and its action               data: WbRetroSend
   wb/retro-bin       a bin: how many findings go there              data: WbRetroBin
   wb/retro-pattern   a term other issues' retros mention too        data: *WbRetroPattern
+  wb/retro-bugs      the Bugs view: counts, filter, bug cards       data: *WbRetroBugs
+  wb/retro-bug       one tool bug report and its status buttons     data: WbRetroBug
 */}}
 
 {{define "wb/retro-presort"}}
@@ -135,3 +137,34 @@ templates/retro_wb.html composes them.
     <span class="wb-rpattern-next" data-testid="retro.pattern.experiment">Measure a fix for it: <code>issue-cli experiment candidates</code>.</span>
 </div>
 {{end}}{{end}}
+
+{{define "wb/retro-bugs"}}
+<section class="wb-rbugs" aria-labelledby="retro-bugs-h" data-testid="retro.bugs">
+    <div class="wb-rbugs-head">
+        <h2 class="wb-h1 wb-h1--sm" id="retro-bugs-h">Tool bugs</h2>
+        <span class="wb-chip wb-chip--red" data-testid="retro.bugs.open"><span class="wb-chip-dot"></span>{{.Open}} open</span>
+        <span class="wb-chip wb-chip--idle" data-testid="retro.bugs.closed">{{.Closed}} closed</span>
+        <div class="wb-pills" role="group" aria-label="Show bugs">{{range .Filters}}{{template "wb/filter-pill" .}}{{end}}</div>
+    </div>
+    <p class="wb-small wb-muted">Bug reports under <span class="wb-mono-inline">bugs/</span> that name one of this project's issues. Set a status when the tool is fixed, or when it won't be.</p>
+    {{with .Empty}}<p class="wb-empty" data-testid="retro.bugs.empty">{{.}}</p>{{end}}
+    <div class="wb-rbugs-grid">{{range .Cards}}{{template "wb/retro-bug" .}}{{end}}</div>
+</section>
+{{end}}
+
+{{define "wb/retro-bug"}}
+<article class="wb-rbug" data-testid="retro.bug.{{tid .FileName}}">
+    <div class="wb-rbug-head">
+        {{if .IssueURL}}<a class="wb-rbug-issue" href="{{.IssueURL}}">{{.IssueSlug}}</a>{{else}}<span class="wb-rbug-issue">no issue</span>{{end}}
+        <span class="wb-chip wb-chip--{{.Tone}}" data-testid="retro.bug.{{tid .FileName}}.status">{{.StatusText}}</span>
+    </div>
+    <div class="wb-rbug-meta">{{with .Tool}}<span class="wb-rpill">{{.}}</span>{{end}}{{with .When}}<span class="wb-rpill wb-rpill--grey">{{.}}</span>{{end}}<span class="wb-rbug-file">{{.FileName}}</span></div>
+    {{with .Description}}<p class="wb-rbug-text">{{.}}</p>{{end}}
+    <div class="wb-rbug-acts" role="group" aria-label="Set the status">
+        <button type="button" class="wb-btn wb-btn--paper{{if eq .Status "open"}} wb-rbug-on{{end}}" data-bug-status="{{.StatusURL}}" data-status="open" {{if eq .Status "open"}}aria-pressed="true"{{end}} data-testid="retro.bug.{{tid .FileName}}.open">Open</button>
+        <button type="button" class="wb-btn wb-btn--paper{{if eq .Status "fixed"}} wb-rbug-on{{end}}" data-bug-status="{{.StatusURL}}" data-status="fixed" {{if eq .Status "fixed"}}aria-pressed="true"{{end}} data-testid="retro.bug.{{tid .FileName}}.fixed">Fixed</button>
+        <button type="button" class="wb-btn wb-btn--paper{{if eq .Status "wontfix"}} wb-rbug-on{{end}}" data-bug-status="{{.StatusURL}}" data-status="wontfix" {{if eq .Status "wontfix"}}aria-pressed="true"{{end}} data-testid="retro.bug.{{tid .FileName}}.wontfix">Won't fix</button>
+        <span class="wb-site-msg" role="status"></span>
+    </div>
+</article>
+{{end}}

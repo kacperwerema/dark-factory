@@ -66,3 +66,35 @@ func TestEnsureWorktree_SparseExcludeKeepsNestedIssues(t *testing.T) {
 		})
 	}
 }
+
+func TestWorktreeBaseOnlyWhenTheDispatchCutsTheBranch(t *testing.T) {
+	repo := gitRepo(t)
+	head, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha := string(head[:len(head)-1])
+	wt := tracker.WorktreeSpec{Path: filepath.Join(repo, ".worktrees", "api", "x"), Branch: "work/api/x"}
+
+	if b, s, ok := WorktreeBase(repo, wt); !ok || b != "main" || s != sha {
+		t.Errorf("fresh branch: base = %q %q %v, want main %s", b, s, ok, sha)
+	}
+	if b, s, ok := WorktreeBase(repo, tracker.WorktreeSpec{Path: wt.Path, Branch: wt.Branch, StartPoint: "main"}); !ok || b != "main" || s != sha {
+		t.Errorf("start point: base = %q %q %v", b, s, ok)
+	}
+	if _, _, ok := WorktreeBase(repo, tracker.WorktreeSpec{}); ok {
+		t.Error("no worktree: recorded a base")
+	}
+	if out, err := exec.Command("git", "-C", repo, "branch", "work/api/x").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, _, ok := WorktreeBase(repo, wt); ok {
+		t.Error("existing branch: recorded a base, but nothing is cut")
+	}
+	if err := os.MkdirAll(wt.Path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := WorktreeBase(repo, tracker.WorktreeSpec{Path: wt.Path, Branch: "work/api/y"}); ok {
+		t.Error("existing worktree: recorded a base")
+	}
+}

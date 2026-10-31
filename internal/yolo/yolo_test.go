@@ -110,3 +110,53 @@ func TestTurnOnOffHistory(t *testing.T) {
 		t.Fatalf("history grew: %+v", h)
 	}
 }
+
+func TestOwnerChecksWaitUntilTickedOrReviewed(t *testing.T) {
+	issue := &tracker.Issue{Slug: "a", Title: "A", BodyRaw: "## Acceptance Criteria\n- [ ] One\n- [ ] Two\n- [ ] Three\n"}
+	check := func(id string) string {
+		return tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: id, Why: "playtest judgement step TP9", Text: "The " + id + " box", From: "testing"})
+	}
+	comments := []tracker.Comment{
+		{ID: 1, Date: "2026-10-30T23:00:00+01:00", Author: "agent-a", Text: check("AC2")},
+		{ID: 2, Author: "agent-a", Text: check("AC3")},
+		{ID: 3, Author: "agent-a", Text: check("AC2")}, // the gate ran again: once
+		{ID: 4, Text: tracker.YOLOReviewComment("agreed", "fine without it", "viewer", "2026-10-31", "AC3")},
+	}
+	u := Unreviewed(issue, comments)
+	if len(u) != 1 || u[0].Check != "AC2" || u[0].What != "The AC2 box" || u[0].From != "testing" || u[0].By != "agent-a" || u[0].Label() != "AC2: owner check, not done" || u[0].Key() != "AC2" {
+		t.Fatalf("unreviewed = %+v", u)
+	}
+	if len(Passes(issue, comments)) != 0 {
+		t.Fatal("an owner check counted as a gate pass")
+	}
+	issue.BodyRaw = "## Acceptance Criteria\n- [ ] One\n- [x] Two\n- [ ] Three\n"
+	if u := Unreviewed(issue, comments); len(u) != 0 {
+		t.Fatalf("ticked AC2 still waits: %+v", u)
+	}
+	oc, ok := tracker.ParseYOLOOwnerCheckComment(tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: "TP1", Why: "guided check walk step S3: skipped", Text: `says "hi" (twice)`, From: "testing"}))
+	if !ok || oc.ID != "TP1" || oc.Why != "guided check walk step S3: skipped" || oc.Text != `says "hi" (twice)` || oc.From != "testing" {
+		t.Fatalf("round trip = %+v %v", oc, ok)
+	}
+}
+
+func TestOwnerChecksLeaveOnTheOwnersSendBack(t *testing.T) {
+	issue := &tracker.Issue{Slug: "a", Title: "A", BodyRaw: "## Human Testing\n- [ ] Human verification complete if required\n"}
+	check := tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: "HT1", Why: "Human Testing box", Text: "Human verification complete if required", From: "human-testing"})
+	comments := []tracker.Comment{
+		{ID: 1, Author: "agent-a", Text: check},
+		// An agent's comment that looks like one is no send-back.
+		{ID: 2, Author: "agent-a", Text: tracker.RejectedComment("redo", "cli", "2026-10-31", "documentation", "in progress")},
+	}
+	if u := Unreviewed(issue, comments); len(u) != 1 || u[0].Check != "HT1" {
+		t.Fatalf("unreviewed = %+v, want HT1", u)
+	}
+	comments = append(comments, tracker.Comment{ID: 3, Author: tracker.OwnerAuthor, Text: tracker.RejectedComment("the colours are off", "viewer", "2026-10-31", "documentation", "in progress")})
+	if u := Unreviewed(issue, comments); len(u) != 0 {
+		t.Fatalf("sent back, still waits: %+v", u)
+	}
+	// The next gate queues it again while it is unticked.
+	comments = append(comments, tracker.Comment{ID: 4, Author: "agent-a", Text: check})
+	if u := Unreviewed(issue, comments); len(u) != 1 || u[0].Comment != 4 {
+		t.Fatalf("queued again = %+v", u)
+	}
+}

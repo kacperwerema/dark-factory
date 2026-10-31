@@ -23,6 +23,9 @@ type IssueView struct {
 	BodyRaw  string
 	Number   int
 	Labels   []string
+	// Department is the key of the department the issue's workflow belongs
+	// to ("marketing"), "" for Product. Fills {{department}}.
+	Department string
 
 	// Frontmatter is keyed by the lower-case frontmatter field name.
 	// Use Frontmatter[k] for the value and ok-by-presence with HasKey.
@@ -46,6 +49,7 @@ type Action struct {
 	Pattern        string
 	Section        string
 	Command        string
+	Path           string
 	RefKey         string
 	LinkedStatus   string
 	Hint           string
@@ -65,7 +69,10 @@ type LookupFunc func(slug string) *IssueView
 type Config struct {
 	AllowShell bool
 	IssuesRoot string
-	Lookup     LookupFunc
+	// ProjectRoot is the project's folder (workdir, else the issues
+	// folder's parent): what file_exists paths are relative to.
+	ProjectRoot string
+	Lookup      LookupFunc
 	// Children lists an epic's children (issues naming it in parent:). Used by
 	// children_closed; the tracker injects it from its issue store.
 	Children func(slug string) []*IssueView

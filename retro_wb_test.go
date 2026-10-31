@@ -332,3 +332,50 @@ func TestRetroWbComponentsStandAlone(t *testing.T) {
 		t.Errorf("nil pattern renders %q", got)
 	}
 }
+
+// Proves: AC3 — the Bugs view (?view=bugs) shows the tool bug reports that
+// were only on the classic page's #bugs section, and its buttons set the
+// status through the same endpoint (classic-page-gaps G50, G51).
+func TestRetroWbBugsView(t *testing.T) {
+	withMockTmuxSessions(t, nil)
+	proj, dir := retroProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	room := html.UnescapeString(pageGet(t, ts.URL+"/p/test-project/retros"))
+	if !strings.Contains(room, `href="/p/test-project/retros?view=bugs">Bugs</a>`) || strings.Contains(room, "classic=1#bugs") {
+		t.Error("the loop's Bugs step still goes to the classic page")
+	}
+	if !strings.Contains(room, `data-testid="seg.retro_view.bugs">Bugs · 1</a>`) {
+		t.Error("no Bugs view switch with the count")
+	}
+
+	page := html.UnescapeString(pageGet(t, ts.URL+"/p/test-project/retros?view=bugs"))
+	statusURL := "/p/test-project/retros/bug/b1.json/status"
+	for _, want := range []string{`data-testid="retro.bugs"`, `1 open`, `0 closed`, `data-testid="retro.bug.b1_json"`,
+		`href="/p/test-project/issue/bug-in-login">bug-in-login</a>`, `check-script misses worktrees`, `issue-cli`,
+		`data-bug-status="` + statusURL + `" data-status="fixed"`, `data-testid="filter.bugs_open"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("bugs view missing %q", want)
+		}
+	}
+	if strings.Contains(page, `data-testid="retro.list.to_sort"`) {
+		t.Error("the bugs view still draws the sorting room")
+	}
+
+	if resp := pagePost(t, ts.URL+statusURL, `{"status":"fixed"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set status = %d", resp.StatusCode)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "bugs/b1.json"))
+	if !strings.Contains(string(data), "fixed") {
+		t.Fatalf("bug file not updated: %s", data)
+	}
+	page = html.UnescapeString(pageGet(t, ts.URL+"/p/test-project/retros?view=bugs"))
+	if !strings.Contains(page, "0 open") || !strings.Contains(page, `No bug report with this status.`) {
+		t.Error("after Fixed, the open filter still shows the bug")
+	}
+	page = html.UnescapeString(pageGet(t, ts.URL+"/p/test-project/retros?view=bugs&bug_status=fixed"))
+	if !strings.Contains(page, `data-testid="retro.bug.b1_json"`) || !strings.Contains(page, `>fixed</span>`) {
+		t.Error("the fixed filter does not show the fixed bug")
+	}
+}

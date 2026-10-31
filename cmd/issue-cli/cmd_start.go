@@ -73,8 +73,7 @@ func runStart(ctx *Context, args []string) error {
 	}
 	started, err := wf.StartIssueOnce(issue.FilePath, slug, assignee)
 	if err != nil {
-		printYOLOGate(ctx.Stderr, gate, issue.Status, gate.To, ctx.now())
-		return err
+		return yoloRefusal(ctx.Stderr, gate, issue.Status, gate.To, ctx.now(), err)
 	}
 	issue = started.Issue
 
@@ -86,6 +85,10 @@ func runStart(ctx *Context, args []string) error {
 	printDepartmentLine(ctx.Stdout, ctx.Project, issue, wf)
 	printTypeWarnings(ctx.Stdout, wf, issue)
 	printLeadLines(ctx, issue)
+	if line := baseLine(issue); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
+	printStartDeps(ctx.Stdout, shipDeps(ctx, issue, issues))
 	if line := ci.AgentLine(projectRoot(ctx.Project), wf); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
@@ -126,7 +129,7 @@ func runStart(ctx *Context, args []string) error {
 
 	fmt.Fprintf(ctx.Stdout, "file: %s\n\n", issue.FilePath)
 
-	printWorkflowNextSteps(ctx, wf, issue)
+	printWorkflowNextSteps(ctx, wf, issue, issues)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
 	printStartWorkflowReminder(ctx.Stdout, wf)
 	return nil
@@ -182,7 +185,7 @@ func printStartWorkflowReminder(w io.Writer, wf *tracker.WorkflowConfig) {
 	fmt.Fprintln(w, "Run 'issue-cli process workflow' or 'issue-cli process transitions' for details.")
 }
 
-func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue) {
+func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue) {
 	w := ctx.Stdout
 	total, checked := tracker.CountCheckboxes(issue.BodyRaw)
 	if total > 0 {
@@ -192,10 +195,23 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 		fmt.Fprintln(w)
 	}
 
+	var prompts []string
 	if prompt := wf.StatusPrompt(issue.Status); prompt != "" {
+		prompts = append(prompts, prompt)
+	}
+	prompts, rule := yoloGuidance(ctx, issue.Slug, prompts)
+	if len(prompts) > 0 || rule != "" {
 		fmt.Fprintln(w, "== Current Status Guidance ==")
-		fmt.Fprintf(w, "- %s\n", prompt)
+		for _, prompt := range prompts {
+			fmt.Fprintf(w, "- %s\n", prompt)
+		}
+		if rule != "" {
+			fmt.Fprintf(w, "- %s\n", rule)
+		}
 		fmt.Fprintln(w)
+	}
+	if isShipStatus(wf, issue.Status) {
+		printShippingBlock(ctx, issue, issues)
 	}
 
 	tmpl := wf.TemplateForStatus(issue.Status)
@@ -230,7 +246,7 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 				fmt.Fprintf(w, "  issue-cli transition %s --to \"%s\"\n", issue.Slug, opt)
 			}
 		}
-		prompts := wf.EntryPrompts(issue.Status, next)
+		prompts, _ := yoloGuidance(ctx, issue.Slug, wf.EntryPrompts(issue.Status, next))
 		if len(prompts) > 0 {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "== Entry Guidance ==")

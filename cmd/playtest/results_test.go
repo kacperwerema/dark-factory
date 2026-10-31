@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,5 +189,36 @@ func TestOwnIssueFromFlagOrWorkBranch(t *testing.T) {
 	run("checkout", "-q", "-b", "work/ui/evidence-tab")
 	if got := OwnIssue(repo, ""); got != "ui/evidence-tab" {
 		t.Errorf("work branch: %q", got)
+	}
+}
+
+// The owner's judgement steps are ticked in a call of their own: when
+// issue-cli refuses them (an agent ran the report), the machine steps stay
+// ticked and the comments are still posted.
+func TestApplyPlanTicksJudgementStepsApart(t *testing.T) {
+	p := &Plan{Tick: []string{"TP1", "TP3"}, OwnerTick: []string{"TP3"}, Comments: []string{"playtest: TP2 FAIL"}}
+	var calls []string
+	run := func(args ...string) error {
+		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "check" && strings.Contains(strings.Join(args, " "), "TP3") {
+			return errors.New("these boxes are the owner's")
+		}
+		return nil
+	}
+	var out, errw strings.Builder
+	code := applyPlan(p, "x/y", p.Comments, run, &out, &errw)
+	want := "check x/y TP1|check x/y TP3|comment x/y --text playtest: TP2 FAIL"
+	if got := strings.Join(calls, "|"); got != want {
+		t.Fatalf("calls = %q, want %q", got, want)
+	}
+	if code != 1 || !strings.Contains(errw.String(), "they stay for the owner") || !strings.Contains(out.String(), "✓ ticked 1, commented 1") {
+		t.Fatalf("code %d\nout: %s\nerr: %s", code, out.String(), errw.String())
+	}
+
+	// The owner's own shell: both calls pass.
+	calls = nil
+	out.Reset()
+	if code := applyPlan(p, "x/y", nil, func(args ...string) error { calls = append(calls, args[2]); return nil }, &out, &errw); code != 0 || !strings.Contains(out.String(), "✓ ticked 2") {
+		t.Fatalf("owner: code %d, out %s", code, out.String())
 	}
 }

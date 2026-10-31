@@ -33,7 +33,9 @@ func issueWorkflowFileLabel(p *tracker.Project, wf *tracker.WorkflowConfig) stri
 }
 
 // printDepartmentLine says which department an issue is in, when the
-// project has departments, and why its file didn't load.
+// project has departments, and why its file didn't load. A department
+// with a role prompt or goals gets the fuller departmentLine further down
+// instead, so the name isn't printed twice.
 func printDepartmentLine(w io.Writer, p *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) {
 	if p == nil || len(p.Departments) == 0 {
 		return
@@ -42,7 +44,9 @@ func printDepartmentLine(w io.Writer, p *tracker.Project, issue *tracker.Issue, 
 	if dept == "" {
 		dept = "Product"
 	}
-	fmt.Fprintf(w, "Department: %s\n", dept)
+	if departmentLine(p, issue) == "" {
+		fmt.Fprintf(w, "Department: %s\n", dept)
+	}
 	if wf != nil && wf.LoadErr != nil {
 		fmt.Fprintf(w, "Workflow error: %v\n", wf.LoadErr)
 	}
@@ -56,6 +60,11 @@ func departmentFlag(p *tracker.Project, value string) (string, error) {
 		return "", nil
 	}
 	if d := p.DepartmentNamed(value); d != nil {
+		return d.Name, nil
+	}
+	// The key works too ("growth-team" for Growth Team): workflow hints
+	// fill {{department}} with it.
+	if d := p.DepartmentByKey(value); d != nil {
 		return d.Name, nil
 	}
 	var names []string

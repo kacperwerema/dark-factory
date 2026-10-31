@@ -28,6 +28,8 @@
         {{range .Groups}}{{template "wb/sensor-group" .}}{{else}}<p class="wb-empty">No sensors yet: the latest measurement has no score rows (issue-cli health snapshot adds them).</p>{{end}}
     </section>
 
+    {{template "wb/health-departments" .Departments}}
+
     <section class="wb-hsec" aria-labelledby="health-look-h" data-testid="health.look">
         <div class="wb-hsec-head">
             <h2 id="health-look-h" class="wb-h2">Where to look</h2>

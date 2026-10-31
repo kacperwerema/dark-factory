@@ -188,16 +188,20 @@ type whoamiJSON struct {
 	Scope   string `json:"scope,omitempty"`
 	// Department is a department lead's department.
 	Department string `json:"department,omitempty"`
-	Issue      string `json:"issue,omitempty"`
-	Guards     string `json:"guards,omitempty"`
-	Lead       string `json:"lead,omitempty"`
-	LeadLive   bool   `json:"lead_live"`
-	MayTick    string `json:"may_tick"`
-	Reach      string `json:"reach,omitempty"`
-	Signal     string `json:"signal"`
-	LegacyKey  bool   `json:"legacy_umbrella,omitempty"`
-	AutoStart  string `json:"autostart,omitempty"`
-	Jobs       string `json:"jobs,omitempty"`
+	// Group is the group a department lead's department sits under;
+	// Departments are a group lead's departments.
+	Group       string   `json:"group,omitempty"`
+	Departments []string `json:"departments,omitempty"`
+	Issue       string   `json:"issue,omitempty"`
+	Guards      string   `json:"guards,omitempty"`
+	Lead        string   `json:"lead,omitempty"`
+	LeadLive    bool     `json:"lead_live"`
+	MayTick     string   `json:"may_tick"`
+	Reach       string   `json:"reach,omitempty"`
+	Signal      string   `json:"signal"`
+	LegacyKey   bool     `json:"legacy_umbrella,omitempty"`
+	AutoStart   string   `json:"autostart,omitempty"`
+	Jobs        string   `json:"jobs,omitempty"`
 }
 
 func runLeadWhoami(ctx *Context, args []string) error {
@@ -227,6 +231,26 @@ func runLeadWhoami(ctx *Context, args []string) error {
 		out.Guards = "main (the project checkout)"
 		out.Lead, out.LeadLive = projectLead, live(projectLead)
 		out.MayTick = me.Department + "'s gates the human approved in your chat, with issue-cli approve --quote; never Human Testing, never another department's"
+		if g := proj.GroupOf(me.Department); g != nil {
+			out.Group = g.Name
+			// The nearest live group lead up the chain, else the CEO.
+			for _, a := range proj.Ancestors(me.Department) {
+				if gl := tracker.DepartmentLeadName(proj, a.Name); live(gl) {
+					out.Lead, out.LeadLive = gl, true
+					break
+				}
+			}
+		}
+		for _, c := range proj.Children(me.Department) {
+			out.Departments = append(out.Departments, c.Name)
+		}
+		if len(out.Departments) > 0 {
+			var all []string
+			for _, c := range proj.Descendants(me.Department) {
+				all = append(all, c.Name)
+			}
+			out.MayTick = me.Department + "'s and its departments' (" + strings.Join(all, ", ") + ") gates the human approved in your chat, with issue-cli approve --quote; never Human Testing, never another group's or Product's"
+		}
 	case tracker.RoleWorker:
 		issue := tracker.FindIssue(issues, me.Slug)
 		route := tracker.LeadFor(proj, issue, issues, live)
@@ -261,6 +285,25 @@ func runLeadWhoami(ctx *Context, args []string) error {
 	}
 	if out.Guards != "" {
 		fmt.Fprintf(w, "Guards: %s\n", out.Guards)
+	}
+	if out.Group != "" {
+		if up := proj.Ancestors(out.Department); len(up) > 1 {
+			// A nested group: each lead up the chain, nearest first.
+			var leads, names []string
+			for _, g := range up {
+				names = append(names, g.Name)
+				leads = append(leads, tracker.DepartmentLeadName(proj, g.Name))
+			}
+			fmt.Fprintf(w, "Group: %s (their leads %s come first while live, nearest first, else the CEO %s)\n", strings.Join(names, " in "), strings.Join(leads, ", then "), projectLead)
+		} else {
+			fmt.Fprintf(w, "Group: %s (its lead %s comes first while live, else the CEO %s)\n", out.Group, tracker.DepartmentLeadName(proj, out.Group), projectLead)
+		}
+	}
+	if len(out.Departments) > 0 {
+		fmt.Fprintf(w, "Your departments: %s\n", strings.Join(out.Departments, ", "))
+		if out.Department != "" {
+			fmt.Fprintf(w, "Week: %s (the week report: --write)\n", tracker.InjectProject(proj, "issue-cli department week "+tracker.DepartmentKey(out.Department)))
+		}
 	}
 	if out.Lead != "" {
 		fmt.Fprintf(w, "Reports to: %s (%s)\n", out.Lead, liveWord(out.LeadLive))
@@ -325,15 +368,33 @@ type deptLeadRow struct {
 	Session    string `json:"session"`
 	Live       bool   `json:"live"`
 	Open       int    `json:"open"`
+	// Group is the group the department sits under ("" when none);
+	// IsGroup marks a group's own row.
+	Group   string `json:"group,omitempty"`
+	IsGroup bool   `json:"is_group,omitempty"`
+	// Depth is how many groups sit above the department (0 at the top).
+	Depth int `json:"depth,omitempty"`
 }
 
-// leadList builds the project lead's row and one row per open epic.
+// leadList builds the project lead's row, one row per department lead (a
+// group's departments right after it) and one row per open epic.
 func leadList(proj *tracker.Project, issues []*tracker.Issue, live map[string]bool) leadListJSON {
 	projectLead := tracker.LeadSessionName(proj)
 	out := leadListJSON{Lead: leadRow{Session: projectLead, Live: live[projectLead]}, Departments: []deptLeadRow{}, Epics: []epicRow{}}
+	var depts []tracker.Department
 	for _, d := range proj.Departments {
+		if proj.GroupOf(d.Name) != nil {
+			continue
+		}
+		depts = append(depts, d)
+		depts = append(depts, proj.Descendants(d.Name)...)
+	}
+	for _, d := range depts {
 		name := tracker.DepartmentLeadName(proj, d.Name)
-		row := deptLeadRow{Department: d.Name, Session: name, Live: live[name]}
+		row := deptLeadRow{Department: d.Name, Session: name, Live: live[name], IsGroup: proj.IsGroup(d.Name)}
+		if g := proj.GroupOf(d.Name); g != nil {
+			row.Group, row.Depth = g.Name, len(proj.Ancestors(d.Name))
+		}
 		for _, issue := range issues {
 			if issue.Status != "done" && proj.DepartmentOf(issue) == d.Name {
 				row.Open++
@@ -377,7 +438,19 @@ func runLeadList(ctx *Context, args []string) error {
 	if len(list.Departments) > 0 {
 		fmt.Fprintln(w, "\n== Department leads ==")
 		for _, r := range list.Departments {
-			fmt.Fprintf(w, "  %-40s %s  %s · %d open\n", r.Session, r.Department, liveWord(r.Live), r.Open)
+			switch {
+			case r.Group != "":
+				group := ""
+				if r.IsGroup {
+					group = " (group)"
+				}
+				pad := strings.Repeat("  ", r.Depth)
+				fmt.Fprintf(w, "  %s└ %-*s %s%s  %s · %d open (reports to %s)\n", pad, 38-2*r.Depth, r.Session, r.Department, group, liveWord(r.Live), r.Open, r.Group)
+			case r.IsGroup:
+				fmt.Fprintf(w, "  %-40s %s (group)  %s · %d open\n", r.Session, r.Department, liveWord(r.Live), r.Open)
+			default:
+				fmt.Fprintf(w, "  %-40s %s  %s · %d open\n", r.Session, r.Department, liveWord(r.Live), r.Open)
+			}
 		}
 	}
 	if len(list.Epics) > 0 {
@@ -478,13 +551,23 @@ func resolveMessageTarget(proj *tracker.Project, issues []*tracker.Issue, target
 
 // leadHeaderLine is the "CEO:" line show and start print for an issue.
 func leadHeaderLine(proj *tracker.Project, issue *tracker.Issue, issues []*tracker.Issue) string {
-	route := tracker.LeadFor(proj, issue, issues, sessionLive(proj))
+	live := sessionLive(proj)
+	route := tracker.LeadFor(proj, issue, issues, live)
 	if route.Department == "" {
 		return fmt.Sprintf("CEO: %s (%s)", route.Lead, liveWord(route.Live))
 	}
-	line := fmt.Sprintf("Lead: %s (%s) · CEO: %s (%s)", route.DepartmentLead, liveWord(!route.Covering), route.CEO, liveWord(route.CEOLive))
+	line := fmt.Sprintf("Lead: %s (%s)", route.DepartmentLead, liveWord(!route.Covering))
+	groupLive := route.GroupLead != "" && live(route.GroupLead)
+	if route.GroupLead != "" {
+		line += fmt.Sprintf(" · %s lead: %s (%s)", route.Group, route.GroupLead, liveWord(groupLive))
+	}
+	line += fmt.Sprintf(" · CEO: %s (%s)", route.CEO, liveWord(route.CEOLive))
 	if route.Covering {
-		line += " — the CEO covers until the " + route.Department + " lead starts: " + tracker.InjectProject(proj, "issue-cli lead spawn --department "+tracker.DepartmentKey(route.Department))
+		who := "the CEO"
+		if groupLive {
+			who = "the " + route.Group + " lead"
+		}
+		line += " — " + who + " covers until the " + route.Department + " lead starts: " + tracker.InjectProject(proj, "issue-cli lead spawn --department "+tracker.DepartmentKey(route.Department))
 	}
 	return line
 }

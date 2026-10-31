@@ -730,6 +730,20 @@ func trends(in dashIn, d *Dashboard, daily []*health.Snapshot, latest *health.Sn
 		out = append(out, finish(c, l, "bench"))
 	}
 
+	// Departments on track, one series per department, once a snapshot
+	// has the departments family (internal/deptfamily).
+	if series := deptSeries(daily); len(series) > 0 {
+		c, l = base("departments", "Departments on track", "Each department's share of goals moving, outputs reviewed in time and jobs on time (/health#departments)")
+		l.Unit = chart.Share
+		classes := []string{"s-feature", "s-bugfix", "s-tweak", "s-all"}
+		for i, ser := range series {
+			ser.Class = classes[i%len(classes)]
+			l.Series = append(l.Series, ser)
+			c.Legend = append(c.Legend, LegendItem{Name: ser.Name, Class: ser.Class})
+		}
+		out = append(out, finish(c, l, "departments"))
+	}
+
 	// Disk use, once a snapshot has the storage family.
 	if c, ok := storageCard(d, daily, latest); ok {
 		out = append(out, c)

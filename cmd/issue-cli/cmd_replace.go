@@ -22,7 +22,10 @@ One line, by number or by a regexp that matches exactly one line:
 
 Lines count from the line after the heading, blank lines included. When the
 line can't be chosen, the error lists the section with line numbers.
-To change a checkbox's text, use: issue-cli check-edit <slug> <id> --text "..."`,
+To change a checkbox's text, use: issue-cli check-edit <slug> <id> --text "...";
+to untick or drop one, issue-cli uncheck / check-remove <slug> <id>. Rewriting
+a section's boxes renumbers the ids after a removed one, and Proves: trailers
+that name them stop pointing at the right box.`,
 	Run: runReplace,
 }
 
@@ -68,11 +71,16 @@ func runReplace(ctx *Context, args []string) error {
 		return err
 	}
 
+	guard := ownerTickGuard(ctx, issue)
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
-		return tracker.ReplaceIssueBodySection(body, section, text, force)
+		next, ok, err := tracker.ReplaceIssueBodySection(body, section, text, force)
+		if err == nil && ok {
+			err = guard(body, next)
+		}
+		return next, ok, err
 	})
 	if err != nil {
-		return fmt.Errorf("failed to replace: %w", err)
+		return writeErr("failed to replace", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Replaced section %q in %s\n", section, issue.Slug)
 	return nil
@@ -95,16 +103,17 @@ func replaceLine(ctx *Context, slug, section, text string, line int, match strin
 		return err
 	}
 	var old string
+	guard := ownerTickGuard(ctx, issue)
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		next, was, err := tracker.ReplaceSectionLine(body, section, line, re, text)
 		if err != nil {
 			return body, false, err
 		}
 		old = was
-		return next, next != body, nil
+		return next, next != body, guard(body, next)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to replace: %w", err)
+		return writeErr("failed to replace", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Replaced a line of section %q in %s\n", section, issue.Slug)
 	fmt.Fprintf(ctx.Stdout, "  was: %s\n", old)

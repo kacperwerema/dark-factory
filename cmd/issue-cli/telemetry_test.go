@@ -23,7 +23,8 @@ func isolateTelemetryEnv(t *testing.T) string {
 	t.Helper()
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
-	for _, k := range []string{telemetry.DisableEnv, telemetry.SkipEnv, "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_ISSUE_SLUG", "CLAUDECODE", "AI_AGENT", "TMUX"} {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // the share setting: off unless a test opts in
+	for _, k := range []string{"ISSUE_CLI_TELEMETRY_URL", telemetry.DisableEnv, telemetry.SkipEnv, "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_ISSUE_SLUG", "CLAUDECODE", "AI_AGENT", "TMUX"} {
 		t.Setenv(k, "")
 	}
 	return filepath.Join(state, "issue-cli", telemetry.FileName)
@@ -34,12 +35,14 @@ func isolateTelemetryEnv(t *testing.T) string {
 func telemetryFixture(t *testing.T, extra string) (cfg, workDir string) {
 	t.Helper()
 	dir := t.TempDir()
-	withCwd(t, dir)
 	workDir = filepath.Join(dir, "alpha")
 	issues := filepath.Join(workDir, "issues")
 	if err := os.MkdirAll(issues, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The caller works in the project: a read-only call from outside it
+	// would log to the machine file instead (logProject).
+	withCwd(t, workDir)
 	cfg = filepath.Join(dir, "projects.yaml")
 	body := fmt.Sprintf("projects:\n  - name: Alpha\n    slug: alpha\n    issues: %s\n    workdir: %s\n%s", issues, workDir, extra)
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
@@ -386,7 +389,7 @@ func TestIntrospectFlagsEveryCommandWithoutSideEffects(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"transition":       "dry-run,field,to",
-		"process":          "system,type,workflow",
+		"process":          "department,system,type,workflow",
 		"data add":         "description,status,tier",
 		"telemetry report": "global,since,top",
 		"comment":          "body,body-file,text",

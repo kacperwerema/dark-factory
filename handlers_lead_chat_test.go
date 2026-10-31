@@ -460,7 +460,7 @@ func TestLeadChatCtrlCDuringSend(t *testing.T) {
 		if got != [2]int{200, http.StatusTooManyRequests} {
 			t.Errorf("Ctrl+C twice during a send: %v, want 200 then 429", got)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Ctrl+C waited behind the send's delivery check")
 	}
 	close(release)

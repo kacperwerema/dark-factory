@@ -158,6 +158,28 @@ func fillRange(repo string, r *Range) error {
 	return nil
 }
 
+// ForeignFiles are the files that differ between base and merged though the
+// branch's own commits never changed them: main merged into the branch (or
+// under its merge commit) after base. The worker starts at base without
+// them, so hidden tests that lean on them may not build.
+func ForeignFiles(repo string, r Range) []string {
+	out, err := git(repo, "diff", "--name-only", r.Base, r.Merged)
+	if err != nil {
+		return nil
+	}
+	own := map[string]bool{}
+	for _, f := range r.Files {
+		own[f] = true
+	}
+	var foreign []string
+	for _, f := range strings.Fields(out) {
+		if !own[f] {
+			foreign = append(foreign, f)
+		}
+	}
+	return foreign
+}
+
 // HiddenFiles are the range's test files that exist at merged.
 func HiddenFiles(repo string, r Range) []string {
 	var out []string

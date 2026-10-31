@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
 	"github.com/michal-franc/issue-viewer/internal/agentrun"
+	"github.com/michal-franc/issue-viewer/internal/connections"
 	"github.com/michal-franc/issue-viewer/internal/goals"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
@@ -87,6 +89,8 @@ type MapLot struct {
 	// Waiting is what waits on the owner here: the "!" on the lot.
 	Waiting  int
 	DoneWeek int
+	// Connections are the open items passing between its departments.
+	Connections int
 	// RC is the candidate tag when this project is testing it.
 	RC      string
 	Updates int
@@ -94,6 +98,11 @@ type MapLot struct {
 	// YOLO is the project's YOLO window and after-the-fact queue: the lot in
 	// stripes and the counter that replaces the "!" (yolo_wb.go).
 	YOLO *YOLOBand
+
+	// issues and agents are what buildLot read, for the company page to
+	// reuse instead of reading them again.
+	issues []*tracker.Issue
+	agents *AgentsModel
 }
 
 func (s *Server) handleMap(w http.ResponseWriter, r *http.Request) {
@@ -204,11 +213,13 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		open = append(open, issue)
 	}
 	lot.Site = len(issues) == 0
+	lot.issues = issues
 	lot.YOLO = yoloBand(p, issues, now)
 	lot.Buildings = mapDepartmentsOf(p, open)
 	lot.Progress = mapProgressOf(goals.Resolve(p, now), issues, color)
 
 	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
+		lot.agents = agents
 		lot.CEO.Live = agents.ProjectLead.State == "live"
 		lot.Robots = mapRobotsOf(agents, issues)
 		for _, r := range lot.Robots {
@@ -244,6 +255,10 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		lot.Chips = append(lot.Chips, *c)
 	}
 	lot.Chips = append(lot.Chips, wbCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)
+	if n := connections.OpenTotal(connections.Load(p, issues, now)); n > 0 {
+		lot.Connections = n
+		lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: fmt.Sprintf("⇄ %d", n), Title: plural(n, "open item", "open items") + " passing between departments: see Connections on the company page", TestID: "connections"})
+	}
 	for _, b := range lot.Privacy {
 		if b.Level == "amber" || b.Level == "red" {
 			lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
@@ -264,10 +279,28 @@ func deptColor(d tracker.Department, i int) string {
 	return mapDeptColors[i%len(mapDeptColors)]
 }
 
+// companyGroupColor is a group's colour, clearly apart from HQ's yellow
+// (ui/gtms-group-room-has-the-same-colour-as-the-ceos-hq-…). The group's
+// room head takes it from the --group token in workshop.css; a test keeps
+// the two equal. html/template drops var() in a style attribute, so the
+// other places (map building, crew column, shelf, lines) take this hex.
+const companyGroupColor = "#2EC4B6"
+
+// deptColorOf is department i's colour on p's pages: a group (a department
+// with departments under it, nested ones too) takes companyGroupColor
+// whatever projects.yaml sets, every other department deptColor.
+func deptColorOf(p *tracker.Project, d tracker.Department, i int) string {
+	if p != nil && p.IsGroup(d.Name) {
+		return companyGroupColor
+	}
+	return deptColor(d, i)
+}
+
 // mapDepartmentsOf is the project's departments as buildings on its lot:
 // a small HQ, Product (the software factory, every issue no other
-// department takes) and each department projects.yaml adds. Height and
-// width grow with a department's open work.
+// department takes) and each department projects.yaml adds, a group as one
+// building with its departments inside. Height and width grow with a
+// department's open work.
 func mapDepartmentsOf(p *tracker.Project, open []*tracker.Issue) []WbBuilding {
 	count := map[string]int{}
 	for _, issue := range open {
@@ -278,11 +311,113 @@ func mapDepartmentsOf(p *tracker.Project, open []*tracker.Issue) []WbBuilding {
 		{Name: "HQ · CEO", Color: companyHQColor, Width: 38, Height: 40},
 		{Name: "Product", Open: count[""], Color: companyProductColor, Width: min(70+min(count[""], 30)*2, productMax), Height: 24 + min(count[""], 34)},
 	}
-	for i, d := range p.Departments {
+	building := func(d tracker.Department) WbBuilding {
 		n := count[strings.ToLower(d.Name)]
-		out = append(out, WbBuilding{Name: d.Name, Open: n, Color: deptColor(d, i), Width: 30 + min(n, 10)*2, Height: 20 + min(n, 30)})
+		return WbBuilding{Name: d.Name, Open: n, Color: deptColorOf(p, d, deptIndex(p, d.Name)), Width: 30 + min(n, 10)*2, Height: 20 + min(n, 30)}
 	}
-	return out
+	// group is d's building with its departments as rooms inside, a nested
+	// group's rooms inside its own (factory/nested-groups-…#D-1).
+	var group func(d tracker.Department) WbBuilding
+	group = func(d tracker.Department) WbBuilding {
+		b := building(d)
+		kids := p.Children(d.Name)
+		if len(kids) == 0 {
+			return b
+		}
+		b.Width, b.Height = groupPad, 0
+		for _, c := range kids {
+			r := group(c)
+			if len(r.Rooms) == 0 {
+				r.Width, r.Height = r.Width*3/4, r.Height*3/4
+			}
+			b.Rooms = append(b.Rooms, r)
+			b.Open += r.Open
+			b.Width += r.Width + groupGap
+			b.Height = max(b.Height, r.Height+12)
+		}
+		b.Width = min(b.Width, 120)
+		return b
+	}
+	for _, d := range p.Departments {
+		if p.GroupOf(d.Name) != nil {
+			continue
+		}
+		out = append(out, group(d))
+	}
+	return fitSkyline(out)
+}
+
+// The skyline's room on a lot (300px wide, less its border and padding):
+// buildings sit skylineGap apart, the free lot (.wb-bld--plan) takes
+// skylinePlan, a group adds groupPad around its rooms and groupGap between
+// them. A building is never narrower than skylineMin.
+const (
+	skylineWidth = 260
+	skylineGap   = 6
+	skylinePlan  = 36
+	groupPad     = 10
+	groupGap     = 4
+	skylineMin   = 6
+)
+
+// skylineTotal is how wide the buildings stand, with the free lot.
+func skylineTotal(bs []WbBuilding) int {
+	w := skylinePlan + skylineGap*len(bs)
+	for _, b := range bs {
+		w += b.Width
+	}
+	return w
+}
+
+// fitSkyline narrows the buildings, rooms of a group (and of a group
+// inside it) included, until they fit the lot: 15 departments stay on a
+// 300px lot (and on a phone) instead of running off it. A skyline that
+// fits is returned as it was.
+func fitSkyline(bs []WbBuilding) []WbBuilding {
+	for try := 0; try < 4 && skylineTotal(bs) > skylineWidth; try++ {
+		fixed, scalable := skylinePlan+skylineGap*len(bs), 0
+		for _, b := range bs {
+			f, s := skylineParts(b)
+			fixed, scalable = fixed+f, scalable+s
+		}
+		room := skylineWidth - fixed
+		if scalable == 0 || room <= 0 {
+			break
+		}
+		scale := func(w int) int { return max(w*room/scalable, skylineMin) }
+		for i := range bs {
+			scaleBuilding(&bs[i], scale)
+		}
+	}
+	return bs
+}
+
+// skylineParts splits building b's width into what stays (a group's
+// padding and gaps, at every level) and what scales (plain buildings and
+// rooms).
+func skylineParts(b WbBuilding) (fixed, scalable int) {
+	if len(b.Rooms) == 0 {
+		return 0, b.Width
+	}
+	fixed = groupPad + groupGap*len(b.Rooms)
+	for _, r := range b.Rooms {
+		f, s := skylineParts(r)
+		fixed, scalable = fixed+f, scalable+s
+	}
+	return fixed, scalable
+}
+
+// scaleBuilding scales b's plain width, or its rooms' and sums them back.
+func scaleBuilding(b *WbBuilding, scale func(int) int) {
+	if len(b.Rooms) == 0 {
+		b.Width = scale(b.Width)
+		return
+	}
+	b.Width = groupPad
+	for j := range b.Rooms {
+		scaleBuilding(&b.Rooms[j], scale)
+		b.Width += b.Rooms[j].Width + groupGap
+	}
 }
 
 // productIssues is the issues that belong to Product: those no department
@@ -381,7 +516,7 @@ func mapRobotsOf(agents *AgentsModel, issues []*tracker.Issue) []WbRobot {
 		}
 		if r.State != "you" && w.Issue != nil {
 			if issue := tracker.FindIssue(issues, w.Issue.Slug); issue != nil {
-				for _, dep := range append(blockedOn(issue), tracker.DependsOn(issue)...) {
+				for _, dep := range append(tracker.BlockedOn(issue), tracker.DependsOn(issue)...) {
 					if working[strings.ToLower(dep)] {
 						r.State = "agent"
 						r.Label += " → " + dep

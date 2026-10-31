@@ -64,13 +64,13 @@ steps:
       - count: { pattern: issues.crate.*, equals: 5 }
 
   - id: TP6
-    title: New issue opens the create form; the classic list stays at ?classic=1
+    title: New issue opens the store's own create dialog; the classic list stays at ?classic=1
     proves: [AC7, AC1]
     setup:
       - open: /p/{project}/
     act:
       - click: issues.new
-      - wait_for: { visible: create.modal }
+      - wait_for: { visible: issues.create }
       - open: /p/{project}/?classic=1
       - check: { count: { pattern: list.row.*, equals: 5 } }
       - select: { target: list.filter.status, value: backlog }

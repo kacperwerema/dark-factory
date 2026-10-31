@@ -17,16 +17,19 @@ steps:
       - open: /p/{project}/stats?days=3650
       - wait_for: stats.time
     checks:
-      - visible: [stats.time, stats.time.types, stats.time.approvals, stats.time.unsplit]
-      - count: { pattern: stats.time.status, equals: 2 }
-      - text_contains: { target: stats.time, text: "done in the last 3650 days" }
-      - text_contains: { target: stats.time, text: "2 issues done" }
-      - text_contains: { target: stats.time.unsplit, text: "ui/timeline-without-logs" }
-      - text_contains: { target: stats.time.types, text: "3h 0m" }
-      - text_contains: { target: stats.time.approvals, text: "human-testing→done" }
+      # /stats is the Workshop Board hall page (0a94cd3): the tables sit in
+      # the Time tables fold (open when ?days= is set), one table card each.
+      - visible: [stats.time, stats.fold.time, stats.table_card.types, stats.table_card.approvals]
+      - visible: [stats.table_card.status-all, stats.table_card.status-none]
+      - count: { pattern: stats.table_card.*, within: stats.fold.time, equals: 5 }
+      - text_contains: { target: stats.fold.time, text: "done in the last 3650 days" }
+      - text_contains: { target: stats.done, text: "2 issues done" }
+      - text_contains: { target: stats.fold.time, text: "No CLI calls, so status time only: ui/timeline-without-logs" }
+      - text_contains: { target: stats.table_card.types, text: "3h 0m" }
+      - text_contains: { target: stats.table_card.approvals, text: "human-testing→done" }
       - http: { path: "/p/{project}/stats", contains: "done in the last 30 days" }
-    expect: Above the token tables, "Where the time goes" says how many issues it counts and names ui/timeline-without-logs as status time only. The type table has the cycle time (p50 / p90), rework loops and the rework share. Time per status opens on All types with in status, agent, waiting on you and idle per status, and the issue without logs shows "—" where its split is unknown. Approval waits lists each gated transition with its wait, and the gate failures table, or its empty line, says which refused transitions were dry runs.
-    do: Read the section from the top, open the "none" type under Time per status, and compare the human-testing row with the demo issue's Timeline tab.
+    expect: Where the time goes says how many issues it counts, and the Time tables fold at the bottom names ui/timeline-without-logs as status time only. The By type card has the cycle time (p50 / p90), rework loops and the rework share. Per status · all types and Per status · none show in status, agent, waiting on you and idle per status, and the issue without logs shows "—" where its split is unknown. Approval waits lists each gated transition with its wait, and the Gate failures card, or its empty line, says which refused transitions were dry runs.
+    do: Read Where the time goes, then the Time tables fold, and compare the human-testing row of Per status · none with the demo issue's Timeline tab.
     why: You see where the project's time goes, the agent, you or nobody, per status, without opening each issue.
 
   - id: TP5

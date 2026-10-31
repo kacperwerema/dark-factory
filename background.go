@@ -72,13 +72,14 @@ func (b *background) Wait(deadline context.Context) []string {
 		return nil
 	case <-deadline.Done():
 	}
-	b.cancelHard()
+	// Name the stragglers before cancelling hard: a goroutine that only
+	// waits for hard would otherwise return first and drop off the list.
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	names := make([]string, 0, len(b.running))
 	for name := range b.running {
 		names = append(names, name)
 	}
+	b.mu.Unlock()
 	sort.Strings(names)
 	return names
 }

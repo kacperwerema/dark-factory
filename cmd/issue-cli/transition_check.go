@@ -184,6 +184,8 @@ type dryRunOutput struct {
 	Slug        string              `json:"slug"`
 	Problems    []transitionProblem `json:"problems"`
 	SideEffects []string            `json:"side_effects,omitempty"`
+	// Warnings never make the transition unready (an open depends_on).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // printProblemReport renders problems for --dry-run. Messages from checkRule

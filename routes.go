@@ -25,6 +25,8 @@ type Server struct {
 	// allowedHosts are the Host names past loopback the viewer answers to
 	// (allowedHostsFor); Routes refuses the rest with 421.
 	allowedHosts []string
+	// identity verifies public requests (identity.go); nil refuses them all.
+	identity *identityChecker
 	// bg runs work that outlives a request; run swaps in one tied to the
 	// signal context so shutdown can wait for it.
 	bg *background
@@ -33,6 +35,9 @@ type Server struct {
 	// engine is the engine project's slug (where report-bug files), whose
 	// Status page shows a release candidate's soak; "" for none.
 	engine string
+	// telemetryData is projects.yaml's telemetry_data: the collector store
+	// the /telemetry page reads; "" when not configured.
+	telemetryData string
 }
 
 // AgentSession is one live tmux session (or shared-session window).
@@ -81,13 +86,17 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/", s.handleProjectList)
 	mux.HandleFunc("/p/", s.handleProjectRoutes)
 	mux.HandleFunc("/stats", s.handleStatsOverview)
+	mux.HandleFunc("/telemetry", s.handleTelemetry)
 	mux.HandleFunc("/updates", s.handleUpdatesOverview)
 	mux.HandleFunc("/leads", s.handleLeads)
 	mux.HandleFunc("/ceos", redirectTo("/leads"))
 	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
-	return hostAllowed(s.allowedHosts, sameOriginOnly(mux))
+	// Outside in: headers on every answer, Host allowlist (DNS rebinding),
+	// the identity gate for public requests, cross-origin writes refused
+	// (docs/API/security.md).
+	return securityHeaders(hostAllowed(s.allowedHosts, identityGate(s.identity, sameOriginOnly(mux))))
 }
 
 // redirectTo answers a GET with a redirect to path, keeping the query: the
@@ -142,20 +151,40 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHallPart(w, r, proj, prefix, kind, key)
 	case rest == "company" && r.Method == http.MethodGet:
 		s.handleCompany(w, r, proj, prefix)
+	case rest == "hq/report" && r.Method == http.MethodGet:
+		s.handleHQReport(w, r, proj, prefix)
+	case rest == "hq/report.md" && r.Method == http.MethodGet:
+		s.handleHQReportMD(w, r, proj, prefix)
 	case rest == "needs-you" && r.Method == http.MethodGet:
 		s.handleNeedsYou(w, r, proj, prefix)
 	case rest == "needs-you.json" && r.Method == http.MethodGet:
 		s.handleNeedsYouJSON(w, r, proj, prefix)
 	case rest == "needs-you/approve" && r.Method == http.MethodPost:
 		s.handleNeedsYouApprove(w, r, proj, prefix)
+	case rest == "owner-checks" && r.Method == http.MethodGet:
+		s.handleOwnerChecks(w, r, proj, prefix)
+	case rest == "owner-checks/tick" && r.Method == http.MethodPost:
+		s.handleOwnerCheckTick(w, r, proj, prefix)
 	case rest == "connectors/check" && r.Method == http.MethodPost:
 		s.handleConnectorsCheck(w, r, proj, prefix)
 	case rest == "connectors.json" && r.Method == http.MethodGet:
 		s.handleConnectorsJSON(w, r, proj)
+	case rest == "connections" && r.Method == http.MethodGet:
+		s.handleConnections(w, r, proj, prefix)
+	case rest == "connections.json" && r.Method == http.MethodGet:
+		s.handleConnectionsJSON(w, r, proj)
+	case strings.HasPrefix(rest, "reports/") && r.Method == http.MethodGet:
+		s.handleWeekReport(w, r, proj, prefix, strings.TrimPrefix(rest, "reports/"))
 	case rest == "shelf" && r.Method == http.MethodGet:
 		s.handleShelf(w, r, proj, prefix)
 	case rest == "shelf/review" && r.Method == http.MethodPost:
 		s.handleShelfReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "shelf/read/") && r.Method == http.MethodGet:
+		s.handleShelfRead(w, r, proj, prefix, strings.TrimPrefix(rest, "shelf/read/"))
+	case rest == "shelf/comment" && r.Method == http.MethodPost:
+		s.handleShelfComment(w, r, proj, prefix)
+	case rest == "shelf/comment/resolve" && r.Method == http.MethodPost:
+		s.handleShelfCommentResolve(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "shelf/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.handleShelfFile(w, r, proj, strings.TrimPrefix(rest, "shelf/file/"))
 	case (rest == "board" || rest == "workboard") && r.URL.Query().Get("classic") != "1":
@@ -170,6 +199,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleWorkboard(w, r, proj, prefix)
 	case rest == "canvas":
 		s.handleCanvas(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "ci/log/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		s.handleCILog(w, r, proj, strings.TrimPrefix(rest, "ci/log/"))
 	case rest == "status" && r.Method == http.MethodGet:
 		s.handleStatus(w, r, proj, prefix)
 	case rest == "status.md" && r.Method == http.MethodGet:
@@ -246,6 +277,10 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleUpdates(w, r, proj, prefix)
 	case (rest == "updates/decline" || rest == "updates/reopen") && r.Method == http.MethodPost:
 		s.handleUpdatesRecord(w, r, proj, prefix, strings.TrimPrefix(rest, "updates/"))
+	case rest == "departments/new" && r.Method == http.MethodGet:
+		s.handleDeptNew(w, r, proj, prefix)
+	case rest == "departments/add" && r.Method == http.MethodPost:
+		s.handleDeptAdd(w, r, proj, prefix)
 	case rest == "updates/install" && r.Method == http.MethodPost:
 		s.handleUpdatesInstall(w, r, proj, prefix)
 	case rest == "metrics" && r.Method == http.MethodGet:
@@ -336,9 +371,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleUpload(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "files/") && r.Method == http.MethodGet:
 		s.handleProjectFile(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "attachments/"):
-		attachDir := filepath.Join(proj.IssueDir, "attachments")
-		http.StripPrefix(prefix+"/attachments/", http.FileServer(http.Dir(attachDir))).ServeHTTP(w, r)
+	case strings.HasPrefix(rest, "attachments/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
+		handleAttachment(w, r, proj, strings.TrimPrefix(rest, "attachments/"))
 	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodGet:
 		s.handleDetail(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodPost:

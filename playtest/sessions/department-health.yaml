@@ -1,0 +1,62 @@
+session: department-health
+issue: factory/department-health-family-goals-moving-outputs-reviewed-jobs-on-time
+title: Department health - the snapshot's departments family on Health, the rooms, the Report and Stats
+scenario: department-health
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A snapshot carries the departments family and Health lists each department
+    proves: [AC1, AC2]
+    setup:
+      - cli: [--project, "{project}", goal, set, marketing/pages, "30"]
+      - cli: [--project, "{project}", goal, set, marketing/posts, "5"]
+      - cli: [--project, "{project}", output, add, --department, marketing, --title, Spring post, --kind, post, --url, "https://acme.example/spring"]
+      - cli: { args: [--project, "{project}", health, snapshot], contains: "departments" }
+      - open: /p/{project}/health
+    act:
+      - wait_for: health.departments
+    checks:
+      - visible: [health.departments, health.departments.row.marketing, health.departments.row.sales]
+      - text_contains: { target: health.departments.row.marketing, text: "75%" }
+      - text_contains: { target: health.departments.row.marketing, text: "50% moving" }
+      - text_contains: { target: health.departments.row.marketing, text: "1 waiting" }
+      - text_contains: { target: health.departments.row.marketing, text: "100% on time" }
+      - text_contains: { target: health.departments.row.marketing, text: "1 in · 0 out open" }
+      - text_contains: { target: health.departments.row.sales, text: "nothing to measure" }
+      - visible: health.sensor.departments
+    targets: [health.departments]
+
+  - id: TP5
+    title: Each room's foot, the Report's Health card and Stats show it
+    proves: [AC2]
+    setup:
+      - cli: [--project, "{project}", goal, set, marketing/pages, "30"]
+      - cli: [--project, "{project}", goal, set, marketing/posts, "5"]
+      - cli: [--project, "{project}", health, snapshot]
+      - open: /p/{project}/company
+    checks:
+      - text_contains: { target: company.room.dept, text: "♥ 75% on track" }
+      - http: { path: "/p/{project}/status", contains: 'data-testid="report.health.departments"' }
+      - http: { path: "/p/{project}/status.md", contains: "Departments: 75% on track" }
+      - http: { path: "/p/{project}/stats?range=all&classic=1", contains: "Departments on track" }
+
+  - id: TP6
+    title: The Departments table and the room's chip read at a glance
+    judgement_step: true
+    setup:
+      - cli: [--project, "{project}", goal, set, marketing/pages, "30"]
+      - cli: [--project, "{project}", goal, set, marketing/posts, "5"]
+      - cli: [--project, "{project}", health, snapshot]
+      - open: /p/{project}/health#departments
+    do: Look at the Departments table on Health, then open the company page and hover Marketing's "♥ 75% on track".
+    expect: >-
+      The table has one row per department: Marketing at 75% in green (green from 70%, amber from 40%), with goals, outputs, jobs and
+      handoffs in words, its handoffs cell marked amber (the HQ handoff is weeks old); Sales says
+      "nothing to measure". On the company page Marketing's room foot shows the chip in green, its
+      tooltip lists goals moving, outputs and jobs, and a click lands on Health's Departments table.
+    why: The owner reads whether each department keeps up without opening four pages.

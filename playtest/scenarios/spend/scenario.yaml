@@ -1,0 +1,50 @@
+# Spend: GTM (a group) with Marketing (system SEO, a token budget) and
+# Sales (a budget: that doesn't parse), next to HQ and Product. Claude Code
+# transcripts: Marketing's two workers in their worktrees (this week and
+# last), Product's worker, the CEO and Marketing's lead in the project
+# folder, and one unnamed session (the owner's). Sales spent nothing. No
+# prices: the cost reads "cost unknown".
+title: GTM with Marketing and Sales, and what each spent
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    company:
+      mission: Grow the client roster
+    departments:
+      - name: GTM
+        color: "#7B61FF"
+        role: Go to market
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+        budget: {tokens: 2000000, period: week}
+      - name: Sales
+        color: "#17A2B8"
+        role: Leads and deals
+        systems: [Leads]
+        parent: GTM
+        budget: lots
+issues: tracker
+workflow: workflow.yaml
+transcripts:
+  - cwd: .worktrees/seo/landing-page
+    messages:
+      - {model: claude-test, input: 20000, output: 9000, cache_read: 1200000}
+      - {ago: -7d, model: claude-test, input: 10000, output: 4000, cache_read: 300000}
+  - cwd: .worktrees/seo/blog-post
+    messages:
+      - {model: claude-test, input: 8000, output: 3000, cache_read: 200000}
+  - cwd: .worktrees/engine/engine-work
+    messages:
+      - {model: claude-test, input: 40000, output: 15000, cache_read: 1500000}
+  - agent: lead-acme
+    messages:
+      - {model: claude-test, input: 5000, output: 2000, cache_read: 300000}
+  - agent: lead-acme-marketing
+    messages:
+      - {model: claude-test, input: 2000, output: 1000, cache_read: 100000}
+  - messages:
+      - {model: claude-test, input: 300, output: 100}

@@ -41,8 +41,8 @@ printf "STAND-IN CLAUDE (guided check)\n%s\n" "$last"
 exec sleep 3600'
 private_tmux
 
-/usr/bin/cp -r playtest/scenarios/basic/tracker "$proj/issues"
-/usr/bin/cp playtest/scenarios/basic/workflow.yaml "$proj/workflow.yaml"
+cp -r playtest/scenarios/basic/tracker "$proj/issues"
+cp playtest/scenarios/basic/workflow.yaml "$proj/workflow.yaml"
 git -C "$proj" init -q -b main
 git -C "$proj" add -A
 git -C "$proj" -c user.name=check -c user.email=check@example.invalid commit -q -m fixtures

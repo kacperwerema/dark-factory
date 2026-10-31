@@ -1,0 +1,9 @@
+# The Retro page's Bugs view: one open retro and one tool bug report filed
+# for the same issue, in bugs/ at the project root, as issue-cli bug writes it.
+title: One retro and one open tool bug report
+project:
+  name: Retro Desk
+  slug: rd
+issues: tracker
+workflow: workflow.yaml
+root: files

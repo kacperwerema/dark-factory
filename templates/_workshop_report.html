@@ -25,6 +25,9 @@ templates/report.html composes them.
                    release candidate, next steps, open
                    issues, ## Unreleased, unpushed commits
   wb/ci            Local CI: state, last runs, what failed   data: *StatusModel
+  wb/active-list   Working on: issues in flight, their age   data: WbActiveList
+                   and agent; agents on issues not started
+  wb/released      Recently released                         data: WbReleased
 
 wb/release and wb/ci read the classic Status page's model (ReleaseWait,
 CI) and keep its status.release_wait.* and status.ci.* test ids, so the
@@ -43,6 +46,7 @@ release flow reads the same on both pages.
         <div class="wb-rtitle-row">
             <h1 class="wb-rtitle-h1">{{.Title}}</h1>
             {{range .Badges}}{{template "wb/badge" .}}{{end}}
+            {{with .Views}}<div class="wb-rtitle-views" data-testid="report.views">{{template "wb/view-toggle" .}}</div>{{end}}
         </div>
         <div class="wb-rtitle-sub">{{.Sub}} · CEO <span class="wb-mono-inline">{{.Session}}</span> {{if .Live}}live{{else}}not running{{end}} · as of {{.AsOf}}</div>
     </div>
@@ -71,7 +75,8 @@ release flow reads the same on both pages.
     {{if .Steps}}<ol class="wb-ccard-steps">{{range .Steps}}<li>{{.}}</li>{{end}}</ol>{{end}}
     {{template "wb/legend" .Legend}}
     <div class="wb-grow"></div>
-    {{with .Note}}<div class="wb-ccard-note">{{.}}</div>{{end}}
+    {{if .Full}}<details class="wb-rfold" data-hold data-testid="report.next.full"><summary>Full plan</summary><div class="wb-rfold-body wb-rmd">{{.Full}}</div></details>{{end}}
+    {{with .Note}}<div class="wb-ccard-note">{{.}}{{with $.NoteLink}} {{template "wb/action" .}}{{end}}</div>{{end}}
     {{with .Action}}<div data-spawn-box>{{template "wb/action" .}}<div class="wb-site-msg" role="status"></div></div>{{end}}
 </section>
 {{end}}
@@ -96,8 +101,9 @@ release flow reads the same on both pages.
 <section class="wb-rcard" aria-labelledby="where-h" data-testid="report.where">
     <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="where-h">Where we are</h2><a class="wb-rlink" href="{{.HallURL}}">Open the hall</a></div>
     <div class="wb-rbar--all">{{template "wb/bar" .All}}</div>
-    {{range .Milestones}}{{template "wb/bar" .}}{{end}}
-    {{if .MoreVers}}<div class="wb-muted wb-small">+{{.MoreVers}} more versions in status.md</div>{{end}}
+    {{with .VersionsTotal}}<div class="wb-muted wb-small" data-testid="report.where.versions">{{.}}</div>{{end}}
+    {{range .Milestones}}{{template "wb/bar" .}}{{if and .Current $.Segments}}<div class="wb-rmile" data-testid="report.where.milestone">{{template "wb/stack-bar" $.Segments}}<div class="wb-rmile-legend">{{range $.Legend}}<span><i class="wb-swatch" style="background:{{.Color}}"></i>{{.Label}} <b>{{.Count}}</b></span>{{end}}</div>{{with $.Areas}}<div class="wb-rmile-areas" data-testid="report.where.areas"><span class="wb-muted wb-small">Open by area</span>{{range .}}<span class="wb-chip wb-chip--{{.Tone}}"{{with .Title}} title="{{.}}"{{end}}>{{.Text}}</span>{{end}}</div>{{end}}</div>{{end}}{{end}}
+    {{with .MoreMilestones}}<details class="wb-rfold" data-hold data-testid="report.where.more_versions"><summary>+{{len .}} more versions</summary><div class="wb-rfold-body">{{range .}}{{template "wb/bar" .}}{{end}}</div></details>{{end}}
     {{with .Locked}}<div class="wb-locknote" data-testid="report.where.locked">{{template "wb/lock-icon"}}<div class="wb-locknote-text"><b>{{.}}</b> {{$.LockedWhy}}</div><a class="wb-locknote-link" href="#unlock">How?</a></div>{{end}}
     {{if .Epics}}<div class="wb-rsub">Open epics</div>{{range .Epics}}{{template "wb/bar" .}}{{end}}{{if .MoreEpics}}<div class="wb-muted wb-small">+{{.MoreEpics}} more open epics</div>{{end}}{{end}}
 </section>
@@ -132,16 +138,19 @@ release flow reads the same on both pages.
         <div class="wb-weak-line">{{.Value}} {{.Help}}</div>
     </div>{{end}}
     {{if not .Snapshot}}<div class="wb-empty">No health snapshot yet: the viewer takes one a day while it runs.</div>{{end}}
-    {{with .Lint}}{{if $.LintOK}}<div class="wb-lint wb-lint--ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.}}</div>{{else}}<div class="wb-lint">{{.}} <code class="wb-code">{{$.LintCmd}}</code></div>{{end}}{{end}}
+    {{if .Recs}}<a class="wb-rhealth-recs" href="{{.URL}}#recs" data-testid="report.health.recs">{{plural .Recs "recommendation waits" "recommendations wait"}} for you →</a>{{end}}
+    {{with .Lint}}{{if $.LintOK}}<div class="wb-lint wb-lint--ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.}}</div>{{else}}<div class="wb-lint"><a href="{{$.URL}}#lint" data-testid="report.health.lint">{{.}}</a> <code class="wb-code">{{$.LintCmd}}</code></div>{{end}}{{end}}
+    {{with .Departments}}<div class="wb-lint" data-testid="report.health.departments"><a href="{{$.URL}}#departments">{{.}}</a></div>{{end}}
 </section>
 {{end}}
 
 {{define "wb/unlock-item"}}
-<div class="wb-unlock-item{{if .Risk}} wb-unlock-item--risk{{else if .On}} wb-unlock-item--on{{end}}" data-testid="report.unlock.{{.Key}}">
+<div class="wb-unlock-item{{if .Risk}} wb-unlock-item--risk{{else if .On}} wb-unlock-item--on{{end}}" id="unlock-{{.Key}}" data-testid="report.unlock.{{.Key}}">
     <span class="wb-unlock-icon">{{if .On}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{else}}{{template "wb/lock-icon"}}{{end}}</span>
     <div class="wb-unlock-main">
         <div class="wb-unlock-title"><span>{{.Title}}</span>{{if .Risk}}<span class="wb-risk">RISK</span>{{end}}{{if .On}}<span class="wb-chip wb-chip--green">on</span>{{end}}</div>
         <div class="wb-unlock-text">{{.Text}}</div>
+        {{with .Note}}<div class="wb-unlock-note" data-testid="report.unlock.note">{{.}}</div>{{end}}
         {{if and .Code (not .On)}}<code class="wb-code wb-unlock-code">{{.Code}}</code>{{end}}
     </div>
     {{if not .On}}{{template "wb/action" .Action}}{{end}}
@@ -246,7 +255,7 @@ release flow reads the same on both pages.
     {{if .Open}}
     {{$rest := rest $.Cap.Open .Open}}
     <div class="wb-rel-list" data-testid="status.release_wait.open">
-        <div class="wb-rsub">Open in {{.Version}} · {{len .Open}}</div>
+        <div class="wb-rsub">Open in {{.Version}} · {{len .Open}}{{if $rest}} · {{.OpenSummary}}{{end}}</div>
         {{range $i, $o := .Open}}{{if eq $i $.Cap.Open}}<details class="wb-rel-fold" data-testid="status.release_wait.open.more"><summary>+{{len $rest}} more</summary>{{end}}
         <div class="wb-rel-row" data-testid="status.release_wait.open.row.{{tid .Slug}}">
             <div class="wb-rel-stack"><a class="wb-rel-title" href="{{$.IssueURL .Slug}}">{{.Title}}</a><span class="wb-rel-meta">{{if .Assignee}}{{.Assignee}}{{else}}no assignee{{end}}</span></div>
@@ -283,7 +292,7 @@ release flow reads the same on both pages.
     {{if .Runs}}
     <div class="wb-rel-list">
         <div class="wb-rsub">Last runs</div>
-        <div class="wb-ci-runs" data-testid="status.ci.runs" role="list" aria-label="Last CI runs, oldest first">{{range .Runs}}<span class="wb-ci-run wb-ci-run--{{.State}}" role="listitem" data-testid="status.ci.run.{{.Sha}}" data-state="{{.State}}" title="{{.Title}}" aria-label="{{.Title}}"></span>{{end}}</div>
+        <div class="wb-ci-runs" data-testid="status.ci.runs" role="list" aria-label="Last CI runs, oldest first">{{range .Runs}}{{if .LogURL}}<a href="{{.LogURL}}" class="wb-ci-run wb-ci-run--{{.State}}" role="listitem" data-testid="status.ci.run.{{.Sha}}" data-state="{{.State}}" title="{{.Title}}" aria-label="{{.Title}}"></a>{{else}}<span class="wb-ci-run wb-ci-run--{{.State}}" role="listitem" data-testid="status.ci.run.{{.Sha}}" data-state="{{.State}}" title="{{.Title}}" aria-label="{{.Title}}"></span>{{end}}{{end}}</div>
     </div>
     {{end}}
     {{if .Red}}
@@ -302,6 +311,12 @@ release flow reads the same on both pages.
     <div class="wb-empty" data-testid="status.ci.error">CI could not run: {{.Error}}. Fix it, or run <code class="wb-code">issue-cli ci reset</code> to rebuild the CI worktree.</div>
     {{else if not .State}}
     <div class="wb-empty">The first run starts when the viewer sees the branch, or with <code class="wb-code">issue-cli ci run</code>.</div>
+    {{end}}
+    {{with .LastRed}}
+    <div class="wb-rel-list" data-testid="status.ci.lastred">
+        <div class="wb-rsub">Last red log</div>
+        <a class="wb-rel-title" href="{{.URL}}" data-testid="status.ci.lastred.link" title="{{.Log}}">red at <code class="wb-code">{{.Sha}}</code>{{with .Tier}} · tier {{.}}{{end}} · {{.Ago}} ago</a>
+    </div>
     {{end}}
     {{if .LogTail}}
     <details class="wb-rel-fold" data-testid="status.ci.log">
@@ -358,3 +373,23 @@ release flow reads the same on both pages.
     {{end}}
 </section>
 {{end}}{{end}}
+
+{{define "wb/active-list"}}
+<section class="wb-rcard" id="working" aria-labelledby="working-h" data-testid="report.active">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="working-h">Working on · {{.Total}}</h2><a class="wb-rlink" href="{{.AgentsURL}}">Agents</a></div>
+    {{range .Rows}}{{template "wb/active-row" .}}{{else}}<div class="wb-empty" data-testid="report.active.empty">Nothing between in progress and shipping.</div>{{end}}
+    {{with .More}}<details class="wb-rfold" data-hold data-testid="report.active.more"><summary>+{{len .}} more</summary><div class="wb-rfold-body">{{range .}}{{template "wb/active-row" .}}{{end}}</div></details>{{end}}
+    {{with .Design}}<div class="wb-ractive-design" data-testid="report.active.design"><span class="wb-muted wb-small">Agents on issues not yet in progress</span>{{range .}}<a class="wb-chip wb-chip--{{.Tone}}" href="{{.URL}}">{{.Text}}</a>{{end}}</div>{{end}}
+</section>
+{{end}}
+
+{{define "wb/active-row"}}<div class="wb-ractive" data-testid="report.active.row.{{tid .Slug}}"><a class="wb-ractive-title" href="{{.URL}}" title="{{.Slug}}">{{.Title}}</a><span class="wb-ractive-meta"><span class="wb-chip wb-chip--plain">{{.Status}}</span> <span class="wb-chip wb-chip--{{.Tone}}"{{with .AgeTitle}} title="{{.}}"{{end}}>{{.Age}}</span> <span class="wb-muted wb-small">{{.Agent}}</span></span></div>{{end}}
+
+{{define "wb/released"}}
+<section class="wb-rcard" id="released" aria-labelledby="released-h" data-testid="report.released">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="released-h">Recently released</h2>{{with .Source}}<span class="wb-muted wb-small wb-mono-inline">{{.}}</span>{{end}}</div>
+    {{range .Rows}}<div class="wb-rrelease" data-testid="report.released.row.{{tid .Version}}"><div><span class="wb-chip wb-chip--green">{{.Version}}</span>{{with .Date}} <span class="wb-muted wb-small">{{.}}</span>{{end}}</div>{{with .Summary}}<div class="wb-rrelease-sum">{{.}}</div>{{end}}</div>
+    {{else}}<div class="wb-empty" data-testid="report.released.empty">{{with .First}}{{.}} {{end}}{{if .Hint}}No changelog or tags: point <code class="wb-code">workbench.changelog</code> in workflow.yaml at your changelog.{{else if not .First}}No releases yet.{{end}}</div>{{end}}
+    {{with .URL}}<a class="wb-rlink" href="{{.}}" data-testid="report.released.full">Full changelog</a>{{end}}
+</section>
+{{end}}

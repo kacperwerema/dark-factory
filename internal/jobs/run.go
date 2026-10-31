@@ -19,6 +19,8 @@ type NewRun struct {
 	Period string
 	Status string
 	System string
+	// Type is the run's type of work; empty when the workflow has no types.
+	Type string
 	// Previous is the slug of the job's last run before this one.
 	Previous string
 }
@@ -28,7 +30,8 @@ func RunSlug(id, period string) string { return tracker.Slugify(id + "-" + perio
 
 // PlanRun works out the run issue for r's period: its system folder (the
 // department's first system, else its name), slug (with -2, -3 … when again
-// asks for another run in the same period), title and first status.
+// asks for another run in the same period), title, type (the job's type:,
+// else default_type) and that type's first status.
 func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) (*NewRun, error) {
 	dept := p.DepartmentByKey(r.Department)
 	if dept == nil {
@@ -38,8 +41,11 @@ func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) 
 	if err != nil {
 		return nil, err
 	}
-	typ, _ := wf.ResolveType("")
-	n := &NewRun{Period: period, Status: wf.FirstStatus(typ), System: dept.Name}
+	typ, err := RunType(wf, r.Job)
+	if err != nil {
+		return nil, fmt.Errorf("job %s: %w", r.Key, err)
+	}
+	n := &NewRun{Period: period, Status: wf.FirstStatus(typ), System: dept.Name, Type: typ}
 	if len(dept.Systems) > 0 && strings.TrimSpace(dept.Systems[0]) != "" {
 		n.System = strings.TrimSpace(dept.Systems[0])
 	}
@@ -72,6 +78,21 @@ func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) 
 	return n, nil
 }
 
+// RunType is the type of work job j's runs get in wf: its type:, else
+// default_type; empty when wf has no types. A type wf doesn't define is an
+// error naming the types.
+func RunType(wf *tracker.WorkflowConfig, j tracker.Job) (string, error) {
+	want := strings.TrimSpace(j.Type)
+	if want != "" && !wf.HasTypes() {
+		return "", fmt.Errorf("type %q: the workflow defines no types", want)
+	}
+	typ, known := wf.ResolveType(want)
+	if !known {
+		return "", fmt.Errorf("type %q is not in the workflow (types: %s)", want, strings.Join(wf.TypeNames(), ", "))
+	}
+	return typ, nil
+}
+
 // ExistsError is a run for the period that is already there.
 type ExistsError struct {
 	Slug   string
@@ -82,8 +103,8 @@ func (e *ExistsError) Error() string {
 	return fmt.Sprintf("this period's run is already there: %s (%s)", e.Slug, e.Status)
 }
 
-// Brief is the job's brief file with {{period}}, {{date}} and {{last_run}}
-// filled in.
+// Brief is the job's brief file with {{period}}, {{date}}, {{last_run}} and
+// {{department}} (the department's key) filled in.
 func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error) {
 	path := strings.TrimSpace(r.Job.Brief)
 	if path == "" {
@@ -101,10 +122,11 @@ func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error)
 		"{{period}}", n.Period,
 		"{{date}}", now.Format("2006-01-02"),
 		"{{last_run}}", last,
+		"{{department}}", tracker.DepartmentKey(r.Department),
 	).Replace(strings.TrimSpace(string(data))), nil
 }
 
-// WriteRun writes n's issue file: department, job, run, the job's priority,
+// WriteRun writes n's issue file: type, department, job, run, the job's priority,
 // the label job, the brief and a ## Run line. It never overwrites a file.
 func WriteRun(p *tracker.Project, r *Ref, n *NewRun, brief string, now time.Time) error {
 	var b strings.Builder
@@ -113,6 +135,9 @@ func WriteRun(p *tracker.Project, r *Ref, n *NewRun, brief string, now time.Time
 	fmt.Fprintf(&b, "status: %q\n", n.Status)
 	b.WriteString(tracker.CreatedLine(now))
 	fmt.Fprintf(&b, "system: %q\n", n.System)
+	if n.Type != "" {
+		fmt.Fprintf(&b, "type: %q\n", n.Type)
+	}
 	if pr := strings.TrimSpace(r.Job.Priority); pr != "" {
 		fmt.Fprintf(&b, "priority: %q\n", pr)
 	}

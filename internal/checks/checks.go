@@ -5,7 +5,6 @@
 package checks
 
 import (
-	"bufio"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -42,6 +41,7 @@ type Script struct {
 	Name string // file name without .sh
 	Path string // absolute path
 	Root string // the checkout it was found in (runs from here)
+	From string // the commit that removed it, for a script from history (FromHistory)
 }
 
 // Find returns the scripts under each root's scripts/checks/ whose header
@@ -74,18 +74,11 @@ func Find(roots []string, slug string) []Script {
 
 // IssueOf reads the slug from a script's `# issue: <slug>` header, or "".
 func IssueOf(path string) string {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for i := 0; i < headerLines && sc.Scan(); i++ {
-		if m := issueHeader.FindStringSubmatch(strings.TrimSpace(sc.Text())); m != nil {
-			return headerSlug(m[1])
-		}
-	}
-	return ""
+	return issueOfContent(data)
 }
 
 // headerSlug is the slug at the start of a header's text. A system folder

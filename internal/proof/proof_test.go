@@ -290,19 +290,21 @@ func TestTrailersSurviveTheMerge(t *testing.T) {
 	}
 }
 
-func TestDocsOnlyCommitDoesNotStaleTheReport(t *testing.T) {
+func TestNonCodeCommitDoesNotStaleTheReport(t *testing.T) {
 	f := newFixture(t, "TestFoo")
 	branch := "work/" + f.issue.Slug
 	gitAt(t, f.root, t0, "checkout", "-q", branch)
 	commitFile(t, f.root, t0.Add(5*time.Hour), "docs/guide.md", "# Guide\n", "docs: guide")
 	commitFile(t, f.root, t0.Add(6*time.Hour), "CHANGELOG.md", "- entry\n", "docs: changelog")
 	commitFile(t, f.root, t0.Add(7*time.Hour), "cmd/x/README.md", "readme\n", "docs: readme")
+	commitFile(t, f.root, t0.Add(7*time.Hour+10*time.Minute), "playtest/sessions/prove.yaml", "steps: []\n", "test(playtest): session")
+	commitFile(t, f.root, t0.Add(7*time.Hour+20*time.Minute), "scripts/checks/prove.sh", "#!/bin/sh\n", "chore(checks): guided check")
 	gitAt(t, f.root, t0, "checkout", "-q", "main")
 
 	// The report came after the last code commit (2h) and before the docs ones.
 	r := Collect(f.root, f.issue, testsComment(t0.Add(150*time.Minute)))
 	if c := criterion(t, r, "AC1"); !c.Proven() || c.Links[0].Check.State != "reported after the last change" {
-		t.Errorf("AC1 after docs-only commits = %+v, want reported after the last change", c.Links)
+		t.Errorf("AC1 after non-code commits = %+v, want reported after the last change", c.Links)
 	}
 
 	gitAt(t, f.root, t0, "checkout", "-q", branch)
@@ -315,7 +317,7 @@ func TestDocsOnlyCommitDoesNotStaleTheReport(t *testing.T) {
 	}
 }
 
-func TestDocsOnly(t *testing.T) {
+func TestNonCodeOnly(t *testing.T) {
 	for _, tc := range []struct {
 		files []string
 		want  bool
@@ -325,10 +327,15 @@ func TestDocsOnly(t *testing.T) {
 		{[]string{"CHANGELOG"}, true},
 		{[]string{"docs/a.md", "main.go"}, false},
 		{[]string{"templates/docs.html"}, false},
+		{[]string{"playtest/sessions/prove.yaml", "scripts/checks/prove.sh", "issues/CLI/x.md", "retros/r.md", "sessions/s.md"}, true},
+		{[]string{"playtest/scenarios/board/tracker/x.md"}, true},
+		{[]string{"playtest/scenarios/board/projects.yaml"}, false},
+		{[]string{"static/style.css"}, false},
+		{[]string{"cmd/issue-cli/testdata/out.txt"}, false},
 		{nil, false},
 	} {
-		if got := docsOnly(tc.files); got != tc.want {
-			t.Errorf("docsOnly(%v) = %v, want %v", tc.files, got, tc.want)
+		if got := nonCodeOnly(tc.files); got != tc.want {
+			t.Errorf("nonCodeOnly(%v) = %v, want %v", tc.files, got, tc.want)
 		}
 	}
 }
@@ -480,5 +487,69 @@ func TestFastForwardedBranchWithNoOwnCommits(t *testing.T) {
 		if len(c.Links) != 0 {
 			t.Errorf("%s = %+v, want none: the branch has no commits of its own", c.ID, c.Links)
 		}
+	}
+}
+
+func TestTrailerNamingAStepIDGetsAHint(t *testing.T) {
+	f := newFixture(t, "TestFoo")
+	gitAt(t, f.root, t0, "checkout", "-q", "work/"+f.issue.Slug)
+	commitFile(t, f.root, t0.Add(5*time.Hour), "pkg/bar.go", "package pkg\n", "bar\n\nProves: AC4 TP4")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+	writeRun(t, f.root, "flow", "1-auto", "session: flow\nissue: "+f.issue.Slug+"\nmode: auto\nstarted: \"2026-10-23T15:00:00Z\"\nsteps:\n  - id: TP4\n    status: pass\n")
+
+	r := Collect(f.root, f.issue, testsComment(t0.Add(6*time.Hour)))
+	var tp4 *CheckedLink
+	ac4 := criterion(t, r, "AC4")
+	for i, l := range ac4.Links {
+		if l.Ref == "TP4" {
+			tp4 = &ac4.Links[i]
+		}
+	}
+	if tp4 == nil || tp4.Check.OK {
+		t.Fatalf("AC4 links = %+v, want a failing TP4 test link", ac4.Links)
+	}
+	for _, want := range []string{"TP4 is a box or playtest step id", "`proves: [AC4]`", "step TP4 in the session flow", "issue-cli prove " + f.issue.Slug + " AC4 --step TP4"} {
+		if !strings.Contains(tp4.Check.Fix, want) {
+			t.Errorf("fix = %q, want it to contain %q", tp4.Check.Fix, want)
+		}
+	}
+
+	// A real test name that isn't found keeps the usual fix.
+	g := newFixture(t, "TestFoo")
+	gitAt(t, g.root, t0, "checkout", "-q", "work/"+g.issue.Slug)
+	commitFile(t, g.root, t0.Add(5*time.Hour), "pkg/bar.go", "package pkg\n", "bar\n\nProves: AC4 TestGone")
+	gitAt(t, g.root, t0, "checkout", "-q", "main")
+	for _, l := range criterion(t, Collect(g.root, g.issue, nil), "AC4").Links {
+		if l.Ref == "TestGone" && strings.Contains(l.Check.Fix, "step id") {
+			t.Errorf("TestGone fix = %q, want no step hint", l.Check.Fix)
+		}
+	}
+}
+
+func TestRemovedCriterionKeepsTheNextOnesProof(t *testing.T) {
+	f := newFixture(t, "TestFoo")
+	gitAt(t, f.root, t0, "checkout", "-q", "work/"+f.issue.Slug)
+	commitFile(t, f.root, t0.Add(5*time.Hour), "pkg/bar.go", "package pkg\n", "bar\n\nProves: AC3")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+
+	body, _, err := tracker.RemoveBoxes(f.issue.BodyRaw, []string{"AC2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.issue.BodyRaw = body
+	r := Collect(f.root, f.issue, testsComment(t0.Add(6*time.Hour)))
+	ac3 := criterion(t, r, "AC3")
+	if ac3.Text != "A value proves it" || !ac3.Proven() {
+		t.Fatalf("AC3 after removing AC2 = %+v, want the same box, proven by its trailer", ac3)
+	}
+	if len(r.Criteria) != 3 {
+		t.Fatalf("criteria = %d, want 3", len(r.Criteria))
+	}
+	var strays []string
+	for _, s := range r.Strays {
+		strays = append(strays, s.ID)
+	}
+	if !containsString(strays, "AC2") {
+		t.Errorf("strays = %v, want AC2's trailer listed as a stray", strays)
 	}
 }

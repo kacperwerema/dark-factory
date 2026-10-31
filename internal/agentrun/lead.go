@@ -52,6 +52,7 @@ func DepartmentLeadSpec(proj *tracker.Project, dept *tracker.Department, wf *tra
 		Workflow:  wf,
 		Session:   tracker.DepartmentLeadName(proj, dept.Name),
 		LeadScope: tracker.LeadScopeDepartment(dept.Name),
-		Prompt:    tracker.DepartmentLeadBrief(wf, dept, tracker.LeadBriefInput{Project: proj, Root: root, Now: now}),
+		Prompt: tracker.DepartmentLeadBrief(wf, dept, tracker.LeadBriefInput{Project: proj, Root: root, Now: now,
+			Live: func(name string) bool { return IsLive(proj, name) }}),
 	}
 }

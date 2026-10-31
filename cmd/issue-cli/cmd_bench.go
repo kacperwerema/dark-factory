@@ -9,12 +9,15 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/michal-franc/issue-viewer/internal/bench"
 	"github.com/michal-franc/issue-viewer/internal/health"
+	"github.com/michal-franc/issue-viewer/internal/spend"
 	"github.com/michal-franc/issue-viewer/internal/tracker"
 )
 
@@ -32,15 +35,26 @@ Holdout tasks run with the rest but every output shows them only as
 passed n/m.
 
   bench                                    list the benchmarks and their last run
-  bench candidates [--all]                 done issues of this project that make good tasks
+  bench candidates [--all] [--replay [<slug>...]]
+      Done issues of this project that make good tasks. --replay replays each
+      proposed one in a throwaway worktree (removed after): base with the
+      hidden tests must fail them, base plus the branch's own commits (merges
+      from main left out) must pass them. Each gets solvable / needs later
+      main / doesn't replay / tests pass on base / not checked, with why.
+      Runs go test one candidate at a time after mem-guard; no model call,
+      nothing written.
   bench task add <benchmark> <slug> [--base <sha> --merged <sha>] [--start <status>]
                  [--check "<cmd>"] [--holdout] [--snapshot <file>] [--no-verify]
       Finds base, merged and the hidden test files from the issue's stats,
       snapshots the issue as it stood at --start (default "in progress"),
       and checks the merged and base commits once. Creates the benchmark.
+      A department's issue (or --output <id>) is an output task: the approved
+      output's file is copied as its reference, the eval scores the run's own.
   bench task remove <benchmark> <task>
   bench holdout <benchmark> <task> on|off
   bench budget <benchmark> [--tokens <n>] [--usd <x>] [--wall 6h] [--task-wall 45m]
+      Tokens count cache reads (about 15M a task here); unset, the cap is
+      25M a task. Size --tokens per task: 10 tasks, 250000000.
   bench show <benchmark>                   tasks, budget, worker and judge
   bench run <benchmark> [--setup <engine ref>] [--engine <dir>] [--workflow <file>]
             [--label <name>] [--resume <run>] [--keep] [--quote "<owner's words>"]
@@ -49,14 +63,17 @@ passed n/m.
       from the merged commit and the check. Stops at the budget. An agent
       session needs --quote, the owner's words asking for the run.
   bench report [<benchmark>/<run>|<benchmark>/latest]
-  bench compare <runA> <runB>              exit 0 no regression, 1 B regresses, 2 not comparable
+  bench compare <runA> <runB>
+      exit 0 no regression, 1 B regresses, 2 not comparable. By workflow:
+      each workflow's verdict (net positive / net negative / no change / not
+      comparable) with pass rate, eval score, wall, tokens and cost, A → B.
 
 <task> is <project>/<slug>, or the slug when it is unique.
 
 Examples:
   issue-cli bench candidates
   issue-cli bench task add factory-v1 cli/prove-list-attaches-proves-trailers --check "go vet ./..."
-  issue-cli bench budget factory-v1 --tokens 6000000 --usd 40 --wall 6h --task-wall 45m
+  issue-cli bench budget factory-v1 --tokens 250000000 --usd 40 --wall 6h --task-wall 45m
   issue-cli bench run factory-v1 --label baseline
   issue-cli bench run factory-v1 --setup work/factory/new-prompts --label new-prompts
   issue-cli bench compare factory-v1/20261030-120000 factory-v1/latest`,
@@ -227,8 +244,12 @@ func runBenchCandidates(ctx *Context, args []string) error {
 	fs := newFlagSet("bench candidates", ctx)
 	all := fs.Bool("all", false, "also list the done issues that are not proposed, with why")
 	name := fs.String("benchmark", "", "leave out tasks already in this benchmark")
-	if err := parseFlags(ctx, fs, args); err != nil {
+	replay := fs.Bool("replay", false, "replay each proposed candidate on its base with the hidden tests (runs go test; no model call)")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
+	}
+	if fs.NArg() > 0 && !*replay {
+		return &usageError{msg: "usage: issue-cli bench candidates [--all] [--replay [<slug>...]] (slugs only pick which to --replay)"}
 	}
 	issues, err := tracker.LoadIssues(ctx.Project.IssueDir)
 	if err != nil {
@@ -250,12 +271,15 @@ func runBenchCandidates(ctx *Context, args []string) error {
 		}
 		cands = kept
 	}
+	if *replay {
+		replayCandidates(ctx, cands, fs.Args())
+	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, cands)
 	}
 	fmt.Fprintf(ctx.Stdout, "== Golden task candidates: %s ==\n", ctx.Project.Slug)
 	if len(cands) == 0 {
-		fmt.Fprintln(ctx.Stdout, "  none (a candidate is a done issue with a recorded branch, test files in its commits and at most 600 changed lines; --all shows why each is left out)")
+		fmt.Fprintln(ctx.Stdout, "  none (a candidate is a done issue with a recorded branch, Go tests in its commits and at most 600 changed lines; --all shows why each is left out)")
 		return nil
 	}
 	for _, c := range cands {
@@ -265,9 +289,50 @@ func runBenchCandidates(ctx *Context, args []string) error {
 		}
 		fmt.Fprintf(ctx.Stdout, "  %s  %s · %d lines in %d files · %d hidden test files (%d tests) · %s..%s\n",
 			c.Slug, orType(c.Type), c.Lines, c.Files, c.Hidden, c.Tests, c.Base, c.Merged)
+		if len(c.Risks) > 0 {
+			fmt.Fprintf(ctx.Stdout, "      risk: %s\n", strings.Join(c.Risks, ", "))
+		}
+		if c.Replay != "" {
+			fmt.Fprintf(ctx.Stdout, "      replay: %s — %s\n", c.Replay, c.ReplayWhy)
+		}
+	}
+	if !*replay {
+		fmt.Fprintf(ctx.Stdout, "\nSolvability: issue-cli bench candidates --replay [<slug>...] replays each on its base with the hidden tests (go test, no model call).")
 	}
 	fmt.Fprintf(ctx.Stdout, "\nThe owner picks the set: issue-cli bench task add <benchmark> <slug> [--holdout]\n")
 	return nil
+}
+
+// replayMemGuard is the memory check before each replay's go test; tests
+// replace it.
+var replayMemGuard = func(log io.Writer) func() (bool, string) { return replayGuard(memGuard(log)) }
+
+// replayGuard blocks at mem-guard's BLOCKED and also at a reading of 70%
+// or more: replays are optional work, started only on a quiet machine.
+func replayGuard(check func() (bool, string)) func() (bool, string) {
+	if check == nil {
+		return nil
+	}
+	return func() (bool, string) {
+		blocked, msg := check()
+		if m := memUsed.FindStringSubmatch(msg); m != nil {
+			if n, _ := strconv.Atoi(m[1]); n >= 70 {
+				blocked = true
+			}
+		}
+		return blocked, msg
+	}
+}
+
+var memUsed = regexp.MustCompile(`used (\d+)%`)
+
+// replayCandidates runs `bench candidates --replay`: one candidate at a
+// time, progress on stderr.
+func replayCandidates(ctx *Context, cands []bench.Candidate, only []string) {
+	env := bench.ReplayEnv{MemGuard: replayMemGuard(ctx.Stderr)}
+	bench.CheckCandidates(context.Background(), cands, only, env, func(i, n int, c bench.Candidate) {
+		fmt.Fprintf(ctx.Stderr, "replaying %s (%d/%d) on %s\n", c.Slug, i, n, c.Base)
+	})
 }
 
 func orType(s string) string {
@@ -286,6 +351,7 @@ func runBenchTaskAdd(ctx *Context, args []string) error {
 	holdout := fs.Bool("holdout", false, "a holdout task: shown only as passed n/m")
 	snapshot := fs.String("snapshot", "", "a file with the issue as it stood at --start (default: from the tracker's git history)")
 	noVerify := fs.Bool("no-verify", false, "skip checking the merged and base commits")
+	output := fs.String("output", "", "an output task from this shelf output the owner approved (a department's issue: the default is its newest approved one)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -311,10 +377,17 @@ func runBenchTaskAdd(ctx *Context, args []string) error {
 		return fmt.Errorf("%s is already in %s", t.ID(), name)
 	}
 	logf := func(format string, a ...any) { fmt.Fprintf(ctx.Stderr, format+"\n", a...) }
-	t, warnings, err := bench.NewTask(context.Background(), ctx.Project, issue, bench.AddOptions{
+	opt := bench.AddOptions{
 		Base: *base, Merged: *merged, Start: *start, Check: *check, Holdout: *holdout,
 		Snapshot: *snapshot, Verify: !*noVerify, Log: logf,
-	}, ctx.now())
+	}
+	var t bench.Task
+	var warnings []string
+	if dept := tracker.DepartmentKey(ctx.Project.DepartmentOf(issue)); *output != "" || (dept != "" && dept != bench.ProductWorkflow) {
+		t, warnings, err = bench.NewOutputTask(context.Background(), ctx.Project, issue, *output, opt, ctx.now())
+	} else {
+		t, warnings, err = bench.NewTask(context.Background(), ctx.Project, issue, opt, ctx.now())
+	}
 	for _, w := range warnings {
 		fmt.Fprintf(ctx.Stderr, "warning: %s\n", w)
 	}
@@ -329,8 +402,13 @@ func runBenchTaskAdd(ctx *Context, args []string) error {
 		return writeJSON(ctx.Stdout, t)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Added %s to %s (%d tasks)\n", t.ID(), name, len(b.Tasks))
-	fmt.Fprintf(ctx.Stdout, "  base %s → merged %s, starts at %q\n", shortSHA(t.Base), shortSHA(t.Merged), t.Start)
-	fmt.Fprintf(ctx.Stdout, "  hidden: %d test files, %d Go tests; check: %s\n", len(t.Hidden), len(t.HiddenTests), orNone(t.Check))
+	if t.Output != "" {
+		fmt.Fprintf(ctx.Stdout, "  output task (%s): base %s, starts at %q; reference: output %s (%s)\n", t.WorkflowKey(), shortSHA(t.Base), t.Start, t.Output, bench.ReferencePath(t))
+		fmt.Fprintf(ctx.Stdout, "  scored by the %s workflow's eval for %s; check: %s\n", t.WorkflowKey(), orType(t.Type), orNone(t.Check))
+	} else {
+		fmt.Fprintf(ctx.Stdout, "  base %s → merged %s, starts at %q\n", shortSHA(t.Base), shortSHA(t.Merged), t.Start)
+		fmt.Fprintf(ctx.Stdout, "  hidden: %d test files, %d Go tests; check: %s\n", len(t.Hidden), len(t.HiddenTests), orNone(t.Check))
+	}
 	if t.Holdout {
 		fmt.Fprintln(ctx.Stdout, "  holdout: shown only as passed n/m")
 	}
@@ -444,20 +522,39 @@ func runBenchBudget(ctx *Context, args []string) error {
 			return err
 		}
 	}
-	fmt.Fprintf(ctx.Stdout, "%s budget: %s\n", b.Name, budgetLine(b.Budget))
+	fmt.Fprintf(ctx.Stdout, "%s budget: %s\n", b.Name, budgetLine(b))
+	fmt.Fprint(ctx.Stdout, lowTokensNote(b.Budget))
 	return nil
 }
 
-func budgetLine(b bench.Budget) string {
+func budgetLine(bm *bench.Benchmark) string {
+	b := bm.Budget
 	part := func(set bool, s string) string {
 		if !set {
 			return "none"
 		}
 		return s
 	}
+	tokens := fmt.Sprint(b.Tokens)
+	if b.Tokens <= 0 {
+		tokens = fmt.Sprintf("%d (default: %s a task × %d, cache reads included)", b.TokenCap(len(bm.Tasks)), millions(bench.DefaultTaskTokens), max(len(bm.Tasks), 1))
+	}
 	return fmt.Sprintf("tokens %s, cost %s, wall %s, per task %s",
-		part(b.Tokens > 0, fmt.Sprint(b.Tokens)), part(b.USD > 0, fmt.Sprintf("$%.2f", b.USD)),
+		tokens, part(b.USD > 0, fmt.Sprintf("$%.2f", b.USD)),
 		part(b.WallDur() > 0, b.Wall), b.TaskWallDur())
+}
+
+// millions is n in millions, "25M".
+func millions(n int64) string { return fmt.Sprintf("%gM", float64(n)/1e6) }
+
+// lowTokensNote warns when a token cap is under one task's default share:
+// tokens count cache reads, so such a cap stops the first task part way.
+func lowTokensNote(b bench.Budget) string {
+	if b.Tokens <= 0 || b.Tokens >= bench.DefaultTaskTokens {
+		return ""
+	}
+	return fmt.Sprintf("note: %s tokens is under one task (%s, cache reads included: about 15M a task here); the run will likely stop in its first task\n",
+		millions(b.Tokens), millions(bench.DefaultTaskTokens))
 }
 
 func runBenchShow(ctx *Context, args []string) error {
@@ -485,7 +582,7 @@ func runBenchShow(ctx *Context, args []string) error {
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, map[string]any{"name": b.Name, "budget": b.Budget, "tasks": shown, "holdout_hidden": hold, "worker": orDefault(b.Worker, bench.DefaultWorker), "judge": b.Judge})
 	}
-	fmt.Fprintf(ctx.Stdout, "== Benchmark %s ==\nfile: %s\nbudget: %s\nworker: %s\njudge: %s\n\nTasks:\n", b.Name, b.Path(), budgetLine(b.Budget), orDefault(b.Worker, bench.DefaultWorker), orNone(b.Judge))
+	fmt.Fprintf(ctx.Stdout, "== Benchmark %s ==\nfile: %s\nbudget: %s\nworker: %s\njudge: %s\n\nTasks:\n", b.Name, b.Path(), budgetLine(b), orDefault(b.Worker, bench.DefaultWorker), orNone(b.Judge))
 	for _, t := range shown {
 		mark := ""
 		if t.Holdout {
@@ -510,7 +607,8 @@ func runBenchRun(ctx *Context, args []string) error {
 	fs := newFlagSet("bench run", ctx)
 	setup := fs.String("setup", "", "an engine ref: build issue-cli from it for the run (default: this issue-cli)")
 	engine := fs.String("engine", "", "the engine checkout --setup is resolved in (default: the current git repository)")
-	workflow := fs.String("workflow", "", "a workflow file to use in every sandbox instead of the project's")
+	var workflows multiFlag
+	fs.Var(&workflows, "workflow", "a workflow file for Product's tasks instead of the project's, or <department>=<file> for a department's (repeatable)")
 	label := fs.String("label", "", "a name for the setup, shown in reports and the trend")
 	resume := fs.String("resume", "", "continue a paused or budget-stopped run")
 	keep := fs.Bool("keep", false, "leave each task's sandbox in place")
@@ -533,10 +631,9 @@ func runBenchRun(ctx *Context, args []string) error {
 	if len(b.Tasks) == 0 {
 		return fmt.Errorf("benchmark %s has no tasks: issue-cli bench task add %s <slug>", b.Name, b.Name)
 	}
-	if *workflow != "" {
-		if abs, err := filepath.Abs(*workflow); err == nil {
-			*workflow = abs
-		}
+	workflow, byBox, err := parseWorkflowFlags(workflows)
+	if err != nil {
+		return err
 	}
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -564,10 +661,21 @@ func runBenchRun(ctx *Context, args []string) error {
 		startedBy = who
 	}
 	opt := bench.Options{
-		Setup:    bench.Setup{Ref: ref, IssueCLI: cli, IssueCLIVersion: cliVersion(cli), Workflow: *workflow, Label: *label},
-		Workflow: *workflow, Resume: *resume, StartedBy: startedBy, Quote: q,
+		Setup:    bench.Setup{Ref: ref, IssueCLI: cli, IssueCLIVersion: cliVersion(cli), Workflow: strings.Join(workflows, ","), Label: *label},
+		Workflow: workflow, Workflows: byBox, Resume: *resume, StartedBy: startedBy, Quote: q,
 	}
-	fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks, budget %s\n", b.Name, len(b.Tasks), budgetLine(b.Budget))
+	fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks, budget %s\n", b.Name, len(b.Tasks), budgetLine(b))
+	fmt.Fprintf(ctx.Stderr, "estimate: %s\n", bench.Estimate(b))
+	// Cost from prices.yaml for the models the benchmark doesn't price, as
+	// the rooms' spend does.
+	if b.Prices == nil {
+		b.Prices = map[string]bench.Price{}
+	}
+	for model, price := range spend.LoadPrices() {
+		if _, ok := b.Prices[model]; !ok {
+			b.Prices[model] = price
+		}
+	}
 	run, err := bench.Execute(runCtx, b, env, opt)
 	if run != nil && run.Finished() {
 		benchSnapshots(ctx, b)
@@ -588,6 +696,31 @@ func runBenchRun(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "  issue-cli bench run %s --resume %s   continue it\n", run.Benchmark, run.ID)
 	}
 	return nil
+}
+
+// parseWorkflowFlags splits --workflow values: a bare file is Product's,
+// <key>=<file> a department's (its box key); files become absolute.
+func parseWorkflowFlags(vals []string) (string, map[string]string, error) {
+	var product string
+	byBox := map[string]string{}
+	for _, v := range vals {
+		key, file, ok := strings.Cut(v, "=")
+		if !ok {
+			key, file = bench.ProductWorkflow, v
+		}
+		key = tracker.DepartmentKey(strings.TrimSpace(key))
+		if strings.TrimSpace(file) == "" {
+			return "", nil, &usageError{msg: "usage: --workflow <file> or --workflow <department>=<file>"}
+		}
+		if abs, err := filepath.Abs(file); err == nil {
+			file = abs
+		}
+		if key == bench.ProductWorkflow {
+			product = file
+		}
+		byBox[key] = file
+	}
+	return product, byBox, nil
 }
 
 // benchIssueCLI is the issue-cli under test: this binary, or one built
@@ -732,8 +865,14 @@ func printRun(w io.Writer, r *bench.Run) {
 		if t.Usage.Known {
 			tokens = fmt.Sprint(t.Usage.Tokens())
 		}
-		line := fmt.Sprintf("  %-8s %s  hidden %d/%d · check %s · judge %s · %s tokens · $%.2f · %s",
-			t.Outcome, t.Task, t.HiddenPassed, t.HiddenTotal, okWord(t.CheckOK), judge, tokens, t.Usage.USD, (time.Duration(t.WallSec) * time.Second).String())
+		scored := fmt.Sprintf("hidden %d/%d · check %s · judge %s", t.HiddenPassed, t.HiddenTotal, okWord(t.CheckOK), judge)
+		wall := (time.Duration(t.WallSec) * time.Second).String()
+		if t.Eval != "" && t.EvalScore >= 0 {
+			scored = fmt.Sprintf("%s eval %s %.2f (%d/%d) · check %s", t.Workflow, t.Eval, t.EvalScore, t.EvalPassed, t.EvalTotal, okWord(t.CheckOK))
+			wall += fmt.Sprintf(" + scoring %s", secText(t.ScoreWallSec))
+		}
+		line := fmt.Sprintf("  %-8s %s  %s · %s tokens · $%.2f · %s",
+			t.Outcome, t.Task, scored, tokens, t.Usage.USD, wall)
 		if t.Reason != "" && t.Outcome != bench.OutcomePass {
 			line += " — " + t.Reason
 		}
@@ -843,6 +982,7 @@ func printComparison(w io.Writer, c bench.Comparison) {
 	for _, warn := range c.Warnings {
 		fmt.Fprintf(w, "⚠ %s\n", warn)
 	}
+	printByWorkflow(w, c)
 	fmt.Fprintln(w, "\nTasks (regressions first):")
 	for _, t := range c.Tasks {
 		mark := " "
@@ -858,4 +998,65 @@ func printComparison(w io.Writer, c bench.Comparison) {
 		}
 		fmt.Fprintf(w, "  %s %s  %s → %s · tokens %+d · cost %+.2f · wall %+s\n", mark, t.Task, t.A, t.B, t.TokensDelta, t.USDDelta, (time.Duration(t.WallDelta) * time.Second).String())
 	}
+}
+
+// printByWorkflow is compare's per-workflow verdicts (docs/benchmark.md,
+// Evals), shown when the runs hold more than one workflow or an eval score.
+func printByWorkflow(w io.Writer, c bench.Comparison) {
+	show := len(c.Workflows) > 1
+	for _, v := range c.Workflows {
+		if v.ScoreA >= 0 || v.ScoreB >= 0 {
+			show = true
+		}
+	}
+	if !show {
+		return
+	}
+	fmt.Fprintln(w, "\nBy workflow (A → B):")
+	for _, v := range c.Workflows {
+		fmt.Fprintf(w, "  %s: %s · %d tasks\n", v.Workflow, v.Verdict, v.Tasks)
+		quality := fmt.Sprintf("pass %.0f%% → %.0f%%", v.PassRateA*100, v.PassRateB*100)
+		if v.ScoreA >= 0 || v.ScoreB >= 0 {
+			quality += fmt.Sprintf(" · score %s → %s", scoreText(v.ScoreA), scoreText(v.ScoreB))
+		}
+		fmt.Fprintf(w, "      %s\n", quality)
+		fmt.Fprintf(w, "      wall %s → %s (%s) · tokens %s → %s (%s) · cost $%.2f → $%.2f (%s)\n",
+			secText(v.WallA), secText(v.WallB), relText(v.WallA, v.WallB),
+			compactTokens(v.TokensA), compactTokens(v.TokensB), relText(float64(v.TokensA), float64(v.TokensB)),
+			v.USDA, v.USDB, relText(v.USDA, v.USDB))
+		if len(v.Why) > 0 {
+			fmt.Fprintf(w, "      %s\n", strings.Join(v.Why, "; "))
+		}
+	}
+}
+
+func secText(sec float64) string {
+	return (time.Duration(sec) * time.Second).Round(time.Second).String()
+}
+
+func relText(a, b float64) string {
+	if a == 0 {
+		if b == 0 {
+			return "±0%"
+		}
+		return "new"
+	}
+	return fmt.Sprintf("%+.0f%%", (b-a)/a*100)
+}
+
+func compactTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+func scoreText(f float64) string {
+	if f < 0 {
+		return "–"
+	}
+	return fmt.Sprintf("%.2f", f)
 }

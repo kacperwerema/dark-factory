@@ -1,0 +1,61 @@
+session: department-handoffs
+issue: factory/department-handoffs-one-department-asks-another-for-work-as-an-issue
+title: Handoffs in the rooms (Asked, Inbox, To forward) and on the connection line
+scenario: department-handoffs
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Each room lists its handoffs with their state; HQ lists the one waiting for its forward
+    proves: [AC3]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.room.handoffs }
+    checks:
+      - count: { pattern: "company.room.handoffs", equals: 4 }
+      - count: { pattern: "company.room.handoff", equals: 7 }
+      - count: { pattern: "company.room.handoffs.forward", equals: 1 }
+      - text_contains: { target: company.room.hq, text: "To forward" }
+      - text_contains: { target: company.room.hq, text: "waiting on HQ to forward" }
+      - text_contains: { target: company.room.product, text: "Brand page" }
+      - text_contains: { target: company.connections, text: "1 waiting to be forwarded" }
+    targets: [company.room.hq, company.room.product, company.room.group]
+
+  - id: TP5
+    title: The drill-in marks each handoff with its state and route
+    from: TP4
+    proves: [AC3]
+    setup:
+      - open: /p/acme/connections?kind=request
+    act:
+      - wait_for: { visible: connections.page }
+    checks:
+      - count: { pattern: "connections.item.handoff", equals: 3 }
+      - text_contains: { target: connections.page, text: "handoff · waiting on HQ to forward" }
+      - text_contains: { target: connections.page, text: "Sales → GTM → Marketing" }
+      - text_contains: { target: connections.page, text: "handoff · at backlog" }
+    targets: [connections.edge]
+
+  - id: AC5
+    title: Owner check - the rooms and the line read right
+    from: TP4
+    proves: [AC5]
+    targets: [company.room.hq, company.room.group, company.connections.lines]
+    do: >-
+      Look at the company page: the HQ room, Product, and the GTM room with
+      Marketing and Sales inside, then the Connections list.
+    expect: >-
+      HQ's Handoffs block lists "Brand page" under To forward with "waiting
+      on HQ to forward", and "Price sheet" under Asked. Product's Inbox has
+      Brand page. Marketing shows Brand page under Asked and Call script
+      under Inbox (at backlog, forwarded by GTM). Sales shows Call script
+      under Asked and Price sheet under Inbox. The Marketing → HQ → Product
+      row says "1 waiting to be forwarded". Each row opens its issue, the
+      blocks don't push the room heads or buttons out of place, and on a
+      phone they wrap without scrolling sideways.
+    why: The owner asked for both rooms and the line to show a handoff and its state; this is the first look.

@@ -259,6 +259,9 @@ func systemDecisions(p *tracker.Project, prefix string, issues, members []*track
 		}
 		row := decisionsRow(e, prefix)
 		row.Confirm = nil // confirmed on the decisions log, where the CEO's state is known
+		if !e.Date.IsZero() {
+			row.Date = e.Date.Format("2006-01-02")
+		}
 		d.Rows = append(d.Rows, row)
 	}
 	if len(d.Rows) == 0 {

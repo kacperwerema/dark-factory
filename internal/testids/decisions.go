@@ -10,6 +10,9 @@ func init() {
 		"decisions.stat.replaced",
 		"decisions.stat.stale",
 		"decisions.empty",
+		// wb/bars' fold of the rows past the first (bars.<key>.more).
+		"bars.*.more",
+		"decisions.row.*.*.date",
 		"decisions.filters",
 		"decisions.filter.system.*",
 		"decisions.filter.state.*",

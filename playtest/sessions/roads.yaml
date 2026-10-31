@@ -1,0 +1,60 @@
+session: roads
+issue: ui/roads-between-departments-the-map-shows-roads-with-work-moving-on-them-instead-of-dependency-lines
+title: Roads with work moving on them replace the typed lines on a 15-department floor
+scenario: company-scale
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP1
+    title: The 26 connections are drawn as 21 roads with parcels moving on them; the list under the floor is unchanged
+    proves: [AC1, AC2, AC4]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.connections.road.link }
+    checks:
+      - count: { pattern: company.connections.row, equals: 26 }
+      - count: { pattern: company.connections.road.link, equals: 21 }
+      - count: { pattern: company.connections.parcel, equals: 24 }
+      - count: { pattern: company.connections.sign, equals: 9 }
+      - count: { pattern: company.connections.tally, equals: 0 }
+      - text_contains: { target: company.connections.focus, text: "21 roads" }
+    targets: [company.connections.lines, company.connections.road, company.connections.parcel, company.connections.sign]
+
+  - id: TP2
+    title: Hovering a group lights the roads of the rooms inside it
+    proves: [AC3]
+    from: TP1
+    act:
+      - hover: company.room.dept.lead.session
+    checks:
+      - text_contains: { target: company.connections.focus, text: "GTM: 8 roads" }
+    targets: [company.room.dept.lead.session, company.connections.focus]
+
+  - id: AC5
+    title: "Owner check: the roads read as streets with work moving on them"
+    from: TP1
+    proves: [AC5]
+    judgement_step: true
+    targets:
+      - { id: company.connections.lines, note: The roads between the rooms }
+      - { id: company.connections.parcel, note: Work moving on a road }
+      - { id: company.connections.sign, note: Traffic off the declared routes }
+    do: |
+      1. Scroll the company page from HQ and Product down through GTM, Ops and Support.
+      2. Hover a road, then a room, then a row of the Connections list; click a road.
+      3. Narrow the window to a phone's width and look again.
+    expect: |
+      One road per pair of rooms that pass work, running through the gaps
+      between the rooms like streets; roads that share a street merge. Small
+      parcels move along them in the sending room's colour (dot request,
+      triangle handoff, square output, diamond dependency). Red "!" signs mark
+      traffic nobody declared; a declared road with no traffic is a thin
+      dotted lane. Hovering a road names it with its counts under the floor
+      and clicking opens the connections list for it. On a phone the roads
+      run down the floor's edge and still don't cover the rooms' text.
+    why: The owner asked for roads with something moving on them instead of the typed lines; only the owner can say it reads that way.

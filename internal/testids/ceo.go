@@ -65,5 +65,6 @@ func init() {
 		"leads.row.*.chat",
 		"leads.dept_leads",
 		"leads.dept_lead.*",
+		"leads.group.*",
 	)
 }

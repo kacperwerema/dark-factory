@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · %s week %s" .Name .Dept .Week)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Dept}}: week report {{.Week}}" data-testid="week_report.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">{{.Dept}} · week {{.Week}}</h1>
+        <span class="wb-sub">the week report <span class="wb-mono-inline" data-testid="week_report.path">{{.Path}}</span> · written by <code>issue-cli department week</code></span>
+    </div>
+    <div class="wb-shelf-page">
+        {{if gt (len .Weeks) 1}}<nav class="wb-shelf-tabs" aria-label="Weeks" data-testid="week_report.weeks">{{range .Weeks}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}</nav>{{end}}
+        <article class="wb-week-report" data-testid="week_report.body">{{.HTML}}</article>
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

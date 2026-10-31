@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" (printf "%s · Connections" .Name)}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Name}}: connections between departments" data-testid="connections.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Connections</h1>
+        <span class="wb-sub">what passes between HQ, Product and the departments · derived from issues and the shelf{{if .Declared}}, marked against projects.yaml connections:{{end}} · <a href="{{.JSONURL}}">json</a></span>
+    </div>
+    <div class="wb-shelf-page">
+        {{if .NoDepartments}}
+        <div class="wb-shelf-empty" data-testid="connections.none">This project has no departments, so nothing passes between rooms. Add one with <code>issue-cli department list</code>.</div>
+        {{else}}
+        <nav class="wb-shelf-tabs" aria-label="From" data-testid="connections.from"><span class="wb-muted">from</span>{{range .FromTabs}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{with .Color}}<i class="wb-shelf-dot" style="background:{{.}}"></i>{{end}}{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
+        <nav class="wb-shelf-tabs" aria-label="To" data-testid="connections.to"><span class="wb-muted">to</span>{{range .ToTabs}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{with .Color}}<i class="wb-shelf-dot" style="background:{{.}}"></i>{{end}}{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
+        <nav class="wb-shelf-tabs" aria-label="Kind" data-testid="connections.kinds">{{range .KindTabs}}<a class="wb-shelf-tab{{if .Current}} wb-shelf-tab--current{{end}}" href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}} <b>{{.Count}}</b></a>{{end}}</nav>
+        <div class="wb-shelf-list">
+        {{range .Sections}}
+            <section class="wb-conn-edge" data-testid="connections.edge" data-kind="{{.Row.Kind}}" data-route="{{.Row.Route}}">
+                <h2 class="wb-conn-edge-title" data-testid="connections.edge.title">{{template "wb/conn-key" .Row.Kind}}<i class="wb-shelf-dot" style="background:{{.Row.Color}}"></i> {{.Row.Label}}{{if .Row.Mark}} <span class="wb-conn-mark wb-conn-mark--{{.Row.Route}}" data-testid="connections.edge.mark">{{.Row.Mark}}</span>{{end}}</h2>
+                {{with .Row.What}}<div class="wb-conn-what wb-muted">{{.}}</div>{{end}}
+                {{if eq .Row.Route "unused"}}<div class="wb-conn-what wb-muted" data-testid="connections.edge.unused">Declared in projects.yaml connections:, nothing passes on it yet.</div>{{end}}
+                {{if eq .Row.Route "undeclared"}}<div class="wb-conn-what wb-muted">Not in projects.yaml connections:. Declare it, or route the work the declared way.</div>{{end}}
+                {{range .Open}}{{template "wb/conn-item" .}}{{end}}
+                {{if .Closed}}<details class="wb-conn-closed" data-testid="connections.closed"><summary>{{len .Closed}} closed in the last 30 days</summary>{{range .Closed}}{{template "wb/conn-item" .}}{{end}}</details>{{end}}
+            </section>
+        {{else}}
+            <div class="wb-shelf-empty" data-testid="connections.empty">{{if .Empty}}No connections yet. {{.Hint}}{{else}}No connections match these filters.{{end}}</div>
+        {{end}}
+        </div>
+        {{end}}
+    </div>
+    <div class="wb-legend">
+        <span>{{template "wb/conn-key" "request"}} <b>request</b> = work one department asked of another (via HQ when the CEO relayed it)</span>
+        <span>· {{template "wb/conn-key" "output"}} <b>output</b> = a shelf output another department uses</span>
+        <span>· {{template "wb/conn-key" "dependency"}} <b>dependency</b> = an open issue waiting on another department's</span>
+        {{if .Declared}}<span data-testid="connections.legend.declared">· <span class="wb-conn-mark wb-conn-mark--unused">declared, no traffic</span> = a route in projects.yaml nothing uses yet · <span class="wb-conn-mark wb-conn-mark--undeclared">not declared</span> = traffic off the declared routes</span>{{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

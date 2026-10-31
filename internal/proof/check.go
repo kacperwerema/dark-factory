@@ -23,6 +23,8 @@ type checker struct {
 	hasReport                 bool
 	steps                     map[string]stepVerdict
 	tests                     map[string]Check
+	// goModule: prove --run can run the tests (the project has a go.mod).
+	goModule bool
 }
 
 // branchCommits lists the work branch's own first-parent commits, newest
@@ -55,7 +57,9 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 		}
 		parents := strings.Fields(f[2])
 		cm := commit{sha: f[0], at: unixTime(f[1]), merge: len(parents) > 1, parents: parents}
+		cm.subject, _, _ = strings.Cut(f[3], "\n")
 		cm.proves = provesLines(f[3])
+		cm.refs = MessageLines(f[3], RefsKey)
 		cm.files = strings.Fields(f[4])
 		commits = append(commits, cm)
 	}
@@ -71,12 +75,18 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 
 // provesLines reads the values of the Proves: lines in a commit message's
 // body, in any paragraph.
-func provesLines(msg string) []string {
+func provesLines(msg string) []string { return MessageLines(msg, "Proves") }
+
+// MessageLines reads the values of the `<key>:` lines in a commit message's
+// body, in any paragraph: git's own trailers are only the last paragraph,
+// and such a line often sits in its own paragraph before Co-Authored-By.
+// catalog-check reads its Catalog: lines with it too.
+func MessageLines(msg, key string) []string {
 	var out []string
 	lines := strings.Split(msg, "\n")
 	for _, l := range lines[1:] {
-		key, v, ok := strings.Cut(strings.TrimSpace(l), ":")
-		if ok && strings.EqualFold(key, "Proves") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), ":")
+		if ok && strings.EqualFold(k, key) {
 			if v = strings.TrimSpace(v); v != "" {
 				out = append(out, v)
 			}
@@ -90,7 +100,9 @@ func provesLines(msg string) []string {
 // count; after the merge only the recorded head is left, so the walk stops
 // at the issue's first dispatch or transition. nil: nothing to walk.
 func LogRange(root, ref string, stats tracker.StatsStore) []string {
-	if ref == "" {
+	// A ref is never an option: it can come from the agent-written stats
+	// sidecar (docs/API/security.md).
+	if ref == "" || strings.HasPrefix(ref, "-") {
 		return nil
 	}
 	main, _ := tracker.MainBranch(root)
@@ -196,12 +208,21 @@ func (c *checker) checkTest(name string) Check {
 		return found
 	}
 	if !c.hasReport {
-		return Check{State: "no tests: report", Fix: fmt.Sprintf("run the tests, then: issue-cli comment %s --text \"tests: ...\"", c.slug)}
+		return Check{State: "no tests: report", Fix: c.testsFix("run the tests, then")}
 	}
 	if !c.lastChange.IsZero() && c.reportAt.Before(c.lastChange) {
-		return Check{State: "stale (code changed since the last tests: comment)", Fix: fmt.Sprintf("re-run the tests, then: issue-cli comment %s --text \"tests: ...\"", c.slug)}
+		return Check{State: "stale (code changed since the last tests: comment)", Fix: c.testsFix("re-run the tests, then")}
 	}
 	return Check{OK: true, State: "reported after the last change"}
+}
+
+// testsFix says how to post the tests: report: prove --run in a Go project,
+// else by hand ("<manual>: issue-cli comment …").
+func (c *checker) testsFix(manual string) string {
+	if c.goModule {
+		return fmt.Sprintf("issue-cli prove %s --run (runs the named tests and posts the tests: comment); or %s: issue-cli comment %s --text \"tests: ...\"", c.slug, manual, c.slug)
+	}
+	return fmt.Sprintf("%s: issue-cli comment %s --text \"tests: ...\"", manual, c.slug)
 }
 
 func (c *checker) checkStep(id string, nameSession bool) Check {
@@ -284,8 +305,9 @@ func Ways(slug, id string) []string {
 
 // GateError is nil when every criterion is proven; otherwise it names each
 // unproven one, why its links fail, and how to prove it.
-func GateError(r Report) error {
-	unproven := r.Unproven()
+func GateError(r Report) error { return gateError(r, r.Unproven()) }
+
+func gateError(r Report, unproven []Criterion) error {
 	if len(unproven) == 0 {
 		return nil
 	}
@@ -339,25 +361,30 @@ func describe(l Link) string {
 }
 
 // TickProven ticks the unticked boxes of the proven criteria and returns
-// their ids. A ticked box whose proof stopped passing is left alone.
+// their ids. A ticked box whose proof stopped passing is left alone, and an
+// owner's box (OwnerBoxWhy: owner-only, "(owner)", Human Testing) ticks
+// only when the owner proved it: the owner's playtest passed its judgement
+// step (Tickable).
 func TickProven(issuePath string, r Report) ([]string, error) {
-	proven := map[string]bool{}
+	tickable := map[string]Criterion{}
 	for _, c := range r.Criteria {
-		if c.Proven() && !c.Checked {
-			proven[strings.ToUpper(c.ID)] = true
+		if c.Tickable() && !c.Checked {
+			tickable[strings.ToUpper(c.ID)] = c
 		}
 	}
-	if len(proven) == 0 {
+	if len(tickable) == 0 {
 		return nil, nil
 	}
 	var ticked []string
 	_, _, err := tracker.UpdateIssueBody(issuePath, func(body string) (string, bool, error) {
 		var lines []int
 		for _, it := range tracker.Criteria(body) {
-			if !it.Checked && proven[strings.ToUpper(it.ID)] {
-				lines = append(lines, it.Line)
-				ticked = append(ticked, it.ID)
+			c, ok := tickable[strings.ToUpper(it.ID)]
+			if it.Checked || !ok || (r.OwnerBoxWhy(it) != "" && !c.OwnerProven()) {
+				continue
 			}
+			lines = append(lines, it.Line)
+			ticked = append(ticked, it.ID)
 		}
 		if len(lines) == 0 {
 			return body, false, nil

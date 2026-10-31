@@ -1,0 +1,27 @@
+session: group-colour
+issue: ui/gtms-group-room-has-the-same-colour-as-the-ceos-hq-give-groups-their-own-colour
+title: A group's room (GTM over Marketing) has its own colour, clearly apart from HQ's yellow
+scenario: week-plan
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: GTM's room head is the group teal, HQ's stays yellow, Marketing keeps its pink
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.room.group }
+    checks:
+      - css: { target: company.room.head.hq, property: background-color, equals: "rgb(242, 178, 51)" }
+      - css: { target: company.room.head.group, property: background-color, equals: "rgb(46, 196, 182)" }
+      - css: { target: company.room.head.group, property: background-color, not: "rgb(242, 165, 65)" }
+      - text_contains: { target: company.room.group.departments, text: "Marketing" }
+    do: Look at the GTM room next to HQ · CEO on the company page.
+    expect: GTM's room head is teal and reads as a different room from HQ's yellow one; Marketing inside it is still pink.
+    why: The owner asked for GTM to stop looking like HQ (CEO chat, 2026-10-31).
+    targets: [company.room.head.hq, company.room.head.group, company.room.group]

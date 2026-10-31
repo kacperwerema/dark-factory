@@ -1,0 +1,93 @@
+session: classic-gaps-station
+issue: ui/classic-page-gaps-move-what-still-lives-only-on-classic1-pages-into-the-workshop-board
+title: The station does what only the classic issue page did
+scenario: classic-gaps-station
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a JS hook on the station's stamp form (not this issue's).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: Priority, Version and a new label save from the Fields card; Rename changes the title
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    act:
+      - select: { target: station.field.priority, value: high }
+      - wait_for: { text_contains: { target: station.fields, text: Saved }, ms: 6000 }
+      - type: { target: station.field.version, text: "0.2", enter: true }
+      - wait: 600
+      - type: { target: station.field.label_input, text: urgent, enter: true }
+      - wait: 600
+      - click: station.rename
+      - type: { target: station.rename.input, text: "Label printer v2", enter: true }
+      - wait_for: { text_contains: { target: station.title, text: "Label printer v2" }, ms: 8000 }
+    checks:
+      - issue: { slug: shop/label-printer, field: priority, equals: high }
+      - issue: { slug: shop/label-printer, field: version, equals: "0.2" }
+      - issue: { slug: shop/label-printer, field: title, equals: "Label printer v2" }
+      - text_contains: { target: station.field.labels, text: urgent }
+
+  - id: TP5
+    title: Picking a status in Fields shows the transition preview, and Move moves the issue
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    act:
+      - select: { target: station.field.status, value: testing }
+      - wait_for: { visible: station.move_preview, ms: 6000 }
+      - check: { text_contains: { target: station.move_preview, text: "in progress → testing" } }
+      - click: station.move_preview.go
+      - wait_for: { text_contains: { target: station.move_preview, text: "Moved to testing" }, ms: 8000 }
+    checks:
+      - issue: { slug: shop/label-printer, field: status, equals: testing }
+    targets:
+      - { id: station.field.status, note: the Status select in the Fields card }
+      - { id: station.move_preview, note: what the move needs, before it happens }
+    do: |
+      1. Open Label printer's station.
+      2. In the Fields card on the right, pick "testing" in Status.
+      3. Read the box that opens under the fields, then press Move.
+    expect: |
+      A box says "in progress → testing" and lists what the workflow checks.
+      Move moves the issue: "Moved to testing", and after the reload the
+      belt and the Status field show testing.
+    why: ux-test sees the move; only you can say the preview reads as a clear "this is what happens".
+
+  - id: TP6
+    title: The body shows by section, a box ticks in the file, and Edit saves the body
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer#body-steps
+    act:
+      - check: { visible: [station.fullbody, station.fullbody.section.steps, station.fullbody.box.0] }
+      - click: station.fullbody.box.0
+      - wait_for: { text_contains: { target: station.fullbody, text: Saved }, ms: 6000 }
+      - click: station.fullbody.edit
+      - type: { target: station.fullbody.textarea, text: "Print a label for every paid order.\n\n## Steps\n\n- [x] Print a test label\n- [ ] Cut the label at the right edge\n- [ ] Stick it on the parcel" }
+      - click: station.fullbody.save
+      - wait_for: { text_contains: { target: station.fullbody, text: "Stick it on the parcel" }, ms: 8000 }
+    checks:
+      - issue: { slug: shop/label-printer, body_contains: "- [x] Print a test label" }
+      - issue: { slug: shop/label-printer, body_contains: "Stick it on the parcel" }
+
+  - id: TP7
+    title: Brief, relations, dispatch buttons and the delete confirm show; Keep it closes the confirm
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/issue/shop/label-printer
+    act:
+      - check: { visible: [station.brief, station.relations, station.relations.depends_on, station.dispatch.claude, station.dispatch.codex, station.dispatch.prompt, station.approving] }
+      - check: { text_contains: { target: station.brief, text: "Print a shipping label for every paid order." } }
+      - check: { text_contains: { target: station.relations.depends_on, text: "shop/paper-roll" } }
+      - click: station.delete
+      - wait_for: { visible: station.delete.confirm, ms: 3000 }
+      - click: station.delete.keep
+      - wait_for: { hidden: station.delete.confirm, ms: 3000 }
+    checks:
+      - issue: { slug: shop/label-printer, field: title, equals: "Label printer" }
+      - http: { path: '/p/{project}/issue/shop/label-printer', status: 200, contains: 'href="#body-steps"' }

@@ -7,7 +7,7 @@ func init() {
 		"yolo.switch",
 		"yolo.count",
 		"yolo.band",
-		"yolo.band.passed",
+		"yolo.band.passed", "yolo.band.never",
 		"yolo.band.extend",
 		"yolo.band.off",
 		"yolo.dialog",

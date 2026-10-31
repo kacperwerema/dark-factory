@@ -119,9 +119,17 @@ func TestProjectPages_StatusShowsProjectPageWithTabs(t *testing.T) {
 	}
 
 	builtin := pageGet(t, ts.URL+"/p/atlas/status?view=builtin")
-	for _, want := range []string{`data-testid="status.milestone"`, `class="status-tab active" data-testid="status.tab.builtin"`} {
+	// The Built-in tab is the Report, with Project page | Report on top.
+	for _, want := range []string{`data-testid="report.page"`, `href="/p/atlas/status" data-testid="view.project"`, `aria-current="page" data-testid="view.builtin">Report</span>`,
+		`href="/p/atlas/status?view=builtin&amp;classic=1" data-testid="report.classic"`} {
 		if !strings.Contains(builtin, want) {
 			t.Errorf("/status?view=builtin missing %s", want)
+		}
+	}
+	classic := pageGet(t, ts.URL+"/p/atlas/status?view=builtin&classic=1")
+	for _, want := range []string{`data-testid="status.milestone"`, `class="status-tab active" data-testid="status.tab.builtin"`} {
+		if !strings.Contains(classic, want) {
+			t.Errorf("/status?view=builtin&classic=1 missing %s", want)
 		}
 	}
 	if md := pageGet(t, ts.URL+"/p/atlas/status.md"); !strings.HasPrefix(md, "#") || strings.Contains(md, "<iframe") {
@@ -191,8 +199,17 @@ func TestProjectPages_RawRoute(t *testing.T) {
 	}
 	req := mustReq(t, "GET", base+"docs/status/style.css")
 	req.Header.Set("Origin", "null")
+	req.Header.Set("Referer", "http://"+req.Host+"/")
 	if resp, _ := pageResp(t, req); resp.Header.Get("Access-Control-Allow-Origin") != "null" {
 		t.Errorf("ACAO for the sandboxed page = %q, want null", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+	// Any site's sandboxed frame sends Origin: null too; its Referer is
+	// the other site, so it can't read the page's files.
+	req = mustReq(t, "GET", base+"docs/status/style.css")
+	req.Header.Set("Origin", "null")
+	req.Header.Set("Referer", "https://attacker.example/")
+	if resp, _ := pageResp(t, req); resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("ACAO for another site's sandboxed frame = %q, want none", resp.Header.Get("Access-Control-Allow-Origin"))
 	}
 
 	for _, bad := range []string{

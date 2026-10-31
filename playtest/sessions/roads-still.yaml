@@ -1,0 +1,45 @@
+session: roads-still
+issue: ui/roads-between-departments-the-map-shows-roads-with-work-moving-on-them-instead-of-dependency-lines
+title: With reduced motion the roads stand still and show their counts; a road explains itself and opens its list
+scenario: company-scale
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  reduced_motion: true
+
+steps:
+  - id: TP3
+    title: Reduced motion draws no moving parcels; each road with traffic shows its counts instead
+    proves: [AC2]
+    setup:
+      - open: /p/acme/company
+    act:
+      - wait_for: { visible: company.connections.tally }
+    checks:
+      - count: { pattern: company.connections.parcel, equals: 0 }
+      - count: { pattern: company.connections.tally, equals: 19 }
+    targets: [company.connections.tally]
+
+  - id: TP4
+    title: Hovering a road's counts names the road and what it carries under the floor
+    proves: [AC3]
+    from: TP3
+    act:
+      - hover: company.connections.tally
+    checks:
+      - text_contains: { target: company.connections.focus, text: "Marketing ⇄ Design: 1 request, 1 dependency open · not declared · open it for the list" }
+    targets: [company.connections.tally, company.connections.focus]
+
+  - id: TP5
+    title: Clicking a road opens the connections page on that pair
+    proves: [AC3]
+    from: TP3
+    act:
+      - click: company.connections.tally
+      - wait_for: { visible: connections.page }
+    checks:
+      - url: { matches: "^/p/acme/connections\\?from=marketing&to=design" }
+      - text_contains: { target: connections.page, text: "Marketing → Design" }
+    targets: [connections.page]

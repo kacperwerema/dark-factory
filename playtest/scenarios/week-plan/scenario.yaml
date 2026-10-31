@@ -1,0 +1,26 @@
+# A group's week: GTM over Marketing, GTM's goal moved this week, a
+# Marketing output waiting on review, a request GTM filed with Marketing, a
+# Marketing issue blocked on Product, and the week report that
+# `issue-cli department week gtm --write` wrote from them (with the run
+# issue's ## Week plan) under tracker/.reports/gtm/.
+title: A group's week report in its room and on its page
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: GTM
+        color: "#F2A541"
+        role: Go to market
+        mission: A steady pipeline of new clients
+        goals:
+          - {id: pipeline, name: New client conversations, target: 8, period: month}
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content
+        systems: [SEO]
+        parent: GTM
+        goals:
+          - {id: pages, name: Client pages refreshed, target: 10, period: week}
+issues: tracker
+workflow: workflow.yaml

@@ -56,6 +56,9 @@ func TestStatsWbPageRenders(t *testing.T) {
 		`data-testid="stats.drilldown"`, `/issue/fix-it?tab=timeline`, `data-testid="stats.table.time"`, "<summary>Table</summary>",
 		`data-testid="stats.cost"`, `data-testid="stats.table_card.dispatch"`, `data-testid="stats.table_card.static"`, `data-testid="stats.table_card.recorded"`,
 		`data-testid="stats.cli"`, `data-testid="stats.tables"`, `data-testid="stats.fold.time"`, `data-testid="stats.table_card.approvals"`,
+		// Moved from the classic page: the way to every project's stats, the
+		// remembered-options note, the time split rules.
+		`href="/stats" data-testid="stats.all"`, `data-testid="stats.saved"`, `data-testid="stats.time_rules"`, "less than 15 min apart",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("stats page lacks %s", want)
@@ -90,12 +93,11 @@ func TestStatsWbEmptyProject(t *testing.T) {
 	defer ts.Close()
 
 	var page string
-	for i := 0; ; i++ {
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 		_, page = getBody(t, ts.URL+"/p/test-project/stats")
-		if !strings.Contains(page, "Still counting") || i > 50 {
+		if !strings.Contains(page, "Still counting") || time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 	for _, want := range []string{
 		"No health snapshot yet", `data-testid="stats.backfill_hint"`,
@@ -166,6 +168,8 @@ func TestStatsOverviewWb(t *testing.T) {
 		`aria-current="true" data-testid="seg.overview-range.7d"`, `data-testid="seg.overview-sort.done"`,
 		`data-testid="stats.overview.none"`, "No snapshot yet: Fresh.", `data-copy="issue-cli --project &lt;slug&gt; health snapshot"`,
 		`href="/stats?classic=1&amp;range=7d&amp;sort=done" data-testid="stats.classic"`,
+		// The backfill command next to the snapshot one (classic-page-gaps).
+		`data-copy="issue-cli --project &lt;slug&gt; health backfill"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("overview lacks %s", want)
