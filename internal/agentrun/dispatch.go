@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/routing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // StatusWaitingOnGate is the Response status of a dispatch refused because
@@ -63,6 +63,7 @@ func DispatchSpec(proj *tracker.Project, issue *tracker.Issue, agentType, workDi
 		Worktree:     tracker.IssueWorktree(workDir, issue, wf),
 		Workflow:     wf,
 		RepromptHint: RepromptHint(proj, issue.Slug),
+		Decisions:    workerInjected(tracker.BriefingDispatch, issue.Slug, dp.DecisionRefs),
 	}, nil
 }
 
@@ -90,6 +91,9 @@ func Reprompt(proj *tracker.Project, issue *tracker.Issue, workDir string) Respo
 	switch response.Status {
 	case "sent":
 		response.Status = "reprompted"
+		if in := workerInjected(tracker.BriefingReprompt, issue.Slug, dp.DecisionRefs); in != nil {
+			tracker.WarnInjected(proj.IssueDir, *in, time.Now())
+		}
 	case "no-session":
 		response.Steps = []Step{{
 			Name:   "No live agent session",
@@ -98,4 +102,14 @@ func Reprompt(proj *tracker.Project, issue *tracker.Issue, workDir string) Respo
 		}}
 	}
 	return response
+}
+
+// workerInjected is the injected event for a worker briefing on slug; nil
+// when its block carried no decision.
+func workerInjected(briefing, slug string, refs []string) *tracker.Injected {
+	if len(refs) == 0 {
+		return nil
+	}
+	return &tracker.Injected{Briefing: briefing, Issue: slug, Refs: refs,
+		Actor: tracker.DecisionActor{Name: tracker.AgentSessionName(slug), Role: string(tracker.RoleWorker)}}
 }

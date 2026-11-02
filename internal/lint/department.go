@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // checkDepartment checks each department's own workflow file: that it

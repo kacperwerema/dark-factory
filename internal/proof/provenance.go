@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // headRow is one recorded branch head: an issue's work branch at a

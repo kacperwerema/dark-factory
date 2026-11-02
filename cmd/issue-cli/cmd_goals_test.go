@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/goals"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func goalNum(v float64) *float64 { return &v }

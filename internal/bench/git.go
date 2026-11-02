@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // git runs git in dir with a clean identity: no global config (hooks,

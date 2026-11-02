@@ -1,0 +1,24 @@
+id: failure-hints
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/helpers.go"]
+title: "Custom failure hints"
+what: |
+  `hint:` on a validate action replaces the default failure message with the exact
+  fix, templated with {{slug}}/{{number}}/{{repo}}/{{system}}.
+why: |
+  A blocked agent gets the command that unblocks it instead of guessing.
+where: "transitions[].actions[].hint"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "in progress"
+      actions:
+        - type: "validate"
+          rule: "has_section"
+          section: "Repro"
+          hint: "issue-cli append {{slug}} --body \"## Repro\\n<steps>\""
+question: "Are there gates agents keep tripping on where a specific fix message would help?"
+detect:
+  - path: transitions[].actions[].hint

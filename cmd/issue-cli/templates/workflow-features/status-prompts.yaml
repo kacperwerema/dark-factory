@@ -1,0 +1,22 @@
+id: status-prompts
+version: v0.36.0
+category: lifecycle
+propose: false
+sources: ["internal/tracker/workflow_config.go#WorkflowStatus", "internal/tracker/dispatch_prompt.go"]
+title: "Per-status agent guidance"
+what: |
+  `statuses[].prompt` is shown to the agent when an issue enters that status
+  (start, transition, dispatch briefing).
+why: |
+  Tells the agent what "done" means at each step without repeating it in every
+  dispatch prompt.
+where: "statuses[].prompt"
+snippet: |
+  statuses:
+    - name: "in progress"
+      description: "Being implemented"
+      prompt: |
+        Implement the approved design. Keep the Implementation checklist current.
+question: "Which statuses need written guidance for the agent, and what should it say?"
+detect:
+  - path: statuses[].prompt

@@ -22,10 +22,10 @@ func TestParseSecretRef(t *testing.T) {
 	}
 	for raw, want := range map[string]string{
 		"fake-pasted-value-123": "looks like a secret value",
-		"env:1BAD":             "env: wants a variable name",
-		"env:":                 "env: wants a variable name",
-		"keychain:":            "keychain: wants a service name",
-		"vault:prod/acme":      "not env:<VAR> or keychain:<service>",
+		"env:1BAD":              "env: wants a variable name",
+		"env:":                  "env: wants a variable name",
+		"keychain:":             "keychain: wants a service name",
+		"vault:prod/acme":       "not env:<VAR> or keychain:<service>",
 	} {
 		_, err := ParseSecretRef(raw)
 		if err == nil || !strings.Contains(err.Error(), want) {

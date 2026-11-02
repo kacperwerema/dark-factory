@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // DataFile is the collector's store inside its data dir.

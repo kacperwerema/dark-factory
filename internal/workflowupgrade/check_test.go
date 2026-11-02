@@ -3,7 +3,13 @@ package workflowupgrade
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
+
+// catalogList is a test-only key: a fixture catalog written as one entries:
+// list, which fakeBranch serves as one file per entry under CatalogPath.
+const catalogList = "<catalog list>"
 
 const checkCatalog = `entries:
   - id: health-tuning
@@ -24,12 +30,50 @@ func checkRule() string { return "a" }
 func other() string { return "x" }
 `
 
-// fakeBranch serves base and head content from maps; head defaults to the
-// catalog above.
-func fakeBranch(changed []string, base, head map[string]string, trailers ...string) Branch {
-	if _, ok := head[CatalogPath]; !ok {
-		head[CatalogPath] = checkCatalog
+// expandCatalog replaces m[catalogList] with one file per entry and returns
+// the file names.
+func expandCatalog(m map[string]string) []string {
+	list, ok := m[catalogList]
+	if !ok {
+		return nil
 	}
+	delete(m, catalogList)
+	var doc struct {
+		Entries []yaml.Node `yaml:"entries"`
+	}
+	if err := yaml.Unmarshal([]byte(list), &doc); err != nil {
+		panic(err)
+	}
+	var names []string
+	for _, n := range doc.Entries {
+		var e struct {
+			ID       string `yaml:"id"`
+			Category string `yaml:"category"`
+		}
+		if err := n.Decode(&e); err != nil {
+			panic(err)
+		}
+		if e.Category == "" { // a known one, so catalog-check's own checks pass
+			n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "category"}, &yaml.Node{Kind: yaml.ScalarNode, Value: "board"})
+		}
+		data, err := yaml.Marshal(&n)
+		if err != nil {
+			panic(err)
+		}
+		m[CatalogPath+"/"+e.ID+".yaml"] = string(data)
+		names = append(names, e.ID+".yaml")
+	}
+	return names
+}
+
+// fakeBranch serves base and head content from maps; head's catalog
+// defaults to the one above.
+func fakeBranch(changed []string, base, head map[string]string, trailers ...string) Branch {
+	if _, ok := head[catalogList]; !ok {
+		head[catalogList] = checkCatalog
+	}
+	names := expandCatalog(head)
+	expandCatalog(base)
 	get := func(m map[string]string) func(string) ([]byte, bool) {
 		return func(p string) ([]byte, bool) {
 			s, ok := m[p]
@@ -40,7 +84,13 @@ func fakeBranch(changed []string, base, head map[string]string, trailers ...stri
 	for _, v := range trailers {
 		ts = append(ts, Trailer{Commit: "abc1234", Value: v})
 	}
-	return Branch{Changed: changed, Base: get(base), Head: get(head), Trailers: ts}
+	dir := func(d string) []string {
+		if d == CatalogPath {
+			return names
+		}
+		return nil
+	}
+	return Branch{Changed: changed, Base: get(base), Head: get(head), HeadDir: dir, Trailers: ts}
 }
 
 func entryStates(rep *CheckReport) string {
@@ -70,7 +120,7 @@ func TestCheckBranchAsksForABump(t *testing.T) {
 
 func TestCheckBranchPassesABumpOrATrailer(t *testing.T) {
 	bumped := fakeBranch([]string{"internal/tracker/health.go"}, map[string]string{}, map[string]string{
-		CatalogPath: strings.Replace(checkCatalog, "version: v0.53.0", "version: v0.54.0", 1),
+		catalogList: strings.Replace(checkCatalog, "version: v0.53.0", "version: v0.54.0", 1),
 	})
 	rep, err := CheckBranch(bumped, "v0.53.0")
 	if err != nil {
@@ -126,7 +176,7 @@ func TestCheckBranchIgnoresUnlocks(t *testing.T) {
 	if withUnlocks == checkCatalog {
 		t.Fatal("test catalog didn't change")
 	}
-	b := fakeBranch([]string{CatalogPath}, map[string]string{CatalogPath: checkCatalog}, map[string]string{CatalogPath: withUnlocks})
+	b := fakeBranch([]string{CatalogPath + "/health-tuning.yaml"}, map[string]string{catalogList: checkCatalog}, map[string]string{catalogList: withUnlocks})
 	rep, err := CheckBranch(b, "v0.53.0")
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +239,7 @@ func TestCheckBranchTemplatesNeedAStampBump(t *testing.T) {
 
 func TestCheckBranchNeedsTheCatalog(t *testing.T) {
 	b := Branch{Head: func(string) ([]byte, bool) { return nil, false }, Base: func(string) ([]byte, bool) { return nil, false }}
-	if _, err := CheckBranch(b, "v0.53.0"); err == nil || !strings.Contains(err.Error(), "issue-viewer repository") {
+	if _, err := CheckBranch(b, "v0.53.0"); err == nil || !strings.Contains(err.Error(), "dark-factory repository") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -237,7 +287,7 @@ func TestCheckBranchExemptTestOnly(t *testing.T) {
 		"internal/health/testdata/snap.json",
 		"cmd/playtest/scenario_test.go",
 		"playtest/scenarios/status/scenario.yaml",
-	}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+	}, map[string]string{}, map[string]string{catalogList: playtestCatalog})
 	rep, err := CheckBranch(b, "v0.53.0")
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +298,7 @@ func TestCheckBranchExemptTestOnly(t *testing.T) {
 }
 
 func TestCheckBranchExemptFixtureKeysNotSessionKeys(t *testing.T) {
-	fixture := fakeBranch([]string{"cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+	fixture := fakeBranch([]string{"cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{catalogList: playtestCatalog})
 	rep, err := CheckBranch(fixture, "v0.53.0")
 	if err != nil {
 		t.Fatal(err)
@@ -257,7 +307,7 @@ func TestCheckBranchExemptFixtureKeysNotSessionKeys(t *testing.T) {
 		t.Errorf("fixture-only: states = %q, ok = %v", got, rep.OK())
 	}
 	for _, f := range []string{"cmd/playtest/session.go", "cmd/playtest/vocab.go"} {
-		session := fakeBranch([]string{f, "cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{CatalogPath: playtestCatalog})
+		session := fakeBranch([]string{f, "cmd/playtest/scenario.go"}, map[string]string{}, map[string]string{catalogList: playtestCatalog})
 		rep, err := CheckBranch(session, "v0.53.0")
 		if err != nil {
 			t.Fatal(err)

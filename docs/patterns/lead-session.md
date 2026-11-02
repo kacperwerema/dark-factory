@@ -5,7 +5,7 @@ order: 1
 
 The **CEO** is what was called the project lead: the viewer and issue-cli say CEO, while the tmux name (`lead-<project>`), the `issue-cli lead` command (alias `issue-cli ceo`), the `/lead` pages (`/ceo` redirects there) and the `lead_terminal` / `lead_window_session` keys keep the old name.
 
-A way to run several agents on one project without the human talking to each of them. The tool knows about **lead agents**: it spawns them, names them, routes workers to them and shows them on the agents canvas. Raid League, a game built this way, is the worked example at the end.
+A way to run several agents on one project without the human talking to each of them. The tool knows about **lead agents**: it spawns them, names them, routes workers to them and shows them on the agents canvas. Siege Cup, a game built this way, is the worked example at the end.
 
 ## The roles
 
@@ -151,6 +151,9 @@ The dispatch prompt and the status prompts in `workflow.yaml` already tell worke
 
 - Commit process changes (`CLAUDE.md`, `workflow.yaml`) first: worktrees branch from the checkout's `HEAD`, so workers read whatever is committed there.
 - Dispatch only when you say so in the lead's chat, and only the issues you name: `issue-cli dispatch <slug> --quote "<your words>"`, one call per issue (the same as ▶ on the board; `--agent codex`, `--reprompt --quote` to re-send a live worker's briefing), never with raw HTTP. Without `--quote` it starts nothing; each dispatch leaves `dispatch: "<words>" (lead chat, <date>)` on the issue. For an epic the lead proposes which children to start, you say which, and it dispatches exactly those; starting more later needs a new instruction. It never dispatches when planning finishes or picks the next issue on its own. See [A human starts the work](../agent-dispatch.md#a-human-starts-the-work).
+- Put your rules for the worker in its issue, not only in a message: `issue-cli append <slug> --section "Lead rules" --body "- …"` before dispatch (the section is made when missing). The worker reads the body at `start` and `show`, so the rules survive a restart and are there for the review; a `SendMessage` can only point at them.
+- A scope change mid-issue is a box, not a message: append the criterion (`issue-cli append <slug> --section "Acceptance criteria" --body "- [ ] …"`) and record why with a `D-n` (`issue-cli decide <slug> …`). Then message the worker naming the box and the `D-n`. A cut scope is a `D-n` too, sent early: code already written for the cut part is wasted.
+- When you give a boxes rule, it reads: owner boxes and other issues' boxes are untouched; your own Implementation/Testing/Shipping boxes are yours to tick as you finish them. A blanket "don't tick any box" contradicts the worker's own gates.
 - Don't dispatch onto a pending gate. When the issue only waits for your approval, `issue-cli dispatch` and ▶ refuse (exit 3, the gate named); ask for the approval instead, since a worker would claim the issue and stop. `--force` overrides it.
 
 ### Handoff and restarts
@@ -175,9 +178,9 @@ An epic may still carry `base:` or `lead:` from when each epic had its own branc
 
 The [issues canvas](../UI/overview.md#issues-canvas) shows epics with their children and roll-up progress per version. To show the human an epic's state, send `/p/<project>/canvas?hl=<epic slug>`.
 
-## Worked example: Raid League
+## Worked example: Siege Cup
 
-Raid League is a football-manager-style game about a fantasy siege tourney, built in Godot and C# by one person and Claude agents since September 2026. It ran this pattern on one board project, starting as a convention before leads were part of the tool:
+Siege Cup (a stand-in name) is a football-manager-style game, built in Godot and C# by one person and Claude agents since September 2026. It ran this pattern on one board project, starting as a convention before leads were part of the tool:
 
 - **235 issues**, a **710-line `workflow.yaml`** with ten statuses and 13 system overlays, and three board buttons (*Balance report*, *Speed sweep*, *Idea sweep*).
 - **Four human gates**: discussion → design, design → backlog, starting work, and playtest → documentation. The lead may tick discussion → design once every question was answered by the human and recorded, and any gate the human approves in its chat, always after an `approval:` comment.
@@ -185,7 +188,7 @@ Raid League is a football-manager-style game about a fantasy siege tourney, buil
 - **Retros** from every worker are swept by the lead, which fixes the process and files tool issues; swept files move to `retros/archive/`.
 - **An epic** (a new game mode) staged around 18 child issues on its own experiment branch, before the tool settled on one lead and children shipping to `main`.
 
-![Raid League's ten statuses, each with the check that guards it; four of them need a human](../images/lifecycle.png)
+![Siege Cup's ten statuses, each with the check that guards it; four of them need a human](../images/lifecycle.png)
 
 One issue there, replayed from its logs, went from discussion to pushed in 3 h 50 m with four approvals and a few chat answers:
 

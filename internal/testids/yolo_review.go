@@ -15,6 +15,7 @@ func init() {
 		"yolo_review.check.tick",
 		"yolo_review.check.agree",
 		"yolo_review.question",
+		"yolo_review.decision",
 		"yolo_review.words",
 		"yolo_review.msg",
 		"yolo_review.agree",

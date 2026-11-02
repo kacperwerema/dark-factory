@@ -1,0 +1,34 @@
+id: parked-status
+version: v0.36.0
+category: lifecycle
+propose: true
+templates: [development]
+sources: ["internal/tracker/workflow_transition.go#IsValidTransition", "internal/tracker/workflow_types.go"]
+title: "Parked statuses (blocked / deferred)"
+what: |
+  A status marked `optional: true` and `global: true`, reachable from anywhere with a
+  `from: "*"` transition that collects a reason via declarative `fields:`. Issues can
+  leave it to any status.
+why: |
+  Gives blocked or deferred work a visible column with a recorded reason, without
+  enumerating edges from every status.
+where: "a new entry in statuses: (and board.columns), plus a from: \"*\" transition"
+snippet: |
+  statuses:
+    - name: "deferred"
+      description: "Parked — captured for later"
+      optional: true
+      global: true
+  transitions:
+    - from: "*"
+      to: "deferred"
+      fields:
+        - name: "deferral_reason"
+          prompt: "Reason for deferral"
+          target: "section:Deferred Record"
+          type: "multiline"
+          required: true
+question: "Do you want a parked status for blocked or deferred work? What should it be called, and should it ask for a reason?"
+detect:
+  - path: statuses[].global
+    equals: true

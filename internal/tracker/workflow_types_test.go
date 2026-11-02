@@ -10,12 +10,12 @@ import (
 	"testing"
 )
 
-// loadRaidTypes builds the Raid League fixture: testdata/raid_base.yaml plus
+// loadGameTypes builds the Siege Cup fixture: testdata/game_base.yaml plus
 // the types: block from the worked example in docs/Workflow/types.md, so the
 // documented example is what the tests exercise.
-func loadRaidTypes(t *testing.T) *WorkflowConfig {
+func loadGameTypes(t *testing.T) *WorkflowConfig {
 	t.Helper()
-	base, err := os.ReadFile("testdata/raid_base.yaml")
+	base, err := os.ReadFile("testdata/game_base.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestForIssue_NoTypesMatchesForSystem(t *testing.T) {
 }
 
 func TestForType_TweakPath(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	tweak := wf.ForType("tweak")
 
 	if got, want := tweak.GetStatusOrder(), []string{"idea", "in progress", "playtest", "shipping", "done", "obsolete"}; !reflect.DeepEqual(got, want) {
@@ -142,7 +142,7 @@ func TestForType_TweakPath(t *testing.T) {
 }
 
 func TestForType_ReplaceDropsBaseActions(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	epic := wf.ForType("epic")
 
 	tr := epic.GetTransition("backlog", "in progress")
@@ -175,7 +175,7 @@ func TestForType_ReplaceDropsBaseActions(t *testing.T) {
 }
 
 func TestForIssue_SystemOverlayRespectsTypePath(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	scoped := wf.ForIssue(&Issue{Type: "tweak", System: "UI", Status: "idea"})
 
 	if scoped.GetStatus("discussion") != nil || scoped.GetStatus("balance") != nil {
@@ -201,7 +201,7 @@ func TestForIssue_SystemOverlayRespectsTypePath(t *testing.T) {
 }
 
 func TestForIssue_OffPathRescue(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	scoped := wf.ForIssue(&Issue{Type: "tweak", Status: "discussion"})
 
 	if scoped.OffPathStatus != "discussion" {
@@ -223,7 +223,7 @@ func TestForIssue_OffPathRescue(t *testing.T) {
 }
 
 func TestResolveType(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	cases := []struct {
 		in, want string
 		known    bool
@@ -255,7 +255,7 @@ func TestResolveType(t *testing.T) {
 }
 
 func TestCheckTransitionOrder_NamesTypePath(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	err := wf.ForType("tweak").CheckTransitionOrder("idea", "discussion")
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("want ErrInvalidTransition, got %v", err)
@@ -267,14 +267,14 @@ func TestCheckTransitionOrder_NamesTypePath(t *testing.T) {
 }
 
 func TestLint_DocExampleIsClean(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	if got := wf.Lint(); len(got) != 0 {
 		t.Errorf("worked example lint warnings:\n%s", strings.Join(got, "\n"))
 	}
 }
 
 func TestLint_BrokenType(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	wf.DefaultType = "nope"
 	wf.Types["broken"] = WorkflowType{
 		// No edge into shipping appends Shipping; "review" is not a status;
@@ -308,7 +308,7 @@ func TestLint_BrokenType(t *testing.T) {
 }
 
 func TestLint_MissingDefaultType(t *testing.T) {
-	wf := loadRaidTypes(t)
+	wf := loadGameTypes(t)
 	wf.DefaultType = ""
 	got := strings.Join(wf.Lint(), "\n")
 	if !strings.Contains(got, "default_type is not set") {

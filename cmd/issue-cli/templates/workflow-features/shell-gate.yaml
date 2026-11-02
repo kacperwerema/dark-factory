@@ -1,0 +1,31 @@
+id: shell-gate
+version: v0.36.0
+category: gates
+propose: true
+templates: [development]
+sources: ["internal/tracker/validations/command_succeeds.go"]
+title: "Shell command gates (command_succeeds)"
+what: |
+  `allow_shell: true` enables the `command_succeeds` validator, so a transition can
+  require a command (e.g. the test suite) to exit 0.
+why: |
+  Turns "tests pass" from a checkbox the agent ticks into something the engine
+  checks.
+where: "new top-level allow_shell: true, plus a validate action on the gated transition"
+snippet: |
+  allow_shell: true
+  transitions:
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "validate"
+          rule: "command_succeeds"
+          command: "cd .. && make test"   # runs in the issues directory
+          timeout_seconds: 300
+          hint: "make the test suite pass before moving to testing"
+question: "Should any transition require a command to pass (e.g. tests before testing)? Which command, on which transition?"
+detect:
+  - path: allow_shell
+    equals: true
+  - path: transitions[].actions[].rule
+    rule_in: [command_succeeds]

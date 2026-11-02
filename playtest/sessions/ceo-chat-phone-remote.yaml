@@ -1,0 +1,105 @@
+session: ceo-chat-phone-remote
+issue: ui/ceo-chat-on-the-phone-voice-input-uploads-from-the-camera-roll-a-switcher-over-every-projects-and-departments-lead-chat
+title: "The CEO chat from a phone: the box above the keyboard, dictation, the camera, More keys"
+scenario: leads
+
+# The lead is faked on the scenario's private tmux server with cat, which
+# echoes whatever the chat pastes, as in ceo-chat.yaml. Steps install stubs
+# (cmd/playtest/stubs.go): keyboard (visualViewport shrinks while the box
+# has focus, the layout viewport does not), speech-recognition (hears
+# "status please", then "late words" after stop/abort; counts non-GET
+# /lead/ fetches in playtest.lead_posts) and no-speech-recognition.
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  layout_ignore: [playtest.keyboard, playtest.lead_posts]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: With the keyboard up, the box and Send stay above it and the keys row hides
+    proves: [AC1]
+    stubs: [keyboard]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Resume the overnight work.' '' '⏺ Two workers are back.' '' '⏺ Should I start the rename now?'; exec cat"]
+      - open: /p/{project}/lead
+    act:
+      - click: lead_chat.text
+      - wait: 300
+    checks:
+      - visible: [playtest.keyboard, lead_chat.text, lead_chat.send]
+      - below: [lead_chat.send, playtest.keyboard]
+      - below: [lead_chat.text, playtest.keyboard]
+      - hidden: lead_chat.key.escape
+
+  - id: TP5
+    title: The mic fills the box from the recognizer and sends nothing; Send sends the words once and drops the late result
+    proves: [AC2]
+    stubs: [speech-recognition]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - check: { visible: [lead_chat.mic, lead_chat.mic_lang] }
+      - click: lead_chat.mic
+      - wait_for: { value_equals: { target: lead_chat.text, value: "status please" } }
+      - wait: 500
+      - check: { text_equals: { target: playtest.lead_posts, text: "0" } }
+      - check: { tmux: { pane: lead-crew, not_contains: "status please" } }
+      - click: lead_chat.send
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
+      - wait: 600
+    checks:
+      - value_equals: { target: lead_chat.text, value: "" }
+      - text_equals: { target: playtest.lead_posts, text: "1" }
+      - tmux: { pane: lead-crew, contains: "status please" }
+      - tmux: { pane: lead-crew, not_contains: "late words" }
+      - hidden: lead_chat.mic_state
+
+  - id: TP6
+    title: Without speech recognition there is no mic and no language chip
+    proves: [AC2]
+    stubs: [no-speech-recognition]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    checks:
+      - hidden: [lead_chat.mic, lead_chat.mic_lang]
+      - visible: [lead_chat.attach_image, lead_chat.send]
+
+  - id: TP7
+    title: A camera photo attaches as an image and, sent, shows in your turn; an undecodable HEIC goes the file way
+    proves: [AC3]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - upload: { target: lead_chat.camera_input, path: attach/photo.jpg }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - check: { count: { pattern: lead_chat.image, equals: 1 } }
+      - upload: { target: lead_chat.camera_input, path: attach/IMG_0007.heic }
+      - wait_for: { count: { pattern: lead_chat.file, equals: 1 } }
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Attached." } }
+      - type: { target: lead_chat.text, text: "the hall board" }
+      - click: lead_chat.send
+      - wait_for: { text_contains: { target: lead_chat.status, text: "Sent to" } }
+    checks:
+      - tmux: { pane: lead-crew, contains: "[Image: " }
+      - tmux: { pane: lead-crew, contains: "IMG_0007.heic" }
+      - count: { pattern: lead_chat.image, equals: 0 }
+
+  - id: TP9
+    title: More shows the rest of the session keys at 390px, each at least 44px tall
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, cat]
+      - open: /p/{project}/lead
+    act:
+      - check: { hidden: [lead_chat.key.ctrl_c, lead_chat.key.expand] }
+      - click: lead_chat.keys_more
+    checks:
+      - visible: [lead_chat.key.send_now, lead_chat.key.expand, lead_chat.key.background, lead_chat.key.ctrl_c, lead_chat.mode_switch]
+      - size: { target: lead_chat.key.ctrl_c, min_height: 44 }
+      - size: { target: lead_chat.key.expand, min_height: 44 }
+      - size: { target: lead_chat.keys_more, min_height: 44, min_width: 44 }
+      - size: { target: lead_chat.key.escape, min_height: 44, min_width: 44 }

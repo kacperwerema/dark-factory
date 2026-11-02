@@ -25,3 +25,22 @@ func Exempt(p string) bool {
 	}
 	return false
 }
+
+// TextSources are Go files whose string literals and comments are
+// engine-built text no project adopts (the built-in dispatch briefing): a
+// change to that text alone is no catalog entry's change. A change to their
+// code still counts for every entry that lists them.
+var TextSources = []string{
+	"internal/tracker/dispatch_prompt.go",
+}
+
+// TextSource reports whether the repo-relative slash path p matches one of
+// TextSources.
+func TextSource(p string) bool {
+	for _, g := range TextSources {
+		if MatchSource(g, p) {
+			return true
+		}
+	}
+	return false
+}

@@ -1,0 +1,40 @@
+id: measure-after-publish
+version: v0.58.0
+category: lifecycle
+propose: true
+templates: [marketing]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml"]
+title: "Measure what went out"
+what: |
+  A `measure` status after `publish`: the department records its goal values
+  (`issue-cli goal set`) and writes under a Measure section what the piece did,
+  with where the numbers came from. Gated by that section's boxes before `done`.
+  In a file with types, a type that doesn't measure leaves `measure` off its path
+  and adds its own `publish → done` (the marketing template's `piece`).
+why: |
+  Publishing is not the end of a channel's work: without a measure step, goal
+  values and results are left for someone to remember, and progress never moves.
+where: "a new entry in statuses: (and board.columns) after publish; transitions publish → measure (append_section Measure) and measure → done"
+snippet: |
+  statuses:
+    - name: "measure"
+      description: "What the change did: goal values and notes"
+  transitions:
+    - from: "publish"
+      to: "measure"
+      actions:
+        - type: "validate"
+          rule: "section_checkboxes_checked: Published"
+        - type: "append_section"
+          title: "Measure"
+          body: |
+            - [ ] Goal values recorded (issue-cli goal set <department>/<id> <value>)
+    - from: "measure"
+      to: "done"
+      actions:
+        - type: "validate"
+          rule: "section_checkboxes_checked: Measure"
+question: "After something goes out, what should be measured, and where do the numbers come from?"
+detect:
+  - path: statuses[].name
+    equals: measure

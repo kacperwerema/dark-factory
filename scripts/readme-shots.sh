@@ -22,7 +22,7 @@ esac
 repo=$(git rev-parse --show-toplevel)
 cd "$repo"
 # Build first: HOME changes below, and Go keeps its caches under it.
-go build -o .playtest/readme-shots/issue-viewer .
+go build -o .playtest/readme-shots/issue-viewer ./cmd/issue-viewer
 go build -o .playtest/readme-shots/playtest ./cmd/playtest
 viewer="$repo/.playtest/readme-shots/issue-viewer"
 
@@ -77,7 +77,7 @@ vpid=$!
 
 cleanup() {
 	kill "$vpid" 2>/dev/null || true
-	tmuxs kill-server 2>/dev/null || true
+	env -u TMUX tmux -S "$TMUX_TMPDIR/tmux-$(id -u)/default" kill-server 2>/dev/null || true
 	rm -rf "$stage"
 }
 trap cleanup EXIT

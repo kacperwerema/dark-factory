@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/experiment"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // makeExperimentProject is a project with one issue labelled experiment

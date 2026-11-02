@@ -1,0 +1,17 @@
+# The decision ledger on the Stats page. Factory/rules holds five decisions:
+# D-1 project-wide and hard, D-2 replaced by D-3 (issue scope, no quote:
+# provisional), D-4 system:UI and provisional, D-5 type:bugfix expired on
+# 2026-01-01. In force: 3 (issue 1, system 1, project 1), hard 1, soft 2,
+# provisional 2. The audit log (tracker/.decisions/log.jsonl, 2026-10-2x)
+# has four holds (rules#D-1 three times on two issues, one passed under
+# YOLO; rules#D-3 once), three briefings (start 2, dispatch 1) and two
+# challenges, one resolved. One fixture snapshot from 2026-10-20 has the
+# decisions family; steps take a second with `cli: [health, snapshot]` and
+# open ?range=all so the fixed dates stay in range.
+title: Decision ledger counted on the Stats page
+project:
+  name: Ledger Demo
+  slug: ledger
+issues: tracker
+workflow: workflow.yaml
+root: files

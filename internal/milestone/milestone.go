@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func init() {

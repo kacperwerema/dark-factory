@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Schedule is a job's parsed every/on/at.

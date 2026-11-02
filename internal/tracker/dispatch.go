@@ -1,6 +1,6 @@
 package tracker
 
-import "github.com/michal-franc/issue-viewer/internal/tokens"
+import "github.com/kacperwerema/dark-factory/internal/tokens"
 
 // AgentDispatchPromptTemplate is the constant scaffolding text the issue
 // viewer writes into every dispatched agent session's prompt. BuildAgentPrompt
@@ -79,7 +79,7 @@ These are safe to run without asking the user:
 
 ## If you hit a bug in issue-cli or the workflow engine itself, report it:
   issue-cli report-bug "description of what went wrong"
-It becomes a cli-bug issue on the issue-viewer board, or a comment on the
+It becomes a cli-bug issue on the Dark Factory board, or a comment on the
 existing one; the output names the issue. Your project and issue slug are
 attached automatically. Bugs in this project itself go on this board with
 issue-cli create, not report-bug.

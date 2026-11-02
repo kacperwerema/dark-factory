@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var healthCommand = &Command{

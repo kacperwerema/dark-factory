@@ -1,0 +1,11 @@
+{"write":"r1","op":"done","event":"recorded","ref":"factory/rules#D-1","at":"2026-10-01T09:00:00Z","by":"owner","role":"owner-shell"}
+{"write":"h1","op":"done","event":"held","ref":"factory/rules#D-1","at":"2026-10-21T10:00:00Z","rule":"decisions_cited","issue":"ui/decisions-card","from":"idea","to":"backlog","by":"agent-ui-decisions-card","role":"worker"}
+{"write":"h2","op":"done","event":"held","ref":"factory/rules#D-1","at":"2026-10-22T10:00:00Z","rule":"decisions_cited","issue":"ui/decisions-card","from":"idea","to":"backlog","passed":true,"by":"agent-ui-decisions-card","role":"worker"}
+{"write":"h3","op":"done","event":"held","ref":"factory/rules#D-1","at":"2026-10-23T10:00:00Z","rule":"decisions_cited","issue":"factory/rules","from":"idea","to":"backlog","by":"agent-factory-rules","role":"worker"}
+{"write":"h4","op":"done","event":"held","ref":"factory/rules#D-3","at":"2026-10-23T11:00:00Z","rule":"citations_current","issue":"ui/decisions-card","from":"idea","to":"backlog","by":"agent-ui-decisions-card","role":"worker"}
+{"write":"i1","op":"done","event":"injected","ref":"","at":"2026-10-21T09:00:00Z","briefing":"start","issue":"ui/decisions-card","refs":["factory/rules#D-1"],"by":"agent-ui-decisions-card","role":"worker"}
+{"write":"i2","op":"done","event":"injected","ref":"","at":"2026-10-22T09:00:00Z","briefing":"start","issue":"factory/rules","refs":["factory/rules#D-1"],"by":"agent-factory-rules","role":"worker"}
+{"write":"i3","op":"done","event":"injected","ref":"","at":"2026-10-23T09:00:00Z","briefing":"dispatch","issue":"ui/decisions-card","refs":["factory/rules#D-1","factory/rules#D-4"],"by":"lead-ledger","role":"lead"}
+{"write":"c1","op":"done","event":"challenged","ref":"factory/rules#D-1","at":"2026-10-20T09:00:00Z","issue":"ui/decisions-card"}
+{"write":"c2","op":"done","event":"resolved","ref":"factory/rules#D-1","at":"2026-10-20T12:00:00Z"}
+{"write":"c3","op":"done","event":"challenged","ref":"factory/rules#D-4","at":"2026-10-24T09:00:00Z","issue":"ui/decisions-card"}

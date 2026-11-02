@@ -40,6 +40,10 @@ func init() {
 		"decisions.row.*.*.words",
 		"decisions.row.*.*.question",
 		"decisions.row.*.*.yolo",
+		"decisions.row.*.*.hard",
+		"decisions.row.*.*.scope",
+		"decisions.row.*.*.hard_box",
+		"decisions.row.*.*.make_hard",
 		"decisions.hygiene",
 		"decisions.start_ceo",
 	)

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // URLEnv sets the collector URL for one shell, over the settings file.

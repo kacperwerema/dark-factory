@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 )
 
 // Finding is one Workflow-bin finding of a retro (a Base workflow or

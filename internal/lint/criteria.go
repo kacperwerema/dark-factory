@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // A criterion is falsifiable when its text names something that could fail

@@ -30,7 +30,7 @@ proj=$S/proj
 mkdir -p "$S/bin" "$S/state" "$proj/docs"
 # The sandbox viewer records itself in viewer.json under XDG_STATE_HOME: keep it off your real one.
 export XDG_STATE_HOME=$S/state
-go build -o "$S/bin/issue-viewer" . && go build -o "$S/bin/issue-cli" ./cmd/issue-cli || {
+go build -o "$S/bin/issue-viewer" ./cmd/issue-viewer && go build -o "$S/bin/issue-cli" ./cmd/issue-cli || {
 	echo "Build failed."
 	exit 1
 }
@@ -91,7 +91,8 @@ on_exit stop_viewer
 (cd "$proj" && clean_shell sh -c 'echo $$ > "$1"; exec issue-viewer -config "$2" -port "$3"' sh \
 	"$S/viewer.pid" "$S/projects.yaml" "$port") > "$S/viewer.log" 2>&1 &
 viewer_job=$!
-wait_for '/usr/bin/curl -s -o /dev/null "$url/p/sbx/"' || {
+# Up to 30 s: a loaded Mac can take seconds to start a freshly built binary.
+wait_for_url "$url/p/sbx/" 30 || {
 	echo "The viewer didn't start:"
 	cat "$S/viewer.log"
 	exit 1
@@ -124,9 +125,10 @@ wait_for 'ptmux has-session -t =view-lead-sbx 2> /dev/null'
 run ptmux list-sessions -F '#{session_name} group=#{session_group} clients=#{session_attached}'
 expect '[[ $out == *"view-lead-sbx group=sbx clients=1"* ]]' "a view session grouped with sbx, with one client (the tab)"
 sleep 0.5
-run ptmux capture-pane -p -t '=main:3' # the tab's screen
+run ptmux capture-pane -p -J -t '=main:3' # the tab's screen, wrapped lines joined
 screen=$(grep -v '^[[:space:]]*$' <<< "$out")
-expect '[[ $screen == *"0:lead-sbx"* ]] && [[ $screen == *"project lead (lead-sbx)"* ]]' "the tab shows the lead's window and its brief"
+# The brief is longer than the tab: its last line (lead whoami) shows, its Role: line scrolled off.
+expect '[[ $screen == *"0:lead-sbx"* ]] && [[ $screen == *"--project sbx lead whoami shows this role"* ]]' "the tab shows the lead's window and its brief"
 expect '[[ $(ptmux capture-pane -p -S - -t "=sbx:=lead-sbx") == *"STAND-IN CLAUDE"* ]]' "the lead is the stand-in, not a real claude"
 run cli lead list
 expect '[[ $out != *view-lead* ]]' "the view isn't listed as an agent or a lead"
@@ -145,12 +147,12 @@ expect '[ "$out" = "0:shell 3:view-lead-sbx " ]' "still exactly one lead tab"
 
 # ── MV4 ──────────────────────────────────────────────────────────────
 step MV4 "A worker dispatch opens nothing and selects nothing" --box HT5 \
-	--what "the board's Dispatch for issue cli/export-issues-as-csv (POST …/dispatch), with terminal: none." \
+	--what "the board's Dispatch for issue cli/export-issues-as-csv (POST …/dispatch, force: its next gate waits on you), with terminal: none." \
 	--why "workers keep terminal:, so with none they stay out of your way; only their window appears in the project session." \
 	--look "the dispatch steps, then every session's windows and active window before and after." \
 	--expect "\"Terminal: headless\", a new agent window in sbx only, and no active window changed anywhere."
 before=$(ptmux list-windows -a -F '#{session_name}:#{window_name}:#{window_active}' | grep -v agent-cli | sort)
-run post issue/cli/export-issues-as-csv/dispatch '{}'
+run post issue/cli/export-issues-as-csv/dispatch '{"force":true}'
 expect '[[ $out == *"\"status\":\"dispatched\""* ]] && [[ $out == *"Terminal: headless"* ]]' "dispatched headless"
 after=$(ptmux list-windows -a -F '#{session_name}:#{window_name}:#{window_active}' | grep -v agent-cli | sort)
 run windows main

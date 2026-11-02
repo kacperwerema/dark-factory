@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // fakeValue stands in for a real credential; a test fails if it shows up

@@ -10,11 +10,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Paths of the files catalog-check reads, relative to the repository root.
 const (
-	CatalogPath   = "cmd/issue-cli/templates/workflow-features.yaml"
 	TemplatesPath = "cmd/issue-cli/templates/workflow"
 	ChangelogPath = "cmd/issue-cli/CHANGELOG.md"
 )
@@ -32,10 +33,13 @@ type Branch struct {
 	// Base and Head return a file's content; ok is false when it doesn't
 	// exist on that side.
 	Base, Head func(path string) (data []byte, ok bool)
-	// HeadDir lists the file names in a folder at the head (the split
-	// catalog); nil when there are none.
-	HeadDir  func(dir string) []string
-	Trailers []Trailer
+	// HeadDir lists the file names in a folder at the head (the catalog's
+	// entry files, the bundled templates).
+	HeadDir func(dir string) []string
+	// HeadFiles lists every file of the head (tracked and new): the sources
+	// check. nil skips it.
+	HeadFiles func() []string
+	Trailers  []Trailer
 }
 
 // Trailer is the value of one Catalog: line and the commit it is on.
@@ -79,12 +83,16 @@ type CheckReport struct {
 	Entries     []CheckEntry    `json:"entries"`
 	Templates   []CheckTemplate `json:"templates"`
 	BadTrailers []BadTrailer    `json:"bad_trailers"`
+	// Problems are the catalog's own mistakes at the head, each with its
+	// fix: CatalogProblems, and a bundled template whose features: record
+	// isn't what a scan records (RecordDrift).
+	Problems []string `json:"problems"`
 }
 
 // OK reports whether every touched entry and template is bumped or marked
 // n/a, and every Catalog: line is one catalog-check reads.
 func (r *CheckReport) OK() bool {
-	if len(r.BadTrailers) > 0 {
+	if len(r.BadTrailers) > 0 || len(r.Problems) > 0 {
 		return false
 	}
 	for _, e := range r.Entries {
@@ -125,23 +133,8 @@ func NextRelease(last string) string {
 // The catalog and templates are read from the branch head, so the check
 // sees the bumps the branch itself makes.
 func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
-	rep := &CheckReport{LastRelease: lastRelease, NextRelease: NextRelease(lastRelease), Entries: []CheckEntry{}, Templates: []CheckTemplate{}, BadTrailers: []BadTrailer{}}
-	raw, ok := b.Head(CatalogPath)
-	if !ok {
-		return nil, fmt.Errorf("%s not found: catalog-check runs in the issue-viewer repository", CatalogPath)
-	}
-	var split []CatalogFile
-	if b.HeadDir != nil {
-		for _, name := range b.HeadDir(SplitCatalogPath) {
-			if path.Ext(name) != ".yaml" {
-				continue
-			}
-			if data, ok := b.Head(SplitCatalogPath + "/" + name); ok {
-				split = append(split, CatalogFile{Name: name, Data: data})
-			}
-		}
-	}
-	entries, err := ParseCatalog(raw, split, false)
+	rep := &CheckReport{LastRelease: lastRelease, NextRelease: NextRelease(lastRelease), Entries: []CheckEntry{}, Templates: []CheckTemplate{}, BadTrailers: []BadTrailer{}, Problems: []string{}}
+	entries, err := RepoCatalog(Repo{Read: b.Head, Dir: b.HeadDir})
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +145,12 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 	na, bad := naTrailers(b.Trailers, known)
 	rep.BadTrailers = append(rep.BadTrailers, bad...)
 	newer := func(v string) bool { return CompareVersions(v, lastRelease) > 0 }
+	c := &checker{b: b, consts: map[string]map[string]string{}}
 
 	for _, e := range entries {
 		var files []string
 		for _, f := range b.Changed {
-			if !Exempt(f) && sourceChanged(e.Sources, f, b) {
+			if !Exempt(f) && c.sourceChanged(e, f) {
 				files = append(files, f)
 			}
 		}
@@ -181,6 +175,9 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 		if !ok {
 			continue
 		}
+		if old, ok := b.Base(f); ok && bytes.Equal(withoutRecord(old), withoutRecord(data)) {
+			continue // only its features: record moved: scan's output, nothing to adopt
+		}
 		name := strings.TrimSuffix(path.Base(f), ".yaml")
 		ct := CheckTemplate{Name: name, Stamp: ReadStamp(data), State: "stale"}
 		if n, v, ok := ParseStamp(ct.Stamp); ok && n == name && newer(v) {
@@ -188,10 +185,72 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 		}
 		rep.Templates = append(rep.Templates, ct)
 	}
+
+	var files []string
+	if b.HeadFiles != nil {
+		files = b.HeadFiles()
+	}
+	rep.Problems = append(rep.Problems, CatalogProblems(entries, files, b.Head)...)
+	if b.HeadDir != nil {
+		for _, f := range b.HeadDir(TemplatesPath) {
+			if path.Ext(f) != ".yaml" {
+				continue
+			}
+			data, ok := b.Head(TemplatesPath + "/" + f)
+			if !ok {
+				continue
+			}
+			drift, err := RecordDrift(entries, f, data)
+			if err != nil {
+				return nil, err
+			}
+			if drift != "" {
+				rep.Problems = append(rep.Problems, fmt.Sprintf("%s/%s\nFix: issue-cli workflow scan --template %s", TemplatesPath, drift, strings.TrimSuffix(f, ".yaml")))
+			}
+		}
+	}
 	return rep, nil
 }
 
+// withoutRecord is a workflow file with its features: record emptied, to
+// tell a change of the record alone from one to the workflow.
+func withoutRecord(data []byte) []byte {
+	if _, ok := ReadRecord(data); !ok {
+		return data
+	}
+	out, err := WriteRecord(data, tracker.FeatureRecord{})
+	if err != nil {
+		return data
+	}
+	return out
+}
+
 var naTrailer = regexp.MustCompile(`(?i)^n/a(?:\s+([^\s,]+(?:\s*,\s*[^\s,]+)*)(?:\s+(.*))?)?$`)
+
+var naColon = regexp.MustCompile(`(?i)^n/a\s*:`)
+
+// CheckTrailers returns the Catalog: values that mark nothing, with why:
+// the same reading catalog-check does, for a message before it is
+// committed (issue-cli workflow commit-msg). known nil skips the question
+// whether an id is a catalog entry; every other form is still checked.
+func CheckTrailers(values []Trailer, known map[string]bool) []BadTrailer {
+	_, bad := naTrailers(values, known)
+	return bad
+}
+
+// EntryIDs is the set of entry ids in the catalog of the checkout repo
+// reads (the split catalog included).
+func EntryIDs(repo Repo) (map[string]bool, error) {
+	entries, err := RepoCatalog(repo)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, e := range entries {
+		known[e.ID] = true
+	}
+	return known, nil
+}
 
 // naTrailers parses `Catalog: n/a <id>[,<id>...] <why>` values into id → why,
 // and returns the values that mark nothing as bad.
@@ -205,20 +264,32 @@ func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []B
 		}
 		m := naTrailer.FindStringSubmatch(t.Value)
 		switch {
+		case m == nil && naColon.MatchString(t.Value):
+			bad = append(bad, BadTrailer{t, "a colon after n/a: write " + TrailerForm + ", no colon"})
+			continue
 		case m == nil:
-			bad = append(bad, BadTrailer{t, "only n/a is read in a Catalog: line"})
+			bad = append(bad, BadTrailer{t, "only n/a is read in a Catalog: line: a bumped entry needs no line (issue-cli workflow catalog-bump <id>), an unchanged one is " + TrailerForm})
 			continue
 		case m[1] == "":
 			bad = append(bad, BadTrailer{t, "names no entry: the entry id comes right after n/a"})
 			continue
 		}
-		var ids, unknown []string
+		var ids, unknown, colon []string
 		for _, id := range strings.Split(m[1], ",") {
-			if id = strings.TrimSpace(id); known[id] {
+			id = strings.TrimSpace(id)
+			if bare := strings.TrimRight(id, ":"); bare != id && bare != "" {
+				colon = append(colon, bare)
+				continue
+			}
+			if known == nil || known[id] {
 				ids = append(ids, id)
 			} else {
 				unknown = append(unknown, fmt.Sprintf("%q", id))
 			}
+		}
+		if len(colon) > 0 {
+			bad = append(bad, BadTrailer{t, fmt.Sprintf("a colon after the entry id %q: write \"Catalog: n/a %s <why>\", no colon (with it the line marks nothing)", colon[0], strings.Join(colon, ","))})
+			continue
 		}
 		if len(unknown) > 0 {
 			bad = append(bad, BadTrailer{t, "no catalog entry " + strings.Join(unknown, ", ") + " (the entry id comes right after n/a)"})
@@ -231,10 +302,20 @@ func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []B
 	return out, bad
 }
 
-// sourceChanged reports whether the changed file f is one of the sources
-// and, for a `file.go#Symbol` source, whether that symbol's code differs.
-func sourceChanged(sources []string, f string, b Branch) bool {
-	for _, s := range sources {
+// checker holds what one CheckBranch run reads more than once.
+type checker struct {
+	b      Branch
+	consts map[string]map[string]string // package folder → string consts
+}
+
+// sourceChanged reports whether the changed file f is one of the entry's
+// sources and the change is the entry's own (attribute.go): for a
+// `file.go#Symbol` source the symbol's code (narrowed to the entry's rule
+// cases) differs; for a bundled template the parts its detect: sees
+// differ; for a TextSources file more than its text changed.
+func (c *checker) sourceChanged(e Entry, f string) bool {
+	b := c.b
+	for _, s := range e.Sources {
 		if s == PromptSource {
 			continue
 		}
@@ -242,12 +323,26 @@ func sourceChanged(sources []string, f string, b Branch) bool {
 		if !MatchSource(glob, f) {
 			continue
 		}
-		if !hasSym {
-			return true
-		}
 		before, _ := b.Base(f)
 		after, _ := b.Head(f)
-		if symbolSource(before, sym) != symbolSource(after, sym) {
+		switch {
+		case hasSym:
+			rules := ruleNames(e)
+			consts := map[string]string{}
+			if len(rules) > 0 {
+				consts = c.packageConsts(path.Dir(f))
+			}
+			if ruleSymbolSource(before, sym, rules, consts) != ruleSymbolSource(after, sym, rules, consts) {
+				return true
+			}
+		case isTemplate(f):
+			was, okB := detectRegion(before, e.Detect)
+			is, okA := detectRegion(after, e.Detect)
+			if !okB || !okA || was != is {
+				return true
+			}
+		case TextSource(f) && textOnlyChange(before, after):
+		default:
 			return true
 		}
 	}

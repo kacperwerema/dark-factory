@@ -15,6 +15,9 @@ steps:
     setup:
       - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Resume the overnight work.' '' '⏺ Two workers are back.' '' '⏺ Bash(issue-cli status)' '  ⎿  factory/merge  testing' '' '⏺ Should I start the rename now?' '' '✻ Pondering… (12s · esc to interrupt)' '' '──────────────────' '> ' '──────────────────' '  ⏵⏵ auto mode on (shift+tab to cycle)'; exec cat"]
       - open: /p/{project}/lead
+    act:
+      # The rest of the keys sit behind More at phone width (ceo-chat-phone-remote).
+      - click: lead_chat.keys_more
     checks:
       - visible: [lead_chat.conversation, lead_chat.turn.you, lead_chat.turn.ceo, lead_chat.text, lead_chat.send, lead_chat.key.escape, lead_chat.key.enter]
       - below: [lead_chat.conversation, lead_chat.form]

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/routing"
 )
 
 func routingFindings(t *testing.T, raw string) []string {

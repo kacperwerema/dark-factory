@@ -1,5 +1,5 @@
 # Updates tab: a development workflow stamped v0.36.0 with a features: record
-# (status-prompts installed, scoring declined) and local CI, like gpu-runner
+# (status-prompts installed, scoring declined) and local CI, like batch-runner
 # before the catalog caught up. The tab proposes the newer features; Decline
 # and Re-open rewrite only the features: block of this scenario's copy.
 title: Updates - workflow features to adopt

@@ -1,0 +1,35 @@
+session: phone-notifications
+issue: factory/phone-notifications-web-push-from-the-viewer-when-something-new-waits-on-the-owner-installable-as-an-app-keys-generated-locally
+title: "Phone notifications: the installable app and the /push page"
+scenario: needs-you
+
+session_checks:
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The manifest and the service worker load under the page CSP and /push says this browser is not subscribed yet
+    proves: [AC4]
+    setup:
+      - open: /push
+    checks:
+      - visible: [push.page, push.this_device, push.devices, push.settings]
+      - text_contains: { target: push.status, text: "not subscribed" }
+      - visible: push.no_devices
+      - hidden: [push.test, push.unsubscribe]
+      - http: { path: /sw.js, status: 200, contains: "notificationclick" }
+      - http: { path: /manifest.webmanifest, status: 200, json: { start_url: /needs-you, display: standalone, scope: / } }
+      - http: { path: /apple-touch-icon.png, status: 200 }
+
+  - id: TP5
+    title: The app's start page is Needs you, and it links Notify my phone
+    proves: [AC4]
+    setup:
+      - open: /needs-you
+    act:
+      - click: needs_you.push
+    checks:
+      - url: { contains: /push }
+      - visible: push.page
+      - http: { path: /needs-you, status: 200, contains: "data-testid=\"needs_you.count\"" }

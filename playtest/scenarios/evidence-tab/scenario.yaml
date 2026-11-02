@@ -11,7 +11,7 @@
 #   trailer (18:00) names a criterion it doesn't have. Expected 1 / 4.
 # - ui/evidence-legacy (done, no created:, no links): grey "3 ticked · 0
 #   linked" and three stale Open questions, two matched.
-# - ui/evidence-game (testing): runs in a game runner's schema (RogueTech:
+# - ui/evidence-game (testing): runs in a game runner's schema (Kestrel:
 #   started: with no offset, ux-test / playtest modes, screenshots: beside
 #   results.yaml). No step proves a criterion, so the Shots card shows each
 #   session's latest ux-test shots: MV7 from game-heat (the newer -cached

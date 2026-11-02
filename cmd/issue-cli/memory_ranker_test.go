@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // meaningServer is a stand-in local embedder on 127.0.0.1: each text's

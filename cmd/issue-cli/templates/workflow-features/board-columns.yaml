@@ -1,0 +1,18 @@
+id: board-columns
+version: v0.36.0
+category: board
+propose: false
+sources: ["internal/tracker/workflow_config.go#WorkflowBoardConfig", "internal/viewer/handlers_board.go"]
+title: "Custom board columns"
+what: |
+  `board.columns` sets which statuses the board shows, in order (default: the whole
+  lifecycle).
+why: |
+  Hide statuses nobody watches, or reorder them.
+where: "board.columns"
+snippet: |
+  board:
+    columns: [backlog, in progress, testing, done]
+question: "Should the board show only some statuses, or in a different order?"
+detect:
+  - path: board.columns

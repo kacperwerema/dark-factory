@@ -19,10 +19,16 @@ var decisionIDRe = regexp.MustCompile(`\*\*D-(\d+)\*\*`)
 // generated from these lines; nobody edits it by hand. Older lines written by
 // the removed `issue-cli answer` ("answered in lead chat (Q-n)") still parse.
 //
-//	- **D-<n>** · <YYYY-MM-DD>[ · deferred] · <how>: <text>[, "<quote>"][ (also considered: …)][ (replaces <ref>[, <ref>])]
+//	- **D-<n>** · <YYYY-MM-DD>[ · deferred] · <how>: <text>[, "<quote>"][ (also considered: …)][ (ref <ref>[, <ref>])][ (replaces <ref>[, <ref>])][ {<attribute group>}]
+//
+// The attribute group (decision_attrs.go) says whom the decision reaches and
+// whether it is the owner's hard rule; a line without one is scope issue,
+// soft.
 //
 // A ref is `<slug>#D-n` (or `D-n` inside the same issue). Any `<slug>#D-n`
-// in another issue's body is a citation.
+// in another issue's body is a citation. "(ref …)" names what the decision
+// answers outside the D-n scheme, such as a lead's provisional N-26
+// (decide --ref); it is kept as written and is no citation.
 
 const (
 	DecisionActive   = "active"
@@ -47,13 +53,18 @@ type Decision struct {
 	Quote          string    `json:"quote,omitempty"`
 	AlsoConsidered string    `json:"also_considered,omitempty"`
 	Deferred       bool      `json:"deferred,omitempty"`
+	Refs           []string  `json:"refs,omitempty"`
 	Replaces       []string  `json:"replaces,omitempty"`
-	Raw            string    `json:"line"`
+	DecisionAttrs
+	// AttrsAt is where the attribute group starts in Raw, -1 without one.
+	AttrsAt int    `json:"-"`
+	Raw     string `json:"line"`
 }
 
 var (
 	decisionLineRe     = regexp.MustCompile(`^- \*\*D-(\d+)\*\* · (\d{4}-\d{2}-\d{2}) · (.+)$`)
 	decisionReplacesRe = regexp.MustCompile(`\s*\(replaces ([^()]+)\)$`)
+	decisionRefsRe     = regexp.MustCompile(`\s*\(ref ([^()]+)\)$`)
 	decisionAlsoRe     = regexp.MustCompile(`\s*\(also considered: (.+)\)$`)
 	decisionQuoteRe    = regexp.MustCompile(`, ("(?:[^"\\]|\\.)*")$`)
 	decisionRefRe      = regexp.MustCompile(`#?\b([a-z0-9][a-z0-9/-]*)#D-(\d+)\b`)
@@ -105,7 +116,17 @@ func parseDecisionLine(slug, line string) (Decision, bool) {
 	d := Decision{Slug: slug, Num: n, ID: fmt.Sprintf("D-%d", n), Date: date, Raw: line}
 	d.Ref = slug + "#" + d.ID
 
+	// The group is the line's very last part; only then are the replaces,
+	// also-considered and quote parts peeled off what is left.
 	rest := m[3]
+	if head, attrs, at := splitAttrsTail(rest); at >= 0 {
+		rest = head
+		d.DecisionAttrs = attrs
+		d.AttrsAt = len(line) - len(m[3]) + at
+	} else {
+		d.AttrsAt = -1
+		d.Scope = ScopeIssue
+	}
 	if after, ok := strings.CutPrefix(rest, deferredMarker+" · "); ok {
 		d.Deferred = true
 		rest = after
@@ -123,6 +144,14 @@ func parseDecisionLine(slug, line string) (Decision, bool) {
 			}
 		}
 		text = text[:rm[0]]
+	}
+	if fm := decisionRefsRe.FindStringSubmatchIndex(text); fm != nil {
+		for _, r := range strings.Split(text[fm[2]:fm[3]], ",") {
+			if r = strings.TrimSpace(r); r != "" {
+				d.Refs = append(d.Refs, r)
+			}
+		}
+		text = text[:fm[0]]
 	}
 	if am := decisionAlsoRe.FindStringSubmatchIndex(text); am != nil {
 		d.AlsoConsidered = text[am[2]:am[3]]
@@ -164,7 +193,9 @@ type NewDecision struct {
 	How      string
 	Quote    string
 	Deferred bool
+	Refs     []string // what it answers outside the D-n scheme, e.g. "N-26"
 	Replaces []string // normalised refs
+	Attrs    DecisionAttrs
 }
 
 // ValidateNewDecision checks a decision before it is written.
@@ -174,6 +205,11 @@ func ValidateNewDecision(d NewDecision) error {
 	}
 	if strings.Contains(d.How, ":") {
 		return fmt.Errorf("--how %q must not contain ':' (it separates how from the decision text)", d.How)
+	}
+	for _, r := range d.Refs {
+		if oneLine(r) == "" || strings.ContainsAny(r, "(),\n") {
+			return fmt.Errorf("--ref %q must be one non-empty word or id without parentheses or commas, e.g. N-26", r)
+		}
 	}
 	return nil
 }
@@ -194,23 +230,54 @@ func RenderDecisionLine(id string, d NewDecision, now time.Time) string {
 	} else {
 		line += how + ": " + text
 	}
+	if len(d.Refs) > 0 {
+		line += " (ref " + strings.Join(trimAll(d.Refs), ", ") + ")"
+	}
 	if len(d.Replaces) > 0 {
 		line += " (replaces " + strings.Join(d.Replaces, ", ") + ")"
+	}
+	if g := RenderAttrs(d.Attrs); g != "" {
+		line += " " + g
 	}
 	return line
 }
 
 // AddDecision appends a new D-n line to the issue's `## Decisions` section
-// (created when missing) in one locked write and returns it parsed.
+// (created when missing) in one locked write and returns it parsed. It logs
+// nothing; commands use AddDecisionAs.
 func AddDecision(filePath, slug string, d NewDecision, now time.Time) (Decision, error) {
+	return AddDecisionAs(filePath, slug, d, now, DecisionWrite{})
+}
+
+// AddDecisionAs is AddDecision with the write logged (a recorded event, and
+// a replaced event for each ref it replaces) and, for a relayed owner act,
+// the decision: comment in the same write.
+func AddDecisionAs(filePath, slug string, d NewDecision, now time.Time, w DecisionWrite) (Decision, error) {
 	if err := ValidateNewDecision(d); err != nil {
 		return Decision{}, err
 	}
 	var line string
-	_, _, err := UpdateIssueBody(filePath, func(body string) (string, bool, error) {
+	err := writeDecision(filePath, w, now, func(body string) (decisionChange, error) {
 		id := fmt.Sprintf("D-%d", nextNumber(decisionIDRe, body))
 		line = RenderDecisionLine(id, d, now)
-		return appendToSectionTight(body, DecisionsSection, line, false), true, nil
+		ref := slug + "#" + id
+		group := RenderAttrs(d.Attrs)
+		c := decisionChange{Body: appendToSectionTight(body, DecisionsSection, line, false), RelayRef: ref}
+		c.Events = append(c.Events, DecisionEvent{Event: DecisionRecorded, Ref: ref, New: group})
+		for _, old := range d.Replaces {
+			c.Events = append(c.Events, DecisionEvent{Event: DecisionReplaced, Ref: old, ByRef: ref})
+		}
+		c.RelayAction = "recorded"
+		if d.Attrs.Hard {
+			c.RelayAction = "recorded hard"
+		}
+		if len(d.Replaces) > 0 {
+			c.RelayAction += ", replacing " + strings.Join(d.Replaces, ", ")
+		}
+		if group != "" {
+			c.RelayAction += " " + group
+		}
+		return c, nil
 	})
 	if err != nil {
 		return Decision{}, err
@@ -241,6 +308,7 @@ type DecisionIndex struct {
 	byRef   map[string]*DecisionEntry
 	cites   map[string][]string // citing slug → refs it cites
 	known   map[string]bool     // every issue slug, for resolving refs
+	issues  map[string]*Issue   // by slug, for the parent walk
 }
 
 // Lookup returns the entry for a normalised ref, or nil.
@@ -282,9 +350,10 @@ func (x *DecisionIndex) CitedIn(text string) []*DecisionEntry {
 // open citers make a replaced decision stale).
 func BuildDecisionIndex(issues []*Issue, isClosed func(*Issue) bool) *DecisionIndex {
 	known := map[string]bool{}
-	x := &DecisionIndex{byRef: map[string]*DecisionEntry{}, cites: map[string][]string{}, known: known}
+	x := &DecisionIndex{byRef: map[string]*DecisionEntry{}, cites: map[string][]string{}, known: known, issues: map[string]*Issue{}}
 	for _, issue := range issues {
 		known[issue.Slug] = true
+		x.issues[issue.Slug] = issue
 		for _, d := range ParseDecisions(issue.Slug, issue.BodyRaw) {
 			e := &DecisionEntry{Decision: d, Issue: issue}
 			x.Entries = append(x.Entries, e)
@@ -465,4 +534,13 @@ func nextNumber(re *regexp.Regexp, body string) int {
 
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// trimAll trims each string.
+func trimAll(in []string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = strings.TrimSpace(s)
+	}
+	return out
 }

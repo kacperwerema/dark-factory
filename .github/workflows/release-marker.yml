@@ -179,7 +179,7 @@ jobs:
           STAGE="dist/issue-viewer_${VERSION}_${GOOS}_${GOARCH}"
           mkdir -p "$STAGE"
           LDFLAGS="-s -w -X main.Version=${VERSION}"
-          go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/issue-viewer" .
+          go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/issue-viewer" ./cmd/issue-viewer
           go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/issue-cli" ./cmd/issue-cli
           cp README.md "$STAGE/"
 

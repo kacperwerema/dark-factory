@@ -10,16 +10,18 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/experiment"
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/spend"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var benchCommand = &Command{
@@ -71,6 +73,15 @@ passed n/m.
       --branch marks the workflows the ref changed since main (its own
       file, a department's prompt or folder, a bundled template it is
       stamped with, engine code: all); the rest are controls.
+  bench nightly [<benchmark>] [--run <job run slug>] [--quote "<owner's words>"] [--dry-run]
+      The night: the benchmark on main's head, then at most one experiment
+      the owner queued (experiment queue), judged against that baseline and
+      never adopted; then the morning numbers (pass rate, median time and
+      tokens per task) vs last night and the 7-night trend, in
+      <bench>/runs/<benchmark>/nights.jsonl and nights/<date>.md. Held, and
+      nothing run, while memory is 50% or more or the load is over the core
+      count. --run is the product/nightly-improve job's run issue: its
+      standing start's words start the runs.
 
 <task> is <project>/<slug>, or the slug when it is unique.
 
@@ -82,7 +93,7 @@ Examples:
   issue-cli bench run factory-v1 --setup work/factory/new-prompts --label new-prompts
   issue-cli bench compare factory-v1/20261030-120000 factory-v1/latest`,
 	Run:         runBench,
-	Subcommands: []string{"candidates", "task", "holdout", "budget", "show", "run", "report", "compare"},
+	Subcommands: []string{"candidates", "task", "holdout", "budget", "show", "run", "report", "compare", "nightly"},
 }
 
 func init() {
@@ -123,8 +134,10 @@ func runBench(ctx *Context, args []string) error {
 		return runBenchReport(ctx, args[1:])
 	case "compare":
 		return runBenchCompare(ctx, args[1:])
+	case "nightly":
+		return runBenchNightly(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown bench command %q: candidates, task, holdout, budget, show, run, report or compare", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown bench command %q: candidates, task, holdout, budget, show, run, report, compare or nightly", args[0])}
 }
 
 // agentSession names the agent session issue-cli runs in ("" for the owner's
@@ -666,7 +679,11 @@ func orDefault(s, def string) string {
 	return s
 }
 
-func runBenchRun(ctx *Context, args []string) error {
+func runBenchRun(ctx *Context, args []string) error { return runBenchRunWith(ctx, args, 0) }
+
+// runBenchRunWith is bench run; memBelow > 0 also holds each task while
+// memory is at or over that percent (the nightly loop's 50% line).
+func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 	fs := newFlagSet("bench run", ctx)
 	setup := fs.String("setup", "", "an engine ref: build issue-cli from it for the run (default: this issue-cli)")
 	engine := fs.String("engine", "", "the engine checkout --setup is resolved in (default: the current git repository)")
@@ -705,7 +722,7 @@ func runBenchRun(ctx *Context, args []string) error {
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	tmp := filepath.Join(os.TempDir(), "awe-bench")
-	cli, ref, err := benchIssueCLI(runCtx, *setup, *engine, tmp, ctx.Stderr)
+	cli, ref, sha, err := benchIssueCLI(runCtx, *setup, *engine, tmp, ctx.Stderr)
 	if err != nil {
 		return err
 	}
@@ -720,7 +737,7 @@ func runBenchRun(ctx *Context, args []string) error {
 			return nil
 		},
 		IssueCLI: cli, Home: home, TmpRoot: tmp, Keep: *keep,
-		MemGuard: memGuard(ctx.Stderr), MemWait: 30 * time.Minute,
+		MemGuard: memGuardBelow(memGuard(ctx.Stderr), memBelow), MemWait: 30 * time.Minute,
 		Log: ctx.Stderr, Now: ctx.now,
 	}
 	startedBy := "owner"
@@ -728,7 +745,7 @@ func runBenchRun(ctx *Context, args []string) error {
 		startedBy = who
 	}
 	opt := bench.Options{
-		Setup:    bench.Setup{Ref: ref, IssueCLI: cli, IssueCLIVersion: cliVersion(cli), Workflow: strings.Join(workflows, ","), Label: *label, Agent: bench.WorkerAgent(orDefault(b.Worker, bench.DefaultWorker))},
+		Setup:    bench.Setup{Ref: ref, SHA: sha, IssueCLI: cli, IssueCLIVersion: cliVersion(cli), Workflow: strings.Join(workflows, ","), Label: *label, Agent: bench.WorkerAgent(orDefault(b.Worker, bench.DefaultWorker))},
 		Workflow: workflow, Workflows: byBox, Resume: *resume, StartedBy: startedBy, Quote: q,
 	}
 	fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks, budget %s\n", b.Name, len(b.Tasks), budgetLine(b))
@@ -791,27 +808,29 @@ func parseWorkflowFlags(vals []string) (string, map[string]string, error) {
 }
 
 // benchIssueCLI is the issue-cli under test: this binary, or one built
-// from ref in a throwaway clone of the engine.
-func benchIssueCLI(ctx context.Context, ref, engine, tmp string, log io.Writer) (cli, resolved string, err error) {
+// from ref in a throwaway clone of the engine. resolved is ref as a commit
+// ("" for this binary); sha is the engine commit the issue-cli is built
+// from: resolved, or this binary's own revision.
+func benchIssueCLI(ctx context.Context, ref, engine, tmp string, log io.Writer) (cli, resolved, sha string, err error) {
 	if ref == "" {
 		self, err := os.Executable()
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
-		return self, "", nil
+		return self, "", selfRevision(), nil
 	}
 	if engine == "" {
 		engine, _ = os.Getwd()
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", engine, "rev-parse", "--verify", ref+"^{commit}").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("--setup %s: not a commit in %s", ref, engine)
+		return "", "", "", fmt.Errorf("--setup %s: not a commit in %s", ref, engine)
 	}
 	resolved = strings.TrimSpace(string(out))
 	dir := filepath.Join(tmp, "setup-"+shortSHA(resolved))
 	cli = filepath.Join(dir, "bin", "issue-cli")
 	if _, err := os.Stat(cli); err == nil {
-		return cli, resolved, nil
+		return cli, resolved, resolved, nil
 	}
 	fmt.Fprintf(log, "building issue-cli at %s…\n", shortSHA(resolved))
 	src := filepath.Join(dir, "src")
@@ -829,10 +848,25 @@ func benchIssueCLI(ctx context.Context, ref, engine, tmp string, log io.Writer) 
 		}
 		_ = os.MkdirAll(dir, 0o755)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", "", fmt.Errorf("--setup %s: %s: %v\n%s", ref, strings.Join(s, " "), err, strings.TrimSpace(string(out)))
+			return "", "", "", fmt.Errorf("--setup %s: %s: %v\n%s", ref, strings.Join(s, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
-	return cli, resolved, nil
+	return cli, resolved, resolved, nil
+}
+
+// selfRevision is the engine commit this binary was built from (go build's
+// vcs.revision; "" when the build carries none, as under go test).
+func selfRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, kv := range info.Settings {
+		if kv.Key == "vcs.revision" {
+			return kv.Value
+		}
+	}
+	return ""
 }
 
 func cliVersion(cli string) string {
@@ -854,6 +888,25 @@ func memGuard(log io.Writer) func() (bool, string) {
 		out, err := exec.Command("mem-guard", "check").CombinedOutput()
 		msg := strings.TrimSpace(string(out))
 		return err != nil || strings.Contains(msg, "BLOCKED"), msg
+	}
+}
+
+// memGuardBelow adds a stricter line to guard: blocked while memory is at
+// or over below percent (mem-guard's reading). below 0: guard unchanged.
+func memGuardBelow(guard func() (bool, string), below int) func() (bool, string) {
+	if below <= 0 {
+		return guard
+	}
+	return func() (bool, string) {
+		if guard != nil {
+			if blocked, msg := guard(); blocked {
+				return true, msg
+			}
+		}
+		if m := autostart.ReadMemory(); m.Found && m.Used >= below {
+			return true, fmt.Sprintf("BLOCKED: memory %d%% ≥ %d%% (the nightly line)", m.Used, below)
+		}
+		return false, ""
 	}
 }
 

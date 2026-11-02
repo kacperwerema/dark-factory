@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // releaseRepo is a dev checkout whose origin is a bare "public" repo that
@@ -298,6 +298,21 @@ func TestPublishRefusals(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "2 private-data hit(s) in release/v0.54's tree") ||
 		!strings.Contains(err.Error(), "testdata/r.json:1: a user home path") || !strings.Contains(err.Error(), "testdata/b.md:1: a private name") {
 		t.Errorf("leaks = %v", err)
+	}
+	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
+
+	// The upstream author's name outside LICENSE.md (D-4), with no
+	// private-names list at all; in LICENSE.md it is fine.
+	write(t, filepath.Join(cut.Worktree, "LICENSE.md"), "Required Notice: "+upstreamName+"\n")
+	write(t, filepath.Join(cut.Worktree, "docs", "x.md"), "thanks to "+strings.ToUpper(upstreamName[:1])+upstreamName[1:]+"\n")
+	run(t, cut.Worktree, "git", "add", "LICENSE.md", "docs")
+	run(t, cut.Worktree, "git", "commit", "-q", "-m", "credits")
+	upstream := in
+	upstream.DryRun = true
+	_, err = Publish(upstream)
+	if err == nil || !strings.Contains(err.Error(), "1 private-data hit(s)") ||
+		!strings.Contains(err.Error(), "docs/x.md:1: the upstream author's name (allowed only in LICENSE.md)") {
+		t.Errorf("upstream name = %v", err)
 	}
 	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
 

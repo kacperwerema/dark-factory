@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/checks"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // makeCheckScriptFixture is a project without worktrees (scripts run from
@@ -572,4 +572,69 @@ summary
 	assertNotContains(t, got, `TP3  "The tab opens detached"`)
 	body, _ := os.ReadFile(filepath.Join(proj.IssueDir, "CLI", "lead-tab.md"))
 	assertNotContains(t, string(body), "[x] Owner checked it")
+}
+
+// --cli names the issue-cli a script checks: the script sees it as
+// $ISSUE_CLI. Without it, a branch build at <worktree>/issue-cli is used,
+// and with neither, this issue-cli.
+func TestCheckScriptCLISetsISSUE_CLI(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	writeCheckScript(t, dir, "lead-tab", checkSlug, `
+echo "ISSUE_CLI=$ISSUE_CLI"
+step TP3 "passes"
+expect true fine
+summary
+`)
+	stub := filepath.Join(t.TempDir(), "issue-cli")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho stub\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes", "--cli", stub}); err != nil {
+		t.Fatalf("--cli: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "ISSUE_CLI="+stub+"\n")
+
+	self, _ := os.Executable()
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("no --cli: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "ISSUE_CLI="+self+"\n")
+
+	ctx, _, _ = newTestContext(proj, false)
+	var ue *usageError
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes", "--cli", filepath.Join(dir, "missing")}); !errors.As(err, &ue) || !strings.Contains(ue.msg, "not an executable file") {
+		t.Fatalf("missing --cli: %v", err)
+	}
+}
+
+// The branch build the briefing tells a worker to make, ./issue-cli in the
+// issue's worktree, is what its scripts check without --cli.
+func TestCheckScriptUsesTheBranchBuildInTheWorktree(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+	writeCheckScript(t, wt, "lead-tab", checkSlug, "echo \"ISSUE_CLI=$ISSUE_CLI\"\nstep TP3 passes\nexpect true fine\nsummary\n")
+	build := filepath.Join(wt, tracker.BranchBuild)
+	if err := os.WriteFile(build, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A build left in the project folder is no branch's: never picked.
+	if err := os.WriteFile(filepath.Join(dir, tracker.BranchBuild), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "Checking the branch build "+build)
+	assertContains(t, out.String(), "ISSUE_CLI="+build+"\n")
 }

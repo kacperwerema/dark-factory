@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // memoryRanker is the ranker for ctx's project: BM25 when its workflow

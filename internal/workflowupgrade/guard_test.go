@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // nonFeatureKeys are workflow.yaml keys with no catalog entry, each with the
@@ -28,6 +28,7 @@ var nonFeatureKeys = map[string]string{
 	"health.big_file_lines":   "a tuning knob for big files",
 	"health.long_func_lines":  "a tuning knob for long functions",
 	"health.score":            "per-component score overrides; a tuning knob",
+	"decisions":               "the decisions-in-force block's cap (brief_cap), a tuning knob with a default; the decision-ledger entry (factory/decisions-cited-in-design-…) may cover it",
 }
 
 // blocks are the project-wide config blocks whose sub-keys the guard walks.
@@ -43,7 +44,7 @@ func TestEveryWorkflowFeatureHasACatalogEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const fix = "add an entry (or a probe or snippet line) to cmd/issue-cli/templates/workflow-features.yaml (docs/Workflow/overview.md, Feature catalog), or add it to nonFeatureKeys with a reason"
+	const fix = "add a probe or snippet line to the entry that teaches it, or a new entry file, in " + CatalogPath + "/<id>.yaml (docs/Workflow/overview.md, Feature catalog), or add it to nonFeatureKeys with a reason"
 
 	keys := yamlKeys(reflect.TypeOf(tracker.WorkflowConfig{}), "")
 	for _, b := range blocks {
@@ -69,7 +70,7 @@ func TestEveryWorkflowFeatureHasACatalogEntry(t *testing.T) {
 	for _, r := range tracker.WorkflowValidationRules {
 		name := strings.TrimSpace(strings.SplitN(r.Name, ":", 2)[0])
 		if !ruleCovered(entries, name) {
-			t.Errorf("validator rule %s has no catalog entry with rule_in: [%s]: %s", name, name, fix)
+			t.Errorf("validator rule %s has no catalog entry detecting it: add %s to the rule_in: of the entry whose probe matches the rule's statuses[]/transitions[] path (or give a new entry a probe with rule_in: [%s]), in %s/<id>.yaml", name, name, name, CatalogPath)
 		}
 	}
 	for _, a := range tracker.WorkflowActionTypes {
@@ -191,56 +192,43 @@ func TestGuardCatchesANewKey(t *testing.T) {
 
 // Every entry names the code behind it, and every source exists, so
 // catalog-check can ask for a version bump when that code changes.
+// catalog-check runs the same CatalogProblems on a branch head.
 func TestEveryEntryHasSourcesThatExist(t *testing.T) {
 	entries, err := Catalog()
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := repoRoot(t)
-	files := trackedFiles(t, root)
-	for _, e := range entries {
-		if len(e.Sources) == 0 {
-			t.Errorf("%s: no sources: (the code behind the feature, or %q for a prompt-only convention)", e.ID, PromptSource)
+	read := func(p string) ([]byte, bool) {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
+		return data, err == nil
+	}
+	for _, p := range CatalogProblems(entries, trackedFiles(t, root), read) {
+		t.Error(p)
+	}
+}
+
+// Each problem names its fix: the folder's ** for a bare folder, @prompt
+// alone, a known category.
+func TestCatalogProblemsNameTheFix(t *testing.T) {
+	files := []string{"internal/x/a.go", "internal/x/sub/b.go", "internal/y/y.go"}
+	cases := []struct {
+		entry Entry
+		want  string
+	}{
+		{Entry{ID: "bare", Category: "board", Sources: []string{"internal/x/"}}, "write internal/x/** for every file under it"},
+		{Entry{ID: "mixed", Category: "board", Sources: []string{PromptSource, "internal/y/y.go"}}, `keep sources: ["@prompt"] alone`},
+		{Entry{ID: "odd", Category: "boards", Sources: []string{"internal/y/y.go"}}, "is not one of lifecycle, gates"},
+		{Entry{ID: "gone", Category: "board", Sources: []string{"internal/z/**"}}, "matches no tracked file"},
+	}
+	for _, c := range cases {
+		got := strings.Join(CatalogProblems([]Entry{c.entry}, files, nil), "\n")
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: problems %q, want %q", c.entry.ID, got, c.want)
 		}
-		for _, s := range e.Sources {
-			if s == PromptSource {
-				if len(e.Sources) > 1 {
-					t.Errorf("%s: %s is the only source of a prompt-only convention", e.ID, PromptSource)
-				}
-				continue
-			}
-			glob, sym, hasSym := strings.Cut(s, "#")
-			var matched []string
-			for _, f := range files {
-				if MatchSource(glob, f) {
-					matched = append(matched, f)
-				}
-			}
-			if len(matched) == 0 {
-				t.Errorf("%s: source %s matches no tracked file", e.ID, s)
-				continue
-			}
-			watched := false
-			for _, f := range matched {
-				watched = watched || !Exempt(f)
-			}
-			if !watched {
-				t.Errorf("%s: source %s matches only files in ExemptSources (tests, testdata, scenario fixtures): catalog-check would never watch it", e.ID, s)
-			}
-			if hasSym {
-				if len(matched) != 1 || filepath.Ext(matched[0]) != ".go" {
-					t.Errorf("%s: %s: a #symbol source names one Go file, matched %v", e.ID, s, matched)
-					continue
-				}
-				src, err := os.ReadFile(filepath.Join(root, matched[0]))
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(SymbolDecls(src, sym)) == 0 {
-					t.Errorf("%s: %s has no top-level %s", e.ID, matched[0], sym)
-				}
-			}
-		}
+	}
+	if got := CatalogProblems([]Entry{{ID: "ok", Category: "board", Sources: []string{"internal/x/**"}}}, files, nil); len(got) > 0 {
+		t.Errorf("a folder's ** is fine: %v", got)
 	}
 }
 

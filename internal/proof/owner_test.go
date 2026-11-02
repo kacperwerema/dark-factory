@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/checks"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // judgementRun is a ux-test run that left the owner's judgement step TP9

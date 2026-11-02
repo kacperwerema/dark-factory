@@ -1,0 +1,23 @@
+id: assignee-gate
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/workflow_validate.go#checkRule"]
+title: "Assignee required to start"
+what: |
+  The `has_assignee` validator blocks a transition until someone has claimed the
+  issue (`issue-cli start` sets the assignee).
+why: |
+  Two agents never pick up the same issue unknowingly.
+where: "transitions[].actions[] rule: has_assignee"
+snippet: |
+  transitions:
+    - from: "backlog"
+      to: "in progress"
+      actions:
+        - type: "validate"
+          rule: "has_assignee"
+question: "Should work only start once the issue is claimed?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [has_assignee]

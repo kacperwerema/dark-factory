@@ -3,11 +3,15 @@ package main
 import (
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/milestone"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/buildversion"
+	"github.com/kacperwerema/dark-factory/internal/milestone"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// Version is set at build time via -ldflags "-X main.Version=v0.X.Y".
+// Version is set at build time via -ldflags "-X main.Version=v0.X.Y";
+// unstamped, init makes it the module version Go recorded (a go install
+// …/cmd/issue-cli@v0.60.0 says v0.60.0), else "dev" (internal/buildversion).
+// It stays a constant-initialised string: -X cannot set a computed one.
 var Version = "dev"
 
 var versionCommand = &Command{
@@ -15,12 +19,14 @@ var versionCommand = &Command{
 	ShortHelp: "Print issue-cli version",
 	LongHelp: `Print the issue-cli build version: ` + "`git describe`" + ` at build time, set via
 -ldflags by make build / make install and the release Action ("dev" for a
-plain go build). A release candidate (v0.54.0-rc.1) says so and how to
+build with no stamp and no module version; a go install …@vX.Y.Z says
+vX.Y.Z). A release candidate (v0.54.0-rc.1) says so and how to
 report a problem against it.`,
 	Run: runVersion,
 }
 
 func init() {
+	Version = buildversion.Resolve(Version)
 	// Errors about a workflow newer than this build name the build.
 	tracker.BuildVersion = Version
 	registerCommand(versionCommand)

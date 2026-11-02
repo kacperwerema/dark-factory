@@ -1,0 +1,38 @@
+id: sandbox-manual-tests
+version: v0.36.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["@prompt"]
+title: "Manual tests run in a throwaway sandbox"
+what: |
+  The Test Plan's `### Manual` boxes ask for a throwaway, gitignored sandbox scenario
+  (isolated config, data and state, one setup/run/clean script) and exact human
+  steps. The testing and human-testing prompts point at it.
+why: |
+  The human verifies against a reproducible scenario instead of their real data,
+  and the steps are written down instead of improvised.
+where: "the backlog → in progress append_section \"Test Plan\" body, plus the \"testing\" and \"human-testing\" status prompts"
+snippet: |
+  transitions:
+    - from: "backlog"
+      to: "in progress"
+      actions:
+        - type: "append_section"
+          title: "Test Plan"
+          body: |
+            ### Automated
+            - [ ] Automated verification recorded
+
+            ### Manual
+            - [ ] Throwaway sandbox scenario prepared (gitignored, e.g. under `.agent-logs/<name>-sandbox/`, never committed; isolated config/data/state; never touches real user data)
+            - [ ] Human steps written: exact commands to run, what to look at, expected result for each, and how to clean up
+  statuses:
+    - name: "testing"
+      prompt: |
+        For manual checks, prepare a throwaway sandbox scenario (a gitignored path such as `.agent-logs/<name>-sandbox/`, never committed): isolated config, data and state, and one script with setup/run/clean steps. It must never touch real user data or state.
+        Describe it under `### Manual` in the Test Plan: where the script lives, the exact commands the human runs, what to look at, the expected result for each step, and how to clean up.
+question: "Should manual verification use a throwaway sandbox with written steps (changes the Test Plan boxes and the testing prompts)?"
+detect:
+  - path: transitions[].actions[].body
+    contains: "sandbox"

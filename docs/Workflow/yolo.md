@@ -166,6 +166,10 @@ Each assumed answer on an issue that has a YOLO pass joins that issue's entry (`
 
 An assumed answer is never counted twice: while the review holds it, it is not a Needs you Clarify row. An assumed answer on an issue that YOLO never passed waits on Needs you like an open one.
 
+A lead's relayed act on a hard decision (`decide --hard`, `--amend` of a hard line, `--replaces` of a hard one, each with the owner's `--quote`) posts a `decision: <ref> <what>, "<words>" — relayed by <lead> (YOLO)` comment while YOLO is on. It joins the issue's entry as a relayed decision (`yolo.Entry.Decisions`, "1 relayed decision"), and the issue's Agree settles it (`yolo-review: agreed … → <ref>`). See [Decision ledger](../workflow.md#decision-ledger).
+
+A decision hold YOLO passes (`decisions_cited`, `citations_current`) doesn't stop the transition: it posts `yolo-hold: <rule> <ref> from <status>: <why>` (once while one for the same rule and ref waits), and the output says `YOLO: decisions_cited: <ref> not cited in ## Design — passed, in the after-the-fact queue`. It joins the issue's entry as a decision hold ("1 decision hold", `Pass.Hold` names the rule), the Station and the review page show it as `<ref>: <rule> passed in YOLO`, and the issue's Agree settles it. `transition --dry-run` lists the holds it would pass and writes nothing. Experiments' gates never defer them.
+
 ## Where it shows
 
 - Every classic project page: a hazard line in the sidebar while on (until, passed, valves, Extend / Turn off now), and "N after the fact" with Agree / Back until the queue is empty.

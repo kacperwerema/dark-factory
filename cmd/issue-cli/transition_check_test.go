@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // makeGateFixture builds a project whose workflow has two approval gates

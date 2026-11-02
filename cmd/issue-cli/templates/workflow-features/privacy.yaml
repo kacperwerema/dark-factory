@@ -1,0 +1,51 @@
+id: privacy
+version: v0.54.0
+category: workbench
+propose: true
+sources: ["internal/privacy/**", "internal/tracker/privacy.go", "internal/viewer/privacy_view.go", "internal/viewer/tracker_watch.go", "internal/viewer/templates/_privacy.html", "cmd/issue-cli/cmd_tracker.go", "cmd/issue-cli/cmd_privacy.go", "cmd/issue-cli/cmd_release.go", ".github/workflows/release-marker.yml", ".github/workflows/privacy-guard.yml"]
+unlocks:
+  - text: "Status: the privacy badges"
+    url: /status
+title: "Private work files and private development"
+what: |
+  `privacy:` records the owner's two choices. `work_files: tracker` keeps issues/,
+  sessions/, retros/, bugs/ and .health/snapshots/ in a private tracker repo whose git
+  folder sits outside the checkout, so every path stays where it is while the code repo
+  ignores them; the viewer commits, pulls and pushes it every 10 minutes (`issue-cli
+  tracker sync` on demand). `code: snapshots` keeps the development history in a private
+  dev repo (origin) and gives the public repo ONE commit per release: a release is cut
+  as release/vX.Y (`issue-cli release cut`), soaks there with fixes picked from main
+  (`release pick`), and `release publish` pushes the branch tip's tree as one `vX.Y.Z`
+  commit with the release's changelog section as its body (`--dry-run` shows it
+  first and writes nothing). A pre-push guard refuses work files in the code repo, dev commits to the
+  public remote, and (with `code: public`) commit messages quoting a decision. Status
+  shows a Work and a Code badge after the title: green private, amber something to
+  fix, red work or history where it shouldn't be, grey public by choice.
+why: |
+  A public dev repo publishes how the work was done, not just the result: issue bodies,
+  owner quotes and D-n text in commit messages, branch names, PRs that can never be
+  rewritten. Ignored instead, the work files sit on one disk with no backup.
+where: "privacy"
+snippet: |
+  privacy:
+    work_files: tracker        # or in_repo: keep them in the code repo, by choice
+    code: snapshots            # or public: develop in the public repo
+    decided: "{{today}}, owner: \"<their words>\""
+question: "Do you want your work files (issues, sessions, retros, attachments) private, in a private tracker repo, or public, in the code repo? And should development be private, with only releases published, or in the public repo?"
+setup:
+  - who: agent
+    do: "Record both answers in workflow.yaml privacy: with the owner's words in decided:, and with issue-cli decide when an issue is open for it."
+  - who: owner
+    do: "For a private tracker: create a private GitHub repo, e.g. <name>-tracker, and give the agent its URL. For private development: create a private <name>-dev too. The agent never creates repos."
+  - who: agent
+    do: "issue-cli tracker init --remote <tracker url>: creates or adopts the git folder outside the checkout, ignores the work paths, installs the pre-push guard, pushes the first backup."
+  - who: owner
+    do: "If the code repo still tracks work files, run the git rm -r --cached and commit that tracker init prints."
+  - who: agent
+    do: "With code: snapshots, issue-cli release setup --dev <dev url>: origin becomes the dev repo with every branch and non-candidate tag, the old origin becomes the remote public. In the release workflow, skip private repos (if: !github.event.repository.private) and take notes from the CHANGELOG. Copy .github/workflows/privacy-guard.yml from the engine repo: it fails PRs that touch work files, and every PR on the public repo."
+  - who: owner
+    do: "Decide what happens to the history already public. Leaving it is fine: the next release is the first snapshot, on top of it (see it first: issue-cli release publish <version> --dry-run from the release worktree). To remove it instead, clean it once from a mirror (git filter-repo of the work paths, force push), never in the working checkout, then publish with --first."
+  - who: agent
+    do: "issue-cli privacy check: every line green, or each fix explained to the owner. Other machines and cloud sessions clone the dev repo and the tracker, never the public repo."
+detect:
+  - path: privacy

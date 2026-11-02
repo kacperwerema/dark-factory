@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/goals"
-	"github.com/michal-franc/issue-viewer/internal/jobs"
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Saturday 2026-10-31 12:00, ISO week 44; the window starts 10-24 12:00.
@@ -254,5 +254,49 @@ func TestValidKeyAndBodySection(t *testing.T) {
 	}
 	if BodySection(body, "Missing") != "" {
 		t.Error("missing section")
+	}
+}
+
+// A gate is a block on the owner only once the issue's own work for it is
+// done: an in-progress issue whose next move (→ testing) needs the owner's
+// approval but whose Implementation boxes (the section entering in progress
+// appended) are open waits on its worker, even when the gate has no box rule.
+func TestBlockedOnTheOwnerOnlyWhenTheGateIsReady(t *testing.T) {
+	p := sandbox(t)
+	wf := filepath.Join(p.WorkDir, "workflow.yaml")
+	if err := os.WriteFile(wf, []byte(`statuses:
+  - name: "idea"
+  - name: "in progress"
+  - name: "testing"
+  - name: "done"
+transitions:
+  - from: "idea"
+    to: "in progress"
+    actions:
+      - type: "append_section"
+        title: "Implementation"
+        body: |
+          - [ ] Code written
+  - from: "in progress"
+    to: "testing"
+    actions:
+      - type: "require_human_approval"
+        status: "testing"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.WorkflowFile = wf
+	front := "status: \"in progress\"\ndepartment: \"Marketing\""
+	writeIssue(t, p, "SEO/open.md", front, "## Implementation\n\n- [x] Code written\n- [ ] Tests written")
+	writeIssue(t, p, "SEO/ready.md", front, "## Implementation\n\n- [x] Code written\n- [x] Tests written")
+	on := map[string]string{}
+	for _, l := range gather(t, p, "marketing", nil).Sections[0].Blocked {
+		on[l.Slug] = l.On + " · " + l.Why
+	}
+	if got, ok := on["seo/open"]; ok {
+		t.Errorf("open Implementation boxes are the worker's, not the owner's: %q", got)
+	}
+	if got := on["seo/ready"]; got != "the owner · approval for testing" {
+		t.Errorf("all boxes ticked waits on the owner: %q (all: %v)", got, on)
 	}
 }

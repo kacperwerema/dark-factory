@@ -156,13 +156,15 @@ type grepLine struct {
 }
 
 // grepLines runs git grep -I -n -z with the given pattern args over the
-// tracked files (rev "") or a revision's tree.
-func grepLines(dir, rev string, patArgs []string) ([]grepLine, error) {
+// tracked files (rev "") or a revision's tree, limited to pathspecs when
+// any are given.
+func grepLines(dir, rev string, patArgs []string, pathspecs ...string) ([]grepLine, error) {
 	args := append([]string{"-c", "core.quotePath=false", "grep", "-I", "-n", "-z", "--no-color"}, patArgs...)
 	if rev != "" {
 		args = append(args, rev)
 	}
 	args = append(args, "--")
+	args = append(args, pathspecs...)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
@@ -226,7 +228,7 @@ func PrivateNames() (names []string, path string) {
 // leakError is the refusal publish gives on a hit.
 func leakError(where string, leaks []Leak) error {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d private-data hit(s) in %s's tree would go public (the leak scan: user home paths, scratchpad paths, names from %s):", len(leaks), where, valueOr(PrivateNamesFile(), "the private-names list"))
+	fmt.Fprintf(&b, "%d private-data hit(s) in %s's tree would go public (the leak scan: user home paths, scratchpad paths, the upstream name outside LICENSE.md, names from %s):", len(leaks), where, valueOr(PrivateNamesFile(), "the private-names list"))
 	for i, l := range leaks {
 		if i == 10 {
 			fmt.Fprintf(&b, "\n  … and %d more", len(leaks)-10)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
 )
 
 // Saved is a written and committed edit.

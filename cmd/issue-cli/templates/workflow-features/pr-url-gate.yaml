@@ -1,0 +1,22 @@
+id: pr-url-gate
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/has_pr_url.go"]
+title: "Pull request link required"
+what: |
+  `has_pr_url` requires the frontmatter `pr:` to be a GitHub pull request URL.
+why: |
+  Shipping can't be claimed without the PR that ships it.
+where: "transitions[].actions[] rule: has_pr_url"
+snippet: |
+  transitions:
+    - from: "shipping"
+      to: "done"
+      actions:
+        - type: "validate"
+          rule: "has_pr_url"
+question: "Should an issue need a linked PR before it is done?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [has_pr_url]

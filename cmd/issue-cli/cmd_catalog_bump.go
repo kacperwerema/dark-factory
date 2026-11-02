@@ -6,15 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 const catalogBumpUsage = `Usage:
-  issue-cli workflow catalog-bump <id>[,<id>...] [--version vX.Y.Z] [--dry-run]   # in the issue-viewer repo
+  issue-cli workflow catalog-bump <id>[,<id>...] [--version vX.Y.Z] [--dry-run]   # in the dark-factory repo
 
-For issue-cli developers: sets each catalog entry's version: (in
-cmd/issue-cli/templates/workflow-features.yaml or its own file under
-workflow-features/) and carries every bundled template the entry applies to
+For issue-cli developers: sets each catalog entry's version: (in its file,
+cmd/issue-cli/templates/workflow-features/<id>.yaml) and carries every bundled template the entry applies to
 along: its template: stamp rises to that version, and its features: record
 line <id>@<old> becomes <id>@<version>. The default version is the next
 release (the one after the newest ## vX.Y.Z in cmd/issue-cli/CHANGELOG.md).
@@ -47,7 +46,7 @@ func runCatalogBump(ctx *Context, args []string) error {
 	if version == "" {
 		changelog, err := os.ReadFile(filepath.Join(root, workflowupgrade.ChangelogPath))
 		if err != nil {
-			return fmt.Errorf("%s not found: catalog-bump runs in the issue-viewer repository\n\n%s", workflowupgrade.ChangelogPath, catalogBumpUsage)
+			return fmt.Errorf("%s not found: catalog-bump runs in the dark-factory repository\n\n%s", workflowupgrade.ChangelogPath, catalogBumpUsage)
 		}
 		last, ok := workflowupgrade.LastRelease(changelog)
 		if !ok {

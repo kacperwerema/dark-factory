@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // isolateTelemetryEnv neutralizes everything in the developer's / agent's

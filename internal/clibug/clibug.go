@@ -14,15 +14,15 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Label marks an issue filed by report-bug.
 const Label = "cli-bug"
 
 // EngineRepos are the repo names the engine project is known by, the current
-// one first. issue-viewer's own entry may still carry the old name.
-var EngineRepos = []string{"michal-franc/ai-workflow-engine", "michal-franc/ai-native-project-viewer"}
+// one first.
+var EngineRepos = []string{"kacperwerema/dark-factory"}
 
 // titleLimit caps a report's title; the full text always goes in the body.
 const titleLimit = 80

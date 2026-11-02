@@ -28,8 +28,8 @@ func (e *UnknownRuleError) Error() string {
 		where = ", " + exe
 	}
 	return fmt.Sprintf("unknown validation rule: %s — this build (%s%s) doesn't know it, so the workflow file is likely newer than the build: "+
-		"the installed build is behind the AI Workflow Engine's main.\n"+
-		"Fix: in your AI Workflow Engine checkout (the issue-viewer repo, not this project), pull main and rebuild:\n\n  git pull && make install\n\n"+
+		"the installed build is behind Dark Factory's main.\n"+
+		"Fix: in your Dark Factory checkout (the dark-factory repo, not this project), pull main and rebuild:\n\n  git pull && make install\n\n"+
 		"make install puts issue-cli and issue-viewer in $(go env GOBIN) or $(go env GOPATH)/bin, which must come first on PATH; restart a running viewer. "+
 		"Without a checkout, install the newest release instead (docs/getting-started.md).\n"+
 		"(Misspelled? The rules this build knows: issue-cli process schema)", e.Rule, v, where)

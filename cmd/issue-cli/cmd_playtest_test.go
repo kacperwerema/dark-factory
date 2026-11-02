@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/playtestruns"
+	"github.com/kacperwerema/dark-factory/internal/playtestruns"
 )
 
 // writePlaytestRun makes a run folder under dir's .playtest/runs with one

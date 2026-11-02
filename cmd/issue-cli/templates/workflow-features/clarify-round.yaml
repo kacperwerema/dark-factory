@@ -3,7 +3,7 @@ version: v0.59.0
 category: conventions
 propose: true
 templates: [development]
-sources: ["internal/tracker/clarify.go", "cmd/issue-cli/cmd_clarify.go", "clarify_view.go"]
+sources: ["internal/tracker/clarify.go", "cmd/issue-cli/cmd_clarify.go", "internal/viewer/clarify_view.go"]
 title: "One clarify round per design"
 what: |
   The design step writes every question for the owner once, under `## Clarify`: each

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/projectinit"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/projectinit"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 var projectCommand = &Command{

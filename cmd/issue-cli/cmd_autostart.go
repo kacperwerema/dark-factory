@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/agentrun"
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/yolo"
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 var autostartCommand = &Command{

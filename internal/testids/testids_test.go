@@ -2,7 +2,6 @@ package testids
 
 import (
 	"reflect"
-	"regexp"
 	"testing"
 )
 
@@ -86,10 +85,6 @@ el.dataset.testid = 'list.empty';`
 	}
 }
 
-// idFormat: page.area.element, lower snake case, `*` or `#` for a dynamic
-// segment.
-var idFormat = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.([a-z][a-z0-9_]*|\*|#))+$`)
-
 func TestIDsAreWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	for _, id := range IDs {
@@ -97,7 +92,7 @@ func TestIDsAreWellFormed(t *testing.T) {
 			t.Errorf("duplicate id %q", id)
 		}
 		seen[id] = true
-		if !idFormat.MatchString(id) {
+		if !WellFormed(id) {
 			t.Errorf("id %q is not lower snake case with dots", id)
 		}
 	}

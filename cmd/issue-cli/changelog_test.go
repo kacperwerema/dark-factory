@@ -10,23 +10,46 @@ import (
 // misplacedChangelogEntries returns the entry lines head has and base lacks
 // that sit below head's first version heading. CHANGELOG.md merges with
 // merge=union, so after a release renamed ## Unreleased, git can put a
-// branch's new entry under the released version without a conflict.
+// branch's new entry under the released version without a conflict. An
+// entry that replaces one base had under the same version heading is an
+// edit of a released entry, not a new one, and is not returned.
 func misplacedChangelogEntries(base, head string) []string {
+	headCount := map[string]int{}
+	for _, l := range strings.Split(head, "\n") {
+		headCount[l]++
+	}
 	have := map[string]int{}
+	removed := map[string]int{} // released entries base has and head lacks, by heading
+	heading := ""
 	for _, l := range strings.Split(base, "\n") {
 		have[l]++
+		if strings.HasPrefix(l, "## v") {
+			heading = l
+		}
+		if heading == "" || !strings.HasPrefix(l, "- ") {
+			continue
+		}
+		if headCount[l] > 0 {
+			headCount[l]--
+		} else {
+			removed[heading]++
+		}
 	}
 	var out []string
-	released := false
+	heading = ""
 	for _, l := range strings.Split(head, "\n") {
 		if strings.HasPrefix(l, "## v") {
-			released = true
+			heading = l
 		}
 		if have[l] > 0 {
 			have[l]--
 			continue
 		}
-		if released && strings.HasPrefix(l, "- ") {
+		if heading != "" && strings.HasPrefix(l, "- ") {
+			if removed[heading] > 0 {
+				removed[heading]--
+				continue
+			}
 			out = append(out, l)
 		}
 	}
@@ -45,6 +68,8 @@ func TestMisplacedChangelogEntries(t *testing.T) {
 		{"entry merged under the release", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- C\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", []string{"- C"}},
 		{"entry in an older release", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- C\n- old\n", []string{"- C"}},
 		{"unchanged", base, nil},
+		{"released entry edited", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A, reworded\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", nil},
+		{"edit in one release, new entry in another", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A2\n- B\n\n## v0.57.0 — 2026-10-30\n\n- C\n- old\n", []string{"- C"}},
 	}
 	for _, c := range cases {
 		got := misplacedChangelogEntries(base, c.head)
@@ -101,7 +126,10 @@ func TestChangelogUnionMerge(t *testing.T) {
 	}
 	dir := t.TempDir()
 	run := func(args ...string) (string, error) {
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+			// No detached `git maintenance run --auto` left writing
+			// .git/objects while TempDir cleanup runs.
+			"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.CombinedOutput()

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/jobs"
-	"github.com/michal-franc/issue-viewer/internal/routing"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // RunStart is who starts a recurring job's run, and on whose words.

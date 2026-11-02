@@ -1,0 +1,23 @@
+id: comment-evidence-gates
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/workflow_validate.go#checkRule"]
+title: "Evidence comments required (tests:, docs:)"
+what: |
+  `has_comment_prefix: <prefix>` blocks a transition until a comment starting with
+  the prefix exists, e.g. `tests:` with the test results.
+why: |
+  The agent leaves a record of what it ran or wrote, not just a ticked box.
+where: "transitions[].actions[] rule: has_comment_prefix: <prefix>"
+snippet: |
+  transitions:
+    - from: "testing"
+      to: "documentation"
+      actions:
+        - type: "validate"
+          rule: "has_comment_prefix: tests:"
+question: "Which steps should leave an evidence comment (test results, docs changed)?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [has_comment_prefix]

@@ -58,7 +58,7 @@ func TestCatchUpEntriesDetectTheirConfig(t *testing.T) {
 	}
 }
 
-// gpu-runner bumped its stamp to v0.54.0 while proof-links (v0.54.0) was
+// batch-runner bumped its stamp to v0.54.0 while proof-links (v0.54.0) was
 // undecided, and upgrade stopped proposing it. With a features: record the
 // record decides: the stamp hides nothing undecided.
 func TestRecordDecidesNotTheStamp(t *testing.T) {

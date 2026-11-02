@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // invocation is what run() learns about a call, handed back to main so the

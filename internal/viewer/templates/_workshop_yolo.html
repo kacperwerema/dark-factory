@@ -1,0 +1,124 @@
+{{/*
+Workshop Board components of YOLO mode. View models in yolo_wb.go, styles in
+static/workshop.css ("YOLO"), behaviour in static/workshop-yolo.js.
+Yellow-black stripes mean YOLO only; orange stays the owner's colour.
+
+  wb/yolo         the header's part: switch (L1), count, band, dialog  data: WbYOLO
+  wb/yolo-switch  the switch in the company's header (L1)   data: WbYOLO
+  wb/hazard-band  the band under the header while YOLO is on data: WbYOLO
+  wb/yolo-dialog  the turn-on dialog (L1)                   data: WbYOLODialog
+  wb/yolo-tag     the yellow YOLO marker                    data: string (text after "YOLO")
+  wb/yolo-review  "Passed in YOLO": Agree / Back to (L3)    data: WbYOLOReview
+  wb/yolo-queue   "To review after YOLO" (L1 side panel)    data: CompanyData
+*/}}
+
+{{define "wb/yolo"}}{{with .}}
+<div data-yolo-prefix="{{.Prefix}}" hidden></div>
+{{if .On}}{{template "wb/hazard-band" .}}{{end}}
+{{with .Dialog}}{{template "wb/yolo-dialog" .}}{{end}}
+<script src="/static/workshop-yolo.js" defer></script>
+{{end}}{{end}}
+
+{{define "wb/yolo-switch"}}{{if .Switch}}<button type="button" class="wb-yolo-switch{{if .On}} wb-yolo-switch--on{{end}}" role="switch" aria-checked="{{if .On}}true{{else}}false{{end}}" {{if .On}}data-yolo="band" title="YOLO is on until {{.End}}"{{else}}data-yolo="dialog" title="Turn YOLO on: gates pass without you for a while"{{end}} data-testid="yolo.switch"><i class="wb-yolo-knob" aria-hidden="true"></i>YOLO</button>{{end}}{{if .Queue}}<a class="wb-yolo-count" href="{{.Prefix}}/yolo/review" title="Issues YOLO moved without you, waiting for your review: review them together" data-testid="yolo.count"><i class="wb-hazard-sq" aria-hidden="true"></i>{{.Queue}} {{if eq .Queue 1}}issue{{else}}issues{{end}} to review after the fact</a>{{end}}{{end}}
+
+{{define "wb/hazard-band"}}
+<div class="wb-hazard" role="status" data-testid="yolo.band">
+    <div class="wb-hazard-card">
+        <span class="wb-hazard-title">YOLO MODE</span>
+        <span class="wb-hazard-text"><b>Gates pass without you · since {{.Since}} · {{if eq .End "until turned off"}}until turned off{{else}}turns off at {{.End}}{{end}}</b></span>
+        <span class="wb-hazard-meta">passed: <b data-testid="yolo.band.passed">{{.Passed}}</b>{{with .Valves}} · {{.}}{{end}}{{if .Never}} · <span title="{{.NeverList}}" data-testid="yolo.band.never">never passes: <b>{{.Never}}</b></span>{{end}}</span>
+        <span class="wb-grow"></span>
+        <details class="wb-hazard-extend">
+            <summary class="wb-btn wb-btn--paper" data-testid="yolo.band.extend">Extend</summary>
+            <div class="wb-hazard-menu" role="group" aria-label="Extend YOLO">
+                <button type="button" class="wb-btn wb-btn--paper" data-yolo="extend" data-until="08:00">until 08:00</button>
+                <button type="button" class="wb-btn wb-btn--paper" data-yolo="extend" data-until="4h">4 more hours</button>
+                <button type="button" class="wb-btn wb-btn--paper" data-yolo="extend" data-until="off">until turned off</button>
+            </div>
+        </details>
+        <button type="button" class="wb-btn wb-btn--ink" data-yolo="off" data-testid="yolo.band.off">Turn off now</button>
+    </div>
+    <div class="wb-site-msg wb-hazard-msg" role="status"></div>
+</div>
+{{end}}
+
+{{define "wb/yolo-dialog"}}
+<dialog class="wb-yolo-dialog" aria-labelledby="yolo-dialog-h" data-testid="yolo.dialog">
+<form method="dialog" data-yolo-form>
+    <div class="wb-yolo-dialog-stripes" aria-hidden="true"></div>
+    <div class="wb-yolo-dialog-body">
+        <div class="wb-yolo-dialog-head">
+            <div class="wb-ceo-bot" aria-hidden="true"><svg width="16" height="10" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
+            <div>
+                <div class="wb-eyebrow">{{.Project}} · company mode</div>
+                <h2 class="wb-h1" id="yolo-dialog-h">Turn on YOLO MODE?</h2>
+                <p class="wb-yolo-lead">The CEO and the workers pass every gate without you. Nothing waits for your stamp: you review it after the fact.</p>
+            </div>
+        </div>
+        <div class="wb-yolo-cols">
+            <div class="wb-yolo-box wb-yolo-box--skip" data-testid="yolo.dialog.gates">
+                <div class="wb-eyebrow">Gates skipped · {{len .Gates}}</div>
+                {{range .Gates}}<div class="wb-yolo-gate"><i class="wb-hazard-sq" aria-hidden="true"></i><b>{{.Name}}</b><span class="wb-mono">{{.Step}}</span>{{with .Note}}<span class="wb-muted">{{.}}</span>{{end}}</div>{{else}}<div class="wb-muted">This workflow has no gate on its path.</div>{{end}}
+            </div>
+            <div class="wb-yolo-box" data-testid="yolo.dialog.guards">
+                <div class="wb-eyebrow">Still guarding</div>
+                {{range .Guards}}<div class="wb-yolo-guard"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg><b>{{.Label}}</b><span class="wb-muted">{{.Value}}</span></div>{{end}}
+            </div>
+        </div>
+        <fieldset class="wb-yolo-field">
+            <legend class="wb-eyebrow">How long</legend>
+            <div class="wb-yolo-radios">
+                <label class="wb-yolo-radio"><input type="radio" name="until" value="08:00" checked data-label="until 8:00">Until morning · 8:00</label>
+                <label class="wb-yolo-radio"><input type="radio" name="until" value="4h" data-label="for 4 hours">4 hours</label>
+                <label class="wb-yolo-radio"><input type="radio" name="until" value="off" data-label="until turned off">Until turned off</label>
+            </div>
+        </fieldset>
+        <fieldset class="wb-yolo-field">
+            <legend class="wb-eyebrow">Safety valves</legend>
+            <label class="wb-yolo-check"><input type="checkbox" name="ci_valve"{{if .CI}} checked{{else}} disabled{{end}} data-testid="yolo.dialog.ci_valve"><span><b>Turn itself off when CI is red for more than 30 min</b>{{if .CI}} — so the night doesn't build on a broken main.{{else}} — no local CI here: the CI valve is off.{{end}}</span></label>
+            <label class="wb-yolo-check"><input type="checkbox" name="no_releases" checked><span><b>No external releases</b> — <code>release publish</code> still waits on you.</span></label>
+        </fieldset>
+        <div class="wb-yolo-note"><b>After the fact:</b> every gate passed without you gets a YOLO marker and lands in “To review after YOLO”. Decisions made meanwhile land in the Decisions log as “without your words”. You agree or send it back.</div>
+        <label class="wb-words-label" for="yolo-words">Your words <span>— required: saved with the switch, like any gate</span></label>
+        <textarea id="yolo-words" name="words" rows="2" class="wb-words" required placeholder="e.g. go YOLO till morning, I review at breakfast" data-testid="yolo.dialog.words"></textarea>
+        <div class="wb-site-msg" role="status"></div>
+        <div class="wb-yolo-actions">
+            <button type="button" class="wb-btn wb-btn--paper" data-yolo="cancel">Cancel</button>
+            <button type="submit" class="wb-btn wb-btn--yolo" data-testid="yolo.dialog.go"><i class="wb-hazard-sq" aria-hidden="true"></i>Turn on YOLO <span data-yolo-label>until 8:00</span></button>
+        </div>
+    </div>
+</form>
+</dialog>
+{{end}}
+
+{{define "wb/yolo-tag"}}<span class="wb-yolo-tag" title="Passed or recorded in YOLO, without you">YOLO{{with .}} · {{.}}{{end}}</span>{{end}}
+
+{{define "wb/yolo-review"}}
+<section class="wb-yolo-review" id="yolo" aria-labelledby="yolo-review-h" data-review="{{.ReviewURL}}" data-testid="station.yolo">
+    <div class="wb-yolo-review-head"><i class="wb-hazard-sq" aria-hidden="true"></i><h2 class="wb-move-h" id="yolo-review-h">Passed in YOLO</h2><span class="wb-move-meta">review after the fact</span></div>
+    {{range .Passes}}
+    <form class="wb-yolo-pass" data-status="{{.Key}}" data-testid="station.yolo.pass">
+        {{if .Check}}<p class="wb-move-text" data-testid="station.yolo.owner_check"><b>{{.Check}}: owner check, not done</b> · {{.What}}{{with .Why}} <span class="wb-muted">({{.}})</span>{{end}}. YOLO passed{{with .From}} <b>{{.}}</b>{{end}} without it and left the box for you{{with .At}} · {{.}}{{end}}: check it and tick the box, agree without it, or send it back.</p>
+        {{else if .Question}}<p class="wb-move-text" data-testid="station.yolo.question"><b>{{.Question}}: assumed answer</b> · {{.What}}{{with .Why}} <span class="wb-muted">({{.}})</span>{{end}}. Answer it in Clarify above to replace it, agree with it, or send it back.</p>
+        {{else if .Hold}}<p class="wb-move-text" data-testid="station.yolo.hold"><b>{{.Decision}}: {{.Hold}} passed in YOLO</b> · {{.What}}{{with .From}}, leaving <b>{{.}}</b>{{end}}{{with .At}} · {{.}}{{end}}. Agree that the design may go without it, or send it back to cite it.</p>
+        {{else if .Decision}}<p class="wb-move-text"><b>{{.Decision}}: hard decision relayed</b> · {{.What}}{{with .By}} · {{.}}{{end}}{{with .At}} · {{.}}{{end}}. Agree, or send it back.</p>
+        {{else}}<p class="wb-move-text">{{with .From}}<b>{{.}}</b> → {{end}}<b>{{.Status}}</b> passed without you{{with .By}} · {{.}}{{end}}{{with .At}} · {{.}}{{end}}. You don't approve it now: you agree, or send it back.</p>{{end}}
+        <label class="wb-words-label" for="yolo-words-{{statusFragment .Key}}">Your words <span>— reach the agent; required to send it back</span></label>
+        <textarea id="yolo-words-{{statusFragment .Key}}" name="words" rows="2" class="wb-words" placeholder="Fine, or what to fix"></textarea>
+        <div class="wb-step-actions">
+            <button type="submit" name="verdict" value="agree" class="wb-btn wb-btn--youshadow" data-testid="station.yolo.agree">Agree</button>
+            {{with .Back}}<button type="submit" name="verdict" value="back" class="wb-btn wb-btn--paper" data-testid="station.yolo.back">Back to {{.}}</button>{{end}}
+        </div>
+        <div class="wb-site-msg" role="status"></div>
+    </form>
+    {{end}}
+</section>
+{{end}}
+
+{{define "wb/yolo-queue"}}{{if .YOLOQueue}}
+<div class="wb-side-block wb-side-block--yolo" id="yolo-queue" data-testid="company.yolo_queue">
+    <h2 class="wb-h2">To review after YOLO · {{len .YOLOQueue}}{{if .YOLOMore}}+{{.YOLOMore}}{{end}}</h2>
+    {{with .YOLOReviewURL}}<a class="wb-qrow" href="{{.}}" data-testid="company.yolo_queue.review_all"><b>Review all together</b><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+    {{range .YOLOQueue}}<a class="wb-qrow" href="{{.URL}}" data-testid="company.yolo_queue.row"><span class="wb-yolo-tag">YOLO · {{.Detail}}</span><span class="wb-qrow-slug">{{.Slug}}</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
+</div>
+{{end}}{{end}}

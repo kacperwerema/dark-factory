@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,6 +57,13 @@ type Step struct {
 	// Proves lists the acceptance criteria this step proves (AC2); the
 	// runner copies it into the step's result for issue-cli prove.
 	Proves []string `yaml:"proves"`
+	// Stubs name scripts installed in the step's page before it loads
+	// (stubs.go): speech-recognition, no-speech-recognition, keyboard.
+	Stubs []string `yaml:"stubs"`
+	// Viewports, when set, runs the step at only these of the session's
+	// viewports: a step that checks what one layout shows (the desktop
+	// controls row) while another step checks the other layout.
+	Viewports []string `yaml:"viewports"`
 
 	Line int `yaml:"-"`
 
@@ -145,6 +153,29 @@ func (s *Session) Viewports() []Viewport {
 	return out
 }
 
+// StepViewports returns the viewports st runs at: its own viewports: when
+// set (each one of the session's), else the session's.
+func (s *Session) StepViewports(st *Step) []Viewport {
+	all := s.Viewports()
+	if len(st.Viewports) == 0 {
+		return all
+	}
+	var out []Viewport
+	for _, v := range st.Viewports {
+		vp, err := ParseViewport(v)
+		if err != nil {
+			continue
+		}
+		for _, have := range all {
+			if have == vp {
+				out = append(out, vp)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // Settle is how long checks may take to become true after act.
 func (s *Session) Settle() int {
 	if s.Checks.SettleMS > 0 {
@@ -173,6 +204,9 @@ func LoadSession(path string) (*Session, []error) {
 	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
+		if line := quotedScalarLine(data); line > 0 {
+			return nil, []error{fmt.Errorf("%s:%d: a value starting with a quote ends at the closing quote (%v): quote the whole value, e.g. expect: '\"Saved\" shows on the card'", path, line, err)}
+		}
 		return nil, []error{fmt.Errorf("%s: %v", path, err)}
 	}
 	s := &Session{File: relPath(path)}
@@ -200,6 +234,21 @@ func LoadSession(path string) (*Session, []error) {
 		st.targets = parseTargets(st.Targets, at)
 	}
 	return s, errs
+}
+
+// quotedValueRe is a `key: "…" more` line: a value that opens with a
+// quote and goes on after the closing one, which YAML reads as the quoted
+// part followed by junk ("did not find expected key").
+var quotedValueRe = regexp.MustCompile(`^\s*(?:-\s+)?[a-z_]+:\s+(?:"[^"]*"|'[^']*')\s*[^\s#]`)
+
+// quotedScalarLine returns the 1-based line of the first such value, or 0.
+func quotedScalarLine(data []byte) int {
+	for i, l := range strings.Split(string(data), "\n") {
+		if quotedValueRe.MatchString(l) {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func mapValue(n *yaml.Node, key string) *yaml.Node {

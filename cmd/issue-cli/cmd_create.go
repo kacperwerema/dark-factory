@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/connections"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/connections"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var createCommand = &Command{
@@ -145,6 +145,11 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 			if base.GetStatusIndex(s) < backlogIdx {
 				allowed = append(allowed, "\""+s+"\"")
 			}
+		}
+		if len(allowed) == 0 {
+			// Nothing sits before backlog: an empty "allowed:" list would
+			// leave the reader guessing (retro 20261031-051750).
+			return nil, fmt.Errorf("cannot create issue with status %q — the workflow needs a status before backlog to create issues in (add one, such as \"idea\", above \"backlog\" in statuses:)", status)
 		}
 		if typ != "" {
 			return nil, fmt.Errorf("cannot create a %s issue with status %q — allowed: %s", typ, status, strings.Join(allowed, ", "))

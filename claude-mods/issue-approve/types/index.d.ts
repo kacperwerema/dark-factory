@@ -1,7 +1,7 @@
 /** One approval the issue's current status offers (GET …/approvals.json). */
 export type ApprovalItem = { status: string; approved: boolean; optional?: boolean }
 
-/** GET /p/<project>/issue/<slug>/approvals.json on the AI Workflow Engine board. */
+/** GET /p/<project>/issue/<slug>/approvals.json on the Dark Factory board. */
 export type Approvals = {
   slug: string
   title: string

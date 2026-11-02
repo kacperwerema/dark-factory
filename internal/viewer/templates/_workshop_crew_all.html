@@ -1,0 +1,71 @@
+{{/*
+Workshop Board components of the Crew page across projects (/crew). View
+models in crew_all.go, styles in static/workshop.css ("crew across
+projects"), JS in static/crew-all.js.
+
+  wb/crew-all-project  one project's card: switches, leads, workers  data: CrewProject
+  wb/crew-all-switch   auto-start's or the queue's chip and button   data: *CrewSwitch
+  wb/crew-all-row      one lead or worker with its actions           data: CrewRow
+  wb/crew-all-sheets   the Nudge and Tail sheets (one page each)     data: none
+*/}}
+
+{{define "wb/crew-all-project"}}
+<section class="wb-crewall-proj" style="--proj: {{.Color}}" data-testid="crew_all.project.{{tid .Slug}}">
+    <h2 class="wb-crewall-proj-h"><span class="wb-crewall-dot"></span><a href="{{.CrewURL}}">{{.Name}}</a><span class="wb-crewall-n">{{len .Workers}} worker{{if ne (len .Workers) 1}}s{{end}}</span></h2>
+    {{with .Error}}<div class="wb-note wb-crewall-err">{{.}}</div>{{end}}
+    {{if or .AutoStart .Queue}}<div class="wb-crewall-ctl">
+        {{with .AutoStart}}<span class="wb-crewall-ctl-item" data-testid="crew_all.project.{{tid $.Slug}}.autostart">Auto-start {{template "wb/crew-all-switch" .}}</span>{{end}}
+        {{with .Queue}}<span class="wb-crewall-ctl-item" data-testid="crew_all.project.{{tid $.Slug}}.queue">Queue {{template "wb/crew-all-switch" .}}</span>{{end}}
+    </div>{{end}}
+    {{range .Leads}}{{template "wb/crew-all-row" .}}{{end}}
+    {{range .Workers}}{{template "wb/crew-all-row" .}}{{end}}
+    {{if or .More .Stopped}}<a class="wb-crewall-more" href="{{.CrewURL}}">{{if .More}}{{.More}} more worker{{if ne .More 1}}s{{end}}{{end}}{{if and .More .Stopped}} · {{end}}{{if .Stopped}}{{.Stopped}} stopped job{{if ne .Stopped 1}}s{{end}}{{end}} · open {{.Name}}'s Crew →</a>{{end}}
+</section>
+{{end}}
+
+{{define "wb/crew-all-switch"}}{{template "wb/chip" .Chip}}{{if and .Act .Action}} <button type="button" class="wb-btn wb-btn--paper wb-crewall-sm" data-crew-switch="{{.URL}}" data-crew-what="{{.What}}" data-testid="crew_all.switch.{{.Key}}.{{.Action}}">{{.Verb}}</button>{{end}}{{end}}
+
+{{define "wb/crew-all-row"}}
+<div class="wb-crewall-row wb-crewall-row--{{.Kind}}" data-crew-row="{{.Name}}" data-prefix="{{.Prefix}}" data-testid="crew_all.row.{{tid .Name}}">
+    <div class="wb-crewall-who">
+        {{if eq .Kind "lead"}}<div class="wb-crewall-kind">{{.Label}}</div>{{else if .Title}}<div class="wb-crewall-title">{{if .IssueURL}}<a href="{{.IssueURL}}">{{.Title}}</a>{{else}}{{.Title}}{{end}}</div>{{end}}
+        <div class="wb-crewall-name">{{.Name}}</div>
+    </div>
+    <div class="wb-crewall-state" data-testid="crew_all.row.{{tid .Name}}.state">{{template "wb/chip" .Chip}}{{with .Note}}<span class="wb-note">{{.}}</span>{{end}}</div>
+    <div class="wb-crewall-status" role="status" data-testid="crew_all.row.{{tid .Name}}.status"></div>
+    {{if .Act}}<div class="wb-crewall-acts">
+        {{if .StartURL}}<button type="button" class="wb-btn wb-btn--ink wb-crewall-sm" data-crew-start="{{.StartURL}}" data-crew-what="Start {{.StartWhat}}" data-testid="crew_all.row.{{tid .Name}}.start">Start {{.StartWhat}}</button>{{end}}
+        {{if .CanTail}}<button type="button" class="wb-btn wb-btn--paper wb-crewall-sm" data-crew-tail data-testid="crew_all.row.{{tid .Name}}.tail">Tail</button>{{end}}
+        {{if .ChatURL}}<a class="wb-btn wb-btn--paper wb-crewall-sm" href="{{.ChatURL}}">Chat →</a>{{end}}
+        {{if .CanNudge}}<button type="button" class="wb-btn wb-btn--paper wb-crewall-sm" data-crew-nudge data-testid="crew_all.row.{{tid .Name}}.nudge">Nudge</button>{{end}}
+        {{if .CanStop}}<button type="button" class="wb-btn wb-crewall-sm wb-crewall-stop" data-crew-stop data-testid="crew_all.row.{{tid .Name}}.stop">Stop</button>{{end}}
+    </div>{{end}}
+</div>
+{{end}}
+
+{{define "wb/crew-all-sheets"}}
+<div class="wb-crewall-confirm" data-crew-confirm data-hold-open hidden data-testid="crew_all.confirm">
+    <b data-crew-confirm-q></b>
+    <div data-crew-confirm-note></div>
+    <div class="wb-crewall-acts"><button type="button" class="wb-btn wb-crewall-danger" data-crew-confirm-yes data-testid="crew_all.confirm.yes">Yes</button><button type="button" class="wb-btn wb-btn--paper" data-crew-confirm-no data-testid="crew_all.confirm.no">Cancel</button></div>
+</div>
+<div class="wb-crewall-sheet" data-crew-sheet="nudge" data-hold-open hidden data-testid="crew_all.nudge" role="dialog" aria-label="Nudge a worker">
+    <h3>Nudge <span data-crew-sheet-name></span></h3>
+    <div class="wb-note">Pasted into its session as one message: “Message from the owner (Crew page): …”</div>
+    <div class="wb-crewall-presets">
+        <button type="button" class="wb-crewall-preset" data-crew-preset>Where are you? One line.</button>
+        <button type="button" class="wb-crewall-preset" data-crew-preset>Keep going, don't wait for me.</button>
+        <button type="button" class="wb-crewall-preset" data-crew-preset>Wrap up and write a progress: comment.</button>
+    </div>
+    <div class="wb-crewall-count"><span data-crew-count>0</span> / 300</div>
+    <textarea maxlength="300" data-crew-text data-testid="crew_all.nudge.text" aria-label="Message"></textarea>
+    <div class="wb-crewall-acts"><button type="button" class="wb-btn wb-btn--ink" data-crew-send data-testid="crew_all.nudge.send">Send to the agent</button><button type="button" class="wb-btn wb-btn--paper" data-crew-close>Cancel</button></div>
+    <div class="wb-site-msg" role="status" data-crew-sheet-msg></div>
+</div>
+<div class="wb-crewall-sheet" data-crew-sheet="tail" data-hold-open hidden data-testid="crew_all.tail" role="dialog" aria-label="Pane tail">
+    <h3>Tail · <span data-crew-sheet-name></span></h3>
+    <div class="wb-note" data-crew-tail-at>Last 60 lines of its pane · read only</div>
+    <pre class="wb-crewall-pane" data-crew-pane data-testid="crew_all.tail.pane"></pre>
+    <div class="wb-crewall-acts"><button type="button" class="wb-btn wb-btn--paper" data-crew-refresh>Refresh</button><button type="button" class="wb-btn wb-btn--paper" data-crew-close>Close</button></div>
+</div>
+{{end}}

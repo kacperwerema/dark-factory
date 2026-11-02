@@ -9,6 +9,8 @@ The UI system covers HTML templates, CSS styling, and client-side JavaScript for
 
 ## Key Files
 
+The viewer's code is the `internal/viewer` package: the `.go` files, `templates/` and `static/` named on this page are under `internal/viewer/` (the binary's `main` is `cmd/issue-viewer`).
+
 - `templates/list.html` — filterable issue list
 - `templates/workboard.html` — the workboard (`/workboard?classic=1`): read-only cards with markers, epic progress and the agent footer (`handlers_workboard.go`; see [Workboard](#workboard))
 - `templates/_markers.html` — card marker partials: `markers`, `marker-chips`, `epic-progress`, `agent-footer`, `card-legend` (data from `markers.go`; agent state from `agent_state.go`)
@@ -18,6 +20,7 @@ The UI system covers HTML templates, CSS styling, and client-side JavaScript for
 - `templates/_timeline.html` — the Timeline tab (`timeline.go` builds the view on `internal/timeline`'s `Split`, `timeline_sources.go` reads its files; rules in [Workflow Stats](../workflow-stats.md#timeline-tab))
 - `templates/graph.html` — workflow status graph
 - `templates/crew.html` — the Crew page (Workshop Board L1, `/agents`): the org chart, stopped jobs, selected-agent panel (`crew.go`; components in `templates/_workshop_crew.html`, JS in `static/crew.js`)
+- `templates/crew_all.html` — the Crew page across projects (`/crew`): a card per project with its CEO, department leads and live workers, memory and load at the top; signed in as the owner, Start a lead, Stop, Nudge, Tail, and Pause / Resume for auto-start and the queue, each asking first (`crew_all.go`; components in `templates/_workshop_crew_all.html`, JS in `static/crew-all.js`; routes and rules in [Security](../API/security.md))
 - `templates/agents.html` — the classic agents canvas at `/agents?classic=1`: lead/worker tree, unfinished jobs, selected-agent panel (handlers in `handlers_agents.go`)
 - `templates/canvas.html` — issues canvas: version columns × epic or system rows, pan and zoom (`handlers_canvas.go` builds it)
 - `templates/docs.html` — documentation viewer with sidebar navigation
@@ -95,6 +98,7 @@ Charts are inline SVG from `internal/chart`, drawn on the server: marks use `cur
 | `/board?classic=1` | `board.html`  | Classic kanban with configurable columns, card fields and drag-and-drop (More › Classic board) |
 | `/graph`          | `graph.html`  | Workflow DAG with stale highlighting             |
 | `/agents`         | `crew.html` (`?classic=1`: `agents.html`) | Crew: the CEO, department leads, workers and how to reach them (see below) |
+| `/crew` (across projects) | `crew_all.html` | Every project's leads and workers on one phone-width page, with the owner's Start / Stop / Nudge / Tail / Pause |
 | `/canvas`         | `canvas.html` | Issues canvas: versions × epics (or systems), see [Issues canvas](#issues-canvas) |
 | `/docs`           | `docs_wb.html` (classic `docs.html` at `?classic=1`) | Docs on the Workshop Board: the binder lists pages by folder, each named folder a fold, the one holding the open page open |
 | `/issue/<slug>`   | `detail.html` | Issue page with tabs: Issue (brief and Needs-you band, folded body, edit, approve, dispatch, comments), Timeline (`?tab=timeline`, `&show=`), Evidence (`?tab=evidence`: is it proven?). See [Issue page tabs](#issue-page-tabs) |
@@ -577,7 +581,7 @@ The tab answers "is it proven?" (`ui/evidence-tab-proof-shots-and-criteria`). `E
 An issue with no `created:` is dated by its first recorded transition or dispatch for the colour (the gate itself counts it as covered). Building the report costs at most about 40 ms on this repo's issues: test names are looked up in one `git grep`, and `internal/timeline` keeps parsed `results.yaml` files per process (path, size, mtime).
 
 **Main column:**
-- **Shots:** one card per playtest step a criterion links to, from the latest auto run that has the step and its shot file, in `<root>/.playtest/runs` or the issue's worktree. When no step proves a criterion, one card per step of each session's latest auto run that has a shot, and the header says so. A game's runs (RogueTech.X's schema) read the same; see [What the viewer reads](../patterns/playtest/README.md#what-the-viewer-reads).
+- **Shots:** one card per playtest step a criterion links to, from the latest auto run that has the step and its shot file, in `<root>/.playtest/runs` or the issue's worktree. When no step proves a criterion, one card per step of each session's latest auto run that has a shot, and the header says so. A game's runs (Kestrel's schema) read the same; see [What the viewer reads](../patterns/playtest/README.md#what-the-viewer-reads).
   - Each card is tagged with the criteria it proves and its result. The first card is large.
   - The widest screen shows first, with chips that swap it (`evPickView`). A failed screen is shown instead, with its failing check. A phone screen shows at 390 px, top-aligned, and on a phone the large card opens on it.
   - A shot is looked up as `shots/<file>` next to its `results.yaml` (`.png`, then `.jpg` for a reduced run), then `<file>` beside it (a game's runner), so moved runs and old absolute paths both resolve. It is served by `/files/`, and a click opens the full page.
@@ -633,15 +637,24 @@ Lock defaults to on (the early-load check is `localStorage.getItem('sidebar-lock
 
 ## Needs you list
 
-Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it. Both pages render the same components from `templates/_workshop_needs_you.html`: `wb/ny-bar`, `wb/ny-group` (its `Named` flag shows the project heading on the page across projects), `wb/ny-section`, `wb/ny-row`, `wb/ny-after`, `wb/ny-empty` and `wb/ny-confirm`.
+Every "N waiting on you" count leads to one list of what waits on the owner: `/p/<project>/needs-you`, and `/needs-you` across projects (one group per project, with its colour and a link to its own list). `needs_you.go` builds it. Both pages render the same components from `templates/_workshop_needs_you.html`: `wb/ny-switch` (the project switcher, across projects only), `wb/ny-bar`, `wb/ny-group` (its `Named` flag shows the project heading on the page across projects), `wb/ny-section`, `wb/ny-row`, `wb/ny-after`, `wb/ny-empty` and `wb/ny-confirm`.
 - **One list, one count.** `needsYouRows` is the list: red CI, ready gates, playtests and check scripts to run, open `question:` comments, outputs to review (one row per department) and unsent `issue-cli report-bug` reports (listed once across projects). Red CI comes first, then the oldest. The sidebar's Status count, every Workshop Board header (`map.waiting`), the map's lots, the company panel, the hall, the Report's Waiting on you card and the classic Status card are all its length.
 - **Where the counts link.** The header's "N waiting on you" goes to the project's list (the map's and All CEOs' go to `/needs-you`). The sidebar's amber Status number is its own link to the list, while the word Status still opens the Status page. The Report's Waiting on you card has **See all and approve**, its bottleneck's **Approve gates** opens the list when more than one gate waits, and the company panel has **See all and approve**. The classic Status card, the workboard (**List →**), the map's Waiting on you panel and the CEO chat's Waiting band each have a See all link.
-- **Sections.** CI red, To approve, To test, To answer, Outputs to review, Other. Each row keeps its own action: Approve and Review (the station's approve button) for a gate, **▶ Run checks** (the station's `POST …/check-script`) and Check for check scripts, **▶ Play** (the station's `POST …/playtest`) and Open for a playtest, Answer (the station's comments) for a question, View status, Open shelf.
-- **Approving together.** Only ready gates (the approval is all the transition still needs) have a checkbox. **Select all ready (N)** and **Approve selected (N)** open one confirm listing each issue as `slug: from → to`, with one optional words box for the batch. **Approve all listed** posts each project's gates to its `POST …/needs-you/approve`. A row's own **Approve** opens the same confirm for one gate. Each row then shows "Approved for <status> ✓" or why it was not stamped.
+- **The remote home.** On the public name, `/` is this list across projects for a request the identity gate verified (`verifiedIdentity`, `handleProjectList`); `/?map=1` still opens the map, and loopback keeps the map at `/`. The page across projects has a switcher on top: a chip per project with its count (the length of its rows) to its own list, and Map. Every Map crumb and chip links `/?map=1` (`mapURL`), which is the map on loopback and on the public name.
+- **Sections.** CI red, To approve, To test, To answer, Outputs to review, Other. Each row keeps its own action, in one tap where it can be: **Approve** and Review for a gate (one gate, no confirm), **▶ Run checks** (the station's `POST …/check-script`) and Check for check scripts, **▶ Play** (the station's `POST …/playtest`) and Open for a playtest, View status, Open shelf. A **question** row shows the question's text and **Reply** opens a box in the row; Send posts your comment (`POST …/issue/<slug>/comments`), so the newest comment is no longer a question. A **clarify** row lists up to 3 waiting questions with their options as buttons, the recommended one first, each with its cost; a tap posts that option to `POST …/issue/<slug>/clarify` (the Station's route, its owner check and change check) with the option's label marked "(tapped on Needs you)" as the words, so the decision never reads as typed words, and `from: needs-you`, so the comment says "on Needs you". More questions, or one without options, show **Answer on the station**. An expired hard **decision** row (To answer, `decisions_expiry.go`) has a date (today + 90 days), an optional words box, **Renew** (`POST …/decisions/<slug>/<D-n>/renew`) and **Let go** (`…/let-go`), both owner-only; the row says what happened. Every issue row also has **Chat** (the project's CEO chat).
+- **Approving together.** Only ready gates (the approval is all the transition still needs) have a checkbox. **Select all ready (N)** and **Approve selected (N)** open one confirm listing each issue as `slug: from → to`, with one optional words box for the batch. **Approve all listed** posts each project's gates to its `POST …/needs-you/approve`. A row's own **Approve** stamps that one gate without the confirm. Each row then shows "Approved for <status> ✓" or why it was not stamped.
 - **What a stamp writes.** It writes the station's record (`stampApproval`, shared with `POST /issue/<slug>/approve`): `human_approval`, the approval time in the stats sidecar, and the words as an `approval:` comment on each issue. Nothing moves and no agent session is messaged: the lead or the worker picks the stamp up. An issue already approved is skipped, never toggled off.
-- **Playtests and YOLO.** With `playtest: agents` or `off` in workflow.yaml there are no playtest rows. While YOLO is on, the gates it passed show under **After the fact**, below the list and not counted.
+- **Playtests and YOLO.** With `playtest: agents` or `off` in workflow.yaml there are no playtest rows. While YOLO is on, the gates it passed show under **After the fact**, below the list and not counted. A row whose issue has a passed gate or an assumed answer has **Agree** (`POST …/yolo/review`, the review page's Agree: every passed gate and assumed answer of the issue; owner checks stay). Back to, which needs your words, stays on the review page.
 
-Test ids are `needs_you.*`, and the session is `playtest/sessions/needs-you.yaml` (scenario `needs-you`).
+Test ids are `needs_you.*`, and the sessions are `playtest/sessions/needs-you.yaml` (scenario `needs-you`) and `playtest/sessions/remote-home.yaml` (scenario `remote-home`: one row of each one-tap kind at 390px).
+
+## Phone notifications
+
+`/push` (`templates/push.html`, `push_view.go`, `static/push.js`) is the owner's page for Web Push: **This browser** (subscribed or not, Notify me here, Send a test, Stop on this browser), **Devices** (label and date; the one you're on is outlined, `push.js` finds it by hashing its own endpoint), a device the push service removed, and **Settings** (mute per project, quiet hours, the contact for the push services). Buttons and settings show only to the signed-in owner. **🔔 Notify my phone** on Needs you and a link on `/owner` lead there.
+
+Every Workshop page's head (`wb/head`) links `/manifest.webmanifest` (`start_url: /needs-you`, standalone) with credentials and `/apple-touch-icon.png`, so "Add to Home Screen" gives a full-screen app on Needs you. `/sw.js` is served from the root (scope `/`): it shows the push, opens its link on a tap (focusing an open window on it), and re-subscribes on `pushsubscriptionchange`. It caches nothing.
+
+Test ids are `push.*` (`internal/testids/push.go`); the sessions are `playtest/sessions/phone-notifications.yaml` and `phone-notifications-phone.yaml` (390px), on the `needs-you` scenario.
 
 ## Owner checks
 
@@ -765,3 +778,13 @@ The detail page's sidebar has a **Lead** section: the project lead, whether it i
 ## Project actions
 
 The sidebar's **Actions** group has **Spawn lead** (`POST /p/<project>/lead/spawn`) on every project page, followed by one button per `project_actions:` entry. Each button POSTs to `POST /p/<project>/action/<id>` (handler `handleProjectAction` in `handlers_dispatch.go`), which dispatches a one-shot agent with no issue context — prompts template with `{{project}}` only. The dispatch result modal is `project-actions-modal` in `templates/_project_actions.html`. This mirrors the per-issue custom action buttons on `detail.html`, which come from `issue_actions:` (legacy alias: `actions:`). The sidebar reads the actions from the project's workflow (`Nav.ProjectActions`).
+
+## The CEO chat on a phone
+
+The CEO chat (`/p/<project>/lead`, `templates/_workshop_ceo.html`, `static/ceo-chat.js`) is built for the owner's phone too; the full behaviour is in [Agent Dispatch](../agent-dispatch.md#the-ceo-chat-on-a-phone).
+
+- **≤640px:** the chat column is `calc(var(--ceo-vh) - var(--ceo-top))`, set from `visualViewport` by ceo-chat.js, so the box stays above the on-screen keyboard; `wb-ceo-kbd` on the column hides the band and the keys while typing. `wb-more-open` (the **More** toggle, `lead_chat.keys_more`) shows the controls marked `wb-ctl--more` and the mode switch; Interrupt and ↑ ↓ ↵ 1 2 3 always show.
+- **Dictation:** `lead_chat.mic` and `lead_chat.mic_lang` are rendered `hidden` and shown by the script only when `SpeechRecognition` / `webkitSpeechRecognition` exists; `lead_chat.mic_state` is the listening line with the interim words.
+- **Camera:** `lead_chat.camera` shows under `(pointer: coarse)` and clicks `lead_chat.camera_input` (`accept="image/*" capture="environment"`).
+- **Switcher:** `lead_chat.switch` fetches `?part=switcher` into `lead_chat.switcher` (`wb/ceo-switcher`; rows `lead_chat.switcher.lead.<project>[.<dept>]`, state chips `wb/lead-state` with `data-state`). Esc, a tap outside or Close shuts it; each open reads again. The orange dot on Switch means another lead waits on you.
+- **Playtests:** sessions `ceo-chat-phone-remote` (with the `keyboard`, `speech-recognition` and `no-speech-recognition` stubs) and `ceo-chat-switcher`.

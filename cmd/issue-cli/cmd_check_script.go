@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/checks"
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var checkScriptCommand = &Command{
@@ -35,6 +35,8 @@ Usage:
   issue-cli check-script <slug> <name>        run one of them
   issue-cli check-script <slug> --yes         machine run: machine checks only, nothing ticked
                                               (agents: pass this before handing over)
+  issue-cli check-script <slug> --yes --cli <path>
+                                              run them with $ISSUE_CLI=<path> (a branch build)
   issue-cli check-script <slug> --list        list the issue's scripts (exit 1 when none)
   issue-cli check-script <slug> --new <name>  write a starting script, one step per unticked
                                               Manual box, in the issue's worktree
@@ -45,7 +47,12 @@ worktree on work/<slug>; when the workflow has no worktrees, the worktree
 you run it from, else the project folder. They run with a bash 4 or newer (PATH, then /opt/homebrew/bin,
 /usr/local/bin, /opt/local/bin; stock macOS: brew install bash). A machine
 run is also what you get when stdin isn't a terminal. With the feature on,
-human-testing waits for each script's newest --yes run to pass.`,
+human-testing waits for each script's newest --yes run to pass.
+
+$ISSUE_CLI is the issue-cli a script checks (lib.sh's sic and sandbox_project
+use it): --cli <path>, else the branch's own build at <worktree>/issue-cli
+(go build -o ./issue-cli ./cmd/issue-cli) when there is one, else this
+issue-cli. Boxes are still ticked by this issue-cli.`,
 	Run: runCheckScript,
 }
 
@@ -59,6 +66,7 @@ func runCheckScript(ctx *Context, args []string) error {
 	yesFlag := fs.Bool("yes", false, "machine run: machine checks only, nothing ticked")
 	listFlag := fs.Bool("list", false, "list the issue's scripts")
 	newFlag := fs.String("new", "", "write a starting script with this name")
+	cliFlag := fs.String("cli", "", "the issue-cli the scripts check ($ISSUE_CLI), e.g. a branch build")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -143,7 +151,37 @@ func runCheckScript(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout)
 		found = written
 	}
-	return runCheckScripts(ctx, issue, found, *yesFlag)
+	cli, err := scriptIssueCLI(ctx, root, *cliFlag)
+	if err != nil {
+		return err
+	}
+	return runCheckScripts(ctx, issue, found, *yesFlag, cli)
+}
+
+// scriptIssueCLI is the issue-cli a run's scripts check ($ISSUE_CLI): the
+// --cli path, else the branch build in the issue's own checkout (not the
+// project folder a merged issue runs from: a build left there is no
+// branch's), else "" for this issue-cli.
+func scriptIssueCLI(ctx *Context, root, flag string) (string, error) {
+	if flag != "" {
+		abs, err := filepath.Abs(flag)
+		if err != nil {
+			return "", err
+		}
+		if fi, err := os.Stat(abs); err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+			return "", &usageError{msg: "--cli " + flag + ": not an executable file"}
+		}
+		return abs, nil
+	}
+	if root == "" || root == projectRoot(ctx.Project) {
+		return "", nil
+	}
+	build := filepath.Join(root, tracker.BranchBuild)
+	if fi, err := os.Stat(build); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+		fmt.Fprintf(ctx.Stdout, "Checking the branch build %s ($ISSUE_CLI; --cli <path> for another)\n\n", build)
+		return build, nil
+	}
+	return "", nil
 }
 
 // checkScriptRoot is where the issue's scripts live and run: its checkout
@@ -245,7 +283,7 @@ func listCheckScripts(ctx *Context, issue *tracker.Issue, root string, found []c
 	return nil
 }
 
-func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, yes bool) error {
+func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, yes bool, cli string) error {
 	lib, err := checks.LibPath()
 	if err != nil {
 		return fmt.Errorf("writing the check library: %w", err)
@@ -253,6 +291,9 @@ func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, 
 	self, err := os.Executable()
 	if err != nil {
 		self = "issue-cli"
+	}
+	if cli == "" {
+		cli = self
 	}
 	project := ctx.ProjectSlug
 	if ctx.Project != nil && ctx.Project.Slug != "" {
@@ -282,6 +323,7 @@ func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, 
 			"CHECKS_NAME="+s.Name,
 			"CHECKS_SCRIPT="+s.Path,
 			"CHECKS_ISSUE_CLI="+self,
+			"ISSUE_CLI="+cli,
 		)
 		if ctx.Config.Path != "" {
 			cmd.Env = append(cmd.Env, "ISSUE_VIEWER_CONFIG="+ctx.Config.Path)

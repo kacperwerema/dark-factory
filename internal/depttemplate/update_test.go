@@ -14,8 +14,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // TestBundledTemplatesNeverSayClient: the department templates are for a
@@ -171,15 +171,30 @@ func TestEarlierWorkflowsDifferInWordingOnly(t *testing.T) {
 
 // shapeDiff is where a and b differ other than in a text value, "" when
 // they don't. Mapping keys, node kinds, list lengths and every value but a
-// description: or prompt: must match.
+// description: or prompt: must match. The features: record's installed:
+// may list the same refs in another order (the catalog's order changed):
+// that adopts nothing.
 func shapeDiff(a, b *yaml.Node, at string) string {
 	if a.Kind != b.Kind || len(a.Content) != len(b.Content) {
 		return at + " (kind or length)"
 	}
+	if a.Kind == yaml.SequenceNode && strings.HasSuffix(at, "/features/installed") {
+		var x, y []string
+		for i := range a.Content {
+			x, y = append(x, a.Content[i].Value), append(y, b.Content[i].Value)
+		}
+		slices.Sort(x)
+		slices.Sort(y)
+		if !slices.Equal(x, y) {
+			return at + " (refs)"
+		}
+		return ""
+	}
 	if a.Kind == yaml.ScalarNode {
-		// Text may change only in a description: or prompt: value.
+		// Text may change only in a description: or prompt: value, and in
+		// the template: stamp, which every catalog bump moves.
 		key := at[strings.LastIndex(at, "/")+1:]
-		if a.Tag != b.Tag || a.Value != b.Value && key != "description" && key != "prompt" {
+		if a.Tag != b.Tag || a.Value != b.Value && key != "description" && key != "prompt" && at != "/0/template" {
 			return at
 		}
 		return ""

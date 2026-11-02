@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/viewerstate"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
 // Rest is one subscription resting until its reset.

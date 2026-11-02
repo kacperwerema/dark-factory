@@ -1,0 +1,66 @@
+id: decision-ledger
+version: v0.60.1
+category: gates
+propose: true
+templates: [development]
+sources: ["internal/tracker/decision_cited.go", "internal/tracker/decision_challenge.go", "internal/tracker/decision_respected.go", "cmd/issue-cli/templates/workflow/development.yaml"]
+title: "Designs cite the decisions in force; citations stay current; a challenge holds its challenger; branches respect hard decisions' paths"
+what: |
+  Two design-gate rules over the decision ledger. `decisions_cited`: `## Design` names
+  every hard decision in force for the issue at its status (`issue-cli decisions --in-force
+  <slug>`, the Decisions in force block) by its ref, or sets one aside with a line
+  `n/a <ref>: <why>`; soft decisions and the issue's own never hold it, and a bare `n/a <ref>`
+  does. `citations_current`: no ref the body cites (outside its own `## Decisions` and
+  `(replaces …)`) is replaced or expired; the refusal names the replacer. Each refusal prints
+  the ref, its text and the fix. Both take `since <date>` so issues filed earlier pass. Under
+  YOLO a hold passes and leaves a `yolo-hold:` comment, listed in the review after the fact.
+  `decision_unchallenged` (v0.60.1): an agent that thinks a decision is wrong runs
+  `issue-cli decision challenge <ref> --why "…"`; its own issue holds at the gates with the
+  rule until the owner answers (keep: `decision resolve <ref> --keep`, Needs you's Keep it;
+  change: `decide --replaces <ref>`). No other issue is held.
+  `decisions_respected` (v0.60.1, at the gates that see code): when the work branch's own
+  changes (the three-dot diff from its merge-base with main, so a merge of main adds nothing)
+  touch the `paths:` of an active hard decision, whatever its scope or `at:`, the body cites
+  that ref (an `n/a` line doesn't count) and the issue has no open challenge of its own on it.
+  The refusal names the decision, the files and the fixes; `issue-cli decisions --touched
+  <slug>` shows the audit, and the fresh critic's brief lists the touched decisions. No
+  recorded base: a warning line.
+why: |
+  The owner's hard rules reached the agent's briefing but nothing checked that a design took
+  them into account, and an issue could keep citing a decision the owner had replaced. A
+  branch could also rewrite the files a hard decision guards without any gate noticing.
+where: "validate actions with rules \"decisions_cited\" and \"citations_current\" on the edges out of design, \"decision_unchallenged\" there and on in progress → testing, \"decisions_respected\" on in progress → testing and the edges into shipping, and the Design checklist item"
+question: "Should each design cite the owner's hard decisions in force (or say why one doesn't apply), refuse citations of replaced or expired decisions, and hold a branch that changes a hard decision's paths: until the issue cites it, for issues filed from today?"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "in design"
+      actions:
+        - type: "append_section"
+          title: "Design"
+          body: |
+            - [ ] Decisions in force cited (each hard one by ref, or n/a <ref>: <why>)
+    - from: "in design"
+      to: "backlog"
+      actions:
+        - type: "validate"
+          rule: "decisions_cited: since {{today}}"     # issues created before this date pass
+        - type: "validate"
+          rule: "citations_current: since {{today}}"
+        - type: "validate"
+          rule: "decision_unchallenged: since {{today}}"
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "validate"
+          rule: "decision_unchallenged: since {{today}}"
+        - type: "validate"
+          rule: "decisions_respected: since {{today}}"
+    - from: "documentation"
+      to: "shipping"
+      actions:
+        - type: "validate"
+          rule: "decisions_respected: since {{today}}"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [decisions_cited, citations_current, decision_unchallenged, decisions_respected]

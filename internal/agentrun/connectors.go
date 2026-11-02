@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/connectors"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/connectors"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // SpecDepartment is the department an agent works for: a department lead's

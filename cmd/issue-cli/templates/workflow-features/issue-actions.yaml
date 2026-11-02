@@ -1,0 +1,26 @@
+id: issue-actions
+version: v0.36.0
+category: actions
+propose: true
+sources: ["internal/tracker/workflow_config.go#IssueActionList", "internal/tracker/workflow_config.go#CustomAction"]
+title: "Issue action buttons"
+what: |
+  `issue_actions:` adds one-shot agent buttons to the issue detail view. Each opens an
+  agent session briefed with a prompt; no validation, no status change. (`actions:`
+  is the deprecated name.)
+why: |
+  Recurring per-issue chores (defer to a team, write a summary) become one click
+  instead of a hand-written briefing every time.
+where: "new top-level issue_actions: list"
+snippet: |
+  issue_actions:
+    - id: "defer-to-team"
+      label: "Defer to team"
+      agent: "claude"
+      prompt: |
+        Draft a short handoff note for "{{title}}" ({{slug}}) and add it with:
+        issue-cli comment {{slug}} --text "deferred: <summary>"
+question: "Any recurring per-issue chores you'd like as a one-click agent button on each issue?"
+detect:
+  - path: issue_actions
+  - path: actions

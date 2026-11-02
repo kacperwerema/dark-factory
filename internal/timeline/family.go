@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The `workflow` health family: Aggregate over the issues done in the last

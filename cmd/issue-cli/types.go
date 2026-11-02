@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // typeLabel renders " | Type: <t>" for status headers, or "" when the

@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
 )
 
 func main() {

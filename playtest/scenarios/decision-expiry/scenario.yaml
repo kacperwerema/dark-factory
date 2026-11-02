@@ -1,0 +1,10 @@
+# Decision expiry on Needs you. Factory/rules holds four decisions: D-1
+# hard and project-wide, expired on 2026-01-01 (the one Needs you row);
+# D-2 soft and expired (no row); D-3 hard, expired and let go (no row);
+# D-4 hard with no expiry (no row).
+title: Decision expiry on Needs you
+project:
+  name: Expiry Demo
+  slug: expiry
+issues: tracker
+workflow: workflow.yaml

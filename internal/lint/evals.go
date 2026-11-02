@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // checkEvals reads a workflow file's evals: (how the factory benchmark

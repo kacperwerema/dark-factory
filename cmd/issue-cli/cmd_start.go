@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var startCommand = &Command{
@@ -78,7 +78,8 @@ func runStart(ctx *Context, args []string) error {
 	issue = started.Issue
 
 	fmt.Fprintf(ctx.Stdout, "== Starting work on: %s ==\n", issue.Title)
-	fmt.Fprintf(ctx.Stdout, "Status: %s%s\n", statusLabel(wf, started.FromStatus), typeLabel(wf))
+	// The status after start's own move: Next below reads from it too.
+	fmt.Fprintf(ctx.Stdout, "Status: %s%s\n", statusLabel(wf, started.ToStatus), typeLabel(wf))
 	if wf.File != "" {
 		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, wf))
 	}
@@ -132,6 +133,7 @@ func runStart(ctx *Context, args []string) error {
 
 	printWorkflowNextSteps(ctx, wf, issue, issues)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
+	printStartDecisions(ctx, issue, issues, started.ToStatus, wf)
 	printStartMemories(ctx.Stdout, ctx, issue)
 	printStartWorkflowReminder(ctx.Stdout, wf)
 	return nil

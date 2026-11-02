@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -452,16 +453,30 @@ func TestLibPrivateTmuxKillsOnlyItsOwnServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(other)
+	// Its socket is where TMUX_TMPDIR=other puts it, named with -S.
+	sock := filepath.Join(other, "tmux-"+strconv.Itoa(os.Getuid()), "default")
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "TMUX=") {
+			env = append(env, kv)
+		}
+	}
 	otherTmux := func(args ...string) error {
-		c := exec.Command("tmux", args...)
-		c.Env = append(os.Environ(), "TMUX_TMPDIR="+other)
-		c.Env = append(c.Env, "TMUX=")
+		c := exec.Command("tmux", append([]string{"-S", sock}, args...)...)
+		c.Env = env
 		return c.Run()
 	}
 	if err := otherTmux("new-session", "-d", "-s", "owner", "sleep 60"); err != nil {
 		t.Skipf("tmux can't start here: %v", err)
 	}
-	defer otherTmux("kill-server")
+	defer func() {
+		kill := exec.Command("tmux", "-S", sock, "kill-server")
+		kill.Env = env
+		_ = kill.Run()
+	}()
 
 	r := runMachine(t, `
 private_tmux
@@ -890,4 +905,55 @@ echo "CONF=$XDG_CONFIG_HOME"
 	}
 	dir := filepath.Dir(between(p.out, "PDIR=", "\n"))
 	contains(t, p.out, "STATE="+dir+"/state\n", "CONF="+dir+"/config\n")
+}
+
+func TestLibSandboxProjectSetsSandboxAndAddsASecondProject(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	r := runMachine(t, `
+sandbox_project one
+echo "SANDBOX=$SANDBOX"
+echo "DIR=$SANDBOX_PROJECT_DIR"
+sandbox_project --add two --name "Second"
+echo "ADDED=$SANDBOX_ADDED_PROJECT AT=$SANDBOX_ADDED_DIR"
+echo "STILL=$SANDBOX_PROJECT"
+git -C "$SANDBOX_ADDED_DIR" log --oneline | wc -l | tr -d ' '
+cat "$SANDBOX_CONFIG"
+`)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	sandbox, dir := between(r.out, "SANDBOX=", "\n"), between(r.out, "DIR=", "\n")
+	if sandbox == "" || sandbox != filepath.Dir(dir) {
+		t.Fatalf("$SANDBOX = %q, want SANDBOX_PROJECT_DIR's parent (%s)\n%s", sandbox, filepath.Dir(dir), r.out)
+	}
+	contains(t, r.out, "ADDED=two AT="+sandbox+"/two\n", "STILL=one\n",
+		`slug: "one"`, `slug: "two"`, `name: "Second"`, sandbox+"/two/issues")
+	if strings.Count(r.out, "projects:") != 1 {
+		t.Fatalf("want one projects: list holding both:\n%s", r.out)
+	}
+}
+
+func TestLibSandboxGitRepoIgnoresWorktreesAndPushes(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	r := runMachine(t, `
+sandbox_git_repo
+echo "REPO=$SANDBOX_REPO"
+cat "$SANDBOX_REPO/.gitignore"
+mkdir -p "$SANDBOX_REPO/.worktrees/x" && echo wt > "$SANDBOX_REPO/.worktrees/x/f" && echo a > "$SANDBOX_REPO/a"
+git -C "$SANDBOX_REPO" add -A && git -C "$SANDBOX_REPO" commit -q -m two && git -C "$SANDBOX_REPO" push -q
+echo "PUSH=$?"
+echo "FILES=$(git -C "$SANDBOX_REPO" ls-files | tr '\n' ' ')"
+echo "REMOTE=$(git --git-dir="$SANDBOX_REMOTE" rev-list --count main)"
+`)
+	if r.code != 0 {
+		t.Fatalf("exit %d\n%s", r.code, r.out)
+	}
+	contains(t, r.out, ".worktrees/\n", "PUSH=0\n", "FILES=.gitignore a \n", "REMOTE=2\n")
+	if repo := between(r.out, "REPO=", "\n"); strings.Contains(repo, "/.worktrees/") || repo == "" {
+		t.Fatalf("repo %q", repo)
+	}
 }

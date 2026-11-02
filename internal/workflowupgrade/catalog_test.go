@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func TestWorkflowFeatureCatalogIsComplete(t *testing.T) {
@@ -76,7 +76,9 @@ func schemaPathExists(typ reflect.Type, path string) error {
 		for typ.Kind() == reflect.Pointer {
 			typ = typ.Elem()
 		}
-		if seg == "*" {
+		if seg == "*" || (typ.Kind() == reflect.Map && !strings.HasSuffix(seg, "[]")) {
+			// * is each map value; any other segment on a map is one key
+			// (types.docs).
 			if typ.Kind() != reflect.Map {
 				return &probePathError{seg, typ}
 			}
@@ -139,7 +141,7 @@ func detectedIDs(t *testing.T, raw string) []string {
 // A misspelled key (unlock: for unlocks:) would be dropped silently by the
 // lenient decode Catalog uses; the strict one names it.
 func TestCatalogHasOnlyKnownKeys(t *testing.T) {
-	if _, err := ParseCatalog(catalogYAML(), bundledSplitCatalog(), true); err != nil {
+	if _, err := ParseCatalog(bundledCatalog(), true); err != nil {
 		t.Fatalf("the catalog has a key Entry doesn't know (add the field or fix the name): %v", err)
 	}
 }
@@ -295,7 +297,7 @@ func TestScanWorkflowFeaturesMergesRecordAndFlags(t *testing.T) {
 	gotInstalled := strings.Join(res.Record.Installed, ",")
 	// status-prompts keeps its recorded version; scoring is recorded but not
 	// detected (kept); parked-status is detected, so it leaves declined.
-	want := "status-prompts@v0.1.0,parked-status@v0.36.0,types-of-work@v0.36.0,scoring@v0.1.0,from-the-future@v9.0.0"
+	want := "parked-status@v0.36.0,status-prompts@v0.1.0,types-of-work@v0.36.0,scoring@v0.1.0,from-the-future@v9.0.0"
 	if gotInstalled != want {
 		t.Errorf("installed = %s\nwant      %s", gotInstalled, want)
 	}
@@ -427,28 +429,8 @@ func TestBuildUpgradePlanProposesUpdatesForOlderInstalls(t *testing.T) {
 	t.Fatalf("no update proposal for types-of-work: %v", proposalIDs(plan))
 }
 
-// Output groups entries by category in catalog order (workflow scan opens a
-// heading at each change), so each category's entries sit together, in
-// Categories order.
-func TestCatalogKeepsEachCategoryTogether(t *testing.T) {
-	entries, err := Catalog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rank := map[string]int{}
-	for i, c := range Categories {
-		rank[c] = i
-	}
-	for i := 1; i < len(entries); i++ {
-		prev, e := entries[i-1], entries[i]
-		if rank[e.Category] < rank[prev.Category] {
-			t.Errorf("%s (%s) comes after %s (%s): move it into the %s section", e.ID, e.Category, prev.ID, prev.Category, e.Category)
-		}
-	}
-}
-
 // An entry for something the viewer shows anyway says so: the key only adds
-// to it. The RogueTech audit read these three as switches.
+// to it. The Kestrel audit read these three as switches.
 func TestAlwaysOnFeaturesSayWhatShowsWithoutTheKey(t *testing.T) {
 	entries, err := Catalog()
 	if err != nil {

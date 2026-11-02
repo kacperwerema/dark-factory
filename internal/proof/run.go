@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/timeline"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Outcomes of one named test in a run.

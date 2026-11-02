@@ -81,3 +81,13 @@ func TestWithNA(t *testing.T) {
 		}
 	}
 }
+
+// A form longer than the column puts its use on the next line, under the
+// others' uses, instead of running into it.
+func TestNAFormsHelpLongForm(t *testing.T) {
+	help := NAFormsHelp("  ")
+	want := "  N/A: page state a scenario can't build (<what>), shown by <evidence>\n" + strings.Repeat(" ", 2+5+46+1) + "a page change"
+	if !strings.Contains(help, want) {
+		t.Errorf("long form not wrapped:\n%s", help)
+	}
+}

@@ -1,0 +1,33 @@
+id: week-plan
+version: v0.59.0
+category: lifecycle
+propose: false
+templates: [planning]
+sources: ["cmd/issue-cli/templates/workflow/planning.yaml", "cmd/issue-cli/templates/departments/gtm/jobs/weekly-plan.md", "internal/weekplan/weekplan.go", "cmd/issue-cli/cmd_department_week.go"]
+title: "A group's week plan (gather → plan → report)"
+what: |
+  The planning workflow a group's weekly-plan job runs: gather (`issue-cli department week <group>`),
+  plan (`## Week plan` in the run issue, new work filed at its first status), report
+  (`department week <group> --write`), done on the owner's read-through. Nothing in it
+  dispatches, approves or runs a job.
+why: |
+  A lead of leads plans from its departments' goals, outputs, jobs and handoffs every week,
+  and the owner gets a report of what moved, without anything starting on its own.
+where: "a group's own workflow file (projects.yaml departments: workflow:), installed by issue-cli department add gtm"
+snippet: |
+  statuses:
+    - name: "gather"
+    - name: "plan"
+    - name: "report"
+    - name: "done"
+  transitions:
+    - from: "plan"
+      to: "report"
+      actions:
+        - type: "validate"
+          rule: "has_section"
+          section: "Week plan"
+question: "Should a group's lead plan its departments' week and write a weekly report?"
+detect:
+  - path: statuses[].name
+    equals: gather

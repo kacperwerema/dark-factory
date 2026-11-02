@@ -9,7 +9,8 @@ const workflowUsage = `Usage:
   issue-cli workflow upgrade [--template <name>] [--all] [--department <name>]
   issue-cli workflow scan [--dry-run] [--installed <ids>] [--declined <ids>] [--forget <ids>] [--department <name>]
   issue-cli workflow catalog-check [--base main]
-  issue-cli workflow catalog-bump <id>[,<id>...] [--version vX.Y.Z] [--dry-run]`
+  issue-cli workflow catalog-bump <id>[,<id>...] [--version vX.Y.Z] [--dry-run]
+  issue-cli workflow commit-msg <message-file> | --install`
 
 var workflowCommand = &Command{
 	Name:      "workflow",
@@ -29,6 +30,8 @@ Subcommands:
                                        bundled template bumps its catalog version (make validate runs it)
   catalog-bump <id>[,<id>] [--version]  issue-cli developers: set an entry's version: and carry every bundled
                                        template's stamp and features: record line along (--dry-run lists them)
+  commit-msg <file> | --install        issue-cli developers: git's commit-msg hook; refuses a Catalog: or
+                                       Proves: line that would mark or link nothing, with the fix (make hooks)
 
 Feature record (top level of workflow.yaml, next to template:):
   features:
@@ -44,7 +47,7 @@ until --forget, and declined ids stay declined until --forget re-opens them.
 
 ` + scanUsage,
 	Run:         runWorkflow,
-	Subcommands: []string{"init", "upgrade", "scan", "catalog-check", "catalog-bump"},
+	Subcommands: []string{"init", "upgrade", "scan", "catalog-check", "catalog-bump", "commit-msg"},
 }
 
 func init() {
@@ -67,6 +70,8 @@ func runWorkflow(ctx *Context, args []string) error {
 		return runCatalogCheck(ctx, rest)
 	case "catalog-bump":
 		return runCatalogBump(ctx, rest)
+	case "commit-msg":
+		return runCommitMsg(ctx, rest)
 	default:
 		return fmt.Errorf("unknown workflow subcommand: %s\n\n%s", sub, workflowUsage)
 	}

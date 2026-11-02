@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/testids"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/testids"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,6 +142,26 @@ func (v *Validator) Validate(s *Session) []error {
 				at(st.Line, "step %s proves %q, which is not an acceptance criterion of %s (see issue-cli checklist %s)", st.ID, id, s.Issue, s.Issue)
 			}
 		}
+		if len(st.Viewports) > 0 {
+			session := map[Viewport]bool{}
+			for _, vp := range s.Viewports() {
+				session[vp] = true
+			}
+			for _, v := range st.Viewports {
+				vp, err := ParseViewport(v)
+				switch {
+				case err != nil:
+					at(st.Line, "step %s: %v", st.ID, err)
+				case !session[vp]:
+					at(st.Line, "step %s: viewport %s is not one of the session's (session_checks.viewports)", st.ID, v)
+				}
+			}
+		}
+		for _, name := range st.Stubs {
+			if _, ok := stubScript(name); !ok {
+				at(st.Line, "step %s: unknown stub %q (known: %s)", st.ID, name, strings.Join(stubNames(), ", "))
+			}
+		}
 		if st.From != "" && !seen[st.From] {
 			at(st.Line, "from: %q must name an earlier step", st.From)
 		}
@@ -176,13 +196,45 @@ func (v *Validator) target(id string, line int, at errAt) {
 		at(line, "empty target id")
 		return
 	}
-	if !testids.Known(id) {
-		hint := ""
-		if s := testids.Suggest(id); s != "" {
-			hint = fmt.Sprintf("; did you mean %q?", s)
-		}
-		at(line, "unknown target %q — ids are listed in internal/testids/%s", id, hint)
+	if seg := testids.PartialWildcard(id); seg != "" {
+		at(line, "target %q: `*` and `#` match one whole segment, so %q matches nothing (write %s)", id, seg, wholeSegment(id))
+		return
 	}
+	if entries := testids.Entries(id); len(entries) > 0 {
+		for _, e := range entries {
+			if !testids.WellFormed(e) {
+				at(line, "target %q matches internal/testids entry %q, which is not lower snake case with dots (a dash fails TestIDsAreWellFormed in make validate): rename it, e.g. %q", id, e, snakeCase(e))
+				return
+			}
+		}
+		return
+	}
+	hint := ""
+	if !testids.WellFormed(id) {
+		hint = fmt.Sprintf("; ids are lower snake case with dots (a dash or capital only inside a `*` value such as a slug), e.g. %q", snakeCase(id))
+	}
+	if s := testids.Suggest(id); s != "" {
+		hint += fmt.Sprintf("; did you mean %q?", s)
+	}
+	at(line, "unknown target %q — ids are listed in internal/testids/%s", id, hint)
+}
+
+// wholeSegment rewrites each partial-wildcard segment as `*`
+// (`board.status-*` becomes `board.*`).
+func wholeSegment(id string) string {
+	segs := strings.Split(id, ".")
+	for i, seg := range segs {
+		if seg != "#" && strings.ContainsAny(seg, "*#") {
+			segs[i] = "*"
+		}
+	}
+	return strings.Join(segs, ".")
+}
+
+// snakeCase is id with dashes as underscores and lower case: the id shape
+// the testids registry wants.
+func snakeCase(id string) string {
+	return strings.ToLower(strings.ReplaceAll(id, "-", "_"))
 }
 
 func (v *Validator) action(a Action, at errAt) {
@@ -335,6 +387,10 @@ type cliCall struct {
 }
 
 func (v *Validator) check(c Check, at errAt) {
+	if !domChecks[c.Kind] && !runnerChecks[c.Kind] && actionKinds[c.Kind] {
+		at(c.Line, "%q is an action, not a check: move it to act: (or setup:); checks: run after act:", c.Kind)
+		return
+	}
 	if !domChecks[c.Kind] && !runnerChecks[c.Kind] {
 		all := append(sortedKeys(domChecks), sortedKeys(runnerChecks)...)
 		at(c.Line, "unknown check %q (checks: %s)", c.Kind, strings.Join(all, ", "))
@@ -442,12 +498,12 @@ func (v *Validator) check(c Check, at errAt) {
 		args, ok := c.Arg["args"].([]any)
 		need(ok && len(args) > 0, "{args: […], exit?, contains?, not_contains?}")
 	case "tmux":
-		need(has("session", "pane"), "{session, present} or {pane, contains}")
+		need(has("session", "pane"), "{session, present} or {pane, contains and/or not_contains}")
 		if has("session") {
 			need(has("present"), "{session, present: true|false}")
 		}
 		if has("pane") {
-			need(has("contains"), "{pane, contains}")
+			need(has("contains", "not_contains"), "{pane, contains and/or not_contains}")
 		}
 	case "http":
 		p := str("path")

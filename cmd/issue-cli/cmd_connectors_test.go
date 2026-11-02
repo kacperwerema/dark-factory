@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/agentrun"
-	"github.com/michal-franc/issue-viewer/internal/connectors"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/connectors"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // fakeConnectorValue stands in for a credential: it may only reach a

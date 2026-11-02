@@ -206,6 +206,7 @@ func (w *WorkflowConfig) Lint() []string {
 	if strings.TrimSpace(w.Leads.Epic) != "" {
 		out = append(out, "leads.epic is obsolete and ignored: there is one lead per project (remove it)")
 	}
+	out = append(out, w.lintRules()...)
 	if !w.HasTypes() {
 		return out
 	}

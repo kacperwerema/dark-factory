@@ -10,9 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/agentrun"
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var ciCommand = &Command{
@@ -38,8 +39,9 @@ Subcommands:
       Remove the CI worktree (ignored build output included); the next run
       creates it again.
   watch [--interval 5s] [--once]
-      Start a detached run whenever the branch head is untested. Use it when
-      the viewer is not running.
+      Start a detached run whenever the branch head is untested, and the
+      ci.nightly tier once a night (when mem-guard allows). Use it when the
+      viewer is not running.
   gotest [--out <file>]
       Filter for a ci.run command: reads go test -json on stdin, prints what
       plain go test prints, saves the raw stream to --out (default
@@ -57,6 +59,10 @@ Config (workflow.yaml):
           - {kind: e2e, format: playtest, file: e2e.json}
     timeout: 20m        # default 10m
     on_red: mark        # or file_issue
+    nightly:            # run one tier once a night, after at, under mem-guard
+      tier: slow
+      at: "03:00"
+      timeout: 3h       # for any run of this tier
 See docs/workflow.md, "Local CI".`,
 	Run:         runCI,
 	Subcommands: []string{"status", "run", "reset", "watch", "gotest"},
@@ -283,10 +289,18 @@ func runCIWatch(ctx *Context, args []string) error {
 	}
 	proj := ctx.Project
 	root := ciRoot(proj)
-	w := &ci.Watcher{Spawn: func(root string) error {
-		_, err := startDetachedCI(ctx, proj, root, "", true)
-		return err
-	}}
+	w := &ci.Watcher{
+		Spawn: func(root string) error {
+			_, err := startDetachedCI(ctx, proj, root, "", true)
+			return err
+		},
+		SpawnTier: func(root, tier string) error {
+			_, err := startDetachedCI(ctx, proj, root, tier, false)
+			return err
+		},
+		Memory: autostart.MemGuardAllows,
+		Now:    ctx.now,
+	}
 	if !*onceFlag {
 		fmt.Fprintf(ctx.Stdout, "Watching %s every %s (Ctrl-C stops)\n", root, *intervalFlag)
 	}
@@ -301,6 +315,12 @@ func runCIWatch(ctx *Context, args []string) error {
 			fmt.Fprintf(ctx.Stderr, "ci watch: %v\n", err)
 		} else if spawned {
 			fmt.Fprintf(ctx.Stdout, "%s  new head %s: run started\n", ctx.now().Format("15:04:05"), ci.Short(head))
+		} else if n, err := w.CheckNightly(root, wf.CI); err != nil {
+			fmt.Fprintf(ctx.Stderr, "ci watch: nightly %s: %v\n", n.Tier, err)
+		} else if n.Spawned {
+			fmt.Fprintf(ctx.Stdout, "%s  nightly %s run started at %s\n", ctx.now().Format("15:04:05"), n.Tier, ci.Short(n.Head))
+		} else if n.Held != "" && *onceFlag {
+			fmt.Fprintf(ctx.Stdout, "nightly %s waits: %s\n", n.Tier, n.Held)
 		} else if *onceFlag {
 			fmt.Fprintf(ctx.Stdout, "head %s: nothing to run\n", ci.Short(head))
 		}

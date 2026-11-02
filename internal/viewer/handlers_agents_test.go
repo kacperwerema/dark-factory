@@ -1,0 +1,351 @@
+package viewer
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+)
+
+// setupAgentsProject builds a project with an epic (ui/epic, still carrying
+// base: and lead: from before sub-leads were removed), children ui/child
+// (parent:, at a gate), ui/asker (umbrella:, asked a question), ui/idle (in
+// progress, nobody on it) and a loner.
+func setupAgentsProject(t *testing.T) tracker.Project {
+	t.Helper()
+	root := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(root, rel)
+		os.MkdirAll(filepath.Dir(path), 0755)
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	issue := func(title, status, extra string) string {
+		return "---\ntitle: \"" + title + "\"\nstatus: \"" + status + "\"\n" + extra + "---\n\nBody.\n"
+	}
+	write("issues/UI/epic.md", issue("Epic", "in progress", "base: \"base/ui/epic\"\nlead: \"lead-ui-epic\"\n"))
+	write("issues/UI/child.md", issue("Child", "in progress", "parent: \"ui/epic\"\n"))
+	write("issues/UI/asker.md", issue("Asker", "in progress", "umbrella: \"ui/epic\"\n")+
+		"<!-- issue-viewer-comments\n{\"id\":1,\"block\":0,\"date\":\"2026-10-18\",\"text\":\"question: which API?\",\"status\":\"open\",\"source\":\"cli\"}\n-->\n")
+	write("issues/UI/idle.md", issue("Idle", "in progress", "parent: \"ui/epic\"\n"))
+	write("issues/loner.md", issue("Loner", "backlog", ""))
+	write("retros/20261018-idle.md", "Issue: ui/idle\nTitle: Idle\n\nIt stopped.\n")
+	write("workflow.yaml", `worktree: true
+statuses:
+  - name: "backlog"
+  - name: "in progress"
+  - name: "testing"
+  - name: "done"
+transitions:
+  - from: "in progress"
+    to: "testing"
+    actions:
+      - type: require_human_approval
+`)
+	return tracker.Project{Name: "Agents", Slug: "agents", IssueDir: filepath.Join(root, "issues"), WorkDir: root, WorkflowFile: filepath.Join(root, "workflow.yaml")}
+}
+
+func stubAgentsGit(t *testing.T) {
+	t.Helper()
+	origMain, origDiff := mainBranch, branchDiffStat
+	mainBranch = func(string) string { return "main" }
+	branchDiffStat = func(_, against, branch string) string { return against + "..." + branch + " | 3 +++" }
+	t.Cleanup(func() { mainBranch, branchDiffStat = origMain, origDiff })
+}
+
+func TestAgentsModel(t *testing.T) {
+	proj := setupAgentsProject(t)
+	proj.TmuxSession = "work"
+	stubAgentsGit(t)
+	withMockTmuxSessions(t, []AgentSession{
+		{Name: "work:lead-ui-epic"},
+		{Name: "work:agent-ui-child"},
+		{Name: "work:agent-ui-asker"},
+		{Name: "work:agent-agents-ux-review"},
+		{Name: "zsh"},
+		// Another project's agents on the same tmux server, one with a
+		// colliding name: none of them may show up here.
+		{Name: "kestrel:agent-ui-idle"},
+		{Name: "kestrel:agent-combat-remove-the-2d-view"},
+		{Name: "agent-standalone-elsewhere", Path: "/elsewhere"},
+	})
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, body := getResp(t, ts.URL+"/p/agents/agents.json")
+	var m AgentsModel
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	if m.ProjectLead.Name != "lead-agents" || m.ProjectLead.Live || m.ProjectLead.State != "not-running" {
+		t.Errorf("project lead = %+v", m.ProjectLead)
+	}
+	if len(m.Epics) != 1 {
+		t.Fatalf("epics = %+v", m.Epics)
+	}
+	g := m.Epics[0]
+	if g.Issue.Slug != "ui/epic" || g.ChildrenRunning != 2 || g.ChildrenTotal != 3 {
+		t.Errorf("epic group = %+v", g)
+	}
+
+	states := map[string]AgentNode{}
+	for _, n := range m.Workers {
+		states[n.Name] = n
+	}
+	if n := states["agent-ui-child"]; n.State != "at-gate" || n.Gate != "testing" || n.Epic != "ui/epic" || n.Issue == nil || n.Issue.Color == "" {
+		t.Errorf("child = %+v", n)
+	}
+	if n := states["agent-ui-asker"]; n.State != "question" || n.Epic != "ui/epic" {
+		t.Errorf("asker (shared-session window, umbrella: link) = %+v", n)
+	}
+	if len(m.Unfinished) != 2 {
+		t.Fatalf("unfinished = %+v", m.Unfinished)
+	}
+	for _, n := range m.Unfinished {
+		switch n.Name {
+		case "agent-ui-idle":
+			if n.State != "stopped" || !n.RetroNotSwept || n.Epic != "ui/epic" {
+				t.Errorf("idle = %+v", n)
+			}
+		case "agent-ui-epic":
+			if n.Epic != "ui/epic" {
+				t.Errorf("the epic's own job should sit in its box: %+v", n)
+			}
+		default:
+			t.Errorf("unexpected unfinished %+v (backlog loner must not show)", n)
+		}
+	}
+	// A leftover lead-<epic> session is no sub-lead: it shows as any other
+	// unbound session.
+	if len(m.Others) != 2 || m.Others[0].Name != "agent-agents-ux-review" || m.Others[1].Name != "lead-ui-epic" || m.Others[1].Kind != "other" {
+		t.Errorf("others = %+v", m.Others)
+	}
+}
+
+func TestAgentsPageRenders(t *testing.T) {
+	proj := setupAgentsProject(t)
+	withMockTmuxSessions(t, nil)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	resp, html := getResp(t, ts.URL+"/p/agents/agents?classic=1")
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, html)
+	}
+	for _, want := range []string{`class="nav-item active" data-testid="nav.tab.agents" aria-current="page">Agents`, `data-layout="radial"`, `id="opt-stopped"`, `Start the CEO`, `"/p/agents"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+	_, board := getResp(t, ts.URL+"/p/agents/board?classic=1")
+	if !strings.Contains(board, `href="/p/agents/agents"`) || !strings.Contains(board, "spawnProjectLead(") {
+		t.Errorf("board lacks the Agents tab or the Start the CEO button")
+	}
+}
+
+func TestLeadSpawnEndpoint(t *testing.T) {
+	proj := setupAgentsProject(t)
+	var got agentrun.Spec
+	orig := startLead
+	startLead = func(_ *tracker.Project, spec agentrun.Spec) agentrun.Response {
+		got = spec
+		return agentrun.Response{Status: "dispatched", Session: spec.Session}
+	}
+	t.Cleanup(func() { startLead = orig })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	code, out := postJSON(t, ts.URL+"/p/agents/lead/spawn", `{}`)
+	if code != 200 || out["session"] != "lead-agents" || got.LeadScope != "project" || got.AgentType != "claude" || got.Headless {
+		t.Fatalf("project lead: %d %v %+v", code, out, got)
+	}
+
+	got = agentrun.Spec{}
+	code, out = postJSON(t, ts.URL+"/p/agents/lead/spawn", `{"epic":"ui/epic"}`)
+	if code != 422 || out["steps"].([]interface{})[0].(map[string]interface{})["detail"] != "sub-leads were removed (one CEO per project)" || got.Session != "" {
+		t.Fatalf("epic: %d %v %+v", code, out, got)
+	}
+}
+
+// Clicking a live agent opens its tmux session in a terminal (D-12); the page
+// never shows the pane and has no message box.
+// With terminal: none, Open in tmux opens and focuses nothing. In shared
+// mode it selects the agent's window; it always answers with the switch and
+// attach commands.
+func TestAgentOpen_TerminalNone(t *testing.T) {
+	isolateTmux(t)
+	proj := setupAgentsProject(t)
+	proj.Terminal = "none"
+	proj.TmuxSession = "work"
+	for _, args := range [][]string{
+		{"new-session", "-d", "-s", "work", "-n", "lead-agents"},
+		{"new-window", "-d", "-t", "=work:", "-n", "agent-ui-child"},
+	} {
+		if out, err := testTmux(t, args...).CombinedOutput(); err != nil {
+			t.Fatalf("tmux %v: %v %s", args, err, out)
+		}
+	}
+	origAttach, origFocus := attachAgent, agentrun.FocusTerminal
+	attachAgent = func(*tracker.Project, string, *[]agentrun.Step) bool {
+		t.Fatal("terminal: none must not open a terminal")
+		return false
+	}
+	agentrun.FocusTerminal = func(string) bool {
+		t.Fatal("terminal: none must not focus a terminal")
+		return false
+	}
+	t.Cleanup(func() { attachAgent, agentrun.FocusTerminal = origAttach, origFocus })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	code, resp := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"agent-ui-child"}`)
+	if code != 200 || resp["status"] != "selected" || resp["switch_cmd"] != "tmux switch-client -t '=work:=agent-ui-child'" || resp["attach_cmd"] == "" {
+		t.Fatalf("open: %d %v", code, resp)
+	}
+	if got := activeWindow(t, "work"); got != "agent-ui-child" {
+		t.Fatalf("active window = %q, want agent-ui-child", got)
+	}
+
+	_, body := getResp(t, ts.URL+"/p/agents/agents.json")
+	var m AgentsModel
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatal(err)
+	}
+	if !m.TerminalNone || m.ProjectLead.SwitchCmd != "tmux switch-client -t '=work:=lead-agents'" {
+		t.Fatalf("agents.json: terminal_none %v, lead switch_cmd %q", m.TerminalNone, m.ProjectLead.SwitchCmd)
+	}
+}
+
+// Open on a lead follows lead_terminal:, not terminal: (D-5). Unset is
+// headless with the hints even when terminal: is set; set, it runs
+// lead_terminal and never the workers' attach.
+func TestAgentOpen_LeadFollowsLeadTerminal(t *testing.T) {
+	proj := setupAgentsProject(t)
+	proj.Terminal = "alacritty -e tmux attach -t {{session}}"
+	var leadOpened []string
+	origLive, origAttach, origLead := agentSessionLive, attachAgent, leadTerminal
+	agentSessionLive = func(*tracker.Project, string) bool { return true }
+	attachAgent = func(*tracker.Project, string, *[]agentrun.Step) bool {
+		t.Fatal("a lead must not open through terminal:")
+		return false
+	}
+	leadTerminal = func(_ *tracker.Project, name string, steps *[]agentrun.Step) (bool, bool) {
+		leadOpened = append(leadOpened, name)
+		*steps = append(*steps, agentrun.Step{Name: "Open lead terminal", Status: "ok"})
+		return true, true
+	}
+	t.Cleanup(func() { agentSessionLive, attachAgent, leadTerminal = origLive, origAttach, origLead })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	code, resp := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"lead-agents"}`)
+	if code != 200 || resp["status"] != "opened" || len(leadOpened) != 0 || resp["attach_cmd"] == "" {
+		t.Fatalf("unset lead_terminal: %d %v leadOpened=%v", code, resp, leadOpened)
+	}
+	if !strings.Contains(fmt.Sprint(resp["steps"]), "headless") {
+		t.Fatalf("unset lead_terminal: want the headless step, got %v", resp["steps"])
+	}
+
+	proj.LeadTerminal = "tmux-window"
+	ts2 := newTestServer(t, []tracker.Project{proj})
+	defer ts2.Close()
+	code, resp = postJSON(t, ts2.URL+"/p/agents/agents/open", `{"session":"lead-agents"}`)
+	if code != 200 || resp["status"] != "opened" || len(leadOpened) != 1 || leadOpened[0] != "lead-agents" {
+		t.Fatalf("lead_terminal set: %d %v leadOpened=%v", code, resp, leadOpened)
+	}
+}
+
+func TestAgentOpenAndDetail(t *testing.T) {
+	proj := setupAgentsProject(t)
+	// A project whose terminal: opens a window (attachAgent is stubbed, so
+	// nothing runs); unset is headless on a machine without i3.
+	proj.Terminal = "alacritty -e tmux attach -t {{session}}"
+	stubAgentsGit(t)
+	var opened []string
+	origLive, origAttach := agentSessionLive, attachAgent
+	agentSessionLive = func(_ *tracker.Project, name string) bool { return name != "agent-gone" }
+	attachAgent = func(_ *tracker.Project, name string, steps *[]agentrun.Step) bool {
+		opened = append(opened, name)
+		*steps = append(*steps, agentrun.Step{Name: "Open terminal", Status: "ok"})
+		return true
+	}
+	attached := map[string]bool{}
+	var focused []string
+	focusOK := true
+	origAttached, origFocus := agentrun.SessionAttached, agentrun.FocusTerminal
+	agentrun.SessionAttached = func(name string) bool { return attached[name] }
+	agentrun.FocusTerminal = func(name string) bool {
+		focused = append(focused, name)
+		return focusOK
+	}
+	t.Cleanup(func() {
+		agentSessionLive, attachAgent = origLive, origAttach
+		agentrun.SessionAttached, agentrun.FocusTerminal = origAttached, origFocus
+	})
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	code, resp := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"agent-ui-child"}`)
+	if code != 200 || resp["status"] != "opened" || len(opened) != 1 || opened[0] != "agent-ui-child" || resp["attach_cmd"] == "" {
+		t.Fatalf("open: %d %v opened=%v", code, resp, opened)
+	}
+	// A session that already has a terminal never gets a second window: its
+	// window is brought to the front, or the answer says it is open.
+	attached["agent-ui-child"] = true
+	if code, resp := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"agent-ui-child"}`); code != 200 || resp["status"] != "focused" || len(opened) != 1 || len(focused) != 1 || focused[0] != "agent-ui-child" {
+		t.Fatalf("focus: %d %v opened=%v focused=%v", code, resp, opened, focused)
+	}
+	focusOK = false
+	if code, resp := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"agent-ui-child"}`); code != 200 || resp["status"] != "already-open" || len(opened) != 1 {
+		t.Fatalf("already open, no window to focus: %d %v opened=%v", code, resp, opened)
+	}
+	if code, _ := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"agent-gone"}`); code != 409 || len(opened) != 1 {
+		t.Fatalf("not running: %d opened=%v", code, opened)
+	}
+	if code, _ := postJSON(t, ts.URL+"/p/agents/agents/open", `{"session":"zsh; rm"}`); code != 400 {
+		t.Fatalf("bad session name: %d", code)
+	}
+	if code, _ := postJSON(t, ts.URL+"/p/agents/agents/message", `{"session":"agent-ui-child","text":"hi"}`); code == 200 {
+		t.Fatalf("the canvas message endpoint is gone (D-12), got %d", code)
+	}
+
+	_, body := getResp(t, ts.URL+"/p/agents/agents/detail?session=agent-ui-asker&issue=ui/asker")
+	var d AgentDetail
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatal(err)
+	}
+	// Epic children are compared with main; the epic's old base: is ignored.
+	if len(d.Comments) != 1 || d.Branch != "work/ui/asker" || d.Against != "main" || d.DiffStat != "main...work/ui/asker | 3 +++" {
+		t.Errorf("detail = %+v", d)
+	}
+
+	d = AgentDetail{}
+	_, body = getResp(t, ts.URL+"/p/agents/agents/detail?session=lead-ui-epic&issue=ui/epic")
+	json.Unmarshal([]byte(body), &d)
+	if d.Branch != "" || d.DiffStat != "" {
+		t.Errorf("a lead has no branch of its own: %+v", d)
+	}
+}
+
+func TestDetailShowsLeadSection(t *testing.T) {
+	proj := setupAgentsProject(t)
+	// Even a leftover lead-ui-epic session that is still running is not
+	// anyone's lead: one lead per project (workbench umbrella D-13).
+	withMockTmuxHasSession(t, func(name string) bool { return strings.HasSuffix(name, "lead-ui-epic") })
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getResp(t, ts.URL+"/p/agents/issue/ui/epic?classic=1")
+	if !strings.Contains(html, `data-testid="detail.lead.name">lead-agents</div>`) || strings.Contains(html, "sub-lead") {
+		t.Errorf("epic page should name the project lead and no sub-lead")
+	}
+	_, html = getResp(t, ts.URL+"/p/agents/issue/ui/child?classic=1")
+	if !strings.Contains(html, `<div class="active-session-name" data-testid="detail.lead.name">lead-agents</div>`) || !strings.Contains(html, `· epic <a href="/p/agents/issue/ui/epic">ui/epic</a>`) {
+		t.Errorf("child page should name the project lead and its epic")
+	}
+}

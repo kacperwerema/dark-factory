@@ -38,6 +38,11 @@ type RoundResult struct {
 	// CannotFix marks the worker's "I cannot fix this": the check is a
 	// question at once, whatever the count.
 	CannotFix bool `json:"cannot_fix,omitempty"`
+	// Failures names what failed (test:<name>, criterion:<id>,
+	// finding:<path> <text>, output:<text>): a round counts only when one
+	// of them came back. Empty on records from before v0.60; they are
+	// read from Why.
+	Failures []string `json:"failures,omitempty"`
 }
 
 // AppendRoundResults adds results to the issue's stats sidecar under the
@@ -73,6 +78,28 @@ func CheckKey(action WorkflowAction) (key string, ok bool) {
 		return "gate:" + criteriaProvenRule, true
 	}
 	return "", false
+}
+
+// TransitionCheckKeys is the red-round checks the from → to transition
+// runs: its command and proof gates (CheckKey) and its critique gate
+// (CritiqueCheckKey).
+func (w *WorkflowConfig) TransitionCheckKeys(from, to string) map[string]bool {
+	out := map[string]bool{}
+	if w == nil {
+		return out
+	}
+	for _, a := range w.transitionActions(from, to) {
+		if a.Type != "validate" {
+			continue
+		}
+		if k, ok := CheckKey(a); ok {
+			out[k] = true
+		}
+		if name, _, _ := strings.Cut(a.Rule, ":"); strings.TrimSpace(name) == CritiqueRule {
+			out[CritiqueCheckKey(from, to)] = true
+		}
+	}
+	return out
 }
 
 // WorkBranchHead is the work/<slug> branch head in the project's checkout,

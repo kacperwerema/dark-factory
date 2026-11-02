@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/privacy"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/privacy"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var privacyCommand = &Command{

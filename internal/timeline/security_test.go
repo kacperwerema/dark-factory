@@ -3,7 +3,7 @@ package timeline
 import (
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The stats sidecar is agent-written: a recorded head that isn't a hex sha

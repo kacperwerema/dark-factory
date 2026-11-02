@@ -3,7 +3,7 @@ package proof
 import (
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The owner-box rule, one function for every path that ticks or changes a

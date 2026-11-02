@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -205,6 +205,20 @@ func ownIssueOnly(ctx *Context, issues []*tracker.Issue, issue *tracker.Issue, v
 	}
 	return fmt.Errorf("you work on %s only; ask the CEO. %s %s changed nothing.\n\nA worker runs its own issue's workflow and stops: it doesn't start, claim or move another issue. Ask on your issue trail:\n  %s",
 		own, verb, issue.Slug, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", own)))
+}
+
+// isOwnWorker reports whether the caller is issue's own worker, by the same
+// identity ownIssueOnly checks: a worker whose issue is known and is issue.
+func isOwnWorker(ctx *Context, issues []*tracker.Issue, issue *tracker.Issue) bool {
+	me := whoAmI(ctx.Project, issues)
+	if me.Role != tracker.RoleWorker || me.Slug == "" {
+		return false
+	}
+	own := me.Slug
+	if found := tracker.FindIssue(issues, own); found != nil {
+		own = found.Slug
+	}
+	return issue.Slug == own
 }
 
 // projectRoot returns the directory used as the project root for sidecar

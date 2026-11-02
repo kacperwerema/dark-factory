@@ -250,6 +250,7 @@ func DepartmentLeadBrief(wf *WorkflowConfig, dept *Department, in LeadBriefInput
 	b.WriteString(LeadRules)
 	b.WriteString(JobsBrief(len(dept.Jobs), false))
 	b.WriteString(MemoryLeadLine(proj, lead, dept.Name))
+	b.WriteString(DecisionsLeadLines(LeadDecisionBlock(proj, dept.Name, wf, in.today()), dept.Name))
 	if len(children) > 0 {
 		var names []string
 		for _, c := range proj.Descendants(dept.Name) {

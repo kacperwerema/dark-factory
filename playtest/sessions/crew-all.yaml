@@ -1,0 +1,75 @@
+session: crew-all
+issue: ui/one-crew-page-across-every-project-start-a-lead-stop-or-nudge-a-worker-pause-auto-start-from-the-phone
+title: The Crew page across projects at phone width - rows, Stop's confirm, Tail, no sideways scroll
+scenario: leads
+
+# The leads scenario's one project (Crew) with `cat` sessions faking two
+# workers on the scenario's private tmux server: ui/child at the testing
+# gate, ui/legacy with an open question. The runner's browser is signed in
+# as the owner, so the actions show. Stop runs for real, on the private
+# server only.
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC5
+    title: At 390px /crew lists the project's agents with their states and never scrolls sideways
+    # The session's layout checks (inside_viewport: no sideways scroll) run
+    # at 390x844 on every step.
+    proves: [AC5]
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /crew
+    checks:
+      - visible: [crew_all.page, crew_all.machine, crew_all.project.crew, crew_all.row.lead-crew, crew_all.row.agent-ui-child, crew_all.row.agent-ui-legacy]
+      - absent: crew_all.signin
+      - text_contains: { target: crew_all.row.agent-ui-child.state, text: "waiting on you at the testing gate" }
+      - text_contains: { target: crew_all.row.agent-ui-legacy.state, text: "asked a question" }
+      - text_contains: { target: crew_all.row.lead-crew.state, text: "not running" }
+      - visible: [crew_all.row.lead-crew.start, crew_all.row.agent-ui-child.stop, crew_all.row.agent-ui-child.nudge, crew_all.row.agent-ui-child.tail]
+      - below: [crew_all.machine, crew_all.project.crew]
+
+  - id: TP4
+    title: Stop asks first, Cancel keeps the session, Yes ends only that one
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /crew
+    act:
+      - click: crew_all.row.agent-ui-child.stop
+      - wait_for: crew_all.confirm
+      - check: { text_contains: { target: crew_all.confirm, text: "Stop agent-ui-child?" } }
+      - check: { inside: { target: crew_all.confirm, within: crew_all.row.agent-ui-child } }
+      - click: crew_all.confirm.no
+      - wait_for: { hidden: crew_all.confirm }
+      - check: { tmux: { session: agent-ui-child, present: true } }
+      - click: crew_all.row.agent-ui-child.stop
+      - wait_for: crew_all.confirm
+      - click: crew_all.confirm.yes
+      - wait_for: { text_contains: { target: crew_all.row.agent-ui-child.status, text: "Stopped agent-ui-child" } }
+    checks:
+      - tmux: { session: agent-ui-child, present: false }
+      - tmux: { session: agent-ui-legacy, present: true }
+      - issue: { slug: ui/child, comment_contains: "stopped: the owner stopped agent-ui-child from the Crew page" }
+
+  - id: TP5
+    title: Tail opens a sheet with the pane's last lines; Nudge opens its sheet with presets
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - open: /crew
+    act:
+      - click: crew_all.row.agent-ui-child.tail
+      - wait_for: crew_all.tail
+      - wait_for: { text_contains: { target: crew_all.tail, text: "lines of its pane" } }
+      - check: { visible: crew_all.tail.pane }
+      - key: Escape
+      - wait_for: { hidden: crew_all.tail }
+      - click: crew_all.row.agent-ui-child.nudge
+      - wait_for: crew_all.nudge
+    checks:
+      - visible: [crew_all.nudge.text, crew_all.nudge.send]
+      - text_contains: { target: crew_all.nudge, text: "Message from the owner (Crew page)" }

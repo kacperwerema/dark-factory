@@ -1,0 +1,23 @@
+id: wildcard-transitions
+version: v0.36.0
+category: lifecycle
+propose: false
+sources: ["internal/tracker/workflow_transition.go#IsValidTransition", "internal/tracker/workflow_transition.go#transitionActions"]
+title: "Wildcard transitions (from: \"*\")"
+what: |
+  A transition with `from: "*"` applies from any status that has no exact edge to
+  the target.
+why: |
+  One edge instead of one per source status, e.g. "anything can be parked".
+where: "transitions[] with from: \"*\""
+snippet: |
+  transitions:
+    - from: "*"
+      to: "blocked"
+      actions:
+        - type: "inject_prompt"
+          prompt: "Record what blocks the issue in a comment."
+question: "Is there a status every issue should be able to reach from anywhere?"
+detect:
+  - path: transitions[].from
+    equals: "*"

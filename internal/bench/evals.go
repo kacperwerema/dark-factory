@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Evals: each workflow file's evals: say how a run of a type is scored

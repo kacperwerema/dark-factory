@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // DefaultProtected are the paths an experiment branch may not touch when the

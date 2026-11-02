@@ -1,0 +1,27 @@
+id: checklist-sections
+version: v0.36.0
+category: automation
+propose: false
+sources: ["internal/tracker/workflow_transition.go#ApplyTransitionWithFields", "internal/tracker/heading.go"]
+title: "Checklist sections appended on transition"
+what: |
+  An `append_section` action adds a `## <title>` section (usually checkboxes) to the
+  issue body when it enters a status.
+why: |
+  Each step brings its own checklist; the agent works through it and checks boxes
+  by id.
+where: "transitions[].actions[] type: append_section (title:, body:)"
+snippet: |
+  transitions:
+    - from: "backlog"
+      to: "in progress"
+      actions:
+        - type: "append_section"
+          title: "Implementation"
+          body: |
+            - [ ] Code changes complete
+            - [ ] Automated tests added or updated
+question: "What checklist should each step add to the issue?"
+detect:
+  - path: transitions[].actions[].type
+    one_of: [append_section]

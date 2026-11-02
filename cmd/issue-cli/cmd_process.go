@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var processCommand = &Command{
@@ -706,7 +706,7 @@ func maxNamedWidth(items []tracker.SchemaNamedDoc) int {
 	return w
 }
 
-const processOverviewText = `== AI Workflow Engine ==
+const processOverviewText = `== Dark Factory ==
 
 You are working with a markdown-based issue tracker.
 Issues are .md files in issues/<System>/ directories.

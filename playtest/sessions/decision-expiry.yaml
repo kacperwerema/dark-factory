@@ -1,0 +1,39 @@
+session: decision-expiry
+issue: factory/decision-expiry-expires-drops-a-decision-out-of-force-renew-or-let-go-from-needs-you
+title: An expired hard decision on Needs you - one row, Renew with the owner's words, desktop and phone
+scenario: decision-expiry
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: One Decision expired row for factory/rules#D-1 with Renew (a date) and Let go, nothing for the soft, let-go or unexpiring ones
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - wait_for: needs_you.expiry.form
+    checks:
+      - visible: [needs_you.expiry.date, needs_you.expiry.text, needs_you.expiry.renew, needs_you.expiry.let_go]
+      - text_contains: { target: needs_you.row, text: "factory/rules#D-1" }
+      - text_contains: { target: needs_you.row, text: "expired after 2026-01-01" }
+    targets: [needs_you.row]
+
+  - id: TP5
+    title: Renew with your words keeps it in force, the row says so and your words are on the issue
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - wait_for: needs_you.expiry.form
+      - type: { target: needs_you.expiry.text, text: "Keep the freeze" }
+      - click: needs_you.expiry.renew
+      - wait_for: { text_contains: { target: needs_you.row.msg, text: "Renewed until" }, ms: 8000 }
+    checks:
+      - text_contains: { target: needs_you.row.msg, text: "Renewed until" }
+      - issue: { slug: factory/rules, comment_contains: "\"Keep the freeze\" — the owner" }
+      - cli: { args: [--project, "{project}", decisions, --state, expired], contains: "factory/rules#D-3", not_contains: "factory/rules#D-1 " }
+    targets: [needs_you.row]

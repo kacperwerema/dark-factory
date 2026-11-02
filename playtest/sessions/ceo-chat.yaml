@@ -82,6 +82,9 @@ steps:
   - id: TP8
     title: The session controls press their keys; Ctrl+C asks first
     proves: [AC6]
+    # The desktop row: on a phone Stop session, Show details, Send now and
+    # the mode switch fold under More, checked by ceo-chat-phone-remote.
+    viewports: [1440x900]
     setup:
       - tmux: [new-session, -d, -s, lead-crew, cat]
       - open: /p/{project}/lead

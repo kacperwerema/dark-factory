@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // oldDevelopmentWorkflow is a trimmed copy of the development template as it
@@ -86,16 +86,13 @@ func TestWorkflowFeatureCatalogMatchesBundledTemplates(t *testing.T) {
 			if !hasStampEntry {
 				t.Errorf("template stamp %s@%s has no catalog entry with that version", name, latest)
 			}
-			rec, ok := ReadRecord(data)
-			if !ok {
-				t.Fatalf("%s.yaml has no features: record; run issue-cli workflow scan on it", name)
-			}
-			res, err := Scan(name+".yaml", data, ScanOptions{})
+			rec, _ := ReadRecord(data)
+			drift, err := RecordDrift(entries, name+".yaml", data)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(res.Changes) > 0 || strings.Join(res.Record.Installed, ",") != strings.Join(rec.Installed, ",") {
-				t.Errorf("%s.yaml features: record is stale; re-run issue-cli workflow scan on it (a version bump: issue-cli workflow catalog-bump <id> --version <its version>). Changes: %v", name, res.Changes)
+			if drift != "" {
+				t.Errorf("%s\nFix: issue-cli workflow scan --template %s (in this checkout; writes the record), or for a version bump issue-cli workflow catalog-bump <id> --version <its version>", drift, name)
 			}
 			if len(rec.Declined) > 0 {
 				t.Errorf("a bundled template declines nothing; got %v", rec.Declined)

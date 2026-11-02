@@ -36,7 +36,7 @@ func runProcessPlaytest(ctx *Context, args []string) error {
 	}
 	file, ok := playtestGuideFiles[name]
 	if !ok {
-		return fmt.Errorf("unknown playtest guide %q\n\nGuides:\n  issue-cli process playtest        the shared contract: session shape, results, commands, workflow wiring\n  issue-cli process playtest web    example: a web app driven by headless Chrome (issue-viewer)\n  issue-cli process playtest game   example: a game engine (RogueTech.X)", args[0])
+		return fmt.Errorf("unknown playtest guide %q\n\nGuides:\n  issue-cli process playtest        the shared contract: session shape, results, commands, workflow wiring\n  issue-cli process playtest web    example: a web app driven by headless Chrome (issue-viewer)\n  issue-cli process playtest game   example: a game engine (Kestrel)", args[0])
 	}
 	data, err := playtestGuides.ReadFile("guides/playtest/" + file)
 	if err != nil {

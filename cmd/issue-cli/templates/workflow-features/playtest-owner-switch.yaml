@@ -1,0 +1,23 @@
+id: playtest-owner-switch
+version: v0.55.0
+category: conventions
+propose: false
+templates: [development]
+sources: ["internal/tracker/workflow_config.go#PlaytestForOwner", "internal/viewer/attention.go#ownerAttention"]
+title: "Playtests for the agents only"
+what: |
+  `playtest: agents` keeps playtest sessions and `make ux-test` as the agents' check
+  but drops the owner's part: no "Playtest <slug>" in Waiting on you, no playtest step
+  on the issue page, no playtest marker on the card. `off` says the project has no
+  playtests at all. The default, `owner`, is today's behaviour. Reword the
+  human-testing prompt to match: it should not ask the owner to run `make playtest`.
+why: |
+  Some projects want the machine run of a session but not an owner's run of every
+  one: the owner judges through guided checks or the issue page instead.
+where: "new top-level playtest:, plus the human-testing prompt"
+snippet: |
+  playtest: agents   # owner (default) | agents | off
+question: "Do you want to run each issue's playtest yourself, or leave playtest sessions to the agents' ux-test?"
+detect:
+  - path: playtest
+    one_of: [agents, "off"]

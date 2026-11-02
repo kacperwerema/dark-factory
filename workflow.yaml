@@ -1,3 +1,6 @@
+# This repo's own workflow (the one Dark Factory is built with), not a starting point.
+# Start yours with `issue-cli project init`, or copy workflow.yaml.example.
+# Tests, lint and the privacy guard read this file, so it stays at the root.
 template: development@v0.36.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
@@ -22,6 +25,7 @@ features:
     - body-structure-gates@v0.36.0
     - failure-hints@v0.36.0
     - proof-links@v0.58.0
+    - decision-ledger@v0.60.1
     - red-round-cap@v0.59.0
     - commit-references-issue@v0.58.0
     - checklist-sections@v0.36.0
@@ -48,9 +52,9 @@ features:
     - testing-unrelated-failures@v0.36.0
     - testing-na-forms@v0.58.0
     - local-merge-shipping@v0.54.0
-    - critique-gate@v0.59.0
     - must-not-section@v0.59.0
   declined:
+    - critique-gate   # owner, 2026-10-31: "Ok, let's maybe disable critic for now."
     - shell-gate
     - scoring
 
@@ -79,10 +83,17 @@ ci:
       failures: '--- FAIL: (\S+)'
       results:
         - {kind: unit, format: go-test-json, file: unit.json}
-    - cmd: make ux-test
+    - cmd: make ux-test ALL=1
       tier: slow
+      failures: '(?m)^FAIL (\S+/\S+)'
       results:
         - {kind: e2e, format: playtest, file: e2e.json}
+  # Every playtest session once a night (after 03:00, when mem-guard allows),
+  # so a session a page move broke shows red instead of sitting stale.
+  nightly:
+    tier: slow
+    at: "03:00"
+    timeout: 3h
 
 # Post-mortem at close (docs/workflow.md, "Post-mortem"): the transition into
 # done starts a fresh agent that reads the run from paths only and proposes
@@ -107,33 +118,33 @@ workbench:
       summary: "Templates, views and client-side behaviour of the viewer: list, board, canvases, detail page and the workbench pages."
       design_doc: docs/UI/overview.md
       paths:
-        - templates/
-        - static/
+        - internal/viewer/templates/
+        - internal/viewer/static/
         - docs/UI/
-        - nav.go
-        - template_funcs.go
-        - images.go
-        - handlers_list.go
-        - handlers_board.go
-        - handlers_canvas.go
-        - handlers_detail.go
-        - handlers_workboard.go
-        - issue_tab.go
-        - evidence*.go
-        - timeline*.go
-        - stale_text.go
-        - systems.go
-        - docsections.go
-        - markers.go
-        - attention.go
-        - agent_state.go
-        - agent_timeline.go
-        - "*_view.go"
-        - status*.go
-        - stats_*.go
-        - updates.go
-        - release_wait.go
-        - release_candidate.go
+        - internal/viewer/nav.go
+        - internal/viewer/template_funcs.go
+        - internal/viewer/images.go
+        - internal/viewer/handlers_list.go
+        - internal/viewer/handlers_board.go
+        - internal/viewer/handlers_canvas.go
+        - internal/viewer/handlers_detail.go
+        - internal/viewer/handlers_workboard.go
+        - internal/viewer/issue_tab.go
+        - internal/viewer/evidence*.go
+        - internal/viewer/timeline*.go
+        - internal/viewer/stale_text.go
+        - internal/viewer/systems.go
+        - internal/viewer/docsections.go
+        - internal/viewer/markers.go
+        - internal/viewer/attention.go
+        - internal/viewer/agent_state.go
+        - internal/viewer/agent_timeline.go
+        - "internal/viewer/*_view.go"
+        - internal/viewer/status*.go
+        - internal/viewer/stats_*.go
+        - internal/viewer/updates.go
+        - internal/viewer/release_wait.go
+        - internal/viewer/release_candidate.go
         - internal/chart/
         - internal/playtestruns/
         - internal/testids/
@@ -157,8 +168,8 @@ workbench:
       summary: "The workflow engine: statuses, transitions, overlays and types of work."
       design_doc: docs/Workflow/overview.md
       paths:
-        - workflow.yaml
-        - workflow.yaml.example
+        - internal/viewer/workflow.yaml
+        - internal/viewer/workflow.yaml.example
         - docs/Workflow/
         - docs/workflow.md
         - internal/tracker/
@@ -171,24 +182,20 @@ workbench:
         - internal/timeline/
         - internal/milestone/
         - internal/tokens/
-        - issue.go
-        - docs.go
-        - project.go
-        - comment.go
-        - frontmatter.go
     API:
       summary: "HTTP endpoints, handlers and server logic."
       design_doc: docs/API/overview.md
       paths:
-        - main.go
-        - routes.go
-        - origin.go
-        - background.go
-        - helpers.go
-        - handlers_*.go
-        - "*_watch.go"
-        - tmux.go
-        - github.go
+        - cmd/issue-viewer/
+        - internal/viewer/main.go
+        - internal/viewer/routes.go
+        - internal/viewer/origin.go
+        - internal/viewer/background.go
+        - internal/viewer/helpers.go
+        - internal/viewer/handlers_*.go
+        - "internal/viewer/*_watch.go"
+        - internal/viewer/tmux.go
+        - internal/viewer/github.go
         - internal/testresults/
         - docs/API/
         - internal/ci/
@@ -199,27 +206,27 @@ workbench:
       summary: "The dark factory: the Workshop Board pages (map, company, hall, station, report), the CEO and department leads, auto-start, YOLO, goals and the outputs shelf."
       design_doc: docs/departments.md
       paths:
-        - map.go
-        - company.go
-        - workshop.go
-        - report.go
-        - station.go
-        - hall*.go
-        - "*_wb.go"
-        - ceo_*.go
-        - radio.go
-        - shelf.go
-        - needs_you.go
-        - send_back.go
-        - decisions_confirm.go
-        - department_view.go
-        - yolo_view.go
-        - autostart_view.go
-        - templates/_workshop*.html
-        - static/workshop*.js
-        - static/ceo-chat.js
-        - static/station.js
-        - static/hall-edit.js
+        - internal/viewer/map.go
+        - internal/viewer/company.go
+        - internal/viewer/workshop.go
+        - internal/viewer/report.go
+        - internal/viewer/station.go
+        - internal/viewer/hall*.go
+        - "internal/viewer/*_wb.go"
+        - internal/viewer/ceo_*.go
+        - internal/viewer/radio.go
+        - internal/viewer/shelf.go
+        - internal/viewer/needs_you.go
+        - internal/viewer/send_back.go
+        - internal/viewer/decisions_confirm.go
+        - internal/viewer/department_view.go
+        - internal/viewer/yolo_view.go
+        - internal/viewer/autostart_view.go
+        - internal/viewer/templates/_workshop*.html
+        - internal/viewer/static/workshop*.js
+        - internal/viewer/static/ceo-chat.js
+        - internal/viewer/static/station.js
+        - internal/viewer/static/hall-edit.js
         - internal/autostart/
         - internal/outputs/
         - internal/goals/
@@ -256,6 +263,7 @@ statuses:
       Turn the problem into explicit checklists, assumptions, and open questions.
       Write the clarify round once, in a `## Clarify` section: every question at once, each a `### Q1. <question>` with 2–4 numbered options `1. **<option>** (recommended) <why, citing the work>. Cost: <cost>.`, the recommendation first, then an open `**Answer:** —` line. With no question, the section is one line: `Nothing to ask: <why>.` An answer you take alone is `**Answer:** assumed — <reason>` (`issue-cli clarify <slug> --assume`); `issue-cli clarify <slug>` shows the round and its format problems. Questions go only in this round; outside it a `question:` comment is for a blocker only.
       Write the design into the issue body under the relevant sections before checking the related boxes.
+      Cite each hard decision in force for the issue (the Decisions in force block in `start`, or `issue-cli decisions --in-force <slug>`) in `## Design` by its ref, saying how the design follows it, or write `n/a <ref>: <why>`; cite a replacer, never a replaced ref.
       A criterion only the owner can check (a look, a read-through, a decision) carries the owner marker: `- [ ] The board reads well on a phone (owner)`. "(owner)" anywhere counts, and so does a box starting "Owner visual check …"; no proof ticks it, and under YOLO it waits in the review queue.
       Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
       Describe how agents will discover and use the change. Prefer hints in CLI output and error messages over prompt text, which does not reach other projects' workflows or non-dispatched sessions.
@@ -271,7 +279,7 @@ statuses:
       Implement the accepted design and keep the issue body, implementation checklist, and test plan accurate as work progresses.
       Record implementation notes and planned verification steps in the issue body; checkboxes mark completion but do not replace written content.
       Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. Then, after the last code commit, post the test results: `issue-cli prove <slug> --run` runs the named tests and posts the `tests:` comment (or run them and post `issue-cli comment <slug> --text "tests: ..."`); a test trailer reads UNPROVEN until then, and a later code commit stales it. `issue-cli prove <slug> --list` shows what is proven.
-      Run `issue-cli workflow catalog-check` in your worktree now and after each change to code a catalog entry lists as sources:, not first at the end of `make validate`: it checks uncommitted changes too, and each entry it flags needs a version bump or a `Catalog: n/a <id>[,<id>] <why>` line in a commit message (entry id first).
+      Run `issue-cli workflow catalog-check` in your worktree now and after each change to code a catalog entry lists as sources:, not first at the end of `make validate`: it checks uncommitted changes too, and each entry it flags needs a version bump or a `Catalog: n/a <id>[,<id>] <why>` line in a commit message (entry id first). It also checks the catalog itself (each entry file's category and sources, each bundled template's `features:` record in catalog order) and prints each fix; after a template change run `issue-cli workflow scan --template <name>`.
   - name: "testing"
     description: "Under verification"
     prompt: |
@@ -280,7 +288,7 @@ statuses:
       Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in its page's file under internal/testids/.
       Run `make playtest-check`, single `make ux-test ISSUE=<slug>` runs while fixing, and `make ux-test ISSUE=<slug> REPEAT=2` once, as the final run before handing over. The runner builds the scenario: never point a session at the real projects.yaml, issues tree, user state or tmux server.
       A manual check a session can't drive (CLI commands, API routes, tmux, a terminal-only flow) comes as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib` (sandbox_project, private_tmux, clean_shell with a stand-in claude, --touches-real for anything in the owner's real session), name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself. Its sandbox never touches the real projects.yaml, issues tree, user state or tmux server.
-      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), or a reason in a few words. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
+      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done. A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     description: "Manual verification by humans"
     prompt: |
@@ -335,6 +343,7 @@ transitions:
           - [ ] Overlap reviewed: similar existing features listed and the need justified
           - [ ] Discoverability: how agents find and use this is documented
           - [ ] Catalog: the entry this adds, or the entry whose version: it bumps (id, detect, sources), or n/a
+          - [ ] Decisions in force cited (each hard one by ref, or n/a <ref>: <why>)
           - [ ] Human approval requested (backlog, or in progress to start straight away)
       - type: "append_section"
         title: "Acceptance Criteria"
@@ -354,10 +363,12 @@ transitions:
         rule: "section_has_checkboxes: Acceptance Criteria"
       - type: "validate"
         rule: "criteria_checkboxes: Acceptance Criteria"
-      # A fresh read-only critic reads the work first; a blocks finding holds
-      # the gate (issue-cli critique <slug>; docs/Workflow/critique.md).
       - type: "validate"
-        rule: "critique"
+        rule: "decisions_cited: since 2026-11-01"   # issues filed before the ledger's gate don't need it
+      - type: "validate"
+        rule: "citations_current: since 2026-11-01"
+      - type: "validate"
+        rule: "decision_unchallenged: since 2026-11-01"   # held while this issue's challenge waits for the owner
       - type: "require_human_approval"
         status: "backlog"
       - type: "set_fields"
@@ -374,10 +385,12 @@ transitions:
         rule: "section_has_checkboxes: Acceptance Criteria"
       - type: "validate"
         rule: "criteria_checkboxes: Acceptance Criteria"
-      # A fresh read-only critic reads the work first; a blocks finding holds
-      # the gate (issue-cli critique <slug>; docs/Workflow/critique.md).
       - type: "validate"
-        rule: "critique"
+        rule: "decisions_cited: since 2026-11-01"   # issues filed before the ledger's gate don't need it
+      - type: "validate"
+        rule: "citations_current: since 2026-11-01"
+      - type: "validate"
+        rule: "decision_unchallenged: since 2026-11-01"   # held while this issue's challenge waits for the owner
       - type: "require_human_approval"
         status: "in progress"
       - type: "validate"
@@ -425,7 +438,13 @@ transitions:
       - type: "validate"
         rule: "section_checkboxes_checked: Implementation"
       - type: "validate"
+        rule: "decision_unchallenged: since 2026-11-01"
+      - type: "validate"
         rule: "has_test_plan"
+      # Hard decisions whose paths: the branch changes are cited
+      # (factory/decision-diff-audit-…); issues filed earlier pass.
+      - type: "validate"
+        rule: "decisions_respected: since 2026-11-01"
       - type: "append_section"
         title: "Testing"
         body: |
@@ -450,10 +469,6 @@ transitions:
       # workflow/issue-cli-prove-link-each-criterion-to-its-proof).
       - type: "validate"
         rule: "criteria_proven: since 2026-10-24"
-      # A fresh read-only critic reads the work first; a blocks finding holds
-      # the gate (issue-cli critique <slug>; docs/Workflow/critique.md).
-      - type: "validate"
-        rule: "critique"
       - type: "append_section"
         title: "Human Testing"
         body: |
@@ -476,6 +491,8 @@ transitions:
         rule: "section_checkboxes_checked: Documentation"
       - type: "validate"
         rule: "has_comment_prefix: docs:"
+      - type: "validate"
+        rule: "decisions_respected: since 2026-11-01"
       - type: "append_section"
         title: "Shipping"
         body: |
@@ -696,6 +713,9 @@ systems:
           - type: "inject_prompt"
             prompt: |
               Factory: read "Settled rules" in docs/departments.md before designing: secrets, private projects, the waiting-on-you count, box keys, projects.yaml writes, lint checks and pilots are decided there. Don't ask again what a rule there answers; cite its decision.
+              Two of them every design meets:
+              - Owner acts (stamp a gate, review an output, tick an owner box, change a hard decision): a worker is refused, the lead relays the owner's words with --quote, the viewer accepts only the owner's browser (fromOwnerBrowser). Source: factory/department-outputs-shelf#D-2, api/owner-only-routes-need-an-owner-credential-on-loopback#D-2.
+              - A human starts the work: workers never start agents. The one exception is an agent inside a run the human started that changes nothing by itself: the read-only one-shot critic (factory/a-fresh-critic-that-never-wrote-the-work-a-read-only-agent-given-only-paths-findings-blocksshouldnote-with-fileline-blocks-hold-the-gate#D-4) and the post-mortem at close (factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-1).
 
 # Types of work (docs/Workflow/types.md): an issue's `type:` picks its path.
 # Unset or unknown types get default_type, so existing issues keep the full path.
@@ -744,10 +764,8 @@ types:
             rule: "section_checkboxes_checked: Testing"
           - type: "validate"
             rule: "has_comment_prefix: tests:"
-          # A fresh read-only critic reads the work first; a blocks finding holds
-          # the gate (issue-cli critique <slug>; docs/Workflow/critique.md).
           - type: "validate"
-            rule: "critique"
+            rule: "decisions_respected: since 2026-11-01"
           - type: "require_human_approval"
             status: "shipping"
           - type: "append_section"
@@ -790,6 +808,8 @@ types:
           - type: "validate"
             rule: "has_comment_prefix: docs:"
             hint: "issue-cli comment {{slug}} --text \"docs: <pages changed>\""
+          - type: "validate"
+            rule: "decisions_respected: since 2026-11-01"
           - type: "require_human_approval"
             status: "shipping"
           - type: "append_section"

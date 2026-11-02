@@ -1,0 +1,238 @@
+package viewer
+
+import (
+	"fmt"
+	"html/template"
+	"math"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/chart"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+)
+
+// /stats without a project: one row per project from its health snapshots
+// only (never the live aggregate, so ten projects stay fast), each value
+// with a sparkline over the range.
+
+// OverviewData is the page.
+type OverviewData struct {
+	Rows   []OverviewRow
+	None   []string
+	Ranges []statsOption
+	Sorts  []statsOption
+	Range  string
+	Days   int
+	// Privacy counts every project's work-files marker (privacy_view.go):
+	// "2 private · 1 in code repo".
+	Privacy string
+	// Classic is the classic page (?classic=1), kept across its links;
+	// Header is the Workshop Board page's (stats_overview_wb.html).
+	Classic bool
+	Header  WbHeader
+}
+
+// overviewHeader is the Workshop Board header across projects: Map › Stats,
+// with every project's agents and what waits on the owner.
+func (s *Server) overviewHeader(now time.Time) WbHeader {
+	h := s.buildNeedsYouAll(now).Header
+	h.Crumbs = []WbCrumb{{Label: "Map", URL: mapURL}, {Label: "Stats, all projects", Current: true}}
+	h.HideDone = true
+	return h
+}
+
+// NoneLine says which projects have no snapshot and how one comes.
+func (d OverviewData) NoneLine() string {
+	return "No snapshot yet: " + strings.Join(d.None, ", ") + ". A project in git gets one daily while the viewer runs, or now with this command; history with health backfill."
+}
+
+// ClassicURL is the classic overview with the same range and sort.
+func (d OverviewData) ClassicURL() string {
+	for _, s := range d.Sorts {
+		if s.On {
+			return "/stats?" + url.Values{"classic": {"1"}, "range": {d.Range}, "sort": {s.Key}}.Encode()
+		}
+	}
+	return "/stats?classic=1"
+}
+
+// OverviewCell is one value and its sparkline.
+type OverviewCell struct {
+	Value string
+	Spark template.HTML
+	Has   bool
+}
+
+// OverviewRow is one project.
+type OverviewRow struct {
+	Name, Slug, Href string
+	Latest           string
+	// Privacy is the work-files and code markers.
+	Privacy []PrivacyBadge
+
+	Waiting      OverviewCell
+	WaitingShare float64
+	WaitingOver  bool
+	Limit        float64 // 0: none
+	Cycle        OverviewCell
+	Rework       OverviewCell
+	Done         int
+	LOC          OverviewCell
+	TestRatio    float64
+	HasRatio     bool
+	BigFiles     int
+	HasBig       bool
+
+	cycleSecs float64
+	locLines  float64
+}
+
+var overviewSorts = []struct{ Key, Label string }{{"done", "Issues done"}, {"waiting", "Waiting on you"}, {"cycle", "Cycle p50"}, {"loc", "Lines of code"}}
+
+func (s *Server) handleStatsOverview(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/stats" {
+		http.NotFound(w, r)
+		return
+	}
+	q := r.URL.Query()
+	now := time.Now()
+	data := buildOverview(s.projects, q, now)
+	page := "stats_overview.html"
+	if q.Get("classic") == "1" {
+		data.Classic = true
+	} else {
+		page = "stats_overview_wb.html"
+		data.Header = s.overviewHeader(now)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.ExecuteTemplate(w, page, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func buildOverview(projects []tracker.Project, q url.Values, now time.Time) OverviewData {
+	d := OverviewData{Range: "30d", Days: 30}
+	for _, r := range statsRanges[:3] {
+		if q.Get("range") == r.Key {
+			d.Range, d.Days = r.Key, r.Days
+		}
+	}
+	sortKey := "done"
+	for _, o := range overviewSorts {
+		if q.Get("sort") == o.Key {
+			sortKey = o.Key
+		}
+	}
+	link := func(rng, sort string) string {
+		v := url.Values{"range": {rng}, "sort": {sort}}
+		if q.Get("classic") == "1" {
+			v.Set("classic", "1")
+		}
+		return "/stats?" + v.Encode()
+	}
+	for _, r := range statsRanges[:3] {
+		d.Ranges = append(d.Ranges, statsOption{Key: r.Key, Label: r.Label, On: r.Key == d.Range, Href: link(r.Key, sortKey)})
+	}
+	for _, o := range overviewSorts {
+		d.Sorts = append(d.Sorts, statsOption{Key: o.Key, Label: o.Label, On: o.Key == sortKey, Href: link(d.Range, o.Key)})
+	}
+
+	from := now.AddDate(0, 0, -d.Days)
+	seen := map[string]bool{}
+	markers := map[string]int{}
+	for i := range projects {
+		proj := &projects[i]
+		privacyRow := privacyView(proj, "/p/"+proj.Slug, now).Badges
+		for _, b := range privacyRow {
+			if b.Kind == "work" {
+				markers[b.Marker]++
+			}
+		}
+		wf := proj.LoadWorkflow()
+		root := ciRootFor(proj)
+		if !wf.Health.Enabled() || seen[root] {
+			d.None = append(d.None, proj.Name)
+			continue
+		}
+		snaps := health.Range(root, time.Time{}, now)
+		if len(snaps) == 0 {
+			d.None = append(d.None, proj.Name)
+			continue
+		}
+		seen[root] = true
+		row := overviewRow(proj, wf, lastPerDay(snaps, from, now), snaps[len(snaps)-1])
+		row.Privacy = privacyRow
+		d.Rows = append(d.Rows, row)
+	}
+	d.Privacy = privacyCounts(markers)
+	less := map[string]func(a, b OverviewRow) bool{
+		"done":    func(a, b OverviewRow) bool { return a.Done > b.Done },
+		"waiting": func(a, b OverviewRow) bool { return a.WaitingShare > b.WaitingShare },
+		"cycle":   func(a, b OverviewRow) bool { return a.cycleSecs > b.cycleSecs },
+		"loc":     func(a, b OverviewRow) bool { return a.locLines > b.locLines },
+	}[sortKey]
+	sort.SliceStable(d.Rows, func(i, j int) bool { return less(d.Rows[i], d.Rows[j]) })
+	return d
+}
+
+func overviewRow(proj *tracker.Project, wf *tracker.WorkflowConfig, daily []*health.Snapshot, latest *health.Snapshot) OverviewRow {
+	row := OverviewRow{Name: proj.Name, Slug: proj.Slug, Href: "/p/" + proj.Slug + "/stats", Latest: latest.Time().Format("2 Jan 15:04")}
+	all := map[string]string{"type": timeline.All}
+	issues := func(s *health.Snapshot) float64 { v, _ := s.Value("workflow.issues", all); return v }
+	series := func(metric string, labels map[string]string, needIssues bool) []float64 {
+		var out []float64
+		for _, s := range daily {
+			v, ok := s.Value(metric, labels)
+			if !ok || (needIssues && issues(s) == 0) {
+				out = append(out, math.NaN())
+				continue
+			}
+			out = append(out, v)
+		}
+		return out
+	}
+	cell := func(label, metric string, labels map[string]string, needIssues bool, u chart.Unit) (OverviewCell, float64) {
+		v, ok := latest.Value(metric, labels)
+		if !ok || (needIssues && issues(latest) == 0) {
+			return OverviewCell{}, 0
+		}
+		return OverviewCell{Value: chart.Format(u, v), Has: true, Spark: chart.Spark{Label: label + ", " + plural(len(daily), "day", "days"), Values: series(metric, labels, needIssues), Class: "s-all"}.SVG()}, v
+	}
+
+	n := issues(latest)
+	row.Done = int(n)
+	row.Waiting, row.WaitingShare = cell("Waiting on you", "workflow.time.share", map[string]string{"kind": "waiting"}, true, chart.Share)
+	if limit, ok := wf.Health.Limit("waiting_share"); ok {
+		row.Limit = limit
+		row.WaitingOver = row.Waiting.Has && row.WaitingShare > limit
+	}
+	row.Cycle, row.cycleSecs = cell("Cycle p50", "workflow.cycle.p50", all, true, chart.Seconds)
+	row.Rework, _ = cell("Rework share", "workflow.rework.share", all, true, chart.Share)
+	row.LOC, row.locLines = cell("Lines of code", "codebase.source_lines", nil, false, chart.Count)
+	if v, ok := latest.Value("codebase.test_ratio", nil); ok {
+		row.TestRatio, row.HasRatio = v, true
+	}
+	if v, ok := latest.Value("codebase.big_files", nil); ok {
+		row.BigFiles, row.HasBig = int(v), true
+	}
+	return row
+}
+
+// Pct is a share as a whole percentage, capped at 100, for meter widths.
+func (r OverviewRow) Pct(v float64) int { return int(math.Round(math.Min(1, math.Max(0, v)) * 100)) }
+
+// privacyCounts is "2 private · 1 in code repo · 1 public", worst first.
+func privacyCounts(markers map[string]int) string {
+	var parts []string
+	for _, m := range []string{"In code repo", "Backup failing", "No backup", "Private", "Public", "Not set up"} {
+		if n := markers[m]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, strings.ToLower(m)))
+		}
+	}
+	return strings.Join(parts, " · ")
+}

@@ -1,0 +1,80 @@
+session: remote-home
+issue: factory/remote-home-on-the-public-name-the-first-page-is-needs-you-across-every-project-one-tap-per-waiting-row-on-a-phone
+title: "Remote home: every waiting row answered in one tap at phone width"
+scenario: remote-home
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: At 390px the list across projects has the switcher and one row of each kind with its action, nothing scrolls sideways
+    proves: [AC2]
+    setup:
+      - open: /needs-you
+    checks:
+      - visible: [needs_you.switch, needs_you.switch.project, needs_you.switch.map, needs_you.approve, needs_you.clarify, needs_you.clarify.option, needs_you.question, needs_you.reply, needs_you.after.agree, needs_you.chat]
+      - count: { pattern: needs_you.row, equals: 3 }
+      - count: { pattern: needs_you.clarify, equals: 2 }
+      - count: { pattern: needs_you.after.row, equals: 1 }
+      - size: { target: needs_you.approve, min_height: 44, min_width: 44 }
+      - size: { target: needs_you.clarify.option, min_height: 44 }
+      - size: { target: needs_you.reply, min_height: 44 }
+      - size: { target: needs_you.after.agree, min_height: 44 }
+      - size: { target: needs_you.chat, min_height: 44 }
+      - size: { target: needs_you.switch.project, min_height: 44 }
+
+  - id: TP5
+    title: One tap on a gate's Approve stamps it, no confirm
+    proves: [AC2]
+    setup:
+      - open: /needs-you
+    act:
+      - click: needs_you.approve
+      - wait: 800
+    checks:
+      - hidden: needs_you.confirm
+      - issue: { slug: app/map-legend, field: human_approval, equals: backlog }
+      - issue: { slug: app/map-legend, field: status, equals: "in design" }
+
+  - id: TP6
+    title: One tap on a clarify option answers that question as the owner, from Needs you
+    proves: [AC2]
+    setup:
+      - open: /needs-you
+    act:
+      - click: needs_you.clarify.option
+      - wait: 800
+    checks:
+      - issue: { slug: app/label-printer, body_contains: "owner: \"The shop's thermal printer (tapped on Needs you)\" (D-1)" }
+      - issue: { slug: app/label-printer, comment_contains: "clarify: the owner answered Q1 (D-1) on Needs you" }
+
+  - id: TP7
+    title: Reply under an open question posts the owner's comment from the row
+    proves: [AC2]
+    setup:
+      - open: /needs-you
+    act:
+      - click: needs_you.reply
+      - wait_for: needs_you.reply.text
+      - type: { target: needs_you.reply.text, text: "Only the ones still saved everywhere." }
+      - click: needs_you.reply.send
+      - wait: 800
+      - open: /needs-you
+    checks:
+      - issue: { slug: app/saved-places-sync, comment_contains: "Only the ones still saved everywhere." }
+      - absent: needs_you.question
+      - absent: needs_you.reply
+
+  - id: TP8
+    title: One tap on Agree settles the YOLO entry
+    proves: [AC2]
+    setup:
+      - open: /needs-you
+    act:
+      - click: needs_you.after.agree
+      - wait: 800
+    checks:
+      - issue: { slug: app/barcode-scan, comment_contains: "yolo-review:" }

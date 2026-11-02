@@ -16,9 +16,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/depttemplate"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // DefaultTemplate is the workflow template a project gets without --template.

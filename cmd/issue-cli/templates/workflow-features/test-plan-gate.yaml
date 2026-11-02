@@ -1,0 +1,23 @@
+id: test-plan-gate
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/workflow_validate.go#checkRule"]
+title: "Test plan required"
+what: |
+  The `has_test_plan` validator requires a `## Test Plan` section with `### Automated`
+  and `### Manual` subsections.
+why: |
+  Testing is planned before it is claimed done.
+where: "transitions[].actions[] rule: has_test_plan"
+snippet: |
+  transitions:
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "validate"
+          rule: "has_test_plan"
+question: "Should an issue need a written test plan before testing?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [has_test_plan]

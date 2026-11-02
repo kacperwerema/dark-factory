@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // gitEnv gives every git call in these tests an identity and no signing.
@@ -22,6 +22,14 @@ func gitEnv(t *testing.T) {
 	t.Setenv("GIT_AUTHOR_EMAIL", "t@test")
 	t.Setenv("GIT_COMMITTER_NAME", "t")
 	t.Setenv("GIT_COMMITTER_EMAIL", "t@test")
+	// git commit, merge and fetch start a detached `git maintenance run
+	// --auto` that can still be writing .git/objects when TempDir cleanup
+	// runs ("directory not empty"): turn it off.
+	t.Setenv("GIT_CONFIG_COUNT", "2")
+	t.Setenv("GIT_CONFIG_KEY_0", "maintenance.auto")
+	t.Setenv("GIT_CONFIG_VALUE_0", "false")
+	t.Setenv("GIT_CONFIG_KEY_1", "gc.auto")
+	t.Setenv("GIT_CONFIG_VALUE_1", "0")
 }
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -317,9 +325,9 @@ func TestWorkBadgeStates(t *testing.T) {
 
 func TestRepoNameFromURL(t *testing.T) {
 	for url, want := range map[string]string{
-		"git@github.com:michal-franc/ai-workflow-engine-tracker.git": "ai-workflow-engine-tracker",
-		"https://github.com/o/r":                                     "r",
-		"/tmp/x/tracker.git":                                         "tracker",
+		"git@github.com:example-org/ai-workflow-engine-tracker.git": "ai-workflow-engine-tracker",
+		"https://github.com/o/r":                                    "r",
+		"/tmp/x/tracker.git":                                        "tracker",
 	} {
 		if got := RepoNameFromURL(url); got != want {
 			t.Errorf("RepoNameFromURL(%q) = %q, want %q", url, got, want)

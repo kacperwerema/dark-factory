@@ -11,10 +11,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
-	"github.com/michal-franc/issue-viewer/internal/gitfile"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // Updating an installed department to the template's newer text
@@ -54,6 +54,8 @@ var earlierTexts = map[string]earlier{
 			},
 			"workflow": {
 				"b52ab5a5500eaf1e272cc4a17b2f5a6eb2756f2463eb23857d9d73e7847e411d",
+				// v0.59: features: installed in the catalog's old order.
+				"c12bde7ed8e3354dc35b4453904ce4c564deeb20f47c96d04f8976aa4b93982b",
 			},
 		},
 		Role:      []string{"SEO and content for the client sites"},
@@ -64,6 +66,8 @@ var earlierTexts = map[string]earlier{
 		Files: map[string][]string{
 			"role.md":             {"bb5f53b77a435b61c391c63e41a7dc7b80971cebdc0c659c9c2279719987c5a3"},
 			"jobs/weekly-plan.md": {"78566c709d40ee47dfab40337ea00f78507581dc9c5da7dd5de33ecc38f404f1"},
+			// v0.59: features: installed in the catalog's old order.
+			"workflow": {"cc108ff992c76240154361e3be9af70b3e248bd2aa7866cd4de7cf2391924d53"},
 		},
 		Role:      []string{"Brings in the next clients: marketing and sales under one lead"},
 		Mission:   []string{"A steady pipeline of new clients"},

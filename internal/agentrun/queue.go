@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/queue"
-	"github.com/michal-franc/issue-viewer/internal/routing"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/queue"
+	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // QueueItem is one active queue item and, when it can't start now, why.
@@ -149,6 +149,12 @@ func QueueEvaluate(in QueueInput) QueueVerdict {
 	}
 	out.Refill = len(out.Items) == 0
 
+	// The owner's pause (the Crew page) holds before anything else: not
+	// even an item with its own quote starts.
+	if q.Paused {
+		out.Verdict = autostart.Verdict{Reason: q.PauseLine(), Below: st.Below, Cap: st.MaxWorkers}
+		return out
+	}
 	if in.CIHold != "" {
 		out.Verdict = autostart.Verdict{Reason: in.CIHold, Below: st.Below, Cap: st.MaxWorkers}
 		return out

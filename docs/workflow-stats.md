@@ -124,7 +124,7 @@ Each workflow point covers the issues done in the 30 days before its snapshot, s
 - It is built once for the widest window asked for, and narrower ranges filter it (`Report.Filter`).
 - It is warmed when the server starts and rebuilt in the background after 15 minutes, while the old one is served.
 - The CLI usage report is cached the same way and never blocks the page; until the first one lands, its section says so.
-- An 800-issue project renders in about 85 ms warm. On big projects the shared sidebar costs more than the page (see `ui/sidebar-waiting-on-owner-count-is-slow-on-big-projects-1-s-per-page-on-roguetech`).
+- An 800-issue project renders in about 85 ms warm. On big projects the shared sidebar costs more than the page (see `ui/sidebar-waiting-on-owner-count-is-slow-on-big-projects-1-s-per-page-on-kestrel`).
 
 **/stats (all projects)** reads only snapshots, never the live aggregate:
 
@@ -213,9 +213,11 @@ The tab label on every tab ("5h 0m", "1h 50m so far") reads only the stats sidec
 - **No CLI calls:** cycle time and time in status only; agent, waiting and idle show "—" on /stats.
 - **Gate failures:** `transition` calls with exit ≠ 0, keyed by the status the call was made in, its `--to` and its `err_class`. Dry runs are counted apart: they are the agent checking before it asks.
 - **Percentiles:** nearest-rank p50 and p90 over the issues in the row.
-- **Cost:** each clilog and each playtest results file is read once per aggregate (`timeline.Cache`), and each issue costs two git calls. On RogueTech (65 issues in the window) it takes about half a second.
+- **Cost:** each clilog and each playtest results file is read once per aggregate (`timeline.Cache`), and each issue costs two git calls. On Kestrel (65 issues in the window) it takes about half a second.
 
 ## Implementation
+
+Bare file names (`handlers_stats.go`, `templates/…`, `static/…`) are in `internal/viewer/`.
 
 - `internal/tokens/estimate.go` — `Estimate(s string) int = len(s) / 4`. Single function, easy to swap for a real BPE later.
 - `internal/tracker/stats.go` — `TransitionStat`, `StatsStore`, `Dispatch`, sidecar I/O (`StatsSidecarPath`, `LoadStats`, `SaveStats`, `AppendTransitionStat`, `RecordDispatch`), and the cost functions `StaticTransitionCost(wf, from, to)` and `DynamicTransitionCost(wf, from, to, body, comments)`.
@@ -256,9 +258,11 @@ Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold i
 5. Record. The block, an `experiment:` comment with the numbers (holdout only as passed n/m), and on promising a `## Experiment result` table.
 6. By workflow. Beside the verdict, each workflow's own verdict (`bench compare`'s By workflow), marked changed or control by the files the candidate's commit changed since main ([which workflows a branch changed](benchmark.md#which-workflows-a-branch-changed)). They go in the block as `workflows:` (with `workflows_note:` when they are missing or unmarked), on the `experiment:` comment's `workflows:` tail, in a By workflow table under `## Experiment result`, and in `experiment show`. They are advice: the overall verdict and its target are unchanged, and a control turning net negative is a warning line.
 
-`--dry-run` prints the guard and the plan and runs nothing. `experiment record <slug> --baseline <run> --candidate <run>` judges two runs that already exist. Runs start only from a session the owner started; there is no schedule.
+`--dry-run` prints the guard and the plan and runs nothing. `experiment record <slug> --baseline <run> --candidate <run>` judges two runs that already exist. Runs start only from a session the owner started, or on a night the owner queued it for.
 
-**Adopt.** The owner adopts the change, even in YOLO: YOLO passes no gate of an issue labelled `experiment` ([YOLO](Workflow/yolo.md)). A rejected experiment is parked with its reason. The adopted commits carry the trailer `Experiment: <slug>`. A change that adds or bumps a catalog feature may name it on its entry in `workflow-features.yaml` (`experiment: {slug, measured: <verdict line>}`), and the Updates card shows "Measured by experiment …".
+**Queue for a night.** `issue-cli experiment queue <slug> [--ref <branch>] --quote "<owner's words>"` (the owner, or a lead with the owner's words; workers are refused) writes `queue: {at, by, quote, ref}` into the block; `--ref` defaults to `work/<slug>`. The next `bench nightly` runs the oldest queued experiment once against that night's baseline and records the verdict as above; the entry gets the night's date (`ran`), or `why` when the guard skipped it. `experiment unqueue <slug>` takes it off; `experiment show` prints the queue line, or the queue command for an experiment not yet adopted ([Every night](benchmark.md#every-night)).
+
+**Adopt.** The owner adopts the change, even in YOLO: YOLO passes no gate of an issue labelled `experiment` ([YOLO](Workflow/yolo.md)). A rejected experiment is parked with its reason. The adopted commits carry the trailer `Experiment: <slug>`. A change that adds or bumps a catalog feature may name it in its entry file, `workflow-features/<id>.yaml` (`experiment: {slug, measured: <verdict line>}`), and the Updates card shows "Measured by experiment …".
 
 **Roll back.** `issue-cli experiment rollback <slug>` creates branch `revert/<slug>` with one `revert(experiment): …` commit reverting the commits on main with that trailer. It never touches main; the owner reviews and merges it. The numbers stay in the sidecar.
 

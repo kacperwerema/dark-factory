@@ -1,0 +1,32 @@
+id: playtest-sessions
+version: v0.36.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["cmd/playtest/session.go", "cmd/playtest/vocab.go", "cmd/playtest/main.go", "cmd/issue-cli/cmd_process_playtest.go", "cmd/issue-cli/guides/playtest/**"]
+title: "Manual checks as playtest sessions"
+what: |
+  The testing and human-testing prompts say: if the project has a playtest system
+  (`issue-cli process playtest`), write the manual checks as a playtest session
+  (step id = checkbox id), pass its machine run before handing over, and point the
+  human at its playtest and report commands.
+why: |
+  A machine runs the repeatable checks, so the human only judges what a machine
+  can't, and the report ticks the boxes that passed instead of the agent asking.
+where: "the \"testing\" and \"human-testing\" status prompts"
+snippet: |
+  statuses:
+    - name: "testing"
+      prompt: |
+        If the project has a playtest system (see `issue-cli process playtest`), write the manual checks as a playtest session (step id = checkbox id) and pass its machine run (ux-test) before handing over, so the human only judges what a machine can't.
+    - name: "human-testing"
+      prompt: |
+        If the manual checks are a playtest session, point the human at its playtest and report commands; the report ticks the boxes that passed and comments failures as `playtest:`.
+question: "Should agents write manual checks as playtest sessions when the project has a playtest system (adds a line to the testing and human-testing prompts)?"
+detect:
+  - path: statuses[].prompt
+    contains: "playtest session"
+  - path: transitions[].actions[].prompt
+    contains: "playtest session"
+  - path: transitions[].actions[].body
+    contains: "playtest session"

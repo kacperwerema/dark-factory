@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var statusCommand = &Command{

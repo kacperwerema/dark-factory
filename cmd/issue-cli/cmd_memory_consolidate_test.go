@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // trailProject is goalsProject with a trail on engine.md: comments of

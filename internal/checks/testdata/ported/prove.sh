@@ -130,6 +130,8 @@ step S4 "The gate names what is missing" --box TP2 \
 	--why "the gate's error is how agents learn the feature, so it must say what's wrong and how to fix it." \
 	--look "the second requirement's text." \
 	--expect "2 unmet: the missing tests: comment, and \"1 of 3 acceptance criteria are not proven\" with AC1's failing link and the ways to prove it."
+# A worker's guard refuses another issue's transition, sandbox or not: the owner's run covers S4 and S5.
+if is_worker; then skip "a worker's guard refuses transitions of demo/count-badge; the owner's run covers this"; fi
 run ic transition demo/count-badge --to human-testing --dry-run
 expect '[[ $out == *"2 unmet requirement"* && $out == *"1 of 3 acceptance criteria are not proven"* ]]' "both requirements listed"
 ask "Would an agent know from this message what to do next?"
@@ -140,6 +142,7 @@ step S5 "A tests: report proves the test, and the gate passes" --box TP2 \
 	--look "the transition output." \
 	--expect "\"✓ Ticked AC1 (proven)\" and \"✓ testing → human-testing\"."
 run ic comment demo/count-badge --text "tests: pass"
+if is_worker; then skip "a worker's guard refuses transitions of demo/count-badge; the owner's run covers this"; fi
 run ic transition demo/count-badge --to human-testing
 expect '[ $code = 0 ] && [[ $out == *"Ticked AC1"* && $out == *"testing → human-testing"* ]]' "AC1 ticked and the issue moved"
 
@@ -179,11 +182,14 @@ expect '[[ $out == *"AC2 [x] proven"* && $out == *"— reported"* ]]' "AC2 prove
 expect '[[ $out == *"gate doesn'"'"'t cover this issue"* ]]' "the exemption is explained"
 
 step S10 "Other projects are offered the feature" --box TP2 \
-	--what "workflow upgrade on a copy of main's workflow.yaml (which doesn't have the feature yet)." \
-	--why "RogueTech, Eldritch and the rest adopt it through workflow upgrade (D-4), with today's date so their in-flight issues are exempt." \
+	--what "workflow upgrade on a copy of main's workflow.yaml with the feature taken out (its features: entry and its criteria_* rules)." \
+	--why "Kestrel, Eldritch and the rest adopt it through workflow upgrade (D-4), with today's date so their in-flight issues are exempt." \
 	--look "the proof-links proposal and its snippet." \
 	--expect "a proof-links proposal whose snippet has rule: \"criteria_proven: since $(date +%F)\"."
-mkdir -p "$tmp/upgrade" && /usr/bin/git show main:workflow.yaml > "$tmp/upgrade/workflow.yaml"
+# main has the feature now: take it out of the copy, as a project that never adopted it.
+mkdir -p "$tmp/upgrade" && /usr/bin/git show main:workflow.yaml |
+	awk '/^[[:space:]]*- proof-links@/ {next} /rule: "criteria_(proven|checkboxes)/ {have=0; next} {if (have) print held; held=$0; have=1} END {if (have) print held}' \
+		> "$tmp/upgrade/workflow.yaml"
 run bash -c "cd '$tmp/upgrade' && '$ic_bin' workflow upgrade | sed -n '/proof-links/,/Ask:/p;/criteria_proven/p'"
 expect '[[ $out == *"proof-links"* && $out == *"criteria_proven: since $(date +%F)"* ]]' "proof-links proposed from today"
 

@@ -1,0 +1,29 @@
+id: lead-prompt
+version: v0.54.0
+category: dispatch
+propose: true
+sources: ["internal/tracker/lead_brief.go", "internal/tracker/lead.go", "cmd/issue-cli/cmd_lead.go"]
+title: "Project lead brief"
+what: |
+  `leads.project` is the brief the project lead starts with (`issue-cli lead spawn`,
+  one lead per project): what it owns, how it routes work to workers, and that it
+  records your answers with `issue-cli decide --quote` in your words. It templates
+  `{{project}}` and `{{lead}}`; without it the built-in brief applies. Whatever it
+  says, the CLI adds the lead's limits: answer workers only from recorded decisions,
+  ask you when none covers it, dispatch only the issues you name
+  (`issue-cli dispatch --quote`), tick gates only with your quote.
+why: |
+  The lead is the one session that sees every worker. A brief written for this
+  project tells it what you care about and what it may decide alone.
+where: "top-level leads.project"
+snippet: |
+  leads:
+    project: |
+      You are the project lead of {{project}}, running in {{lead}} in the main checkout.
+      The human decides. Groom ideas, dispatch the workers the human names, relay their
+      questions and approvals, and review their designs and diffs.
+      Record each answer in the human's words:
+      issue-cli decide <slug> --text "..." --how "lead chat" --quote "<their words>".
+question: "What should the project lead own, and what must it always bring to you?"
+detect:
+  - path: leads.project

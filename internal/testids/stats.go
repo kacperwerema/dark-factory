@@ -52,5 +52,13 @@ func init() {
 		"stats.saved",
 		"stats.time_rules",
 		"stats.overview.ratio",
+		// The Decisions card (wb/decisions-card, stats_decisions.go).
+		"stats.decisions",
+		"stats.decisions.card",
+		"stats.decisions.error",
+		"stats.decisions.sub",
+		"stats.decisions.*",
+		"stats.decisions.scopes",
+		"stats.decisions.scope.*",
 	)
 }

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // SchemaVersion is the batch's "v".

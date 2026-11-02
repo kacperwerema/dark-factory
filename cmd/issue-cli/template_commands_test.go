@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
 )
 
 // templateCommandRe finds an issue-cli command written in a bundled template

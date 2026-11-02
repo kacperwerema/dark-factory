@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Hall stats"}}</head>
+<body class="wb">
+<div class="wb-app wb-app--page">
+{{template "wb/header" .Header}}
+<section class="wb-ground wb-hhead">
+    <div class="wb-hhead-text">
+        <h1 class="wb-h1 wb-h1--xl">Hall stats</h1>
+        <div class="wb-hhead-sub" data-testid="stats.snapshots"{{with .AggTitle}} title="{{.}}"{{end}}>{{.Sub}} · how we count: <span class="wb-mono-inline">docs/workflow-stats.md</span>, “Stats page”</div>
+        <div class="wb-hhead-sub"><a href="{{.AllURL}}" data-testid="stats.all">All projects' stats</a> · <a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
+    </div>
+    {{template "wb/seg-links" .Range}}
+    <span class="wb-stats-saved wb-small wb-muted" hidden data-testid="stats.saved">Saved for this project</span>
+</section>
+<main class="wb-hmain wb-stats" data-testid="stats.page" data-project="{{.Project}}">
+    <section class="wb-hsec" aria-labelledby="stats-now-h" data-testid="stats.now">
+        <div class="wb-hsec-head">
+            <h2 id="stats-now-h" class="wb-h2">Now</h2>
+            <span class="wb-hsec-sub">computed on this request; a gauge links to the page that owns its number</span>
+        </div>
+        <div class="wb-gauge-grid">{{range .Gauges}}{{template "wb/gauge" .}}{{end}}</div>
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="stats-trends-h" data-testid="stats.trends">
+        <div class="wb-hsec-head">
+            <h2 id="stats-trends-h" class="wb-h2">Trends · {{.RangeLabel}}</h2>
+            <span class="wb-hsec-sub">one point per day's snapshot; a workflow point covers the issues done in the 30 days before it</span>
+        </div>
+        {{with .Hint}}<div class="wb-shint" data-testid="stats.backfill_hint">{{template "wb/empty" .}}</div>{{end}}
+        <div class="wb-trend-grid wb-trend-grid--two">
+            {{range .Trends}}{{template "wb/chart-card" .}}{{end}}
+            {{range .SeeAlso}}{{template "wb/see-also" .}}{{end}}
+            {{range .Locked}}<div class="wb-contents" data-testid="stats.locked">{{template "wb/trend-card" .}}</div>{{end}}
+        </div>
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="stats-decisions-h" data-testid="stats.decisions">
+        <div class="wb-hsec-head">
+            <h2 id="stats-decisions-h" class="wb-h2">Decisions</h2>
+            <span class="wb-hsec-sub">the decision ledger: <a href="#decisions">trend</a> · <span class="wb-mono-inline">issue-cli decisions log</span></span>
+        </div>
+        {{template "wb/decisions-card" .Decisions}}
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="stats-time-h" data-testid="stats.time">
+        <div class="wb-hsec-head">
+            <h2 id="stats-time-h" class="wb-h2">Where the time goes · {{.RangeLabel}}</h2>
+            <span class="wb-hsec-sub" data-testid="stats.done">{{.TimeSub}}</span>
+        </div>
+        <div class="wb-stats-tools">{{template "wb/series-legend" .Legend}}{{template "wb/seg-links" .Group}}</div>
+        <div class="wb-trend-grid wb-trend-grid--two">
+            {{range .Bars}}{{template "wb/chart-card" .}}{{end}}
+            {{template "wb/chart-card" .Weekly}}
+        </div>
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="stats-cost-h" data-testid="stats.cost">
+        <div class="wb-hsec-head">
+            <h2 id="stats-cost-h" class="wb-h2">Token cost</h2>
+            <span class="wb-hsec-sub">{{.CostNote}}</span>
+        </div>
+        <div class="wb-tgrid">{{range .Cost}}{{template "wb/table-card" .}}{{end}}</div>
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="cli-usage" data-testid="stats.cli">
+        <div class="wb-hsec-head">
+            <h2 id="cli-usage" class="wb-h2">CLI usage · 30 days</h2>
+            <span class="wb-hsec-sub">{{if .CLISub}}{{.CLISub}}{{else}}how agents and you call issue-cli here, from the local names-only log{{end}}</span>
+        </div>
+        {{range .CLINotes}}{{template "wb/empty" .}}{{end}}
+        {{if .CLI}}<div class="wb-tgrid">{{range .CLI}}{{template "wb/table-card" .}}{{end}}</div>{{end}}
+    </section>
+
+    <section class="wb-hsec" aria-labelledby="time" data-testid="stats.tables">
+        <div class="wb-hsec-head">
+            <h2 id="time" class="wb-h2">Time tables</h2>
+            <span class="wb-hsec-sub">the numbers behind the bars, split as each issue's Timeline tab splits it</span>
+        </div>
+        <p class="wb-small wb-muted" data-testid="stats.time_rules">{{.TimeRules}}</p>
+        {{range .TimeFolds}}{{template "wb/fold" .}}{{end}}
+    </section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/workshop-stats.js"></script>
+</body>
+</html>

@@ -78,6 +78,45 @@ type Queue struct {
 	// MaxWorkers the live-worker cap (0: none, memory is the limit).
 	Below      int `json:"below,omitempty"`
 	MaxWorkers int `json:"max_workers,omitempty"`
+	// Paused is the owner's pause from the viewer's Crew page: queue next
+	// starts nothing, not even an item with its own quote, until the owner
+	// resumes it there. issue-cli has no resume, so an agent can't lift it.
+	Paused   bool      `json:"paused,omitempty"`
+	PausedBy string    `json:"paused_by,omitempty"`
+	PausedAt time.Time `json:"paused_at,omitempty"`
+}
+
+// PauseLine is the pause in words ("paused by the owner (Crew page) at Sat
+// 21:40: resume it on /crew"); "" when the queue runs.
+func (q *Queue) PauseLine() string {
+	if !q.Paused {
+		return ""
+	}
+	who := q.PausedBy
+	if who == "" {
+		who = "the owner"
+	}
+	at := ""
+	if !q.PausedAt.IsZero() {
+		at = " at " + q.PausedAt.Local().Format("Mon 15:04")
+	}
+	return "the queue is paused by " + who + at + ": resume it on the viewer's /crew page"
+}
+
+// SetPaused pauses (by names who) or resumes the queue in issueDir. A
+// project without a queue file is an error: there is nothing to pause.
+func SetPaused(issueDir string, paused bool, by string, now time.Time) error {
+	if !Exists(issueDir) {
+		return fmt.Errorf("no queue in %s", Path(issueDir))
+	}
+	return Update(issueDir, func(q *Queue) error {
+		q.Paused = paused
+		q.PausedBy, q.PausedAt = "", time.Time{}
+		if paused {
+			q.PausedBy, q.PausedAt = by, now
+		}
+		return nil
+	})
 }
 
 // BelowOr is Below, or the default.

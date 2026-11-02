@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker/validations"
+	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
 // isStructuredRule reports whether the named rule is implemented by the

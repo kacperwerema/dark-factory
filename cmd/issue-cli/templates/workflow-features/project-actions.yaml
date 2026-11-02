@@ -1,0 +1,24 @@
+id: project-actions
+version: v0.36.0
+category: actions
+propose: true
+sources: ["internal/tracker/workflow_config.go#CustomAction", "internal/viewer/handlers_dispatch.go#handleProjectAction", "internal/viewer/handlers_dispatch.go#renderProjectActionPrompt"]
+title: "Project action buttons"
+what: |
+  `project_actions:` adds one-shot agent buttons to the list, board and graph views.
+  Prompts template with {{project}}.
+why: |
+  Project-wide chores (triage the backlog, review stale issues) become one click.
+where: "new top-level project_actions: list"
+snippet: |
+  project_actions:
+    - id: "triage-backlog"
+      label: "Triage backlog"
+      agent: "claude"
+      prompt: |
+        Review every issue in the {{project}} backlog. Assess whether each is ready to start and
+        whether its priority still looks right, then post notes with:
+        issue-cli comment <slug> --text "triage: <note>"
+question: "Any recurring project-wide chores you'd like as a one-click agent button on the board?"
+detect:
+  - path: project_actions

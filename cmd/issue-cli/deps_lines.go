@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // sharedFilesShown caps the hot files show lists for an issue's branch.

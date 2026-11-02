@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Window is the aggregate's default: issues done in the last 30 days (D-2

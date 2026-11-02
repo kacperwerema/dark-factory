@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // fixture is a project repo with one golden task: base has a wrong Add,
@@ -573,7 +573,7 @@ func TestRunUsesTheSetupsIssueCLIAndWorkflow(t *testing.T) {
 	wf := filepath.Join(t.TempDir(), "experiment.yaml")
 	write(t, wf, fixtureWorkflow+"# experiment B\n")
 	worker := `command -v issue-cli > cli.seen; cat "$(dirname "$ISSUE_VIEWER_CONFIG")/tracker/workflow.yaml" > wf.seen; ` + fixWorker
-	run, err := Execute(context.Background(), f.benchmark(worker, f.task), env, Options{Workflow: wf, Setup: Setup{Ref: "abc", Label: "B"}})
+	run, err := Execute(context.Background(), f.benchmark(worker, f.task), env, Options{Workflow: wf, Setup: Setup{Ref: "abc", SHA: "abc123", Label: "B"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,8 +584,14 @@ func TestRunUsesTheSetupsIssueCLIAndWorkflow(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(sb, "wf.seen")); !strings.Contains(string(data), "experiment B") {
 		t.Errorf("the sandbox workflow = %q", data)
 	}
-	if saved, _ := LoadRun("t", run.ID); saved.Setup.Ref != "abc" || saved.Setup.Label != "B" {
+	if saved, _ := LoadRun("t", run.ID); saved.Setup.Ref != "abc" || saved.Setup.SHA != "abc123" || saved.Setup.Label != "B" {
 		t.Errorf("setup = %+v", saved.Setup)
+	}
+	// The record carries setup.sha, the key experiment.Run reads for its
+	// baseline (it falls back to setup.ref only for old runs).
+	data, err := os.ReadFile(filepath.Join(RunDir("t", run.ID), "run.json"))
+	if err != nil || !strings.Contains(string(data), `"sha": "abc123"`) {
+		t.Errorf("run.json lacks setup.sha (%v):\n%s", err, data)
 	}
 }
 

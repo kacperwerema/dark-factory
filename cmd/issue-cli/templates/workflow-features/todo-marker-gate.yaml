@@ -1,0 +1,23 @@
+id: todo-marker-gate
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/no_todo_markers.go"]
+title: "No TODO/FIXME markers"
+what: |
+  `no_todo_markers` blocks a transition while the issue body contains a whole-word
+  TODO or FIXME.
+why: |
+  Placeholders left in a design or plan get resolved before the work moves on.
+where: "transitions[].actions[] rule: no_todo_markers"
+snippet: |
+  transitions:
+    - from: "in design"
+      to: "backlog"
+      actions:
+        - type: "validate"
+          rule: "no_todo_markers"
+question: "Should open TODO/FIXME markers in the issue block a step?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [no_todo_markers]

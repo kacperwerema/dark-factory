@@ -11,7 +11,7 @@ title: Release candidate soaking on the engine - rc.1, an open report, publish o
 project:
   name: Atlas
   slug: atlas
-  repo: michal-franc/ai-workflow-engine
+  repo: kacperwerema/dark-factory
 issues: tracker
 workflow: workflow.yaml
 root: root

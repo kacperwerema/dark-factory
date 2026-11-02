@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/agentrun"
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/postmortem"
-	"github.com/michal-franc/issue-viewer/internal/retro"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/postmortem"
+	"github.com/kacperwerema/dark-factory/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const (

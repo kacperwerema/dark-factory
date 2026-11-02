@@ -1,0 +1,30 @@
+id: optional-statuses
+version: v0.36.0
+category: lifecycle
+propose: false
+sources: ["internal/tracker/workflow_transition.go#DefaultNextStatus", "internal/tracker/workflow_transition.go#IsSideStatus", "internal/viewer/handlers_detail.go"]
+title: "Optional (skippable) statuses"
+what: |
+  `optional: true` lets a forward transition skip the status. The viewer shows a
+  CTA button (label set by the edge's `cta_label`) to divert into it.
+why: |
+  Steps like human testing that only some issues need stay in the lifecycle
+  without forcing every issue through them.
+where: "statuses[].optional, plus transitions[].cta_label on the edge into it"
+snippet: |
+  statuses:
+    - name: "human-testing"
+      description: "Waiting on manual verification"
+      optional: true
+  transitions:
+    - from: "testing"
+      to: "human-testing"
+      cta_label: "Needs human testing"
+      actions:
+        - type: "require_human_approval"
+          status: "human-testing"
+question: "Is there a step only some issues need (e.g. human testing)? Should it be skippable?"
+detect:
+  - path: statuses[].optional
+    equals: true
+  - path: transitions[].cta_label

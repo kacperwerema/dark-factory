@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/viewerstate"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
 // lookupEnv gives a test its own state and config homes and no

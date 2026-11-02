@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry/share"
+	"github.com/kacperwerema/dark-factory/internal/telemetry/share"
 )
 
 func main() {

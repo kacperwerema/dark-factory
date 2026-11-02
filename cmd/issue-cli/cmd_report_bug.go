@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clibug"
-	"github.com/michal-franc/issue-viewer/internal/milestone"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clibug"
+	"github.com/kacperwerema/dark-factory/internal/milestone"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var reportBugCommand = &Command{
@@ -24,7 +24,7 @@ project: those go on your own board with 'issue-cli create').
 
 The report becomes a cli-bug issue on the engine's board (the issue-viewer
 project): engine_project: in projects.yaml, else the project whose repo is
-michal-franc/ai-workflow-engine. If an open cli-bug issue has the same title,
+kacperwerema/dark-factory. If an open cli-bug issue has the same title,
 your report is added to it as a report: comment instead. The output names the
 issue, so you can cite it.
 

@@ -89,51 +89,61 @@ func renderParsedDecision(d Decision) string {
 	if d.AlsoConsidered != "" {
 		line += " (also considered: " + d.AlsoConsidered + ")"
 	}
+	if len(d.Refs) > 0 {
+		line += " (ref " + strings.Join(d.Refs, ", ") + ")"
+	}
 	if len(d.Replaces) > 0 {
 		line += " (replaces " + strings.Join(d.Replaces, ", ") + ")"
+	}
+	if g := RenderAttrs(d.DecisionAttrs); g != "" {
+		line += " " + g
 	}
 	return line
 }
 
 // ConfirmDecision records the owner's words on decision id ("D-3") of the
 // issue in one locked write and returns it parsed. Empty words keep a quote
-// the decision already has, else record "Confirmed.".
+// the decision already has, else record "Confirmed.". It logs nothing;
+// commands and the viewer use ConfirmDecisionAs.
 func ConfirmDecision(filePath, slug, id, words string, now time.Time) (Decision, error) {
+	return ConfirmDecisionAs(filePath, slug, id, words, false, now, DecisionWrite{})
+}
+
+// ConfirmDecisionAs is ConfirmDecision, logged, with the owner's hard option:
+// hard also makes the decision hard in the same write. A decision that
+// already has the owner's words can still be made hard (an amended event);
+// confirming it again without hard is ErrDecisionConfirmed.
+func ConfirmDecisionAs(filePath, slug, id, words string, hard bool, now time.Time, w DecisionWrite) (Decision, error) {
 	id = strings.ToUpper(strings.TrimSpace(id))
 	var line string
-	_, _, err := UpdateIssueBody(filePath, func(body string) (string, bool, error) {
-		lines := strings.Split(body, "\n")
-		fence := computeFenceFlags(lines)
-		for _, sec := range findHeadingMatches(body, DecisionsSection) {
-			if sec.Level != 2 {
-				continue
-			}
-			for i := sec.StartLine + 1; i < sec.EndLine && i < len(lines); i++ {
-				if fence[i] {
-					continue
-				}
-				d, ok := parseDecisionLine(slug, lines[i])
-				if !ok || d.ID != id {
-					continue
-				}
-				if !NeedsOwnerWords(d) {
-					return "", false, ErrDecisionConfirmed
-				}
-				d.Text = strings.TrimSpace(provisionalMarkRe.ReplaceAllString(d.Text, ""))
-				if w := oneLine(words); w != "" {
-					d.Quote = w
-				} else if d.Quote == "" {
-					d.Quote = defaultConfirmedQuote
-				}
-				d.Text = strings.TrimRight(d.Text, ".")
-				d.How = confirmedHow(d.How, now)
-				line = renderParsedDecision(d)
-				indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-				lines[i] = indent + line
-				return strings.Join(lines, "\n"), true, nil
-			}
+	err := writeDecision(filePath, w, now, func(body string) (decisionChange, error) {
+		lines, i, d, err := findDecisionLine(body, slug, id)
+		if err != nil {
+			return decisionChange{}, err
 		}
-		return "", false, fmt.Errorf("%s#%s: %w", slug, id, ErrDecisionNotFound)
+		old := RenderAttrs(d.DecisionAttrs)
+		event := DecisionConfirmed
+		switch {
+		case NeedsOwnerWords(d):
+			d.Text = strings.TrimSpace(provisionalMarkRe.ReplaceAllString(d.Text, ""))
+			if w := oneLine(words); w != "" {
+				d.Quote = w
+			} else if d.Quote == "" {
+				d.Quote = defaultConfirmedQuote
+			}
+			d.Text = strings.TrimRight(d.Text, ".")
+			d.How = confirmedHow(d.How, now)
+			d.Hard = d.Hard || hard
+			line = renderParsedDecision(d)
+		case hard && !d.Hard:
+			d.Hard = true
+			event = DecisionAmended
+			line = spliceAttrs(d)
+		default:
+			return decisionChange{}, ErrDecisionConfirmed
+		}
+		lines[i] = lineIndent(lines[i]) + line
+		return decisionChange{Body: strings.Join(lines, "\n"), Events: []DecisionEvent{{Event: event, Ref: d.Ref, Old: old, New: RenderAttrs(d.DecisionAttrs)}}}, nil
 	})
 	if err != nil {
 		return Decision{}, err
@@ -143,4 +153,43 @@ func ConfirmDecision(filePath, slug, id, words string, now time.Time) (Decision,
 		return Decision{}, fmt.Errorf("internal: wrote an unparseable decision line: %s", line)
 	}
 	return parsed, nil
+}
+
+// findDecisionLine finds decision id's line under the issue's ## Decisions
+// (fenced lines skipped), returning the body's lines, its index and the
+// parsed decision.
+func findDecisionLine(body, slug, id string) ([]string, int, Decision, error) {
+	lines := strings.Split(body, "\n")
+	fence := computeFenceFlags(lines)
+	for _, sec := range findHeadingMatches(body, DecisionsSection) {
+		if sec.Level != 2 {
+			continue
+		}
+		for i := sec.StartLine + 1; i < sec.EndLine && i < len(lines); i++ {
+			if fence[i] {
+				continue
+			}
+			if d, ok := parseDecisionLine(slug, lines[i]); ok && d.ID == id {
+				return lines, i, d, nil
+			}
+		}
+	}
+	return nil, 0, Decision{}, fmt.Errorf("%s#%s: %w", slug, id, ErrDecisionNotFound)
+}
+
+func lineIndent(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+// spliceAttrs is d's line with only its attribute group replaced by
+// d.DecisionAttrs: every byte before the group stays as it was.
+func spliceAttrs(d Decision) string {
+	head := strings.TrimRight(d.Raw, " \t")
+	if d.AttrsAt >= 0 {
+		head = d.Raw[:d.AttrsAt]
+	}
+	if g := RenderAttrs(d.DecisionAttrs); g != "" {
+		return head + " " + g
+	}
+	return head
 }

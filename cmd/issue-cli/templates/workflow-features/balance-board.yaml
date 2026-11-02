@@ -1,0 +1,24 @@
+id: balance-board
+version: v0.54.0
+category: workbench
+propose: false
+sources: ["internal/tracker/balance.go", "internal/viewer/handlers_balance.go", "cmd/issue-cli/cmd_balance.go"]
+unlocks:
+  - text: "Balance: the balance board"
+    url: /balance
+title: "Balance board"
+what: |
+  `workbench.balance.comment_prefix` turns typed balance notes (`issue-cli balance`)
+  into the Balance view: open hypotheses per metric, what was tried, and the
+  evidence.
+why: |
+  Tuning a game or a simulation is many small experiments. The board keeps them
+  from being lost in issue comments.
+where: "workbench.balance.comment_prefix"
+snippet: |
+  workbench:
+    balance:
+      comment_prefix: "balance:"
+question: "Do you tune numbers through experiments you want to track?"
+detect:
+  - path: workbench.balance.comment_prefix

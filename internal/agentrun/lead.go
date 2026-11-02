@@ -4,9 +4,9 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // LeadSpec builds the launch spec for the project lead, rooted at the
@@ -19,7 +19,22 @@ func LeadSpec(proj *tracker.Project, wf *tracker.WorkflowConfig, root string, no
 		Session:   tracker.LeadSessionName(proj),
 		LeadScope: tracker.LeadScopeProject,
 		Prompt:    tracker.LeadBrief(wf, tracker.LeadBriefInput{Project: proj, Root: root, Now: now, AutoStart: AutostartBrief(proj, root)}),
+		Decisions: leadInjected(proj, wf, "", tracker.LeadSessionName(proj), now),
 	}
+}
+
+// leadInjected is the injected event for a lead's brief (department "" is
+// the CEO); nil when no decision is in force for it.
+func leadInjected(proj *tracker.Project, wf *tracker.WorkflowConfig, department, session string, now time.Time) *tracker.Injected {
+	refs := tracker.LeadDecisionBlock(proj, department, wf, now).Refs()
+	if len(refs) == 0 {
+		return nil
+	}
+	briefing, role := tracker.BriefingLead, tracker.RoleProjectLead
+	if department != "" {
+		briefing, role = tracker.BriefingDepartmentLead, tracker.RoleDepartmentLead
+	}
+	return &tracker.Injected{Briefing: briefing, Refs: refs, Actor: tracker.DecisionActor{Name: session, Role: string(role)}}
 }
 
 // AutostartBrief reads the project's auto-start for the lead brief: nil
@@ -54,5 +69,6 @@ func DepartmentLeadSpec(proj *tracker.Project, dept *tracker.Department, wf *tra
 		LeadScope: tracker.LeadScopeDepartment(dept.Name),
 		Prompt: tracker.DepartmentLeadBrief(wf, dept, tracker.LeadBriefInput{Project: proj, Root: root, Now: now,
 			Live: func(name string) bool { return IsLive(proj, name) }}),
+		Decisions: leadInjected(proj, wf, dept.Name, tracker.DepartmentLeadName(proj, dept.Name), now),
 	}
 }

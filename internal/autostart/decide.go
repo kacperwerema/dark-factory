@@ -154,3 +154,19 @@ func roundAgo(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dm", int(d.Minutes()))
 }
+
+// MemGuardAllows asks mem-guard whether a heavy run (local CI's nightly
+// tier) may start now: no when `mem-guard check` refuses, with its line. A
+// machine without mem-guard is allowed: the guard is this machine's, not
+// the project's.
+func MemGuardAllows() (bool, string) {
+	m := ReadMemory()
+	if m.Found && !m.CanStart {
+		why := "mem-guard says no"
+		if m.Note != "" {
+			why += ": " + m.Note
+		}
+		return false, why
+	}
+	return true, ""
+}

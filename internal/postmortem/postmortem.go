@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
-	"github.com/michal-franc/issue-viewer/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 )
 
 // Kind is the retro header value that marks a post-mortem.

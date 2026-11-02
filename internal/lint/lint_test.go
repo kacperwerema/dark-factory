@@ -9,8 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 var lintNow = time.Date(2026, 10, 24, 12, 0, 0, 0, time.Local)
@@ -352,6 +352,8 @@ func TestNABoxes(t *testing.T) {
 			"- [x] Guided check (N/A: the repro is an automated test (TestStatsPageFastOnABigProject))\n"+
 			"- [x] Runner check (N/A: runner-internal, covered by TestShotRetry)\n"+
 			"- [x] Session (N/A: a read-only card covered by the template test)\n"+
+			"- [x] Playtest session (N/A: cli flow covered by TestCheckNAMinimum)\n"+
+			"- [x] ux-test (N/A: page state a scenario can't build (a live worker pane), shown by TestCrewPane)\n"+
 			"- [ ] Open box (N/A:)\n"+
 			"- [x] Manual checks come as scripts, or N/A with the reason\n"),
 		"S/bad.md": issue("bad", "idea", "- [x] Guided check (N/A: the repro is an automated test)\n"+
@@ -488,5 +490,44 @@ func TestOwnerMarkerFlagsAnUnmarkedOwnerCheck(t *testing.T) {
 		!strings.Contains(rep.Findings[0].Message, "reads like the owner's check") ||
 		!strings.Contains(rep.Findings[0].Fix, "check-edit s/open AC1") || !strings.Contains(rep.Findings[0].Fix, "(owner)") {
 		t.Fatalf("findings = %+v, want one on s/open AC1 with a check-edit fix adding (owner)", rep.Findings)
+	}
+}
+
+// A validate rule this build doesn't know (a typo, or a rule main added
+// after the installed build) is a warning naming it, at its line, with the
+// branch build as the fix; known rules, with or without their argument, and
+// structured validators pass, in transitions, overlays and types alike.
+func TestSchemaUnknownRule(t *testing.T) {
+	wf := minimalWorkflow + `      - type: validate
+        rule: no-such-rule
+      - type: validate
+        rule: has_section
+        section: Design
+      - type: validate
+        rule: "has_comment_prefix: tests:"
+systems:
+  CLI:
+    transitions:
+      - from: idea
+        to: done
+        actions:
+          - type: validate
+            rule: "later_rule: arg"
+`
+	fs := run(t, lintProject(t, wf, nil), "schema")
+	if len(fs) != 2 {
+		t.Fatalf("findings = %+v, want the two unknown rules", fs)
+	}
+	if !has(fs, "workflow.yaml:17 ", `rule "no-such-rule" is not a rule this build`, "go build -o ./issue-cli ./cmd/issue-cli", "never make install") {
+		t.Errorf("no-such-rule: %+v", fs)
+	}
+	if !has(fs, "workflow.yaml:30 ", `rule "later_rule"`) {
+		t.Errorf("overlay rule: %+v", fs)
+	}
+	if !UnknownRule(fs[0]) || !UnknownRule(fs[1]) {
+		t.Errorf("UnknownRule misses its own findings: %+v", fs)
+	}
+	if fs := run(t, lintProject(t, minimalWorkflow, nil), "schema"); len(fs) != 0 {
+		t.Errorf("known rules flagged: %+v", fs)
 	}
 }

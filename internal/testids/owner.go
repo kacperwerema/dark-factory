@@ -13,5 +13,6 @@ func init() {
 		"owner.error",
 		"owner.code",
 		"owner.pair",
+		"owner.push",
 	)
 }

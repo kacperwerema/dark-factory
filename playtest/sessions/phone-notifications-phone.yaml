@@ -1,0 +1,19 @@
+session: phone-notifications-phone
+issue: factory/phone-notifications-web-push-from-the-viewer-when-something-new-waits-on-the-owner-installable-as-an-app-keys-generated-locally
+title: "Phone notifications: /push at phone width"
+scenario: needs-you
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP6
+    title: At 390px the /push page fits the phone
+    proves: [AC4]
+    setup:
+      - open: /push
+    checks:
+      - visible: [push.page, push.this_device, push.devices, push.settings, push.status]
+      - text_contains: { target: push.status, text: "not subscribed" }

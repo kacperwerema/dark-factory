@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var proveCommand = &Command{

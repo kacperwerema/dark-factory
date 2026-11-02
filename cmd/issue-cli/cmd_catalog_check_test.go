@@ -1,14 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // catalogRepo makes a throwaway git repo shaped like issue-viewer: a catalog
@@ -26,7 +27,7 @@ func catalogRepo(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	write(workflowupgrade.CatalogPath, "entries:\n  - id: health-tuning\n    version: v0.53.0\n    sources: [\"internal/health/**\"]\n")
+	write(workflowupgrade.CatalogPath+"/health-tuning.yaml", "id: health-tuning\nversion: v0.53.0\ncategory: workbench\nsources: [\"internal/health/**\"]\n")
 	write(workflowupgrade.ChangelogPath, "## Unreleased\n\n## v0.53.0 — 2026-10-23\n")
 	write("internal/health/score.go", "package health\n")
 	catalogRepoGit(t, dir, "init", "-q", "-b", "main")
@@ -91,7 +92,7 @@ func TestCatalogCheckOutsideTheRepo(t *testing.T) {
 	chdir(t, dir)
 	ctx, _, _ := newTestContext(&tracker.Project{Name: "t", IssueDir: dir}, false)
 	err := runCatalogCheck(ctx, nil)
-	if err == nil || !strings.Contains(err.Error(), "issue-viewer repository") {
+	if err == nil || !strings.Contains(err.Error(), "dark-factory repository") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -240,5 +241,33 @@ func TestCatalogCheckOnAReleaseBranchReadsSinceItsLastTag(t *testing.T) {
 	ctx, stdout, _ = newTestContext(proj, false)
 	if err := runCatalogCheck(ctx, nil); err == nil {
 		t.Fatalf("work branch stopped at a tag:\n%s", stdout.String())
+	}
+}
+
+// The retro's case (20261031-202918): main moves on with a change to an
+// entry's sources and its own Catalog: line after the branch was cut; the
+// branch has no commits of its own and isn't blamed for main's: the check
+// diffs against the merge base, not main's tip.
+func TestCatalogCheckOnABranchBehindMain(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/behind")
+	catalogRepoGit(t, dir, "checkout", "-q", "main")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst m = 5\n")
+	writeCatalogFile(t, dir, "internal/health/new.go", "package health\n\nconst n = 6\n")
+	catalogRepoGit(t, dir, "add", "-A")
+	catalogRepoGit(t, dir, "commit", "-q", "-m", "main moves on\n\nCatalog: n/a health-tuning refactor")
+	catalogRepoGit(t, dir, "checkout", "-q", "work/behind")
+
+	ctx, stdout, _ := newTestContext(&tracker.Project{Name: "t", IssueDir: dir}, true)
+	if err := runCatalogCheck(ctx, nil); err != nil {
+		t.Fatalf("a branch behind main was blamed for main's commits: %v\n%s", err, stdout.String())
+	}
+	var rep workflowupgrade.CheckReport
+	if err := json.Unmarshal(stdout.Bytes(), &rep); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout.String())
+	}
+	if len(rep.Entries) != 0 || len(rep.Templates) != 0 || len(rep.BadTrailers) != 0 {
+		t.Errorf("findings on a branch with no commits of its own: %+v", rep)
 	}
 }

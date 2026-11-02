@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var clarifyCommand = &Command{
@@ -103,7 +103,7 @@ func runClarify(ctx *Context, args []string) error {
 		if strings.TrimSpace(*quote) == "" {
 			return fmt.Errorf("--answer needs --quote: the owner's own words\n\nExample:\n  issue-cli clarify %s --answer %s --quote \"Yes, the first one.\" --how chat", issue.Slug, *answer)
 		}
-		q, d, err := tracker.AnswerQuestion(issue.FilePath, issue.Slug, tracker.AnswerInput{ID: qid, Option: n, Words: *quote, How: *how}, ctx.now())
+		q, d, err := tracker.AnswerQuestion(issue.FilePath, issue.Slug, tracker.AnswerInput{ID: qid, Option: n, Words: *quote, How: *how, Log: decisionWrite(ctx, whoAmI(ctx.Project, nil), nil)}, ctx.now())
 		switch {
 		case errors.Is(err, tracker.ErrQuestionNotFound):
 			return fmt.Errorf("%w\n\nSee the questions:\n  issue-cli clarify %s", err, issue.Slug)

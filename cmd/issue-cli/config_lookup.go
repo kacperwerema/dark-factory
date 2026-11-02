@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/viewerstate"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
 // errNoConfig is what resolveFromConfig returns when the lookup found no

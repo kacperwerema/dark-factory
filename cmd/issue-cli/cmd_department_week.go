@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/jobs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/weekplan"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/weekplan"
 )
 
 // runDepartmentWeek prints a department's or group's week (the evidence the

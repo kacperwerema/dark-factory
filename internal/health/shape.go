@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
 // The shape family: function length, the share of source in big files, and

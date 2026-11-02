@@ -1,0 +1,11 @@
+# The remote home: one row of each kind Needs you answers in one tap.
+# app/map-legend waits at in design → backlog with Design ticked (gate);
+# app/label-printer has two clarify questions open (Design still open, so no
+# gate); app/saved-places-sync ends on a question: comment; app/barcode-scan
+# went backlog → in progress under YOLO and waits for review after the fact.
+title: Remote home - one tap per waiting row
+project:
+  name: Atlas
+  slug: atlas
+issues: tracker
+workflow: workflow.yaml

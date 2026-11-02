@@ -1,0 +1,23 @@
+id: transition-fields
+version: v0.36.0
+category: lifecycle
+propose: false
+sources: ["internal/tracker/workflow_config.go#WorkflowField", "internal/tracker/workflow_transition.go#TransitionFields", "internal/tracker/workflow_transition.go#ValidateFieldAnswers", "internal/tracker/workflow_transition.go#MergeFieldValuesFromFrontmatter"]
+title: "Transition fields (answers collected before a move)"
+what: |
+  `transitions[].fields` asks the human (in the viewer) or the agent (`--field`) for
+  values before the transition commits, written to frontmatter or a body section.
+why: |
+  Captures the reason or decision at the moment of the move, in a fixed place.
+where: "transitions[].fields"
+snippet: |
+  transitions:
+    - from: "in progress"
+      to: "done"
+      fields:
+        - name: "resolution"
+          prompt: "How was this resolved?"
+          required: true
+question: "Should any transition ask for a value (a reason, a link, a decision) before it goes through?"
+detect:
+  - path: transitions[].fields[].name

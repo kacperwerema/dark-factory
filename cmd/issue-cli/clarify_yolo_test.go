@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/yolo"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 // AC4: under YOLO the gate out of design records the open questions as

@@ -21,7 +21,9 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 - `cmd/issue-cli/cmd_ci_gotest.go` — `ci gotest`, the go test -json filter for `ci.run` results
 - `cmd/issue-cli/cmd_ci.go` / `ci_report.go` — the `ci` command (detached runs in tmux) and what a run reports (`ci:` comments, `on_red: file_issue`; it never messages a session); the runner itself is `internal/ci/`
 
-### Adding a new subcommand
+### Adding a command
+
+A new command or subcommand joins several registries, and each one has a guard test that fails only in `make validate` when an entry is missing. Walk this list before the first run instead of finding them one failing test at a time.
 
 1. Create `cmd/issue-cli/cmd_<name>.go`.
 2. Declare a `var <name>Command = &Command{Name, ShortHelp, LongHelp, Run}` and call `registerCommand(<name>Command)` in `init()`.
@@ -30,11 +32,18 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
    - `parseFlagsArgs(ctx, fs, args)`: the command reads positionals from `fs.Args()` (text, ids, a status).
    - `parsePositionals(ctx, name, args, max)`: the command has no flags at all; it returns the positionals and refuses more than `max`.
 
-   All three accept flags anywhere in `args` (see [Flags, `--help` and exit codes](#flags---help-and-exit-codes)), record the flag names for [usage telemetry](telemetry.md), and let help and the never-used report introspect the command's flags. `TestEveryCommandRejectsUnknownFlags` and `TestEveryCommandHelpNeedsNoProject` run every registered command and subcommand, so a new command that skips them fails the build.
-   - Group commands set `Subcommands` (and `SubAliases`) on the `Command`. Flags parsed by hand go in `ExtraFlags`.
+   All three accept flags anywhere in `args` (see [Flags, `--help` and exit codes](#flags---help-and-exit-codes)), record the flag names for [usage telemetry](telemetry.md), and let help and the never-used report introspect the command's flags. Bool flags are read from the FlagSets, so the telemetry needs no list of them.
+   - **Flags before the positional.** An item-first subcommand (`<cmd> <sub> <item> [--flag]`) still hands the whole rest of `args`, item included, to the parse call, and it parses before it looks the item up or acts on it. `TestEveryCommandRejectsUnknownFlags` runs every registered command and subcommand with `--no-such-flag` both first and after positionals and wants exit 2 naming the flag. A subcommand that pulls the item off first and parses only what follows, or that does work before parsing, fails it. Introspection needs the same order: it fills the positional slots with placeholders (`introspectArgs`) and stops at the parse call, so a command that touches the item first shows no flags in help.
+   - `TestEveryCommandHelpNeedsNoProject` runs `<cmd> --help` without a config, so help must not load a project.
+   - Group commands set `Subcommands` (and `SubAliases`) on the `Command`. Flags parsed by hand go in `ExtraFlags`. A word dispatched by hand without a `Subcommands` entry (`decisions log`) is invisible to help's flag list, telemetry and the unknown-flag test; `Subcommands` replaces the bare form there, so a command that takes flags both bare and after a word can't declare both yet.
 4. Reach the project via `ctx.Project`, write to `ctx.Stdout` / `ctx.Stderr`, and consult `ctx.JSONOutput` for output mode. The package-global `jsonOutput` no longer exists.
 5. Add the command to `commandAccess` in `cmd/issue-cli/readonly.go`: `reads`, `writes`, or read-only for some subcommands or flags. A command with a read mode also gets a sample call in `readSamples` (readonly_test.go). A read-only call on a project the caller isn't working in leaves nothing in that repo, not even its log line (see [Read-only calls on another project](telemetry.md#read-only-calls-on-another-project)). `TestEveryCommandHasAccess` fails without an entry; mark `writes` when unsure.
-6. The new command appears in `issue-cli help` automatically.
+6. Help hints name real flags. Every `issue-cli <cmd> [<sub>] … --flag` written in a `ShortHelp` or `LongHelp`, and every usage line starting with the command's own name (`  bench task add <benchmark> <slug> [--start <status>]`), may name only flags that command (and subcommand) defines. `TestEveryHelpHintNamesRealFlags` (help_hints_test.go) introspects each one; `TestBundledTemplatesNameOnlyFlagsTheCommandAccepts` does the same for the bundled workflow templates. Prose about another tool (`git rm --cached`) isn't checked, so write hints with the `issue-cli` prefix.
+7. Telemetry needs nothing more when the flags go through the parse calls above: the command, subcommand and flag names are recorded, never values. Don't log free text. Details: [CLI Usage Telemetry](telemetry.md#adding-a-command).
+8. Where code hooks in around a call: `runTraced` (main.go) builds the `Context`, runs `cmd.Run`, then runs what rides on every call (`printSiblingAsks`, `decorateApprovalError`). A per-call hint or notice goes there, after `cmd.Run`. `ctx.issue` holds the issue `findIssueOrErr` resolved, if any, so code after `cmd.Run` can tell which issue the call was about.
+9. Project resolution: a call without `--project` whose working directory has `./issues` runs in bootstrap mode (`resolveBootstrap` in helpers.go), a one-project config built from that directory, whatever `--config` says. A test that runs `run(...)` must therefore pass `--project` or move into a temp dir (`withCwd(t, t.TempDir())`, as `registryProject` does), or it picks up the directory it runs in.
+10. Tests: a `tracker.Project` built without `WorkflowFile` (as `makeSimpleProject` builds it) loads the working directory's `workflow.yaml` (`Project.LoadWorkflow` falls back to it), which in cmd/issue-cli is none but in the repo root is the engine's own workflow. Set `WorkflowFile` or `withCwd` into a temp dir so the test runs on the workflow it means.
+11. The new command appears in `issue-cli help` automatically.
 
 ## Commands
 
@@ -45,17 +54,19 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli list`                 | List issues with filters; `--all` drops the default project-version filter. Supports `--sort score` and emits `Score`/`ScoreBreakdown` in `--json` when scoring is enabled |
 | `issue-cli start <slug>`         | Pick up issue from any status — claim + auto-advance handoff states (announced with a banner) |
 | `issue-cli transition <slug>`    | Attempt the next workflow transition. `--dry-run` lists every unmet requirement |
-| `issue-cli rounds <slug>`        | Red rounds per check (`red 3 of 4`): gate commands, the proof check, local CI. At `max_red_rounds` the check is a question for the owner and transition refuses until it is resolved; `--cannot-fix <check> --why "…"` asks now; `--json`. See [Red-round cap](../workflow.md#red-round-cap) |
+| `issue-cli rounds <slug>`        | Red rounds per check (`red 3 of 4`): gate commands, the proof check, local CI, the critic; each round with why it counted (only a failure that comes back counts; an owner comment starts over). At `max_red_rounds` the check is a question for the owner and transition refuses until it is resolved (parking still passes); `--cannot-fix <check> --why "…"` asks now; `--json`. See [Red-round cap](../workflow.md#red-round-cap) |
 | `issue-cli comment <slug>`       | Add a comment to an issue. `comment edit <slug> <id\|last> --text "..."` corrects your own latest comment; the old text stays in its `edits` history and `show` marks it `(edited)`. The owner's, other agents' and approval:/dispatch:/yolo-review:/yolo-owner-check: comments can't be edited |
+| `issue-cli comments <slug>`      | The issue's comment trail alone, each as `#<id>` (the number the page, `comment edit` and replies use) with day, author, kind and done; filters `--since <day>`, `--author <name>`, `--kind question,progress`, `--open`; `--json` for a parser. See [`comments`](#comments) |
 | `issue-cli ask <sibling> "…"` / `issue-cli answer <asker> "…"` | Agree a format with a sibling issue's worker: an `ask:` comment on its issue, the `answer:` back on yours; each shows on the other worker's next issue-cli call. Never an approval. See [Sibling asks](#ask-and-answer-sibling-asks) |
 | `issue-cli clarify <slug>`       | The design's clarify round: questions, options, answers; `--assume`, `--answer Qn=k --quote` |
-| `issue-cli decide <slug>`        | Record a decision as a `D-n` line under `## Decisions`; `--replaces <slug>#D-n` lists the open issues still citing the old one |
+| `issue-cli decide <slug>`        | Record a decision as a `D-n` line under `## Decisions`; `--replaces <slug>#D-n` lists the open issues still citing the old one; `--ref N-26` (repeatable) records what it answers outside the D-n scheme, such as a lead's provisional N-number, as `(ref N-26)` on the line, which `show`, `show --json` (`decisions[].refs`) and `decisions` print; `--scope/--hard/--at/--paths/--expires` and `--amend D-n` set its attribute group |
 | `issue-cli prove <slug> [<AC-id>]` | Link an acceptance criterion to its proof (`--test`, `--step`, `--commit`, `--value`, `--shot`, `--clear`); without an id, list every criterion with its links and checks; `--run` runs the test links' tests and posts the `tests:` comment. See [`prove`](#prove) |
 | `issue-cli critique <slug>`     | Run a fresh read-only critic before the issue's `critique` gate: paths only, findings `blocks`/`should`/`note` with path:line, recorded and commented; `--brief` prints the brief, `--show` the newest run, `--override --quote` is the owner's. See [The Fresh Critic](../Workflow/critique.md) |
 | `issue-cli check-script <slug>`  | Run the issue's guided check scripts (`scripts/checks/<name>.sh`) from its worktree: the owner's run from a terminal, or `--yes` (machine checks only, never ticks); `--list`, `--new <name>`, `--lib`. See [`check-script`](#check-script) |
 | `issue-cli playtest prune <slug>` | Tidy a worktree's `.playtest/runs` to what the Evidence tab needs; `--all` for every issue's worktree, `--dry-run` to report the MB first. See [`playtest prune`](#playtest-prune) |
 | `issue-cli balance <slug>`       | Add a typed balance note (`--metric`, `--state`, `--hypothesis`, `--change`, `--evidence`, `--verdict`, `--pass`); `balance --list` prints the current notes |
-| `issue-cli decisions`            | List the project's decisions (active, deferred, replaced, stale) with `--system`, `--state`, `--issue`, `--json` |
+| `issue-cli decision`             | `challenge <ref> --why "…" [--propose] [--for]`: say a decision is wrong (your issue's `decision_unchallenged` gates hold until the owner answers); `resolve <ref> --keep [--quote]`: the owner keeps it (workers refused, a lead relays `--quote`); `challenges [--json]`: the open ones |
+| `issue-cli decisions`            | List the project's decisions (active, deferred, replaced, stale) with `--system`, `--state`, `--issue`, `--json`; `decisions log [--ref] [--issue] [--since] [--json]` reads the audit log in time order |
 | `issue-cli lead <sub>` (alias `ceo`) | The CEO (the project lead): `spawn`, `whoami`, `list`, `message <target> "text"`. See [`lead`](#lead) |
 | `issue-cli dispatch <slug> --quote "…"` | Start (or re-attach to) the issue's worker exactly like ▶ on the board; needs the human's words (`--quote`) and leaves a `dispatch:` comment; refuses, exit 3, while the issue only waits on your approval. `--how`, `--agent`, `--force`, `--reprompt`. See [`dispatch` and `status`](#dispatch-and-status) |
 | `issue-cli status`               | The project's stand-up from the running viewer (its `status.md`; `--json` for `status.json`; `--hq` for the HQ report). See [`dispatch` and `status`](#dispatch-and-status) |
@@ -79,7 +90,7 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli check-remove <slug> <id>...` | Remove boxes by id; every other box keeps its id. See [`uncheck` and `check-remove`](#uncheck-and-check-remove) |
 | `issue-cli checklist <slug>`     | List checkboxes grouped by section, each with its id (`D3`, `AC2`) |
 | `issue-cli append <slug>`        | Append content to issue body             |
-| `issue-cli replace <slug>`       | Replace content of an existing section, or one line of it (`--line N`, `--match RE`). See [`replace`](#replace) |
+| `issue-cli replace <slug>`       | Replace content of an existing section (`--body`, or `--body-file <path\|->` as for append), or one line of it (`--line N`, `--match RE`). See [`replace`](#replace) |
 | `issue-cli update <slug>`        | Change the title (the slug is kept; `--rename` moves it) and/or replace the body. See [`update`](#update) |
 | `issue-cli set-meta <slug>`      | Set or clear a frontmatter field, replacing its whole old value (list items and block lines included); refuses a write whose YAML would not parse (refuses `type` in projects with types — use `set-type`; `created` only on an issue that has none, `YYYY-MM-DD`, never changed or cleared; checks every slug in `depends_on`, and writes two or more as a YAML list; `--key department|system` is refused when the issue's status isn't in the target department's workflow file, and `--status <s>` moves it with a status from that file) |
 | `issue-cli close <slug> --duplicate-of <other>` | Park an issue another one covers (`--fixed-by <other>` for one its change fixes) from any status, with a link both ways. See [`close`](#close) |
@@ -95,8 +106,9 @@ The CLI system covers `issue-cli`, the command-line tool agents use to interact 
 | `issue-cli workflow init`        | Bootstrap a new project: writes `workflow.yaml` from a bundled template and scaffolds `issues/`, `docs/` |
 | `issue-cli project init <dir>`   | A whole new project in one command: `<dir>` with `issues/`, `docs/` and a stamped `workflow.yaml`, plus its projects.yaml entry (printed, or added to the `--config <file>` you name), then the viewer, CEO and department commands. Never overwrites a file; `--dry-run`, `--json`. See [`project init`](#project-init) |
 | `issue-cli workflow upgrade`     | Read-only: propose catalog features `workflow.yaml` lacks, item by item, plus the upgrade steps. Alias `issue-cli upgrade`. `--all` lists the whole catalog |
-| `issue-cli workflow scan`        | Detect which catalog features `workflow.yaml` has and write its `features:` record. `--dry-run`, `--installed`, `--declined`, `--forget` |
+| `issue-cli workflow scan`        | Detect which catalog features `workflow.yaml` has and write its `features:` record. `--dry-run`, `--installed`, `--declined`, `--forget`; `--template <name>` a bundled template's record |
 | `issue-cli workflow catalog-bump <id>` | issue-cli developers: set a catalog entry's `version:` (default the next release) and carry every bundled template's stamp and `features:` record line with it. `--version`, `--dry-run`, `--json` |
+| `issue-cli workflow commit-msg <file>` | issue-cli developers: git's commit-msg hook. Refuses a `Catalog:` or `Proves:` line that would mark or link nothing, with the fix. `--install` writes the hook (`make hooks`) |
 | `issue-cli workflow catalog-check` | issue-cli developers: fail when a work branch changes a catalog feature's code or a bundled template without a version bump (`make validate` runs it). `--base main` |
 | `issue-cli goals [<dept>]`       | HQ's and the departments' goals, each HQ goal with the department goals rolling up into it (value, target, progress, period, stale, source); `--json`. See [Departments](../departments.md) |
 | `issue-cli goal set <dept>/<id> <value>` | Record a manual goal's value (`--note`, `--date`) in `<issues>/.goals/values.jsonl`; an unknown key lists the valid ones |
@@ -170,7 +182,7 @@ Every command parses its arguments the same way:
 
 `issue-cli start <slug>` is the single entry point for picking up an issue. It claims the issue (sets the assignee if unset), prints the checklist, status guidance, and next-transition contract, and is idempotent on re-runs.
 
-From a **handoff status** (`backlog`, `human-testing`) it also *auto-advances* to the next work status when the matching approval is present — `backlog → in progress`, `human-testing → documentation`. The target is the next non-optional status in the workflow, not a hardcoded value; only the handoff set is fixed. Because crossing into implementation from a re-claim is surprising, the advance is **never silent**: it is announced with a prominent `⚠ AUTO-ADVANCED  <from> → <to>` banner that also notes the consumed approval. If the approval is missing, `start` fails without mutating assignee or status, unless [YOLO](../Workflow/yolo.md) is on and would pass the gate: then `start` passes it as `transition` does (the `approval: "YOLO"` marker, the `YOLO: gate … passed` line under the banner), judging it as if already claimed, so an unclaimed backlog issue still advances. From any non-handoff status, `start` only claims and reports `Status unchanged`. A transition refused for a missing assignee (backlog clears it) points at `issue-cli start <slug>`, which re-claims the issue and moves it on, and does not blame an approval that is in place or that YOLO would pass.
+From a **handoff status** (`backlog`, `human-testing`) it also *auto-advances* to the next work status when the matching approval is present — `backlog → in progress`, `human-testing → documentation`. The target is the next non-optional status in the workflow, not a hardcoded value; only the handoff set is fixed. Because crossing into implementation from a re-claim is surprising, the advance is **never silent**: it is announced with a prominent `⚠ AUTO-ADVANCED  <from> → <to>` banner that also notes the consumed approval. If the approval is missing, `start` fails without mutating assignee or status, unless [YOLO](../Workflow/yolo.md) is on and would pass the gate: then `start` passes it as `transition` does (the `approval: "YOLO"` marker, the `YOLO: gate … passed` line under the banner), judging it as if already claimed, so an unclaimed backlog issue still advances. From any non-handoff status, `start` only claims and reports `Status unchanged`. The `Status:` line in start's header is the status after that advance, the one `== Next ==` reads from. The backlog clear of the assignee is skipped when the issue's own worker moves it forward (`KeepOwnAssignee`: the identity `ownIssueOnly` checks), so a worker who goes on from design to in progress needs no second `start`; the lead's, the viewer's and any backward move still clear it. A transition refused for a missing assignee (backlog cleared it) points at `issue-cli start <slug>`, which re-claims the issue and moves it on, and does not blame an approval that is in place or that YOLO would pass.
 
 When the approval is missing, the agent stops and ends its turn; the approval message from the viewer resumes it (see [At a human-approval gate](#at-a-human-approval-gate)). The advance is recorded in the stats sidecar like any other transition.
 
@@ -320,9 +332,11 @@ Some boxes don't fit the change: a test-only fix has no playtest session, a tmux
 | `no page changes` | a CLI, tmux, runner or docs change: nothing a playtest session or ux-test can see |
 | `runner-internal, covered by <TestName>` | playtest runner, CI or check library internals |
 | `covered by playtest session <name>` | the guided-check box when a playtest session drives the manual check |
+| `cli flow covered by <TestName>` | a CLI-only change whose flow a go test walks: no page, no check script |
+| `page state a scenario can't build (<what>), shown by <evidence>` | a page change a scenario board can't reach (git state, live agents): say what, and what shows it instead |
 | `<why, in a few words>` | anything else |
 
-It refuses (nothing changes, the error lists the forms): an empty reason, a `<placeholder>` left in it, a named form without its test or session, a reason under three words, more than one id. It refuses the owner's boxes for anyone, owner included: a `## Human Testing` box, a box marked `(owner)`, a criterion only the owner proves, a box a guided check left to the owner. Those wait for the owner, or under YOLO in the review queue.
+It refuses (nothing changes, it exits non-zero and the message starts with `✗ not ticked:`, then why): an empty reason, a `<placeholder>` left in it (the message names it, such as `<project>`), a named form without its test or session, a free reason under three words (the message gives the count and the minimum), more than one id, an unknown id, a `## Shipping` box (shipping steps have no N/A: the message says to tick it plainly when done). It refuses the owner's boxes for anyone, owner included: a `## Human Testing` box, a box marked `(owner)`, a criterion only the owner proves, a box a guided check left to the owner. Those wait for the owner, or under YOLO in the review queue.
 
 ```
 $ issue-cli check cli/x T4 --na "no page changes"
@@ -363,7 +377,7 @@ Refusals (nothing changes):
 
 ### `replace`
 
-`issue-cli replace <slug> --section S --body "…"` replaces the body of a section. To change **one line** of it instead:
+`issue-cli replace <slug> --section S --body "…"` replaces the body of a section. `--body-file <path>` (or `-` for stdin) reads the new content as raw bytes, as [`append`](#body-from-a-file-or-stdin---body-file) does; it can't be combined with `--body`. To change **one line** of it instead:
 
 ```bash
 issue-cli replace <slug> --section "Design" --line 3 --text "- Risk: none"
@@ -374,6 +388,23 @@ issue-cli replace <slug> --section "Design" --match "^- Risk:" --text "- Risk: n
 - `--match RE` (Go regexp) must match exactly one line of the section.
 - When the line can't be chosen (out of range, no match, several matches), nothing is written and the error prints the section with line numbers, so you can retry with `--line`.
 - `--line` and `--match` can't be combined. The replacement is a single line. A heading that appears twice is an error.
+
+### `comments`
+
+`issue-cli comments <slug>` prints the comment trail without the body:
+
+```
+== Comments on cli/sample (2 of 4) ==
+#2 · 2026-10-30 · agent-cli-sample · question · done
+    question: which flag?
+#4 · 2026-10-31 · lead-dark-factory · question
+    question: and the docs?
+```
+
+- `#<id>` is the comment's id, the number the issue page, `comment edit` and `question:` replies use.
+- The kind is the word before the first `:` (`question`, `progress`, `tests`, `approval`, …), none when the text starts with no such word.
+- `--since` takes a day (`2006-01-02`, from its midnight local time) or an RFC3339 time; `--author` matches the author ignoring case; `--kind` is repeatable or comma-separated; `--open` drops comments marked done. Filters combine.
+- `--json` prints an array of comments with `id`, `date`, `text`, `status`, `source`, `author`, `kind`, `open` and `edits`; `[]` when none match.
 
 ### `update`
 
@@ -425,7 +456,7 @@ It refuses, changing nothing: neither flag or both, the issue naming itself, an 
 
 ### `transition`
 
-`issue-cli transition <slug> --to "<status>"` runs the workflow engine — same path the board uses for drag-and-drop, so behavior matches.
+`issue-cli transition <slug> --to "<status>"` runs the workflow engine — same path the board uses for drag-and-drop, so behavior matches. A `--to` naming the status the issue is already at (often after `start` auto-advanced it) changes nothing and exits 0 with `Status is already <status>: nothing changed.` and the next transition; `--json` prints `{"slug", "status", "already": true}`.
 
 When a transition declares `fields[]` with `required: true`, supply answers in either of two ways:
 
@@ -512,7 +543,18 @@ Questions for the owner go in the design's clarify round (`## Clarify`, below). 
 
 The output names the ref to cite and lists, per replaced decision, the open issues still citing it, followed by a `Next:` line. `--json` returns `{decision, stale_citers, decisions_url}`.
 
-`issue-cli decisions [--system S] [--state active|deferred|replaced|stale] [--issue <slug>] [--json]` prints the same index as the viewer's Decisions tab, newest first; a decision still waiting for the human's words (no quote, or provisional) reads `· needs owner's words`. `--state replaced` includes stale ones. `answer` prints the answer's full ref (`decision_ref` in JSON).
+- `--scope S` (`issue` default, `project`, `system:<S>`, `department:<key>`, `type:<t>`), `--at "s1, s2"`, `--expires YYYY-MM-DD`, `--hard`, `--paths "g1, g2"` (hard only) write the [attribute group](../workflow.md#decision-ledger). A system, department, type or status that the project doesn't have is refused with the list; a past `--expires` is refused. A worker may not set `project` or `department:` scope (ask the lead). `--hard` needs the owner's words on the line (`--quote`, not `--provisional`) and is an owner act.
+- `--amend D-n [--scope …] [--hard|--soft] [--at …] [--paths …] [--expires …]` changes only that decision's attribute group; `""` clears `--at`, `--paths`, `--expires`, and `--scope issue` resets the scope. The rest of the line stays byte for byte. With `--text` or `--how` it is refused and prints the `--replaces` command; `--deferred`, `--provisional`, `--replaces` are refused too. A worker amends only its own issue's decisions; a replaced decision is refused (amend its replacer); an unchanged group writes nothing.
+- **Owner acts.** `--hard`, any `--amend` of a hard line or one that adds `hard`, and `--replaces` of a hard decision follow `approve`'s rule: a worker is refused (naming its lead and the `comment … "question: …"` command), a lead must relay the owner's words with `--quote` (posted as a `decision: <ref> <what>, "<words>" — relayed by <lead>` comment in the same write, ending `(YOLO)` while YOLO is on, which puts it in `yolo queue`), the owner's own shell may. A decision replacing a hard one inherits `hard`, scope and `paths:` unless set; `--soft` drops hard.
+- `--renew D-n --expires YYYY-MM-DD [--quote …]` gives a decision with `expires:` a new last day (today or later), before or after it passed; `--let-go D-n [--quote …]` closes out an expired one (`ended: <today>`). Only the group changes; each is logged (`renewed`, `expired`). Refused: renew of one with no `expires:` or one let go (final: `--replaces`), let go of one not expired. On a hard decision both are owner acts as above; from the owner's own shell `--quote` is posted as a `decision: … — the owner` comment. `--amend --expires` on an expired decision points at them. See [Expiry](../workflow.md#decision-ledger).
+
+The output adds a `scope: … · soft|hard` line and, for an issue-scoped soft decision, the `--amend --scope` hint. Every write is logged in `<issues>/.decisions/log.jsonl`.
+
+`issue-cli decisions [--system S] [--state active|expired|deferred|replaced|stale] [--issue <slug>] [--json]` prints the same index as the viewer's Decisions tab, newest first; a decision still waiting for the human's words (no quote, or provisional) reads `· needs owner's words`, a hard one `· hard`, and a scope other than `issue` `· scope <s>`. JSON rows carry `scope`, `hard`, `at`, `paths`, `expires`.
+
+`issue-cli decisions --in-force <slug> [--status S] [--json]` lists the decisions in force for that issue at its status (or S): not replaced, deferred or expired, `at:` empty or naming the status, and a scope that reaches it. Each row says why: `own`, `parent <slug>` (any epic above it), `cites`, or its scope. Hard first, then issue → type → system → department → project, then newest. It only reads. `--state replaced` includes stale ones. `answer` prints the answer's full ref (`decision_ref` in JSON).
+
+`issue-cli decisions --touched <slug> [--json]` runs the `decisions_respected` audit and prints it: the files the issue's work branch changed (three-dot diff from its merge-base with main), each active hard decision whose `paths:` they match, whatever its scope or `at:`, with the files and `cited`, `NOT cited` or `this issue's challenge open`, and how many the gate holds. With no recorded base or no branch it prints the warning instead. It only reads ([Decision ledger](../workflow.md#decision-ledger)).
 
 ### `prove`
 
@@ -699,6 +741,7 @@ The [factory benchmark](../benchmark.md) (`cmd/issue-cli/cmd_bench.go`, `interna
 | `bench run <benchmark> [--setup <ref>] [--engine <dir>] [--workflow <file>] [--label] [--resume <run>] [--keep] [--quote]` | Runs every task in a sandbox (progress on stderr), prints the run and the next commands. An agent session needs `--quote` with the owner's words. `--json` prints the Run |
 | `bench report [<benchmark>/<run>\|latest]` | The run: setup, stop, summary, one line per task, the holdout as n/m |
 | `bench compare <a> <b>` | Verdict, deltas, warnings, tasks with regressions first. Exit 0 no regression, 1 B regresses, 2 not comparable |
+| `bench nightly [<benchmark>] [--run <job run>] [--quote] [--dry-run]` | The night: the benchmark on main's head, then at most one queued experiment judged against it (never adopted), then the morning numbers in `nights.jsonl` and `nights/<date>.md`. Held while memory is ≥ 50% or the load is over the core count. `--run` takes the owner's words from the nightly-improve job's standing start; a worker only for its own run. Exit 1 when tonight already ran or the job has no standing start ([Every night](../benchmark.md#every-night)) |
 
 Refused in an agent session: `only the owner changes the benchmark; bench <verb> changed nothing.` with the comment to post instead.
 
@@ -726,12 +769,14 @@ Runs an issue's [guided check scripts](../patterns/guided-check-scripts.md): `sc
 issue-cli check-script <slug>               # the owner's run (stdin a terminal): questions, then the tick offer
 issue-cli check-script <slug> <name>        # one script
 issue-cli check-script <slug> --yes         # machine run: machine checks only, nothing ticked (agents, before handover)
+issue-cli check-script <slug> --yes --cli <path>  # the scripts check that issue-cli ($ISSUE_CLI), e.g. a branch build
 issue-cli check-script <slug> --list        # name, path, whether the owner has run it; exit 1 when there are none (--json)
 issue-cli check-script <slug> --new <name>  # write a starting script: one step per unticked Test Plan ### Manual box
 issue-cli check-script --lib                # print the helper library (needs no project)
 ```
 
-- The script runs under bash in its checkout with `CHECKS_LIB` (the library, written to a cache file named after its content), `CHECKS_SLUG`, `CHECKS_PROJECT`, `CHECKS_ROOT`, `CHECKS_NAME`, `CHECKS_ISSUE_CLI` (this binary: the tick uses it) and `ISSUE_VIEWER_CONFIG` (the config this call resolved). A machine run is also what you get when stdin isn't a terminal.
+- The script runs under bash in its checkout with `CHECKS_LIB` (the library, written to a cache file named after its content), `CHECKS_SLUG`, `CHECKS_PROJECT`, `CHECKS_ROOT`, `CHECKS_NAME`, `CHECKS_ISSUE_CLI` (this binary: the tick uses it), `ISSUE_CLI` (the issue-cli the script checks: `--cli <path>`, else the branch build `<worktree>/issue-cli` when the issue's own checkout has one, printed as `Checking the branch build …`, else this binary) and `ISSUE_VIEWER_CONFIG` (the config this call resolved). A machine run is also what you get when stdin isn't a terminal.
+- `--cli` that isn't an executable file is a usage error.
 - Exit codes: 0 when every script passed, 1 when one failed (`check script failed: <names>`) or none was found (the message says how to start one), 130 when the owner stopped with `q` or Ctrl-C.
 - With worktrees on and the issue's worktree missing, it says which worktree and the `git worktree add` line, unless git history has the issue's script (below).
 - After the merge: shipping removes the scripts before the merge, so when the checkout has none for the slug, check-script reads git history (`git log --full-history`, reachable from HEAD and from `work/<slug>` while that branch exists) for the newest commit that removed a `scripts/checks/*.sh` whose `# issue:` line names the slug. It writes that copy to a temp folder and runs it from the project folder, first printing `scripts/checks/<name>.sh from history (removed in <sha> before the merge): running it from <root>`. `--list` adds `from history: removed in <sha> before the merge`; `--list --json` adds `"from": "<commit>"`. A script on disk always wins.
@@ -755,7 +800,7 @@ These checks read the environment and the session name; they are guardrails for 
 
 `issue-cli report-bug "<what went wrong>"` is for bugs in issue-cli or the workflow engine, from any project. A project's own bugs go on its own board with `issue-cli create`.
 
-**Where it goes.** The engine project in the same `projects.yaml` (found by the [config lookup](#config-lookup), so report-bug works from any folder once the viewer has run with `-config`): `engine_project: <slug>` at the top, else the project whose `repo:` is `michal-franc/ai-workflow-engine` (or the old `michal-franc/ai-native-project-viewer`). The reporter needs no setup, and `--project` is optional.
+**Where it goes.** The engine project in the same `projects.yaml` (found by the [config lookup](#config-lookup), so report-bug works from any folder once the viewer has run with `-config`): `engine_project: <slug>` at the top, else the project whose `repo:` is `kacperwerema/dark-factory`. The reporter needs no setup, and `--project` is optional.
 
 **What it files.** An issue in the engine project at the bugfix type's first status (`idea`), system `CLI`, label `cli-bug`, with:
 
@@ -776,8 +821,8 @@ The `## Repro` section is left for triage, so the bugfix gate still needs a huma
 **Output.** Agent-facing; it always names the issue or the queue file:
 
 ```
-✓ Reported as new cli-bug issue cli/<slug> on the issue-viewer board
-✓ Already reported: added your report to cli-bug issue cli/<slug> on the issue-viewer board (3 reports)
+✓ Reported as new cli-bug issue cli/<slug> on the dark-factory board
+✓ Already reported: added your report to cli-bug issue cli/<slug> on the dark-factory board (3 reports)
 saved locally, not sent: ~/.local/share/issue-cli/bug-reports/<file>.json
 ✓ Sent 2 queued report(s): cli/<a>, cli/<b>
 ```
@@ -869,7 +914,7 @@ Behaviour:
 - `--force` overwrites an existing `workflow.yaml` (or the `--out` file). Without it, the command refuses to touch the existing file and exits non-zero.
 - `issues/` and `docs/` creation is idempotent — running the command in an already-initialised project does not error and does not re-create directories.
 - Templates live as plain YAML under `cmd/issue-cli/templates/workflow/*.yaml` and are embedded at build time via `//go:embed`. The list of valid `--template` names is derived from the embedded directory, so adding a new template is just dropping a new `<name>.yaml` file there and rebuilding.
-- Each template starts with a `template: <name>@<release>` stamp and a `features:` record, so a new project is stamped and recorded from the start. A new template needs both; run `issue-cli workflow scan` on it to write the record. See [Template Stamp and Feature Record](../Workflow/overview.md#template-stamp-and-feature-record).
+- Each template starts with a `template: <name>@<release>` stamp and a `features:` record, so a new project is stamped and recorded from the start. A new template needs both; run `issue-cli workflow scan --template <name>` in the checkout to write the record. See [Template Stamp and Feature Record](../Workflow/overview.md#template-stamp-and-feature-record).
 
 ### `project init`
 
@@ -934,21 +979,35 @@ issue-cli workflow scan --declined worktree               # record features the 
 issue-cli workflow scan --forget worktree                 # drop ids from the record (re-opens a declined feature)
 issue-cli workflow scan --department Marketing            # scan that department's own file
 issue-cli --json workflow scan --dry-run
+issue-cli workflow scan --template development            # a bundled template: in a dark-factory checkout, rewrite its record from the checkout's catalog
 ```
 
-- **Report:** every catalog feature grouped by category (each heading once: the catalog keeps a category's entries together, and `TestCatalogKeepsEachCategoryTogether` fails otherwise), marked ✓ detected, + recorded only, ✗ declined, or · absent. A detected line shows the evidence at its concrete path (`transitions[3].actions[1].rule = "has_test_plan"`, `+N more`). Then come the changes to the record, notes, and the block itself.
+- **Report:** every catalog feature grouped by category (each heading once: catalog order is by category, then id), marked ✓ detected, + recorded only, ✗ declined, or · absent. A detected line shows the evidence at its concrete path (`transitions[3].actions[1].rule = "has_test_plan"`, `+N more`). Then come the changes to the record, notes, and the block itself.
 - **Merge rules:**
   - installed = detected ∪ already recorded ∪ `--installed`. A recorded version is kept; new entries and `--installed` ones get the catalog version.
   - declined = recorded ∪ `--declined`, minus anything installed.
   - A recorded feature that is no longer detected stays installed, with a note pointing at `--forget`.
   - Ids the catalog doesn't know (written by a newer binary) are kept.
+  - `installed:` lists the entries in catalog order (by category, then id). A record with the same refs in another order is rewritten, with the change `~ installed: put in catalog order`.
+- **`--template <name>`:** scans a bundled template instead of the project's file. In a dark-factory checkout it reads `cmd/issue-cli/templates/workflow/<name>.yaml` and the catalog from the checkout and writes the record into that file (`--dry-run` prints it); elsewhere it prints the bundled copy's record and writes nothing. It takes no `--installed`, `--declined`, `--forget` or `--department`.
 - **Errors:** an unknown id, declining a feature that is present in the file, the same id in `--installed` and `--declined`/`--forget`, extra arguments, or a file that isn't a YAML mapping.
 - **Writing:** scan writes only when the record changes, or when there is none yet; a second run reports "record already up to date". It edits text: it replaces the existing `features:` block, or inserts one (with a comment) after `template:`, or else before the first top-level key. It then re-parses the result and refuses to write if anything other than `features:` changed. Comments and layout elsewhere are kept. It never sets `template:`, so an unstamped file keeps its proposals.
 - `--json` emits `workflow_file`, `dry_run`, `written`, `had_record`, `features[]` (`id`, `version`, `category`, `title`, `detected`, `matches`, `evidence`, `recorded`), `record`, `block`, `changes`, `notes`.
 
+### `workflow commit-msg`
+
+```bash
+issue-cli workflow commit-msg .git/COMMIT_EDITMSG   # what the hook runs
+issue-cli workflow commit-msg --install             # write the hook (make hooks, make install)
+```
+
+- **What it checks:** every `Catalog:` and `Proves:` line of the message, in any paragraph after the subject (lines starting with `#` and everything below git's scissors line are left out), read with the parsers `catalog-check` (`workflowupgrade.CheckTrailers`) and the proof check (`proof.CheckProves`) use. Refused: `Catalog: n/a` with no id, a colon after `n/a` or after the id (`Catalog: n/a some-id: why`), an id the catalog lacks (in a dark-factory checkout; elsewhere ids aren't checked), a `Catalog: <id>` without `n/a`; a `Proves:` line with no criterion, `<slug>#AC2`, a package path (`internal/memory`), a `<session>/<step>` or a bare box or step id (`TP4`), or a word that isn't a test name (`--project`). A Go subtest (`TestX/case`) is fine.
+- **Output:** nothing when the message is fine. Otherwise `✗ commit refused: …`, each bad line with what is wrong and the form that works, on stderr, exit 1; the message stays in `.git/COMMIT_EDITMSG`.
+- **The hook:** `--install` writes `commit-msg` in `core.hooksPath`, else the common `.git/hooks` every worktree shares. A commit-msg hook that isn't ours is kept as `commit-msg.local` and runs first. When `issue-cli` isn't on PATH, or the installed one is older than this command, the hook says so and lets the commit through: `catalog-check` and the proof check still read the lines later.
+
 ### `workflow catalog-check`
 
-For issue-cli developers, in the issue-viewer repository; `make validate` runs it after the tests, and the in progress guidance asks for it while the work is under way. It checks the git checkout of the current directory (a worktree checks its own branch, whatever `--project` names).
+For issue-cli developers, in the dark-factory repository; `make validate` runs it after the tests, and the in progress guidance asks for it while the work is under way. It checks the git checkout of the current directory (a worktree checks its own branch, whatever `--project` names).
 
 ```bash
 issue-cli workflow catalog-check               # compare the work branch with main
@@ -960,19 +1019,19 @@ issue-cli --json workflow catalog-check
 - **Passes** when each touched entry's `version:` is newer than the last release (the newest `## vX.Y.Z` in `cmd/issue-cli/CHANGELOG.md`), or a commit on the branch (since that base) carries `Catalog: n/a <id>[,<id>] <why>`; and each touched template's stamp is newer than the last release. The `Catalog:` line counts in any paragraph of the message (also one before `Co-Authored-By`) and on merge commits; it is read with the same parser as `Proves:` (`proof.MessageLines`).
 - **Fails** on a `Catalog:` line that marks nothing: not an n/a, no entry id after `n/a`, or an id the catalog doesn't have (`Catalog: n/a refactor only`). The output names the commit and the problem, shows the form, and lists the entries the branch touches; reword the commit, or drop the line. `--json` carries them as `bad_trailers` (`commit`, `value`, `problem`).
 - **Output:** one line per touched entry, template and bad trailer first (`✓ catalog <id>: bumped to …`, `✗ catalog <id>: needs a bump or an n/a (changes …)`, `✗ trailer on <sha>: …`), then the details, and a closing count (`catalog-check failed: 1 of 2 entries and 0 of 0 templates need a bump or an n/a; 0 Catalog: lines mark nothing`), so both the head and a truncated tail say what failed.
-- **Fails** with, per entry: the changed files, the entry's version, the next release, and both fixes (`issue-cli workflow catalog-bump <id>` and update its what/snippet, or add the trailer). The split catalog (`workflow-features/<id>.yaml`) is read too. A template gets the stamp to set and a reminder to re-run `workflow scan` on it.
-- **Skips** (exit 0) when the base branch itself is checked out (or HEAD is detached at it) and when there is no merge-base. A work branch with no commits yet is checked: its uncommitted changes count. Outside the issue-viewer repository it fails.
+- **Fails** with, per entry: the changed files, the entry's version, the next release, and both fixes (`issue-cli workflow catalog-bump <id>` and update its what/snippet, or add the trailer). The catalog is read from the entry files at the head (`workflow-features/<id>.yaml`). A template gets the stamp to set and the `workflow scan --template <name>` to re-run; a change to its `features:` record alone needs no stamp. It then runs the catalog's own checks at the head, each with its fix: an unknown category, a source that matches no file (a bare folder: `<folder>/**`), `@prompt` beside other sources, and a bundled template whose `features:` record isn't what a scan records, in catalog order (the expected block is printed).
+- **Skips** (exit 0) when the base branch itself is checked out (or HEAD is detached at it) and when there is no merge-base. A work branch with no commits yet is checked: its uncommitted changes count. Outside the dark-factory repository it fails.
 
 ### `workflow catalog-bump`
 
-For issue-cli developers, in the issue-viewer repository: one step for a catalog version bump.
+For issue-cli developers, in the dark-factory repository: one step for a catalog version bump.
 
 ```bash
 issue-cli workflow catalog-bump status-prompts                    # to the next release
 issue-cli workflow catalog-bump a,b --version v0.58.0 --dry-run   # list the lines it would change
 ```
 
-- **Changes:** the entry's `version:` line (in `workflow-features.yaml`, or the entry's own file under `workflow-features/`; a snippet's nested `version:` is left alone), the `template: <name>@` stamp of every bundled template the entry applies to when it is older, and that template's record line `- <id>@<old>`. Nothing else in any file changes.
+- **Changes:** the top-level `version:` line of the entry's file, `workflow-features/<id>.yaml` (a snippet's nested `version:` is left alone), the `template: <name>@` stamp of every bundled template the entry applies to when it is older, and that template's record line `- <id>@<old>`. Nothing else in any file changes.
 - **Refuses** an unknown id, a version that isn't `vX.Y.Z`, and one older than the entry's. Bumping to the version it has only brings the templates in line ("nothing to change" when they are).
 - **Output:** each changed file with what changed in it; `--json` the plan (`version`, `changes[]` with `path` and `what`).
 

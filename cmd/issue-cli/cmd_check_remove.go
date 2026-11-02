@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var checkRemoveCommand = &Command{
@@ -107,6 +107,10 @@ func refuseGateBoxes(ctx *Context, issue *tracker.Issue, targets []tracker.Check
 	b.WriteString("these boxes are the workflow's, in a section a gate waits on; nothing was removed:")
 	for _, it := range hit {
 		fmt.Fprintf(&b, "\n  %s %s", it.ID, it.Label())
+	}
+	if tracker.NANoForm(hit[0].Section) {
+		fmt.Fprintf(&b, "\n\nTick it plainly when it's done (shipping steps have no N/A form):\n  issue-cli check %s %s", issue.Slug, hit[0].ID)
+		return fmt.Errorf("%s", b.String())
 	}
 	fmt.Fprintf(&b, "\n\nTick it when done, or say why it doesn't apply:\n  issue-cli check %s %s\n  issue-cli check %s %s --na \"no page changes\"\nThe N/A forms:\n%s",
 		issue.Slug, hit[0].ID, issue.Slug, hit[0].ID, tracker.NAFormsHelp("  "))

@@ -3,7 +3,7 @@
 # Install the latest issue-viewer + issue-cli release.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/kacperwerema/dark-factory/main/install.sh | bash
 #
 # Env vars:
 #   INSTALL_DIR   target directory for binaries (default: $HOME/.local/bin)
@@ -16,7 +16,7 @@ set -euo pipefail
 # anything until it has parsed the entire file. Defeats partial-download
 # execution when `curl | bash` is interrupted mid-stream.
 main() {
-  local REPO="michal-franc/ai-workflow-engine"
+  local REPO="kacperwerema/dark-factory"
   local INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
   local VERSION="${VERSION:-}"
   local FORCE="${FORCE:-0}"
@@ -65,6 +65,18 @@ main() {
     esac
   }
 
+  # sha256_check verifies a "<hash>  <file>" list: sha256sum on Linux,
+  # `shasum -a 256` on macOS, which has no sha256sum by default.
+  sha256_check() {
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum -c "$1"
+    elif command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 -c "$1"
+    else
+      err "need sha256sum or shasum to verify the download"
+    fi
+  }
+
   scan_tar_safe() {
     local archive="$1"
     if tar -tzf "$archive" | grep -E '^(/|.*/\.\./|\.\./)' >/dev/null; then
@@ -107,7 +119,7 @@ main() {
   if ! curl_safe -o "$TMP/$ASSET.sha256" "$SUMS_URL"; then
     err "could not fetch checksum: $SUMS_URL"
   fi
-  ( cd "$TMP" && sha256sum -c "$ASSET.sha256" >/dev/null ) \
+  ( cd "$TMP" && sha256_check "$ASSET.sha256" >/dev/null ) \
     || err "checksum verification failed for $ASSET"
 
   info "extracting"

@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/timeline"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func init() {
@@ -126,6 +126,9 @@ type Report struct {
 	TestsAt       time.Time `json:"tests_at,omitzero"`
 	LastChange    time.Time `json:"last_change,omitzero"`
 	LastChangeSHA string    `json:"last_change_sha,omitempty"`
+	// judgement maps each playtest judgement step id (upper case) to its
+	// session, for JudgementHint.
+	judgement map[string]string
 }
 
 // Unproven returns the criteria with no passing link.
@@ -268,7 +271,7 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 			}
 		}
 	}
-	r.markOwner(issue, judgementSteps(runs), ownerPassedSteps(runs), guidedOwnerBoxes(root, worktree, issue.Slug))
+	r.markOwner(issue, judgementSteps(runs, current), ownerPassedSteps(runs), guidedOwnerBoxes(root, worktree, issue.Slug))
 	return r
 }
 
@@ -449,20 +452,20 @@ func staleStep(l Link, ids map[string]bool) Check {
 
 type declared struct{ criterion, step, session string }
 
-// declaredSteps lists each step → criterion pair the runs declare, once.
+// declaredSteps lists each step → criterion pair the newest run of each
+// session declares (newestSteps), once: a step retargeted from AC2 to AC6
+// links AC6 only.
 func declaredSteps(runs []timeline.PlaytestRun) []declared {
 	var out []declared
 	seen := map[string]bool{}
-	for i := len(runs) - 1; i >= 0; i-- { // newest first: the current session file wins
-		for _, st := range runs[i].Steps {
-			for _, id := range st.Proves {
-				key := strings.ToUpper(st.ID) + "|" + strings.ToUpper(id)
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				out = append(out, declared{criterion: strings.ToUpper(strings.TrimSpace(id)), step: st.ID, session: runs[i].Session})
+	for _, s := range newestSteps(runs) {
+		for _, id := range s.step.Proves {
+			key := strings.ToUpper(s.step.ID) + "|" + strings.ToUpper(id)
+			if seen[key] {
+				continue
 			}
+			seen[key] = true
+			out = append(out, declared{criterion: strings.ToUpper(strings.TrimSpace(id)), step: s.step.ID, session: s.session})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].step < out[j].step })

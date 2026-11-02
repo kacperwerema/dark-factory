@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // listAllProject has version 0.2 set, with issues in 0.2, 0.1 and none.

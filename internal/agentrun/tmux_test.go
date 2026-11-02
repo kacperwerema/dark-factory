@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The attach command names a private tmux server when the board runs on one,
@@ -277,7 +277,7 @@ func TestUnderDirRelativeRoot(t *testing.T) {
 // nothing and the live one's still works.
 func TestTargetIsExactOnARealServer(t *testing.T) {
 	isolateTmux(t)
-	if err := exec.Command("tmux", "new-session", "-d", "-s", "agent-foo-bar").Run(); err != nil {
+	if err := testTmux(t, "new-session", "-d", "-s", "agent-foo-bar").Run(); err != nil {
 		t.Fatalf("new-session: %v", err)
 	}
 	if HasSession(Target(nil, "agent-foo")) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/memory"
 )
 
 // Briefing limits for pinned memories (Letta's core memory budget).

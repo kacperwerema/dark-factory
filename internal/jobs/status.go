@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Verdicts for a job.

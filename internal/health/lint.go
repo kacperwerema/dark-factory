@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/lint"
+	"github.com/kacperwerema/dark-factory/internal/lint"
 )
 
 // The lint family: issue-cli health lint's warnings over workflow.yaml and

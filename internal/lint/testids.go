@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/testids"
+	"github.com/kacperwerema/dark-factory/internal/testids"
 )
 
 // sessionsDir is where a repository keeps its playtest sessions.

@@ -103,8 +103,8 @@ func TestProjectInitMakesTheProjectAndOnlyTheGivenConfig(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	var plan struct {
-		Slug  string `json:"slug"`
-		Files []struct{ Path, State string }
+		Slug   string `json:"slug"`
+		Files  []struct{ Path, State string }
 		Config struct {
 			State string `json:"state"`
 		} `json:"config"`

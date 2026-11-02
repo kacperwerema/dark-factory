@@ -29,7 +29,7 @@ steps:
       Under the header, a bar with "Select all ready (3)" and a greyed "Approve selected (0)".
       Three boxed sections: To approve (three gates, each with a checkbox, "in design → backlog",
       Approve and Review), To test (search-as-you-type's playtest, ▶ Play and Open) and To answer
-      (saved-places-sync's question, Answer). Offline map tiles is not listed: its Design is still
+      (saved-places-sync's question with its text, Reply and Open). Offline map tiles is not listed: its Design is still
       open. Nothing is cut off or overlapping, also at phone width.
     why: One place to see everything that waits on the owner and act on each row.
 

@@ -234,7 +234,9 @@ func TestHTTPEmbedderSpeaksOllamaEmbed(t *testing.T) {
 }
 
 // The command embedder gets the request on stdin, in its dir, and is
-// stopped at its timeout.
+// stopped at its timeout. Only the slow case means to hit its timeout: the
+// others get a minute, since two make validates in parallel can take
+// seconds to start a shell.
 func TestCommandEmbedder(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "embed.sh")
@@ -242,7 +244,7 @@ func TestCommandEmbedder(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	c := CommandEmbedder{Argv: []string{script}, Dir: dir, Model: "m", Timeout: 5 * time.Second}
+	c := CommandEmbedder{Argv: []string{script}, Dir: dir, Model: "m", Timeout: time.Minute}
 	vecs, err := c.Embed(context.Background(), []string{"x", "y"})
 	if err != nil || len(vecs) != 2 {
 		t.Fatalf("vecs %v err %v", vecs, err)
@@ -255,7 +257,7 @@ func TestCommandEmbedder(t *testing.T) {
 	if _, err := slow.Embed(context.Background(), []string{"x"}); err == nil || !strings.Contains(err.Error(), "no answer in time") {
 		t.Fatalf("slow: %v", err)
 	}
-	bad := CommandEmbedder{Argv: []string{"sh", "-c", "echo boom >&2; exit 3"}, Timeout: time.Second}
+	bad := CommandEmbedder{Argv: []string{"sh", "-c", "echo boom >&2; exit 3"}, Timeout: time.Minute}
 	if _, err := bad.Embed(context.Background(), []string{"x"}); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("failing command: %v", err)
 	}

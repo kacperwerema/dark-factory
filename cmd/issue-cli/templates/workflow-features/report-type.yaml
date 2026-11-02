@@ -1,0 +1,60 @@
+id: report-type
+version: v0.58.0
+category: lifecycle
+propose: true
+templates: [development]
+requires: [types-of-work]
+sources: ["internal/outputs/gate.go", "internal/lint/reports.go"]
+title: "A report type: research and report-only issues skip the build path"
+what: |
+  A `report` type walking idea → in progress (research and write) → human-testing
+  (owner review) → done. The report is a file on the outputs shelf
+  (`issue-cli output add --issue <slug> --kind report --file <report.md>`),
+  listed on the issue's page; the `has_output: report` rule and a `report:`
+  comment gate the owner review, whose one box is the owner's. No Implementation,
+  Test Plan or Shipping, and no commit: done needs only the owner's approval
+  (the YOLO queue under YOLO). Code fixes the research finds are filed as their
+  own issues.
+why: |
+  A report-only feature walked the full feature path: 13 boxes ticked N/A, plus
+  an empty commit only so commits_reference_issue passed and main could be
+  fast-forwarded. And the report had no place a worker could write from its
+  worktree (sessions/ is gitignored and only in the primary checkout).
+where: "a report entry under types:, before bugfix"
+snippet: |
+  types:
+    report:
+      description: "Research or report only: the report goes on the outputs shelf for the owner's review; no code, no commit"
+      path: [idea, in progress, human-testing, done]
+      transitions:
+        - from: "idea"
+          to: "in progress"
+          actions:
+            - type: "require_human_approval"
+              status: "in progress"
+            - type: "append_section"
+              title: "Research"
+              body: |
+                - [ ] Report written and on the shelf (`issue-cli output add --issue <slug> --kind report --file <report.md>`)
+        - from: "in progress"
+          to: "human-testing"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Research"
+            - type: "validate"
+              rule: "has_output: report"
+            - type: "append_section"
+              title: "Owner Review"
+              body: |
+                - [ ] Report read; approved or rejected on the shelf (owner)
+        - from: "human-testing"
+          to: "done"
+          actions:
+            - type: "require_human_approval"
+              status: "done"
+question: "Add a report type for research and report-only issues (the report on the shelf, no code, no commit)?"
+detect:
+  - path: types.*.description
+    contains: "research or report only"
+  - path: transitions[].actions[].rule
+    rule_in: [has_output]

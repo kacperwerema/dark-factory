@@ -2,42 +2,43 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: development@v0.59.0
+template: development@v0.60.1
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
 # `issue-cli workflow upgrade`.
 features:
   installed:
-    - status-prompts@v0.36.0
-    - types-of-work@v0.36.0
     - docs-type@v0.58.0
     - report-type@v0.58.0
+    - status-prompts@v0.36.0
+    - types-of-work@v0.36.0
     - workflow-evals@v0.59.0
-    - human-approval-gates@v0.36.0
-    - checklist-gates@v0.36.0
     - assignee-gate@v0.36.0
-    - test-plan-gate@v0.36.0
-    - comment-evidence-gates@v0.36.0
     - body-structure-gates@v0.36.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - decision-ledger@v0.60.1
     - failure-hints@v0.36.0
+    - human-approval-gates@v0.36.0
     - proof-links@v0.58.0
-    - red-round-cap@v0.59.0
+    - red-round-cap@v0.60.0
+    - test-plan-gate@v0.36.0
     - checklist-sections@v0.36.0
-    - transition-prompts@v0.36.0
     - set-fields@v0.36.0
+    - transition-prompts@v0.36.0
     - project-actions@v0.36.0
-    - board-columns@v0.36.0
     - board-card-fields@v0.36.0
-    - lead-handoff-prompts@v0.36.0
-    - design-overlap-discoverability@v0.36.0
-    - sandbox-manual-tests@v0.36.0
-    - playtest-sessions@v0.36.0
-    - guided-check-scripts@v0.54.0
-    - testing-unrelated-failures@v0.36.0
-    - testing-na-forms@v0.58.0
+    - board-columns@v0.36.0
     - clarify-round@v0.59.0
+    - design-overlap-discoverability@v0.36.0
+    - guided-check-scripts@v0.54.0
+    - lead-handoff-prompts@v0.36.0
     - must-not-section@v0.59.0
+    - playtest-sessions@v0.36.0
+    - sandbox-manual-tests@v0.36.0
+    - testing-na-forms@v0.60.0
+    - testing-unrelated-failures@v0.36.0
 
 board:
   columns:
@@ -80,6 +81,7 @@ statuses:
       Turn the problem into explicit checklists, assumptions, and open questions.
       Write the clarify round once, in a `## Clarify` section: every question at once, each a `### Q1. <question>` with 2–4 numbered options `1. **<option>** (recommended) <why, citing the work>. Cost: <cost>.`, the recommendation first, then an open `**Answer:** —` line. With no question, the section is one line: `Nothing to ask: <why>.` An answer you take alone is `**Answer:** assumed — <reason>` (`issue-cli clarify <slug> --assume`); `issue-cli clarify <slug>` shows the round and its format problems. Questions go only in this round; outside it a `question:` comment is for a blocker only.
       Write the design into the issue body under the relevant sections before checking the related boxes.
+      Cite each hard decision in force for the issue (the Decisions in force block in `start`, or `issue-cli decisions --in-force <slug>`) in `## Design` by its ref, saying how the design follows it, or write `n/a <ref>: <why>`; cite a replacer, never a replaced ref.
       A criterion only the owner can check (a look, a read-through, a decision) carries the owner marker: `- [ ] The board reads well on a phone (owner)`. "(owner)" anywhere counts, and so does a box starting "Owner visual check …"; no proof ticks it, and under YOLO it waits in the review queue.
       Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
       Describe how users and agents will discover and use the change.
@@ -104,7 +106,7 @@ statuses:
       Describe it under `### Manual` in the Test Plan: where the script lives, the exact commands the human runs, what to look at, the expected result for each step, and how to clean up.
       If the project has a playtest system (see `issue-cli process playtest`), write the manual checks as a playtest session (step id = checkbox id) and pass its machine run (ux-test) before handing over, so the human only judges what a machine can't.
       Manual checks that aren't playtest sessions (commands, API routes, scripts, tmux) come as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib`, name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself.
-      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), or a reason in a few words. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
+      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done. A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     description: "Manual verification by humans"
     prompt: |
@@ -146,6 +148,7 @@ transitions:
           - [ ] Dependencies identified
           - [ ] Overlap reviewed: similar existing features listed and the need justified
           - [ ] Discoverability: how users and agents find and use this is documented
+          - [ ] Decisions in force cited (each hard one by ref, or n/a <ref>: <why>)
           - [ ] Human approval requested for backlog
       - type: "append_section"
         title: "Acceptance Criteria"
@@ -165,6 +168,12 @@ transitions:
         rule: "section_has_checkboxes: Acceptance Criteria"
       - type: "validate"
         rule: "criteria_checkboxes: Acceptance Criteria"
+      - type: "validate"
+        rule: "decisions_cited"
+      - type: "validate"
+        rule: "citations_current"
+      - type: "validate"
+        rule: "decision_unchallenged"
       - type: "require_human_approval"
         status: "backlog"
       - type: "set_fields"
@@ -199,7 +208,11 @@ transitions:
       - type: "validate"
         rule: "section_checkboxes_checked: Implementation"
       - type: "validate"
+        rule: "decision_unchallenged"
+      - type: "validate"
         rule: "has_test_plan"
+      - type: "validate"
+        rule: "decisions_respected"
       - type: "append_section"
         title: "Testing"
         body: |
@@ -242,6 +255,8 @@ transitions:
         rule: "section_checkboxes_checked: Documentation"
       - type: "validate"
         rule: "has_comment_prefix: docs:"
+      - type: "validate"
+        rule: "decisions_respected"
       - type: "append_section"
         title: "Shipping"
         body: |
@@ -333,6 +348,8 @@ types:
             rule: "section_checkboxes_checked: Testing"
           - type: "validate"
             rule: "has_comment_prefix: tests:"
+          - type: "validate"
+            rule: "decisions_respected"
           - type: "require_human_approval"
             status: "shipping"
           - type: "append_section"
@@ -373,6 +390,8 @@ types:
           - type: "validate"
             rule: "has_comment_prefix: docs:"
             hint: "issue-cli comment {{slug}} --text \"docs: <pages changed>\""
+          - type: "validate"
+            rule: "decisions_respected"
           - type: "require_human_approval"
             status: "shipping"
           - type: "append_section"

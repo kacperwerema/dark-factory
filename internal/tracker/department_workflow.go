@@ -77,7 +77,17 @@ func (p *Project) WorkflowFor(dept string) (*WorkflowConfig, error) {
 	if len(own.Statuses) == 0 {
 		return nil, fmt.Errorf("department %s: workflow %s has no statuses", name, path)
 	}
-	product := p.LoadWorkflow()
+	wf := departmentWorkflow(own, p.LoadWorkflow())
+	wf.Department, wf.File = name, path
+	p.attachRuntime(wf)
+	return wf, nil
+}
+
+// departmentWorkflow is a department's own file with the project-wide
+// blocks (ProjectWideKeys) taken from Product's, and the playtest runner
+// and worktree settings from Product's when the file names none. Every
+// other field is the department file's (TestDepartmentWorkflowCopiesEveryField).
+func departmentWorkflow(own, product *WorkflowConfig) *WorkflowConfig {
 	wf := own.Clone()
 	wf.Workbench = product.Workbench
 	wf.CI = product.CI
@@ -98,9 +108,7 @@ func (p *Project) WorkflowFor(dept string) (*WorkflowConfig, error) {
 	if own.Worktree == nil {
 		wf.Worktree, wf.WorktreeSetup, wf.WorktreeSparseExclude = product.Worktree, product.WorktreeSetup, product.WorktreeSparseExclude
 	}
-	wf.Department, wf.File = name, path
-	p.attachRuntime(wf)
-	return wf, nil
+	return wf
 }
 
 // WorkflowForIssue is the workflow issue walks: its department's file

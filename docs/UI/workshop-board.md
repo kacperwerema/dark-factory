@@ -7,7 +7,8 @@ The Workshop Board is the viewer's new look: Map › Company › Hall › Statio
 drawn as objects from a board game (thick outline, hard shadow, no gradients).
 This page is what a worker needs before building or moving a Workshop Board
 page: the rules, where the code and styles live, how to name a CSS class, what
-to check when a page moves behind `?classic=1`, and every `wb/*` component.
+to check when a page moves behind `?classic=1`, and every `wb/*` component. Its `.go` files, `templates/` and `static/` are under
+`internal/viewer/`.
 
 ## Rules
 
@@ -39,6 +40,47 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component.
   session a `size: { target: …, min_height: 44 }` check (`phone-*.yaml`).
 - **Visual changes are the owner's call.** A worker shows a screenshot
   (`make shot URL=…`) and leaves an owner box; it never ticks it.
+
+## Page facts that bite
+
+What earlier workers learned the hard way (2026-10-31 retro sweep):
+
+- **Workshop pages have one theme.** `workshop.css` has no theme switch:
+  no `[data-theme]` blocks, no dark mode, no Dracula. The dark workbench,
+  Dracula and light themes live in `static/style.css` and reach only the
+  classic pages. An issue that asks for "all three themes" on a Workshop page
+  asks for something the page cannot do yet: say so in the design and check
+  the one theme.
+- **Tokens go in CSS rules, never in an inline `style="{{.}}"`.**
+  html/template filters a value it puts into a `style` attribute and
+  replaces anything with `(`, `)`, `;`, `/` or quotes by `ZgotmplZ`, so
+  `style="color:{{.}}"` with `var(--ink)` renders as `color:ZgotmplZ` and the
+  colour is lost. Pass plain values only (`left:{{.Pos}}` with `40%`, a hex
+  colour); for a token, add a modifier class whose rule in `workshop.css`
+  uses `var(--…)`.
+- **A control that needs its script starts disabled.** A submit button or
+  key that only works once `static/<page>.js` has wired it is rendered with
+  `disabled` and the script enables it. Before the script runs (slow load, a
+  script error, a playtest clicking early) the click then does nothing
+  visible instead of posting a half-built form.
+- **No random ids in text a playtest reads.** An id the server makes up per
+  request (a nonce, a temp-file name, a generated key) stays in attributes
+  and URLs, not in visible text: a session's `expect` reads text and fails
+  on every run that draws a new one.
+- **Every `wb-*` class a template names has a rule in `workshop.css`.** A
+  class with no rule draws the element unstyled and fails a playtest's
+  `styles_applied` check later (`wb-ny-sec--after` did).
+  `TestWorkshopTemplateClassesHaveRules` (internal/viewer/workshop_guide_test.go) names each
+  one with its template line. A class a script or a playtest selects by,
+  with no rule on purpose, goes in its `wbHookClasses` with who reads it.
+- **Which browser works on this Mac.** The Playwright and chrome-devtools
+  MCPs look for `/Applications/Google Chrome`, which this Mac doesn't have.
+  Use the repo's runner: `make shot URL=…` for one screenshot,
+  `make ux-test S=<session>` for a session, `make serve SCENARIO=<name>` for
+  a throwaway board to point them at. They find Playwright's Chrome for
+  Testing under `~/Library/Caches/ms-playwright` themselves. For a saved
+  mockup, `tools/mockup-shots/shots.py` runs with
+  `uv run --with playwright tools/mockup-shots/shots.py <dir>`.
 
 ## Where things live
 
@@ -73,7 +115,7 @@ ellipsis: the system page had defined its own `.wb-doc-title` further down.
   (`.wb-a, .wb-b { … }`) may repeat a class only in the block that defines
   it. Rules inside `@media` are free to restate it.
 
-`TestWorkshopCSSClassesDefinedOnce` (workshop_guide_test.go) fails when a
+`TestWorkshopCSSClassesDefinedOnce` (internal/viewer/workshop_guide_test.go) fails when a
 `wb-*` class has two plain rules, or rules in two banner blocks, and names
 both lines.
 
@@ -108,7 +150,7 @@ that merges after you. Before you open the issue for review:
 ## Component catalog
 
 Every `{{define "wb/…"}}` in `templates/_workshop*.html`, by file.
-`TestWorkshopCatalogMatchesDefines` (workshop_guide_test.go) fails when a
+`TestWorkshopCatalogMatchesDefines` (internal/viewer/workshop_guide_test.go) fails when a
 component is missing here, listed under the wrong file, or listed but no
 longer defined. Add the row when you add the component.
 
@@ -199,6 +241,9 @@ longer defined. Add the row when you add the component.
 | `wb/ceo-grid` | every CEO card on /leads, or the empty state | `[]LeadRow` |
 | `wb/ceo-card` | one project's CEO on /leads | `LeadRow` |
 | `wb/leads-dept` | one department lead on a /leads card | `LeadDeptRow` |
+| `wb/lead-state` | a lead's state chip: working, waits on you, idle, couldn't read, not running | `string` |
+| `wb/ceo-switcher` | the CEO chat's switcher sheet: every project's CEO and department leads with their state (`?part=switcher`) | `CEOSwitcher` |
+| `wb/switch-lead` | one department lead in the switcher, its group's leads nested | `switchLead` |
 
 ### templates/_workshop_crew.html
 
@@ -208,6 +253,15 @@ longer defined. Add the row when you add the component.
 | `wb/crew-column` | a department: its lead and its workers | `WbCrewColumn` |
 | `wb/crew-row` | a titled row of cards (stopped, others) | `WbCrewRow` |
 | `wb/crew-panel` | the selected agent: reach it, its issue | `*WbCrewPanel` |
+
+### templates/_workshop_crew_all.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/crew-all-project` | one project's card on /crew: switches, leads, workers | `CrewProject` |
+| `wb/crew-all-switch` | auto-start's or the queue's chip and its Pause / Resume | `*CrewSwitch` |
+| `wb/crew-all-row` | one lead or worker with its actions | `CrewRow` |
+| `wb/crew-all-sheets` | the confirm box and the Nudge and Tail sheets | none |
 
 ### templates/_workshop_decisions.html
 
@@ -331,11 +385,12 @@ longer defined. Add the row when you add the component.
 
 | Component | What it draws | Data |
 |---|---|---|
+| `wb/ny-switch` | the project switcher across projects: a chip per project with its count, and Map | `NeedsYouData` |
 | `wb/ny-bar` | Select all ready and Approve selected | `NeedsYouData` |
 | `wb/ny-group` | one project's sections | `NeedsYouGroup` |
 | `wb/ny-section` | one kind of row: To approve, To test, … | `NeedsYouSection` |
-| `wb/ny-row` | one item waiting on you, its actions | `WbQueueCard` |
-| `wb/ny-after` | YOLO's after-the-fact queue: counts, oldest age, Review all, at most 8 rows | `NeedsYouGroup` |
+| `wb/ny-row` | one item waiting on you, its one-tap actions (Approve, clarify options, Reply, Open, Chat) | `WbQueueCard` |
+| `wb/ny-after` | YOLO's after-the-fact queue: counts, oldest age, Review all, at most 8 rows, Agree on each | `NeedsYouGroup` |
 | `wb/ny-empty` | nothing is waiting | `none` |
 | `wb/ny-confirm` | the Approve dialog | `none` |
 
@@ -359,6 +414,7 @@ longer defined. Add the row when you add the component.
 | `wb/yr-gate` | one gate passed without the owner | `WbYOLOPass` |
 | `wb/yr-check` | one owner box left open: Tick, Agree without it | `WbYOLOPass` |
 | `wb/yr-question` | one answer the agent assumed in its clarify round, linked to the Station's form | `WbYOLOPass` |
+| `wb/yr-decision` | one hard-decision act a lead relayed with the owner's words (its ref, what it did, who relayed it) | `WbYOLOPass` |
 | `wb/yr-pager` | newer / older issues | `YOLOReviewData` |
 
 ### templates/_workshop_memory.html
@@ -402,6 +458,7 @@ longer defined. Add the row when you add the component.
 | `wb/released` | Recently released: the newest releases, or what the first one will be | `WbReleased` |
 | `wb/queue` | the lead's Queue card: next 5, blocked, done today, the refill line, the verdict | `*StatusModel` |
 | `wb/autostart` | the Auto-start card | `*StatusModel` |
+| `wb/nightly` | the Factory last night card | `*WbNightly` |
 | `wb/bench` | the Benchmark card | `*WbBench` |
 
 ### templates/_workshop_retro.html
@@ -447,7 +504,7 @@ longer defined. Add the row when you add the component.
 | `wb/quality-card` | one card of the quality check | `WbQualityCard` |
 | `wb/clarify` | the clarify round as one form: every question, its options with the cost, the recommendation first, Answer all | `*WbClarify` |
 | `wb/clarify-q` | one question: options as radios, the owner's words, its assumed or answered state | `WbClarifyQuestion` |
-| `wb/decisions` | the D-n list | `WbDecisions` |
+| `wb/decisions` | the D-n list | `WbStatsDecisions` |
 | `wb/decision` | one decision | `WbDecision` |
 | `wb/change-card` | the files the work branch changed | `WbChangeCard` |
 | `wb/tests-card` | tests, proofs and the checklist | `WbTestsCard` |
@@ -485,6 +542,7 @@ longer defined. Add the row when you add the component.
 | `wb/fold` | folded tables | `WbFold` |
 | `wb/see-also` | a number another page owns, linked | `WbSeeAlso` |
 | `wb/project-stat` | one project on /stats | `OverviewRow` |
+| `wb/decisions-card` | the decision ledger counted (in force by scope, hard / soft, provisional, challenges, gate holds and briefings in the range), or its empty state | `WbStatsDecisions` |
 
 ### templates/_workshop_systems.html
 

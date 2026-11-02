@@ -72,7 +72,7 @@ When everything an issue's next transition needs is done except the owner's appr
 - `POST …/dispatch` answers 409 `{"status": "waiting-on-gate", "gate": "<status>", …}`.
 - `issue-cli dispatch` exits 3 and prints the approve link and the `--force --quote` command.
 
-A gate whose work isn't finished doesn't block: the worker still has something to do. Re-attaching to a live worker is never refused.
+A gate whose work isn't finished doesn't block: the worker still has something to do. That includes the boxes of the section the move into the current status appended (Implementation on entering in progress), even when the gate's own rules don't check them; the week report's blocked lines and auto-start follow the same rule. Re-attaching to a live worker is never refused.
 
 ## How the prompt is delivered
 
@@ -195,8 +195,8 @@ tmux_session_per_project: true  # each project's agents share a session named af
 projects:
   - name: "Issue Viewer"
     slug: "issue-viewer"         # → tmux session "issue-viewer"
-  - name: "RogueTech"
-    slug: "roguetech"
+  - name: "Kestrel"
+    slug: "kestrel"
 ```
 
 A project can still set its own `terminal:` or `tmux_session:`; its own value wins.
@@ -227,7 +227,7 @@ set -g status-left '#{S:#{?#{m:_*,#{session_name}},,#{?session_attached,#[fg=bla
 ```
 
 ```
- issue-viewer +2  roguetech +1 !  │ 0:lead-issue-viewer* 1:agent-a 2:agent-b
+ issue-viewer +2  kestrel +1 !  │ 0:lead-issue-viewer* 1:agent-a 2:agent-b
 ```
 
 - Every session is listed (one per project, so one per lead); the one you're in is highlighted.
@@ -264,8 +264,8 @@ projects:
   - name: "Issue Viewer"
     slug: "issue-viewer"
     lead_window: 1              # optional: put this lead's tab at window 1
-  - name: "RogueTech"
-    slug: "roguetech"           # next free window
+  - name: "Kestrel"
+    slug: "kestrel"           # next free window
 ```
 
 ```
@@ -275,7 +275,7 @@ projects:
 │ │ > _                                                      │ │
 │ │[view-lead-issue-viewer] 0:lead-issue-viewer* 1:agent-a   │ │
 │ └──────────────────────────────────────────────────────────┘ │
-│[main] 0:shell 1:view-lead-issue-viewer* 2:view-lead-roguetech│
+│[main] 0:shell 1:view-lead-issue-viewer* 2:view-lead-kestrel│
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -359,6 +359,8 @@ issue-cli queue next [--start]        # what starts next, or why nothing does
 - **Who.** The lead (or you); workers may read the queue but never change it or start from it. Nothing runs on a timer: the lead's check-in runs `queue next --start`. `issue-cli lead whoami` prints `Queue: N active, next <slug>. At each check-in: issue-cli queue next --start`, and `dispatch` without `--quote` points at `queue next` when the project has a queue.
 - **Where it shows.** A Queue card on the Report (`/p/<project>/status`): the next 5 items with their holds, the blocked count, done today with SHAs, the refill line and what `queue next` says now. `status.md` / `issue-cli status` print `Queue: 3 active · 1 blocked · 2 done today · next <slug> · now: …`. The viewer only reads: it never writes the queue or starts a worker.
 
+- **Your pause.** The Crew page across projects (`/crew`) has Pause and Resume for each project's queue (owner-only). A paused queue holds `queue next` before anything else, even items with their own quote; `queue list` and `queue next` print `hold: the queue is paused by the owner (Crew page) at <time>: resume it on the viewer's /crew page`. issue-cli has no resume: an agent can't lift your pause.
+
 **Not yet:** editing the queue from the page; importing a markdown night plan; a queue per department.
 
 ## Routing between Claude and Codex
@@ -403,6 +405,7 @@ There is one lead per project. It runs in tmux like a worker, as `lead-<project>
 - Every worker's dispatch prompt has a `## Your lead` section naming the project lead and the issue's epic.
 - Workers don't message each other. To agree a format with a sibling issue (one they build on, or one the lead's brief names), the `## Your lead` section points them at `issue-cli ask <sibling> "…"`. The ask is a comment that shows on the sibling's next issue-cli call, and its `issue-cli answer` comes back the same way. The lead sees open asks in `issue-cli status`. See [CLI: ask and answer](CLI/overview.md#ask-and-answer-sibling-asks).
 - After it comes `## Shell on this machine`: the zsh, rtk and BSD-tool pitfalls the dispatching machine has (from `$SHELL`, the OS and `rtk` on PATH), one line each. A machine with none of them gets no section.
+- On the engine's own repository (a project with `cmd/issue-cli`), when the installed build is behind main (or `ci.branch`), `## Your issue-cli build` follows: how many commits behind, build the branch's issue-cli in the worktree with `go build -o ./issue-cli ./cmd/issue-cli` (the path is git-ignored) and use `./issue-cli` for the issue's transitions and gates, `./issue-cli check-script <slug> --yes` for the scripts, and never make install, during a soak or not: installing and restarting the viewer are the lead's or the owner's call. A build at main, a `dev` build or another project gets no section.
 - Agents message each other with Claude Code's own `ListAgents` / `SendMessage`, addressed by tmux name. The tool builds nothing on top of it; the briefs just say it is there. `issue-cli lead message` pastes only into Codex sessions; for a Claude session it refuses and prints the `SendMessage` call.
 - The lead dispatches only the workers you name in its chat, with `issue-cli dispatch --quote` (see [A human starts the work](#a-human-starts-the-work)), or, where you turned [auto-start](#auto-start) on, one at a time with `issue-cli dispatch --autostart`. A session in a different permission mode from the sender holds incoming messages for its human's approval, as Claude Code does out of the box.
 
@@ -429,6 +432,17 @@ What you send there is you typing in the lead's chat, so it counts as your words
 Before this page the agents canvas deliberately showed no pane and no message box (UI decision D-12); the lead chat is the owner's request to have both, for the lead only. Workers are still reached in tmux.
 
 Limits: the pane is plain text, so colours and the TUI's layout are lost, and Claude Code's live areas (the spinner, the prompt box) are captured as they were drawn at that moment. Reading turns out of it is a best effort: a line it doesn't recognise stays text in the CEO's turn, and Terminal always has the raw pane. A long paste shows as `[Pasted text …]` in Claude Code's prompt until it is sent. A second Ctrl+C still needs tmux.
+
+### The CEO chat on a phone
+
+The owner uses the chat from a phone through the remote viewer, so at 640px and below the page changes shape (static/workshop.css, static/ceo-chat.js):
+
+- **The box above the keyboard.** The chat column is as tall as the visible viewport (`visualViewport.height`, which shrinks when the on-screen keyboard opens while the layout viewport does not, on iOS), the conversation is the only scroller, and while the box has focus with the keyboard up the band and the keys hide and the page scrolls the chat to the top. The side panel sits below the chat.
+- **Keys.** Interrupt and ↑ ↓ ↵ 1 2 3 stay, each at least 44px; **More** shows Send now · interrupt, Show details, To background, the mode switch and Stop session. Open in tmux is hidden (no terminal on a phone).
+- **🎤 Dictate.** Shown only where the browser has speech recognition (`SpeechRecognition` / `webkitSpeechRecognition`: Chrome, Edge, Safari; not Firefox). The browser does the recognition: Chrome sends the audio to Google, Safari to Apple; nothing goes through the viewer. The **PL / EN** chip picks Polish or English (kept per browser; the first default follows the browser's language). Final words go into the box at the caret, the words still being heard show in grey above it, and nothing is sent until you press Send. Send aborts the recognition and drops anything it still delivers. Errors say what to do (microphone blocked, heard nothing, needs the network).
+- **📷 Camera** (touch screens) opens the camera; **📎 Attach** still offers the photo library and files. A HEIC photo or an image over 10 MB is drawn on a canvas (at most 2560px on its long side) and sent as a JPEG to `…/lead/image`; one the browser can't decode goes to `…/lead/file`. The routes' caps and owner checks are unchanged.
+- **Switch.** The button in the band opens a sheet (a panel on a desktop) with every configured project's CEO and its department leads, a group's leads nested under it. Each row links to that chat and shows the lead's state: *working* (its working line), *waits on you* (a menu or a question on its screen), *idle*, *not running*, or *couldn't read its screen* (a capture that failed, came back empty or took over 2 s). A CEO row shows the project's Needs-you count, the same number as `needs-you.json`. The sheet is `GET …/lead?part=switcher` (same route and gates as the page); it reads the panes only when opened, each `tmux capture-pane` under a 2 s deadline that kills it, and a second open waits for a capture still running instead of starting another. Opening it or following a row never starts a lead. **All CEOs** (`/leads`) shows the same states.
+- **Drafts.** What you typed and didn't send is kept per chat in the browser (localStorage) and comes back when you return to that chat; it is cleared as Send starts and put back if the send fails.
 
 ## Local CI and dispatched agents
 

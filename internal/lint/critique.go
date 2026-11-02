@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/critique"
+	"github.com/kacperwerema/dark-factory/internal/critique"
 )
 
 // checkCritique reads the fresh critic's settings (critique: and the

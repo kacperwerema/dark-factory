@@ -110,7 +110,11 @@ type TaskRecord struct {
 type Setup struct {
 	// Ref is the engine commit issue-cli was built from ("" = the installed
 	// one).
-	Ref             string `json:"ref,omitempty"`
+	Ref string `json:"ref,omitempty"`
+	// SHA is the engine commit the issue-cli under test was built from: the
+	// resolved ref, or the installed binary's own revision (its build info;
+	// "" when it carries none). experiment.Run reads it to find a baseline.
+	SHA             string `json:"sha,omitempty"`
 	IssueCLI        string `json:"issue_cli"`
 	IssueCLIVersion string `json:"issue_cli_version,omitempty"`
 	Workflow        string `json:"workflow,omitempty"`

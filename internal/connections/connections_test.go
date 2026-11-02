@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var now = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)

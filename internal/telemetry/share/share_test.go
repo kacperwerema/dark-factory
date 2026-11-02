@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // sentinel is free text that must never reach a batch.

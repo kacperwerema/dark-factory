@@ -61,8 +61,7 @@ func TestCatalogBumpCarriesTheTemplateStamps(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := applied(repo, plan)
-	mainRaw, _ := after.Read(CatalogPath)
-	entries, err := ParseCatalog(mainRaw, nil, true)
+	entries, err := ParseCatalog(readCatalogFiles(after.Read, after.Dir, CatalogPath), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +69,10 @@ func TestCatalogBumpCarriesTheTemplateStamps(t *testing.T) {
 	if e.Version != version {
 		t.Fatalf("entry version %s", e.Version)
 	}
-	before, _ := repo.Read(CatalogPath)
-	if strings.Count(string(before), "\n") != strings.Count(string(mainRaw), "\n") {
+	file := CatalogPath + "/status-prompts.yaml"
+	before, _ := repo.Read(file)
+	edited, _ := after.Read(file)
+	if strings.Count(string(before), "\n") != strings.Count(string(edited), "\n") {
 		t.Fatal("the catalog edit changed more than one line")
 	}
 	for _, name := range Templates() {
@@ -109,10 +110,10 @@ func TestCatalogBumpCarriesTheTemplateStamps(t *testing.T) {
 	}
 }
 
-// An entry in its own file is bumped there, and only its top-level version:
-// moves (a snippet's nested version: stays).
-func TestCatalogBumpEditsASplitEntry(t *testing.T) {
-	file := SplitCatalogPath + "/zz-split-bump.yaml"
+// Only an entry file's top-level version: moves (a snippet's nested
+// version: stays).
+func TestCatalogBumpEditsOnlyTheTopLevelVersion(t *testing.T) {
+	file := CatalogPath + "/zz-split-bump.yaml"
 	repo := realRepo(t, map[string]string{
 		file: "id: zz-split-bump\nversion: v0.1.0 # first\ncategory: conventions\ntemplates: [review]\nsnippet: |\n  version: v0.1.0\n",
 	})

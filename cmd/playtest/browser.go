@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +17,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
-	"github.com/michal-franc/issue-viewer/internal/playtestruns"
+	"github.com/kacperwerema/dark-factory/internal/playtestruns"
 )
 
 //go:embed assets/checks.js
@@ -34,9 +35,13 @@ const noMotionJS = `document.addEventListener('DOMContentLoaded', function () {
 // chromeCandidates are tried in order when PLAYTEST_CHROME is unset.
 var chromeCandidates = []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"}
 
-// ChromePath finds the browser to drive.
+// ChromePath finds the browser to drive. PLAYTEST_CHROME=none turns the
+// browser off even where one is installed: the public CI sets it, so every
+// test that needs Chrome skips there (.github/workflows/ci.yml).
 func ChromePath() (string, error) {
-	if p := strings.TrimSpace(os.Getenv("PLAYTEST_CHROME")); p != "" {
+	if p := strings.TrimSpace(os.Getenv("PLAYTEST_CHROME")); p == "none" {
+		return "", errors.New("Chrome turned off (PLAYTEST_CHROME=none)")
+	} else if p != "" {
 		return p, nil
 	}
 	for _, c := range chromeCandidates {

@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,7 +32,7 @@ type ScenarioSpec struct {
 		Name string `yaml:"name"`
 		Slug string `yaml:"slug"`
 		// Repo is the project's repo: in projects.yaml; the engine's
-		// (michal-franc/ai-workflow-engine) makes the board treat it as the
+		// (kacperwerema/dark-factory) makes the board treat it as the
 		// engine project (report-bug's board, a release candidate's soak).
 		Repo string `yaml:"repo"`
 		// Extra is raw YAML added to the project's entry in projects.yaml
@@ -67,7 +67,15 @@ type ScenarioSpec struct {
 	// telemetry collector's batches.jsonl: copied beside the project and
 	// named by telemetry_data: in projects.yaml, for the /telemetry page.
 	TelemetryData string `yaml:"telemetry_data"`
+	// ExtraConfig is merged into the staged projects.yaml's top level
+	// (identity:, allowed_hosts:, telemetry_data: …), for views that read a
+	// key outside the project's entry. projects and viewer_url are the
+	// stager's own and refused.
+	ExtraConfig map[string]any `yaml:"extra_config"`
 }
+
+// stagerKeys are the projects.yaml keys the stager writes itself.
+var stagerKeys = []string{"projects", "viewer_url"}
 
 // ScenarioTranscript is one Claude Code session run in Cwd (relative to the
 // project root: "" for the root, ".worktrees/<slug>" for an issue's
@@ -150,6 +158,14 @@ func LoadScenarioSpec(dir string) (*ScenarioSpec, error) {
 	}
 	if s.Workflow == "" {
 		s.Workflow = "workflow.yaml"
+	}
+	for _, k := range stagerKeys {
+		if _, ok := s.ExtraConfig[k]; ok {
+			return nil, fmt.Errorf("%s: extra_config: %s is written by the stager; use project: for the project's entry", filepath.Join(dir, "scenario.yaml"), k)
+		}
+	}
+	if _, ok := s.ExtraConfig["telemetry_data"]; ok && s.TelemetryData != "" {
+		return nil, fmt.Errorf("%s: extra_config: telemetry_data and telemetry_data: both set; keep one", filepath.Join(dir, "scenario.yaml"))
 	}
 	for i, g := range s.Generate {
 		if g.Count <= 0 || g.Status == "" || strings.Count(g.Title, "%") != 1 {
@@ -257,13 +273,23 @@ type Binaries struct {
 	CLI    string
 }
 
+// viewerPkg is the viewer's main package in repo: cmd/issue-viewer, or the
+// repo root for a checkout from before the viewer moved there (make serve
+// BASE=<an older ref>).
+func viewerPkg(repo string) string {
+	if _, err := os.Stat(filepath.Join(repo, "cmd", "issue-viewer", "main.go")); err == nil {
+		return "./cmd/issue-viewer"
+	}
+	return "."
+}
+
 // BuildBinaries runs `go build` for both binaries into dir.
 func BuildBinaries(repo, dir string, log io.Writer) (*Binaries, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	b := &Binaries{Dir: dir, Viewer: filepath.Join(dir, "issue-viewer"), CLI: filepath.Join(dir, "issue-cli")}
-	for _, t := range []struct{ out, pkg string }{{b.Viewer, "."}, {b.CLI, "./cmd/issue-cli"}} {
+	for _, t := range []struct{ out, pkg string }{{b.Viewer, viewerPkg(repo)}, {b.CLI, "./cmd/issue-cli"}} {
 		cmd := exec.Command("go", "build", "-o", t.out, t.pkg)
 		cmd.Dir = repo
 		cmd.Stdout, cmd.Stderr = log, log
@@ -288,6 +314,9 @@ type Scenario struct {
 	Proj string // the git project (issues/, workflow.yaml, docs/)
 	Port int
 	Base string // http://127.0.0.1:<port>
+	// PortTaken is the port asked for (StartOpts.Port) when another process
+	// held it and Port is a different, free one; 0 otherwise.
+	PortTaken int
 
 	bins    *Binaries
 	board   *exec.Cmd
@@ -304,6 +333,27 @@ type Scenario struct {
 // StartScenario copies the fixtures from scenarioDir/<name> into a fresh
 // temp project and starts the board on it.
 func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Scenario, error) {
+	return StartScenarioWith(scenarioDir, name, bins, log, StartOpts{})
+}
+
+// StartOpts changes where and how StartScenario stages a board. The zero
+// value is what ux-test uses: a fresh temp dir, any free port, the board's
+// output to log and the owner signed in.
+type StartOpts struct {
+	// Root is the folder to stage in; it must not exist yet ("" is a fresh
+	// pt-* temp dir).
+	Root string
+	// Port is the port to serve on when it is free; 0, or a port already
+	// taken, picks a free one (PortTaken says which).
+	Port int
+	// Detached sends the board's output to Root/board.log instead of a
+	// pipe and skips the owner sign-in, so the board outlives the process
+	// that started it (playtest serve).
+	Detached bool
+}
+
+// StartScenarioWith is StartScenario with options.
+func StartScenarioWith(scenarioDir, name string, bins *Binaries, log io.Writer, o StartOpts) (*Scenario, error) {
 	src := filepath.Join(scenarioDir, name)
 	spec, err := LoadScenarioSpec(src)
 	if err != nil {
@@ -311,8 +361,12 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	}
 	// A short path under the system temp dir: tmux sockets must fit in ~108
 	// bytes, which a worktree path often doesn't.
-	root, err := os.MkdirTemp("", "pt-")
-	if err != nil {
+	root := o.Root
+	if root == "" {
+		if root, err = os.MkdirTemp("", "pt-"); err != nil {
+			return nil, err
+		}
+	} else if err := os.Mkdir(root, 0o755); err != nil {
 		return nil, err
 	}
 	s := &Scenario{Name: name, Spec: spec, Root: root, Proj: filepath.Join(root, "proj"), bins: bins, log: log}
@@ -361,7 +415,7 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	// owner's desktop attached to the real tmux server.
 	// viewer_url points every link and issue-cli call in the scenario at
 	// its own board.
-	if s.Port, err = freePort(); err != nil {
+	if s.Port, s.PortTaken, err = pickPort(o.Port); err != nil {
 		return fail(err)
 	}
 	s.Base = fmt.Sprintf("http://127.0.0.1:%d", s.Port)
@@ -373,15 +427,9 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 		}
 		telemetryLine = fmt.Sprintf("telemetry_data: %q\n", dst)
 	}
-	cfg := telemetryLine + fmt.Sprintf("viewer_url: %q\nprojects:\n  - name: %q\n    slug: %q\n    issues: %q\n    docs: %q\n    workdir: %q\n    terminal: \"none\"\n",
-		s.Base, spec.Project.Name, spec.Project.Slug, filepath.Join(s.Proj, "issues"), filepath.Join(s.Proj, "docs"), s.Proj)
-	if spec.Project.Repo != "" {
-		cfg += fmt.Sprintf("    repo: %q\n", spec.Project.Repo)
-	}
-	if extra := strings.TrimRight(spec.Project.Extra, "\n"); extra != "" {
-		for _, line := range strings.Split(extra, "\n") {
-			cfg += "    " + line + "\n"
-		}
+	cfg, err := scenarioConfig(spec, s.Base, s.Proj, telemetryLine)
+	if err != nil {
+		return fail(fmt.Errorf("scenario %s: %v", name, err))
 	}
 	if err := os.WriteFile(s.ConfigPath(), []byte(cfg), 0o644); err != nil {
 		return fail(err)
@@ -405,14 +453,31 @@ func StartScenario(scenarioDir, name string, bins *Binaries, log io.Writer) (*Sc
 	// which only the runner reads (codeWatch), never a dialog on the
 	// owner's desktop.
 	s.board = s.command(bins.Viewer, "-config", s.ConfigPath(), "-port", fmt.Sprint(s.Port), "-owner-code", "terminal")
-	s.codes = &codeWatch{w: log}
-	s.board.Stdout, s.board.Stderr = log, s.codes
+	if o.Detached {
+		// A file, not a pipe: once serve exits nobody reads a pipe, and the
+		// board would die on its next log line.
+		f, err := os.Create(s.LogPath())
+		if err != nil {
+			return fail(err)
+		}
+		defer f.Close()
+		s.board.Stdout, s.board.Stderr = f, f
+	} else {
+		s.codes = &codeWatch{w: log}
+		s.board.Stdout, s.board.Stderr = log, s.codes
+	}
 	s.board.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := s.board.Start(); err != nil {
 		return fail(fmt.Errorf("start board: %v", err))
 	}
-	if err := waitHTTP(s.Base+"/", 10*time.Second); err != nil {
+	if err := waitHTTP(s.Base+"/", boardReadyBudget); err != nil {
+		if o.Detached {
+			err = fmt.Errorf("%v (log: %s)", err, s.LogPath())
+		}
 		return fail(fmt.Errorf("board on %s: %v", s.Base, err))
+	}
+	if o.Detached {
+		return s, nil
 	}
 	if s.OwnerSession, err = s.signInOwner(); err != nil {
 		return fail(fmt.Errorf("owner sign-in on %s: %v", s.Base, err))
@@ -588,8 +653,17 @@ func (s *Scenario) nextCommitDate() []string {
 // ConfigPath is the scenario's projects.yaml.
 func (s *Scenario) ConfigPath() string { return filepath.Join(s.Root, "projects.yaml") }
 
+// LogPath is a detached board's output (StartOpts.Detached).
+func (s *Scenario) LogPath() string { return filepath.Join(s.Root, "board.log") }
+
 // TmuxDir is the scenario's TMUX_TMPDIR: its tmux server's socket lives here.
 func (s *Scenario) TmuxDir() string { return filepath.Join(s.Root, "tmux") }
+
+// TmuxSocket is the scenario's tmux socket: where tmux puts its default
+// socket under TmuxDir. The runner's own tmux calls name it with -S.
+func (s *Scenario) TmuxSocket() string {
+	return filepath.Join(s.TmuxDir(), "tmux-"+strconv.Itoa(os.Getuid()), "default")
+}
 
 // IssueFile is the path of an issue in the scenario project, found the way
 // the board finds it (slugs lower-case the system folder).
@@ -725,7 +799,10 @@ func (s *Scenario) Tmux(ctx context.Context, args ...string) (string, int, error
 	if err := s.guardTmux(); err != nil {
 		return "", -1, err
 	}
-	return s.Run(ctx, "tmux", args...)
+	if err := os.MkdirAll(filepath.Dir(s.TmuxSocket()), 0o700); err != nil {
+		return "", -1, err
+	}
+	return s.Run(ctx, "tmux", append([]string{"-S", s.TmuxSocket()}, args...)...)
 }
 
 // guardTmux refuses to talk to a tmux server whose socket dir is not this
@@ -756,8 +833,17 @@ func (s *Scenario) Stop(keep bool) {
 	}
 	if s.guardTmux() == nil {
 		if _, err := exec.LookPath("tmux"); err == nil {
+			// Name the private socket and drop $TMUX: a Scenario built from
+			// only a Root (stopRecord) has no env, and an inherited $TMUX
+			// sends kill-server to the shared server (2026-10-31, 2026-11-01).
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, _, _ = s.Run(ctx, "tmux", "kill-server")
+			cmd := exec.CommandContext(ctx, "tmux", "-S", s.TmuxSocket(), "kill-server")
+			for _, kv := range os.Environ() {
+				if !strings.HasPrefix(kv, "TMUX=") && !strings.HasPrefix(kv, "TMUX_PANE=") {
+					cmd.Env = append(cmd.Env, kv)
+				}
+			}
+			_ = cmd.Run()
 			cancel()
 		}
 	}
@@ -769,6 +855,44 @@ func (s *Scenario) Stop(keep bool) {
 	}
 }
 
+// scenarioConfig is the staged projects.yaml: extra_config: on top, then
+// the telemetry line, viewer_url and the one project's entry.
+func scenarioConfig(spec *ScenarioSpec, base, proj, telemetryLine string) (string, error) {
+	cfg := telemetryLine + fmt.Sprintf("viewer_url: %q\nprojects:\n  - name: %q\n    slug: %q\n    issues: %q\n    docs: %q\n    workdir: %q\n    terminal: \"none\"\n",
+		base, spec.Project.Name, spec.Project.Slug, filepath.Join(proj, "issues"), filepath.Join(proj, "docs"), proj)
+	if spec.Project.Repo != "" {
+		cfg += fmt.Sprintf("    repo: %q\n", spec.Project.Repo)
+	}
+	if extra := strings.TrimRight(spec.Project.Extra, "\n"); extra != "" {
+		for _, line := range strings.Split(extra, "\n") {
+			cfg += "    " + line + "\n"
+		}
+	}
+	if len(spec.ExtraConfig) > 0 {
+		extra, err := yaml.Marshal(spec.ExtraConfig)
+		if err != nil {
+			return "", fmt.Errorf("extra_config: %v", err)
+		}
+		cfg = string(extra) + cfg
+	}
+	return cfg, nil
+}
+
+// pickPort is want when nothing listens on it, else a free port and want as
+// the one that was taken. want 0 is any free port.
+func pickPort(want int) (port, taken int, err error) {
+	if want > 0 {
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", want))
+		if err == nil {
+			l.Close()
+			return want, 0, nil
+		}
+		taken = want
+	}
+	port, err = freePort()
+	return port, taken, err
+}
+
 func freePort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -778,11 +902,19 @@ func freePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
+// boardReadyBudget is how long a scenario board gets to answer. It answers
+// in about a second on a quiet machine; under make validate beside other
+// workers it has taken over 10 s. waitHTTP returns as soon as it answers.
+const boardReadyBudget = time.Minute
+
+// waitHTTP polls url until it answers below 500. Each request has its own
+// short timeout, so a board that accepts but hangs can't outlast budget.
 func waitHTTP(url string, budget time.Duration) error {
 	deadline := time.Now().Add(budget)
+	client := &http.Client{Timeout: 2 * time.Second}
 	var last error
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url)
+		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode < 500 {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Pass is one gate an issue passed in YOLO without the owner.
@@ -32,6 +32,12 @@ type Pass struct {
 	// ## Clarify question the agent answered alone after YOLO passed the
 	// issue's gate; What is the question, Why the assumed answer and reason.
 	Question string `json:"question,omitempty"`
+	// Decision is set on a lead's relayed owner act on a hard decision
+	// instead: the ref; What is what the act did, By the lead.
+	Decision string `json:"decision,omitempty"`
+	// Hold is set with Decision on a decision hold a gate passed in YOLO:
+	// the rule (decisions_cited, citations_current); Why is why it held.
+	Hold string `json:"hold,omitempty"`
 }
 
 // Key is what the owner's review names: the box of an owner check, else the
@@ -42,6 +48,9 @@ func (p Pass) Key() string {
 	}
 	if p.Question != "" {
 		return p.Question
+	}
+	if p.Decision != "" {
+		return p.Decision
 	}
 	return p.Status
 }
@@ -54,6 +63,12 @@ func (p Pass) Label() string {
 	}
 	if p.Question != "" {
 		return p.Question + ": assumed answer"
+	}
+	if p.Decision != "" && p.Hold != "" {
+		return p.Decision + ": " + p.Hold + " passed in YOLO"
+	}
+	if p.Decision != "" {
+		return p.Decision + ": hard decision relayed"
 	}
 	return p.Status
 }
@@ -166,6 +181,32 @@ func Questions(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	return out
 }
 
+// Decisions is every hard-decision act a lead relayed while YOLO was on (a
+// decision: comment ending "(YOLO)") and every decision hold a gate passed
+// in YOLO (a yolo-hold: comment), oldest first, each with the review that
+// settled it: a yolo-review: naming its ref.
+func Decisions(issue *tracker.Issue, comments []tracker.Comment) []Pass {
+	var out []Pass
+	for _, c := range comments {
+		if d, ok := tracker.ParseDecisionRelayComment(c.Text); ok && d.YOLO {
+			out = append(out, Pass{Slug: issue.Slug, Title: issue.Title, Decision: d.Ref, What: d.Action, By: d.Lead, At: c.Date, Comment: c.ID})
+			continue
+		}
+		if h, from, ok := tracker.ParseYOLOHoldComment(c.Text); ok {
+			out = append(out, Pass{Slug: issue.Slug, Title: issue.Title, Decision: h.Ref, Hold: h.Rule, What: h.Why, Why: h.Why, From: from, By: c.Author, At: c.Date, Comment: c.ID})
+			continue
+		}
+		if r, ok := tracker.ParseYOLOReviewComment(c.Text); ok {
+			for i := range out {
+				if out[i].Review == "" && strings.EqualFold(out[i].Decision, r.Status) {
+					out[i].Review = r.Verdict
+				}
+			}
+		}
+	}
+	return out
+}
+
 // Queue is the passes and owner checks across issues still waiting for the
 // owner's review.
 func Queue(issues []*tracker.Issue) []Pass {
@@ -181,11 +222,12 @@ func Queue(issues []*tracker.Issue) []Pass {
 }
 
 // Unreviewed is the issue's passes, then its owner checks, then its
-// assumed answers, still waiting for review.
+// assumed answers, then its relayed hard decisions, still waiting for review.
 func Unreviewed(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 	var out []Pass
 	all := append(Passes(issue, comments), OwnerChecks(issue, comments)...)
-	for _, p := range append(all, Questions(issue, comments)...) {
+	all = append(all, Questions(issue, comments)...)
+	for _, p := range append(all, Decisions(issue, comments)...) {
 		if p.Review == "" {
 			out = append(out, p)
 		}
@@ -347,6 +389,8 @@ type Entry struct {
 	Gates     []Pass `json:"gates"`
 	Checks    []Pass `json:"checks"`
 	Questions []Pass `json:"questions,omitempty"`
+	// Decisions are hard-decision acts a lead relayed (the same Agree).
+	Decisions []Pass `json:"decisions,omitempty"`
 	// Oldest is the oldest waiting item's comment date.
 	Oldest string `json:"oldest"`
 }
@@ -369,13 +413,31 @@ func (e Entry) Detail() string {
 	} else if n > 1 {
 		parts = append(parts, strconv.Itoa(n)+" assumed answers")
 	}
+	var relayed, holds int
+	for _, d := range e.Decisions {
+		if d.Hold != "" {
+			holds++
+		} else {
+			relayed++
+		}
+	}
+	if relayed == 1 {
+		parts = append(parts, "1 relayed decision")
+	} else if relayed > 1 {
+		parts = append(parts, strconv.Itoa(relayed)+" relayed decisions")
+	}
+	if holds == 1 {
+		parts = append(parts, "1 decision hold")
+	} else if holds > 1 {
+		parts = append(parts, strconv.Itoa(holds)+" decision holds")
+	}
 	return strings.Join(parts, ", ")
 }
 
 // Items is the entry's gates, then its owner checks, then its assumed
 // answers.
 func (e Entry) Items() []Pass {
-	return append(append(append([]Pass(nil), e.Gates...), e.Checks...), e.Questions...)
+	return append(append(append(append([]Pass(nil), e.Gates...), e.Checks...), e.Questions...), e.Decisions...)
 }
 
 // Entries groups passes by issue, in the order each issue first appears;
@@ -396,6 +458,8 @@ func Entries(queue []Pass) []Entry {
 			out[i].Checks = append(out[i].Checks, p)
 		} else if p.Question != "" {
 			out[i].Questions = append(out[i].Questions, p)
+		} else if p.Decision != "" {
+			out[i].Decisions = append(out[i].Decisions, p)
 		} else {
 			out[i].Gates = append(out[i].Gates, p)
 		}

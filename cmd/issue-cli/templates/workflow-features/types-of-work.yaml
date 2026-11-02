@@ -1,0 +1,59 @@
+id: types-of-work
+version: v0.36.0
+category: lifecycle
+propose: true
+templates: [development, marketing]
+sources: ["internal/tracker/workflow_types.go", "cmd/issue-cli/cmd_set_type.go"]
+title: "Types of work: lighter paths for tweaks and bugfixes"
+what: |
+  `default_type` plus a `types:` block. An issue's `type:` frontmatter picks its path
+  through the statuses: `feature` walks every status, `tweak` skips design and
+  docs, `bugfix` needs a Repro section and a failing test first. Set with
+  `issue-cli create --type` or `issue-cli set-type`. See docs/Workflow/types.md.
+why: |
+  Without types every five-minute tweak walks the full design path. Types give
+  each kind of work its own gates and prompts, enforced by the engine instead of
+  prompt text every agent has to read.
+where: "new top-level default_type: and types: keys; path entries must be names from your statuses: list"
+snippet: |
+  default_type: feature
+  types:
+    feature:
+      description: "New behaviour: the full path"
+    tweak:
+      description: "A small change the human already decided; no design"
+      path: [idea, in progress, testing, shipping, done]
+      transitions:
+        - from: "idea"
+          to: "in progress"
+          actions:
+            - type: "require_human_approval"
+              status: "in progress"
+            - type: "validate"
+              rule: "has_assignee"
+        - from: "testing"
+          to: "shipping"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Testing"
+            - type: "require_human_approval"
+              status: "shipping"
+            - type: "append_section"
+              title: "Shipping"
+              body: |
+                - [ ] Changes committed with a message referencing the issue
+    bugfix:
+      description: "Something that worked is broken: a repro and a failing test first"
+      path: [idea, in progress, testing, human-testing, documentation, shipping, done]
+      transitions:
+        - from: "idea"
+          to: "in progress"
+          actions:
+            - type: "validate"
+              rule: "has_section"
+              section: "Repro"
+            - type: "require_human_approval"
+              status: "in progress"
+question: "Do you want separate paths for kinds of work (e.g. tweak skips design, bugfix needs a repro first)? Which types, and which statuses should each skip?"
+detect:
+  - path: types

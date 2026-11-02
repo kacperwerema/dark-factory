@@ -1,0 +1,37 @@
+id: design-overlap-discoverability
+version: v0.36.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["@prompt"]
+title: "Design step reviews overlap and discoverability"
+what: |
+  Two Design checkboxes and matching in-design prompt lines: list existing features
+  that already do something similar (and justify or shrink the new one), and say
+  how users and agents will discover and use the change.
+why: |
+  Catches duplicate features before they are built, and makes the design say how
+  the change reaches the people and agents who need it.
+where: "the idea → in design append_section \"Design\" body, and the \"in design\" status prompt"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "in design"
+      actions:
+        - type: "append_section"
+          title: "Design"
+          body: |
+            - [ ] Approach documented
+            - [ ] Dependencies identified
+            - [ ] Overlap reviewed: similar existing features listed and the need justified
+            - [ ] Discoverability: how users and agents find and use this is documented
+            - [ ] Human approval requested for backlog
+  statuses:
+    - name: "in design"
+      prompt: |
+        Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
+        Describe how users and agents will discover and use the change.
+question: "Add the overlap and discoverability checks to the design step?"
+detect:
+  - path: transitions[].actions[].body
+    contains: "overlap reviewed"

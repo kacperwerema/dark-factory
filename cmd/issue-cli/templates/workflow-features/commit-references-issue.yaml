@@ -1,0 +1,33 @@
+id: commit-references-issue
+version: v0.58.0
+category: gates
+propose: true
+templates: [development]
+sources: ["internal/proof/reference.go"]
+title: "A commit references the issue before the fast-forward"
+what: |
+  The Shipping checklist says how a commit references the issue: the merge commit's
+  subject names the slug (`chore(merge): main into <slug>`), or one commit has a
+  `Refs: <slug>` line. The commits_reference_issue rule checks the branch's own commits
+  at shipping → done, and the shipping prompt runs that transition's --dry-run before the
+  fast-forward, so a missing reference shows up while the branch can still take a commit.
+  The failure shows the commit to add, never a reword (Proves: trailers pin their shas).
+why: |
+  "A message referencing the issue" had no stated form and nothing checked it, so
+  workers found out at shipping, after the trailers pinned shas a reword would break.
+where: "the shipping → done validations, the Shipping checklist and the shipping status prompt"
+snippet: |
+  transitions:
+    - from: "shipping"
+      to: "done"
+      actions:
+        - type: "validate"
+          rule: "commits_reference_issue"
+  statuses:
+    - name: "shipping"
+      prompt: |
+        Merge main with `git merge main -m "chore(merge): main into <slug>"`: the merge's subject naming the slug is how the branch references the issue (without a merge, put a `Refs: <slug>` line in one commit's message). Before the fast-forward, run `issue-cli transition <slug> --to done --dry-run`; if its "references the issue" line fails, add the commit it shows.
+question: "Should shipping check that a commit on the branch names the issue before main is fast-forwarded?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [commits_reference_issue]

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // makeDecisionFixture adds two Sim issues next to cli/sample: sim/phases

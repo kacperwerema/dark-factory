@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/spend"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // spendFixture writes a Marketing worker's transcript (in the seo-pass
@@ -34,7 +34,6 @@ func spendFixture(t *testing.T, proj *tracker.Project) {
 	os.MkdirAll(filepath.Dir(spend.PricesPath()), 0o755)
 	mustWrite(t, spend.PricesPath(), "prices:\n  claude-test: {in: 2, out: 10}\n")
 }
-
 
 func TestSpendCommand(t *testing.T) {
 	proj := goalsProject(t)

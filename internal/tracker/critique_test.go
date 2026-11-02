@@ -23,7 +23,7 @@ func TestUnknownRuleNamesTheBuildBehindAndTheFix(t *testing.T) {
 	if !errors.As(err, &ue) || ue.Rule != "rule_from_a_newer_main" {
 		t.Fatalf("err = %v", err)
 	}
-	for _, want := range []string{"unknown validation rule: rule_from_a_newer_main", "this build (v0.58.0-rc.1, ", "behind the AI Workflow Engine's main", "AI Workflow Engine checkout (the issue-viewer repo, not this project)", "make install", "GOPATH)/bin", "newest release", "issue-cli process schema"} {
+	for _, want := range []string{"unknown validation rule: rule_from_a_newer_main", "this build (v0.58.0-rc.1, ", "behind Dark Factory's main", "Dark Factory checkout (the dark-factory repo, not this project)", "make install", "GOPATH)/bin", "newest release", "issue-cli process schema"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error lacks %q:\n%v", want, err)
 		}

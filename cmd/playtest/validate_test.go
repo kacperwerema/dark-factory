@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/testids"
 )
 
 // repoDir is the repo root as seen from this package's tests.
@@ -316,5 +318,103 @@ steps:
 		if !strings.Contains(text, want) {
 			t.Errorf("missing error %q in:\n%s", want, text)
 		}
+	}
+}
+
+// validateBody loads and validates one session body and returns every
+// error as one text.
+func validateBody(t *testing.T, body string) string {
+	t.Helper()
+	s, errs := LoadSession(writeSession(t, body))
+	if s != nil {
+		v := &Validator{ScenarioDir: filepath.Join(repoDir(t), "playtest", "scenarios")}
+		errs = append(errs, v.Validate(s)...)
+	}
+	var all []string
+	for _, e := range errs {
+		all = append(all, e.Error())
+	}
+	return strings.Join(all, "\n")
+}
+
+const pitfallHead = `session: bad
+issue: some/issue
+scenario: basic
+steps:
+  - id: TP1
+    title: a pitfall
+`
+
+// A `*` is one whole segment: `status-*` is a literal that matches nothing.
+func TestValidateWildcardIsAWholeSegment(t *testing.T) {
+	for _, id := range []string{"status-*", "board.column.back*"} {
+		text := validateBody(t, pitfallHead+"    checks:\n      - count: { pattern: "+id+", min: 1 }\n")
+		if !strings.Contains(text, "match one whole segment") {
+			t.Errorf("%s: want the whole-segment rule, got:\n%s", id, text)
+		}
+	}
+	if text := validateBody(t, pitfallHead+"    checks:\n      - count: { pattern: board.column.*, min: 1 }\n"); text != "" {
+		t.Errorf("a whole-segment pattern should pass, got:\n%s", text)
+	}
+}
+
+// open belongs in act:; under checks: the message says where it goes.
+func TestValidateOpenUnderChecksSaysAct(t *testing.T) {
+	text := validateBody(t, pitfallHead+"    checks: [{open: /x}]\n")
+	if !strings.Contains(text, `"open" is an action, not a check: move it to act:`) {
+		t.Errorf("want the move-it-to-act message, got:\n%s", text)
+	}
+}
+
+// A testid with a dash fails here, not only in make validate: both a
+// session target and a listed entry it matches.
+func TestValidateTestIDWithADash(t *testing.T) {
+	text := validateBody(t, pitfallHead+"    checks:\n      - visible: a-b.c\n")
+	if !strings.Contains(text, "lower snake case with dots") {
+		t.Errorf("unlisted a-b.c: want the snake case rule, got:\n%s", text)
+	}
+
+	saved := testids.IDs
+	testids.IDs = append(append([]string(nil), saved...), "a-b.c")
+	defer func() { testids.IDs = saved }()
+	text = validateBody(t, pitfallHead+"    checks:\n      - visible: a-b.c\n")
+	if !strings.Contains(text, `entry "a-b.c", which is not lower snake case with dots`) || !strings.Contains(text, `"a_b.c"`) {
+		t.Errorf("listed a-b.c: want the snake case rule naming a_b.c, got:\n%s", text)
+	}
+}
+
+// expect: "Saved" on the card is a quoted scalar then junk; the error says
+// to quote the whole line instead of "did not find expected key".
+func TestValidateQuotedExpectLine(t *testing.T) {
+	text := validateBody(t, pitfallHead+"    do: open it\n    expect: \"Saved\" shows on the card\n")
+	if !strings.Contains(text, "bad.yaml:8: a value starting with a quote") || !strings.Contains(text, "quote the whole value") {
+		t.Errorf("want the quote hint on line 8, got:\n%s", text)
+	}
+}
+
+// A step's viewports: picks some of the session's; StepViewports runs only
+// those, and a size the session doesn't have is refused.
+func TestStepViewportsSubsetOfSession(t *testing.T) {
+	head := "session: bad\nissue: some/issue\nscenario: basic\nsession_checks:\n  viewports: [1440x900, 390x844]\nsteps:\n  - id: TP1\n    title: desktop only\n"
+	if text := validateBody(t, head+"    viewports: [1440x900]\n    do: look\n    expect: it looks right\n"); text != "" {
+		t.Errorf("a session viewport should pass, got:\n%s", text)
+	}
+	text := validateBody(t, head+"    viewports: [1280x800]\n    do: look\n    expect: it looks right\n")
+	if !strings.Contains(text, "viewport 1280x800 is not one of the session's") {
+		t.Errorf("want the not-the-session's message, got:\n%s", text)
+	}
+	if text := validateBody(t, head+"    viewports: [wide]\n    do: look\n    expect: it looks right\n"); !strings.Contains(text, "want WIDTHxHEIGHT") {
+		t.Errorf("want the viewport shape message, got:\n%s", text)
+	}
+
+	s, errs := LoadSession(writeSession(t, head+"    viewports: [1440x900]\n    do: look\n    expect: it looks right\n  - id: TP2\n    title: both\n    do: look\n    expect: it looks right\n"))
+	if s == nil || len(errs) > 0 {
+		t.Fatalf("load: %v", errs)
+	}
+	if got := s.StepViewports(s.Steps[0]); len(got) != 1 || got[0] != (Viewport{1440, 900}) {
+		t.Errorf("TP1 viewports = %v, want [1440x900]", got)
+	}
+	if got := s.StepViewports(s.Steps[1]); len(got) != 2 {
+		t.Errorf("TP2 viewports = %v, want the session's two", got)
 	}
 }

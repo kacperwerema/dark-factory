@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var checkCommand = &Command{
@@ -77,7 +77,7 @@ func runCheck(ctx *Context, args []string) error {
 	query := strings.Join(positional, " ")
 
 	if *naFlag != "" && (*allFlag || *indexFlag != 0 || section != "" || len(positional) != 1) {
-		return fmt.Errorf("--na ticks one box by id\n\nExample:\n  issue-cli check %s T4 --na \"no page changes\"", slug)
+		return naRefusal("--na ticks one box by id\n\nExample:\n  issue-cli check %s T4 --na \"no page changes\"", slug)
 	}
 	if *allFlag {
 		if section == "" {
@@ -109,6 +109,9 @@ func runCheck(ctx *Context, args []string) error {
 		}
 	}
 	if err := refuseCriteria(ctx, issue, section, *indexFlag, *allFlag, positional, query); err != nil {
+		if *naFlag != "" {
+			return naRefusal("%v", err)
+		}
 		return err
 	}
 
@@ -267,19 +270,28 @@ func checkByRefs(ctx *Context, issue *tracker.Issue, refs, proofOnly []string) e
 // refused: an N/A never takes a box from the owner.
 func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 	reason = strings.TrimSpace(reason)
-	if p := tracker.CheckNA(reason); p != "" {
-		return fmt.Errorf("%s; nothing was ticked.\n\nWrite it in one of these forms:\n%s\n\nExample:\n  issue-cli check %s %s --na \"no page changes\"",
-			p, tracker.NAFormsHelp("  "), issue.Slug, ref)
-	}
 	it, st := tracker.ResolveCheckboxRef(tracker.ListCheckboxes(issue.BodyRaw), ref)
 	if st != tracker.RefFound {
 		fmt.Fprintf(ctx.Stdout, "No checkbox with id %s — nothing was ticked.\n\nCheckboxes:\n", ref)
 		printCheckboxes(ctx.Stdout, issue.BodyRaw)
-		return fmt.Errorf("unknown checkbox id: %s", ref)
+		return naRefusal("unknown checkbox id: %s", ref)
 	}
-	if why := boxProofReport(ctx, issue).OwnerBoxWhy(it); why != "" {
-		return fmt.Errorf("%s is the owner's box (%s): an N/A can't skip it, and nothing changed. Leave it for the owner; under YOLO it waits in the review queue.\n\nAsk on your issue trail if it really doesn't apply:\n  %s",
-			it.ID, why, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", issue.Slug)))
+	report := boxProofReport(ctx, issue)
+	if why := report.OwnerBoxWhy(it); why != "" {
+		hint := ""
+		if h := report.JudgementHint(it.ID); h != "" {
+			hint = "\n\n" + h + "."
+		}
+		return naRefusal("%s is the owner's box (%s): an N/A can't skip it, and nothing changed. Leave it for the owner; under YOLO it waits in the review queue.%s\n\nAsk on your issue trail if it really doesn't apply:\n  %s",
+			it.ID, why, hint, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", issue.Slug)))
+	}
+	if tracker.NANoForm(it.Section) {
+		return naRefusal("%s is a %s box: shipping steps have no N/A form. Tick it plainly when it's done (a box that says \"or none\" is ticked as it is):\n  %s",
+			it.ID, it.Section, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli check %s %s", issue.Slug, it.ID)))
+	}
+	if p := tracker.CheckNA(reason); p != "" {
+		return naRefusal("%s.\n\nWrite it in one of these forms:\n%s\n\nExample:\n  issue-cli check %s %s --na \"no page changes\"",
+			p, tracker.NAFormsHelp("  "), issue.Slug, ref)
 	}
 	var item tracker.CheckboxItem
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
@@ -291,7 +303,7 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 		return tracker.CheckLines(next, []int{edited.Line}), true, nil
 	})
 	if err != nil {
-		return fmt.Errorf("%w\n\nRun: issue-cli checklist %s", err, issue.Slug)
+		return naRefusal("%v\n\nRun: issue-cli checklist %s", err, issue.Slug)
 	}
 	for _, now := range tracker.ListCheckboxes(newBody) {
 		if now.Line == item.Line {
@@ -300,6 +312,12 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 	}
 	printCheckResult(ctx.Stdout, issue, newBody, []tracker.CheckboxItem{item}, nil)
 	return nil
+}
+
+// naRefusal is every check --na refusal: it exits non-zero and starts
+// with "✗ not ticked:", so a refused N/A never reads as a tick.
+func naRefusal(format string, args ...any) error {
+	return &exitCodeError{Code: 1, Msg: "✗ not ticked: " + fmt.Sprintf(format, args...)}
 }
 
 func checkSectionAll(ctx *Context, issue *tracker.Issue, section string) error {

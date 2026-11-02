@@ -33,7 +33,7 @@ fails=0
 
 cleanup() {
 	[ -n "$pid" ] && kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null
-	env -u TMUX TMUX_TMPDIR="$tmuxdir" tmux kill-server 2>/dev/null
+	env -u TMUX tmux -S "$tmuxdir/tmux-$(id -u)/default" kill-server 2>/dev/null
 	rm -rf "$tmuxdir"
 	if [ $keep -eq 1 ]; then echo "sandbox kept: $sb"; else rm -rf "$sb"; fi
 }
@@ -78,7 +78,7 @@ projects:
     workflow: $sb/repo/workflow.yaml
 EOF
 
-(cd "$repo" && go build -o "$sb/issue-viewer" .) || { echo "security-check: build failed" >&2; exit 1; }
+(cd "$repo" && go build -o "$sb/issue-viewer" ./cmd/issue-viewer) || { echo "security-check: build failed" >&2; exit 1; }
 env -u TMUX HOME="$sb" XDG_STATE_HOME="$sb/state" XDG_CONFIG_HOME="$sb/config" \
 	TMUX_TMPDIR="$tmuxdir" ISSUE_VIEWER_TELEMETRY=off \
 	"$sb/issue-viewer" -config "$sb/projects.yaml" -host 127.0.0.1 -port "$port" -record-viewer=false -owner-code terminal \

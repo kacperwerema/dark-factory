@@ -340,6 +340,85 @@ The owner can change a station of the Product line from the viewer: the Product 
 
 For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. A gate marked `owner_only: true` (a step that spends money or publishes outside the machine, like the marketing template's `owner review → publish`) is never passed: it waits for the owner. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).
 
+## Decision ledger
+
+Decisions are the `D-n` lines under an issue's `## Decisions` ([format](issue-format.md#decisions)). Each line may end with an attribute group that says whom it reaches and how strong it is; the line stays the one record, and its ref (`<slug>#D-n`) never changes.
+
+    - **D-4** · 2026-10-31 · chat: Agents merge into local main, "only main" {scope: project; hard; paths: cmd/**}
+
+- **Scope** (`scope:`): `issue` (the default, never written: the decision's own issue, every issue below it in the `parent:` chain, and every issue citing it), `project`, `system:<S>`, `department:<key>` (box keys: `product` or a department's key), `type:<t>`.
+- **Hard** (`hard`): the owner's rule. It needs the owner's words on the line (a quote, not provisional or YOLO).
+- **At** (`at:`): the statuses where it matters; empty is all.
+- **Paths** (`paths:`): globs (`**` any folders) a hard decision guards. Only on hard decisions.
+- **Expires** (`expires:`): its last day in force.
+- **Ended** (`ended:`): the day an expired decision was let go (`decide --let-go`); written only by let go.
+
+**Expiry.** A decision is in force through its `expires:` day and expired from the next: it leaves `decisions --in-force` and the briefings, `citations_current` refuses citing it, and `issue-cli decisions --state expired` lists it (`--in-force` adds a line counting the expired ones that would reach the issue). The state depends on the day, so the readers compute it (`DecisionEntry.StateOn`); nothing is written when the day passes.
+
+- `issue-cli decide <slug> --renew D-n --expires YYYY-MM-DD [--quote "…"]` gives it a new last day (today or later), before or after it passed: a `renewed` event.
+- `issue-cli decide <slug> --let-go D-n [--quote "…"]` closes out an expired one: `ended: <today>` in its group, an `expired` event. It stays out of force. Let go is final: renewing one refuses and points at `--replaces`; letting go of one not yet expired refuses (end it early with `--amend D-n --expires <today>` or replace it).
+- On a hard decision both are the owner's acts, like every change to it: a worker is refused, the lead relays the owner's `--quote` (the `decision:` comment), the owner's own shell may; the owner's `--quote` (shell) or words (browser) go in a `decision: <ref> renewed until <date>, "<words>" — the owner` comment, so the line's quote stays as it is. `--amend --expires` on an expired decision points at renew and let go instead.
+- **Waiting on you.** An expired hard decision nobody renewed or let go is one Needs you row ("Decision expired", in To answer) with **Renew** (a date, default today + 90 days) and **Let go**, both with an optional words box: `POST /p/<project>/decisions/<slug>/<D-n>/renew {expires, text}` and `…/let-go {text}`, the owner's browser only (O routes in [Security](API/security.md)). The row reads only the issue files with an `expires:` or a `(replaces …)` (`tracker.ExpiredHard`).
+
+**In force.** `issue-cli decisions --in-force <slug>` lists what reaches an issue at its status: not replaced, deferred or expired, `at:` naming the status (or empty), and a scope that reaches it, hard first (`tracker.InForce`). The existing lines are all scope `issue`, soft.
+
+**In front of the agent.** The same list reaches the agent where it already looks, as "Decisions in force": `== Decisions in force ==` in `issue-cli start` (at the status after start's move, before `== Memories ==`) and `issue-cli show`, `## Decisions in force` in the worker briefing (before `## Memory`, so the dispatch-prompt preview shows it too), and a "Decisions in force" item in the lead briefs: the CEO gets project-scoped decisions, a department lead project and `department:<its key>` ones, `at:` not filtered (`issue-cli decisions --lead ceo|<department>` lists them). Each line is `- <ref> · hard|soft · <scope> · <text on one line, cut at 100>` with the owner's quote when it is 60 characters or shorter. Hard decisions are never folded; soft ones fill what is left of the cap (`decisions: brief_cap:` in workflow.yaml, 12 when unset), and the rest is one line, `and N more: issue-cli decisions --in-force <slug>`. A last line says how to disagree (`decision challenge`, below). With nothing in force the block is one line naming the command, never left out. The fresh critic's brief lists every decision in force by ref, strength and scope with the path of the issue file holding it, never its text (the critic reads the files).
+
+    == Decisions in force ==
+    - ops/rules#D-1 · hard · project · Agents merge into local main — "only main"
+    - ops/rules#D-2 · soft · system:Workflow · Gates name the fix command
+    Disagree with one? Challenge it: issue-cli decision challenge <ref> --why "…" (your issue waits for the owner's answer); never work against a hard one.
+
+**Who changes what.** Agents record soft decisions and scope them (`decide --scope`, `decide --amend D-n --scope`), a worker on its own issue and never wider than a system or a type. Every change to a hard decision is the owner's: `--hard`, any `--amend` of a hard line, `--replaces` of a hard decision. A worker is refused; the lead relays the owner's words with `--quote`, and the write posts a `decision:` comment on the issue (in the YOLO review queue while YOLO is on); in the viewer only the owner's browser can tick Hard on Confirm or press Make hard. A decision replacing a hard one stays hard with the same scope and paths unless the owner says otherwise.
+
+**What may change in place.** Only the attribute group (`decide --amend`), and the owner's words through `decide --confirm`. Date, how, text, quote, also-considered and replaces stay byte for byte; to change what was decided, record a new decision with `--replaces`.
+
+**Citing decisions in design.** Two rules check a design against the ledger, on the edges out of `in design` (the `decision-ledger` catalog entry; both take `since <YYYY-MM-DD>`, and an issue created before it passes):
+
+```yaml
+- type: "validate"
+  rule: "decisions_cited: since 2026-11-01"
+- type: "validate"
+  rule: "citations_current: since 2026-11-01"
+```
+
+- `decisions_cited`: `## Design` names every **hard** decision in force for the issue at its current status (the Decisions in force block, `decisions --in-force <slug>`), other than the issue's own: by its ref (`Follows sim/rules#D-4: …`), or on a line `n/a <ref>: <why>` (a list item or a plain line). A bare `n/a <ref>` refuses. Soft decisions never hold it. The Design checklist's "Decisions in force cited" box is the step.
+- `citations_current`: no ref cited in the body outside its own `## Decisions` is replaced or expired. The refusal names the replacer and its text; cite it instead, or write the history as `(replaces <ref>)`, which is no citation.
+- Each refusal lists the refs with their scope and text, the `issue-cli append … --section Design` lines that fix it, and how to challenge a decision (`decision challenge`, below).
+- Under YOLO the holds pass and wait in the review after the fact as `yolo-hold:` comments ([YOLO Mode](Workflow/yolo.md)).
+- `issue-cli health lint` (check `workflow`) warns on a validate rule the build doesn't know and on a bad `since` date. The rules build the project's decision index only when they run, so a workflow without them is unchanged.
+
+**Challenges.** An agent that thinks a decision is wrong says so on the record, and only its own issue waits:
+
+    issue-cli decision challenge sim/rules#D-2 --why "PRs give the owner a review step" [--propose "merge via PRs"] [--for <slug>]
+
+- The ref must exist and not be replaced (challenge the replacer); `--why` is required; a second open challenge on the same ref from the same issue is refused. A worker challenges for its own issue (`--for` defaults to it and may name no other); a lead or the owner's shell names `--for`.
+- It writes a `challenged` event (ref, the challenger's `issue`, `why`, `propose`) and a `challenge: <ref> — <why> · propose: … (for <issue>, by <who>)` comment on the challenger's issue and on the decision's. The log is the state: a challenge is open while its `challenged` event has no later `resolved` one for the same ref and issue. Comments are the trail; typing one opens or closes nothing.
+- The lead sees each new challenge once, after its next issue-cli call (`== Decision challenges ==`, with the two answers to relay); `issue-cli decision challenges [--json]` lists the open ones. The owner sees one Needs you row per open challenge (To answer): the decision's text, why, the proposal, and "Also on it, not held": the other open issues that cite it and those whose `work/<slug>` branch's merge-base diff touches its `paths:`.
+- The owner answers. **Keep:** `issue-cli decision resolve <ref> --keep [--for <slug>] [--quote "…"]`, the row's **Keep it** (`POST …/decisions/challenge/resolve`, the owner's signed-in browser only), or confirming a challenged provisional decision (`decide --confirm`, the Decisions log's Confirm). **Change:** `decide <slug> --replaces <ref> --text "…"`. Each closes every open challenge on the ref (`resolved` events, `new: kept|replaced`, `by_ref`) and posts `challenge-resolved: <ref> kept|replaced by <ref>[, "<words>"] — <who>` on each challenger's issue. Answering is the owner's act, soft or hard: a worker is refused (also for `--replaces` and `--confirm` of a challenged decision), a lead relays the owner's `--quote` (a `decision:` comment on the decision's issue, in the YOLO review while YOLO is on).
+- The rule `decision_unchallenged[: since <date>]` holds the issue while a challenge it made is open, at the gates that have it (the `development` template: out of `in design` and `in progress → testing`). It holds only the challenger: an issue that cites the decision, or whose branch touches its paths, goes on (the diff audit judges those by citation). The refusal names the ref, why and the answer commands. A challenge never clears a gate. Under YOLO the hold passes as a `yolo-hold: decision_unchallenged <ref> from <status>: challenged by this issue: <why>` comment, listed by `issue-cli yolo queue`, and the challenge stays open.
+
+**The diff audit.** `decisions_respected[: since <YYYY-MM-DD>]` checks the code, at `in progress → testing` and every edge into `shipping` (the `development` template's type overlays too). It reads the work branch's own changes: `git diff --name-only <from>...<head>`, where the head is `work/<slug>` (else the sidecar's last recorded branch head) and `<from>` is the merge-base of the head and the current main branch, so a `chore(merge)` of main adds nothing and main moving on changes nothing (once the head is in main, the issue's recorded base). For every hard decision in the project that has `paths:` and is not replaced, deferred or expired, **whatever its scope or `at:`** (scope decides who is briefed, not which branches the guard skips), a changed file its globs match makes the issue cite the ref somewhere in its body outside its own `## Decisions` (an `n/a <ref>` line doesn't count; the issue's own decisions do), with no open challenge of its own on it (a `challenged` event for the ref and this issue in the audit log with no later `resolved`; another issue's challenge never holds it). Soft decisions never hold it. A replaced decision is judged through its replacement, which inherits `paths:`.
+
+    decisions_respected: the branch changes files 1 hard decision guards:
+      ops/rules#D-4: Agents merge into local main
+        files: cmd/issue-cli/main.go  (paths: cmd/**)
+        not cited (an n/a line doesn't count for a decision the branch touches)
+    Cite each, saying how the change follows it:
+      issue-cli append <slug> --section Design --body "Follows ops/rules#D-4: …"
+    or, if the change goes against it, undo that part, or challenge it and wait for the owner.
+
+- A citation is the agent's statement that the change follows the decision; the gate only counts paths (no model reads the diff), and the fresh critic's brief lists the touched decisions ("Hard decisions this branch touches": ref, the file holding it, the matching files) so a reader checks the claim.
+- `issue-cli decisions --touched <slug> [--json]` prints the same audit: the files, each touched decision and cited / NOT cited / challenged. It only reads.
+- No recorded base (the issue wasn't cut by a dispatch) or no branch: the rule passes with a `⚠ decisions_respected: … the diff audit didn't run` line on the transition and its dry run. A git error refuses, naming it.
+- Under YOLO a hold passes and leaves `yolo-hold: decisions_respected <ref> from <status>: touched (<files>), not cited` for the review after the fact.
+
+**The audit log.** `<issues>/.decisions/log.jsonl`, one JSON event per line (`recorded`, `amended`, `confirmed`, `replaced`, `challenged`, `resolved`, `renewed`, `expired`: let go), appended under a lock and never rewritten. Each write logs `pending` while it holds the issue's lock, then `done`, or `failed` when the write did not land; readers count only `done`. An event names the ref, who (`by`, and `role`: `owner-shell`, `owner-browser`, `lead-relay`, `agent`), the old and new attribute group and the relay comment's id; never a decision's text or quote. A real briefing that carried at least one decision appends one `injected` event (op `done`): `briefing` (`start`, `dispatch` when the agent was launched, `reprompt` when the paste arrived, `lead`, `department-lead`), `issue` ("" for a lead) and `refs`, every ref shown or folded. Reads (`decisions`, `--in-force`, `--lead`, `show`, `dispatch-prompt`, `critique --brief`) never write it.
+
+**Holds.** A real `transition` that a ledger rule (`decisions_cited`, `citations_current`) refuses, or that YOLO lets through over one, appends one `held` event per rule and ref (op `done`): `rule`, `issue`, `from`, `to`, `passed` (true under YOLO). A dry run never writes it. Challenges are `challenged` and `resolved` events (ref, the challenger's `issue`).
+
+**Reading the audit log.** `issue-cli decisions log [--ref <slug>#D-n] [--issue <slug>] [--since YYYY-MM-DD] [--json]` prints the `done` events in time order, one line each (`2026-10-31 14:02 · amended · econ/gold#D-2 · {…} → {…} · lead-x (lead-relay)`). `--ref` keeps that decision's events and the briefings that carried it; `--issue` the issue's own decisions and the briefings, holds and challenges naming it; `--since` is inclusive, local time. `decide --amend` and a refused transition print the command for their ref. The Stats page's **Decisions** card counts the same ledger (in force by scope, hard and soft, provisional, open challenges, gate holds by decision, the briefings that carried the block, in the page's range), and the `decisions` health family snapshots it ([Workbench Files](workbench-files.md#the-decisions-family)). "Provisional" there is a ledger state; the one waiting-on-you count stays `needsYouRows`.
+
 ## Post-mortem
 
 When an issue closes, a fresh agent that did none of the work reads the run and writes a post-mortem: a retro whose lessons each go to one place, and only once the owner agrees. Source: factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees.
@@ -388,13 +467,18 @@ ci:
       failures: '--- FAIL: (\S+)'      # optional: group 1 names a failing test
       results:                         # optional: test results the command writes
         - {kind: e2e, format: playtest, file: e2e.json}
+  nightly:              # optional: run one tier once a night
+    tier: slow
+    at: "03:00"         # local time it may start from; default 03:00
+    timeout: 3h         # for any run of this tier; default ci.timeout
 ```
 
 - `ci:` is project-wide: system and type overlays can't change it.
 - `issue-cli process schema` documents every key, and `process workflow` lints the block. It flags an empty `run`, a bad timeout, an unknown `on_red`, a `failures` regex without a group, and a block with only slow commands.
 - Commands run with `sh -c` in their own session: their own process group, so a timeout kills everything they started, and no controlling terminal. The detached runner lives in a tmux window, so without that a command that starts an interactive shell (`bash -i`, `$SHELL -lic`) would stop on the window's tty until the timeout; with it the shell says "no job control" and carries on, as in any CI. They get `CI=true` and `CI_RESULTS_DIR` (see [Test results](#test-results-results)). `ISSUE_VIEWER_*`, `AGENT_NAME` and `TMUX` are removed, so issue-cli inside a test never thinks it is an agent and never reaches the real tmux server.
 - The block does not need `allow_shell`: it is its own opt-in, and its commands are the project's own.
-- This repo runs `make validate` on every move of main, with `make ux-test` as the slow tier. Both declare their test results.
+- This repo runs `make validate` on every move of main, with `make ux-test ALL=1` (every playtest session) as the slow tier, run every night. Both declare their test results.
+- **Nightly:** with `nightly:` the viewer's CI watcher (and `issue-cli ci watch`) starts `issue-cli ci run --tier <tier> --detach` once a night: after `at`, or at the next look when yesterday's slot was missed, when no run is live, the tier has not run since the slot and `mem-guard check` allows it (a machine without mem-guard is allowed). One start per night, even if the run dies. The result is a slow-tier run like any other: `ci status --tier slow`, its failures named by the command's `failures:` regex, its red log kept in `.ci/red/` (the Status card's Last red line names the tier); it never turns main red. While it runs, merges wait for the lock: the default tier tests the newest head when it ends. `process workflow` flags a nightly tier with no command, a bad `at` or a bad `timeout`.
 
 ### Test results (`results:`)
 
@@ -480,12 +564,14 @@ A check that stays red round after round becomes a question for the owner, and t
 max_red_rounds: 4   # top level, project-wide like ci:; 4 when unset
 ```
 
-- **What counts.** Checks that run and can go red without the worker touching them: a gate's `command_succeeds` command (`gate:command_succeeds:<command>`), the proof check (`gate:criteria_proven`), and a local CI command on a run that merged the issue (`ci:<command>`). Checkbox and section gates don't count, because the worker fills those in. `issue-cli transition` records each check it ran, red or green, in the issue's stats sidecar (`rounds:` in `<issue>.stats.json`). CI runs are read from `.ci/runs`. The fresh critic's runs are read from `<issues>/.critique/runs.jsonl`. Each run with a blocks finding is a red round of `critique <from> → <to>`, and the fourth posts the question. While it is open, `issue-cli critique` refuses as well ([The Fresh Critic](Workflow/critique.md#the-gate)).
+- **What counts.** Checks that run and can go red without the worker touching them: a gate's `command_succeeds` command (`gate:command_succeeds:<command>`), the proof check (`gate:criteria_proven`), and a local CI command on a run that merged the issue (`ci:<command>`). Checkbox and section gates don't count, because the worker fills those in. `issue-cli transition` records each check it ran, red or green, in the issue's stats sidecar (`rounds:` in `<issue>.stats.json`). CI runs are read from `.ci/runs`. The fresh critic's runs are read from `<issues>/.critique/runs.jsonl`. Each run with a blocks finding is a red round of `critique <from> → <to>`, and the fourth that counts posts the question. While it is open, `issue-cli critique` refuses as well ([The Fresh Critic](Workflow/critique.md#the-gate)).
 - **A round** is one fix attempt. Critique runs are the exception: each held run is its own round. Otherwise, reds at the same work-branch head fold into one round, so retrying without a new commit doesn't add to the count. With no branch, each red is a round. A green ends the check's streak.
-- **At the cap.** The transition that records the fourth red posts `question: red rounds: <check> — red 4 of 4 …` with the recommendation first and the options after it, then refuses. While that question is open, every `transition` refuses *before* running anything, naming the question. The check is not retried automatically. YOLO doesn't pass it: it's a question, not a gate approval. The question is a `question:` comment, so it shows on Needs you like any other.
+- **Only a repeated failure counts.** Each round keeps what failed: the critic's blocks findings (matched by path and text, with case, spacing and punctuation folded and the line left out), the failing tests (`--- FAIL:` lines, or local CI's failure names), the unproven criteria of the proof check (by id), or else the failure text with numbers and shas masked. A round counts when one of its failures was a failure of an earlier round since the last green. A round whose failures are all new starts the count over at 1: a design whose critic finds new, fewer problems each run (3, 2, 1, 1) stays at "red 1 of 4". The same finding four times still reaches the cap, and so does a finding that comes back after a run without it. Records from before v0.60 have no failures kept: their failure line is compared instead.
+- **An owner comment starts the count over.** Any comment by the owner on the issue (author `owner`, from the viewer) makes every round before it stop counting, for every check. A cap question that is already open stays open: only resolving it answers it.
+- **At the cap.** The transition that records the fourth counted red posts `question: red rounds: <check> — red 4 of 4 …` with the recommendation first and the options after it, then refuses. While that question is open, every `transition` that runs that check refuses *before* running anything, naming the question. A question on a gate or critique check the transition doesn't run (the critic gate was taken out of workflow.yaml, or it sits on another edge) stays open for the owner but doesn't hold the transition; a question on a local CI check or a name given with `--cannot-fix` holds every forward transition. A transition to a side status (`parked`, or any optional status every status can move to) is never held: it passes and counts no rounds, and `close --duplicate-of/--fixed-by` parks the same way. The check is not retried automatically. YOLO doesn't pass it: it's a question, not a gate approval. The question is a `question:` comment, so it shows on Needs you like any other.
 - **The owner's answer** is resolving the question (the comment toggle on the issue page). Rounds before it no longer count, and the next transition runs the check again.
 - **Can't fix it.** `issue-cli rounds <slug> --cannot-fix "<check>" --why "…"` raises the question at once, for a listed check or a new name such as `test:TestFoo`.
-- **Where it shows.** A red check's refusal says `red 2 of 4 (max_red_rounds)`. `issue-cli rounds <slug> [--json]` lists every red check. `show` and `start` print a `Red rounds:` line. The worker briefing has a `## Red checks` section. The Station's Tests and proofs panel lists *red checks* with "red 3 of 4".
+- **Where it shows.** A red check's refusal says `red 2 of 4 (max_red_rounds)`. `issue-cli rounds <slug> [--json]` lists every red check and each of its rounds since the last green: `round 3 · count 2 · same finding: design.md — … as round 1`, or `all failures new: the count starts over` (`history` in the JSON). `show` and `start` print a `Red rounds:` line. The worker briefing has a `## Red checks` section. The Station's Tests and proofs panel lists *red checks* with "red 3 of 4".
 - **Lint.** `workflow` warns on a value below 1. `max_red_rounds` is project-wide, so a department's own file setting it gets the `department` warning. Catalog entry `red-round-cap`.
 
 ## Private work and code
@@ -552,7 +638,7 @@ A public dev repo publishes how the work was done, not just the result: commit m
 - with `code: snapshots`, any commit or tag to the public remote (by name or URL) that is not a release snapshot (`privacy guard: public gets release snapshots only, and <sha> ("…") is a dev commit`);
 - with `code: public`, a commit message that quotes a decision.
 
-`issue-cli privacy hook` reinstalls it. A clone without the hook (another machine, a cloud session) is the gap it can't close, which is why everyone works against the dev repo. For a PR opened on GitHub, `.github/workflows/privacy-guard.yml` reads the same `privacy:` block: a PR touching a work path fails (`work_files: tracker`), and with `code: snapshots` every PR on the public repo fails, pointing at the dev repo. Copy it into a project that turns the feature on.
+`issue-cli privacy hook` reinstalls it. A clone without the hook (another machine, a cloud session) is the gap it can't close, which is why everyone works against the dev repo. For a PR opened on GitHub, `.github/workflows/privacy-guard.yml` reads the same `privacy:` block: a PR touching a work path fails (`work_files: tracker`), and with `code: snapshots` every PR on the public repo fails, saying PRs are not merged there and asking for an issue instead (the public repo's `ci.yml` only builds and tests each snapshot pushed to main). Copy it into a project that turns the feature on.
 
 ### The leak scan
 
@@ -563,6 +649,8 @@ Tracked files must not carry this machine's private data. The scan (`internal/pr
 - a name from the owner's private-names list, `$XDG_CONFIG_HOME/ai-workflow-engine/private-names.txt` (default `~/.config/ai-workflow-engine/private-names.txt`): one name per line, `#` for comments, matched as a whole word without case. The list stays outside the repo, so the names never reach it. With no list, only the path patterns run.
 
 `TestTrackedFilesCarryNoLeaks` (internal/privacy) runs it over the repo, so `make validate` fails on a hit and names the file and line. `issue-cli release publish` runs it over the release branch's tree and refuses, the `--dry-run` too, before anything goes public.
+
+Beside it, `TestTrackedFilesNameUpstreamOnlyInLicense` (`internal/privacy/upstream.go`) guards the upstream author's name: in any case, it may appear in LICENSE.md only (its Required Notice lines), and a hit in any other tracked file fails `make validate` with its file and line. `issue-cli release publish` (and its `--dry-run`) runs the same check over the release branch's tree and refuses a hit, even on a machine with no private-names list. Fixtures and docs use placeholder owners such as `example-org/example-repo`; this repo is `github.com/kacperwerema/dark-factory`. Source: factory/public-repo-cleanup-v0-60-0-module-path-layout-leftovers-naming-licence-and-attribution#D-4.
 
 A test input or doc that needs a home path uses a placeholder user: `someone`, `owner`, `me`, `u`, `a` and the others in `placeholderUsers` in leaks.go. Add a made-up name there when a test needs another one, never a real one. For a sample project, use a placeholder such as `Orchard` / `orchard`.
 

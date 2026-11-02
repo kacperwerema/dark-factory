@@ -245,7 +245,7 @@ func TestMB(t *testing.T) {
 	}
 }
 
-// writeGameRun makes a run the way a game's runner writes it (RogueTech):
+// writeGameRun makes a run the way a game's runner writes it (Kestrel):
 // mode ux-test or playtest, started: without an offset, each step's shots
 // beside results.yaml (screenshots:). steps is the YAML after "steps:";
 // empty writes a header-only run. shots are PNGs to put beside it.
@@ -289,7 +289,7 @@ func TestModeAndModeFromName(t *testing.T) {
 	}
 }
 
-// A game project's runs (RogueTech): modes ux-test / playtest, shots beside
+// A game project's runs (Kestrel): modes ux-test / playtest, shots beside
 // results.yaml, a -cached run that points at the run holding its shots, a
 // header-only playtest the owner abandoned. Done keeps the latest of each
 // session and mode, moves them to the root and deletes only what a newer

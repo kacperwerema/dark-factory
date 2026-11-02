@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/ci"
 )
 
 // runCIGoTest is `issue-cli ci gotest`: go test -json on stdin, plain go test

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/privacy"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/privacy"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const snapshotsBlock = "privacy:\n  code: snapshots\n  decided: \"2026-10-24, owner: \\\"private dev\\\"\"\n"

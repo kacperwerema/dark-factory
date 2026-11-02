@@ -211,6 +211,23 @@
     return false;
   }
 
+  // shownRect: el's box cut at every ancestor that clips its overflow (a
+  // scrolling panel, a box hiding it): what of el is on screen. Null when
+  // nothing is.
+  function shownRect(el) {
+    var r = el.getBoundingClientRect();
+    var top = r.top, left = r.left, bottom = r.bottom, right = r.right;
+    for (var n = el.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      var s = getComputedStyle(n);
+      if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+      var p = n.getBoundingClientRect();
+      if (s.overflowY !== 'visible') { top = Math.max(top, p.top + n.clientTop); bottom = Math.min(bottom, p.top + n.clientTop + n.clientHeight); }
+      if (s.overflowX !== 'visible') { left = Math.max(left, p.left + n.clientLeft); right = Math.min(right, p.left + n.clientLeft + n.clientWidth); }
+    }
+    if (bottom <= top || right <= left) return null;
+    return { top: top, left: left, bottom: bottom, right: right };
+  }
+
   function floating(el) {
     for (var n = el; n && n !== document.body; n = n.parentElement) {
       var p = getComputedStyle(n).position;
@@ -416,7 +433,8 @@
         groups.forEach(function (els) {
           for (var i = 0; i < els.length; i++) for (var j = i + 1; j < els.length; j++) {
             if (els[i].contains(els[j]) || els[j].contains(els[i])) continue;
-            var a = els[i].getBoundingClientRect(), b = els[j].getBoundingClientRect();
+            var a = shownRect(els[i]), b = shownRect(els[j]);
+            if (!a || !b) continue;
             var w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
             var h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
             if (w > 2 && h > 2) v(rule, els[i], 'overlaps ' + els[j].getAttribute('data-testid') + ' by ' + Math.round(w) + 'x' + Math.round(h) + 'px');

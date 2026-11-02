@@ -8,10 +8,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/goals"
-	"github.com/michal-franc/issue-viewer/internal/jobs"
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // checkDepartments flags mistakes in projects.yaml's company: and
@@ -148,8 +148,11 @@ func checkDepartments(env *Env) []Finding {
 	if p.Company != nil && len(p.Company.Jobs) > 0 {
 		add("company", "jobs: on HQ are not run: a recurring job belongs to a department", "move the jobs under a department in departments:")
 	}
-	if p.Product != nil && len(p.Product.Jobs) > 0 {
-		add(tracker.ProductName, "jobs: on the Product entry are not run: a recurring job belongs to a department", "move the jobs under a department in departments:")
+	if p.Product != nil {
+		// Product's jobs run too (factory/nightly-self-improvement-loop-…#Q1).
+		for _, f := range checkJobs(p, tracker.ProductName, p.Product.Jobs) {
+			add(tracker.ProductName, f.Message, f.Fix)
+		}
 	}
 	out = append(out, checkJobLog(env)...)
 	return append(out, checkOutputs(env)...)

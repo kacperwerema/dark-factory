@@ -4,7 +4,7 @@
 # An AI issue belongs to Sim's siege epic, so Sim's epic spans two systems.
 title: System pages
 project:
-  name: Raid League
+  name: Siege Cup
   slug: rl
 issues: tracker
 workflow: workflow.yaml

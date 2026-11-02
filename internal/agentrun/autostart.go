@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/routing"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // autostartRank is issue-cli next's priority order.

@@ -5,7 +5,7 @@ order: 22
 
 # Playtest example: a game
 
-This is how RogueTech.X (a Godot game) playtests its screens. Its full
+This is how Kestrel (a Godot game) playtests its screens. Its full
 reference is the playtest-sessions page under docs/workflows in that repo,
 with code in its Game/Playtest, UI/Testing and tools/PlaytestTool folders. Copy the parts
 your game needs. The shared shape is in `issue-cli process playtest`.
@@ -32,7 +32,7 @@ your game needs. The shared shape is in `issue-cli process playtest`.
 
 ## Parts
 
-| Part | In RogueTech.X |
+| Part | In Kestrel |
 |:--|:--|
 | Labels | `TestId.Set(control, TestIds.PostBattle.Accept)`. Ids are listed in `UI/Testing/TestIds.cs` (`#` an index, `*` a segment). Non-controls (map tokens, worlds) implement `ITestTarget` and register themselves. A data table labels its headers and rows from a prefix. |
 | Debug API | `GET /api/ui/targets` (id, kind, rect, visible, enabled, text, primary, selected) and `GET /api/state/<probe>`. They show what a session can point at. |

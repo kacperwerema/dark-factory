@@ -1,8 +1,10 @@
-# AI Workflow Engine
+# Dark Factory
 
 **Agents do the work. You make the decisions that matter.**
 
-AI Workflow Engine runs Claude Code and Codex agents through a process you write down, one issue at a time. It stops them at the moments you care about and shows you the whole factory on one board.
+Dark Factory runs Claude Code and Codex agents through a process you write down, one issue at a time. It stops them at the moments you care about and shows you the whole factory on one board.
+
+Dark Factory ships two binaries: `issue-viewer`, the board, and `issue-cli`, the agents' CLI.
 
 <!-- Hero GIF slot (docs/images/hero.gif, not recorded yet): open an issue, press ▶ Claude; the agent's tmux pane runs `issue-cli start`; it blocks on a human approval; stamp it on the station; the agent carries on and the crate moves down the line. 20–30 s, 1280×720, under 5 MB. Until then the hall is the hero. -->
 ![The Product hall: each station is a status from workflow.yaml with the issues sitting in it, the gates between them are stamps waiting on you, and the selected worker's progress shows on the right](docs/images/workshop-hall.png)
@@ -150,8 +152,11 @@ You need Linux or macOS, `git`, `tmux`, and the `claude` or `codex` CLI on your 
 
 ```bash
 # 1. Install issue-cli (the agent CLI) and issue-viewer (the board) into ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
-#    or, from a clone or your fork:
+curl -fsSL https://raw.githubusercontent.com/kacperwerema/dark-factory/main/install.sh | bash
+#    or with Go:
+go install github.com/kacperwerema/dark-factory/cmd/issue-cli@latest github.com/kacperwerema/dark-factory/cmd/issue-viewer@latest
+#    or both from a clone:
+git clone https://github.com/kacperwerema/dark-factory && cd dark-factory
 GOBIN="$HOME/.local/bin" make install
 
 # 2. A project: issues/, docs/, workflow.yaml and its entry in projects.yaml
@@ -166,6 +171,8 @@ issue-cli --project shop create --title "Add a dark mode toggle" --system UI
 issue-cli --project shop dispatch ui/add-a-dark-mode-toggle --quote "try the dark mode toggle"
 tmux attach -t agent-ui-add-a-dark-mode-toggle
 ```
+
+The config folder `~/.config/ai-workflow-engine/` and the state folder under `~/.local/state/` keep the project's earlier name, `ai-workflow-engine`, like a few env vars ([Legacy names](docs/getting-started.md#legacy-names)).
 
 The worker reads the workflow with `issue-cli process`, works the issue and stops at the first gate. Sign in on the board as the owner (**YOU**, then **Show me a code**) to approve it. Or press **Start CEO** on the company page and let the project lead dispatch workers for you. [Getting started](docs/getting-started.md) walks the same steps one by one, with a department from a template, what each optional tool adds, and what to do when a step fails.
 
@@ -234,18 +241,10 @@ agent  → done, then files a retrospective on the workflow
 
 All commands: `issue-cli help`, or [docs/CLI/overview.md](docs/CLI/overview.md).
 
-## In real use: Raid League
-
-Raid League is a football-manager-style game about a fantasy siege tourney, built in Godot and C# by one person and a crew of Claude agents on this engine since September 2026:
-
-- **235 issues** on the board and a **710-line workflow** with ten statuses, four human gates and 13 system overlays.
-- **Board buttons** for recurring agent jobs: *Balance report*, *Speed sweep*, *Idea sweep*.
-- One issue, "Sapper traps", went from discussion to pushed in 3 h 50 m, with the human in the loop at four stamps and a few chat answers.
-
-It runs with one project lead and a handful of workers at a time.
-
 ## What's new
 
+- **v0.60, the public release:** one name, Dark Factory, and one module, `github.com/kacperwerema/dark-factory` (`go install github.com/kacperwerema/dark-factory/cmd/issue-cli@latest`); install from this repo; the viewer lives in `cmd/issue-viewer`; CI runs on every public snapshot; outside pull requests are asked to open an issue first.
+- **v0.59, the floor and the critic:** the company page is one fixed floor with a chat link on every room; a fresh critic reads the work before a gate; one clarify round per design; a post-mortem at close; a check still red after four fix rounds becomes a question for you.
 - **v0.58, departments that report:** a markdown output on the shelf opens as a document you comment on in the margin; HQ links to a one-minute report on the whole company; each room shows its spend and budget; department health joins the daily snapshot; a group's lead plans and reports its week; groups nest; declared connections say who may ask whom; workflows declare `evals:` so a workflow change gets a benchmark verdict.
 - **v0.57, departments that run:** add a department from a template, a lead per department, recurring jobs, connectors to outside tools, the factory benchmark and the experiment loop, and auto-start (your standing start, one worker at a time while memory is low).
 - **v0.56, edit the workflow from the hall:** open a station in the Product hall and press **Edit** to change its prompt, its ways in and out and their gates, with a preview and checks before the one-file commit. This README and its pictures now show the Workshop Board.
@@ -265,7 +264,7 @@ Every change is in [cmd/issue-cli/CHANGELOG.md](cmd/issue-cli/CHANGELOG.md) and 
 
 ## Status and roadmap
 
-Version 0.58 (October 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
+Version 0.60 (November 2026). Pre-1.0 and moving fast. Each version is one milestone with one focus, released when its last issue ships. Renamed keys keep a deprecated alias (`actions:` still works next to `issue_actions:`).
 
 Next, in order, from [docs/roadmap.md](docs/roadmap.md):
 
@@ -276,10 +275,12 @@ Next, in order, from [docs/roadmap.md](docs/roadmap.md):
 
 ## Contributing
 
-The author tracks this tool's own work with the tool (its `issues/` folder is kept out of git). Before sending a change, run `make validate` (go vet, the test suite and a coverage floor on `issue-cli`). Build with `make build` and `make build-cli`; `make demo` starts the board on the sample project. `make readme-shots` retakes this README's pictures from a staged copy of the demo (`docs/images/shots.yaml` lists them).
+This repository gets one snapshot per release; day-to-day work happens elsewhere. Issues are welcome at [github.com/kacperwerema/dark-factory/issues](https://github.com/kacperwerema/dark-factory/issues): bug reports, questions, ideas. Pull requests are not merged here, so open an issue instead and describe the change.
+
+To build and change it in your own copy: `make build` and `make build-cli` build the two binaries, `make validate` runs go vet, the test suite and a coverage floor on `issue-cli`, and `make demo` starts the board on the sample project. `make readme-shots` retakes this README's pictures from a staged copy of the demo (`docs/images/shots.yaml` lists them).
 
 ## Licence
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md): free for any noncommercial use (personal projects, research, study, hobby, charities, schools, public bodies), including changing and sharing it. Commercial use is reserved to the author; anyone else needs a separate commercial license. The terms have no expiry or change date.
+[PolyForm Noncommercial 1.0.0](LICENSE.md): free for any noncommercial use (personal projects, research, study, hobby, charities, schools, public bodies), including changing and sharing it. Commercial use needs a separate written commercial license from the licensor named in [LICENSE.md](LICENSE.md)'s Required Notice lines. The terms have no expiry or change date.
 
-The bundled fonts in `static/fonts/` keep their own SIL Open Font License.
+The bundled fonts in `internal/viewer/static/fonts/` keep their own SIL Open Font License.

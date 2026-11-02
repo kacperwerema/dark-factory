@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 type Entry struct {
@@ -96,10 +96,10 @@ func (e Entry) appliesTo(template string) bool {
 	return false
 }
 
-// Catalog is the bundled feature catalog: workflow-features.yaml and the
-// one-entry files beside it (ParseCatalog).
+// Catalog is the bundled feature catalog: the entry files under
+// workflow-features/ (ParseCatalog).
 func Catalog() ([]Entry, error) {
-	entries, err := ParseCatalog(catalogYAML(), bundledSplitCatalog(), false)
+	entries, err := ParseCatalog(bundledCatalog(), false)
 	if err != nil {
 		return nil, fmt.Errorf("parsing bundled feature catalog: %w", err)
 	}
@@ -480,6 +480,11 @@ func Scan(path string, raw []byte, opts ScanOptions) (*ScanResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ScanWith(entries, path, raw, opts)
+}
+
+// ScanWith is Scan over a given catalog (a checkout's, a branch head's).
+func ScanWith(entries []Entry, path string, raw []byte, opts ScanOptions) (*ScanResult, error) {
 	idx := catalogIndex(entries)
 	for _, list := range [][]string{opts.Installed, opts.Declined, opts.Forget} {
 		for _, id := range list {
@@ -578,9 +583,66 @@ func Scan(path string, raw []byte, opts ScanOptions) (*ScanResult, error) {
 			res.Features[i].Recorded = "declined"
 		}
 	}
+	if len(res.Changes) == 0 && hadRecord && !sameRefs(old.Installed, rec.Installed) {
+		res.Changes = append(res.Changes, "~ installed: put in catalog order (by category, then id)")
+	}
 	res.Record = rec
 	res.Block = RenderRecord(rec)
 	return res, nil
+}
+
+// sameRefs reports whether two installed: lists name the same refs in the
+// same order.
+func sameRefs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if strings.TrimSpace(a[i]) != strings.TrimSpace(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// RecordDrift says how a file's features: record differs from what a scan
+// over entries records: the scan's changes, or for the same refs in another
+// order the expected installed: list. "" when they agree.
+func RecordDrift(entries []Entry, name string, raw []byte) (string, error) {
+	rec, ok := ReadRecord(raw)
+	if !ok {
+		return fmt.Sprintf("%s has no features: record", name), nil
+	}
+	res, err := ScanWith(entries, name, raw, ScanOptions{})
+	if err != nil {
+		return "", err
+	}
+	if len(res.Changes) == 0 {
+		return "", nil
+	}
+	if sameSet(rec.Installed, res.Record.Installed) {
+		return fmt.Sprintf("%s features: installed: is out of order (catalog order: by category, then id); want, in order:\n%s", name, RenderRecord(res.Record)), nil
+	}
+	return fmt.Sprintf("%s features: record is stale (%s); want:\n%s", name, strings.Join(res.Changes, "; "), RenderRecord(res.Record)), nil
+}
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := map[string]int{}
+	for _, s := range a {
+		m[strings.TrimSpace(s)]++
+	}
+	for _, s := range b {
+		m[strings.TrimSpace(s)]--
+	}
+	for _, n := range m {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func setOf(list []string) map[string]bool {

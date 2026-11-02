@@ -26,6 +26,8 @@ type oneShot struct {
 	Full bool
 	// Scroll is a selector for an inner scroller to unroll (implies Full).
 	Scroll string
+	// HTML also saves the rendered DOM beside the PNG (htmlOut).
+	HTML bool
 }
 
 // withDefaults fills the width, height and output file.
@@ -55,26 +57,41 @@ func checkShotURL(raw string) error {
 }
 
 func cmdShot(repo string, o opts, out, errw io.Writer) int {
-	if err := checkShotURL(o.url); err != nil {
+	head, base, err := resolveShotURL(repo, o.url, o.scenario, o.baseRef)
+	if err != nil {
 		fmt.Fprintln(errw, "playtest shot:", err)
 		return 2
 	}
-	s := oneShot{URL: o.url, W: o.width, H: o.height, Out: o.out, Full: o.full || o.scroll != "", Scroll: o.scroll}.withDefaults(repo)
+	s := oneShot{URL: head, W: o.width, H: o.height, Out: o.out, Full: o.full || o.scroll != "", Scroll: o.scroll, HTML: o.html}.withDefaults(repo)
+	shots := []oneShot{s}
+	if base != "" {
+		b := s
+		b.URL, b.Out = base, baseOut(s.Out)
+		shots = append(shots, b)
+	}
 	if err := os.MkdirAll(filepath.Dir(s.Out), 0o755); err != nil {
 		fmt.Fprintln(errw, "playtest shot:", err)
 		return 1
 	}
-	b, err := NewBrowser(false, s.W, s.H)
+	br, err := NewBrowser(false, s.W, s.H)
 	if err != nil {
 		fmt.Fprintln(errw, "playtest shot:", err)
 		return 1
 	}
-	defer b.Close()
-	if err := takeOneShot(b, s); err != nil {
-		fmt.Fprintf(errw, "playtest shot: %s: %v\n", s.URL, err)
-		return 1
+	defer br.Close()
+	for _, sh := range shots {
+		if err := takeOneShot(br, sh); err != nil {
+			fmt.Fprintf(errw, "playtest shot: %s: %v\n", sh.URL, err)
+			return 1
+		}
+		fmt.Fprintf(out, "✓ %s  %s (%d px)\n", sh.Out, sh.URL, sh.W)
+		if sh.HTML {
+			fmt.Fprintf(out, "✓ %s\n", htmlOut(sh.Out))
+		}
 	}
-	fmt.Fprintf(out, "✓ %s  %s (%d px)\n", s.Out, s.URL, s.W)
+	if len(shots) == 2 && s.HTML {
+		fmt.Fprintf(out, "diff: diff -u %s %s\n", htmlOut(shots[1].Out), htmlOut(s.Out))
+	}
 	return 0
 }
 
@@ -89,6 +106,16 @@ func takeOneShot(b *Browser, s oneShot) error {
 	defer cancel()
 	if err := p.Do(ctx, chromedp.Navigate(s.URL), chromedp.WaitReady("body"), chromedp.Sleep(300*time.Millisecond)); err != nil {
 		return err
+	}
+	// The DOM before any unroll, which edits inline styles.
+	if s.HTML {
+		var html string
+		if err := p.Eval(ctx, "JSON.stringify(document.documentElement.outerHTML)", &html); err != nil {
+			return err
+		}
+		if err := os.WriteFile(htmlOut(s.Out), []byte("<!doctype html>\n"+html+"\n"), 0o644); err != nil {
+			return err
+		}
 	}
 	if s.Full {
 		var msg string

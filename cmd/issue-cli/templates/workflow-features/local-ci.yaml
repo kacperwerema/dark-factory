@@ -1,0 +1,37 @@
+id: local-ci
+version: v0.60.0
+category: automation
+propose: true
+sources: ["internal/ci/**", "internal/tracker/ci.go", "internal/viewer/ci_watch.go", "internal/viewer/ci_view.go", "cmd/issue-cli/cmd_ci.go"]
+unlocks:
+  - text: "Hall: the CI scanner on the line"
+    url: /hall
+title: "Local CI on the integration branch"
+what: |
+  `ci:` runs your check commands on local main after every merge, in a persistent
+  worktree (.worktrees/.ci), and keeps each run in .ci/. A red run shows on the Status
+  page and the board, comments `ci:` on the issues it blames, and tells the lead
+  (`on_red: file_issue` also files a bug). Commands can have a `tier` (`slow` runs
+  only on request) and a `failures` regex that names the failing tests. `nightly:`
+  runs one tier once a night (after `at`, when mem-guard allows), with its own
+  `timeout`.
+why: |
+  Agents merge into main many times a day. Without CI nobody notices a red main
+  until the next agent trips over it, and then nobody knows which merge broke it.
+where: "top-level ci: (run, tier, failures, timeout, on_red, nightly); docs/workflow.md, Local CI"
+snippet: |
+  ci:
+    timeout: 15m
+    on_red: file_issue
+    run:
+      - cmd: make check
+        failures: '--- FAIL: (\S+)'
+      - cmd: make ux-test
+        tier: slow
+    nightly:
+      tier: slow
+      at: "03:00"
+      timeout: 2h
+question: "Which commands prove main is healthy, and which of them are too slow to run after every merge?"
+detect:
+  - path: ci.run

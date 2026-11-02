@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var uncheckCommand = &Command{
@@ -128,13 +128,23 @@ func refuseOwnerBoxes(ctx *Context, issue *tracker.Issue, r boxReport, refs []st
 			continue
 		}
 		if why := r.OwnerBoxWhy(it); why != "" {
-			hit = append(hit, fmt.Sprintf("  %s %s (%s)", it.ID, it.Label(), why))
+			hit = append(hit, ownerHitLine(r.Report, it.ID, it.Label(), why))
 		}
 	}
 	if len(hit) == 0 {
 		return nil
 	}
 	return ownerBoxesError(ctx, issue, who, verb, hit)
+}
+
+// ownerHitLine is one box in an owner-box refusal; a box a playtest
+// judgement step makes the owner's adds how to make the step automated.
+func ownerHitLine(r proof.Report, id, text, why string) string {
+	line := fmt.Sprintf("  %s %s (%s)", id, text, why)
+	if hint := r.JudgementHint(id); hint != "" {
+		line += "\n    " + hint
+	}
+	return line
 }
 
 // ownerBoxesError is the refusal every owner-box path gives an agent: the
@@ -175,7 +185,7 @@ func ownerTickGuard(ctx *Context, issue *tracker.Issue) func(before, after strin
 			if id == "" {
 				id = "(new box)"
 			}
-			hit = append(hit, fmt.Sprintf("  %s %s (%s)", id, o.Text, o.Why))
+			hit = append(hit, ownerHitLine(report.Report, id, o.Text, o.Why))
 		}
 		return ownerTickRefusal{ownerBoxesError(ctx, issue, who, "tick", hit)}
 	}

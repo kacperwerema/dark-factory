@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var showCommand = &Command{
@@ -40,6 +40,7 @@ func runShow(ctx *Context, args []string) error {
 			"issue":         issue,
 			"comments":      comments,
 			"workflow_file": issueWorkflowFileLabel(ctx.Project, wf),
+			"decisions":     decisionsOrEmpty(tracker.ParseDecisions(issue.Slug, issue.BodyRaw)),
 		}
 		if wf.Department != "" {
 			out["department"] = wf.Department
@@ -100,6 +101,8 @@ func runShow(ctx *Context, args []string) error {
 	}
 
 	printReplacedCitations(ctx, issue, issues)
+	printDecisionBlock(ctx.Stdout, ctx.Project, issueDecisionBlock(ctx, issue, issues, issue.Status, wf), issue.Slug)
+	fmt.Fprintln(ctx.Stdout)
 	printSharedFiles(ctx.Stdout, ctx.Project, issue, issues)
 
 	hasAuto, hasManual := tracker.HasTestPlan(issue.BodyRaw)
@@ -131,4 +134,11 @@ func runShow(ctx *Context, args []string) error {
 		}
 	}
 	return nil
+}
+
+func decisionsOrEmpty(ds []tracker.Decision) []tracker.Decision {
+	if ds == nil {
+		return []tracker.Decision{}
+	}
+	return ds
 }

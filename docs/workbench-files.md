@@ -205,12 +205,12 @@ health:
 - **Limits:** a key left out takes its default (above); `0` turns that limit off, and a negative value fails validation. The "getting worse" alerts are meant to share this block.
 - **Default test globs:** `**/*_test.go`, `**/*Tests.cs`, `**/*Test.cs`, `**/*.test.js`, `**/*.test.ts`, `**/test_*.py` and `**/*_test.py`.
 - **Score bounds:** `good` and `bad` take a number, a duration (`60s`, `10m`: seconds) or a percentage (`5%`: 0.05). See [Scores](#scores).
-- **RogueTech:** sets `e2e_sessions: ["Data/Scenarios/*.yaml"]`.
+- **Kestrel:** sets `e2e_sessions: ["Data/Scenarios/*.yaml"]`.
 - **Shrinking shots:** once a day, after the daily snapshot, the viewer shrinks the playtest shots in the project root's `.playtest/runs/` whose issue has been done `shrink_shots_after_days` days (default 30; `0` turns it off, a negative value fails validation). Each PNG, in the run's `shots/` or beside its `results.yaml` (a game's runner saves them there), becomes a JPEG at most 720 px wide and three screens tall, cut from the top, and the run's `results.yaml` points at the new names (`screenshot:`, or a game's `screenshots:` list) and gets `reduced: <date>`; every check and verdict stays. It logs one line per project when it changed something (`health: <project>: shrank shots of 4 issues done before 2026-09-23: 15.2 MB → 1.9 MB`). Runs reach the root at done, see [`playtest prune`](CLI/overview.md#playtest-prune).
 
 ### The codebase family
 
-It reads git objects at the head of the main branch: one `git ls-tree`, then one `git cat-file --batch`. It never reads the working tree, so uncommitted changes in the main checkout don't count. The branch is `ci.branch`, else the branch checked out in the main checkout. On RogueTech (3,300 files, 160 MB) it takes under a second.
+It reads git objects at the head of the main branch: one `git ls-tree`, then one `git cat-file --batch`. It never reads the working tree, so uncommitted changes in the main checkout don't count. The branch is `ci.branch`, else the branch checked out in the main checkout. On Kestrel (3,300 files, 160 MB) it takes under a second.
 
 - **Left out:** `exclude` matches, the project's issues dir when it is inside the repo, `.worktrees/` and `.health/`. Symlinks and submodules are skipped too.
 - **Binary files:** a file with a NUL byte in its first 8 KB, or a file over 2 MB, is counted in `codebase.binary_files` and nowhere else.
@@ -272,7 +272,7 @@ Where the time goes, from `internal/timeline`: every issue done in the last 30 d
 | `workflow.time.share` | `kind`: waiting | waiting on the owner / (working + waiting + idle) over all types (`share`); only when there is split time |
 | `workflow.gate_failures` | `transition`, `err_class`, `dry_run` | refused transition calls |
 
-On RogueTech (813 issues, 65 in the window) the family takes about half a second.
+On Kestrel (813 issues, 65 in the window) the family takes about half a second.
 
 ### The milestone family
 
@@ -315,7 +315,7 @@ The rows below come with `workflow/health-check-speed-…` (the playtest telemet
 - `tests.e2e.estimated_seconds`
 - `tests.e2e.flaky_share{window=14d}`
 
-A project whose test classes share one namespace (RogueTech) gets a coarse area split.
+A project whose test classes share one namespace (Kestrel) gets a coarse area split.
 
 ### The shape family
 
@@ -341,7 +341,7 @@ How functions are read:
 - **Python and GDScript** by indentation after `def` / `func`.
 - **Languages without functions** (CSS, HTML, SQL, templates) are not measured.
 
-On RogueTech the family takes about a second and finds 5,600 C# methods.
+On Kestrel the family takes about a second and finds 5,600 C# methods.
 
 ### The storage family
 
@@ -367,7 +367,7 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
 - **The checks:**
   - `undated`: issues without `created:`.
   - `workflow`: the warnings `process workflow` prints.
-  - `schema`: unknown keys, missing `statuses:`/`transitions:`, deprecated keys.
+  - `schema`: unknown keys, missing `statuses:`/`transitions:`, deprecated keys, a validate `rule:` this build doesn't know (a typo, or a workflow file newer than the installed issue-cli).
   - `template`: the `template:` stamp against the bundled template.
   - `placeholders`: `{{name}}` a field never fills.
   - `sections`: gates on sections no template writes the way the gate needs.
@@ -498,6 +498,22 @@ Per department in `projects.yaml` (`internal/deptfamily`): are its goals moving,
 | `departments.jobs.due`, `departments.jobs.missed` | `department` | jobs due now; periods missed since each job's last run |
 | `departments.handoffs.open` | `department`, `dir` (`in`, `out`) | open handoffs to and from it |
 | `departments.handoffs.oldest_days` | `department` | age of its oldest open inbox handoff, days |
+
+### The decisions family
+
+The decision ledger counted (`internal/decisionstats`, `Measure`): the same numbers as the Stats page's Decisions card. It reads the issue bodies' D-n lines and `<issues>/.decisions/log.jsonl` as they are now, so backfill leaves it out. It is not a score component. `decisions.total` is always written (0 is a real count); the rest only once the project has a decision or a logged event. Rows carry scope kinds and briefing kinds, never refs or text. Stats draws "Decisions in force" (hard, soft, provisional, gate holds) once a snapshot has a decision.
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `decisions.total` | none | D-n lines in the project |
+| `decisions.in_force` | none | not replaced, deferred or expired |
+| `decisions.in_force_by_scope` | `scope` (`issue`, `type`, `system`, `department`, `project`) | in force by scope kind |
+| `decisions.hard`, `decisions.soft` | none | in force, by strength |
+| `decisions.provisional` | none | in force with no owner's words on the line yet |
+| `decisions.challenges_open` | none | refs challenged and not resolved |
+| `decisions.holds` | none | `held` events in the last 30 days |
+| `decisions.injected` | none | `injected` events (briefings that carried the block) in the last 30 days |
+| `decisions.injected_by_briefing` | `briefing` | the same by briefing kind |
 
 ### Adding a family
 

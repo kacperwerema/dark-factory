@@ -1,0 +1,33 @@
+id: owner-only-gates
+version: v0.58.0
+category: gates
+propose: true
+templates: [content, marketing]
+sources: ["cmd/issue-cli/yolo_gate.go#yoloOwnerReason", "internal/tracker/workflow_config.go#OwnerOnlyGate", "internal/yolo/queue.go#OwnerGates", "internal/lint/owner_only.go", "cmd/issue-cli/templates/workflow/content.yaml", "cmd/issue-cli/templates/workflow/marketing.yaml"]
+title: "Gates YOLO never passes"
+what: |
+  `owner_only: true` on a `require_human_approval` action makes that gate the
+  owner's even in YOLO: with YOLO on, transition and start refuse it with "this
+  gate is the owner's even in YOLO", the issue waits in Needs you, and only the
+  owner's approval (the viewer, or `issue-cli approve --quote` with their words)
+  passes it. With YOLO off it is an ordinary approval. `issue-cli yolo status`
+  and the YOLO band list these gates; health lint warns when a department with a
+  `sends: true` connector, or a type whose path enters publish / launch / send,
+  has none.
+why: |
+  A review after the fact can't take back money spent or a post that went out:
+  steps that spend or publish outside the machine stay the owner's while YOLO
+  runs the rest.
+where: "transitions[].actions[] owner_only: true on the require_human_approval of the step that spends or publishes"
+snippet: |
+  transitions:
+    - from: "owner review"
+      to: "publish"
+      actions:
+        - type: "require_human_approval"
+          status: "publish"
+          owner_only: true
+question: "Which steps spend money or publish outside the machine, so YOLO must never pass them?"
+detect:
+  - path: transitions[].actions[].owner_only
+    equals: true

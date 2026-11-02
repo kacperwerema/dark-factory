@@ -1,5 +1,6 @@
 # The red-round cap on the Station: one issue whose proof check has been
-# red for three fix rounds, at three branch heads (its stats sidecar).
+# red for three fix rounds, at three branch heads, with the same failure each
+# time (its stats sidecar): a new failure would start the count over.
 title: One issue with a check red for three fix rounds
 project:
   name: Red Rounds Shop

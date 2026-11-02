@@ -1,0 +1,30 @@
+id: postmortem
+version: v0.59.0
+category: automation
+propose: true
+sources: ["internal/tracker/postmortem_config.go", "internal/postmortem/postmortem.go", "internal/postmortem/brief.go", "internal/postmortem/apply.go", "cmd/issue-cli/cmd_postmortem.go", "internal/viewer/postmortem_view.go"]
+title: "Post-mortem at close: lessons the owner agrees to, applied to one place each"
+what: |
+  `postmortem:` starts a fresh agent when an issue reaches `at:` (default: the last
+  status). It reads the run from paths only (the issue, its sidecars, the worker's
+  clilog, the commits, the worker's retro) and saves a retro with Steps, Worked, Did
+  not work, Decisions, Known and Proposed actions (`issue-cli postmortem write`). Each
+  action passes one test, "would a fresh agent do something differently next session
+  because of it?", and names one place: memory <kind>, file <path.md>, skill <name>,
+  workflow (an experiment proposal) or none <doc ref>; the parser refuses the rest.
+  The owner agrees or refuses all of them in one round on /p/<project>/postmortem/<slug>
+  (owner's browser only); agreed ones become a memory, a one-file commit or an
+  experiment proposal, linked from the retro. `start: ask` (the default) only prints
+  `issue-cli postmortem start <slug> --quote "…"`; `start: auto` starts the agent itself.
+why: |
+  A retro the worker writes about itself is free text nothing acts on. A fresh reader
+  with one test and one place per lesson turns it into changes the next agent meets,
+  and the owner sees each before it lands.
+where: "top-level postmortem: (docs/workflow.md, Post-mortem)"
+snippet: |
+  postmortem:
+    at: done
+    start: ask      # auto: the transition into done starts the agent
+question: "Should a fresh agent write a post-mortem when an issue closes, with lessons you agree to in one round?"
+detect:
+  - path: postmortem

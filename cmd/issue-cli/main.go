@@ -14,15 +14,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 
 	// Register the milestone and workflow health families, so snapshots
 	// taken by the CLI include them.
-	_ "github.com/michal-franc/issue-viewer/internal/deptfamily"
-	_ "github.com/michal-franc/issue-viewer/internal/milestone"
-	_ "github.com/michal-franc/issue-viewer/internal/timeline"
+	_ "github.com/kacperwerema/dark-factory/internal/decisionstats"
+	_ "github.com/kacperwerema/dark-factory/internal/deptfamily"
+	_ "github.com/kacperwerema/dark-factory/internal/milestone"
+	_ "github.com/kacperwerema/dark-factory/internal/timeline"
 )
 
 //go:embed CHANGELOG.md
@@ -30,7 +31,7 @@ var changelogMD string
 
 // releasesRepo is the GitHub repo `process changes` pulls release history
 // from. CHANGELOG.md is the offline fallback when the API is unreachable.
-const releasesRepo = "michal-franc/ai-workflow-engine"
+const releasesRepo = "kacperwerema/dark-factory"
 
 type githubRelease struct {
 	TagName     string `json:"tag_name"`
@@ -449,6 +450,8 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	// The sibling channel rides on every call that looked up an issue: its
 	// open asks and undelivered answers (cmd_ask.go).
 	printSiblingAsks(ctx, rest.command)
+	// A lead sees each new decision challenge once (cmd_decision.go).
+	printLeadChallenges(ctx, rest.command)
 	if errors.Is(err, flag.ErrHelp) {
 		// FlagSet already wrote usage to ctx.Stderr; suppress the duplicate
 		// error message in main()'s error path.

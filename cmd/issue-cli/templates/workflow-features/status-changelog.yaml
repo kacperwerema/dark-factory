@@ -1,0 +1,26 @@
+id: status-changelog
+version: v0.54.0
+category: workbench
+propose: true
+sources: ["internal/viewer/release_wait.go", "internal/viewer/status.go#readChangelog", "internal/milestone/**"]
+unlocks:
+  - text: "Status: releases from your own changelog"
+    url: /status
+title: "Releases on the Status page"
+what: |
+  Without `workbench.changelog` the Status page reads CHANGELOG.md at the project
+  root, else git tags. The key names a different changelog: Recently released lists
+  its version headings, and Waiting for release lists the `## Unreleased` entries with
+  the commits not pushed yet. Releases are cut per milestone: move the
+  `## Unreleased` entries under a version heading. Declined, the Status page stops
+  suggesting the key.
+why: |
+  The Status page shows what shipped and what is merged but not released, without
+  anyone writing a status update.
+where: "workbench.changelog (default CHANGELOG.md at the project root; set it to record the feature)"
+snippet: |
+  workbench:
+    changelog: CHANGELOG.md
+question: "Do you keep a changelog with an ## Unreleased section, and where is it?"
+detect:
+  - path: workbench.changelog

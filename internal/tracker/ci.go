@@ -19,6 +19,40 @@ type CIConfig struct {
 	Timeout string      `yaml:"timeout,omitempty" desc:"Limit for the whole run, a Go duration (default 10m)"`
 	Nice    *int        `yaml:"nice,omitempty" desc:"nice level the commands run at, so CI doesn't slow agents (default 10; 0 = off)"`
 	OnRed   string      `yaml:"on_red,omitempty" desc:"What a red run does besides markers, ci: comments and the lead nudge: mark (default) or file_issue (one bugfix issue per red streak)"`
+	Nightly *CINightly  `yaml:"nightly,omitempty" desc:"Run one tier once a night: {tier, at}. The viewer's CI watcher (and issue-cli ci watch) starts it after at when mem-guard allows and the head has no run of that tier yet"`
+}
+
+// CINightly is ci.nightly: the tier run once a night.
+type CINightly struct {
+	Tier string `yaml:"tier" desc:"The tier to run (one of ci.run's tiers, e.g. slow)"`
+	At   string `yaml:"at,omitempty" desc:"Local time it may start from, HH:MM (default 03:00)"`
+	// Timeout is the limit for any run of this tier, nightly or by hand.
+	Timeout string `yaml:"timeout,omitempty" desc:"Limit for a run of this tier, a Go duration (default ci.timeout); every playtest session takes longer than a merge check"`
+}
+
+// ciDefaultNightlyAt is when a nightly run may start without at:.
+const ciDefaultNightlyAt = "03:00"
+
+// NightlyTier is the tier run once a night, "" when none is set.
+func (c *CIConfig) NightlyTier() string {
+	if c == nil || c.Nightly == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Nightly.Tier)
+}
+
+// NightlyClock is the nightly start time as hour and minute; an unset or
+// bad at: is 03:00.
+func (c *CIConfig) NightlyClock() (hour, minute int) {
+	at := ciDefaultNightlyAt
+	if c != nil && c.Nightly != nil && strings.TrimSpace(c.Nightly.At) != "" {
+		at = strings.TrimSpace(c.Nightly.At)
+	}
+	t, err := time.Parse("15:04", at)
+	if err != nil {
+		t, _ = time.Parse("15:04", ciDefaultNightlyAt)
+	}
+	return t.Hour(), t.Minute()
 }
 
 // CICommand is one `ci.run` entry.
@@ -86,6 +120,17 @@ func (c *CIConfig) TimeoutDuration() time.Duration {
 		}
 	}
 	return ciDefaultTimeout
+}
+
+// TierTimeout is the limit for a run of tier: ci.nightly.timeout for the
+// nightly tier when set, else TimeoutDuration.
+func (c *CIConfig) TierTimeout(tier string) time.Duration {
+	if c != nil && c.Nightly != nil && tier != "" && tier == c.NightlyTier() {
+		if d, err := time.ParseDuration(strings.TrimSpace(c.Nightly.Timeout)); err == nil && d > 0 {
+			return d
+		}
+	}
+	return c.TimeoutDuration()
 }
 
 // NiceLevel is the nice level the commands run at; 0 means no nice.
@@ -157,6 +202,24 @@ func (c *CIConfig) Validate() []string {
 	}
 	if m := strings.TrimSpace(c.OnRed); m != "" && m != CIOnRedMark && m != CIOnRedFileIssue {
 		problems = append(problems, fmt.Sprintf("ci.on_red %q is not mark or file_issue (mark is used)", c.OnRed))
+	}
+	if c.Nightly != nil {
+		switch tier := c.NightlyTier(); {
+		case tier == "" || tier == CIDefaultTier:
+			problems = append(problems, "ci.nightly.tier is empty or default: name a tier from ci.run (e.g. slow); the default tier already runs on every move")
+		case !contains(c.Tiers(), tier):
+			problems = append(problems, fmt.Sprintf("ci.nightly.tier %q has no command in ci.run (tiers: %s)", tier, strings.Join(c.Tiers(), ", ")))
+		}
+		if t := strings.TrimSpace(c.Nightly.Timeout); t != "" {
+			if d, err := time.ParseDuration(t); err != nil || d <= 0 {
+				problems = append(problems, fmt.Sprintf("ci.nightly.timeout %q is not a positive duration like 90m (ci.timeout is used)", c.Nightly.Timeout))
+			}
+		}
+		if at := strings.TrimSpace(c.Nightly.At); at != "" {
+			if _, err := time.Parse("15:04", at); err != nil {
+				problems = append(problems, fmt.Sprintf("ci.nightly.at %q is not HH:MM (03:00 is used)", c.Nightly.At))
+			}
+		}
 	}
 	defaults := 0
 	for i, cmd := range c.Run {
@@ -257,6 +320,10 @@ func cloneCI(c *CIConfig) *CIConfig {
 	if c.Nice != nil {
 		n := *c.Nice
 		out.Nice = &n
+	}
+	if c.Nightly != nil {
+		n := *c.Nightly
+		out.Nightly = &n
 	}
 	return &out
 }

@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/yolo"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 // BenchNote is appended to every worker prompt, the same for every setup so

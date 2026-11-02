@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/connections"
-	"github.com/michal-franc/issue-viewer/internal/goals"
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/jobs"
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/connections"
+	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Family is the family's name, the group its rows carry.

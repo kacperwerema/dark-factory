@@ -1,0 +1,91 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: planning@v0.59.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - status-prompts@v0.36.0
+    - week-plan@v0.59.0
+    - human-approval-gates@v0.36.0
+    - checklist-gates@v0.36.0
+    - body-structure-gates@v0.36.0
+    - checklist-sections@v0.36.0
+    - board-columns@v0.36.0
+    - board-card-fields@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# A group's week: its lead of leads reads its departments' goals, outputs,
+# jobs and handoffs, writes the week plan and the week report. Made to be a
+# group's own file (projects.yaml departments: workflow: workflows/<key>.yaml,
+# installed by `issue-cli department add gtm`); each Monday's run of the
+# group's weekly-plan job walks it. Nothing here starts work: the plan's
+# issues are filed at their first status and wait for the owner's start like
+# any other. See docs/departments.md, "The week plan and report".
+board:
+  columns:
+    - gather
+    - plan
+    - report
+    - done
+  card_fields:
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "gather"
+    description: "Reading the departments' week"
+    prompt: |
+      Read the week: `issue-cli department week <group>` (the group named in this issue's job: field, before the /). It lists, per department, the goals and how far each moved, outputs waiting on the owner's review, reviewed and shipped, the jobs and their verdicts, handoffs in and out, and what is blocked and on whom.
+      Then move to plan.
+  - name: "plan"
+    description: "Writing what each department does this week"
+    prompt: |
+      Write `## Week plan` in this issue (`issue-cli append <slug> --body "## Week plan ..."`): a `### <department>` heading per department, what it does this week and why, each line tied to a goal, an output, a job or a handoff from the pack.
+      File each piece of new work as an issue in its department: `issue-cli create --department <dept> --title "..."`, then `issue-cli append <slug> --body "..."`. It lands at its first status and waits for the owner's start like any other; link it in the plan.
+      For a due job, name it with the command the owner or its lead runs (`issue-cli job run <job> --quote "<the owner's words>"`); never run it yourself.
+      Never dispatch, approve, run a job, or move any issue but this one. Anything that publishes, sends or spends waits for the owner at its own owner-only gate: say so in the plan.
+  - name: "report"
+    description: "Writing the week report"
+    prompt: |
+      Write the report: `issue-cli department week <group> --write`. It writes <issues>/.reports/<group>/<week>.md with this issue's ## Week plan in it, and the group's room on the company page links it.
+      Post the path and the link it prints as a `progress:` comment, then move to done. The owner reads the plan and the report there.
+  - name: "done"
+    description: "Plan and report written; the owner has read them"
+
+transitions:
+  - from: "gather"
+    to: "plan"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      - type: "append_section"
+        title: "Plan"
+        body: |
+          - [ ] Week pack read (issue-cli department week <group>)
+          - [ ] ## Week plan written: per department, what it does this week and why
+          - [ ] New work filed as issues at their first status and linked in the plan; nothing dispatched, approved or run
+  - from: "plan"
+    to: "report"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Plan"
+      - type: "validate"
+        rule: "has_section"
+        section: "Week plan"
+      - type: "append_section"
+        title: "Report"
+        body: |
+          - [ ] Week report written (issue-cli department week <group> --write) and its path posted as a progress: comment
+  - from: "report"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Report"
+      - type: "require_human_approval"
+        status: "done"

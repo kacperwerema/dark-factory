@@ -1,0 +1,29 @@
+id: lead-handoff-prompts
+version: v0.36.0
+category: conventions
+propose: true
+sources: ["@prompt"]
+title: "Approval gates and questions are handed to the lead"
+what: |
+  Prompts before a human-approval gate (and wherever the agent needs a decision)
+  tell it to say in chat exactly what it needs (which approval, which question),
+  then end its turn. It doesn't wait or poll; the project lead agent (or the
+  human) relays the request and sends the answer back, which resumes it.
+why: |
+  A worker blocked on a gate or a question wastes a session waiting, or retries the
+  transition in a loop. Handing the request to the lead keeps every worker's asks
+  in one place and resumes the worker only when there is an answer. Replaces older
+  prompts that told agents to block at the gate until it was approved.
+where: "statuses[].prompt of each status whose next transition has require_human_approval; also any prompt that tells the agent to stop and ask"
+snippet: |
+  statuses:
+    - name: "backlog"
+      prompt: |
+        This is a handoff state.
+        Say in chat that this needs `in progress` approval in the issue viewer, then end your turn. Don't wait or poll: the lead (or the human) relays the request and resumes you once it is approved.
+question: "Should agents hand approval requests and questions to the lead and end their turn, instead of waiting at the gate (rewrites the prompts of statuses before each approval gate)?"
+detect:
+  - path: statuses[].prompt
+    contains: "end your turn"
+  - path: transitions[].actions[].prompt
+    contains: "end your turn"

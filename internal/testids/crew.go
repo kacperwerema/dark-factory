@@ -5,6 +5,7 @@ func init() {
 		// Crew (Workshop Board L1, templates/crew.html and _workshop_crew.html);
 		// the old agents canvas stays at ?classic=1.
 		"crew.classic",
+		"crew.all_projects",
 		"crew.count",
 		"crew.chart",
 		"crew.no_workers",

@@ -1,0 +1,24 @@
+id: checklist-gates
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/workflow_validate.go#checkRule", "internal/tracker/workflow_validate.go#openCheckboxesError", "internal/tracker/checkbox_ref.go"]
+title: "Checklist gates"
+what: |
+  Validators that block a transition until checkboxes exist or are ticked:
+  `section_checkboxes_checked: <Title>`, `section_has_checkboxes: <Title>`,
+  `all_checkboxes_checked`, `has_checkboxes`.
+why: |
+  Turns each step's checklist into something the engine enforces.
+where: "transitions[].actions[] type: validate, rule: section_checkboxes_checked: <Title> (etc.)"
+snippet: |
+  transitions:
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "validate"
+          rule: "section_checkboxes_checked: Implementation"
+question: "Should a step's checklist be fully ticked before the issue can move on?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [section_checkboxes_checked, section_has_checkboxes, all_checkboxes_checked, has_checkboxes]

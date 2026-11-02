@@ -115,3 +115,103 @@ func TestCheckEditRefusesAnNAOnTheOwnersBox(t *testing.T) {
 		t.Errorf("the owner editing HT1: %v", err)
 	}
 }
+
+// naRefused asserts a check --na refusal: a non-zero exit, output that
+// starts with "✗ not ticked:" and says why, and an unchanged file.
+func naRefused(t *testing.T, err error, issuePath, before string, why ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("want a refusal, got a tick")
+	}
+	if code := processExitCode(err); code == 0 {
+		t.Errorf("exit code %d, want non-zero", code)
+	}
+	if !strings.HasPrefix(err.Error(), "✗ not ticked: ") {
+		t.Errorf("refusal doesn't start with %q:\n%s", "✗ not ticked: ", err)
+	}
+	for _, w := range why {
+		assertContains(t, err.Error(), w)
+	}
+	if readFile(t, issuePath) != before {
+		t.Error("a refused check --na changed the file")
+	}
+}
+
+// AC1: a short reason says the minimum.
+func TestCheckNAShortReasonNamesTheMinimum(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	before := readFile(t, issuePath)
+	err := runCheck(ctx, []string{slug, "T2", "--na", "none"})
+	naRefused(t, err, issuePath, before, `"none" is too short: 1 word`, "at least 3 words")
+}
+
+// AC2: a placeholder left in the reason, such as <project>, is refused and
+// named; the box stays unticked.
+func TestCheckNAPlaceholderSaysWhich(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	before := readFile(t, issuePath)
+	err := runCheck(ctx, []string{slug, "T2", "--na", "docs reachable via issue-cli --project <project> help"})
+	naRefused(t, err, issuePath, before, "placeholder <project>", "without the <>")
+	assertContains(t, readFile(t, issuePath), "- [ ] `make ux-test REPEAT=2` passed")
+}
+
+// Every refusal, not only the reason's, starts with "✗ not ticked:".
+func TestCheckNAEveryRefusalSaysNotTicked(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	before := readFile(t, issuePath)
+	naRefused(t, runCheck(ctx, []string{slug, "ZZ9", "--na", "no page changes"}), issuePath, before, "unknown checkbox id: ZZ9")
+	naRefused(t, runCheck(ctx, []string{slug, "T3", "--na", "no page changes"}), issuePath, before, "the owner's box")
+	naRefused(t, runCheck(ctx, []string{slug, "T1", "T2", "--na", "no page changes"}), issuePath, before, "--na ticks one box by id")
+}
+
+// Shipping boxes have no N/A form: the refusal says to tick them plainly.
+func TestCheckNAShippingBoxSaysTickPlainly(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	data := readFile(t, issuePath) + "\n## Shipping\n- [ ] Check scripts removed in a last commit before the merge, or none\n"
+	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCheck(ctx, []string{slug, "S1", "--na", "no check scripts were written"})
+	naRefused(t, err, issuePath, data, "shipping steps have no N/A form", "check "+slug+" S1")
+	if strings.Contains(err.Error(), "N/A: no page changes") {
+		t.Errorf("a Shipping refusal lists the N/A forms:\n%s", err)
+	}
+	if err := runCheck(ctx, []string{slug, "S1"}); err != nil {
+		t.Fatalf("plain check of S1: %v", err)
+	}
+}
+
+// AC3: the CLI-only form ticks a Test Plan box, and the page-state form
+// ticks one too.
+func TestCheckNANewForms(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	data := strings.Replace(readFile(t, issuePath), "- thing two\n", "- thing two\n- [ ] Manual check written as a playtest session (or N/A: why)\n", 1)
+	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCheck(ctx, []string{slug, "TP1", "--na", "cli flow covered by TestX"}); err != nil {
+		t.Fatalf("cli flow form: %v", err)
+	}
+	assertContains(t, readFile(t, issuePath), "- [x] Manual check written as a playtest session (N/A: cli flow covered by TestX)\n")
+	if err := runCheck(ctx, []string{slug, "T1", "--na", "page state a scenario can't build (a live worker pane), shown by TestCrewPane"}); err != nil {
+		t.Fatalf("page state form: %v", err)
+	}
+	before := readFile(t, issuePath)
+	for reason, want := range map[string]string{
+		"cli flow covered by":                                       "needs the test that walks the flow",
+		"page state a scenario can't build, shown by X":             "needs what state, in parens",
+		"page state a scenario can't build (git history) from logs": "needs what shows the change instead",
+	} {
+		if err := runCheck(ctx, []string{slug, "T2", "--na", reason}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("--na %q: want %q, got %v", reason, want, err)
+		}
+	}
+	if readFile(t, issuePath) != before {
+		t.Error("a refused check --na changed the file")
+	}
+}

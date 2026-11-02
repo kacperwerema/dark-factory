@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb"{{if .Key}} data-push-key="{{.Key}}"{{end}}>
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="push.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Phone notifications</h1>
+        <span class="wb-sub">a push when something new waits on you · opens the right page in one tap</span>
+    </div>
+    {{if .Error}}<p class="wb-owner-note wb-owner-note--err" data-testid="push.error">{{.Error}}</p>{{end}}
+    {{if .Saved}}<p class="wb-owner-note" data-testid="push.saved">{{.Saved}}</p>{{end}}
+    {{if not .Active}}
+    <div class="wb-owner-card" data-testid="push.inactive">
+        <p><strong>This viewer doesn't send notifications:</strong> {{.Why}}.</p>
+        {{if .Owner}}<form method="post" action="/push/rebind"><button type="submit" class="wb-btn wb-btn--quiet" data-testid="push.rebind">Use this viewer</button></form>{{end}}
+    </div>
+    {{end}}
+
+    <div class="wb-owner-card" data-testid="push.this_device">
+        <h2 class="wb-h2">This browser</h2>
+        <p class="wb-owner-note" data-testid="push.status">Checking this browser…</p>
+        {{if .Owner}}
+        <p class="wb-push-actions">
+            <button type="button" class="wb-btn wb-btn--paper" data-testid="push.subscribe" data-click='{{onCall "pushSubscribe"}}'{{if or (not .Key) .NeedsSubject}} disabled{{end}}>Notify me here</button>
+            <button type="button" class="wb-btn wb-btn--quiet" data-testid="push.test" data-click='{{onCall "pushTest"}}' hidden>Send a test</button>
+            <button type="button" class="wb-btn wb-btn--quiet" data-testid="push.unsubscribe" data-click='{{onCall "pushUnsubscribe"}}' hidden>Stop on this browser</button>
+        </p>
+        {{if .NeedsSubject}}<p class="wb-owner-note">Set a contact below first: push services want an email address or your public https address.</p>{{end}}
+        <p class="wb-owner-note">On iPhone: Share → Add to Home Screen, open Factory from the Home Screen, and tap Notify me there. Safari tabs can't get pushes.</p>
+        {{else}}
+        <p class="wb-owner-note" data-testid="push.sign_in">Subscribing and settings are the owner's: <a href="/owner?next=/push">sign in</a> first.</p>
+        {{end}}
+    </div>
+
+    <div class="wb-owner-card" data-testid="push.devices">
+        <h2 class="wb-h2">Devices</h2>
+        {{if .Devices}}
+        <ul class="wb-push-list">
+            {{range .Devices}}
+            <li class="wb-push-device" data-device="{{.ID}}" data-label="{{.Label}}" data-testid="push.device">
+                <span>{{.Label}}</span> <span class="wb-muted">since {{.Added}}</span>
+                {{if .Refused}}<span class="wb-owner-note--err"> · {{.Refused}}</span>{{end}}
+                {{if $.Owner}}<form method="post" action="/push/forget" class="wb-push-inline"><input type="hidden" name="id" value="{{.ID}}"><button type="submit" class="wb-btn wb-btn--quiet">Remove</button></form>{{end}}
+            </li>
+            {{end}}
+        </ul>
+        {{else}}
+        <p class="wb-owner-note" data-testid="push.no_devices">No device gets notifications yet. Open this page on your phone (or here) and tap Notify me here.</p>
+        {{end}}
+        {{range .Removed}}<p class="wb-owner-note wb-owner-note--err" data-testid="push.removed">{{.Label}} was removed by the push service on {{.At.Local.Format "2006-01-02"}}: subscribe it again.</p>{{end}}
+    </div>
+
+    <form method="post" action="/push/settings" class="wb-owner-card" data-testid="push.settings">
+        <h2 class="wb-h2">Settings</h2>
+        <fieldset class="wb-push-fieldset"{{if not .Owner}} disabled{{end}}>
+            <legend>Mute a project</legend>
+            {{range .Projects}}
+            <label class="wb-push-check"><input type="checkbox" name="mute_{{.Slug}}" value="1"{{if .Muted}} checked{{end}} data-testid="push.mute"> {{.Name}}</label>
+            {{else}}<p class="wb-owner-note">No projects.</p>{{end}}
+        </fieldset>
+        <fieldset class="wb-push-fieldset"{{if not .Owner}} disabled{{end}}>
+            <legend>Quiet hours (this viewer's time)</legend>
+            <label>From <input type="time" name="quiet_from" value="{{.Quiet.From}}" data-testid="push.quiet_from"></label>
+            <label>to <input type="time" name="quiet_to" value="{{.Quiet.To}}" data-testid="push.quiet_to"></label>
+            <p class="wb-owner-note">Nothing is sent in quiet hours; when they end, one push says how many things came in.</p>
+        </fieldset>
+        <fieldset class="wb-push-fieldset"{{if not .Owner}} disabled{{end}}>
+            <legend>Contact for the push services</legend>
+            <input type="text" name="subject" value="{{.Subject}}" placeholder="you@example.com or https://your-public-name" data-testid="push.subject">
+            <p class="wb-owner-note">Sent to Apple, Google or Mozilla inside the signed token, so they can reach the sender. Empty uses your public name when there is one.</p>
+        </fieldset>
+        {{if .Owner}}<button type="submit" class="wb-btn wb-btn--paper" data-testid="push.save">Save</button>{{end}}
+    </form>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/push.js"></script>
+</body>
+</html>

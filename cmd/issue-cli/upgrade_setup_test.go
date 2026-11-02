@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 func TestUpgradePrintsTheSetupSteps(t *testing.T) {

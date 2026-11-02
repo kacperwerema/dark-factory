@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/depttemplate"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // departmentListRow is one row of department list.

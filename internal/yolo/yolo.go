@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/ci"
 )
 
 // DefaultCIRedMinutes is the CI valve: YOLO turns itself off when the

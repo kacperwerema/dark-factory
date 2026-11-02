@@ -14,9 +14,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/playtestruns"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/playtestruns"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // GitTimeout bounds each git call, so a slow or locked repo never holds up
@@ -366,7 +366,7 @@ type playtestResultsFile struct {
 }
 
 // resultStep is a step as either runner writes it: ours (cmd/playtest), or
-// a game's (RogueTech's runner: judgement:, verdict:, checks: and layout:
+// a game's (Kestrel's runner: judgement:, verdict:, checks: and layout:
 // on the step, screenshots: named <step>@<W>x<H>.png beside results.yaml).
 type resultStep struct {
 	PlaytestStep  `yaml:",inline"`

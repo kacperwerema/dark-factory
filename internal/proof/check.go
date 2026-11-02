@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/timeline"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // checker holds what the link checks share: the branch, its last change,
@@ -296,7 +296,7 @@ func InsideCheckout(root, slug, path string) bool {
 // Ways prints the ways to prove criterion id, filled in.
 func Ways(slug, id string) []string {
 	return []string{
-		fmt.Sprintf("a playtest step that shows it: add `proves: [%s]` to the step", id),
+		fmt.Sprintf("a playtest step that shows it: add `proves: [%s]` to the step, then re-run make ux-test", id),
 		fmt.Sprintf("a test: a `Proves: %s <TestName>` trailer on the commit that adds or changes it", id),
 		fmt.Sprintf("the change itself: a `Proves: %s` trailer on its commit", id),
 		fmt.Sprintf("or: issue-cli prove %s %s --test <Name> | --step <id> | --commit <sha> | --value \"<measured>\"", slug, id),

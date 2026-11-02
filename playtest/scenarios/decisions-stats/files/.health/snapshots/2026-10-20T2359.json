@@ -1,0 +1,90 @@
+{
+  "run": {
+    "date": "2026-10-20T23:59",
+    "project": "ledger",
+    "branch": "main",
+    "commit": "0000000",
+    "trigger": "daily",
+    "duration_ms": 5
+  },
+  "families": {
+    "decisions": {
+      "ms": 1,
+      "metrics": 8
+    }
+  },
+  "metrics": [
+    {
+      "id": "decisions.total",
+      "metric": "decisions.total",
+      "value": 5,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.in_force",
+      "metric": "decisions.in_force",
+      "value": 3,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.hard",
+      "metric": "decisions.hard",
+      "value": 1,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.soft",
+      "metric": "decisions.soft",
+      "value": 2,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.provisional",
+      "metric": "decisions.provisional",
+      "value": 2,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.challenges_open",
+      "metric": "decisions.challenges_open",
+      "value": 0,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.holds",
+      "metric": "decisions.holds",
+      "value": 2,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "decisions.injected",
+      "metric": "decisions.injected",
+      "value": 2,
+      "group": "decisions",
+      "band": {
+        "unit": "count"
+      }
+    }
+  ]
+}

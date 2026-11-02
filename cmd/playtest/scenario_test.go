@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,7 +77,7 @@ func TestGuardTmuxNeedsMarker(t *testing.T) {
 	if err := s.guardTmux(); err == nil {
 		t.Fatal("guardTmux allowed a dir without the marker")
 	}
-	if _, _, err := s.Tmux(context.Background(), "kill-server"); err == nil {
+	if _, _, err := s.Tmux(context.Background(), "has-session"); err == nil {
 		t.Fatal("Tmux ran without the marker")
 	}
 	if err := os.WriteFile(filepath.Join(s.TmuxDir(), markerName), nil, 0o644); err != nil {
@@ -158,13 +159,15 @@ func TestStartScenarioIsolated(t *testing.T) {
 			t.Fatalf("tmux new-session: %v %d %s", err, code, out)
 		}
 		out, _, _ := sc.Tmux(ctx, "display-message", "-p", "-t", "pt-probe", "#{socket_path}")
-		// tmux prints the resolved path: on macOS the temp dir's /var is /private/var.
+		// Tmux names the socket with -S, so tmux prints it as given; a server
+		// found through TMUX_TMPDIR prints it resolved (macOS: /private/var).
 		dir, err := filepath.EvalSymlinks(sc.TmuxDir())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(strings.TrimSpace(out), dir+"/") {
-			t.Errorf("tmux socket %q is not under the scenario's %s", strings.TrimSpace(out), dir)
+		got := strings.TrimSpace(out)
+		if got != sc.TmuxSocket() && !strings.HasPrefix(got, dir+"/") {
+			t.Errorf("tmux socket %q is not the scenario's %s", got, sc.TmuxSocket())
 		}
 	}
 
@@ -271,5 +274,32 @@ func TestWriteTranscripts(t *testing.T) {
 	b, _ = os.ReadFile(filepath.Join(dir, "-tmp-pt-1-proj", "session-1.jsonl"))
 	if !strings.HasPrefix(string(b), `{"type":"agent-name","agentName":"lead-acme"}`) {
 		t.Errorf("root session = %s", b)
+	}
+}
+
+// waitHTTP gives up within its budget on a board that accepts a request
+// and never answers, and returns at once on one that answers.
+func TestWaitHTTPBudgetHoldsOnAHangingBoard(t *testing.T) {
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer hang.Close()
+	defer close(release)
+	start := time.Now()
+	if err := waitHTTP(hang.URL, 500*time.Millisecond); err == nil {
+		t.Fatal("a hanging board counted as ready")
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("waitHTTP took %s on a 500ms budget", took)
+	}
+
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ok.Close()
+	if err := waitHTTP(ok.URL, boardReadyBudget); err != nil {
+		t.Fatalf("an answering board: %v", err)
 	}
 }

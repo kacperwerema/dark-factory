@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/critique"
-	"github.com/michal-franc/issue-viewer/internal/redrounds"
-	"github.com/michal-franc/issue-viewer/internal/routing"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/critique"
+	"github.com/kacperwerema/dark-factory/internal/redrounds"
+	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var critiqueCommand = &Command{
@@ -140,7 +140,7 @@ func runCritique(ctx *Context, args []string) error {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		dir = root
 	}
-	in, head := critiqueInput(root, dir, issue, issues, to)
+	in, head := critiqueInput(root, dir, ctx.Project, issue, issues, to, ctx.now())
 	if *briefOnly {
 		fmt.Fprint(ctx.Stdout, critique.Brief(in))
 		return nil
@@ -288,7 +288,11 @@ func critiqueRedRound(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.I
 		fmt.Fprintf(ctx.Stdout, "\nThe critique check is %s: it is a question for the owner now (a question: red rounds: comment), so the critic is not run again until the owner resolves it. See: issue-cli rounds %s\n", s.Label(rr.Max), issue.Slug)
 		return
 	}
-	fmt.Fprintf(ctx.Stdout, "\nThe critique check is %s (max_red_rounds); at %d it becomes a question for the owner (issue-cli rounds %s).\n", s.Label(rr.Max), rr.Max, issue.Slug)
+	why := ""
+	if n := len(s.History); n > 0 {
+		why = fmt.Sprintf(" — round %d: %s", s.History[n-1].N, s.History[n-1].Reason())
+	}
+	fmt.Fprintf(ctx.Stdout, "\nThe critique check is %s%s (max_red_rounds); only a finding that comes back counts, and at %d it becomes a question for the owner (issue-cli rounds %s).\n", s.Label(rr.Max), why, rr.Max, issue.Slug)
 }
 
 // critiqueArgv is the critic's read-only command for an agent; a seam so
@@ -352,7 +356,7 @@ func critiqueAgent(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tra
 // critiqueInput gathers the paths the critic reads, relative to dir where
 // they sit inside it: the issue file, its epic's, the diff file it will
 // get, the changed files and the settled rules. Nothing else.
-func critiqueInput(root, dir string, issue *tracker.Issue, issues []*tracker.Issue, to string) (critique.Input, string) {
+func critiqueInput(root, dir string, proj *tracker.Project, issue *tracker.Issue, issues []*tracker.Issue, to string, now time.Time) (critique.Input, string) {
 	in := critique.Input{Slug: issue.Slug, From: issue.Status, To: to, Root: dir, Issue: issue.FilePath}
 	if parent := tracker.ParentSlug(issue); parent != "" {
 		for _, e := range issues {
@@ -364,6 +368,7 @@ func critiqueInput(root, dir string, issue *tracker.Issue, issues []*tracker.Iss
 	if rules := filepath.Join(dir, "docs", "departments.md"); pathExists(rules) {
 		in.Rules = []string{"docs/departments.md"}
 	}
+	in.Decisions = critiqueDecisions(proj, issue, issues, now)
 	if dir == root {
 		return in, ""
 	}
@@ -377,6 +382,7 @@ func critiqueInput(root, dir string, issue *tracker.Issue, issues []*tracker.Iss
 			in.Changed = append(in.Changed, f)
 		}
 	}
+	in.Touched = critiqueTouched(proj, issues, in.Changed, now)
 	if len(in.Changed) > 0 {
 		in.Diff = critiqueDiffFile
 		critiqueDiffBase = base
@@ -450,4 +456,35 @@ func critiqueLine(issuesDir string, wf *tracker.WorkflowConfig, issue *tracker.I
 		return fmt.Sprintf("Critique: none from %s yet; the next gate wants one — issue-cli critique %s", issue.Status, issue.Slug)
 	}
 	return ""
+}
+
+// critiqueTouched is the hard decisions whose paths: the branch's changed
+// files match (the decisions_respected audit), for the brief: refs, the
+// files holding them and the matching files, never text.
+func critiqueTouched(proj *tracker.Project, issues []*tracker.Issue, changed []string, now time.Time) []critique.TouchedRef {
+	if len(changed) == 0 {
+		return nil
+	}
+	index := tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(proj))
+	var out []critique.TouchedRef
+	for _, t := range tracker.TouchedDecisions(index, changed, now) {
+		out = append(out, critique.TouchedRef{Ref: t.Entry.Ref, File: t.Entry.Issue.FilePath, Files: t.Files})
+	}
+	return out
+}
+
+// critiqueDecisions is every decision in force for issue at its status
+// (the critic reads them all, uncapped): refs and holder files only. It
+// only reads; the critic's brief writes no injected event.
+func critiqueDecisions(proj *tracker.Project, issue *tracker.Issue, issues []*tracker.Issue, now time.Time) []critique.DecisionRef {
+	index := tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(proj))
+	var dept func(*tracker.Issue) string
+	if proj != nil {
+		dept = proj.DepartmentOf
+	}
+	var out []critique.DecisionRef
+	for _, f := range tracker.InForce(index, issue, issue.Status, tracker.InForceOptions{Department: dept, Today: now}) {
+		out = append(out, critique.DecisionRef{Ref: f.Entry.Ref, Hard: f.Entry.Hard, Scope: f.Entry.ScopeOrDefault(), File: f.Entry.Issue.FilePath})
+	}
+	return out
 }

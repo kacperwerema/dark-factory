@@ -69,7 +69,7 @@ For a project lead. Five steps, about ten minutes:
 
 That is all a project needs: the library ships with issue-cli, and nothing
 else is copied in. Projects with heavier setups (a game, GPU slots, a
-server) write their own helpers inside each script, as RogueTech's
+server) write their own helpers inside each script, as Kestrel's
 `writable-debug-api.sh` does for its game. ▶ Run checks on the board works
 for every project the viewer serves. The issue-approve band's Run checks
 needs the mod set up for that project, which is a separate follow-up.
@@ -93,7 +93,14 @@ and the board card and the issue-approve band show both.
 issue-cli check-script <slug> --new <name>   # starts scripts/checks/<name>.sh, one step per unticked Manual box
 issue-cli check-script --lib                 # the helper library and its API
 issue-cli check-script <slug> --yes          # machine run: pass it before handing over
+issue-cli check-script <slug> --yes --cli <path>  # check another issue-cli ($ISSUE_CLI), e.g. a branch build
 ```
+
+`$ISSUE_CLI` is the issue-cli a script checks (`sic` and `sandbox_project`
+run it unless `$SANDBOX_ISSUE_CLI` says otherwise): `--cli <path>`, else the
+branch build at `<worktree>/issue-cli` (`go build -o ./issue-cli ./cmd/issue-cli`,
+what the briefing tells a worker to make when the installed build is behind
+main), else the issue-cli running the scripts. Ticking always uses the latter.
 
 A script is short: a header, the library, then the steps.
 
@@ -178,7 +185,19 @@ These come from the first scripts' mistakes:
   `issue-cli init`, its own projects.yaml). `XDG_STATE_HOME`,
   `XDG_CONFIG_HOME` and `ISSUE_VIEWER_CONFIG` point into it. Ticking the
   real issue at the end runs with the caller's own values. `sic …` runs issue-cli against it;
-  `SANDBOX_ISSUE_CLI` picks the binary, e.g. a build of the branch.
+  `SANDBOX_ISSUE_CLI` picks the binary, e.g. a build of the branch (build it
+  from `$CHECKS_ROOT`, where the library cds; `$ISSUE_CLI` is already the
+  branch build when check-script found one). It sets `$SANDBOX` to the
+  sandbox folder (the project folder's parent) unless an earlier
+  `sandbox_dir` set it.
+- `sandbox_project --add <name> [template]`: a second project in the same
+  sandbox and projects.yaml, set up the same way, in
+  `$SANDBOX_ADDED_DIR` / `$SANDBOX_ADDED_PROJECT`; `sic` stays on the first.
+- `sandbox_git_repo [var] [name]`: a plain git repo in the sandbox with
+  `.worktrees/` in its `.gitignore` (so `git add -A` never sweeps a
+  worktree in), one commit on `main`, and a local bare remote
+  (`$SANDBOX_REMOTE`) as `origin` with `main` pushed and tracked. Its local
+  config has an author, no signing or hooks, and no auto maintenance or gc.
 - `private_tmux [--clean]` and `ptmux …`: a tmux server of the script's own
   (a short `TMUX_TMPDIR`, `$CHECKS_TMUX_DIR`, and a marker file). On exit
   `kill-server` runs on that server only. A tmux server and each new session
@@ -216,8 +235,13 @@ identity (`AGENT_NAME`, its tmux session) along with the profile: the worker
 guards don't see a worker any more. Never use it, or `sic` once a stand-in
 exists, to run an owner-only command (`department add`, `job run`,
 `connector check`, `output review`, a transition of another issue, `yolo on`)
-from a worker's run. Skip those steps when `$AGENT_NAME` is set and leave
-them to the owner's run. A sanctioned way for a sandbox is an open design
+from a worker's run. Skip those steps when `is_worker` says so (`if
+is_worker; then skip "the owner's run covers this"; fi`) and leave them to
+the owner's run. `is_worker` asks `issue-cli lead whoami`, the guard's own
+test (`ISSUE_VIEWER_ISSUE_SLUG`, an `agent-` tmux name, a folder under
+`.worktrees/`); `$AGENT_NAME` is often unset in a worker and isn't one of
+them. It only reports: the library has no wrapper that clears the identity
+to get past the guard. A sanctioned way for a sandbox is an open design
 (the sandbox marker in
 `cli/guided-checks-owner-only-commands-on-a-sandbox-and-the-shared-stand-ins`),
 waiting for the owner.
@@ -352,9 +376,14 @@ still the owner's, HT1 among them.
 
 ## Example
 
-RogueTech's `scripts/checks/writable-debug-api.sh` (the first one) drives a
+Kestrel's `scripts/checks/writable-debug-api.sh` (the first one) drives a
 game on an invisible screen: it starts the game, sends debug-API actions,
 saves screenshots for the owner to judge, and stops the game and its GPU
 slot on exit. issue-viewer's first three (issue-cli prove, dispatch and
 status, the lead tab) are kept as library examples under
 `internal/checks/testdata/ported/`.
+`make ported-checks [LIB=<path>] [ONLY=<name>]` runs them as machine runs
+(`scripts/ported-checks.sh`): this checkout's issue-cli, the library from
+`LIB=` (default `internal/checks/lib.sh`), nothing ticked. Run it after a
+library change; a step that only the owner's run can do is skipped under
+`is_worker`.

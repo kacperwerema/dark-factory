@@ -1,0 +1,19 @@
+id: worktree-setup
+version: v0.36.0
+category: dispatch
+propose: false
+sources: ["internal/agentrun/worktree.go"]
+title: "Worktree setup command"
+what: |
+  `worktree_setup` runs a bootstrap command (e.g. `make`) inside a newly created
+  worktree; a failure aborts the dispatch.
+why: |
+  Agents start in a tree that already builds, instead of each one re-discovering the
+  setup steps.
+where: "top-level worktree_setup: (needs worktree: true)"
+snippet: |
+  worktree: true
+  worktree_setup: "make"
+question: "Does a fresh checkout need a setup command before an agent can work in it?"
+detect:
+  - path: worktree_setup

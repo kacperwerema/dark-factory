@@ -17,7 +17,7 @@ import (
 	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // stepEnv is what a step's actions and checks run against: the scenario,
@@ -353,6 +353,9 @@ func (e *stepEnv) post(ctx context.Context, m map[string]any) (int, string, erro
 	return resp.StatusCode, string(b), nil
 }
 
+// tempDir is the scenario's temp dir in a path (/tmp/pt-<n>).
+var tempDir = regexp.MustCompile(`/pt-\d+\b`)
+
 func trim(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > 300 {
@@ -459,7 +462,16 @@ func (e *stepEnv) evalRunner(ctx context.Context, c Check) (bool, string, error)
 		if code != 0 {
 			return false, trim(out), nil
 		}
-		return strings.Contains(out, str("contains")), trim(out), nil
+		ok := true
+		if c.Arg["contains"] != nil {
+			ok = strings.Contains(out, str("contains"))
+		}
+		if c.Arg["not_contains"] != nil {
+			ok = ok && !strings.Contains(out, str("not_contains"))
+		}
+		// The scenario's temp dir differs per run in length too: masked
+		// before the cut, REPEAT compares the same text.
+		return ok, trim(tempDir.ReplaceAllString(out, "/pt-<n>")), nil
 	case "http":
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.sc.Base+str("path"), nil)
 		if err != nil {

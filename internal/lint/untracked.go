@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/depttemplate"
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
 )
 
 // checkUntracked flags each department whose files (role prompt, workflow

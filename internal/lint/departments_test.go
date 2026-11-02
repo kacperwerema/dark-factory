@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 func TestCheckDepartments(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCheckDepartmentsJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	env.Project.Company = &tracker.Company{Jobs: []tracker.Job{{ID: "x", Every: "day", Brief: "jobs/weekly.md"}}}
-	env.Project.Product = &tracker.Department{Name: "Product", Jobs: []tracker.Job{{ID: "y", Every: "day", Brief: "jobs/weekly.md"}}}
+	env.Project.Product = &tracker.Department{Name: "Product", Jobs: []tracker.Job{{ID: "y", Every: "day", Brief: "jobs/weekly.md"}, {ID: "nightly-improve", Every: "day", Brief: "builtin:nightly-improve"}, {ID: "z", Every: "day", Brief: "jobs/nope.md"}}}
 	env.Project.Departments = []tracker.Department{{Name: "Marketing", Jobs: []tracker.Job{
 		{ID: "weekly", Every: "week", On: "mon", Brief: "jobs/weekly.md"},
 		{ID: "weekly", Every: "week", Brief: "jobs/weekly.md"},
@@ -146,14 +146,16 @@ func TestCheckDepartmentsJobs(t *testing.T) {
 	all := strings.Join(got, "\n")
 	for _, want := range []string{
 		"projects.yaml (company): jobs: on HQ are not run",
-		"projects.yaml (Product): jobs: on the Product entry are not run",
+		// Product's jobs run (factory/nightly-self-improvement-loop-…#Q1):
+		// checked like a department's, no "not run" warning.
+		"projects.yaml (Product): job z: brief jobs/nope.md does not exist",
 		`projects.yaml (Marketing): job id "weekly" appears twice`,
 		`projects.yaml (Marketing): job hourly: every: "hour": day, week or month`,
 		"projects.yaml (Marketing): job nobrief: no brief:",
 		"projects.yaml (Marketing): job gone: brief jobs/gone.md does not exist",
 		"projects.yaml (Marketing): a job has no id:",
 		`projects.yaml (Marketing): job typed: type "seo-pass": the workflow defines no types`,
-		"projects.yaml (Marketing): job nobuiltin: brief builtin:no-such-brief is not a bundled brief (bundled: builtin:memory-consolidate)",
+		"projects.yaml (Marketing): job nobuiltin: brief builtin:no-such-brief is not a bundled brief (bundled: builtin:memory-consolidate, builtin:nightly-improve)",
 		`seo/old-run: open run of job "marketing/old", which projects.yaml no longer has`,
 	} {
 		if !strings.Contains(all, want) {

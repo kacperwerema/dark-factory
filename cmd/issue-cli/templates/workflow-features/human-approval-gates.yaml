@@ -1,0 +1,26 @@
+id: human-approval-gates
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/gate.go", "internal/tracker/approval_comment.go", "internal/tracker/workflow_transition.go#ApprovalMissingError"]
+title: "Human approval gates"
+what: |
+  A `require_human_approval` action blocks a transition until the human approves the
+  target status in the viewer (or `issue-cli approve`).
+why: |
+  The human decides when design is settled or work can ship; the agent can't
+  skip ahead.
+where: "transitions[].actions[] type: require_human_approval"
+snippet: |
+  transitions:
+    - from: "in design"
+      to: "backlog"
+      actions:
+        - type: "require_human_approval"
+          status: "backlog"
+question: "Which transitions should wait for your approval?"
+detect:
+  - path: transitions[].actions[].type
+    one_of: [require_human_approval]
+  - path: transitions[].actions[].rule
+    rule_in: [approved_for, human_approval]

@@ -19,6 +19,9 @@ type DispatchPrompt struct {
 	Session  string `json:"session"`
 	// Lead is the session the agent reports to.
 	Lead string `json:"lead,omitempty"`
+	// DecisionRefs is every decision the briefing's block carries (shown
+	// or folded), for the injected event a real dispatch writes.
+	DecisionRefs []string `json:"decision_refs,omitempty"`
 }
 
 // BuildDispatchPrompt composes the prompt a dispatch would send right now for
@@ -38,17 +41,21 @@ func BuildDispatchPrompt(proj *Project, issue *Issue, wf *WorkflowConfig, workDi
 	prompt := buildAgentPrompt(proj, issue, wf, wt.Path, wt.Branch, yoloOn)
 	prompt += InjectProject(proj, DepartmentPromptSection(proj, issue))
 	prompt += InjectProject(proj, LeadPromptSection(issue, route))
+	decisions := IssueDecisionBlock(proj, issues, issue, issue.Status, wf, decisionsNow())
+	prompt += InjectProject(proj, DecisionsPromptSection(decisions, issue.Slug))
 	prompt += InjectProject(proj, MemoryPromptSection(proj, issue))
 	prompt += ShellPromptSection(DetectShell())
+	prompt += BuildPromptSection(proj, workDir, wf)
 	prompt += InjectProject(proj, CIPromptSection(workDir, wf))
 	return DispatchPrompt{
-		Prompt:   prompt,
-		Slug:     issue.Slug,
-		Status:   issue.Status,
-		Worktree: wt.Path,
-		Branch:   wt.Branch,
-		Session:  AgentDisplayName(proj, AgentSessionName(issue.Slug)),
-		Lead:     route.Lead,
+		Prompt:       prompt,
+		Slug:         issue.Slug,
+		Status:       issue.Status,
+		Worktree:     wt.Path,
+		Branch:       wt.Branch,
+		Session:      AgentDisplayName(proj, AgentSessionName(issue.Slug)),
+		Lead:         route.Lead,
+		DecisionRefs: decisions.Refs(),
 	}
 }
 

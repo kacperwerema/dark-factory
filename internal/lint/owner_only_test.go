@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const publishWorkflow = `template: custom

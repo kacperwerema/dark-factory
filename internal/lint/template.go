@@ -3,7 +3,7 @@ package lint
 import (
 	"fmt"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 // checkTemplate compares the template: stamp with the template bundled in

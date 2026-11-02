@@ -18,6 +18,7 @@ func init() {
 		"station.yolo.back",
 		"station.yolo.owner_check",
 		"station.yolo.question",
+		"station.yolo.hold",
 		// The clarify round as one form (clarify_view.go).
 		"station.clarify",
 		"station.clarify.q",

@@ -1,0 +1,51 @@
+id: docs-type
+version: v0.58.0
+category: lifecycle
+propose: true
+templates: [development]
+requires: [types-of-work]
+sources: ["@prompt"]
+title: "A docs type: docs and screenshots without a Test Plan"
+what: |
+  A `docs` type walking idea → in progress → shipping → done: an Implementation
+  section (docs changed as the body says, no code; `make validate` green), a
+  `docs:` comment and the owner's approval before shipping. No Test Plan, so no
+  playtest, check-script or ux-test boxes.
+why: |
+  Docs and screenshot issues walked the feature path and wrote N/A into every
+  testing box. Their check is the owner reading the docs.
+where: "a docs entry under types:; copy your Shipping boxes into its in progress → shipping edge"
+snippet: |
+  types:
+    docs:
+      description: "Docs, README or screenshots only: no code or behaviour change"
+      path: [idea, in progress, shipping, done]
+      transitions:
+        - from: "idea"
+          to: "in progress"
+          actions:
+            - type: "require_human_approval"
+              status: "in progress"
+            - type: "append_section"
+              title: "Implementation"
+              body: |
+                - [ ] Docs or screenshots changed as the body says, no code
+        - from: "in progress"
+          to: "shipping"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Implementation"
+            - type: "validate"
+              rule: "has_comment_prefix: docs:"
+            - type: "require_human_approval"
+              status: "shipping"
+            - type: "append_section"
+              title: "Shipping"
+              body: |
+                - [ ] Changes committed with a message referencing the issue
+question: "Add a docs type for docs-only and screenshot issues (no Test Plan)?"
+detect:
+  - path: types.*.description
+    contains: "docs, readme or screenshots only"
+  - path: transitions[].actions[].body
+    contains: "docs or screenshots changed"

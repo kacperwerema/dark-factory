@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // tailLines is how much of the log a run record and the state keep.
@@ -178,7 +178,7 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 		return finishError(opts, run, err)
 	}
 
-	limit := opts.Config.TimeoutDuration()
+	limit := opts.Config.TierTimeout(tier)
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	resultsDir, err := prepareResultsDir(root, sha, tier)

@@ -1,0 +1,35 @@
+id: metrics-and-knobs
+version: v0.54.0
+category: workbench
+propose: true
+sources: ["internal/viewer/handlers_metrics.go", "internal/viewer/handlers_metrics_panels.go", "internal/tracker/metrics.go", "internal/tracker/knobs.go", "internal/tracker/branches.go"]
+unlocks:
+  - text: "Metrics: guard metrics and tuning knobs"
+    url: /metrics
+title: "Metrics and knobs"
+what: |
+  Without `workbench.metrics` the Metrics view of a git checkout still lists its
+  Branches. The key points at the probe runs your tests write (`probe_results`, in
+  the format in docs/workbench-files.md) and optional target bands (`targets`);
+  `workbench.tuning` at knob exports. The Metrics view then shows each guard metric
+  against its band, and system pages show their own metrics and knobs. Only worth
+  it when your tests already write measured values.
+why: |
+  A change that moves a tuned number shows up as "off" before it ships, and agents
+  can see which knobs a system has.
+where: "workbench.metrics (probe_results, targets), workbench.tuning; docs/workbench-files.md"
+snippet: |
+  workbench:
+    metrics:
+      probe_results: docs/balance/snapshot.json
+      targets: docs/balance/targets.json
+    tuning:
+      - build/workbench/knobs.json
+    systems:
+      Combat:
+        metrics: [hit-rate, damage-*]
+        knobs: [Weapon*]
+question: "Do your tests or probes already write measured values worth guarding, and do you export tuning knobs? (Without them the view only lists branches.)"
+detect:
+  - path: workbench.metrics.probe_results
+  - path: workbench.tuning

@@ -26,10 +26,13 @@ The make targets:
 
 - `make playtest-check`, which is part of `make validate`
 - `make ux-test [ISSUE=…] [S=…] [STEP=TP2,TP3] [REPEAT=2]`
+- `make ux-test ALL=1`: every session, on any branch (it drops `ISSUE=` and `S=`)
 - `make playtest [ISSUE=…]`
 - `make playtest-report ISSUE=… [APPLY=1]`
 
 In a dispatched worktree (branch `work/<slug>`) `ISSUE` defaults to `<slug>`, so a plain `make playtest` or `make playtest-report APPLY=1` works on that issue. On any other branch it stays empty, and passing `ISSUE=` runs every session. `S=` narrows within that issue, so to run another issue's session from a worktree pass both: `make ux-test ISSUE= S=local-ci`.
+
+`make ux-test ALL=1` runs every session whatever the branch. Local CI runs it every night as the slow tier (`ci.nightly` in workflow.yaml, after 03:00 when `mem-guard check` allows it), so a session that a page move broke goes red overnight instead of staying stale on main. Each failed step prints `FAIL <session>/<step> <title>`, and the tier's `failures:` regex reads those lines: `issue-cli ci status --tier slow` names what went red, and the red log is kept in `.ci/red/` like any red CI run's. A red nightly run doesn't turn main red or blame anyone.
 
 ## Test ids
 
@@ -66,7 +69,10 @@ Each step at each viewport starts a fresh scenario:
 - **Its own config:** a `projects.yaml` that points only at that project.
   `project: { extra: "…" }` in `scenario.yaml` adds raw YAML to that
   project's entry (`company:`, `departments:`; the `departments` scenario
-  uses it).
+  uses it). `extra_config:` (a map) adds top-level keys to the
+  `projects.yaml` (`allowed_hosts:`, `identity:`, `telemetry_data:` …);
+  `projects` and `viewer_url` are the stager's and refused, as is
+  `telemetry_data` next to the folder form `telemetry_data:`.
 - **Fresh binaries:** `issue-viewer` and `issue-cli` built from the
   checkout, once per run, and put first on `PATH`.
 - **Its own board:** on a free port.
@@ -154,14 +160,14 @@ branches:
 - **Fixed commit dates:** scenario commits get fixed dates, an hour apart from 2026-10-01 12:00 UTC, so shas and dates match between runs and `REPEAT=2` passes.
 - **Worktrees** are excluded from the project's own commits.
 - **Upstream:** `upstream: <branch>` makes main track that branch (`git branch -u`), so views that compare main with its upstream have one. Create the branch with `from: main~N` to leave main N commits ahead. Example: `playtest/scenarios/release/`.
-- **Tags:** `tags: [{name: v1.5.0-rc.1, ref: main~1}]` makes annotated tags after the commits (`ref` defaults to main), dated like the commits. **Repo:** `project.repo:` goes into the scenario's projects.yaml; the engine's repo (`michal-franc/ai-workflow-engine`) makes the board treat the project as the engine. Example: `playtest/scenarios/release-rc/` (a release candidate soaking).
+- **Tags:** `tags: [{name: v1.5.0-rc.1, ref: main~1}]` makes annotated tags after the commits (`ref` defaults to main), dated like the commits. **Repo:** `project.repo:` goes into the scenario's projects.yaml; the engine's repo (`kacperwerema/dark-factory`) makes the board treat the project as the engine. Example: `playtest/scenarios/release-rc/` (a release candidate soaking).
 - **Example:** `playtest/scenarios/metrics/` (the Metrics view).
 
 ## The runner (cmd/playtest)
 
 - **Browser:** chromedp. It drives the installed Chrome or Chromium, else
   the newest Chrome for Testing under `~/Library/Caches/ms-playwright`
-  (a Mac without Chrome in /Applications); set `PLAYTEST_CHROME` for another. ux-test runs headless, with a new browser
+  (a Mac without Chrome in /Applications); set `PLAYTEST_CHROME` for another, or `PLAYTEST_CHROME=none` to turn the browser off (the public CI does: every Chrome test skips). ux-test runs headless, with a new browser
   context per step and viewport, so storage and cookies start empty.
 - **Injected scripts:** `checks.js` is added to every document with
   `Page.addScriptToEvaluateOnNewDocument`. A second script turns off CSS
@@ -173,7 +179,10 @@ branches:
     `settle_ms` runs out (default 3000).
   - So a navigation or a fetch never needs a sleep.
 - **Viewports:** `session_checks.viewports`, by default `1440x900` and
-  `390x844`.
+  `390x844`. A step's own `viewports: [1440x900]` runs it at only those of
+  the session's (another size is refused): for a step that checks one
+  layout while another step checks the other, such as the CEO chat's
+  desktop controls row and its phone More fold.
 - **Reduced motion:** `session_checks.reduced_motion: true` makes the
   browser report `prefers-reduced-motion: reduce` (Emulation.setEmulatedMedia)
   for every step of the session, to check a page's still version. SVG
@@ -181,7 +190,10 @@ branches:
   only stops CSS ones.
 - **What fails a step:**
   - **Console:** an error or exception in the console, unless
-    `console_ignore` matches it.
+    `console_ignore` matches it (`session_checks.console: no_errors`, the
+    default). It reads the browser log too, so a Content-Security-Policy
+    violation (an inline script without the nonce, a blocked inline handler
+    or style) fails the step.
   - **Layout rules:**
     - `inside_viewport`: no sideways page scroll. When the page does scroll
       sideways, the error names the element that causes it.
@@ -233,6 +245,16 @@ branches:
 | `snapshot` | `snapshot: { name: before, target: board.column.backlog.count }` |
 | `check` | `check: { count: { pattern: list.row.*, equals: 2 } }`. An inline check that must pass now. |
 
+### Stubs
+
+A step can install scripts that run in its page before the page's own (`stubs: [keyboard]`): browser APIs headless Chrome doesn't play the way a phone does. The names are a closed list, one file each in `cmd/playtest/assets/stubs/`; the validator refuses any other and lists the known ones. The ids a stub draws are in `testids.StubIDs`.
+
+| Stub | What it does |
+|:--|:--|
+| `keyboard` | An on-screen keyboard: while a text box has focus, `window.visualViewport` is 340px shorter than the window (the layout viewport keeps its size, as on iOS), its `resize` fires, and a fixed block `playtest.keyboard` covers the bottom. Check `below: [lead_chat.send, playtest.keyboard]`. |
+| `speech-recognition` | A fake `SpeechRecognition`: `start()` hears "status" (interim) then "status please" (final); `stop()`/`abort()` delivers "late words" 200ms later, then `onend`. It counts the page's non-GET fetches to a `/lead/` route in the hidden `playtest.lead_posts`. |
+| `no-speech-recognition` | A browser without speech recognition (both constructors undefined). |
+
 ### Checks
 
 | Check | Passes when |
@@ -248,7 +270,7 @@ branches:
 | `changed` / `unchanged` | `{ target, since: <snapshot> }` |
 | `issue` | `{ slug, field, equals }`, `{ slug, checkbox: P1, checked: true }`, `{ slug, comment_contains }`, `{ slug, body_contains }`. Reads the scenario's issue file. |
 | `cli` | `{ args, exit?, contains?, not_contains? }` |
-| `tmux` | `{ session, present }` or `{ pane, contains }` on the private server |
+| `tmux` | `{ session, present }` or `{ pane, contains?, not_contains? }` on the private server |
 | `http` | `{ path, status?, contains?, json: { "a.0.b": value } }` |
 | `beside` | `[a, b]` or `{ a, b, gap_max? }`: b starts right of a's right edge and their vertical extents overlap (one row); `gap_max` caps the gap in px |
 | `below` | `[a, b]` or `{ a, b }`: b starts below a's bottom edge |
@@ -323,6 +345,32 @@ that element instead (and implies `FULL=1`); a selector that matches nothing
 fails the shot. Point it at a throwaway board (the
 demo staged by `scripts/readme-shots.sh --serve`, or a scenario), not the
 owner's viewer.
+
+## A scenario board on demand (make serve) and before/after shots
+
+`make serve SCENARIO=<name> [BASE=main] [PORT=n] [DIR=dir]` runs
+`playtest serve`: it builds the checkout, stages the scenario exactly as
+ux-test does (own `HOME`, XDG dirs and tmux socket, so the shared
+`viewer.json` is never written), starts the board detached on `PORT` when
+it is free (else a free port, with a `port N is taken` note) and exits,
+printing each board's URL and log, the shot command and the stop command.
+`BASE=<ref>` also builds that ref (`git archive` into a temp folder, no
+worktree) and serves the same scenario fixtures from this checkout on a
+second board. The record is `.playtest/serve/<scenario>.json`; serving the
+same scenario again refuses and names the live URL.
+
+`make shot URL=/p/<project>/company` with a path URL shoots the served
+board (`SCENARIO=` picks one when several are served). `BASE=main` shoots
+both boards: `OUT` (default `.playtest/shot.png`) and `OUT` with `.base`
+before the extension. `HTML=1` also saves each page's rendered HTML beside
+its PNG and prints the `diff -u <base> <head>` command, for a "renders the
+same" check. With no served board for that BASE, shot says which
+`make serve` to run.
+
+`make serve-stop [SCENARIO=<name>]` stops what serve started: it signals a
+board only when the pid's command line still names that board's
+`projects.yaml`, removes only folders carrying the scenario marker, and
+deletes the record. Never stop a sandbox viewer by binary path or port.
 
 ## Picking sessions (ISSUE= and S=)
 

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/milestone"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/milestone"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Private development, public releases (privacy.code: snapshots): origin is
@@ -573,6 +573,13 @@ func Publish(in PublishInput) (PublishResult, error) {
 	if err != nil {
 		return res, err
 	}
+	// The upstream author's name, outside LICENSE.md (D-4): refused even
+	// with no private-names list on this machine.
+	upstream, err := ScanUpstreamName(in.Worktree, "HEAD")
+	if err != nil {
+		return res, err
+	}
+	leaks = append(leaks, upstream...)
 	if len(leaks) > 0 {
 		return res, leakError(branch, leaks)
 	}

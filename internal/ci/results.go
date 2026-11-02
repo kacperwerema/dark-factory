@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/testresults"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // ResultsEnv names the folder every ci.run command may write its test

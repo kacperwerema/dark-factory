@@ -159,7 +159,10 @@ type Benchmark struct {
 	// WorkerHome is where the worker's HOME is: WorkerHomeSandbox (the
 	// default) or WorkerHomeOwner.
 	WorkerHome string `yaml:"worker_home,omitempty"`
-	Tasks      []Task `yaml:"tasks"`
+	// Nightly marks the benchmark bench nightly runs when a project has
+	// tasks in several (the owner's choice; one benchmark needs no mark).
+	Nightly bool   `yaml:"nightly,omitempty"`
+	Tasks   []Task `yaml:"tasks"`
 
 	path string
 }

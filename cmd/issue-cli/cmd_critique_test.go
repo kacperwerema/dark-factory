@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/autostart"
-	"github.com/michal-franc/issue-viewer/internal/critique"
-	"github.com/michal-franc/issue-viewer/internal/routing"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/critique"
+	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const critiqueWorkflow = `statuses:
@@ -371,7 +371,8 @@ func TestCritiqueUsageLimitFallsBackOnce(t *testing.T) {
 }
 
 // Each held run is one red round of the critique check, even at one
-// branch head; the fourth posts the owner's question, and then neither the
+// branch head, and the same finding each time makes each one count; the
+// fourth posts the owner's question, and then neither the
 // critic nor the transition runs again until the owner resolves it.
 func TestHeldCritiqueRunsAreRedRoundsAndTheFourthAsksTheOwner(t *testing.T) {
 	proj, slug, issuePath, criticOut := critiqueProject(t)
@@ -388,7 +389,7 @@ func TestHeldCritiqueRunsAreRedRoundsAndTheFourthAsksTheOwner(t *testing.T) {
 		if err := runCritique(ctx, []string{slug}); err != nil {
 			t.Fatalf("run %d: %v", i, err)
 		}
-		assertContains(t, out.String(), fmt.Sprintf("The critique check is red %d of 4 (max_red_rounds)", i))
+		assertContains(t, out.String(), fmt.Sprintf("The critique check is red %d of 4 — round %d: ", i, i))
 	}
 	ctx, out, _ := newTestContext(proj, false)
 	if err := runCritique(ctx, []string{slug}); err != nil {

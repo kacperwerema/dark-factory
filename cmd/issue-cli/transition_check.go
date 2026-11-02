@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // exitCodeError carries a specific process exit code. main prints Msg (when

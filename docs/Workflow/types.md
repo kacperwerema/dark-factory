@@ -143,7 +143,7 @@ Every change is a hint in CLI output, so agents in any project find types withou
 
 - **Projects without `types:`**: `ForType` returns the base clone, so `ForIssue` returns exactly what `ForSystem`
   returns today. A `type:` key in frontmatter stays a plain custom field (still shown in the sidebar, still settable
-  with `set-meta`). Tests: a golden test over every issue in this repo and in a fixture copy of Raid League's
+  with `set-meta`). Tests: a golden test over every issue in this repo and in a fixture copy of Siege Cup's
   `workflow.yaml` asserts `ForIssue(i)` deep-equals today's `ForSystem(i.System)`, plus snapshot tests of
   `process workflow`, `process transitions` and `show` output for a project with no types.
 - **Adding `types:` to an existing project**: issues without `type:` get `default_type`. Make that the type with no
@@ -207,7 +207,7 @@ write from its worktree. The `report` type in the bundled `development` template
    template; parent links (`umbrella-issue-grouping-multiple-issues`), which can then replace the "Umbrella children"
    prompt paragraphs with an overlay keyed on having a parent.
 
-## Worked example: Raid League (`wipe-manager`)
+## Worked example: Siege Cup (`wipe-manager`)
 
 The base `workflow.yaml` keeps its lifecycle (idea → discussion → design → backlog → in progress → balance → playtest →
 documentation → shipping → done, plus `parked` and `obsolete`). `feature` is the base. The "Umbrella issues: …"

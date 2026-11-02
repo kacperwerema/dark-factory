@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/memory"
 )
 
 const sections = `## Steps

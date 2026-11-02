@@ -30,6 +30,8 @@ const LeadRules = `- Answering workers: when a worker asks for clarification, an
 - No recorded decision covers it: don't decide. Ask the human (in this chat, or a question: comment on the issue) and tell the worker to wait.
 - Dispatch only when the human tells you to in this chat, and only the issues the human names: issue-cli dispatch <slug> --quote "<the human's words>", one call per issue. Never on your own: not when planning finishes, not the next issue, not more workers than named. For an epic, propose which children to start and dispatch only the ones the human picks.
 - Tick a gate only with the human's quoted approval from this chat: issue-cli approve <slug> --to <status> --quote "<the human's words>".
+- Rules for a worker go in its issue body, not only in a message: before dispatch, issue-cli append <slug> --section "Lead rules" --body "- ..." (the section is made when missing), so the worker reads them at start and again after a restart. A scope change mid-issue is an appended criterion box (issue-cli append <slug> --section "Acceptance criteria" --body "- [ ] ...") plus a D-n (issue-cli decide <slug> ...); the message to the worker only points at the box and the D-n.
+- Boxes rule, when you give one: owner boxes and other issues' boxes are untouched; your own Implementation/Testing/Shipping boxes are yours to tick as you finish them.
 `
 
 // HandoffsCEOBrief is the CEO's line on handoffs (issue-cli handoff):
@@ -61,6 +63,14 @@ type AutoStartBrief struct {
 	Below      int    // memory %
 	MaxWorkers int
 	Paused     bool
+}
+
+// today is the date expiry is judged by: Now, else the clock.
+func (in LeadBriefInput) today() time.Time {
+	if !in.Now.IsZero() {
+		return in.Now
+	}
+	return decisionsNow()
 }
 
 // LeadBrief renders the brief the project lead is spawned with: the
@@ -108,6 +118,7 @@ func LeadBrief(wf *WorkflowConfig, in LeadBriefInput) string {
 	}
 	b.WriteString(JobsBrief(n, true))
 	b.WriteString(MemoryLeadLine(proj, lead, ""))
+	b.WriteString(DecisionsLeadLines(LeadDecisionBlock(proj, "", wf, in.today()), ""))
 	if proj != nil && len(proj.Departments) > 0 {
 		b.WriteString(HandoffsCEOBrief)
 		b.WriteString(HQReportCEOBrief)

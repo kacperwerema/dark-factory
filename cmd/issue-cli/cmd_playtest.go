@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/playtestruns"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/playtestruns"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var playtestCommand = &Command{

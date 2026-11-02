@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 )
 
 // Meta is a post-mortem's header.

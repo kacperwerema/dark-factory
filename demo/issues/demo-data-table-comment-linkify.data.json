@@ -5,7 +5,7 @@
       "id": 1,
       "description": "explicit https URL",
       "status": "todo",
-      "comment": "https://github.com/michal-franc/ai-native-project-viewer"
+      "comment": "https://github.com/example-org/example-repo"
     },
     {
       "id": 2,
@@ -17,13 +17,13 @@
       "id": 3,
       "description": "bare host.domain/path — should auto-prefix https://",
       "status": "todo",
-      "comment": "github.com/michal-franc/ai-native-project-viewer/pull/42"
+      "comment": "github.com/example-org/example-repo/pull/42"
     },
     {
       "id": 4,
       "description": "deep github discussion anchor",
       "status": "todo",
-      "comment": "https://github.com/michal-franc/ai-native-project-viewer/pull/1234#discussion_r9876543210"
+      "comment": "https://github.com/example-org/example-repo/pull/1234#discussion_r9876543210"
     },
     {
       "id": 5,

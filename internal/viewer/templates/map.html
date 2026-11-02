@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Project map"}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="Project map">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Your projects</h1>
+        <span class="wb-sub">{{.Active}} active{{if .Sites}} · {{.Sites}} building {{if eq .Sites 1}}site{{else}}sites{{end}}{{end}}{{if .Engine}} · roads lead to the engine{{end}}{{with .RC}}, trucks carry release candidate {{.Tag}}{{end}}</span>
+    </div>
+    <div class="wb-lots{{if .Engine}} wb-lots--hub{{end}}" id="lots" data-engine="{{.Engine}}">
+        <svg class="wb-roads" id="roads" aria-hidden="true"></svg>
+        {{range .Lots}}{{if .Site}}{{template "wb/site" .}}{{else}}{{template "wb/lot" .}}{{end}}{{end}}
+        {{template "wb/new-tile" .NewProject}}
+    </div>
+    <div class="wb-legend">
+        <span><b>Click a lot</b> to enter the project</span>
+        <span>· <b class="wb-you-text">!</b> = things for you</span>
+        <span>· buildings = departments, height = open work</span>
+        <span>· dashed outline = still to build</span>
+        <span class="wb-legend-links"><a href="/leads" data-testid="map.leads_link">All CEOs</a> · <a href="/crew" data-testid="map.crew_link">All crew</a> · <a href="/updates" data-testid="map.updates_link">Workflow updates{{if .Updates}} ({{.Updates}}){{end}}</a> · <a href="/stats">Stats</a></span>
+    </div>
+</section>
+{{template "wb/side" .Queue}}
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

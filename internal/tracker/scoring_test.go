@@ -100,12 +100,12 @@ func TestComputeScore_DueDate(t *testing.T) {
 		due  string
 		want float64
 	}{
-		{"beyond horizon", "2026-06-30", 0},         // >30 days out → 0 urgency
-		{"at horizon", "2026-05-23", 0},             // exactly 30 days → 0
-		{"inside horizon", "2026-05-03", 40},        // 10 days until due → (30-10)*2 = 40
-		{"due today", "2026-04-23", 60},             // 30*2 = 60, under cap
-		{"overdue 10d", "2026-04-13", 60},           // (30-(-10))*2 = 80, capped to 60
-		{"overdue far", "2025-01-01", 60},           // capped
+		{"beyond horizon", "2026-06-30", 0},  // >30 days out → 0 urgency
+		{"at horizon", "2026-05-23", 0},      // exactly 30 days → 0
+		{"inside horizon", "2026-05-03", 40}, // 10 days until due → (30-10)*2 = 40
+		{"due today", "2026-04-23", 60},      // 30*2 = 60, under cap
+		{"overdue 10d", "2026-04-13", 60},    // (30-(-10))*2 = 80, capped to 60
+		{"overdue far", "2025-01-01", 60},    // capped
 	}
 
 	for _, tc := range cases {

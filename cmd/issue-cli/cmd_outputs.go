@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/connections"
-	"github.com/michal-franc/issue-viewer/internal/goals"
-	"github.com/michal-franc/issue-viewer/internal/outputs"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/connections"
+	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const outputAddUsage = `usage: issue-cli output add --title "..." --kind <kind> (--url <link> | --file <file> | --path <repo path>) [--issue <slug>] [--department <name>] [--job <name>] [--note "..."]`

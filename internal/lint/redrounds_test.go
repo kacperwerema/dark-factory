@@ -3,7 +3,7 @@ package lint
 import (
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 const redRoundsWF = "statuses:\n  - name: idea\ntransitions: []\n"

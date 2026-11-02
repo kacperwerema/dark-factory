@@ -1,0 +1,31 @@
+id: publish-stamp
+version: v0.55.0
+category: gates
+propose: false
+templates: [content, marketing]
+sources: ["internal/tracker/department_workflow.go", "cmd/issue-cli/templates/workflow/content.yaml"]
+title: "The owner's stamp before anything goes out"
+what: |
+  A `publish` status entered only with the owner's approval, and a Published box with
+  the link to what went out before `done`. Made for a department's own workflow file
+  (projects.yaml departments: workflow:), where the work leaves the project: a post,
+  a page, an email.
+why: |
+  Nothing a department makes reaches a client, an account or the public before the
+  owner has seen it, and the link records what went out.
+where: "transitions[] into publish: require_human_approval, append_section Published"
+snippet: |
+  transitions:
+    - from: "owner review"
+      to: "publish"
+      actions:
+        - type: "require_human_approval"
+          status: "publish"
+        - type: "append_section"
+          title: "Published"
+          body: |
+            - [ ] Published: link to what went out
+question: "What should wait for your yes before it goes out, and where is the link recorded?"
+detect:
+  - path: transitions[].actions[].status
+    equals: publish

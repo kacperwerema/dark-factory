@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func TestGitHubRepo(t *testing.T) {
 	for url, want := range map[string]string{
-		"git@github.com:michal-franc/gpu-runner.git":      "michal-franc/gpu-runner",
-		"https://github.com/michal-franc/gpu-runner":      "michal-franc/gpu-runner",
-		"https://github.com/michal-franc/gpu-runner.git/": "michal-franc/gpu-runner",
-		"ssh://git@github.com/michal-franc/ctx.git":       "michal-franc/ctx",
-		"git@gitlab.com:someone/thing.git":                "",
-		"":                                                "",
+		"git@github.com:example-org/batch-runner.git":      "example-org/batch-runner",
+		"https://github.com/example-org/batch-runner":      "example-org/batch-runner",
+		"https://github.com/example-org/batch-runner.git/": "example-org/batch-runner",
+		"ssh://git@github.com/example-org/ctx.git":         "example-org/ctx",
+		"git@gitlab.com:someone/thing.git":                 "",
+		"":                                                 "",
 	} {
 		if got := GitHubRepo(url); got != want {
 			t.Errorf("GitHubRepo(%q) = %q, want %q", url, got, want)

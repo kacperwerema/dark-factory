@@ -1,0 +1,116 @@
+{{/*
+Workshop Board components of the Needs you list (needs_you.go has their view
+models, static/workshop.css their styles, static/needs-you.js reads the
+data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
+
+  wb/ny-switch    the project switcher (across projects)   data: NeedsYouData
+  wb/ny-bar       Select all ready and Approve selected    data: NeedsYouData
+  wb/ny-group     one project's sections                   data: NeedsYouGroup
+  wb/ny-section   one kind of row: To approve, To test, …  data: NeedsYouSection
+  wb/ny-row       one item waiting on you, its actions     data: WbQueueCard
+  wb/ny-after     YOLO's after-the-fact queue              data: NeedsYouGroup
+  wb/ny-empty     nothing is waiting                       data: none
+  wb/ny-confirm   the Approve dialog                       data: none
+*/}}
+
+{{define "wb/ny-switch"}}{{if .Projects}}
+<nav class="wb-ny-switch" aria-label="Projects" data-testid="needs_you.switch">
+    {{range .Projects}}<a class="wb-ny-chip" href="{{.URL}}" data-testid="needs_you.switch.project"><i style="background:{{.Color}}"></i>{{.Name}} <b>{{.Count}}</b></a>{{end}}
+    <a class="wb-ny-chip wb-ny-chip--map" href="/?map=1" data-testid="needs_you.switch.map">Map ›</a>
+</nav>
+{{end}}{{end}}
+
+{{define "wb/ny-bar"}}{{if .Ready}}
+<div class="wb-ny-bar" data-testid="needs_you.bar">
+    <label class="wb-ny-all" data-testid="needs_you.select_all_label"><input type="checkbox" data-ny-all data-testid="needs_you.select_all"> Select all ready ({{.Ready}})</label>
+    <button type="button" class="wb-btn wb-btn--you" data-ny-approve disabled data-testid="needs_you.approve_selected">Approve selected (<span data-ny-n>0</span>)</button>
+    <span class="wb-ny-hint">Each issue gets your stamp, as on its station. Nothing moves and no agent is messaged: the CEO or the worker picks it up.</span>
+</div>
+{{end}}{{end}}
+
+{{define "wb/ny-group"}}
+<div class="wb-ny-group" data-testid="needs_you.group" data-project="{{.Slug}}" data-approve-url="{{.ApproveURL}}"{{with .AfterURL}} data-yolo-url="{{.}}"{{end}}>
+    {{if .Named}}<h2 class="wb-ny-proj"><i style="background:{{.Color}}"></i><a href="{{.URL}}">{{.Project}}</a> <span class="wb-ny-n">{{.Count}}</span></h2>{{end}}
+    {{with .Error}}<div class="wb-ny-error" data-testid="needs_you.group.error">{{.}}</div>{{end}}
+    {{range .Sections}}{{template "wb/ny-section" .}}{{end}}
+    {{if .After}}{{template "wb/ny-after" .}}{{end}}
+</div>
+{{end}}
+
+{{define "wb/ny-section"}}
+<section class="wb-ny-sec" data-testid="needs_you.section" data-section="{{.Key}}">
+    <h3 class="wb-ny-sec-h">{{.Title}} <span class="wb-ny-n">{{len .Rows}}</span></h3>
+    {{range .Rows}}{{template "wb/ny-row" .}}{{end}}
+</section>
+{{end}}
+
+{{define "wb/ny-row"}}
+<div class="wb-ny-row wb-ny-row--{{.Tone}}" data-testid="needs_you.row" data-kind="{{.Kind}}" data-slug="{{.Slug}}"{{if .Ready}} data-from="{{.From}}" data-status="{{.Target}}"{{end}}>
+    {{if .Ready}}<label class="wb-ny-pick" data-testid="needs_you.pick_area"><input type="checkbox" data-ny-pick aria-label="Select {{.Slug}}" data-testid="needs_you.pick"></label>{{else}}<span class="wb-ny-pick"></span>{{end}}
+    <div class="wb-ny-main">
+        <div class="wb-card-meta"><span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span><span class="wb-age">{{.Age}}</span></div>
+        <div class="wb-slug">{{.Slug}}</div>
+        <div class="wb-card-note">{{.Note}}</div>
+        {{with .Decision}}<blockquote class="wb-ny-q wb-ny-q--decision" data-testid="needs_you.challenge.decision">{{$.ResolveRef}}: {{.}}</blockquote>{{end}}
+        {{with .Question}}<blockquote class="wb-ny-q" data-testid="needs_you.question">{{.}}</blockquote>{{end}}
+        {{if .Also}}<div class="wb-ny-also" data-testid="needs_you.challenge.also">Also on it, not held: {{range $i, $a := .Also}}{{if $i}} · {{end}}{{$a}}{{end}}</div>{{end}}
+        {{if .Clarify}}<div class="wb-ny-clarify" data-clarify-url="{{.ClarifyURL}}">{{range .Clarify}}
+            <fieldset class="wb-ny-cq" data-testid="needs_you.clarify" data-qid="{{.ID}}" data-qtext="{{.Text}}">
+                <legend><b>{{.ID}}.</b> {{.Text}}</legend>
+                <div class="wb-ny-opts">{{range .Options}}<button type="button" class="wb-ny-opt{{if .Recommended}} wb-ny-opt--rec{{end}}" data-ny-opt="{{.Num}}" data-label="{{.Label}}" data-testid="needs_you.clarify.option"><span>{{.Label}}{{if .Recommended}} <em>recommended</em>{{end}}</span>{{with .Cost}}<span class="wb-ny-opt-c">Cost: {{.}}</span>{{end}}</button>{{end}}</div>
+                <div class="wb-ny-msg" role="status" data-ny-qmsg></div>
+            </fieldset>{{end}}
+        </div>{{end}}
+        {{if .ReplyURL}}<form class="wb-ny-reply" data-ny-reply-form="{{.ReplyURL}}" hidden data-testid="needs_you.reply.form">
+            <textarea rows="3" aria-label="Your reply to {{.Slug}}" data-ny-reply-text data-testid="needs_you.reply.text"></textarea>
+            <button type="submit" class="wb-btn wb-btn--you" data-testid="needs_you.reply.send">Send</button>
+        </form>{{end}}
+        {{if .ResolveURL}}<form class="wb-ny-reply" data-ny-resolve-form="{{.ResolveURL}}" data-ref="{{.ResolveRef}}" hidden data-testid="needs_you.challenge.form">
+            <textarea rows="2" aria-label="Your words keeping {{.ResolveRef}} (optional)" placeholder="Your words (optional)" data-ny-resolve-text data-testid="needs_you.challenge.words"></textarea>
+            <button type="submit" class="wb-btn wb-btn--you" data-testid="needs_you.challenge.keep">Keep {{.ResolveRef}}</button>
+        </form>{{end}}
+        {{if .ExpiryURL}}<form class="wb-ny-expiry" data-ny-expiry="{{.ExpiryURL}}" data-testid="needs_you.expiry.form">
+            <label>Renew until <input type="date" value="{{.RenewDefault}}" min="{{.RenewMin}}" data-ny-expires data-testid="needs_you.expiry.date"></label>
+            <textarea rows="2" aria-label="Your words on {{.Slug}} (optional)" placeholder="Your words (optional)" data-ny-expiry-text data-testid="needs_you.expiry.text"></textarea>
+            <div class="wb-ny-expiry-acts">
+                <button type="submit" value="renew" class="wb-btn wb-btn--you" data-testid="needs_you.expiry.renew">Renew</button>
+                <button type="submit" value="let-go" class="wb-btn wb-btn--quiet" data-testid="needs_you.expiry.let_go">Let go</button>
+            </div>
+        </form>{{end}}
+        <div class="wb-ny-msg" role="status" data-ny-msg data-testid="needs_you.row.msg"></div>
+    </div>
+    <div class="wb-ny-acts">
+        {{if .Ready}}<button type="button" class="wb-btn wb-btn--you" data-ny-one data-testid="needs_you.approve">Approve</button>{{end}}
+        {{if .RunURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-run="{{.RunURL}}" data-testid="needs_you.run">{{.RunLabel}}</button>{{end}}
+        {{if .ReplyURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-reply aria-expanded="false" data-testid="needs_you.reply">Reply</button>{{end}}
+        {{if .ResolveURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-resolve aria-expanded="false" data-testid="needs_you.challenge.open">Keep it</button>{{end}}
+        <a class="wb-btn{{if or .Ready .RunURL .ReplyURL .Clarify .ResolveURL .ExpiryURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
+        {{with .ChatURL}}<a class="wb-btn wb-btn--quiet" href="{{.}}" data-testid="needs_you.chat">Chat</a>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "wb/ny-after"}}
+<section class="wb-ny-sec wb-ny-sec--after" data-testid="needs_you.after">
+    <h3 class="wb-ny-sec-h">After the fact <span class="wb-ny-n">{{.AfterCount}}</span> <span class="wb-yolo-tag" data-testid="needs_you.after.summary">{{.AfterCount}} {{if eq .AfterCount 1}}issue{{else}}issues{{end}} · {{.AfterGates}} {{if eq .AfterGates 1}}gate{{else}}gates{{end}}, {{.AfterChecks}} owner {{if eq .AfterChecks 1}}check{{else}}checks{{end}}{{with .AfterOldest}} · oldest {{.}}{{end}}</span> <span class="wb-ny-hint">issues YOLO moved without you, to review; not counted above</span>{{with .AfterURL}} <a class="wb-btn wb-btn--you wb-ny-after-all" href="{{.}}" data-testid="needs_you.after.review_all">Review all ›</a>{{end}}</h3>
+    {{range .After}}<div class="wb-ny-after wb-ny-after--row" data-slug="{{.Slug}}" data-testid="needs_you.after.row"><a class="wb-ny-after-link" href="{{.URL}}"><span class="wb-slug">{{.Slug}}</span><span class="wb-muted">{{.Detail}}</span></a>{{if .Agreeable}}<button type="button" class="wb-btn wb-btn--you" data-ny-agree data-testid="needs_you.after.agree">Agree</button>{{end}}<span class="wb-ny-msg" role="status" data-ny-msg></span></div>{{end}}
+    {{if .AfterMore}}<a class="wb-ny-after" href="{{.AfterURL}}" data-testid="needs_you.after.more"><span class="wb-muted">… {{.AfterMore}} more {{if eq .AfterMore 1}}issue{{else}}issues{{end}} on the review page</span><span class="wb-qrow-go" aria-hidden="true">›</span></a>{{end}}
+</section>
+{{end}}
+
+{{define "wb/ny-empty"}}<div class="wb-empty" data-testid="needs_you.empty">Nothing is waiting on you. Gates, playtests, check scripts, questions, red CI and outputs to review show here.</div>{{end}}
+
+{{define "wb/ny-confirm"}}
+<dialog class="wb-ny-dialog" data-ny-dialog data-testid="needs_you.confirm" aria-labelledby="ny-confirm-h">
+    <form method="dialog">
+        <h2 id="ny-confirm-h">Approve <span data-ny-dn>0</span></h2>
+        <ul class="wb-ny-list" data-ny-list data-testid="needs_you.confirm.list"></ul>
+        <label class="wb-ny-words">Your words (optional, saved on each issue as an approval: comment)
+            <textarea rows="2" data-ny-words data-testid="needs_you.confirm.words"></textarea></label>
+        <div class="wb-ny-dialog-acts">
+            <button type="button" class="wb-btn wb-btn--quiet" data-ny-cancel>Cancel</button>
+            <button type="button" class="wb-btn wb-btn--you" data-ny-confirm data-testid="needs_you.confirm.ok">Approve all listed</button>
+        </div>
+    </form>
+</dialog>
+{{end}}

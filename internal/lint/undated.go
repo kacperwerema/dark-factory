@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var decisionDayRe = regexp.MustCompile(`(?m)^- \*\*D-\d+\*\* · (\d{4}-\d{2}-\d{2})`)

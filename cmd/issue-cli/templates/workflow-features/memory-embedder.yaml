@@ -1,0 +1,25 @@
+id: memory-embedder
+version: v0.59.0
+category: automation
+propose: false
+sources: ["internal/tracker/memory_config.go", "internal/memory/embed.go", "internal/memory/hybrid.go", "cmd/issue-cli/memory_ranker.go", "internal/lint/memory.go"]
+title: "Shared memory search by meaning (local embedder)"
+what: |
+  `memory: embedder:` names a local embedder for `issue-cli memory search`, start's
+  == Memories == and the hint at done: a URL on this machine speaking Ollama's
+  `/api/embed`, or a command reading the same JSON on stdin. Search then ranks by words
+  (BM25) and meaning (cosine), vectors cached per memory in `<issues>/.memory/vectors/`.
+  Before each request it asks `mem-guard used`; at 70% or more, or when the embedder
+  fails, it ranks by words only and search says why. A URL off this machine is refused.
+why: |
+  Words alone miss a memory that says the same thing differently ("flaky under load"
+  vs "timing test fails on a busy machine"). Off by default: it needs a local model.
+where: "top-level memory: (docs/memory.md, Semantic search)"
+snippet: |
+  memory:
+    embedder:
+      url: "http://127.0.0.1:11434/api/embed"
+      model: "nomic-embed-text"
+question: "Is there a local embedding model on this machine that memory search should use?"
+detect:
+  - path: memory.embedder

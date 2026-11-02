@@ -8,6 +8,8 @@
 //	playtest report -issue S [-apply]    tick passed boxes, comment failures
 //	playtest shots -list F -base U -out D the README's screenshots (make readme-shots)
 //	playtest shot -url U [-w W] [-out F]  one screenshot of one page (make shot)
+//	playtest serve -scenario N [-ref R]   a scenario board left running (make serve)
+//	playtest stop [-scenario N]           stop what serve started (make serve-stop)
 //
 // The make targets (playtest-check, ux-test, playtest, playtest-report, shot) wrap
 // these. The shared contract behind the format: `issue-cli process playtest`.
@@ -25,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
 const usage = `playtest — run issue-viewer playtest sessions (playtest/sessions/*.yaml)
@@ -53,7 +55,20 @@ Commands:
                                .playtest/shot.png); waits for load, not for
                                the network to go idle (make shot); -full on a
                                page that doesn't scroll unrolls its biggest
-                               inner scroller, -scroll SEL that one
+                               inner scroller, -scroll SEL that one; -url may
+                               be a path (/p/demo/company) on the board make
+                               serve runs; -ref R also shoots its R board into
+                               FILE with .base before the extension; -html also
+                               saves each page's rendered HTML for a diff
+  serve    -scenario NAME [-ref REF] [-port N] [-dir DIR]
+                               stage the scenario as ux-test does (own HOME, XDG
+                               dirs, tmux socket) and leave its board running;
+                               -ref also builds REF and serves the same scenario
+                               on a second board; prints the URLs and the stop
+                               command; record in .playtest/serve/NAME.json
+  stop     [-scenario NAME] [-keep]
+                               stop the boards serve started (every one without
+                               -scenario) and remove their folders
 
 Common flags: -sessions DIR, -scenarios DIR, -runs DIR, -project NAME
 Runs are kept in .playtest/runs/<session>/<time>-<mode>/ (gitignored).
@@ -71,8 +86,11 @@ type opts struct {
 	results                   string
 	list, base, out, only     string
 	url, scroll               string
+	scenario, baseRef, dir    string
 	repeat, width, height     int
+	port                      int
 	keep, headed, apply, full bool
+	html                      bool
 }
 
 func run(args []string, out, errw io.Writer) int {
@@ -109,6 +127,11 @@ func run(args []string, out, errw io.Writer) int {
 	fs.IntVar(&o.height, "h", 0, "shot: viewport height in CSS pixels (default 800)")
 	fs.BoolVar(&o.full, "full", false, "shot: the whole page, not just the viewport")
 	fs.StringVar(&o.scroll, "scroll", "", "shot: unroll this scrolling element (CSS selector) and shoot the whole page")
+	fs.StringVar(&o.scenario, "scenario", "", "serve, stop, shot: the scenario (playtest/scenarios/<name>)")
+	fs.StringVar(&o.baseRef, "ref", "", "serve: also serve the scenario on a board built from this git ref; shot: also shoot that board")
+	fs.IntVar(&o.port, "port", 0, "serve: the board's port when it is free (default any free port)")
+	fs.StringVar(&o.dir, "dir", "", "serve: a new or empty folder to stage in (default a pt-serve-* temp dir)")
+	fs.BoolVar(&o.html, "html", false, "shot: also save the rendered HTML beside each PNG")
 	fs.StringVar(&o.only, "only", "", "shots: only these files (comma-separated)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -139,6 +162,10 @@ func run(args []string, out, errw io.Writer) int {
 		return cmdShots(o, out, errw)
 	case "shot":
 		return cmdShot(repo, o, out, errw)
+	case "serve":
+		return cmdServe(repo, o, out, errw)
+	case "stop":
+		return cmdStop(repo, o, out, errw)
 	}
 	fmt.Fprintf(errw, "playtest: unknown command %q\n\n%s", cmd, usage)
 	return 2
@@ -163,7 +190,7 @@ func repoRoot() (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", errors.New("run from inside the issue-viewer repo (no go.mod found)")
+			return "", errors.New("run from inside the dark-factory repo (no go.mod found)")
 		}
 		dir = parent
 	}
@@ -260,6 +287,7 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 		r.EvidenceRuns = EvidenceRunsDir(repo)
 	}
 	code := 0
+	var failed []string
 	e2e := testresults.Playtest{Started: time.Now()}
 	defer func() {
 		if note := r.ShotsNote(); note != "" {
@@ -286,10 +314,9 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 			}
 			e2e.Sessions = append(e2e.Sessions, e2eSession(res, time.Since(start)))
 			fmt.Fprintf(out, "results: %s\n", filepath.Join(dir, "results.yaml"))
-			for _, st := range res.Steps {
-				if st.Status == StatusFail {
-					code = 1
-				}
+			if f := failLines(res); len(f) > 0 {
+				code = 1
+				failed = append(failed, f...)
 			}
 			if i == 0 {
 				first = res
@@ -304,9 +331,26 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 	if code == 0 {
 		fmt.Fprintln(out, "✓ ux-test passed")
 	} else {
+		for _, l := range failed {
+			fmt.Fprintln(errw, l)
+		}
 		fmt.Fprintln(errw, "✗ ux-test failed")
 	}
 	return code
+}
+
+// failLines is one line per failed step of a run, naming the session and
+// the step: "FAIL <session>/<step> <title>". Local CI's failures: regex
+// (workflow.yaml, the slow tier) reads the session/step from them, so a red
+// nightly run names what went red.
+func failLines(res *Results) []string {
+	var out []string
+	for _, st := range res.Steps {
+		if st.Status == StatusFail {
+			out = append(out, fmt.Sprintf("FAIL %s/%s %s", res.Session, st.ID, st.Title))
+		}
+	}
+	return out
 }
 
 // defaultProject is the issue-cli project for the real issue when -project

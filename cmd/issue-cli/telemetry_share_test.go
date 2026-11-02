@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
-	"github.com/michal-franc/issue-viewer/internal/telemetry/share"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/telemetry/share"
 )
 
 // shareReceiver is a local collector on 127.0.0.1 storing into t.TempDir().

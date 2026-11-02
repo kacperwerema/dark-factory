@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Ref is one configured job with its department.
@@ -38,22 +38,32 @@ func KeyOf(dept, id string) string {
 	return tracker.DepartmentKey(dept) + "/" + strings.TrimSpace(id)
 }
 
-// List is every department's jobs, in projects.yaml order. Product's and
-// HQ's jobs are not read (lint warns about them).
+// List is every department's jobs, in projects.yaml order, then the
+// Product entry's (key product/<id>: the engine's own jobs, such as
+// builtin:nightly-improve). HQ's jobs are not read (lint warns about them).
 func List(p *tracker.Project) []*Ref {
 	if p == nil {
 		return nil
 	}
 	var out []*Ref
-	for _, d := range p.Departments {
-		for _, j := range d.Jobs {
-			r := &Ref{Key: KeyOf(d.Name, j.ID), Department: d.Name, Job: j}
+	add := func(dept string, js []tracker.Job) {
+		for _, j := range js {
+			r := &Ref{Key: KeyOf(dept, j.ID), Department: dept, Job: j}
 			r.Schedule, r.Err = Parse(j)
 			out = append(out, r)
 		}
 	}
+	for _, d := range p.Departments {
+		add(d.Name, d.Jobs)
+	}
+	if p.Product != nil {
+		add(tracker.ProductName, p.Product.Jobs)
+	}
 	return out
 }
+
+// IsProduct reports a job on the Product entry: its runs are Product issues.
+func (r *Ref) IsProduct() bool { return strings.EqualFold(r.Department, tracker.ProductName) }
 
 // Find is the job with key (dept/id, any case), or an error listing the
 // jobs.

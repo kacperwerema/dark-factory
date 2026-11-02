@@ -18,6 +18,12 @@ type CritiqueConfig struct {
 // newest critique run from the current status has no blocks finding.
 const CritiqueRule = "critique"
 
+// CritiqueCheckKey is the red-round check critique runs on the gate
+// from → to count under ("critique in design → backlog").
+func CritiqueCheckKey(from, to string) string {
+	return "critique " + from + " → " + to
+}
+
 // critiqueChecker runs the critique gate, registered by internal/critique.
 var critiqueChecker func(w *WorkflowConfig, issue *Issue) error
 

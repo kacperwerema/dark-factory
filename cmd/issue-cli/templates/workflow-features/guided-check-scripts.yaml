@@ -1,0 +1,55 @@
+id: guided-check-scripts
+version: v0.54.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["internal/checks/**", "cmd/issue-cli/cmd_check_script.go", "internal/viewer/handlers_checks.go"]
+title: "Manual checks that aren't playtests as guided check scripts"
+what: |
+  Manual checks run from a shell (CLI commands, API routes, scripts, tmux) come as
+  scripts/checks/<name>.sh on the issue branch, built on the helper library issue-cli
+  ships (`issue-cli check-script --lib`). The owner runs one command,
+  `issue-cli check-script <slug>` (▶ Run checks in the viewer): each step says what it
+  checks, why, what to look at and what to expect, runs the commands, checks what a
+  machine can and asks about the rest; the owner's run ticks the boxes that passed and
+  comments failures as `checks:`. Adds lines to the testing, human-testing and shipping
+  prompts, a Test Plan Manual box and a Shipping box (scripts stay on the branch).
+why: |
+  Instead of copying, pasting and judging a list of commands, the owner answers y/n
+  while the script does the rest, and the agent's sandbox, cleanup and box mapping
+  live in one place that a machine run (`--yes`) checks before handover.
+  It supersedes the written-steps part of sandbox-manual-tests for shell checks.
+where: "the \"testing\", \"human-testing\" and \"shipping\" status prompts, the backlog → in progress \"Test Plan\" body and the documentation → shipping \"Shipping\" body"
+snippet: |
+  statuses:
+    - name: "testing"
+      prompt: |
+        Manual checks that aren't playtest sessions (commands, API routes, scripts, tmux) come as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib`, name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself.
+    - name: "human-testing"
+      prompt: |
+        If the issue has a guided check script, the human runs `issue-cli check-script <slug>` (▶ Run checks in the viewer): it ticks the boxes that passed and comments failures as `checks:`.
+    - name: "shipping"
+      prompt: |
+        Remove the issue's scripts/checks/<name>.sh in a last commit before the merge: check scripts stay on the issue branch.
+  transitions:
+    - from: "backlog"
+      to: "in progress"
+      actions:
+        - type: "append_section"
+          title: "Test Plan"
+          body: |
+            ### Manual
+            - [ ] Manual checks that aren't playtests come as `scripts/checks/<name>.sh` (`issue-cli check-script <slug> --new <name>`), or N/A with the reason
+    - from: "documentation"
+      to: "shipping"
+      actions:
+        - type: "append_section"
+          title: "Shipping"
+          body: |
+            - [ ] Check scripts (scripts/checks/<name>.sh) removed in a last commit before the merge, or none
+question: "Should manual checks that run from a shell come as guided check scripts the owner runs with one command (adds lines to the testing, human-testing and shipping prompts and two checklist boxes)?"
+detect:
+  - path: statuses[].prompt
+    contains: "check-script"
+  - path: transitions[].actions[].body
+    contains: "check-script"

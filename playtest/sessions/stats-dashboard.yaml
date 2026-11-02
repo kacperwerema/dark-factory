@@ -25,8 +25,9 @@ steps:
       - visible: [stats.options, stats.range, stats.group, stats.tables]
       - selected: stats.range.all
       - count: { pattern: stats.gauge, equals: 5 }
-      # 8 trend charts and Disk use.
-      - count: { pattern: stats.chart.*, equals: 9 }
+      # 9 trend charts (Decisions in force among them) and Disk use.
+      - count: { pattern: stats.chart.*, equals: 10 }
+      - text_contains: { target: stats.chart.decisions, text: "Decisions in force" }
       - count: { pattern: stats.pending, equals: 3 }
       - absent: stats.backfill_hint
       - text_contains: { target: stats.chart.cycle, text: "Cycle time p50, by type" }
@@ -118,4 +119,4 @@ steps:
       - text_contains: { target: stats.overview, text: "Lines of code" }
     expect: One row per project with waiting on you (a meter with the limit tick), cycle p50, rework share, issues done, lines of code, test ratio and big files, each with a sparkline; the project name opens its stats page. On a phone the table scrolls sideways inside its card.
     do: Click the project name, and try the Sort by links.
-    why: RogueTech and issue-viewer can be compared side by side.
+    why: Kestrel and issue-viewer can be compared side by side.

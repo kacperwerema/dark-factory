@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="owner.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Owner sign-in</h1>
+        <span class="wb-sub">approvals, YOLO, reviews and workflow edits need this browser signed in · agents can't sign in</span>
+    </div>
+    {{if .SignedIn}}
+    <div class="wb-owner-card" data-testid="owner.signed_in">
+        <p><strong>This browser is signed in as the owner.</strong> It stays signed in until the viewer restarts or you sign out.</p>
+        {{if .Next}}<p><a class="wb-btn wb-btn--paper" href="{{.Next}}" data-testid="owner.next">Back to where you were</a></p>{{end}}
+        <p><a href="/push" data-testid="owner.push">🔔 Phone notifications</a>: a push when something new waits on you.</p>
+        <form method="post" action="/owner/signout"><button type="submit" class="wb-btn wb-btn--quiet" data-testid="owner.signout">Sign out</button></form>
+    </div>
+    {{else}}
+    <div class="wb-owner-card" data-testid="owner.signed_out">
+        <p>The viewer shows a one-time code where only you look: a dialog on this Mac, or the terminal the viewer runs in. It never sends the code over HTTP, so an agent's request can't read it.</p>
+        <form method="post" action="/owner/code">
+            {{if .Next}}<input type="hidden" name="next" value="{{.Next}}">{{end}}
+            <button type="submit" class="wb-btn wb-btn--paper" data-testid="owner.send">Show me a code</button>
+        </form>
+        {{if .Sent}}<p class="wb-owner-note" data-testid="owner.sent">A code was shown in {{.Sent}}. It expires in 5 minutes.</p>{{end}}
+        {{if .Error}}<p class="wb-owner-note wb-owner-note--err" data-testid="owner.error">{{.Error}}</p>{{end}}
+        <form method="post" action="/owner/pair" class="wb-owner-pair">
+            {{if .Next}}<input type="hidden" name="next" value="{{.Next}}">{{end}}
+            <label for="owner-code">Code</label>
+            <input id="owner-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="1234-5678" maxlength="12" required data-testid="owner.code">
+            <button type="submit" class="wb-btn wb-btn--paper" data-testid="owner.pair">Sign in</button>
+        </form>
+        <p class="wb-owner-note">Didn't ask for a code but a dialog showed one? Ignore it: an agent or a script asked. It is useless without being typed here.</p>
+    </div>
+    {{end}}
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

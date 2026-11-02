@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/experiment"
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/yolo"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 // yoloRoot is where the project's .yolo/ lives: the main checkout, as .ci/.
@@ -317,6 +317,37 @@ func writeYOLOOwnerChecks(ctx *Context, wf *tracker.WorkflowConfig, issue *track
 		}
 		if !ctx.JSONOutput {
 			fmt.Fprintf(ctx.Stdout, "YOLO: %s: owner check, not done (%s) — left unticked for the owner, in the after-the-fact queue\n", it.ID, it.Why)
+		}
+	}
+	return nil
+}
+
+// writeYOLODecisionHolds posts each decision hold YOLO let the transition
+// out of from pass (decisions_cited, citations_current: wf.DecisionHolds)
+// as a yolo-hold: comment, once while one for the same rule and ref waits
+// for review, and says so. A dry run never gets here.
+func writeYOLODecisionHolds(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from string) error {
+	holds := wf.DecisionHolds()
+	if !wf.DeferDecisionHolds || len(holds) == 0 {
+		return nil
+	}
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	waiting := map[string]bool{}
+	for _, p := range yolo.Decisions(issue, comments) {
+		if p.Hold != "" && p.Review == "" {
+			waiting[p.Hold+" "+p.Decision] = true
+		}
+	}
+	author := commentAuthor(ctx.Project, issue)
+	for _, h := range holds {
+		if waiting[h.Rule+" "+h.Ref] {
+			continue
+		}
+		if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.YOLOHoldComment(h, from), "cli", author); err != nil {
+			return err
+		}
+		if !ctx.JSONOutput {
+			fmt.Fprintf(ctx.Stdout, "YOLO: %s: %s %s — passed, in the after-the-fact queue\n", h.Rule, h.Ref, h.Why)
 		}
 	}
 	return nil

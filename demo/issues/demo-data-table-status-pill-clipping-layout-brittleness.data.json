@@ -5,7 +5,7 @@
       "id": 1,
       "description": "[CRITICAL] Race condition in tracker.LoadIssues — concurrent map write panics under load when multiple HTTP handlers walk the issue dir simultaneously",
       "status": "💬 commented",
-      "comment": "https://github.com/michal-franc/ai-native-project-viewer/pull/1234#discussion_r9876543210"
+      "comment": "https://github.com/example-org/example-repo/pull/1234#discussion_r9876543210"
     },
     {
       "id": 2,
@@ -17,7 +17,7 @@
       "id": 3,
       "description": "[CRITICAL] Frontmatter parser silently drops keys whose values contain unescaped colons; this has burned us before",
       "status": "🤝 aligned",
-      "comment": "https://github.com/michal-franc/ai-native-project-viewer/pull/42#discussion_r555"
+      "comment": "https://github.com/example-org/example-repo/pull/42#discussion_r555"
     },
     {
       "id": 4,

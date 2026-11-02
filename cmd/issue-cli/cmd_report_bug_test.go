@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clibug"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clibug"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // reportBugFixture is a machine with an engine project and a reporter
@@ -37,7 +37,7 @@ func newReportBugFixture(t *testing.T, top, engineYAML string) *reportBugFixture
 
 	wf := repoWorkflow(t)
 	f := &reportBugFixture{dir: dir, engineDir: filepath.Join(dir, "engine-issues"), queueDir: filepath.Join(dir, "xdg", "issue-cli", "bug-reports")}
-	reporterIssues := filepath.Join(dir, "roguetech-issues", "Combat")
+	reporterIssues := filepath.Join(dir, "kestrel-issues", "Combat")
 	if err := os.MkdirAll(reporterIssues, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func newReportBugFixture(t *testing.T, top, engineYAML string) *reportBugFixture
 	var b strings.Builder
 	b.WriteString(top)
 	b.WriteString("projects:\n")
-	b.WriteString("  - name: RogueTech\n    slug: roguetech\n    issues: " + filepath.Join(dir, "roguetech-issues") + "\n")
+	b.WriteString("  - name: Kestrel\n    slug: kestrel\n    issues: " + filepath.Join(dir, "kestrel-issues") + "\n")
 	if engineYAML != "" {
 		b.WriteString(strings.NewReplacer("{{issues}}", f.engineDir, "{{workflow}}", wf).Replace(engineYAML))
 	}
@@ -55,7 +55,7 @@ func newReportBugFixture(t *testing.T, top, engineYAML string) *reportBugFixture
 	if err := os.WriteFile(f.config, []byte(b.String()), 0644); err != nil {
 		t.Fatal(err)
 	}
-	f.reporter = &tracker.Project{Name: "RogueTech", Slug: "roguetech", IssueDir: filepath.Join(dir, "roguetech-issues")}
+	f.reporter = &tracker.Project{Name: "Kestrel", Slug: "kestrel", IssueDir: filepath.Join(dir, "kestrel-issues")}
 	return f
 }
 
@@ -71,7 +71,7 @@ func repoWorkflow(t *testing.T) string {
 	return repoWorkflowPath
 }
 
-const engineEntry = "  - name: Issue Viewer\n    slug: issue-viewer\n    repo: michal-franc/ai-workflow-engine\n    issues: {{issues}}\n    workflow: {{workflow}}\n"
+const engineEntry = "  - name: Issue Viewer\n    slug: issue-viewer\n    repo: kacperwerema/dark-factory\n    issues: {{issues}}\n    workflow: {{workflow}}\n"
 
 func (f *reportBugFixture) run(t *testing.T, jsonOut bool, args ...string) string {
 	t.Helper()
@@ -117,13 +117,13 @@ func TestReportBugCreatesCliBugIssue(t *testing.T) {
 	for _, ef := range issue.ExtraFields {
 		fields[ef.Key] = ef.Value
 	}
-	if fields["reported_from"] != "roguetech:combat/heat-overflow" {
+	if fields["reported_from"] != "kestrel:combat/heat-overflow" {
 		t.Errorf("reported_from = %q", fields["reported_from"])
 	}
 	if fields["reported_by"] != tracker.AgentSessionName("combat/heat-overflow") {
 		t.Errorf("reported_by = %q", fields["reported_by"])
 	}
-	for _, want := range []string{"## Report", "Seen twice today.", "- reported from: roguetech:combat/heat-overflow", "- command: `issue-cli check foo D3`", "- issue-cli: dev"} {
+	for _, want := range []string{"## Report", "Seen twice today.", "- reported from: kestrel:combat/heat-overflow", "- command: `issue-cli check foo D3`", "- issue-cli: dev"} {
 		if !strings.Contains(issue.BodyRaw, want) {
 			t.Errorf("body missing %q:\n%s", want, issue.BodyRaw)
 		}
@@ -146,7 +146,7 @@ func TestReportBugRepeatCommentsOnOpenIssue(t *testing.T) {
 	if len(comments) != 1 || !strings.HasPrefix(comments[0].Text, "report: check: ticks the WRONG box") || comments[0].Source != "issue-cli" {
 		t.Fatalf("comments = %+v", comments)
 	}
-	if !strings.Contains(comments[0].Text, "roguetech:combat/heat-overflow") {
+	if !strings.Contains(comments[0].Text, "kestrel:combat/heat-overflow") {
 		t.Errorf("report comment has no reporter: %q", comments[0].Text)
 	}
 	if !strings.Contains(out, "Already reported") || !strings.Contains(out, issues[0].Slug) || !strings.Contains(out, "(2 reports)") {
@@ -220,7 +220,7 @@ func TestReportBugQueuesWithoutEngineThenDrains(t *testing.T) {
 
 func TestReportBugSendDrainsQueue(t *testing.T) {
 	f := newReportBugFixture(t, "", engineEntry)
-	clibug.Enqueue(clibug.Report{At: time.Now(), Text: "Queued on a laptop", Project: "roguetech"})
+	clibug.Enqueue(clibug.Report{At: time.Now(), Text: "Queued on a laptop", Project: "kestrel"})
 	out := f.run(t, false, "--send")
 	if !strings.Contains(out, "✓ Sent 1 queued report(s): cli/queued-on-a-laptop") {
 		t.Fatalf("--send output:\n%s", out)
@@ -244,9 +244,9 @@ func TestReportBugUnreachableBoardQueues(t *testing.T) {
 }
 
 func TestReportBugEngineProjectKeyWins(t *testing.T) {
-	// roguetech is named engine even though issue-viewer has the engine repo.
-	f := newReportBugFixture(t, "engine_project: roguetech\n", engineEntry)
-	f.run(t, false, "Goes to roguetech")
+	// kestrel is named engine even though issue-viewer has the engine repo.
+	f := newReportBugFixture(t, "engine_project: kestrel\n", engineEntry)
+	f.run(t, false, "Goes to kestrel")
 	if n := len(f.cliBugs(t)); n != 0 {
 		t.Fatalf("engine-repo project got %d issues, want 0", n)
 	}
@@ -278,7 +278,7 @@ func TestReportBugImport(t *testing.T) {
 	for _, ef := range issues[0].ExtraFields {
 		fields[ef.Key] = ef.Value
 	}
-	if fields["reported_from"] != "roguetech:combat/heat-overflow" {
+	if fields["reported_from"] != "kestrel:combat/heat-overflow" {
 		t.Errorf("reported_from = %q (project looked up from the slug)", fields["reported_from"])
 	}
 	if _, err := os.Stat(filepath.Join(bugs, "imported", filepath.Base(old))); err != nil {
@@ -309,15 +309,15 @@ func TestReportBugLastCommandFromClilog(t *testing.T) {
 	logPath := filepath.Join(f.dir, "agent.clilog")
 	now := time.Now().UTC()
 	lines := []string{
-		`{"ts":"` + now.Add(-2*time.Minute).Format(time.RFC3339) + `","args":["--project","roguetech","transition","combat/heat-overflow","--to","in review"]}`,
-		`{"ts":"` + now.Format(time.RFC3339) + `","args":["--project","roguetech","report-bug","x"]}`,
+		`{"ts":"` + now.Add(-2*time.Minute).Format(time.RFC3339) + `","args":["--project","kestrel","transition","combat/heat-overflow","--to","in review"]}`,
+		`{"ts":"` + now.Format(time.RFC3339) + `","args":["--project","kestrel","report-bug","x"]}`,
 	}
 	os.WriteFile(logPath, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 	t.Setenv("ISSUE_CLI_LOG", logPath)
 
 	f.run(t, false, "Transition rejects in review")
 	body := f.cliBugs(t)[0].BodyRaw
-	if !strings.Contains(body, "- command: `issue-cli --project roguetech transition combat/heat-overflow --to \"in review\"`") {
+	if !strings.Contains(body, "- command: `issue-cli --project kestrel transition combat/heat-overflow --to \"in review\"`") {
 		t.Fatalf("body has no last command:\n%s", body)
 	}
 }

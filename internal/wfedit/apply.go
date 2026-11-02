@@ -15,8 +15,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/lint"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/lint"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // ErrStale is returned when the file changed after the form was opened.
@@ -463,6 +463,9 @@ func (p *Preview) check(f *file, st *Station, ch Change) {
 		had[fd.Check+"\x00"+fd.Message] = true
 	}
 	for _, fd := range after {
+		if lint.UnknownRule(fd) {
+			continue // actionProblem names it, per action
+		}
 		msg := fd.Where + ": " + fd.Message
 		if fd.Fix != "" {
 			msg += " (" + fd.Fix + ")"

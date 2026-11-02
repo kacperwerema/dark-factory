@@ -260,6 +260,12 @@ func warnSkip(path string, err error) {
 }
 
 func LoadIssues(dir string) ([]*Issue, error) {
+	return LoadIssuesWhere(dir, nil)
+}
+
+// LoadIssuesWhere is LoadIssues for the files whose content keep accepts
+// (nil keeps all): a reader that needs a few issues skips parsing the rest.
+func LoadIssuesWhere(dir string, keep func(data []byte) bool) ([]*Issue, error) {
 	var issues []*Issue
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -276,6 +282,9 @@ func LoadIssues(dir string) ([]*Issue, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			warnSkip(path, err)
+			return nil
+		}
+		if keep != nil && !keep(data) {
 			return nil
 		}
 
@@ -478,6 +487,16 @@ func ReplaceIssueBodySection(body, section, text string, force bool) (string, bo
 // It reloads the current body under the lock so callers do not overwrite newer edits
 // based on a stale pre-lock snapshot.
 func UpdateIssueBody(filePath string, update func(body string) (string, bool, error)) (string, bool, error) {
+	return UpdateIssueBodyWith(filePath, func(body string, comments []Comment) (string, []Comment, bool, error) {
+		next, ok, err := update(body)
+		return next, comments, ok, err
+	})
+}
+
+// UpdateIssueBodyWith is UpdateIssueBody whose update also sees and returns
+// the issue's comments, so a body change and the comment that records it
+// land in one atomic write, or neither does.
+func UpdateIssueBodyWith(filePath string, update func(body string, comments []Comment) (string, []Comment, bool, error)) (string, bool, error) {
 	var updatedBody string
 	var changed bool
 
@@ -502,7 +521,7 @@ func UpdateIssueBody(filePath string, update func(body string) (string, bool, er
 		body, existingComments := ParseComments(bodyWithComments)
 		body = strings.TrimSpace(body)
 
-		nextBody, ok, err := update(body)
+		nextBody, nextComments, ok, err := update(body, existingComments)
 		if err != nil {
 			return err
 		}
@@ -521,7 +540,7 @@ func UpdateIssueBody(filePath string, update func(body string) (string, bool, er
 		out.WriteString("\n")
 		out.WriteString(nextBody)
 		out.WriteString("\n")
-		out.WriteString(SerializeComments(existingComments))
+		out.WriteString(SerializeComments(nextComments))
 
 		info, err := os.Stat(filePath)
 		if err != nil {

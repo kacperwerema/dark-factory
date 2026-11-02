@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // now is a Friday; this week starts Monday 2026-10-26.

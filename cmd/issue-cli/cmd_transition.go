@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var transitionCommand = &Command{
@@ -124,20 +124,32 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
+	if strings.EqualFold(strings.TrimSpace(issue.Status), strings.TrimSpace(to)) {
+		return printAlreadyAt(ctx, wf, issue)
+	}
 	wf.DeferOwnerProof = yoloDefersOwnerProof(ctx, issue)
+	wf.DeferDecisionHolds = wf.DeferOwnerProof // the same rule: YOLO on, no experiment
+	wf.KeepOwnAssignee = isOwnWorker(ctx, issues, issue)
 
 	if *dryRun {
 		return runTransitionDryRun(ctx, wf, issue, issues, slug, to, fields)
 	}
+	// A real attempt logs each ledger hold its rules found (refused or
+	// passed under YOLO) as a held event, whatever the outcome.
+	defer recordDecisionHolds(ctx, wf, issues, issue.Slug, issue.Status, to)
 
 	if p := checkScriptGate(ctx.Project, wf, issue, to); p != nil {
 		return fmt.Errorf("failed to transition: %s: %s\n\nRun: %s", p.Requirement, p.Message, p.Fix[0])
 	}
 	tickProvenBeforeGate(ctx, wf, issue, to)
 
-	rounds, err := startRedRounds(ctx, wf, issue)
-	if err != nil {
-		return err
+	// A side status (parked) is an escape hatch, not the held step: the
+	// cap holds the forward checks, so it neither refuses nor counts here.
+	var rounds *redRoundsRun
+	if !wf.IsSideStatus(to) {
+		if rounds, err = startRedRounds(ctx, wf, issue, to); err != nil {
+			return err
+		}
 	}
 	gate, err := passYOLOGate(ctx, wf, issue, issues, to, fields)
 	if err != nil {
@@ -163,18 +175,25 @@ func runTransition(ctx *Context, args []string) error {
 	if gate.Passed {
 		out.SideEffects = append(out.SideEffects, "YOLO: gate passed without the owner, marked for review after the fact")
 	}
+	if result.KeptAssignee {
+		out.SideEffects = append(out.SideEffects, fmt.Sprintf("Assignee kept (%s): you are this issue's worker and carry on", issue.Assignee))
+	}
 	if err := printTransitionResult(ctx, out); err != nil {
 		return err
 	}
 	if !ctx.JSONOutput {
 		printYOLOGate(ctx.Stdout, gate, from, to, ctx.now())
 		printWarnings(ctx.Stdout, criteriaWarnings(wf, issue, from, to))
+		printWarnings(ctx.Stdout, wf.DecisionWarnings())
 		if isShipStatus(wf, to) {
 			fmt.Fprintln(ctx.Stdout)
 			printShippingBlock(ctx, issue, issues)
 		}
 	}
 	if err := writeYOLOOwnerChecks(ctx, wf, issue, from, to, gate.Passed); err != nil {
+		return err
+	}
+	if err := writeYOLODecisionHolds(ctx, wf, issue, from); err != nil {
 		return err
 	}
 	if err := clarifyOnTransition(ctx, wf, issue, from, gate.Passed); err != nil {
@@ -199,6 +218,20 @@ func runTransition(ctx *Context, args []string) error {
 		if hint := outputsTransitionHint(ctx.Project, issue, wf, to); hint != "" {
 			fmt.Fprintln(ctx.Stdout, hint)
 		}
+	}
+	return nil
+}
+
+// printAlreadyAt answers a transition to the status the issue is already at:
+// nothing to do, so it says so and exits 0 (start may have moved it there).
+func printAlreadyAt(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue) error {
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, map[string]any{"slug": issue.Slug, "status": issue.Status, "already": true})
+	}
+	fmt.Fprintf(ctx.Stdout, "Status is already %s: nothing changed.\n", issue.Status)
+	if next := wf.NextRequiredStatus(issue.Status); next != "" {
+		fmt.Fprintf(ctx.Stdout, "Next, when its boxes are done:\n  %s\n",
+			tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %q", issue.Slug, next)))
 	}
 	return nil
 }
@@ -244,6 +277,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		out.Warnings = openDepWarnings(shipDeps(ctx, issue, issues))
 	}
 	out.Warnings = append(out.Warnings, criteriaWarnings(wf, issue, from, to)...)
+	out.Warnings = append(out.Warnings, wf.DecisionWarnings()...)
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)
 		out.SideEffects = sectionDryRunEffects(wf, issue, from, to, fields, out.SideEffects)
@@ -260,6 +294,9 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		fmt.Fprintf(ctx.Stdout, "✓ Ready: %s → %s (dry run — nothing was changed)\n", from, to)
 		if yoloNote != "" {
 			fmt.Fprintln(ctx.Stdout, yoloNote)
+		}
+		for _, h := range wf.DecisionHolds() {
+			fmt.Fprintf(ctx.Stdout, "YOLO: %s: %s %s — would pass and go to the after-the-fact queue\n", h.Rule, h.Ref, h.Why)
 		}
 		printWarnings(ctx.Stdout, out.Warnings)
 		renderNextTransitionContract(ctx.Stdout, nil, out.SideEffects)

@@ -24,8 +24,29 @@ func NextGate(wf *WorkflowConfig, issue *Issue) (next, gate string) {
 // on: a worker started there would only stop at the same gate.
 func WaitingOnGate(wf *WorkflowConfig, issue *Issue, comments []Comment) string {
 	next, gate := NextGate(wf, issue)
-	if gate == "" || !wf.ReadyForApproval(issue, issue.Status, next, comments) {
+	if gate == "" || !wf.ReadyForApproval(issue, issue.Status, next, comments) || statusBoxesOpen(wf, issue) {
 		return ""
 	}
 	return gate
+}
+
+// statusBoxesOpen reports whether a section the move into the issue's
+// status appended (Implementation on entering in progress) still has an
+// open box: that is the worker's work, so a gate after it is not yet the
+// owner's even when the gate's own rules don't check those boxes.
+func statusBoxesOpen(wf *WorkflowConfig, issue *Issue) bool {
+	order := wf.GetStatusOrder()
+	idx := wf.GetStatusIndex(issue.Status)
+	if idx <= 0 || idx >= len(order) {
+		return false
+	}
+	for _, a := range wf.transitionActions(order[idx-1], issue.Status) {
+		if a.Type != "append_section" || strings.TrimSpace(a.Title) == "" {
+			continue
+		}
+		if total, checked := CountCheckboxesInSection(issue.BodyRaw, a.Title); checked < total {
+			return true
+		}
+	}
+	return false
 }

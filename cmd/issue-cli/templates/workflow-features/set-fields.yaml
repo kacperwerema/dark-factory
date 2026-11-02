@@ -1,0 +1,24 @@
+id: set-fields
+version: v0.36.0
+category: automation
+propose: false
+sources: ["internal/tracker/workflow_transition.go#ApplyTransitionWithFields"]
+title: "Set or clear frontmatter on transition"
+what: |
+  A `set_fields` action sets or clears a frontmatter field (assignee, priority,
+  human_approval, …) as part of the transition.
+why: |
+  E.g. clear the assignee when work goes back to the backlog, or when it is done.
+where: "transitions[].actions[] type: set_fields (field:, value:)"
+snippet: |
+  transitions:
+    - from: "shipping"
+      to: "done"
+      actions:
+        - type: "set_fields"
+          field: "assignee"
+          value: ""
+question: "Should any transition set or clear a field automatically?"
+detect:
+  - path: transitions[].actions[].type
+    one_of: [set_fields]

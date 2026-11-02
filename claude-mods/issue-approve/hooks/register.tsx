@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Approvals, HandoffStep, PlaytestLauncher, PlaytestStep } from '../types'
 
 // Approve buttons above the prompt of a dispatched agent's session: the same
-// approvals the AI Workflow Engine board's Human Approval box offers for the
+// approvals the Dark Factory board's Human Approval box offers for the
 // session's issue. Dispatch exports ISSUE_VIEWER_PROJECT and
 // ISSUE_VIEWER_ISSUE_SLUG; without a slug (a lead, a hand-started session) the
 // mod shows nothing. The board's address is the one issue-cli uses (viewer_url
@@ -81,7 +81,7 @@ function readyForPlaytest(a: Approvals): boolean {
 }
 
 // The two ways ▶ Playtest opens the owner's playtest, probed once at start: the
-// project's own scripts/playtest-window <slug> (RogueTech), else a tmux window
+// project's own scripts/playtest-window <slug> (Kestrel), else a tmux window
 // the mod opens on `make playtest ISSUE=<slug>`. Never a child of the agent's
 // process: a game started that way is a window the owner can neither see nor
 // stop (D-2).

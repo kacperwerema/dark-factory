@@ -36,8 +36,10 @@ steps:
       - text_contains: { target: status.release_wait.check.soaked, text: 0 since }
       - text_contains: { target: status.release_wait.candidate.tag, text: v1.5.0-rc.1 }
       - text_contains: { target: status.release_wait.candidate.tag, text: nothing merged since }
-      # Scenario binaries are plain builds: not the candidate.
-      - text_contains: { target: status.release_wait.candidate.running, text: "Running: viewer dev" }
+      # Scenario binaries are plain builds: not the candidate. Their version
+      # is the checkout's (dev, or what Go reads from git), so only the label
+      # is checked here, not the version.
+      - text_contains: { target: status.release_wait.candidate.running, text: "Running: viewer " }
       - text_contains: { target: status.release_wait.candidate.running, text: "not the candidate: install v1.5.0-rc.1 and restart the viewer" }
       - text_contains: { target: status.release_wait.candidate.project.atlas, text: 3 calls }
       - text_contains: { target: status.release_wait.check.reports, text: 1 open }

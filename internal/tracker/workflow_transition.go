@@ -21,6 +21,9 @@ type TransitionResult struct {
 	// Sections lists each gate section a transition appended or topped up
 	// with missing boxes, in action order.
 	Sections []SectionAppend `json:"sections,omitempty"`
+	// KeptAssignee is true when a set_fields action would have cleared the
+	// assignee and KeepOwnAssignee left it.
+	KeptAssignee bool `json:"kept_assignee,omitempty"`
 }
 
 // ErrApprovalMissing is the sentinel returned when StartIssueOnce or a
@@ -257,6 +260,16 @@ func (w *WorkflowConfig) transitionActions(from, to string) []WorkflowAction {
 	return actions
 }
 
+// keepsAssignee reports whether a clear of the assignee is skipped: the
+// issue's own worker (KeepOwnAssignee) moving it forward on the status list.
+func (w *WorkflowConfig) keepsAssignee(from, to string) bool {
+	if !w.KeepOwnAssignee {
+		return false
+	}
+	fi, ti := w.GetStatusIndex(from), w.GetStatusIndex(to)
+	return fi >= 0 && ti > fi
+}
+
 func (w *WorkflowConfig) ApplyTransition(issue *Issue, fromStatus, toStatus string) TransitionResult {
 	return w.ApplyTransitionWithFields(issue, fromStatus, toStatus, nil)
 }
@@ -309,6 +322,10 @@ func (w *WorkflowConfig) ApplyTransitionWithFields(issue *Issue, fromStatus, toS
 		case "set_fields":
 			switch action.Field {
 			case "assignee":
+				if action.Value == "" && issue.Assignee != "" && w.keepsAssignee(fromStatus, toStatus) {
+					result.KeptAssignee = true
+					continue
+				}
 				result.Update.Assignee = stringPtr(action.Value)
 			case "human_approval", "approved_for":
 				result.Update.HumanApproval = stringPtr(action.Value)

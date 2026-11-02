@@ -5,18 +5,6 @@ import (
 	"testing"
 )
 
-const splitMain = `entries:
-  - id: a-life
-    version: v0.50.0
-    category: lifecycle
-  - id: b-board
-    version: v0.50.0
-    category: board
-  - id: c-conv
-    version: v0.50.0
-    category: conventions
-`
-
 func entryIDs(entries []Entry) string {
 	var ids []string
 	for _, e := range entries {
@@ -25,43 +13,48 @@ func entryIDs(entries []Entry) string {
 	return strings.Join(ids, ",")
 }
 
-// A one-entry file lands after the last entry of its category, or of the
-// category before it when the list has none of its own; files in name order.
-func TestParseCatalogPlacesSplitEntriesInTheirCategory(t *testing.T) {
-	split := []CatalogFile{
-		{Name: "z-life.yaml", Data: []byte("id: z-life\nversion: v0.58.0\ncategory: lifecycle\n")},
-		{Name: "m-gates.yaml", Data: []byte("id: m-gates\nversion: v0.58.0\ncategory: gates\n")},
-		{Name: "y-life.yaml", Data: []byte("id: y-life\nversion: v0.58.0\ncategory: lifecycle\n")},
-		{Name: "n-conv.yaml", Data: []byte("id: n-conv\nversion: v0.58.0\ncategory: conventions\n")},
+func entryFile(id, category string) CatalogFile {
+	return CatalogFile{Name: id + ".yaml", Data: []byte("id: " + id + "\nversion: v0.58.0\ncategory: " + category + "\n")}
+}
+
+// Entries come in catalog order: by category in Categories order, an unknown
+// category last, then by file name.
+func TestParseCatalogOrdersByCategoryThenName(t *testing.T) {
+	files := []CatalogFile{
+		entryFile("z-life", "lifecycle"),
+		entryFile("n-conv", "conventions"),
+		entryFile("m-gates", "gates"),
+		entryFile("q-odd", "no-such-category"),
+		entryFile("y-life", "lifecycle"),
+		entryFile("b-board", "board"),
 	}
-	got, err := ParseCatalog([]byte(splitMain), split, true)
+	got, err := ParseCatalog(files, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ids := entryIDs(got); ids != "a-life,y-life,z-life,m-gates,b-board,c-conv,n-conv" {
+	if ids := entryIDs(got); ids != "y-life,z-life,m-gates,b-board,n-conv,q-odd" {
 		t.Fatalf("order %s", ids)
 	}
 }
 
-func TestParseCatalogRefusesABadSplitFile(t *testing.T) {
-	cases := map[string]CatalogFile{
-		"must be the file name":  {Name: "x.yaml", Data: []byte("id: y\nversion: v0.58.0\ncategory: board\n")},
-		"already in the catalog": {Name: "a-life.yaml", Data: []byte("id: a-life\nversion: v0.58.0\ncategory: board\n")},
-		"not found":              {Name: "k.yaml", Data: []byte("id: k\nversoin: v0.58.0\n")},
+func TestParseCatalogRefusesABadFile(t *testing.T) {
+	cases := map[string][]CatalogFile{
+		"must be the file name":  {{Name: "x.yaml", Data: []byte("id: y\nversion: v0.58.0\ncategory: board\n")}},
+		"already in the catalog": {entryFile("a", "board"), {Name: "a.yaml", Data: []byte("id: a\n")}},
+		"not found":              {{Name: "k.yaml", Data: []byte("id: k\nversoin: v0.58.0\n")}},
 	}
-	for want, f := range cases {
-		_, err := ParseCatalog([]byte(splitMain), []CatalogFile{f}, true)
+	for want, files := range cases {
+		_, err := ParseCatalog(files, true)
 		if err == nil || (want != "not found" && !strings.Contains(err.Error(), want)) {
-			t.Errorf("%s: err = %v, want %q", f.Name, err, want)
+			t.Errorf("%s: err = %v, want %q", want, err, want)
 		}
 	}
 }
 
-// catalog-check sees an entry that lives in its own file.
-func TestCheckBranchReadsTheSplitCatalog(t *testing.T) {
-	file := SplitCatalogPath + "/split-thing.yaml"
+// catalog-check reads the entry files at the branch head.
+func TestCheckBranchReadsTheEntryFiles(t *testing.T) {
+	file := CatalogPath + "/split-thing.yaml"
 	head := map[string]string{
-		CatalogPath:           "entries: []\n",
 		file:                  "id: split-thing\nversion: v0.53.0\ncategory: board\nsources: [\"internal/thing/**\"]\n",
 		"internal/thing/x.go": "package thing\n",
 	}
@@ -73,7 +66,7 @@ func TestCheckBranchReadsTheSplitCatalog(t *testing.T) {
 			return []byte(s), ok
 		},
 		HeadDir: func(dir string) []string {
-			if dir == SplitCatalogPath {
+			if dir == CatalogPath {
 				return []string{"split-thing.yaml", "README.md"}
 			}
 			return nil

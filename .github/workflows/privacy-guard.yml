@@ -6,7 +6,8 @@ name: Privacy Guard
 # Private work and code):
 #   - work_files: tracker: a PR that touches a work path fails;
 #   - code: snapshots: on the public repo every PR fails, because the public
-#     repo gets release snapshots only; PRs go to the private dev repo.
+#     repo gets one snapshot per release and PRs are not merged there; an
+#     outsider is asked to open an issue instead.
 # A private repo is the dev repo: work-path PRs still fail there, PRs don't.
 
 on:
@@ -43,7 +44,7 @@ jobs:
           PY
           )"
           if [ "$CODE" = "snapshots" ] && [ "$PRIVATE_REPO" != "true" ]; then
-            echo "::error::This repo publishes release snapshots only (privacy.code: snapshots): open the PR on the private dev repo instead. A PR here is public for good."
+            echo "::error::This repo gets one snapshot per release, and PRs are not merged here (privacy.code: snapshots). Please open an issue instead, describing the change you want."
             exit 1
           fi
           if [ "$WORK_FILES" = "tracker" ]; then

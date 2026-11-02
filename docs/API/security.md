@@ -35,7 +35,7 @@ The review behind it ran on 2026-10-31, as issue `api/security-review-and-pentes
 
 ## Barriers
 
-Every request passes these layers, from the outside in (`Routes` in `routes.go`):
+Every request passes these layers, from the outside in (`Routes` in `routes.go`; the viewer's files are in `internal/viewer/`):
 
 1. **`securityHeaders`** (`headers.go`) sets the response headers and caps the request body:
    - `X-Content-Type-Options: nosniff`
@@ -89,11 +89,23 @@ On loopback the owner, issue-cli and every agent reach the same port as the same
 - **Agents and issue-cli.** R, W and X routes don't need the cookie. An agent that needs an owner decision asks on its issue trail (`issue-cli comment <slug> "question: …"`). The issue-approve Claude Code mod runs inside an agent's session, so its approve press gets `403`; the owner approves in the browser.
 - **Tests and sandboxes.** `owner_test.go` sends one request per O route without the cookie, with forged browser headers, and with a made-up cookie. The playtest runner starts its boards with `-owner-code terminal`, reads the code from its own board's stderr, and signs its browser in. `scripts/security-check.sh` does the same and attacks every O route without the cookie.
 
+### Phone notifications
+
+The viewer sends Web Push to the owner's devices (`push_view.go`, `internal/push`, `internal/webpush`; docs/getting-started.md#phone-notifications). What keeps it safe:
+
+- **Owner only.** Every POST under `/push/` is an O route (`ownerOnlyGlobal`); on a public name the identity gate answers first. `/push` and `/push/key` are R: devices show only a label and a date, and the VAPID public key is public by design.
+- **No relay.** A subscription must name a browser push service over https (`webpush.AllowedEndpoint`: exact host or a dot-suffix of Apple's, Google's, Mozilla's and Microsoft's), and the push client follows no redirect. So even the owner's session can't make the viewer POST to an internal address.
+- **Capabilities stay put.** An endpoint is a capability URL (anyone holding it can push to the phone), and `p256dh`, `auth` and the VAPID private key are secrets. They live only in `$XDG_STATE_HOME/ai-workflow-engine/push/` (0700, files 0600, written aside and renamed), never on a page, in a log line, in `status.md` or in JSON (`TestPushSecretsStayInTheStateDir`). This is device state, not business data, so it doesn't go to the issues dir or a tracker repo (D-1 of the push issue; docs/departments.md "Business data sits with the work files").
+- **Small payloads.** A push carries a title (home folder scrubbed, 120 characters), the project, the kind, a relative link (`/p/…` or `/needs-you`, `push.SafeURL`) and a tag. No row note, comment text or file content. It is end-to-end encrypted (RFC 8291) to the device; the push service sees only the size and the Topic hash.
+- **Sandboxes don't send.** Only a viewer that `viewerstate.Claim` lets hold `viewer.json`, and whose config is the one `push/` is bound to, scans, sends or writes there. A sandbox that kept the shared state dir answers 409 and never reads the devices (`TestPushOnlyTheBoundViewerSends`).
+- **The app shell.** `/manifest.webmanifest`, `/sw.js`, `/apple-touch-icon.png` and `/static/icons/*` are constant and data-free, but stay behind the identity gate like every path (D-3 of the push issue). The manifest link has `crossorigin="use-credentials"` so the Access cookie goes with it. iOS fetches the touch icon without cookies and falls back to a screenshot icon behind Access. The worker caches nothing, and opens only same-origin paths.
+
 ### Keeping them
 
 - **Go tests:**
   - `security_test.go`: one test per finding.
   - `identity_test.go`: fail closed, token verification, the key refetch limit, headers and the body cap.
+  - `push_view_test.go`, `internal/push`, `internal/webpush`: owner-only push routes, no secrets on pages or logs, the allow-list and no redirects, sandboxes not sending.
   - `owner_test.go`: every O route refuses a request without the owner's sign-in, the code's limits, the cookie's flags, and the O rows of this page kept in step with the gate.
   - `origin_test.go`, plus tests in `internal/tracker/validations`, `internal/timeline` and `internal/tracker`.
 
@@ -152,9 +164,11 @@ Every route is under `/p/<project>/` unless it starts with `/`.
 
 | Route | Method | Class | What it does |
 |---|---|---|---|
-| `/`, `/stats`, `/updates`, `/leads`, `/ceos`, `/needs-you`, `/telemetry`, `/project-for?cwd=` | GET | R | Map, cross-project pages, the telemetry collector's data, project lookup by folder |
+| `/`, `/stats`, `/updates`, `/leads`, `/ceos`, `/needs-you`, `/crew`, `/telemetry`, `/project-for?cwd=` | GET | R | Map, cross-project pages, the telemetry collector's data, project lookup by folder. On a public name `/` answers Needs you across projects (the remote home; `/?map=1` the map): it reads the identity the gate set and changes no barrier |
 | `/static/…` | GET | R | Embedded assets |
 | `/owner` | GET | R | Owner sign-in page |
+| `/push`, `/push/key`, `/manifest.webmanifest`, `/sw.js`, `/apple-touch-icon.png` | GET | R | Phone notifications page (devices by label and date only), the VAPID public key, and the installable app's shell. On a public name they sit behind the identity gate like every page (D-3 of the push issue) |
+| `/push/subscribe`, `/push/change`, `/push/unsubscribe`, `/push/forget`, `/push/settings`, `/push/rebind`, `/push/test` | POST | O | Subscribe or drop a device, swap a rotated subscription, mute and quiet hours, bind the sender to this viewer, a test push. A subscription must name a browser push service over https (`webpush.AllowedEndpoint`); pushes follow no redirect, so the viewer can't be made to POST elsewhere |
 | `/owner/code`, `/owner/pair`, `/owner/signout` | POST | W | Ask for a sign-in code (shown outside HTTP), type it in, sign out. Rate limited; the code never comes back in an answer |
 | `/p/<project>/` (issues), `hall`, `hall/ci`, `hall/station/<s>`, `hall/gate/<s>`, `company`, `hq/report`, `hq/report.md`, `needs-you`, `needs-you.json`, `owner-checks`, `postmortem/<slug>`, `connectors.json`, `connections`, `connections.json`, `reports/<g>/<w>`, `shelf`, `board`, `graph`, `workboard`, `canvas`, `status`, `status.md`, `status.json`, `release.json`, `pages/<n>`, `github`, `stats`, `health`, `agents`, `agents.json`, `agents/detail`, `lead`, `ceo`, `lead.json`, `retros`, `decisions`, `updates`, `departments/new`, `metrics`, `metrics.json`, `balance`, `systems[/…]`, `hash`, `issues.json`, `docs[/…]`, `yolo.json`, `yolo/review` | GET | R | Pages and JSON |
 | `issue/<slug>`, `…/comments`, `…/approvals.json`, `…/transition?to=` | GET | R | Issue page, comments, approvals, transition preview. The preview runs `command_succeeds` validators, which are config, with quoted values |
@@ -173,8 +187,12 @@ Every route is under `/p/<project>/` unless it starts with `/`.
 | `…/clarify` | POST | O | The owner's answers to the clarify round (Station form); each a D-n decision with their words |
 | `yolo/on\|extend\|off\|review`, `autostart/pause\|resume\|off` | POST | O | YOLO window, an issue's Agree / Back to on the review after YOLO, auto-start |
 | `owner-checks/tick` | POST | O | Owner boxes |
+| `crew/lead`, `crew/stop`, `crew/nudge`, `queue/pause\|resume` | POST | O | The Crew page across projects (`/crew`): start a lead (as `lead/spawn`), end one worker's tmux session (`=name:` target; never the server, never a paused worker, the worktree stays), paste one line into a worker (`agentrun.Nudge`), the owner's queue pause. They run tmux, but only for the owner; each is logged in `$XDG_STATE_HOME/ai-workflow-engine/crew/actions.jsonl` with who and when |
+| `crew/tail` | GET | O | A worker's or lead's last 60 pane lines on the Crew page: a pane may hold anything (the owner's attention) |
 | `departments/add` | POST | O | Department from a template |
-| `shelf/review`, `decisions/<slug>/<D-n>/confirm` | POST | O | Output review, decision confirm |
+| `shelf/review`, `decisions/<slug>/<D-n>/confirm` | POST | O | Output review, decision confirm (and its `hard` option: making a decision the owner's hard rule) |
+| `decisions/challenge/resolve` | POST | O | Keep a challenged decision: closes its open challenges (Needs you's Keep it) |
+| `decisions/<slug>/<D-n>/renew`, `decisions/<slug>/<D-n>/let-go` | POST | O | An expired hard decision's Renew (new `expires:`) and Let go (`ended:`) from its Needs you row |
 | `shelf/comment`, `shelf/comment/resolve` | POST | O | The owner's comments on an output (agents answer with `issue-cli output reply`) |
 | `hall/station/<s>/edit/preview`, `hall/station/<s>/edit/save` | POST | O | Edit a station of `workflow.yaml` (commits on main) |
 | `memory/edit\|delete\|pin\|unpin` | POST | O | The owner's edit, delete or pin of a shared memory (agents use `issue-cli memory`) |

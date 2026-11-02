@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 func writeRepoFile(t *testing.T, dir, rel, content string) {
@@ -58,7 +58,7 @@ func TestCatalogBumpCommand(t *testing.T) {
 	if got := readRepoFile(t, dir, tpl); got != "# stamp\ntemplate: development@v0.54.0\n\nfeatures:\n  installed:\n    - health-tuning@v0.54.0\n\nstatuses: []\n" {
 		t.Fatalf("template:\n%s", got)
 	}
-	assertContains(t, readRepoFile(t, dir, workflowupgrade.CatalogPath), "    version: v0.54.0\n")
+	assertContains(t, readRepoFile(t, dir, workflowupgrade.CatalogPath+"/health-tuning.yaml"), "\nversion: v0.54.0\n")
 
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runWorkflow(ctx, []string{"catalog-bump"}); err == nil || !strings.Contains(err.Error(), "needs an entry id") {
@@ -78,11 +78,14 @@ func TestSiblingBranchesAddingEntriesAndFlagsMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// oneList stands for the catalog as one entries: list, as it was.
+	const oneList = "cmd/issue-cli/templates/catalog-as-one-list.yaml"
 	newRepo := func() string {
 		dir := t.TempDir()
 		writeRepoFile(t, dir, ".gitattributes", string(attrs))
-		writeRepoFile(t, dir, workflowupgrade.CatalogPath, "entries:\n  - id: base-board\n    version: v0.53.0\n    category: board\n")
-		writeRepoFile(t, dir, workflowupgrade.SplitCatalogPath+"/README.md", "one entry per file\n")
+		writeRepoFile(t, dir, workflowupgrade.CatalogPath+"/base-board.yaml", "id: base-board\nversion: v0.53.0\ncategory: board\n")
+		writeRepoFile(t, dir, workflowupgrade.CatalogPath+"/README.md", "one entry per file\n")
+		writeRepoFile(t, dir, oneList, "entries:\n  - id: base-board\n    version: v0.53.0\n    category: board\n")
 		writeRepoFile(t, dir, workflowupgrade.ChangelogPath, "# Changelog\n\n## Unreleased\n\n- base line\n\n## v0.53.0 — 2026-10-23\n")
 		writeRepoFile(t, dir, "internal/clilog/redact.go", "package clilog\n\nvar boolFlags = map[string]bool{\n\t\"all\": true,\n\t\"yes\": true,\n}\n")
 		for _, c := range []string{"alpha", "beta"} {
@@ -124,28 +127,19 @@ func TestSiblingBranchesAddingEntriesAndFlagsMerge(t *testing.T) {
 	// The new way.
 	dir := newRepo()
 	branch(dir, "work/a", func() {
-		writeRepoFile(t, dir, workflowupgrade.SplitCatalogPath+"/alpha-feature.yaml", entry("alpha-feature"))
+		writeRepoFile(t, dir, workflowupgrade.CatalogPath+"/alpha-feature.yaml", entry("alpha-feature"))
 		addFlag(dir, "alpha", "alpha-switch")
 		changelog(dir, "alpha shipped")
 	})
 	branch(dir, "work/b", func() {
-		writeRepoFile(t, dir, workflowupgrade.SplitCatalogPath+"/beta-feature.yaml", entry("beta-feature"))
+		writeRepoFile(t, dir, workflowupgrade.CatalogPath+"/beta-feature.yaml", entry("beta-feature"))
 		addFlag(dir, "beta", "beta-switch")
 		changelog(dir, "beta shipped")
 	})
 	if err := merge(dir); err != nil {
 		t.Fatalf("sibling branches conflict: %v", err)
 	}
-	repo := repoAt(dir)
-	var split []workflowupgrade.CatalogFile
-	for _, name := range repo.Dir(workflowupgrade.SplitCatalogPath) {
-		if strings.HasSuffix(name, ".yaml") {
-			data, _ := repo.Read(workflowupgrade.SplitCatalogPath + "/" + name)
-			split = append(split, workflowupgrade.CatalogFile{Name: name, Data: data})
-		}
-	}
-	mainRaw, _ := repo.Read(workflowupgrade.CatalogPath)
-	entries, err := workflowupgrade.ParseCatalog(mainRaw, split, true)
+	entries, err := workflowupgrade.RepoCatalog(repoAt(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +147,7 @@ func TestSiblingBranchesAddingEntriesAndFlagsMerge(t *testing.T) {
 	for _, e := range entries {
 		ids = append(ids, e.ID)
 	}
-	if got := strings.Join(ids, ","); got != "base-board,alpha-feature,beta-feature" {
+	if got := strings.Join(ids, ","); got != "alpha-feature,base-board,beta-feature" {
 		t.Fatalf("merged catalog %s", got)
 	}
 	cl := readRepoFile(t, dir, workflowupgrade.ChangelogPath)
@@ -167,14 +161,51 @@ func TestSiblingBranchesAddingEntriesAndFlagsMerge(t *testing.T) {
 		writeRepoFile(t, old, rel, strings.Replace(readRepoFile(t, old, rel), anchor, anchor+add, 1))
 	}
 	branch(old, "work/a", func() {
-		appendTo(workflowupgrade.CatalogPath, "category: board\n", "  - id: alpha-feature\n    version: v0.54.0\n    category: board\n")
+		appendTo(oneList, "category: board\n", "  - id: alpha-feature\n    version: v0.54.0\n    category: board\n")
 		appendTo("internal/clilog/redact.go", "\"yes\": true,\n", "\t\"alpha-switch\": true,\n")
 	})
 	branch(old, "work/b", func() {
-		appendTo(workflowupgrade.CatalogPath, "category: board\n", "  - id: beta-feature\n    version: v0.54.0\n    category: board\n")
+		appendTo(oneList, "category: board\n", "  - id: beta-feature\n    version: v0.54.0\n    category: board\n")
 		appendTo("internal/clilog/redact.go", "\"yes\": true,\n", "\t\"beta-switch\": true,\n")
 	})
 	if err := merge(old); err == nil {
 		t.Fatal("adjacent additions to shared lists merged cleanly: the test no longer shows the problem")
+	}
+}
+
+// scan --template in a dark-factory checkout rewrites the template's
+// features: record from the checkout's catalog (here: out of order back into
+// catalog order); --dry-run prints it and writes nothing.
+func TestScanTemplateRewritesTheCheckoutsRecord(t *testing.T) {
+	dir := catalogRepo(t)
+	writeRepoFile(t, dir, workflowupgrade.CatalogPath+"/a-life.yaml", "id: a-life\nversion: v0.53.0\ncategory: lifecycle\nsources: [\"@prompt\"]\ndetect:\n  - path: statuses\n")
+	tpl := workflowupgrade.TemplatesPath + "/development.yaml"
+	swapped := "template: development@v0.53.0\n\nfeatures:\n  installed:\n    - health-tuning@v0.53.0\n    - a-life@v0.53.0\n\nstatuses:\n  - name: idea\n"
+	writeRepoFile(t, dir, tpl, swapped)
+	chdir(t, dir)
+	proj := &tracker.Project{Name: "t", IssueDir: dir}
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan", "--template", "development", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "~ installed: put in catalog order")
+	if readRepoFile(t, dir, tpl) != swapped {
+		t.Fatal("--dry-run wrote")
+	}
+
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan", "--template", "development"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, readRepoFile(t, dir, tpl), "  installed:\n    - a-life@v0.53.0\n    - health-tuning@v0.53.0\n")
+
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan", "--template", "nope"}); err == nil || !strings.Contains(err.Error(), "no bundled template") {
+		t.Fatalf("unknown template: %v", err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan", "--template", "development", "--installed", "a-life"}); err == nil || !strings.Contains(err.Error(), "takes only --dry-run") {
+		t.Fatalf("--template with --installed: %v", err)
 	}
 }

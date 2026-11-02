@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The sibling channel: ask and answer between the workers of two open

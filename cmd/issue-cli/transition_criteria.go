@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/lint"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/lint"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // criteriaWarnings is lint's criteria findings for an issue leaving design:

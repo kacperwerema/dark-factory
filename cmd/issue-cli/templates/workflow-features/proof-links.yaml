@@ -1,0 +1,52 @@
+id: proof-links
+version: v0.58.0
+category: gates
+propose: true
+templates: [development]
+sources: ["internal/proof/**", "internal/tracker/proof.go", "cmd/issue-cli/cmd_prove.go", "cmd/issue-cli/prove_run.go"]
+title: "Each acceptance criterion linked to its proof"
+what: |
+  Acceptance criteria must be checkboxes with their own text (criteria_checkboxes at
+  the design gate), and before human-testing every criterion needs a proof link that
+  passes its check (criteria_proven). Agents declare links where they write the proof:
+  `proves: [AC2]` on a playtest step, a `Proves: AC2 <TestName>` or `Proves: AC2`
+  trailer on a commit; `issue-cli prove` is the fallback and records measured values.
+  The engine checks every link (the test exists and a tests: comment is newer than the
+  code, the step passed, the commit is on the branch) and ticks the proven boxes.
+  `issue-cli prove <slug> --run` runs the tests the links name (go test) and posts
+  that tests: comment; commits touching only docs, playtest sessions or check scripts
+  don't make it stale.
+  The shipping prompt asks for `risk:` comments on anything to watch after the ship.
+  Some boxes are the owner's and no proof ticks them: a playtest judgement step's
+  criterion, a box a guided check left to the owner, every `## Human Testing` box, and
+  any box marked `(owner)` anywhere or starting "Owner visual check …" (mark your own
+  Manual boxes the owner walks this way, as the bugfix path's "Repro steps re-run and
+  the bug is gone (owner)"). Under YOLO they wait in the after-the-fact queue by name.
+why: |
+  Nothing said which test, step or commit proves which criterion, so criteria were
+  ticked on the agent's word (or only the template placeholder was). The links make
+  "is it proven?" a question the engine answers, and give the Evidence tab its matrix.
+where: "the in design → backlog / in progress validations, the testing → human-testing validations, and the \"in progress\" and \"shipping\" status prompts"
+snippet: |
+  transitions:
+    - from: "in design"
+      to: "backlog"
+      actions:
+        - type: "validate"
+          rule: "criteria_checkboxes: Acceptance Criteria"
+    - from: "testing"
+      to: "human-testing"
+      actions:
+        - type: "validate"
+          rule: "criteria_proven: since {{today}}"   # issues created before this date don't need proof
+  statuses:
+    - name: "in progress"
+      prompt: |
+        Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. Then, after the last code commit, post the test results: `issue-cli prove <slug> --run` runs the named tests and posts the `tests:` comment (or run them and post `issue-cli comment <slug> --text "tests: ..."`); a test trailer reads UNPROVEN until then, and a later code commit stales it. `issue-cli prove <slug> --list` shows what is proven.
+    - name: "shipping"
+      prompt: |
+        Before closing, post a `risk:` comment (`issue-cli comment <slug> --text "risk: ..."`) for anything to watch after the ship, or "risk: none".
+question: "Should every acceptance criterion be linked to a proof the engine checks before human-testing (from today; older issues are exempt)?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [criteria_proven, criteria_checkboxes]

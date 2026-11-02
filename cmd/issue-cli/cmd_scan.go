@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 const scanUsage = `Usage:
@@ -15,7 +16,10 @@ const scanUsage = `Usage:
   issue-cli workflow scan --installed types-of-work,scoring # record features you installed (sets the catalog version)
   issue-cli workflow scan --declined worktree               # record features the human declined
   issue-cli workflow scan --forget worktree                 # drop ids from the record (re-opens a declined feature)
-  issue-cli --json workflow scan --dry-run                  # machine-readable report`
+  issue-cli --json workflow scan --dry-run                  # machine-readable report
+  issue-cli workflow scan --template development            # a bundled template's record: in a dark-factory checkout
+                                                            # its file and catalog, rewritten in place (--dry-run: print);
+                                                            # elsewhere the bundled copy, printed only`
 
 // runWorkflowScan detects catalog features in workflow.yaml and writes the
 // features: record. It only ever rewrites the features: block.
@@ -26,11 +30,18 @@ func runWorkflowScan(ctx *Context, args []string) error {
 	declined := fs.String("declined", "", "comma-separated feature ids to record as declined")
 	forget := fs.String("forget", "", "comma-separated feature ids to drop from the record (re-opens a declined feature)")
 	deptFlag := fs.String("department", "", "read this department's own workflow file (projects.yaml departments: workflow:)")
+	tmpl := fs.String("template", "", "scan a bundled template (development, review, …) instead of the project's workflow.yaml")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("workflow scan takes no arguments, got %q\n\n%s", strings.Join(fs.Args(), " "), scanUsage)
+	}
+	if *tmpl != "" {
+		if *deptFlag != "" || *installed != "" || *declined != "" || *forget != "" {
+			return fmt.Errorf("--template takes only --dry-run: a bundled template records what it has and declines nothing\n\n%s", scanUsage)
+		}
+		return scanTemplate(ctx, *tmpl, *dryRun)
 	}
 	path, err := workflowFileFor(ctx.Project, *deptFlag)
 	if err != nil {
@@ -70,6 +81,57 @@ func runWorkflowScan(ctx *Context, args []string) error {
 		return writeJSON(ctx.Stdout, res)
 	}
 	printScanResult(ctx.Stdout, res)
+	return nil
+}
+
+// scanTemplate scans a bundled template. In a dark-factory checkout it reads
+// the checkout's template file and catalog and writes the record into the
+// file (unless dryRun): the template an agent is changing, not the copy in
+// this binary. Elsewhere it prints the bundled template's record.
+func scanTemplate(ctx *Context, name string, dryRun bool) error {
+	if !workflowupgrade.IsBundled(name) {
+		return fmt.Errorf("no bundled template %q (bundled: %s)", name, strings.Join(workflowupgrade.Templates(), ", "))
+	}
+	entries, err := workflowupgrade.Catalog()
+	if err != nil {
+		return err
+	}
+	file := "bundled " + name + ".yaml"
+	raw, err := workflowupgrade.ReadTemplate(name)
+	if err != nil {
+		return err
+	}
+	inRepo := false
+	if root, err := catalogGit("", "rev-parse", "--show-toplevel"); err == nil {
+		p := workflowupgrade.TemplatesPath + "/" + name + ".yaml"
+		if data, ok := repoAt(root).Read(p); ok {
+			if local, err := workflowupgrade.RepoCatalog(repoAt(root)); err == nil {
+				entries, raw, file, inRepo = local, data, filepath.Join(root, filepath.FromSlash(p)), true
+			}
+		}
+	}
+	res, err := workflowupgrade.ScanWith(entries, file, raw, workflowupgrade.ScanOptions{})
+	if err != nil {
+		return err
+	}
+	res.DryRun = dryRun || !inRepo
+	if !res.DryRun && (len(res.Changes) > 0 || !res.HadRecord) {
+		out, err := workflowupgrade.WriteRecord(raw, res.Record)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(file, out, 0o644); err != nil {
+			return fmt.Errorf("writing %s: %w", file, err)
+		}
+		res.Written = true
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, res)
+	}
+	printScanResult(ctx.Stdout, res)
+	if !inRepo {
+		fmt.Fprintln(ctx.Stdout, "(the template bundled in this binary; run it in a dark-factory checkout to rewrite the file there)")
+	}
 	return nil
 }
 

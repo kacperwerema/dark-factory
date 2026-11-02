@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/bench"
 	"gopkg.in/yaml.v3"
 )
 

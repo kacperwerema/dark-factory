@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/tracker/validations"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
 var placeholderRe = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)

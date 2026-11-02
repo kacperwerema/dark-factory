@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // readOnly says whether a call (args after the command name) only reads the
@@ -40,6 +40,7 @@ var commandAccess = map[string]readOnly{
 	"clarify":         readUnlessFlags("assume", "answer"),
 	"close":           writes,
 	"comment":         writes,
+	"comments":        reads,
 	"connections":     reads,
 	"connector":       writes,
 	"connectors":      reads,
@@ -47,6 +48,7 @@ var commandAccess = map[string]readOnly{
 	"create":          writes,
 	"data":            readSubs("list"),
 	"decide":          writes,
+	"decision":        readSubs("challenges"),
 	"decisions":       reads,
 	"department":      readSubsUnlessFlag("write", "list", "show", "week"),
 	"dispatch":        writes,
@@ -96,7 +98,7 @@ var commandAccess = map[string]readOnly{
 	"update":          writes,
 	"upgrade":         reads,
 	"version":         reads,
-	"workflow":        readSubsOrFlag("dry-run", []string{"upgrade", "catalog-check"}, "scan", "catalog-bump"),
+	"workflow":        readSubsOrFlag("dry-run", []string{"upgrade", "catalog-check", "commit-msg"}, "scan", "catalog-bump"),
 	"yolo":            readSubs("status", "queue"),
 }
 

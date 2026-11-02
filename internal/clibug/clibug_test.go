@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func TestTitle(t *testing.T) {
@@ -42,13 +42,13 @@ func TestNormalizeTitle(t *testing.T) {
 
 func TestFindEngine(t *testing.T) {
 	projects := []tracker.Project{
-		{Slug: "roguetech", Repo: "someone/roguetech"},
-		{Slug: "issue-viewer", Repo: "michal-franc/ai-native-project-viewer"},
+		{Slug: "kestrel", Repo: "someone/kestrel"},
+		{Slug: "issue-viewer", Repo: "kacperwerema/dark-factory"},
 	}
 	if p := FindEngine(&tracker.ProjectsConfig{Projects: projects}); p == nil || p.Slug != "issue-viewer" {
-		t.Fatalf("old repo name: got %+v", p)
+		t.Fatalf("engine repo: got %+v", p)
 	}
-	if p := FindEngine(&tracker.ProjectsConfig{EngineProject: "roguetech", Projects: projects}); p == nil || p.Slug != "roguetech" {
+	if p := FindEngine(&tracker.ProjectsConfig{EngineProject: "kestrel", Projects: projects}); p == nil || p.Slug != "kestrel" {
 		t.Fatalf("engine_project: got %+v", p)
 	}
 	if p := FindEngine(&tracker.ProjectsConfig{EngineProject: "missing", Projects: projects}); p != nil {

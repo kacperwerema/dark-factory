@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
 )
 
 // checkReports reads the issues whose path gates on has_output (the report

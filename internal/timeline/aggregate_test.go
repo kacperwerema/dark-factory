@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/health"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// fixture is ../../testdata/timeline/local-ci: the local CI issue's real
+// fixture is testdata/local-ci: the local CI issue's real
 // stats sidecar, per-agent clilog and playtest runs.
-var fixture = filepath.Join("..", "..", "testdata", "timeline", "local-ci")
+var fixture = filepath.Join("testdata", "local-ci")
 
 // localCIDone is when the fixture issue reached done.
 var localCIDone = time.Date(2026, 10, 22, 19, 9, 0, 0, time.UTC)

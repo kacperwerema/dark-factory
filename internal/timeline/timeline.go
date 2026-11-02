@@ -9,8 +9,8 @@ package timeline
 import (
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // IdleAfter is the gap between two activities after which the agent counts

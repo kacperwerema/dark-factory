@@ -1,0 +1,24 @@
+id: body-structure-gates
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/has_section.go", "internal/tracker/validations/section_min_length.go", "internal/tracker/validations/section_max_length.go"]
+title: "Body and section content gates"
+what: |
+  `body_not_empty`, `has_section` (a `## <section>` exists), `section_min_length` and
+  `section_max_length` check the issue body's shape.
+why: |
+  E.g. a bugfix can't start without a Repro section; a summary stays short.
+where: "transitions[].actions[] rule: has_section (with section:), section_min_length (min:), …"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "in progress"
+      actions:
+        - type: "validate"
+          rule: "has_section"
+          section: "Repro"
+question: "Should any step require a section (or a minimum amount of text) in the issue body?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [body_not_empty, has_section, section_min_length, section_max_length]

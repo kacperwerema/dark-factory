@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // KnownAgents are the agent CLIs whose limit messages FindLimit reads and

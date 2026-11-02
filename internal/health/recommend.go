@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // ErrNeedsOwner is what filing or dismissing a recommendation answers without
@@ -73,11 +73,11 @@ func FileRecommendation(proj *tracker.Project, wf *tracker.WorkflowConfig, root,
 	if err != nil {
 		return "", err
 	}
-	if _, err := tracker.AddDecision(file, slug, tracker.NewDecision{
+	if _, err := tracker.AddDecisionAs(file, slug, tracker.NewDecision{
 		Text:  fmt.Sprintf("File the health review's %s (%s, %s) as an issue", r.ID, o.Date, r.Kind),
 		How:   valueOr(d.How, "owner"),
 		Quote: d.Quote,
-	}, now); err != nil {
+	}, now, tracker.DecisionWrite{IssueDir: proj.IssueDir, Actor: tracker.DecisionActor{Name: "health review"}}); err != nil {
 		return slug, fmt.Errorf("created %s but could not record the decision: %w", slug, err)
 	}
 	r.State, r.Issue, r.Decided = StateFiled, slug, now.Local().Format(dateLayout)

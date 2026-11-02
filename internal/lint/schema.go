@@ -8,7 +8,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
 // checkSchema walks workflow.yaml against the struct tags the parser reads
@@ -28,6 +29,7 @@ func checkSchema(env *Env) []Finding {
 	root := doc.Content[0]
 	var out []Finding
 	walkSchema(env, root, reflect.TypeOf(tracker.WorkflowConfig{}), "", &out)
+	unknownRules(env, root, &out)
 	top := map[string]bool{}
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		top[root.Content[i].Value] = true
@@ -184,4 +186,68 @@ func join(path, key string) string {
 		return key
 	}
 	return path + "." + key
+}
+
+// unknownRuleMark is in every unknown-rule finding's message.
+const unknownRuleMark = " is not a rule this build ("
+
+// UnknownRule reports whether f is the schema check's unknown validate rule
+// finding: callers that check each action's rule themselves (the hall's
+// station editor) skip it.
+func UnknownRule(f Finding) bool {
+	return f.Check == "schema" && strings.Contains(f.Message, unknownRuleMark)
+}
+
+// knownRule reports whether this build's validate actions know rule (its
+// name before ": <arg>"): a structured validator, or a rule process schema
+// prints.
+func knownRule(rule string) bool {
+	name, _, _ := strings.Cut(strings.TrimSpace(rule), ": ")
+	if validations.Has(name) {
+		return true
+	}
+	for _, r := range tracker.WorkflowValidationRules {
+		known, _, _ := strings.Cut(r.Name, ": ")
+		if known == name {
+			return true
+		}
+	}
+	return false
+}
+
+// unknownRules finds every validate action (transitions, overlays, types)
+// whose rule this build doesn't know. The transition refuses it, so most
+// often the workflow file is newer than the installed issue-cli: main added
+// the rule after this build.
+func unknownRules(env *Env, n *yaml.Node, out *[]Finding) {
+	switch n.Kind {
+	case yaml.SequenceNode:
+		for _, c := range n.Content {
+			unknownRules(env, c, out)
+		}
+	case yaml.MappingNode:
+		var typ, rule *yaml.Node
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			switch {
+			case k.Value == "type" && v.Kind == yaml.ScalarNode:
+				typ = v
+			case k.Value == "rule" && v.Kind == yaml.ScalarNode:
+				rule = v
+			default:
+				unknownRules(env, v, out)
+			}
+		}
+		if typ == nil || typ.Value != "validate" || rule == nil || rule.Value == "" || knownRule(rule.Value) {
+			return
+		}
+		name, _, _ := strings.Cut(strings.TrimSpace(rule.Value), ": ")
+		v := tracker.BuildVersion
+		if v == "" {
+			v = "dev"
+		}
+		*out = append(*out, Finding{Where: env.where(rule.Line),
+			Message: fmt.Sprintf("rule %q"+unknownRuleMark+"%s) knows; every transition that runs it is refused. The workflow file may be newer than the installed issue-cli, or the rule is misspelled", name, v),
+			Fix:     "a worker on the engine: go build -o ./issue-cli ./cmd/issue-cli in the worktree and use ./issue-cli (never make install); otherwise check the name (rules: issue-cli process schema)"})
+	}
 }

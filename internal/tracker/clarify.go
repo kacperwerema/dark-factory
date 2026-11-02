@@ -511,6 +511,8 @@ type AnswerInput struct {
 	// Expect, when set, is the question text the caller saw; a different
 	// text refuses with ErrQuestionChanged.
 	Expect string
+	// Log is where the answer's decision is logged and who gave it.
+	Log DecisionWrite
 }
 
 // AnswerQuestion records the owner's answer to one question in one locked
@@ -532,21 +534,21 @@ func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (Clari
 	}
 	var out ClarifyQuestion
 	var line string
-	_, _, err := UpdateIssueBody(filePath, func(body string) (string, bool, error) {
+	err := writeDecision(filePath, in.Log, now, func(body string) (decisionChange, error) {
 		c := ParseQuestionSection(body, section)
 		q := c.Question(id)
 		if q == nil {
-			return "", false, fmt.Errorf("%s %s: %w", slug, id, ErrQuestionNotFound)
+			return decisionChange{}, fmt.Errorf("%s %s: %w", slug, id, ErrQuestionNotFound)
 		}
 		if in.Expect != "" && oneLine(in.Expect) != oneLine(q.Text) {
-			return "", false, fmt.Errorf("%s: %w", id, ErrQuestionChanged)
+			return decisionChange{}, fmt.Errorf("%s: %w", id, ErrQuestionChanged)
 		}
 		if q.Answer.State == AnswerOwner {
-			return "", false, fmt.Errorf("%s: %w", id, ErrQuestionAnswered)
+			return decisionChange{}, fmt.Errorf("%s: %w", id, ErrQuestionAnswered)
 		}
 		opt := q.OptionByNum(in.Option)
 		if opt == nil {
-			return "", false, fmt.Errorf("%s has no option %d (it has %d)", id, in.Option, len(q.Options))
+			return decisionChange{}, fmt.Errorf("%s has no option %d (it has %d)", id, in.Option, len(q.Options))
 		}
 		words := oneLine(in.Words)
 		if words == "" {
@@ -555,13 +557,14 @@ func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (Clari
 		did := fmt.Sprintf("D-%d", nextNumber(decisionIDRe, body))
 		d := NewDecision{Text: fmt.Sprintf("%s %s %s", id, strings.TrimRight(oneLine(q.Text), "?."), "→ "+opt.Label), How: how, Quote: words}
 		if err := ValidateNewDecision(d); err != nil {
-			return "", false, err
+			return decisionChange{}, err
 		}
 		q.Answer = ClarifyAnswer{State: AnswerOwner, Option: opt.Num, Words: words, Who: OwnerAuthor, Date: now.Format(decisionDateLayout), Decision: did}
 		out = *q
 		lines := setAnswerLine(strings.Split(body, "\n"), *q, renderAnswer(q.Answer))
 		line = RenderDecisionLine(did, d, now)
-		return appendToSectionTight(strings.Join(lines, "\n"), DecisionsSection, line, false), true, nil
+		return decisionChange{Body: appendToSectionTight(strings.Join(lines, "\n"), DecisionsSection, line, false),
+			Events: []DecisionEvent{{Event: DecisionRecorded, Ref: slug + "#" + did}}}, nil
 	})
 	if err != nil {
 		return ClarifyQuestion{}, Decision{}, err

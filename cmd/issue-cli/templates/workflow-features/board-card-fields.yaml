@@ -1,0 +1,18 @@
+id: board-card-fields
+version: v0.36.0
+category: board
+propose: false
+sources: ["internal/tracker/workflow_config.go#WorkflowBoardConfig", "internal/viewer/templates/board.html"]
+title: "Custom board card fields"
+what: |
+  `board.card_fields` picks the frontmatter fields shown on board cards (default:
+  system, labels).
+why: |
+  Show what matters for this project at a glance (priority, assignee, version).
+where: "board.card_fields"
+snippet: |
+  board:
+    card_fields: [system, labels, priority, assignee]
+question: "Which fields should board cards show?"
+detect:
+  - path: board.card_fields

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/timeline"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // RefsKey is the commit-message line that names the issue a commit belongs

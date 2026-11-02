@@ -146,6 +146,12 @@ func validationSummary(rule string) string {
 			return "Validate the issue has an output on the shelf (issue-cli output add --issue <slug>)"
 		}
 		return fmt.Sprintf("Validate the issue has a %s on the shelf (issue-cli output add --issue <slug> --kind %s)", arg, arg)
+	case DecisionsCitedRule:
+		return "Validate ## Design cites every hard decision in force for the issue, or says \"n/a <ref>: <why>\" (issue-cli decisions --in-force <slug>)"
+	case CitationsCurrentRule:
+		return "Validate no decision the issue cites is replaced or expired"
+	case DecisionsRespectedRule:
+		return "Validate the issue cites every hard decision whose paths: the branch changes, with no open challenge of its own on it (issue-cli decisions --touched <slug>)"
 	case "has_assignee":
 		return "Validate issue has assignee"
 	case "all_checkboxes_checked":
@@ -209,6 +215,14 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		return w.checkHasOutput(ruleArg, issue)
 	case CritiqueRule:
 		return w.checkCritique(issue)
+	case DecisionsCitedRule:
+		return w.checkDecisionsCited(ruleArg, issue)
+	case CitationsCurrentRule:
+		return w.checkCitationsCurrent(ruleArg, issue)
+	case DecisionUnchallengedRule:
+		return w.checkDecisionUnchallenged(ruleArg, issue)
+	case DecisionsRespectedRule:
+		return w.checkDecisionsRespected(ruleArg, issue)
 	case "has_assignee":
 		if issue.Assignee == "" {
 			// start re-claims and moves the issue on (backlog clears the

@@ -15,8 +15,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Label marks an issue as an experiment.
@@ -163,7 +164,26 @@ type Block struct {
 	// are missing or unmarked. Advice beside Verdict, never instead of it.
 	Workflows     []WorkflowResult `json:"workflows,omitempty"`
 	WorkflowsNote string           `json:"workflows_note,omitempty"`
+	// Queue is the owner's word to run it on a night (issue-cli experiment
+	// queue); the nightly loop runs it once and fills Ran. Never adopts.
+	Queue *Queue `json:"queue,omitempty"`
 }
+
+// Queue is an experiment waiting for a night: who queued it, on whose
+// words, the branch to measure, and when a night ran it.
+type Queue struct {
+	At    time.Time `json:"at"`
+	By    string    `json:"by"`
+	Quote string    `json:"quote"`
+	Ref   string    `json:"ref"`
+	// Ran is the night's date once it ran (or was skipped); Why is set
+	// when it was skipped.
+	Ran string `json:"ran,omitempty"`
+	Why string `json:"why,omitempty"`
+}
+
+// Waiting reports a queue entry no night has taken yet.
+func (q *Queue) Waiting() bool { return q != nil && q.Ran == "" }
 
 // WorkflowResult is one workflow's verdict in the experiment, in the
 // shape internal/bench's WorkflowVerdict writes (fields added, never

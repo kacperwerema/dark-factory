@@ -1,0 +1,30 @@
+id: health-tuning
+version: v0.58.0
+category: workbench
+propose: true
+sources: ["internal/tracker/health.go", "internal/health/**", "internal/viewer/health_view.go", "internal/viewer/health_watch.go", "cmd/issue-cli/cmd_health.go", "internal/playtestruns/**", "internal/deptfamily/**", "internal/viewer/dept_health_view.go"]
+title: "Health snapshot settings"
+what: |
+  `health:` tunes the daily health snapshots behind the Health and Stats pages: the
+  gauge limits (`limits.waiting_share`, `limits.big_files`), the departments family's
+  limits (`limits.outputs_review_days`, `limits.handoff_age_days`), test file globs, which
+  playtest sessions count as e2e (`e2e_sessions`), long-function and big-file sizes,
+  and the derived score's components (`score`, including `lint`: issue-cli health lint's
+  warnings, 0 → 20; `departments`: departments on track, counted only with departments), and after how many days the daily pass shrinks a done issue's
+  playtest shots (`shrink_shots_after_days`, 0 = never). Snapshots run with defaults
+  without it.
+why: |
+  The defaults fit a Go repo. A C#, Godot or Python project needs its own test globs
+  and e2e sessions, or the tests family counts nothing and the score misleads.
+where: "top-level health: (docs/workbench-files.md, Health snapshots)"
+snippet: |
+  health:
+    test_globs: ["**/*Tests.cs"]
+    e2e_sessions: ["playtest/sessions/*.yaml"]
+    limits:
+      waiting_share: 0.25
+      big_files: 10
+    shrink_shots_after_days: 30
+question: "Where are your tests and e2e sessions, and are the default gauge limits right for this project?"
+detect:
+  - path: health

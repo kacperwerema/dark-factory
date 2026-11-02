@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/experiment"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // shopBranch commits a change to files on branch work/mkt of the shop

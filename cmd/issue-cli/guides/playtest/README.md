@@ -23,7 +23,7 @@ worked examples show how to build one:
 
 - `issue-cli process playtest web`: a web app driven by headless Chrome
   (issue-viewer's own board).
-- `issue-cli process playtest game`: a game engine, after RogueTech.X's
+- `issue-cli process playtest game`: a game engine, after Kestrel's
   in-game playtest.
 
 Checks that aren't on a screen (CLI commands, API routes, tmux, scripts) are
@@ -168,7 +168,7 @@ The issue page's Evidence and Timeline tabs, and the proof links, read every `re
 issue, in the project checkout's and the issue worktree's `.playtest/runs/`. They read two schemas, converted to one
 when the file is loaded:
 
-| | This repo's runner (above) | A game's runner (RogueTech.X) |
+| | This repo's runner (above) | A game's runner (Kestrel) |
 |:--|:--|:--|
 | `started:` | RFC 3339 with an offset | also local time with no offset (`2026-10-24T11:04:20`) |
 | `mode:` | `auto` / `judge` | `ux-test` / `playtest` (read as `auto` / `judge`) |
@@ -197,7 +197,7 @@ When `CI_RESULTS_DIR` is set (a local CI run, see [Local CI: Test results](../..
                "steps": [{"id": "TP3", "status": "pass", "duration_ms": 20000}]}]}
 ```
 
-A `ci.run` entry `{kind: e2e, format: playtest, file: e2e.json}` feeds it to the health tests family. Another project's runner (RogueTech's GPU ux-test) can write the same shape. A step is one test, a session one part, and the issue slug's first segment the area.
+A `ci.run` entry `{kind: e2e, format: playtest, file: e2e.json}` feeds it to the health tests family. Another project's runner (Kestrel's GPU ux-test) can write the same shape. A step is one test, a session one part, and the issue slug's first segment the area.
 
 ### Four commands
 
@@ -215,6 +215,44 @@ The report ticks a box when:
   passed too.
 
 The report posts each failure and each opinion as a comment, only once.
+
+### Pitfalls
+
+Each of these cost a failed ux-test round before it was written down.
+`check` refuses the first four; the rest it can't see.
+
+- **`*` and `#` are one whole segment.** `board.column.*` matches
+  `board.column.backlog`; `status-*` or `board.col*` is a literal that
+  matches nothing.
+- **`open` goes under `act:`** (or `setup:`), never `checks:`. The same
+  holds for every action (click, type, cli as an action…).
+- **Test ids are lower snake case with dots.** A dash or capital in a
+  listed id fails `TestIDsAreWellFormed` in `make validate`; a dash is fine
+  only inside the value a `*` matches (a slug).
+- **A value that starts with a quote ends at the closing quote.**
+  `expect: "Saved" shows on the card` is a YAML error; quote the whole
+  value: `expect: '"Saved" shows on the card'`.
+- **Checks run after `act:`.** A step that clicks a filter can't also check
+  the unfiltered page: give that its own step (`from:` the earlier one).
+- **Zero-size boxes are invisible.** `count`, `visible` and the layout
+  `styles_applied` rule only see elements with a non-zero box: a straight
+  SVG path (zero height) or an empty span counts as absent. Point at its
+  container instead.
+- **Test ids a script sets must also appear in a template.**
+  `TestTemplateTestIDs` scans the templates (and `dataset.testid = '…'` in
+  static JS); an id built some other way in JS isn't listed. Put the id on
+  a template element, or set it in the `dataset.testid = 'x.' + i` form.
+- **Scenario box ids come from the section heading.** `## Reports` gives
+  `R1`, not `RP1`: read the ids with `issue-cli checklist` on the scenario
+  board, don't guess them.
+- **A `slug:` pin in a scenario issue is folder-relative.** In
+  `tracker/UI/x.md`, `slug: x` gives the slug `ui/x`; don't write the full
+  slug in the pin.
+- **The `http` check is not signed in as the owner.** An owner-only GET
+  answers 403 there; check the 403, and the page itself in the browser.
+- **The viewer writes today's health snapshot at start**, over a dated
+  fixture snapshot. A session that needs the fixture's numbers adds
+  `cli: [health, snapshot]` (or the fixture write) to its `setup:`.
 
 ### Wiring it into the workflow
 

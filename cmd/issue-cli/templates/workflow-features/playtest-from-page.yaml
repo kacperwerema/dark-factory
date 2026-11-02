@@ -1,0 +1,26 @@
+id: playtest-from-page
+version: v0.55.0
+category: conventions
+propose: false
+templates: [development]
+sources: ["internal/viewer/handlers_playtest.go", "internal/viewer/static/playtest-run.js", "internal/tracker/playtest_command.go"]
+title: "Run the playtest from the page"
+what: |
+  Wherever the viewer says your playtest is due (the station step, the Needs-you
+  band, the Evidence tab), ▶ Run playtest opens tmux window playtest-<slug> in the
+  checkout holding the session and runs `playtest_command:` (default
+  `make playtest ISSUE={slug}`). When it closes the page lists each judged step and
+  offers Tick passed boxes, which runs `playtest_report:` (default
+  `make playtest-report ISSUE={slug} APPLY=1`). Set the two keys when the project's
+  playtest runner is not this repo's make targets.
+why: |
+  The owner judges the playtest from the page they are on, without finding the
+  worktree, Chrome or the project flag; ticking stays one deliberate click.
+where: "new top-level playtest_command: and playtest_report:"
+snippet: |
+  playtest_command: "./tools/playtest.sh --issue {slug}"
+  playtest_report: "./tools/playtest.sh --issue {slug} --report --apply"
+question: "Does this project run its owner playtests with something other than make playtest / make playtest-report? Which commands?"
+detect:
+  - path: playtest_command
+  - path: playtest_report

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/gitfile"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // DepartmentFiles are the files department d keeps in the project, relative

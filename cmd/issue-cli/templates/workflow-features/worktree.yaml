@@ -1,0 +1,21 @@
+id: worktree
+version: v0.36.0
+category: dispatch
+propose: true
+templates: [development]
+sources: ["internal/agentrun/worktree.go", "internal/tracker/workflow_config.go#WorktreeEnabled"]
+title: "Per-issue git worktrees on dispatch"
+what: |
+  `worktree: true` makes the viewer's dispatch create a git worktree and branch per
+  issue before starting the agent. `worktree_sparse_exclude` keeps paths (default
+  issues/) out of it.
+why: |
+  Concurrent agents stop stomping on each other's uncommitted changes, and every
+  issue's work lands on its own branch.
+where: "new top-level worktree: (plus optional worktree_sparse_exclude:); optionally a Shipping box to remove the worktree after merge"
+snippet: |
+  worktree: true
+question: "Do you dispatch several agents at once from the viewer, in a git repo? Should each issue get its own worktree and branch?"
+detect:
+  - path: worktree
+    equals: true

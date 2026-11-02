@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // makeSimpleProject builds a temp project with a single issue at the given
@@ -940,6 +940,25 @@ func TestRunCreateRejectsBacklogStatus(t *testing.T) {
 	}
 }
 
+// A workflow whose first status is backlog has nowhere create may start an
+// issue: the refusal says a status before backlog is needed instead of
+// listing an empty "allowed:" (retro 20261031-051750).
+func TestRunCreateOnAWorkflowStartingAtBacklogSaysWhatIsMissing(t *testing.T) {
+	proj, _, _ := makeSimpleProject(t, "backlog")
+	wf := filepath.Join(t.TempDir(), "workflow.yaml")
+	if err := os.WriteFile(wf, []byte("statuses:\n  - name: \"backlog\"\n  - name: \"in progress\"\n  - name: \"done\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wf
+	ctx, _, _ := newTestContext(proj, false)
+	for _, args := range [][]string{{"--title", "x"}, {"--title", "y", "--status", "in progress"}} {
+		err := runCreate(ctx, args)
+		if err == nil || !strings.Contains(err.Error(), "needs a status before backlog") || strings.Contains(err.Error(), "allowed: ") {
+			t.Errorf("create %v: %v", args, err)
+		}
+	}
+}
+
 // ------------------- help -------------------
 
 func TestRunHelpNoArgsPrintsTopLevel(t *testing.T) {
@@ -1362,7 +1381,7 @@ func TestRunProcessOverviewNoTopic(t *testing.T) {
 	if err := runProcess(ctx, nil); err != nil {
 		t.Fatalf("runProcess: %v", err)
 	}
-	assertContains(t, stdout.String(), "AI Workflow Engine")
+	assertContains(t, stdout.String(), "Dark Factory")
 }
 
 func TestRunProcessFormatTopic(t *testing.T) {

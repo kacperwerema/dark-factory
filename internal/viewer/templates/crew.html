@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" "Crew"}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<div class="wb-scroll">
+<section class="wb-ground wb-dechero" aria-label="Crew">
+    <div class="wb-dechero-top">
+        <div class="wb-dechero-title">
+            <h1 class="wb-h1 wb-h1--big">Crew</h1>
+            <div class="wb-dechero-sub">Who works on {{.Project}}, what each agent is doing and how to reach it. <a href="{{.ClassicURL}}" data-testid="crew.classic">Classic view</a> · <a href="/crew" data-testid="crew.all_projects">All projects</a></div>
+            <div class="wb-crew-live" data-checked="{{.Checked}}" data-testid="crew.live">live · tmux checked just now</div>
+            {{if .Subs}}<div class="wb-crew-subs" data-testid="crew.subs"><span class="wb-note">Subscriptions</span>{{range .Subs}}<span class="wb-crew-sub" data-testid="crew.subs.{{tid .Agent}}"><b>{{.Agent}}</b> {{template "wb/chip" .Chip}}</span>{{end}}</div>{{end}}
+        </div>
+        <div class="wb-dechero-stats">
+            <div data-testid="crew.count">{{template "wb/stat-big" .Count}}</div>
+            {{template "wb/summary-box" .Summary}}
+        </div>
+    </div>
+</section>
+<main class="wb-decmain">
+<div class="wb-declog wb-crew" data-testid="crew.chart">
+    <div class="wb-crew-top">
+        <div class="wb-crew-you" title="You"><span class="wb-avatar">YOU</span></div>
+        <div class="wb-crew-ceo">{{template "wb/crew-card" .CEO}}</div>
+    </div>
+    <div class="wb-crew-cols">{{range .Columns}}{{template "wb/crew-column" .}}{{end}}</div>
+    {{if .NoWorkers}}<div class="wb-thread wb-decempty" data-testid="crew.no_workers">
+        <h2 class="wb-h2 wb-h2--small">No workers running</h2>
+        <div class="wb-note">A worker starts when you or the CEO dispatch an issue:</div>
+        {{template "wb/copy-cmd" "issue-cli dispatch <slug>"}}
+    </div>{{end}}
+    {{template "wb/crew-row" .Stopped}}
+    {{template "wb/crew-row" .Others}}
+</div>
+<aside class="wb-decside" aria-label="Selected agent">
+    {{template "wb/crew-panel" .Panel}}
+</aside>
+</main>
+</div>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/crew.js"></script>
+</body>
+</html>

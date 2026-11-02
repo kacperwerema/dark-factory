@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/clilog"
-	"github.com/michal-franc/issue-viewer/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // readSamples is one read-only call per command that has a read mode; each
@@ -29,8 +29,10 @@ var readSamples = map[string][]string{
 	"ci":              {"ci", "status"},
 	"connections":     {"connections"},
 	"connectors":      {"connectors"},
+	"comments":        {"comments", "cli/sample"},
 	"context":         {"show", "cli/sample"},
 	"data":            {"data", "list", "cli/sample"},
+	"decision":        {"decision", "challenges"},
 	"decisions":       {"decisions", "cli/sample"},
 	"department":      {"department", "list"},
 	"dispatch-prompt": {"dispatch-prompt", "cli/sample"},

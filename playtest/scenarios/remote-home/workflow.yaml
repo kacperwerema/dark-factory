@@ -1,0 +1,26 @@
+statuses:
+  - name: "idea"
+  - name: "in design"
+  - name: "backlog"
+  - name: "in progress"
+  - name: "testing"
+  - name: "done"
+  - name: "parked"
+    optional: true
+transitions:
+  - from: "in design"
+    to: "backlog"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Design"
+      - type: "require_human_approval"
+        status: "backlog"
+  - from: "backlog"
+    to: "in progress"
+    actions:
+      - type: "require_human_approval"
+        status: "in progress"
+  - from: "in progress"
+    to: "testing"
+  - from: "testing"
+    to: "done"

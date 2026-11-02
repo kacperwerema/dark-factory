@@ -1,0 +1,29 @@
+id: ci-test-results
+version: v0.54.0
+category: automation
+propose: true
+requires: [local-ci]
+sources: ["internal/testresults/**", "internal/tracker/ci.go#CIResult", "cmd/issue-cli/cmd_ci_gotest.go"]
+title: "Test results from local CI"
+what: |
+  Each `ci.run` command can name the result files it writes into `$CI_RESULTS_DIR`
+  (`go-test-json`, `trx`, `junit` or `playtest`, as `kind: unit` or `e2e`). Local CI
+  reads them into the run record, and the Health view shows test counts, runtime and
+  the slowest tests over time.
+why: |
+  CI only says red or green. With results you see how many tests ran, how long they
+  took and which ones got slower, and the health score can count them.
+where: "ci.run[].results"
+snippet: |
+  ci:
+    run:
+      - cmd: make check
+        results:
+          - {kind: unit, format: trx, file: unit.trx}
+      - cmd: make ux-test
+        tier: slow
+        results:
+          - {kind: e2e, format: playtest, file: e2e.json}
+question: "Which CI commands write test results, and in which format?"
+detect:
+  - path: ci.run[].results

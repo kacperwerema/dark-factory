@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // benchProject is a project repo with one done issue: base has a wrong
@@ -344,17 +344,17 @@ func TestBenchIssueCLIBuildsTheSetupRef(t *testing.T) {
 	git("commit", "-q", "-am", "B")
 
 	var log strings.Builder
-	cli, ref, err := benchIssueCLI(t.Context(), a[:10], engine, t.TempDir(), &log)
+	cli, ref, sha, err := benchIssueCLI(t.Context(), a[:10], engine, t.TempDir(), &log)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref != a {
-		t.Errorf("ref = %s, want %s", ref, a)
+	if ref != a || sha != a {
+		t.Errorf("ref = %s, sha = %s, want both %s (the run record's setup.sha)", ref, sha, a)
 	}
 	if v := cliVersion(cli); v != "issue-cli A" {
 		t.Errorf("built issue-cli prints %q, want the setup ref's", v)
 	}
-	if _, _, err := benchIssueCLI(t.Context(), "no-such-ref", engine, t.TempDir(), &log); err == nil {
+	if _, _, _, err := benchIssueCLI(t.Context(), "no-such-ref", engine, t.TempDir(), &log); err == nil {
 		t.Error("an unknown ref must fail")
 	}
 }

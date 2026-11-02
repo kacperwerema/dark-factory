@@ -24,6 +24,29 @@ type Input struct {
 	Rules []string
 	// Root is the folder the paths are relative to (the worktree).
 	Root string
+	// Decisions are the decisions in force for the issue at the gate's
+	// status, hard first: refs and the files holding them, never text.
+	Decisions []DecisionRef
+	// Touched are the hard decisions whose paths: the branch changes (the
+	// decisions_respected audit): refs, files, never text.
+	Touched []TouchedRef
+}
+
+// TouchedRef is a hard decision the branch's changes touch: its ref, the
+// issue file holding it and the changed files its paths: match.
+type TouchedRef struct {
+	Ref   string
+	File  string
+	Files []string
+}
+
+// DecisionRef is one decision in force, for the brief: its ref, strength,
+// scope and the issue file whose ## Decisions holds it.
+type DecisionRef struct {
+	Ref   string
+	Hard  bool
+	Scope string
+	File  string
 }
 
 // Paths is every path the brief names, in order, without repeats.
@@ -40,6 +63,12 @@ func (in Input) Paths() []string {
 	}
 	add(in.Issue, in.Epic, in.Diff)
 	add(in.Rules...)
+	for _, d := range in.Decisions {
+		add(d.File)
+	}
+	for _, t := range in.Touched {
+		add(t.File)
+	}
 	add(in.Changed...)
 	return out
 }
@@ -69,6 +98,16 @@ Files:
 	for _, r := range in.Rules {
 		label[r] = "settled rules"
 	}
+	for _, d := range in.Decisions {
+		if label[d.File] == "" {
+			label[d.File] = "holds decisions in force"
+		}
+	}
+	for _, t := range in.Touched {
+		if label[t.File] == "" {
+			label[t.File] = "holds a hard decision the branch touches"
+		}
+	}
 	for _, d := range in.Docs() {
 		if label[d] == "" {
 			label[d] = "doc changed by the branch"
@@ -83,6 +122,24 @@ Files:
 	}
 	if in.Diff == "" {
 		b.WriteString("(no diff yet: judge the design in the issue)\n")
+	}
+	if len(in.Decisions) > 0 {
+		b.WriteString("\nDecisions in force for this issue (hard first; read each under ## Decisions in its file; a hard one is a rule the work must follow):\n")
+		for _, d := range in.Decisions {
+			strength := "soft"
+			if d.Hard {
+				strength = "hard"
+			}
+			fmt.Fprintf(&b, "- %s · %s · %s — in %s\n", d.Ref, strength, d.Scope, d.File)
+		}
+	} else {
+		b.WriteString("\nDecisions in force for this issue: none beyond the files above.\n")
+	}
+	if len(in.Touched) > 0 {
+		fmt.Fprintf(&b, "\nHard decisions this branch touches (their paths: match changed files; check the change follows each, read under ## Decisions in its file; issue-cli decisions --touched %s):\n", in.Slug)
+		for _, t := range in.Touched {
+			fmt.Fprintf(&b, "- %s — in %s; files: %s\n", t.Ref, t.File, strings.Join(t.Files, ", "))
+		}
 	}
 	b.WriteString("\nAnswer in this format and nothing else that starts with blocks, should or note:\n\n")
 	b.WriteString(Format)

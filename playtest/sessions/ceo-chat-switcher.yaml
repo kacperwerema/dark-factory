@@ -1,0 +1,34 @@
+session: ceo-chat-switcher
+issue: ui/ceo-chat-on-the-phone-voice-input-uploads-from-the-camera-roll-a-switcher-over-every-projects-and-departments-lead-chat
+title: "The CEO chat's switcher: every lead with its state, one tap away"
+scenario: departments
+
+# Leads are faked on the scenario's private tmux server: the CEO prints a
+# working pane, the Marketing lead a menu it waits on. (Product has no lead
+# of its own: it is the CEO's.)
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP8
+    title: Switch lists the CEO and the department leads with their state; a row opens that lead's chat
+    proves: [AC4]
+    setup:
+      - tmux: [new-session, -d, -s, lead-acme, sh, -c, "cat {dir}/panes/working.txt; exec cat"]
+      - tmux: [new-session, -d, -s, lead-acme-marketing, sh, -c, "cat {dir}/panes/menu.txt; exec cat"]
+      - open: /p/acme/lead
+    act:
+      - click: lead_chat.switch
+      - wait_for: { visible: lead_chat.switcher.lead.acme.marketing }
+      - check: { visible: [lead_chat.switcher, lead_chat.switcher.project.acme, lead_chat.switcher.lead.acme, lead_chat.switcher.lead.acme.marketing] }
+      - check: { text_contains: { target: lead_chat.switcher.lead.acme, text: "working" } }
+      - check: { text_contains: { target: lead_chat.switcher.lead.acme.marketing, text: "waits on you" } }
+      - check: { size: { target: lead_chat.switcher.lead.acme.marketing, min_height: 44 } }
+      - click: lead_chat.switcher.lead.acme.marketing
+      - wait_for: { url: { contains: dept=marketing } }
+    checks:
+      - url: { contains: "/p/acme/lead?dept=marketing" }
+      - text_contains: { target: lead_chat.session, text: "lead-acme-marketing" }

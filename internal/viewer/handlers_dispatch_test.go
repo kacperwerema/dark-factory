@@ -1,0 +1,1048 @@
+package viewer
+
+import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+)
+
+func TestAgentLaunchCommand_CodexUsesPromptFile(t *testing.T) {
+	got := agentLaunchCommand(nil, "codex", "agent-x", "/tmp/agent-prompt-123.txt")
+	if !strings.Contains(got, `codex "$(cat `) {
+		t.Fatalf("agentLaunchCommand(codex) = %q, want codex to read from a temp prompt file", got)
+	}
+	if !strings.Contains(got, `/tmp/agent-prompt-123.txt`) {
+		t.Fatalf("agentLaunchCommand(codex) = %q, missing prompt path", got)
+	}
+	if strings.Contains(got, " -n ") {
+		t.Fatalf("agentLaunchCommand(codex) = %q, codex has no -n session name", got)
+	}
+}
+
+// Claude is named after its tmux session so ListAgents / SendMessage address
+// it by the same string; a name unsafe to type into the shell is dropped.
+func TestAgentLaunchCommand_ClaudeSessionName(t *testing.T) {
+	cases := map[string]string{
+		"agent-ui-child":    `claude -n agent-ui-child "$(cat /p)"`,
+		"lead-issue-viewer": `claude -n lead-issue-viewer "$(cat /p)"`,
+		"agent-x; rm -rf /": `claude "$(cat /p)"`,
+		"":                  `claude "$(cat /p)"`,
+	}
+	for session, want := range cases {
+		if got := agentLaunchCommand(nil, "claude", session, "/p"); got != want {
+			t.Errorf("session %q: got %q, want %q", session, got, want)
+		}
+	}
+}
+
+func TestAgentLaunchCommand_ModelSource(t *testing.T) {
+	models := map[string]string{"claude": "claude-opus-5-5", "codex": "gpt-5"}
+	cases := []struct {
+		name  string
+		proj  *tracker.Project
+		agent string
+		want  string
+	}{
+		{"nil project", nil, "claude", `claude "$(cat /p)"`},
+		{"default source is global", &tracker.Project{AgentModels: models}, "claude", `claude "$(cat /p)"`},
+		{"explicit global", &tracker.Project{AgentModels: models, AgentModelSource: "global"}, "claude", `claude "$(cat /p)"`},
+		{"project enforces claude", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "claude", `claude --model claude-opus-5-5 "$(cat /p)"`},
+		{"project enforces codex", &tracker.Project{AgentModels: models, AgentModelSource: "project"}, "codex", `codex --model gpt-5 "$(cat /p)"`},
+		{"project without model for agent", &tracker.Project{AgentModels: map[string]string{"codex": "gpt-5"}, AgentModelSource: "project"}, "claude", `claude "$(cat /p)"`},
+		{"unsafe model ignored", &tracker.Project{AgentModels: map[string]string{"claude": "x; rm -rf /"}, AgentModelSource: "project"}, "claude", `claude "$(cat /p)"`},
+	}
+	for _, c := range cases {
+		if got := agentLaunchCommand(c.proj, c.agent, "", "/p"); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestStartAgentSession_ReattachWhenSessionExists(t *testing.T) {
+	// Headless terminal so openTerminalStep doesn't shell out.
+	proj := &tracker.Project{Slug: "test", Terminal: "none"}
+	session := tmuxSessionName("bug-in-login")
+
+	withMockTmuxHasSession(t, func(name string) bool {
+		if name != "="+session+":" {
+			t.Errorf("agentrun.HasSession called with %q, want %q", name, session)
+		}
+		return true
+	})
+
+	resp := startAgentSession(proj, session, "do the work", "bug-in-login", "claude", nil)
+
+	if resp.Status != "reattached" {
+		t.Fatalf("Status = %q, want reattached", resp.Status)
+	}
+	if resp.Session != session {
+		t.Fatalf("Session = %q, want %q", resp.Session, session)
+	}
+	if resp.AttachCmd == "" || !strings.Contains(resp.AttachCmd, session) {
+		t.Fatalf("AttachCmd = %q, want it to mention %q", resp.AttachCmd, session)
+	}
+
+	var sawAttaching, sawHeadless bool
+	for _, step := range resp.Steps {
+		if step.Name == "Existing session — attaching" {
+			sawAttaching = true
+			if step.Status != "reattached" {
+				t.Errorf("attaching step status = %q, want reattached", step.Status)
+			}
+		}
+		if strings.HasPrefix(step.Name, "Terminal: headless") {
+			sawHeadless = true
+		}
+		if strings.HasPrefix(step.Name, "Create tmux session") {
+			t.Errorf("unexpected Create tmux session step on reattach: %+v", step)
+		}
+		if strings.HasPrefix(step.Name, "Log to ") || strings.HasPrefix(step.Name, "CLI log to ") {
+			t.Errorf("unexpected logging setup step on reattach: %+v", step)
+		}
+	}
+	if !sawAttaching {
+		t.Errorf("missing 'Existing session — attaching' step; got %+v", resp.Steps)
+	}
+	if !sawHeadless {
+		t.Errorf("missing headless terminal step; got %+v", resp.Steps)
+	}
+}
+
+func TestStartAgentSession_DoesNotReattachWhenSessionMissing(t *testing.T) {
+	// Regression guard: when agentrun.HasSession returns false, the reattach branch
+	// must NOT fire — the response status must not be "reattached" regardless
+	// of whether the downstream new-session call succeeds in the test env.
+	//
+	// startAgentSession's downstream new-session step actually shells out to
+	// tmux, so run it on a private server with a stand-in agent: launching
+	// claude here would start a real session with the test prompt.
+	isolateTmux(t)
+	proj := &tracker.Project{Slug: "test", Terminal: "none", WorkDir: t.TempDir()}
+	session := "issue-viewer-test-missing-session-xyz"
+
+	withMockTmuxHasSession(t, func(string) bool { return false })
+
+	resp := startAgentSession(proj, session, "prompt", "slug", "true", nil)
+	if resp.Status == "reattached" {
+		t.Fatalf("Status = reattached when session does not exist; steps=%+v", resp.Steps)
+	}
+	for _, step := range resp.Steps {
+		if step.Name == "Existing session — attaching" {
+			t.Fatalf("unexpected attaching step when session missing: %+v", step)
+		}
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestResolveWorktree_OptInEnablesCreation(t *testing.T) {
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	path, branch, enabled := resolveWorktree("/work/proj", "fix-foo", wf)
+	if !enabled {
+		t.Fatalf("expected enabled=true when worktree:true")
+	}
+	if path != filepath.Join("/work/proj", ".worktrees", "fix-foo") {
+		t.Fatalf("unexpected worktree path: %s", path)
+	}
+	if branch != "work/fix-foo" {
+		t.Fatalf("unexpected branch: %s", branch)
+	}
+}
+
+func TestResolveWorktree_DefaultsDisabled(t *testing.T) {
+	// Worktree field absent → opt-in default is off so projects that haven't
+	// reviewed the feature keep their existing dispatch behaviour.
+	wf := &tracker.WorkflowConfig{}
+	_, _, enabled := resolveWorktree("/work/proj", "fix-foo", wf)
+	if enabled {
+		t.Fatalf("expected enabled=false by default")
+	}
+}
+
+func TestResolveWorktree_ExplicitDisableSkipsCreation(t *testing.T) {
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(false)}
+	_, _, enabled := resolveWorktree("/work/proj", "fix-foo", wf)
+	if enabled {
+		t.Fatalf("expected enabled=false when worktree:false")
+	}
+}
+
+func TestResolveWorktree_NoSlugSkipsCreation(t *testing.T) {
+	// Retros review and other dispatches without an issue slug must not
+	// trigger worktree creation — there's no per-issue branch to make.
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	_, _, enabled := resolveWorktree("/work/proj", "", wf)
+	if enabled {
+		t.Fatalf("expected enabled=false when slug is empty")
+	}
+}
+
+func TestResolveWorktree_NilWorkflowSkipsCreation(t *testing.T) {
+	// nil wf is the bootstrap fallback path; without a workflow we never
+	// create a worktree.
+	_, _, enabled := resolveWorktree("/work/proj", "fix-foo", nil)
+	if enabled {
+		t.Fatalf("expected enabled=false when wf is nil")
+	}
+}
+
+func TestEnsureWorktree_DisabledReturnsOriginalDir(t *testing.T) {
+	dir := "/work/proj"
+	got, steps, ok := ensureWorktree(dir, "fix-foo", &tracker.WorkflowConfig{Worktree: boolPtr(false)})
+	if !ok {
+		t.Fatalf("expected ok=true when disabled")
+	}
+	if got != dir {
+		t.Fatalf("expected workdir unchanged, got %s", got)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("expected no dispatch steps when disabled, got %+v", steps)
+	}
+}
+
+func TestEnsureWorktree_EnabledStubsGitAndReportsSuccess(t *testing.T) {
+	tmp := t.TempDir()
+	var gotWorkdir, gotBranch, gotPath string
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(workdir, branch, wtPath, _ string) ([]byte, error) {
+		gotWorkdir, gotBranch, gotPath = workdir, branch, wtPath
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+	stubSparseCheckoutOK(t)
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	want := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if got != want {
+		t.Fatalf("expected workdir %s, got %s", want, got)
+	}
+	if gotWorkdir != tmp || gotBranch != "work/fix-foo" || gotPath != want {
+		t.Fatalf("unexpected git args: workdir=%s branch=%s path=%s", gotWorkdir, gotBranch, gotPath)
+	}
+	if len(steps) != 2 || steps[0].Status != "ok" || steps[1].Status != "ok" {
+		t.Fatalf("expected create + sparse-checkout ok steps, got %+v", steps)
+	}
+	if !strings.Contains(steps[1].Name, "Sparse-checkout") {
+		t.Fatalf("expected sparse-checkout step second, got %+v", steps[1])
+	}
+}
+
+func TestEnsureWorktree_GitFailureSurfacesErrorAndAborts(t *testing.T) {
+	tmp := t.TempDir()
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(workdir, branch, wtPath, _ string) ([]byte, error) {
+		return []byte("fatal: dirty working tree\n"), errStub{}
+	}
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", &tracker.WorkflowConfig{Worktree: boolPtr(true)})
+	if ok {
+		t.Fatalf("expected ok=false on git failure")
+	}
+	if got != tmp {
+		t.Fatalf("expected workdir to fall back to %s, got %s", tmp, got)
+	}
+	if len(steps) != 1 || steps[0].Status != "error" {
+		t.Fatalf("expected single error step, got %+v", steps)
+	}
+	if !strings.Contains(steps[0].Detail, "dirty working tree") {
+		t.Fatalf("expected git stderr in step detail, got %q", steps[0].Detail)
+	}
+}
+
+func TestEnsureWorktree_ReusesExistingDir(t *testing.T) {
+	tmp := t.TempDir()
+	// Pre-create the worktree directory so ensureWorktree treats this as a
+	// re-dispatch and skips git instead of erroring.
+	wt := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if err := os.MkdirAll(wt, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) {
+		called = true
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", &tracker.WorkflowConfig{Worktree: boolPtr(true)})
+	if !ok {
+		t.Fatalf("expected ok=true on re-dispatch")
+	}
+	if called {
+		t.Fatalf("expected git not to run when worktree dir already exists")
+	}
+	if got != wt {
+		t.Fatalf("expected workdir %s, got %s", wt, got)
+	}
+	if len(steps) != 1 || !strings.Contains(steps[0].Name, "Reuse worktree") {
+		t.Fatalf("expected single reuse step, got %+v", steps)
+	}
+}
+
+func TestBuildAgentPrompt_AppendsWorktreeBlockWhenSet(t *testing.T) {
+	issue := &tracker.Issue{Slug: "fix-foo", Title: "T", Status: "in progress", BodyRaw: "body"}
+	prompt := buildAgentPrompt(nil, issue, &tracker.WorkflowConfig{}, "/work/proj/.worktrees/fix-foo", "work/fix-foo")
+	for _, want := range []string{
+		"## Worktree",
+		"/work/proj/.worktrees/fix-foo",
+		"work/fix-foo",
+		"Leave the worktree in place",
+		"primary checkout (master)",
+		"refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox",
+		"TestNewcomerWalkthrough (newcomer_test.go)",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected prompt to contain %q\n%s", want, prompt)
+		}
+	}
+}
+
+func TestBuildAgentPrompt_OmitsWorktreeBlockWhenEmpty(t *testing.T) {
+	issue := &tracker.Issue{Slug: "fix-foo", Title: "T", Status: "in progress", BodyRaw: "body"}
+	prompt := buildAgentPrompt(nil, issue, &tracker.WorkflowConfig{}, "", "")
+	if strings.Contains(prompt, "## Worktree") {
+		t.Fatalf("expected no worktree block when path is empty")
+	}
+}
+
+func TestBuildAgentPrompt_TeachesCheckByID(t *testing.T) {
+	issue := &tracker.Issue{Slug: "fix-foo", Title: "T", Status: "in progress", BodyRaw: "body"}
+	prompt := buildAgentPrompt(nil, issue, &tracker.WorkflowConfig{}, "", "")
+	for _, want := range []string{
+		"issue-cli check fix-foo <id> [<id>...]\n",
+		"issue-cli check fix-foo <id> [<id>...]   # mark checkboxes done by id",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("expected prompt to contain %q\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "%!") {
+		t.Fatalf("prompt has a format verb mismatch:\n%s", prompt)
+	}
+}
+
+type errStub struct{}
+
+func (errStub) Error() string { return "exit status 1" }
+
+func TestRenderActionPrompt_SubstitutesIssueFields(t *testing.T) {
+	issue := &tracker.Issue{
+		Slug:     "fix-login",
+		Title:    "Fix login",
+		Status:   "in progress",
+		System:   "Auth",
+		Priority: "high",
+		Number:   42,
+	}
+	prompt := renderActionPrompt(
+		"slug={{slug}} title={{title}} status={{status}} system={{system}} priority={{priority}} number={{number}} unknown={{nope}}",
+		issue,
+	)
+	want := "slug=fix-login title=Fix login status=in progress system=Auth priority=high number=42 unknown={{nope}}"
+	if prompt != want {
+		t.Fatalf("renderActionPrompt =\n  %q\nwant\n  %q", prompt, want)
+	}
+}
+
+// TestHandleCustomAction_DispatchesConfiguredPrompt drives the full HTTP path:
+// a project workflow defines a custom action, the POST resolves it, templates
+// the prompt, and dispatches to a per-action tmux session with the action's
+// configured agent.
+func TestHandleCustomAction_DispatchesConfiguredPrompt(t *testing.T) {
+	proj, tmpDir := setupTestProject(t)
+	wfPath := filepath.Join(tmpDir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, []byte(`statuses:
+  - name: "in progress"
+    description: "Actively being implemented"
+actions:
+  - id: "defer-to-team"
+    label: "Defer to team"
+    agent: "codex"
+    prompt: |
+      Defer {{slug}} ({{title}}) to the team.
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wfPath
+
+	var gotPrompt, gotSession, gotIssueSlug, gotAgent string
+	origDispatch := dispatchAgentSession
+	dispatchAgentSession = func(_ *tracker.Project, session, prompt, issueSlug, agentType string, wf *tracker.WorkflowConfig) DispatchResponse {
+		gotPrompt, gotSession, gotIssueSlug, gotAgent = prompt, session, issueSlug, agentType
+		return DispatchResponse{Status: "dispatched", Prompt: prompt, Session: session}
+	}
+	t.Cleanup(func() { dispatchAgentSession = origDispatch })
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login/action/defer-to-team", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if !strings.Contains(gotPrompt, "Defer bug-in-login (Bug in login) to the team.") {
+		t.Fatalf("prompt not templated from action: %q", gotPrompt)
+	}
+	if gotAgent != "codex" {
+		t.Fatalf("expected codex agent from action config, got %q", gotAgent)
+	}
+	if gotIssueSlug != "bug-in-login" {
+		t.Fatalf("expected issue slug bug-in-login, got %q", gotIssueSlug)
+	}
+	if !strings.Contains(gotSession, "bug-in-login-defer-to-team") {
+		t.Fatalf("expected per-action session name, got %q", gotSession)
+	}
+}
+
+func TestHandleCustomAction_UnknownActionReturns404(t *testing.T) {
+	proj, tmpDir := setupTestProject(t)
+	wfPath := filepath.Join(tmpDir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, []byte("statuses:\n  - name: \"in progress\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wfPath
+
+	called := false
+	origDispatch := dispatchAgentSession
+	dispatchAgentSession = func(_ *tracker.Project, session, prompt, issueSlug, agentType string, _ *tracker.WorkflowConfig) DispatchResponse {
+		called = true
+		return DispatchResponse{}
+	}
+	t.Cleanup(func() { dispatchAgentSession = origDispatch })
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login/action/nope", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown action, got %d", resp.StatusCode)
+	}
+	if called {
+		t.Fatalf("dispatch must not run for an unknown action")
+	}
+}
+
+// TestHandleProjectAction_DispatchesConfiguredPrompt drives the full HTTP path
+// for a project-level action: the POST resolves it from project_actions,
+// templates the prompt with project context, and dispatches to a per-action
+// tmux session with no issue slug.
+func TestHandleProjectAction_DispatchesConfiguredPrompt(t *testing.T) {
+	proj, tmpDir := setupTestProject(t)
+	wfPath := filepath.Join(tmpDir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, []byte(`statuses:
+  - name: "in progress"
+    description: "Actively being implemented"
+project_actions:
+  - id: "triage-backlog"
+    label: "Triage backlog"
+    agent: "codex"
+    prompt: |
+      Triage the backlog for {{project}}.
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wfPath
+
+	var gotPrompt, gotSession, gotIssueSlug, gotAgent string
+	origDispatch := dispatchAgentSession
+	dispatchAgentSession = func(_ *tracker.Project, session, prompt, issueSlug, agentType string, wf *tracker.WorkflowConfig) DispatchResponse {
+		gotPrompt, gotSession, gotIssueSlug, gotAgent = prompt, session, issueSlug, agentType
+		return DispatchResponse{Status: "dispatched", Prompt: prompt, Session: session}
+	}
+	t.Cleanup(func() { dispatchAgentSession = origDispatch })
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/action/triage-backlog", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if !strings.Contains(gotPrompt, "Triage the backlog for Test Project.") {
+		t.Fatalf("prompt not templated from project action: %q", gotPrompt)
+	}
+	if gotAgent != "codex" {
+		t.Fatalf("expected codex agent from action config, got %q", gotAgent)
+	}
+	if gotIssueSlug != "" {
+		t.Fatalf("expected empty issue slug for project action, got %q", gotIssueSlug)
+	}
+	if !strings.Contains(gotSession, "test-project-triage-backlog") {
+		t.Fatalf("expected per-action session name, got %q", gotSession)
+	}
+}
+
+func TestHandleProjectAction_UnknownActionReturns404(t *testing.T) {
+	proj, tmpDir := setupTestProject(t)
+	wfPath := filepath.Join(tmpDir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, []byte("statuses:\n  - name: \"in progress\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wfPath
+
+	called := false
+	origDispatch := dispatchAgentSession
+	dispatchAgentSession = func(_ *tracker.Project, session, prompt, issueSlug, agentType string, _ *tracker.WorkflowConfig) DispatchResponse {
+		called = true
+		return DispatchResponse{}
+	}
+	t.Cleanup(func() { dispatchAgentSession = origDispatch })
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/action/nope", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown project action, got %d", resp.StatusCode)
+	}
+	if called {
+		t.Fatalf("dispatch must not run for an unknown project action")
+	}
+}
+
+func TestEnsureWorktree_RunsSetupAfterCreate(t *testing.T) {
+	tmp := t.TempDir()
+	origGit := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = origGit })
+	stubSparseCheckoutOK(t)
+
+	var gotPath, gotCmd string
+	origSetup := agentrun.RunWorktreeSetup
+	agentrun.RunWorktreeSetup = func(wtPath, cmd string) ([]byte, error) {
+		gotPath, gotCmd = wtPath, cmd
+		return []byte("built\n"), nil
+	}
+	t.Cleanup(func() { agentrun.RunWorktreeSetup = origSetup })
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true), WorktreeSetup: "make"}
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true on successful setup")
+	}
+	wantWT := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if got != wantWT {
+		t.Fatalf("expected workdir %s, got %s", wantWT, got)
+	}
+	if gotPath != wantWT || gotCmd != "make" {
+		t.Fatalf("setup invoked with wtPath=%s cmd=%s, want %s + make", gotPath, gotCmd, wantWT)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("expected create + sparse-checkout + setup steps, got %+v", steps)
+	}
+	if !strings.Contains(steps[2].Name, "Worktree setup: make") || steps[2].Status != "ok" {
+		t.Fatalf("expected ok setup step last, got %+v", steps[2])
+	}
+}
+
+func TestEnsureWorktree_SetupFailureAborts(t *testing.T) {
+	tmp := t.TempDir()
+	origGit := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = origGit })
+	stubSparseCheckoutOK(t)
+
+	origSetup := agentrun.RunWorktreeSetup
+	agentrun.RunWorktreeSetup = func(string, string) ([]byte, error) {
+		return []byte("missing target\n"), errStub{}
+	}
+	t.Cleanup(func() { agentrun.RunWorktreeSetup = origSetup })
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true), WorktreeSetup: "make"}
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if ok {
+		t.Fatalf("expected ok=false when setup fails")
+	}
+	if got != tmp {
+		t.Fatalf("expected workdir to fall back to %s on setup failure, got %s", tmp, got)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("expected create + sparse-checkout + setup steps, got %+v", steps)
+	}
+	last := steps[len(steps)-1]
+	if last.Status != "error" || !strings.Contains(last.Detail, "missing target") {
+		t.Fatalf("expected error setup step with stderr last, got %+v", last)
+	}
+}
+
+// stubSparseCheckoutOK stubs both sparse-checkout and checkout-HEAD seams to
+// succeed. Tests that don't care about the sparse-checkout details use it so
+// the create path completes without invoking real git.
+func stubSparseCheckoutOK(t *testing.T) {
+	t.Helper()
+	origSparse := agentrun.RunGitSparseCheckout
+	agentrun.RunGitSparseCheckout = func(string, []string) ([]byte, error) { return nil, nil }
+	origCheckout := agentrun.RunGitCheckoutHead
+	agentrun.RunGitCheckoutHead = func(string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() {
+		agentrun.RunGitSparseCheckout = origSparse
+		agentrun.RunGitCheckoutHead = origCheckout
+	})
+}
+
+func TestEnsureWorktree_SparseCheckoutUsesDefaultExclude(t *testing.T) {
+	tmp := t.TempDir()
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	var gotPath string
+	var gotExcludes []string
+	origSparse := agentrun.RunGitSparseCheckout
+	agentrun.RunGitSparseCheckout = func(wtPath string, excludes []string) ([]byte, error) {
+		gotPath, gotExcludes = wtPath, excludes
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitSparseCheckout = origSparse })
+
+	checkoutCalled := false
+	origCheckout := agentrun.RunGitCheckoutHead
+	agentrun.RunGitCheckoutHead = func(string) ([]byte, error) {
+		checkoutCalled = true
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitCheckoutHead = origCheckout })
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	_, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true; steps=%+v", steps)
+	}
+	wantWT := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if gotPath != wantWT {
+		t.Fatalf("sparse-checkout invoked with %s, want %s", gotPath, wantWT)
+	}
+	if len(gotExcludes) != 1 || gotExcludes[0] != "issues/" {
+		t.Fatalf("expected default exclude [issues/], got %v", gotExcludes)
+	}
+	// `git worktree add --no-checkout` leaves the tree empty even after
+	// sparse-checkout writes its pattern file, so checkout HEAD must always run
+	// to materialize the included files. Asserting it does NOT run encoded the
+	// original empty-tree bug.
+	if !checkoutCalled {
+		t.Fatalf("checkout HEAD must run after sparse-checkout to materialize the tree")
+	}
+}
+
+// TestEnsureWorktree_RealGitMaterializesTree drives ensureWorktree against real
+// git (no stubbed seams). It reproduces the original bug — `git worktree add
+// --no-checkout` followed only by `sparse-checkout set` left the worktree empty
+// with every tracked file staged-for-deletion — and asserts the tree is now
+// actually materialized: included files exist on disk, sparse excludes are
+// honored, and `git status --porcelain` shows no staged deletions. It fails
+// against the pre-fix code.
+func TestEnsureWorktree_RealGitMaterializesTree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+
+	gitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = gitEnv
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Build a real repo: a tracked top-level file plus a tracked issues/ file,
+	// so we can verify the default sparse exclude keeps issues/ out while
+	// everything else lands on disk.
+	run("init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hi\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "issues"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "issues", "1.md"), []byte("issue\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-m", "init")
+
+	// Default config: worktree enabled, default sparse exclude [issues/].
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	gotDir, steps, ok := ensureWorktree(repo, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("ensureWorktree failed: %+v", steps)
+	}
+	wantWT := filepath.Join(repo, ".worktrees", "fix-foo")
+	if gotDir != wantWT {
+		t.Fatalf("workdir = %s, want %s", gotDir, wantWT)
+	}
+
+	// Included files must exist on disk — the bug left the tree empty.
+	if _, err := os.Stat(filepath.Join(wantWT, "README.md")); err != nil {
+		t.Fatalf("README.md not materialized in worktree: %v", err)
+	}
+	// issues/ must be excluded by the sparse pattern.
+	if _, err := os.Stat(filepath.Join(wantWT, "issues")); !os.IsNotExist(err) {
+		t.Fatalf("issues/ should be excluded by sparse-checkout, stat err = %v", err)
+	}
+	// git status --porcelain must be clean — no staged deletions.
+	out, err := exec.Command("git", "-C", wantWT, "status", "--porcelain").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("worktree not clean — staged deletions present:\n%s", out)
+	}
+}
+
+func TestEnsureWorktree_SparseCheckoutHonorsCustomList(t *testing.T) {
+	tmp := t.TempDir()
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	var gotExcludes []string
+	origSparse := agentrun.RunGitSparseCheckout
+	agentrun.RunGitSparseCheckout = func(_ string, excludes []string) ([]byte, error) {
+		gotExcludes = excludes
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitSparseCheckout = origSparse })
+
+	origCheckout := agentrun.RunGitCheckoutHead
+	agentrun.RunGitCheckoutHead = func(string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitCheckoutHead = origCheckout })
+
+	custom := []string{"issues/", "docs/", ".images/"}
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true), WorktreeSparseExclude: &custom}
+	_, _, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if len(gotExcludes) != 3 || gotExcludes[0] != "issues/" || gotExcludes[1] != "docs/" || gotExcludes[2] != ".images/" {
+		t.Fatalf("expected configured excludes passed through, got %v", gotExcludes)
+	}
+}
+
+func TestEnsureWorktree_EmptyExcludeFallsBackToPlainCheckout(t *testing.T) {
+	tmp := t.TempDir()
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	sparseCalled := false
+	origSparse := agentrun.RunGitSparseCheckout
+	agentrun.RunGitSparseCheckout = func(string, []string) ([]byte, error) {
+		sparseCalled = true
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitSparseCheckout = origSparse })
+
+	var gotCheckoutPath string
+	origCheckout := agentrun.RunGitCheckoutHead
+	agentrun.RunGitCheckoutHead = func(wtPath string) ([]byte, error) {
+		gotCheckoutPath = wtPath
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunGitCheckoutHead = origCheckout })
+
+	empty := []string{}
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true), WorktreeSparseExclude: &empty}
+	_, _, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if sparseCalled {
+		t.Fatalf("sparse-checkout must not run when excludes are empty")
+	}
+	wantWT := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if gotCheckoutPath != wantWT {
+		t.Fatalf("checkout-HEAD invoked with %s, want %s", gotCheckoutPath, wantWT)
+	}
+}
+
+func TestEnsureWorktree_SparseCheckoutFailureAborts(t *testing.T) {
+	tmp := t.TempDir()
+	orig := agentrun.RunGitWorktreeAdd
+	agentrun.RunGitWorktreeAdd = func(string, string, string, string) ([]byte, error) { return nil, nil }
+	t.Cleanup(func() { agentrun.RunGitWorktreeAdd = orig })
+
+	origSparse := agentrun.RunGitSparseCheckout
+	agentrun.RunGitSparseCheckout = func(string, []string) ([]byte, error) {
+		return []byte("bad pattern\n"), errStub{}
+	}
+	t.Cleanup(func() { agentrun.RunGitSparseCheckout = origSparse })
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true)}
+	got, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if ok {
+		t.Fatalf("expected ok=false when sparse-checkout fails")
+	}
+	if got != tmp {
+		t.Fatalf("expected workdir to fall back to %s, got %s", tmp, got)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected create + sparse-checkout error steps, got %+v", steps)
+	}
+	if steps[1].Status != "error" || !strings.Contains(steps[1].Detail, "bad pattern") {
+		t.Fatalf("expected error sparse-checkout step with stderr, got %+v", steps[1])
+	}
+}
+
+func TestEnsureWorktree_SetupSkippedOnReuse(t *testing.T) {
+	tmp := t.TempDir()
+	wt := filepath.Join(tmp, ".worktrees", "fix-foo")
+	if err := os.MkdirAll(wt, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	origSetup := agentrun.RunWorktreeSetup
+	agentrun.RunWorktreeSetup = func(string, string) ([]byte, error) {
+		called = true
+		return nil, nil
+	}
+	t.Cleanup(func() { agentrun.RunWorktreeSetup = origSetup })
+
+	wf := &tracker.WorkflowConfig{Worktree: boolPtr(true), WorktreeSetup: "make"}
+	_, steps, ok := ensureWorktree(tmp, "fix-foo", wf)
+	if !ok {
+		t.Fatalf("expected ok=true on reuse")
+	}
+	if called {
+		t.Fatalf("expected setup not to run on reuse")
+	}
+	if len(steps) != 1 || !strings.Contains(steps[0].Name, "Reuse worktree") {
+		t.Fatalf("expected single reuse step, got %+v", steps)
+	}
+}
+
+func TestStartAgentSession_SharedSessionAddsWindows(t *testing.T) {
+	isolateTmux(t)
+	proj := &tracker.Project{Slug: "test", Terminal: "none", TmuxSession: "work", WorkDir: t.TempDir()}
+
+	first := startAgentSession(proj, "agent-a", "prompt", "a", "true", nil)
+	if first.Status != "dispatched" {
+		t.Fatalf("first dispatch Status = %q; steps=%+v", first.Status, first.Steps)
+	}
+	if first.Session != "work:agent-a" {
+		t.Fatalf("Session = %q, want work:agent-a", first.Session)
+	}
+	if !strings.Contains(first.AttachCmd, "tmux attach -t work") {
+		t.Fatalf("AttachCmd = %q, want it to attach to the shared session", first.AttachCmd)
+	}
+
+	second := startAgentSession(proj, "agent-b", "prompt", "b", "true", nil)
+	if second.Status != "dispatched" {
+		t.Fatalf("second dispatch Status = %q; steps=%+v", second.Status, second.Steps)
+	}
+	var sawNewWindow bool
+	for _, step := range second.Steps {
+		if strings.HasPrefix(step.Name, "Create tmux window agent-b in session work") && step.Status == "ok" {
+			sawNewWindow = true
+		}
+	}
+	if !sawNewWindow {
+		t.Fatalf("second dispatch should add a window to the existing session; steps=%+v", second.Steps)
+	}
+
+	out, err := testTmux(t, "list-sessions", "-F", "#{session_name}").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "work" {
+		t.Fatalf("sessions = %q (err %v), want only the shared session", out, err)
+	}
+	windows := listSharedAgentWindows()
+	if len(windows) != 2 || windows[0].Name != "work:agent-a" || windows[1].Name != "work:agent-b" {
+		t.Fatalf("shared agent windows = %+v", windows)
+	}
+
+	again := startAgentSession(proj, "agent-a", "prompt", "a", "true", nil)
+	if again.Status != "reattached" {
+		t.Fatalf("re-dispatch Status = %q, want reattached; steps=%+v", again.Status, again.Steps)
+	}
+}
+
+// activeWindow is the selected window of a session on the test's tmux server.
+func activeWindow(t *testing.T, session string) string {
+	t.Helper()
+	out, err := testTmux(t, "display-message", "-p", "-t", "="+session+":", "#{window_name}").Output()
+	if err != nil {
+		t.Fatalf("active window of %s: %v", session, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// A dispatch never changes what the shared session shows: the lead's window
+// stays selected while workers' windows are added and re-dispatched, with
+// terminal: none (D-4) and with a terminal configured.
+func TestStartAgentSession_SharedHeadlessKeepsLeadFocused(t *testing.T) {
+	isolateTmux(t)
+	proj := &tracker.Project{Slug: "test", Terminal: "none", TmuxSession: "work", WorkDir: t.TempDir()}
+	if out, err := testTmux(t, "new-session", "-d", "-s", "work", "-n", "lead-test").CombinedOutput(); err != nil {
+		t.Fatalf("new-session: %v %s", err, out)
+	}
+
+	for _, name := range []string{"agent-a", "agent-b", "agent-a"} {
+		resp := startAgentSession(proj, name, "prompt", strings.TrimPrefix(name, "agent-"), "true", nil)
+		if resp.Status == "error" {
+			t.Fatalf("dispatch %s: steps=%+v", name, resp.Steps)
+		}
+		if got := activeWindow(t, "work"); got != "lead-test" {
+			t.Fatalf("after dispatching %s (%s) the active window is %q, want lead-test; steps=%+v", name, resp.Status, got, resp.Steps)
+		}
+		for _, step := range resp.Steps {
+			if strings.HasPrefix(step.Name, "Select window") {
+				t.Errorf("headless dispatch selected a window: %+v", step)
+			}
+		}
+		if resp.SwitchCmd != "tmux switch-client -t '=work:="+name+"'" || !strings.Contains(resp.AttachCmd, "tmux attach -t work") {
+			t.Errorf("hints: switch %q, attach %q", resp.SwitchCmd, resp.AttachCmd)
+		}
+	}
+
+	withTerminal := &tracker.Project{Slug: "test", Terminal: "true {{session}}", TmuxSession: "work", WorkDir: proj.WorkDir}
+	original := agentrun.SessionAttached
+	agentrun.SessionAttached = func(string) bool { return true }
+	t.Cleanup(func() { agentrun.SessionAttached = original })
+	if resp := startAgentSession(withTerminal, "agent-c", "prompt", "c", "true", nil); resp.Status == "error" || resp.SwitchCmd != "" {
+		t.Fatalf("dispatch with a terminal: status %q, switch %q; steps=%+v", resp.Status, resp.SwitchCmd, resp.Steps)
+	}
+	if got := activeWindow(t, "work"); got != "lead-test" {
+		t.Fatalf("with a terminal the lead's window stays selected too; active = %q", got)
+	}
+}
+
+func TestAttachAgentStep_SharedSessionAlreadyAttachedOpensNoTerminal(t *testing.T) {
+	isolateTmux(t)
+	// A terminal command that fails loudly if it were run.
+	proj := &tracker.Project{Slug: "test", Terminal: "exit 1", TmuxSession: "work"}
+	original := agentrun.SessionAttached
+	agentrun.SessionAttached = func(string) bool { return true }
+	t.Cleanup(func() { agentrun.SessionAttached = original })
+
+	var steps []DispatchStep
+	if !attachAgentStep(proj, "agent-a", &steps) {
+		t.Fatalf("attachAgentStep failed; steps=%+v", steps)
+	}
+	for _, step := range steps {
+		if step.Name == "Open terminal" {
+			t.Fatalf("opened a terminal although the shared session is attached; steps=%+v", steps)
+		}
+	}
+}
+
+func TestAttachAgentStep_SharedSessionDetachedOpensTerminal(t *testing.T) {
+	isolateTmux(t)
+	proj := &tracker.Project{Slug: "test", Terminal: "true {{session}}", TmuxSession: "work"}
+	original := agentrun.SessionAttached
+	agentrun.SessionAttached = func(string) bool { return false }
+	t.Cleanup(func() { agentrun.SessionAttached = original })
+
+	var steps []DispatchStep
+	attachAgentStep(proj, "agent-a", &steps)
+	var opened bool
+	for _, step := range steps {
+		if step.Name == "Open terminal" && step.Status == "ok" {
+			opened = true
+		}
+	}
+	if !opened {
+		t.Fatalf("expected a terminal to be opened on the detached shared session; steps=%+v", steps)
+	}
+}
+
+// An issue whose next gate only waits on the owner's approval is refused by
+// ▶ (409, the gate named, nothing started); force dispatches anyway. The
+// refusal is agentrun.DispatchSpec's, shared with `issue-cli dispatch`.
+func TestHandleDispatchAgent_RefusesAtAReadyGateUnlessForced(t *testing.T) {
+	proj, tmpDir := setupTestProject(t)
+	wfPath := filepath.Join(tmpDir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, []byte(`statuses:
+  - name: "in progress"
+  - name: "testing"
+transitions:
+  - from: "in progress"
+    to: "testing"
+    actions:
+      - type: "require_human_approval"
+        status: "testing"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	proj.WorkflowFile = wfPath
+	origHas := agentrun.HasSession
+	agentrun.HasSession = func(string) bool { return false }
+	t.Cleanup(func() { agentrun.HasSession = origHas })
+
+	var started []agentrun.Spec
+	origStart := startDispatch
+	startDispatch = func(_ *tracker.Project, spec agentrun.Spec) DispatchResponse {
+		started = append(started, spec)
+		return DispatchResponse{Status: "dispatched", Session: spec.Session}
+	}
+	t.Cleanup(func() { startDispatch = origStart })
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	post := func(body string) (*http.Response, DispatchResponse) {
+		t.Helper()
+		resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login/dispatch", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var dr DispatchResponse
+		json.NewDecoder(resp.Body).Decode(&dr)
+		return resp, dr
+	}
+
+	resp, dr := post(`{"agent":"claude"}`)
+	if resp.StatusCode != http.StatusConflict || dr.Status != agentrun.StatusWaitingOnGate || dr.Gate != "testing" {
+		t.Fatalf("status %d, response %+v; want 409 waiting-on-gate for testing", resp.StatusCode, dr)
+	}
+	if len(dr.Steps) != 1 || !strings.Contains(dr.Steps[0].Detail, "issue-cli --project test-project dispatch bug-in-login --force") {
+		t.Fatalf("steps = %+v, want the --force hint", dr.Steps)
+	}
+	if len(started) != 0 {
+		t.Fatalf("a refused dispatch started %+v", started)
+	}
+
+	resp, dr = post(`{"agent":"codex","force":true}`)
+	if resp.StatusCode != http.StatusOK || dr.Status != "dispatched" {
+		t.Fatalf("forced: status %d, response %+v", resp.StatusCode, dr)
+	}
+	if len(started) != 1 || started[0].AgentType != "codex" || started[0].Session != "agent-bug-in-login" || started[0].RepromptHint != "issue-cli --project test-project dispatch bug-in-login --reprompt --quote \"<the human's words>\"" {
+		t.Fatalf("started = %+v", started)
+	}
+}

@@ -1,0 +1,25 @@
+id: linked-issue-gate
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/linked_issue_in_status.go"]
+title: "Linked issue status gate"
+what: |
+  `linked_issue_in_status` requires the issue named in a frontmatter key (`ref_key:`)
+  to be in `linked_status:`, e.g. a child waits for its parent.
+why: |
+  Enforces ordering between issues (epics, dependencies) in the engine.
+where: "transitions[].actions[] rule: linked_issue_in_status (ref_key:, linked_status:)"
+snippet: |
+  transitions:
+    - from: "shipping"
+      to: "done"
+      actions:
+        - type: "validate"
+          rule: "linked_issue_in_status"
+          ref_key: "parent"
+          linked_status: "done"
+question: "Do some issues depend on others? Should a step wait for the linked issue?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [linked_issue_in_status]

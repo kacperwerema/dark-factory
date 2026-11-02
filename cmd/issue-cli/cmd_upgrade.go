@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 const upgradeLongHelp = `Show which workflow.yaml features this project could adopt.

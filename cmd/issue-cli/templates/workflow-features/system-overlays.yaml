@@ -1,0 +1,25 @@
+id: system-overlays
+version: v0.36.0
+category: lifecycle
+propose: true
+sources: ["internal/tracker/workflow_merge.go"]
+title: "Per-system prompt and checklist overlays"
+what: |
+  `systems:` overrides status prompts and appends transition actions for issues whose
+  `system:` frontmatter matches, e.g. telling API issues to update docs/API/ in the
+  documentation step.
+why: |
+  Area-specific instructions reach only the issues they apply to instead of
+  bloating every prompt.
+where: "new top-level systems: map keyed by system name"
+snippet: |
+  systems:
+    API:
+      statuses:
+        - name: "documentation"
+          prompt: |
+            Update docs/API/ with any changed endpoints, request/response formats, or behavior.
+      transitions: []
+question: "Are there areas of the project (systems) that need their own instructions or checklists? Which ones, and what differs?"
+detect:
+  - path: systems

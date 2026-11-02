@@ -28,8 +28,14 @@ Most links need no command: the agent declares them where it writes the proof.
   in its own paragraph before `Co-Authored-By` counts too):
   `Proves: AC1, AC3 TestA TestB` links AC1 and AC3 to both tests. Words shaped like a criterion id (the section's
   prefix plus a number) are ids, and the rest are test names, so a test name with spaces (an `it()` title) goes
-  through `prove --test` instead. A playtest step id in a trailer (`Proves: AC1 TP4`) is read as a test that
-  isn't found. Its fix says so and points at `proves: [AC1]` on step TP4 in its session, or `prove --step`.
+  through `prove --test` instead. Test names only: no `<slug>#AC2` (the commit is on the issue's branch), no
+  package path (`internal/memory`: prove finds each test's package itself), no flags or prose.
+  - **Playtest steps never prove through a trailer.** A step proves through `proves: [AC1]` on the step in its
+    session file (or `issue-cli prove <slug> AC1 --step TP4`). A step id in a trailer (`Proves: AC1 TP4`,
+    `Proves: AC1 lead-tab/TP4`) would be read as a test that isn't found.
+  - **Checked at commit time.** The repository's commit-msg hook (`make hooks`, or `issue-cli workflow commit-msg
+    --install`) reads each `Proves:` and `Catalog:` line with the same parsers and refuses the commit, with the
+    fix, when a line would link or mark nothing.
   - Criteria ids stay put when a criterion goes: `issue-cli check-remove <slug> AC6` keeps AC6's slot, so AC7's
     trailers still prove AC7. AC6's links become strays.
   - Only the work branch's own first-parent commits count. While the branch is live they are read as
@@ -165,6 +171,13 @@ an open criterion that reads like the owner's check ("the owner confirms it read
 Only the owner ticks such a box: a passing judgement step (their playtest) ticks it, and so does the owner
 ticking it by hand. A `Proves:` trailer, test, value or commit never does. `prove --list` shows
 `owner check (<why>): only the owner ticks it`. With YOLO off, the gate still counts every link as before.
+
+Which steps are judgement steps, and which criteria a step proves, comes from the newest run of each session
+that has the step: an older run's `judgement_step` or `proves:` never outlives the session file that dropped
+or retargeted it (a step moved from `proves: [AC2]` to `[AC6]` links AC6 only once ux-test runs again). A
+`-step` run of other steps leaves a step's own newest run in place. When an agent's `check` is refused on a box
+a judgement step made the owner's, the refusal says `TPn is a judgement step (do:/expect: in <session>); drop
+them if the step is automated, then re-run make ux-test`.
 
 Under YOLO (not for experiments) `criteria_proven` skips unproven owner checks, and the transition leaves each
 unticked owner check (and any other box that is the owner's: one a guided check left to them, a box whose id is a

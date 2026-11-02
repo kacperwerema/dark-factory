@@ -77,15 +77,34 @@
 #                       allowed_hosts) go above projects:, unindented
 #                       (stand_in_viewer does viewer_url). Sets
 #                       SANDBOX_PROJECT, SANDBOX_PROJECT_DIR and SANDBOX_CONFIG,
-#                       and exports XDG_STATE_HOME, XDG_CONFIG_HOME and
+#                       SANDBOX (the sandbox folder, SANDBOX_PROJECT_DIR's
+#                       parent; an earlier sandbox_dir's $SANDBOX is kept), and
+#                       exports XDG_STATE_HOME, XDG_CONFIG_HOME and
 #                       ISSUE_VIEWER_CONFIG into the sandbox. Scratch projects must live outside
 #                       .worktrees/: there issue-cli takes the caller for a
-#                       worker and refuses dispatch and lead spawn.
+#                       worker and refuses dispatch and lead spawn. Building
+#                       the branch yourself? Build from $CHECKS_ROOT (the
+#                       library cds there; $ISSUE_CLI is already that build).
+#   sandbox_project --add <slug> [template] [--workflow <file>] [--name <name>]
+#                       a second project in the same sandbox and projects.yaml
+#                       (after the first): its folder next to the first, set
+#                       up the same way. Sets SANDBOX_ADDED_PROJECT and
+#                       SANDBOX_ADDED_DIR; sic still runs on the first
+#                       (pass --project $SANDBOX_ADDED_PROJECT to reach it).
+#   sandbox_git_repo [var] [name]
+#                       a git repo in the sandbox ($SANDBOX/<name>, default
+#                       repo; a sandbox_dir first when there is none) with
+#                       .worktrees/ ignored, one commit on main, and a local
+#                       bare remote <name>.git as origin, main pushed and
+#                       tracked. Its local config has a git identity, no
+#                       signing or hooks, and no auto maintenance or gc. Its
+#                       path goes in $var (default SANDBOX_REPO), the
+#                       remote's in SANDBOX_REMOTE
 #   sandbox_git_identity
 #                       exports a git author/committer and GIT_CONFIG_GLOBAL=/dev/null
 #                       (no signing, hooks or aliases) for git commands in sandboxes
 #   sic <args…>         issue-cli against the sandbox project, from its folder
-#                       ($SANDBOX_ISSUE_CLI picks the binary, e.g. a branch build);
+#                       ($SANDBOX_ISSUE_CLI, else $ISSUE_CLI: the branch build check-script found or --cli named);
 #                       through clean_shell once a stand-in exists, so a dispatch
 #                       or lead spawn gets the stand-in
 #   private_tmux [--clean]
@@ -110,9 +129,11 @@
 #                       there, never in a shell)
 #   expect_stand_in_ran <name> [meaning] [seconds]
 #                       a machine check that the stand-in, not the real <name>, ran
-#                       (eventually: agents start a moment later; default 5 s)
-#   expect_stand_in_got <name> <text> [meaning]
-#                       eventually: the --agent stand-in was sent <text>
+#                       (eventually: agents start a moment later; default 30 s,
+#                       a loaded machine can take seconds to start a process;
+#                       it returns as soon as the stand-in ran)
+#   expect_stand_in_got <name> <text> [meaning] [seconds]
+#                       eventually: the --agent stand-in was sent <text> (default 30 s)
 #   clean_shell <cmd…>  runs <cmd> under bash without the owner's profile or rc
 #                       (env -i, SHELL set to a no-profile bash, stand-ins first
 #                       on PATH). Never use $SHELL -lic in a check that starts
@@ -122,7 +143,15 @@
 #                       the worker guards don't see it: never use clean_shell
 #                       (or sic once a stand-in exists) to run an owner-only
 #                       command from a worker's run. Leave those steps to the
-#                       owner's run (skip them when $AGENT_NAME is set).
+#                       owner's run (if is_worker; then skip "…"; fi).
+#   is_worker           0 when issue-cli's worker guard takes this shell for a
+#                       worker, 1 when not, 2 when issue-cli couldn't answer.
+#                       It asks issue-cli lead whoami (the guard's own test:
+#                       ISSUE_VIEWER_ISSUE_SLUG, the tmux name, a folder under
+#                       .worktrees/; AGENT_NAME isn't one), with the sandbox's
+#                       config once there is one. It only reports: nothing in
+#                       the library clears a worker's identity to get past the
+#                       guard.
 #   background <var> [clean_shell] <cmd…>
 #                       starts <cmd> in the background (through clean_shell if
 #                       named), its pid in $var, killed on exit
@@ -160,7 +189,8 @@
 #
 # Environment from check-script: CHECKS_LIB, CHECKS_SLUG, CHECKS_PROJECT (the
 # --project ticking uses), CHECKS_ROOT (the issue's checkout; the library cds
-# there), CHECKS_NAME, CHECKS_ISSUE_CLI (the binary that ticks), CHECKS_YES.
+# there), CHECKS_NAME, CHECKS_ISSUE_CLI (the binary that ticks), CHECKS_YES,
+# ISSUE_CLI (the binary a script checks: --cli, the branch build, else CHECKS_ISSUE_CLI).
 #
 # Gotchas
 #   - run runs its command in a subshell (to capture it): call helpers that
@@ -203,6 +233,8 @@ if [ -z "${CHECKS_SLUG:-}" ]; then
 fi
 CHECKS_ROOT=${CHECKS_ROOT:-$PWD}
 CHECKS_ISSUE_CLI=${CHECKS_ISSUE_CLI:-issue-cli}
+# The issue-cli a script checks: check-script --cli, else the branch build.
+ISSUE_CLI=${ISSUE_CLI:-$CHECKS_ISSUE_CLI}
 cd "$CHECKS_ROOT" || exit 2
 
 if [ "${CHECKS_YES:-}" = 1 ] || [ ! -t 0 ]; then
@@ -549,8 +581,32 @@ sandbox_dir() {
 }
 
 sandbox_project() {
+	if [ "${1:-}" = --add ]; then
+		shift
+		_ck_sandbox_add "$@"
+		return
+	fi
 	local name=${1:?sandbox_project needs a slug} template=development workflow='' display='' dir
 	shift
+	_ck_sandbox_opts "$@"
+	dir=''
+	sandbox_dir dir
+	# $SANDBOX is the sandbox folder (projects.yaml, state/, the project), as
+	# after a bare sandbox_dir; a script's own earlier sandbox_dir keeps it.
+	[ -n "${SANDBOX:-}" ] || SANDBOX=$dir
+	SANDBOX_PROJECT=$name
+	SANDBOX_PROJECT_DIR=$dir/$name
+	SANDBOX_CONFIG=$dir/projects.yaml
+	mkdir -p "$SANDBOX_PROJECT_DIR"
+	_ck_sandbox_state "$dir"
+	export ISSUE_VIEWER_CONFIG=$SANDBOX_CONFIG
+	echo "projects:" > "$SANDBOX_CONFIG"
+	_ck_sandbox_entry "$name" "$SANDBOX_PROJECT_DIR"
+	_ck_sandbox_repo "$SANDBOX_PROJECT_DIR"
+}
+# _ck_sandbox_opts [template] [--template t] [--workflow f] [--name n]: sets
+# the caller's template, workflow and display.
+_ck_sandbox_opts() {
 	if [ $# -gt 0 ] && [[ $1 != --* ]]; then
 		template=$1
 		shift
@@ -567,48 +623,124 @@ sandbox_project() {
 		esac
 		shift 2
 	done
-	dir=''
-	sandbox_dir dir
-	SANDBOX_PROJECT=$name
-	SANDBOX_PROJECT_DIR=$dir/$name
-	SANDBOX_CONFIG=$dir/projects.yaml
-	mkdir -p "$SANDBOX_PROJECT_DIR"
-	_ck_sandbox_state "$dir"
-	export ISSUE_VIEWER_CONFIG=$SANDBOX_CONFIG
-	cat > "$SANDBOX_CONFIG" << YAML
-projects:
-  - name: "${display:-$name}"
-    slug: "$name"
-    issues: "$SANDBOX_PROJECT_DIR/issues"
-    workflow: "$SANDBOX_PROJECT_DIR/workflow.yaml"
-    docs: "$SANDBOX_PROJECT_DIR/docs"
-    workdir: "$SANDBOX_PROJECT_DIR"
+}
+# _ck_sandbox_entry <slug> <dir>: one project entry at the end of $SANDBOX_CONFIG.
+_ck_sandbox_entry() {
+	cat >> "$SANDBOX_CONFIG" << YAML
+  - name: "${display:-$1}"
+    slug: "$1"
+    issues: "$2/issues"
+    workflow: "$2/workflow.yaml"
+    docs: "$2/docs"
+    workdir: "$2"
     terminal: "none"
 YAML
+}
+# _ck_sandbox_repo <dir>: the project's git repo, workflow and first commit.
+_ck_sandbox_repo() {
 	(
-		cd "$SANDBOX_PROJECT_DIR" &&
+		cd "$1" &&
 			git init -q -b main &&
 			if [ -n "$workflow" ]; then
 				cp -- "$workflow" workflow.yaml && mkdir -p issues docs
 			else
-				"${SANDBOX_ISSUE_CLI:-$CHECKS_ISSUE_CLI}" init --template "$template" > /dev/null
+				"${SANDBOX_ISSUE_CLI:-$ISSUE_CLI}" init --template "$template" > /dev/null
 			fi &&
 			printf '.agent-logs/\n.playtest/\n' > .gitignore &&
 			git add -A && git -c user.name=checks -c user.email=checks@localhost -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q -m init
 	) || {
-		echo "sandbox_project: could not set up $SANDBOX_PROJECT_DIR" >&2
+		echo "sandbox_project: could not set up $1" >&2
 		exit 2
 	}
 }
-
+# sandbox_project --add <slug> [template] [--workflow f] [--name n]: a second
+# project in the same sandbox and projects.yaml.
+_ck_sandbox_add() {
+	local name=${1:?sandbox_project --add needs a slug} template=development workflow='' display='' dir
+	shift
+	[ -n "${SANDBOX_CONFIG:-}" ] && [ -f "$SANDBOX_CONFIG" ] || {
+		echo "sandbox_project --add: call sandbox_project <slug> first" >&2
+		exit 2
+	}
+	_ck_sandbox_opts "$@"
+	dir=$(dirname -- "$SANDBOX_CONFIG")/$name
+	if [ -e "$dir" ]; then
+		echo "sandbox_project --add: $dir already exists (a second project needs its own slug)" >&2
+		exit 2
+	fi
+	mkdir -p "$dir"
+	_ck_sandbox_entry "$name" "$dir"
+	_ck_sandbox_repo "$dir"
+	SANDBOX_ADDED_PROJECT=$name
+	SANDBOX_ADDED_DIR=$dir
+}
 sandbox_git_identity() {
 	export GIT_AUTHOR_NAME=checks GIT_AUTHOR_EMAIL=checks@localhost
 	export GIT_COMMITTER_NAME=checks GIT_COMMITTER_EMAIL=checks@localhost
 	export GIT_CONFIG_GLOBAL=/dev/null
 }
 
+# sandbox_git_repo [var] [name]: a git repo in the sandbox with a local bare
+# remote (origin, main pushed and tracked) and .worktrees/ ignored.
+sandbox_git_repo() {
+	local _ck_gr_var=${1:-SANDBOX_REPO} _ck_gr_name=${2:-repo} _ck_gr_base _ck_gr_dir
+	_ck_gr_base=${SANDBOX:-}
+	if [ -z "$_ck_gr_base" ]; then
+		sandbox_dir
+		_ck_gr_base=$SANDBOX
+	fi
+	_ck_gr_dir=$_ck_gr_base/$_ck_gr_name
+	if [ -e "$_ck_gr_dir" ] || [ -e "$_ck_gr_dir.git" ]; then
+		echo "sandbox_git_repo: $_ck_gr_dir already exists (pass another name)" >&2
+		exit 2
+	fi
+	(
+		git init -q --bare -b main "$_ck_gr_dir.git" &&
+			git init -q -b main "$_ck_gr_dir" &&
+			cd "$_ck_gr_dir" &&
+			git config user.name checks && git config user.email checks@localhost &&
+			git config commit.gpgsign false && git config tag.gpgsign false &&
+			git config core.hooksPath /dev/null &&
+			git config maintenance.auto false && git config gc.auto 0 &&
+			printf '.worktrees/\n.agent-logs/\n.playtest/\n' > .gitignore &&
+			git add .gitignore && git commit -q -m init &&
+			git remote add origin "$_ck_gr_dir.git" &&
+			git push -q -u origin main 2> /dev/null
+	) || {
+		echo "sandbox_git_repo: could not set up $_ck_gr_dir" >&2
+		exit 2
+	}
+	SANDBOX_REMOTE=$_ck_gr_dir.git
+	printf -v "$_ck_gr_var" '%s' "$_ck_gr_dir"
+}
+# is_worker: 0 when issue-cli's worker guard takes this shell for a worker,
+# 1 when not, 2 when issue-cli couldn't say. It reports only.
+is_worker() {
+	local _ck_iw_cli=${SANDBOX_ISSUE_CLI:-${ISSUE_CLI:-${CHECKS_ISSUE_CLI:-issue-cli}}} _ck_iw_out _ck_iw_rc _ck_iw_probe=''
+	local _ck_iw_args=()
+	if [ -n "${SANDBOX_CONFIG:-}" ]; then
+		_ck_iw_args=(--config "$SANDBOX_CONFIG" --project "$SANDBOX_PROJECT")
+	else
+		# No sandbox project: a throwaway one-project config, so the answer
+		# never depends on (or reads) the owner's projects.yaml.
+		_ck_iw_probe=$(mktemp -d "$(_ck_tmp_base)/ck-whoami-XXXXXX") || return 2
+		mkdir -p "$_ck_iw_probe/issues"
+		printf 'projects:\n  - name: "probe"\n    slug: "probe"\n    issues: "%s/issues"\n    workdir: "%s"\n' \
+			"$_ck_iw_probe" "$_ck_iw_probe" > "$_ck_iw_probe/projects.yaml"
+		_ck_iw_args=(--config "$_ck_iw_probe/projects.yaml" --project probe)
+	fi
+	_ck_iw_out=$("$_ck_iw_cli" "${_ck_iw_args[@]}" --json lead whoami 2> /dev/null)
+	_ck_iw_rc=$?
+	[ -z "$_ck_iw_probe" ] || rm -rf -- "$_ck_iw_probe"
+	[ "$_ck_iw_rc" = 0 ] || return 2
+	case "$_ck_iw_out" in
+	*'"role": "worker"'*) return 0 ;;
+	*'"role":'*) return 1 ;;
+	*) return 2 ;;
+	esac
+}
 sic() {
-	local argv=("${SANDBOX_ISSUE_CLI:-$CHECKS_ISSUE_CLI}" --config "$SANDBOX_CONFIG" --project "$SANDBOX_PROJECT" "$@")
+	local argv=("${SANDBOX_ISSUE_CLI:-$ISSUE_CLI}" --config "$SANDBOX_CONFIG" --project "$SANDBOX_PROJECT" "$@")
 	(
 		cd "${SANDBOX_PROJECT_DIR:?sic needs sandbox_project first}" || exit 2
 		if [ -n "${CHECKS_STAND_IN_DIR:-}" ]; then
@@ -640,7 +772,7 @@ private_tmux() {
 
 _ck_kill_private_tmux() {
 	[ -f "$1/.checks-private-tmux" ] || return 0
-	env -u TMUX TMUX_TMPDIR="$1" tmux kill-server 2> /dev/null
+	env -u TMUX tmux -S "$1/tmux-$(id -u)/default" kill-server 2> /dev/null
 	rm -rf -- "$1"
 }
 
@@ -690,12 +822,12 @@ exec cat >> $(printf '%q' "$CHECKS_STAND_IN_DIR/$name.input")"
 
 expect_stand_in_ran() {
 	local name=${1:?expect_stand_in_ran needs a name}
-	eventually "[ -s $(printf '%q' "${CHECKS_STAND_IN_DIR:-/nonexistent}/$name.calls") ]" "${2:-the stand-in $name ran, not the real one}" "${3:-5}"
+	eventually "[ -s $(printf '%q' "${CHECKS_STAND_IN_DIR:-/nonexistent}/$name.calls") ]" "${2:-the stand-in $name ran, not the real one}" "${3:-30}"
 }
 
 expect_stand_in_got() {
 	local name=${1:?expect_stand_in_got needs a name} text=${2:?expect_stand_in_got needs a text}
-	eventually "grep -qF -- $(printf '%q' "$text") $(printf '%q' "${CHECKS_STAND_IN_DIR:-/nonexistent}/$name.input") 2> /dev/null" "${3:-the stand-in $name was sent: $text}"
+	eventually "grep -qF -- $(printf '%q' "$text") $(printf '%q' "${CHECKS_STAND_IN_DIR:-/nonexistent}/$name.input") 2> /dev/null" "${3:-the stand-in $name was sent: $text}" "${4:-30}"
 }
 
 # _ck_clean_argv fills _ck_argv with <cmd> under clean_shell's environment:

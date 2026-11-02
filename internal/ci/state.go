@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
 // Run states.

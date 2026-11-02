@@ -1,0 +1,843 @@
+package viewer
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+)
+
+func TestHandleApproveIssue_NotifiesActiveSession(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-add-dark-mode"}})
+
+	var gotTarget string
+	var gotLines []string
+	withMockTmuxSendKeys(t, func(target string, lines []string) error {
+		gotTarget = target
+		gotLines = append([]string(nil), lines...)
+		return nil
+	})
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/p/test-project/issue/add-dark-mode/approve", bytes.NewBufferString(`{"status":"in progress"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload approvalResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+
+	if payload.HumanApproval != "in progress" {
+		t.Fatalf("human approval = %q, want %q", payload.HumanApproval, "in progress")
+	}
+	if payload.NotifiedSession != "agent-add-dark-mode" {
+		t.Fatalf("notified session = %q, want %q", payload.NotifiedSession, "agent-add-dark-mode")
+	}
+	if gotTarget != "agent-add-dark-mode" {
+		t.Fatalf("tmux target = %q, want %q", gotTarget, "agent-add-dark-mode")
+	}
+	if len(gotLines) != 1 {
+		t.Fatalf("expected 1 tmux line, got %d: %#v", len(gotLines), gotLines)
+	}
+	if !strings.Contains(gotLines[0], "in progress") {
+		t.Fatalf("approval message %q does not mention status %q", gotLines[0], "in progress")
+	}
+}
+
+func TestHandleApproveIssue_ReportsMissingSessionButPersistsApproval(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	withMockTmuxSessions(t, nil)
+	withMockTmuxSendKeys(t, func(target string, lines []string) error {
+		t.Fatalf("tmux send-keys should not run without a matching session")
+		return nil
+	})
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/p/test-project/issue/add-dark-mode/approve", bytes.NewBufferString(`{"status":"in progress"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var payload approvalResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.HumanApproval != "in progress" {
+		t.Fatalf("human approval = %q, want %q", payload.HumanApproval, "in progress")
+	}
+	if payload.NotificationError == "" {
+		t.Fatal("expected notification error for missing session")
+	}
+
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *tracker.Issue
+	for _, issue := range issues {
+		if issue.Slug == "add-dark-mode" {
+			found = issue
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected issue to exist")
+	}
+	if found.HumanApproval != "in progress" {
+		t.Fatalf("persisted human approval = %q, want %q", found.HumanApproval, "in progress")
+	}
+}
+
+func TestHandleUpdateIssue_BlocksIllegalStatusJump(t *testing.T) {
+	// Status-only updates route through the workflow engine; jumping
+	// "in progress" → "done" skips required intermediate statuses and is
+	// blocked with 409, same as `issue-cli transition`.
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"status":"done"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
+	}
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["error"] == "" {
+		t.Fatalf("expected error message, got %v", result)
+	}
+
+	// File must be untouched on a blocked transition.
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" && issue.Status != "in progress" {
+			t.Fatalf("issue mutated despite block: status=%s", issue.Status)
+		}
+	}
+}
+
+func TestHandleUpdateIssue_AdjacentStatusTransition(t *testing.T) {
+	// Legal adjacent transition ("in progress" → "testing") passes through the
+	// engine and applies workflow actions (e.g. appends ## Testing).
+	proj, _ := setupTestProject(t)
+	// Prepare the issue with the checkboxes ## Implementation + test plan so
+	// validation passes.
+	issuePath := filepath.Join(proj.IssueDir, "bug-in-login.md")
+	content := `---
+title: "Bug in login"
+status: "in progress"
+assignee: "alice"
+---
+
+## Implementation
+- [x] done
+
+## Test Plan
+### Automated
+- [ ] a
+
+### Manual
+- [ ] m
+`
+	if err := os.WriteFile(issuePath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"status":"testing"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			if issue.Status != "testing" {
+				t.Fatalf("status = %s, want testing", issue.Status)
+			}
+			if !strings.Contains(issue.BodyRaw, "## Testing") {
+				t.Fatalf("expected ## Testing section appended, body:\n%s", issue.BodyRaw)
+			}
+			return
+		}
+	}
+	t.Fatal("issue not found")
+}
+
+func TestHandleUpdateIssue_BodyOnlyBypassesEngine(t *testing.T) {
+	// Body edits from the detail view do not touch status and must not trigger
+	// the workflow engine.
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"body":"Updated body text"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			if issue.Status != "in progress" {
+				t.Fatalf("status mutated unexpectedly: %s", issue.Status)
+			}
+			if !strings.Contains(issue.BodyRaw, "Updated body text") {
+				t.Fatalf("body not updated:\n%s", issue.BodyRaw)
+			}
+			return
+		}
+	}
+	t.Fatal("issue not found")
+}
+
+func TestHandleUpdateIssue_UpdatesPriority(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"priority":"critical"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			if issue.Priority != "critical" {
+				t.Fatalf("expected priority 'critical', got '%s'", issue.Priority)
+			}
+			return
+		}
+	}
+	t.Fatal("issue not found after update")
+}
+
+func TestHandleUpdateIssue_RetitleKeepsSlug(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	// A client-sent slug is ignored: the pin is the server's call.
+	body := `{"title":"Login fails on Safari","slug":"something-else"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, decode %v", resp.StatusCode, err)
+	}
+	if out["slug"] != "bug-in-login" {
+		t.Fatalf("response slug = %q, want bug-in-login", out["slug"])
+	}
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	got := tracker.FindIssue(issues, "bug-in-login")
+	if got == nil || got.Title != "Login fails on Safari" || got.SlugPin != "bug-in-login" {
+		t.Fatalf("after retitle: %+v", got)
+	}
+	if filepath.Base(got.FilePath) == "login-fails-on-safari.md" {
+		t.Fatal("retitle renamed the file")
+	}
+}
+
+func TestHandleUpdateIssue_UpdatesAssignee(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	assignee := "charlie"
+	body := `{"assignee":"charlie"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			if issue.Assignee != assignee {
+				t.Fatalf("expected assignee '%s', got '%s'", assignee, issue.Assignee)
+			}
+			return
+		}
+	}
+	t.Fatal("issue not found after update")
+}
+
+func TestHandleUpdateIssue_404ForUnknownSlug(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"status":"done"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/nonexistent", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleEditIssueInNvim_UsesLauncherAndPreservesComments(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	issuePath := filepath.Join(proj.IssueDir, "bug-in-login.md")
+	if err := tracker.AddComment(issuePath, 0, "Keep me", "app"); err != nil {
+		t.Fatal(err)
+	}
+
+	origLauncher := launchIssueBodyEditor
+	t.Cleanup(func() { launchIssueBodyEditor = origLauncher })
+	launchIssueBodyEditor = func(_ *background, proj *tracker.Project, issue *tracker.Issue) (BodyEditResponse, error) {
+		updated := "Edited in nvim"
+		if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{Body: &updated}); err != nil {
+			return BodyEditResponse{}, err
+		}
+		return BodyEditResponse{Status: "launched", Session: "agent-bug-in-login-edit", Message: "Opened in nvim"}, nil
+	}
+
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login/edit-in-nvim", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result BodyEditResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "launched" {
+		t.Fatalf("expected launched status, got %#v", result)
+	}
+
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			if issue.BodyRaw != "Edited in nvim" {
+				t.Fatalf("expected updated body, got %q", issue.BodyRaw)
+			}
+			comments, err := tracker.LoadComments(issue.FilePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(comments) != 1 || comments[0].Text != "Keep me" {
+				t.Fatalf("expected preserved comments, got %#v", comments)
+			}
+			return
+		}
+	}
+	t.Fatal("issue not found after nvim edit")
+}
+
+func TestStartIssueBodyEditor_ReattachWhenSessionExists(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	proj.Terminal = "none" // openEditorTerminal returns an attach hint, no exec.
+
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target *tracker.Issue
+	for _, issue := range issues {
+		if issue.Slug == "bug-in-login" {
+			target = issue
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("test fixture missing bug-in-login")
+	}
+
+	originalBody, err := os.ReadFile(target.FilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedSession := tmuxSessionName(target.Slug) + "-edit"
+	var probedSession string
+	withMockTmuxHasSession(t, func(name string) bool {
+		probedSession = name
+		return true
+	})
+
+	resp, err := startIssueBodyEditor(newBackground(context.Background()), &proj, target)
+	if err != nil {
+		t.Fatalf("startIssueBodyEditor returned error on reattach: %v", err)
+	}
+	if probedSession != "="+expectedSession+":" {
+		t.Errorf("agentrun.HasSession probed %q, want %q", probedSession, expectedSession)
+	}
+	if !resp.Reattached {
+		t.Errorf("response.Reattached = false, want true")
+	}
+	if resp.Status != "reattached" {
+		t.Errorf("response.Status = %q, want reattached", resp.Status)
+	}
+	if resp.Session != expectedSession {
+		t.Errorf("response.Session = %q, want %q", resp.Session, expectedSession)
+	}
+	// terminal: none hands back both ways in: from inside tmux and from a shell.
+	for _, want := range []string{"inside tmux: tmux switch-client -t '=" + expectedSession + ":'", "from a shell: ", "tmux attach -t " + expectedSession} {
+		if !strings.Contains(resp.Message, want) {
+			t.Errorf("response.Message = %q, want it to contain %q", resp.Message, want)
+		}
+	}
+
+	currentBody, err := os.ReadFile(target.FilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(originalBody, currentBody) {
+		t.Errorf("issue file modified during reattach; before=%q after=%q", originalBody, currentBody)
+	}
+}
+
+func TestHandleEditIssueInNvim_404ForUnknownSlug(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/nonexistent/edit-in-nvim", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleUpdateIssue_BadJSON(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", strings.NewReader("{bad"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleDeleteIssue_DeletesIssueFile(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/fix-typo/delete", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify file is gone
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Slug == "fix-typo" {
+			t.Fatal("issue should have been deleted")
+		}
+	}
+}
+
+func TestHandleDeleteIssue_404ForUnknownSlug(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/nonexistent/delete", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleCreateIssue_CreatesNewIssue(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"title":"New feature request","status":"idea","system":"UI"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issues/create", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["status"] != "ok" {
+		t.Fatalf("expected status ok, got %v", result)
+	}
+	if result["slug"] == "" {
+		t.Fatal("expected slug in response")
+	}
+
+	// Verify the file exists
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	found := false
+	for _, issue := range issues {
+		if issue.Title == "New feature request" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("created issue not found")
+	}
+}
+
+func TestHandleCreateIssue_DefaultsStatusToIdea(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"title":"Minimal issue"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issues/create", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, issue := range issues {
+		if issue.Title == "Minimal issue" {
+			if issue.Status != "idea" {
+				t.Fatalf("expected default status 'idea', got '%s'", issue.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("created issue not found")
+}
+
+func TestHandleCreateIssue_RequiresTitle(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	body := `{"title":"","status":"idea"}`
+	resp, err := http.Post(ts.URL+"/p/test-project/issues/create", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleCreateIssue_BadJSON(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/p/test-project/issues/create", "application/json", strings.NewReader("not json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleApproveIssue_RecordsApprovalTimestamp(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	withMockTmuxSessions(t, nil)
+	withMockTmuxSendKeys(t, func(string, []string) error { return nil })
+
+	post := func() {
+		t.Helper()
+		resp, err := http.Post(ts.URL+"/p/test-project/issue/add-dark-mode/approve", "application/json", bytes.NewBufferString(`{"status":"in progress"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	issuePath := filepath.Join(proj.IssueDir, "add-dark-mode.md")
+
+	before := time.Now().Add(-time.Second)
+	post()
+	store, err := tracker.LoadStats(issuePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.LastApproval == nil || store.LastApproval.Status != "in progress" || store.LastApproval.At.Before(before) {
+		t.Fatalf("LastApproval = %+v, want in progress stamped now", store.LastApproval)
+	}
+
+	// Clicking again toggles the approval off and must clear the timestamp.
+	post()
+	if store, _ := tracker.LoadStats(issuePath); store.LastApproval != nil {
+		t.Fatalf("LastApproval = %+v after toggle-off, want nil", store.LastApproval)
+	}
+}
+
+// A body write from a page loaded before the file changed (the CLI appended
+// a gate section meanwhile) is refused instead of overwriting the append.
+func TestHandleUpdateIssue_StaleBodyRefused(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	issue := loadTestIssue(t, proj, "bug-in-login")
+	pageHash := tracker.BodyHash(issue.BodyRaw)
+
+	page, err := http.Get(ts.URL + "/p/test-project/issue/bug-in-login?classic=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if !strings.Contains(string(html), `data-body-hash="`+pageHash+`"`) {
+		t.Fatalf("detail page does not carry data-body-hash=%q", pageHash)
+	}
+
+	if _, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
+		return body + "\n\n## Documentation\n- [ ] Docs updated\n", true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, _ := json.Marshal(map[string]string{"body": issue.BodyRaw + "\n- [x] ticked", "base_body_hash": pageHash})
+	resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
+	}
+	var data map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&data)
+	if !strings.Contains(data["error"], "changed since the page loaded") {
+		t.Fatalf("error = %q", data["error"])
+	}
+	if after := loadTestIssue(t, proj, "bug-in-login"); !strings.Contains(after.BodyRaw, "## Documentation") {
+		t.Fatalf("stale write overwrote the append:\n%s", after.BodyRaw)
+	}
+}
+
+// A fresh page saves, and the returned hash lets the next toggle on the same
+// page save too.
+func TestHandleUpdateIssue_BodyHashChainsConsecutiveSaves(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	hash := tracker.BodyHash(loadTestIssue(t, proj, "bug-in-login").BodyRaw)
+	for i, body := range []string{"First save\n- [ ] box", "First save\n- [x] box"} {
+		payload, _ := json.Marshal(map[string]string{"body": body, "base_body_hash": hash})
+		resp, err := http.Post(ts.URL+"/p/test-project/issue/bug-in-login", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var data map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&data)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("save %d: expected 200, got %d (%v)", i, resp.StatusCode, data)
+		}
+		if want := tracker.BodyHash(body); data["body_hash"] != want {
+			t.Fatalf("save %d: body_hash = %q, want %q", i, data["body_hash"], want)
+		}
+		hash = data["body_hash"]
+	}
+	if got := loadTestIssue(t, proj, "bug-in-login").BodyRaw; got != "First save\n- [x] box" {
+		t.Fatalf("body = %q", got)
+	}
+}
+
+func loadTestIssue(t *testing.T, proj tracker.Project, slug string) *tracker.Issue {
+	t.Helper()
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range issues {
+		if issue.Slug == slug {
+			return issue
+		}
+	}
+	t.Fatalf("issue %s not found", slug)
+	return nil
+}
+
+func TestHandleApproveIssue_WordsSavedAndQuotedToAgent(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-add-dark-mode"}})
+	var nudge string
+	withMockTmuxSendKeys(t, func(_ string, lines []string) error {
+		nudge = strings.Join(lines, " ")
+		return nil
+	})
+	url := ts.URL + "/p/test-project/issue/add-dark-mode/approve"
+	issuePath := filepath.Join(proj.IssueDir, "add-dark-mode.md")
+
+	var payload approvalResponse
+	json.NewDecoder(pagePost(t, url, `{"status":"in progress","words":"  Design reads right.\nGo  "}`).Body).Decode(&payload)
+	if payload.HumanApproval != "in progress" || !payload.WordsSaved || payload.WordsError != "" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	comments, _ := tracker.LoadComments(issuePath)
+	if len(comments) != 1 || comments[0].Source != "app" {
+		t.Fatalf("comments = %+v", comments)
+	}
+	want := `approval: "Design reads right.\nGo" (viewer, ` + time.Now().Format("2006-01-02") + `) → in progress`
+	if comments[0].Text != want {
+		t.Fatalf("comment = %q, want %q", comments[0].Text, want)
+	}
+	if nudge != `Approved for in progress: "Design reads right.\nGo"` {
+		t.Fatalf("nudge = %q", nudge)
+	}
+	if store, _ := tracker.LoadStats(issuePath); store.LastApproval == nil {
+		t.Fatal("approval time not recorded")
+	}
+
+	// Un-approving ignores the words: no second comment.
+	var off approvalResponse
+	json.NewDecoder(pagePost(t, url, `{"status":"in progress","words":"changed my mind"}`).Body).Decode(&off)
+	if off.HumanApproval != "" || off.WordsSaved {
+		t.Fatalf("toggle-off payload = %+v", off)
+	}
+	if comments, _ := tracker.LoadComments(issuePath); len(comments) != 1 {
+		t.Fatalf("toggle-off wrote a comment: %+v", comments)
+	}
+}
+
+func TestHandleApproveIssue_BlankWordsBehaveAsToday(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-add-dark-mode"}})
+	var nudge string
+	withMockTmuxSendKeys(t, func(_ string, lines []string) error {
+		nudge = strings.Join(lines, " ")
+		return nil
+	})
+
+	var payload approvalResponse
+	json.NewDecoder(pagePost(t, ts.URL+"/p/test-project/issue/add-dark-mode/approve", `{"status":"in progress","words":"   "}`).Body).Decode(&payload)
+	if payload.HumanApproval != "in progress" || payload.WordsSaved {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if comments, _ := tracker.LoadComments(filepath.Join(proj.IssueDir, "add-dark-mode.md")); len(comments) != 0 {
+		t.Fatalf("blank words wrote a comment: %+v", comments)
+	}
+	canned := false
+	for _, m := range humanApprovalMessages {
+		if nudge == fmt.Sprintf(m, "in progress") {
+			canned = true
+		}
+	}
+	if !canned {
+		t.Fatalf("nudge %q is not a canned line", nudge)
+	}
+}

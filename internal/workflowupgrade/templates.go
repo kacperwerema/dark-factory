@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
 )
 
 const templatesDir = "workflow"
@@ -40,10 +40,4 @@ func Templates() []string {
 // ReadTemplate returns a bundled template's workflow.yaml.
 func ReadTemplate(name string) ([]byte, error) {
 	return fs.ReadFile(templates.FS, path.Join(templatesDir, name+".yaml"))
-}
-
-// catalogYAML is the bundled feature catalog.
-func catalogYAML() []byte {
-	data, _ := fs.ReadFile(templates.FS, "workflow-features.yaml")
-	return data
 }

@@ -266,7 +266,7 @@ Lists are always arrays, never `null`. `enabled: false` with a `disabled` reason
 
 ## Adding a command
 
-New commands must call `parseFlags(ctx, fs, args)` (or `parseFlagsArgs` / `parsePositionals`, see [Adding a new subcommand](overview.md#adding-a-new-subcommand)) instead of `fs.Parse`. Group commands declare `Subcommands` (and `SubAliases`), and anything parsed by hand goes in `ExtraFlags`. Otherwise the flags and subcommands don't show up in events or in the never-used report.
+New commands must call `parseFlags(ctx, fs, args)` (or `parseFlagsArgs` / `parsePositionals`, see [Adding a command](overview.md#adding-a-command)) instead of `fs.Parse`. Group commands declare `Subcommands` (and `SubAliases`), and anything parsed by hand goes in `ExtraFlags`. Otherwise the flags and subcommands don't show up in events or in the never-used report.
 
 Every command also needs an entry in `commandAccess` (`cmd/issue-cli/readonly.go`): `TestEveryCommandHasAccess` fails without one. A command with a read mode also needs a sample call in `readSamples`; `TestReadCommandsLeaveAnotherProjectUnchanged` runs each one on a sandbox git repo from another project's folder and fails if the repo's git status changes.
 

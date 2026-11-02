@@ -28,14 +28,22 @@ var NAForms = []NAForm{
 	{"no page changes", "a CLI, tmux, runner or docs change: nothing a playtest session or ux-test can see"},
 	{"runner-internal, covered by <TestName>", "playtest runner, CI or check library internals"},
 	{"covered by playtest session <name>", "the guided-check box when a playtest session drives the manual check"},
+	{"cli flow covered by <TestName>", "a CLI-only change whose flow a go test walks: no page, no check script"},
+	{"page state a scenario can't build (<what>), shown by <evidence>", "a page change a scenario board can't reach (git state, live agents): say what, and what shows it instead"},
 	{"<why, in a few words>", "anything else"},
 }
 
 // NAFormsHelp lists the forms, one per line, indented.
 func NAFormsHelp(indent string) string {
 	var b strings.Builder
+	const width = 46
 	for _, f := range NAForms {
-		fmt.Fprintf(&b, "%sN/A: %-46s %s\n", indent, f.Form, f.When)
+		if len(f.Form) > width {
+			// A form too long for the column: its use on the next line.
+			fmt.Fprintf(&b, "%sN/A: %s\n%s     %-*s %s\n", indent, f.Form, indent, width, "", f.When)
+			continue
+		}
+		fmt.Fprintf(&b, "%sN/A: %-*s %s\n", indent, width, f.Form, f.When)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -46,6 +54,24 @@ func NAFormsHelp(indent string) string {
 var naClaimRe = regexp.MustCompile(`(?i)\bn/a\s*:`)
 
 var naPlaceholderRe = regexp.MustCompile(`<[^<>]+>`)
+
+// NAMinWords is the fewest words a free N/A reason may have.
+const NAMinWords = 3
+
+// NANoFormSections are sections whose boxes have no N/A form: they are
+// the shipping steps, ticked plainly when done (a box that says "or none"
+// is ticked as it is).
+var NANoFormSections = []string{"Shipping"}
+
+// NANoForm reports whether a box in section takes no N/A.
+func NANoForm(section string) bool {
+	for _, s := range NANoFormSections {
+		if strings.EqualFold(strings.TrimSpace(section), s) {
+			return true
+		}
+	}
+	return false
+}
 
 // NAClaim returns the reason of the last N/A claim in a box's text, and
 // whether there is one.
@@ -73,7 +99,7 @@ func CheckNA(reason string) string {
 	case r == "":
 		return "the N/A gives no reason"
 	case naPlaceholderRe.MatchString(r):
-		return fmt.Sprintf("the N/A still has the placeholder %s: name the test, session or reason", naPlaceholderRe.FindString(r))
+		return fmt.Sprintf("the N/A still has the placeholder %s (text in <>): write what it stands for, the test, session or reason, without the <>", naPlaceholderRe.FindString(r))
 	case strings.HasPrefix(lower, "the repro is an automated test"):
 		if !naNamed(r[len("the repro is an automated test"):]) {
 			return `"the repro is an automated test" needs the test's name: the repro is an automated test (<TestName>)`
@@ -83,15 +109,32 @@ func CheckNA(reason string) string {
 		if i < 0 || strings.TrimSpace(r[i+len("covered by"):]) == "" {
 			return `"runner-internal" needs the test that covers it: runner-internal, covered by <TestName>`
 		}
+	case strings.HasPrefix(lower, "cli flow covered by"):
+		if strings.TrimSpace(r[len("cli flow covered by"):]) == "" {
+			return `"cli flow covered by" needs the test that walks the flow: cli flow covered by <TestName>`
+		}
+	case strings.HasPrefix(lower, naPageStatePrefix):
+		if !naNamed(r[len(naPageStatePrefix):]) {
+			return `"page state a scenario can't build" needs what state, in parens: page state a scenario can't build (<what>), shown by <evidence>`
+		}
+		i := strings.Index(lower, "shown by")
+		if i < 0 || strings.TrimSpace(r[i+len("shown by"):]) == "" {
+			return `"page state a scenario can't build" needs what shows the change instead: …, shown by <evidence>`
+		}
 	case strings.HasPrefix(lower, "covered by"):
 		if strings.TrimSpace(r[len("covered by"):]) == "" {
 			return `"covered by" needs what covers it: covered by playtest session <name>, or covered by <TestName>`
 		}
-	case len(strings.Fields(r)) < 3:
-		return fmt.Sprintf("the N/A reason %q is too short to check: use a named form or say why in a few words", r)
+	case len(strings.Fields(r)) < NAMinWords:
+		n := len(strings.Fields(r))
+		return fmt.Sprintf("the N/A reason %q is too short: %d word%s, a free reason needs at least %d words; use a named form or say why in %d words or more",
+			r, n, map[bool]string{true: "", false: "s"}[n == 1], NAMinWords, NAMinWords)
 	}
 	return ""
 }
+
+// naPageStatePrefix starts the form for a page a scenario can't reach.
+const naPageStatePrefix = "page state a scenario can't build"
 
 // naNamed reports whether rest ("(TestFoo)") names something in parens.
 func naNamed(rest string) bool {

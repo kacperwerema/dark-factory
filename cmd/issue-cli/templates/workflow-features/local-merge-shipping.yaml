@@ -1,0 +1,31 @@
+id: local-merge-shipping
+version: v0.54.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["@prompt"]
+title: "Ship by local merge"
+what: |
+  The shipping prompt and checklist ship without a remote: merge local main into the
+  branch, run the project's checks, fast-forward the main checkout to the branch
+  (`git -C <main checkout> merge --ff-only <branch>`) and never push. The change goes
+  under `## Unreleased` in the changelog; releases are cut per milestone and pushed by
+  the lead when you ask. The bundled template keeps push: this is opt-in.
+why: |
+  With many agents on one machine, pushes and pull requests per issue are noise. Local
+  main stays the integration branch, local CI checks every move, and you choose when
+  a milestone leaves the machine.
+where: "the shipping status prompt and the Shipping checklist (its append_section)"
+snippet: |
+  statuses:
+    - name: "shipping"
+      prompt: |
+        1. Add your change under `## Unreleased` in CHANGELOG.md. Don't bump the version.
+        2. Commit on your branch.
+        3. `git merge main` (the local branch), resolve conflicts, run the checks.
+        4. Fast-forward the main checkout to your branch: `git -C <main checkout> merge --ff-only <your branch>`. If main moved, repeat step 3. Never push.
+        5. Comment `shipped: <sha> fast-forwarded into main`.
+question: "Should agents ship by fast-forwarding local main, never pushing, with releases per milestone?"
+detect:
+  - path: statuses[].prompt
+    contains: "merge --ff-only"

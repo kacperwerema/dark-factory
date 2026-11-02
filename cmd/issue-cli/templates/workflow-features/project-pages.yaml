@@ -1,0 +1,25 @@
+id: project-pages
+version: v0.54.0
+category: workbench
+propose: true
+sources: ["internal/viewer/handlers_pages.go", "internal/tracker/workbench.go#WorkbenchPage", "internal/tracker/workbench.go#PagePaths"]
+title: "Project pages"
+what: |
+  `workbench.status_page` shows your own HTML page as the default Status view (the
+  built-in page stays one tab away), and `workbench.pages` lists extra pages under
+  Status in the sidebar. Pages are plain files in the repo, shown sandboxed, and can
+  post a live status line to the viewer.
+why: |
+  A project with its own report (a balance report, a roadmap page) shows it where
+  people already look, kept up to date by the agents that write it.
+where: "workbench.status_page, workbench.pages[] (title, path); docs/workbench-files.md, Project pages"
+snippet: |
+  workbench:
+    status_page: docs/status/index.html
+    pages:
+      - title: "Balance report"
+        path: docs/reports/balance.html
+question: "Does the project have HTML reports worth showing in the viewer?"
+detect:
+  - path: workbench.status_page
+  - path: workbench.pages

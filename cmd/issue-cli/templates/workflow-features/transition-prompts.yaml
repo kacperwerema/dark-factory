@@ -1,0 +1,24 @@
+id: transition-prompts
+version: v0.36.0
+category: automation
+propose: false
+sources: ["internal/tracker/workflow_transition.go#ApplyTransitionWithFields"]
+title: "Prompts injected on a transition"
+what: |
+  An `inject_prompt` action adds guidance for the agent on that specific edge, on top
+  of the target status prompt.
+why: |
+  Edge-specific instructions (what to do when entering testing from in progress)
+  without changing the status prompt for every way in.
+where: "transitions[].actions[] type: inject_prompt (prompt:)"
+snippet: |
+  transitions:
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "inject_prompt"
+          prompt: "Run the relevant tests and record the results as a tests: comment."
+question: "Does any transition need its own instruction for the agent?"
+detect:
+  - path: transitions[].actions[].type
+    one_of: [inject_prompt]

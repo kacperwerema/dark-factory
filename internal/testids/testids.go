@@ -39,6 +39,37 @@ func Segment(s string) string {
 	return strings.NewReplacer(" ", "_", ".", "_").Replace(s)
 }
 
+// wellFormed: page.area.element, lower snake case, `*` or `#` for a
+// dynamic segment.
+var wellFormed = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.([a-z][a-z0-9_]*|\*|#))+$`)
+
+// WellFormed reports whether an entry of IDs has the id shape: lower snake
+// case segments joined by dots, `*` or `#` only as a whole segment.
+func WellFormed(id string) bool { return wellFormed.MatchString(id) }
+
+// PartialWildcard returns the first segment of id that holds `*` or `#`
+// beside other characters (`status-*`), or "". A wildcard is one whole
+// segment, so such a segment is a literal that matches nothing.
+func PartialWildcard(id string) string {
+	for _, seg := range strings.Split(id, ".") {
+		if seg != "*" && seg != "#" && strings.ContainsAny(seg, "*#") {
+			return seg
+		}
+	}
+	return ""
+}
+
+// Entries returns the listed entries id is compatible with.
+func Entries(id string) []string {
+	var out []string
+	for _, e := range allIDs() {
+		if Compatible(e, id) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // segRe matches one concrete segment.
 var segRe = `[^.]+`
 
@@ -100,7 +131,18 @@ func isDigits(s string) bool {
 	return true
 }
 
-func allIDs() []string { return append(append([]string(nil), IDs...), FixtureIDs...) }
+func allIDs() []string {
+	return append(append(append([]string(nil), IDs...), FixtureIDs...), StubIDs...)
+}
+
+// StubIDs lists the ids the playtest runner's stubs draw in a page
+// (cmd/playtest/assets/stubs): a stub's stand-in for what a headless
+// browser has no screen for. TestStubTestIDs checks them against those
+// files.
+var StubIDs = []string{
+	"playtest.keyboard",
+	"playtest.lead_posts",
+}
 
 // Known reports whether id (concrete or a pattern) matches an entry in IDs.
 func Known(id string) bool {

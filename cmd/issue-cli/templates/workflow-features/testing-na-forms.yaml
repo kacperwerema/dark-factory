@@ -1,0 +1,34 @@
+id: testing-na-forms
+version: v0.60.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["internal/tracker/na.go", "internal/lint/na.go"]
+title: "Named N/A forms for Test Plan boxes that don't fit the change"
+what: |
+  The testing prompt lists the named N/A forms and the box texts point at
+  `issue-cli check <slug> <id> --na "<reason>"`: "the repro is an automated test
+  (<TestName>)", "no page changes", "runner-internal, covered by <TestName>",
+  "covered by playtest session <name>", "cli flow covered by <TestName>",
+  "page state a scenario can't build (<what>), shown by <evidence>", or a
+  reason in 3 words or more. Shipping boxes take no N/A: they are ticked
+  plainly. The CLI refuses a reason out of form and any N/A on the owner's
+  boxes with "✗ not ticked:" and a non-zero exit; lint check na-boxes warns
+  on ticked ones.
+why: |
+  A test-only fix, a CLI or tmux bug, a runner change and a docs issue all get
+  the playtest, check-script and ux-test boxes. Workers wrote a check script that
+  only wraps `make validate`, or explained N/A in new words each time, which
+  nobody could check (9 retros).
+where: "the testing status prompt, and the N/A wording in the Test Plan and Testing boxes"
+snippet: |
+  statuses:
+    - name: "testing"
+      prompt: |
+        A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"` (forms: issue-cli check --help). An N/A never skips the owner's boxes.
+question: "Add the named N/A forms (issue-cli check --na) to your testing step?"
+detect:
+  - path: statuses[].prompt
+    contains: "--na"
+  - path: transitions[].actions[].body
+    contains: "--na"

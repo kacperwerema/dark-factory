@@ -55,12 +55,12 @@ func TestLoadCommitsFirstParent(t *testing.T) {
 	}
 }
 
-// The game runner (RogueTech) writes started: without an offset, modes
+// The game runner (Kestrel) writes started: without an offset, modes
 // ux-test / playtest, shots as screenshots: beside results.yaml, and checks
 // as kind/subject/passed. The fixture is its real results.yaml files.
 func TestLoadPlaytestRunsGameSchema(t *testing.T) {
 	const slug = "api/reproducible-scenarios-and-playtest-cases-for-battles-and-screens"
-	runs, problems := LoadPlaytestRuns(nil, slug, "testdata/roguetech")
+	runs, problems := LoadPlaytestRuns(nil, slug, "testdata/kestrel")
 	if len(runs) != 4 {
 		t.Fatalf("runs = %d, want 4 (two ux-test, the cached one, two playtest less the bad date)", len(runs))
 	}
@@ -102,7 +102,7 @@ func TestLoadPlaytestRunsGameSchema(t *testing.T) {
 }
 
 func TestLoadPlaytestRunsGameLayoutFailure(t *testing.T) {
-	runs, _ := LoadPlaytestRuns(nil, "combat/eldritch-nexus-and-glitcher-3d-enemy-units", "testdata/roguetech")
+	runs, _ := LoadPlaytestRuns(nil, "combat/eldritch-nexus-and-glitcher-3d-enemy-units", "testdata/kestrel")
 	if len(runs) != 1 || len(runs[0].Steps) != 1 {
 		t.Fatalf("runs = %+v", runs)
 	}

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="needs_you.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Needs you <span class="wb-ny-count" data-testid="needs_you.count">{{.Count}}</span></h1>
+        <span class="wb-sub">{{if .All}}every project · {{end}}{{if .Remote}}tap to act, Open for the whole issue · {{end}}what blocks others first, then the oldest · <span class="wb-you-text">ready gates</span> can be approved together</span>
+        {{with .OwnerChecksURL}}<a class="wb-titlebar-end wb-oc-bar-link" href="{{.}}" data-testid="needs_you.owner_checks">Owner checks under an epic ›</a>{{end}}
+        <a class="wb-titlebar-end wb-oc-bar-link" href="/push" title="A push to your phone when something new waits on you" data-testid="needs_you.push">🔔 Notify my phone</a>
+    </div>
+    <div class="wb-ny">
+    {{template "wb/ny-switch" .}}
+    {{template "wb/ny-bar" .}}
+    {{range .Groups}}{{template "wb/ny-group" .}}{{else}}{{template "wb/ny-empty"}}{{end}}
+    </div>
+</section>
+</main>
+</div>
+{{template "wb/ny-confirm"}}
+<script src="/static/workshop.js"></script>
+<script src="/static/needs-you.js"></script>
+</body>
+</html>

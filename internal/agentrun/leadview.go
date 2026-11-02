@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // LeadTerminalTmuxWindow is the built-in lead_terminal: mode that shows the

@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/spend"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var spendCommand = &Command{

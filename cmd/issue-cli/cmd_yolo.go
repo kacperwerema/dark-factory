@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
-	"github.com/michal-franc/issue-viewer/internal/yolo"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 var yoloCommand = &Command{
@@ -342,6 +342,16 @@ func runYOLOQueue(ctx *Context, args []string) error {
 		}
 		for _, p := range e.Checks {
 			fmt.Fprintf(ctx.Stdout, "      %s (%s) %q  from %s  %s\n", p.Label(), p.Why, p.What, p.From, tracker.CommentDay(p.At))
+		}
+		for _, p := range e.Decisions {
+			line := "      " + p.Label()
+			if p.Hold != "" && p.Why != "" {
+				line += " (" + p.Why + ")"
+			}
+			if p.From != "" {
+				line += "  from " + p.From
+			}
+			fmt.Fprintf(ctx.Stdout, "%s  %s\n", line, tracker.CommentDay(p.At))
 		}
 	}
 	fmt.Fprintln(ctx.Stdout, "The owner reviews them by issue, with evidence: one Agree covers an issue's gates, owner boxes are ticked one by one: "+yoloReviewURL(ctx.Project))

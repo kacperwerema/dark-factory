@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/michal-franc/issue-viewer/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/health"
 )
 
 // The `bench` health family: the newest finished run of every benchmark

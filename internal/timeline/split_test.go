@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var t0 = time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)

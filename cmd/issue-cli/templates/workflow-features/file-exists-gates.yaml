@@ -1,0 +1,28 @@
+id: file-exists-gates
+version: v0.58.0
+category: gates
+propose: false
+templates: [marketing]
+sources: ["internal/tracker/validations/file_exists.go"]
+title: "File gates (file_exists)"
+what: |
+  The `file_exists` validator passes when `path:`, relative to the project root, is a
+  file with something in it. The path is templated like hints, plus {{department}}
+  (the department's key; hints get it too). It runs no shell, so it needs no `allow_shell`.
+why: |
+  Some work needs another piece of work's result first (a brand doc before a brief, a
+  spec before a build). A file check says so without a shell command.
+where: "a validate action on the gated transition"
+snippet: |
+  transitions:
+    - from: "brief"
+      to: "draft"
+      actions:
+        - type: "validate"
+          rule: "file_exists"
+          path: "departments/{{department}}/brand.md"
+          hint: "write the brand first: issue-cli create --department {{department}} --type foundation"
+question: "Does any transition need a file to exist first (a doc another issue writes)? Which file, on which transition?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [file_exists]

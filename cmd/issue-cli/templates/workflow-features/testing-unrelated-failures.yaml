@@ -1,0 +1,35 @@
+id: testing-unrelated-failures
+version: v0.36.0
+category: conventions
+propose: true
+templates: [development]
+sources: ["@prompt"]
+title: "Unrelated test failures are documented, not blocking"
+what: |
+  A Testing checkbox and an inject_prompt line: if unrelated failures make the full
+  suite red, document them explicitly instead of stalling or "fixing" them.
+why: |
+  Agents either get stuck on a red suite they didn't break or wander off fixing
+  unrelated code. This gives them a defined way through.
+where: "the in progress → testing append_section \"Testing\" body and its inject_prompt"
+snippet: |
+  transitions:
+    - from: "in progress"
+      to: "testing"
+      actions:
+        - type: "append_section"
+          title: "Testing"
+          body: |
+            - [ ] Relevant tests for changed code passing
+            - [ ] Known unrelated failures documented if full suite is red
+            - [ ] Test results logged as comment (`issue-cli comment <slug> --text "tests: ..."`)
+        - type: "inject_prompt"
+          prompt: |
+            Run the relevant tests for the changed code, record results, and capture any remaining manual checks.
+            If unrelated failures block the full suite, document them explicitly.
+question: "Add the 'document unrelated failures' rule to the testing step?"
+detect:
+  - path: transitions[].actions[].body
+    contains: "unrelated failures"
+  - path: transitions[].actions[].prompt
+    contains: "unrelated failures"

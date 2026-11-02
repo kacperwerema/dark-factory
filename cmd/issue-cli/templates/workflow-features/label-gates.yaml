@@ -1,0 +1,22 @@
+id: label-gates
+version: v0.36.0
+category: gates
+propose: false
+sources: ["internal/tracker/validations/has_label.go", "internal/tracker/validations/has_any_label.go"]
+title: "Label gates"
+what: |
+  `has_label` (label named by `field:`) and `has_any_label` check the issue's labels.
+why: |
+  E.g. an issue must be labelled before it leaves triage.
+where: "transitions[].actions[] rule: has_label (field:) or has_any_label"
+snippet: |
+  transitions:
+    - from: "idea"
+      to: "backlog"
+      actions:
+        - type: "validate"
+          rule: "has_any_label"
+question: "Should issues need a label before some step?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [has_label, has_any_label]

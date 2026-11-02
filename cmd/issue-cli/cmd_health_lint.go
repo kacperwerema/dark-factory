@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/lint"
+	"github.com/kacperwerema/dark-factory/internal/lint"
 )
 
 // lintWarnCap is how many findings per check the text output shows

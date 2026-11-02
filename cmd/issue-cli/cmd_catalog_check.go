@@ -11,16 +11,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/proof"
-	"github.com/michal-franc/issue-viewer/internal/workflowupgrade"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 const catalogCheckUsage = `Usage:
-  issue-cli workflow catalog-check [--base main]   # in the issue-viewer repo; make validate runs it
+  issue-cli workflow catalog-check [--base main]   # in the dark-factory repo; make validate runs it
 
 For issue-cli developers: when a work branch changes the code behind a
-catalog feature (its sources: in cmd/issue-cli/templates/workflow-features.yaml)
-or a bundled template, the entry's version: (or the template's stamp) must
+catalog feature (its sources: in cmd/issue-cli/templates/workflow-features/<id>.yaml)
+or a bundled template (other than its features: record), the entry's version: (or the template's stamp) must
 be newer than the last release in cmd/issue-cli/CHANGELOG.md, so projects
 that have the feature get an update proposal. When nothing a project adopts
 changed (a refactor, a fix), mark it on a branch commit instead:
@@ -30,6 +30,11 @@ one without an entry id, or naming an entry the catalog lacks, fails the
 check. Files the branch has only because it merged main aren't asked about.
 On a release/vX.Y branch only the commits after its newest vX.Y.Z or
 vX.Y.Z-rc.N tag are read: the tagged ones are published and were checked.
+It also checks the catalog itself at the head, each failure with its fix:
+every entry's category and sources (a bare folder wants <folder>/**,
+@prompt stands alone), and every bundled template's features: record in
+catalog order (by category, then id; issue-cli workflow scan --template
+<name> rewrites it).
 Run it while the work is in progress: it checks uncommitted changes too.`
 
 // runCatalogCheck compares the branch with its merge-base and fails when a
@@ -44,8 +49,8 @@ func runCatalogCheck(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("catalog-check runs inside a git checkout of issue-viewer: %w", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, workflowupgrade.CatalogPath)); err != nil {
-		return fmt.Errorf("%s not found: catalog-check runs in the issue-viewer repository\n\n%s", workflowupgrade.CatalogPath, catalogCheckUsage)
+	if fi, err := os.Stat(filepath.Join(root, workflowupgrade.CatalogPath)); err != nil || !fi.IsDir() {
+		return fmt.Errorf("%s not found: catalog-check runs in the dark-factory repository\n\n%s", workflowupgrade.CatalogPath, catalogCheckUsage)
 	}
 	mergeBase, err := catalogGit(root, "merge-base", *base, "HEAD")
 	if err != nil {
@@ -89,8 +94,15 @@ func runCatalogCheck(ctx *Context, args []string) error {
 			out, err := exec.Command("git", "-C", root, "show", from+":"+p).Output()
 			return out, err == nil
 		},
-		Head:     repoAt(root).Read,
-		HeadDir:  repoAt(root).Dir,
+		Head:    repoAt(root).Read,
+		HeadDir: repoAt(root).Dir,
+		HeadFiles: func() []string {
+			out, err := catalogGit(root, "ls-files", "--cached", "--others", "--exclude-standard")
+			if err != nil {
+				return nil
+			}
+			return strings.Split(out, "\n")
+		},
 		Trailers: trailers,
 	}, last)
 	if err != nil {
@@ -104,7 +116,7 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		printCatalogCheck(ctx.Stdout, rep)
 	}
 	if !rep.OK() {
-		return fmt.Errorf("catalog-check: bump the entries above, or mark them n/a (%s)", workflowupgrade.TrailerForm)
+		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
 	}
 	return nil
 }
@@ -188,7 +200,7 @@ func catalogOwnChanges(root, base string, changed []string) []string {
 // trailer first, then what to do about each stale one, and ends with a
 // count, so the head and the tail of the output both say what failed.
 func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
-	if len(rep.Entries) == 0 && len(rep.Templates) == 0 && len(rep.BadTrailers) == 0 {
+	if len(rep.Entries) == 0 && len(rep.Templates) == 0 && len(rep.BadTrailers) == 0 && len(rep.Problems) == 0 {
 		fmt.Fprintln(w, "catalog-check ok: this branch changes no catalog feature's sources and no bundled template")
 		return
 	}
@@ -215,7 +227,16 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 	for _, b := range rep.BadTrailers {
 		fmt.Fprintf(w, "✗ trailer on %s: \"Catalog: %s\": %s\n", b.Commit, b.Value, b.Problem)
 	}
-	if staleEntries+staleTemplates+len(rep.BadTrailers) == 0 {
+	for _, p := range rep.Problems {
+		first, rest, _ := strings.Cut(p, "\n")
+		fmt.Fprintf(w, "✗ catalog: %s\n", first)
+		for _, l := range strings.Split(rest, "\n") {
+			if l != "" {
+				fmt.Fprintf(w, "    %s\n", l)
+			}
+		}
+	}
+	if staleEntries+staleTemplates+len(rep.BadTrailers)+len(rep.Problems) == 0 {
 		fmt.Fprintf(w, "catalog-check ok: %d entries and %d templates touched, all bumped or marked n/a\n", len(rep.Entries), len(rep.Templates))
 		return
 	}
@@ -235,7 +256,7 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 			continue
 		}
 		fmt.Fprintf(w, "✗ template: this branch changes %s/%s.yaml (stamp %s)\n", workflowupgrade.TemplatesPath, t.Name, t.Stamp)
-		fmt.Fprintf(w, "    → bump it to template: %s@%s, then run issue-cli workflow scan on it so its features: record matches (catalog-bump <id> does both for an entry it applies to)\n", t.Name, rep.NextRelease)
+		fmt.Fprintf(w, "    → bump it to template: %s@%s, then run issue-cli workflow scan --template %s so its features: record matches (catalog-bump <id> does both for an entry it applies to)\n", t.Name, rep.NextRelease, t.Name)
 	}
 	if len(rep.BadTrailers) > 0 {
 		var ids []string
@@ -249,7 +270,7 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 		}
 		fmt.Fprintln(w, "    → reword the commit (git commit --amend when it is the last one), or drop the line")
 	}
-	fmt.Fprintf(w, "\ncatalog-check failed: %d of %d entries and %d of %d templates need a bump or an n/a; %d Catalog: lines mark nothing\n", staleEntries, len(rep.Entries), staleTemplates, len(rep.Templates), len(rep.BadTrailers))
+	fmt.Fprintf(w, "\ncatalog-check failed: %d of %d entries and %d of %d templates need a bump or an n/a; %d Catalog: lines mark nothing; %d catalog problems\n", staleEntries, len(rep.Entries), staleTemplates, len(rep.Templates), len(rep.BadTrailers), len(rep.Problems))
 }
 
 // catalogChangedFiles lists the files changed since mergeBase, in commits and

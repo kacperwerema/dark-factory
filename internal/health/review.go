@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/ci"
 )
 
 //go:embed review_prompt.md

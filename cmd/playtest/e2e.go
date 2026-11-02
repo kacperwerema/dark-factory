@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
 // resultsDefault is where ux-test writes the e2e results by default: into

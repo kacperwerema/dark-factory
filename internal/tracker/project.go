@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -198,6 +199,17 @@ func (p *Project) attachRuntime(wf *WorkflowConfig) {
 			return EpicChildren(issues, slug)
 		}
 	}
+	if wf.DecisionsInForce == nil && p.IssueDir != "" {
+		dir := p.IssueDir
+		wf.DecisionsInForce = func() (*DecisionIndex, InForceOptions) {
+			opts := ProjectInForceOptions(p, time.Now())
+			issues, err := LoadIssues(dir)
+			if err != nil {
+				return nil, opts
+			}
+			return BuildDecisionIndex(issues, nil), opts
+		}
+	}
 }
 
 func (p *Project) LoadWorkflowForSystem(system string) *WorkflowConfig {
@@ -249,8 +261,13 @@ type ProjectsConfig struct {
 	// (cmd/telemetry-collector's batches.jsonl or its -data dir), which
 	// the viewer's /telemetry page reads. Relative to the config's folder;
 	// optional, set by hand, never written.
-	TelemetryData string    `yaml:"telemetry_data"`
-	Projects      []Project `yaml:"projects"`
+	TelemetryData string `yaml:"telemetry_data"`
+	// GitHubTokenCommand is a shell command that prints a GitHub token;
+	// the viewer runs it before gh closes an issue that moved to done and
+	// hands gh its output as GH_TOKEN. Unset (the default), gh uses its own
+	// login (gh auth login).
+	GitHubTokenCommand string    `yaml:"github_token_command"`
+	Projects           []Project `yaml:"projects"`
 }
 
 // IdentityConfig is projects.yaml's identity: block. Cloudflare Access sits

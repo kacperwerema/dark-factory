@@ -1,0 +1,45 @@
+name: CI
+
+# Proof that a release snapshot builds: on every push to main of the public
+# repo, the gofmt check, go vet and go test. Development is tested by local CI
+# on the dev machine (docs/workflow.md, Local CI), so a private repo (the dev
+# repo under privacy.code: snapshots) skips this and spends no Actions
+# minutes. Tests that drive Chrome skip here (PLAYTEST_CHROME=none); tests that
+# need tmux get it from apt.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: gofmt
+        run: make fmt-check
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        env:
+          PLAYTEST_CHROME: none
+        run: go test ./... -count=1

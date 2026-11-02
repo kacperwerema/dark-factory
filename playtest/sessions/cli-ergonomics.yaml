@@ -1,5 +1,5 @@
 session: cli-ergonomics
-issue: cli/issue-cli-ergonomics-from-roguetech-retros-edit-a-box-or-line-retitle-keeps-slug-list-all-loud-unknown-flags
+issue: cli/issue-cli-ergonomics-from-kestrel-retros-edit-a-box-or-line-retitle-keeps-slug-list-all-loud-unknown-flags
 title: issue-cli ergonomics - loud flags, --help, edit a box or line, retitle keeps the slug
 scenario: basic
 
@@ -16,7 +16,7 @@ steps:
       - open: /p/{project}/?classic=1
     checks:
       # Before: Go's flag parsing stopped at "done", so a flag after it was
-      # silently dropped (the RogueTech `list done --all`).
+      # silently dropped (the Kestrel `list done --all`).
       - cli: { args: [list, done, --bogus], exit: 2, contains: "unknown flag --bogus for 'list'" }
       - cli: { args: [list, done, --all], exit: 2, contains: "unexpected argument \"done\" for 'list'" }
       - cli: { args: [list, --status, done, extra], exit: 2, contains: "unexpected argument \"extra\" for 'list'" }

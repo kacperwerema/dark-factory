@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/redrounds"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/redrounds"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // redRoundsRun follows one transition's checks for the red-round cap: it
@@ -15,7 +15,10 @@ import (
 // check's result through wf.CheckDone, records them and raises the question
 // when a check reaches the cap.
 type redRoundsRun struct {
-	ctx     *Context
+	ctx *Context
+	// runs is the checks this transition runs: a cap question on another
+	// gate or critique check does not hold it.
+	runs    map[string]bool
 	wf      *tracker.WorkflowConfig
 	issue   *tracker.Issue
 	state   redrounds.State
@@ -40,23 +43,24 @@ func loadRedRounds(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issu
 // startRedRounds sets up the cap for a transition. A non-nil error is the
 // refusal: a cap question is open (raised now, for a streak that reached
 // the cap since, e.g. from local CI), and nothing is run again.
-func startRedRounds(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue) (*redRoundsRun, error) {
+func startRedRounds(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, to string) (*redRoundsRun, error) {
 	state, err := loadRedRounds(ctx, wf, issue)
 	if err != nil {
 		fmt.Fprintf(ctx.Stderr, "warning: red rounds not counted: %v\n", err)
 		return nil, nil
 	}
-	r := &redRoundsRun{ctx: ctx, wf: wf, issue: issue, state: state}
+	r := &redRoundsRun{ctx: ctx, wf: wf, issue: issue, state: state, runs: wf.TransitionCheckKeys(issue.Status, to)}
 	if err := r.raise(); err != nil {
 		return nil, err
 	}
-	if err := r.state.Hold(issue.Slug); err != nil {
+	if err := r.state.Hold(issue.Slug, r.runs); err != nil {
 		return nil, fmt.Errorf("failed to transition: %w", err)
 	}
 	wf.CheckDone = func(key string, err error) {
 		res := tracker.RoundResult{Check: key, Red: err != nil, At: ctx.now()}
 		if err != nil {
 			res.Why = firstErrLine(err)
+			res.Failures = redrounds.FailureKeys(err.Error())
 		}
 		r.results = append(r.results, res)
 	}
@@ -120,7 +124,7 @@ func (r *redRoundsRun) finish(err error) error {
 	}
 	s := r.state.Streak(last.Check)
 	if _, open := r.state.Open[last.Check]; open {
-		return fmt.Errorf("%w\n\n%v", err, r.state.Hold(r.issue.Slug))
+		return fmt.Errorf("%w\n\n%v", err, r.state.Hold(r.issue.Slug, r.runs))
 	}
 	return fmt.Errorf("%w\n\n%s is %s (max_red_rounds); at %d it becomes a question for the owner. Can't fix it? issue-cli rounds %s --cannot-fix %q --why \"...\"",
 		err, last.Check, s.Label(r.state.Max), r.state.Max, r.issue.Slug, last.Check)
@@ -161,6 +165,12 @@ been red: a gate's command or the proof check run by transition, a local CI
 command run on a merge that named the issue, the critic (each held
 issue-cli critique run is a round; a failed run is not). Reds at one branch
 head are one round; a green ends the streak.
+
+A round counts only when the same failure comes back: the same critic
+finding (path and text), the same failing test, the same unproven
+criterion or the same command output. A round whose failures are all new
+starts the count over at 1, and so does any comment by the owner on the
+issue. Each round is listed with why it counted.
 
 At max_red_rounds (workflow.yaml, 4 when unset) the check becomes a
 question: comment for the owner, and transition refuses without running
@@ -255,6 +265,9 @@ func runRounds(ctx *Context, args []string) error {
 			line += " · " + w
 		}
 		fmt.Fprintln(ctx.Stdout, line)
+		for _, rd := range s.History {
+			fmt.Fprintf(ctx.Stdout, "    round %d · count %d · %s\n", rd.N, rd.Count, rd.Reason())
+		}
 		if q, ok := state.Open[s.Check]; ok {
 			fmt.Fprintf(ctx.Stdout, "    question for the owner: comment #%d. Stop working on this check; transition is refused until it is resolved.\n", q.CommentID)
 		}

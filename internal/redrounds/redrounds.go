@@ -3,7 +3,9 @@
 // into a question for the owner. Results come from the issue's stats sidecar
 // (rounds:, written by issue-cli transition and `rounds --cannot-fix`), from
 // local CI runs that name the issue and from its critique runs (FromCritique);
-// Count folds them into streaks.
+// Count folds them into streaks. A round counts only when a failure of an
+// earlier round comes back (FailureKeys); an owner comment starts every
+// count over.
 // While a cap question is open, issue-cli transition refuses before running
 // anything again. See docs/workflow.md, "Red-round cap".
 package redrounds
@@ -14,24 +16,60 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/ci"
-	"github.com/michal-franc/issue-viewer/internal/critique"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/critique"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Result is one outcome of one check (tracker.RoundResult).
 type Result = tracker.RoundResult
 
 // Streak is one check's red rounds since its last green (or since the
-// owner resolved its last cap question).
+// owner resolved its last cap question, or commented on the issue).
 type Streak struct {
-	Check  string `json:"check"`
-	Rounds int    `json:"rounds"`
+	Check string `json:"check"`
+	// Rounds is the count the cap reads: it goes up only when a failure of
+	// an earlier round came back; a round whose failures are all new
+	// starts it over at 1.
+	Rounds int `json:"rounds"`
 	// CannotFix is set when the worker said it cannot fix the check: the
 	// streak is at the cap whatever Rounds says.
 	CannotFix bool `json:"cannot_fix,omitempty"`
 	// Last is the newest red result of the streak.
 	Last Result `json:"last"`
+	// History is every red round since the last green, oldest first, with
+	// why it counted or started over.
+	History []Round `json:"history,omitempty"`
+}
+
+// Round is one red round of a check: the reds at one branch head (or one
+// red with no head), their failures, and the count after it.
+type Round struct {
+	N        int       `json:"n"`
+	At       time.Time `json:"at"`
+	Head     string    `json:"head,omitempty"`
+	Why      string    `json:"why,omitempty"`
+	Failures []string  `json:"failures,omitempty"`
+	// Count is the streak's count after this round.
+	Count int `json:"count"`
+	// Repeat is the failure that came back from round SameAs; empty when
+	// the round started the count (over).
+	Repeat string `json:"repeat,omitempty"`
+	SameAs int    `json:"same_as,omitempty"`
+}
+
+// Reason says why the round counted or started the count over.
+func (r Round) Reason() string {
+	switch {
+	case r.N == 1:
+		return "first red round"
+	case r.Repeat != "":
+		return fmt.Sprintf("same %s as round %d", describeKey(r.Repeat), r.SameAs)
+	case len(r.Failures) == 0:
+		return "counted: no failure recorded to compare"
+	default:
+		return "all failures new: the count starts over"
+	}
 }
 
 // AtCap reports whether the streak has reached max rounds, or the worker
@@ -51,14 +89,17 @@ func (s Streak) Label(max int) string {
 // check. Results are taken in time order. A green result ends the check's
 // streak; reds at the same non-empty Head are one round (retrying without a
 // new commit is not a fix round); a red with no Head is its own round.
-// since holds, per check, the time before which nothing counts (the owner
-// resolved a cap question then).
-func Count(results []Result, since map[string]time.Time) []Streak {
+// A round counts only when one of its failures (FailureKeys) was a failure
+// of an earlier round of the streak; a round whose failures are all new
+// starts the count over at 1. since holds, per check, the time before
+// which nothing counts (the owner resolved a cap question then); nothing
+// at or before reset counts for any check (the owner commented then).
+func Count(results []Result, since map[string]time.Time, reset time.Time) []Streak {
 	sorted := append([]Result(nil), results...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].At.Before(sorted[j].At) })
 	type acc struct {
 		Streak
-		heads map[string]bool
+		heads map[string]int // head → index in History
 	}
 	by := map[string]*acc{}
 	for _, r := range sorted {
@@ -68,20 +109,28 @@ func Count(results []Result, since map[string]time.Time) []Streak {
 		if t, ok := since[r.Check]; ok && !r.At.After(t) {
 			continue
 		}
+		if !reset.IsZero() && !r.At.After(reset) {
+			continue
+		}
 		a := by[r.Check]
 		if !r.Red {
 			delete(by, r.Check)
 			continue
 		}
 		if a == nil {
-			a = &acc{Streak: Streak{Check: r.Check}, heads: map[string]bool{}}
+			a = &acc{Streak: Streak{Check: r.Check}, heads: map[string]int{}}
 			by[r.Check] = a
 		}
-		if r.Head == "" || !a.heads[r.Head] {
-			a.Rounds++
+		keys := resultKeys(r)
+		if i, ok := a.heads[r.Head]; ok && r.Head != "" {
+			rd := &a.History[i]
+			rd.Failures = addKeys(rd.Failures, keys)
+			rd.Why = r.Why
+		} else {
 			if r.Head != "" {
-				a.heads[r.Head] = true
+				a.heads[r.Head] = len(a.History)
 			}
+			a.History = append(a.History, Round{At: r.At, Head: r.Head, Why: r.Why, Failures: addKeys(nil, keys)})
 		}
 		if r.CannotFix {
 			a.CannotFix = true
@@ -90,10 +139,63 @@ func Count(results []Result, since map[string]time.Time) []Streak {
 	}
 	out := make([]Streak, 0, len(by))
 	for _, a := range by {
-		out = append(out, a.Streak)
+		s := a.Streak
+		s.Rounds = score(s.History)
+		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Check < out[j].Check })
 	return out
+}
+
+// score numbers the rounds, works out each one's count and returns the
+// last: a round counts when a failure of an earlier round is among its
+// own (or it has none recorded to compare), else the count starts over.
+func score(rounds []Round) int {
+	seen := map[string]int{} // failure → the newest round it was in
+	count := 0
+	for i := range rounds {
+		rd := &rounds[i]
+		rd.N = i + 1
+		switch {
+		case i == 0:
+			count = 1
+		case len(rd.Failures) == 0:
+			count++
+		default:
+			for _, f := range rd.Failures {
+				if n, ok := seen[f]; ok {
+					rd.Repeat, rd.SameAs = f, n
+					break
+				}
+			}
+			if rd.Repeat != "" {
+				count++
+			} else {
+				count = 1
+			}
+		}
+		rd.Count = count
+		for _, f := range rd.Failures {
+			seen[f] = rd.N
+		}
+	}
+	return count
+}
+
+func addKeys(have, keys []string) []string {
+	for _, k := range keys {
+		dup := false
+		for _, h := range have {
+			if h == k {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			have = append(have, k)
+		}
+	}
+	return have
 }
 
 // FromCI turns local CI runs that merged slug into results: each run red
@@ -112,7 +214,11 @@ func FromCI(runs []ci.Run, slug string) []Result {
 		switch run.State {
 		case ci.Red:
 			why := strings.Join(run.Failures, ", ")
-			out = append(out, Result{Check: "ci:" + run.Failed, Red: true, At: at, Head: run.Sha, Why: why})
+			keys := TestKeys(run.Failures)
+			if len(keys) == 0 {
+				keys = FailureKeys(run.Failed)
+			}
+			out = append(out, Result{Check: "ci:" + run.Failed, Red: true, At: at, Head: run.Sha, Why: why, Failures: keys})
 		case ci.Green:
 			for _, c := range run.Commands {
 				out = append(out, Result{Check: "ci:" + c.Cmd, At: at, Head: run.Sha})
@@ -124,14 +230,13 @@ func FromCI(runs []ci.Run, slug string) []Result {
 
 // CritiqueCheck is the check critique runs on the gate from → to count
 // under ("critique in design → backlog"): each gate has its own streak.
-func CritiqueCheck(from, to string) string {
-	return "critique " + from + " → " + to
-}
+func CritiqueCheck(from, to string) string { return tracker.CritiqueCheckKey(from, to) }
 
 // FromCritique turns slug's critique runs into results of their gate's
 // critique check: a run with a blocks finding is one red round of its own
 // (keyed by run, since a design stage's branch head does not move between
-// runs); a clear run is green, an overridden one green from the override.
+// runs) whose failures are its blocks findings (FindingKey), so only a
+// finding that comes back makes the next held run count; a clear run is green, an overridden one green from the override.
 // A failed run (non-zero exit, timeout, usage limit) and a run holding
 // only on output problems (no Coverage line) are the critic's fault, not
 // the work's, and are not rounds.
@@ -147,7 +252,11 @@ func FromCritique(runs []*critique.Run, slug string) []Result {
 			out = append(out, Result{Check: check, At: run.Override.At, Head: "critique:" + run.ID})
 		case run.Failed:
 		case run.Report.Count(critique.Blocks) > 0:
-			out = append(out, Result{Check: check, Red: true, At: run.At, Head: "critique:" + run.ID, Why: critiqueWhy(run.Report)})
+			var keys []string
+			for _, f := range run.Report.Of(critique.Blocks) {
+				keys = addKeys(keys, []string{FindingKey(f)})
+			}
+			out = append(out, Result{Check: check, Red: true, At: run.At, Head: "critique:" + run.ID, Why: critiqueWhy(run.Report), Failures: keys})
 		case run.Holds():
 		default:
 			out = append(out, Result{Check: check, At: run.At, Head: "critique:" + run.ID})
@@ -230,6 +339,21 @@ func Questions(comments []tracker.Comment) []Question {
 	return out
 }
 
+// OwnerReset is the time of the owner's newest comment on the issue (zero
+// when there is none): the owner has spoken, so every count starts over.
+func OwnerReset(comments []tracker.Comment) time.Time {
+	var newest time.Time
+	for _, c := range comments {
+		if tracker.CommentAuthor(c) != tracker.OwnerAuthor {
+			continue
+		}
+		if at, ok := tracker.CommentTime(c.Date); ok && at.After(newest) {
+			newest = at
+		}
+	}
+	return newest
+}
+
 // Since is, per check, the time of its newest resolved cap question: rounds
 // before it don't count any more.
 func Since(qs []Question) map[string]time.Time {
@@ -292,7 +416,7 @@ func Load(issuePath, slug, ciRoot, issuesDir string, max int) (State, error) {
 // Build is Load's pure half: the State of results and comments.
 func Build(results []Result, comments []tracker.Comment, max int) State {
 	qs := Questions(comments)
-	return State{Max: max, Streaks: Count(results, Since(qs)), Open: Open(qs)}
+	return State{Max: max, Streaks: Count(results, Since(qs), OwnerReset(comments)), Open: Open(qs)}
 }
 
 // Streak returns check's streak (zero when it is not red).
@@ -332,15 +456,22 @@ func (e *HoldError) Error() string {
 		e.Question.Check, e.Streak.Label(e.Max), e.Question.CommentID, e.Slug)
 }
 
-// Hold returns the HoldError for the first open cap question (by check), or
-// nil when none is open.
-func (s State) Hold(slug string) error {
-	if len(s.Open) == 0 {
-		return nil
-	}
-	checks := make([]string, 0, len(s.Open))
+// Hold returns the HoldError for the first open cap question (by check)
+// that holds a transition running runs, or nil when none does. A question
+// on a gate or critique check the transition does not run (not in runs)
+// stays open for the owner but does not hold it; a question on any other
+// check (local CI, a check the worker named with --cannot-fix) holds every
+// transition. A nil runs holds on every open question.
+func (s State) Hold(slug string, runs map[string]bool) error {
+	var checks []string
 	for c := range s.Open {
+		if runs != nil && transitionCheck(c) && !runs[c] {
+			continue
+		}
 		checks = append(checks, c)
+	}
+	if len(checks) == 0 {
+		return nil
 	}
 	sort.Strings(checks)
 	q := s.Open[checks[0]]
@@ -349,6 +480,12 @@ func (s State) Hold(slug string) error {
 		st.Rounds = s.Max
 	}
 	return &HoldError{Slug: slug, Question: q, Streak: st, Max: s.Max}
+}
+
+// transitionCheck reports whether check is one a transition runs (a gate
+// or a critique gate), as opposed to local CI or a name the worker gave.
+func transitionCheck(check string) bool {
+	return strings.HasPrefix(check, "gate:") || strings.HasPrefix(check, "critique ")
 }
 
 func firstLine(s string) string {

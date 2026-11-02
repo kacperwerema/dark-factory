@@ -5,7 +5,7 @@
 # then writes paths for UI and the map stops being a draft.
 title: Code paths per system
 project:
-  name: Raid League
+  name: Siege Cup
   slug: rl
 issues: tracker
 workflow: workflow.yaml

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var checkboxRe = regexp.MustCompile(`(?m)^\s*- \[[ xX]\]`)

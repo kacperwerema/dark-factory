@@ -1,0 +1,50 @@
+id: brand-foundation
+version: v0.59.0
+category: lifecycle
+propose: true
+templates: [marketing]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/role.md"]
+title: "Brand foundation before channel work (research mode)"
+what: |
+  Two research-mode types ahead of the channels. `foundation` (research → brand →
+  icp → owner review → publish → done) researches a topic the owner names, proposes
+  the brand (traits, voice, do / don't) and the ICP (who, problems, where, how to
+  reach them), and at publish writes what the owner approved to
+  departments/<key>/brand.md and icp.md. `market-size` (research → market size →
+  owner review → publish → done) does TAM / SAM / SOM into market.md, later or
+  again. Every channel's brief → draft checks brand.md and icp.md with `file_exists`,
+  and the refusal gives the `issue-cli create --type foundation` command.
+why: |
+  Without a settled brand and ICP every brief guesses who it is for and how it
+  should sound. The foundation makes the owner settle them once, and the gate keeps
+  channel work from starting before they exist.
+where: "statuses research, brand, icp, market size (and board.columns) before brief; their transitions; types foundation and market-size; two file_exists validates on brief → draft"
+snippet: |
+  statuses:
+    - name: "research"
+      description: "Research mode: sources on the topic the owner named"
+    - name: "brand"
+      description: "Brand traits, voice and guidelines, proposed for the owner to settle"
+    - name: "icp"
+      description: "Who to target and how to reach them"
+    - name: "market size"
+      description: "TAM / SAM / SOM with sources and assumptions"
+  transitions:
+    - from: "brief"
+      to: "draft"
+      actions:
+        - type: "validate"
+          rule: "file_exists"
+          path: "departments/{{department}}/brand.md"
+          hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+  types:
+    foundation:
+      path: [research, brand, icp, owner review, publish, done]
+    market-size:
+      path: [research, market size, owner review, publish, done]
+  # The full prompts and edges are in the bundled marketing template
+  # (docs/departments.md, "Brand foundation and research mode").
+question: "Before channel work, should Marketing settle the brand and the ICP with you (and size the market later)? Which topic should the first research run on?"
+detect:
+  - path: statuses[].name
+    equals: icp

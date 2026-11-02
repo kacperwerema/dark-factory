@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 )
 
 // run builds a finished run: outcomes per task, holdout n/m, first-try rate.

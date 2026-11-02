@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/connectors"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/connectors"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const connectorsSnippet = `No connectors configured. A department lists the outside tools its agents

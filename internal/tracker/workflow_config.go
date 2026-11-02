@@ -237,6 +237,10 @@ type WorkflowConfig struct {
 	// embedder for search (docs/memory.md). nil means BM25 only.
 	Memory *MemoryConfig `yaml:"memory,omitempty" desc:"Shared memory settings: an optional local embedder for search (see docs/memory.md, Semantic search)"`
 
+	// Decisions tunes the decision ledger's block in start, show and the
+	// briefings (docs/workflow.md#decision-ledger).
+	Decisions *DecisionsConfig `yaml:"decisions,omitempty" desc:"Decision ledger settings: brief_cap, the decisions-in-force block's line cap (see docs/workflow.md, Decision ledger)"`
+
 	// Critique is how issue-cli critique starts the fresh critic the
 	// critique gate reads (docs/Workflow/critique.md).
 	Critique *CritiqueConfig `yaml:"critique,omitempty" desc:"Fresh critic settings: agent, command, timeout for issue-cli critique, read by the critique gate (see docs/Workflow/critique.md)"`
@@ -285,12 +289,27 @@ type WorkflowConfig struct {
 	// lets the criteria only the owner can prove wait for them after the
 	// fact instead of blocking (internal/proof YOLOGateError).
 	DeferOwnerProof bool `yaml:"-" json:"-"`
+	// KeepOwnAssignee is set by issue-cli when the issue's own worker runs
+	// the transition: a set_fields action clearing the assignee on a forward
+	// move leaves it, so the worker who continues straight on still holds the
+	// issue. A backward move (the issue handed back) still clears it.
+	KeepOwnAssignee bool `yaml:"-" json:"-"`
 	// CheckHold and CheckDone are set by issue-cli to count red rounds
 	// (internal/redrounds): ValidateTransition asks CheckHold before it runs
 	// a check validation (CheckKey) and refuses with its error, without
 	// running the check; CheckDone hears each check's result. Nil elsewhere.
 	CheckHold func(key string) error      `yaml:"-" json:"-"`
 	CheckDone func(key string, err error) `yaml:"-" json:"-"`
+	// DecisionsInForce builds the project's decision index and the
+	// InForce options for decisions_cited and citations_current; set by
+	// attachRuntime, called at most once per config and only when one of
+	// those rules runs.
+	DecisionsInForce func() (*DecisionIndex, InForceOptions) `yaml:"-" json:"-"`
+	// DeferDecisionHolds is set by issue-cli while YOLO is on: the ledger
+	// rules record their holds (DecisionHolds) instead of failing, and the
+	// transition posts each as a yolo-hold: comment.
+	DeferDecisionHolds bool             `yaml:"-" json:"-"`
+	decisionState      *decisionRuntime `yaml:"-" json:"-"`
 
 	// Set by ForType/ForIssue on a scoped config. ActiveType is the resolved
 	// type ("" when the project has no types); typePath is the set of statuses

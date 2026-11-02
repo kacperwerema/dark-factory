@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The marketing fixture: a project whose Marketing department runs on its
@@ -175,11 +175,23 @@ func TestAWorkflowChangeGetsAVerdictPerWorkflow(t *testing.T) {
 	calc := newFixture(t)
 	mkt := newMarketingFixture(t)
 	env := twoProjectEnv(t, calc, mkt)
+	// A stand-in clock: each now() is one second later. The budget watcher
+	// also reads it on every Poll tick while the worker runs, so with the
+	// fixture's 50 ms Poll a worker slowed by load got an extra tick and
+	// "wall +33%". The watcher has its own tests; here it never ticks, and
+	// wall time is the same number of now() calls in every run.
+	env.Poll = time.Hour
 	clock := time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC)
 	env.Now = func() time.Time { clock = clock.Add(time.Second); return clock }
 	scorer := stubScorer(t)
 	runWith := func(word string) *Run {
-		b := calc.benchmark(postWorker(word), calc.task, mkt.task)
+		w := postWorker(word)
+		if word == "BAD" {
+			// The second run's worker is slower, as one is on a
+			// loaded machine: the verdict must not see it.
+			w = "sleep 0.3; " + w
+		}
+		b := calc.benchmark(w, calc.task, mkt.task)
 		b.Scorer = scorer
 		run, err := Execute(context.Background(), b, env, Options{})
 		if err != nil {

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Repo is the issue-viewer checkout catalog-bump reads: a file's content
+// Repo is the dark-factory checkout catalog-bump reads: a file's content
 // (ok false when it doesn't exist) and the file names in a folder.
 type Repo struct {
 	Read func(path string) (data []byte, ok bool)
@@ -31,7 +31,6 @@ type BumpPlan struct {
 
 var (
 	stampLine  = regexp.MustCompile(`(?m)^template:[ \t]*["']?([^"'\s@]+)@(v\d+\.\d+\.\d+)["']?[ \t]*$`)
-	entryStart = regexp.MustCompile(`^\s*-\s+id:\s*["']?([^"'\s]+)["']?\s*$`)
 	versionKey = regexp.MustCompile(`^(\s*version:\s*)["']?(v\d+\.\d+\.\d+)["']?(\s*(?:#.*)?)$`)
 )
 
@@ -45,22 +44,15 @@ func PlanBump(repo Repo, ids []string, version string) (*BumpPlan, error) {
 	if ParseVersion(version) == nil {
 		return nil, fmt.Errorf("version %q is not vX.Y.Z", version)
 	}
-	mainRaw, ok := repo.Read(CatalogPath)
-	if !ok {
-		return nil, fmt.Errorf("%s not found: catalog-bump runs in the issue-viewer repository", CatalogPath)
+	files := readCatalogFiles(repo.Read, repo.Dir, CatalogPath)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("%s/ has no entry files: catalog-bump runs in the dark-factory repository", CatalogPath)
 	}
 	split := map[string][]byte{}
-	var splitFiles []CatalogFile
-	for _, name := range repo.Dir(SplitCatalogPath) {
-		if path.Ext(name) != ".yaml" {
-			continue
-		}
-		if data, ok := repo.Read(SplitCatalogPath + "/" + name); ok {
-			split[name] = data
-			splitFiles = append(splitFiles, CatalogFile{Name: name, Data: data})
-		}
+	for _, f := range files {
+		split[f.Name] = f.Data
 	}
-	entries, err := ParseCatalog(mainRaw, splitFiles, false)
+	entries, err := ParseCatalog(files, false)
 	if err != nil {
 		return nil, err
 	}
@@ -94,20 +86,19 @@ func PlanBump(repo Repo, ids []string, version string) (*BumpPlan, error) {
 	for _, id := range ids {
 		e, ok := index[id]
 		if !ok {
-			return nil, fmt.Errorf("no catalog entry %q (ids are in %s and %s/)", id, CatalogPath, SplitCatalogPath)
+			return nil, fmt.Errorf("no catalog entry %q (ids are the file names in %s/)", id, CatalogPath)
 		}
 		if CompareVersions(version, e.Version) < 0 {
 			return nil, fmt.Errorf("%s is at %s already; %s is older", id, e.Version, version)
 		}
 		if e.Version != version {
-			file := SplitCatalogPath + "/" + id + ".yaml"
-			data, inSplit := split[id+".yaml"]
-			if !inSplit {
-				file = CatalogPath
-				data = mainRaw
+			file := CatalogPath + "/" + id + ".yaml"
+			data, ok := split[id+".yaml"]
+			if !ok {
+				return nil, fmt.Errorf("%s: entry %s is not in its own file", file, id)
 			}
 			c := edit(file, data)
-			out, err := setEntryVersion(c.Data, id, version, inSplit)
+			out, err := setEntryVersion(c.Data, id, version)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", file, err)
 			}
@@ -152,28 +143,13 @@ func PlanBump(repo Repo, ids []string, version string) (*BumpPlan, error) {
 	return plan, nil
 }
 
-// setEntryVersion rewrites the version: line of entry id: the top-level one
-// of a one-entry file, or the entry's own key after `- id: <id>` in the list
-// (snippets may hold `- id:` lines of their own, deeper in).
-func setEntryVersion(data []byte, id, version string, single bool) ([]byte, error) {
+// setEntryVersion rewrites the top-level version: line of an entry file
+// (snippets may hold version: lines of their own, deeper in).
+func setEntryVersion(data []byte, id, version string) ([]byte, error) {
 	lines := strings.SplitAfter(string(data), "\n")
-	keyIndent, listIndent := 0, -1
-	in := single
 	for i, l := range lines {
 		body := strings.TrimRight(l, "\r\n")
-		indent := len(body) - len(strings.TrimLeft(body, " "))
-		if !single {
-			if m := entryStart.FindStringSubmatch(body); m != nil && (listIndent < 0 || indent == listIndent) {
-				if in {
-					break // the next entry: this one had no version line
-				}
-				listIndent = indent
-				in = m[1] == id
-				keyIndent = indent + 2
-				continue
-			}
-		}
-		if !in || indent != keyIndent {
+		if strings.HasPrefix(body, " ") {
 			continue
 		}
 		if m := versionKey.FindStringSubmatch(body); m != nil {

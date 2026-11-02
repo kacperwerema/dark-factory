@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/bench"
-	"github.com/michal-franc/issue-viewer/internal/experiment"
-	"github.com/michal-franc/issue-viewer/internal/retro"
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var experimentCommand = &Command{
@@ -55,6 +55,13 @@ Subcommands:
       section. Beside it, each workflow's verdict (bench compare's By
       workflow), marked changed or control by the files the candidate
       changed since main; advice only, the owner adopts.
+  queue <slug> [--ref <branch>] --quote "<owner's words>"
+      The owner's word to run it on a night: bench nightly runs the oldest
+      queued experiment once against that night's baseline and records the
+      verdict; it never adopts. The owner, or a lead with the owner's words;
+      workers are refused. --ref defaults to work/<slug>.
+  unqueue <slug>
+      Take it off the queue before a night runs it.
   rollback <slug>
       Make branch revert/<slug> reverting the commits on main with the
       trailer "Experiment: <slug>". main is not touched; review and merge it.
@@ -62,7 +69,7 @@ Subcommands:
 The benchmark, its holdout, its budget and the protected paths are the
 owner's (bench config outside every repo); nothing here writes them.`,
 	Run:         runExperiment,
-	Subcommands: []string{"candidates", "init", "show", "list", "run", "record", "rollback"},
+	Subcommands: []string{"candidates", "init", "show", "list", "run", "record", "rollback", "queue", "unqueue"},
 }
 
 func init() {
@@ -97,8 +104,12 @@ func runExperiment(ctx *Context, args []string) error {
 		return runExperimentRecord(ctx, rest)
 	case "rollback":
 		return runExperimentRollback(ctx, rest)
+	case "queue":
+		return runExperimentQueue(ctx, rest, true)
+	case "unqueue":
+		return runExperimentQueue(ctx, rest, false)
 	}
-	return &usageError{msg: fmt.Sprintf("unknown experiment subcommand %q (candidates, init, show, list, run, record, rollback)", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown experiment subcommand %q (candidates, init, show, list, run, record, rollback, queue, unqueue)", args[0])}
 }
 
 // multiFlag is a repeatable string flag.
@@ -355,6 +366,14 @@ func runExperimentShow(ctx *Context, args []string) error {
 	printExperimentWorkflows(w, b)
 	if b.Adopted != nil && b.Adopted.RolledBack != "" {
 		fmt.Fprintf(w, "Rollback:   branch %s prepared\n", b.Adopted.RolledBack)
+	}
+	switch q := b.Queue; {
+	case q.Waiting():
+		fmt.Fprintf(w, "Queue:      waiting for a night (%s, queued %s by %s on %q)\n", q.Ref, q.At.Format("2006-01-02"), q.By, q.Quote)
+	case q != nil:
+		fmt.Fprintf(w, "Queue:      night %s took it%s\n", q.Ran, map[bool]string{true: " — skipped: " + q.Why, false: ""}[q.Why != ""])
+	case b.Adopted == nil:
+		fmt.Fprintln(w, "Queue it for a night: "+tracker.InjectProject(ctx.Project, "issue-cli experiment queue "+issue.Slug+" --quote \"<owner's words>\""))
 	}
 	return nil
 }
@@ -874,4 +893,67 @@ func noisyResults(rs []experiment.WorkflowResult) []string {
 		vs = append(vs, bench.WorkflowVerdict{Workflow: r.Workflow, Mark: r.Mark, Verdict: r.Verdict})
 	}
 	return bench.NoisyControls(vs)
+}
+
+// runExperimentQueue puts an experiment on the nightly queue (on) or takes
+// it off: the owner's word, like a job's standing start. Workers never
+// queue; a lead needs the owner's words.
+func runExperimentQueue(ctx *Context, args []string, on bool) error {
+	verb := "queue"
+	if !on {
+		verb = "unqueue"
+	}
+	slug, rest, err := requireSlug(args, "experiment "+verb)
+	if err != nil {
+		return err
+	}
+	fs := newFlagSet("experiment "+verb, ctx)
+	ref := fs.String("ref", "", "the branch a night measures (default work/<slug>)")
+	quoteFlag := fs.String("quote", "", "the owner's words queueing it (required in an agent session)")
+	if err := parseFlags(ctx, fs, rest); err != nil {
+		return err
+	}
+	issue, err := experimentIssue(ctx, slug)
+	if err != nil {
+		return err
+	}
+	me := whoAmI(ctx.Project, nil)
+	if me.Role == tracker.RoleWorker {
+		return fmt.Errorf("workers never queue experiments: a night spends tokens on the owner's word. Ask with a question: comment on your issue")
+	}
+	quote := strings.TrimSpace(normalizeEscapedText(*quoteFlag))
+	who := agentSession(ctx)
+	if on && who != "" && quote == "" {
+		return &usageError{msg: fmt.Sprintf("experiment queue spends a night's tokens: in an agent session (%s) it needs --quote with the owner's words", who)}
+	}
+	b, err := experiment.Load(issue.FilePath)
+	if err != nil {
+		return err
+	}
+	if b == nil {
+		return fmt.Errorf("%s has no experiment block: issue-cli experiment init %s --hypothesis ... --target ...", issue.Slug, issue.Slug)
+	}
+	if !on {
+		if !b.Queue.Waiting() {
+			fmt.Fprintf(ctx.Stdout, "%s is not queued; nothing changed.\n", issue.Slug)
+			return nil
+		}
+		b.Queue = nil
+		if err := experiment.Save(issue.FilePath, b); err != nil {
+			return err
+		}
+		fmt.Fprintf(ctx.Stdout, "✓ %s is off the nightly queue\n", issue.Slug)
+		return nil
+	}
+	if b.Adopted != nil {
+		return fmt.Errorf("%s is already adopted (%s): nothing to measure", issue.Slug, b.Adopted.Commit)
+	}
+	b.Queue = &experiment.Queue{At: ctx.now(), By: valueOr(who, "owner"), Quote: valueOr(quote, "owner's shell"), Ref: valueOr(strings.TrimSpace(*ref), "work/"+issue.Slug)}
+	if err := experiment.Save(issue.FilePath, b); err != nil {
+		return err
+	}
+	_ = tracker.AddCommentBy(issue.FilePath, 0, fmt.Sprintf("experiment: queued for a night (%s) on %q — recorded by %s", b.Queue.Ref, b.Queue.Quote, b.Queue.By), "cli", commentAuthor(ctx.Project, issue))
+	fmt.Fprintf(ctx.Stdout, "✓ %s is queued: the next night runs it once against main's baseline and records the verdict; adopting stays the owner's\n", issue.Slug)
+	fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli bench nightly --dry-run"))
+	return nil
 }

@@ -29,4 +29,4 @@ steps:
       - { id: evidence.playtest, note: Each step's machine result and your verdict }
     expect: The Shots card shows two pictures, MV7 (game-heat, judged pass) and MV4 (game-ammo, passed); nothing says "No playtest run".
     do: Look at the Shots and Playtest cards, then click a shot to open it full size.
-    why: Game projects (RogueTech) write their own results.yaml; before this fix every run was dropped on its date and the tab said no playtest had run.
+    why: Game projects (Kestrel) write their own results.yaml; before this fix every run was dropped on its date and the tab said no playtest had run.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // NewRun is the issue a run creates.
@@ -34,6 +34,11 @@ func RunSlug(id, period string) string { return tracker.Slugify(id + "-" + perio
 // else default_type) and that type's first status.
 func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) (*NewRun, error) {
 	dept := p.DepartmentByKey(r.Department)
+	if dept == nil && r.IsProduct() && p.Product != nil {
+		// Product's own job: Product's workflow, filed under Product/
+		// (Product's systems: are ignored).
+		dept = &tracker.Department{Name: tracker.ProductName}
+	}
 	if dept == nil {
 		return nil, fmt.Errorf("department %q is not in projects.yaml", r.Department)
 	}
@@ -46,7 +51,7 @@ func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) 
 		return nil, fmt.Errorf("job %s: %w", r.Key, err)
 	}
 	n := &NewRun{Period: period, Status: wf.FirstStatus(typ), System: dept.Name, Type: typ}
-	if len(dept.Systems) > 0 && strings.TrimSpace(dept.Systems[0]) != "" {
+	if len(dept.Systems) > 0 && strings.TrimSpace(dept.Systems[0]) != "" && !r.IsProduct() {
 		n.System = strings.TrimSpace(dept.Systems[0])
 	}
 	if n.Status == "" {
@@ -103,8 +108,9 @@ func (e *ExistsError) Error() string {
 	return fmt.Sprintf("this period's run is already there: %s (%s)", e.Slug, e.Status)
 }
 
-// Brief is the job's brief file with {{period}}, {{date}}, {{last_run}} and
-// {{department}} (the department's key) filled in.
+// Brief is the job's brief file with {{period}}, {{date}}, {{last_run}},
+// {{department}} (the department's key) and {{slug}} (the run's own slug)
+// filled in.
 func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error) {
 	data, err := BriefText(p, r.Job)
 	if err != nil {
@@ -119,6 +125,7 @@ func Brief(p *tracker.Project, r *Ref, n *NewRun, now time.Time) (string, error)
 		"{{date}}", now.Format("2006-01-02"),
 		"{{last_run}}", last,
 		"{{department}}", tracker.DepartmentKey(r.Department),
+		"{{slug}}", strings.ToLower(n.System)+"/"+n.Slug,
 	).Replace(strings.TrimSpace(data)), nil
 }
 
@@ -139,7 +146,11 @@ func WriteRun(p *tracker.Project, r *Ref, n *NewRun, brief string, now time.Time
 	}
 	b.WriteString("labels:\n  - job\n")
 	fmt.Fprintf(&b, "slug: %q\n", n.Slug)
-	fmt.Fprintf(&b, "department: %q\n", r.Department)
+	if !r.IsProduct() {
+		// A Product run has no department: field: Product is every issue
+		// that belongs nowhere else.
+		fmt.Fprintf(&b, "department: %q\n", r.Department)
+	}
 	fmt.Fprintf(&b, "job: %q\n", r.Key)
 	fmt.Fprintf(&b, "run: %q\n", n.Period)
 	b.WriteString("---\n")

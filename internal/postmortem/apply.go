@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/gitfile"
-	"github.com/michal-franc/issue-viewer/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/memory"
 )
 
 // Env is what the owner's round applies agreed actions with.

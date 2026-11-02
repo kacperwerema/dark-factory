@@ -175,3 +175,65 @@ func TestLeadBriefNamesTheHQReportWithDepartments(t *testing.T) {
 		t.Errorf("brief missing the HQ report line:\n%s", on)
 	}
 }
+
+// TestLeadBrief_RulesAndScopeGoInTheIssueBody: a lead's rules for a worker
+// and a scope change mid-issue land in the issue body (a Lead rules section,
+// a criterion box plus a D-n), not only in a peer message; the boxes rule
+// leaves a worker its own boxes. Every lead brief carries it: project,
+// custom leads.project, department.
+func TestLeadBrief_RulesAndScopeGoInTheIssueBody(t *testing.T) {
+	custom := &WorkflowConfig{Leads: LeadsConfig{Project: "Lead {{project}}."}}
+	briefs := map[string]string{}
+	for name, wf := range map[string]*WorkflowConfig{"default": nil, "custom": custom} {
+		briefs[name] = LeadBrief(wf, LeadBriefInput{Project: &Project{Slug: "p"}, Root: "/r"})
+	}
+	proj := leadDeptProject(t, "You write local SEO pages.")
+	briefs["department"] = DepartmentLeadBrief(&WorkflowConfig{}, &proj.Departments[0], LeadBriefInput{Project: proj, Root: proj.Root()})
+	for name, got := range briefs {
+		for _, want := range []string{
+			`dispatch <slug> --quote`,
+			`append <slug> --section "Lead rules"`,
+			"Rules for a worker go in its issue body, not only in a message",
+			"A scope change mid-issue is an appended criterion box",
+			`--section "Acceptance criteria" --body "- [ ] ..."`,
+			"plus a D-n",
+			"the message to the worker only points at the box and the D-n",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s brief missing %q:\n%s", name, want, got)
+			}
+		}
+		i := strings.Index(got, "- Boxes rule")
+		if i < 0 {
+			t.Fatalf("%s brief has no boxes rule:\n%s", name, got)
+		}
+		line, _, _ := strings.Cut(got[i:], "\n")
+		for _, want := range []string{"owner boxes", "other issues' boxes are untouched", "your own", "Implementation/Testing/Shipping boxes are yours"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("%s boxes rule missing %q: %s", name, want, line)
+			}
+		}
+		if strings.Contains(got, "don't tick or untick any box on any issue") {
+			t.Errorf("%s brief keeps the blanket no-tick rule", name)
+		}
+	}
+}
+
+// TestLeadSessionDocNamesLeadRulesAndScopeBoxes keeps the lead-session doc in
+// step with the brief's rules-in-the-body lines.
+func TestLeadSessionDocNamesLeadRulesAndScopeBoxes(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "patterns", "lead-session.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	for _, want := range []string{
+		`append <slug> --section "Lead rules"`,
+		"A scope change mid-issue is a box, not a message",
+		"owner boxes and other issues' boxes are untouched; your own Implementation/Testing/Shipping boxes are yours",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/patterns/lead-session.md lacks %q", want)
+		}
+	}
+}

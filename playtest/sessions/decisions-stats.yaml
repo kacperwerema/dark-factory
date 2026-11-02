@@ -1,0 +1,30 @@
+session: decisions-stats
+issue: factory/decision-audit-log-and-stats-panel-decisions-log-the-decisions-card-and-the-decisions-health-family
+title: Decision ledger on Stats - the Decisions card and its trend, desktop and phone
+scenario: decisions-stats
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The Decisions card counts the ledger and fits at desktop and 390px
+    proves: [AC5]
+    setup:
+      - cli: { args: [--project, "{project}", health, snapshot], contains: "decisions" }
+      - open: /p/{project}/stats?range=all
+    act:
+      - wait_for: stats.decisions.card
+    checks:
+      - visible: [stats.decisions, stats.decisions.card, stats.decisions.in_force, stats.decisions.hard, stats.decisions.provisional, stats.decisions.challenges, stats.decisions.scopes]
+      - text_contains: { target: stats.decisions.in_force, text: "3" }
+      - text_contains: { target: stats.decisions.hard, text: "1" }
+      - text_contains: { target: stats.decisions.provisional, text: "2" }
+      - text_contains: { target: stats.decisions.challenges, text: "1" }
+      - text_contains: { target: stats.decisions.scope.system, text: "system 1" }
+      - text_contains: { target: stats.table_card.decision-holds, text: "factory/rules#D-1" }
+      - text_contains: { target: stats.table_card.decision-briefings, text: "issue-cli start" }
+      - visible: stats.chart.decisions
+    targets: [stats.decisions]

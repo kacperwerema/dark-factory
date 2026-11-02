@@ -50,7 +50,7 @@ tasks:
 - **Only the owner changes the benchmark.** `bench task add|remove`, `bench holdout` and `bench budget` with a value refuse in any agent session (a worker, a lead, or any Claude Code session): `only the owner changes the benchmark; …`, with the comment to post instead. Reading (`show`, `report`, `compare`, `candidates`) is open.
 - **Holdout.** A holdout task runs with the rest; `report`, `compare`, `run.json`, the run's log, the health family and the Report card show the holdout only as passed n/m. Its records are in `holdout.json`. This keeps it out of every prompt and output an agent reads; it does not hide the file from a shell that opens it.
 - **Budget.** A run stops a task at `task_wall` (default 45m) and stops the run when `tokens`, `usd` or `wall` is spent. `tokens` counts input, output, cache writes and **cache reads**. Cache reads are most of it: the worker re-reads its cached context (prompt, briefing, files read so far) on every turn, so a dark-factory task spends about 15M tokens (2026-10-31), of which well under 1M is new input and output. Size `tokens` per task: unset, the cap is 25M a task × the benchmark's tasks (`bench.DefaultTaskTokens`), and `bench budget --tokens` under 25M gets a note that the first task will likely stop part way. Cache reads are cheap per token, so `usd` is the cap that follows money. While a worker runs, its transcript is read every 30 s, so a task that blows the budget is stopped mid-way (`budget`). The remaining tasks are recorded as `budget` and `bench run --resume <run>` continues.
-- **A human starts a run.** From an agent session `bench run` needs `--quote "<the owner's words>"`, stored in `run.json` (`started_by`, `quote`). Nothing runs on a schedule.
+- **A human starts a run.** From an agent session `bench run` needs `--quote "<the owner's words>"`, stored in `run.json` (`started_by`, `quote`). The one other start is the nightly-improve job's run on the owner's standing start ([Every night](#every-night)), whose stored words become the run's `quote`. The engine has no timer of its own: the lead's check-in starts due jobs.
 - **Product goals are measured apart.** A per-project product eval (a solver penalty, kcal checks) can be a task's `check:`; anything bigger is its own issue in its project.
 
 ## Picking tasks
@@ -151,7 +151,7 @@ Every finding is a warning.
 
 ### When they run
 
-Only inside `bench run`, which the owner starts: from their own shell, or by an agent with `--quote "<the owner's words>"` (and `experiment run`, which calls it the same way). Nothing runs on a schedule, no other command calls a model, and nothing is adopted by itself.
+Only inside `bench run`, which the owner starts: from their own shell, or by an agent with `--quote "<the owner's words>"` (and `experiment run` and `bench nightly`, which call it the same way; a night runs on the owner's standing start for the nightly-improve job). The engine has no timer of its own, no other command calls a model, and nothing is adopted by itself.
 
 1. **Before**, `bench run` prints an estimate: the task count × the newest finished run's mean time and cost per task, or "no previous run". The budget caps stay as above.
 2. **Each task** runs in its own sandbox (below). The worker works the issue. Then a `tests` eval runs the hidden tests and checks, an `output` eval runs promptfoo on the newest output the run put on the sandbox's shelf, and a `diff` eval runs it on the worker's diff. No output, or no diff, is a **fail**.
@@ -222,6 +222,47 @@ By workflow (A → B):
   Branch work/factory/tighter-briefs: 1 not mapped to a workflow (docs/departments.md)
 ```
 
+## Every night
+
+The factory measures itself every night and tells the owner in the morning whether it got better, the same or worse (factory/nightly-self-improvement-loop-benchmark-on-main-one-queued-experiment-and-the-mornings-better-or-worse-numbers-on-the-report).
+
+**The job.** A bundled brief, `builtin:nightly-improve`, on the `Product` entry's `jobs:` (Product may hold jobs; HQ may not):
+
+```yaml
+departments:
+  - name: Product
+    jobs:
+      - id: nightly-improve
+        name: Factory nightly
+        every: day
+        at: "02:00"
+        type: report          # idea → in progress → human-testing → done; the morning report goes on the shelf
+        overlap: true         # an unread report doesn't hold the next night
+        brief: builtin:nightly-improve
+```
+
+Its standing start is off until the owner turns it on with their words: `issue-cli job auto on product/nightly-improve --quote "…"`. Then the lead's check-in (`job due` → `job run product/nightly-improve --scheduled`) starts each night's run inside auto-start's budget. The run is a Product issue, `Product/nightly-improve-<date>`. Its worker runs `issue-cli bench nightly --run <its slug>` as a background command, puts the morning report on the shelf (`output add --issue <slug> --kind report`), posts `report: <the Last night: line>` and moves the run to human-testing, where the owner reads it.
+
+**`issue-cli bench nightly [<benchmark>] [--run <job run>] [--quote "…"] [--dry-run]`:**
+
+1. **Who.** The owner's shell; an agent with `--quote`; or `--run <slug>`: a run of a job whose brief is `builtin:nightly-improve` and whose standing start is on, whose words become the runs' quote. A worker passes only its own run. Without the standing start: `✗ Not run: product/nightly-improve has no standing start …` (exit 1).
+2. **Which benchmark.** The one named, else the only one with a task in the project, else the one whose file says `nightly: true`.
+3. **One night per date.** A second call the same local date is refused (exit 1) naming the run; a held night may be tried again.
+4. **The machine.** Memory under 50% (mem-guard's reading) and the 1-minute load at most the core count, else the night is recorded **held** with the reason and nothing runs. During the run each task also waits while memory is 50% or more (the run pauses after 30 minutes, as with mem-guard's BLOCKED).
+5. **Baseline.** `bench run <b> --setup <main's head> --label nightly:<date>@<sha>`, the same code as `bench run`, within the benchmark's `budget:`.
+6. **One experiment.** When the baseline finished (`stop: done`), the oldest experiment the owner queued (`experiment queue`, [Workflow Stats](workflow-stats.md#experiments)) gets `experiment run`'s guard and one candidate run, judged against tonight's baseline and recorded as `experiment run` records it (block, `experiment:` comment, `## Experiment result`). Its queue entry is marked with the night's date, so it never runs twice. A baseline that stopped (budget, paused) or a machine over the line leaves it queued for the next night; a guard problem ends its entry with a comment. Nothing here adopts, parks or reverts.
+7. **The night.** One line in `<bench>/runs/<benchmark>/nights.jsonl`: date, main's sha, the run, its stop, pass rate (as `summary.pass_rate`, holdout apart), passed/scored, the **median time and median tokens per scored task** (tokens over the tasks whose usage was read), the holdout as n/m, the experiment and its verdict, the job run. The morning report, `nights/<date>.md`, has the three numbers against the night before and the last 7 nights, the experiment, and `bench report` / `bench compare` for the runs.
+
+**Better, same, worse.** The last measured night against the one before (held nights are skipped), with `bench compare`'s thresholds: the pass rate is the same when it moves less than one task's worth (1/scored), median tokens within 10%, median time within 25%. Lower time and tokens are better.
+
+**Where it shows.**
+
+- The Report's **Factory last night** card (`wb/nightly`), one row per benchmark with a task in the project: date and main's sha, each number with the night before, its mark and a 7-night sparkline with its range; a held night's reason; the experiment and its verdict; the run issue's page and the `bench report` command. With no night it names the `job auto on` command.
+- status.md: `Last night: factory-v1 2026-11-02: pass 7/8 (same) · median 11m (better) · 14.2M tokens (worse) · experiment x: rejected`.
+- **Needs you**: a "Factory pass rate" row when the last measured night's pass rate is under the median of the nights in the 7 days before it, with at least 3 of them. It goes away when a later night is back at or over the median.
+
+Tests never start a worker: `nightlyBenchRun` is swapped for a stand-in that writes run.json.
+
 ## Interface for the experiment loop
 
 `internal/bench/record.go` holds the types; fields are added, never renamed.
@@ -229,6 +270,6 @@ By workflow (A → B):
 - `bench run <benchmark> [--setup <ref>] [--workflow <file>] [--label <name>] --json` prints the `Run`.
 - `bench compare <a> <b> --json` prints `{a, b, comparable, regressions, improved, tasks, pass_rate_a, pass_rate_b, pass_rate_delta, judge_delta, tokens_delta, usd_delta, wall_delta_sec, holdout_a, holdout_b, warnings, workflows}` and exits 0, 1 or 2. `workflows` is `[{workflow, tasks, verdict, why, pass_rate_a, pass_rate_b, score_a, score_b, tokens_a, tokens_b, usd_a, usd_b, wall_a_sec, wall_b_sec, regressions, improved}]` ([The verdict per workflow](#the-verdict-per-workflow)).
 - A task record also has `workflow`, `eval`, `eval_score` (-1 when no eval graded it), `eval_passed`, `eval_total`, `eval_failed`, `eval_skipped` and `score_wall_sec`.
-- `run.json`: `{id, benchmark, started, ended, stop: done|budget|paused|error, stop_note, setup {ref, issue_cli, issue_cli_version, workflow, label}, started_by, quote, budget, tasks: [TaskRecord], holdout {passed, total}, summary {tasks, scored, passed, pass_rate, judge, tokens, tokens_known, usd, wall_sec, cli_refused, rework_backward, gates_first_try_rate}, spent_tokens, spent_usd}`. `summary.pass_rate` leaves the holdout out; compare's rates include it.
+- `run.json`: `{id, benchmark, started, ended, stop: done|budget|paused|error, stop_note, setup {ref, sha, issue_cli, issue_cli_version, workflow, label}, started_by, quote, budget, tasks: [TaskRecord], holdout {passed, total}, summary {tasks, scored, passed, pass_rate, judge, tokens, tokens_known, usd, wall_sec, cli_refused, rework_backward, gates_first_try_rate}, spent_tokens, spent_usd}`. `summary.pass_rate` leaves the holdout out; compare's rates include it. `setup.sha` is the engine commit the issue-cli under test was built from (the resolved `--setup` ref, or the binary's own vcs.revision; empty when the build carries none); `experiment run` reads it for the baseline and falls back to `setup.ref` for older runs.
 
 The loop never writes these files and never edits the benchmark.

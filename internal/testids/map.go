@@ -20,6 +20,7 @@ func init() {
 		"map.lot.after_fact",
 		"map.site.start_ceo",
 		"map.leads_link",
+		"map.crew_link",
 		"map.updates_link",
 		"map.tab.queue",
 		"map.tab.radio",

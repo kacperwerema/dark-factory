@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tokens"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 )
 
 // TransitionStat is one recorded workflow transition with its estimated token

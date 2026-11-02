@@ -1,6 +1,6 @@
 {
   "name": "ai-workflow-engine",
-  "owner": { "name": "AI Workflow Engine" },
+  "owner": { "name": "Dark Factory" },
   "plugins": [
     {
       "name": "issue-approve",

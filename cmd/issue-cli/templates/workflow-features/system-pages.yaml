@@ -1,0 +1,35 @@
+id: system-pages
+version: v0.57.0
+category: workbench
+propose: true
+sources: ["internal/viewer/systems.go", "internal/viewer/handlers_systems.go", "internal/viewer/docsections.go", "internal/viewer/systems_wb.go", "internal/lint/paths.go", "internal/tracker/workbench.go#WorkbenchSystem", "internal/tracker/workbench.go#WorkbenchFamily"]
+unlocks:
+  - text: "Systems: summaries and design docs"
+    url: /systems
+title: "System page details"
+what: |
+  Every issue `system:` already has a page, listed under Systems in the sidebar.
+  Without `workbench.systems` each page shows the system's issues. The key adds to
+  the page: a one-line summary, its design doc beside the issues, and families (an
+  epic's children inside the system, each with its own page). `paths:` (repo globs
+  of the system's code) turn the Systems page code map from a draft read from the
+  issues into a confirmed one; `issue-cli health lint` warns on a glob that matches
+  no file.
+why: |
+  A system's issues, design doc and open questions sit on one page instead of a
+  filtered list and a doc in another tab.
+where: "workbench.systems.<system>: summary, design_doc, paths, families (the pages themselves come from `system:`)"
+snippet: |
+  workbench:
+    systems:
+      Combat:
+        summary: "Turn order, weapons and damage."
+        design_doc: docs/combat.md
+        paths: [src/combat/, "**/*Weapon*.cs"]
+        umbrella: combat/combat-roadmap
+        families:
+          Weapons:
+            umbrella: combat/weapon-overhaul
+question: "Which systems should have a summary and a design doc on their page, and which code belongs to each?"
+detect:
+  - path: workbench.systems

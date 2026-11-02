@@ -182,7 +182,7 @@ test("a project's scripts/playtest-window opens the playtest; no Report without 
     if (isProjects(e.argv)) return { value: { exitCode: 0, stdout: PROJECTS, stderr: '' } }
     runs.push(e.argv.join(' '))
     if (e.argv[0] === 'test') return { value: { exitCode: 0, stdout: '', stderr: '' } }
-    if (e.argv[0] === 'scripts/playtest-window') return { value: { exitCode: 0, stdout: 'roguetech:playtest-bar\n', stderr: '' } }
+    if (e.argv[0] === 'scripts/playtest-window') return { value: { exitCode: 0, stdout: 'kestrel:playtest-bar\n', stderr: '' } }
     return { value: { exitCode: 1, stdout: '', stderr: '' } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -193,7 +193,7 @@ test("a project's scripts/playtest-window opens the playtest; no Report without 
   await ui.press({ key: 'playtest' })
   expect(runs).toContain('scripts/playtest-window ui/foo')
   expect(runs.some(r => r.startsWith('tmux'))).toBe(false)
-  expect(toasts[0]).toContain('Playtest opened in tmux window roguetech:playtest-bar')
+  expect(toasts[0]).toContain('Playtest opened in tmux window kestrel:playtest-bar')
   expect(!!(await ui.find({ key: 'report' }))).toBe(false)
   expect((await ui.find({ key: 'playtest' }))?.text).toBe('▶ Playtest')
   await ui.unmount()

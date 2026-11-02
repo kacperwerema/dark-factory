@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // HQKey and ProductKey are the owner keys of HQ's and Product's goals in a

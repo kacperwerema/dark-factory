@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/viewerstate"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
 // Start is the last auto-start on this machine, in any project.

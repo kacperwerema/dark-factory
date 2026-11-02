@@ -139,3 +139,51 @@ func TestLeadBriefMentionsReleaseCandidatesOnlyWhenConfigured(t *testing.T) {
 		}
 	}
 }
+
+func TestCIConfigNightly(t *testing.T) {
+	src := `
+ci:
+  run:
+    - make validate
+    - cmd: make ux-test ALL=1
+      tier: slow
+  nightly:
+    tier: slow
+    at: "02:15"
+    timeout: 3h
+`
+	var wf WorkflowConfig
+	if err := yaml.Unmarshal([]byte(src), &wf); err != nil {
+		t.Fatal(err)
+	}
+	c := wf.CI
+	if c.NightlyTier() != "slow" || c.TierTimeout("slow") != 3*time.Hour || c.TierTimeout("") != 10*time.Minute {
+		t.Errorf("nightly = %+v, timeouts %s / %s", c.Nightly, c.TierTimeout("slow"), c.TierTimeout(""))
+	}
+	if h, m := c.NightlyClock(); h != 2 || m != 15 {
+		t.Errorf("clock = %d:%d", h, m)
+	}
+	if lint := wf.Lint(); len(lint) != 0 {
+		t.Errorf("valid nightly linted: %v", lint)
+	}
+	if clone := wf.Clone(); clone.CI.Nightly == nil || clone.CI.Nightly == c.Nightly {
+		t.Error("Clone must deep-copy ci.nightly")
+	}
+	for bad, want := range map[CINightly]string{
+		{Tier: ""}:                       "ci.nightly.tier is empty",
+		{Tier: "default"}:                "ci.nightly.tier is empty or default",
+		{Tier: "e2e"}:                    `ci.nightly.tier "e2e" has no command`,
+		{Tier: "slow", At: "3am"}:        `ci.nightly.at "3am" is not HH:MM`,
+		{Tier: "slow", Timeout: "never"}: `ci.nightly.timeout "never"`,
+	} {
+		n := bad
+		c.Nightly = &n
+		if got := strings.Join(c.Validate(), "\n"); !strings.Contains(got, want) {
+			t.Errorf("nightly %+v: problems %q, want %q", bad, got, want)
+		}
+	}
+	c.Nightly = &CINightly{Tier: "slow", At: "bad"}
+	if h, m := c.NightlyClock(); h != 3 || m != 0 {
+		t.Errorf("a bad at must fall back to 03:00, got %d:%d", h, m)
+	}
+}

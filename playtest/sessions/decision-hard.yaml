@@ -1,0 +1,30 @@
+session: decision-hard
+issue: factory/decision-records-scope-hard-at-paths-and-expires-on-the-d-n-line-decide-amend-the-in-force-query-and-the-audit-log
+title: The owner makes a decision hard from the decisions log
+scenario: workbench
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Confirm with Hard ticked makes sim/gdd-match-phases D-1 hard; Make hard does the same on a decision that has your words
+    proves: [AC7]
+    setup:
+      - open: /p/{project}/decisions
+    act:
+      - check: { visible: [decisions.row.sim/gdd-match-phases.d-1.hard_box, decisions.row.ui/company-lineup-panel.d-2.make_hard] }
+      - type: { target: decisions.row.sim/gdd-match-phases.d-1.words, text: "Three phases, hard" }
+      - click: decisions.row.sim/gdd-match-phases.d-1.hard_box
+      - click: decisions.row.sim/gdd-match-phases.d-1.words
+      - key: Enter
+      - wait_for: { visible: decisions.row.sim/gdd-match-phases.d-1.hard, ms: 8000 }
+      - click: decisions.row.ui/company-lineup-panel.d-2.make_hard
+      - wait_for: { visible: decisions.row.ui/company-lineup-panel.d-2.hard, ms: 8000 }
+    checks:
+      - absent: decisions.row.sim/gdd-match-phases.d-1.confirm
+      - absent: decisions.row.ui/company-lineup-panel.d-2.make_hard
+      - issue: { slug: sim/gdd-match-phases, body_contains: "\"Three phases, hard\" {hard}" }
+      - issue: { slug: ui/company-lineup-panel, body_contains: "\"yes 75\" {hard}" }

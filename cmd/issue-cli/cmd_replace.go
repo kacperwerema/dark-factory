@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var replaceCommand = &Command{
@@ -15,6 +15,11 @@ var replaceCommand = &Command{
 
 Whole section:
   issue-cli replace <slug> --section "Design" --body "updated approach"
+  issue-cli replace <slug> --section "Design" --body-file design.md
+  cat design.md | issue-cli replace <slug> --section "Design" --body-file -
+
+--body-file <path> (or - for stdin) reads the new content as raw bytes, as
+append does, which avoids shell mangling of backticks and parentheses.
 
 One line, by number or by a regexp that matches exactly one line:
   issue-cli replace <slug> --section "Design" --line 3 --text "new line"
@@ -41,6 +46,7 @@ func runReplace(ctx *Context, args []string) error {
 	fs := newFlagSet("replace", ctx)
 	bodyFlag := fs.String("body", "", "new section content")
 	textFlag := fs.String("text", "", "alias for --body")
+	bodyFileFlag := fs.String("body-file", "", "read the new content from file (or - for stdin); avoids shell mangling")
 	sectionFlag := fs.String("section", "", "section name to replace")
 	forceFlag := fs.Bool("force", false, "force replace even when section is absent")
 	lineFlag := fs.Int("line", 0, "replace only this line of the section (1-based)")
@@ -48,9 +54,14 @@ func runReplace(ctx *Context, args []string) error {
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
-	text := normalizeEscapedText(*bodyFlag)
-	if text == "" {
-		text = normalizeEscapedText(*textFlag)
+	inline := normalizeEscapedText(*bodyFlag)
+	if inline == "" {
+		inline = normalizeEscapedText(*textFlag)
+	}
+	inlineSet := flagWasSet(fs, "body") || flagWasSet(fs, "text")
+	text, err := resolveBodyInput(ctx, inline, inlineSet, *bodyFileFlag, flagWasSet(fs, "body-file"))
+	if err != nil {
+		return err
 	}
 	section := *sectionFlag
 	force := *forceFlag
@@ -58,7 +69,7 @@ func runReplace(ctx *Context, args []string) error {
 		return fmt.Errorf("replace requires --section\n\nExample:\n  issue-cli replace %s --section \"Design\" --body \"updated approach\"", slug)
 	}
 	if text == "" {
-		return fmt.Errorf("replace requires --body\n\nExample:\n  issue-cli replace %s --section \"Design\" --body \"updated approach\"", slug)
+		return fmt.Errorf("replace requires --body or --body-file\n\nExamples:\n  issue-cli replace %s --section \"Design\" --body \"updated approach\"\n  issue-cli replace %s --section \"Design\" --body-file design.md", slug, slug)
 	}
 
 	lineSet, matchSet := flagWasSet(fs, "line"), flagWasSet(fs, "match")

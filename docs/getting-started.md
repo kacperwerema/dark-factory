@@ -13,10 +13,10 @@ This page takes you from a fresh machine to a board with a project, a first issu
 
 ```bash
 # a release, into ~/.local/bin
-curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kacperwerema/dark-factory/main/install.sh | bash
 
 # or from a clone (or your fork)
-git clone https://github.com/<you>/ai-workflow-engine && cd ai-workflow-engine
+git clone https://github.com/kacperwerema/dark-factory && cd dark-factory
 GOBIN="$HOME/.local/bin" make install
 ```
 
@@ -72,24 +72,32 @@ None of these is needed. Each one adds something:
 | `rtk` | Shorter command output for agents. issue-cli only notices it to warn workers that `rtk` shortens `git log`. | Nothing changes. |
 | i3 + alacritty | The default window for a worker when `terminal:` is unset. | Headless: the dispatch prints the `tmux attach` command. Set `terminal:` to open a window ([examples](agent-dispatch.md#examples)). |
 
+#### Shell notes
+
+Agents' commands differ by shell and OS. A worker's briefing has a `## Shell on this machine` section with the notes that apply to yours, picked from `$SHELL`, the OS and whether `rtk` is on `PATH`:
+
+- **zsh**: a `$VAR` holding a command doesn't word-split, so use a shell function; `$B:h` is a modifier; quote globs (`--include='*.go'`).
+- **rtk** shortens `git log` and hides `go test -v` test names and `t.Log` lines. When output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>` (`rtk proxy go test -v …`).
+- **macOS BSD tools**: `sed -i ''`, `script` has no `-c`, no `timeout`, `cp` is `/bin/cp`, no `shellcheck`.
+
 ### When a step fails
 
 - **The project or the config isn't found**: `issue-cli projects` prints which `projects.yaml` it read and why. Start the viewer with `-config`, or pass `--config <path>` ([How issue-cli finds the config](#how-issue-cli-finds-the-config)).
 - **`workers can't dispatch`**, **`workers never add departments`**: the command ran inside an agent's session (its `ISSUE_VIEWER_ISSUE_SLUG` is set). Run it from your own shell.
 - **Port 8080 in use**: `issue-viewer -config … -port 8081`.
-- Anything else: open an issue on [the repo](https://github.com/michal-franc/ai-workflow-engine/issues) with the command and its output.
+- Anything else: open an issue on [the repo](https://github.com/kacperwerema/dark-factory/issues) with the command and its output.
 
 ## Install
 
 One line for Linux and macOS. It detects your OS and architecture, downloads the latest release and puts `issue-viewer` (the board) and `issue-cli` (the agent CLI) into `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/michal-franc/ai-workflow-engine/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kacperwerema/dark-factory/main/install.sh | bash
 ```
 
-Override the target with `INSTALL_DIR=...`, or pin a release with `VERSION=v0.32.0`.
+Override the target with `INSTALL_DIR=...`, or pin a release with `VERSION=v0.32.0`. It checks the archive's SHA-256 with `sha256sum`, or `shasum -a 256` on a Mac without it.
 
-Or download an archive from the [latest release](https://github.com/michal-franc/ai-workflow-engine/releases/latest). Each one holds both binaries; extract them onto your `$PATH`.
+Or download an archive from the [latest release](https://github.com/kacperwerema/dark-factory/releases/latest). Each one holds both binaries; extract them onto your `$PATH`.
 
 | Platform            | Archive                                       |
 |:--------------------|:----------------------------------------------|
@@ -128,6 +136,22 @@ It never sends project names, paths, issue text or flag values. This is **on by 
 - Turn it off: `issue-cli telemetry share off`, or `ISSUE_CLI_TELEMETRY=off` (which also stops the local log).
 - See what was sent: `issue-cli telemetry sent`.
 - Every field: [CLI Usage Telemetry](CLI/telemetry.md#sharing-usage).
+
+### Legacy names
+
+The product is Dark Factory, and the repo and Go module are `github.com/kacperwerema/dark-factory`. A few names on disk and in the environment are older and stay as they are: renaming them would lose every install's viewer record, push keys, owner session, telemetry and logs, and break the scripts other boards keep. Use them as written:
+
+| Kind | Name |
+|:--|:--|
+| Config folder | `$XDG_CONFIG_HOME/ai-workflow-engine/` (default `~/.config/ai-workflow-engine/`): `projects.yaml`, `bench/`, `prices.yaml`, `private-names.txt`, `telemetry-share.json` |
+| State folder | `$XDG_STATE_HOME/ai-workflow-engine/` (default `~/.local/state/ai-workflow-engine/`): `viewer.json`, `push/`, `autostart/`, `subscriptions/`, `crew/` |
+| Data folders | `$XDG_DATA_HOME/ai-workflow-engine/memory/` (the machine's shared memory), `$XDG_DATA_HOME/issue-cli/` (bug reports not sent yet) |
+| Cache folder | `<user cache dir>/issue-viewer/checks/` (the guided checks' library) |
+| Environment | `ISSUE_VIEWER_CONFIG`, `ISSUE_VIEWER_PROJECT`, `ISSUE_VIEWER_ISSUE_SLUG`, `ISSUE_VIEWER_LEAD_SCOPE`, `ISSUE_VIEWER_URL`, `ISSUE_VIEWER_SERVER_PWD`, `ISSUE_VIEWER_BENCH_DIR`; `ISSUE_CLI_LOG`, `ISSUE_CLI_TELEMETRY*` |
+| Release archives | `issue-viewer_<version>_<os>_<arch>.tar.gz` (both binaries inside) |
+| Claude Code plugin marketplace | `ai-workflow-engine` (`claude plugin install issue-approve@ai-workflow-engine`) |
+
+The binaries keep their names too: `issue-viewer`, the board, and `issue-cli`, the agents' CLI.
 
 ## Try the demo
 
@@ -213,9 +237,11 @@ issue-viewer -config projects.yaml
 
 `telemetry_data:` points the viewer's `/telemetry` page at a telemetry collector's data folder (`cmd/telemetry-collector -data <dir>`). It is only for whoever runs a collector; see [Sharing usage](CLI/telemetry.md#the-owners-view).
 
+`github_token_command:` is a shell command that prints a GitHub token for the close at done; unset, gh uses its own login. See [GitHub Integration](github-integration.md#auto-close-on-done).
+
 `viewer_url:` is the address the viewer is reached at, e.g. `viewer_url: "https://viewer.lan"`. Every link the viewer and issue-cli print uses it, and `issue-cli status` calls it. That covers approval links, `show`'s Timeline, and the issue-approve buttons in an agent's session. Without it, issue-cli uses the running viewer's own address from `viewer.json`, then `http://localhost:8080`. Its host is added to `allowed_hosts` by itself. It doesn't change where the viewer listens: that is still `-host` / `-port`. The value must be an `http://` or `https://` URL with a host; a path prefix behind a reverse proxy is kept.
 
-`engine_project: <slug>` names the project that `issue-cli report-bug` files issue-cli bugs into. Without it, report-bug uses the project whose `repo:` is `michal-franc/ai-workflow-engine`; see [`report-bug`](CLI/overview.md#report-bug).
+`engine_project: <slug>` names the project that `issue-cli report-bug` files issue-cli bugs into. Without it, report-bug uses the project whose `repo:` is `kacperwerema/dark-factory`; see [`report-bug`](CLI/overview.md#report-bug).
 
 With one terminal and tmux, as on a Mac, see [One terminal, a session per project](agent-dispatch.md#one-terminal-a-session-per-project).
 
@@ -283,6 +309,20 @@ Open `http://localhost:8080`. This is the Workshop Board:
 - **Needs you** (`/p/<project>/needs-you`, `/needs-you` across projects) and **the Report** (`/p/<project>/status`).
 
 The tabs in the hall's header lead to the Report, Health, Systems, Decisions, Retro, Docs and Updates.
+
+## Phone notifications
+
+The viewer can push to your phone and browsers when something new waits on you, and it installs as an app that opens Needs you.
+
+1. Open **🔔 Notify my phone** on Needs you, or `/push`. Sign in as the owner first (`/owner`): subscribing and settings are owner decisions.
+2. **Contact.** Push services want a contact for the sender inside the signed token: an email address or your public `https://` name. With a public name in `allowed_hosts:` it is used by default; otherwise type one under Settings. Without one, Notify me here stays grey.
+3. **On a computer:** tap **Notify me here** and allow notifications. **Send a test** checks the path end to end.
+4. **On iPhone or iPad:** open the viewer on its public name (Safari can't get pushes in a tab), Share → **Add to Home Screen**, open **Factory** from the Home Screen, go to `/push` there and tap **Notify me here**. Android Chrome works from the tab or the installed app.
+5. **Settings.** Mute a project, or set quiet hours: nothing is sent in them, and when they end one push says how many things came in.
+
+What sends a push: every new row of Needs you (CI red, a ready gate, a playtest or checks to run, a `question:`, a clarify round, outputs to review, a due job, a post-mortem, a failing connector, the nightly pass rate), a live worker stuck at a menu (once an hour at most), and a subscription resting after its usage limit. Each event goes to each device once; it can send again only after it went away and came back.
+
+Where it lives: the VAPID keys, the devices and the settings are in `$XDG_STATE_HOME/ai-workflow-engine/push/` (files 0600), never in your projects or `projects.yaml`. Only the viewer that holds `viewer.json` for the config `push/` is bound to sends; a sandbox viewer with the shared state dir sends nothing. If you moved `projects.yaml`, `/push` shows **Use this viewer** to move the sender. `status.md` has a `Push:` line (devices, mutes, quiet hours, a device the push service removed).
 
 ## Docs pages
 

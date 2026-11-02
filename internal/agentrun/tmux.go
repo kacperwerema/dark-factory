@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // Session is one live tmux session, or a "session:window" entry for an agent
@@ -33,8 +34,11 @@ var (
 	ListSessions    = defaultListSessions
 	CapturePane     = defaultCapturePane
 	CaptureHistory  = defaultCaptureHistory
-	SendKey         = defaultSendKey
-	SendText        = defaultSendText
+	// CaptureHistoryCtx is CaptureHistory under ctx: the tmux child is
+	// killed when ctx ends (the CEO chat's switcher reads many panes at once).
+	CaptureHistoryCtx = defaultCaptureHistoryCtx
+	SendKey           = defaultSendKey
+	SendText          = defaultSendText
 )
 
 // PromptDeliveryTimeout bounds how long a dispatch or reprompt waits for the
@@ -414,7 +418,11 @@ func defaultCapturePane(target string) (string, error) {
 // above the visible screen, wrapped lines joined and no escape sequences (no
 // -e), so it is plain text.
 func defaultCaptureHistory(target string, lines int) (string, error) {
-	out, err := exec.Command("tmux", "capture-pane", "-p", "-J", "-S", "-"+strconv.Itoa(lines), "-t", target).Output()
+	return defaultCaptureHistoryCtx(context.Background(), target, lines)
+}
+
+func defaultCaptureHistoryCtx(ctx context.Context, target string, lines int) (string, error) {
+	out, err := exec.CommandContext(ctx, "tmux", "capture-pane", "-p", "-J", "-S", "-"+strconv.Itoa(lines), "-t", target).Output()
 	return string(out), err
 }
 

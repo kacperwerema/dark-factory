@@ -1,4 +1,4 @@
-.PHONY: build build-cli install demo readme-shots clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report shot security-check
+.PHONY: build build-cli install hooks fmt-check demo readme-shots clean validate test vet cover-cli catalog-check playtest-check ux-test playtest playtest-report shot serve serve-stop security-check ported-checks
 
 # The build's version is `git describe`: the tag on a release or release
 # candidate (v0.54.0-rc.1), "<tag>-N-g<sha>" past one, "-dirty" with
@@ -8,15 +8,21 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.Version=$(VERSION)
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o issue-viewer .
+	go build -ldflags "$(LDFLAGS)" -o issue-viewer ./cmd/issue-viewer/
 
 build-cli:
 	go build -ldflags "$(LDFLAGS)" -o issue-cli ./cmd/issue-cli/
 
-install:
+install: hooks
 	go install -ldflags "$(LDFLAGS)" ./cmd/issue-cli/
-	go install -ldflags "$(LDFLAGS)" .
+	go install -ldflags "$(LDFLAGS)" ./cmd/issue-viewer/
 	@echo "Installed issue-cli and issue-viewer $(VERSION) via go install"
+
+# The commit-msg hook: a Catalog: or Proves: line that would mark or link
+# nothing is refused at commit time, with the fix (issue-cli workflow
+# commit-msg). Written to the common .git/hooks, shared by every worktree.
+hooks:
+	@go run ./cmd/issue-cli workflow commit-msg --install
 
 # make demo PORT=8081 when your own viewer already has 8080.
 PORT ?= 8080
@@ -60,8 +66,20 @@ cover-cli:
 catalog-check:
 	@go run ./cmd/issue-cli workflow catalog-check
 
-validate: vet test cover-cli catalog-check playtest-check
+# Every tracked .go file is gofmt-clean (testdata included: fixtures are Go
+# too). Fix with gofmt -w <file>.
+fmt-check:
+	@files=$$(git ls-files -z -- '*.go' | xargs -0 gofmt -l); \
+	  if [ -n "$$files" ]; then echo "gofmt -l (run gofmt -w on these):"; echo "$$files"; exit 1; fi
+
+validate: fmt-check vet test cover-cli catalog-check playtest-check
 	@echo "✓ validate passed"
+
+# The ported guided check scripts (internal/checks/testdata/ported) as
+# machine runs: this checkout's issue-cli, the library from LIB= (default
+# internal/checks/lib.sh). ONLY=<name> runs one of them.
+ported-checks:
+	@LIB='$(LIB)' ONLY='$(ONLY)' scripts/ported-checks.sh
 
 # The security barriers end to end (docs/API/security.md): a throwaway viewer
 # on loopback attacked as if it were public, then govulncheck. Not part of
@@ -75,17 +93,30 @@ security-check:
 #   make playtest-check                       validate every session (no browser)
 #   make ux-test [ISSUE=slug] [S=session] [STEP=TP2,TP3] [REPEAT=2]
 #                                             machine checks, headless, desktop + phone
+#   make ux-test ALL=1                        every session, whatever the branch
+#                                             (local CI's nightly slow tier)
 #   make playtest [ISSUE=slug] [S=session]    the owner's judgement steps, in an overlay
 #   make playtest-report ISSUE=slug [APPLY=1] tick passed boxes, comment failures
 #   make shot URL=… [W=390] [H=844] [FULL=1] [SCROLL=sel] [OUT=file.png]
-#                                             one screenshot of one page (headless)
+#             [BASE=ref] [HTML=1] [SCENARIO=name]
+#                                             one screenshot of one page (headless);
+#                                             URL=/p/… shoots the board make serve
+#                                             runs, BASE= its before board too
+#                                             (OUT and OUT.base), HTML=1 saves both DOMs
+#   make serve SCENARIO=name [BASE=main] [PORT=n] [DIR=dir]
+#                                             a scenario board left running, isolated
+#                                             (own HOME/XDG, never the shared
+#                                             viewer.json); BASE= a second board
+#                                             built from that ref
+#   make serve-stop [SCENARIO=name]           stop what make serve started
 # In a dispatched worktree (branch work/<slug>) ISSUE defaults to <slug>, so a
 # plain `make playtest` runs that issue's sessions. Pass ISSUE= to run them all.
 # With S= the branch's slug isn't used: S= runs that session, whoever's it is.
+# ALL=1 drops every selector (ISSUE= and S= included): all sessions run.
 BRANCH_ISSUE := $(patsubst work/%,%,$(filter work/%,$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)))
 ISSUE ?= $(if $(S),,$(BRANCH_ISSUE))
 PLAYTEST = go run ./cmd/playtest
-PLAYTEST_SEL = $(if $(ISSUE),-issue $(ISSUE)) $(if $(S),-s $(S))
+PLAYTEST_SEL = $(if $(ALL),,$(if $(ISSUE),-issue $(ISSUE)) $(if $(S),-s $(S)))
 
 playtest-check:
 	@$(PLAYTEST) check
@@ -100,4 +131,10 @@ playtest-report:
 	@$(PLAYTEST) report -issue $(or $(ISSUE),$(BRANCH_ISSUE)) $(if $(S),-s $(S)) $(if $(APPLY),-apply)
 
 shot:
-	@$(PLAYTEST) shot -url '$(URL)' $(if $(W),-w $(W)) $(if $(H),-h $(H)) $(if $(FULL),-full) $(if $(SCROLL),-scroll '$(SCROLL)') $(if $(OUT),-out $(OUT))
+	@$(PLAYTEST) shot -url '$(URL)' $(if $(W),-w $(W)) $(if $(H),-h $(H)) $(if $(FULL),-full) $(if $(SCROLL),-scroll '$(SCROLL)') $(if $(OUT),-out $(OUT)) $(if $(BASE),-ref '$(BASE)') $(if $(HTML),-html) $(if $(SCENARIO),-scenario '$(SCENARIO)')
+
+serve:
+	@$(PLAYTEST) serve -scenario '$(SCENARIO)' $(if $(BASE),-ref '$(BASE)') $(if $(filter command line,$(origin PORT)),-port $(PORT)) $(if $(DIR),-dir '$(DIR)')
+
+serve-stop:
+	@$(PLAYTEST) stop $(if $(SCENARIO),-scenario '$(SCENARIO)')

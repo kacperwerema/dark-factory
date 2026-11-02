@@ -2,10 +2,11 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/michal-franc/issue-viewer/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // ownerBoxesProject is a simple project whose issue has a Human Testing box
@@ -97,4 +98,30 @@ func issueBody(t *testing.T, path string) string {
 	t.Helper()
 	parts := strings.SplitN(readFile(t, path), "---\n", 3)
 	return strings.TrimLeft(parts[2], "\n")
+}
+
+// A box a playtest judgement step makes the owner's: check's refusal says
+// which session's do:/expect: did it and to re-run ux-test once they're gone.
+func TestCheckOnAJudgementStepBoxSaysDropDoExpectAndRerun(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "human-testing")
+	if err := os.WriteFile(issuePath, []byte(readFile(t, issuePath)+"\n## Test Plan\n- [ ] The page looks right\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runDir := filepath.Join(projectRoot(proj), ".playtest", "runs", "looks", "1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	results := "session: looks\nissue: " + slug + "\nmode: auto\nstarted: \"2026-10-31T10:00:00Z\"\nsteps:\n  - id: TP1\n    status: pass\n    judgement_step: true\n"
+	if err := os.WriteFile(filepath.Join(runDir, "results.yaml"), []byte(results), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	asWorker(t)
+	ctx, _, _ := newTestContext(proj, false)
+	err := runCheck(ctx, []string{slug, "TP1"})
+	if err == nil {
+		t.Fatal("a worker ticking a judgement step's box: want a refusal")
+	}
+	assertContains(t, err.Error(), "TP1 The page looks right (playtest judgement step TP1)")
+	assertContains(t, err.Error(), "TP1 is a judgement step (do:/expect: in looks); drop them if the step is automated, then re-run make ux-test")
 }

@@ -187,7 +187,7 @@ func (r *Runner) UXTest(b *Browser, s *Session, only map[string]bool) (*Results,
 			sr.Status = StatusPending
 		}
 		stepStart := time.Now()
-		for _, vp := range s.Viewports() {
+		for _, vp := range s.StepViewports(st) {
 			vr := r.runStep(b, bins, s, st, vp, dir)
 			sr.Viewports = append(sr.Viewports, vr)
 			if vr.Status == StatusFail {
@@ -263,7 +263,12 @@ func (r *Runner) runStep(b *Browser, bins *Binaries, s *Session, st *Step, vp Vi
 	defer sc.Stop(r.Keep)
 	fmt.Fprintf(logf, "scenario %s at %s (board %s)\n", s.Scenario, sc.Root, sc.Base)
 
-	pg, err := b.NewPage(&vp, append([]string{checksJS, noMotionJS}, r.pageScripts...)...)
+	scripts := append([]string{checksJS, noMotionJS}, r.pageScripts...)
+	for _, name := range st.Stubs {
+		src, _ := stubScript(name)
+		scripts = append(scripts, src)
+	}
+	pg, err := b.NewPage(&vp, scripts...)
 	if err != nil {
 		return fail("browser: %v", err)
 	}
