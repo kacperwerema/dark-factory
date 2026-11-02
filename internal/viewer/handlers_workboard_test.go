@@ -326,7 +326,22 @@ func TestCardMarkers_Parked(t *testing.T) {
 }
 
 func TestSystemPage_RowsCarryCardMarkers(t *testing.T) {
-	f := workboardFixture(t, time.Now())
+	now := time.Now()
+	f := workboardFixture(t, now)
+	// The page shows 8 rows: in progress and in design fill 6, and two of
+	// the six backlog issues follow, newest status change first. With no
+	// transition stat that is the file's mtime, and Linux stamps mtimes
+	// from a coarse clock: files written in one tick tie and fall back to
+	// slug order (blocked, freed), cutting revise-why. Date them apart.
+	for name, p := range f.paths {
+		at := now.Add(-time.Hour)
+		if name == "revise-why" {
+			at = now.Add(-time.Minute)
+		}
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{f.proj})
 	defer ts.Close()

@@ -671,7 +671,9 @@ _ck_sandbox_add() {
 	mkdir -p "$dir"
 	_ck_sandbox_entry "$name" "$dir"
 	_ck_sandbox_repo "$dir"
+	# shellcheck disable=SC2034 # set for the check script that sourced lib.sh
 	SANDBOX_ADDED_PROJECT=$name
+	# shellcheck disable=SC2034 # set for the check script that sourced lib.sh
 	SANDBOX_ADDED_DIR=$dir
 }
 sandbox_git_identity() {
@@ -710,6 +712,7 @@ sandbox_git_repo() {
 		echo "sandbox_git_repo: could not set up $_ck_gr_dir" >&2
 		exit 2
 	}
+	# shellcheck disable=SC2034 # set for the check script that sourced lib.sh
 	SANDBOX_REMOTE=$_ck_gr_dir.git
 	printf -v "$_ck_gr_var" '%s' "$_ck_gr_dir"
 }
@@ -902,6 +905,7 @@ stand_in_viewer() {
 		echo "stand_in_viewer needs python3" >&2
 		exit 2
 	fi
+	# shellcheck disable=SC2034 # pid: background needs a variable to set
 	local port='' pid=''
 	STAND_IN_VIEWER_DIR=''
 	sandbox_dir STAND_IN_VIEWER_DIR

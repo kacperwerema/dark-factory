@@ -17,7 +17,11 @@ import (
 
 // testChrome is the browser the playtest runner would drive, or "".
 func testChrome() string {
-	if p := strings.TrimSpace(os.Getenv("PLAYTEST_CHROME")); p != "" {
+	// PLAYTEST_CHROME=none turns Chrome off, as for cmd/playtest's
+	// ChromePath: the public CI sets it, and these tests skip.
+	if p := strings.TrimSpace(os.Getenv("PLAYTEST_CHROME")); p == "none" {
+		return ""
+	} else if p != "" {
 		return p
 	}
 	for _, c := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"} {
