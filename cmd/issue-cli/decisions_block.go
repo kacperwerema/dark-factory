@@ -24,7 +24,7 @@ func printDecisionBlock(w io.Writer, proj *tracker.Project, b tracker.DecisionBl
 // printStartDecisions is start's block: it is a real briefing, so it
 // writes one injected event when anything is in force. A log it can't
 // write is a warning, never a failed start.
-func printStartDecisions(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, status string, wf *tracker.WorkflowConfig) {
+func printStartDecisions(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, status string, wf *tracker.WorkflowConfig) []string {
 	b := issueDecisionBlock(ctx, issue, issues, status, wf)
 	fmt.Fprintln(ctx.Stdout)
 	printDecisionBlock(ctx.Stdout, ctx.Project, b, issue.Slug)
@@ -37,4 +37,5 @@ func printStartDecisions(ctx *Context, issue *tracker.Issue, issues []*tracker.I
 		Actor: tracker.DecisionActor{Name: name, Role: string(me.Role)}, Refs: b.Refs()}, ctx.now()); err != nil {
 		fmt.Fprintf(ctx.Stderr, "warning: the decisions log did not take start's injected event: %v\n", err)
 	}
+	return b.Refs()
 }

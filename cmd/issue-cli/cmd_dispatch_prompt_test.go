@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -35,7 +36,7 @@ func TestDispatchPrompt_PrintsServerPromptVerbatim(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The server builds its prompt with this call and the project's workdir.
-	want := tracker.BuildDispatchPrompt(proj, issue, proj.LoadWorkflowForIssue(issue), proj.WorkDir, nil).Prompt
+	want := briefing.BuildDispatchPrompt(proj, issue, proj.LoadWorkflowForIssue(issue), proj.WorkDir, nil).Prompt
 	if stdout.String() != want {
 		t.Fatalf("output differs from the server's prompt\ngot:  %q\nwant: %q", stdout.String(), want)
 	}

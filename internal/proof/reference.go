@@ -30,16 +30,33 @@ func Reference(root string, issue *tracker.Issue) (sha, refName string, err erro
 		return "", refName, err
 	}
 	for _, cm := range commits {
-		if NamesSlug(cm.subject, issue.Slug) {
+		if references(cm.subject, cm.refs, issue.Slug) {
 			return cm.sha, refName, nil
-		}
-		for _, v := range cm.refs {
-			if NamesSlug(v, issue.Slug) {
-				return cm.sha, refName, nil
-			}
 		}
 	}
 	return "", refName, nil
+}
+
+// references is the one reading of a commit message: its subject or one of
+// its Refs: lines names slug.
+func references(subject string, refs []string, slug string) bool {
+	if NamesSlug(subject, slug) {
+		return true
+	}
+	for _, v := range refs {
+		if NamesSlug(v, slug) {
+			return true
+		}
+	}
+	return false
+}
+
+// MessageReferences reports whether msg, a commit message not yet made,
+// references slug the way Reference will read it once it is a commit.
+func MessageReferences(msg, slug string) bool {
+	msg = strings.TrimSpace(msg)
+	subject, _, _ := strings.Cut(msg, "\n")
+	return references(subject, MessageLines(msg, RefsKey), slug)
 }
 
 // ReferenceError is the commits_reference_issue check: nil when a commit

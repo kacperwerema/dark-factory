@@ -15,8 +15,14 @@ import (
 // Either way the ranker is wrapped in memory.Decayed at ctx's clock, so an
 // old, unused memory ranks below a recent or used one (phase 3).
 func memoryRanker(ctx *Context) (memory.Ranker, *memory.Hybrid) {
+	return memoryRankerScored(ctx, nil)
+}
+
+// memoryRankerScored is memoryRanker with usefulness: a memory measured
+// unhelpful ranks lower (memory.Decayed's Scores).
+func memoryRankerScored(ctx *Context, scores memory.Scores) (memory.Ranker, *memory.Hybrid) {
 	inner, h := baseRanker(ctx)
-	return memory.Decayed{Inner: inner, Now: ctx.now()}, h
+	return memory.Decayed{Inner: inner, Now: ctx.now(), Scores: scores}, h
 }
 
 // baseRanker is BM25 or the Hybrid, before decay.

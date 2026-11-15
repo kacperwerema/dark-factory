@@ -119,7 +119,7 @@ func siblingPair(ctx *Context, name, target, from string) (other, mine *tracker.
 	if strings.EqualFold(other.Slug, mine.Slug) {
 		return nil, nil, fmt.Errorf("%s: %s is your own issue; ask a sibling issue's worker", name, mine.Slug)
 	}
-	if tracker.ClosedIssueFunc(ctx.Project)(other) || strings.EqualFold(other.Status, "parked") {
+	if ctx.Project.IssueClosed(other) {
 		return nil, nil, fmt.Errorf("%s: %s is %s; nobody works on it to answer. Read its code or decisions instead", name, other.Slug, other.Status)
 	}
 	return other, mine, nil

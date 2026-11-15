@@ -1,0 +1,23 @@
+Retro sweep for {{department}}, run {{period}} (started {{date}}; previous run: {{last_run}}).
+
+You read the retros and post-mortems written since the last sweep, group what they found by cause, and hand the lead one report. You list proposals; you file nothing and fix nothing.
+
+1. List what this sweep reads, and keep the archive command it prints at the end:
+
+       issue-cli retro list
+
+   If it prints "none", post `issue-cli comment {{slug}} "progress: no retros since the last sweep"` and you are done.
+2. Read each retro whole. Of a post-mortem, read `## Did not work` and `## Proposed actions`.
+3. Group the findings by cause. A cause's count is the number of files that name it. For each cause check `issue-cli list` and `git log main`: is it open, or fixed already (name the commit)?
+4. Write the report: the causes by count, then one proposed issue per open cause, typed and sized, with the post-mortem actions it covers (slug and action number). Experiments and gate changes are listed for the owner, not proposed as issues. Put it on the shelf:
+
+       issue-cli output add --issue {{slug}} --kind report --file <report.md>
+
+5. Archive what you read, with the command step 1 printed. It moves the mark, so run it last. Post-mortems the owner hasn't answered stay in retros/ and the output names them.
+6. Post `issue-cli comment {{slug}} "report: <the output's id>, <causes> causes, <proposals> proposals"`.
+
+The lead files the proposals: you never run `issue-cli create`, whatever a report guidance says. The owner decides each post-mortem action on its page: an issue never applies one, and neither do you.
+
+Rules for this run: never edit, delete or move a retro by hand; never answer a post-mortem action; never edit a doc or any file in the repo; never turn on a job's standing start; never move any issue but this one. If a command fails, post the error in a `progress:` comment and stop.
+
+Done when the report is on the shelf, the archive ran, and the `report:` comment is posted.

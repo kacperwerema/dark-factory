@@ -61,7 +61,7 @@ func StartRun(proj *tracker.Project, r *jobs.Ref, issues []*tracker.Issue, perio
 		return res, err
 	}
 	res.Run = n
-	fresh, err := tracker.LoadIssues(proj.IssueDir)
+	fresh, err := proj.LoadIssues()
 	if err != nil {
 		return res, err
 	}

@@ -23,6 +23,7 @@ steps:
       - wait: 600
       - type: { target: station.field.label_input, text: urgent, enter: true }
       - wait: 600
+      - click: station.menu
       - click: station.rename
       - type: { target: station.rename.input, text: "Label printer v2", enter: true }
       - wait_for: { text_contains: { target: station.title, text: "Label printer v2" }, ms: 8000 }
@@ -81,9 +82,13 @@ steps:
     setup:
       - open: /p/{project}/issue/shop/label-printer
     act:
-      - check: { visible: [station.brief, station.relations, station.relations.depends_on, station.dispatch.claude, station.dispatch.codex, station.dispatch.prompt, station.approving] }
+      - check: { visible: [station.brief, station.relations, station.relations.depends_on, station.dispatch.claude, station.agent.menu, station.approving] }
+      - click: station.agent.menu
+      - check: { visible: [station.dispatch.codex, station.dispatch.prompt] }
+      - key: Escape
       - check: { text_contains: { target: station.brief, text: "Print a shipping label for every paid order." } }
       - check: { text_contains: { target: station.relations.depends_on, text: "shop/paper-roll" } }
+      - click: station.menu
       - click: station.delete
       - wait_for: { visible: station.delete.confirm, ms: 3000 }
       - click: station.delete.keep

@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
@@ -176,9 +179,7 @@ func TestUpdatesShowsARunningInstall(t *testing.T) {
 	proj := updatesProject(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	orig := agentSessionLive
-	agentSessionLive = func(_ *tracker.Project, name string) bool { return name == "agent-test-project-install-lead-prompt" }
-	t.Cleanup(func() { agentSessionLive = orig })
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-other"}, {Name: "agent-test-project-install-lead-prompt"}})
 
 	_, body := getBody(t, ts.URL+"/p/test-project/updates?classic=1")
 	if !strings.Contains(body, `data-testid="updates.card.lead-prompt.installing"`) || strings.Contains(body, `data-testid="updates.card.lead-prompt.decline"`) {
@@ -270,5 +271,65 @@ func TestUpdatesStaleRecordIsNotUpToDate(t *testing.T) {
 	_, overview := getBody(t, ts.URL+"/updates")
 	if !strings.Contains(overview, `data-testid="updates_overview.card.test-project.state">not recorded<`) {
 		t.Error("overview should say not recorded")
+	}
+}
+
+// One Updates page asks tmux which install agents run with one listing, not
+// a has-session per proposal. With the viewer's machine readings on (as
+// viewer.Run turns them on), the page and the classic page each make at most
+// 2 tmux calls (list-sessions and list-windows) however many cards they show;
+// read afresh every time, they still make no has-session.
+func TestUpdatesAsksTmuxOncePerRequest(t *testing.T) {
+	proj := updatesProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "tmux.log")
+	standin.Write(t, filepath.Join(bin, "tmux"), "printf '%s\\n' \"$*\" >> \"$UPDATES_TMUX_LOG\"\n[ \"$1\" = has-session ] && exit 1\nexit 0\n")
+	t.Setenv("UPDATES_TMUX_LOG", log)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	calls := func(page string) []string {
+		os.Remove(log)
+		_, body := getBody(t, ts.URL+page)
+		if cards := strings.Count(body, `.decline"`); cards < 3 {
+			t.Fatalf("%s: %d cards, want several to count against", page, cards)
+		}
+		data, _ := os.ReadFile(log)
+		if s := strings.TrimSpace(string(data)); s != "" {
+			return strings.Split(s, "\n")
+		}
+		return nil
+	}
+	pages := []string{"/p/test-project/updates?classic=1", "/p/test-project/updates"}
+
+	for _, page := range pages {
+		for _, call := range calls(page) {
+			if strings.HasPrefix(call, "has-session") {
+				t.Errorf("%s asks tmux per name: %s", page, call)
+			}
+		}
+	}
+
+	recent.Keep(time.Minute)
+	t.Cleanup(func() { recent.Keep(0) })
+	for i, page := range pages {
+		got := calls(page)
+		if len(got) > 2 || i == 0 && len(got) == 0 {
+			t.Errorf("%s: %d tmux calls, want 1 to 2:\n%s", page, len(got), strings.Join(got, "\n"))
+		}
+	}
+}
+
+// liveSessionNames answers like has-session: a session of its own, or in
+// shared mode a window of the project's shared session only.
+func TestLiveSessionNamesSharedMode(t *testing.T) {
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-solo"}, {Name: "work:agent-a"}, {Name: "other:agent-b"}})
+	own := liveSessionNames(&tracker.Project{Slug: "p"})
+	if !own("agent-solo") || own("agent-a") {
+		t.Error("own-session mode: only agent-solo is live")
+	}
+	shared := liveSessionNames(&tracker.Project{Slug: "p", TmuxSession: "work"})
+	if !shared("agent-a") || shared("agent-b") || shared("agent-solo") {
+		t.Error("shared mode: only work:agent-a is live")
 	}
 }

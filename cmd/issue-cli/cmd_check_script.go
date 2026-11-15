@@ -7,10 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -43,7 +46,9 @@ Usage:
   issue-cli check-script --lib                print the helper library and its API
 
 The scripts run from the issue's worktree: the workflow's, else the git
-worktree on work/<slug>; when the workflow has no worktrees, the worktree
+worktree on work/<slug>, else (the project folder holding none) the one
+worktree on any branch whose script names the slug (several: the one you run
+it from); when the workflow has no worktrees, the worktree
 you run it from, else the project folder. They run with a bash 4 or newer (PATH, then /opt/homebrew/bin,
 /usr/local/bin, /opt/local/bin; stock macOS: brew install bash). A machine
 run is also what you get when stdin isn't a terminal. With the feature on,
@@ -52,7 +57,9 @@ human-testing waits for each script's newest --yes run to pass.
 $ISSUE_CLI is the issue-cli a script checks (lib.sh's sic and sandbox_project
 use it): --cli <path>, else the branch's own build at <worktree>/issue-cli
 (go build -o ./issue-cli ./cmd/issue-cli) when there is one, else this
-issue-cli. Boxes are still ticked by this issue-cli.`,
+issue-cli. Boxes are still ticked by this issue-cli. A machine run refuses a
+./issue-cli older than the newest commit or file under cmd/ and internal/,
+and prints the build command.`,
 	Run: runCheckScript,
 }
 
@@ -125,6 +132,9 @@ func runCheckScript(ctx *Context, args []string) error {
 		found = filterScripts(found, fs.Arg(1))
 	}
 	if *listFlag {
+		if several := (*severalWorktreesError)(nil); len(found) == 0 && errors.As(rootErr, &several) {
+			return &exitCodeError{Code: 1, Msg: several.Error()}
+		}
 		return listCheckScripts(ctx, issue, root, found)
 	}
 	if rootErr != nil {
@@ -155,6 +165,11 @@ func runCheckScript(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *yesFlag || !stdinIsTerminal() {
+		if err := refuseStaleBuild(root, cli); err != nil {
+			return err
+		}
+	}
 	return runCheckScripts(ctx, issue, found, *yesFlag, cli)
 }
 
@@ -182,6 +197,34 @@ func scriptIssueCLI(ctx *Context, root, flag string) (string, error) {
 		return build, nil
 	}
 	return "", nil
+}
+
+// refuseStaleBuild stops a machine run whose scripts would check the checkout's
+// ./issue-cli when that build is older than the checkout's code: its result
+// would be about the old code, and a pass would open the human-testing gate. A
+// --cli path elsewhere is the caller's choice and is not compared.
+func refuseStaleBuild(root, cli string) error {
+	if cli == "" || root == "" {
+		return nil
+	}
+	build := filepath.Join(root, tracker.BranchBuild)
+	named, err := os.Stat(cli)
+	if err != nil {
+		return nil
+	}
+	if own, err := os.Stat(build); err != nil || !os.SameFile(named, own) {
+		return nil
+	}
+	stale, err := checks.BuildStale(root, build)
+	if err != nil {
+		return err
+	}
+	if stale == nil {
+		return nil
+	}
+	const when = "2006-01-02 15:04:05"
+	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s is older than the code it would check: built %s, %s changed %s\n\nRebuild it, then run this again:\n  (cd %s && go build -o ./%s ./cmd/issue-cli)",
+		build, stale.Built.Format(when), stale.What, stale.Changed.Format(when), shell.Quote(root), tracker.BranchBuild)}
 }
 
 // checkScriptRoot is where the issue's scripts live and run: its checkout
@@ -213,6 +256,16 @@ func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) 
 	if wt := checks.IssueWorktree(projectRoot(proj), issue.Slug); wt != "" {
 		return wt, nil
 	}
+	if trees := checks.ScriptWorktrees(projectRoot(proj), issue.Slug); len(trees) == 1 {
+		return trees[0], nil
+	} else if len(trees) > 1 {
+		if cwd, err := workingDir(); err == nil {
+			if here := checks.WorktreeHolding(projectRoot(proj), cwd); slices.Contains(trees, here) {
+				return here, nil
+			}
+		}
+		return "", &severalWorktreesError{slug: issue.Slug, trees: trees}
+	}
 	if !enabled {
 		if cwd, err := workingDir(); err == nil {
 			if wt := checks.WorktreeHolding(projectRoot(proj), cwd); wt != "" {
@@ -222,6 +275,17 @@ func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) 
 		return projectRoot(proj), nil
 	}
 	return "", fmt.Errorf("no worktree for %s at %s\n\nCheck scripts live on the issue's branch (%s) and run from its worktree.\nCreate it with: git worktree add %s %s", issue.Slug, path, branch, path, branch)
+}
+
+// severalWorktreesError is issueCheckout's refusal when more than one
+// worktree holds the issue's scripts and the current folder is in none.
+type severalWorktreesError struct {
+	slug  string
+	trees []string
+}
+
+func (e *severalWorktreesError) Error() string {
+	return fmt.Sprintf("%d worktrees hold check scripts for %s:\n  %s\n\nRun check-script from inside the one to use.", len(e.trees), e.slug, strings.Join(e.trees, "\n  "))
 }
 
 func filterScripts(found []checks.Script, name string) []checks.Script {
@@ -239,7 +303,7 @@ func noCheckScripts(issue *tracker.Issue, root, name string) error {
 	if name != "" {
 		what = "no check script " + name
 	}
-	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s, nor removed from it in git history\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shellQuote(issue.Slug))}
+	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s, nor removed from it in git history\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shell.Quote(issue.Slug))}
 }
 
 type checkScriptEntry struct {
@@ -275,7 +339,7 @@ func listCheckScripts(ctx *Context, issue *tracker.Issue, root string, found []c
 			run = "owner has run it"
 		}
 		if s.From != "" {
-			fmt.Fprintf(ctx.Stdout, "%s  %s  (%s; from history: removed in %.7s before the merge)\n", s.Name, s.Path, run, s.From)
+			fmt.Fprintf(ctx.Stdout, "%s  %s  (%s; from history: removed in %s before the merge)\n", s.Name, s.Path, run, gitdir.ShortSHA(s.From))
 			continue
 		}
 		fmt.Fprintf(ctx.Stdout, "%s  %s  (%s)\n", s.Name, s.Path, run)
@@ -322,6 +386,7 @@ func runCheckScripts(ctx *Context, issue *tracker.Issue, found []checks.Script, 
 			"CHECKS_ROOT="+s.Root,
 			"CHECKS_NAME="+s.Name,
 			"CHECKS_SCRIPT="+s.Path,
+			"CHECKS_DIR="+filepath.Dir(s.Path),
 			"CHECKS_ISSUE_CLI="+self,
 			"ISSUE_CLI="+cli,
 		)
@@ -385,8 +450,8 @@ func newCheckScript(ctx *Context, issue *tracker.Issue, root, name string) error
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Wrote %s\n", path)
 	fmt.Fprintln(ctx.Stdout, "  Fill in each step (the helpers: issue-cli check-script --lib), then:")
-	fmt.Fprintf(ctx.Stdout, "  issue-cli check-script %s --yes    machine run, before you hand over\n", shellQuote(issue.Slug))
-	fmt.Fprintf(ctx.Stdout, "  The owner runs: issue-cli check-script %s (or ▶ Run checks in the viewer)\n", shellQuote(issue.Slug))
+	fmt.Fprintf(ctx.Stdout, "  issue-cli check-script %s --yes    machine run, before you hand over\n", shell.Quote(issue.Slug))
+	fmt.Fprintf(ctx.Stdout, "  The owner runs: issue-cli check-script %s (or ▶ Run checks in the viewer)\n", shell.Quote(issue.Slug))
 	fmt.Fprintln(ctx.Stdout, "  Commit it on the issue branch; remove it in a last commit before the merge.")
 	return nil
 }
@@ -430,15 +495,15 @@ func pathExists(path string) bool {
 // usesCheckScripts reports whether the workflow has the guided-check-scripts
 // feature: its testing or human-testing prompt names check-script.
 func usesCheckScripts(wf *tracker.WorkflowConfig) bool {
-	return strings.Contains(wf.StatusPrompt("testing"), "check-script") || strings.Contains(wf.StatusPrompt("human-testing"), "check-script")
+	return strings.Contains(wf.StatusPrompt(wf.RoleStatus(tracker.StatusRoleVerify)), "check-script") || strings.Contains(wf.StatusPrompt(wf.RoleStatus(tracker.StatusRoleOwnerTest)), "check-script")
 }
 
 // printCheckScriptHint says where the issue's guided check scripts stand, at
 // testing and human-testing, when the workflow uses them: the scripts and
 // who runs what, or how to start one while Manual boxes are open.
 func printCheckScriptHint(w io.Writer, proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue) {
-	status := strings.ToLower(issue.Status)
-	if (status != "testing" && status != "human-testing") || !usesCheckScripts(wf) {
+	verifying := wf.HasRole(issue.Status, tracker.StatusRoleVerify)
+	if (!verifying && !wf.HasRole(issue.Status, tracker.StatusRoleOwnerTest)) || !usesCheckScripts(wf) {
 		return
 	}
 	root, err := checkScriptRoot(proj, issue)
@@ -452,7 +517,7 @@ func printCheckScriptHint(w io.Writer, proj *tracker.Project, wf *tracker.Workfl
 		}
 		fmt.Fprintln(w, "== Guided checks ==")
 		fmt.Fprintln(w, "  None yet. Manual checks that aren't playtests come as a guided check script:")
-		fmt.Fprintf(w, "  issue-cli check-script %s --new <name>    (helpers: issue-cli check-script --lib)\n\n", shellQuote(issue.Slug))
+		fmt.Fprintf(w, "  issue-cli check-script %s --new <name>    (helpers: issue-cli check-script --lib)\n\n", shell.Quote(issue.Slug))
 		return
 	}
 	names := make([]string, len(found))
@@ -461,10 +526,10 @@ func printCheckScriptHint(w io.Writer, proj *tracker.Project, wf *tracker.Workfl
 	}
 	fmt.Fprintln(w, "== Guided checks ==")
 	fmt.Fprintf(w, "  Scripts: %s\n", strings.Join(names, ", "))
-	if status == "testing" {
-		fmt.Fprintf(w, "  Before handing over: issue-cli check-script %s --yes    (machine checks only; never tick the owner's boxes)\n", shellQuote(issue.Slug))
+	if verifying {
+		fmt.Fprintf(w, "  Before handing over: issue-cli check-script %s --yes    (machine checks only; never tick the owner's boxes)\n", shell.Quote(issue.Slug))
 	}
-	fmt.Fprintf(w, "  The owner runs: issue-cli check-script %s    (▶ Run checks in the viewer; ticks the boxes that pass)\n\n", shellQuote(issue.Slug))
+	fmt.Fprintf(w, "  The owner runs: issue-cli check-script %s    (▶ Run checks in the viewer; ticks the boxes that pass)\n\n", shell.Quote(issue.Slug))
 }
 
 // checkScriptLibOnly reports whether args are `check-script --lib`, which
@@ -477,7 +542,7 @@ func checkScriptLibOnly(args []string) bool {
 // workflow uses guided check scripts and the issue has some: each script's
 // newest machine run (check-script --yes) must have passed. Nil otherwise.
 func checkScriptGate(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue, to string) *transitionProblem {
-	if !strings.EqualFold(to, "human-testing") || !usesCheckScripts(wf) {
+	if !wf.HasRole(to, tracker.StatusRoleOwnerTest) || !usesCheckScripts(wf) {
 		return nil
 	}
 	root, err := checkScriptRoot(proj, issue)
@@ -500,6 +565,6 @@ func checkScriptGate(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *t
 		Kind:        "validator",
 		Requirement: "Guided check scripts pass a machine run",
 		Message:     strings.Join(missing, "; "),
-		Fix:         []string{tracker.InjectProject(proj, "issue-cli check-script "+shellQuote(issue.Slug)+" --yes")},
+		Fix:         []string{tracker.InjectProject(proj, "issue-cli check-script "+shell.Quote(issue.Slug)+" --yes")},
 	}
 }

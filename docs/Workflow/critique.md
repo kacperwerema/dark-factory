@@ -15,7 +15,7 @@ Add the `critique` rule to the edges the critic should hold. The `critique:` blo
 
 ```yaml
 critique:            # optional
-  agent: codex       # claude | codex; default: routing's pick, switched to the other installed agent
+  agent: codex       # claude | codex; default: the other agent than the worker's, the same one when the other rests
   command: ""        # replaces the agent's command: sh -c, the brief on stdin, findings on stdout
   timeout: 15m       # default 15m
 transitions:
@@ -31,27 +31,30 @@ transitions:
         rule: "critique"
 ```
 
-This project runs it on `in design → backlog`, `in design → in progress`, `testing → human-testing`, and the tweak path's `testing → shipping`. The feature catalog entry is `critique-gate`.
+With the gate, give the `in design` status prompt the line the catalog snippet carries: a finding is answered by editing the design **in place** where it is wrong (`issue-cli replace <slug> --section "Design"`, or `--line` / `--match` for one line), never by appending an "after critic run N" note. The critic reads the design, not its history: appended notes stack up and each run flags the old text against the new. The gate's refusal says the same.
+
+This project runs it on no edge: `critique-gate` is declined in its workflow.yaml (the owner, 2026-10-31), so the critic runs only by hand here. `TestCritiqueDocMatchesTheWorkflow` keeps this line in step with that file.
 
 ## Running the critic
 
 ```
-issue-cli critique <slug> [--agent claude|codex]   # run it, record it, say whether the gate passes
+issue-cli critique <slug> [--agent claude|codex]   # run it, record it, say whether the gate passes, or that no gate waits on it
 issue-cli critique <slug> --brief                  # print the brief; start nothing
 issue-cli critique <slug> --show                   # the newest run from the current status, notes included
+issue-cli critique <slug> --reparse <run id>       # parse that run's kept raw output again with the current parser
 issue-cli critique <slug> --override --quote "<the owner's words>"
 ```
 
-The worker runs it before the gated transition. Until it does, the transition refuses and names the command, and so do `transition --dry-run` and `show` (`Critique: none from in design yet; the next gate wants one`).
+With a gate, the worker runs it before the gated transition. Until it does, the transition refuses and names the command, and so do `transition --dry-run` and `show` (`Critique: none from in design yet; the next gate wants one`).
 
-1. **Only the current edge.** The command refuses when no edge out of the issue's status has the rule.
+1. **The current edge, or by hand.** With the rule on an edge out of the issue's status, the run judges that gate. Without one it is a run **by hand**: the same read-only critic, brief, record and comment, with `to` empty in the record. It holds nothing, counts no red round and has nothing to override, and a later gate wants a run of its own from its own status. The output, the comment (`critique: in progress, by hand (no gate), findings (codex) — …`) and the station say so. The verdict word for its blocks findings is `findings`, not `holds`.
 2. **Machine first.** `mem-guard check` must pass and the 1-minute load must be under the core count (the auto-start rules). Otherwise nothing starts. Without mem-guard on PATH it starts.
-3. **The CLI.** `--agent` wins, then `critique: agent:`. Otherwise it takes routing's pick for the issue (the worker's agent) and switches to the other known agent (claude ↔ codex) when that one is installed and not resting.
-4. **Paths only.** The brief names the issue file (its body carries the decisions), the epic's file, `.git-critique/branch.diff` (the branch's diff against main, written into the worktree and excluded from git), the changed files and `docs/departments.md` (settled rules). It never carries comments, `progress:` lines, the body's text or the worker's summary. `critique.Input` holds paths only, so nothing else can get in.
+3. **The CLI.** `--agent` wins, then `critique: agent:`. Otherwise the critic is the agent that did not write the work: the other known agent (claude ↔ codex) than the newest worker launch on the issue's dispatch record (`dispatches:` in its stats sidecar; only the `agent-<slug>` session counts, so on a branch taken over at a limit the newest writer is the one that counts). With no record it compares with routing's pick and the reason says so. When the other agent is resting or not installed, the critic runs on the same agent as the worker, and both the run and its comment say why (`same agent as the writer: codex resting until 17:00; on the worker's claude`). That includes both resting: a limit it meets then fails the run (step 7).
+4. **Paths only.** The brief names the issue file (its body carries the decisions), the epic's file, `.git-critique/branch.diff` (the branch's diff against main, written into the worktree and excluded from git), the changed files and `docs/departments.md` (settled rules). It never carries comments, `progress:` lines, the body's text or the worker's summary. `critique.Input` holds paths only, so nothing else can get in. The one exception is derived, not written: with a [code map](../workbench-files.md#code-map), the brief also lists the branch's footprint (contexts it works in and reaches, binaries, Watch) under "Footprint (from the code map, not the author)", computed from the import graph.
 5. **Read-only and headless.** claude runs as `claude -p` with only Read, Grep and Glob allowed, and Edit, Write, NotebookEdit, Bash and web tools refused. codex runs as `codex exec --sandbox read-only`. Both start in the issue's worktree, so `issue-cli spend` counts their tokens for the issue's department with no extra bookkeeping. The run is part of the human-dispatched worker's session, not a new worker. It is one-shot and has no tmux pane.
-6. **Recorded.** One line in `<issues>/.critique/runs.jsonl` (findings, malformed lines, Coverage, Not read, agent, branch head, exit). A `critique:` comment on the issue lists the verdict, counts, the blocks and should findings and Coverage. Notes stay in the log and `--show`.
+6. **Recorded.** One line in `<issues>/.critique/runs.jsonl` (findings, malformed lines, Coverage, Not read, agent, the worker's agent as `worker`, the reason as `why`, `same_agent` when the critic is the writer, branch head, exit). Under `critique: command:` the run names no agent, since the command may run anything. A `critique:` comment on the issue lists the verdict, counts, the blocks and should findings and Coverage. Notes stay in the log and `--show`. The critic's stdout is kept beside the run in `<issues>/.critique/raw/<run id>.txt`, scrubbed by the same secret scan as memory (`memory.RedactSecrets`: each secret becomes `[redacted: <kind>]`), and the run's `raw:` names the file (`raw_redacted:` lists the kinds scrubbed). `--reparse <run id>` parses that file with the current parser and prints the recorded report beside the new one. It records nothing, so a parser fix can be tried on a real run. Runs from before raw outputs were kept have no file and say so.
 
-7. **Usage limit.** When the critic exits non-zero (not a timeout) and its last lines are that CLI's usage-limit message (routing's `FindLimit`), the subscription is marked resting in routing's state as for a worker (`issue-cli agents`). The critic then runs **once** more on the other known agent that is installed and not resting. The recorded run is the second one, and its `critique:` comment says `codex hit its usage limit (resting until …); ran on claude`. If the fallback also hits its limit, it is marked resting too and the run is recorded as failed. There is no fallback under `critique: command:` or when `--agent` or `critique: agent:` chose the agent; the limit is still marked and the run is recorded as failed.
+7. **Usage limit.** When the critic exits non-zero (not a timeout) and its last lines are that CLI's usage-limit message (routing's `FindLimit`), the subscription is marked resting in routing's state as for a worker (`issue-cli agents`). The critic then runs **once** more on the other known agent that is installed and not resting. The recorded run is the second one, and its `critique:` comment says `codex hit its usage limit (resting until …); ran on claude`, with the same-agent note when claude wrote the work. If the fallback also hits its limit, it is marked resting too and the run is recorded as failed. There is no fallback under `critique: command:` or when `--agent` or `critique: agent:` chose the agent; the limit is still marked and the run is recorded as failed.
 
 ## The finding format
 
@@ -80,7 +83,7 @@ the critic found 2 blocks findings (run 20261031T…):
   blocks internal/x.go:42 — nil on an empty list
   blocks (malformed: no path:line) blocks the whole design is unsafe
 
-Fix each, then run the critic again (the new run is what counts):
+Fix each where it is wrong, in place (the code, or the issue text with issue-cli replace <slug> --section <name>), not by appending a note: the critic reads the text, not its history. Then run the critic again (the new run is what counts):
 
   issue-cli critique <slug>
 
@@ -89,12 +92,12 @@ Or the owner overrides: issue-cli critique <slug> --override --quote "<the owner
 
 - `should` findings are shown by the run and on the station. They don't hold the gate.
 - `note` findings are kept in the log.
-- **Red rounds.** Each run with a blocks finding is one red round of the gate's critique check (`critique in design → backlog`), counted per run and not per branch head, because in design the head doesn't move between runs. A run counts only when one of its blocks findings (path and text, the line left out) was in an earlier run of the streak; a run whose findings are all new starts the count over at 1. A clear run or an override ends the streak. A failed run, or one held only by an output problem (no Coverage line), is the critic's fault and doesn't count. At `max_red_rounds` (4) the run posts `question: red rounds: critique <from> → <to> — red 4 of 4 …`. While that question is open, `issue-cli critique` and the transition both refuse until the owner resolves it ([Red-round cap](../workflow.md#red-round-cap)).
+- **Red rounds.** In the briefing's words: a gate's command, the proof check, a local CI command or the critic's held runs; one round per commit, each held critic run its own round; only a failure that comes back counts, and an owner comment starts the count over. Each gated run with a blocks finding is one red round of the gate's critique check (a run by hand, from a status with no gate, holds nothing and is not a round) (`critique in design → backlog`), counted per run and not per branch head, because in design the head doesn't move between runs. A run counts only when one of its blocks findings (path and text, the line left out) was in an earlier run of the streak; a run whose findings are all new starts the count over at 1. A clear run or an override ends the streak. A failed run, or one held only by an output problem (no Coverage line), is the critic's fault and doesn't count. At `max_red_rounds` (4) the run posts `question: red rounds: critique <from> → <to> — red 4 of 4 …`. While that question is open, `issue-cli critique` and the transition both refuse until the owner resolves it ([Red-round cap](../workflow.md#red-round-cap)).
 - **Override** is the owner's. It is refused from a worker's shell, and YOLO doesn't pass it: a blocks finding is a failed check, not an approval ([YOLO Mode](yolo.md)).
 
 ## Where it shows
 
-- **The station** (`/p/<project>/issue/<slug>`) has a **Critique** block (`wb/station-critique`). It shows the newest run's verdict, edge, agent and age, the blocks and should findings with path:line, malformed lines, notes folded, Coverage and Not read. With a gate and no run yet, it names the command.
+- **The station** (`/p/<project>/issue/<slug>`) has a **Critique** block (`wb/station-critique`). It shows the newest run's verdict, edge, who wrote the work and who read it (`written by claude · read by codex`; a run from before the record names only its agent) and age, why when they are the same agent, the blocks and should findings with path:line, malformed lines, notes folded, Coverage and Not read. With a gate and no run yet, it names the command. A run by hand says `By hand: no gate waits on this run`.
 - `issue-cli show` prints a `Critique:` line.
 - `issue-cli process transitions` lists "Validate a fresh critic found no blocks finding (issue-cli critique <slug>)".
 

@@ -2,7 +2,9 @@ package lint
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/routing"
@@ -17,7 +19,9 @@ var agentName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,39}$`)
 // for mistakes that would route silently wrong: an agent that isn't a
 // command name or isn't installed, a rule without an agent or matching
 // nothing this file knows (type, status, department), a rule after a
-// catch-all, a fallback that repeats or leaves out the default.
+// catch-all, a fallback that repeats or leaves out the default, a stop_at:
+// that is no percent or sits in a department's file, a codex: value the
+// launcher doesn't know (it adds nothing for one).
 func checkRouting(env *Env) []Finding {
 	wf := env.Workflow
 	if wf == nil || wf.Routing == nil {
@@ -47,6 +51,28 @@ func checkRouting(env *Env) []Finding {
 	}
 	if len(cfg.Fallback) > 0 && !seen[cfg.DefaultAgentName()] {
 		add("routing fallback: leaves out the default "+cfg.DefaultAgentName()+", so a start routed elsewhere never falls back to it", "add "+cfg.DefaultAgentName()+" to fallback:")
+	}
+	for _, a := range slices.Sorted(maps.Keys(cfg.StopAt)) {
+		p := cfg.StopAt[a]
+		if !agentName.MatchString(a) {
+			add(fmt.Sprintf("routing stop_at: %q is not an agent command name (claude, codex)", a), "agent: claude | codex")
+		}
+		if p < 1 || p > 100 {
+			add(fmt.Sprintf("routing stop_at: %s is %d, not a percent from 1 to 100", a, p), "98 is the default; 100 turns the stop point off")
+		}
+	}
+	if env.Department != "" && len(cfg.StopAt) > 0 {
+		add(env.Department+"'s own workflow file sets stop_at:, which only Product's workflow.yaml sets: a subscription rests for the whole machine", "move stop_at: to workflow.yaml")
+	}
+	if c := cfg.Codex; c != nil {
+		for _, v := range c.Writable {
+			if !slices.Contains(tracker.CodexWritableValues, v) {
+				add(fmt.Sprintf("routing codex writable: %q is not a known folder, so a Codex start doesn't get it", v), "writable: "+strings.Join(tracker.CodexWritableValues, " | "))
+			}
+		}
+		if c.Approval != "" && !slices.Contains(tracker.CodexApprovalValues, c.Approval) {
+			add(fmt.Sprintf("routing codex approval: %q is not a known policy, so a Codex start keeps asking", c.Approval), "approval: "+strings.Join(tracker.CodexApprovalValues, " | "))
+		}
 	}
 	catchAll := -1
 	for i, r := range cfg.Rules {

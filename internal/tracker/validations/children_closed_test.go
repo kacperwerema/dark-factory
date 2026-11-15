@@ -7,8 +7,8 @@ import (
 
 func TestChildrenClosed(t *testing.T) {
 	kids := map[string][]*IssueView{
-		"e1": {{Slug: "a", Status: "done"}, {Slug: "b", Status: "parked"}, {Slug: "c", Status: "Obsolete"}},
-		"e2": {{Slug: "a", Status: "done"}, {Slug: "d", Status: "in progress"}},
+		"e1": {{Slug: "a", Status: "done", Closed: true}, {Slug: "b", Status: "parked", Closed: true}, {Slug: "c", Status: "published", Closed: true}},
+		"e2": {{Slug: "a", Status: "done", Closed: true}, {Slug: "d", Status: "in progress"}},
 	}
 	cfg := Config{Children: func(slug string) []*IssueView { return kids[slug] }}
 	act := Action{Rule: "children_closed"}
@@ -24,7 +24,7 @@ func TestChildrenClosed(t *testing.T) {
 	}
 	// values: narrows what closes a child.
 	if err := ChildrenClosed(Action{Rule: "children_closed", Values: []string{"done"}}, &IssueView{Slug: "e1"}, cfg); err == nil {
-		t.Error("values: [done] should leave parked and obsolete open")
+		t.Error("values: [done] should leave parked and published open")
 	}
 	if err := ChildrenClosed(act, &IssueView{Slug: "e1"}, Config{}); err == nil {
 		t.Error("no issue store should fail")

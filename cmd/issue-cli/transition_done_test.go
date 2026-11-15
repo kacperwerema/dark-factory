@@ -62,7 +62,7 @@ func TestRunTransitionToDoneNeverPrintsParkedGuidance(t *testing.T) {
 	assertContains(t, output, "== Done ==")
 	assertNotContains(t, output, parkedPrompt)
 	assertNotContains(t, output, "== Next ==")
-	assertNotContains(t, output, `--to "parked"`)
+	assertNotContains(t, output, `--to parked`)
 }
 
 func TestRunTransitionToDoneJSONHasNoParkedNext(t *testing.T) {
@@ -116,8 +116,8 @@ func TestRunTransitionToDoneStillOffersTrailingOptionalStatus(t *testing.T) {
 	output := stdout.String()
 
 	assertContains(t, output, `== Next ==`)
-	assertContains(t, output, `--to "archived"`)
-	assertNotContains(t, output, `--to "parked"`)
+	assertContains(t, output, `--to archived`)
+	assertNotContains(t, output, `--to parked`)
 	assertNotContains(t, output, parkedPrompt)
 	assertNotContains(t, output, "== Done ==")
 }

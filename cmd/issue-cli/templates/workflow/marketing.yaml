@@ -2,23 +2,27 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: marketing@v0.60.0
+template: marketing@v0.61.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
 # `issue-cli workflow upgrade`.
 features:
   installed:
-    - brand-foundation@v0.59.0
+    - brand-foundation@v0.61.0
+    - keyword-research@v0.61.0
     - measure-after-publish@v0.58.0
+    - report-type@v0.61.0
+    - seo-baseline@v0.61.0
+    - social-channel@v0.61.0
     - status-prompts@v0.36.0
     - types-of-work@v0.36.0
-    - workflow-evals@v0.59.0
+    - workflow-evals@v0.61.0
     - body-structure-gates@v0.36.0
     - checklist-gates@v0.36.0
     - comment-evidence-gates@v0.36.0
     - failure-hints@v0.36.0
-    - file-exists-gates@v0.58.0
+    - file-exists-gates@v0.61.0
     - human-approval-gates@v0.36.0
     - owner-only-gates@v0.58.0
     - publish-stamp@v0.55.0
@@ -26,6 +30,7 @@ features:
     - board-card-fields@v0.36.0
     - board-columns@v0.36.0
     - lead-handoff-prompts@v0.36.0
+    - testing-na-forms@v0.60.0
 
 # Marketing's own workflow file (projects.yaml departments: workflow:
 # workflows/marketing.yaml). The content workflow plus channels: each
@@ -40,14 +45,25 @@ features:
 # topic the owner names and settles the brand and the ICP with them; at
 # publish they become departments/<key>/brand.md and icp.md, which every
 # channel brief needs before it can move to draft. `market-size` (TAM / SAM /
-# SOM) runs the same way, later or again, and gates nothing.
+# SOM) runs the same way, later or again, and gates nothing, and so does
+# `keyword-research`: the words the ICP searches with, clustered by intent,
+# and a positioning line, settled into departments/<key>/keywords.md.
+# Once per site, `seo-baseline` lays the SEO groundwork (technical basics,
+# a waitlist, pre-rendered pages, measurement) with the owner's account,
+# DNS and CDN steps as their boxes: docs/seo-baseline.md.
 # docs/departments.md, "Brand foundation and research mode".
+#
+# The social channel (`social`, system Social) starts with research: what
+# works on similar profiles and competitors, and which trends are rising,
+# read-only, on the shelf; its brief cites that research.
+# docs/departments.md, "Social: research before the brief".
 board:
   columns:
     - research
     - brand
     - icp
     - market size
+    - shortlist
     - brief
     - draft
     - owner review
@@ -65,8 +81,8 @@ statuses:
     description: "Research mode: sources on the topic the owner named"
     prompt: |
       Research mode. The issue names the topic: the business, product or market to research. If it doesn't, ask the owner what to research, then end your turn.
-      Gather sources: your own site(s) and material, competitors, search results, reviews, forums where the audience talks. List each under ## Research with its link and one line on what it says.
-      Memory: run `mem-guard check` before opening a browser or fetching many pages, where mem-guard is installed, and don't start while it says BLOCKED. Prefer plain page fetches to a browser, keep one browser at a time and close it when done.
+      Gather sources: your own site(s) and material, competitors, search results, reviews, forums where the audience talks. List each under ## Research with its link and one line on what it says: at least 5 distinct links, which the move to the next status counts.
+      Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. Close the browser when done.
       You propose; the owner decides. Note open questions for the owner as you go, then move to the next status.
   - name: "brand"
     description: "Brand traits, voice and guidelines, proposed for the owner to settle"
@@ -86,10 +102,17 @@ statuses:
       Size the market under ## Market size: TAM, SAM and SOM, each with the number and unit, the method (top-down from a published figure, or bottom-up from counts × price), the sources and every assumption.
       A number you can't support is "no value yet" with the reason, not a guess. Read departments/<department>/icp.md first, where it exists: SAM is the ICP's share of the market.
       Put the draft on the shelf: `issue-cli output add --issue <slug> --title "Market size: <topic>" --kind report --file <draft>`. Then move to owner review.
+  - name: "shortlist"
+    description: "Keyword clusters by intent, what we can own, and a positioning line"
+    prompt: |
+      Read departments/<department>/brand.md, icp.md and market.md first, where they exist: the clusters are for the ICP, in its own words.
+      Under ## Keywords, one entry per cluster: the words the ICP uses (each with where you saw it), the intent (informational, commercial, transactional or navigational), a difficulty guess (low, medium or high, and who ranks today), our fit (own, contest or leave, and why) and the sources. A volume or a difficulty with no source is "no value yet" or your guess, said as such.
+      Under ## Positioning: one proposed positioning statement, the clusters it rests on, and what it leaves to others. Then list what the owner has to settle. You propose; the owner decides.
+      Put the draft on the shelf: `issue-cli output add --issue <slug> --title "Keywords and positioning: <topic>" --kind report --file <draft>`. Then move to owner review.
   - name: "brief"
     description: "What to make, for whom, where it goes"
     prompt: |
-      Read the department's brand and ICP first (departments/<department>/brand.md and icp.md, next to its role.md); the brief can't move to draft without them.
+      Read the department's brand and ICP first (departments/<department>/brand.md and icp.md, next to its role.md); the brief can't move to draft without them. Read keywords.md there too, where it exists, and name the cluster the piece targets.
       Write the brief: what this piece is, who it is for (which ICP segment), where it will be published (site, account, list) and what counts as done.
       Ask the owner about anything the brief can't say on its own, then move to draft.
   - name: "draft"
@@ -112,7 +135,7 @@ statuses:
   - name: "measure"
     description: "What the change did: goal values and notes"
     prompt: |
-      Record what went out and what it did. Set the department's goal values (`issue-cli goals <department>` lists them; `issue-cli goal set <department>/<id> <value>`)
+      Record what went out and what it did. Set the department's goal values (`issue-cli goals <department>` lists them; `issue-cli goal set <department>/<id> <value>`, or `issue-cli goal write <department>/<job> <id>=<value>` for a goal read from a job's file)
       and write under ## Measure what you can see so far (traffic, rankings, replies), with where the numbers came from. A number you can't read yet is "no value yet", not zero.
       Then move to done.
   - name: "done"
@@ -124,11 +147,12 @@ transitions:
   - from: "research"
     to: "brand"
     actions:
+      # The sources, counted: the prompt asks for each with its link.
       - type: "validate"
-        rule: "section_min_length"
+        rule: "section_min_links"
         section: "Research"
-        min: 200
-        hint: "list the sources under ## Research: issue-cli append {{slug}} --section Research --body \"...\""
+        min: 5
+        hint: "list at least 5 sources under ## Research, each with its link and one line on what it says: issue-cli append {{slug}} --section Research --body \"- <link>: ...\""
       - type: "append_section"
         title: "Brand"
         body: |
@@ -137,11 +161,12 @@ transitions:
   - from: "research"
     to: "market size"
     actions:
+      # The sources, counted: the prompt asks for each with its link.
       - type: "validate"
-        rule: "section_min_length"
+        rule: "section_min_links"
         section: "Research"
-        min: 200
-        hint: "list the sources under ## Research: issue-cli append {{slug}} --section Research --body \"...\""
+        min: 5
+        hint: "list at least 5 sources under ## Research, each with its link and one line on what it says: issue-cli append {{slug}} --section Research --body \"- <link>: ...\""
       - type: "append_section"
         title: "Market size"
         body: |
@@ -215,6 +240,11 @@ transitions:
   - from: "owner review"
     to: "publish"
     actions:
+      # The issue stamp and the shelf stamp agree: the newest version on the
+      # shelf is the one the owner approved (a revise puts it back in review).
+      - type: "validate"
+        rule: "outputs_approved"
+        hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
       - type: "require_human_approval"
         status: "publish"
         owner_only: true # it publishes outside the machine (or spends): the owner's even in YOLO
@@ -253,6 +283,22 @@ evals:
       - "Brand traits, voice and do / don't are specific to this business, not generic"
       - "The ICP names who, their problems, where they are and how to reach them"
       - "Claims and numbers name their sources; assumptions are marked as such"
+  - id: keyword-research
+    description: "Keyword clusters and a positioning line the owner could settle as they are"
+    types: [keyword-research]
+    score: output
+    rubric:
+      - "Clusters are in the ICP's own words, each with its intent and the sources it came from"
+      - "Each cluster has a difficulty guess and our fit (own, contest or leave) with the reason"
+      - "One positioning statement that rests on named clusters; nothing was bought, published or spent"
+  - id: report
+    description: "A report on the shelf the owner could act on as it is"
+    types: [report]
+    score: output
+    rubric:
+      - "Answers what the issue (or the job's brief) asks, with a clear finding or a ranked list"
+      - "Every claim that isn't common knowledge names its source"
+      - "Proposes only; nothing in it was executed, published or spent"
   - id: piece
     description: "A post, page or email the owner would publish as it is"
     types: [piece]
@@ -272,6 +318,45 @@ evals:
       - "Each changed page targets a clear search intent and keeps its facts right"
       - "Titles, FAQs and schema changes are named per page, with why"
       - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+  - id: seo-baseline
+    description: "A site's SEO baseline the owner could deploy as it is"
+    types: [seo-baseline]
+    score: output
+    rubric:
+      - "Each item names what the site now has and the test or command that checks it"
+      - "Account, DNS, CDN and deploy steps are left to the owner, with the steps to take; no key or token appears"
+      - "Nothing was deployed, sent or bought before the owner's publish stamp"
+  - id: social
+    description: "Social posts, grounded in the research, the owner would schedule as they are"
+    types: [social]
+    score: output
+    rubric:
+      - "One variant per network, each within that network's rules, in the voice in brand.md"
+      - "Each post's format, hook and time follow a finding in the cited research, with its link"
+      - "Each post has its date and time, and its media named by output id"
+      - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+  # The commented channel slots' evals: each is uncommented with its type
+  # below (every block marked BEGIN channel <name>), so the type is scored.
+  # BEGIN channel ppc
+  # - id: ppc
+  #   description: "Ads and their targeting the owner would launch as they are"
+  #   types: [ppc]
+  #   score: output
+  #   rubric:
+  #     - "Each ad speaks to one ICP segment, within the network's limits"
+  #     - "The budget, the bids and the dates are stated; nothing was launched or spent"
+  #     - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+  # END channel ppc
+  # BEGIN channel cold-outreach
+  # - id: cold-outreach
+  #   description: "An email sequence the owner would send as it is"
+  #   types: [cold-outreach]
+  #   score: output
+  #   rubric:
+  #     - "Each email speaks to the segment the list is for, and says who sends it and how to opt out"
+  #     - "No invented facts, names or claims about the recipient"
+  #     - "As good as or better than the REFERENCE the owner approved: {{reference}}"
+  # END channel cold-outreach
 
 # Types of work: one per channel (docs/Workflow/types.md). An issue without
 # type: is a piece. issue-cli create --department <dept> --type seo-pass
@@ -289,15 +374,22 @@ types:
         prompt: |
           Nothing is settled yet. Say in chat what the owner reviews (## Brand and ## ICP, and the shelf report), the questions they have to settle, and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
           If the owner asks for changes, they leave a `revise:` comment: go back to icp and update ## Brand or ## ICP.
+          If the owner only answers the open questions (an `answer:` comment, a comment on the shelf report, or in chat), revise in place without moving: update ## Brand and ## ICP with the answers, put the new version on the shelf (`issue-cli output revise <id> --file <draft> --note "answers the owner's questions"`), and say in chat that the newest version waits for their approval. Publish needs that version approved on the shelf as well as the `publish` approval.
       - name: "publish"
         prompt: |
-          Write exactly what the owner approved: ## Brand to departments/<department>/brand.md and ## ICP to departments/<department>/icp.md (next to the department's role.md), with the date and the issue slug at the top.
+          Write exactly what the owner approved. The source is the issue's settled ## Brand and ## ICP sections, with the owner's answers applied (the same text as the newest shelf version, which the owner approved): ## Brand goes to departments/<department>/brand.md and ## ICP to departments/<department>/icp.md, next to the department's role.md.
+          Format: markdown. A first line `# Brand: <topic>` (or `# ICP: <topic>`), then `Settled <YYYY-MM-DD> from <slug>, shelf <output id> v<N>.`, then the section's text with its own sub-headings. Leave out the checkboxes and the "what the owner has to settle" list: write the owner's answers in their place. Keep the sources.
           Mark the shelf report published (`issue-cli output publish <id>`; no --url: the docs are the published copy, and the shelf needs the version the owner approved), then move to done.
     transitions:
       - from: "owner review"
         to: "publish"
         replace: true
         actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+          # owner_only although publish writes only local files: what it
+          # settles is the owner's call, not a check a window can pass.
           - type: "require_human_approval"
             status: "publish"
             owner_only: true # settled with the owner: every channel builds on it, so not even YOLO passes it
@@ -328,15 +420,22 @@ types:
         prompt: |
           Nothing is settled yet. Say in chat what the owner reviews (## Market size and the shelf report), the assumptions they have to settle, and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
           If the owner asks for changes, they leave a `revise:` comment: go back to market size.
+          If the owner only answers the open assumptions (an `answer:` comment, a comment on the shelf report, or in chat), revise in place without moving: update ## Market size, put the new version on the shelf (`issue-cli output revise <id> --file <draft> --note "answers the owner's questions"`), and say in chat that the newest version waits for their approval.
       - name: "publish"
         prompt: |
-          Write exactly what the owner approved from ## Market size to departments/<department>/market.md, with the date and the issue slug at the top.
+          Write exactly what the owner approved: the issue's settled ## Market size section, with the owner's answers applied (the same text as the newest shelf version), to departments/<department>/market.md.
+          Format: markdown. A first line `# Market size: <topic>`, then `Settled <YYYY-MM-DD> from <slug>, shelf <output id> v<N>.`, then TAM, SAM and SOM with their numbers, methods, sources and assumptions, without the checkboxes.
           Mark the shelf report published (`issue-cli output publish <id>`; no --url: market.md is the published copy, and the shelf needs the version the owner approved), then move to done.
     transitions:
       - from: "owner review"
         to: "publish"
         replace: true
         actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+          # owner_only although publish writes only local files: what it
+          # settles is the owner's call, not a check a window can pass.
           - type: "require_human_approval"
             status: "publish"
             owner_only: true # settled with the owner: every channel builds on it, so not even YOLO passes it
@@ -353,6 +452,129 @@ types:
           - type: "validate"
             rule: "file_exists"
             path: "departments/{{department}}/market.md"
+
+  # Keyword research for positioning, in research mode: which words the ICP
+  # searches with, clustered by intent, which we can own and which to leave,
+  # and the positioning line they support. Free data first; paid volume only
+  # through the department's openseo connector (its key in Keychain). Like
+  # market size it gates nothing: briefs read keywords.md where it exists.
+  keyword-research:
+    description: "Keyword research for positioning, research mode: the ICP's words clustered by intent, what we can own, and a positioning line, settled with the owner"
+    path: [research, shortlist, owner review, publish, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Research mode. The issue names the topic: the business, product or market whose words to research. If it doesn't, ask the owner what to research, then end your turn.
+          Free data first: Search Console queries for your site(s) (through the department's `openseo` connector, when the owner turned it on: free without a DataForSEO key), search autocomplete and related searches, competitors' titles, headings and landing pages, forums, reviews and communities where the ICP talks, and your site's own search terms. Paid keyword volume only through `openseo` with the key the owner keeps in Keychain, within the pass's cost cap (maxCostUsd); never write a key into a file. With no connector on, use only the free sources and say so.
+          List each source under ## Research with its link and one line on what words it shows: at least 5 distinct links, which the move to shortlist counts.
+          Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. Close the browser when done.
+          Then move to shortlist.
+      - name: "owner review"
+        prompt: |
+          Nothing is settled yet. Say in chat what the owner reviews (## Keywords, ## Positioning and the shelf report), what they have to settle (the positioning line, a cluster to own or leave), and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to shortlist.
+          If the owner only answers the open questions (an `answer:` comment, a comment on the shelf report, or in chat), revise in place without moving: update ## Keywords and ## Positioning, put the new version on the shelf (`issue-cli output revise <id> --file <draft> --note "answers the owner's questions"`), and say in chat that the newest version waits for their approval.
+      - name: "publish"
+        prompt: |
+          Write exactly what the owner approved: the issue's settled ## Positioning and ## Keywords, with the owner's answers applied (the same text as the newest shelf version), to departments/<department>/keywords.md.
+          Format: markdown. A first line `# Keywords and positioning: <topic>`, then `Settled <YYYY-MM-DD> from <slug>, shelf <output id> v<N>.`, then ## Positioning (the line and the clusters it rests on) and ## Keywords (each cluster with its words, intent, difficulty, fit and sources), without the checkboxes.
+          Don't change brand.md or icp.md: they are the brand foundation's. If the approved positioning differs from brand.md, say so in chat; a new `foundation` issue settles it.
+          Mark the shelf report published (`issue-cli output publish <id>`; no --url: keywords.md is the published copy, and the shelf needs the version the owner approved), then move to done.
+    transitions:
+      - from: "research"
+        to: "shortlist"
+        actions:
+          - type: "validate"
+            rule: "section_min_links"
+            section: "Research"
+            min: 5
+            hint: "list at least 5 sources under ## Research, each with its link and one line on what words it shows: issue-cli append {{slug}} --section Research --body \"- <link>: ...\""
+          - type: "append_section"
+            title: "Keywords"
+            body: |
+              - [ ] Clusters in the ICP's words, each with intent, a difficulty guess, our fit (own, contest or leave) and sources
+              - [ ] ## Positioning: one statement, the clusters it rests on, what it leaves to others, and what the owner has to settle
+              - [ ] Draft on the shelf (issue-cli output add --issue <slug> --kind report ...)
+      - from: "shortlist"
+        to: "owner review"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Keywords"
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the draft on the shelf: issue-cli output add --issue {{slug}} --kind report --title \"Keywords and positioning: <topic>\" --file <draft.md>"
+      - from: "owner review"
+        to: "shortlist"
+        actions:
+          - type: "validate"
+            rule: "has_comment_prefix: revise:"
+      - from: "owner review"
+        to: "publish"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+          # owner_only although publish writes only a local file: the
+          # positioning is the owner's call, not a check a window can pass.
+          - type: "require_human_approval"
+            status: "publish"
+            owner_only: true # settled with the owner: briefs target its clusters, so not even YOLO passes it
+          - type: "append_section"
+            title: "Published"
+            body: |
+              - [ ] departments/<department>/keywords.md holds the approved text
+              - [ ] Shelf report marked published (issue-cli output publish <id>)
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/keywords.md"
+
+  # Research or report only: one report on the shelf for the owner's review,
+  # nothing settled into a doc and nothing goes out. The growth scout's runs
+  # (brief: builtin:growth-scout) are this type by themselves.
+  report:
+    description: "Research or report only, research mode: the report goes on the shelf for the owner's review; nothing is published"
+    path: [research, owner review, done]
+    statuses:
+      - name: "owner review"
+        prompt: |
+          Nothing goes out from a report. Say in chat that the report waits on the shelf for the owner's review, and that `done` needs their approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to research, and put the new version on the shelf (`issue-cli output revise <id> --file <report.md> --note "<what changed>"`).
+          What the owner picks from the report becomes its own issue in the department, filed by the department lead; never file it from here.
+    transitions:
+      - from: "research"
+        to: "owner review"
+        actions:
+          - type: "validate"
+            rule: "section_min_links"
+            section: "Research"
+            min: 5
+            hint: "list at least 5 sources under ## Research, each with its link and one line on what it says: issue-cli append {{slug}} --section Research --body \"- <link>: ...\""
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the report on the shelf: issue-cli output add --issue {{slug}} --kind report --title \"<title>\" --file <report.md>"
+          - type: "validate"
+            rule: "has_comment_prefix: report:"
+            hint: "issue-cli comment {{slug}} --text \"report: <the findings in a paragraph>; follow-ups: <issues filed, or none>\""
+          - type: "append_section"
+            title: "Owner Review"
+            body: |
+              - [ ] Report read; approved or rejected on the shelf (owner)
+      - from: "owner review"
+        to: "research"
+        actions:
+          - type: "validate"
+            rule: "has_comment_prefix: revise:"
+      - from: "owner review"
+        to: "done"
+        actions:
+          - type: "require_human_approval"
+            status: "done"
 
   piece:
     description: "One post, page or email: brief, draft, owner review, publish"
@@ -373,7 +595,7 @@ types:
     statuses:
       - name: "brief"
         prompt: |
-          Read the department's brand and ICP first (departments/<department>/brand.md and icp.md); the brief can't move to draft without them.
+          Read the department's brand and ICP first (departments/<department>/brand.md and icp.md); the brief can't move to draft without them. Read keywords.md there too, where it exists: a page targets a cluster marked own or contest, never one marked leave.
           Write the pass's brief: which sites and pages it covers (the department's role file has the roster), why each one (changed, lost traffic, out of date, due a post) and what counts as done.
           Ask the owner about anything the roster can't tell you, then move to draft.
           A site too big for one pass gets its own issue: `issue-cli create --department <department> --type seo-pass --system SEO --title "<site>: SEO pass"`.
@@ -385,23 +607,231 @@ types:
       - name: "measure"
         prompt: |
           Record the pass's numbers: `issue-cli goal set <department>/pages <pages refreshed>` and `<department>/posts` once posts are out (`issue-cli goals <department>` lists the goals).
-          Under ## Measure, note per site what you can read so far (Search Console clicks, positions) and where it came from; until a rankings source is connected, write "no value yet". Then move to done.
+          Under ## Measure, note per site what you can read so far and where it came from. The rankings source is the department's `openseo` connector (`issue-cli connectors` lists it; projects.yaml has it commented out until the owner turns it on): ranks from its rank tracker, Search Console clicks and positions before and after, GA4 organic sessions. Paid calls stay within the pass's cost cap (maxCostUsd). With no rankings source connected, a number you can't read is "no value yet", not zero. Then move to done.
 
-  # More channels: uncomment one, add its system to the department in
-  # projects.yaml (systems: [SEO, PPC]), and give it status prompts the way
-  # seo-pass does. Its issues show in the department as a room and a filter.
-  # Each one launches, posts or sends in publish, so it goes out only through
-  # the owner_only owner review → publish gate above: keep that gate on its
-  # path (health lint's owner-only check warns when it isn't).
+  # The SEO baseline (system SEO), once per site, before seo-passes and
+  # articles pay off: technical basics, a waitlist, pre-rendered pages and
+  # measurement. Technical, not content, so it doesn't wait for brand.md.
+  # Accounts, DNS, the CDN's settings and the deploy are the owner's:
+  # "(owner)" boxes no agent can tick. User walk-through: docs/seo-baseline.md.
+  seo-baseline:
+    description: "SEO baseline for one site, once: technical basics, waitlist, pre-rendered pages and measurement, with the owner's account, DNS and CDN steps (system SEO)"
+    path: [brief, draft, owner review, publish, measure, done]
+    statuses:
+      - name: "brief"
+        prompt: |
+          The owner answers first. Ask them, all at once, and write their answers under ## Owner answers:
+          1. Where does the traffic go: a waitlist, a sign-up, a purchase?
+          2. Which market and language?
+          3. How much content (posts a week), and who approves each piece?
+          4. Where do we start (the technical base and measurement, or content)?
+          5. Which bots may read the site: search bots only (Googlebot, Bingbot, OAI-SearchBot, ChatGPT-User, PerplexityBot, ClaudeBot), or also AI training bots (GPTBot, Google-Extended)?
+          Under ## Brief name the site (its domain and the repo it is built from), the app or sign-in subdomain if there is one, where it is hosted and which CDN sits in front, and who deploys (you after the owner's stamp, or the owner). Then move to draft.
+          This is technical work, not content: it doesn't wait for brand.md and icp.md. Articles written later do.
+      - name: "draft"
+        prompt: |
+          Make the changes in the site's own repo, on a branch, and tick each box under ## Technical basics, ## Waitlist, ## Pre-rendered pages and ## Measurement once its check passes. Each box says what the site must have and what checks it. Tests go in the site's own suite, so the next change to the site can't quietly break them.
+          A section that doesn't fit the owner's answers is N/A with the answer named (`issue-cli check <slug> <id> --na "<reason>"`): no Waitlist when the traffic goes to an open sign-up, for example.
+          Never create an account, log in to a dashboard, change DNS or the CDN's settings, send an email or deploy: those are the boxes under ## Owner steps, marked (owner), and only the owner ticks them. Say in chat which ones are waiting, with the steps from docs/seo-baseline.md.
+          Keys stay out of the repo: the Search Console service account's key is a file outside the repo (chmod 600) or a Keychain item, named in the department's connector as a reference, never its content.
+          Put the change set on the shelf: a markdown file listing per section what changed, with the branch and its commits (`issue-cli output add --issue <slug> --kind site --title "<site>: SEO baseline" --file <changes.md>`). Then move to owner review.
+      - name: "owner review"
+        prompt: |
+          Nothing is deployed yet. Say in chat what the owner reviews (the change set on the shelf, the branch), which ## Owner steps boxes still wait for them, and that deploying needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to draft.
+      - name: "publish"
+        prompt: |
+          Deploy exactly what the owner approved, the way the brief says. If the brief says the owner deploys, say so in chat and end your turn; you're resumed once it is out.
+          After the deploy, check as each allowed bot: `curl -A '<bot user agent>' https://<site>/robots.txt` and one page must answer 200 with our file, on the site and the app subdomain. A 403, or a robots.txt that isn't ours, means the CDN blocks or rewrites it: say so in chat (an owner step) and don't tick the box.
+          Send the new and changed URLs to IndexNow. Record the deploy under ## Published, mark the output published (`issue-cli output publish <id> --url https://<site>/`), then move to measure.
+      - name: "measure"
+        prompt: |
+          Read what the baseline did, through the department's `openseo` connector or the site's own Search Console script (its key a reference): the Search Console property's sitemaps (fetched, URLs seen), the index state of each sitemap URL (URL Inspection), queries and pages; Bing Webmaster Tools where the owner gave an API key. Run the bots check again.
+          Write it under ## Measure with where each number came from. Search Console shows data 2-3 days after the property is created and the first weeks have few queries: a number you can't read yet is "no value yet" with that reason, not zero.
+          Set the department's goal values you can (`issue-cli goals <department>`), then move to done.
+    transitions:
+      - from: "brief"
+        to: "draft"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "has_section"
+            section: "Owner answers"
+            hint: "ask the owner the five questions in the brief prompt, then write their answers: issue-cli append {{slug}} --body \"## Owner answers\" and the answers under it (docs/seo-baseline.md)"
+          - type: "append_section"
+            title: "Technical basics"
+            body: |
+              - [ ] sitemap.xml lists each page at its final URL (no redirect) with lastmod = the last content change, and robots.txt has a Sitemap: line; checked by a test in the site's suite (valid XML, every URL has its page)
+              - [ ] robots.txt allows each bot the owner allowed by name (search bots, and training bots only if allowed); checked by the test (each listed bot has Allow)
+              - [ ] JSON-LD (organization, product, article, FAQ) with true facts only: no price without a price list, no ratings, FAQ entries the same as the visible FAQ; checked by the test (each block parses, FAQ matches)
+              - [ ] An Open Graph image 1200×630 rendered from code, and llms.txt; checked by the test (the PNG's size)
+              - [ ] The app or sign-in subdomain sends X-Robots-Tag: noindex on every response (not Disallow: /, which hides the header from crawlers); checked by a test or curl -I
+          - type: "append_section"
+            title: "Waitlist"
+            body: |
+              - [ ] A plain HTML form (works without JavaScript) stored server-side; a repeat address gets the same answer and no duplicate; checked by the site's tests
+              - [ ] A required, unticked consent box linking a privacy-policy section (data, purpose, legal basis, retention, how to leave) and an unsubscribe link; no IP or user agent stored; checked by the tests (refused without consent, unsubscribe deletes)
+              - [ ] Spam: a honeypot, a per-IP limit and a daily cap, no third-party captcha script, no email sent; the list readable by the owner (admin page or export); checked by the tests (limit, cap)
+          - type: "append_section"
+            title: "Pre-rendered pages"
+            body: |
+              - [ ] A static site generator builds every page to HTML at build time (AI crawlers don't run JavaScript); existing pages copied as they are; checked by a test comparing their bytes
+              - [ ] An article template whose frontmatter (title, short answer, description, FAQ, author, date) and question headings the build enforces; draft: true keeps an article out of the output, the sitemap and llms.txt; checked by the build (a bad article fails it)
+              - [ ] Articles in a folder of the main domain, not a subdomain; sitemap and llms.txt built from one list; IndexNow sent on deploy for new or changed URLs only; checked by a test and the deploy script's output
+          - type: "append_section"
+            title: "Measurement"
+            body: |
+              - [ ] A bots check: each allowed bot's user agent gets 200 and our robots.txt, on the site and the app subdomain; checked by running it (output under ## Measure)
+              - [ ] Search Console read through the openseo connector or a script in the site's repo, its key a reference outside the repo: sites, sitemaps, queries, URL Inspection per sitemap URL; checked by running it once the owner's property exists
+          - type: "append_section"
+            title: "Owner steps"
+            body: |
+              - [ ] (owner) Search Console: a Domain property (not URL prefix), verified by a DNS TXT record
+              - [ ] (owner) A Google Cloud project with the Search Console API on, a service account added in Search Console as Restricted, its JSON key outside the repo (chmod 600) and named in the connector as a reference
+              - [ ] (owner) Bing Webmaster Tools: import the site from Search Console; the sitemap submitted in both
+              - [ ] (owner) The CDN lets the allowed bots in (Cloudflare: AI Crawl Control allows them, Block AI bots off, managed robots.txt off, Bot Fight Mode off)
+              - [ ] (owner) The deploy and any DNS change
+      - from: "draft"
+        to: "owner review"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Technical basics"
+          - type: "validate"
+            rule: "section_checkboxes_checked: Waitlist"
+          - type: "validate"
+            rule: "section_checkboxes_checked: Pre-rendered pages"
+          - type: "validate"
+            rule: "section_checkboxes_checked: Measurement"
+          - type: "validate"
+            rule: "has_output: site"
+            hint: "put the change set on the shelf: issue-cli output add --issue {{slug}} --kind site --title \"<site>: SEO baseline\" --file <changes.md>"
+      - from: "publish"
+        to: "measure"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+          # Measuring needs the owner's accounts, and the bots check needs
+          # the CDN set: the owner's boxes first.
+          - type: "validate"
+            rule: "section_checkboxes_checked: Owner steps"
+            hint: "the owner's steps come first (docs/seo-baseline.md): accounts, DNS and the CDN are theirs to do and tick"
+          - type: "append_section"
+            title: "Measure"
+            body: |
+              - [ ] Bots check, Search Console sitemaps and URL Inspection results written here with where they came from, or "no value yet" and why
+              - [ ] Goal values recorded (issue-cli goal set <department>/<id> <value>), or "no value yet" with the reason
+
+  # Social channel (system Social): research first, then the brief, the
+  # posts, the owner's yes, scheduling and the numbers. The research is
+  # read-only and goes on the shelf; the brief cites it. Every connector is
+  # named by its department name (`trends`, `competitors`, `social`), never
+  # the tool behind it, so swapping a tool is a change to the department's
+  # connectors: entry only (docs/departments.md, "Swapping a partner").
+  # Publishing schedules posts: owner review → publish is owner_only.
+  social:
+    description: "Social posts: research on similar profiles, competitors and trends, brief, post copy and images, owner review, post, measure reach (system Social)"
+    path: [research, brief, draft, owner review, publish, measure, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Research what works before anything is planned. The issue names the topic, the networks and the profile it posts for; if it doesn't, ask the owner, then end your turn.
+          Similar profiles and competitors: take them from departments/<department>/competitors.md and the ICP's channels in icp.md, where they exist, and add similar profiles you find (same audience, same networks). For each, per network: which posts work (engagement against the profile's usual), their formats (carousel, short video, thread, image, link), cadence and posting times, hooks (the first line or first seconds), topics and calls to action. Each finding names the posts it rests on, with their links.
+          Trends: rising topics, hashtags, sounds and formats per network over the last weeks, and searches rising around the topic, each with its link and when you saw it.
+          Read-only: through the department's `trends` and `competitors` connectors' read calls when they are on (`issue-cli connectors` lists them); without them, public pages only, and say so. Never post, schedule, follow, like, comment or message, never log in to an account to read it, and make no `social` connector call from this step.
+          Reddit: when departments/<department>/subreddits.md lists subreddits, read each through the department's `reddit` connector's read calls: its top posts of the last month (what works there, with each post's permalink), the questions that come back, and one search each for the brand and for every competitor in competitors.md. A subreddit worth adding goes in the report as a proposal for the owner; never read one that isn't listed. Without the `reddit` connector, write "Reddit: not read, the `reddit` connector is off" and read nothing from Reddit's site or a mirror of it: no page fetch, no scraping, no logged-in browser (Reddit closed new public API access on 2026-10-31).
+          Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. Close the browser when done.
+          Write the findings under ## Research, each with its link: at least 5 distinct links, which the move to brief counts. Put the research report on the shelf (`issue-cli output add --issue <slug> --kind report --title "<topic>: social research" --file <research.md>`); the brief cites it by its id. Then move to brief.
+      - name: "brief"
+        prompt: |
+          Read the department's brand and ICP first (departments/<department>/brand.md and icp.md); the brief can't move to draft without them. Read the research output on the shelf (`issue-cli outputs --issue <slug>`).
+          Write the brief: the topic, which ICP segment it is for, which networks, the date and time each post goes out, and what counts as done. Cite the research output by its id (o-…) and, for each choice (network, format, hook, time, hashtags), the finding it rests on.
+          Read each network's rules (length, media, links, mentions, good times to post) through the department's `social` connector's read calls (`issue-cli connectors` lists it). Without the connector, take them from the network's own published limits and say so. Write them into the brief.
+          Reddit: plan a post or a reply only in a subreddit listed in departments/<department>/subreddits.md, and quote that row's self-promotion rule beside it; the plan keeps within it (how often, links, flair, a weekly thread instead). Read the subreddit's current flairs and post requirements through the `social` connector's read call for a subreddit's flairs and post requirements, and say where they differ from the list: the owner updates the list, never you.
+          Ask the owner about anything the brief can't say on its own, then move to draft.
+      - name: "draft"
+        prompt: |
+          Write one variant per network, each within that network's rules from the brief. Make no connector call while drafting: nothing is scheduled or uploaded before the owner's yes.
+          Images or video come from the shelf (the department's own, or the Video department's outputs); name each by its output id.
+          Reddit: each post names its subreddit, title, type (self, link or media), flair and body, and an optional first comment under our own post. Replies in other people's threads go under `### Replies (posted by the owner)`, each with the thread's permalink and the reply's text: the owner posts them by hand after approving, no connector call sends one.
+          Put the whole set on the shelf as one output: a markdown file with a section per network, its date and time, its text and its media (`issue-cli output add --issue <slug> --kind post --title "<topic>: social posts" --file <posts.md>`). Copy it under ## Draft, then move to owner review.
+      - name: "owner review"
+        prompt: |
+          Nothing is scheduled yet. Say in chat what the owner reviews: the posts (## Draft) and the research report they rest on, both on the shelf, and where and when the posts go. Publishing waits for both outputs' approval on the shelf and the `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to draft.
+      - name: "publish"
+        prompt: |
+          Only what the owner approved, unchanged. Through the `social` connector, upload the approved media and schedule each post at the date and time the approved output names. Never post now, unless the owner's approval says now.
+          Reddit: schedule each approved post in its subreddit with its title, type and flair, and its first comment, through the `social` connector; send nothing from `### Replies (posted by the owner)`: the owner posts those.
+          List each post under ## Published: network, date and time, the post's id and its link. Mark the output published with the first post's link (`issue-cli output publish <id> --url <link>`; `issue-cli outputs --issue <slug>` lists the ids), then move to measure.
+      - name: "measure"
+        prompt: |
+          A week after the last post went out, read each post's numbers (reach or impressions, engagement, clicks) through the department's `social-analytics` connector: it only reads, and one `issue-cli connector exec <department>/social-analytics -- <path>...` reads every post at once (`issue-cli connectors` lists the paths it may read). Without it, use the `social` connector's analytics read calls only. Never schedule, edit or delete from this step.
+          Write them under ## Measure per post, with where they came from, and set them beside what the research expected. A network the connector has no analytics for (an empty answer; Reddit has none), or no connector at all, is "no value yet" with that reason, not zero.
+          Set the department's goal values (`issue-cli goals <department>` lists them; `issue-cli goal set <department>/<id> <value>`), then move to done.
+    transitions:
+      - from: "research"
+        to: "brief"
+        actions:
+          # The findings' links, counted, and the report the brief cites.
+          - type: "validate"
+            rule: "section_min_links"
+            section: "Research"
+            min: 5
+            hint: "list at least 5 findings under ## Research, each with its link: issue-cli append {{slug}} --section Research --body \"- <finding>: <link>\""
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the research report on the shelf, the brief cites it: issue-cli output add --issue {{slug}} --kind report --title \"<topic>: social research\" --file <research.md>"
+          - type: "append_section"
+            title: "Brief"
+            body: |
+              - [ ] Cites the research output by its id (o-…) and the finding each choice rests on
+              - [ ] Audience, networks, dates and times, and each network's rules stated
+              - [ ] What counts as done stated
+              - [ ] Each Reddit post or reply names a subreddit from departments/<department>/subreddits.md, quotes its self-promotion rule and keeps within it (n/a when no Reddit)
+      # The base brief → draft, with the Brief boxes checked: the research
+      # is cited before any post is written.
+      - from: "brief"
+        to: "draft"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "body_not_empty"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/brand.md"
+            hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/icp.md"
+            hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+          - type: "validate"
+            rule: "section_checkboxes_checked: Brief"
+          - type: "append_section"
+            title: "Draft"
+            body: |
+              - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
+              - [ ] Facts, names and links checked
+
+  # More channels: uncomment one (remove "# " from each line between its
+  # BEGIN and END markers: its eval above and its type here), add its system to the department in projects.yaml
+  # (systems: [SEO, Social, PPC]), and give it status prompts the way seo-pass
+  # and social do. Its issues show in the department as a room and a filter.
+  # Each one launches or sends in publish, so it goes out only through the
+  # owner_only owner review → publish gate above: keep that gate on its path
+  # (health lint's owner-only check warns when it isn't). Channel prompts name
+  # a connector by its name, never the tool behind it (docs/departments.md,
+  # "Swapping a partner").
   #
+  # BEGIN channel ppc
   # ppc:
   #   description: "Paid search or social ads: brief, ad copy, owner review, launch, measure spend and results (system PPC)"
   #   path: [brief, draft, owner review, publish, measure, done]
+  # END channel ppc
   #
-  # social:
-  #   description: "Social posts: brief, post copy and images, owner review, post, measure reach (system Social)"
-  #   path: [brief, draft, owner review, publish, measure, done]
-  #
+  # BEGIN channel cold-outreach
   # cold-outreach:
   #   description: "Cold outreach: brief with the list, email sequence, owner review, send, measure replies (system Outreach)"
   #   path: [brief, draft, owner review, publish, measure, done]
+  # END channel cold-outreach

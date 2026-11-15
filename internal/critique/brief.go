@@ -9,7 +9,8 @@ import (
 // field for a summary, the worker's reasoning or the issue's comments, so
 // the brief can't carry them (factory/a-fresh-critic-…#D-1).
 type Input struct {
-	// Slug names the issue; From and To the gate being judged.
+	// Slug names the issue; From and To the gate being judged. An empty To
+	// is a run by hand: no gate waits on it.
 	Slug, From, To string
 	// Issue is the issue file (its body holds the decisions).
 	Issue string
@@ -30,6 +31,10 @@ type Input struct {
 	// Touched are the hard decisions whose paths: the branch changes (the
 	// decisions_respected audit): refs, files, never text.
 	Touched []TouchedRef
+	// Footprint is the branch's footprint on the code map (codemap
+	// IssueFootprint.Lines: contexts, reach, binaries, watch): derived from
+	// the import graph, never the author's words.
+	Footprint []string
 }
 
 // TouchedRef is a hard decision the branch's changes touch: its ref, the
@@ -77,7 +82,11 @@ func (in Input) Paths() []string {
 // read and the output format. It quotes nothing from the files.
 func Brief(in Input) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are a critic reviewing work you did not write, before the gate %s → %s of issue %s.\n", in.From, in.To, in.Slug)
+	if in.To == "" {
+		fmt.Fprintf(&b, "You are a critic reviewing work you did not write, at status %s of issue %s; no gate waits on this run.\n", in.From, in.Slug)
+	} else {
+		fmt.Fprintf(&b, "You are a critic reviewing work you did not write, before the gate %s → %s of issue %s.\n", in.From, in.To, in.Slug)
+	}
 	b.WriteString(`Assume they are wrong. Your job is to find the three things most likely to make this work wrong, not to praise it.
 
 Look for:
@@ -141,13 +150,21 @@ Files:
 			fmt.Fprintf(&b, "- %s — in %s; files: %s\n", t.Ref, t.File, strings.Join(t.Files, ", "))
 		}
 	}
+	if len(in.Footprint) > 0 {
+		fmt.Fprintf(&b, "\nFootprint (from the code map, not the author; issue-cli affected %s): check the change holds up in what it reaches, not only in the files it touched:\n", in.Slug)
+		for _, l := range in.Footprint {
+			fmt.Fprintf(&b, "- %s\n", l)
+		}
+	}
 	b.WriteString("\nAnswer in this format and nothing else that starts with blocks, should or note:\n\n")
 	b.WriteString(Format)
-	b.WriteString(`
-
-blocks: the work is wrong or unsafe as it stands; the gate holds until it is fixed.
-should: a real weakness the owner should see; it doesn't hold the gate.
-note: worth keeping, no action needed.
+	b.WriteString("\n\n")
+	if in.To == "" {
+		b.WriteString("blocks: the work is wrong or unsafe as it stands.\nshould: a real weakness the owner should see.\n")
+	} else {
+		b.WriteString("blocks: the work is wrong or unsafe as it stands; the gate holds until it is fixed.\nshould: a real weakness the owner should see; it doesn't hold the gate.\n")
+	}
+	b.WriteString(`note: worth keeping, no action needed.
 Every finding names a path:line from the files above. At most three blocks.
 `)
 	return b.String()

@@ -20,9 +20,13 @@ steps:
     # The session's layout checks (inside_viewport: no sideways scroll) run
     # at 390x844 on every step.
     proves: [AC5]
+    # Panes start as `cat -`, two arguments, so tmux execs it directly. Given
+    # one command tmux runs `$SHELL -c cat`, and until the shell execs cat the
+    # pane is a bare shell, which the page shows as an exited agent with no
+    # Nudge (the slow tier went red on that under load).
     setup:
-      - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - tmux: [new-session, -d, -s, agent-ui-child, cat, -]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat, -]
       - open: /crew
     checks:
       - visible: [crew_all.page, crew_all.machine, crew_all.project.crew, crew_all.row.lead-crew, crew_all.row.agent-ui-child, crew_all.row.agent-ui-legacy]
@@ -36,8 +40,8 @@ steps:
   - id: TP4
     title: Stop asks first, Cancel keeps the session, Yes ends only that one
     setup:
-      - tmux: [new-session, -d, -s, agent-ui-child, cat]
-      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - tmux: [new-session, -d, -s, agent-ui-child, cat, -]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat, -]
       - open: /crew
     act:
       - click: crew_all.row.agent-ui-child.stop
@@ -59,7 +63,7 @@ steps:
   - id: TP5
     title: Tail opens a sheet with the pane's last lines; Nudge opens its sheet with presets
     setup:
-      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-child, cat, -]
       - open: /crew
     act:
       - click: crew_all.row.agent-ui-child.tail

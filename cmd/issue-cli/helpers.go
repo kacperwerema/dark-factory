@@ -193,6 +193,9 @@ func agentNameForSlug(slug string) string {
 // is unknown pass. verb names the command for the message.
 func ownIssueOnly(ctx *Context, issues []*tracker.Issue, issue *tracker.Issue, verb string) error {
 	me := whoAmI(ctx.Project, issues)
+	if me.Role == tracker.RoleWorker && me.Slug != "" && !strings.EqualFold(issue.Slug, me.Slug) {
+		me = guardWho(ctx, issues, verb)
+	}
 	if me.Role != tracker.RoleWorker || me.Slug == "" {
 		return nil
 	}

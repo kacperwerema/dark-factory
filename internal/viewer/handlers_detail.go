@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -248,7 +249,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -305,10 +306,11 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 	approveThen := approveThenFor(wf, needsApprovals)
 
 	tab := detailTab(r.URL.Query().Get("tab"))
+	cache := timeline.NewCache()
 	var tl *Timeline
 	var filters []timelineFilterLink
 	if tab == "timeline" {
-		src := loadTimelineSources(proj, found, wf)
+		src := loadTimelineSources(cache, proj, found, wf)
 		if src.Prompt == "" && len(src.Calls) > 0 {
 			// Dispatched before the prompt was saved: rebuild it as the
 			// agent saw it, at the status it started from.
@@ -325,6 +327,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 			OpenGated: len(needsApprovals) > 0,
 			WF:        wf,
 		})
+		fillStages(&built, proj, found, src, time.Now())
 		tl = &built
 		base := prefix + "/issue/" + found.Slug + "?tab=timeline"
 		for _, f := range timelineFilters {
@@ -345,11 +348,11 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 		issueTab = loadIssueTab(proj, prefix, found, issues, wf, needsApprovals)
 	}
 
-	comments, _ := tracker.LoadComments(found.FilePath)
-	report := evidenceReport(proj, found, comments)
+	comments := found.Comments()
+	report := evidenceReportWith(cache, proj, found, comments)
 	var evidence *EvidenceTab
 	if tab == "evidence" {
-		evidence = loadEvidenceTab(proj, prefix, found, wf, report)
+		evidence = loadEvidenceTab(cache, proj, prefix, found, wf, report)
 	}
 
 	renderedBody := renderBodyWithDataTable(found, prefix, projectRoot(proj), slugMap)
@@ -396,7 +399,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request, proj *trac
 // builds it.
 func loadIssueTab(proj *tracker.Project, prefix string, issue *tracker.Issue, issues []*tracker.Issue, wf *tracker.WorkflowConfig, targets []string) *IssueTab {
 	now := time.Now()
-	src := loadTimelineSources(proj, issue, wf)
+	src := loadTimelineSources(nil, proj, issue, wf)
 	tl := buildTimeline(src, timelineInput{Status: issue.Status, Now: now, WF: wf, OpenGated: len(targets) > 0})
 	att := ownerAttention(proj, issue)
 	ca := newCardAgents(proj, prefix, now)
@@ -434,7 +437,7 @@ func loadIssueTab(proj *tracker.Project, prefix string, issue *tracker.Issue, is
 func approveThenFor(wf *tracker.WorkflowConfig, approvals []string) map[string]string {
 	out := map[string]string{}
 	for _, status := range approvals {
-		if !tracker.IsHandoffStatus(status) {
+		if !wf.IsHandoffStatus(status) {
 			continue
 		}
 		next := wf.NextRequiredStatus(status)
@@ -454,7 +457,7 @@ func approveThenFor(wf *tracker.WorkflowConfig, approvals []string) map[string]s
 // the issue file's directory, and issue refs are linked afterwards so the
 // table itself is not rewritten.
 func renderBodyWithDataTable(issue *tracker.Issue, prefix, root string, slugMap map[string]string) string {
-	bodyHTML := issue.BodyHTML
+	bodyHTML := issue.BodyHTML()
 	store, err := tracker.LoadData(issue.FilePath)
 	if err != nil {
 		store = tracker.DataStore{}
@@ -665,7 +668,7 @@ func (s *Server) handleTransitionPreview(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	comments, _ := tracker.LoadComments(issue.FilePath)
+	comments := issue.Comments()
 	wf := proj.LoadWorkflowForIssue(issue)
 	preview := wf.PreviewTransition(issue, issue.Status, to, issue.System, comments)
 
@@ -674,7 +677,7 @@ func (s *Server) handleTransitionPreview(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) findIssueBySlug(proj *tracker.Project, slug string) *tracker.Issue {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return nil
 	}

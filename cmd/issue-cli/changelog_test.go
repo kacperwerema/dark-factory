@@ -8,11 +8,15 @@ import (
 )
 
 // misplacedChangelogEntries returns the entry lines head has and base lacks
-// that sit below head's first version heading. CHANGELOG.md merges with
+// that sit anywhere but under ## Unreleased: in the preamble above the first
+// heading, or below head's first version heading. CHANGELOG.md merges with
 // merge=union, so after a release renamed ## Unreleased, git can put a
-// branch's new entry under the released version without a conflict. An
-// entry that replaces one base had under the same version heading is an
-// edit of a released entry, not a new one, and is not returned.
+// branch's new entry under the released version without a conflict; and the
+// preamble's prose mentions ## Unreleased, so a script looking for those
+// words can put one there. A release only renames ## Unreleased, so an entry
+// in either place misses the release notes. An entry that replaces one base
+// had under the same version heading is an edit of a released entry, not a
+// new one, and is not returned.
 func misplacedChangelogEntries(base, head string) []string {
 	headCount := map[string]int{}
 	for _, l := range strings.Split(head, "\n") {
@@ -37,7 +41,11 @@ func misplacedChangelogEntries(base, head string) []string {
 	}
 	var out []string
 	heading = ""
+	preamble := true
 	for _, l := range strings.Split(head, "\n") {
+		if strings.HasPrefix(l, "## ") {
+			preamble = false
+		}
 		if strings.HasPrefix(l, "## v") {
 			heading = l
 		}
@@ -45,7 +53,7 @@ func misplacedChangelogEntries(base, head string) []string {
 			have[l]--
 			continue
 		}
-		if heading != "" && strings.HasPrefix(l, "- ") {
+		if (preamble || heading != "") && strings.HasPrefix(l, "- ") {
 			if removed[heading] > 0 {
 				removed[heading]--
 				continue
@@ -67,6 +75,8 @@ func TestMisplacedChangelogEntries(t *testing.T) {
 		{"entry under Unreleased", "# Changelog\n\n## Unreleased\n\n- C\n\n## v0.58.0 — 2026-10-31\n\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", nil},
 		{"entry merged under the release", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- C\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", []string{"- C"}},
 		{"entry in an older release", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- C\n- old\n", []string{"- C"}},
+		{"entry above Unreleased", "# Changelog\n\n- C\n\n## Unreleased\n\n## v0.58.0 — 2026-10-31\n\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", []string{"- C"}},
+		{"entry above the release, no Unreleased", "# Changelog\n\n- C\n\n## v0.58.0 — 2026-10-31\n\n- A\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", []string{"- C"}},
 		{"unchanged", base, nil},
 		{"released entry edited", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A, reworded\n- B\n\n## v0.57.0 — 2026-10-30\n\n- old\n", nil},
 		{"edit in one release, new entry in another", "# Changelog\n\n## v0.58.0 — 2026-10-31\n\n- A2\n- B\n\n## v0.57.0 — 2026-10-30\n\n- C\n- old\n", []string{"- C"}},
@@ -77,12 +87,53 @@ func TestMisplacedChangelogEntries(t *testing.T) {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}
+
+	// Moving a stray entry out of the preamble adds nothing.
+	stray := "# Changelog\n\n- C\n\n## Unreleased\n\n## v0.58.0 — 2026-10-31\n\n- A\n"
+	moved := "# Changelog\n\n## Unreleased\n\n- C\n\n## v0.58.0 — 2026-10-31\n\n- A\n"
+	if got := misplacedChangelogEntries(stray, moved); len(got) > 0 {
+		t.Errorf("stray entry moved under Unreleased: got %q, want none", got)
+	}
+}
+
+// changelogPreambleEntries returns the entry lines above text's first heading.
+// The format's example in the preamble is indented, so it is not one.
+func changelogPreambleEntries(text string) []string {
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "## ") {
+			break
+		}
+		if strings.HasPrefix(l, "- ") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// TestChangelogPreambleHasNoEntries reads the whole preamble, not a branch's
+// additions: an entry there misses the release notes whichever commit put it
+// there, and a work branch's guard no longer sees it once it is on main.
+func TestChangelogPreambleHasNoEntries(t *testing.T) {
+	t.Parallel()
+
+	if got := changelogPreambleEntries("# Changelog\n\n    - example\n\n- stray\n\n## Unreleased\n\n- fine\n"); strings.Join(got, "|") != "- stray" {
+		t.Errorf("changelogPreambleEntries: got %q, want only the stray line", got)
+	}
+	text, err := os.ReadFile("CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bad := changelogPreambleEntries(string(text)); len(bad) > 0 {
+		t.Errorf("cmd/issue-cli/CHANGELOG.md: %d entr(ies) sit above the first heading; a release only renames ## Unreleased, so move them under it:\n%s",
+			len(bad), strings.Join(bad, "\n"))
+	}
 }
 
 // TestChangelogBranchEntriesUnreleased checks this branch's CHANGELOG.md
-// against its merge base with main: every entry the branch added sits above
-// the first version heading, under ## Unreleased. On main, a release
-// branch or outside a git checkout there is nothing to compare.
+// against its merge base with main: every entry the branch added sits under
+// ## Unreleased, not above it and not below the first version heading. On
+// main, a release branch or outside a git checkout there is nothing to compare.
 func TestChangelogBranchEntriesUnreleased(t *testing.T) {
 	t.Parallel()
 
@@ -108,7 +159,7 @@ func TestChangelogBranchEntriesUnreleased(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bad := misplacedChangelogEntries(base, string(head)); len(bad) > 0 {
-		t.Errorf("cmd/issue-cli/CHANGELOG.md: %d entr(ies) this branch added sit under a released version heading; move them under ## Unreleased at the top (create the heading if a release took it):\n%s",
+		t.Errorf("cmd/issue-cli/CHANGELOG.md: %d entr(ies) this branch added sit above ## Unreleased or under a released version heading; move them under ## Unreleased at the top (create the heading if a release took it):\n%s",
 			len(bad), strings.Join(bad, "\n"))
 	}
 }

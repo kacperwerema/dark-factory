@@ -69,6 +69,18 @@ The rules:
   the issue's `## Acceptance Criteria`). Copy it into the step's result, so
   `issue-cli prove` finds the link with no extra call; the step's latest
   verdict is the link's check. Reject ids that aren't the issue's criteria.
+- `proves:` on a judgement step makes that criterion the owner's: only their
+  pass or their own tick closes it. A machine step, a `Proves:` trailer or a
+  test proving the same criterion never ticks it, so an agent's `check` is
+  refused and the issue can close with the box open. Prove a criterion one
+  way: if a machine step is the proof, leave `proves:` off the judgement step;
+  if the step is automated, drop its `do:` and `expect:`.
+  `make playtest-check` warns when an open issue's judgement step and machine
+  step prove the same criterion; `issue-cli prove <slug> --list` and the
+  transition into the `criteria_proven` gate warn when a judgement step
+  lists one a test or commit link (a `Proves:` trailer or `prove --test`)
+  also proves, naming the step to drop `proves:` from. A warning, not a gate.
+  Details: docs/Workflow/proof.md, Owner checks.
 - Every step starts fresh from its scenario, so steps never depend on the
   order they ran in, and any step can be replayed alone.
 - The actions and checks are each project's own vocabulary. Name them after
@@ -160,7 +172,9 @@ reduced: "2026-11-22"          # set when the shots were shrunk (below)
   only loses other issues' runs).
 - **Reduced:** the viewer's daily health pass shrinks the shots of issues done `health.shrink_shots_after_days` ago
   (default 30, `0` off), in `shots/` or beside `results.yaml`, to JPEGs at most 720 px wide and three screens tall,
-  and sets `reduced:`. Every check and verdict stays.
+  and sets `reduced:`. Every check and verdict stays. A scenario under `playtest/scenarios/` that commits `.playtest/runs`
+  sets `shrink_shots_after_days: 0` in its workflow, or its dated shots go when they age out and a page's `.png` link
+  gives a 404 (`TestScenarioShotsDontAgeOut`).
 
 #### What the viewer reads
 
@@ -189,7 +203,7 @@ can't be read is listed at the top of both tabs, not dropped silently.
 
 ### The e2e results file (for local CI)
 
-When `CI_RESULTS_DIR` is set (a local CI run, see [Local CI: Test results](../../workflow.md#test-results-results)), ux-test also writes `$CI_RESULTS_DIR/e2e.json`, or the path given with `-results`. It covers every session it ran:
+When `CI_RESULTS_DIR` is set (a local CI run, see Local CI: Test results in `docs/workflow.md`), ux-test also writes `$CI_RESULTS_DIR/e2e.json`, or the path given with `-results`. It covers every session it ran:
 
 ```json
 {"started": "2026-10-23T18:00:00Z", "finished": "2026-10-23T18:03:10Z",

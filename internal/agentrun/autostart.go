@@ -19,9 +19,10 @@ var autostartRank = map[string]int{"critical": 0, "high": 1, "medium": 2, "low":
 // priority and then file order. Each says why it can't start now, if so.
 // yoloOn lets an issue that only waits on a gate through: YOLO passes it.
 func AutostartCandidates(proj *tracker.Project, issues []*tracker.Issue, yoloOn bool) []autostart.Candidate {
+	wf := proj.LoadWorkflow()
 	var backlog []*tracker.Issue
 	for _, issue := range issues {
-		if issue.Status != "backlog" || issue.Assignee != "" {
+		if !wf.HasRole(issue.Status, tracker.StatusRoleQueue) || issue.Assignee != "" {
 			continue
 		}
 		if proj.Version != "" && issue.Version != proj.Version {
@@ -64,12 +65,12 @@ func candidateHold(proj *tracker.Project, issue *tracker.Issue, bySlug map[strin
 		if !ok {
 			return "depends on " + dep + " (not found)"
 		}
-		if wf := proj.LoadWorkflowForIssue(d); !wf.IsLastStatus(d.Status) {
+		if !proj.IssueClosed(d) {
 			return "depends on " + dep + " (" + d.Status + ")"
 		}
 	}
 	if !yoloOn {
-		comments, _ := tracker.LoadComments(issue.FilePath)
+		comments := issue.Comments()
 		if gate := tracker.WaitingOnGate(proj.LoadWorkflowForIssue(issue), issue, comments); gate != "" {
 			return "waiting on " + gate
 		}

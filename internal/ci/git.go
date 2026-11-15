@@ -1,14 +1,12 @@
 package ci
 
 import (
-	"bytes"
-	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitmain"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -25,54 +23,26 @@ func git(dir string, args ...string) (string, error) {
 }
 
 func gitWithin(limit time.Duration, dir string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
-	}
-	return strings.TrimSpace(stdout.String()), nil
+	return gitmain.GitWithin(limit, dir, args...)
 }
 
 // RepoRoot is the main checkout of the repository dir belongs to (the first
 // entry of `git worktree list`), so CI state lives in one place even when a
 // project's workdir is a worktree or a subdirectory. Falls back to dir.
-func RepoRoot(dir string) string {
-	out, err := git(dir, "worktree", "list", "--porcelain")
-	if err != nil {
-		return dir
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if path, ok := strings.CutPrefix(line, "worktree "); ok {
-			return path
-		}
-	}
-	return dir
-}
+func RepoRoot(dir string) string { return gitmain.Root(dir) }
 
 // ResolveBranch is cfg.Branch, else the branch checked out in the main
 // checkout.
 func ResolveBranch(root string, cfg *tracker.CIConfig) (string, error) {
-	if cfg != nil && strings.TrimSpace(cfg.Branch) != "" {
-		return strings.TrimSpace(cfg.Branch), nil
+	configured := ""
+	if cfg != nil {
+		configured = cfg.Branch
 	}
-	out, err := git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
-	if err != nil || out == "" {
-		return "", fmt.Errorf("the main checkout %s has no branch checked out; set ci.branch in workflow.yaml", root)
-	}
-	return out, nil
+	return gitmain.Branch(root, configured)
 }
 
 // Head is the branch's current commit.
-func Head(root, branch string) (string, error) {
-	return git(root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
-}
+func Head(root, branch string) (string, error) { return gitmain.Head(root, branch) }
 
 func subject(root, sha string) string {
 	out, _ := git(root, "log", "-1", "--format=%s", sha)

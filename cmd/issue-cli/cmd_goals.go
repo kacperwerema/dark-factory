@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +14,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/connectors"
 	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/weekplan"
@@ -64,20 +67,31 @@ Examples:
 
 var goalCommand = &Command{
 	Name:      "goal",
-	ShortHelp: "Record a goal's value (goal set <dept>/<id> <value>)",
-	LongHelp: `Record a value for a goal whose source is manual. The value is
-appended to <issues>/.goals/values.jsonl with today's date (or --date);
-issue-cli goals and the company page show the newest one.
+	ShortHelp: "Record a goal's value (goal set <dept>/<id> <value>) or a job's metrics file (goal write <dept>/<job> <id>=<value>...)",
+	LongHelp: `  goal set <dept>/<id> <value> [--note "..."] [--date YYYY-MM-DD]
+      Record a value for a goal whose source is manual. The value is
+      appended to <issues>/.goals/values.jsonl with today's date (or
+      --date); issue-cli goals and the company page show the newest one.
+      <dept> is hq, product or the department's name in lower case;
+      issue-cli goals lists every key.
 
-<dept> is hq, product or the department's name in lower case; issue-cli
-goals lists every key.
+  goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]
+      What a recurring job's run does with the numbers it read from a
+      connector (or the owner): replace the job's metrics file
+      <issues>/.goals/<dept>/<job>.json, in the metric run format, dated
+      today (or --date). It is written atomically, whole: a metric the run
+      didn't read is left out, never estimated. The department's goals read
+      it with source: file:<issues>/.goals/<dept>/<job>.json#<id>; a file a
+      whole run older than the job's schedule shows "no value since <date>".
+      See docs/departments.md, "Goals a job fills from a connector".
 
 Examples:
   issue-cli goal set marketing/pages 38
   issue-cli goal set hq/clients 12 --note "two signed this week"
-  issue-cli goal set hq/revenue 4200 --date 2026-09-30`,
+  issue-cli goal set hq/revenue 4200 --date 2026-09-30
+  issue-cli goal write sales/weekly-funnel visits=512 signups=31`,
 	Run:         runGoal,
-	Subcommands: []string{"set"},
+	Subcommands: []string{"set", "write"},
 }
 
 var departmentCommand = &Command{
@@ -131,6 +145,15 @@ var departmentCommand = &Command{
                                 (replacing this week's), shown in the
                                 group's room on the company page. It only
                                 reads and writes that file: nothing starts
+  department partners           the partners catalog: the outside tools a
+                                department can use per slot (analytics,
+                                email, seo, social, video, support), each
+                                with its licence and the date it was read,
+                                what it needs, whether it runs always or
+                                per run, and whether it costs money (in
+                                words). --slot <slot> lists one slot. It
+                                turns nothing on; department add names the
+                                options for the template's slots
 
 add, update and remove edit the owner's projects.yaml: workers are refused.
 
@@ -144,9 +167,10 @@ Examples:
   issue-cli department show marketing
   issue-cli department show hq --json
   issue-cli department week gtm
-  issue-cli department week gtm --write`,
+  issue-cli department week gtm --write
+  issue-cli department partners --slot email --json`,
 	Run:         runDepartment,
-	Subcommands: []string{"list", "add", "update", "remove", "show", "week"},
+	Subcommands: []string{"list", "add", "update", "remove", "show", "week", "partners"},
 }
 
 func init() {
@@ -215,7 +239,7 @@ func printOwnerGoals(w io.Writer, o *goals.Owner) {
 // command that sets its first value.
 func printGoal(w io.Writer, g *goals.Goal, indent string) {
 	parts := []string{g.ValueText()}
-	if t := g.TargetText(); t != "" {
+	if t := g.TargetText(); t != "" && g.NoValueSince == "" {
 		parts[0] += " / " + t
 	}
 	if g.Progress != nil {
@@ -245,6 +269,8 @@ func printGoal(w io.Writer, g *goals.Goal, indent string) {
 	switch {
 	case g.Err != "":
 		fmt.Fprintf(w, "%s! %s\n", pad, g.Err)
+	case g.NoValueSince != "":
+		fmt.Fprintf(w, "%s! job %s missed a run since %s (issue-cli jobs shows when it last ran)\n", pad, g.Job, g.NoValueSince)
 	case g.Value == nil && g.Manual() && !g.RolledUp:
 		fmt.Fprintf(w, "%sno value yet: %s\n", pad, g.SetCommand())
 	}
@@ -262,8 +288,11 @@ func ownerKeys(rep *goals.Report) []string {
 }
 
 func runGoal(ctx *Context, args []string) error {
+	if len(args) > 0 && args[0] == "write" {
+		return runGoalWrite(ctx, args[1:])
+	}
 	if len(args) == 0 || args[0] != "set" {
-		return &usageError{msg: "usage: issue-cli goal set <dept>/<id> <value> [--note \"...\"] [--date YYYY-MM-DD]"}
+		return &usageError{msg: "usage: issue-cli goal set <dept>/<id> <value> [--note \"...\"] [--date YYYY-MM-DD]\n       issue-cli goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]"}
 	}
 	fs := newFlagSet("goal set", ctx)
 	note := fs.String("note", "", "what the value is about")
@@ -285,6 +314,9 @@ func runGoal(ctx *Context, args []string) error {
 		return fmt.Errorf("no goal %q; goals: %s", key, strings.Join(keys, ", "))
 	}
 	if !g.Manual() {
+		if g.Job != "" {
+			return fmt.Errorf("goal %s reads its value from %s, not by hand: its job writes it (issue-cli goal write %s <id>=<value>...)", g.Key, g.Source, g.Job)
+		}
 		return fmt.Errorf("goal %s reads its value from %s, not by hand", g.Key, g.Source)
 	}
 	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
@@ -311,6 +343,94 @@ func runGoal(ctx *Context, args []string) error {
 	return nil
 }
 
+// goalWriteResult is goal write's JSON.
+type goalWriteResult struct {
+	Job     string         `json:"job"`
+	Path    string         `json:"path"`
+	Source  string         `json:"source"`
+	Date    string         `json:"date"`
+	Metrics []goals.Metric `json:"metrics"`
+	// Readers is, per metric id, the goal keys reading it; Unread the ids
+	// no goal reads.
+	Readers map[string][]string `json:"readers"`
+	Unread  []string            `json:"unread,omitempty"`
+}
+
+// runGoalWrite is goal write: replace a job's metrics file.
+func runGoalWrite(ctx *Context, args []string) error {
+	const usage = "usage: issue-cli goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]"
+	fs := newFlagSet("goal write", ctx)
+	date := fs.String("date", "", "the day the numbers are for (YYYY-MM-DD; default today)")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		return &usageError{msg: usage}
+	}
+	r, err := jobs.Find(ctx.Project, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	var metrics []goals.Metric
+	for _, a := range fs.Args()[1:] {
+		id, raw, ok := strings.Cut(a, "=")
+		if !ok || strings.TrimSpace(id) == "" {
+			return fmt.Errorf("%q: want <id>=<value>", a)
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("%s=%s: the value is not a number (a number you couldn't read is left out, never estimated)", id, raw)
+		}
+		metrics = append(metrics, goals.Metric{ID: strings.TrimSpace(id), Value: v})
+	}
+	day := ctx.now().Format("2006-01-02")
+	if *date != "" {
+		if _, err := time.Parse("2006-01-02", *date); err != nil {
+			return fmt.Errorf("--date %q: want YYYY-MM-DD", *date)
+		}
+		day = *date
+	}
+	path, err := goals.WriteMetrics(ctx.Project, r, day, metrics)
+	if err != nil {
+		return err
+	}
+	src := goals.JobFileSource(r.Department, r.Job.ID)
+	res := goalWriteResult{Job: r.Key, Path: path, Source: src, Date: day, Metrics: metrics, Readers: map[string][]string{}}
+	rep := goals.Resolve(ctx.Project, ctx.now())
+	for _, o := range rep.Owners() {
+		for _, g := range o.Goals {
+			spec, ok := strings.CutPrefix(g.Source, "file:")
+			if !ok {
+				continue
+			}
+			if p, id, err := goals.ParseFileSource(spec); err == nil && p == src {
+				res.Readers[id] = append(res.Readers[id], g.Key)
+			}
+		}
+	}
+	for _, m := range metrics {
+		if len(res.Readers[m.ID]) == 0 {
+			res.Unread = append(res.Unread, m.ID)
+		}
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, res)
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ %s: %d metric(s) for %s\n", r.Key, len(metrics), day)
+	for _, m := range metrics {
+		readers := "no goal reads it"
+		if ks := res.Readers[m.ID]; len(ks) > 0 {
+			readers = "read by " + strings.Join(ks, ", ")
+		}
+		fmt.Fprintf(ctx.Stdout, "  %s = %s · %s\n", m.ID, strconv.FormatFloat(m.Value, 'f', -1, 64), readers)
+	}
+	if len(res.Unread) > 0 {
+		fmt.Fprintf(ctx.Stdout, "⚠ no goal reads %s: a goal reads one with source: \"file:%s#<id>\" (projects.yaml)\n", strings.Join(res.Unread, ", "), src)
+	}
+	fmt.Fprintf(ctx.Stdout, "file: %s\n", path)
+	return nil
+}
+
 // departmentShow is department show's JSON: the owner and its prompt.
 type departmentShow struct {
 	*goals.Owner
@@ -324,6 +444,11 @@ type departmentShow struct {
 	Connections *connections.Counts `json:"connections,omitempty"`
 	// Spend is what it spent by week (issue-cli spend).
 	Spend *spend.Box `json:"spend,omitempty"`
+	// Workflow is the department's own workflow file, HallURL its hall in
+	// the viewer (stations, every type's path, Edit); empty when it runs on
+	// Product's workflow.
+	Workflow string `json:"workflow,omitempty"`
+	HallURL  string `json:"hall_url,omitempty"`
 }
 
 func runDepartment(ctx *Context, args []string) error {
@@ -342,9 +467,11 @@ func runDepartment(ctx *Context, args []string) error {
 		return runDepartmentRemove(ctx, args[1:])
 	case "week":
 		return runDepartmentWeek(ctx, args[1:])
+	case "partners":
+		return runDepartmentPartners(ctx, args[1:])
 	case "show":
 	default:
-		return &usageError{msg: "usage: issue-cli department list|add <template>|update <name>|remove <name>|show <name>|week <name>"}
+		return &usageError{msg: "usage: issue-cli department list|add <template>|update <name>|remove <name>|show <name>|week <name>|partners [--slot <slot>]"}
 	}
 	pos, err := parsePositionals(ctx, "department show", args[1:], 1)
 	if err != nil {
@@ -377,6 +504,15 @@ func runDepartment(ctx *Context, args []string) error {
 	}
 	sp := loadSpend(ctx)
 	out.Spend = sp.Find(o.Key)
+	if d := ctx.Project.DepartmentByKey(o.Key); d != nil {
+		if path := ctx.Project.DepartmentWorkflowPath(d.Name); path != "" {
+			out.Workflow = path
+			if rel, err := filepath.Rel(ctx.Project.Root(), path); err == nil && !strings.HasPrefix(rel, "..") {
+				out.Workflow = rel
+			}
+			out.HallURL = fmt.Sprintf("%s/p/%s/hall?department=%s", viewerBaseURL(ctx.Project), ctx.Project.Slug, url.QueryEscape(strings.ToLower(d.Name)))
+		}
+	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, out)
 	}
@@ -391,6 +527,9 @@ func runDepartment(ctx *Context, args []string) error {
 	if line := spendLine(sp, o.Key); line != "" {
 		fmt.Fprintln(w, line)
 	}
+	if out.Workflow != "" {
+		fmt.Fprintf(w, "Workflow: %s · its hall (stations, every type's path, Edit): %s\n", out.Workflow, out.HallURL)
+	}
 	if d := ctx.Project.DepartmentByKey(o.Key); d != nil && ctx.Project.IsGroup(d.Name) {
 		week := "none yet"
 		if h := weekplan.Latest(ctx.Project, o.Key); h != nil {
@@ -401,6 +540,9 @@ func runDepartment(ctx *Context, args []string) error {
 	if len(out.Connectors) > 0 {
 		fmt.Fprintln(w, "Connectors:")
 		printConnectors(w, out.Connectors, ctx.now(), "  ")
+	}
+	if d := ctx.Project.DepartmentByKey(o.Key); d != nil && d.Partner != nil {
+		fmt.Fprintln(w, partnerConfigLine(*d.Partner, ctx.Project.Root()))
 	}
 	switch {
 	case o.Prompt == "":

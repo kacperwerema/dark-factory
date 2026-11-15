@@ -63,8 +63,8 @@ func loadProject(t *testing.T, path, slug string) *tracker.Project {
 }
 
 func TestListHasMarketing(t *testing.T) {
-	if keys := strings.Join(Keys(), ","); keys != "marketing,gtm" {
-		t.Fatalf("templates = %s, want marketing,gtm (departments, then groups)", keys)
+	if keys := strings.Join(Keys(), ","); keys != "legal,marketing,sales-b2c,video,gtm" {
+		t.Fatalf("templates = %s, want legal,marketing,sales-b2c,video,gtm (departments, then groups)", keys)
 	}
 	m, err := Load("marketing")
 	if err != nil {
@@ -106,7 +106,7 @@ func TestAddWritesFilesAndKeepsTheRestOfTheConfig(t *testing.T) {
 	}
 	got := loadProject(t, path, "acme")
 	d := got.DepartmentByKey("marketing")
-	if d == nil || d.Workflow != "workflows/marketing.yaml" || d.Prompt != "departments/marketing/role.md" || len(d.Goals) != 2 || d.Color != "#E2559B" || len(d.Systems) != 1 {
+	if d == nil || d.Workflow != "workflows/marketing.yaml" || d.Prompt != "departments/marketing/role.md" || len(d.Goals) != 3 || d.Color != "#E2559B" || strings.Join(d.Systems, ",") != "SEO,Social" {
 		t.Fatalf("department = %+v", d)
 	}
 	if len(d.Jobs) != 1 || d.Jobs[0].Type != "seo-pass" {
@@ -464,6 +464,57 @@ func TestNewPlanUnderNestedDepth(t *testing.T) {
 	}{{mkt, "x"}, {gtm, "y"}} {
 		if _, err := NewPlanUnder(proj, c.t, c.parent); err != nil && strings.Contains(err.Error(), "deep") {
 			t.Errorf("%s under %s fits: %v", c.t.Key, c.parent, err)
+		}
+	}
+}
+
+// TestTemplateFilesInstalledNeverOverwritten: a template's files: are
+// written to departments/<key>/ like role.md (Marketing's subreddits.md),
+// and an owner's edited copy is kept.
+func TestTemplateFilesInstalledNeverOverwritten(t *testing.T) {
+	_, proj := sandbox(t, commentedConfig)
+	tmpl, err := Load("marketing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tmpl.FileTexts["subreddits.md"]) == 0 {
+		t.Fatalf("marketing's files: %v carry no subreddits.md", tmpl.Files)
+	}
+	list := filepath.Join(proj.Root(), "departments", "marketing", "subreddits.md")
+	os.MkdirAll(filepath.Dir(list), 0o755)
+	os.WriteFile(list, []byte("| Subreddit | Why | Self-promotion rule |\n|---|---|---|\n| r/mine | x | \"mine\" |\n"), 0o644)
+	plan, err := NewPlan(proj, tmpl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, f := range plan.Files {
+		states[f.Path] = f.State
+	}
+	if states["departments/marketing/subreddits.md"] != FileKeep {
+		t.Fatalf("states = %v, want subreddits.md kept", states)
+	}
+	if err := plan.Apply(proj); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(list); !strings.Contains(string(b), "r/mine") {
+		t.Fatalf("the owner's subreddits.md was overwritten: %q", b)
+	}
+}
+
+// TestTemplateFilesRefusals: a files: entry is one plain file name in the
+// template's folder, once, never role.md.
+func TestTemplateFilesRefusals(t *testing.T) {
+	for files, want := range map[string]string{
+		"../video/role.md":            "not a plain file name",
+		"jobs/weekly-seo-pass.md":     "not a plain file name",
+		"role.md":                     "role.md is installed already",
+		"subreddits.md,subreddits.md": "subreddits.md twice",
+		"nothing-here.md":             "no nothing-here.md in the template's folder",
+	} {
+		tm := &Template{Key: "marketing", Files: strings.Split(files, ",")}
+		if err := tm.loadFiles(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("files: %s: err %v, want %q", files, err, want)
 		}
 	}
 }

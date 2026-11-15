@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
 	"github.com/kacperwerema/dark-factory/internal/retro"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -18,16 +19,24 @@ import (
 // candidatePrefixes are the comments that can hold a fact. Machine-written
 // ones (approval:, dispatch:, tests:, yolo-owner-check:) record the
 // process and are skipped.
-var candidatePrefixes = []string{"progress:", "question:", "answer:", "risk:", "decision:"}
+var candidatePrefixes = []string{"progress:", "question:", "answer:", "risk:", "decision:", "report:"}
+
+// shelfReport is a markdown output on the shelf linked to the issue: its
+// Known and Corrections items are candidates too, so a report-only run's
+// facts can be remembered.
+type shelfReport struct {
+	ID       string
+	Markdown string
+}
 
 // candidate is one piece of an issue's trail an agent could turn into a
 // memory.
 type candidate struct {
 	N    int    `json:"n"`
-	From string `json:"from"` // comment, decision, retro
+	From string `json:"from"` // comment, decision, retro, output
 	// Comment is the 1-based comment index (memory add --comment N).
 	Comment int    `json:"comment,omitempty"`
-	Ref     string `json:"ref"` // "comment 12", "D-3", "retro <file> · <label>"
+	Ref     string `json:"ref"` // "comment 12", "D-3", "retro <file> · <label>", "output <id> · known"
 	Text    string `json:"text,omitempty"`
 	// Secret is the kind FindSecret saw; the text is then left out.
 	Secret string `json:"secret,omitempty"`
@@ -38,8 +47,9 @@ type candidate struct {
 }
 
 // issueCandidates gathers the trail of issue: fact-bearing comments, its
-// decisions and its retros. No transcript or pane text is read.
-func issueCandidates(issue *tracker.Issue, comments []tracker.Comment, retros []*retro.Entry) []candidate {
+// decisions, its retros and the Known items of its shelf reports. No
+// transcript or pane text is read.
+func issueCandidates(issue *tracker.Issue, comments []tracker.Comment, retros []*retro.Entry, reports []shelfReport) []candidate {
 	var out []candidate
 	addC := func(c candidate) {
 		c.Text = strings.TrimSpace(c.Text)
@@ -67,7 +77,7 @@ func issueCandidates(issue *tracker.Issue, comments []tracker.Comment, retros []
 			}
 		}
 	}
-	for _, d := range tracker.ParseDecisions(issue.Slug, issue.BodyRaw) {
+	for _, d := range issue.Decisions() {
 		addC(candidate{From: "decision", Ref: d.ID, Text: strings.TrimPrefix(strings.TrimSpace(d.Text), "(provisional) ")})
 	}
 	for _, e := range retros {
@@ -86,6 +96,26 @@ func issueCandidates(issue *tracker.Issue, comments []tracker.Comment, retros []
 			for _, item := range retro.Items(s.Text) {
 				addC(candidate{From: "retro", Ref: "retro " + e.FileName + " · " + s.Label, Text: item})
 			}
+		}
+	}
+	for _, r := range reports {
+		for _, item := range outputs.KnownItems(r.Markdown) {
+			addC(candidate{From: "output", Ref: "output " + r.ID + " · known", Text: item})
+		}
+	}
+	return out
+}
+
+// issueReports are the markdown outputs on the shelf linked to slug.
+func issueReports(p *tracker.Project, slug string) []shelfReport {
+	list, _ := outputs.Load(p)
+	var out []shelfReport
+	for _, o := range list {
+		if o.Issue != slug {
+			continue
+		}
+		if md, ok := outputs.ReadMarkdown(p, o); ok {
+			out = append(out, shelfReport{ID: o.ID, Markdown: md})
 		}
 	}
 	return out
@@ -124,7 +154,7 @@ func runMemoryCandidates(ctx *Context, args []string) error {
 		return err
 	}
 	retros, _ := retro.Load(filepath.Join(projectRoot(ctx.Project), "retros"))
-	cands := issueCandidates(issue, comments, retros)
+	cands := issueCandidates(issue, comments, retros, issueReports(ctx.Project, issue.Slug))
 
 	who := memoryCaller(ctx.Project, issues)
 	mems, err := visibleMemories(ctx, who.Viewer, memFilter{All: true})
@@ -165,11 +195,11 @@ func printCandidates(w io.Writer, issue *tracker.Issue, cands []candidate, hidde
 		if hidden > 0 {
 			fmt.Fprintf(w, "All %d candidates are remembered already (--all lists them).\n", hidden)
 		} else {
-			fmt.Fprintf(w, "No candidates on %s (no progress:, question:, answer:, risk: or decision: comments, decisions or retro).\n", issue.Slug)
+			fmt.Fprintf(w, "No candidates on %s (no progress:, question:, answer:, risk:, decision: or report: comments, decisions, retro or Known items in a shelf report).\n", issue.Slug)
 		}
 		return
 	}
-	fmt.Fprintln(w, "From the issue's comments, decisions and retro; no transcript is read. Nothing is written: turn the ones worth keeping into a fact in your own words.")
+	fmt.Fprintln(w, "From the issue's comments, decisions, retro and shelf reports; no transcript is read. Nothing is written: turn the ones worth keeping into a fact in your own words.")
 	for _, c := range cands {
 		fmt.Fprintf(w, "\nc%d · %s\n", c.N, c.Ref)
 		switch {
@@ -216,7 +246,7 @@ func runMemoryConsolidate(ctx *Context, args []string) error {
 		}
 		mems = keep
 	}
-	pack := memory.Consolidate(mems, ctx.now())
+	pack := memory.ConsolidateScored(mems, memoryScores(ctx), ctx.now())
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, pack)
 	}
@@ -229,7 +259,11 @@ func printPack(w io.Writer, p memory.Pack, ctx *Context) {
 	fmt.Fprintln(w, "== Memory consolidation ==")
 	fmt.Fprintln(w, "Nothing here is written or deleted: you decide each one through the update step; old memories stay in history.")
 	line := func(m memory.Memory) {
-		fmt.Fprintf(w, "  %s (%s · %s · %d uses · strength %.2f) %s\n", m.ID, m.Kind, m.Day(), m.Uses, memory.Strength(m, now), m.Text)
+		use := ""
+		if u, ok := p.Scores[m.ID]; ok {
+			use = " · " + usefulnessShort(u)
+		}
+		fmt.Fprintf(w, "  %s (%s · %s · %d uses · strength %.2f%s) %s\n", m.ID, m.Kind, m.Day(), m.Uses, memory.Strength(m, now), use, m.Text)
 	}
 	fmt.Fprintf(w, "\nNear-duplicates (%d)\n", len(p.Clusters)+p.More)
 	if len(p.Clusters) == 0 {
@@ -274,5 +308,15 @@ func printPack(w io.Writer, p memory.Pack, ctx *Context) {
 	}
 	if len(p.Promote) > 0 {
 		fmt.Fprintln(w, "  propose, never edit: file one issue for the owner listing the ids and the lines you would add (issue-cli create --title \"Promote memories to CLAUDE.md\"). CLAUDE.md is the owner's.")
+	}
+	fmt.Fprintf(w, "\nUnhelpful: shown in %d+ traced stages that did no better than usual, not pinned (%d)\n", memory.ForgetMin, len(p.Unhelpful))
+	if len(p.Unhelpful) == 0 {
+		fmt.Fprintln(w, "  none")
+	}
+	for _, m := range p.Unhelpful {
+		line(m)
+	}
+	if len(p.Unhelpful) > 0 {
+		fmt.Fprintln(w, "  propose forgetting to the owner, never forget them in this run: list each id, its text and its usefulness in the owner's issue (the one for promotions). The owner forgets or keeps each.")
 	}
 }

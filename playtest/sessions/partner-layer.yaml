@@ -1,0 +1,47 @@
+session: partner-layer
+issue: factory/partner-layer-for-departments-with-a-read-only-openmontage-adapter-the-partners-stage-and-awaiting-you-on-the-station-room-and-needs-you
+title: Partner layer - the partner's stage on the Station, one Needs you row, an unknown format said plainly
+scenario: partner
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC1
+    title: A partner project at awaiting_human shows on the Station and as one Needs you row
+    proves: [AC1]
+    setup:
+      - open: /p/acme/issue/video/pitch-video
+    checks:
+      - visible: [station.partner, station.partner.line, station.partner.spend]
+      - text_contains: { target: station.partner.line, text: "OpenMontage: pitch · awaiting you" }
+      - text_contains: { target: station.partner.spend, text: "$0.40 spent of $2.00" }
+      - text_contains: { target: station.partner, text: "Three concepts; the second fits a 30 s cut" }
+      - http:
+          path: /p/acme/needs-you
+          status: 200
+          body_contains: "OpenMontage: pitch · awaiting you · Three concepts; the second fits a 30 s cut · $0.40 spent of $2.00"
+    do: Open the Pitch video's Station and look at the side column, then open Needs you.
+    expect: >-
+      In the side column, above the Outputs, a "Partner · OpenMontage" panel reads "OpenMontage: pitch · awaiting you"
+      in the orange waiting colour, then the stage's summary, "$0.40 spent of $2.00" and the artifacts as code chips.
+      On Needs you, one row under To approve is labelled "OpenMontage: pitch" with the same words under it, and it
+      opens the Station. Nothing is cut off at the phone width.
+    why: The owner sees where the outside studio is and that it waits on them, without opening the studio.
+
+  - id: AC2
+    title: An unknown checkpoint version shows "partner format not understood", not a stage
+    proves: [AC2]
+    setup:
+      - open: /p/acme/issue/video/odd-format-video
+    checks:
+      - visible: [station.partner, station.partner.line]
+      - text_contains: { target: station.partner.line, text: "partner format not understood" }
+      - text_contains: { target: station.partner.line, text: "checkpoint_brief.json" }
+    do: Open the Odd format video's Station.
+    expect: >-
+      The Partner panel reads "OpenMontage: partner format not understood (checkpoint_brief.json version "2.0")"
+      and names no stage; there is no Needs you row for this issue.
+    why: A partner update that changes its files must not make the page guess a stage.

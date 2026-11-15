@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -77,7 +78,7 @@ func ciRunBoxes(root, prefix string, lock *ci.Lock, alive bool, now time.Time) [
 		if r.Tier != tracker.CIDefaultTier {
 			continue
 		}
-		title := fmt.Sprintf("%s · %s · %s ago · took %s", ci.Short(r.Sha), r.State, ci.Ago(now.Sub(r.Finished)), r.Finished.Sub(r.Started).Round(time.Second))
+		title := fmt.Sprintf("%s · %s · %s ago · took %s", gitdir.ShortSHA(r.Sha), r.State, ci.Ago(now.Sub(r.Finished)), r.Finished.Sub(r.Started).Round(time.Second))
 		switch {
 		case r.Failed != "":
 			title += " · " + r.Failed
@@ -90,7 +91,7 @@ func ciRunBoxes(root, prefix string, lock *ci.Lock, alive bool, now time.Time) [
 		if r.Subject != "" {
 			title += "\n" + r.Subject
 		}
-		box := CIRunBox{Sha: ci.Short(r.Sha), State: r.State, Title: title}
+		box := CIRunBox{Sha: gitdir.ShortSHA(r.Sha), State: r.State, Title: title}
 		if r.KeptLog != "" && fileExists(filepath.Join(root, r.KeptLog)) {
 			box.LogURL = ciLogURL(prefix, r.KeptLog)
 			box.Title += "\nClick for the kept log"
@@ -104,8 +105,8 @@ func ciRunBoxes(root, prefix string, lock *ci.Lock, alive bool, now time.Time) [
 		boxes[i], boxes[j] = boxes[j], boxes[i]
 	}
 	if alive && lock.Tier == tracker.CIDefaultTier {
-		boxes = append(boxes, CIRunBox{Sha: ci.Short(lock.Sha), State: "running",
-			Title: fmt.Sprintf("%s · running for %s", ci.Short(lock.Sha), ci.Ago(now.Sub(lock.Started)))})
+		boxes = append(boxes, CIRunBox{Sha: gitdir.ShortSHA(lock.Sha), State: "running",
+			Title: fmt.Sprintf("%s · running for %s", gitdir.ShortSHA(lock.Sha), ci.Ago(now.Sub(lock.Started)))})
 	}
 	return boxes
 }
@@ -141,23 +142,23 @@ func ciRow(proj *tracker.Project, prefix string, issues []*tracker.Issue, now ti
 	branch, _ := ci.ResolveBranch(root, proj.LoadWorkflow().CI)
 	row := &CIRow{Line: ci.OneLine(st, lock, alive, branch, now), Branch: branch, Running: alive, Runs: ciRunBoxes(root, prefix, lock, alive, now)}
 	if alive {
-		row.RunSha = ci.Short(lock.Sha)
+		row.RunSha = gitdir.ShortSHA(lock.Sha)
 	}
 	if st == nil {
 		return row
 	}
 	row.State, row.Branch, row.Error = st.State, st.Branch, st.Error
 	if rel := st.LastRedLogPath(root); rel != "" {
-		row.LastRed = &CILastRed{Log: rel, URL: ciLogURL(prefix, rel), Sha: ci.Short(st.LastRedSha), At: st.LastRedAt, Ago: ci.Ago(now.Sub(st.LastRedAt))}
+		row.LastRed = &CILastRed{Log: rel, URL: ciLogURL(prefix, rel), Sha: gitdir.ShortSHA(st.LastRedSha), At: st.LastRedAt, Ago: ci.Ago(now.Sub(st.LastRedAt))}
 		if st.LastRedTier != tracker.CIDefaultTier {
 			row.LastRed.Tier = st.LastRedTier
 		}
 	}
 	switch st.State {
 	case ci.Green:
-		row.Sha, row.At = ci.Short(st.GreenSha), st.GreenAt
+		row.Sha, row.At = gitdir.ShortSHA(st.GreenSha), st.GreenAt
 	case ci.Red:
-		row.Sha, row.At, row.Failed, row.Failures = ci.Short(st.RedSince), st.Updated, st.Failed, ci.FailureList(st.Failures)
+		row.Sha, row.At, row.Failed, row.Failures = gitdir.ShortSHA(st.RedSince), st.Updated, st.Failed, ci.FailureList(st.Failures)
 		row.Log, row.LogTail = st.Log, st.LogTail
 		for _, slug := range st.Blamed {
 			if issue := tracker.FindIssue(issues, slug); issue != nil {
@@ -171,7 +172,7 @@ func ciRow(proj *tracker.Project, prefix string, issues []*tracker.Issue, now ti
 		}
 		row.RedIssue = tracker.FindIssue(issues, st.RedIssue)
 	default:
-		row.Sha, row.At, row.Log, row.LogTail = ci.Short(st.LastSha), st.Updated, st.Log, st.LogTail
+		row.Sha, row.At, row.Log, row.LogTail = gitdir.ShortSHA(st.LastSha), st.Updated, st.Log, st.LogTail
 	}
 	return row
 }

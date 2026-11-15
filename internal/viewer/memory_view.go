@@ -72,6 +72,29 @@ type MemoryRow struct {
 	// Anchor: this copy carries the row's id (a grouped memory shows
 	// under each of its entities, the first one anchors it).
 	Anchor bool
+	// Use is the memory's usefulness from the traces (memory as a cache);
+	// UseText and UseChip are its chip's words and color class.
+	Use              memory.Usefulness
+	UseText, UseChip string
+	UseTitle         string
+}
+
+// usefulnessChip is a row's usefulness chip: its words, its color class
+// and its tooltip.
+func usefulnessChip(m memory.Memory, u memory.Usefulness) (text, chip, title string) {
+	title = fmt.Sprintf("first try at the gate of the stages it reached, against the usual rate at each status; scored from %d stages with a known gate result, the last %d count", memory.UsefulMin, memory.UsefulWindow)
+	switch {
+	case !u.Measured():
+		return fmt.Sprintf("usefulness — %d/%d", u.Known, memory.UsefulMin), "wb-chip--idle", title
+	case u.Helps():
+		return fmt.Sprintf("helps %+.2f · %d", u.Lift, u.Known), "wb-chip--green", title
+	case u.Unhelpful() && !m.Pinned:
+		if u.ProposeForget() {
+			title += "; the next memory consolidate proposes forgetting it to you"
+		}
+		return fmt.Sprintf("no help %+.2f · %d", u.Lift, u.Known), "wb-chip--red", title
+	}
+	return fmt.Sprintf("neutral %+.2f · %d", u.Lift, u.Known), "wb-chip--idle", title
 }
 
 // MemoryEntityLink is one entity chip: the page filtered to it.
@@ -132,6 +155,11 @@ func memoryEventDetail(e memory.Event) string {
 		return "superseded by " + e.Target
 	case memory.OpForget:
 		return e.Reason
+	case memory.OpSetAt:
+		if e.Status == "" {
+			return "at no status"
+		}
+		return "at " + e.Status
 	case memory.OpOwnerDelete:
 		return "deleted by the owner; its text is gone"
 	}
@@ -139,7 +167,21 @@ func memoryEventDetail(e memory.Event) string {
 }
 
 // memoryQuery is the page's filters from the URL.
-type memoryQuery struct{ Scope, Kind, State, Pinned, Entity, Group string }
+type memoryQuery struct{ Scope, Kind, State, Pinned, Entity, Group, Use string }
+
+// keepUse: the ?use= filter (helps, nohelp, unmeasured) over scores.
+func (q memoryQuery) keepUse(m memory.Memory, scores memory.Scores) bool {
+	u := scores.Of(m.ID)
+	switch q.Use {
+	case "helps":
+		return u.Helps()
+	case "nohelp":
+		return scores.Unhelpful(m)
+	case "unmeasured":
+		return !u.Measured()
+	}
+	return true
+}
 
 func (q memoryQuery) keep(m memory.Memory, now time.Time) bool {
 	switch q.State {
@@ -153,7 +195,7 @@ func (q memoryQuery) keep(m memory.Memory, now time.Time) bool {
 		}
 	}
 	switch q.Scope {
-	case "project", "machine":
+	case "project", "lead", "machine":
 		if m.Scope != q.Scope {
 			return false
 		}
@@ -180,10 +222,10 @@ func (q memoryQuery) keepEntity(m memory.Memory) bool {
 }
 
 func (q memoryQuery) href(prefix, name, value string) string {
-	vals := map[string]string{"scope": q.Scope, "kind": q.Kind, "state": q.State, "pinned": q.Pinned, "entity": q.Entity, "group": q.Group}
+	vals := map[string]string{"scope": q.Scope, "kind": q.Kind, "state": q.State, "pinned": q.Pinned, "entity": q.Entity, "group": q.Group, "use": q.Use}
 	vals[name] = value
 	v := url.Values{}
-	for _, k := range []string{"scope", "kind", "state", "pinned", "entity", "group"} {
+	for _, k := range []string{"scope", "kind", "state", "pinned", "use", "entity", "group"} {
 		if vals[k] != "" {
 			v.Set(k, vals[k])
 		}
@@ -207,10 +249,11 @@ func (q memoryQuery) filters(prefix string) []MemoryFilter {
 		kinds = append(kinds, [2]string{k, k})
 	}
 	return []MemoryFilter{
-		group("scope", "Scope", q.Scope, [2]string{"", "all"}, [2]string{"project", "project"}, [2]string{"department", "department"}, [2]string{"agent", "agent"}, [2]string{"machine", "machine"}),
+		group("scope", "Scope", q.Scope, [2]string{"", "all"}, [2]string{"project", "project"}, [2]string{"lead", "lead"}, [2]string{"department", "department"}, [2]string{"agent", "agent"}, [2]string{"machine", "machine"}),
 		group("kind", "Kind", q.Kind, kinds...),
 		group("state", "State", q.State, [2]string{"", "valid"}, [2]string{"invalid", "superseded or forgotten"}, [2]string{"all", "all"}),
 		group("pinned", "Pins", q.Pinned, [2]string{"", "any"}, [2]string{"pinned", "pinned"}, [2]string{"suggested", "suggested"}),
+		group("use", "Usefulness", q.Use, [2]string{"", "any"}, [2]string{"helps", "helps"}, [2]string{"nohelp", "no help"}, [2]string{"unmeasured", "not measured"}),
 		group("group", "Group", q.Group, [2]string{"", "none"}, [2]string{"entity", "by entity"}),
 	}
 }
@@ -233,7 +276,7 @@ func (s *Server) buildMemory(p *tracker.Project, prefix string, q memoryQuery, n
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Filters = q.filters(prefix)
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	var sets []*memory.Set
 	for _, st := range []memory.Store{memory.ProjectStore(p.IssueDir), memory.MachineStore()} {
 		set, err := st.Load()
@@ -245,11 +288,19 @@ func (s *Server) buildMemory(p *tracker.Project, prefix string, q memoryQuery, n
 		}
 		sets = append(sets, set)
 	}
+	scores := memory.Scores{}
+	for _, st := range []memory.Store{memory.ProjectStore(p.IssueDir), memory.MachineStore()} {
+		if sc, err := st.Scores(p.IssueDir); err == nil {
+			for id, u := range sc {
+				scores[id] = u
+			}
+		}
+	}
 	var kept []memory.Memory
 	for _, set := range sets {
 		for _, m := range set.All() {
 			d.Total++
-			if !q.keep(m, now) {
+			if !q.keep(m, now) || !q.keepUse(m, scores) {
 				continue
 			}
 			kept = append(kept, m)
@@ -257,6 +308,8 @@ func (s *Server) buildMemory(p *tracker.Project, prefix string, q memoryQuery, n
 				continue
 			}
 			r := MemoryRow{Memory: m, State: m.State(now), EditURL: prefix + "/memory/edit", DeleteURL: prefix + "/memory/delete", PinURL: prefix + "/memory/pin", UnpinURL: prefix + "/memory/unpin", Anchor: true}
+			r.Use = scores.Of(m.ID)
+			r.UseText, r.UseChip, r.UseTitle = usefulnessChip(m, r.Use)
 			for _, e := range m.Entities() {
 				r.Entities = append(r.Entities, MemoryEntityLink{Name: e, Href: q.href(prefix, "entity", e)})
 			}
@@ -331,7 +384,7 @@ func groupByEntity(rows []MemoryRow, idx []MemoryEntity) []MemoryGroup {
 
 func (s *Server) handleMemory(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	v := r.URL.Query()
-	q := memoryQuery{Scope: v.Get("scope"), Kind: v.Get("kind"), State: v.Get("state"), Pinned: v.Get("pinned"), Entity: memory.NormEntity(v.Get("entity")), Group: v.Get("group")}
+	q := memoryQuery{Scope: v.Get("scope"), Kind: v.Get("kind"), State: v.Get("state"), Pinned: v.Get("pinned"), Entity: memory.NormEntity(v.Get("entity")), Group: v.Get("group"), Use: v.Get("use")}
 	if q.Group != "entity" {
 		q.Group = ""
 	}
@@ -360,7 +413,18 @@ func (s *Server) handleMemoryJSON(w http.ResponseWriter, r *http.Request, proj *
 	// owner's view: every scope).
 	now := time.Now()
 	entities := memory.Index(append(own.Active(now), machine.Active(now)...))
-	writeJSONStatus(w, http.StatusOK, map[string]any{"project": list(own), "machine": list(machine), "entities": entities})
+	scores := memory.Scores{}
+	for _, st := range []memory.Store{memory.ProjectStore(proj.IssueDir), memory.MachineStore()} {
+		if sc, err := st.Scores(proj.IssueDir); err == nil {
+			for id, u := range sc {
+				scores[id] = u
+			}
+		}
+	}
+	ownList, machineList := list(own), list(machine)
+	scores.Attach(ownList)
+	scores.Attach(machineList)
+	writeJSONStatus(w, http.StatusOK, map[string]any{"project": ownList, "machine": machineList, "entities": entities})
 }
 
 // memoryRefused is what an agent or a script gets for a write.

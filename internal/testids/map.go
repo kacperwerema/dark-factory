@@ -7,6 +7,10 @@ func init() {
 		"map.agents",
 		"map.done_week",
 		"map.waiting",
+		// The header's ☰ at phone width: opens the counts, YOLO switch and YOU (wb/header).
+		"map.drawer",
+		// The header's ‹ at phone width: one level up (wb/crumb-up).
+		"map.up",
 		// The YOU avatar: the owner sign-in page (/owner).
 		"map.owner",
 		"map.lot.*",

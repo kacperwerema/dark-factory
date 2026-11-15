@@ -135,6 +135,7 @@ func snapshotIssues(t *testing.T, dir string) []byte {
 // makes a decision that already has the owner's words hard (AC7).
 func TestDecisionConfirmHardNeedsOwner(t *testing.T) {
 	proj := setupDecisionsProject(t)
+	writeTillDecision(t, proj)
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
@@ -159,9 +160,10 @@ func TestDecisionConfirmHardNeedsOwner(t *testing.T) {
 		t.Fatal("a refused Hard wrote the log")
 	}
 
-	// The Make hard button shows on a soft decision with the owner's words.
+	// The Make hard button shows on a soft decision with the owner's words,
+	// the Hard box on one in force without them.
 	_, html := getBody(t, ts.URL+"/p/wb/decisions")
-	assertContains(t, html, `data-testid="decisions.row.sim/pivot.d-1.make_hard"`, `data-testid="decisions.row.shop.d-2.hard_box"`)
+	assertContains(t, html, `data-testid="decisions.row.sim/pivot.d-1.make_hard"`, `data-testid="decisions.row.till.d-1.hard_box"`)
 
 	code, out := postJSON(t, ts.URL+"/p/wb/decisions/shop/D-2/confirm", `{"text":"keep it","hard":true}`)
 	if code != 200 || out["hard"] != true || !strings.HasSuffix(out["line"].(string), `"keep it" {hard}`) {
@@ -202,6 +204,7 @@ func TestYOLOReviewListsRelayedDecision(t *testing.T) {
 	if code != 0 || res.Settled != 1 {
 		t.Fatalf("agree: %d %s %+v", code, msg, res)
 	}
+	issues, _ = tracker.LoadIssues(proj.IssueDir)
 	if q := yolo.QueueEntries(issues); len(q) != 0 {
 		t.Fatalf("still queued: %+v", q)
 	}
@@ -229,7 +232,27 @@ func TestYOLOReviewListsDecisionHold(t *testing.T) {
 	if code != 0 || res.Settled != 1 {
 		t.Fatalf("agree: %d %s %+v", code, msg, res)
 	}
+	issues, _ = tracker.LoadIssues(proj.IssueDir)
 	if q := yolo.QueueEntries(issues); len(q) != 0 {
 		t.Fatalf("queue after agree: %+v", q)
+	}
+}
+
+// Confirm and Hard are for decisions in force: a deferred or expired one
+// asks for nothing (DecisionEntry.ActiveOn).
+func TestDecisionBoxesOnlyOnActive(t *testing.T) {
+	proj := setupDecisionsProject(t)
+	withMockTmuxSessions(t, nil)
+	writeWorkbenchIssue(t, proj.IssueDir, "gone", "backlog", "", "## Decisions\n"+
+		"- **D-1** · 2026-10-01 · lead, YOLO: Lots stay square {expires: 2026-10-02}\n"+
+		"- **D-2** · 2026-10-02 · chat: Lots stay round, \"round\" {expires: 2026-10-02}\n"+
+		"- **D-3** · 2026-10-03 · deferred · lead, YOLO: Lots stay oval")
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/p/wb/decisions")
+	for _, ref := range []string{"gone/D-1", "gone/D-2", "gone/D-3"} {
+		if strings.Contains(html, "/p/wb/decisions/"+ref+"/confirm") {
+			t.Errorf("%s offers Confirm or Hard", ref)
+		}
 	}
 }

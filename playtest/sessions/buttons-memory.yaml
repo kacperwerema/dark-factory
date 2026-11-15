@@ -1,0 +1,23 @@
+session: buttons-memory
+issue: ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded
+title: "Memory: each memory shows Save and ⋯; Pin and Delete are under it"
+scenario: memory
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP8
+    title: Memory shows 4 actions (Save and ⋯ per memory); the ⋯ opens Pin and Delete
+    proves: [AC1, AC2, AC3]
+    setup:
+      - open: /p/{project}/memory
+    act:
+      - check: { buttons: { max: 4 } }
+      - check: { visible: [memory.row.m-aaa002.save, memory.row.m-aaa002.menu] }
+      - check: { hidden: [memory.row.m-aaa002.pin, memory.row.m-aaa002.delete] }
+      - click: memory.row.m-aaa002.menu
+    checks:
+      - visible: [memory.row.m-aaa002.pin, memory.row.m-aaa002.delete]

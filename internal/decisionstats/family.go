@@ -55,7 +55,8 @@ func Metrics(c Counts) []health.Metric {
 	}
 	add("decisions.hard", nil, c.Hard, "hard decisions in force")
 	add("decisions.soft", nil, c.Soft, "soft decisions in force")
-	add("decisions.provisional", nil, c.Provisional, "decisions in force with no owner's words on the line yet")
+	add("decisions.provisional", nil, c.Provisional, "decisions in force marked YOLO or provisional, not confirmed")
+	add("decisions.no_quote", nil, c.NoQuote, "decisions in force, unmarked, with no quote")
 	add("decisions.challenges_open", nil, c.ChallengesOpen, "decisions challenged and not resolved")
 	add("decisions.holds", nil, c.HoldEvents, "gate holds by a decision in the last 30 days (held events)")
 	add("decisions.injected", nil, c.Briefings, "briefings that carried the decisions block in the last 30 days")

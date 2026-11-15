@@ -251,3 +251,70 @@ func TestStatsPageFastOnABigProject(t *testing.T) {
 	}
 	t.Logf("800 issues: cold %v, warm best %v", cold, best)
 }
+
+// healthLimit is the /health render this fixture is held to: 300 ms, not
+// the 500 ms the real board is, because this project has no git repository,
+// departments or decisions to pay for, and 500 ms passed with every session
+// re-read (430 ms here, 160 ms kept). On a slow machine it answers to
+// statsVsIssues, the same ratio as the Stats page: 3.6× here, 9.7× re-read.
+const healthLimit = 300 * time.Millisecond
+
+// TestHealthPageFastOnABigProject keeps /health fast with the lint panel
+// live: 800 issues, and this repository's playtest sessions for the testids
+// check to read.
+func TestHealthPageFastOnABigProject(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds an 800-issue project")
+	}
+	proj := bigProject(t, 800)
+	if err := os.MkdirAll(filepath.Join(proj.WorkDir, "internal", "testids"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(filepath.Join(proj.WorkDir, "playtest", "sessions"), os.DirFS(filepath.Join("..", "..", "playtest", "sessions"))); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	sessions, _ := filepath.Glob(filepath.Join(proj.WorkDir, "playtest", "sessions", "*.yaml"))
+	if len(sessions) == 0 {
+		t.Fatal("no playtest sessions copied")
+	}
+	for _, f := range sessions {
+		os.Chtimes(f, old, old) // a file this young is read again each time
+	}
+	for d := 0; d < 90; d++ {
+		overviewSnap(t, proj.WorkDir, time.Now().AddDate(0, 0, -d).Add(-time.Minute), map[string]float64{"codebase.source_lines": float64(200000 + d)})
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	get := func(path string) time.Duration {
+		start := time.Now()
+		resp, err := http.Get(ts.URL + "/p/big/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", path, resp.StatusCode)
+		}
+		return time.Since(start)
+	}
+	cold := get("health")
+	best := time.Hour
+	var tries []string
+	for try := 0; try < 3; try++ {
+		base := get("issues.json")
+		limit := max(healthLimit, statsVsIssues*base)
+		d := get("health")
+		best = min(best, d)
+		if d <= limit {
+			tries = nil
+			break
+		}
+		tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
+	}
+	if tries != nil {
+		t.Errorf("/health warm: %s; want under %v, or %d× /issues.json on a slow machine", strings.Join(tries, ", "), healthLimit, statsVsIssues)
+	}
+	t.Logf("800 issues: cold %v, warm best %v", cold, best)
+}

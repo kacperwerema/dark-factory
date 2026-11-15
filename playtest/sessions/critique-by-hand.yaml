@@ -1,0 +1,25 @@
+session: critique-by-hand
+issue: workflow/the-critics-docs-match-the-board-and-issue-cli-critique-runs-by-hand-as-they-say
+title: A critic run with no gate reads as by hand on the station and holds nothing
+scenario: critique
+
+# The run in the scenario's tracker/.critique/runs.jsonl is a fixture with
+# an empty to; no real critic runs.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP2
+    title: A run by hand with a blocks finding shows findings, names no gate edge and says no gate waits on it
+    setup:
+      - open: /p/{project}/issue/factory/read-by-hand
+    checks:
+      - visible: [station.critique, station.critique.finding]
+      - text_contains: { target: station.critique, text: "Critique · findings" }
+      - text_contains: { target: station.critique, text: "backlog, by hand (no gate)" }
+      - text_contains: { target: station.critique, text: "By hand: no gate waits on this run" }
+      - text_contains: { target: station.critique, text: "internal/list/list.go:42" }

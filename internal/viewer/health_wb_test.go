@@ -41,7 +41,7 @@ func TestHealthWbPageRenders(t *testing.T) {
 		`data-testid="health.range.30d"`, `href="/p/test-project/health?classic=1" data-testid="health.classic"`,
 		`data-testid="health.score.value">86<`, `data-testid="health.score.bar"`,
 		`data-testid="health.sensor_group.code"`, `data-testid="health.sensor_group.tests"`,
-		`data-testid="health.sensor.big_files"`, "good 5.0%", "18.2%", `data-testid="health.sensor.flaky"`, "No data: Needs the playtest telemetry",
+		`data-testid="health.sensor.big_files"`, "good 5.0%", "18.2%", `data-testid="health.sensor.flaky"`, "No data: No ux-test run in 14 days",
 		`data-testid="health.opinion.value">78<`, "Move the Chrome tests to the e2e tier", `data-testid="health.file_recommendation"`,
 		`action="/p/test-project/health/recommendation/R1/file"`, `action="/p/test-project/health/review"`, `data-testid="health.run_review"`,
 		`data-testid="health.trend.scores"`, `data-testid="health.trend.unit_tests"`, "issue-cli ci run --tier slow",

@@ -31,7 +31,7 @@ func TestCatchUpEntriesDetectTheirConfig(t *testing.T) {
 		"project-pages":        "workbench:\n  pages:\n    - {title: Report, path: docs/r.html}\n",
 		"metrics-and-knobs":    "workbench:\n  tuning: [build/knobs.json]\n",
 		"balance-board":        "workbench:\n  balance:\n    comment_prefix: \"balance:\"\n",
-		"lead-prompt":          "leads:\n  project: |\n    You are the lead.\n",
+		"lead-prompt":          "leads:\n  project_addendum: |\n    - In this repo: review every diff.\n",
 		"local-merge-shipping": "statuses:\n  - name: shipping\n    prompt: \"git -C <main checkout> merge --ff-only <branch>\"\n",
 	}
 	entries, err := Catalog()

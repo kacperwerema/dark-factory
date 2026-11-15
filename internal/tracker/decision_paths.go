@@ -10,19 +10,15 @@ func BranchHeads(root, slug string) (branch, main string) {
 	if root == "" || slug == "" {
 		return "", ""
 	}
-	b, err := runGit(root, "rev-parse", "--verify", "--quiet", "refs/heads/work/"+slug+"^{commit}")
+	b := BranchHead(root, "work/"+slug)
+	if b == "" {
+		return "", ""
+	}
+	_, m, err := MainHead(root)
 	if err != nil {
 		return "", ""
 	}
-	name, err := MainBranch(root)
-	if err != nil {
-		return "", ""
-	}
-	m, err := runGit(root, "rev-parse", "--verify", "--quiet", name+"^{commit}")
-	if err != nil {
-		return "", ""
-	}
-	return strings.TrimSpace(b), strings.TrimSpace(m)
+	return b, m
 }
 
 // BranchTouches is the files the work/<slug> branch changed since it left

@@ -38,6 +38,83 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component. Its 
   rule lives in one block at the end of `static/workshop.css` ("phone width:
   tap targets"): add a new button class there, and give the page's phone
   session a `size: { target: …, min_height: 44 }` check (`phone-*.yaml`).
+- **No sideways scroll at 390px.** The second phone block ("phone width:
+  every page") folds the header into one row (‹ up, the current crumb, the
+  waiting count as "! N", ☰): a new header item goes inside
+  `.wb-header-stats`, and the ☰ drawer (`map.drawer`, a checkbox and its
+  label, no script) shows it with YOU and the view toggle. The hall's tabs
+  (`hall.tabs`) stay out of the drawer: they are the hall's own navigation,
+  one row under the header scrolling inside itself, reached with no tap.
+  The company floor's own header (`wb/fl-header`) does the same with
+  `.wb-fl-stats`. A
+  table with value columns takes `wb-table--stack` and a `data-label` with
+  the column name on each `td`, and becomes one card per row. Long text
+  wraps, ellipsizes or scrolls inside its own box; never `overflow-x:
+  hidden` on a page wrapper. A new page gets a step in a
+  `phone-pages-*.yaml` session (inside_viewport at 390x844 fails on
+  `scrollWidth`, naming the element that sticks out).
+- **The title in the first screen.** At 390x844 a page's title sits in the
+  top half (the "one screen" block at the end of `static/workshop.css`):
+  the YOLO band is one 44px line (`wb/yolo-line`) that opens its card on a
+  tap, and the company floor shows its rooms as a list (`wb/fl-list`)
+  instead of the scaled plan. Nothing in that block changes a page above
+  640px. A new page's h1 takes `data-testid="wb.title"` (or its own title
+  id) and a phone step with `size: { target: wb.title, max_top: 422 }`:
+  in `phone-fold.yaml`, or in a sibling session on the same scenario
+  (`phone-fold-titles.yaml`) when the step belongs to another issue, since
+  a session's step ids are its own issue's boxes.
+- **One primary action.** Each card or row shows one primary action (a
+  filled button: `wb-btn--you`, `--ink`, `--stamp`, `--youshadow`) and at
+  most one other; the rest go under that card's ⋯ More menu, or on the
+  detail they belong to (Updates' Decline sits inside Details). A disabled
+  button is never the primary: the next action that works takes its place.
+  The same action is reachable once per page. Not counted: Copy beside a
+  command (`data-copy`), filters, tabs and view toggles (`aria-pressed`,
+  `role=tab`), the header, and what is hidden (a closed menu, a closed
+  form). The menu is markup, not a `wb/*` define (templates have no slots):
+
+  ```html
+  <details class="wb-menu" data-testid="<page>.<card>.menu">
+    <summary class="wb-btn wb-btn--sm wb-menu-btn" aria-label="More on …">⋯ More</summary>
+    <div class="wb-menu-list" role="menu">
+      <button type="button" class="wb-btn" data-…>Moved action</button>
+      <hr class="wb-menu-sep">
+      <button type="button" class="wb-btn wb-menu-danger" data-…>Delete…</button>
+    </div>
+  </details>
+  ```
+
+  A moved button keeps its classes, `data-*` hooks and test id, so the
+  page's script binds it as before; inside the list it draws as a menu item
+  (40px, 44px at phone width). It opens with no script; `static/menu.js`
+  (every page, from `wb/head`) closes it on a pick, Esc or a click outside.
+  In a row use `⋯` alone. The guard is in the playtests: a
+  `buttons: { max: N, within? }` check holds a page or card at its count,
+  and the layout rule `one_primary` fails when two filled buttons share a
+  parent (`buttons-*.yaml`, one session per page). The guarded pages and
+  their counts, each measured one way: the `buttons` check on the page as
+  its session opens it, on that session's scenario board, at 1440x900
+  (2026-11-15; a session's `max` is that count, so one more action fails it):
+
+  | Page | Session | Scenario | Count |
+  |---|---|---|---|
+  | Station | `buttons-station` | issue-tab | 7 |
+  | Needs you | `buttons-needs-you` | needs-you | 11 |
+  | CEO chat | `buttons-lead-chat` | leads | 6 |
+  | Memory | `buttons-memory` | memory | 4 |
+  | Updates | `buttons-updates` | updates | 2 per card (`within`) |
+  | YOLO review | `buttons-yolo-review` | yolo-review | 11 |
+  | Health | `buttons-health` | health | 6 |
+  | Decisions | `buttons-decisions` | workbench | 13 |
+  | Report | `buttons-report` | status | 3 |
+  | Company | `buttons-company` | company-floor | 3 (1 at 390x844) |
+  | Postmortems | `buttons-postmortems` | postmortems | 3 |
+
+  The first four came down when the rule was written
+  (`ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded`);
+  its earlier figures (the CEO chat 19 → 8, Memory 7 → 5) were counted by
+  hand and differ from the check's. A page that changes its actions on
+  purpose updates its session's `max` and this row together.
 - **Visual changes are the owner's call.** A worker shows a screenshot
   (`make shot URL=…`) and leaves an owner box; it never ticks it.
 
@@ -73,8 +150,8 @@ What earlier workers learned the hard way (2026-10-31 retro sweep):
   `TestWorkshopTemplateClassesHaveRules` (internal/viewer/workshop_guide_test.go) names each
   one with its template line. A class a script or a playtest selects by,
   with no rule on purpose, goes in its `wbHookClasses` with who reads it.
-- **Which browser works on this Mac.** The Playwright and chrome-devtools
-  MCPs look for `/Applications/Google Chrome`, which this Mac doesn't have.
+- **Which browser works on a Mac without Google Chrome.** The Playwright and chrome-devtools
+  MCPs look for `/Applications/Google Chrome` and fail when it isn't installed.
   Use the repo's runner: `make shot URL=…` for one screenshot,
   `make ux-test S=<session>` for a session, `make serve SCENARIO=<name>` for
   a throwaway board to point them at. They find Playwright's Chrome for
@@ -161,6 +238,7 @@ longer defined. Add the row when you add the component.
 | `wb/head` | &lt;head&gt; links: fonts, styles | `page title (string)` |
 | `wb/header` | brand, Map › Company › Hall, counters | `WbHeader` |
 | `wb/crumbs` | the level breadcrumb | `[]WbCrumb` |
+| `wb/crumb-up` | the phone's ‹: one level up | `[]WbCrumb` |
 | `wb/robot` | one agent | `WbRobot` |
 | `wb/robots` | a row of agents, "+N" past wbCrewMax | `WbCrew` |
 | `wb/chip` | a pill | `WbChip` |
@@ -181,6 +259,7 @@ longer defined. Add the row when you add the component.
 | `wb/shelf-link` | a room's way to its outputs shelf: in review, made this week | `WbShelfLink` |
 | `wb/connectors` | a room's connectors (outside tools) with Check now | `*WbConnectors` |
 | `wb/shelf-item` | one output on a shelf list | `WbShelfRow` |
+| `wb/shelf-video` | a video output's player (`<video controls preload="metadata">` with its poster), on the reader and the Station | `WbShelfRow` |
 | `wb/room-jobs` | a room's recurring jobs, last and next run | `[]WbJobLine` |
 | `wb/room-spend` | a room's spend: tokens and estimated cost by week, its budget as "x of y", top issues (spend_view.go) | `*WbSpend` |
 | `wb/week-report` | a group's latest week report: week, counts, plan or not, its file; or the command that writes one | `*WbWeekReport` |
@@ -210,6 +289,8 @@ longer defined. Add the row when you add the component.
 | `wb/done-station` | the end of the line | `WbDoneStation` |
 | `wb/ci-scanner` | local CI on the line | `WbCIScanner` |
 | `wb/parking` | parked issues and why | `WbParking` |
+| `wb/hall-switch` | Product's and each department's workflow | `WbHallSwitch` |
+| `wb/hall-types` | every type's path with its gates | `[]WbHallType` |
 | `wb/agent-panel` | the selected issue and its worker | `WbAgentPanel` |
 | `wb/numbers` | a titled list of figures | `WbNumbers` |
 | `wb/conn-key` | the line swatch of one connection kind | `string` |
@@ -244,6 +325,16 @@ longer defined. Add the row when you add the component.
 | `wb/lead-state` | a lead's state chip: working, waits on you, idle, couldn't read, not running | `string` |
 | `wb/ceo-switcher` | the CEO chat's switcher sheet: every project's CEO and department leads with their state (`?part=switcher`) | `CEOSwitcher` |
 | `wb/switch-lead` | one department lead in the switcher, its group's leads nested | `switchLead` |
+
+### templates/_workshop_codemap.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/cm-lane` | one layer of the code map and its context boxes | `CodemapLane` |
+| `wb/cm-context` | one context: name, package and line counts, its package chips (bold over 3k lines, a wavy underline when the package imports up a layer), the surface files that work in it | `CodemapContext` |
+| `wb/cm-footprint` | `?files=` on the map: the contexts it works in and reaches, binaries, Watch, files not mapped | `*CodemapFootprint` |
+| `wb/cm-matrix` | the imports between contexts, row imports column, upward cells red | `CodemapData` |
+| `wb/cm-edges` | the imports that point up a layer (new or known leak, file:line) and the unmapped packages | `CodemapData` |
 
 ### templates/_workshop_crew.html
 
@@ -319,6 +410,7 @@ longer defined. Add the row when you add the component.
 | `wb/fl-insp` | one room in the rail | `FloorInspector` |
 | `wb/fl-num` | one of a tile's three numbers | `FloorNum` |
 | `wb/fl-goals` | a tile's goals as bars (detail level) | `[]WbGoal` |
+| `wb/fl-list` | the floor on a phone: one row per room | `[]FloorListRow` |
 
 ### templates/_workshop_hall_edit.html
 
@@ -404,11 +496,21 @@ longer defined. Add the row when you add the component.
 | `wb/oc-box` | one box: tick, text, why, shot | `OwnerCheckBox` |
 | `wb/oc-empty` | nothing waits for the owner's eyes | `OwnerChecksData` |
 
+### templates/_workshop_socials.html
+
+| Component | What it draws | Data |
+|---|---|---|
+| `wb/so-setup` | step 1: the tool's address, compose file and key | `SocialsData` |
+| `wb/so-diff` | a projects.yaml change, +/- lines | `[]outputs.DiffLine` |
+| `wb/so-hold` | the tool is up for a sign-in: until when, Done | `SocialsData` |
+| `wb/so-network` | one network: state, what it needs, values, Connect | `SocialsNetwork` |
+| `wb/so-channel` | one connected account: state, Disconnect | `SocialsChannel` |
+
 ### templates/_workshop_yolo_review.html
 
 | Component | What it draws | Data |
 |---|---|---|
-| `wb/yr-summary` | issues, gates, owner checks, oldest, page | `YOLOReviewData` |
+| `wb/yr-summary` | issues, gates, owner checks, oldest, page; Agree all in the owner's browser | `YOLOReviewData` |
 | `wb/yr-group` | one issue: head, evidence, gates, checks, its Agree and Back to | `YOLOReviewGroup` |
 | `wb/yr-evidence` | the issue's shots, tests line and change | `YOLOReviewEvidence` |
 | `wb/yr-gate` | one gate passed without the owner | `WbYOLOPass` |
@@ -416,6 +518,7 @@ longer defined. Add the row when you add the component.
 | `wb/yr-question` | one answer the agent assumed in its clarify round, linked to the Station's form | `WbYOLOPass` |
 | `wb/yr-decision` | one hard-decision act a lead relayed with the owner's words (its ref, what it did, who relayed it) | `WbYOLOPass` |
 | `wb/yr-pager` | newer / older issues | `YOLOReviewData` |
+| `wb/yr-all` | Agree all's confirm (owner's browser only): counts, oldest date, words, Cancel / Agree all | `YOLOReviewData` |
 
 ### templates/_workshop_memory.html
 
@@ -487,6 +590,7 @@ longer defined. Add the row when you add the component.
 | `wb/odoc-head` | an output's state, department, kind, version, issue and title | `ShelfReadData` |
 | `wb/odoc-bar` | Read / Changes, Day / Night, Raw file, Approve / Reject | `ShelfReadData` |
 | `wb/odoc-sheet` | the rendered markdown output, or the missing-file state | `ShelfReadData` |
+| `wb/odoc-video` | a video output's player and its info line (type, size, poster), or the missing-file state | `ShelfReadData` |
 | `wb/odoc-diff` | the previous version against this one, unchanged runs folded | `*OdocDiff` |
 | `wb/odoc-margin` | the comment box and the open, moved and resolved threads | `ShelfReadData` |
 | `wb/odoc-thread` | one comment thread with its messages, Reply and Resolve | `OdocThread` |
@@ -521,10 +625,13 @@ longer defined. Add the row when you add the component.
 | `wb/relations` | depends on, depended on by, decided by, each with its state | `*WbRelations` |
 | `wb/epic-children` | an epic's children by version | `*WbEpicChildren` |
 | `wb/full-body` | the body folded by section: tick a box, Expand all, Edit with the body-hash guard | `WbBody` |
-| `wb/dispatch` | Dispatch to Claude / Codex, the workflow's custom actions, the steps, the dispatch prompt | `WbDispatch` |
+| `wb/dispatch` | the agent panel's actions: one primary (Open in tmux while the session runs, else Dispatch) and ⋯ More with the other agent, the workflow's custom actions, Send the prompt and the dispatch prompt; the steps | `WbStationAgent` |
+| `wb/dispatch-first` | the first Dispatch button: routed, or to Claude | `WbDispatch` |
 | `wb/station-missing` | the sources the page could not read | `[]string` |
 | `wb/station-outputs` | what the issue made, from the shelf | `*WbStationOutputs` |
-| `wb/station-critique` | the fresh critic's newest run: verdict, blocks and should with path:line, notes folded, Coverage (docs/Workflow/critique.md) | `*WbStationCritique` |
+| `wb/station-partner` | where the department's outside partner is with the issue: stage, awaiting you, spend, artifacts, the live view while it answers, or "partner format not understood" (docs/departments.md#partners) | `*WbPartner` |
+| `wb/station-critique` | the fresh critic's newest run: verdict, who wrote the work and who read it, blocks and should with path:line, notes folded, Coverage (docs/Workflow/critique.md) | `*WbStationCritique` |
+| `wb/station-affected` | the work branch's footprint on the code map at a verify or owner-test status: contexts it works in and reaches, binaries to rebuild, Watch when a changed package imports up a layer, packages by context folded, a link to the code map with the files highlighted (docs/workbench-files.md#code-map) | `*WbStationAffected` |
 
 ### templates/_workshop_stats.html
 
@@ -597,6 +704,7 @@ longer defined. Add the row when you add the component.
 | `wb/yolo` | the header's part: switch (L1), count, band, dialog | `WbYOLO` |
 | `wb/yolo-switch` | the switch in the company's header (L1) | `WbYOLO` |
 | `wb/hazard-band` | the band under the header while YOLO is on | `WbYOLO` |
+| `wb/yolo-line` | the band as one line on a phone (opens it) | `WbYOLO` |
 | `wb/yolo-dialog` | the turn-on dialog (L1) | `WbYOLODialog` |
 | `wb/yolo-tag` | the yellow YOLO marker | `string (text after "YOLO")` |
 | `wb/yolo-review` | "Passed in YOLO": Agree / Back to (L3) | `WbYOLOReview` |

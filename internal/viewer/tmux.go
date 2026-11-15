@@ -46,6 +46,24 @@ func listSharedAgentWindows() []AgentSession { return agentrun.ListSharedWindows
 
 func parseSharedAgentWindows(out string) []AgentSession { return agentrun.ParseSharedWindows(out) }
 
+// liveSessionNames answers, for many names, what agentSessionLive answers
+// for one, from one tmux listing (list-sessions and list-windows) instead of
+// a has-session per name: a name is live when it is a session of its own, or
+// a window of proj's shared session in shared mode.
+func liveSessionNames(proj *tracker.Project) func(name string) bool {
+	shared := sharedTmuxSession(proj)
+	names := map[string]bool{}
+	for _, s := range listTmuxSessions() {
+		names[s.Name] = true
+	}
+	return func(name string) bool {
+		if shared != "" {
+			return names[shared+":"+name]
+		}
+		return names[name]
+	}
+}
+
 // projectSessions lists the live tmux sessions and shared-session windows
 // that belong to proj, never another project's agents on the same server.
 func projectSessions(proj *tracker.Project) []AgentSession {

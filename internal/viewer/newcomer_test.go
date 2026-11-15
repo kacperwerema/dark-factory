@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // newcomer is a clean machine for one test: an empty HOME, no XDG
@@ -59,7 +61,7 @@ func newNewcomer(t *testing.T) *newcomer {
 	n.env = []string{
 		"HOME=" + n.home,
 		"PATH=" + n.bin + ":/usr/bin:/bin:/usr/sbin:/sbin",
-		"SHELL=/bin/sh",
+		"SHELL=" + n.noProfileShell(),
 		"TMUX_TMPDIR=" + n.tmux,
 		"TERM=xterm-256color",
 		"LANG=C.UTF-8",
@@ -79,6 +81,28 @@ func newNewcomer(t *testing.T) *newcomer {
 	})
 	n.build()
 	return n
+}
+
+// noProfileShell is the newcomer's $SHELL: /bin/sh, with any -l dropped.
+// Agents start in "$SHELL -lic", and a login shell reads /etc/profile,
+// which on Debian (the golang image) sets PATH afresh and loses the bin
+// holding the binaries and the stand-in agent. The walkthrough tests the
+// factory, not the machine's login profile.
+func (n *newcomer) noProfileShell() string {
+	n.t.Helper()
+	path := filepath.Join(n.bin, "sh-no-profile")
+	script := `#!/bin/sh
+case "$1" in
+-*l*)
+	opt=$(printf '%s' "$1" | tr -d l)
+	shift
+	if [ "$opt" = "-" ]; then exec /bin/sh "$@"; fi
+	exec /bin/sh "$opt" "$@" ;;
+esac
+exec /bin/sh "$@"
+`
+	standin.Write(n.t, path, script)
+	return path
 }
 
 // realTempDirRoot is t.TempDir() with links resolved (macOS's /var is
@@ -110,15 +134,14 @@ func (n *newcomer) build() {
 
 // standInAgent puts a fake `name` CLI on PATH. Like an interactive agent it
 // shows its prompt in the pane and stays up; it also records its arguments
-// in <home>/<name>-args.txt (written aside and renamed into place, so a
-// poll never reads half a file).
+// in <name>-args.txt beside itself (written aside and renamed into place,
+// so a poll never reads half a file; beside it, so its body is the same
+// every run: internal/standin).
 func (n *newcomer) standInAgent(name string) string {
 	n.t.Helper()
-	rec := filepath.Join(n.home, name+"-args.txt")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q.tmp && mv %q.tmp %q\nprintf '%%s\\n' \"$@\"\nexec sleep 300\n", rec, rec, rec)
-	if err := os.WriteFile(filepath.Join(n.bin, name), []byte(script), 0o755); err != nil {
-		n.t.Fatal(err)
-	}
+	path := filepath.Join(n.bin, name)
+	rec := path + "-args.txt"
+	standin.Write(n.t, path, "rec=\"$0-args.txt\"\nprintf '%s\\n' \"$@\" > \"$rec.tmp\" && mv \"$rec.tmp\" \"$rec\"\nprintf '%s\\n' \"$@\"\nexec sleep 300\n")
 	return rec
 }
 

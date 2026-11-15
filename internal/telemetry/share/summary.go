@@ -3,6 +3,8 @@ package share
 import (
 	"sort"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
 // Summary is what the owner's view shows from a collector's batches.
@@ -136,6 +138,9 @@ func Summarize(batches []Batch, now time.Time, days int) Summary {
 		}
 		top := ""
 		for cl, n := range e.classes {
+			if cl == telemetry.ErrHold { // a hold is not a failure
+				continue
+			}
 			if top == "" || n > e.classes[top] || (n == e.classes[top] && cl < top) {
 				top = cl
 			}

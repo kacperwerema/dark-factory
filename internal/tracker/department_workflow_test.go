@@ -140,6 +140,45 @@ func TestIssueDoneAtTheEndOfItsOwnWorkflow(t *testing.T) {
 	}
 }
 
+// Closed follows the issue's own workflow, and an epic's child in another
+// department counts by its file, not the epic's (audit 1.6).
+func TestIssueClosedByItsOwnWorkflow(t *testing.T) {
+	p := deptProject(t, marketingYAML)
+	closed := ClosedIssueFunc(p)
+	for _, tt := range []struct {
+		issue *Issue
+		want  bool
+	}{
+		{&Issue{System: "SEO", Status: "published"}, true},
+		{&Issue{System: "SEO", Status: "brief"}, false},
+		{&Issue{System: "SEO", Status: "parked"}, true},
+		{&Issue{System: "CLI", Status: "published"}, false},
+		{&Issue{System: "CLI", Status: "done"}, true},
+	} {
+		if got := p.IssueClosed(tt.issue); got != tt.want {
+			t.Errorf("IssueClosed(%s %s) = %v, want %v", tt.issue.System, tt.issue.Status, got, tt.want)
+		}
+		if got := closed(tt.issue); got != tt.want {
+			t.Errorf("ClosedIssueFunc(%s %s) = %v, want %v", tt.issue.System, tt.issue.Status, got, tt.want)
+		}
+	}
+	if p.IssueDone(&Issue{System: "SEO", Status: "parked"}) {
+		t.Error("parked is closed, not done")
+	}
+
+	wf := &WorkflowConfig{
+		Statuses:    []WorkflowStatus{{Name: "idea"}, {Name: "done"}},
+		ClosedIssue: p.IssueClosed,
+		ChildrenOf: func(string) []*Issue {
+			return []*Issue{{Slug: "piece", System: "SEO", Status: "published"}}
+		},
+	}
+	rule := WorkflowAction{Type: "validate", Rule: "children_closed"}
+	if err := wf.checkAction(rule, &Issue{Slug: "epic"}, nil); err != nil {
+		t.Errorf("a child at the end of its department's file is closed: %v", err)
+	}
+}
+
 func TestDepartmentFileCacheSeesEdits(t *testing.T) {
 	p := deptProject(t, marketingYAML)
 	if wf, _ := p.WorkflowFor("Marketing"); wf.GetStatus("draft") != nil {

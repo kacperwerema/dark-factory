@@ -1,6 +1,10 @@
 package tracker
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+)
 
 // RefExists reports whether name resolves to a commit in the repository at
 // root.
@@ -47,13 +51,5 @@ func (st CheckoutState) Label() string {
 	if st.Branch != "" {
 		return st.Branch
 	}
-	return "detached at " + ShortSHA(st.SHA)
-}
-
-// ShortSHA is sha cut to 7 characters.
-func ShortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
+	return "detached at " + gitdir.ShortSHA(st.SHA)
 }

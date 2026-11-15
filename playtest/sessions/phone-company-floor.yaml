@@ -15,14 +15,13 @@ steps:
     setup:
       - open: /p/{project}/company
     act:
-      # The floor is scaled to fit the phone (about 0.35): its room names
-      # are too small to tap, so the rail's Rooms list is the way to a room.
-      - click: floor.rooms.link
+      # On a phone the plan gives way to a list of rooms
+      # (ui/phone-view-looks-right-…); a name opens its room in the rail.
+      - click: floor.list.name
     checks:
-      - visible: [floor.view, floor.rail]
-      - below: [floor.view, floor.rail]
+      - visible: [floor.list, floor.rail]
+      - hidden: floor.view
+      - below: [floor.list, floor.rail]
       - text_contains: { target: floor.tab.room, text: "HQ" }
       - size: { target: floor.tab.room, min_height: 44 }
-      - size: { target: floor.rooms.link, min_height: 44 }
-      # Nothing on the floor takes a touch: a swipe scrolls the page.
-      - css: { target: floor.view, property: touch-action, equals: "auto" }
+      - size: { target: floor.list.name, min_height: 44 }

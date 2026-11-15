@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -32,6 +33,7 @@ func (m Marker) Waiting() bool { return m.Tone == "amber" }
 
 // markerCtx is what cardMarkers needs beyond the issue itself.
 type markerCtx struct {
+	proj      *tracker.Project
 	prefix    string
 	now       time.Time
 	bySlug    map[string]*tracker.Issue
@@ -50,13 +52,13 @@ func newMarkerCtx(proj *tracker.Project, prefix string, issues []*tracker.Issue,
 // newMarkerCtxFor reads ownerAttention only for the issues a view shows
 // (a system page's rows); blocked_on still resolves against all issues.
 func newMarkerCtxFor(proj *tracker.Project, prefix string, all, shown []*tracker.Issue, now time.Time) *markerCtx {
-	ctx := &markerCtx{prefix: prefix, now: now, bySlug: map[string]*tracker.Issue{}, attention: map[string]Attention{}}
+	ctx := &markerCtx{proj: proj, prefix: prefix, now: now, bySlug: map[string]*tracker.Issue{}, attention: map[string]Attention{}}
 	for _, issue := range all {
 		ctx.bySlug[strings.ToLower(issue.Slug)] = issue
 	}
 	wfs := proj.WorkflowMemo()
 	for _, issue := range shown {
-		if issue.Status != "done" {
+		if !proj.IssueDone(issue) {
 			ctx.attention[issue.Slug] = attentionWith(proj, issue, wfs.ForIssue(issue))
 		}
 	}
@@ -102,7 +104,7 @@ func cardMarkers(ctx *markerCtx, issue *tracker.Issue) []Marker {
 		case target == nil:
 			out = append(out, Marker{Kind: "blocked-on", Tone: "red", Label: "blocked on " + slug + " (not found)",
 				Title: "blocked_on names an issue that does not exist"})
-		case strings.EqualFold(target.Status, "done"):
+		case ctx.proj.IssueDone(target):
 			out = append(out, Marker{Kind: "unblocked", Tone: "grey", Label: target.Slug + " done", Struck: true,
 				Href: ctx.prefix + "/issue/" + target.Slug, Title: "blocked_on: " + target.Slug + " is done; remove the field"})
 		default:
@@ -138,7 +140,7 @@ func ciMarkers(ctx *markerCtx, issue *tracker.Issue) []Marker {
 	}
 	st := ctx.ciState
 	return []Marker{{Kind: "ci-red", Tone: "red", Label: "CI red · " + clip(st.Failed, 28),
-		Title: fmt.Sprintf("Local CI went red on %s at %s; this issue landed since the last green run (%s). issue-cli ci status", st.Branch, ci.Short(st.RedSince), ci.Short(st.GreenSha))}}
+		Title: fmt.Sprintf("Local CI went red on %s at %s; this issue landed since the last green run (%s). issue-cli ci status", st.Branch, gitdir.ShortSHA(st.RedSince), gitdir.ShortSHA(st.GreenSha))}}
 }
 
 // needsRevision reports a needs-revision label or needs_revision field, with

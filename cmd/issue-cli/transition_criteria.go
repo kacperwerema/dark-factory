@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/lint"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -19,7 +18,7 @@ func criteriaWarnings(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to
 	}
 	checks := false
 	for _, a := range t.Actions {
-		if a.Type == "validate" && strings.HasPrefix(strings.TrimSpace(a.Rule), "criteria_checkboxes:") {
+		if name, _ := tracker.SplitRule(a.Rule); a.Type == "validate" && name == "criteria_checkboxes" {
 			checks = true
 		}
 	}

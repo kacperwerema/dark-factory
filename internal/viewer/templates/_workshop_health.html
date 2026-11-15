@@ -153,13 +153,13 @@ block). templates/health_wb.html composes them.
         <h2 id="health-departments-h" class="wb-h2">Departments</h2>
         <span class="wb-hsec-sub">from the latest measurement · on track = mean of goals moving, outputs reviewed in time and jobs on time · limits in <span class="wb-mono-inline">health.limits</span></span>
     </div>
-    {{if .Rows}}<table class="wb-dept-health">
+    {{if .Rows}}<table class="wb-dept-health wb-table--stack">
         <thead><tr><th scope="col">Department</th><th scope="col">On track</th><th scope="col">Goals</th><th scope="col">Outputs</th><th scope="col">Jobs</th><th scope="col">Handoffs</th></tr></thead>
         <tbody>{{range .Rows}}<tr data-testid="health.departments.row.{{.Key}}">
             <th scope="row">{{.Name}}</th>
-            <td>{{if .OnTrack}}<b class="wb-score--{{.Tone}}">{{.OnTrack}}</b>{{else}}<span class="wb-muted" title="{{.NotMeasured}}" data-testid="health.departments.not_measured">not measured yet</span>{{end}}</td>
-            <td>{{.Goals}}</td><td>{{.Outputs}}</td><td>{{.Jobs}}</td>
-            <td{{if .Old}} class="wb-dept-health--old"{{end}}>{{.Handoff}}</td>
+            <td data-label="On track">{{if .OnTrack}}<b class="wb-score--{{.Tone}}">{{.OnTrack}}</b>{{else}}<span class="wb-muted" title="{{.NotMeasured}}" data-testid="health.departments.not_measured">not measured yet</span>{{end}}</td>
+            <td data-label="Goals">{{.Goals}}</td><td data-label="Outputs">{{.Outputs}}</td><td data-label="Jobs">{{.Jobs}}</td>
+            <td{{if .Old}} class="wb-dept-health--old"{{end}} data-label="Handoffs">{{.Handoff}}</td>
         </tr>{{end}}</tbody>
     </table>{{with .NotMeasured}}<p class="wb-dept-health-note" data-testid="health.departments.not_measured_note">{{.}} Until then a department is left out of the on-track share and the score.</p>{{end}}{{else}}<p class="wb-empty" data-testid="health.departments.empty">{{.Empty}} Run <code class="wb-code">{{.Command}}</code> to take it now.</p>{{end}}
 </section>
@@ -218,7 +218,7 @@ block). templates/health_wb.html composes them.
     {{if .Locked}}
     <div class="wb-fog wb-trend-fog" aria-hidden="true"></div>
     <div class="wb-trend-need">{{.Need}}</div>
-    {{if .URL}}<a class="wb-trend-cmd" href="{{.URL}}">{{.Cmd}}</a>{{else}}<code class="wb-trend-cmd">{{.Cmd}}</code>{{end}}
+    {{if .URL}}<a class="wb-trend-cmd" href="{{.URL}}">{{.Cmd}}</a>{{else if .Cmd}}<code class="wb-trend-cmd">{{.Cmd}}</code>{{end}}
     {{else}}
     {{with .Sub}}<div class="wb-trend-need">{{.}}</div>{{end}}
     {{with .Summary}}<div class="wb-trend-need">{{.}}</div>{{end}}

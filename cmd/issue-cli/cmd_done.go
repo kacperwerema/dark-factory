@@ -43,5 +43,7 @@ func runDone(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "\n✓ Status → %s\n", statusLabel(wf, updated.Status))
 	fmt.Fprintln(ctx.Stdout, "✓ Assignee cleared")
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", updated.FilePath)
+	issue.Status = updated.Status
+	closeFinishedWorker(ctx, ctx.Stdout, issue)
 	return nil
 }

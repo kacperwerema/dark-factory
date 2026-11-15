@@ -26,9 +26,9 @@ import (
 //	**Answer:** —
 //
 // The answer line is `—` (open), `<n> · <YYYY-MM-DD> · owner: "<words>" (D-k)`
-// (the owner's, also a D-k decision) or `assumed[ <n>] — <reason>` (the
-// agent's alone; without <n> the recommendation). With nothing to ask the
-// section is one line: `Nothing to ask: <why>.`
+// (the owner's, also a D-k decision) or `assumed[ <n>] — <reason> (D-k)` (the
+// agent's alone, also a provisional D-k; without <n> the recommendation).
+// With nothing to ask the section is one line: `Nothing to ask: <why>.`
 
 // ClarifySection is the design step's question section.
 const ClarifySection = "Clarify"
@@ -63,6 +63,7 @@ var (
 	costRe         = regexp.MustCompile(`(?i)\bcost:\s*(.+?)\s*$`)
 	answerLineRe   = regexp.MustCompile(`^\*\*Answer:\*\*\s*(.*)$`)
 	answerOwnerRe  = regexp.MustCompile(`^(\d+) · (\d{4}-\d{2}-\d{2}) · ([^:"]+): ("(?:[^"\\]|\\.)*")(?: \((D-\d+)\))?\s*$`)
+	answerDecRe    = regexp.MustCompile(`\s*\((D-\d+)\)\s*$`)
 	answerAssumeRe = regexp.MustCompile(`(?i)^assumed(?:\s+(\d+))?\s*(?:[—–-]+\s*(.*))?$`)
 	nothingRe      = regexp.MustCompile(`(?i)^nothing to ask\b[:.,—–-]*\s*(.*)$`)
 )
@@ -315,6 +316,10 @@ func parseAnswer(text string) ClarifyAnswer {
 		a.State = AnswerAssumed
 		a.Option, _ = strconv.Atoi(m[1])
 		a.Reason = strings.TrimSpace(m[2])
+		if dm := answerDecRe.FindStringSubmatchIndex(a.Reason); dm != nil {
+			a.Decision = a.Reason[dm[2]:dm[3]]
+			a.Reason = strings.TrimSpace(a.Reason[:dm[0]])
+		}
 	case answerOwnerRe.MatchString(text):
 		m := answerOwnerRe.FindStringSubmatch(text)
 		a.State = AnswerOwner
@@ -438,7 +443,11 @@ func renderAnswer(a ClarifyAnswer) string {
 		if reason == "" {
 			reason = DefaultAssumedReason
 		}
-		return s + " — " + reason
+		s += " — " + reason
+		if a.Decision != "" {
+			s += " (" + a.Decision + ")"
+		}
+		return s
 	case AnswerOther:
 		return "**Answer:** " + oneLine(a.Words)
 	}
@@ -518,7 +527,8 @@ type AnswerInput struct {
 // AnswerQuestion records the owner's answer to one question in one locked
 // write: the answer line becomes `<n> · <date> · owner: "<words>" (D-k)`
 // and D-k is added under ## Decisions with the owner's words as its quote.
-// An assumed answer may be answered; an owner's one is refused.
+// An assumed answer may be answered (D-k replaces its provisional D-n); an
+// owner's one is refused.
 func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (ClarifyQuestion, Decision, error) {
 	section := in.Section
 	if section == "" {
@@ -555,7 +565,13 @@ func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (Clari
 			words = opt.Label
 		}
 		did := fmt.Sprintf("D-%d", nextNumber(decisionIDRe, body))
-		d := NewDecision{Text: fmt.Sprintf("%s %s %s", id, strings.TrimRight(oneLine(q.Text), "?."), "→ "+opt.Label), How: how, Quote: words}
+		d := NewDecision{Text: clarifyDecisionText(id, q.Text, opt.Label), How: how, Quote: words}
+		var evs []DecisionEvent
+		if q.Answer.State == AnswerAssumed && q.Answer.Decision != "" {
+			old := slug + "#" + q.Answer.Decision
+			d.Replaces = []string{old}
+			evs = append(evs, DecisionEvent{Event: DecisionReplaced, Ref: old, ByRef: slug + "#" + did})
+		}
 		if err := ValidateNewDecision(d); err != nil {
 			return decisionChange{}, err
 		}
@@ -564,7 +580,7 @@ func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (Clari
 		lines := setAnswerLine(strings.Split(body, "\n"), *q, renderAnswer(q.Answer))
 		line = RenderDecisionLine(did, d, now)
 		return decisionChange{Body: appendToSectionTight(strings.Join(lines, "\n"), DecisionsSection, line, false),
-			Events: []DecisionEvent{{Event: DecisionRecorded, Ref: slug + "#" + did}}}, nil
+			Events: append([]DecisionEvent{{Event: DecisionRecorded, Ref: slug + "#" + did}}, evs...)}, nil
 	})
 	if err != nil {
 		return ClarifyQuestion{}, Decision{}, err
@@ -576,32 +592,73 @@ func AnswerQuestion(filePath, slug string, in AnswerInput, now time.Time) (Clari
 	return out, dec, nil
 }
 
-// AssumeOpen marks every open question of section as `assumed — <reason>`
-// (the recommendation) in one locked write and returns them.
-func AssumeOpen(filePath, section, reason string) ([]ClarifyQuestion, error) {
+// clarifyDecisionText is the text of the D-n an answer records:
+// `Q2 <question> → <option>`.
+func clarifyDecisionText(id, question, label string) string {
+	return fmt.Sprintf("%s %s → %s", id, strings.TrimRight(oneLine(question), "?."), label)
+}
+
+// AssumeInput is what AssumeOpen marks and records.
+type AssumeInput struct {
+	Section string // default ClarifySection
+	Reason  string // default DefaultAssumedReason
+	// Log is where the assumed answers' decisions are logged and who took them.
+	Log DecisionWrite
+}
+
+// AssumeOpen marks every open question of section as `assumed — <reason>
+// (D-n)` (the recommendation) in one locked write and returns them. Each
+// gets a provisional D-n under ## Decisions (how `clarify round,
+// provisional`, text `Qk <question> → <recommended option>`), so the choice
+// is recorded once: the owner confirms it, or answers the question, which
+// replaces it.
+func AssumeOpen(filePath, slug string, in AssumeInput, now time.Time) ([]ClarifyQuestion, error) {
+	section := in.Section
 	if section == "" {
 		section = ClarifySection
 	}
-	reason = oneLine(reason)
+	reason := oneLine(in.Reason)
 	if reason == "" {
 		reason = DefaultAssumedReason
 	}
 	var out []ClarifyQuestion
-	_, _, err := UpdateIssueBody(filePath, func(body string) (string, bool, error) {
+	err := writeDecision(filePath, in.Log, now, func(body string) (decisionChange, error) {
 		open := ParseQuestionSection(body, section).Open()
+		out = nil
 		if len(open) == 0 {
-			return body, false, nil
+			return decisionChange{Unchanged: true}, nil
+		}
+		n := nextNumber(decisionIDRe, body)
+		var decLines []string
+		var evs []DecisionEvent
+		for i := range open {
+			q := &open[i]
+			q.Answer = ClarifyAnswer{State: AnswerAssumed, Reason: reason}
+			rec := q.Recommended()
+			if rec == nil {
+				continue // no options: nothing to record, the line stays as before
+			}
+			did := fmt.Sprintf("D-%d", n)
+			n++
+			d := NewDecision{Text: clarifyDecisionText(q.ID, q.Text, rec.Label), How: MarkProvisional(ClarifyHow)}
+			if err := ValidateNewDecision(d); err != nil {
+				return decisionChange{}, err
+			}
+			q.Answer.Decision = did
+			decLines = append(decLines, RenderDecisionLine(did, d, now))
+			evs = append(evs, DecisionEvent{Event: DecisionRecorded, Ref: slug + "#" + did})
 		}
 		lines := strings.Split(body, "\n")
 		// Bottom up, so an inserted answer line doesn't move the ones above.
 		for i := len(open) - 1; i >= 0; i-- {
-			q := open[i]
-			q.Answer = ClarifyAnswer{State: AnswerAssumed, Reason: reason}
-			lines = setAnswerLine(lines, q, renderAnswer(q.Answer))
-			open[i] = q
+			lines = setAnswerLine(lines, open[i], renderAnswer(open[i].Answer))
+		}
+		body = strings.Join(lines, "\n")
+		for _, l := range decLines {
+			body = appendToSectionTight(body, DecisionsSection, l, false)
 		}
 		out = open
-		return strings.Join(lines, "\n"), true, nil
+		return decisionChange{Body: body, Events: evs}, nil
 	})
 	return out, err
 }

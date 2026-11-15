@@ -232,7 +232,7 @@ func TestRunTakesTheJobsType(t *testing.T) {
 	p.Departments[0].Jobs[0].Type = "ppc"
 	r, _ := Find(p, "marketing/weekly-seo-pass")
 	_, err = PlanRun(p, r, nil, "2026-W46", false)
-	if err == nil || !strings.Contains(err.Error(), `type "ppc" is not in the workflow (types: piece, foundation, market-size, seo-pass)`) {
+	if err == nil || !strings.Contains(err.Error(), `type "ppc" is not in the workflow (types: piece, foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social)`) {
 		t.Fatalf("unknown type: %v", err)
 	}
 }
@@ -276,8 +276,8 @@ func TestVerdicts(t *testing.T) {
 		t.Fatalf("standing start: %+v", s)
 	}
 	holds := map[string]Input{
-		"mem-guard is not on PATH":                           {State: auto},
-		"mem-guard check refuses: BLOCKED":                   {State: auto, Memory: autostart.Memory{Found: true, Used: 80, Note: "BLOCKED"}},
+		"mem-guard not found":                                {State: auto},
+		"mem-guard says no: BLOCKED":                         {State: auto, Memory: autostart.Memory{Found: true, Used: 80, Note: "BLOCKED"}},
 		"memory 62% ≥ 50%":                                   {State: auto, Memory: autostart.Memory{Found: true, Used: 62, CanStart: true}},
 		"2/2 workers live":                                   {State: auto, Memory: lowMemory(), Workers: 2},
 		"golf started golf/x 2 min ago (one start per 5 min": {State: auto, Memory: lowMemory(), Last: &autostart.Start{Project: "golf", Slug: "golf/x", At: now.Add(-2 * time.Minute)}},

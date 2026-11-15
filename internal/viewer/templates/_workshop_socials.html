@@ -1,0 +1,110 @@
+{{/*
+Workshop Board components of the Connect socials page (socials_view.go has
+their view models, static/workshop.css their styles; no script: plain forms).
+/p/<project>/socials/<dept> renders them.
+
+  wb/so-setup      step 1: the tool's address, compose file and key       data: SocialsData
+  wb/so-diff       a projects.yaml change, +/- lines                      data: []outputs.DiffLine
+  wb/so-hold       the tool is up for a sign-in: until when, Done         data: SocialsData
+  wb/so-network    one network: state, what it needs, values, Connect     data: SocialsNetwork
+  wb/so-channel    one connected account: state, Disconnect               data: SocialsChannel
+*/}}
+
+{{define "wb/so-diff"}}{{if .}}<pre class="wb-so-diff" data-testid="socials.diff">{{range .}}<span class="wb-so-diff-line wb-so-diff-line--{{if eq .Op 43}}add{{else if eq .Op 45}}del{{else if eq .Op 126}}gap{{else}}same{{end}}">{{if eq .Op 43}}+ {{else if eq .Op 45}}- {{else if eq .Op 126}}  {{else}}  {{end}}{{.Text}}</span>
+{{end}}</pre>{{end}}{{end}}
+
+{{define "wb/so-setup"}}
+<section class="wb-so-card" data-testid="socials.setup">
+    <h2 class="wb-so-h2"><span class="wb-so-step">1</span> The tool</h2>
+    {{if .Setup.Exists}}
+        <p class="wb-so-line" data-testid="socials.setup.exists">{{if .Tool}}{{.Tool}}{{else}}The social connector{{end}} at <span class="wb-mono-inline">{{.Setup.URL}}</span> · started for each action and stopped after.</p>
+        {{with .Unsupported}}<p class="wb-so-warn" data-testid="socials.unsupported">This page can't drive it: {{.}}.</p>{{end}}
+        {{if .Setup.KeyRef}}
+        <p class="wb-so-line">Key: <span class="wb-mono-inline">{{.Setup.KeyRef}}</span> {{if .Setup.KeySet}}<span class="wb-chip wb-chip--green" data-testid="socials.key.set">set</span>{{else}}<span class="wb-chip wb-chip--red" data-testid="socials.key.missing">missing</span>{{end}}</p>
+        {{if not .NoKeychain}}<form class="wb-so-form" method="post" action="{{.BaseURL}}/key" data-testid="socials.key.form">
+            <label class="wb-so-field"><span>{{if .Setup.KeySet}}Replace the key{{else}}The key{{end}}</span><input type="password" name="key" autocomplete="off" spellcheck="false" required data-testid="socials.key.input"></label>
+            <button class="wb-btn" type="submit" data-testid="socials.key.save">Save to Keychain</button>
+        </form>{{end}}
+        {{end}}
+    {{else}}
+        <p class="wb-so-line">Postiz runs on this machine (you install it once, outside any repository: <a href="https://github.com/gitroomhq/postiz-app" rel="noopener noreferrer">its docker compose</a>, every port on 127.0.0.1, sign-up closed after your first user). Give its address and compose file; the page writes the <span class="wb-mono-inline">social</span> connector into projects.yaml and the key into Keychain.</p>
+        <form class="wb-so-form" method="post" action="{{.BaseURL}}/setup" data-testid="socials.setup.form">
+            <label class="wb-so-field"><span>Postiz address</span><input name="url" value="{{.Setup.URL}}" required inputmode="url" autocomplete="off" data-testid="socials.setup.url"></label>
+            <label class="wb-so-field"><span>Its compose file</span><input name="compose" value="{{.Setup.Compose}}" placeholder="~/postiz/compose.yaml" required autocomplete="off" data-testid="socials.setup.compose"></label>
+            {{if .Setup.Diff}}
+                <p class="wb-so-line">Saving adds these lines to projects.yaml:</p>
+                {{template "wb/so-diff" .Setup.Diff}}
+                <input type="hidden" name="sum" value="{{.Setup.Sum}}">
+                <input type="hidden" name="op" value="save">
+                {{if .NoKeychain}}<p class="wb-so-warn">No Keychain on this machine: add the connector by hand with an env: reference.</p>{{else}}
+                <label class="wb-so-field"><span>Postiz API key (Settings → Public API)</span><input type="password" name="key" autocomplete="off" spellcheck="false" required data-testid="socials.setup.key"></label>
+                <p class="wb-so-note">The key goes to Keychain item <span class="wb-mono-inline">postiz</span> only: never into a file, a log or this page.</p>
+                <button class="wb-btn wb-btn--ink" type="submit" data-testid="socials.setup.save">Save</button>{{end}}
+            {{else}}
+                <input type="hidden" name="op" value="preview">
+                <button class="wb-btn" type="submit" data-testid="socials.setup.preview">Show the projects.yaml change</button>
+            {{end}}
+        </form>
+    {{end}}
+</section>
+{{end}}
+
+{{define "wb/so-hold"}}{{if .Holding}}
+<div class="wb-so-hold" role="status" data-testid="socials.hold">
+    <span>{{.Tool}} is up for your {{.HoldNet}} sign-in · stops at {{.HoldUntil}}</span>
+    <form method="post" action="{{.BaseURL}}/check"><button class="wb-btn wb-btn--sm" type="submit" data-testid="socials.hold.check">I signed in: check</button></form>
+    <form method="post" action="{{.BaseURL}}/connect-done"><button class="wb-btn wb-btn--sm" type="submit" data-testid="socials.hold.done">Done, stop it</button></form>
+</div>
+{{end}}{{end}}
+
+{{define "wb/so-channel"}}
+<li class="wb-so-channel" data-testid="socials.channel">
+    <span class="wb-chip wb-chip--{{if eq .State "connected"}}green{{else if eq .State "expired"}}red{{else}}idle{{end}}">{{.State}}</span>
+    <span class="wb-mono-inline wb-muted">{{.ID}}</span>
+    <form class="wb-so-disconnect" method="post" action="{{.Base}}/disconnect" data-testid="socials.channel.disconnect">
+        <input type="hidden" name="channel" value="{{.ID}}">
+        <label class="wb-so-confirm"><input type="checkbox" name="confirm" value="yes" required> also deletes its scheduled posts in the tool</label>
+        <button class="wb-btn wb-btn--sm" type="submit">Disconnect</button>
+    </form>
+</li>
+{{end}}
+
+{{define "wb/so-network"}}
+<details class="wb-so-net" data-testid="socials.network.{{tid .ID}}">
+    <summary class="wb-so-net-head">
+        <b class="wb-so-net-name">{{.Name}}</b>
+        <span class="wb-chip wb-chip--{{.Tone}}" data-testid="socials.network.{{tid .ID}}.state">{{.State}}</span>
+        <span class="wb-so-net-how wb-muted">{{if eq .Connect "password"}}app password{{else if .Vars}}your developer app, then sign in{{else}}sign in{{end}}</span>
+    </summary>
+    <div class="wb-so-net-body">
+        <p class="wb-so-line">{{.App}}</p>
+        <p class="wb-so-note">Wait: {{.Wait}}</p>
+        {{if .HTTPS}}<p class="wb-so-warn" data-testid="socials.network.{{tid .ID}}.https">This network accepts only an https redirect: with the tool on http://localhost its sign-in can't finish.</p>{{end}}
+        {{if .Step}}<p class="wb-so-note">After the sign-in the tool asks which page to use, in its own UI.</p>{{end}}
+        {{if .Vars}}
+        <p class="wb-so-line">Redirect URI for your app: <span class="wb-mono-inline wb-so-copy" data-testid="socials.network.{{tid .ID}}.redirect">{{.Redirect}}</span></p>
+        <form class="wb-so-form" method="post" action="{{.Base}}/fields" data-testid="socials.network.{{tid .ID}}.fields">
+            <input type="hidden" name="network" value="{{.ID}}">
+            {{range .VarSet}}<label class="wb-so-field"><span>{{.Label}} <span class="wb-mono-inline wb-muted">{{.Name}}</span> {{if .Set}}<span class="wb-chip wb-chip--green">set</span>{{else}}<span class="wb-chip wb-chip--idle">not set</span>{{end}}</span><input type="password" name="{{.Name}}" autocomplete="off" spellcheck="false"{{if not .Set}} required{{end}} placeholder="{{if .Set}}leave empty to keep{{end}}"></label>{{end}}
+            {{if .Diff}}<p class="wb-so-line">Saving also adds these lines to projects.yaml (references, never a value):</p>{{template "wb/so-diff" .Diff}}<input type="hidden" name="sum" value="{{.Sum}}">{{end}}
+            <button class="wb-btn" type="submit" data-testid="socials.network.{{tid .ID}}.save">Save to Keychain</button>
+        </form>
+        {{end}}
+        {{if eq .Connect "password"}}
+        <form class="wb-so-form" method="post" action="{{.Base}}/connect" data-testid="socials.network.{{tid .ID}}.connect_form">
+            <input type="hidden" name="network" value="{{.ID}}">
+            {{range .Fields}}<label class="wb-so-field"><span>{{.Label}}</span><input {{if .Secret}}type="password" autocomplete="off"{{else}}autocomplete="off"{{end}} name="f_{{.Key}}" value="{{.Default}}" required spellcheck="false"></label>{{end}}
+            <p class="wb-so-note">Passed once to the tool, kept nowhere here.</p>
+            <button class="wb-btn wb-btn--ink" type="submit" data-testid="socials.network.{{tid .ID}}.connect">Connect</button>
+        </form>
+        {{else}}
+        <form method="post" action="{{.Base}}/connect" target="_blank" rel="noopener" data-testid="socials.network.{{tid .ID}}.connect_form">
+            <input type="hidden" name="network" value="{{.ID}}">
+            <button class="wb-btn wb-btn--ink" type="submit"{{if not .VarsSet}} disabled title="save the app's values first"{{end}} data-testid="socials.network.{{tid .ID}}.connect">Connect: sign in at {{.Name}}</button>
+            <span class="wb-so-note">opens in a new tab; the tool stays up until you're back</span>
+        </form>
+        {{end}}
+        {{if .Channels}}<ul class="wb-so-channels">{{range .Channels}}{{template "wb/so-channel" .}}{{end}}</ul>{{end}}
+    </div>
+</details>
+{{end}}

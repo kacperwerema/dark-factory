@@ -14,6 +14,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -32,8 +33,8 @@ const mapQuoteMax = 140
 // mapLeadScrollback is how much of a live lead's pane the quote reads.
 const mapLeadScrollback = 300
 
-// mapDoneWindow is "this week" for the done counters.
-const mapDoneWindow = 7 * 24 * time.Hour
+// mapDoneDays is "this week", in calendar days, for the done counters.
+const mapDoneDays = 7
 
 // MapData is the whole map page.
 type MapData struct {
@@ -132,7 +133,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 			}
 			lots[i], queues[i] = s.buildLot(p, color, now)
 			if p.Slug == s.engine {
-				rc = s.engineCandidate(p)
+				rc = s.engineCandidate(p, now)
 			}
 		}(i)
 	}
@@ -198,16 +199,51 @@ func sortMapQueue(q []WbQueueCard) {
 
 // buildLot is one project's lot and its rows of the owner's queue.
 func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapLot, []WbQueueCard) {
+	lot, queue := s.lotCore(p, color, now)
+	if n := connections.OpenTotal(connections.Load(p, lot.issues, now)); n > 0 {
+		lot.Connections = n
+		lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: fmt.Sprintf("⇄ %d", n), Title: plural(n, "open item", "open items") + " passing between departments: see Connections on the company page", TestID: "connections"})
+	}
+	for _, b := range lot.Privacy {
+		if b.Level == "amber" || b.Level == "red" {
+			lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
+		}
+	}
+	return lot, queue
+}
+
+// headerLot is what a hall page's header reads: the lot with its counts, the
+// CEO and CI, with no connections chip and none of the company page around it.
+func (s *Server) headerLot(p *tracker.Project, now time.Time) MapLot {
+	lot, _ := s.lotCore(p, s.lotColor(p), now)
+	return lot
+}
+
+// lotColor is p's colour: its own, else its place in the map's palette.
+func (s *Server) lotColor(p *tracker.Project) string {
+	if p.Color != "" {
+		return p.Color
+	}
+	for i := range s.projects {
+		if s.projects[i].Slug == p.Slug {
+			return mapProjectColors[i%len(mapProjectColors)]
+		}
+	}
+	return ""
+}
+
+// lotCore is the lot without its connections and privacy chips.
+func (s *Server) lotCore(p *tracker.Project, color string, now time.Time) (MapLot, []WbQueueCard) {
 	prefix := "/p/" + p.Slug
 	lot := MapLot{Name: p.Name, Slug: p.Slug, Kind: p.Kind, Color: color, Description: p.Description, CEO: WbCEO{Session: tracker.LeadSessionName(p)}}
-	issues, err := tracker.LoadIssues(p.IssueDir)
+	issues, err := p.LoadIssues()
 	if err != nil {
 		log.Printf("map: %s: load issues: %v", p.Slug, err)
 	}
 	var open []*tracker.Issue
 	for _, issue := range issues {
-		if strings.EqualFold(issue.Status, "done") {
-			if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
+		if p.IssueDone(issue) {
+			if at, _ := doneAt(issue); !at.Before(period.DaysBack(now, mapDoneDays)) {
 				lot.DoneWeek++
 			}
 			continue
@@ -218,7 +254,7 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 	lot.issues = issues
 	lot.YOLO = yoloBand(p, issues, now)
 	lot.Buildings = mapDepartmentsOf(p, open)
-	lot.Progress = mapProgressOf(goals.Resolve(p, now), issues, color)
+	lot.Progress = mapProgressOf(p, goals.Resolve(p, now), issues, color)
 
 	if agents, err := s.buildAgentsModel(p, prefix); err == nil {
 		lot.agents = agents
@@ -258,15 +294,6 @@ func (s *Server) buildLot(p *tracker.Project, color string, now time.Time) (MapL
 		lot.Chips = append(lot.Chips, *c)
 	}
 	lot.Chips = append(lot.Chips, wbCountChips(lot.You, lot.Working, lot.AgentWait, lot.Idle)...)
-	if n := connections.OpenTotal(connections.Load(p, issues, now)); n > 0 {
-		lot.Connections = n
-		lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: fmt.Sprintf("⇄ %d", n), Title: plural(n, "open item", "open items") + " passing between departments: see Connections on the company page", TestID: "connections"})
-	}
-	for _, b := range lot.Privacy {
-		if b.Level == "amber" || b.Level == "red" {
-			lot.Chips = append(lot.Chips, WbChip{Tone: "idle", Text: b.Marker, Title: b.Sentence, TestID: "privacy_" + b.Kind})
-		}
-	}
 	return lot, queue
 }
 
@@ -441,7 +468,7 @@ func productIssues(p *tracker.Project, issues []*tracker.Issue) []*tracker.Issue
 // mapProgressOf is the lot's bar: the first goal of HQ, else of Product or a
 // department (projects.yaml), else the open epic furthest along (most done
 // children).
-func mapProgressOf(rep *goals.Report, issues []*tracker.Issue, color string) *WbProgress {
+func mapProgressOf(proj *tracker.Project, rep *goals.Report, issues []*tracker.Issue, color string) *WbProgress {
 	for _, o := range rep.Owners() {
 		if len(o.Goals) == 0 {
 			continue
@@ -453,20 +480,23 @@ func mapProgressOf(rep *goals.Report, issues []*tracker.Issue, color string) *Wb
 		if o.Key != goals.HQKey {
 			p.Label = "Goal: " + o.Name + " · " + g.Label()
 		}
-		if g.Value == nil && !g.RolledUp {
+		switch {
+		case g.NoValueSince != "":
+			p.Text = g.ValueText()
+		case g.Value == nil && !g.RolledUp:
 			p.Text = "no value yet"
 		}
 		return &p
 	}
 	var best *WbProgress
 	for _, issue := range issues {
-		if strings.EqualFold(issue.Status, "done") || !tracker.IsEpic(issue, issues) {
+		if proj.IssueDone(issue) || !tracker.IsEpic(issue, issues) {
 			continue
 		}
 		p := WbProgress{Label: "Epic: " + issue.Title, Title: "No goal in projects.yaml (company: goals:): the open epic furthest along"}
 		for _, c := range tracker.EpicChildren(issues, issue.Slug) {
 			p.Total++
-			if strings.EqualFold(c.Status, "done") {
+			if proj.IssueDone(c) {
 				p.Done++
 			}
 		}
@@ -593,15 +623,21 @@ func clipRunes(s string, n int) string {
 
 // engineCandidate is the engine's release candidate and the projects that
 // ran it; nil without one.
-func (s *Server) engineCandidate(p *tracker.Project) *MapRC {
-	m, err := s.loadStatus(p, "/p/"+p.Slug)
+func (s *Server) engineCandidate(p *tracker.Project, now time.Time) *MapRC {
+	issues, err := p.LoadIssues()
 	if err != nil {
 		return nil
 	}
-	c := m.Candidate()
-	if c == nil {
+	wf := p.LoadWorkflow()
+	root := projectRoot(p)
+	text, changelog := readChangelog(root, wf.Workbench.Changelog)
+	releases, _ := recentReleasesFrom(root, text, changelog, statusReleases)
+	rw := buildReleaseWait(p, wf, newCanvasStatuses(wf), issuesByVersion(issues), newestRelease(releases), changelog, text, now)
+	s.addEngineSoak(rw, p, issues)
+	if rw == nil || rw.Milestone == nil || rw.Milestone.Candidate == nil {
 		return nil
 	}
+	c := rw.Milestone.Candidate
 	rc := &MapRC{Tag: c.Tag, Engine: p.Slug}
 	if c.Soak != nil {
 		for _, sp := range c.Soak.Projects {

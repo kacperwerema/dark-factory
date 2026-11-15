@@ -45,11 +45,18 @@ func markdown() goldmark.Markdown {
 
 var htmlTag = regexp.MustCompile(`<[^>]*>`)
 
-// Render renders a markdown output.
+// Render renders a markdown output. A leading YAML frontmatter block shows as
+// a metadata table above the article (its title: is the title when the
+// article has no "# " heading).
 func Render(src []byte) Doc {
+	var head, metaTitle string
+	if meta, body, ok := splitFrontmatter(src); ok {
+		head, metaTitle = renderFrontmatter(meta)
+		src = body
+	}
 	md := markdown()
 	root := md.Parser().Parse(text.NewReader(src))
-	var d Doc
+	d := Doc{Title: metaTitle}
 	if first, ok := root.FirstChild().(*ast.Heading); ok && first.Level == 1 {
 		d.Title = strings.TrimSpace(string(first.Text(src))) //nolint:staticcheck // the heading's plain text
 		root.RemoveChild(root, first)
@@ -65,9 +72,10 @@ func Render(src []byte) Doc {
 		return ast.WalkSkipChildren, nil
 	})
 	var buf bytes.Buffer
+	buf.WriteString(head)
 	if err := md.Renderer().Render(&buf, src, root); err != nil {
 		buf.Reset()
-		buf.WriteString("<pre>" + template.HTMLEscapeString(string(src)) + "</pre>")
+		buf.WriteString(head + "<pre>" + template.HTMLEscapeString(string(src)) + "</pre>")
 	}
 	d.HTML = buf.String()
 	d.Text = FoldSpace(html.UnescapeString(htmlTag.ReplaceAllString(d.HTML, "")))

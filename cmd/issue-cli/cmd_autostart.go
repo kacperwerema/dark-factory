@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
+
+// defaultBelowPct is autostart.DefaultBelow for help text.
+var defaultBelowPct = strconv.Itoa(autostart.DefaultBelow)
 
 var autostartCommand = &Command{
 	Name:      "autostart",
@@ -31,7 +35,7 @@ Subcommands:
   status
       On, paused or off, the owner's words, the limits, the last start on
       this machine and the verdict now.
-  on --quote "<owner's words>" [--how ...] [--below 50] [--max-workers 2]
+  on --quote "<owner's words>" [--how ...] [--below ` + defaultBelowPct + `] [--max-workers 2]
      [--gap 5]
       Turn auto-start on for this project. Only the owner or the project
       lead (with the owner's words); never a worker.
@@ -83,7 +87,7 @@ func autostartNotWorker(ctx *Context, what string) (who string, err error) {
 	if err != nil {
 		return "", err
 	}
-	me := whoAmI(ctx.Project, issues)
+	me := guardWho(ctx, issues, "autostart")
 	if me.Role == tracker.RoleWorker {
 		return "", fmt.Errorf("workers never %s: auto-start is the owner's switch. Ask your lead on your issue trail with a question: comment", what)
 	}
@@ -304,6 +308,9 @@ func runAutostartNext(ctx *Context, args []string) error {
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, v)
 	}
+	printStalled(ctx)
+	printTakeovers(ctx)
+	printDueJobs(ctx, issues)
 	fmt.Fprintln(ctx.Stdout, verdictLine(v))
 	if v.Start {
 		fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli dispatch "+v.Slug+" --autostart"))

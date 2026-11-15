@@ -36,10 +36,10 @@ steps:
       # Add lands on the floor: GTM's wing with Marketing inside.
       - text_contains: { target: floor.tile.group, text: "GTM" }
       - text_contains: { target: floor.sub, text: "Marketing" }
-      # GTM brings Marketing: every template is in, so the tile has no form
+      # GTM brings Marketing: Legal, Sales and Video are left in the tile
       # (ui/the-add-department-form-offers-only-templates-the-project-doesnt-have-yet).
-      - text_contains: { target: tile.new_department, text: "Every department template is added" }
-      - absent: company.new_dept.form
+      - text_contains: { target: tile.new_department, text: "3 templates left" }
+      - absent: [company.new_dept.template.marketing, company.new_dept.template.gtm]
     targets: [floor.tile.group, floor.sub]
 
   - id: AS1
@@ -54,5 +54,5 @@ steps:
       shows GTM's role file and, under "In the group: Marketing", Marketing's
       files with your edited role.md kept. After Add, the company page shows
       one GTM room with its lead, goal and Start lead, and the Marketing room
-      inside it. The New department tile now says every department template is added.
+      inside it. The New department tile now offers Sales and Video.
     why: The owner's GTM group (Marketing now, Sales later) is added from this button.

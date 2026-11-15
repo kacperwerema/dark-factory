@@ -10,6 +10,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -74,15 +75,15 @@ func runBenchNightly(ctx *Context, args []string) error {
 		return fmt.Errorf("main's head: %w (run it from the project's repository)", err)
 	}
 	exp, expBlock := nextQueued(issues)
-	held := nightlyMachine()
+	held := nightlyMachine(proj)
 
 	w := ctx.Stdout
-	fmt.Fprintf(w, "== Nightly: %s on main %s (%s) ==\n", name, shortSHA(mainSHA), date)
+	fmt.Fprintf(w, "== Nightly: %s on main %s (%s) ==\n", name, gitdir.ShortSHA(mainSHA), date)
 	fmt.Fprintf(w, "Started by: %s · owner's words: %q\n", by, words)
 	if held != "" {
 		fmt.Fprintf(w, "Machine: held — %s\n", held)
 	} else {
-		fmt.Fprintf(w, "Machine: ok (memory under %d%%, load at most the core count)\n", NightlyMemBelow)
+		fmt.Fprintf(w, "Machine: ok (memory under %d%%, load under the core count or auto-start's max_load)\n", NightlyMemBelow)
 	}
 	if exp != nil {
 		fmt.Fprintf(w, "Experiment: %s (queued %s by %s, ref %s)\n", exp.Slug, expBlock.Queue.At.Format("2006-01-02"), expBlock.Queue.By, expBlock.Queue.Ref)
@@ -90,7 +91,7 @@ func runBenchNightly(ctx *Context, args []string) error {
 		fmt.Fprintln(w, "Experiment: none queued (the owner queues one: issue-cli experiment queue <slug> --quote \"…\")")
 	}
 	if *dry {
-		fmt.Fprintf(w, "Baseline: bench run %s --setup %s --label %s\n", name, shortSHA(mainSHA), nightlyLabel(date, mainSHA))
+		fmt.Fprintf(w, "Baseline: bench run %s --setup %s --label %s\n", name, gitdir.ShortSHA(mainSHA), nightlyLabel(date, mainSHA))
 		fmt.Fprintln(w, "(dry run — nothing was run)")
 		return nil
 	}
@@ -124,6 +125,7 @@ func nightlyWords(ctx *Context, issues []*tracker.Issue, runSlug, quote string) 
 	by = valueOr(who, "owner")
 	if runSlug == "" {
 		if who != "" && quote == "" {
+			guardNever(ctx, "bench nightly")
 			return "", "", nil, &usageError{msg: fmt.Sprintf("bench nightly starts workers that spend tokens: in an agent session (%s) it needs --run <the nightly-improve job's run> or --quote with the owner's words", who)}
 		}
 		return valueOr(quote, "owner's shell"), by, nil, nil
@@ -199,26 +201,14 @@ func nightlyBenchmark(proj *tracker.Project, name string) (string, error) {
 	return "", fmt.Errorf("several benchmarks have tasks in %s (%s): name one, or the owner marks one with nightly: true in its file", proj.Slug, strings.Join(mine, ", "))
 }
 
-// nightlyMachine is why the night is held now, "" when it may run: memory
-// under the line (mem-guard's reading, which must be there), the 1-minute
-// load at most the core count.
-func nightlyMachine() string {
-	m := autostart.ReadMemory()
-	switch {
-	case !m.Found:
-		return "mem-guard is not on PATH"
-	case !m.CanStart:
-		return "mem-guard check refuses: " + m.Note
-	case m.Used >= NightlyMemBelow:
-		return fmt.Sprintf("memory %d%% ≥ %d%%", m.Used, NightlyMemBelow)
-	}
-	if l := autostart.ReadLoad(); l.Found && l.Cores > 0 && l.Avg1 > float64(l.Cores) {
-		return fmt.Sprintf("load %.1f over %d cores", l.Avg1, l.Cores)
-	}
-	return ""
+// nightlyMachine is why the night is held now, "" when it may run:
+// autostart.MachineHold at the night's memory line, with the max_load the
+// owner set on the project's auto-start.
+func nightlyMachine(proj *tracker.Project) string {
+	return autostart.MachineHold(autostart.ReadMemory(), autostart.ReadLoad(), NightlyMemBelow, autostart.MaxLoadOf(yoloRoot(proj), proj.Slug))
 }
 
-func nightlyLabel(date, sha string) string { return "nightly:" + date + "@" + shortSHA(sha) }
+func nightlyLabel(date, sha string) string { return "nightly:" + date + "@" + gitdir.ShortSHA(sha) }
 
 // nightlyRun runs the benchmark on sha with label through bench run's own
 // code and returns the run it wrote.
@@ -284,7 +274,7 @@ func nightlyExperiment(ctx *Context, name, date string, base *bench.Run, issue *
 	if base.Stop != bench.StopDone {
 		return skip("the baseline did not finish ("+valueOr(base.Stop, "running")+"); it stays queued", false)
 	}
-	if held := nightlyMachine(); held != "" {
+	if held := nightlyMachine(ctx.Project); held != "" {
 		return skip("held: "+held+"; it stays queued", false)
 	}
 	ref := valueOr(b.Queue.Ref, "work/"+issue.Slug)
@@ -295,7 +285,7 @@ func nightlyExperiment(ctx *Context, name, date string, base *bench.Run, issue *
 	if len(plan.Problems) > 0 {
 		return skip("guard: "+strings.Join(plan.Problems, "; "), true)
 	}
-	label := "experiment:" + issue.Slug + "@" + shortSHA(plan.RefSHA)
+	label := "experiment:" + issue.Slug + "@" + gitdir.ShortSHA(plan.RefSHA)
 	cand, err := nightlyRun(ctx, name, plan.RefSHA, label, words)
 	if err != nil {
 		return skip("candidate run: "+err.Error()+"; it stays queued", false)

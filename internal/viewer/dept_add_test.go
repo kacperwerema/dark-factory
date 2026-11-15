@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -34,6 +36,28 @@ func deptSandbox(t *testing.T) (config string, proj tracker.Project) {
 	proj = projects[0]
 	proj.WorkflowFile = repoWorkflow(t)
 	return config, proj
+}
+
+// plannedFiles counts the files adding template key under parent would
+// write and keep, from the plan Add makes, so a files: entry added to a
+// bundled template changes no literal here. Call it before the Add.
+func plannedFiles(t *testing.T, proj *tracker.Project, key, parent string) (wrote, kept int) {
+	t.Helper()
+	_, plan, err := planDepartment(proj, key, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pl := range append([]*depttemplate.Plan{plan}, plan.Children...) {
+		for _, f := range pl.Files {
+			switch f.State {
+			case depttemplate.FileWrite:
+				wrote++
+			case depttemplate.FileKeep:
+				kept++
+			}
+		}
+	}
+	return wrote, kept
 }
 
 // postAdd posts the Add form as the owner's browser does, with headers.
@@ -69,11 +93,12 @@ func TestCompanyNewDeptTileIsAFormOverTheTemplates(t *testing.T) {
 	for _, want := range []string{
 		`data-testid="company.new_dept"`,
 		`data-testid="tile.new_department"`,
-		`From a template: Marketing · GTM`,
+		`From a template: Legal · Marketing · Sales · Video · GTM`,
 		`<form class="wb-newlot-how wb-newdept-form" method="get" action="/p/acme/departments/new" data-testid="company.new_dept.form">`,
 		`data-testid="company.new_dept.template.marketing"`,
-		`<input type="radio" name="template" value="marketing" checked>`,
-		`workflow: marketing · 2 goals · 1 job`,
+		`<input type="radio" name="template" value="legal" checked>`,
+		`<input type="radio" name="template" value="marketing">`,
+		`workflow: marketing · 3 goals · 1 job`,
 		`data-testid="company.new_dept.preview"`,
 	} {
 		if !strings.Contains(body, want) {
@@ -140,6 +165,10 @@ func TestDeptAddInstallsAndTheRoomShows(t *testing.T) {
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 
+	wrote, kept := plannedFiles(t, &proj, "marketing", "")
+	if kept != 1 {
+		t.Fatalf("the plan keeps %d files, want the edited role.md", kept)
+	}
 	resp := postAdd(t, ts.URL, url.Values{"template": {"marketing"}}, sameOrigin)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("status %d, want 303", resp.StatusCode)
@@ -166,13 +195,13 @@ func TestDeptAddInstallsAndTheRoomShows(t *testing.T) {
 		t.Fatalf("company status %d", code)
 	}
 	for _, want := range []string{
-		`data-testid="company.added">✓ Added Marketing: 2 files written, 1 edited file of yours kept. Start its lead from the room.</p>`,
+		`data-testid="company.added">✓ Added Marketing: ` + strconv.Itoa(wrote) + ` files written, 1 edited file of yours kept. Start its lead from the room.</p>`,
 		// The floor opens the added room's tile and inspector.
 		`wb-fl-tile wb-fl-tile--added" style="left:`,
 		`id="room-marketing" data-room="marketing" data-title="Marketing" data-testid="floor.inspector.marketing"`,
-		// A template installs once: only GTM is left.
-		`1 template left`,
-		`<input type="radio" name="template" value="gtm" checked>`,
+		// A template installs once: Legal, Sales, Video and GTM are left.
+		`4 templates left`,
+		`<input type="radio" name="template" value="legal" checked>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("company page after Add missing %q", want)
@@ -258,5 +287,61 @@ func TestUpdatesDepartmentCardsHaveAdd(t *testing.T) {
 	want := `<a class="upd-btn upd-btn--ink" href="/p/acme/departments/new?template=marketing" data-testid="upd.dept.marketing.add">Add…</a>`
 	if !strings.Contains(body, want) {
 		t.Errorf("Updates missing %q", want)
+	}
+}
+
+// The video template's preview shows the partner's install steps beside
+// the plan; previewing (and the steps) never touch the partner's path.
+func TestDeptPreviewShowsPartnerInstallSteps(t *testing.T) {
+	_, proj := deptSandbox(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	code, body := getBody(t, ts.URL+"/p/acme/departments/new?template=video")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`data-testid="dept_new.entry">- name: Video`,
+		"adapter: openmontage",
+		"commit: 195eab24478dc9363326aec437aefc3701635ddf",
+		"Install its partner yourself",
+		`data-testid="dept_new.install">OpenMontage is a separate program under the AGPL-3.0`,
+		"git clone https://github.com/calesthio/openmontage ",
+		"telemetryEnabled",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("preview missing %q", want)
+		}
+	}
+	code, body = getBody(t, ts.URL+"/p/acme/departments/new?template=marketing")
+	if code != http.StatusOK || strings.Contains(body, `data-testid="dept_new.install"`) {
+		t.Errorf("a template without a partner shows no install steps (status %d)", code)
+	}
+}
+
+// The sales-b2c template's preview shows the handoffs to declare beside
+// the plan; Add never writes them.
+func TestDeptPreviewShowsHandoffsToDeclare(t *testing.T) {
+	_, proj := deptSandbox(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	code, body := getBody(t, ts.URL+"/p/acme/departments/new?template=sales-b2c")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	for _, want := range []string{
+		`data-testid="dept_new.entry">- name: Sales`,
+		"Handoffs to declare",
+		`data-testid="dept_new.handoffs">connections:`,
+		"from: marketing",
+		"via: hq",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("preview missing %q", want)
+		}
+	}
+	code, body = getBody(t, ts.URL+"/p/acme/departments/new?template=marketing")
+	if code != http.StatusOK || strings.Contains(body, `data-testid="dept_new.handoffs"`) {
+		t.Errorf("a template without handoffs shows none (status %d)", code)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
@@ -187,39 +188,16 @@ func ReadState(root string) (*State, error) {
 	return &st, nil
 }
 
-// writeJSONFile writes v atomically: a temp file renamed over path, so a
-// reader never sees half a file.
-func writeJSONFile(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
 // WriteState replaces .ci/state.json.
 func WriteState(root string, st *State) error {
 	if err := ensureDir(root); err != nil {
 		return err
 	}
-	return writeJSONFile(StatePath(root), st)
+	return jsonfile.Write(StatePath(root), st, 0o600)
 }
 
 func writeRun(root string, run *Run) error {
-	return writeJSONFile(filepath.Join(RunsDir(root), runName(run.Sha, run.Tier)+".json"), run)
+	return jsonfile.Write(filepath.Join(RunsDir(root), runName(run.Sha, run.Tier)+".json"), run, 0o600)
 }
 
 // RecentRuns lists the newest n run records, newest first.
@@ -255,14 +233,6 @@ func prune(root string) {
 		os.Remove(stem + ".log")
 		os.RemoveAll(ResultsDir(root, r.Sha, r.Tier))
 	}
-}
-
-// Short is a commit's 7-character form.
-func Short(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 // FailureList is "TestA, TestB, TestC (+4)": the first three names.

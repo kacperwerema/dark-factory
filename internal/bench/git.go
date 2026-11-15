@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kacperwerema/dark-factory/internal/proof"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -21,9 +20,15 @@ import (
 // signing, aliases), so commits in a sandbox behave the same on every
 // machine.
 func git(dir string, args ...string) (string, error) {
+	return gitIn(dir, "", args...)
+}
+
+// gitIn is git with stdin to read.
+func gitIn(dir, stdin string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = gitEnv(os.Environ())
+	cmd.Stdin = strings.NewReader(stdin)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -70,52 +75,19 @@ var ErrNoRange = errors.New("no recorded branch head")
 // is the first parent of the oldest commit on the branch head's first-parent
 // line made since the issue's first dispatch or transition.
 func FindRange(repo string, stats tracker.StatsStore) (Range, error) {
-	var r Range
-	head := ""
-	for _, t := range stats.Transitions {
-		if t.MergeSHA != "" {
-			r.Merged = t.MergeSHA
-		}
-		if t.BranchHead != "" {
-			head = t.BranchHead
-		}
+	rec, err := recordedOf(stats)
+	if err != nil {
+		return Range{}, err
 	}
-	if r.Merged == "" {
-		r.Merged = head
+	h, err := loadHistory(repo, []string{rec.walk()})
+	if err != nil {
+		return Range{Merged: rec.merged}, err
 	}
-	if r.Merged == "" {
-		return r, ErrNoRange
-	}
-	var since time.Time
-	switch {
-	case len(stats.Dispatches) > 0:
-		since = stats.Dispatches[0].At
-	case len(stats.Transitions) > 0:
-		since = stats.Transitions[0].TS
-	}
-	// The walk starts at the branch head: a merge commit's first parent is
-	// main, not the branch.
-	walk := head
-	if walk == "" {
-		walk = r.Merged
-	}
-	out, err := git(repo, "log", "--first-parent", "--format=%H %P", "--since="+strconv.FormatInt(since.Unix(), 10), walk)
+	r, err := h.rangeOf(rec)
 	if err != nil {
 		return r, err
 	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		return r, fmt.Errorf("no commits on %s since the issue started", short(walk))
-	}
-	f := strings.Fields(lines[len(lines)-1])
-	if len(f) < 2 {
-		return r, errors.New("the issue's first commit has no parent")
-	}
-	r.Base = f[1]
-	if head != "" && head != r.Merged {
-		r.Head = head
-	}
-	return r, fillRange(repo, &r)
+	return r, fillRanges(repo, h, []*Range{&r})
 }
 
 // RangeOf is the range between two given commits.
@@ -125,37 +97,51 @@ func RangeOf(repo, base, merged string) (Range, error) {
 }
 
 func fillRange(repo string, r *Range) error {
-	tip := r.Merged
-	if r.Head != "" {
-		tip = r.Head
-	}
-	out, err := git(repo, "log", "--first-parent", "--no-merges", "--numstat", "--format=%x1e", r.Base+".."+tip)
+	out, err := git(repo, "log", "--first-parent", "--no-merges", "--numstat", "--format=%x1e", r.Base+".."+r.tip())
 	if err != nil {
 		return err
 	}
 	files := map[string]bool{}
 	for _, rec := range strings.Split(out, "\x1e") {
-		rec = strings.TrimSpace(rec)
-		if rec == "" {
+		r.addCommit(rec, files)
+	}
+	r.setFiles(files)
+	return nil
+}
+
+// tip is the range's last own commit.
+func (r Range) tip() string {
+	if r.Head != "" {
+		return r.Head
+	}
+	return r.Merged
+}
+
+// addCommit counts one commit's numstat lines; one with none (an empty
+// commit) doesn't count.
+func (r *Range) addCommit(numstat string, files map[string]bool) {
+	numstat = strings.TrimSpace(numstat)
+	if numstat == "" {
+		return
+	}
+	r.Commits++
+	for _, l := range strings.Split(numstat, "\n") {
+		f := strings.SplitN(l, "\t", 3)
+		if len(f) != 3 {
 			continue
 		}
-		r.Commits++
-		for _, l := range strings.Split(rec, "\n") {
-			f := strings.SplitN(l, "\t", 3)
-			if len(f) != 3 {
-				continue
-			}
-			a, _ := strconv.Atoi(f[0])
-			d, _ := strconv.Atoi(f[1])
-			r.Lines += a + d
-			files[f[2]] = true
-		}
+		a, _ := strconv.Atoi(f[0])
+		d, _ := strconv.Atoi(f[1])
+		r.Lines += a + d
+		files[f[2]] = true
 	}
+}
+
+func (r *Range) setFiles(files map[string]bool) {
 	for f := range files {
 		r.Files = append(r.Files, f)
 	}
 	sort.Strings(r.Files)
-	return nil
 }
 
 // ForeignFiles are the files that differ between base and merged though the
@@ -163,35 +149,17 @@ func fillRange(repo string, r *Range) error {
 // under its merge commit) after base. The worker starts at base without
 // them, so hidden tests that lean on them may not build.
 func ForeignFiles(repo string, r Range) []string {
-	out, err := git(repo, "diff", "--name-only", r.Base, r.Merged)
-	if err != nil {
-		return nil
+	if all := foreignFiles(repo, []Range{r}); len(all) == 1 {
+		return all[0]
 	}
-	own := map[string]bool{}
-	for _, f := range r.Files {
-		own[f] = true
-	}
-	var foreign []string
-	for _, f := range strings.Fields(out) {
-		if !own[f] {
-			foreign = append(foreign, f)
-		}
-	}
-	return foreign
+	return nil
 }
 
 // HiddenFiles are the range's test files that exist at merged.
 func HiddenFiles(repo string, r Range) []string {
-	var out []string
-	for _, f := range r.Files {
-		if !proof.IsTestPath(f) {
-			continue
-		}
-		if _, err := git(repo, "cat-file", "-e", r.Merged+":"+f); err == nil {
-			out = append(out, f)
-		}
-	}
-	return out
+	o := openObjects(repo)
+	defer o.close()
+	return o.hiddenFiles(r)
 }
 
 var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(\w+ \*testing\.T\)`)
@@ -199,28 +167,9 @@ var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(\w+ \*testin
 // HiddenTests are the Go test functions the range adds to its hidden files;
 // when it adds none (it only changes tests), every test function in them.
 func HiddenTests(repo string, r Range, hidden []string) []string {
-	var added, all []string
-	for _, f := range hidden {
-		if !strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		now, _ := git(repo, "show", r.Merged+":"+f)
-		before, _ := git(repo, "show", r.Base+":"+f)
-		had := map[string]bool{}
-		for _, m := range goTestFunc.FindAllStringSubmatch(before, -1) {
-			had[m[1]] = true
-		}
-		for _, m := range goTestFunc.FindAllStringSubmatch(now, -1) {
-			all = append(all, m[1])
-			if !had[m[1]] {
-				added = append(added, m[1])
-			}
-		}
-	}
-	if len(added) > 0 {
-		return added
-	}
-	return all
+	o := openObjects(repo)
+	defer o.close()
+	return o.hiddenTests(r, hidden)
 }
 
 // Snapshot is the issue file as it stood just after it entered status:
@@ -238,6 +187,17 @@ func Snapshot(issue *tracker.Issue, stats tracker.StatsStore, status string) ([]
 	if at.IsZero() {
 		return nil, fmt.Errorf("%s has no recorded move to %q", issue.Slug, status)
 	}
+	data, err := issueFileAt(issue, at)
+	if err != nil {
+		return nil, err
+	}
+	return SetStatus(data, status), nil
+}
+
+// issueFileAt is the issue file as it stood just after time at: the last
+// version in its tracker's git history at or before at plus two minutes (a
+// move commits with the file).
+func issueFileAt(issue *tracker.Issue, at time.Time) ([]byte, error) {
 	dir, file := filepath.Dir(issue.FilePath), filepath.Base(issue.FilePath)
 	rel, err := git(dir, "ls-files", "--full-name", "--", file)
 	rel = strings.TrimSpace(rel)
@@ -258,7 +218,7 @@ func Snapshot(issue *tracker.Issue, stats tracker.StatsStore, status string) ([]
 	if err != nil {
 		return nil, err
 	}
-	return SetStatus([]byte(data), status), nil
+	return []byte(data), nil
 }
 
 var statusLine = regexp.MustCompile(`(?m)^status:.*$`)
@@ -291,11 +251,4 @@ func SetStatus(data []byte, status string) []byte {
 		}
 	}
 	return data
-}
-
-func short(sha string) string {
-	if len(sha) > 8 {
-		return sha[:8]
-	}
-	return sha
 }

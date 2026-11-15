@@ -109,7 +109,7 @@ func TestDispatch_RefusesAtAReadyGate(t *testing.T) {
 		`ui/child waits on the owner's approval for "human-testing"`,
 		"A human approves at: https://issues.example.com/p/proj/issue/ui/child#approve-human-testing",
 		"Several waiting?     https://issues.example.com/p/proj/needs-you",
-		"Dispatch anyway:     issue-cli --project proj dispatch ui/child --force --quote \"start child\"",
+		"Dispatch anyway:     issue-cli --project proj dispatch ui/child --force --quote 'start child'",
 	} {
 		if !strings.Contains(err.Error(), w) {
 			t.Errorf("refusal missing %q:\n%s", w, err)
@@ -190,6 +190,8 @@ func TestDispatch_Refusals(t *testing.T) {
 	ctx, _, _ := newTestContext(proj, false)
 	if err := runDispatch(ctx, []string{"loner", "--quote", "the human said so"}); err == nil || !strings.Contains(err.Error(), "workers can't dispatch") {
 		t.Fatalf("worker: err = %v", err)
+	} else if !strings.Contains(err.Error(), `issue-cli --project proj prove ui/child <AC-id> --lead "issue-cli check-script ui/child --yes"`) {
+		t.Errorf("the worker's refusal doesn't name the lead link:\n%v", err)
 	}
 }
 
@@ -214,6 +216,24 @@ func TestDispatch_NeedsQuote(t *testing.T) {
 	if started {
 		t.Fatal("dispatch without --quote started an agent")
 	}
+	if cs := comments(t, loadLeadIssue(t, proj, "loner").FilePath); len(cs) != 0 {
+		t.Fatalf("comments = %+v", cs)
+	}
+}
+
+// A worker that dies at launch is no dispatch: exit 1, the step that says
+// why, no "✓ Dispatched", no dispatch: comment.
+func TestDispatch_DeadLaunchIsReported(t *testing.T) {
+	proj := makeGateProject(t)
+	stubDeadLaunch(t)
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	ctx, stdout, _ := newTestContext(proj, false)
+	err := runDispatch(ctx, []string{"loner", "--quote", "dispatch agents for loner"})
+	if err == nil || !strings.Contains(err.Error(), "dispatching loner failed") {
+		t.Fatalf("err = %v", err)
+	}
+	assertContains(t, stdout.String(), "exited right after the launch")
+	assertNotContains(t, stdout.String(), "✓ Dispatched")
 	if cs := comments(t, loadLeadIssue(t, proj, "loner").FilePath); len(cs) != 0 {
 		t.Fatalf("comments = %+v", cs)
 	}

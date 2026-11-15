@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,9 @@ func relTail(file string) string {
 
 // Git runs git -C dir args and returns its trimmed output.
 func Git(dir string, args ...string) (string, error) {
+	if gitdir.NoRepo(dir, args...) {
+		return "", fmt.Errorf("git %s: not a git repository", args[0])
+	}
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -172,4 +176,20 @@ func WriteAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// Tracked reports whether git tracks file: false when the file is not in a
+// git repository or git doesn't know it (untracked or ignored).
+func Tracked(file string) bool {
+	dir := existingDir(filepath.Dir(file))
+	top, err := Git(dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(RealPath(top), filepath.Join(RealPath(dir), relTail(file)))
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	out, err := Git(top, "ls-files", "--", rel)
+	return err == nil && out != ""
 }

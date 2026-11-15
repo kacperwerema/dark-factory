@@ -121,6 +121,7 @@ func TestPrivacyHookKeepsAnExistingHook(t *testing.T) {
 	proj, root, _ := makePrivacyFixture(t, privacyTrackerBlock)
 	hooks := filepath.Join(root, ".git", "hooks")
 	os.MkdirAll(hooks, 0o755)
+	// not a stand-in: a hook the install keeps as pre-push.local, never run
 	if err := os.WriteFile(filepath.Join(hooks, "pre-push"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

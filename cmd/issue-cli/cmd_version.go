@@ -21,7 +21,7 @@ var versionCommand = &Command{
 -ldflags by make build / make install and the release Action ("dev" for a
 build with no stamp and no module version; a go install …@vX.Y.Z says
 vX.Y.Z). A release candidate (v0.54.0-rc.1) says so and how to
-report a problem against it.`,
+report a problem against it. issue-cli --version and -v are the same.`,
 	Run: runVersion,
 }
 

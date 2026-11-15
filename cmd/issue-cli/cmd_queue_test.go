@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/queue"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -147,12 +149,18 @@ func TestQueueNextStart_QuoteRuleAndMarks(t *testing.T) {
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "gap 5m") || len(*started) != 1 {
 		t.Fatalf("second start: %v, started %v", err, *started)
 	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("a hold is classed %q, want %q", class, telemetry.ErrHold)
+	}
 
 	// Past the gap, still nothing: low has no owner's words.
 	os.Remove(filepath.Join(autostart.SharedDir(), "last.json"))
 	_, err = runQ(t, proj, "next", "--start")
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "nothing ready to start (first: low, no owner's words") {
 		t.Fatalf("no words: %v", err)
+	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("nothing to start is classed %q, want %q", class, telemetry.ErrHold)
 	}
 
 	// The owner's standing start: low starts on auto-start's words.
@@ -168,6 +176,30 @@ func TestQueueNextStart_QuoteRuleAndMarks(t *testing.T) {
 	out = mustQ(t, proj, "next")
 	assertContains(t, out, "hold: nothing open in the queue")
 	assertContains(t, out, "∞ "+queue.RefillText)
+}
+
+// A worker that dies at launch is no start: the item stays open for the next
+// tick, and the machine-wide gap isn't stamped.
+func TestQueueNextStart_DeadLaunchLeavesTheItemOpen(t *testing.T) {
+	proj := makeAutostartProject(t)
+	stubDeadLaunch(t)
+	mustQ(t, proj, "add", "high", "--quote", queueWords, "--how", "in the CEO chat")
+	out, err := runQ(t, proj, "next", "--start")
+	if err == nil || !strings.Contains(err.Error(), "dispatching high failed") {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	assertContains(t, out, "exited right after the launch")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("1"); it.State != queue.Open {
+		t.Fatalf("item = %+v", it)
+	}
+	if last := lastComment(t, proj, "high"); strings.Contains(last, "dispatch:") {
+		t.Fatalf("comment after a dead launch: %q", last)
+	}
+	stubStart(t)
+	if out := mustQ(t, proj, "next", "--start"); !strings.Contains(out, "✓ Started queue item 1: high") {
+		t.Fatalf("next tick: %s", out)
+	}
 }
 
 func TestQueueNextStart_MachineChecks(t *testing.T) {
@@ -310,10 +342,10 @@ func TestQueue_ShipSHAFallsBackToMain(t *testing.T) {
 	queueGit(t, root, "add", "a.txt")
 	queueGit(t, root, "commit", "-q", "-m", "base")
 	head := queueGit(t, root, "rev-parse", "HEAD")
-	if got := queueShipSHA(root, "no/branch"); got != head {
+	if got, _ := queueShipSHA(root, "no/branch", ""); got != head {
 		t.Fatalf("no work branch: %q, want main %q", got, head)
 	}
-	if got := queueShipSHA(t.TempDir(), "x"); got != "" {
+	if got, _ := queueShipSHA(t.TempDir(), "x", ""); got != "" {
 		t.Fatalf("not a repo: %q", got)
 	}
 }
@@ -329,4 +361,174 @@ func TestQueueLine_InWhoami(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, stdout.String(), "Queue: 1 active, next high. At each check-in: issue-cli --project proj queue next --start")
+}
+
+// queueShipRepo is a repo on main with work/<slug> one commit ahead.
+func queueShipRepo(t *testing.T, root, mainBranch, slug string) (base, tip string) {
+	t.Helper()
+	queueGit(t, root, "init", "-q", "-b", mainBranch)
+	queueGit(t, root, "config", "maintenance.auto", "false")
+	queueGit(t, root, "config", "gc.auto", "0")
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644)
+	queueGit(t, root, "add", "a.txt")
+	queueGit(t, root, "commit", "-q", "-m", "base")
+	base = queueGit(t, root, "rev-parse", "HEAD")
+	queueGit(t, root, "checkout", "-q", "-b", "work/"+slug)
+	os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644)
+	queueGit(t, root, "add", "b.txt")
+	queueGit(t, root, "commit", "-q", "-m", "feat: the work")
+	tip = queueGit(t, root, "rev-parse", "HEAD")
+	queueGit(t, root, "checkout", "-q", mainBranch)
+	return base, tip
+}
+
+// Reaching done with work/<slug> ahead of main stores no SHA (main's head
+// has nothing to do with the issue) and a "not on main" note.
+func TestQueueShipSHANotOnMain(t *testing.T) {
+	proj := makeDoneParkedFixture(t, "shipping", "", "")
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
+	root := filepath.Dir(proj.IssueDir)
+	base, _ := queueShipRepo(t, root, "main", "cli/sample")
+	if sha, note := queueShipSHA(root, "cli/sample", ""); sha != "" || note != queue.NotOnMain {
+		t.Fatalf("queueShipSHA = %q, %q; want no sha and %q (main is %s)", sha, note, queue.NotOnMain, base)
+	}
+
+	mustQ(t, proj, "add", "cli/sample", "--quote", queueWords)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "done"}); err != nil {
+		t.Fatalf("transition: %v", err)
+	}
+	assertContains(t, stdout.String(), "✓ Queue item 1 marked done (not on main)")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("1"); it.State != queue.Done || it.DoneSHA != "" || it.Note != queue.NotOnMain {
+		t.Fatalf("item = %+v, want done, no sha, note %q", it, queue.NotOnMain)
+	}
+}
+
+// The main branch is the project's: ci.branch when set, not main/master.
+func TestQueueShipSHAUsesTheProjectsMainBranch(t *testing.T) {
+	root := t.TempDir()
+	_, tip := queueShipRepo(t, root, "trunk", "cli/sample")
+	queueGit(t, root, "branch", "main") // a stale main at the base
+	queueGit(t, root, "checkout", "-q", "-b", "develop")
+	queueGit(t, root, "merge", "-q", "--ff-only", "work/cli/sample")
+	queueGit(t, root, "checkout", "-q", "trunk")
+	if sha, note := queueShipSHA(root, "cli/sample", "develop"); sha != tip || note != "" {
+		t.Fatalf("merged into ci.branch develop: %q, %q; want the tip %s", sha, note, tip)
+	}
+	// Without ci.branch the main checkout's branch (trunk) decides: the
+	// work isn't on it, whatever main holds.
+	if sha, note := queueShipSHA(root, "cli/sample", ""); sha != "" || note != queue.NotOnMain {
+		t.Fatalf("not on trunk: %q, %q", sha, note)
+	}
+}
+
+// queue prints "done (not on main)" for such an item.
+func TestQueueListShowsNotOnMain(t *testing.T) {
+	proj := makeAutostartProject(t)
+	mustQ(t, proj, "add", "high", "--quote", queueWords)
+	if err := queue.Update(proj.IssueDir, func(q *queue.Queue) error {
+		q.MarkDone("high", "", time.Now())
+		q.Find("1").Note = queue.NotOnMain
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out := mustQ(t, proj)
+	assertContains(t, out, "1. [x] done (not on main) high")
+	out = mustQ(t, proj, "list", "--all")
+	assertContains(t, out, "high · done (not on main)")
+}
+
+// queueDoneNotOnMain is a project whose item 1 (cli/sample) reached done
+// while work/cli/sample was ahead of main: done, no SHA, "not on main".
+func queueDoneNotOnMain(t *testing.T) (proj *tracker.Project, root, tip string) {
+	t.Helper()
+	proj = makeDoneParkedFixture(t, "shipping", "", "")
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
+	root = filepath.Dir(proj.IssueDir)
+	_, tip = queueShipRepo(t, root, "main", "cli/sample")
+	mustQ(t, proj, "add", "cli/sample", "--quote", queueWords)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "done"}); err != nil {
+		t.Fatalf("transition: %v", err)
+	}
+	assertContains(t, stdout.String(), "marked done (not on main)")
+	return proj, root, tip
+}
+
+// The lead lands the branch by hand, then runs queue done: the item gets
+// the work tip as its SHA, and the line says so.
+func TestQueueDoneFillsTheSHAOnceTheBranchLands(t *testing.T) {
+	proj, root, tip := queueDoneNotOnMain(t)
+	q, _ := queue.Load(proj.IssueDir)
+	doneAt := q.Find("1").DoneAt
+	queueGit(t, root, "merge", "-q", "--ff-only", "work/cli/sample")
+	out := mustQ(t, proj, "done", "1")
+	assertContains(t, out, "✓ Item 1 done at "+tip[:7]+": work/cli/sample is on main")
+	q, _ = queue.Load(proj.IssueDir)
+	it := q.Find("1")
+	if it.DoneSHA != tip || it.Note != "" || !it.DoneAt.Equal(doneAt) {
+		t.Fatalf("item = %+v, want sha %s, no note, done_at kept %v", it, tip, doneAt)
+	}
+}
+
+// queue list fills the SHA by itself once the branch is on main, and
+// saves it.
+func TestQueueListFillsAMissingSHA(t *testing.T) {
+	proj, root, tip := queueDoneNotOnMain(t)
+	out := mustQ(t, proj)
+	assertContains(t, out, "done (not on main) cli/sample")
+	queueGit(t, root, "merge", "-q", "--ff-only", "work/cli/sample")
+	out = mustQ(t, proj)
+	assertContains(t, out, "1. [x] "+tip[:7]+" cli/sample")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("1"); it.DoneSHA != tip || it.Note != "" {
+		t.Fatalf("saved item = %+v, want sha %s and no note", it, tip)
+	}
+}
+
+// An item reconcile marked done (the issue closed another way) gets its
+// SHA too, once its branch is on main.
+func TestQueueReconciledItemGetsItsSHA(t *testing.T) {
+	proj := makeDoneParkedFixture(t, "shipping", "", "")
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
+	root := filepath.Dir(proj.IssueDir)
+	_, tip := queueShipRepo(t, root, "main", "cli/sample")
+	queueGit(t, root, "merge", "-q", "--ff-only", "work/cli/sample")
+	mustQ(t, proj, "add", "cli/sample", "--quote", queueWords)
+	if err := queue.Update(proj.IssueDir, func(q *queue.Queue) error {
+		q.MarkDone("cli/sample", "", time.Now())
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, mustQ(t, proj), "1. [x] "+tip[:7]+" cli/sample")
+}
+
+// While the branch is still not on main, queue done says so: no ✓.
+func TestQueueDoneSaysNotOnMain(t *testing.T) {
+	proj, _, _ := queueDoneNotOnMain(t)
+	out := mustQ(t, proj, "done", "1")
+	assertNotContains(t, out, "✓")
+	assertContains(t, out, "work/cli/sample isn't on main yet")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("1"); it.State != queue.Done || it.DoneSHA != "" || it.Note != queue.NotOnMain {
+		t.Fatalf("item = %+v, want done, no sha, %q", it, queue.NotOnMain)
+	}
+}
+
+// queue done again on an item that has its SHA keeps it.
+func TestQueueDoneKeepsAStoredSHA(t *testing.T) {
+	proj := makeAutostartProject(t)
+	mustQ(t, proj, "add", "high", "--quote", queueWords)
+	mustQ(t, proj, "done", "1", "--sha", "abc1234def")
+	assertContains(t, mustQ(t, proj, "done", "1"), "✓ Item 1 done")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("1"); it.DoneSHA != "abc1234def" {
+		t.Fatalf("item = %+v, want the stored sha kept", it)
+	}
 }

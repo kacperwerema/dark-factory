@@ -56,10 +56,24 @@ func (m Memory) IdleDays(now time.Time) float64 {
 }
 
 // Decayed wraps a ranker and weighs each hit by its memory's strength at
-// Now: score × (0.3 + 0.7 × strength), then re-sorts.
+// Now: score × (0.3 + 0.7 × strength), then re-sorts. With Scores, a
+// memory measured unhelpful (usefulness.go) has its strength multiplied by
+// UnhelpfulFactor: it still shows when it is the best match, below an
+// equal one that is not.
 type Decayed struct {
-	Inner Ranker
-	Now   time.Time
+	Inner  Ranker
+	Now    time.Time
+	Scores Scores
+}
+
+// StrengthOf is m's strength at d.Now, lowered when d.Scores measures it
+// unhelpful (never a pinned memory's).
+func (d Decayed) StrengthOf(m Memory) float64 {
+	st := Strength(m, d.Now)
+	if d.Scores.Unhelpful(m) {
+		st *= UnhelpfulFactor
+	}
+	return st
 }
 
 // Rank implements Ranker.
@@ -72,7 +86,7 @@ func (d Decayed) Rank(q Query, mems []Memory) []Hit {
 	q.Limit = 0 // weigh every hit before cutting
 	hits := inner.Rank(q, mems)
 	for i := range hits {
-		hits[i].Score *= decayFloor + (1-decayFloor)*Strength(hits[i].Memory, d.Now)
+		hits[i].Score *= decayFloor + (1-decayFloor)*d.StrengthOf(hits[i].Memory)
 	}
 	return sortHits(hits, limit)
 }

@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -211,5 +213,50 @@ func TestSecurity_TemplatesEscapeDispatchSteps(t *testing.T) {
 				t.Errorf("%s puts %q into HTML unescaped", f, strings.TrimSpace(bad))
 			}
 		}
+	}
+}
+
+// A worker runs make security-check with ISSUE_CLI_LOG in its shell: the
+// sandbox viewer, and every issue-cli it starts, must not inherit it. Stand-ins
+// take the place of go, curl, tmux and mem-guard, so this runs the script's
+// real env line without a build.
+func TestSecurityCheckViewerRunsWithoutTheClilog(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "viewer.env")
+	// The record sits beside bin/ ("${0%/bin/*}"), so every body is the same
+	// each run (internal/standin).
+	standIns := map[string]string{
+		"go": `rec=${0%/bin/*}/viewer.env
+cat >"$3" <<EOF
+#!/bin/sh
+echo "log=\${ISSUE_CLI_LOG:-unset}" >$rec.tmp
+mv $rec.tmp $rec
+exec sleep 60
+EOF
+chmod +x "$3"
+`,
+		"curl":      "[ -e \"${0%/bin/*}/viewer.env\" ]\n", // up once the viewer has written its record
+		"tmux":      "exit 0\n",
+		"mem-guard": "exit 0\n",
+	}
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range standIns {
+		standin.Write(t, filepath.Join(bin, name), body)
+	}
+
+	cmd := exec.Command(filepath.Join("..", "..", "scripts", "security-check.sh"))
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "TMPDIR="+t.TempDir(),
+		"ISSUE_CLI_LOG="+filepath.Join(dir, "worker.clilog"))
+	out, _ := cmd.CombinedOutput() // red by design: every stand-in probe fails
+
+	got, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("the stand-in viewer never ran: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(got)) != "log=unset" {
+		t.Fatalf("the sandbox viewer inherited the worker's clilog: %s", got)
 	}
 }

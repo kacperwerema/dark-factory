@@ -1,0 +1,5 @@
+# Changelog
+
+## Unreleased
+
+- First version: Words, Count and Lines.

@@ -1,0 +1,178 @@
+# A rankings source for the seo-pass measure step: OpenSEO (MIT,
+# github.com/every-app/open-seo), self-hosted on this machine, read over MCP.
+# Off until you uncomment it, and free until you add a DataForSEO key:
+# site audits, Search Console and GA4 work without one; keyword, rank and
+# SERP data need it. Uncomment the lines below (drop "# " after the indent).
+#
+# - The DataForSEO key (optional, paid) is never in this file: keep it in
+#   Keychain (security add-generic-password -s dataforseo -w) and write it
+#   into OpenSEO's own .env as DATAFORSEO_API_KEY.
+# - Cost cap per pass: $1 of DataForSEO data; give maxCostUsd on each paid
+#   call (the weekly-seo-pass brief says the same).
+# - Sign-in: OpenSEO's default local_noauth needs no key. With
+#   AUTH_MODE=password, uncomment headers: too.
+connectors:
+  - name: openseo
+    kind: mcp
+    url: http://localhost:3011/mcp
+    # headers:
+    #   Authorization: "Bearer keychain:openseo-api-key"
+    # Tools that send outside the machine or start paid schedules stay off.
+    deny_tools: [submit_indexnow_urls, set_report_sharing, set_ai_visibility_schedule]
+    check: "curl -fsS http://localhost:3011/api/health"
+    note: "OpenSEO on this machine: ranks, Search Console, GA4, audits; the rankings source for seo-pass measure"
+  # Visits, for the visits goal: Umami (MIT, umami.is), read over its REST
+  # API. kind: rest makes only GETs, on the get: path, inside issue-cli with
+  # the key read from Keychain at the call: no write call is reachable, so
+  # sends: false. Where it runs is yours: self-hosted (port 3000 by
+  # default) or Umami Cloud; edit url: and check: to yours. No per_run:,
+  # since the collector must stay up to receive visits. The key is a
+  # Keychain item: security add-generic-password -s umami-api-key -a "$USER" -w
+  # (self-hosted: a token from /api/auth/login; Cloud: an API key). A call
+  # reads the week's stats (its visits, visitors and pageviews):
+  #   issue-cli connector exec marketing/umami --
+  #     '/websites/<id>/stats?startAt=<ms>&endAt=<ms>'
+  # On Cloud: url: https://api.umami.is/v1 and the header
+  # x-umami-api-key: "keychain:umami-api-key" in place of Authorization.
+  - name: umami
+    kind: rest
+    url: http://localhost:3000/api
+    headers:
+      Authorization: "Bearer keychain:umami-api-key"
+    get: [/websites/*/stats]
+    check: "curl -fsS http://localhost:3000/api/heartbeat"
+    sends: false
+    note: "Umami analytics, read-only (GET): the week's visits for marketing/visits (goal write marketing/weekly-seo-pass)"
+  # Social posts, for the social channel type's brief, publish and measure
+  # steps: Postiz (AGPL-3.0, github.com/gitroomhq/postiz-app), the social
+  # slot's pick (issue-cli department partners --slot social). AGPL is a
+  # licence exception the owner recorded: used unchanged, as a separate
+  # program over HTTP, never copied into this repository. The channel
+  # prompts name the connector `social`, never the tool, so swapping it is
+  # this entry only.
+  #
+  # - Install it yourself, outside any repository: its docker compose with
+  #   every port on 127.0.0.1 (its own file publishes on all interfaces and
+  #   on 8080), DISABLE_REGISTRATION: 'true' after your first sign-up, and
+  #   its tracking variables (Sentry, Plausible, GTM, Datafast) left empty.
+  #   Give its services restart: unless-stopped (its file says always,
+  #   which brings a stopped Postiz back up whenever Docker restarts).
+  #   Run `docker compose -p postiz -f <file> up -d` once, then `stop`.
+  #   Edit the compose file's path in per_run: below to yours.
+  # - It needs about 2.4 GB while up, so per_run: starts it for one run
+  #   (only while mem-guard allows it) and stops it after, on every way out; a run
+  #   killed outright leaves it to the viewer's sweep. stop: stops every
+  #   container labelled with the compose project, not only the file's
+  #   services, so a service under a profile or an orphan goes down too.
+  # - Its one API key drafts and posts (there is no read-only key), so
+  #   sends: true. Keep it in Keychain, never here:
+  #     security add-generic-password -s postiz -a "$USER" -w
+  # - at: limits its tools per status: read calls at brief, none at draft
+  #   or owner review, scheduling only at publish, reads at measure.
+  #   Postiz's `type: now` sits inside each post (socialPost[].type):
+  #   deny_args: names that path, so the bridge refuses a post sent to go
+  #   out at once and only scheduled ones pass, besides the owner_only gate
+  #   before publish. Its MCP has no analytics tool: measure reads the
+  #   numbers through `social-analytics` below.
+  # - ready: asks the MCP endpoint until it answers 401 (up, no key sent)
+  #   six times in a row over 12 s: nginx inside Postiz marks its backend
+  #   down for 10 s after each refused probe during the start, so one 401
+  #   isn't enough; a session started then would get 502.
+  # - deny_tools: switches off its own AI tools, which call outside
+  #   services with keys you leave empty.
+  # - triggerTool runs a network's read helpers (Reddit: a subreddit's
+  #   flairs and post requirements; Pinterest: boards; …); every helper
+  #   Postiz has only reads.
+  # - Reddit: Postiz posts to a subreddit and threads a first comment under
+  #   our own post, with your Reddit app (REDDIT_CLIENT_ID and
+  #   REDDIT_CLIENT_SECRET in its env, from the connect-socials page). Reddit
+  #   closed new public API access on 2026-10-31: only an app you already
+  #   hold, or one Reddit approves, works (docs/departments.md, "Social:
+  #   Reddit").
+  - name: social
+    kind: mcp
+    url: http://127.0.0.1:4007/api/mcp
+    headers:
+      Authorization: "Bearer keychain:postiz"
+    sends: true
+    exception: factory/open-source-partners-integrate-outside-tools-openmontage-openseo-postiz-instead-of-building-them-in-house#D-4
+    deny_tools: [ask_postiz, generateImageTool, generateVideoTool, generateVideoOptions, videoFunctionTool, videoStatusTool]
+    at:
+      brief:
+        allow: [integrationList, integrationSchema, groupList, triggerTool]
+      publish:
+        allow: [integrationList, integrationSchema, groupList, triggerTool, uploadFromUrlTool, mediaListTool, mediaStatusTool, integrationSchedulePostTool, postsListTool]
+        deny_args:
+          integrationSchedulePostTool: {"socialPost[].type": [now]}
+      measure:
+        allow: [integrationList, postsListTool]
+    per_run:
+      tool: postiz
+      start: 'docker compose -p postiz -f ~/postiz/compose.yaml start'
+      ready: 'for i in 1 2 3 4 5 6; do test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4007/api/mcp)" = 401 || exit 1; sleep 2; done'
+      stop: 'docker compose -p postiz -f ~/postiz/compose.yaml stop; ids=$(docker ps -q --filter label=com.docker.compose.project=postiz); [ -z "$ids" ] || docker stop $ids'
+      timeout: 120
+    note: "Postiz on this machine: network rules at brief, schedules approved posts at publish; started per run, stopped after"
+  # Per-post and per-channel numbers, for the social type's measure step:
+  # Postiz's public REST API (its MCP has no analytics). kind: rest makes
+  # only GETs, on the get: paths, inside issue-cli with the key read from
+  # Keychain at the call: no write call is reachable even though the key
+  # can post, so sends: false. It shares the social connector's lease
+  # (per_run: tool: postiz, the same start:, ready: and stop:): Postiz
+  # starts for the call and stops after, unless a social run still holds
+  # it. One call reads several paths at one start, one JSON line each:
+  #   issue-cli connector exec marketing/social-analytics --
+  #     '/public/v1/posts?startDate=<ISO date>&endDate=<ISO date>'
+  #     '/public/v1/analytics/post/<post id>?date=7'
+  # The post id is the one publish listed under ## Published; a channel's
+  # numbers are /public/v1/analytics/<channel id>?date=7 (ids from
+  # /public/v1/integrations). A network Postiz has no analytics for
+  # (Bluesky, Mastodon, Reddit) answers [], which measure writes as
+  # "no value yet".
+  - name: social-analytics
+    kind: rest
+    url: http://127.0.0.1:4007/api
+    headers:
+      Authorization: "keychain:postiz"
+    get: [/public/v1/analytics/post/*, /public/v1/analytics/*, /public/v1/posts, /public/v1/integrations]
+    sends: false
+    exception: factory/open-source-partners-integrate-outside-tools-openmontage-openseo-postiz-instead-of-building-them-in-house#D-4
+    per_run:
+      tool: postiz
+      start: 'docker compose -p postiz -f ~/postiz/compose.yaml start'
+      ready: 'for i in 1 2 3 4 5 6; do test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4007/api/mcp)" = 401 || exit 1; sleep 2; done'
+      stop: 'docker compose -p postiz -f ~/postiz/compose.yaml stop; ids=$(docker ps -q --filter label=com.docker.compose.project=postiz); [ -z "$ids" ] || docker stop $ids'
+      timeout: 120
+    note: "Postiz's analytics, read-only (GET): per-post and per-channel numbers for social measure; started per run on the social lease, stopped after"
+  # Reddit, read-only, for the social research step: reddit-mcp-buddy (MIT,
+  # github.com/karanb192/reddit-mcp-buddy, npm reddit-mcp-buddy), run
+  # unchanged with npx. It reads the subreddits in
+  # departments/<key>/subreddits.md: top posts, recurring questions, mentions
+  # of the brand and competitors. The research prompt names the connector
+  # `reddit`, never the tool.
+  #
+  # - It needs a Reddit app. Reddit closed new public API access on
+  #   2026-10-31 (RSS, the last route without one, ended 2026-11-13): only
+  #   an app you already hold, or one Reddit approves, works. Without it
+  #   the research step reads nothing from Reddit and says so.
+  # - App-only credentials, so no write tool exists: never add
+  #   REDDIT_USERNAME, REDDIT_PASSWORD, REDDIT_REFRESH_TOKEN or
+  #   REDDIT_BUDDY_WRITE. deny_tools: switches the write tools off as well.
+  #   Posts go through `social` (Postiz) at publish, after your review.
+  # - The same two Keychain items Postiz's Reddit app uses: service
+  #   postiz-env, account the variable's name. The connect-socials page
+  #   writes them, or by hand:
+  #     security add-generic-password -s postiz-env -a REDDIT_CLIENT_ID -w
+  #     security add-generic-password -s postiz-env -a REDDIT_CLIENT_SECRET -w
+  # - A light Node process that lives as long as the agent session that
+  #   launched it, so no per_run:. It reads at most 60 calls a minute.
+  - name: reddit
+    kind: mcp
+    command: npx
+    args: ["-y", "reddit-mcp-buddy@1.3.0"]
+    secrets:
+      REDDIT_CLIENT_ID: keychain:postiz-env/REDDIT_CLIENT_ID
+      REDDIT_CLIENT_SECRET: keychain:postiz-env/REDDIT_CLIENT_SECRET
+    deny_tools: [create_post, add_comment]
+    sends: false
+    note: "Reddit, read-only: the subreddits in subreddits.md for social research; posts go through social at publish"

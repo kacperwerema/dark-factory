@@ -68,9 +68,16 @@ func TestEveryWorkflowFeatureHasACatalogEntry(t *testing.T) {
 	}
 
 	for _, r := range tracker.WorkflowValidationRules {
-		name := strings.TrimSpace(strings.SplitN(r.Name, ":", 2)[0])
+		name, _ := tracker.SplitRule(r.Name)
 		if !ruleCovered(entries, name) {
 			t.Errorf("validator rule %s has no catalog entry detecting it: add %s to the rule_in: of the entry whose probe matches the rule's statuses[]/transitions[] path (or give a new entry a probe with rule_in: [%s]), in %s/<id>.yaml", name, name, name, CatalogPath)
+		}
+	}
+	for _, e := range entries {
+		for name := range ruleNames(e) {
+			if !tracker.KnownRule(name) {
+				t.Errorf("catalog entry %s detects rule_in %s, which tracker.WorkflowValidationRules doesn't list", e.ID, name)
+			}
 		}
 	}
 	for _, a := range tracker.WorkflowActionTypes {
@@ -180,7 +187,7 @@ func TestGuardCatchesANewKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"ci.run", "health.limits", "workbench.pages", "leads.project", "ci.run[].results"} {
+	for _, k := range []string{"ci.run", "health.limits", "workbench.pages", "leads.project", "leads.project_addendum", "ci.run[].results"} {
 		if !keyCovered(entries, k) {
 			t.Errorf("%s should be covered", k)
 		}

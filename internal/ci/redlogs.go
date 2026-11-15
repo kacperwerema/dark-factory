@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // Kept red logs: a red run's log is copied to .ci/red/ when the run ends, so
@@ -170,7 +172,7 @@ func (s *State) LastRedLine(root string, now time.Time) string {
 	if rel == "" {
 		return ""
 	}
-	what := Short(s.LastRedSha)
+	what := gitdir.ShortSHA(s.LastRedSha)
 	if s.LastRedTier != "" && s.LastRedTier != defaultTier {
 		what += " tier " + s.LastRedTier
 	}

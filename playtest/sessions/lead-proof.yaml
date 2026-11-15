@@ -1,0 +1,33 @@
+session: lead-proof
+issue: workflow/a-proof-that-waits-on-the-leads-act-shows-as-waits-on-the-lead-command-on-the-leads-tick-and-the-station
+title: A criterion waiting on the lead's command shows as "waits on the lead" on the Station and the Report's Queue card
+scenario: lead-proof
+
+# The lead link is a fixture in the scenario's sidecar; no command runs.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP2
+    title: The Station's criteria list shows AC2 with a lead tag and "waits on the lead" with the command
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/issue/workflow/guided-check-needs-the-lead
+    checks:
+      - visible: [station.tests, station.criterion.lead]
+      - text_contains: { target: station.criterion.lead, text: "waits on the lead: issue-cli check-script workflow/guided-check-needs-the-lead --yes" }
+      - text_contains: { target: station.criterion.lead, text: "lead" }
+
+  - id: TP3
+    title: The Report's Queue card counts the criterion waiting on the lead and names queue next
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - visible: [status.queue.lead_waits]
+      - text_contains: { target: status.queue.lead_waits, text: "1 criterion waits on the lead's command" }
+      - text_contains: { target: status.queue.lead_waits, text: "queue next" }

@@ -53,6 +53,9 @@ func checkEvals(env *Env) []Finding {
 				add(fmt.Sprintf("eval %s: assert type %q %s", name, a.Type, msg), fix)
 			}
 		}
+		for _, f := range stageProblems(wf, name, e) {
+			add(f[0], f[1])
+		}
 	}
 	claimed := map[string]string{}
 	catchAll := ""
@@ -76,7 +79,8 @@ func checkEvals(env *Env) []Finding {
 	if catchAll == "" && len(wf.Types) > 0 {
 		var missing []string
 		for t := range wf.Types {
-			if _, ok := claimed[t]; !ok {
+			// A chore closes no golden task: nothing to score.
+			if _, ok := claimed[t]; !ok && t != tracker.ChoreType {
 				missing = append(missing, t)
 			}
 		}
@@ -84,6 +88,38 @@ func checkEvals(env *Env) []Finding {
 		for _, t := range missing {
 			add(fmt.Sprintf("type %s has no eval: bench run scores its tasks by hidden tests only", t),
 				"list it in an eval's types:, or add an eval without types: (docs/benchmark.md#evals)")
+		}
+	}
+	return out
+}
+
+// stageProblems are an eval's stages: mistakes, as message and fix: a
+// stage that isn't design, code or docs, a status the file lacks, a pass
+// bar outside 0-1, and rubric lines on code (graded by its tests).
+func stageProblems(wf *tracker.WorkflowConfig, name string, e tracker.WorkflowEval) [][2]string {
+	var out [][2]string
+	keys := make([]string, 0, len(e.Stages))
+	for k := range e.Stages {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, stage := range keys {
+		st := e.Stages[stage]
+		if !slices.Contains(tracker.EvalStageNames, stage) {
+			out = append(out, [2]string{fmt.Sprintf("eval %s: stages: %q is not a stage; the benchmark scores %s", name, stage, strings.Join(tracker.EvalStageNames, ", ")),
+				"rename it to one of " + strings.Join(tracker.EvalStageNames, ", ")})
+			continue
+		}
+		if s := strings.TrimSpace(st.Status); s != "" && wf.GetStatus(s) == nil {
+			out = append(out, [2]string{fmt.Sprintf("eval %s: stage %s names status %q, which this workflow lacks", name, stage, s),
+				"name one of the file's statuses, or drop status: (design and code default to the design and work roles' statuses)"})
+		}
+		if st.Pass < 0 || st.Pass > 1 {
+			out = append(out, [2]string{fmt.Sprintf("eval %s: stage %s pass: %g is outside 0-1 (a mean score)", name, stage, st.Pass), "pass: 0.7"})
+		}
+		if stage == tracker.EvalStageCode && len(st.Rubric) > 0 {
+			out = append(out, [2]string{fmt.Sprintf("eval %s: stage code has rubric: lines, but code is scored by the hidden tests and check; nothing reads them", name),
+				"move the lines to design or docs, or drop them"})
 		}
 	}
 	return out

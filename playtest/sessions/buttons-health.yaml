@@ -1,0 +1,18 @@
+session: buttons-health
+issue: ui/the-one-primary-action-guard-holds-the-pages-already-within-the-rule
+title: "Health stays at its count of visible actions, one primary per card or row"
+scenario: health
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Health shows at most 6 actions, one primary per card or row
+    proves: [AC1, AC3]
+    setup:
+      - open: /p/{project}/health?range=all
+    checks:
+      - buttons: { max: 6 }

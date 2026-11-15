@@ -41,15 +41,15 @@ var (
 // + the reset time, where the names are "5-hour limit", "weekly limit",
 // "Opus limit", "Sonnet limit" and "Fable limit", and the time is
 // toLocaleTimeString with the zone: "3pm (Europe/Warsaw)", "3:45pm
-// (Europe/Warsaw)", or past 24 hours "Nov 3, 9am (Europe/Warsaw)" (with the
-// year when it differs). Also "Usage limit reached · continuing automatically
+// (Europe/Warsaw)", or past 24 hours "Nov 3, 9am (Europe/Warsaw)" or, seen on
+// 2.1.318, "Nov 5 at 8am (Europe/Warsaw)" (with the year when it differs). Also "Usage limit reached · continuing automatically
 // …" and the older "Claude usage limit reached. Your limit will reset at 5pm
 // (America/New_York)." / "Claude AI usage limit reached|1749924000" (a unix
 // time). Spend caps and usage credits (paid extras, not the plan) don't count.
 var (
 	claudeLimit = regexp.MustCompile(`(?i)(you[’']ve hit your (5-hour|weekly|opus|sonnet|fable|session) limit|usage limit reached)`)
 	claudeEpoch = regexp.MustCompile(`(?i)usage limit reached\|(\d{9,11})`)
-	claudeAt    = regexp.MustCompile(`(?i)resets?(?: at)? (?:([A-Z][a-z]{2}) (\d{1,2}),? (?:\d{4},? )?)?(\d{1,2})(?::(\d{2}))? ?([ap]m)(?: \(([A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*)\))?`)
+	claudeAt    = regexp.MustCompile(`(?i)resets?(?: at)? (?:([A-Z][a-z]{2}) (\d{1,2}),? (?:\d{4},? )?(?:at )?)?(\d{1,2})(?::(\d{2}))? ?([ap]m)(?: \(([A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*)\))?`)
 )
 
 // FindLimit looks for agent's own limit message in the last lines of pane
@@ -158,7 +158,9 @@ func claudeReset(line string, now time.Time) Limit {
 		day, _ := strconv.Atoi(m[2])
 		ref := now.In(loc)
 		until = time.Date(ref.Year(), mon.Month(), day, hour, minute, 0, 0, loc)
-		if until.Before(ref.Add(-24 * time.Hour)) {
+		// A date half a year back is next year's ("Jan 2" read in December);
+		// a nearer one is a stale line still on a pane, and stays in the past.
+		if until.Before(ref.AddDate(0, -6, 0)) {
 			until = until.AddDate(1, 0, 0)
 		}
 	} else {

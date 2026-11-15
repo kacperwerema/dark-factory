@@ -329,7 +329,7 @@ func TestTimelineMatchesAggregate(t *testing.T) {
 	if issue == nil || agg.Slug == "" {
 		t.Fatalf("fix-it not found: aggregate %+v", rep.Issues)
 	}
-	tl := buildTimeline(loadTimelineSources(&proj, issue, wf), timelineInput{Status: "done", Now: time.Now(), WF: wf})
+	tl := buildTimeline(loadTimelineSources(nil, &proj, issue, wf), timelineInput{Status: "done", Now: time.Now(), WF: wf})
 	if tl.Total != agg.Cycle || tl.Working != agg.Working || tl.Rework != agg.Rework {
 		t.Errorf("tab total %v working %v rework %v; aggregate cycle %v working %v rework %v", tl.Total, tl.Working, tl.Rework, agg.Cycle, agg.Working, agg.Rework)
 	}

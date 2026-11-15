@@ -122,7 +122,7 @@ func TestYOLOGatePassesAndMarks(t *testing.T) {
 	}
 
 	// Next step says to run it, not to stop.
-	if !strings.Contains(out, "YOLO is on until") || !strings.Contains(out, `issue-cli transition design --to "in progress"`) {
+	if !strings.Contains(out, "YOLO is on until") || !strings.Contains(out, `issue-cli transition design --to 'in progress'`) {
 		t.Fatalf("next step not rewritten for YOLO:\n%s", out)
 	}
 }
@@ -142,14 +142,54 @@ func TestYOLONeverPasses(t *testing.T) {
 	}
 
 	wf := proj.LoadWorkflowForIssue(issue)
-	if yoloEligible(wf, nil, "backlog", "in design", "in design") {
+	if yolo.Eligible(wf, nil, "backlog", "in design") {
 		t.Fatal("backwards step eligible")
 	}
-	if yoloEligible(wf, nil, "in progress", "human-testing", "human-testing") {
-		t.Fatal("Human Testing approval eligible")
-	}
-	if !yoloEligible(wf, nil, "human-testing", "documentation", "documentation") {
+	if !yolo.Eligible(wf, nil, "human-testing", "documentation") {
 		t.Fatal("human-testing → documentation should pass in YOLO")
+	}
+}
+
+// The Human Testing approval passes like any gate and waits for the owner's
+// review after the fact (D-1 of
+// cli/under-yolo-transition-human-testing-documentation-dry-run-says-ready-the):
+// the transition passes it, writes the marker and queues it.
+func TestYOLOPassesTheHumanTestingApproval(t *testing.T) {
+	proj := makeYOLOProject(t)
+	gated := strings.Replace(yoloTestWorkflow, `    to: "human-testing"
+`, `    to: "human-testing"
+    actions:
+      - type: "require_human_approval"
+        status: "human-testing"
+`, 1)
+	if err := os.WriteFile(proj.WorkflowFile, []byte(gated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\ntitle: \"Work\"\nstatus: \"in progress\"\nassignee: \"agent-work\"\n---\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(proj.IssueDir, "work.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "work")
+	now := time.Now()
+
+	if _, _, err := runYOLOTransition(t, proj, now, "work", "--to", "human-testing"); err == nil {
+		t.Fatal("YOLO off: the Human Testing approval passed")
+	}
+	yoloOn(t, proj, now, time.Hour)
+	out, _, err := runYOLOTransition(t, proj, now, "work", "--to", "human-testing")
+	if err != nil {
+		t.Fatalf("YOLO on: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "YOLO: gate in progress → human-testing passed without the owner") {
+		t.Fatalf("output lacks the YOLO line:\n%s", out)
+	}
+	issue := loadLeadIssue(t, proj, "work")
+	if issue.Status != "human-testing" {
+		t.Fatalf("status = %q", issue.Status)
+	}
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	if q := yolo.Unreviewed(issue, comments); len(q) != 1 || q[0].Status != "human-testing" {
+		t.Fatalf("queue = %+v", q)
 	}
 }
 

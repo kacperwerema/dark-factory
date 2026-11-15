@@ -243,8 +243,14 @@ func TestStationComponents(t *testing.T) {
 		{"wb/full-body", WbBody{URL: "/i", Hash: "h1", Parts: []WbBodyPart{{ID: "acceptance_criteria", Title: "Acceptance criteria", Count: "0/1", Tone: "idle", HTML: "<ul><li>x</li></ul>"}}},
 			[]string{`data-body-hash="h1"`, `id="body-acceptance_criteria"`, `wb-chip--idle">0/1`, `<ul><li>x</li></ul>`}},
 		{"wb/full-body", WbBody{Empty: true}, []string{`The body is empty.`}},
-		{"wb/dispatch", WbDispatch{URL: "/i/dispatch", ActionURL: "/i/action/", PromptURL: "/i/dispatch-prompt", Actions: []tracker.CustomAction{{ID: "review", Label: "Review"}}},
-			[]string{`data-st-dispatch="/i/dispatch"`, `data-st-action="/i/action/review"`, `data-testid="station.dispatch.action.review"`, `href="/i/dispatch-prompt"`}},
+		{"wb/dispatch", WbStationAgent{Name: "agent-x", Dispatch: WbDispatch{URL: "/i/dispatch", ActionURL: "/i/action/", PromptURL: "/i/dispatch-prompt", Actions: []tracker.CustomAction{{ID: "review", Label: "Review"}}}},
+			[]string{`data-st-dispatch="/i/dispatch"`, `data-st-action="/i/action/review"`, `data-testid="station.dispatch.action.review"`, `href="/i/dispatch-prompt"`,
+				// No session: Dispatch is the one primary, Open in tmux waits in the menu, disabled.
+				`<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>
+        <details class="wb-menu" data-testid="station.agent.menu">`, `data-testid="station.agent.open" disabled`}},
+		{"wb/dispatch", WbStationAgent{Name: "agent-x", Live: true, OpenURL: "/o", Dispatch: WbDispatch{URL: "/i/dispatch", Routed: "codex", Why: "rule"}},
+			[]string{`<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-open-session="agent-x" data-open-url="/o" data-testid="station.agent.open">Open in tmux</button>`,
+				`data-testid="station.dispatch.routed">Dispatch · codex</button>`, `data-testid="station.dispatch.claude">Dispatch to Claude</button>`}},
 		{"wb/station-missing", []string{"CLI log: not found"}, []string{`Could not read 1 source`, `CLI log: not found`}},
 		{"wb/station-missing", []string(nil), nil},
 		{"wb/stamp", &WbStamp{N: 1, Targets: []string{"backlog", "in progress"}, Approved: "backlog", ApproveURL: "/a"},
@@ -287,4 +293,45 @@ func TestStationShowsTheIssuesReport(t *testing.T) {
 	if code != 200 || !strings.Contains(file, "Findings") {
 		t.Fatalf("the report file: %d %s", code, file)
 	}
+}
+
+// TestStationShowsWhatWaitsOnTheLead: a criterion whose lead link has no
+// passing run reads "waits on the lead: <command>" with a lead tag.
+func TestStationShowsWhatWaitsOnTheLead(t *testing.T) {
+	p := setupStationProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "")
+	withMockTmuxSessions(t, []AgentSession{{Name: "lead-agents"}})
+	path := filepath.Join(p.IssueDir, "UI", "station.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(body, []byte("\n## Acceptance Criteria\n\n- [ ] The guided check passes\n")...), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "issue-cli check-script ui/station --yes"
+	store := tracker.DataStore{Proofs: map[string][]tracker.ProofLink{"AC1": {{Kind: tracker.ProofLead, Ref: cmd, At: time.Now().UTC()}}}}
+	if err := tracker.SaveData(path, store); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{p})
+	defer ts.Close()
+
+	code, html := getBody(t, ts.URL+"/p/agents/issue/ui/station")
+	if code != 200 {
+		t.Fatalf("status %d: %s", code, html)
+	}
+	assertContains(t, html, `data-testid="station.criterion.lead"`, `<span class="wb-crit-lead">lead</span> waits on the lead: `+cmd, `short: AC1 (waits on the lead`)
+
+	// Once the lead's run passed, the line is the proof.
+	store.LeadRuns = []tracker.LeadRun{{Command: cmd, At: time.Now().UTC().Add(time.Minute), OK: true, By: "lead-agents"}}
+	if err := tracker.SaveData(path, store); err != nil {
+		t.Fatal(err)
+	}
+	_, html = getBody(t, ts.URL+"/p/agents/issue/ui/station")
+	if strings.Contains(html, `data-testid="station.criterion.lead"`) {
+		t.Error("a proven lead link still shows as waiting")
+	}
+	assertContains(t, html, "the lead ran it by lead-agents")
 }

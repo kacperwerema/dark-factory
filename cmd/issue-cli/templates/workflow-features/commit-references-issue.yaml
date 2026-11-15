@@ -26,7 +26,7 @@ snippet: |
   statuses:
     - name: "shipping"
       prompt: |
-        Merge main with `git merge main -m "chore(merge): main into <slug>"`: the merge's subject naming the slug is how the branch references the issue (without a merge, put a `Refs: <slug>` line in one commit's message). Before the fast-forward, run `issue-cli transition <slug> --to done --dry-run`; if its "references the issue" line fails, add the commit it shows.
+        Merge main with `git merge main -m "chore(merge): main into <slug>"`: the merge's subject naming the slug is how the branch references the issue (without a merge, put a `Refs: <slug>` line in your last code commit's message before you run the tests). Before the fast-forward, run `issue-cli transition <slug> --to done --dry-run`; if its "references the issue" line fails, add the commit it shows.
 question: "Should shipping check that a commit on the branch names the issue before main is fast-forwarded?"
 detect:
   - path: transitions[].actions[].rule

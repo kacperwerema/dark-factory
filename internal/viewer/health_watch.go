@@ -13,16 +13,16 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// The daily health snapshot: the server looks every healthCheckInterval and
+// The daily health snapshot: the server looks every HealthCheckInterval and
 // takes one for each project (once per repository) that has none from
 // today. issue-cli ci run takes the others, after each run.
 
-const healthCheckInterval = 10 * time.Minute
+const HealthCheckInterval = 10 * time.Minute
 
 // watchHealth checks every project on a tick until stop closes.
 func (s *Server) watchHealth(stop <-chan struct{}) {
 	lastErr := map[string]string{}
-	ticker := time.NewTicker(healthCheckInterval)
+	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 	for {
 		healthDaily(s.projects, time.Now(), lastErr)
@@ -96,7 +96,7 @@ func shrinkOldShots(proj *tracker.Project, now time.Time) string {
 	if !ok {
 		return ""
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return ""
 	}
@@ -106,7 +106,7 @@ func shrinkOldShots(proj *tracker.Project, now time.Time) string {
 	}
 	doneSince := func(slug string) (time.Time, bool) {
 		is, ok := bySlug[slug]
-		if !ok || is.Status != "done" {
+		if !ok || !proj.IssueDone(is) {
 			return time.Time{}, false
 		}
 		at, _ := doneAt(is) // the status page's: sidecar, done_at, else mtime

@@ -49,11 +49,24 @@ type Pack struct {
 	Stale   []Memory `json:"stale"`
 	Expired []Memory `json:"expired"`
 	Promote []Memory `json:"promote"`
+	// Unhelpful are active, unpinned memories measured unhelpful over at
+	// least ForgetMin injections: proposed to the owner for forgetting,
+	// never forgotten by the run (usefulness.go).
+	Unhelpful []Memory `json:"unhelpful"`
+	// Scores is the usefulness of every memory in the pack that has any.
+	Scores Scores `json:"scores,omitempty"`
 }
 
 // Consolidate builds the pack over mems (the memories the caller may see,
 // invalid ones included) at now.
 func Consolidate(mems []Memory, now time.Time) Pack {
+	return ConsolidateScored(mems, nil, now)
+}
+
+// ConsolidateScored is Consolidate with usefulness: the Unhelpful group and
+// each member's score. A proven memory measured unhelpful is not proposed
+// for promotion.
+func ConsolidateScored(mems []Memory, scores Scores, now time.Time) Pack {
 	var p Pack
 	var active []Memory
 	for _, m := range mems {
@@ -71,8 +84,19 @@ func Consolidate(mems []Memory, now time.Time) Pack {
 		if !m.Pinned && Strength(m, now) < StaleStrength {
 			p.Stale = append(p.Stale, m)
 		}
-		if promotable(m, now) {
+		u, scored := scores[m.ID]
+		unhelpful := !m.Pinned && u.ProposeForget()
+		if unhelpful {
+			p.Unhelpful = append(p.Unhelpful, m)
+		}
+		if promotable(m, now) && !scores.Unhelpful(m) {
 			p.Promote = append(p.Promote, m)
+		}
+		if scored {
+			if p.Scores == nil {
+				p.Scores = Scores{}
+			}
+			p.Scores[m.ID] = u
 		}
 	}
 	return p

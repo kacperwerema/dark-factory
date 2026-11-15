@@ -1,0 +1,25 @@
+# The partner layer: Video (system Video) names a stand-in OpenMontage
+# checkout at studio/ in the project root (root/studio here, written for
+# this repo, nothing copied from OpenMontage). "Pitch video" is partner
+# project waiting, whose pitch stage awaits the owner; "Odd format video"
+# is newer-format, whose checkpoint is at a version the adapter doesn't
+# know. "Self approved video" is approved, whose gated pitch stage the
+# partner marks approved with no owner decision on the issue.
+title: Video with an OpenMontage partner, one stage awaiting you
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Video
+        color: "#7B61FF"
+        role: Explainer videos made with an outside studio
+        systems: [Video]
+        partner:
+          name: OpenMontage
+          adapter: openmontage
+          path: studio
+          commit: 195eab2
+issues: tracker
+workflow: workflow.yaml
+root: root

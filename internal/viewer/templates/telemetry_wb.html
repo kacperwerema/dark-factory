@@ -6,7 +6,7 @@
 {{template "wb/header" .Header}}
 <section class="wb-ground wb-hhead">
     <div class="wb-hhead-text">
-        <h1 class="wb-h1 wb-h1--xl">Telemetry, other installs</h1>
+        <h1 class="wb-h1 wb-h1--xl" data-testid="wb.title">Telemetry, other installs</h1>
         <div class="wb-hhead-sub" data-testid="telemetry.sub">anonymous, names-only daily batches from a collector{{with .Sub}} · {{.}}{{end}}</div>
         <div class="wb-hhead-sub">{{if .Source}}reads <span class="wb-mono-inline wb-telemetry-source" data-testid="telemetry.source">{{.Source}}</span>{{if .Skipped}} · <span data-testid="telemetry.skipped">{{.Skipped}} lines skipped (not a valid batch)</span>{{end}} · {{end}}what is sent: <span class="wb-mono-inline">docs/CLI/telemetry.md</span>, “Sharing usage” · this machine's own calls: <a href="/stats">Stats</a></div>
     </div>

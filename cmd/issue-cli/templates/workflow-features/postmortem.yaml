@@ -1,5 +1,5 @@
 id: postmortem
-version: v0.59.0
+version: v0.61.0
 category: automation
 propose: true
 sources: ["internal/tracker/postmortem_config.go", "internal/postmortem/postmortem.go", "internal/postmortem/brief.go", "internal/postmortem/apply.go", "cmd/issue-cli/cmd_postmortem.go", "internal/viewer/postmortem_view.go"]
@@ -15,7 +15,9 @@ what: |
   The owner agrees or refuses all of them in one round on /p/<project>/postmortem/<slug>
   (owner's browser only); agreed ones become a memory, a one-file commit or an
   experiment proposal, linked from the retro. `start: ask` (the default) only prints
-  `issue-cli postmortem start <slug> --quote "…"`; `start: auto` starts the agent itself.
+  `issue-cli postmortem start <slug> --quote "…"`; `start: auto` starts the agent itself,
+  and `auto_types: [feature, epic]` narrows that to the listed types (the rest print the
+  start command). An epic's brief lists its children's files, branches and retros.
 why: |
   A retro the worker writes about itself is free text nothing acts on. A fresh reader
   with one test and one place per lesson turns it into changes the next agent meets,
@@ -25,6 +27,7 @@ snippet: |
   postmortem:
     at: done
     start: ask      # auto: the transition into done starts the agent
+    # auto_types: [feature, epic]   # with auto: only these types start by themselves
 question: "Should a fresh agent write a post-mortem when an issue closes, with lessons you agree to in one round?"
 detect:
   - path: postmortem

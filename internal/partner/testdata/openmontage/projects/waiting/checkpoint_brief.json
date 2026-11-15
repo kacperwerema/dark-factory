@@ -1,0 +1,3 @@
+{"version": "1.0", "project_id": "waiting", "pipeline_type": "short-explainer", "stage": "brief", "status": "completed",
+ "timestamp": "2026-11-01T10:05:00Z", "artifacts": {"brief_doc": "artifacts/brief.json"},
+ "cost_snapshot": {"total_spent_usd": 0.10, "total_reserved_usd": 0, "budget_remaining_usd": 1.90}}

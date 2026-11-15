@@ -553,3 +553,80 @@ func TestRemovedCriterionKeepsTheNextOnesProof(t *testing.T) {
 		t.Errorf("strays = %v, want AC2's trailer listed as a stray", strays)
 	}
 }
+
+// A tests: comment names commit A; A is amended (message only) into A',
+// which has a later commit time: the report still holds, matched by patch.
+// A code change in the amend makes it stale.
+func TestAmendedCommitKeepsTheTestsComment(t *testing.T) {
+	f := newFixture(t, "TestFoo")
+	branch := "work/" + f.issue.Slug
+	gitAt(t, f.root, t0, "checkout", "-q", branch)
+	a := commitFile(t, f.root, t0.Add(5*time.Hour), "pkg/bar.go", "package pkg\n", "feat: bar")
+	tests := []tracker.Comment{{ID: 1, Date: t0.Add(5*time.Hour + 30*time.Minute).Format(time.RFC3339),
+		Text: "tests: prove --run at " + a[:7] + ": go test -run '^(TestFoo)$' ./... — 1 passed: TestFoo"}}
+	gitAt(t, f.root, t0.Add(6*time.Hour), "commit", "-q", "--amend", "-m", "feat: bar\n\nRefs: "+f.issue.Slug)
+	amended := gitAt(t, f.root, t0, "rev-parse", "HEAD")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+	if amended == a {
+		t.Fatal("amend kept the sha")
+	}
+
+	r := Collect(f.root, f.issue, tests)
+	if r.LastChangeSHA != amended || r.TestsMatch != amended {
+		t.Fatalf("last change %s, tests match %q, want both %s", r.LastChangeSHA, r.TestsMatch, amended)
+	}
+	if c := criterion(t, r, "AC1"); !c.Proven() || !strings.HasPrefix(c.Links[0].Check.State, "reported for the last change") {
+		t.Errorf("AC1 after a message-only amend = %+v, want current", c.Links)
+	}
+
+	// A prove commit link naming A finds A' by its patch.
+	store := tracker.DataStore{Proofs: map[string][]tracker.ProofLink{"AC3": {{Kind: tracker.ProofCommit, Ref: a[:7]}}}}
+	if err := tracker.SaveData(f.issue.FilePath, store); err != nil {
+		t.Fatal(err)
+	}
+	if c := criterion(t, Collect(f.root, f.issue, tests), "AC3"); !c.Proven() || !strings.Contains(c.Links[0].Check.State, "same patch") {
+		t.Errorf("AC3 commit link to the old sha = %+v, want found by patch", c.Links)
+	}
+
+	// An amend that changes the code is a new change: stale.
+	gitAt(t, f.root, t0, "checkout", "-q", branch)
+	if err := os.WriteFile(filepath.Join(f.root, "pkg", "bar.go"), []byte("package pkg\n\nvar X = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, f.root, t0, "add", "pkg/bar.go")
+	gitAt(t, f.root, t0.Add(7*time.Hour), "commit", "-q", "--amend", "--no-edit")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+	r = Collect(f.root, f.issue, tests)
+	if c := criterion(t, r, "AC1"); c.Proven() || !strings.HasPrefix(c.Links[0].Check.State, "stale") || r.TestsMatch != "" {
+		t.Errorf("AC1 after a code amend = %+v (match %q), want stale", c.Links, r.TestsMatch)
+	}
+}
+
+// The git answers under a report are kept by sha; the report itself is not:
+// a new commit, and a tests: comment, each show in the next one.
+func TestCollectStaysFreshOverItsGitCache(t *testing.T) {
+	f := newFixture(t, "TestFresh")
+	r := Collect(f.root, f.issue, nil)
+	if got := criterion(t, r, "AC1"); got.Proven() {
+		t.Fatalf("proven with no tests: report: %+v", got)
+	}
+	branch := "work/" + f.issue.Slug
+	gitAt(t, f.root, t0, "checkout", "-q", branch)
+	commitFile(t, f.root, t0.Add(5*time.Hour), "pkg/new_test.go", "func TestNewer(t *testing.T) {}\n", "newer\n\nProves: AC1 TestNewer")
+	gitAt(t, f.root, t0, "checkout", "-q", "main")
+
+	r2 := Collect(f.root, f.issue, nil)
+	if r2.Ref == r.Ref {
+		t.Errorf("ref stayed %s after a commit", r.Ref)
+	}
+	found := false
+	for _, l := range criterion(t, r2, "AC1").Links {
+		found = found || l.Ref == "TestNewer"
+	}
+	if !found {
+		t.Errorf("the new commit's trailer isn't in the report: %+v", criterion(t, r2, "AC1").Links)
+	}
+	if got := criterion(t, Collect(f.root, f.issue, testsComment(t0.Add(6*time.Hour))), "AC1"); !got.Proven() {
+		t.Errorf("a new tests: comment isn't read: %+v", got)
+	}
+}

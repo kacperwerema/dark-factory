@@ -26,5 +26,8 @@ func init() {
 		"timeline.side.words",
 		"timeline.side.open",
 		"timeline.side.ci",
+		"timeline.stages",
+		"timeline.stage",
+		"timeline.stages.note",
 	)
 }

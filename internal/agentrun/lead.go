@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -18,7 +19,7 @@ func LeadSpec(proj *tracker.Project, wf *tracker.WorkflowConfig, root string, no
 		Workflow:  wf,
 		Session:   tracker.LeadSessionName(proj),
 		LeadScope: tracker.LeadScopeProject,
-		Prompt:    tracker.LeadBrief(wf, tracker.LeadBriefInput{Project: proj, Root: root, Now: now, AutoStart: AutostartBrief(proj, root)}),
+		Prompt:    briefing.LeadBrief(wf, briefing.LeadBriefInput{Project: proj, Root: root, Now: now, AutoStart: AutostartBrief(proj, root)}),
 		Decisions: leadInjected(proj, wf, "", tracker.LeadSessionName(proj), now),
 	}
 }
@@ -40,12 +41,12 @@ func leadInjected(proj *tracker.Project, wf *tracker.WorkflowConfig, department,
 // AutostartBrief reads the project's auto-start for the lead brief: nil
 // when it is off. root is the project checkout; the state lives in the main
 // checkout, beside .yolo/.
-func AutostartBrief(proj *tracker.Project, root string) *tracker.AutoStartBrief {
+func AutostartBrief(proj *tracker.Project, root string) *briefing.AutoStartBrief {
 	st, err := autostart.Load(ci.RepoRoot(root), proj.Slug)
 	if err != nil || !st.On {
 		return nil
 	}
-	return &tracker.AutoStartBrief{Words: st.Words, Below: st.Below, MaxWorkers: st.MaxWorkers, Paused: st.Paused}
+	return &briefing.AutoStartBrief{Words: st.Words, Below: st.Below, MaxWorkers: st.MaxWorkers, MaxLoad: st.MaxLoad, Paused: st.Paused}
 }
 
 // MainBranch names the repository's main branch: main, else master, else "".
@@ -67,7 +68,7 @@ func DepartmentLeadSpec(proj *tracker.Project, dept *tracker.Department, wf *tra
 		Workflow:  wf,
 		Session:   tracker.DepartmentLeadName(proj, dept.Name),
 		LeadScope: tracker.LeadScopeDepartment(dept.Name),
-		Prompt: tracker.DepartmentLeadBrief(wf, dept, tracker.LeadBriefInput{Project: proj, Root: root, Now: now,
+		Prompt: briefing.DepartmentLeadBrief(wf, dept, briefing.LeadBriefInput{Project: proj, Root: root, Now: now,
 			Live: func(name string) bool { return IsLive(proj, name) }}),
 		Decisions: leadInjected(proj, wf, dept.Name, tracker.DepartmentLeadName(proj, dept.Name), now),
 	}

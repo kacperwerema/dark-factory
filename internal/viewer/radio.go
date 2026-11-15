@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// radioCommentWindow is how far back the Radio reads progress: and
-// question: comments.
-const radioCommentWindow = 7 * 24 * time.Hour
+// radioCommentDays is how many calendar days back the Radio reads progress:
+// and question: comments.
+const radioCommentDays = 7
 
 // radioKinds are the comment prefixes the Radio carries: what workers and
 // leads report and ask on their issues.
@@ -27,21 +28,19 @@ func radioComments(p *tracker.Project, prefix string, issues []*tracker.Issue, n
 		msg WbMessage
 	}
 	var all []dated
+	since := period.DaysBack(now, radioCommentDays)
 	for _, issue := range issues {
-		if info, err := os.Stat(issue.FilePath); err != nil || now.Sub(info.ModTime()) > radioCommentWindow {
+		if info, err := os.Stat(issue.FilePath); err != nil || info.ModTime().Before(since) {
 			continue
 		}
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil {
-			continue
-		}
+		comments := issue.Comments()
 		for _, c := range comments {
 			kind, text, ok := radioKind(c.Text)
 			if !ok {
 				continue
 			}
 			at, ok := tracker.CommentTime(c.Date)
-			if !ok || now.Sub(at) > radioCommentWindow {
+			if !ok || at.Before(since) {
 				continue
 			}
 			author := tracker.CommentAuthor(c)

@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/partner"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -50,6 +52,35 @@ func printDepartmentLine(w io.Writer, p *tracker.Project, issue *tracker.Issue, 
 	if wf != nil && wf.LoadErr != nil {
 		fmt.Fprintf(w, "Workflow error: %v\n", wf.LoadErr)
 	}
+	if cfg, _ := p.PartnerOf(issue); cfg != nil {
+		st, err := partner.Read(*cfg, p.Root(), issue)
+		var bridge partner.Bridge
+		if err == nil {
+			bridge = partner.BridgeOf(*cfg, p.Root(), issue, st)
+		}
+		line := "Partner: " + partner.Line(*cfg, st, err)
+		if a := bridge.Answered; a != nil {
+			line = "Partner: " + partner.AnsweredLine(*cfg, st.Stage, *a)
+		}
+		if err == nil && st.Project != "" {
+			line += " (project " + st.Project + " at " + cfg.Dir(p.Root()) + ")"
+		}
+		if err == nil && st.State == partner.StateNone {
+			line += "; another id: issue-cli set-meta " + issue.Slug + " " + partner.ProjectField + " <id>"
+		}
+		switch a := bridge.Answered; {
+		case a != nil && a.Approved:
+			line += fmt.Sprintf("\n  The owner approved %s (%s). Now %s.", st.Stage, a.Ref, partner.ApprovalHow(*cfg, st.Stage, a.Ref))
+		case a != nil:
+			line += fmt.Sprintf("\n  The owner sent %s back (%s)%s: revise it at %s and ask again; never approve it yourself.", st.Stage, a.Ref, quoted(a.Quote), cfg.Label())
+		case err == nil && st.Awaiting():
+			line += "\n  Waits for the owner on Needs you; write the partner's approval only after their D-n."
+		}
+		for _, u := range bridge.Unpaired {
+			line += "\n  ⚠ " + u + ": the owner answers on Needs you, or re-write the checkpoint without the approval."
+		}
+		fmt.Fprintln(w, line)
+	}
 }
 
 // departmentFlag resolves a --department value to the department's name:
@@ -92,4 +123,35 @@ func printWorkflowDepartments(w io.Writer, p *tracker.Project, shown, cmd string
 	for _, d := range depts {
 		fmt.Fprintf(w, "  %s: %s  (issue-cli %s --department %s)\n", d.Name, d.Workflow, cmd, d.Name)
 	}
+}
+
+// partnerConfigLine is department show's line on the department's
+// partner: its name, adapter, checkout and pin, or what is wrong with it.
+func partnerConfigLine(cfg tracker.Partner, root string) string {
+	line := "Partner: " + cfg.Label() + " (adapter " + cfg.Adapter
+	if _, err := partner.For(cfg); err != nil {
+		line += ": " + err.Error()
+	}
+	line += ")"
+	switch dir := cfg.Dir(root); {
+	case dir == "":
+		line += ", no path: set"
+	default:
+		line += " at " + dir
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			line += " (missing)"
+		}
+	}
+	if c := strings.TrimSpace(cfg.Commit); c != "" {
+		line += ", pinned " + c
+	}
+	return line + ". Read only: the stage of each issue shows in issue-cli show and on the Station."
+}
+
+// quoted is ": \"words\"" or "" for no words.
+func quoted(words string) string {
+	if words == "" {
+		return ""
+	}
+	return fmt.Sprintf(": %q", words)
 }

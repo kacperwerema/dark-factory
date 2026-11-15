@@ -82,7 +82,10 @@ type WbCrewCard struct {
 	// Agent is the CLI the live session runs (claude, codex); Limit the
 	// usage-limit message its pane shows now (the agent is left running).
 	Agent, Limit string
-	Notes        []string
+	// Stalled says how the agent stalled (agentrun.ScanStalls); it is also
+	// the card's state.
+	Stalled string
+	Notes   []string
 	// Command restarts a stopped job (issue-cli dispatch <slug>).
 	Command string
 	// SpawnURL starts a lead that is not running; SpawnWhat names it.
@@ -123,6 +126,7 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request, proj *tracke
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	markExited(proj, model.Workers, crewSnapshot())
 	now := time.Now()
 	selected := r.URL.Query().Get("agent")
 	if !validAgentName(selected) {
@@ -295,6 +299,7 @@ func crewCard(n AgentNode, kind, prefix string, now time.Time) WbCrewCard {
 	c := WbCrewCard{Name: n.Name, URL: prefix + "/agents?agent=" + url.QueryEscape(n.Name), Kind: kind, gate: n.Gate, live: n.Live, lastCmd: n.LastCmd, Agent: n.Agent}
 	if n.Live {
 		c.Limit = n.Limit
+		c.Stalled = n.Stalled
 	}
 	if n.Issue != nil {
 		c.Issue = &WbLink{Label: n.Issue.Title, URL: n.Issue.URL}
@@ -350,9 +355,21 @@ func crewCard(n AgentNode, kind, prefix string, now time.Time) WbCrewCard {
 		if c.Limit != "" && n.State != "at-gate" && n.State != "question" {
 			c.State, c.Tone = "hit its "+valueOrAgent(n.Agent)+" usage limit · left running", "sand"
 		}
+		if c.Stalled != "" {
+			c.State, c.Tone = c.Stalled, "sand"
+		}
+		if n.Exited {
+			c.Robot.State, c.State, c.Tone = "off", crewExited, "you"
+			if n.Issue != nil {
+				c.Command = "issue-cli dispatch " + n.Issue.Slug
+			}
+		}
 	}
 	return c
 }
+
+// crewExited is a worker's state when only a shell is left in its session.
+const crewExited = "agent exited · only a shell is left"
 
 // Chip is the subscription's state chip.
 func (s WbCrewSub) Chip() WbChip { return WbChip{Tone: s.Tone, Text: s.State} }

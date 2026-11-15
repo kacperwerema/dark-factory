@@ -48,10 +48,8 @@ func earliestDay(env *Env, issue *tracker.Issue) string {
 			}
 		}
 	}
-	if comments, err := tracker.LoadComments(issue.FilePath); err == nil {
-		for _, c := range comments {
-			offer(tracker.CommentDay(c.Date))
-		}
+	for _, c := range issue.Comments() {
+		offer(tracker.CommentDay(c.Date))
 	}
 	for _, m := range decisionDayRe.FindAllStringSubmatch(issue.BodyRaw, -1) {
 		offer(m[1])
@@ -67,10 +65,14 @@ func earliestDay(env *Env, issue *tracker.Issue) string {
 }
 
 // checkWorkflow reports WorkflowConfig.Lint: the types:, workbench:, ci:
-// and health: warnings process workflow prints.
+// and health: warnings process workflow prints. An unknown rule is the
+// schema check's, which names its line.
 func checkWorkflow(env *Env) []Finding {
 	var out []Finding
 	for _, msg := range env.Workflow.Lint() {
+		if tracker.UnknownRuleWarning(msg) {
+			continue
+		}
 		out = append(out, Finding{Where: env.where(0), Message: msg})
 	}
 	return out

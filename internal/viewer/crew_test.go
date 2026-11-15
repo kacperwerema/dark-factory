@@ -35,7 +35,7 @@ func TestCrewPage(t *testing.T) {
 		`<link rel="stylesheet" href="/static/workshop.css">`,
 		`<a class="wb-crumb wb-crumb--link" href="/p/agents/company">Agents</a>`,
 		`<span class="wb-crumb wb-crumb--on" aria-current="page">Crew</span>`,
-		`<h1 class="wb-h1 wb-h1--big">Crew</h1>`,
+		`<h1 class="wb-h1 wb-h1--big" data-testid="wb.title">Crew</h1>`,
 		`href="/p/agents/agents?classic=1" data-testid="crew.classic">Classic view</a>`,
 		// Three live sessions; the CEO is off.
 		`<div class="wb-statbig-num">3</div><div class="wb-statbig-label">live agents</div>`,
@@ -249,4 +249,64 @@ func TestCrewShowsAgentLimitAndSubscriptions(t *testing.T) {
 	assertContains(t, md, "Agents: claude working · codex resting until "+until+" (limit seen in agent-ui-asker) (issue-cli agents)")
 	_, js := getBody(t, ts.URL+"/p/agents/agents.json")
 	assertContains(t, js, `"agent":"codex"`, `"limit":"You’ve hit your usage limit.`, `"subscriptions":[{"agent":"claude","installed":true,"state":"working"`)
+}
+
+// The Crew header, status.md and agents.json show each agent's percent once
+// a CLI printed it.
+func TestCrewShowsTheWeeklyPercent(t *testing.T) {
+	proj := setupAgentsProject(t)
+	proj.TmuxSession = "work"
+	stubAgentsGit(t)
+	withMockTmuxSessions(t, []AgentSession{{Name: "work:agent-ui-child"}})
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	origScan, origAgent, origInst := scanPaneLimits, sessionAgent, routing.Installed
+	t.Cleanup(func() { scanPaneLimits, sessionAgent, routing.Installed = origScan, origAgent, origInst })
+	routing.Installed = func(a string) bool { return a == "claude" || a == "codex" }
+	sessionAgent = func(*tracker.Project, string) string { return "claude" }
+	scanPaneLimits = func(p *tracker.Project, root string, at time.Time) []agentrun.PaneLimit {
+		u := routing.Usage{Agent: "claude", Percent: 92, Until: at.Add(72 * time.Hour), KnownReset: true, Line: "You've used 92% of your weekly limit"}
+		routing.SeeUsage(agentrun.SubscriptionsDir(), u, 98, p.Slug, "agent-ui-child", at)
+		return nil
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getBody(t, ts.URL+"/p/agents/agents")
+	assertContains(t, html, `data-testid="crew.subs.claude"`, `working · 92% of the weekly limit`)
+	_, md := getBody(t, ts.URL+"/p/agents/status.md")
+	assertContains(t, md, "Agents: claude working · 92% of the weekly limit · codex unknown (issue-cli agents)")
+	_, js := getBody(t, ts.URL+"/p/agents/agents.json")
+	assertContains(t, js, `"state":"working · 92% of the weekly limit"`, `"percent":92`)
+}
+
+// A worker at a startup dialog made no call and reads as working: its card,
+// status.md and agents.json say it is stalled, and the owner's phone hears.
+func TestCrewShowsAWorkerStalledAtADialog(t *testing.T) {
+	proj := setupAgentsProject(t)
+	proj.TmuxSession = "work"
+	stubAgentsGit(t)
+	withMockTmuxSessions(t, []AgentSession{{Name: "work:agent-ui-child"}})
+	orig := scanPaneStalls
+	t.Cleanup(func() { scanPaneStalls = orig })
+	scanPaneStalls = func(*tracker.Project, string, time.Time) []agentrun.PaneStall {
+		return []agentrun.PaneStall{{Session: "agent-ui-child", Dialog: "Codex's trust dialog"}}
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	_, html := getBody(t, ts.URL+"/p/agents/agents")
+	assertContains(t, html, "stalled at Codex&#39;s trust dialog")
+	_, js := getBody(t, ts.URL+"/p/agents/agents.json")
+	assertContains(t, js, `"stalled":"stalled at Codex's trust dialog"`)
+	_, md := getBody(t, ts.URL+"/p/agents/status.md")
+	assertContains(t, md, "stalled at Codex's trust dialog")
+
+	issues, err := proj.LoadIssues()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := pushStuck(&proj, issues, time.Now())
+	if len(seen) != 1 || seen[0].Kind != "stuck" || !strings.Contains(seen[0].URL, "agent-ui-child") {
+		t.Fatalf("push = %+v", seen)
+	}
 }

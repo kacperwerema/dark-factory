@@ -23,6 +23,7 @@ Most links need no command: the agent declares them where it writes the proof.
 | a commit trailer | `Proves: AC2 TestBadgeCount` on the commit that adds or changes the test | test |
 | a commit trailer | `Proves: AC2` on the commit that is the change | commit |
 | `issue-cli prove` | `issue-cli prove <slug> AC2 --value "690 vs 380 (1.82×)"` | any kind |
+| `issue-cli prove --lead` | `issue-cli prove <slug> AC2 --lead "issue-cli check-script <slug> --yes"` | lead |
 
 - **Trailers** are `Proves:` lines in the commit message, one or more, in any paragraph after the subject (one
   in its own paragraph before `Co-Authored-By` counts too):
@@ -33,6 +34,9 @@ Most links need no command: the agent declares them where it writes the proof.
   - **Playtest steps never prove through a trailer.** A step proves through `proves: [AC1]` on the step in its
     session file (or `issue-cli prove <slug> AC1 --step TP4`). A step id in a trailer (`Proves: AC1 TP4`,
     `Proves: AC1 lead-tab/TP4`) would be read as a test that isn't found.
+  - **A brief's boxes take `check`, not `Proves:`.** An issue with no `## Acceptance criteria` has nothing for a
+    trailer to link. A brief's boxes (`B1`) are ticked with `issue-cli check <slug> B1`, never a `Proves:` line, and
+    the commit-msg hook refuses one there with that single note.
   - **Checked at commit time.** The repository's commit-msg hook (`make hooks`, or `issue-cli workflow commit-msg
     --install`) reads each `Proves:` and `Catalog:` line with the same parsers and refuses the commit, with the
     fix, when a line would link or mark nothing.
@@ -61,9 +65,10 @@ Most links need no command: the agent declares them where it writes the proof.
 |:--|:--|:--|
 | test | the name is a whole word in a test file on the branch (`git grep -w` at the branch head; paths such as `_test.`, `test_`, `.test.`, `.spec.`, `tests/`, `*Tests.cs`), **and** a `tests:` comment is newer than the branch's last code commit (see below) | not found · stale (code changed since the last tests: comment) · no tests: report |
 | step | the step's latest verdict (pass or fail, any mode) is pass | failed · not run |
-| commit | a trailer's commit; or, for `prove --commit`, the sha is reachable from the work branch or its merge | not found |
+| commit | a trailer's commit; or, for `prove --commit`, the sha is reachable from the work branch or its merge, or a branch commit has its patch (amended or rebased) | not found |
 | value | always; shown as "reported" | — |
 | shot | the file exists in the worktree or the project checkout | missing |
+| lead | the lead's newest recorded run of the command passed, after the branch's last code commit (or at a commit holding it) | waits on the lead: `<command>` · … (last run failed …) · … (ran before the last change) |
 
 A criterion is **proven** when one of its links passes. Any kind counts on its own, a value included (D-1 of
 `workflow/issue-cli-prove-link-each-criterion-to-its-proof`).
@@ -71,6 +76,8 @@ A criterion is **proven** when one of its links passes. Any kind counts on its o
 **The last code commit** is the newest of the branch's own first-parent commits that changed code. Two kinds don't count, so they never make a `tests:` report stale:
 - merges of main into the branch;
 - non-code commits, where every file is under `docs/`, `playtest/sessions/`, `scripts/checks/`, `issues/`, `retros/` or `sessions/`, a Markdown file (`*.md`), or a `CHANGELOG` in any folder (`ui/evidence-tab-proof-shots-and-criteria` D-6, widened by `cli/prove-run-runs-the-trailers-tests-and-posts-the-tests-comment` D-3). The docs commit an agent makes in the documentation status, a playtest session or a guided check script added after the tests would otherwise make every test link read stale. Other non-Go files still count: templates, static assets, testdata and YAML read through `go:embed` change what a test sees.
+
+**An amended commit keeps its report.** Amending or rebasing a commit gives it a new sha and a new commit time, so a `tests:` comment posted before it would read stale by time alone. When the newest `tests:` comment names a commit (`prove --run at <sha>`, or any sha-shaped word in it), the report still holds if the last code commit is that commit or under it, or if a branch commit from the last code commit on has the named commit's `git patch-id --stable`: a message-only amend matches, an amend that changes code doesn't. The test link then reads "reported for the last change", and the Evidence tab counts the tests as after it. A `prove --commit` link to a sha no longer on the branch is found the same way. Simplest still: without a merge of main, put the `Refs: <slug>` line in the last code commit before running the tests, so nothing is amended afterwards.
 
 **Posting the report: `prove --run`.** In a Go project, `issue-cli prove <slug> --run` writes the `tests:` comment for
 you. It takes every test link of the issue (trailers and `prove --test`), finds the package of each in the issue's
@@ -102,6 +109,57 @@ code. It does not check:
 `playtest/sessions/*.yaml`, or a run under `.playtest/runs/`), or when the criterion's text doesn't end in `(visual)`. Each criterion has at most one
 shot, and a new one replaces the old.
 
+## Proof that waits on the lead
+
+Some proof needs an act only the lead can do. A guided check script that walks `dispatch`, `lead spawn` or
+`department add` is refused from a worker's shell by the worker guard, so the worker can't run it, and a
+`question:` comment doesn't reach the lead's tick. The worker links the criterion to the command instead and
+stops:
+
+```bash
+issue-cli prove <slug> AC2 --lead "issue-cli check-script <slug> --yes"
+```
+
+The criterion then reads **waits on the lead: `<command>`** in `prove --list`, in the `criteria_proven` gate's
+message (in its own "Waits on the lead" block, which says not to post a question), on the Station (a `lead` tag on
+the criterion) and on the Evidence tab. The lead's tick, `issue-cli queue next [--start]`, lists every open issue's
+waiting criteria before its verdict:
+
+```
+Waits on you (1):
+  workflow/foo AC2: issue-cli check-script workflow/foo --yes (never ran)  → issue-cli prove workflow/foo --lead-run
+```
+
+The Report's Queue card counts them, and `status.md`'s `Queue:` line adds `N waiting on the lead`. `queue next
+--json` adds `waits_on_lead`. The tick reads only the data sidecars, never git, so it lists a link whose command
+never ran, last failed, or last ran before the link was made. The gate's own check also knows the branch's last
+code commit.
+
+The lead runs `issue-cli prove <slug> --lead-run [<AC-id>…]`, which:
+- refuses a worker (the guard's identity), and a department lead outside its department;
+- runs `mem-guard check` first;
+- runs each waiting command once, as this issue-cli with `--project` set, from the project checkout (not the
+  worktree, which would read as a worker);
+- records each run in the sidecar under `lead_runs` (command, time, the worktree's HEAD, exit code, who, the last
+  20 output lines with the home folder written as `~`);
+- prints the report and ticks what is proven. A failed run prints its tail and exits 1.
+
+**The command is checked when it's linked, and never run through a shell.** The worker writes it and the lead's
+rights run it, so it is split into words (quotes group them; `;`, `|`, `&`, `$`, backquotes, redirections and
+globs are refused) and must be one of:
+- `[NAME=value …] issue-cli check-script <slug> [--yes] [--cli <path in the worktree>]`
+- `[NAME=value …] issue-cli prove <slug> --run`
+
+Both must name the issue's own slug, and neither names a project: `--project` is refused (the runner sets the
+lead's). Env names must be `NAME=value` in capitals. Names that change how a program is found or run (`PATH`,
+`HOME`, `SHELL`, `BASH_ENV`, `ENV`, `IFS`, `ISSUE_CLI`, `LD_*`, `DYLD_*`, `GIT_*`, `GO*`, `TMUX*`, `XDG_*`,
+`ISSUE_VIEWER_*`) are refused.
+
+A lead link holds the gate under YOLO like any unproven criterion: the lead is around, unlike the owner. The
+worker guard's refusals for `dispatch` and `lead spawn` end with the `prove --lead` line, since that's when a
+worker needs it. Source: workflow/a-proof-that-waits-on-the-leads-act-shows-as-waits-on-the-lead-command-on-the-leads-tick-and-the-station
+(the retro sweep 2026-11-02, I and O).
+
 ## The command
 
 ```bash
@@ -113,6 +171,8 @@ issue-cli prove <slug> <AC-id> --shot <path>           # see above
 issue-cli prove <slug> <AC-id> --clear                 # removes this criterion's prove links
 issue-cli prove <slug> [--list] [--json]               # every criterion, its links and checks
 issue-cli prove <slug> --run [--json]                  # run the test links' tests, post the tests: comment
+issue-cli prove <slug> <AC-id> --lead "<command>"      # a command only the lead can run; see above
+issue-cli prove <slug> --lead-run [<AC-id>…]           # the lead: run them, record each run
 ```
 
 The list shows each criterion as `proven` or `UNPROVEN`, and under it each link with where it came from and its
@@ -149,7 +209,11 @@ They are not checkboxes: nobody ticks them and no gate counts them. A line may n
 backticks the way a criterion does (`` Touch projects.yaml (`TestProjectsYAMLUnchanged`) ``); the fresh critic
 checks the diff against the list and runs what a line names. `tracker.MustNot(body)` reads the lines, without
 the placeholder. Lint check `criteria` warns about an issue past design whose `## Must not` still holds only
-the placeholder: write what the change must not do, or `- nothing beyond the scope above`. Catalog entry
+the placeholder: write what the change must not do, or `- nothing beyond the scope above`. Each item past
+design ends with the criterion that fails when it is broken, `→ AC2` (`->` reads the same; several: `→ AC1,
+AC3`), or says why no criterion does, `→ none: covered by the identity gate`; lint check `criteria` warns
+about an item with neither, an empty `→ none:`, and an `→ ACn` naming a box the issue doesn't have
+(`- nothing beyond the scope above` needs no pair). The in-design prompt says so. Catalog entry
 `must-not-section` adds it to an older workflow file (`issue-cli workflow upgrade`).
 
 ### Owner checks
@@ -162,7 +226,8 @@ Some criteria only the owner can prove. A criterion is the owner's when:
 - it is marked for the owner: `(owner)` anywhere in its text (`(owner) The owner picks …`, `… (owner)`), outside
   quotes and backticks (`"(owner)"` names the marker), or it starts with `Owner ` and names a
   check, read-through, review or decision (`Owner visual check of the board (after ship)`, `Owner decides the
-  price`). One rule (`tracker.IsOwnerMarked`, behind `proof.OwnerBoxWhy`) for every path: proof, the tick and
+  price`), unless those words name a status or a gate: followed by an arrow or by status, gate, stage, step,
+  column or transition (`owner review → publish stays owner_only` is not the owner's box). One rule (`tracker.IsOwnerMarked`, behind `proof.OwnerBoxWhy`) for every path: proof, the tick and
   check-edit refusals, the YOLO queue, the owner-checks page, lint.
 
 Write an owner criterion as `- [ ] The board reads well on a phone (owner)`. Lint check `owner-marker` warns on
@@ -171,6 +236,10 @@ an open criterion that reads like the owner's check ("the owner confirms it read
 Only the owner ticks such a box: a passing judgement step (their playtest) ticks it, and so does the owner
 ticking it by hand. A `Proves:` trailer, test, value or commit never does. `prove --list` shows
 `owner check (<why>): only the owner ticks it`. With YOLO off, the gate still counts every link as before.
+When a judgement step is what makes a criterion the owner's while a test or commit link proves it too,
+`prove --list` and the transition into `criteria_proven` print `Warning: AC1 is the owner's only because
+judgement step TP4 (session <s>) lists it, while test TestX (…) proves it too: drop AC1 from that step's
+proves: …` (`Report.Overlaps`, `overlaps` in `--json`). A warning, not a gate.
 
 Which steps are judgement steps, and which criteria a step proves, comes from the newest run of each session
 that has the step: an older run's `judgement_step` or `proves:` never outlives the session file that dropped

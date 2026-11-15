@@ -21,4 +21,4 @@ steps:
       - size: { target: station.stamp.go, min_height: 44 }
       - size: { target: station.stamp.back, min_height: 44 }
       - size: { target: approve_words.station, min_height: 44 }
-      - size: { target: station.classic, min_height: 44 }
+      - size: { target: station.menu, min_height: 44 }

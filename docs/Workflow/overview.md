@@ -10,7 +10,9 @@ The Workflow system covers the workflow engine, transition logic, validation rul
 ## Key Files
 
 - `workflow.yaml` — project workflow definition (statuses, transitions, actions, board config, system overlays)
-- `internal/tracker/workflow_config.go` — `WorkflowConfig`, `LoadWorkflow`, `DefaultWorkflow`, status/transition accessors, prompts/templates
+- `internal/tracker/workflow_config.go` — `WorkflowConfig`, `LoadWorkflow`, `DefaultWorkflow` (the bundled `development.yaml` template, parsed once: a project with no `workflow.yaml` runs on exactly what `workflow init` copies), status/transition accessors, prompts/templates
+- `internal/tracker/closed_status.go` — the one answer to "is this closed?": `IsClosedStatus(wf, status)` (the workflow's end, anything listed after it, parked), `IsLastStatus` (finished; parked is not), `IsParkedStatus`, `Project.IssueClosed`, `ClosedIssueFunc` for a pass over many issues. `TestNoClosedStatusLiteralsOutsideTracker` refuses `"done"` / `"parked"` comparisons outside the package
+- `internal/tracker/status_role.go` — what a status means to the engine: the five roles, `RoleStatus`, `HasRole`, `IsHandoffStatus`, `IsOwnerTestApproval`, `RoleProblems`; the one place the old status names are written ([Status roles](#status-roles-role)).
 - `internal/tracker/workflow_transition.go` — `ApplyTransition*`, `StartIssueOnce`, `MarkIssueDoneOnce`, `IsValidTransition`, `Next*Status`
 - `internal/tracker/workflow_validate.go` — `ValidateTransition`, `Validate`, `checkRule` (legacy colon-string rules), `DescribeAction`
 - `internal/tracker/workflow_validators.go` — dispatcher for structured rules: translates `WorkflowAction` + `Issue` into the narrow types accepted by the validations sub-package
@@ -20,7 +22,7 @@ The Workflow system covers the workflow engine, transition logic, validation rul
 - `internal/tracker/workflow_types.go` — `ForType`, `ForIssue` (base → type → system), `ResolveType`, `RetypeStatus`, `Lint` for types of work
 - `internal/tracker/workflow_schema.go` — reflection-based YAML schema docs
 - `internal/tracker/heading.go` — shared section/heading helpers used by both workflow and issue code
-- `internal/tracker/lead.go`, `lead_brief.go` — the epic link (`parent:`, `umbrella:` alias), the lead's session name, `LeadFor` routing, issue worktrees, and the `leads:` brief
+- `internal/tracker/lead.go`, `lead_brief.go` — the epic link (`parent:`, `umbrella:` alias), the lead's session name, `LeadFor` routing, issue worktrees, and the `leads:` brief's default text; `internal/briefing` renders the briefs
 - `cmd/issue-cli/templates/workflow/*.yaml` — bundled templates (`development`, `review`, `writing`), each stamped `template: <name>@<release>` and carrying its own `features:` record
 - `cmd/issue-cli/templates/workflow-features/<id>.yaml` — the feature catalog, one entry per file: every `workflow.yaml` capability, with detection probes, `sources:` and the text `upgrade` proposes (catalog_split.go loads it, problems.go is the category and sources check, bump.go is `workflow catalog-bump`)
 - `cmd/issue-cli/templates/embed.go` — package `templates`: embeds the bundled templates and the catalog for issue-cli and the viewer
@@ -37,7 +39,7 @@ A workflow defines:
 - **System overlays** — per-system prompt and transition overrides
 - **Types of work** — per-type paths through the statuses, picked by the issue's `type:` ([Types of Work](types.md))
 - **The fresh critic** — the `critique` rule and `critique:` block: a read-only agent given only paths reads the work before a gate, and its blocks findings hold the gate ([The Fresh Critic](critique.md))
-- **Lead briefs** — `leads:` with the `project` and `epic` prompts lead agents are spawned with (see below)
+- **Lead briefs** — `leads:` with `project_addendum`, what a project adds to the built-in brief its lead is spawned with (see below)
 - **Template stamp and feature record** — which bundled template the file came from, and which catalog features it has installed or declined ([below](#template-stamp-and-feature-record)). The engine never acts on these; only `issue-cli workflow upgrade` and `workflow scan` read them
 
 ## Transition Validity
@@ -164,6 +166,38 @@ A transition with `from: "*"` matches every source status that lacks a more spec
 
 A status marked `global: true` is an escape hatch: transitions out of it to any other status are allowed, regardless of the linear lifecycle. The board column renders a `global` badge next to the existing `optional` badge. Combine with `from: "*"` to build parked states (deferred, blocked, on-hold) without having to enumerate every edge.
 
+## Status roles (`role:`)
+
+Code that needs to know what a status means asks its role, never its name, so a status can be renamed and keep its behaviour.
+
+```yaml
+statuses:
+  - name: "ready"
+    role: "queue"
+  - name: "owner check"
+    role: "owner-test"
+```
+
+| Role | Old name | What hangs on it |
+|---|---|---|
+| `design` | in design | the stop-for-approval reminder in the briefing |
+| `queue` | backlog | start's hand-off, auto-start, `next`, the cut-off for `create` and the new-issue form (statuses before it are the design work `next --design` lists), the Status and company counts |
+| `work` | in progress | `next`, the agents' active span, the bench's default start |
+| `verify` | testing | `next`, the guided-check hints, where YOLO's owner checks begin, the Timeline's testing start |
+| `owner-test` | human-testing | start's hand-off, YOLO's refusal and `approve --to`'s, the playtests and checks owed to the owner, the guided-check gate |
+
+Each role is one status's. `done` and `parked` are not roles: the closed predicate owns them.
+
+With no status declaring a role, the status with the old name holds it, role by role. So a workflow with no `role:` key behaves as it always did, a file declaring one role keeps the others, and an issue on a status the workflow doesn't list keeps its name's meaning. Overlays may set `role:` like any status key; a type's path keeps it.
+
+`process workflow` prints each status's role. Lint check `roles` warns on an unknown role, a role on two statuses or on a closing status, and a file that fills some roles but not all, which is how a rename looks in a file with no keys; it names what the file loses. There is no opt-out: a file filling none (a department's own lifecycle) gets no warning, one filling a few on purpose keeps it. Names used only for a nicer word (status colours, the gate's noun, the floor's strip labels) stay name-keyed and fall back to the status's own name.
+
+`TestNoStatusNameLiterals` refuses a string literal equal to a lifecycle status name anywhere outside status_role.go, unless `notAStatusMeaning` lists it with why.
+
+## Fresh session per status (`session:`)
+
+`session: fresh` on a status starts its work in a new session on a briefing of paths only, trimmed to the stage and kept under `briefing_budget:` (estimated tokens, 3000 when unset); `continue`, the default, keeps the session the stage before used. Overlays may set both keys like any status key. The transition marks it, the worker writes HANDOFF.md and stops, and the lead's `issue-cli dispatch <slug> --fresh` starts the new session in the same worktree. The whole contract: [Fresh session per stage](../workflow.md#fresh-session-per-stage).
+
 ## Side-Effects
 
 Statuses support `side_effects` that run automatically after a transition:
@@ -224,16 +258,17 @@ project_actions:
 
 ### Lead Brief (`leads:`)
 
-`issue-cli lead spawn` and the Spawn lead button start the [project lead](../patterns/lead-session.md). Its brief comes from a top-level `leads:` block:
+`issue-cli lead spawn` and the Spawn lead button start the [project lead](../patterns/lead-session.md). Its brief is the built-in one (`tracker.DefaultProjectLeadBrief`) plus a top-level `leads:` block:
 
 ```yaml
 leads:
-  project: |
-    You are the project lead of {{project}}, running in {{lead}}.
+  project_addendum: |
+    - In this repo: designs live in docs/design/, and you review every diff.
 ```
 
 - Placeholders are `{{project}}` and `{{lead}}`. `issue-cli` commands get `--project` injected.
-- A missing key uses the built-in brief, so a workflow without `leads:` still gets a working lead.
+- A workflow without `leads:` gets the built-in brief alone, so it still has a working lead.
+- An old `leads.project` still replaces the built-in brief; `Lint` warns, because a replaced brief misses every later change to it.
 - The CLI appends a fixed footer: role, what the lead may tick, how to message other agents, and its handoff note under `sessions/`.
 - `leads:` is project-wide: type, system and per-issue overlays keep it as is (`Clone` copies it). `issue-cli process schema` lists it.
 - An old `leads.epic` key still loads but does nothing; `Lint` warns about it, so `issue-cli process workflow` shows it under Warnings.
@@ -316,6 +351,23 @@ systems:
     transitions: []
 ```
 
+A status's `prompt:` in an overlay replaces the prompt in force; `prompt_append:` adds lines after it instead, so the
+type's prompt stays and the system's guidance reaches features, tweaks and bugfixes alike:
+
+```yaml
+systems:
+  API:
+    statuses:
+      - name: "in progress"
+        prompt_append: |
+          Run make security-check before testing.
+```
+
+`Merge` keeps every layer's append in `WorkflowStatus.PromptAppend` (merge order, a text already there as whole lines
+is not added twice), apart from `Prompt`, so a later `prompt:` never drops one; `StatusPrompt` joins the two, and
+start, transition, the entry guidance and the dispatch briefing all read it. An overlay may set both: the prompt
+replaces, the append follows. Catalog entry: `status-prompt-append`.
+
 Overlays can only add guidance and actions; they cannot drop a status or a gate. For a different path per kind of
 work (tweak, bugfix, epic), use `types:` — see [Types of Work](types.md). Resolution is base → type → system.
 
@@ -355,7 +407,7 @@ Entries added in v0.54.0, when the catalog caught up with what projects adopt:
 | `project-pages` | workbench | `workbench.status_page`, `workbench.pages` | yes |
 | `metrics-and-knobs` | workbench | `workbench.metrics`, `workbench.tuning` (without them Metrics lists Branches) | yes |
 | `balance-board` | workbench | `workbench.balance.comment_prefix` | catalog only |
-| `lead-prompt` | dispatch | `leads.project` | yes |
+| `lead-prompt` | dispatch | `leads.project_addendum` | yes |
 | `local-merge-shipping` | conventions | the shipping prompt: `merge --ff-only`, never push | yes, `development` only; the bundled template keeps push |
 
 - `propose: true` entries are the ones `upgrade` offers to projects that lack them. `propose: false` entries are catalog-only: scanned and recorded, and listed only by `upgrade --all`.
@@ -392,29 +444,32 @@ Command details: [CLI overview](../CLI/overview.md#workflow-upgrade).
 3. `make validate` enforces it:
    - `go test ./internal/workflowupgrade/` checks that every field is filled, ids are unique, snippets parse and are detected by their own probes, each probe has at most one condition and its path resolves in the `WorkflowConfig` structs, every source matches a tracked file (and its `#Symbol` exists), every stamp version has an entry, no entry is newer than its template's stamp, and each template's record equals what scan detects in it, in catalog order. Each failure names its fix: the expected `features:` block in order, `<folder>/**` for a bare folder, the `rule_in:` to add, `@prompt` alone.
    - `TestEveryWorkflowFeatureHasACatalogEntry` fails on a `workflow.yaml` key with no entry: every top-level key, the sub-keys of `ci`, `ci.run[]`, `health`, `leads`, `workbench` and `workbench.systems.*`, every validator rule and every action type. A key counts when a probe starts at it or an entry's snippet sets it; the rest go in `nonFeatureKeys` with a reason (a stale line fails too).
-   - `issue-cli workflow catalog-check` (run it during in progress; it checks uncommitted changes too, and skips only on main itself) fails on a work branch that changes an entry's `sources:` (for `file.go#Symbol`, that declaration's code; doc comments don't count) or a bundled template without bumping its version past the last release. The message names the entry, the files and the version to set. When nothing a project adopts changed (a refactor, a fix), a `Catalog: n/a <id>[,<id>] <why>` line in a branch commit's message passes it instead, in any paragraph, merge commits included; the entry id comes first, and a line without one or with an unknown id fails the check. Files the branch has only through a merge of main aren't asked about. On a `release/vX.Y` branch only the commits after its newest `vX.Y.Z` or `vX.Y.Z-rc.N` tag are read. Nor are the paths in `ExemptSources` (internal/workflowupgrade/exempt.go), even under a `dir/**` source: `_test.go` files, `testdata/` folders, `playtest/scenarios/` and `cmd/playtest/scenario.go` (scenario.yaml fixture keys); a playtest session key (session.go, vocab.go) still counts. `TestEveryEntryHasSourcesThatExist` fails on a source that matches only exempt files. catalog-check also runs the catalog's own checks at the head, with the same messages as the tests: every entry's category is known, its sources match files (`CatalogProblems`), and every bundled template's `features:` record is what a scan records, in catalog order (`RecordDrift`), so an id appended at the end of `installed:` fails there, before `make validate`'s tests.
+   - `issue-cli workflow catalog-check` (run it during in progress, on the staged change before the first commit, and put every id it names that you don't bump in one `Catalog: n/a` line; it checks uncommitted changes too, and skips only on main itself) fails on a work branch that changes an entry's `sources:` (for `file.go#Symbol`, that declaration's code; doc comments don't count) or a bundled template without bumping its version past the last release. The message names the entry, the files and the version to set. When nothing a project adopts changed (a refactor, a fix), a `Catalog: n/a <id>[,<id>] <why>` line in a branch commit's message passes it instead, in any paragraph, merge commits included; the entry id comes first, and a line without one or with an unknown id fails the check. Files the branch has only through a merge of main aren't asked about. On a `release/vX.Y` branch only the commits after its newest `vX.Y.Z` or `vX.Y.Z-rc.N` tag are read. Nor are the paths in `ExemptSources` (internal/workflowupgrade/exempt.go), even under a `dir/**` source: `_test.go` files, `testdata/` folders, `playtest/scenarios/` and `cmd/playtest/scenario.go` (scenario.yaml fixture keys); a playtest session key (session.go, vocab.go) still counts. `TestEveryEntryHasSourcesThatExist` fails on a source that matches only exempt files. catalog-check also runs the catalog's own checks at the head, with the same messages as the tests: every entry's category is known, its sources match files (`CatalogProblems`), and every bundled template's `features:` record is what a scan records, in catalog order (`RecordDrift`), so an id appended at the end of `installed:` fails there, before `make validate`'s tests.
    - A change to a file several entries share is asked about only for the entries it belongs to (internal/workflowupgrade/attribute.go), so it needs one bump or n/a, not one per entry:
      - `file.go#Symbol` whose entry has `rule_in:` probes: in a switch of that declaration with a case for one of the entry's rules (checkRule's rule switch), only those cases and the code outside the switch count. A new or edited case for another rule is that rule's entry's change; a change to the rule parsing above the switch is every entry's. Case values are string literals or string constants of the same package.
      - a bundled template (`cmd/issue-cli/templates/workflow/*.yaml`) as a source: only what the entry's `detect:` probes match counts, each match widened to its list item (the whole status or transition, in overlays too). A stamp move or another feature's block isn't the entry's. The template still needs its own stamp bump for any change. An entry without `detect:`, or a file that doesn't parse, counts as a whole.
      - `TextSources` (exempt.go: `internal/tracker/dispatch_prompt.go`): a change to string literals and comments only (built-in briefing wording) is no entry's; a code change still is.
    - catalog-check diffs against the merge base with `--base` (main), so a branch behind main is never asked about main's newer commits (`TestCatalogCheckOnABranchBehindMain`).
    - `TestBundledTemplatesNameOnlyFlagsTheCommandAccepts` (cmd/issue-cli/template_commands_test.go) reads every `issue-cli <command> [<sub>] …` written in the bundled templates (workflow files, department templates, jobs) and fails on a flag that command doesn't parse, so a prompt or box never tells an agent to run a call that fails. The flags come from introspection, the same as telemetry's manifest; `--project`, `--json` and `--help` always pass.
-4. issue-viewer's own workflow asks too: the Design checklist has a catalog box (which entry the change adds or bumps), and Documentation asks again for config, validators, actions and prompt patterns, which the checks can't see.
+4. issue-viewer's own workflow asks too: the Design checklist has a catalog box (the entry the change adds or bumps, a `Catalog: n/a <id>[,<id>...] <why>` line for an entry catalog-check names that the change leaves as it is, or no `Catalog:` line when it names none; a bare `Catalog: <id>` or an id-less `Catalog: n/a` is refused), and Documentation asks again for config, validators, actions and prompt patterns, which the checks can't see.
 
 ## Validation Rules
 
 Validators come in two flavors:
 
-- **Legacy colon-string rules** live in `workflow_validate.go:checkRule` (one switch case per rule name). Encoded as `rule: "name: arg"` on the action — the tracker splits at `: ` and dispatches to the switch.
+- **Legacy colon-string rules** live in `workflow_validate.go:checkRule` (one switch case per rule name). Encoded as `rule: "name: arg"` on the action: `tracker.SplitRule` cuts at the first colon and trims both sides, so `name:arg` means the same, and the tracker dispatches to the switch.
 - **Structured rules** live one per file under `internal/tracker/validations/`. Each file registers a `CheckFn` against a rule name in the package-level `Registry`. The tracker (`workflow_validators.go:checkAction`) translates `WorkflowAction` + `Issue` into the narrow `validations.Action` + `IssueView` and calls `validations.Check(action, view, cfg)`.
 
 To add a new structured validator:
 
 1. Drop a file `internal/tracker/validations/<rule_name>.go` with an `init() { register("<rule_name>", <Fn>) }` and the `CheckFn` body.
 2. Add a corresponding `_test.go` in the same package (cover pass + fail).
-3. Append a `SchemaNamedDoc` entry to `WorkflowValidationRules` in `workflow_schema.go` so `issue-cli process schema` lists it.
+3. Append a `SchemaNamedDoc` entry to `WorkflowValidationRules` in `workflow_schema.go`. It is the one list: `process schema`, `tracker.KnownRule` (lint, the station editor) and the timeline read it, and a name ending in `: since <YYYY-MM-DD>` is how a rule says it takes a date.
 4. Extend the catalog in `docs/workflow.md` and the schema fields on `WorkflowAction` in `workflow_config.go` if the validator needs new companion fields.
 5. Extend `structuredSummary` in `workflow_validators.go` so the transition preview renders a meaningful one-liner.
+6. Add the rule to the `rule_in:` of a catalog entry.
+
+The tests in `internal/tracker/rule_registry_test.go` fail when a rule misses steps 3 to 5, or when the switch and the list disagree: every `Registry` key and `checkRule` case is in the list, every entry runs, has a summary (`validationSummary` for colon-string rules) and is named in `docs/workflow.md`, and code that splits a rule string by hand fails `TestRuleSplitHasOneSource`. `TestEveryWorkflowFeatureHasACatalogEntry` covers step 6 and every `rule_in:` name.
 
 The `validations` package is a leaf — it does not import `tracker`. This is what makes the per-validator-per-file split possible without import cycles.
 

@@ -11,10 +11,15 @@ var appendCommand = &Command{
 	Name:      "append",
 	ShortHelp: "Append content to issue body",
 	LongHelp: `Append content to the issue body. With --section, append into an existing
-section; if --body starts with an existing heading, it auto-routes into that section.
+section; if --body starts with a heading the issue has at that level (or a
+shallower one), it auto-routes into that section. A deeper heading of the name
+is a different section: "## X" on an issue with only "### X" starts a new one.
 
 Use --body-file <path> (or --body-file - for stdin) to supply the body as raw
 bytes, which avoids shell mangling of backticks and parentheses in inline code.
+
+For screenshots use issue-cli attach <slug> <file> --section "<name>": it saves
+the image where the viewer serves it and appends its link.
 
 Examples:
   issue-cli append <slug> --section "Design" --body "- [ ] edge case covered"

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/tracker/statustest"
 )
 
 var t0 = time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
@@ -95,5 +96,14 @@ func TestReworkLoops(t *testing.T) {
 	segs := MarkRework([]Seg{{at(60), at(200), KindAgent}}, loops)
 	if got := KindWithin(segs, KindRework, at(0), at(200)); got != 40*time.Minute {
 		t.Errorf("rework = %v, want 40m", got)
+	}
+}
+
+func TestTestingStartFollowsTheVerifyRole(t *testing.T) {
+	wf := statustest.Renamed()
+	at := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	rows := []tracker.TransitionStat{{To: statustest.Name(tracker.StatusRoleWork), TS: at.Add(-time.Hour)}, {To: statustest.Name(tracker.StatusRoleVerify), TS: at}}
+	if got := TestingStart(rows, wf); !got.Equal(at) {
+		t.Fatalf("TestingStart = %v", got)
 	}
 }

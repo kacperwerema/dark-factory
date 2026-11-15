@@ -21,6 +21,11 @@ import (
 // replaced).
 const DecisionExpired = "expired"
 
+// DecisionProvisional names the filter over ProvisionalOn: decisions
+// --state provisional and the log's ?state=provisional. A filter, not a
+// state an entry is in.
+const DecisionProvisional = "provisional"
+
 // Decision log events for expiry: a renewed decision got a new expires:;
 // expired is the owner closing out an expired one (let go).
 const (
@@ -35,6 +40,20 @@ func (e *DecisionEntry) StateOn(today time.Time) string {
 		return DecisionExpired
 	}
 	return e.State
+}
+
+// ActiveOn reports whether the entry is active on day today: not replaced,
+// deferred or expired. The one check; TestActiveCheckHasOneHome refuses a
+// copy written inline.
+func (e *DecisionEntry) ActiveOn(today time.Time) bool {
+	return e.ReplacedBy == nil && !e.Deferred && !e.ExpiredOn(today)
+}
+
+// ProvisionalOn reports whether the entry is active on day today and marked
+// provisional (IsProvisional): what decisions --state provisional lists and
+// the Stats card counts.
+func (e *DecisionEntry) ProvisionalOn(today time.Time) bool {
+	return e.ActiveOn(today) && IsProvisional(e.Decision)
 }
 
 // WaitsOnOwner reports whether the entry is an expired hard decision

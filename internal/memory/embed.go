@@ -11,9 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/memguard"
 )
 
 // Embedder turns texts into vectors, one per text, in order. Phase 2's
@@ -151,27 +152,12 @@ func decodeAnswer(raw []byte, want int) ([][]float32, error) {
 }
 
 // GuardLimit is the memory use, in percent, at which no embed request is
-// made (the issue brief; mem-guard resumes paused work at 70%).
-const GuardLimit = 70
+// made: the line mem-guard resumes paused work at.
+const GuardLimit = memguard.ResumeAt
 
 // MemoryUsed asks mem-guard how much of the machine's memory is used. A
-// var so tests need no mem-guard. issue-cli never measures memory itself:
-// mem-guard owns the numbers (as internal/autostart).
-var MemoryUsed = func() (int, error) {
-	path, err := exec.LookPath("mem-guard")
-	if err != nil {
-		return 0, errors.New("mem-guard not found")
-	}
-	out, err := exec.Command(path, "used").Output()
-	if err != nil {
-		return 0, fmt.Errorf("mem-guard used: %v", err)
-	}
-	n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(string(out)), "%"))
-	if err != nil {
-		return 0, fmt.Errorf("mem-guard used said %q", strings.TrimSpace(string(out)))
-	}
-	return n, nil
-}
+// var so tests need no mem-guard.
+var MemoryUsed = memguard.Used
 
 // guardOK is nil when an embed request may run now
 // (factory/shared-memory-phase-2-local-embeddings-behind-the-embedder-seam#D-3).

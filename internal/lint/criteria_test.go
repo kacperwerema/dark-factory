@@ -68,6 +68,9 @@ func TestCriteriaFlagsUnfalsifiableAndPassesProvenOnes(t *testing.T) {
 	var where []string
 	byWhere := map[string]Finding{}
 	for _, f := range run(t, env, "criteria") {
+		if strings.HasPrefix(f.Where, "s/mustnot-unpaired ") || strings.HasPrefix(f.Where, "s/mustnot-early-unpaired ") {
+			continue // TestCriteriaPairsEachMustNot
+		}
 		where = append(where, f.Where)
 		byWhere[f.Where] = f
 	}
@@ -92,6 +95,51 @@ func TestCriteriaFlagsUnfalsifiableAndPassesProvenOnes(t *testing.T) {
 	}
 	if f := byWhere["s/mustnot-placeholder ## Must not"]; !strings.Contains(f.Fix, `--section "Must not"`) {
 		t.Errorf("Must not finding %+v: want a replace --section fix", f)
+	}
+}
+
+// Each ## Must not item past design ends with → ACn naming a box the issue
+// has, or → none: <why>.
+func TestCriteriaPairsEachMustNot(t *testing.T) {
+	env := lintProject(t, criteriaWorkflow, criteriaFixtures(t))
+	got := map[string]Finding{}
+	for _, f := range run(t, env, "criteria") {
+		if strings.HasPrefix(f.Where, "s/mustnot-early-unpaired ") {
+			t.Errorf("an issue still in design is flagged: %+v", f)
+		}
+		if strings.HasPrefix(f.Where, "s/mustnot-unpaired ") {
+			got[strings.TrimPrefix(f.Where, "s/mustnot-unpaired ## Must not ")] = f
+		}
+	}
+	want := map[string]string{
+		`"Serve an owner route to a stranger"`:                       "names no criterion that fails when it is broken",
+		`"Open a route without the identity gate → AC9"`:             "names AC9, which the issue's acceptance criteria don't have",
+		`"Weaken the owner gate → AC1, AC2"`:                         "", // both exist
+		`"Log the owner token → none: covered by the identity gate"`: "",
+		`"nothing beyond the scope above"`:                           "",
+		`"Drop the Host check → none:"`:                              "names no criterion that fails when it is broken",
+	}
+	for item, msg := range want {
+		f, ok := got[item]
+		if msg == "" {
+			if ok {
+				t.Errorf("%s: unexpected finding %+v", item, f)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("%s: no finding, want %q (got %v)", item, msg, got)
+			continue
+		}
+		if !strings.Contains(f.Message, msg) {
+			t.Errorf("%s: message %q, want %q", item, f.Message, msg)
+		}
+		if !strings.Contains(f.Fix, `issue-cli replace s/mustnot-unpaired --section "Must not"`) {
+			t.Errorf("%s: fix %q should name the replace command", item, f.Fix)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d findings, want 3: %v", len(got), got)
 	}
 }
 

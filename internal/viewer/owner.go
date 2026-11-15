@@ -10,9 +10,13 @@ package viewer
 // The credential is a session cookie (ownerCookie: HttpOnly, SameSite=Strict)
 // that a browser gets only from POST /owner/pair with a one-time code. The
 // viewer never puts the code in an HTTP answer: it shows it where the owner
-// looks, a native dialog on macOS or the viewer's own terminal. Sessions live
-// in the viewer's memory only (just their SHA-256), so no file an agent can
-// read or write holds or mints one, and a restart signs the owner out.
+// looks, a native dialog on macOS or the viewer's own terminal. The viewer
+// knows a session by its SHA-256 only; the running viewer keeps those hashes
+// in a 0600 file under the state dir (owner_store.go), so a restart doesn't
+// sign the owner out. The raw token lives only in the browser's cookie.
+//
+// A refusal carries ownerSignInHeader: the owner's browser (static/
+// owner-signin.js) opens the sign-in in place and retries the action.
 //
 // On a public name the identity gate already verified the owner's Cloudflare
 // Access token; that request is the owner without a cookie.
@@ -39,7 +43,9 @@ const (
 	// ownerRefused starts every refusal of the owner gate; tests and the
 	// security check look for it.
 	ownerRefused = "owner sign-in needed"
-	// ownerSessionTTL bounds a session; a viewer restart ends it sooner.
+	// ownerSignInHeader on a refusal names the sign-in page.
+	ownerSignInHeader = "X-Owner-Sign-In"
+	// ownerSessionTTL bounds a session; sign-out ends it sooner.
 	ownerSessionTTL = 30 * 24 * time.Hour
 	// ownerCodeTTL is how long a code may be typed in.
 	ownerCodeTTL = 5 * time.Minute
@@ -54,11 +60,14 @@ const (
 // ownerAuth holds the owner's sessions and the one pending code.
 type ownerAuth struct {
 	mu       sync.Mutex
-	sessions map[string]time.Time // sha256(token) hex → expiry
-	code     string
-	codeExp  time.Time
-	codeAt   time.Time
-	tries    int
+	sessions map[string]ownerSession // sha256(token) hex → expiry, user agent
+	// file keeps the sessions across restarts (keepIn); "" keeps them in
+	// memory only (tests, a viewer without a state dir).
+	file    string
+	code    string
+	codeExp time.Time
+	codeAt  time.Time
+	tries   int
 	// deliver shows code to the owner outside HTTP and says where
 	// ("a dialog", "the viewer's terminal").
 	deliver func(code string) (string, error)
@@ -66,7 +75,7 @@ type ownerAuth struct {
 }
 
 func newOwnerAuth() *ownerAuth {
-	return &ownerAuth{sessions: map[string]time.Time{}, deliver: deliverOwnerCode("auto"), now: time.Now}
+	return &ownerAuth{sessions: map[string]ownerSession{}, deliver: deliverOwnerCode("auto"), now: time.Now}
 }
 
 // deliverOwnerCode picks how the code reaches the owner: "dialog" (macOS,
@@ -118,29 +127,39 @@ func (o *ownerAuth) valid(token string) bool {
 	h := hashToken(token)
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	exp, ok := o.sessions[h]
-	if ok && o.now().After(exp) {
+	s, ok := o.sessions[h]
+	if ok && o.now().After(s.Exp) {
 		delete(o.sessions, h)
+		o.saveOrWarn()
 		return false
 	}
 	return ok
 }
 
-func (o *ownerAuth) newSession() (string, error) {
+func (o *ownerAuth) newSession() (string, error) { return o.newSessionFor("") }
+
+// newSessionFor starts a session for the browser with user agent ua (kept
+// beside the hash so the owner can tell sessions apart; not checked).
+func (o *ownerAuth) newSessionFor(ua string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(b)
 	o.mu.Lock()
-	o.sessions[hashToken(token)] = o.now().Add(ownerSessionTTL)
+	o.sessions[hashToken(token)] = ownerSession{Exp: o.now().Add(ownerSessionTTL), UA: truncate(ua, 300)}
+	o.saveOrWarn()
 	o.mu.Unlock()
 	return token, nil
 }
 
 func (o *ownerAuth) endSession(token string) {
 	o.mu.Lock()
-	delete(o.sessions, hashToken(token))
+	h := hashToken(token)
+	if _, ok := o.sessions[h]; ok {
+		delete(o.sessions, h)
+		o.saveOrWarn()
+	}
 	o.mu.Unlock()
 }
 
@@ -217,11 +236,12 @@ func ownerOnlyRoute(method, rest string) bool {
 	if method != http.MethodPost {
 		// A file the owner gave the CEO downloads only to the owner, and
 		// so does a pane's tail on the Crew page (a pane may hold anything).
-		return (method == http.MethodGet || method == http.MethodHead) && (strings.HasPrefix(rest, "lead/file/") || rest == "crew/tail")
+		// The Connect socials page shows which networks and channels exist.
+		return (method == http.MethodGet || method == http.MethodHead) && (strings.HasPrefix(rest, "lead/file/") || rest == "crew/tail" || strings.HasPrefix(rest, "socials/"))
 	}
 	issue := strings.HasPrefix(rest, "issue/")
 	switch {
-	case issue && (strings.HasSuffix(rest, "/approve") || strings.HasSuffix(rest, "/send-back") || strings.HasSuffix(rest, "/yolo-review") || strings.HasSuffix(rest, "/clarify")):
+	case issue && (strings.HasSuffix(rest, "/approve") || strings.HasSuffix(rest, "/send-back") || strings.HasSuffix(rest, "/yolo-review") || strings.HasSuffix(rest, "/clarify") || strings.HasSuffix(rest, "/partner")):
 		return true
 	case rest == "needs-you/approve", rest == "owner-checks/tick", rest == "departments/add", rest == "lead/file",
 		rest == "shelf/review", rest == "shelf/comment", rest == "shelf/comment/resolve":
@@ -240,21 +260,28 @@ func ownerOnlyRoute(method, rest string) bool {
 		return true
 	case strings.HasPrefix(rest, "memory/"):
 		return true
-	case strings.HasPrefix(rest, "postmortem/"):
+	case strings.HasPrefix(rest, "postmortem/"), rest == "postmortems/mark", rest == "postmortems/undo":
+		return true
+	// Connect socials writes Keychain and projects.yaml and starts the
+	// social tool (socials_view.go).
+	case strings.HasPrefix(rest, "socials/"):
 		return true
 	}
 	return false
 }
 
 // ownerOnlyGlobal reports whether a request outside /p/<project>/ is an O
-// route: the phone notifications' POSTs (push_view.go).
+// route: the phone notifications' POSTs (push_view.go) and the running
+// viewer's profiles (pprof.go).
 func ownerOnlyGlobal(method, path string) bool {
-	return method == http.MethodPost && strings.HasPrefix(path, "/push/")
+	return method == http.MethodPost && strings.HasPrefix(path, "/push/") || strings.HasPrefix(path, "/debug/pprof/")
 }
 
 // refuseNonOwner answers 403 with the way to sign in, and for routes with
-// an agent's way around (comment, ask) that way too.
+// an agent's way around (comment, ask) that way too. ownerSignInHeader lets
+// the owner's browser open the sign-in in place (static/owner-signin.js).
 func refuseNonOwner(w http.ResponseWriter, r *http.Request, rest string) {
+	w.Header().Set(ownerSignInHeader, "/owner")
 	msg := ownerRefused + ": only the owner makes this decision, from a browser signed in at /owner (a one-time code the viewer shows you)"
 	switch {
 	case strings.HasPrefix(rest, "shelf/comment"):
@@ -263,9 +290,11 @@ func refuseNonOwner(w http.ResponseWriter, r *http.Request, rest string) {
 		msg += "; " + ownerCheckRefused
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/clarify"):
 		msg += "; " + clarifyRefused
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/partner"):
+		msg += "; " + partnerAnswerRefused
 	case strings.HasPrefix(rest, "memory/"):
 		msg += "; " + memoryRefused
-	case strings.HasPrefix(rest, "postmortem/"):
+	case strings.HasPrefix(rest, "postmortem/"), rest == "postmortems/mark", rest == "postmortems/undo":
 		msg += "; " + postmortemRefused
 	default:
 		msg += "; an agent asks on its issue trail: issue-cli comment <slug> \"question: …\""
@@ -351,7 +380,7 @@ func (s *Server) handleOwner(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "wrong, expired or used code", http.StatusForbidden)
 			return
 		}
-		token, err := s.owner.newSession()
+		token, err := s.owner.newSessionFor(r.UserAgent())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

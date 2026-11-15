@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 )
 
 // isolateTmux points tmux at a private server for the test so it never
@@ -41,6 +43,16 @@ func isolateTmux(t *testing.T) {
 		_ = kill.Run()
 		_ = os.RemoveAll(dir)
 	})
+}
+
+// standInAgentRuns makes a launch hold for a test whose stand-in agent (echo,
+// true) exits at once: agentrun.Start would report it dead and remove its
+// session. Dead launches have their own tests in internal/agentrun.
+func standInAgentRuns(t *testing.T) {
+	t.Helper()
+	origBare, origSettle := agentrun.BareShell, agentrun.LaunchSettle
+	agentrun.BareShell, agentrun.LaunchSettle = func(string) bool { return false }, 0
+	t.Cleanup(func() { agentrun.BareShell, agentrun.LaunchSettle = origBare, origSettle })
 }
 
 // testTmuxSocket is the socket of the test's private server: where tmux

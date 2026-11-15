@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="socials.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1">Connect socials</h1>
+        <span class="wb-sub">{{.Dept}} · keys go to Keychain only · the tool runs only while it works</span>
+    </div>
+    <div class="wb-so">
+        {{with .Flash}}<div class="wb-so-flash" role="status" data-testid="socials.flash">{{.}}</div>{{end}}
+        {{with .Error}}<div class="wb-so-error" role="alert" data-testid="socials.error">{{.}}</div>{{end}}
+        {{template "wb/so-hold" .}}
+        {{template "wb/so-setup" .}}
+        {{if .Tool}}
+        <section class="wb-so-card" data-testid="socials.networks">
+            <div class="wb-so-networks-head">
+                <h2 class="wb-so-h2"><span class="wb-so-step">2</span> The networks</h2>
+                <span class="wb-so-checked wb-muted" data-testid="socials.checked">{{if .Checked}}checked {{.Checked}}{{if not .ExpiryKnown}} · expiry not reported{{end}}{{else}}never checked{{end}}</span>
+                <form method="post" action="{{.BaseURL}}/check"><button class="wb-btn wb-btn--sm" type="submit" data-testid="socials.check">Check now</button></form>
+            </div>
+            {{with .CheckErr}}<p class="wb-so-warn" data-testid="socials.check_error">Last check: {{.}}</p>{{end}}
+            <p class="wb-so-note">Check now starts {{.Tool}}, reads each network's state and stops it again. Each Connect opens the network's own sign-in: this page never sees your password there.</p>
+            <div class="wb-so-nets">{{range .Networks}}{{template "wb/so-network" .}}{{end}}</div>
+            {{if .More}}<details class="wb-so-more" data-testid="socials.more"><summary>More in {{.Tool}}'s own UI: {{range $i, $n := .More}}{{if $i}}, {{end}}{{$n.Name}}{{end}}</summary>
+                <p class="wb-so-note">These connect only in {{.Tool}} itself (<span class="wb-mono-inline">{{.UIURL}}</span>, while it runs: Check now or a Connect starts it).</p>
+                {{range .More}}<p class="wb-so-line"><b>{{.Name}}</b> · {{.App}}{{range .VarSet}} · <span class="wb-mono-inline">{{.Name}}</span> {{if .Set}}set{{else}}not set{{end}}{{end}}</p>{{end}}
+            </details>{{end}}
+        </section>
+        {{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+</body>
+</html>

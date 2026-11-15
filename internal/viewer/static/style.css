@@ -2656,6 +2656,10 @@ select.modal-input option {
 .tl-mono { font-family: var(--font-mono); font-size: 12px; }
 .tl-amber { color: var(--amber); font-size: 12.5px; }
 .tl-blue { color: var(--blue); font-size: 12.5px; }
+.tl-stages-wrap { overflow-x: auto; }
+.tl-stages { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tl-stages th, .tl-stages td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tl-stages th { color: var(--text-secondary); font-weight: 500; }
 .tl-purple { color: var(--purple); font-size: 12.5px; }
 .tl-note { margin: 0; font-size: 12.5px; }
 .tl-missing { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border: 1px solid var(--amber-border); border-radius: var(--radius); background: var(--amber-bg); font-size: 13.5px; }

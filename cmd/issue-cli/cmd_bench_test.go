@@ -2,17 +2,23 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -258,6 +264,40 @@ func TestBenchCandidatesLeavesOutTestsWithoutGoTestsAndNamesRisks(t *testing.T) 
 	if len(cands) != 1 || cands[0].Slug != "calc/fix-add" || cands[0].System != "calc" || strings.Join(cands[0].TestNames, ",") != "TestAddAdds" {
 		t.Errorf("candidates --json = %+v", cands)
 	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"about 10", "bench run <benchmark> --agents claude,codex"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("candidates lacks %q:\n%s", want, out)
+		}
+	}
+
+	// A branch over the file cap is left out with why.
+	for i := range bench.MaxCandidateFiles + 1 {
+		if err := os.WriteFile(filepath.Join(repo, fmt.Sprintf("wide%d.go", i)), []byte("package calc\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "wide_test.go"), []byte("package calc\n\nimport \"testing\"\n\nfunc TestWide(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t2 := at.Add(30 * time.Second)
+	git("add", "-A")
+	git("commit", "-qm", "wide")
+	wide := filepath.Join(proj.IssueDir, "calc", "wide.md")
+	if err := os.WriteFile(wide, []byte("---\ntitle: \"Wide\"\nstatus: \"done\"\nsystem: \"calc\"\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stats(wide, t2, jsHead, git("rev-parse", "HEAD"))
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"candidates", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "files (over 15)") {
+		t.Errorf("candidates --all:\n%s", out)
+	}
 }
 
 func TestBenchReportAndCompareShowTheHoldoutOnlyAsACountAndExitByVerdict(t *testing.T) {
@@ -400,12 +440,10 @@ func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	tripwire := filepath.Join(t.TempDir(), "model-called")
 	bin := t.TempDir()
+	tripwire := filepath.Join(bin, "model-called")
 	for _, name := range []string{"claude", "codex"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\ntouch "+tripwire+"\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		standin.Write(t, filepath.Join(bin, name), "touch \"${0%/*}/model-called\"\n")
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	tmp := t.TempDir()
@@ -480,11 +518,11 @@ func TestReplayGuardBlocksAtSeventyPercent(t *testing.T) {
 // cap under one task (cache reads included) gets a note.
 func TestBenchBudgetLineShowsTheCacheReadDefault(t *testing.T) {
 	b := &bench.Benchmark{Name: "b", Tasks: []bench.Task{{}, {}}}
-	if got := budgetLine(b); !strings.Contains(got, "tokens 50000000 (default: 25M a task × 2, cache reads included)") {
+	if got := budgetLine(b, len(b.Tasks)); !strings.Contains(got, "tokens 50000000 (default: 25M a task × 2, cache reads included)") {
 		t.Errorf("unset: %s", got)
 	}
 	b.Budget.Tokens = 6_000_000
-	if got := budgetLine(b); !strings.HasPrefix(got, "tokens 6000000,") {
+	if got := budgetLine(b, len(b.Tasks)); !strings.HasPrefix(got, "tokens 6000000,") {
 		t.Errorf("set: %s", got)
 	}
 	if note := lowTokensNote(b.Budget); !strings.Contains(note, "6M tokens is under one task") {
@@ -506,5 +544,219 @@ func TestBenchReportShowsTheRunsWorkerHome(t *testing.T) {
 	printRun(&out, &bench.Run{Benchmark: "b", ID: "r0"})
 	if !strings.Contains(out.String(), "worker home owner") {
 		t.Errorf("an old run's report:\n%s", out.String())
+	}
+}
+
+// bench run costs with the prices the rooms' spend reads: a prices.yaml key
+// beats the benchmark file's and prefix keys arrive whole, so one model has
+// one cost in both.
+func TestBenchRunPricesThroughTheOneLoader(t *testing.T) {
+	asOwner(t)
+	cfg := t.TempDir()
+	benchDir := filepath.Join(cfg, "bench")
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", benchDir)
+	if err := os.MkdirAll(benchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(spend.PricesPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(spend.PricesPath(), []byte("prices:\n  claude-opus-5: {in: 3, out: 15}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := "name: b1\nprices:\n  claude-opus-5: {in: 99, out: 99}\n  claude-own: {in: 1, out: 2}\ntasks:\n  - project: calc\n    slug: calc/x\n    base: aaa\n    merged: bbb\n"
+	if err := os.WriteFile(filepath.Join(benchDir, "b1.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]bench.Price
+	orig := benchExecute
+	benchExecute = func(_ context.Context, b *bench.Benchmark, _ bench.Env, _ bench.Options) (*bench.Run, error) {
+		got = b.Prices
+		return nil, errors.New("no worker in this test")
+	}
+	t.Cleanup(func() { benchExecute = orig })
+	// cliVersion runs the CLI: left alone that is this test binary, which
+	// would run the whole suite again.
+	origCLI := benchCLIFor
+	benchCLIFor = func(context.Context, string, string, string, io.Writer) (string, string, string, error) {
+		return "/usr/bin/true", "", "", nil
+	}
+	t.Cleanup(func() { benchCLIFor = origCLI })
+
+	ctx, _, _ := newTestContext(&tracker.Project{Name: "Calc", Slug: "calc", IssueDir: t.TempDir()}, false)
+	if err := runBench(ctx, []string{"run", "b1"}); err == nil || !strings.Contains(err.Error(), "no worker in this test") {
+		t.Fatalf("bench run = %v", err)
+	}
+	if !reflect.DeepEqual(got, spend.LoadPrices()) {
+		t.Fatalf("bench run prices %+v, spend %+v", got, spend.LoadPrices())
+	}
+	if p, ok := bench.PriceFor("claude-opus-5-5", got); !ok || p.In != 3 {
+		t.Errorf("claude-opus-5-5 = %+v %v, want the prices.yaml price", p, ok)
+	}
+	if got["claude-own"].In != 1 {
+		t.Errorf("the benchmark's own model lost its price: %+v", got)
+	}
+}
+
+// abProject is a project whose routing: sends bugfixes to claude.
+func abProject(t *testing.T) *tracker.Project {
+	t.Helper()
+	dir := t.TempDir()
+	wf := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(wf, []byte("statuses:\n  - name: backlog\n  - name: done\nrouting:\n  default: claude\n  rules:\n    - {type: bugfix, agent: claude}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return &tracker.Project{Slug: "orchard", IssueDir: filepath.Join(dir, "issues"), WorkflowFile: wf}
+}
+
+func saveABRun(t *testing.T, id string, at time.Time, agents string) {
+	t.Helper()
+	rec := func(task, agent, outcome string, usd float64) bench.TaskRecord {
+		return bench.TaskRecord{Task: "orchard/" + task, Type: "bugfix", Agent: agent, Outcome: outcome, Judge: -1, WallSec: 90,
+			Usage: bench.Usage{Known: true, Input: 2000, USD: usd, USDKnown: usd > 0, Model: agent + "-model"}}
+	}
+	var records []bench.TaskRecord
+	for _, task := range []string{"a", "b", "c"} {
+		records = append(records, rec(task, "claude", bench.OutcomeFail, 0.5), rec(task, "codex", bench.OutcomePass, 0))
+	}
+	records = append(records, bench.TaskRecord{Task: "orchard/hidden-one", Type: "bugfix", Agent: "codex", Holdout: true, Outcome: bench.OutcomePass, Judge: -1})
+	r := &bench.Run{ID: id, Benchmark: "ab", Started: at, Ended: at.Add(time.Hour), Stop: bench.StopDone, Setup: bench.Setup{Agent: agents}}
+	if err := bench.Save(r, records); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBenchCompareOfATwoAgentRunPrintsTheTableAndTheRuleItContradicts(t *testing.T) {
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	asWorker(t)
+	proj := abProject(t)
+	at := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	saveABRun(t, "r1", at, "claude,codex")
+	saveABRun(t, "r2", at.Add(2*time.Hour), "claude,codex")
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runBench(ctx, []string{"compare", "ab/r1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	for _, want := range []string{
+		"By agent", "all", "bugfix", "0/3 0%", "3/3 100%", "cost unknown", "$0.50",
+		"Routing: type bugfix → claude contradicted: codex passed 3/3, claude 0/3",
+		"no prices.yaml at", "codex-model", "no price is ever guessed",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("compare lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "hidden-one") {
+		t.Errorf("a holdout task is named:\n%s", s)
+	}
+	// Two two-agent runs: the verdict task by task, and the table.
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"compare", "ab/r1", "ab/r2"}); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "no regression") || !strings.Contains(s, "orchard/a@codex") || !strings.Contains(s, "Routing: type bugfix") {
+		t.Errorf("compare a b:\n%s", s)
+	}
+	ctx, out, _ = newTestContext(proj, true)
+	if err := runBench(ctx, []string{"compare", "ab/r1", "ab/r2"}); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		ByAgent struct {
+			Agents []string `json:"agents"`
+		} `json:"by_agent"`
+		Routing []struct {
+			Verdict string `json:"verdict"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ByAgent.Agents) != 2 || len(got.Routing) != 1 || got.Routing[0].Verdict != bench.RoutingContradicted {
+		t.Errorf("json: %s", out)
+	}
+	// report shows it too.
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runBench(ctx, []string{"report", "ab/r1"}); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); !strings.Contains(s, "By agent") || !strings.Contains(s, "orchard/a@codex") || !strings.Contains(s, "cost unknown") {
+		t.Errorf("report:\n%s", s)
+	}
+}
+
+func TestBenchCompareOfAOneAgentRunNamesTheFlag(t *testing.T) {
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
+	asWorker(t)
+	r := &bench.Run{ID: "r1", Benchmark: "solo", Stop: bench.StopDone, Setup: bench.Setup{Agent: "claude"}}
+	if err := bench.Save(r, []bench.TaskRecord{{Task: "p/a", Outcome: bench.OutcomePass}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, out, _ := newTestContext(nil, false)
+	if err := runBench(ctx, []string{"compare", "solo/r1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "--agents claude,codex") {
+		t.Errorf("out:\n%s", out)
+	}
+}
+
+func TestBenchRunAgentsFlag(t *testing.T) {
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
+	asOwner(t)
+	b := bench.New("flagged")
+	b.Tasks = []bench.Task{{Project: "orchard", Slug: "a"}}
+	b.Workers = map[string]string{"claude": "sh", "codex": "sh", "missing": "no-such-command-here"}
+	if err := b.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var got bench.Options
+	var worker string
+	saveExec, saveCLI := benchExecute, benchCLIFor
+	t.Cleanup(func() { benchExecute, benchCLIFor = saveExec, saveCLI })
+	benchExecute = func(_ context.Context, bm *bench.Benchmark, _ bench.Env, opt bench.Options) (*bench.Run, error) {
+		got, worker = opt, bm.Worker
+		return &bench.Run{ID: "r", Benchmark: bm.Name, Stop: bench.StopDone}, nil
+	}
+	benchCLIFor = func(context.Context, string, string, string, io.Writer) (string, string, string, error) {
+		return "issue-cli", "", "", nil
+	}
+	run := func(args ...string) (string, error) {
+		ctx, _, errb := newTestContext(nil, false)
+		err := runBench(ctx, append([]string{"run", "flagged"}, args...))
+		return errb.String(), err
+	}
+	log, err := run("--agents", "claude, codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Agents, []string{"claude", "codex"}) || got.Setup.Agent != "claude,codex" {
+		t.Errorf("options = %+v", got)
+	}
+	if !strings.Contains(log, "1 tasks on claude,codex (2 in all)") || !strings.Contains(log, "× 2") {
+		t.Errorf("log:\n%s", log)
+	}
+	if _, err := run("--agents", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Agents) != 0 || got.Setup.Agent != "codex" || worker != "sh" {
+		t.Errorf("one agent: %+v worker %q", got, worker)
+	}
+	got = bench.Options{}
+	if _, err := run("--agents", "claude,codex", "--worker", "x"); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Errorf("both flags: %v", err)
+	}
+	if _, err := run("--agents", "claude,missing"); err == nil || !strings.Contains(err.Error(), "not on PATH") {
+		t.Errorf("missing command: %v", err)
+	}
+	if _, err := run("--agents", "claude,gemini"); err == nil || !strings.Contains(err.Error(), "workers:") {
+		t.Errorf("unknown agent: %v", err)
+	}
+	if got.Setup.Agent != "" {
+		t.Errorf("a refused run started: %+v", got)
 	}
 }

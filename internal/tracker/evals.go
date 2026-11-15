@@ -68,6 +68,45 @@ type WorkflowEval struct {
 	Assert      []EvalAssert `yaml:"assert,omitempty" json:"assert,omitempty" desc:"promptfoo assertions without a model, passed through: contains, icontains, not-contains, regex, is-json, … (type, value)"`
 	Checks      []string     `yaml:"checks,omitempty" json:"checks,omitempty" desc:"Shell commands that must pass in the task's checkout"`
 	Pass        float64      `yaml:"pass,omitempty" json:"pass,omitempty" desc:"Mean score 0-1 a task needs to pass (default 0.7); tests evals pass on every hidden test and check"`
+	// Stages say, per stage of a golden task (design, code, docs), the
+	// status whose span gives its tokens and time, rubric lines added to
+	// the task's own, and its pass bar (docs/benchmark.md, Scores per
+	// stage).
+	Stages map[string]EvalStage `yaml:"stages,omitempty" json:"stages,omitempty" desc:"Per stage (design, code, docs): status (the workflow status the stage is), rubric (lines added to the task's stage rubric), pass (the stage's bar, default 0.7)"`
+}
+
+// The stages a golden task is scored by, in the order a path meets them
+// (bench.StageNames).
+const (
+	EvalStageDesign = "design"
+	EvalStageCode   = "code"
+	EvalStageDocs   = "docs"
+)
+
+// EvalStageNames is every stage, in path order.
+var EvalStageNames = []string{EvalStageDesign, EvalStageCode, EvalStageDocs}
+
+// EvalStage is one stage's entry under an eval's stages:.
+type EvalStage struct {
+	Status string   `yaml:"status,omitempty" json:"status,omitempty" desc:"The workflow status this stage is (default: the design role's status for design, the work role's for code; docs has none)"`
+	Rubric []string `yaml:"rubric,omitempty" json:"rubric,omitempty" desc:"Rubric lines added to the task's own for this stage (design, docs; code is graded by tests)"`
+	Pass   float64  `yaml:"pass,omitempty" json:"pass,omitempty" desc:"The stage's pass bar, a score 0-1 (default 0.7)"`
+}
+
+// PassBar is Pass with its default.
+func (s EvalStage) PassBar() float64 {
+	if s.Pass > 0 {
+		return s.Pass
+	}
+	return DefaultEvalPass
+}
+
+// Stage is the eval's entry for stage (zero when it has none or e is nil).
+func (e *WorkflowEval) Stage(stage string) EvalStage {
+	if e == nil {
+		return EvalStage{}
+	}
+	return e.Stages[stage]
 }
 
 // EvalAssert is one promptfoo assertion an eval passes through.

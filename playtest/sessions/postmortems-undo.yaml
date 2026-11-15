@@ -1,0 +1,48 @@
+session: postmortems-undo
+issue: ui/a-wrong-refuse-on-the-post-mortem-queue-can-be-undone-by-the-owner
+title: The owner undoes a wrong Refuse from Marked lately
+scenario: postmortems
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: A refused row shows under Marked lately with its line, and Undo starts at nothing ticked
+    setup:
+      - open: /p/{project}/postmortems
+    act:
+      - click: postmortems.refuse.workflow-0
+      - click: postmortems.refuse.workflow-0
+      - wait_for: { visible: postmortems.row.ui/till.a2.msg, ms: 8000 }
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.count, text: "4" }
+      - visible: [postmortems.marked, postmortems.marked.row.ui/till.a2, postmortems.marked.row.ui/shelf.a2]
+      - text_contains: { target: postmortems.marked.row.ui/till.a2.mark, text: "Refused: " }
+      - text_contains: { target: postmortems.undo, text: "Undo 0" }
+
+  - id: TP5
+    title: Undo takes a second click and puts the action back in the queue with its history
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/postmortems
+    act:
+      - click: postmortems.refuse.workflow-0
+      - click: postmortems.refuse.workflow-0
+      - wait_for: { visible: postmortems.row.ui/till.a2.msg, ms: 8000 }
+      - open: /p/{project}/postmortems
+      - click: postmortems.marked.row.ui/till.a2.tick
+      - check: { text_contains: { target: postmortems.undo, text: "Undo 1" } }
+      - click: postmortems.undo
+      - check: { text_contains: { target: postmortems.undo, text: "Confirm: undo 1" } }
+      - click: postmortems.undo
+      - wait_for: { visible: postmortems.marked.row.ui/till.a2.msg, ms: 8000 }
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.count, text: "5" }
+      - visible: [postmortems.row.ui/till.a2, postmortems.marked.row.ui/shelf.a2]
+      - absent: [postmortems.marked.row.ui/till.a2]
+      - issue: { slug: ui/till, comment_contains: "A2 reopened on the actions page" }

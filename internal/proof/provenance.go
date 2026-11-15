@@ -1,15 +1,12 @@
 package proof
 
 import (
-	"bytes"
-	"context"
-	"io/fs"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -28,7 +25,7 @@ type headRow struct {
 // chain, and after the merge the walk of main since the issue began meets
 // every issue fast-forwarded meanwhile; their trailers name the other
 // issue's criteria. A commit no recorded head holds yet is the branch's own.
-func foreignCommits(root, issuesDir, ownStats, ref string, own tracker.StatsStore, commits []commit) map[string]bool {
+func foreignCommits(cache *timeline.Cache, root, issuesDir, ownStats, ref string, own tracker.StatsStore, commits []commit) map[string]bool {
 	if len(commits) == 0 || issuesDir == "" {
 		return nil
 	}
@@ -42,31 +39,12 @@ func foreignCommits(root, issuesDir, ownStats, ref string, own tracker.StatsStor
 	}
 	rows = append(rows, headRow{at: time.Now(), sha: ref, mine: true})
 	others := false
-	_ = filepath.WalkDir(issuesDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	for _, h := range cache.RecordedHeads(issuesDir) {
+		if h.Stats != ownStats && !h.At.Before(from) {
+			rows = append(rows, headRow{at: h.At, sha: h.SHA})
+			others = true
 		}
-		if d.IsDir() {
-			if p != issuesDir && tracker.NotIssueFolder(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(p, ".stats.json") || p == ownStats {
-			return nil
-		}
-		st, err := tracker.LoadStats(strings.TrimSuffix(p, ".stats.json") + ".md")
-		if err != nil {
-			return nil
-		}
-		for _, t := range st.Transitions {
-			if t.BranchHead != "" && !t.TS.Before(from) {
-				rows = append(rows, headRow{at: t.TS, sha: t.BranchHead})
-				others = true
-			}
-		}
-		return nil
-	})
+	}
 	if !others {
 		return nil
 	}
@@ -91,17 +69,13 @@ func foreignCommits(root, issuesDir, ownStats, ref string, own tracker.StatsStor
 	for _, p := range oldest.parents {
 		in.WriteString("^" + p + "\n")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), tracker.GitTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-list", "--parents", "--ignore-missing", "--stdin")
-	cmd.Stdin = strings.NewReader(in.String())
-	out, err := cmd.Output()
+	out, err := tracker.GitCachedIn(root, in.String(), "rev-list", "--parents", "--ignore-missing", "--stdin")
 	if err != nil {
 		return nil
 	}
 	parents := map[string][]string{}
-	for _, line := range bytes.Split(out, []byte("\n")) {
-		if f := strings.Fields(string(line)); len(f) > 0 {
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 0 {
 			parents[f[0]] = f[1:]
 		}
 	}

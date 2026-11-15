@@ -136,7 +136,7 @@ func TestBenchCompareGivesEachWorkflowItsVerdictWithTimeAndCost(t *testing.T) {
 		"product: no change · 1 tasks",
 		"marketing: net negative · 1 tasks",
 		"pass 100% → 0% · score 0.90 → 0.40",
-		"wall 1m0s → 1m0s (+0%) · tokens 1.0k → 1.0k (+0%) · cost $1.00 → $1.00 (+0%)",
+		"wall 1m0s → 1m0s (+0%) · tokens 1k → 1k (+0%) · cost $1.00 → $1.00 (+0%)",
 		"1 task(s) regressed: shop/marketing/post-tees",
 	} {
 		if !strings.Contains(got, want) {

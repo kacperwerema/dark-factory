@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 13h12v1.5H2zM3 8h2v4H3zm4-3h2v7H7zm4-3h2v10h-2z' fill='%2358a6ff'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
-    <script src="/static/events.js"></script>
+    <script src="/static/events.js"></script>     <script src="/static/owner-signin.js"></script>
 </head>
 <body>
 <div class="app">
@@ -127,6 +127,20 @@
                     {{else}}
                     <span class="status-meta">Nothing needs you. Gates, playtests, check scripts and open <code>question:</code> comments show here.</span>
                     {{end}}{{if $qrest}}</details>{{end}}
+                </div>
+                {{end}}
+                {{with .NeedsYouOther}}
+                {{$rest := rest $.Cap.Needs .}}
+                <div class="status-list">
+                    <span class="label">Other</span>
+                    {{range $i, $r := .}}{{if eq $i $.Cap.Needs}}<details class="status-more" data-fold="needs.other" data-testid="status.waiting.more.other"><summary>+{{len $rest}} more</summary>{{end}}
+                    <div class="status-row" data-testid="status.waiting.other.{{.Kind}}.{{tid .Slug}}">
+                        <div class="status-row-stack">
+                            <a href="{{.URL}}" class="status-title">{{.Label}}</a>
+                            <span class="status-meta">{{.Note}}</span>
+                        </div>
+                    </div>
+                    {{end}}{{if $rest}}</details>{{end}}
                 </div>
                 {{end}}
                 {{if .NotReady}}

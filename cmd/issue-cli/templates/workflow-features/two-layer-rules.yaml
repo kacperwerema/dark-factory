@@ -1,0 +1,26 @@
+id: two-layer-rules
+version: v0.61.0
+category: automation
+propose: false
+sources: ["internal/rules/rules.go", "internal/briefing/rules.go", "internal/lint/rules.go", "cmd/issue-cli/cmd_rules.go"]
+title: "Standing rules in two layers: every project's and this project's"
+what: |
+  `rules:` lists what this project adds to the machine's rules file,
+  `~/.config/ai-workflow-engine/rules.md`, which the owner edits by hand and which
+  reaches every project's leads and workers. The briefing shows the layers apart, and
+  pinned memories the same way. A project rule can name a machine rule in `narrows:`;
+  both still print. `issue-cli health lint --check rules` names a project rule that
+  contradicts a machine one without saying so. `issue-cli rules` lists both layers.
+why: |
+  A standing instruction otherwise has to be repeated per project, in prompts only that
+  project reads. Off by default: a project needs this key only to add its own rules;
+  it receives the machine's without it.
+where: "top-level rules: (docs/workflow.md, Rules)"
+snippet: |
+  rules:
+    - id: release-worktree
+      text: "make install runs only from the release worktree."
+      narrows: no-install     # optional: a machine rule's [key]
+question: "Are there standing rules for this project on top of the machine's rules.md?"
+detect:
+  - path: rules

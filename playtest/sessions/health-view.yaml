@@ -10,7 +10,7 @@ session_checks:
 
 steps:
   - id: TP4
-    title: Both gauges, the components with their reasons, the review with actions on proposed ones only
+    title: Both gauges, the components with their reasons (flaky measured from ux-test runs), the review with actions on proposed ones only
     setup:
       - open: /p/{project}/health?classic=1&range=all
     checks:
@@ -19,8 +19,9 @@ steps:
       - visible: [health.score_gauge, health.components, health.opinion.stale]
       - text_contains: { target: health.component.big_files, text: "18.2%" }
       - text_contains: { target: health.component.big_files, text: "47" }
-      - text_contains: { target: health.component.flaky, text: "no data: needs the playtest telemetry" }
-      - text_contains: { target: health.components, text: "6 of 9 components, 70% of the weight" }
+      - text_contains: { target: health.component.flaky, text: "0.7%" }
+      - text_contains: { target: health.component.flaky, text: "86" }
+      - text_contains: { target: health.components, text: "7 of 9 components, 80% of the weight" }
       - count: { pattern: health.recommendation, equals: 3 }
       - count: { pattern: health.file_recommendation, equals: 2 }
       - count: { pattern: health.dismiss_recommendation, equals: 2 }
@@ -32,7 +33,7 @@ steps:
       side, each with a half-ring gauge. The opinion says the review is old
       with a clock icon. The component table reads as a breakdown: each row
       names what it measures and its good → bad range, the measured value, a
-      sub-score bar and the weight; the three empty ones say why. Only R1 and
+      sub-score bar and the weight; flaky reads 0.7%; the two empty ones say why. Only R1 and
       R2 have File as issue and Dismiss; R3 shows it was filed, with a link.
       On a phone the two cards stack and nothing is cut off.
 

@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // installScript is the repo's install.sh (the one README's curl | bash runs).
@@ -77,7 +79,7 @@ func TestInstallScriptVerifiesWithShasum(t *testing.T) {
 	}
 
 	// Tools install.sh needs, linked one by one so sha256sum is absent.
-	for _, tool := range []string{"bash", "sed", "head", "mktemp", "rm", "tar", "grep", "uname", "mkdir", "install", "gzip", "cat", "perl"} {
+	for _, tool := range []string{"bash", "sed", "head", "mktemp", "rm", "tar", "grep", "uname", "mkdir", "gzip", "cat", "perl", "mv", "chmod", "dirname", "basename"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			if tool == "perl" {
@@ -105,13 +107,11 @@ while [ $# -gt 0 ]; do
 done
 case "$url" in
   https://api.github.com/repos/kacperwerema/dark-factory/releases/latest) printf '{\n  "tag_name": "v0.60.0",\n}\n' ;;
-  https://github.com/kacperwerema/dark-factory/releases/download/v0.60.0/*) cat "` + release + `/${url##*/}" > "$out" ;;
+  https://github.com/kacperwerema/dark-factory/releases/download/v0.60.0/*) cat "${0%/bin/*}/release/${url##*/}" > "$out" ;;
   *) echo "unexpected url $url" >&2; exit 22 ;;
 esac
 `
-	if err := os.WriteFile(filepath.Join(bin, "curl"), []byte(curl), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, filepath.Join(bin, "curl"), curl)
 
 	const name = "issue-viewer_v0.60.0_"
 	osName := map[string]string{"Darwin": "darwin", "Linux": "linux"}
@@ -138,6 +138,10 @@ esac
 	}
 
 	dest := filepath.Join(root, "installed")
+	// An older install is in place: each binary has a second hard link, so
+	// a write into the old inode (cp's way, which macOS answers with SIGKILL
+	// at the next exec) shows in it.
+	kept := plantOldBinaries(t, dest, "issue-viewer", "issue-cli")
 	out, err := run(dest)
 	if err != nil {
 		t.Fatalf("install.sh failed: %v\n%s", err, out)
@@ -147,6 +151,10 @@ esac
 		if err != nil || string(got) != "#!/bin/sh\necho "+b+"\n" {
 			t.Fatalf("%s not installed (%v): %q\n%s", b, err, got, out)
 		}
+	}
+	assertReplacedNotOverwritten(t, dest, kept)
+	if !strings.Contains(out, "installed issue-cli") {
+		t.Fatalf("install.sh did not say what it installed:\n%s", out)
 	}
 
 	// A sum that does not match is refused.
@@ -194,4 +202,100 @@ func writeReleaseArchive(t *testing.T, path, stage string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// plantOldBinaries writes an old file for each name in dir and a hard link
+// to it under keep/, returning the keep folder. assertReplacedNotOverwritten
+// reads both back.
+func plantOldBinaries(t *testing.T, dir string, names ...string) string {
+	t.Helper()
+	keep := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+".keep")
+	for _, d := range []string{dir, keep} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range names {
+		p := filepath.Join(dir, n)
+		// not a stand-in: an old binary the install replaces, never run
+		if err := os.WriteFile(p, []byte("old "+n+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(p, filepath.Join(keep, n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return keep
+}
+
+// assertReplacedNotOverwritten: every file planted in keep still holds its
+// old contents and is no longer the same file as dir's (a new inode was
+// renamed into place), and dir holds no leftover temporary file.
+func assertReplacedNotOverwritten(t *testing.T, dir, keep string) {
+	t.Helper()
+	ents, err := os.ReadDir(keep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		old, err := os.ReadFile(filepath.Join(keep, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(old) != "old "+e.Name()+"\n" {
+			t.Errorf("%s was written in place (the old inode now holds %d new bytes): macOS kills such a binary at exec", e.Name(), len(old))
+		}
+		a, errA := os.Stat(filepath.Join(keep, e.Name()))
+		b, errB := os.Stat(filepath.Join(dir, e.Name()))
+		if errA != nil || errB != nil {
+			t.Fatalf("stat %s: %v %v", e.Name(), errA, errB)
+		}
+		if os.SameFile(a, b) {
+			t.Errorf("%s is still the old inode", e.Name())
+		}
+		if b.Mode().Perm() != 0o755 {
+			t.Errorf("%s mode %v, want 0755", e.Name(), b.Mode().Perm())
+		}
+	}
+	ents, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if e.Name() != "issue-cli" && e.Name() != "issue-viewer" {
+			t.Errorf("left behind in %s: %s", dir, e.Name())
+		}
+	}
+}
+
+// TestMakeInstallReplacesBinaryAtomically runs the Makefile's install
+// (without the hooks step) into a BINDIR that already holds both binaries:
+// each new build is renamed over the old file, never copied into it, and the
+// installed issue-cli runs.
+func TestMakeInstallReplacesBinaryAtomically(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds both binaries")
+	}
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("no make on this machine")
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "bin")
+	kept := plantOldBinaries(t, dest, "issue-viewer", "issue-cli")
+	cmd := exec.Command("make", "-C", repo, "-o", "hooks", "install", "BINDIR="+dest, "VERSION=v0.0.0-installtest")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make install: %v\n%s", err, out)
+	}
+	assertReplacedNotOverwritten(t, dest, kept)
+	v, err := exec.Command(filepath.Join(dest, "issue-cli"), "version").CombinedOutput()
+	if err != nil || !strings.Contains(string(v), "v0.0.0-installtest") {
+		t.Fatalf("installed issue-cli does not run (%v): %s", err, v)
+	}
+	if !strings.Contains(string(out), dest) {
+		t.Errorf("make install does not say where it installed:\n%s", out)
+	}
 }

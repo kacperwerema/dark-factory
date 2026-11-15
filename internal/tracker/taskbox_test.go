@@ -84,7 +84,7 @@ func TestParseIssueTagsCheckboxesWithLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inputs := regexp.MustCompile(`<input[^>]*type="checkbox"[^>]*>`).FindAllString(issue.BodyHTML, -1)
+	inputs := regexp.MustCompile(`<input[^>]*type="checkbox"[^>]*>`).FindAllString(issue.BodyHTML(), -1)
 	lines := regexp.MustCompile(`data-line="(\d+)"`)
 	var got []string
 	for _, in := range inputs {
@@ -95,10 +95,10 @@ func TestParseIssueTagsCheckboxesWithLine(t *testing.T) {
 		got = append(got, m[1])
 	}
 	if strings.Join(got, ",") != "9,10,11,12" {
-		t.Fatalf("rendered checkbox lines = %v, want 9,10,11,12\n%s", got, issue.BodyHTML)
+		t.Fatalf("rendered checkbox lines = %v, want 9,10,11,12\n%s", got, issue.BodyHTML())
 	}
-	if !strings.Contains(issue.BodyHTML, `<input checked="" disabled="" type="checkbox" data-line="10">`) {
-		t.Errorf("checked box lost its checked attribute:\n%s", issue.BodyHTML)
+	if !strings.Contains(issue.BodyHTML(), `<input checked="" disabled="" type="checkbox" data-line="10">`) {
+		t.Errorf("checked box lost its checked attribute:\n%s", issue.BodyHTML())
 	}
 }
 

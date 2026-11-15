@@ -1,0 +1,50 @@
+# Department template: what `issue-cli department add video` installs. The
+# workflow file is the bundled workflow template named in workflow:, written
+# to workflows/<key>.yaml; role.md is written to departments/<key>/role.md.
+# Everything else becomes the department's entry in projects.yaml. See
+# docs/departments.md#templates and #partners.
+#
+# The studio work is done by an outside program, the partner below. It is
+# never part of this repository: `department add` prints install.md's steps
+# (clone it at the pinned commit to a path you choose) and records only that
+# path and the commit. Swapping the partner is a change to partner: in
+# projects.yaml, not to the workflow.
+name: Video
+description: "Video studio: explainer and demo videos made with an outside partner program (OpenMontage), local models first, every review the owner's"
+color: "#8B5CF6"
+role: "Explainer and demo videos, made with an outside studio program"
+mission: "Videos the owner is glad to show"
+workflow: video
+# The partners catalog's slots this department fills: department add names
+# the tools listed for each (issue-cli department partners --slot <slot>)
+# and installs none of them.
+partner_slots: [video]
+goals:
+  - id: videos
+    name: Videos approved
+    target: 1
+    period: month
+partner:
+  name: OpenMontage
+  adapter: openmontage
+  # The default path; department add --partner-path <dir> picks another.
+  path: ~/openmontage
+  # Pinned commit (upstream has no tags): move it on purpose, after reading
+  # the diff of its schemas and pipelines.
+  commit: 195eab24478dc9363326aec437aefc3701635ddf
+  repo: https://github.com/calesthio/openmontage
+# Paid tools are the fallback, never the default: every key is optional, so
+# the local path runs with none. Keys are the owner's Keychain items, passed
+# only into the department's agents' commands; {{path}} is the partner's path.
+connectors:
+  - name: openmontage
+    kind: tool
+    command: "{{path}}/.venv/bin/python"
+    secrets:
+      FAL_KEY: keychain:dark-factory-video/FAL_KEY
+      ELEVENLABS_API_KEY: keychain:dark-factory-video/ELEVENLABS_API_KEY
+    optional: [FAL_KEY, ELEVENLABS_API_KEY]
+    check: "test -x {{path}}/.venv/bin/python"
+    sends: true
+    note: "OpenMontage's tools; a set key lets them spend money, so the assets and publish gates stay the owner's"
+install: install.md

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
@@ -300,11 +301,7 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.scrub-%d", path, time.Now().UnixNano())
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return gitfile.WriteAtomic(path, data, 0o644)
 }
 
 // lockFor takes path's append lock, creating its dir when needed.

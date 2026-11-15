@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -18,7 +18,9 @@ import (
 // changed against its base, and which files more than one of them touches.
 // Everything is read from git; nothing is stored. Calls whose arguments are
 // commit shas are cached for the life of the process (their output never
-// changes), so a page load with no new commits only lists refs.
+// changes), so a page load with no new commits only lists refs. Merge-bases,
+// commit counts and small diffs between shas are also kept on disk beside
+// the repo (gitcache.go), so a fresh issue-cli call reuses them.
 
 // GitTimeout bounds every git call the scan makes.
 var GitTimeout = 5 * time.Second
@@ -128,20 +130,27 @@ func OpenBranchesErr(root, mainBranch string, issues []*Issue) ([]OpenBranch, er
 			continue
 		}
 		issue := FindIssue(issues, strings.TrimPrefix(name, "work/"))
-		if issue == nil || isClosedStatus(issue.Status) {
+		if issue == nil || IsClosedStatus(nil, issue.Status) {
 			continue
 		}
 		add(name, head, "")
 	}
 
+	var mainSha string
+	if len(out) > 0 {
+		if mainSha = BranchHead(root, mainBranch); mainSha == "" {
+			sha, err := runGit(root, "rev-parse", "--verify", "--quiet", mainBranch+"^{commit}")
+			if err != nil {
+				return out, err
+			}
+			mainSha = strings.TrimSpace(sha)
+		}
+	}
 	for i := range out {
 		b := &out[i]
 		b.Base = mainBranch
-		baseSha, err := runGit(root, "rev-parse", "--verify", "--quiet", b.Base+"^{commit}")
-		if err != nil {
-			return out, err
-		}
-		if b.MergeBase, err = gitCached(root, "merge-base", strings.TrimSpace(baseSha), b.Head); err != nil {
+		var err error
+		if b.MergeBase, err = gitCached(root, "merge-base", mainSha, b.Head); err != nil {
 			continue // unrelated history: leave MergeBase empty
 		}
 		b.MergeBase = strings.TrimSpace(b.MergeBase)
@@ -167,6 +176,9 @@ func OpenBranchesErr(root, mainBranch string, issues []*Issue) ([]OpenBranch, er
 func restack(root string, branches []OpenBranch) {
 	for i := range branches {
 		b := &branches[i]
+		if b.Ahead == 0 || b.MergeBase == "" {
+			continue // nothing on it to move: no branch can be nearer than 0
+		}
 		best, bestDist := -1, b.Ahead
 		for j := range branches {
 			o := branches[j]
@@ -344,15 +356,12 @@ func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 // MainBranch is the repo's main branch: origin's HEAD, else main or master,
 // else the main checkout's branch.
 func MainBranch(root string) (string, error) {
-	if ref, err := runGit(root, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		if name := strings.TrimPrefix(strings.TrimSpace(ref), "origin/"); name != "" && refExists(root, name) {
-			return name, nil
-		}
-	} else if errors.Is(err, ErrNoGit) || errors.Is(err, ErrGitTimeout) {
+	refs, err := gitRefs(root)
+	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{"main", "master"} {
-		if refExists(root, name) {
+	for _, name := range []string{refs.originHead, "main", "master"} {
+		if refs.heads[name] != "" {
 			return name, nil
 		}
 	}
@@ -454,17 +463,15 @@ func countCommits(root, from, to string) int {
 	return n
 }
 
+// refExists reports whether name resolves to a commit. A full branch ref is
+// answered from the branch heads, so asking for a branch that isn't there
+// runs no git of its own.
 func refExists(root, name string) bool {
+	if branch, ok := strings.CutPrefix(name, "refs/heads/"); ok {
+		return BranchHead(root, branch) != ""
+	}
 	_, err := runGit(root, "rev-parse", "--verify", "--quiet", name+"^{commit}")
 	return err == nil
-}
-
-func isClosedStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "done", "parked", "closed":
-		return true
-	}
-	return false
 }
 
 func splitLines(text string) []string {
@@ -480,54 +487,45 @@ func splitLines(text string) []string {
 // runGit runs git in root with GitTimeout. A missing repo or binary is
 // ErrNoGit; a timeout is ErrGitTimeout; any other failure wraps stderr.
 func runGit(root string, args ...string) (string, error) {
+	out, _, _, err := runGitFull(root, args...)
+	return out, err
+}
+
+// runGitFull is runGit with stderr and the exit code (-1 when git did not
+// exit on its own).
+func runGitFull(root string, args ...string) (stdout, stderr string, code int, err error) {
+	return runGitIn(root, "", args...)
+}
+
+// runGitIn is runGitFull with stdin.
+func runGitIn(root, stdin string, args ...string) (stdout, stderr string, code int, err error) {
+	if gitdir.NoRepo(root, args...) {
+		return "", "not a git repository", -1, ErrNoGit
+	}
+	countGitCall(args)
 	ctx, cancel := context.WithTimeout(context.Background(), GitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
+	runErr := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", ErrGitTimeout
+		return "", "", -1, ErrGitTimeout
 	}
-	if err != nil {
+	if runErr != nil {
 		var exitErr *exec.ExitError
-		msg := strings.TrimSpace(stderr.String())
-		if !errors.As(err, &exitErr) || strings.Contains(msg, "not a git repository") {
-			return "", ErrNoGit
+		msg := strings.TrimSpace(errBuf.String())
+		if !errors.As(runErr, &exitErr) || strings.Contains(msg, "not a git repository") {
+			return "", msg, -1, ErrNoGit
 		}
-		return "", fmt.Errorf("git %s: %s", args[0], msg)
+		return "", msg, exitErr.ExitCode(), gitExitError(args, msg)
 	}
-	return stdout.String(), nil
+	return outBuf.String(), errBuf.String(), 0, nil
 }
 
-// gitCache holds output of git calls whose arguments name commits by sha, so
-// the output can never change.
-var gitCache = struct {
-	sync.Mutex
-	m map[string]string
-}{m: map[string]string{}}
-
-const gitCacheMax = 20000
-
-// gitCached is runGit for calls keyed only by shas (merge-base, rev-list,
-// diff between two commits). Failures are not cached.
-func gitCached(root string, args ...string) (string, error) {
-	key := root + "\x00" + strings.Join(args, "\x00")
-	gitCache.Lock()
-	out, ok := gitCache.m[key]
-	gitCache.Unlock()
-	if ok {
-		return out, nil
-	}
-	out, err := runGit(root, args...)
-	if err != nil {
-		return "", err
-	}
-	gitCache.Lock()
-	if len(gitCache.m) >= gitCacheMax {
-		gitCache.m = map[string]string{}
-	}
-	gitCache.m[key] = out
-	gitCache.Unlock()
-	return out, nil
+func gitExitError(args []string, msg string) error {
+	return fmt.Errorf("git %s: %s", args[0], msg)
 }

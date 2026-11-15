@@ -10,7 +10,7 @@
  "families": {
   "tests": {
    "ms": 1,
-   "metrics": 8
+   "metrics": 11
   },
   "shape": {
    "ms": 1,
@@ -18,7 +18,7 @@
   },
   "score": {
    "ms": 0,
-   "metrics": 20
+   "metrics": 22
   },
   "opinion": {
    "ms": 0,
@@ -102,6 +102,24 @@
    "id": "score.component.weight{component=flaky}",
    "metric": "score.component.weight",
    "value": 10,
+   "group": "score",
+   "labels": {
+    "component": "flaky"
+   }
+  },
+  {
+   "id": "score.component{component=flaky}",
+   "metric": "score.component",
+   "value": 86,
+   "group": "score",
+   "labels": {
+    "component": "flaky"
+   }
+  },
+  {
+   "id": "score.component.value{component=flaky}",
+   "metric": "score.component.value",
+   "value": 0.007,
    "group": "score",
    "labels": {
     "component": "flaky"
@@ -218,7 +236,7 @@
   {
    "id": "score.coverage",
    "metric": "score.coverage",
-   "value": 0.7,
+   "value": 0.8,
    "group": "score",
    "band": {
     "unit": "share"
@@ -328,6 +346,36 @@
    },
    "band": {
     "unit": "seconds"
+   }
+  },
+  {
+   "id": "tests.e2e.flaky_share{window=14d}",
+   "metric": "tests.e2e.flaky_share",
+   "value": 0.007,
+   "group": "tests",
+   "labels": {
+    "window": "14d"
+   },
+   "band": {
+    "unit": "share"
+   }
+  },
+  {
+   "id": "tests.e2e.flaky_steps{window=14d}",
+   "metric": "tests.e2e.flaky_steps",
+   "value": 3,
+   "group": "tests",
+   "labels": {
+    "window": "14d"
+   }
+  },
+  {
+   "id": "tests.e2e.steps_run{window=14d}",
+   "metric": "tests.e2e.steps_run",
+   "value": 420,
+   "group": "tests",
+   "labels": {
+    "window": "14d"
    }
   },
   {

@@ -23,6 +23,9 @@ type departmentListRow struct {
 	// a configured group's); Parent is the group a department is under.
 	Group  []string `json:"group,omitempty"`
 	Parent string   `json:"parent,omitempty"`
+	// Optional are a group template's departments that can join it later
+	// (department add <key> --parent <group>).
+	Optional []string `json:"optional,omitempty"`
 }
 
 // departmentRows are HQ and Product, each bundled template, then the
@@ -37,6 +40,7 @@ func departmentRows(proj *tracker.Project) []departmentListRow {
 		r := departmentListRow{Key: t.Key, Name: t.Name, Kind: "template", Description: t.Description, Workflow: t.Workflow, Installed: t.Installed(proj)}
 		if t.Group {
 			r.Group = append([]string{}, t.Children...)
+			r.Optional = append([]string{}, t.Optional...)
 		}
 		if g := proj.GroupOf(t.Name); g != nil {
 			r.Parent = g.Name
@@ -92,7 +96,11 @@ func runDepartmentList(ctx *Context, args []string) error {
 			state = " (not installed)"
 		}
 		if len(r.Group) > 0 {
-			state = " (group: " + strings.Join(r.Group, ", ") + ")" + state
+			can := ""
+			if len(r.Optional) > 0 {
+				can = "; can join later: " + strings.Join(r.Optional, ", ")
+			}
+			state = " (group: " + strings.Join(r.Group, ", ") + can + ")" + state
 		}
 		if r.Parent != "" {
 			state += " · in group " + r.Parent
@@ -113,9 +121,9 @@ func runDepartmentList(ctx *Context, args []string) error {
 }
 
 // refuseWorker stops a worker from editing the owner's projects.yaml.
-func refuseWorker(ctx *Context, what string) error {
+func refuseWorker(ctx *Context, verb, what string) error {
 	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
-	if me := whoAmI(ctx.Project, issues); me.Role == tracker.RoleWorker {
+	if me := guardWho(ctx, issues, verb); me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers never %s: it edits the owner's projects.yaml. Ask the CEO on your issue trail (issue-cli comment <slug> \"question: …\")", what)
 	}
 	return nil
@@ -126,11 +134,12 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	parent := fs.String("parent", "", "put the department under this group (a department of the project)")
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
 	commit := fs.Bool("commit", false, "commit the files the add wrote (only those) in the project's git repository")
+	partnerPath := fs.String("partner-path", "", "where you install the template's partner program (default: the template's); recorded, never created")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--commit] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
+		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--partner-path <dir>] [--commit] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
 	}
 	proj := ctx.Project
 	tmpl, err := depttemplate.Load(fs.Arg(0))
@@ -138,11 +147,11 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 		return fmt.Errorf("%v; templates: %s (issue-cli department list)", err, strings.Join(depttemplate.Keys(), ", "))
 	}
 	if !*dry {
-		if err := refuseWorker(ctx, "add departments"); err != nil {
+		if err := refuseWorker(ctx, "department add", "add departments"); err != nil {
 			return err
 		}
 	}
-	plan, err := depttemplate.NewPlanUnder(proj, tmpl, *parent)
+	plan, err := depttemplate.NewPlanWith(proj, tmpl, depttemplate.Options{Parent: *parent, PartnerPath: *partnerPath})
 	if err != nil {
 		return err
 	}
@@ -158,7 +167,10 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 			*depttemplate.Plan
 			DryRun bool `json:"dry_run"`
 			addedFiles
-		}{plan, *dry, gitState})
+			// PartnerOptions are the partners catalog's row ids for each
+			// slot the template fills: listed, never installed.
+			PartnerOptions map[string][]string `json:"partner_options,omitempty"`
+		}{plan, *dry, gitState, partnerOptions(plan)})
 	}
 	w := ctx.Stdout
 	if *dry {
@@ -185,10 +197,16 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	for _, n := range plan.Notes {
 		fmt.Fprintln(w, n)
 	}
+	printInstall(w, plan)
+	printHandoffs(w, plan, proj)
+	printPartnerOptions(w, plan, proj)
 	if *dry {
 		args := tmpl.Key
 		if *parent != "" {
 			args += " --parent " + *parent
+		}
+		if *partnerPath != "" {
+			args += " --partner-path " + *partnerPath
 		}
 		fmt.Fprintf(w, "Apply: %s\n", tracker.InjectProject(proj, "issue-cli department add "+args))
 		return nil
@@ -225,13 +243,49 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 		fmt.Fprintf(w, ", and each job's brief (%s)", strings.Join(briefs, ", "))
 	}
 	fmt.Fprintln(w, ".")
-	fmt.Fprintf(w, "Templates carry no connectors: %s prints the config to add the outside tools it uses.\n",
-		tracker.InjectProject(proj, "issue-cli connectors "+plan.Key))
+	if len(tmpl.Connectors) == 0 {
+		fmt.Fprintf(w, "Templates carry no connectors: %s prints the config to add the outside tools it uses.\n",
+			tracker.InjectProject(proj, "issue-cli connectors "+plan.Key))
+	} else {
+		fmt.Fprintf(w, "Its connectors are in the entry, keys as references only: %s shows which are set.\n",
+			tracker.InjectProject(proj, "issue-cli connectors "+plan.Key))
+	}
 	gitState.print(w)
 	if depttemplate.ConfigUncommitted(plan.Root, plan.Config) {
 		fmt.Fprintf(w, "%s is in this repository and has uncommitted changes, the new department entry among them: commit it too (--commit leaves projects.yaml to you)\n", plan.Config)
 	}
 	return nil
+}
+
+// printHandoffs prints the handoffs a template's departments usually have,
+// for the owner to declare (never written: declared requests: make routing
+// refuse every other route), and a group's departments that can join later.
+func printHandoffs(w io.Writer, plan *depttemplate.Plan, proj *tracker.Project) {
+	for _, p := range append([]*depttemplate.Plan{plan}, plan.Children...) {
+		if p.Connections == "" {
+			continue
+		}
+		fmt.Fprintf(w, "\nHandoffs %s usually has, to declare in %s under the project (not written: once requests: are declared, routing refuses every route not listed; merge with any connections: already there):\n%s",
+			p.Name, p.Config, indentLines(p.Connections, "  "))
+		fmt.Fprintf(w, "Check them: %s\n", tracker.InjectProject(proj, "issue-cli health lint --check departments"))
+	}
+	for _, o := range plan.Optional {
+		fmt.Fprintf(w, "Can join %s later: %s (%s)\n", plan.Name, o.Name,
+			tracker.InjectProject(proj, "issue-cli department add "+o.Template+" --parent "+plan.Key))
+	}
+}
+
+// printInstall prints a template's partner install steps: printed only,
+// never run (the partner is a separate program the user installs).
+func printInstall(w io.Writer, plan *depttemplate.Plan) {
+	pt := plan.Template.Partner
+	if pt == nil {
+		return
+	}
+	fmt.Fprintf(w, "\nPartner: %s at %s, pinned to %s (the entry records only the path and the commit; nothing was cloned or run)\n", pt.Name, plan.PartnerPath, pt.Commit)
+	if plan.Install != "" {
+		fmt.Fprintf(w, "Install steps (run them yourself):\n%s", indentLines(plan.Install, "  "))
+	}
 }
 
 // addedFiles is what became of the files department add wrote in git.
@@ -342,7 +396,7 @@ func runDepartmentRemove(ctx *Context, args []string) error {
 		return fmt.Errorf("no department %q (departments: %s)", arg, strings.Join(proj.DepartmentKeys(), ", "))
 	}
 	if !*dry {
-		if err := refuseWorker(ctx, "remove departments"); err != nil {
+		if err := refuseWorker(ctx, "department remove", "remove departments"); err != nil {
 			return err
 		}
 	}
@@ -445,7 +499,7 @@ func runDepartmentUpdate(ctx *Context, args []string) error {
 		return err
 	}
 	if !*dry {
-		if err := refuseWorker(ctx, "update departments"); err != nil {
+		if err := refuseWorker(ctx, "department update", "update departments"); err != nil {
 			return err
 		}
 		if err := u.Apply(proj); err != nil {

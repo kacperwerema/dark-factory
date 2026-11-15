@@ -7,7 +7,7 @@ You run tonight's self-improvement loop: the benchmark on main's head, then at m
 
        issue-cli bench nightly --run {{slug}}
 
-   It runs only on this job's standing start, holds itself while memory is 50% or more or the load is over the core count, and keeps to the benchmark's budget. A held night is a result too: report it.
+   It runs only on this job's standing start, holds itself while memory is 50% or more or the load is at or over the core count, and keeps to the benchmark's budget. A held night is a result too: report it.
 3. When it exits, its last lines name the morning report file. Put it on the shelf and report the one line it printed:
 
        issue-cli output add --issue {{slug}} --kind report --file <the morning report>

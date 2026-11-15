@@ -28,6 +28,10 @@ type Env struct {
 	// Owner is the author the memory and the outcome lines name.
 	Owner string
 	Now   time.Time
+	// Statuses are the workflow's statuses now: a memory action's At: is
+	// checked against them again, since the workflow can change between
+	// the write and the round. Empty skips that check.
+	Statuses []string
 	// NewExperiment files a workflow action as an experiment proposal and
 	// returns its slug.
 	NewExperiment func(a Action) (string, error)
@@ -60,6 +64,8 @@ var ErrDecided = errors.New("every action of this post-mortem is already decided
 // that fails stays open with its error, and the others still apply. The
 // retro is rewritten after each action.
 func Decide(env Env, answers []Answer) ([]Outcome, error) {
+	mu.Lock()
+	defer mu.Unlock()
 	raw, err := os.ReadFile(env.RetroPath)
 	if err != nil {
 		return nil, err
@@ -129,10 +135,18 @@ func Decide(env Env, answers []Answer) ([]Outcome, error) {
 func (env Env) apply(a Action) (string, error) {
 	switch a.Place {
 	case PlaceMemory:
+		at := strings.TrimSpace(a.At)
+		if at != "" && len(env.Statuses) > 0 {
+			s, ok := MatchStatus(at, env.Statuses)
+			if !ok {
+				return "", errors.New(badStatus(at, env.Statuses))
+			}
+			at = s
+		}
 		store := memory.ProjectStore(env.IssueDir)
 		d := memory.Draft{
 			Text: strings.Join(strings.Fields(a.Text), " "), Kind: a.Arg, Scope: memory.ScopeProject,
-			Project: env.Project, System: env.System, Author: env.Owner,
+			Project: env.Project, System: env.System, Author: env.Owner, At: at,
 			Source: memory.Source{Issue: env.Issue, Retro: env.RetroRef},
 		}
 		res, err := store.Add(d, memory.AddOptions{}, env.Now)
@@ -143,13 +157,17 @@ func (env Env) apply(a Action) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		made := "memory " + res.Memory.ID
+		if at != "" {
+			made += " at " + at
+		}
 		switch res.Op {
 		case memory.OpNoop:
-			return "memory " + res.Memory.ID + " (already remembered)", nil
+			return made + " (already remembered)", nil
 		case memory.OpUpdate:
-			return "memory " + res.Memory.ID + " (updated)", nil
+			return made + " (updated)", nil
 		}
-		return "memory " + res.Memory.ID, nil
+		return made, nil
 	case PlaceFile, PlaceSkill:
 		rel := a.Target()
 		path := filepath.Join(env.Repo, filepath.FromSlash(rel))

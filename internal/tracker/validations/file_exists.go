@@ -9,7 +9,12 @@ import (
 
 func init() { register("file_exists", FileExists) }
 
-// FileExists passes when action.Path, relative to the project root, is a
+// IssuesPrefix starts a file_exists path read from the issues folder (the
+// work files) instead of the project root: <issues>/.goals/sales/weekly-funnel.json.
+const IssuesPrefix = "<issues>/"
+
+// FileExists passes when action.Path, relative to the project root (or,
+// starting with <issues>/, to the issues folder), is a
 // regular file with something in it besides whitespace. The path is
 // templated with {{slug}}, {{number}}, {{repo}}, {{system}} and
 // {{department}} (the issue's department key). It runs no shell, so unlike
@@ -29,15 +34,23 @@ func FileExists(action Action, issue *IssueView, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("file_exists: template error: %w", err)
 	}
-	rel = filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel)))
-	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("file_exists: path %q must stay inside the project root", raw)
+	rel = strings.TrimSpace(rel)
+	base, where := cfg.ProjectRoot, "project root"
+	shownPrefix := ""
+	if rest, ok := strings.CutPrefix(rel, IssuesPrefix); ok {
+		// A file with the work files (a job's metrics file under
+		// <issues>/.goals/): what a worker in a worktree can write.
+		rel, base, where, shownPrefix = rest, cfg.IssuesRoot, "issues folder", IssuesPrefix
 	}
-	if cfg.ProjectRoot == "" {
-		return fmt.Errorf("file_exists: no project root to look for %s in", filepath.ToSlash(rel))
+	rel = filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("file_exists: path %q must stay inside the %s", raw, where)
 	}
-	abs := filepath.Join(cfg.ProjectRoot, rel)
-	shown := filepath.ToSlash(rel)
+	if base == "" {
+		return fmt.Errorf("file_exists: no %s to look for %s in", where, filepath.ToSlash(rel))
+	}
+	abs := filepath.Join(base, rel)
+	shown := shownPrefix + filepath.ToSlash(rel)
 	info, err := os.Stat(abs)
 	switch {
 	case os.IsNotExist(err):

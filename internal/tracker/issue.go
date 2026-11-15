@@ -2,19 +2,20 @@ package tracker
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+
 	"errors"
 	"fmt"
+	"html"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
+
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -74,23 +75,6 @@ func extractExtraFields(rawMap map[string]interface{}) []ExtraField {
 	return fields
 }
 
-// StatusOrder defines the workflow lifecycle.
-var StatusOrder = []string{
-	"idea", "in design", "backlog", "in progress", "testing", "human-testing", "documentation", "shipping", "done",
-}
-
-var StatusDescriptions = map[string]string{
-	"idea":          "Raw idea, needs exploration",
-	"in design":     "Being designed and specced out",
-	"backlog":       "Ready to work on",
-	"in progress":   "Actively being implemented",
-	"testing":       "Under verification",
-	"human-testing": "Manual verification by humans",
-	"documentation": "Being documented",
-	"shipping":      "Committing and pushing changes",
-	"done":          "Completed",
-}
-
 type Issue struct {
 	Title          string   `yaml:"title"`
 	Status         string   `yaml:"status"`
@@ -122,10 +106,39 @@ type Issue struct {
 	Slug        string       `yaml:"-"`
 	FilePath    string       `yaml:"-"`
 	ModTime     time.Time    `yaml:"-"`
-	BodyHTML    string       `yaml:"-"`
 	BodyRaw     string       `yaml:"-"`
 	GithubURL   string       `yaml:"-"`
 	ExtraFields []ExtraField `yaml:"-"`
+
+	// comments are the file's comments, parsed with the body; parsed says
+	// they were, for an Issue built by hand. Read them through Comments.
+	comments []Comment
+	parsed   bool
+	// memo is what is derived from this parse (decisions, refs), shared by
+	// every copy of a cached issue (decision_memo.go).
+	memo *issueMemo
+}
+
+// BodyHTML renders the body. Only the pages that show a body ask, so a load
+// of the whole board doesn't pay for it (goldmark was 60% of a load).
+func (i *Issue) BodyHTML() string {
+	loadCounts.bodyRenders.Add(1)
+	var buf bytes.Buffer
+	if err := newIssueMarkdown().Convert([]byte(i.BodyRaw), &buf); err != nil {
+		return "<pre>" + html.EscapeString(i.BodyRaw) + "</pre>"
+	}
+	return buf.String()
+}
+
+// Comments are the issue's comments as of when it was read; the slice is the
+// caller's own. Where a fresher read is the point (after writing one), call
+// LoadComments. An Issue not built by ParseIssue reads its file.
+func (i *Issue) Comments() []Comment {
+	if !i.parsed {
+		comments, _ := LoadComments(i.FilePath)
+		return comments
+	}
+	return slices.Clone(i.comments)
 }
 
 func ParseIssue(filename string, data []byte) (*Issue, error) {
@@ -134,15 +147,10 @@ func ParseIssue(filename string, data []byte) (*Issue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
-	body, _ := ParseComments(rawBody)
-	body = strings.TrimSpace(body)
-	issue.BodyRaw = body
-
-	var buf bytes.Buffer
-	if err := newIssueMarkdown().Convert([]byte(body), &buf); err != nil {
-		return nil, fmt.Errorf("rendering markdown in %s: %w", filename, err)
-	}
-	issue.BodyHTML = buf.String()
+	body, comments := ParseComments(rawBody)
+	issue.BodyRaw = strings.TrimSpace(body)
+	issue.comments, issue.parsed = comments, true
+	issue.memo = &issueMemo{}
 
 	issue.Slug = Slugify(issue.Title)
 	if pin := Slugify(issue.SlugPin); pin != "" {
@@ -259,6 +267,9 @@ func warnSkip(path string, err error) {
 	fmt.Fprintf(warnOut, "warning: skipping %s: %v\n", path, err)
 }
 
+// LoadIssues reads the board. Parsed files are kept per folder and a load
+// only stats them (path, size, mtime), so reading the board again costs a
+// walk; a changed file is parsed again. The issues are the caller's own.
 func LoadIssues(dir string) ([]*Issue, error) {
 	return LoadIssuesWhere(dir, nil)
 }
@@ -267,6 +278,11 @@ func LoadIssues(dir string) ([]*Issue, error) {
 // (nil keeps all): a reader that needs a few issues skips parsing the rest.
 func LoadIssuesWhere(dir string, keep func(data []byte) bool) ([]*Issue, error) {
 	var issues []*Issue
+	if keep == nil {
+		loadCounts.boardWalks.Add(1)
+	}
+	known := cachedBoard(dir)
+	files := make(map[string]cachedIssue, len(known))
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -279,42 +295,51 @@ func LoadIssuesWhere(dir string, keep func(data []byte) bool) ([]*Issue, error) 
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		// Stat before reading: a write in between leaves an old stamp on
+		// new content, which the next load sees as a change.
+		info, err := d.Info()
 		if err != nil {
 			warnSkip(path, err)
 			return nil
+		}
+		stamp := stampOf(info)
+		cached, hit := known[path]
+		hit = hit && cached.stamp.same(stamp)
+
+		var data []byte
+		readAt := time.Now()
+		if hit {
+			data = cached.data
+		} else {
+			loadCounts.fileReads.Add(1)
+			if data, err = os.ReadFile(path); err != nil {
+				warnSkip(path, err)
+				return nil
+			}
 		}
 		if keep != nil && !keep(data) {
 			return nil
 		}
 
-		issue, err := ParseIssue(d.Name(), data)
-		if err != nil {
-			warnSkip(path, err)
-			return nil
-		}
-
-		issue.FilePath = path
-
-		if info, err := d.Info(); err == nil {
-			issue.ModTime = info.ModTime()
-		}
-
-		relDir := filepath.Dir(path)
-		baseDir, _ := filepath.Rel(dir, relDir)
-		if baseDir != "" && baseDir != "." {
-			issue.Slug = strings.ToLower(baseDir) + "/" + issue.Slug
-			// Auto-detect system from subdirectory if not set in frontmatter
-			if issue.System == "" {
-				issue.System = baseDir
+		if !hit {
+			cached = cachedIssue{stamp: stamp, data: data}
+			if cached.issue, err = parseBoardFile(dir, path, d.Name(), data, info); err != nil {
+				warnSkip(path, err)
+				return nil
 			}
 		}
-
-		issues = append(issues, issue)
+		// A link's stat says nothing about its target.
+		if d.Type().IsRegular() && (hit || stamp.settled(readAt)) {
+			files[path] = cached
+		}
+		issues = append(issues, copyIssue(cached.issue))
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking directory %s: %w", dir, err)
+	}
+	if keep == nil {
+		storeBoard(dir, files)
 	}
 
 	// Handle slug collisions
@@ -332,6 +357,29 @@ func LoadIssuesWhere(dir string, keep func(data []byte) bool) ([]*Issue, error) 
 	})
 
 	return issues, nil
+}
+
+// parseBoardFile parses one file found under dir and sets what its place on
+// the board decides: the folder in the slug and the system it implies.
+func parseBoardFile(dir, path, name string, data []byte, info fs.FileInfo) (*Issue, error) {
+	loadCounts.issueParses.Add(1)
+	issue, err := ParseIssue(name, data)
+	if err != nil {
+		return nil, err
+	}
+	issue.FilePath = path
+	issue.ModTime = info.ModTime()
+
+	relDir := filepath.Dir(path)
+	baseDir, _ := filepath.Rel(dir, relDir)
+	if baseDir != "" && baseDir != "." {
+		issue.Slug = strings.ToLower(baseDir) + "/" + issue.Slug
+		// Auto-detect system from subdirectory if not set in frontmatter
+		if issue.System == "" {
+			issue.System = baseDir
+		}
+	}
+	return issue, nil
 }
 
 type IssueUpdate struct {
@@ -382,17 +430,12 @@ func AppendIssueBody(body, text string) (string, bool, error) {
 		return body, false, nil
 	}
 
-	existing := map[string]bool{}
-	for _, match := range findAllHeadings(body) {
-		existing[match.Key] = true
-	}
-
 	textHeadings := findAllHeadings(text)
 
 	// Auto-route: if text begins with a heading that already exists in body
 	// and the rest of the text only contains deeper subheadings, treat this
 	// as an append into that existing section.
-	if len(textHeadings) > 0 && textHeadings[0].StartLine == 0 && existing[textHeadings[0].Key] {
+	if len(textHeadings) > 0 && textHeadings[0].StartLine == 0 {
 		lead := textHeadings[0]
 		canAutoRoute := true
 		for _, h := range textHeadings[1:] {
@@ -401,18 +444,24 @@ func AppendIssueBody(body, text string) (string, bool, error) {
 				break
 			}
 		}
-		if canAutoRoute {
-			lines := strings.Split(text, "\n")
-			_, title, _ := parseHeadingLine(lines[0])
-			remainder := strings.Join(lines[1:], "\n")
-			return AppendIssueBodyToSection(body, title, remainder, false)
+		if owners := sectionsOwning(body, lead); canAutoRoute && len(owners) > 0 {
+			if len(owners) > 1 {
+				var labels []string
+				for _, o := range owners {
+					labels = append(labels, fmt.Sprintf("%s (line %d)", o.Line, o.StartLine+1))
+				}
+				return body, false, fmt.Errorf("multiple matching sections for %q: %s\n\nRerun with --section and --force to merge into the first matching section", lead.Line, strings.Join(labels, ", "))
+			}
+			_, remainder, _ := strings.Cut(text, "\n")
+			nextBody, changed := appendContentToMatch(body, owners[0], stripLeadingHeading(remainder, lead.Key))
+			return nextBody, changed, nil
 		}
 	}
 
 	var duplicates []string
 	seen := map[string]bool{}
 	for _, match := range textHeadings {
-		if existing[match.Key] && !seen[match.Key] {
+		if len(sectionsOwning(body, match)) > 0 && !seen[match.Key] {
 			duplicates = append(duplicates, strings.TrimSpace(match.Line))
 			seen[match.Key] = true
 		}
@@ -426,565 +475,6 @@ func AppendIssueBody(body, text string) (string, bool, error) {
 		return text + "\n", true, nil
 	}
 	return body + "\n" + text + "\n", true, nil
-}
-
-func AppendIssueBodyToSection(body, section, text string, force bool) (string, bool, error) {
-	text = stripLeadingHeading(text, section)
-	matches := findHeadingMatches(body, section)
-	if len(matches) > 1 && !force {
-		var labels []string
-		for _, match := range matches {
-			labels = append(labels, fmt.Sprintf("%s (line %d)", match.Line, match.StartLine+1))
-		}
-		return body, false, fmt.Errorf("multiple matching sections for %q: %s\n\nRerun with --force to merge into the first matching section", section, strings.Join(labels, ", "))
-	}
-	if len(matches) > 1 {
-		nextBody, changed := appendContentToMatch(body, matches[0], text)
-		return nextBody, changed, nil
-	}
-	if len(matches) == 1 {
-		nextBody, changed := appendContentToMatch(body, matches[0], text)
-		return nextBody, changed, nil
-	}
-
-	nextBody, changed := appendToSection(body, section, text)
-	return nextBody, changed, nil
-}
-
-// stripLeadingHeading drops text's first non-blank line when it is a heading
-// titled section, so `append --section X` with a body that opens with "## X"
-// does not write the heading a second time.
-func stripLeadingHeading(text, section string) string {
-	trimmed := strings.TrimLeft(text, " \t\r\n")
-	first, rest, _ := strings.Cut(trimmed, "\n")
-	if _, title, ok := parseHeadingLine(first); ok && normalizeHeadingKey(title) == normalizeHeadingKey(section) {
-		return rest
-	}
-	return text
-}
-
-// ReplaceIssueBodySection replaces the content of an existing section with text.
-// The heading line is preserved; everything between it and the next heading of
-// equal or shallower depth is replaced. Errors if no matching section exists,
-// or if multiple sections match and force is false.
-func ReplaceIssueBodySection(body, section, text string, force bool) (string, bool, error) {
-	matches := findHeadingMatches(body, section)
-	if len(matches) == 0 {
-		return body, false, fmt.Errorf("no section matching %q in issue body\n\nUse 'issue-cli append --section %q' to create a new section", section, section)
-	}
-	if len(matches) > 1 && !force {
-		var labels []string
-		for _, match := range matches {
-			labels = append(labels, fmt.Sprintf("%s (line %d)", match.Line, match.StartLine+1))
-		}
-		return body, false, fmt.Errorf("multiple matching sections for %q: %s\n\nRerun with --force to replace the first matching section", section, strings.Join(labels, ", "))
-	}
-	nextBody, changed := replaceContentInMatch(body, matches[0], text)
-	return nextBody, changed, nil
-}
-
-// UpdateIssueBody applies a body transformation while holding the issue lock.
-// It reloads the current body under the lock so callers do not overwrite newer edits
-// based on a stale pre-lock snapshot.
-func UpdateIssueBody(filePath string, update func(body string) (string, bool, error)) (string, bool, error) {
-	return UpdateIssueBodyWith(filePath, func(body string, comments []Comment) (string, []Comment, bool, error) {
-		next, ok, err := update(body)
-		return next, comments, ok, err
-	})
-}
-
-// UpdateIssueBodyWith is UpdateIssueBody whose update also sees and returns
-// the issue's comments, so a body change and the comment that records it
-// land in one atomic write, or neither does.
-func UpdateIssueBodyWith(filePath string, update func(body string, comments []Comment) (string, []Comment, bool, error)) (string, bool, error) {
-	var updatedBody string
-	var changed bool
-
-	err := withIssueLock(filePath, func() error {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", filePath, err)
-		}
-
-		content := string(data)
-		if !strings.HasPrefix(content, "---") {
-			return fmt.Errorf("no frontmatter in %s", filePath)
-		}
-
-		parts := strings.SplitN(content[3:], "\n---", 2)
-		if len(parts) < 2 {
-			return fmt.Errorf("invalid frontmatter in %s", filePath)
-		}
-
-		fmRaw := parts[0]
-		bodyWithComments := parts[1]
-		body, existingComments := ParseComments(bodyWithComments)
-		body = strings.TrimSpace(body)
-
-		nextBody, nextComments, ok, err := update(body, existingComments)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			updatedBody = body
-			return nil
-		}
-
-		updatedBody = nextBody
-		changed = true
-
-		var out strings.Builder
-		out.WriteString("---")
-		out.WriteString(fmRaw)
-		out.WriteString("\n---")
-		out.WriteString("\n")
-		out.WriteString(nextBody)
-		out.WriteString("\n")
-		out.WriteString(SerializeComments(nextComments))
-
-		info, err := os.Stat(filePath)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", filePath, err)
-		}
-		return writeFileAtomically(filePath, []byte(out.String()), info.Mode().Perm())
-	})
-
-	return updatedBody, changed, err
-}
-
-func updateIssueFrontmatterLocked(filePath string, update IssueUpdate) error {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", filePath, err)
-	}
-
-	content := string(data)
-	if !strings.HasPrefix(content, "---") {
-		return fmt.Errorf("no frontmatter in %s", filePath)
-	}
-
-	parts := strings.SplitN(content[3:], "\n---", 2)
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid frontmatter in %s", filePath)
-	}
-
-	fmRaw := parts[0]
-	body := parts[1]
-
-	// set writes key, or removes it when value is "" and clearable; touched
-	// names the keys for the error if the result doesn't parse.
-	var touched []string
-	set := func(key, value string, clearable bool) {
-		touched = append(touched, key)
-		if value == "" && clearable {
-			fmRaw = removeFrontmatterKey(fmRaw, key)
-		} else {
-			fmRaw = setFrontmatterScalar(fmRaw, key, value)
-		}
-	}
-
-	if update.Title != nil {
-		set("title", *update.Title, false)
-	}
-	if update.Status != nil {
-		set("status", *update.Status, false)
-	}
-	if update.Priority != nil {
-		set("priority", *update.Priority, true)
-	}
-	if update.Version != nil {
-		set("version", *update.Version, true)
-	}
-	if update.Assignee != nil {
-		set("assignee", *update.Assignee, true)
-	}
-	if update.HumanApproval != nil {
-		fmRaw = removeFrontmatterKey(fmRaw, "approved_for")
-		set("human_approval", *update.HumanApproval, true)
-	}
-	if update.QueuedApproval != nil {
-		set("queued_approval", *update.QueuedApproval, true)
-	}
-	if update.StartedAt != nil {
-		set("started_at", *update.StartedAt, true)
-	}
-	if update.DoneAt != nil {
-		set("done_at", *update.DoneAt, true)
-	}
-	if update.Labels != nil {
-		touched = append(touched, "labels")
-		if len(update.Labels) == 0 {
-			fmRaw = removeFrontmatterKey(fmRaw, "labels")
-		} else {
-			fmRaw = setFrontmatterList(fmRaw, "labels", update.Labels)
-		}
-	}
-	if update.Slug != nil {
-		set("slug", *update.Slug, true)
-	}
-
-	if len(update.ExtraFields) > 0 {
-		keys := make([]string, 0, len(update.ExtraFields))
-		for k := range update.ExtraFields {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if ProtectedFrontmatterFields[k] || !frontmatterKeyRe.MatchString(k) {
-				continue
-			}
-			set(k, update.ExtraFields[k], true)
-		}
-	}
-
-	if err := checkFrontmatter(fmRaw, touched); err != nil {
-		return fmt.Errorf("%s: %w", filePath, err)
-	}
-
-	if update.Body != nil {
-		_, existingComments := ParseComments(body)
-		body = "\n" + *update.Body + "\n" + SerializeComments(existingComments)
-	}
-
-	var out strings.Builder
-	out.WriteString("---")
-	out.WriteString(fmRaw)
-	out.WriteString("\n---")
-	out.WriteString(body)
-
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", filePath, err)
-	}
-	return writeFileAtomically(filePath, []byte(out.String()), info.Mode().Perm())
-}
-
-// BodyHash fingerprints an issue body (as in Issue.BodyRaw) so a writer
-// holding an older copy can be refused.
-func BodyHash(body string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(body)))
-	return hex.EncodeToString(sum[:8])
-}
-
-// ErrStaleBody marks a body write refused because the file's body is no
-// longer the one the writer started from.
-var ErrStaleBody = errors.New("issue body changed since it was read")
-
-// UpdateIssueFrontmatterIfBody is UpdateIssueFrontmatter that first checks,
-// under the issue lock, that the file's body still hashes to baseHash
-// (ErrStaleBody otherwise). It returns the hash of the body as written.
-func UpdateIssueFrontmatterIfBody(filePath, baseHash string, update IssueUpdate) (string, error) {
-	var written string
-	err := withIssueLock(filePath, func() error {
-		current, err := readIssueBodyHash(filePath)
-		if err != nil {
-			return err
-		}
-		if current != baseHash {
-			return ErrStaleBody
-		}
-		if err := updateIssueFrontmatterLocked(filePath, update); err != nil {
-			return err
-		}
-		written, err = readIssueBodyHash(filePath)
-		return err
-	})
-	return written, err
-}
-
-func readIssueBodyHash(filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", filePath, err)
-	}
-	issue, err := ParseIssue(filepath.Base(filePath), data)
-	if err != nil {
-		return "", err
-	}
-	return BodyHash(issue.BodyRaw), nil
-}
-
-func UpdateIssueFrontmatter(filePath string, update IssueUpdate) error {
-	return withIssueLock(filePath, func() error {
-		return updateIssueFrontmatterLocked(filePath, update)
-	})
-}
-
-// SetIssueType writes the issue's type: and, when status is non-empty, moves
-// it to that status in the same locked write. Callers decide the status with
-// WorkflowConfig.RetypeStatus first.
-func SetIssueType(filePath, typ, status string) error {
-	update := IssueUpdate{ExtraFields: map[string]string{"type": typ}}
-	if status != "" {
-		update.Status = &status
-	}
-	return UpdateIssueFrontmatter(filePath, update)
-}
-
-// RewriteIssueFile replaces the issue file with the given bytes after
-// validating that they parse as a valid issue. The lock is held for the
-// duration of validation + write, and the write is atomic — on any failure
-// the file on disk is unchanged.
-func RewriteIssueFile(filePath string, content []byte) error {
-	if _, err := ParseIssue(filepath.Base(filePath), content); err != nil {
-		return err
-	}
-	return withIssueLock(filePath, func() error {
-		info, err := os.Stat(filePath)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", filePath, err)
-		}
-		return writeFileAtomically(filePath, content, info.Mode().Perm())
-	})
-}
-
-// ProtectedFrontmatterFields lists keys that SetFrontmatterField refuses to touch
-// because they are managed elsewhere (workflow transitions, claim/start, GitHub sync).
-var ProtectedFrontmatterFields = map[string]bool{
-	"title":           true,
-	"status":          true,
-	"human_approval":  true,
-	"approved_for":    true,
-	"queued_approval": true,
-	"started_at":      true,
-	"done_at":         true,
-	"number":          true,
-	"repo":            true,
-	"created":         true,
-	"labels":          true,
-}
-
-var frontmatterKeyRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// yamlScalarEscaper keeps a double-quoted scalar on one line: the frontmatter
-// writers edit line by line, so a raw newline would split the value.
-var yamlScalarEscaper = strings.NewReplacer(
-	`\`, `\\`,
-	`"`, `\"`,
-	"\n", `\n`,
-	"\r", `\r`,
-	"\t", `\t`,
-)
-
-func escapeYAMLScalar(s string) string {
-	return yamlScalarEscaper.Replace(s)
-}
-
-// setFrontmatterScalar is the one writer for scalar frontmatter keys. The
-// value is written as one escaped, double-quoted line in place of the key's
-// old value, whatever shape that had.
-func setFrontmatterScalar(fm, key, value string) string {
-	return replaceFrontmatterKey(fm, key, []string{key + `: "` + escapeYAMLScalar(value) + `"`})
-}
-
-// setFrontmatterList writes key as a YAML block list of quoted values.
-func setFrontmatterList(fm, key string, values []string) string {
-	lines := []string{key + ":"}
-	for _, v := range values {
-		lines = append(lines, `  - "`+escapeYAMLScalar(v)+`"`)
-	}
-	return replaceFrontmatterKey(fm, key, lines)
-}
-
-func removeFrontmatterKey(fm, key string) string {
-	return replaceFrontmatterKey(fm, key, nil)
-}
-
-// replaceFrontmatterKey puts lines where key's first occurrence was and drops
-// every occurrence, continuation lines included. A missing key is appended,
-// or left missing when lines is nil.
-func replaceFrontmatterKey(fm, key string, lines []string) string {
-	fmLines := strings.Split(fm, "\n")
-	spans := frontmatterKeySpans(fmLines, key)
-	if len(spans) == 0 {
-		if lines == nil {
-			return fm
-		}
-		// Keep the frontmatter's own ending: a newline added here would
-		// show as a blank line before the closing ---.
-		trimmed := strings.TrimRight(fm, "\n")
-		return trimmed + "\n" + strings.Join(lines, "\n") + fm[len(trimmed):]
-	}
-	var out []string
-	prev := 0
-	for i, sp := range spans {
-		out = append(out, fmLines[prev:sp[0]]...)
-		if i == 0 {
-			out = append(out, lines...)
-		}
-		prev = sp[1]
-	}
-	out = append(out, fmLines[prev:]...)
-	return strings.Join(out, "\n")
-}
-
-// frontmatterKeySpans returns the [start, end) line ranges of key at the top
-// level: its own line plus the lines that continue its value (indented list
-// items, block scalars and nested maps, `- ` items at column 0, blank lines
-// inside a block), up to the next top-level line. Blank lines at the end of
-// a span stay outside it.
-func frontmatterKeySpans(lines []string, key string) [][2]int {
-	var spans [][2]int
-	for i := 0; i < len(lines); i++ {
-		rest, ok := strings.CutPrefix(lines[i], key+":")
-		if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '\t') {
-			continue
-		}
-		end := i + 1
-		for j := i + 1; j < len(lines); j++ {
-			l := lines[j]
-			if strings.TrimSpace(l) == "" {
-				continue
-			}
-			if l[0] != ' ' && l[0] != '\t' && l != "-" && !strings.HasPrefix(l, "- ") {
-				break
-			}
-			end = j + 1
-		}
-		spans = append(spans, [2]int{i, end})
-		i = end - 1
-	}
-	return spans
-}
-
-// checkFrontmatter refuses frontmatter the YAML parser can't read, so a line
-// edit that went wrong never reaches disk. keys names what the edit changed.
-func checkFrontmatter(fm string, keys []string) error {
-	var probe Issue
-	if err := yaml.Unmarshal([]byte(fm), &probe); err != nil {
-		if len(keys) == 0 {
-			return fmt.Errorf("not written: frontmatter would not parse: %w", err)
-		}
-		return fmt.Errorf("not written: frontmatter would not parse after setting %s: %w", strings.Join(keys, ", "), err)
-	}
-	return nil
-}
-
-// CheckIssueFrontmatter is checkFrontmatter for a whole issue file that a
-// writer built by hand; call it before writing the file.
-func CheckIssueFrontmatter(content string) error {
-	if !strings.HasPrefix(content, "---") {
-		return fmt.Errorf("not written: missing frontmatter delimiter")
-	}
-	fm, _, ok := strings.Cut(content[3:], "\n---")
-	if !ok {
-		return fmt.Errorf("not written: missing closing frontmatter delimiter")
-	}
-	return checkFrontmatter(fm, nil)
-}
-
-// checkSettableKey refuses keys set-meta may not write: malformed ones and
-// those managed elsewhere (see ProtectedFrontmatterFields).
-func checkSettableKey(key string) error {
-	if key == "" {
-		return fmt.Errorf("key is required")
-	}
-	if !frontmatterKeyRe.MatchString(key) {
-		return fmt.Errorf("invalid key %q: must start with a lowercase letter and contain only lowercase letters, digits, or underscores", key)
-	}
-	if ProtectedFrontmatterFields[key] {
-		return fmt.Errorf("field %q is managed by the workflow and cannot be set via set-meta", key)
-	}
-	return nil
-}
-
-// SetFrontmatterField writes or clears a single scalar frontmatter key.
-// Protected keys (see ProtectedFrontmatterFields) are refused. Pass clear=true
-// to remove the field; value is ignored in that case.
-func SetFrontmatterField(filePath, key, value string, clear bool) error {
-	if err := checkSettableKey(key); err != nil {
-		return err
-	}
-	return editFrontmatterKey(filePath, key, func(fm string) string {
-		if clear {
-			return removeFrontmatterKey(fm, key)
-		}
-		return setFrontmatterScalar(fm, key, value)
-	})
-}
-
-// SetFrontmatterList writes key as a YAML list of values, replacing whatever
-// it held. Protected keys are refused as in SetFrontmatterField.
-func SetFrontmatterList(filePath, key string, values []string) error {
-	if err := checkSettableKey(key); err != nil {
-		return err
-	}
-	return editFrontmatterKey(filePath, key, func(fm string) string {
-		return setFrontmatterList(fm, key, values)
-	})
-}
-
-// createdKeyRe finds a created: line in raw frontmatter.
-var createdKeyRe = regexp.MustCompile(`(?m)^created:`)
-
-// SetCreated dates an undated issue: created is protected, but an issue
-// without one may get it once (set-meta, the backfill). An existing date is
-// never changed.
-func SetCreated(filePath, date string) error {
-	if _, err := time.Parse("2006-01-02", date); err != nil {
-		return fmt.Errorf("created must be a YYYY-MM-DD date, got %q", date)
-	}
-	return editFrontmatterKeyErr(filePath, "created", func(fm string) (string, error) {
-		if createdKeyRe.MatchString(fm) {
-			return "", fmt.Errorf("%s already has created:; an issue's date is never changed", filePath)
-		}
-		return setFrontmatterScalar(fm, "created", date), nil
-	})
-}
-
-func editFrontmatterKey(filePath, key string, edit func(fm string) string) error {
-	return editFrontmatterKeyErr(filePath, key, func(fm string) (string, error) { return edit(fm), nil })
-}
-
-func editFrontmatterKeyErr(filePath, key string, edit func(fm string) (string, error)) error {
-	return withIssueLock(filePath, func() error {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", filePath, err)
-		}
-
-		content := string(data)
-		if !strings.HasPrefix(content, "---") {
-			return fmt.Errorf("no frontmatter in %s", filePath)
-		}
-
-		parts := strings.SplitN(content[3:], "\n---", 2)
-		if len(parts) < 2 {
-			return fmt.Errorf("invalid frontmatter in %s", filePath)
-		}
-
-		fmRaw, err := edit(parts[0])
-		if err != nil {
-			return err
-		}
-		body := parts[1]
-		if err := checkFrontmatter(fmRaw, []string{key}); err != nil {
-			return fmt.Errorf("%s: %w", filePath, err)
-		}
-
-		var out strings.Builder
-		out.WriteString("---")
-		out.WriteString(fmRaw)
-		out.WriteString("\n---")
-		out.WriteString(body)
-
-		info, err := os.Stat(filePath)
-		if err != nil {
-			return fmt.Errorf("stat %s: %w", filePath, err)
-		}
-		return writeFileAtomically(filePath, []byte(out.String()), info.Mode().Perm())
-	})
-}
-
-// DeleteIssue removes the issue markdown file and its comment sidecar if present.
-func DeleteIssue(filePath string) error {
-	if err := os.Remove(filePath); err != nil {
-		return fmt.Errorf("deleting %s: %w", filePath, err)
-	}
-	// Also remove comment sidecar if it exists
-	commentFile := strings.TrimSuffix(filePath, ".md") + ".comments.yaml"
-	os.Remove(commentFile) // ignore error — may not exist
-	return nil
 }
 
 // CreateIssueFile creates a new issue markdown file and returns the file path and slug.
@@ -1196,363 +686,6 @@ func CollectFilterValues(issues []*Issue) (statuses, systems, priorities, labels
 	sort.Strings(labels)
 	sort.Strings(assignees)
 
-	return
-}
-
-// StatusIndex returns the position of a status in the workflow, or -1.
-func StatusIndex(status string) int {
-	for i, s := range StatusOrder {
-		if s == status {
-			return i
-		}
-	}
-	return -1
-}
-
-// ValidTransition checks if moving from one status to the next is allowed.
-func ValidTransition(from, to string) bool {
-	fi := StatusIndex(from)
-	ti := StatusIndex(to)
-	if fi == -1 || ti == -1 {
-		return false
-	}
-	return ti == fi+1
-}
-
-// CountCheckboxes returns total and checked checkbox counts in markdown.
-// Boxes inside fenced code blocks are not counted, matching ListCheckboxes.
-func CountCheckboxes(body string) (total, checked int) {
-	for _, it := range ListCheckboxes(body) {
-		total++
-		if it.Checked {
-			checked++
-		}
-	}
-	return
-}
-
-// CountCheckboxesInSection counts checkboxes only under a specific ## heading.
-// The section ends at the next ## heading or end of body. Boxes inside fenced
-// code blocks are not counted, matching ListCheckboxes.
-func CountCheckboxesInSection(body, section string) (total, checked int) {
-	for _, it := range ListCheckboxes(body) {
-		if !strings.EqualFold(it.Section, section) {
-			continue
-		}
-		total++
-		if it.Checked {
-			checked++
-		}
-	}
-	return
-}
-
-// CheckCheckbox finds an unchecked checkbox whose text contains the query and checks it off.
-// Returns the updated body and whether a match was found. Checkboxes inside
-// fenced code blocks are skipped — they are illustrative quotes, not workflow
-// state.
-func CheckCheckbox(body, query string) (string, bool) {
-	query = strings.ToLower(strings.TrimSpace(query))
-	lines := strings.Split(body, "\n")
-	fenceFlags := computeFenceFlags(lines)
-	for i, line := range lines {
-		if fenceFlags[i] {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- [ ]") {
-			text := strings.ToLower(strings.TrimSpace(trimmed[5:]))
-			if strings.Contains(text, query) {
-				lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
-				return strings.Join(lines, "\n"), true
-			}
-		}
-	}
-	return body, false
-}
-
-// CheckboxItem describes one markdown checkbox and where it sits.
-type CheckboxItem struct {
-	// Section is the nearest "## " heading above the checkbox ("" when the
-	// checkbox appears before any such heading).
-	Section string
-	// Index is the checkbox's 1-based position within its section. It is
-	// stable: it counts both checked and unchecked boxes in document order,
-	// so the index of a given box never shifts as other boxes get ticked.
-	Index int
-	// Text is the checkbox label with the "- [ ]"/"- [x]" prefix stripped.
-	Text string
-	// Checked reports whether the box is ticked.
-	Checked bool
-	// Line is the 0-based line number of the checkbox in the body.
-	Line int
-	// ID is the short reference for the box: its section's abbreviation
-	// followed by Index ("D3", "AC2"). Empty for boxes before any "## "
-	// heading, and for a section whose abbreviation could not be made unique.
-	ID string
-}
-
-// Label is the box's text for display next to its id: a leading copy of
-// the id that the author wrote into the text ("MV1: …") is dropped so the
-// box doesn't read "MV1 [ ] MV1: …". The body is never changed.
-func (it CheckboxItem) Label() string {
-	return StripCheckboxID(it.ID, it.Text)
-}
-
-// StripCheckboxID returns text without a leading copy of id (any case)
-// followed by a separator (space, ":", ".", ")", "-", "–", "—"). Text that
-// is only the id, or that starts with another box's id, is returned as is.
-func StripCheckboxID(id, text string) string {
-	if id == "" || len(text) <= len(id) || !strings.EqualFold(text[:len(id)], id) {
-		return text
-	}
-	const seps = " \t:.)-–—"
-	rest := text[len(id):]
-	if r, _ := utf8.DecodeRuneInString(rest); !strings.ContainsRune(seps, r) {
-		return text
-	}
-	if r := strings.TrimLeft(rest, seps); r != "" {
-		return r
-	}
-	return text
-}
-
-// ListCheckboxes enumerates every checkbox in body, skipping those inside
-// fenced code blocks (illustrative quotes, not workflow state). Index is
-// 1-based and resets at each "## " section heading, matching the section
-// boundaries used by CountCheckboxesInSection.
-func ListCheckboxes(body string) []CheckboxItem {
-	lines := strings.Split(body, "\n")
-	fenceFlags := computeFenceFlags(lines)
-	var items []CheckboxItem
-	section := ""
-	perSection := map[string]int{}
-	// abbrevs maps a section name to its short-id prefix, assigned in the
-	// order sections first hold a checkbox; taken holds the lowercased
-	// prefixes already in use.
-	abbrevs := map[string]string{}
-	taken := map[string]bool{}
-	for i, line := range lines {
-		if fenceFlags[i] {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "## ") {
-			section = strings.TrimSpace(strings.TrimPrefix(trimmed, "##"))
-			continue
-		}
-		var checked bool
-		switch {
-		case strings.HasPrefix(trimmed, "- [x]"), strings.HasPrefix(trimmed, "- [X]"):
-			checked = true
-		case strings.HasPrefix(trimmed, "- [ ]"):
-			checked = false
-		case strings.HasPrefix(trimmed, removedBoxMarker):
-			// A removed box keeps its slot, so the boxes after it keep
-			// their ids; it is not listed.
-			perSection[section]++
-			if _, ok := abbrevs[section]; !ok {
-				abbrevs[section] = nextSectionAbbrev(section, taken)
-			}
-			continue
-		default:
-			continue
-		}
-		perSection[section]++
-		if _, ok := abbrevs[section]; !ok {
-			abbrevs[section] = nextSectionAbbrev(section, taken)
-		}
-		id := ""
-		if a := abbrevs[section]; a != "" {
-			id = fmt.Sprintf("%s%d", a, perSection[section])
-		}
-		items = append(items, CheckboxItem{
-			Section: section,
-			Index:   perSection[section],
-			Text:    strings.TrimSpace(trimmed[5:]),
-			Checked: checked,
-			Line:    i,
-			ID:      id,
-		})
-	}
-	return items
-}
-
-// CheckByIndex ticks the checkbox addressed by index. When section is
-// non-empty, index is the 1-based position within that "## " section; when
-// section is empty, index is the 1-based position in the whole body. Returns
-// the updated body, the matched item, whether it was already checked (a
-// no-op), and ok=false when no checkbox has that index.
-func CheckByIndex(body, section string, index int) (newBody string, item CheckboxItem, alreadyChecked, ok bool) {
-	items := ListCheckboxes(body)
-	var target *CheckboxItem
-	if strings.TrimSpace(section) == "" {
-		if index >= 1 && index <= len(items) {
-			target = &items[index-1]
-		}
-	} else {
-		for i := range items {
-			if strings.EqualFold(items[i].Section, section) && items[i].Index == index {
-				target = &items[i]
-				break
-			}
-		}
-	}
-	if target == nil {
-		return body, CheckboxItem{}, false, false
-	}
-	if target.Checked {
-		return body, *target, true, true
-	}
-	lines := strings.Split(body, "\n")
-	lines[target.Line] = strings.Replace(lines[target.Line], "- [ ]", "- [x]", 1)
-	return strings.Join(lines, "\n"), *target, false, true
-}
-
-// EditCheckboxText replaces the text of the box ref names (short "D3" or
-// long "Design#3", as ResolveCheckboxRef reads them), keeping its tick state
-// and indentation. A leading copy of the box's own id in text is dropped.
-// Returns the new body and the box as it was.
-func EditCheckboxText(body, ref, text string) (string, CheckboxItem, error) {
-	items := ListCheckboxes(body)
-	item, st := ResolveCheckboxRef(items, ref)
-	if st != RefFound {
-		var ids []string
-		for _, it := range items {
-			if it.ID != "" {
-				ids = append(ids, it.ID)
-			}
-		}
-		return body, CheckboxItem{}, fmt.Errorf("no checkbox %q; ids in this issue: %s", ref, strings.Join(ids, " "))
-	}
-	text = StripCheckboxID(item.ID, strings.TrimSpace(text))
-	lines := strings.Split(body, "\n")
-	line := lines[item.Line]
-	marker := strings.Index(line, "- [")
-	lines[item.Line] = line[:marker+len("- [ ]")] + " " + text
-	return strings.Join(lines, "\n"), item, nil
-}
-
-// removedBoxMarker starts the line check-remove leaves in place of a box:
-// "<!-- removed AC6: <text> -->". ListCheckboxes counts it as a slot.
-const removedBoxMarker = "<!-- removed "
-
-// resolveBoxes resolves every ref against body's boxes, all or nothing: an
-// error names the refs that match no box and lists the issue's ids.
-func resolveBoxes(body string, refs []string) ([]CheckboxItem, error) {
-	items := ListCheckboxes(body)
-	var found []CheckboxItem
-	var missing []string
-	seen := map[int]bool{}
-	for _, ref := range refs {
-		it, st := ResolveCheckboxRef(items, ref)
-		if st != RefFound {
-			missing = append(missing, ref)
-			continue
-		}
-		if !seen[it.Line] {
-			seen[it.Line] = true
-			found = append(found, it)
-		}
-	}
-	if len(missing) > 0 {
-		var ids []string
-		for _, it := range items {
-			if it.ID != "" {
-				ids = append(ids, it.ID)
-			}
-		}
-		return nil, fmt.Errorf("no checkbox %s; ids in this issue: %s", strings.Join(missing, ", "), strings.Join(ids, " "))
-	}
-	return found, nil
-}
-
-// UncheckBoxes unticks the boxes refs name (short or long ids), all or
-// nothing. Returns the new body, the boxes it unticked and the ones that
-// were already open.
-func UncheckBoxes(body string, refs []string) (string, []CheckboxItem, []CheckboxItem, error) {
-	found, err := resolveBoxes(body, refs)
-	if err != nil {
-		return body, nil, nil, err
-	}
-	lines := strings.Split(body, "\n")
-	var unticked, already []CheckboxItem
-	for _, it := range found {
-		if !it.Checked {
-			already = append(already, it)
-			continue
-		}
-		line := lines[it.Line]
-		i := strings.Index(line, "- [")
-		lines[it.Line] = line[:i] + "- [ ]" + line[i+len("- [x]"):]
-		unticked = append(unticked, it)
-	}
-	return strings.Join(lines, "\n"), unticked, already, nil
-}
-
-// RemoveBoxes replaces the boxes refs name with a removed-box line
-// ("<!-- removed AC6: <text> -->") that keeps each one's slot, so every other
-// box keeps its id and no id is reused. All or nothing.
-func RemoveBoxes(body string, refs []string) (string, []CheckboxItem, error) {
-	found, err := resolveBoxes(body, refs)
-	if err != nil {
-		return body, nil, err
-	}
-	lines := strings.Split(body, "\n")
-	for _, it := range found {
-		line := lines[it.Line]
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		text := strings.ReplaceAll(it.Text, "--", "- -")
-		id := it.ID
-		if id == "" {
-			id = fmt.Sprintf("#%d", it.Index)
-		}
-		lines[it.Line] = fmt.Sprintf("%s%s%s: %s -->", indent, removedBoxMarker, id, text)
-	}
-	return strings.Join(lines, "\n"), found, nil
-}
-
-// MatchUncheckedByText returns every unchecked checkbox whose label contains
-// query (case-insensitive), scoped to a "## " section when section is
-// non-empty. Boxes inside fenced code blocks are ignored.
-func MatchUncheckedByText(body, section, query string) []CheckboxItem {
-	q := strings.ToLower(strings.TrimSpace(query))
-	var out []CheckboxItem
-	for _, it := range ListCheckboxes(body) {
-		if it.Checked {
-			continue
-		}
-		if strings.TrimSpace(section) != "" && !strings.EqualFold(it.Section, section) {
-			continue
-		}
-		if strings.Contains(strings.ToLower(it.Text), q) {
-			out = append(out, it)
-		}
-	}
-	return out
-}
-
-// HasTestPlan checks if the body has ## Test Plan with ### Automated and ### Manual.
-func HasTestPlan(body string) (hasAutomated, hasManual bool) {
-	inTestPlan := false
-	for _, line := range strings.Split(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.EqualFold(trimmed, "## Test Plan") {
-			inTestPlan = true
-			continue
-		}
-		if inTestPlan && strings.HasPrefix(trimmed, "## ") {
-			break
-		}
-		if inTestPlan {
-			if strings.EqualFold(trimmed, "### Automated") {
-				hasAutomated = true
-			}
-			if strings.EqualFold(trimmed, "### Manual") {
-				hasManual = true
-			}
-		}
-	}
 	return
 }
 

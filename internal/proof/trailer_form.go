@@ -69,3 +69,12 @@ func provesWordProblem(w, prefix string) string {
 	}
 	return ""
 }
+
+// ProvesParts splits one Proves: value the way Collect reads it: the
+// criterion ids (upper case) and the words read as test names.
+func ProvesParts(value, prefix string) (ids, tests []string) {
+	if prefix == "" {
+		prefix = "AC"
+	}
+	return splitTrailer(value, prefix)
+}

@@ -79,7 +79,8 @@ projects:
 EOF
 
 (cd "$repo" && go build -o "$sb/issue-viewer" ./cmd/issue-viewer) || { echo "security-check: build failed" >&2; exit 1; }
-env -u TMUX HOME="$sb" XDG_STATE_HOME="$sb/state" XDG_CONFIG_HOME="$sb/config" \
+# No ISSUE_CLI_LOG: in a worker's shell this viewer's issue-cli calls would land in its clilog.
+env -u TMUX -u ISSUE_CLI_LOG HOME="$sb" XDG_STATE_HOME="$sb/state" XDG_CONFIG_HOME="$sb/config" \
 	TMUX_TMPDIR="$tmuxdir" ISSUE_VIEWER_TELEMETRY=off \
 	"$sb/issue-viewer" -config "$sb/projects.yaml" -host 127.0.0.1 -port "$port" -record-viewer=false -owner-code terminal \
 	>"$sb/viewer.log" 2>&1 &
@@ -147,6 +148,9 @@ for route in issue/probe/approve needs-you/approve issue/probe/send-back issue/p
 	# shellcheck disable=SC2086
 	expect "O route refused with forged headers: $route" 403 -X POST $forged -H "Cookie: iv_owner=$(printf '%064d' 0)" -H "Content-Type: application/json" -d '{"status":"in progress"}' "$base/p/sec/$route"
 done
+expect "profiles refused without sign-in" 403 "$base/debug/pprof/heap"
+# shellcheck disable=SC2086
+expect "profiles refused with forged headers" 403 $forged -H "Cookie: iv_owner=$(printf '%064d' 0)" "$base/debug/pprof/goroutine"
 if grep -q '^status: "backlog"' "$sb/repo/issues/probe.md"; then echo "ok   probe untouched"; else echo "FAIL a refused O route changed the probe"; fails=$((fails + 1)); fi
 # The sign-in: the code shows on the viewer's terminal, never in an answer.
 expect "code requested" 303 -X POST -H "Origin: $base" "$base/owner/code"
@@ -161,6 +165,8 @@ if grep -q 'iv_owner' "$sb/jar" && grep -q '#HttpOnly_' "$sb/jar"; then echo "ok
 expect "used code refused" 403 -X POST -H "Origin: $base" -d "code=$code" "$base/owner/pair"
 expect "signed in: crafted approve status still refused" 400 -b "$sb/jar" -X POST -H "Content-Type: application/json" -d '{"status":"done\nx"}' "$base/p/sec/issue/probe/approve"
 expect "signed in: approve passes the gate" 200 -b "$sb/jar" -X POST -H "Content-Type: application/json" -d '{"status":"in progress"}' "$base/p/sec/issue/probe/approve"
+expect "signed in: profiles answer" 200 -b "$sb/jar" "$base/debug/pprof/goroutine?debug=1"
+expect "signed in: profiles refused through a proxy" 403 -b "$sb/jar" -H "Cf-Ray: 1" "$base/debug/pprof/goroutine?debug=1"
 expect "agent routes need no sign-in (comment)" "20?" -X POST -H "Content-Type: application/json" -d '{"text":"progress: x"}' "$base/p/sec/issue/probe/comments"
 
 echo "== XSS"

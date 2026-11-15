@@ -1,0 +1,1 @@
+BLOCKED: memory used 80% (start limit 75%, hard limit 85%), paused: 0. Do not start agents or heavy jobs; wait or finish a worker.

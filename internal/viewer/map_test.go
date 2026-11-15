@@ -50,7 +50,7 @@ func TestMapPage(t *testing.T) {
 	)
 	// Four ready testing gates and asker's question in agents, plus
 	// test-project's ready backlog gate.
-	if !strings.Contains(html, `>6 waiting on you</a>`) {
+	if !strings.Contains(html, `>6<span class="wb-you-words"> waiting on you</span></a>`) {
 		t.Error("the header should count everything waiting on the owner across projects")
 	}
 }
@@ -63,7 +63,7 @@ func TestMapSingleProjectShowsTheMap(t *testing.T) {
 	if code != 200 || !strings.Contains(html, `data-testid="map.lot.test-project"`) {
 		t.Fatalf("status %d, want the map with the one project", code)
 	}
-	assertContains(t, html, `>Gate: in progress</span>`, `href="/p/test-project/issue/add-dark-mode#approve-in-progress"`, `>1 waiting on you</a>`)
+	assertContains(t, html, `>Gate: in progress</span>`, `href="/p/test-project/issue/add-dark-mode#approve-in-progress"`, `>1<span class="wb-you-words"> waiting on you</span></a>`)
 }
 
 func TestLastLeadParagraph(t *testing.T) {
@@ -162,7 +162,7 @@ func TestMapBuildingsAndProgress(t *testing.T) {
 		{Slug: "e1", Status: "done", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 		{Slug: "e2", Status: "backlog", ExtraFields: []tracker.ExtraField{{Key: "parent", Value: "e"}}},
 	}
-	p := mapProgressOf(&goals.Report{}, issues, "#13A386")
+	p := mapProgressOf(nil, &goals.Report{}, issues, "#13A386")
 	if p == nil || p.Label != "Epic: Hall" || p.Done != 1 || p.Total != 2 || p.Pct() != 50 || p.Text != "" {
 		t.Errorf("progress = %+v", p)
 	}
@@ -178,13 +178,13 @@ func TestMapProgressPrefersGoalsOverTheEpic(t *testing.T) {
 
 	hq := &goals.Report{HQ: &goals.Owner{Key: goals.HQKey, Name: "HQ", Goals: []*goals.Goal{users}},
 		Departments: []*goals.Owner{{Key: "dept:Marketing", Name: "Marketing", Goals: []*goals.Goal{leads}}}}
-	if p := mapProgressOf(hq, issues, "#13A386"); p == nil || p.Label != "Goal: Active users" || p.Text != "30 / 40" || p.Pct() != 75 {
+	if p := mapProgressOf(nil, hq, issues, "#13A386"); p == nil || p.Label != "Goal: Active users" || p.Text != "30 / 40" || p.Pct() != 75 {
 		t.Errorf("HQ goal first: %+v", p)
 	}
 
 	dept := &goals.Report{HQ: &goals.Owner{Key: goals.HQKey, Name: "HQ", Goals: []*goals.Goal{}},
 		Departments: []*goals.Owner{{Key: "dept:Marketing", Name: "Marketing", Goals: []*goals.Goal{leads}}}}
-	p := mapProgressOf(dept, issues, "#13A386")
+	p := mapProgressOf(nil, dept, issues, "#13A386")
 	if p == nil || p.Label != "Goal: Marketing · Leads" || p.Text != "no value yet" || p.Pct() != 0 {
 		t.Fatalf("department goal without a value: %+v", p)
 	}
@@ -339,7 +339,7 @@ func TestCompanyPage(t *testing.T) {
 		`data-testid="company.room.product"`, `>Product · software factory</span>`, `2 workers`,
 		`data-testid="company.line"`, `<div class="wb-station-label">in progress</div>`, `<div class="wb-station-label">gate</div>`,
 		`href="/p/agents/hall" data-testid="company.enter_hall"`,
-		`data-testid="tile.new_department"`, `From a template: Marketing`, `This project has no projects.yaml entry`,
+		`data-testid="tile.new_department"`, `From a template: Legal · Marketing`, `This project has no projects.yaml entry`,
 		`data-testid="company.queue.row"`, `>Question</span>`,
 		// The Radio: the CEO's lines, newest first, without tool calls.
 		`I sent two workers to Product.`, `data-send="/p/agents/lead/send"`,

@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -135,4 +136,58 @@ func TestIndentFuncs(t *testing.T) {
 	if got["a"] != 5 || got["b"] != 2 || got["c"] != 2 || len(got) != 3 {
 		t.Errorf("found %v", got)
 	}
+}
+
+// In shell, // and /* are text: a */dir/* glob, ${x//a/b} and a URL leave
+// each function ending at its own closing brace; # starts a comment only at a
+// word start (${#x} is a length).
+func TestBraceFuncsShell(t *testing.T) {
+	src := `base() {
+	local b=${TMPDIR:-/tmp}
+	[[ $b == */.worktrees/* ]] && b=/tmp
+	echo "$b"
+}
+subst() {
+	echo "${1//a/b}"
+	echo ${#1} # it's a { comment
+}
+fetch() {
+	curl -s https://example.com/x/*
+}
+last() {
+	case $1 in */*) echo dir ;; esac
+}
+`
+	got := map[string]int{}
+	for _, f := range braceFuncs([]byte(src), "shell") {
+		got[f.name] = f.lines
+	}
+	want := map[string]int{"base": 5, "subst": 4, "fetch": 3, "last": 3}
+	if len(got) != len(want) {
+		t.Fatalf("found %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %d lines, want %d (all: %v)", k, got[k], v, got)
+		}
+	}
+}
+
+// lib.sh's _ck_tmp_base has a */.worktrees/* glob: measured as 345 lines
+// while // and /* were comments in shell.
+func TestShellLibFuncLengths(t *testing.T) {
+	data, err := os.ReadFile("../checks/lib.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, _, _ := funcs("shell", data)
+	for _, f := range fs {
+		if f.name == "_ck_tmp_base" {
+			if f.lines != 5 {
+				t.Errorf("_ck_tmp_base = %d lines, want 5", f.lines)
+			}
+			return
+		}
+	}
+	t.Errorf("_ck_tmp_base not found in %d functions", len(fs))
 }

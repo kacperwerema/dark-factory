@@ -65,6 +65,9 @@ type WbConnectors struct {
 	StateURL       string
 	// Since is set (unix seconds) while a Check now started then runs.
 	Since string
+	// SocialsURL is the Connect socials page, for a department that takes
+	// socials (socials_view.go); Expired names its networks to sign in again.
+	SocialsURL, Expired string
 }
 
 // WbConnectorRow is one connector in the room. Secrets only say set or
@@ -76,12 +79,16 @@ type WbConnectorRow struct {
 	// Check is "✓ ok 3h ago", "✗ failing (exit 1) 2m ago", "never checked"
 	// or "no check:"; Tone green, red or idle.
 	Check, Tone string
+	// Run is a per_run: tool's state, "starts per run, stopped".
+	Run string
 }
 
 // WbSecret is one secret's env var, reference and state.
 type WbSecret struct {
 	Var, Ref string
 	Set      bool
+	// Optional is a secret the connector runs without.
+	Optional bool
 }
 
 // roomConnectors is department dept's block, nil when it has none.
@@ -92,9 +99,9 @@ func roomConnectors(p *tracker.Project, prefix, dept string, now time.Time) *WbC
 		if s.Key != key {
 			continue
 		}
-		row := WbConnectorRow{Name: s.Name, Kind: s.Kind, Note: s.Note, Sends: s.Sends, Tone: "idle"}
+		row := WbConnectorRow{Name: s.Name, Kind: s.Kind, Note: s.Note, Sends: s.Sends, Run: s.RunWords(), Tone: "idle"}
 		for _, sec := range s.Secrets {
-			row.Secrets = append(row.Secrets, WbSecret{Var: sec.Var, Ref: sec.Ref, Set: sec.Set})
+			row.Secrets = append(row.Secrets, WbSecret{Var: sec.Var, Ref: sec.Ref, Set: sec.Set, Optional: sec.Optional})
 		}
 		switch {
 		case !s.HasCheck:
@@ -117,7 +124,13 @@ func roomConnectors(p *tracker.Project, prefix, dept string, now time.Time) *WbC
 		}
 		out.Rows = append(out.Rows, row)
 	}
-	if len(out.Rows) == 0 {
+	if d := p.DepartmentByKey(key); d != nil {
+		out.SocialsURL = socialsLink(p, prefix, d)
+		if out.SocialsURL != "" {
+			out.Expired = socialsExpired(p, d.Name)
+		}
+	}
+	if len(out.Rows) == 0 && out.SocialsURL == "" {
 		return nil
 	}
 	out.Count = len(out.Rows)
@@ -140,11 +153,18 @@ func connectorWaits(p *tracker.Project, color, prefix string, now time.Time) []W
 		if _, ok := byDept[s.Department]; !ok {
 			order = append(order, s.Department)
 		}
-		what := s.Name + " check failing"
-		if s.Missing {
-			what = s.Name + " secret missing"
+		byDept[s.Department] = append(byDept[s.Department], s.Name+" "+s.Problem())
+	}
+	for _, d := range p.Departments {
+		if exp := socialsExpired(p, d.Name); exp != "" {
+			key := tracker.DepartmentKey(d.Name)
+			rows = append(rows, WbQueueCard{
+				Kind: "connectors", Label: "Socials", Tone: "red",
+				Project: p.Name, ProjectSlug: p.Slug, Color: color,
+				Slug: d.Name + "-socials", Note: d.Name + ": sign in again to " + exp + " (expired at the last check).",
+				Since: now, CTA: "Connect socials", URL: prefix + "/socials/" + key,
+			})
 		}
-		byDept[s.Department] = append(byDept[s.Department], what)
 	}
 	for _, dept := range order {
 		rows = append(rows, WbQueueCard{
@@ -176,7 +196,7 @@ func (s *Server) handleConnectorsCheck(w http.ResponseWriter, r *http.Request, p
 		defer cancel()
 		var recs []connectors.Record
 		for i := range dept.Connectors {
-			recs = append(recs, connectors.RunCheck(ctx, dept.Name, &dept.Connectors[i], time.Now))
+			recs = append(recs, connectors.Check(ctx, proj, dept.Name, &dept.Connectors[i], time.Now))
 		}
 		_ = connectors.Append(proj, recs...)
 		forgetConnectors(proj)

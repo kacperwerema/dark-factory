@@ -24,9 +24,15 @@ project: those go on your own board with 'issue-cli create').
 
 The report becomes a cli-bug issue on the engine's board (the issue-viewer
 project): engine_project: in projects.yaml, else the project whose repo is
-kacperwerema/dark-factory. If an open cli-bug issue has the same title,
-your report is added to it as a report: comment instead. The output names the
-issue, so you can cite it.
+kacperwerema/dark-factory. If an open cli-bug issue has the same title, or
+its report quotes the same error (a quoted span of 3+ words that is not a
+command), your report is added to it as a report: comment instead. The
+output names the issue, so you can cite it.
+
+When your build is older than the engine's main, report-bug searches main's
+commits since your build for each error you quote (in backticks or quotes)
+and lists the ones that touch it under "Maybe fixed since"; the issue gets
+the maybe-fixed label. Try again on a current build before working around it.
 
 The issue gets the first sentence as its title and the full text, your
 project, issue slug, agent, issue-cli version and the last issue-cli command
@@ -332,10 +338,16 @@ func printOutcome(ctx *Context, o reportOutcome) {
 		fmt.Fprintf(w, "✓ Reported as new cli-bug issue %s on the %s board\n", o.Slug, o.Project)
 		fmt.Fprintf(w, "file: %s\n", o.File)
 		printFoundIn(w, o)
+		printMaybeFixed(w, o)
 	case "commented":
-		fmt.Fprintf(w, "✓ Already reported: added your report to cli-bug issue %s on the %s board (%d reports)\n", o.Slug, o.Project, o.Reports)
+		how := ""
+		if o.Matched == "error" {
+			how = " (same quoted error)"
+		}
+		fmt.Fprintf(w, "✓ Already reported%s: added your report to cli-bug issue %s on the %s board (%d reports)\n", how, o.Slug, o.Project, o.Reports)
 		fmt.Fprintf(w, "file: %s\n", o.File)
 		printFoundIn(w, o)
+		printMaybeFixed(w, o)
 	case "queued":
 		fmt.Fprintf(w, "saved locally, not sent: %s\n", o.Queued)
 		// A multi-line why (the config lookup's) stays under "why:".
@@ -347,6 +359,19 @@ func printOutcome(ctx *Context, o reportOutcome) {
 	default:
 		fmt.Fprintf(ctx.Stderr, "report lost: %s\n", o.Reason)
 	}
+}
+
+// printMaybeFixed lists the commits since the reporter's build that touch
+// the quoted error: the bug may be gone on main.
+func printMaybeFixed(w io.Writer, o reportOutcome) {
+	if len(o.MaybeFixed) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Maybe fixed since your build: %s has %d commit(s) since it that touch the quoted error (label %s):\n", o.Branch, len(o.MaybeFixed), clibug.MaybeFixedLabel)
+	for _, c := range o.MaybeFixed {
+		fmt.Fprintf(w, "  - %s %s\n", c.SHA, c.Subject)
+	}
+	fmt.Fprintln(w, "  Try again on a build of "+o.Branch+" (in the engine repo: go build -o ./issue-cli ./cmd/issue-cli) before working around it.")
 }
 
 // printFoundIn says where a report from a release candidate build went.
@@ -393,7 +418,21 @@ func (b *boardSender) Send(r clibug.Report) (clibug.Result, error) {
 			}
 			continue
 		}
-		return b.comment(issue, r)
+		res, err := b.comment(issue, r)
+		res.Matched = "title"
+		return res, err
+	}
+	if quotes := clibug.QuotedErrors(r.Text); len(quotes) > 0 {
+		for _, issue := range issues {
+			if !hasLabel(issue, clibug.Label) || closed(issue) {
+				continue
+			}
+			if clibug.SameError(quotes, clibug.QuotedErrors(clibug.ReportSection(issue.BodyRaw))) {
+				res, err := b.comment(issue, r)
+				res.Matched = "error"
+				return res, err
+			}
+		}
 	}
 	if closedMatch != nil {
 		title += " (again)"
@@ -402,16 +441,28 @@ func (b *boardSender) Send(r clibug.Report) (clibug.Result, error) {
 }
 
 func (b *boardSender) comment(issue *tracker.Issue, r clibug.Report) (clibug.Result, error) {
+	fixed, branch := b.maybeFixed(r)
 	text := "report: " + r.Text + "\n\n" + r.Context()
+	if block := clibug.MaybeFixedBlock(r.Version, branch, fixed); block != "" {
+		text += "\n" + block
+	}
 	if err := tracker.AddComment(issue.FilePath, 0, strings.TrimSpace(text), "issue-cli"); err != nil {
 		return clibug.Result{}, err
 	}
 	var milestone string
+	update := tracker.IssueUpdate{}
+	changed := false
 	if issue.Version == "" {
 		if milestone = b.rcMilestone(r); milestone != "" {
-			if err := tracker.UpdateIssueFrontmatter(issue.FilePath, tracker.IssueUpdate{Version: &milestone}); err != nil {
-				return clibug.Result{}, err
-			}
+			update.Version, changed = &milestone, true
+		}
+	}
+	if len(fixed) > 0 && !hasLabel(issue, clibug.MaybeFixedLabel) {
+		update.Labels, changed = append(append([]string{}, issue.Labels...), clibug.MaybeFixedLabel), true
+	}
+	if changed {
+		if err := tracker.UpdateIssueFrontmatter(issue.FilePath, update); err != nil {
+			return clibug.Result{}, err
 		}
 	}
 	comments, _ := tracker.LoadComments(issue.FilePath)
@@ -421,7 +472,24 @@ func (b *boardSender) comment(issue *tracker.Issue, r clibug.Report) (clibug.Res
 			n++
 		}
 	}
-	return b.withMilestone(clibug.Result{Kind: "commented", Project: b.engine.Slug, Slug: issue.Slug, File: issue.FilePath, Reports: n}, r, milestone), nil
+	res := b.withMilestone(clibug.Result{Kind: "commented", Project: b.engine.Slug, Slug: issue.Slug, File: issue.FilePath, Reports: n}, r, milestone)
+	res.MaybeFixed, res.Branch = fixed, branch
+	return res, nil
+}
+
+// maybeFixed lists the engine's commits on its main branch (ci.branch when
+// set) since the reporter's build that touch an error the report quotes,
+// and names that branch.
+func (b *boardSender) maybeFixed(r clibug.Report) ([]clibug.Commit, string) {
+	branch := "main"
+	if wf := b.engine.LoadWorkflow(); wf != nil && wf.CI.Enabled() && strings.TrimSpace(wf.CI.Branch) != "" {
+		branch = strings.TrimSpace(wf.CI.Branch)
+	}
+	quotes := clibug.QuotedErrors(r.Text)
+	if len(quotes) == 0 {
+		return nil, branch
+	}
+	return clibug.FixedSince(b.engine.Root(), branch, r.Version, quotes), branch
 }
 
 // rcMilestone is the engine board's version: label for the release a
@@ -482,12 +550,20 @@ func (b *boardSender) create(title string, r clibug.Report, previous *tracker.Is
 	if previous != nil {
 		fmt.Fprintf(&body, "\nReported again after `%s` was closed.\n", previous.Slug)
 	}
+	fixed, branch := b.maybeFixed(r)
+	if block := clibug.MaybeFixedBlock(r.Version, branch, fixed); block != "" {
+		body.WriteString("\n" + block)
+	}
 	if rest := strings.TrimSpace(issue.BodyRaw); rest != "" {
 		body.WriteString("\n" + rest + "\n")
 	}
 	newBody := strings.TrimSpace(body.String())
+	labels := []string{clibug.Label}
+	if len(fixed) > 0 {
+		labels = append(labels, clibug.MaybeFixedLabel)
+	}
 	update := tracker.IssueUpdate{
-		Labels:      []string{clibug.Label},
+		Labels:      labels,
 		Body:        &newBody,
 		ExtraFields: map[string]string{},
 	}
@@ -504,7 +580,9 @@ func (b *boardSender) create(title string, r clibug.Report, previous *tracker.Is
 	if err := tracker.UpdateIssueFrontmatter(issue.FilePath, update); err != nil {
 		return clibug.Result{}, err
 	}
-	return b.withMilestone(clibug.Result{Kind: "created", Project: proj.Slug, Slug: issue.Slug, File: issue.FilePath, Reports: 1}, r, version), nil
+	res := b.withMilestone(clibug.Result{Kind: "created", Project: proj.Slug, Slug: issue.Slug, File: issue.FilePath, Reports: 1}, r, version)
+	res.MaybeFixed, res.Branch = fixed, branch
+	return res, nil
 }
 
 func hasLabel(issue *tracker.Issue, label string) bool {

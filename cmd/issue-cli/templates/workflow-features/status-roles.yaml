@@ -1,0 +1,27 @@
+id: status-roles
+version: v0.61.0
+category: lifecycle
+propose: true
+templates: [development]
+sources: ["internal/tracker/status_role.go"]
+title: "Status roles"
+what: |
+  `role:` on a status says what it means to the engine: `design`, `queue`,
+  `work`, `verify` or `owner-test`. Code asks the role, so the status can be
+  renamed and keeps its behaviour: start's hand-off, auto-start, `next`, the
+  guided-check hints and `approve`'s refusal of the owner's own test. Unset, the old
+  names (in design, backlog, in progress, testing, human-testing) hold the
+  roles, so nothing changes until you rename one.
+why: |
+  Renaming backlog or human-testing used to lose that behaviour with no error:
+  the CEO's `approve` of a renamed human-testing was no longer refused.
+where: "statuses[].role"
+snippet: |
+  statuses:
+    - name: "backlog"
+      role: "queue"
+    - name: "human-testing"
+      role: "owner-test"
+question: "Have you renamed, or do you want to rename, a status of the development lifecycle?"
+detect:
+  - path: statuses[].role

@@ -14,10 +14,10 @@ steps:
     setup:
       - open: /p/{project}/docs/ai/play-calls
     act:
-      - wait_for: docs.title
+      - wait_for: wb.title
       # The system page's .wb-doc-title (12.5px, one line) used to win here.
-      - check: { css: { target: docs.title, property: font-size, equals: "38px" } }
-      - check: { css: { target: docs.title, property: white-space, not: nowrap } }
+      - check: { css: { target: wb.title, property: font-size, equals: "38px" } }
+      - check: { css: { target: wb.title, property: white-space, not: nowrap } }
       - open: /p/{project}/systems/AI
       - wait_for: system.wb.doc
     checks:

@@ -105,7 +105,7 @@ A gauge over its limit says "Over limit" with an icon, never colour alone.
 - **Lines of code:** `codebase.source_lines`, with the test ratio and its sparkline in the subtitle.
 - **Disk use:** the `storage` family's latest total (`storage.total_mb`) and a bar per area (worktrees, playtest shots, `.git`, `.agent-logs`, attachments), with the total's line once two snapshots have it. Past sizes can't be backfilled, so the line starts with the family's first daily snapshot. The subtitle points at `issue-cli playtest prune --all`. The metric names are in [Workbench Files](workbench-files.md#health-snapshots).
 
-Each workflow point covers the issues done in the 30 days before its snapshot, so a point's issues (click it) come from that window. A line breaks across a missing day, and a vertical "data starts" marker shows where history begins. Charts whose family no snapshot has yet (CI and `make validate` duration, ux-test duration and flaky steps, tokens per issue) are dashed "No data yet" cards naming the issue that brings them. With fewer than two snapshots in the range, a hint names `issue-cli --project <slug> health backfill`. A family that failed in the latest snapshot shows its error on its charts.
+Each workflow point covers the issues done in the 30 days before its snapshot, so a point's issues (click it) come from that window. A line breaks across a missing day, and a vertical "data starts" marker shows where history begins. Charts whose family no snapshot has yet (CI and `make validate` duration, ux-test duration, tokens per issue) are dashed "No data yet" cards saying what would bring them; flaky ux-test steps are the Health page's `flaky` component. With fewer than two snapshots in the range, a hint names `issue-cli --project <slug> health backfill`. A family that failed in the latest snapshot shows its error on its charts.
 
 **Where the time goes** is live: the range's [project aggregate](#project-aggregate), split exactly as each issue's Timeline tab splits it.
 
@@ -122,7 +122,9 @@ Each workflow point covers the issues done in the 30 days before its snapshot, s
 **Speed.** The aggregate is cached per project, keyed by the done issues (slug and file time):
 
 - It is built once for the widest window asked for, and narrower ranges filter it (`Report.Filter`).
-- It is warmed when the server starts and rebuilt in the background after 15 minutes, while the old one is served.
+- It is warmed when the server starts, over 120 days, so every range but All is ready for the first visit.
+- Once there is one, a request never builds it. When a done issue changed, or the range asks for more than it covers, the page shows the last one with a line under the title ("Updating: these numbers were built 4 Nov 13:02; reload in a few seconds", and how far back they reach when that is less than the range), and the new one is built in the background. Only a visit before the first build lands waits for it.
+- It is rebuilt in the background after 15 minutes as well, while the old one is served without that line, because clilogs move on without touching an issue file.
 - The CLI usage report is cached the same way and never blocks the page; until the first one lands, its section says so.
 - An 800-issue project renders in about 85 ms warm. On big projects the shared sidebar costs more than the page (see `ui/sidebar-waiting-on-owner-count-is-slow-on-big-projects-1-s-per-page-on-kestrel`).
 
@@ -215,6 +217,34 @@ The tab label on every tab ("5h 0m", "1h 50m so far") reads only the stats sidec
 - **Percentiles:** nearest-rank p50 and p90 over the issues in the row.
 - **Cost:** each clilog and each playtest results file is read once per aggregate (`timeline.Cache`), and each issue costs two git calls. On Kestrel (65 issues in the window) it takes about half a second.
 
+## Traces
+
+A trace is one record per issue of what each stage cost: one **span** per status visit (entering a status to leaving it; a status entered twice is two spans). It is built from what is already recorded, and it never leaves the machine: it holds sizes, counts, times and ids, never a briefing's or a transcript's text.
+
+| Span field | From |
+|---|---|
+| `status`, `from`, `to`, `wall_sec`, `open` | the stats sidecar's transitions; the open span runs to now |
+| `agents`, `sessions` | the sidecar's dispatches (the one running when the visit starts, and each in it) and the transcript's session ids |
+| `models` | the transcript messages timed in the visit |
+| `briefing` (`kind`, `bytes`, `tokens`, `memories`, `decisions`), `briefings` | the sidecar's `briefings`: the first briefing sent in the visit, and how many |
+| `tokens` (`in`, `out`, `cache_read`, `cache_write`, `known`) | the Claude Code transcripts of sessions in the issue's worktree (`bench.EachMessage`, the sessions `internal/spend` counts as the issue's), each message by its time |
+| `cli_calls`, `cli_refused`, `calls_known` | the clilogs the Timeline reads |
+| `gate` (`to`, `tries`, `first_try`) | the transition out, and the refused real `transition --to` the same status before it (dry runs don't count) |
+| `back`, `entered_back` | the move out (in) goes to (comes from) a status earlier (later) in the workflow's order |
+
+**Briefings** are the one thing added to what was recorded: a launched dispatch, a delivered reprompt (the prompt they paste) and `issue-cli start` (its own output) append `{at, kind, status, session, bytes, tokens, memories, decisions}` to the stats sidecar's `briefings`. Tokens are `tokens.Estimate` (bytes / 4), an estimate. The memory ids are the briefing's pins (a dispatch) or the memories start printed; the decision refs those of its Decisions in force block. Reads (`show`, `dispatch-prompt`, `trace`, `critique --brief`) record none.
+
+**Unknown is not zero.** A visit no transcript covers (a Codex worker, whose rollout files give totals per session only; transcripts on another machine) has `tokens.known: false` and shows "—"; without a clilog the calls and first tries are unknown; an issue started before briefings were recorded has none. Nothing is backfilled.
+
+**Where it is:**
+
+- `<issues>/.traces/<slug>.jsonl`, one span a line, rewritten whole after every real `transition` (which prints `Trace: <file> (issue-cli trace <slug>)`; a failed write is a warning, never a failed transition). The call that made the move is in the clilog only after it exits, so the file counts it at the next transition.
+- `issue-cli trace <slug>`: the spans as a table by stage, `--json` as JSON, `--write` rewrites the file.
+- The issue page's **Timeline tab** has a **By stage** table, one row per span, built live from the same sources, with a line naming what was not read.
+- A benchmark run's `run.json` has a `trace` on each task record (see [the benchmark](benchmark.md#reading-results)), and `bench compare` a **By stage** section.
+
+Code: `internal/trace` (Build, ByStage, the file), `internal/issuetrace` (an issue's sources), `tracker.RecordBriefing`.
+
 ## Implementation
 
 Bare file names (`handlers_stats.go`, `templates/…`, `static/…`) are in `internal/viewer/`.
@@ -266,7 +296,7 @@ Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold i
 
 **Roll back.** `issue-cli experiment rollback <slug>` creates branch `revert/<slug>` with one `revert(experiment): …` commit reverting the commits on main with that trailer. It never touches main; the owner reviews and merges it. The numbers stay in the sidecar.
 
-Code: `internal/experiment/` (block, `Judge`, `Guard`, `Protected`, `Candidates`, the git helpers), `cmd/issue-cli/cmd_experiment.go`, the exception in `cmd/issue-cli/yolo_gate.go`.
+Code: `internal/experiment/` (block, `Judge`, `Guard`, `Protected`, `Candidates`, the git helpers), `cmd/issue-cli/cmd_experiment.go`, the exception in `internal/yolo/eligible.go`.
 
 ## Out of scope (today)
 

@@ -15,6 +15,7 @@ func init() {
 		"postmortem.action.*",
 		"postmortem.action.*.place",
 		"postmortem.action.*.outcome",
+		"postmortem.action.*.reopened",
 		"postmortem.action.*.answer",
 		"postmortem.action.*.msg",
 		"postmortem.submit",

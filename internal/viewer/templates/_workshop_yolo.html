@@ -6,6 +6,7 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
   wb/yolo         the header's part: switch (L1), count, band, dialog  data: WbYOLO
   wb/yolo-switch  the switch in the company's header (L1)   data: WbYOLO
   wb/hazard-band  the band under the header while YOLO is on data: WbYOLO
+  wb/yolo-line    the band as one line on a phone (opens it)  data: WbYOLO
   wb/yolo-dialog  the turn-on dialog (L1)                   data: WbYOLODialog
   wb/yolo-tag     the yellow YOLO marker                    data: string (text after "YOLO")
   wb/yolo-review  "Passed in YOLO": Agree / Back to (L3)    data: WbYOLOReview
@@ -23,6 +24,8 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 
 {{define "wb/hazard-band"}}
 <div class="wb-hazard" role="status" data-testid="yolo.band">
+    <input type="checkbox" id="wb-yolo-open" class="wb-drawer-toggle wb-hazard-toggle" aria-label="Show YOLO's details: Extend and Turn off">
+    {{template "wb/yolo-line" .}}
     <div class="wb-hazard-card">
         <span class="wb-hazard-title">YOLO MODE</span>
         <span class="wb-hazard-text"><b>Gates pass without you · since {{.Since}} · {{if eq .End "until turned off"}}until turned off{{else}}turns off at {{.End}}{{end}}</b></span>
@@ -41,6 +44,10 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
     <div class="wb-site-msg wb-hazard-msg" role="status"></div>
 </div>
 {{end}}
+
+{{/* At 640px and below the band is this one line; tapping it opens the card
+under it (the checkbox before it, no script). Above 640px it is hidden. */}}
+{{define "wb/yolo-line"}}<label for="wb-yolo-open" class="wb-hazard-line" data-testid="yolo.band.line"><i class="wb-hazard-edge" aria-hidden="true"></i><span class="wb-hazard-tag">YOLO</span><span class="wb-hazard-line-text">on · {{.Passed}} passed<span class="wb-hazard-line-end"> · {{if eq .End "until turned off"}}until turned off{{else}}until {{.End}}{{end}}</span></span><span class="wb-hazard-chev" aria-hidden="true"></span></label>{{end}}
 
 {{define "wb/yolo-dialog"}}
 <dialog class="wb-yolo-dialog" aria-labelledby="yolo-dialog-h" data-testid="yolo.dialog">

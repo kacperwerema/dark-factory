@@ -7,10 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -39,6 +42,10 @@ var (
 	CaptureHistoryCtx = defaultCaptureHistoryCtx
 	SendKey           = defaultSendKey
 	SendText          = defaultSendText
+	RenameSession     = defaultRenameSession
+	// CloseSession ends the agent called name (dispatch --fresh's old
+	// session).
+	CloseSession = KillTmux
 )
 
 // PromptDeliveryTimeout bounds how long a dispatch or reprompt waits for the
@@ -141,7 +148,7 @@ func AttachCmd(proj *tracker.Project, name string) string {
 // session. It carries no TMUX_TMPDIR: inside tmux, $TMUX already names the
 // server, including a sandbox's private one.
 func SwitchCmd(proj *tracker.Project, name string) string {
-	return "tmux switch-client -t " + shellWord(Target(proj, name))
+	return "tmux switch-client -t " + shell.Quote(Target(proj, name))
 }
 
 // AttachHint is the two ways to reach the agent, one per line, for text
@@ -184,19 +191,6 @@ var lookPath = exec.LookPath
 // headlessDefaultDetail says why a project without terminal: is headless.
 const headlessDefaultDetail = "no terminal: in projects.yaml and no i3 here; set terminal: to a command that opens a window, or terminal: none to keep this"
 
-// shellWord single-quotes s unless it is safe to type unquoted. A leading
-// "=" is not: zsh expands =word to a command's path.
-// ShellWord quotes s as one POSIX shell word (single quotes unless it is
-// plainly safe); every value typed into a shell goes through it.
-func ShellWord(s string) string { return shellWord(s) }
-
-func shellWord(s string) string {
-	if safeShellWord.MatchString(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // tmuxEnvPrefix is "TMUX_TMPDIR=<dir> " when this process uses a private tmux
 // server, else "". A dir that isn't safe to type unquoted is single-quoted.
 func tmuxEnvPrefix() string {
@@ -204,10 +198,8 @@ func tmuxEnvPrefix() string {
 	if dir == "" {
 		return ""
 	}
-	return "TMUX_TMPDIR=" + shellWord(dir) + " "
+	return "TMUX_TMPDIR=" + shell.Quote(dir) + " "
 }
-
-var safeShellWord = regexp.MustCompile(`^[A-Za-z0-9._/:-]+$`)
 
 // CreateTmux creates the tmux home for the agent called name: its own
 // session by default, or a new window in the project's shared session
@@ -296,20 +288,30 @@ func defaultSendKeys(target string, lines []string) error {
 	return exec.Command("tmux", "send-keys", "-t", target, "Enter").Run()
 }
 
+var lastSessions recent.Reading[[]Session]
+
+// defaultListSessions is tmux's list; a viewer reuses the last one for a
+// moment (package recent), and each caller gets its own slice.
 func defaultListSessions() []Session {
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}\t#{session_created}\t#{session_path}").Output()
+	return slices.Clone(lastSessions.Get(readSessions))
+}
+
+func readSessions() []Session {
+	out, err := exec.Command("tmux", "list-sessions", "-F", sessionsFormat).Output()
 	if err != nil {
 		return nil
 	}
 	return append(ParseSessions(string(out)), ListSharedWindows()...)
 }
 
-// ParseSessions reads `tmux list-sessions -F
-// '#{session_name}\t#{session_created}\t#{session_path}'` output.
+// sessionsFormat is the list-sessions format ParseSessions reads.
+var sessionsFormat = Format("session_name", "session_created", "session_path")
+
+// ParseSessions reads `tmux list-sessions -F sessionsFormat` output.
 func ParseSessions(out string) []Session {
 	var sessions []Session
 	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Split(strings.TrimSpace(line), "\t")
+		fields := SplitFields(line, 3)
 		if len(fields) < 2 || fields[0] == "" || IsLeadView(fields[0]) {
 			continue
 		}
@@ -381,7 +383,7 @@ func underDir(path, dir string) bool {
 // issue matching and approval notifications find them like regular sessions.
 // Windows of per-agent sessions are skipped — those are already listed.
 func ListSharedWindows() []Session {
-	out, err := exec.Command("tmux", "list-windows", "-a", "-F", "#{session_name}\t#{window_name}").Output()
+	out, err := exec.Command("tmux", "list-windows", "-a", "-F", Format("session_name", "window_name")).Output()
 	if err != nil {
 		return nil
 	}
@@ -391,8 +393,12 @@ func ListSharedWindows() []Session {
 func ParseSharedWindows(out string) []Session {
 	var sessions []Session
 	for _, line := range strings.Split(out, "\n") {
-		sessionName, windowName, ok := strings.Cut(strings.TrimSpace(line), "\t")
-		if !ok || hasManagedPrefix(sessionName) || IsLeadView(sessionName) || !hasManagedPrefix(windowName) {
+		f := SplitFields(line, 2)
+		if len(f) != 2 {
+			continue
+		}
+		sessionName, windowName := f[0], f[1]
+		if hasManagedPrefix(sessionName) || IsLeadView(sessionName) || !hasManagedPrefix(windowName) {
 			continue
 		}
 		sessions = append(sessions, Session{Name: sessionName + ":" + windowName})
@@ -617,7 +623,7 @@ func openTerminal(proj *tracker.Project, session, name string, steps *[]Step) bo
 	// The window is titled after the session, so a later click can focus it
 	// (FocusTerminal) instead of opening another.
 	return RunStep(steps, "Open alacritty",
-		exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -T %s -e %stmux attach -t %s", shellWord(session), envFlag, shellWord(session))))
+		exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -T %s -e %stmux attach -t %s", shell.Quote(session), envFlag, shell.Quote(session))))
 }
 
 // Roles {{role}} expands to in terminal commands.
@@ -647,11 +653,11 @@ func ExpandTerminal(proj *tracker.Project, command, session, name, role string) 
 		project = proj.Slug
 	}
 	return strings.NewReplacer(
-		"{{session}}", shellWord(session),
-		"{{project}}", shellWord(project),
-		"{{name}}", shellWord(name),
-		"{{role}}", shellWord(role),
-		"{{window}}", shellWord(Target(proj, name)),
+		"{{session}}", shell.Quote(session),
+		"{{project}}", shell.Quote(project),
+		"{{name}}", shell.Quote(name),
+		"{{role}}", shell.Quote(role),
+		"{{window}}", shell.Quote(Target(proj, name)),
 	).Replace(command)
 }
 

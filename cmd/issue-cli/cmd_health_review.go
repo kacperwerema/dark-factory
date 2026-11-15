@@ -65,6 +65,7 @@ func runHealthReview(ctx *Context, args []string) error {
 		}
 		me := whoAmI(ctx.Project, issues)
 		if me.Role == tracker.RoleWorker {
+			guardNever(ctx, "health review")
 			return fmt.Errorf("workers can't start agents (you are %s, detected from %s). Ask the CEO on your issue trail:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
 				tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
 		}

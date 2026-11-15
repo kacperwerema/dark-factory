@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -34,6 +36,12 @@ type PlaytestSessionFile struct {
 // session found in the worktree hides the checkout's copy. Files that don't
 // parse are skipped. Sorted by session name.
 func IssuePlaytestSessions(root string, slugs ...string) []PlaytestSessionFile {
+	return IssuePlaytestSessionsIn(PlaytestSessionFiles, root, slugs...)
+}
+
+// IssuePlaytestSessionsIn is IssuePlaytestSessions reading each folder
+// through read, so a pass over many issues can read the folders once.
+func IssuePlaytestSessionsIn(read func(dir string) []PlaytestSessionFile, root string, slugs ...string) []PlaytestSessionFile {
 	want := map[string]bool{}
 	var dirs []string
 	for _, s := range slugs {
@@ -49,30 +57,78 @@ func IssuePlaytestSessions(root string, slugs ...string) []PlaytestSessionFile {
 	seen := map[string]bool{}
 	var out []PlaytestSessionFile
 	for _, d := range dirs {
-		files, _ := filepath.Glob(filepath.Join(d, "playtest", "sessions", "*.yaml"))
-		sort.Strings(files)
-		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				continue
-			}
-			var s PlaytestSessionFile
-			if yaml.Unmarshal(data, &s) != nil || !want[strings.TrimSpace(s.Issue)] {
-				continue
-			}
-			if s.Session == "" {
-				s.Session = strings.TrimSuffix(filepath.Base(f), ".yaml")
-			}
-			if seen[s.Session] {
+		for _, s := range read(d) {
+			if !want[strings.TrimSpace(s.Issue)] || seen[s.Session] {
 				continue
 			}
 			seen[s.Session] = true
-			s.Path = f
 			out = append(out, s)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Session < out[j].Session })
 	return out
+}
+
+// PlaytestSessionFiles reads every session under dir's playtest/sessions, in
+// file order. Files that don't parse are skipped. A file unchanged since it
+// was last read isn't read again: every worktree holds a copy of them all,
+// and a page over several issues goes through several worktrees.
+func PlaytestSessionFiles(dir string) []PlaytestSessionFile {
+	files, _ := filepath.Glob(filepath.Join(dir, "playtest", "sessions", "*.yaml"))
+	sort.Strings(files)
+	var out []PlaytestSessionFile
+	for _, f := range files {
+		if s, ok := readPlaytestSession(f); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+type parsedSession struct {
+	size  int64
+	mtime time.Time
+	file  PlaytestSessionFile
+	ok    bool
+}
+
+const sessionCacheMax = 20000
+
+var sessionCache = struct {
+	sync.Mutex
+	m map[string]parsedSession
+}{m: map[string]parsedSession{}}
+
+func readPlaytestSession(path string) (PlaytestSessionFile, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return PlaytestSessionFile{}, false
+	}
+	sessionCache.Lock()
+	c, hit := sessionCache.m[path]
+	sessionCache.Unlock()
+	if hit && c.size == fi.Size() && c.mtime.Equal(fi.ModTime()) {
+		return c.file, c.ok
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return PlaytestSessionFile{}, false
+	}
+	var s PlaytestSessionFile
+	ok := yaml.Unmarshal(data, &s) == nil
+	if ok {
+		if s.Session == "" {
+			s.Session = strings.TrimSuffix(filepath.Base(path), ".yaml")
+		}
+		s.Path = path
+	}
+	sessionCache.Lock()
+	if len(sessionCache.m) >= sessionCacheMax {
+		sessionCache.m = map[string]parsedSession{}
+	}
+	sessionCache.m[path] = parsedSession{size: fi.Size(), mtime: fi.ModTime(), file: s, ok: ok}
+	sessionCache.Unlock()
+	return s, ok
 }
 
 // sessionStepBoxes is the lead a new "## <heading>" section gets when a

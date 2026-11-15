@@ -223,49 +223,60 @@ func (s *Server) buildLeadChat(proj *tracker.Project, prefix, name string, withW
 	return m
 }
 
-// leadWaiting is the Status page's "Waiting on you" for the project, as rows
-// that link to where the owner acts.
+// leadWaiting is the Needs you list for the project, as rows that link to
+// where the owner acts.
 func leadWaiting(proj *tracker.Project, prefix string, now time.Time) []LeadWaiting {
 	rows := []LeadWaiting{}
-	for _, it := range waitingOnOwner(proj, openIssuesOf(proj)) {
-		url := prefix + "/issue/" + it.Issue.Slug
-		row := LeadWaiting{Kind: it.Kind, Slug: it.Issue.Slug, Title: it.Issue.Title, URL: url, ActionURL: url, Age: shortDuration(now.Sub(it.Since))}
-		if it.Approx {
-			row.Age = "≈ " + row.Age
+	for _, r := range needsYouRows(proj, "", prefix, openIssuesOf(proj), now) {
+		url, _, _ := strings.Cut(r.URL, "#")
+		row := LeadWaiting{Kind: r.Kind, Slug: r.Slug, Title: r.Title, URL: url, ActionURL: r.URL, Age: r.Age, Detail: r.Note, Action: r.CTA}
+		if row.Title == "" {
+			row.Title = r.Label
 		}
-		switch it.Kind {
+		switch r.Kind {
 		case "gate":
-			row.Detail = it.Issue.Status + " → " + it.Target
-			row.Action = "Approve"
-			row.ActionURL = url + "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
+			row.Detail, row.Action = r.From+" → "+r.Target, "Approve"
 		case "playtest":
-			row.Detail = "playtest " + strings.Join(it.Sessions, ", ")
-			row.Action = "Playtest"
+			row.Detail, row.Action = "playtest"+strings.TrimPrefix(r.Note, r.Title+" ·"), "Playtest"
 		case "checks":
-			row.Detail = "check script " + strings.Join(it.Sessions, ", ")
-			row.Action = "Run checks"
-		default:
-			row.Detail = "open question"
-			row.Action = "Answer"
+			row.Detail, row.Action = "check script"+strings.TrimPrefix(r.Note, r.Title+" ·"), "Run checks"
+		case "question":
+			row.Detail, row.Action = "open question", "Answer"
 		}
 		rows = append(rows, row)
 	}
 	return rows
 }
 
+// liveWaitingTTL is how long the lead chat's poll reuses a project's rows:
+// it polls every 1.5s and the list reads the issue tree for due jobs and
+// expired decisions. The page and lead.json read it fresh.
+const liveWaitingTTL = 10 * time.Second
+
+type liveWaitingEntry struct {
+	at   time.Time
+	rows []LeadWaiting
+}
+
+// leadWaitingLive is leadWaiting for the chat's poll.
+func (s *Server) leadWaitingLive(proj *tracker.Project, prefix string, now time.Time) []LeadWaiting {
+	if v, ok := s.liveWaiting.Load(proj.Slug); ok {
+		if e := v.(liveWaitingEntry); now.Sub(e.at) < liveWaitingTTL {
+			return e.rows
+		}
+	}
+	rows := leadWaiting(proj, prefix, now)
+	s.liveWaiting.Store(proj.Slug, liveWaitingEntry{now, rows})
+	return rows
+}
+
 // openIssuesOf loads the project's issues that are not done.
 func openIssuesOf(proj *tracker.Project) []*tracker.Issue {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		log.Printf("lead chat: %s: load issues: %v", proj.Slug, err)
 	}
-	var open []*tracker.Issue
-	for _, issue := range issues {
-		if issue.Status != "done" {
-			open = append(open, issue)
-		}
-	}
-	return open
+	return openOnly(proj, issues)
 }
 
 // ansiSeq matches terminal escape sequences: CSI, OSC and two-byte escapes.
@@ -574,11 +585,11 @@ func (s *Server) handleLeads(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := s.leadRows(true)
 	header := WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: mapURL}, {Label: "All CEOs", Current: true}}, Quiet: true, WaitingURL: "/needs-you"}
-	for _, row := range rows {
-		if row.Waiting > 0 {
-			header.Waiting += row.Waiting
-		}
+	counts := make([]int, len(rows))
+	for i, row := range rows {
+		counts[i] = row.Waiting
 	}
+	header.Waiting = needsYouTotal(counts)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := struct {
 		Header WbHeader

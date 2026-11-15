@@ -40,6 +40,9 @@ func printDepLines(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue) 
 			fmt.Fprintf(ctx.Stdout, "%s: %s\n", strings.ToUpper(kind[:1])+kind[1:], strings.Join(parts, ", "))
 		}
 	}
+	if line := childrenLine(issue, issues); line != "" {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
 	if askHint != "" {
 		fmt.Fprintf(ctx.Stdout, "Building on %s's format? Agree it with its worker: %s\n", askHint, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli ask %s \"...\"", askHint)))
 	}
@@ -109,4 +112,33 @@ func printSharedFiles(w io.Writer, proj *tracker.Project, issue *tracker.Issue, 
 	}
 	fmt.Fprintln(w, "Merge main often and coordinate on these files with the branches' agents.")
 	fmt.Fprintln(w)
+}
+
+// childrenLine lists an epic's children with their status:
+// "Children (2): a (idea), b (done) · issue-cli list --parent <slug>".
+func childrenLine(issue *tracker.Issue, issues []*tracker.Issue) string {
+	kids := tracker.EpicChildren(issues, issue.Slug)
+	if len(kids) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(kids))
+	for _, k := range kids {
+		parts = append(parts, fmt.Sprintf("%s (%s)", k.Slug, k.Status))
+	}
+	return fmt.Sprintf("Children (%d): %s", len(kids), strings.Join(parts, ", "))
+}
+
+// printStartOverlaps tells a worker picking up an issue where its branch
+// stands: behind main (merge before editing) and which open branches change
+// the same files (ask the sibling before the merge).
+func printStartOverlaps(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue) {
+	lines := tracker.IssueBranchOverlaps(ctx.Project, projectRoot(ctx.Project), issue, issues).Lines(issue.Slug)
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Fprintln(ctx.Stdout, "== Open branches ==")
+	for _, line := range lines {
+		fmt.Fprintln(ctx.Stdout, tracker.InjectProject(ctx.Project, line))
+	}
+	fmt.Fprintln(ctx.Stdout)
 }

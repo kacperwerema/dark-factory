@@ -56,18 +56,27 @@ func TestYOLORuleInStartShowAndTransition(t *testing.T) {
 	out = runAt(t, proj, now, runStart, "design")
 	assertContains(t, out, "== Current Status Guidance ==\n- YOLO rule: don't ask the owner and don't stop at gates.")
 	assertContains(t, out, "issue-cli --project proj decide design --provisional")
-	assertContains(t, out, "Still the owner's, even in YOLO: "+tracker.YOLOOwnerOnly)
+	assertContains(t, out, "Still the owner's, even in YOLO: "+tracker.YOLOOwnerOnly(proj.LoadWorkflow()))
 	if strings.Contains(out, "Clarify the issue with the human") || strings.Contains(out, "Ask focused questions") {
 		t.Fatalf("YOLO on: start still says to clarify with the human:\n%s", out)
 	}
 
+	// show points at the rule once; the paragraph is in the briefing and start.
 	out = runAt(t, proj, now, runShow, "design")
-	assertContains(t, out, "YOLO rule: don't ask the owner")
-	assertContains(t, out, tracker.YOLOOwnerOnly)
+	if n := strings.Count(out, "YOLO rule: don't ask the owner"); n != 0 {
+		t.Fatalf("YOLO on: show printed the rule paragraph %d times:\n%s", n, out)
+	}
+	if n := strings.Count(out, tracker.YOLORulePointer); n != 1 {
+		t.Fatalf("YOLO on: show printed the pointer %d times, want 1:\n%s", n, out)
+	}
 
-	// transition into backlog: the handoff line stays, the stop line goes.
+	// transition into backlog: the handoff line stays, the stop line goes,
+	// and the rule is the pointer.
 	out = runAt(t, proj, now, runTransition, "design", "--to", "backlog")
-	assertContains(t, out, "== Guidance ==\n- This is a handoff state.\n- YOLO rule: ")
+	assertContains(t, out, "== Guidance ==\n- This is a handoff state.\n- "+tracker.YOLORulePointer+"\n")
+	if strings.Contains(out, "YOLO rule: don't ask the owner") {
+		t.Fatalf("YOLO on: transition printed the rule paragraph:\n%s", out)
+	}
 	if strings.Contains(out, "then stop and end your turn") {
 		t.Fatalf("YOLO on: transition still says to stop:\n%s", out)
 	}

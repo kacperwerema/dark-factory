@@ -130,9 +130,20 @@ main() {
   local STAGE="issue-viewer_${VERSION}_${OS}_${ARCH}"
   [ -d "$STAGE" ] || err "expected directory $STAGE not found in archive"
 
+  # place_bin copies the binary to a temporary file beside the target and
+  # renames it over the old one: one step, a new inode. Writing into the old
+  # file (cp) makes macOS kill the new binary at exec (exit 137, no output),
+  # and an agent running issue-cli meanwhile could run it half written.
+  place_bin() {
+    local src="$1" dst="$2" tmp
+    tmp="$(dirname "$dst")/.$(basename "$dst").new.$$"
+    cat "$src" > "$tmp" && chmod 0755 "$tmp" && mv -f "$tmp" "$dst" \
+      || { rm -f "$tmp"; err "could not install $dst"; }
+  }
+
   mkdir -p "$INSTALL_DIR"
-  install -m 0755 "$STAGE/issue-viewer" "$INSTALL_DIR/issue-viewer"
-  install -m 0755 "$STAGE/issue-cli"    "$INSTALL_DIR/issue-cli"
+  place_bin "$STAGE/issue-viewer" "$INSTALL_DIR/issue-viewer"
+  place_bin "$STAGE/issue-cli"    "$INSTALL_DIR/issue-cli"
 
   info "installed issue-viewer $VERSION → $INSTALL_DIR/issue-viewer"
   info "installed issue-cli    $VERSION → $INSTALL_DIR/issue-cli"

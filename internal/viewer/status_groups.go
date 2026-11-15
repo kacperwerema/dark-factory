@@ -456,8 +456,10 @@ func (ev EpicsView) CurrentPanel() *EpicsPanel {
 // NeedsSummary is the Needs you tile's line: "7 to approve · 1 question".
 func (m *StatusModel) NeedsSummary() string {
 	var parts []string
+	named := 0
 	if m.CI.Red() {
 		parts = append(parts, "local CI red")
+		named++
 	}
 	for _, k := range []struct{ kind, label string }{{"gate", "to approve"}, {"playtest", "to playtest"}, {"checks", "to check"}, {"question", "question"}, {"clarify", "clarify round"}} {
 		if n := len(m.WaitingOf(k.kind)); n > 0 {
@@ -466,7 +468,11 @@ func (m *StatusModel) NeedsSummary() string {
 				label += "s"
 			}
 			parts = append(parts, fmt.Sprintf("%d %s", n, label))
+			named += n
 		}
+	}
+	if more := m.WaitingCount() - named; more > 0 {
+		parts = append(parts, fmt.Sprintf("%d more", more))
 	}
 	if len(parts) == 0 {
 		return "Nothing waits on you"

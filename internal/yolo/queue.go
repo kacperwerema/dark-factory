@@ -1,6 +1,7 @@
 package yolo
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -212,8 +213,8 @@ func Decisions(issue *tracker.Issue, comments []tracker.Comment) []Pass {
 func Queue(issues []*tracker.Issue) []Pass {
 	var out []Pass
 	for _, issue := range issues {
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil || len(comments) == 0 {
+		comments := issue.Comments()
+		if len(comments) == 0 {
 			continue
 		}
 		out = append(out, Unreviewed(issue, comments)...)
@@ -258,22 +259,38 @@ type Gate struct {
 	From, To, Approves string
 }
 
-// Gates is the project's gates YOLO passes: each forward step between two
-// neighbouring statuses on the base path that needs a human approval and
-// isn't owner_only (OwnerGates lists those).
+// Gates is the project's gates YOLO passes: each step between neighbouring
+// statuses on a path (eachPath) that Eligible lets through, once each. A step
+// that needs an approval and isn't here is in OwnerGates.
 func Gates(wf *tracker.WorkflowConfig) []Gate {
 	var out []Gate
-	order := wf.GetStatusOrder()
-	for i := 0; i+1 < len(order); i++ {
-		to := order[i+1]
-		if wf.IsSideStatus(to) {
-			continue
+	seen := map[string]bool{}
+	eachPath(wf, func(scoped *tracker.WorkflowConfig, _ string) {
+		order := scoped.GetStatusOrder()
+		for i := 0; i+1 < len(order); i++ {
+			from, to := order[i], order[i+1]
+			key := from + "\x00" + to
+			if seen[key] || !Eligible(scoped, nil, from, to) {
+				continue
+			}
+			seen[key] = true
+			out = append(out, Gate{From: from, To: to, Approves: scoped.RequiredHumanApproval(from, to)})
 		}
-		if req := wf.RequiredHumanApproval(order[i], to); req != "" && !wf.OwnerOnlyGate(order[i], to) {
-			out = append(out, Gate{From: order[i], To: to, Approves: req})
-		}
-	}
+	})
 	return out
+}
+
+// eachPath calls fn with every path an issue of wf walks: each type's, or
+// the base path in a workflow without types.
+func eachPath(wf *tracker.WorkflowConfig, fn func(scoped *tracker.WorkflowConfig, typ string)) {
+	names := wf.TypeNames()
+	if len(names) == 0 {
+		fn(wf, "")
+		return
+	}
+	for _, name := range names {
+		fn(wf.ForType(name), name)
+	}
 }
 
 // OwnerGate is one gate YOLO never passes, for yolo status and the band.
@@ -303,31 +320,62 @@ func (g OwnerGate) Label() string {
 }
 
 // OwnerGates lists the gates YOLO never passes in proj: each owner_only
-// approval on the paths of Product's workflow and of every department
-// with its own file, then the rules that hold everywhere (the Human
-// Testing approval, experiments' gates, release publish unless the owner
-// unlocked releases).
+// approval on the paths of Product's workflow and of every department with
+// its own file, then the rules that hold everywhere (WorkflowNeverRules,
+// experiments' gates, a design-first issue's design gate, release publish unless the owner unlocked releases).
 func OwnerGates(proj *tracker.Project, v Valves) []OwnerGate {
 	wf := proj.LoadWorkflow()
 	out := WorkflowOwnerGates(wf, "")
+	rules := WorkflowNeverRules(wf)
 	for _, d := range proj.WorkflowDepartments() {
 		if dwf, err := proj.WorkflowFor(d.Name); err == nil {
 			out = append(out, WorkflowOwnerGates(dwf, d.Name)...)
-		}
-	}
-	if wf != nil {
-		for _, s := range wf.Statuses {
-			if strings.EqualFold(strings.ReplaceAll(s.Name, " ", "-"), "human-testing") {
-				out = append(out, OwnerGate{Why: "the Human Testing approval: the human's own"})
-				break
+			for _, r := range WorkflowNeverRules(dwf) {
+				if !slices.Contains(rules, r) {
+					rules = append(rules, r)
+				}
 			}
 		}
 	}
-	out = append(out, OwnerGate{Why: "every gate of an issue labelled experiment: the owner adopts experiments"})
+	for _, r := range rules {
+		out = append(out, OwnerGate{Why: r})
+	}
+	out = append(out, OwnerGate{Why: tracker.YOLONeverExperiment}, OwnerGate{Why: tracker.YOLONeverDesignFirst})
 	if !v.Releases { // unlocked: the valves line says so
-		out = append(out, OwnerGate{Why: "release publish: external releases wait for the owner"})
+		out = append(out, OwnerGate{Why: tracker.YOLONeverRelease})
 	}
 	return out
+}
+
+// WorkflowNeverRules is the rules Eligible holds to in wf that aren't one
+// owner_only gate: a gate into an optional status when a path has one. Each
+// an OwnerGate Why.
+func WorkflowNeverRules(wf *tracker.WorkflowConfig) []string {
+	if wf == nil {
+		return nil
+	}
+	var out []string
+	optional := false
+	eachPath(wf, func(scoped *tracker.WorkflowConfig, _ string) {
+		order := scoped.GetStatusOrder()
+		for i, to := range order {
+			for _, from := range order[:i] {
+				optional = optional || optionalGate(scoped, from, to)
+			}
+		}
+	})
+	if optional {
+		out = append(out, tracker.YOLONeverOptional)
+	}
+	return out
+}
+
+// optionalGate reports whether from → to is an approval into an optional
+// status that no other rule already keeps from YOLO.
+func optionalGate(wf *tracker.WorkflowConfig, from, to string) bool {
+	s := wf.GetStatus(to)
+	required := wf.RequiredHumanApproval(from, to)
+	return s != nil && s.Optional && required != "" && !wf.OwnerOnlyGate(from, to)
 }
 
 // WorkflowOwnerGates is wf's owner_only gates between neighbouring statuses
@@ -354,7 +402,7 @@ func WorkflowOwnerGates(wf *tracker.WorkflowConfig, dept string) []OwnerGate {
 				continue
 			}
 			g := OwnerGate{Department: dept, From: from, To: to, Approves: scoped.RequiredHumanApproval(from, to),
-				Why: "owner_only: spends money or publishes outside the machine"}
+				Why: tracker.YOLONeverOwnerOnly}
 			if typ != "" {
 				g.Types = []string{typ}
 			}
@@ -363,15 +411,9 @@ func WorkflowOwnerGates(wf *tracker.WorkflowConfig, dept string) []OwnerGate {
 		}
 	}
 	names := wf.TypeNames()
-	if len(names) == 0 {
-		add(wf, "")
-		return out
-	}
-	for _, name := range names {
-		add(wf.ForType(name), name)
-	}
+	eachPath(wf, add)
 	for i := range out {
-		if len(out[i].Types) == len(names) {
+		if len(names) > 0 && len(out[i].Types) == len(names) {
 			out[i].Types = nil // every type walks it
 		}
 	}

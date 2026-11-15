@@ -143,7 +143,7 @@ func TestCheckBranchPassesABumpOrATrailer(t *testing.T) {
 func TestCheckBranchRejectsTrailersThatMarkNothing(t *testing.T) {
 	for _, tc := range []struct{ value, problem string }{
 		{"n/a refactor only", `no catalog entry "refactor"`},
-		{"n/a", "names no entry"},
+		{"n/a", "leave the Catalog: line out"},
 		{"none, a refactor", "only n/a is read"},
 		{"n/a health-tuning,health-tunning typo", `no catalog entry "health-tunning"`},
 	} {

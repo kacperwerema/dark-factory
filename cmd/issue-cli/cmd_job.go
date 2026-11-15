@@ -122,7 +122,7 @@ func runJob(ctx *Context, args []string) error {
 }
 
 // jobInput reads what an evaluation needs: the standing starts, mem-guard,
-// the project's live workers and the machine's last auto-start.
+// the load, the project's live workers and the machine's last auto-start.
 func jobInput(ctx *Context, last *autostart.Start) (jobs.Input, error) {
 	proj := ctx.Project
 	st, err := jobs.LoadState(yoloRoot(proj), proj.Slug)
@@ -132,12 +132,15 @@ func jobInput(ctx *Context, last *autostart.Start) (jobs.Input, error) {
 	if last == nil {
 		last, _ = autostart.LastStart(autostart.SharedDir())
 	}
+	limits := jobs.DefaultLimits
+	limits.MaxLoad = autostart.MaxLoadOf(yoloRoot(proj), proj.Slug)
 	return jobs.Input{
 		State:   st,
 		Memory:  autostart.ReadMemory(),
+		CPU:     autostart.ReadLoad(),
 		Workers: agentrun.LiveWorkers(proj, projectRoot(proj)),
 		Last:    last,
-		Limits:  jobs.DefaultLimits,
+		Limits:  limits,
 		Now:     ctx.now(),
 	}, nil
 }
@@ -323,7 +326,7 @@ func runJobDue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	me := whoAmI(proj, issues)
+	me := guardWho(ctx, issues, "job tick")
 	if me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers don't tick recurring jobs: your lead does. Ask it with a question: comment on your issue")
 	}
@@ -476,25 +479,14 @@ func runJobRun(ctx *Context, args []string) error {
 	if r.Err != nil {
 		return fmt.Errorf("job %s: %v (fix it in projects.yaml)", r.Key, r.Err)
 	}
-	me := whoAmI(proj, issues)
+	me := guardWho(ctx, issues, "job run")
 	if me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers never start runs: a recurring job is started by its lead or the owner. Ask your lead with a question: comment on your issue")
 	}
 	if me.Role == tracker.RoleDepartmentLead && !proj.InScope(me.Department, r.Department) {
 		return fmt.Errorf("%s is %s's job, not %s's: a department lead starts only its own department's jobs (a group's lead, its departments' too). Ask the CEO %s", r.Key, r.Department, me.Department, tracker.LeadSessionName(proj))
 	}
-	by := valueOr(me.Name, "owner")
-	rs := agentrun.RunStart{Words: quote, By: by, Agent: *agentFlag, Again: *again}
-	rs.How = strings.TrimSpace(*howFlag)
-	if rs.How == "" {
-		rs.How = "owner's shell"
-		switch me.Role {
-		case tracker.RoleProjectLead:
-			rs.How = "CEO chat"
-		case tracker.RoleDepartmentLead:
-			rs.How = me.Department + " lead chat"
-		}
-	}
+	rs := jobRunStart(me, quote, *howFlag, *agentFlag, *again)
 	if !*scheduled {
 		in, err := jobInput(ctx, nil)
 		if err != nil {
@@ -504,6 +496,80 @@ func runJobRun(ctx *Context, args []string) error {
 		return startJobRun(ctx, r, issues, s.Period, rs, *dryRun)
 	}
 	return startScheduledRun(ctx, r, issues, rs, *dryRun)
+}
+
+// jobRunStart is a run's start as me makes it: who, how the words came
+// (the session's chat when how is empty), the agent and --again.
+func jobRunStart(me Identity, quote, how, agent string, again bool) agentrun.RunStart {
+	rs := agentrun.RunStart{Words: quote, By: valueOr(me.Name, "owner"), Agent: agent, Again: again}
+	rs.How = strings.TrimSpace(how)
+	if rs.How == "" {
+		rs.How = "owner's shell"
+		switch me.Role {
+		case tracker.RoleProjectLead:
+			rs.How = "CEO chat"
+		case tracker.RoleDepartmentLead:
+			rs.How = me.Department + " lead chat"
+		}
+	}
+	return rs
+}
+
+// dueStandingJobs are the jobs in me's scope that are due and whose
+// standing start lets them start now (jobs.VerdictStart).
+func dueStandingJobs(ctx *Context, me Identity, issues []*tracker.Issue) []jobs.Status {
+	proj := ctx.Project
+	if proj == nil || me.Role == tracker.RoleWorker || len(jobs.List(proj)) == 0 {
+		return nil
+	}
+	in, err := jobInput(ctx, nil)
+	if err != nil {
+		return nil
+	}
+	var out []jobs.Status
+	for _, s := range jobsInScope(proj, me, jobs.Evaluate(proj, issues, in)) {
+		if s.Due && s.Verdict == jobs.VerdictStart {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// printDueJobs names, in the commands a lead's tick runs (queue next,
+// autostart next), each due job its standing start lets start, with the
+// command: a tick that runs neither job due nor the job never starts it.
+// Lines only.
+func printDueJobs(ctx *Context, issues []*tracker.Issue) {
+	if ctx.JSONOutput || ctx.Project == nil {
+		return
+	}
+	for _, s := range dueStandingJobs(ctx, whoAmI(ctx.Project, issues), issues) {
+		fmt.Fprintf(ctx.Stdout, "⚠ job %s is due (%s) on its standing start: %s\n", s.Key, s.Period,
+			tracker.InjectProject(ctx.Project, "issue-cli job run "+s.Key+" --scheduled"))
+	}
+}
+
+// startDueJob is queue next --start's first step: the first due job on its
+// standing start starts as job run --scheduled would (the same checks,
+// under the same machine-wide lock), before any queue item. It reports
+// whether a run started; a hold is printed and the queue gets its turn.
+func startDueJob(ctx *Context, me Identity, issues []*tracker.Issue, agent string) (bool, error) {
+	due := dueStandingJobs(ctx, me, issues)
+	if len(due) == 0 {
+		return false, nil
+	}
+	r, err := jobs.Find(ctx.Project, due[0].Key)
+	if err != nil || r.Err != nil {
+		return false, nil
+	}
+	fmt.Fprintf(ctx.Stdout, "Job %s is due (%s) on its standing start: starting it first.\n", r.Key, due[0].Period)
+	err = startScheduledRun(ctx, r, issues, jobRunStart(me, "", "", agent, false), false)
+	var held *exitCodeError
+	if errors.As(err, &held) && held.Code == 1 {
+		fmt.Fprintln(ctx.Stdout, held.Msg)
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // startScheduledRun starts r's due run on its standing start, deciding
@@ -627,7 +693,7 @@ func jobAutoNotWorker(ctx *Context, what string) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	me := whoAmI(ctx.Project, issues)
+	me := guardWho(ctx, issues, "job auto")
 	if me.Role == tracker.RoleWorker {
 		return me, fmt.Errorf("workers never %s: a job's standing start is the owner's switch. Ask your lead on your issue trail with a question: comment", what)
 	}

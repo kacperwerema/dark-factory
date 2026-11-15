@@ -2,40 +2,24 @@ package health
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// writeRun stores a CI run record with results, as ci.Execute would.
-func writeRun(t *testing.T, root, sha string, finished time.Time, kind string, sum testresults.Summary, tests []testresults.Test) {
+// fakeResults stands in for local CI's results, which internal/ci plugs in
+// from init() (internal/ci/health.go, tested there).
+func fakeResults(t *testing.T, runs map[string]TestRun) {
 	t.Helper()
-	if tests != nil {
-		list := filepath.Join(".ci", "results", sha, kind+".tests.json")
-		writeJSON(t, filepath.Join(root, list), tests)
-		sum.List = list
-	}
-	run := ci.Run{Sha: sha, Branch: "main", Tier: "default", Started: finished.Add(-time.Minute), Finished: finished, State: ci.Green,
-		Results: map[string]testresults.Summary{kind: sum}}
-	writeJSON(t, filepath.Join(ci.RunsDir(root), sha+".json"), run)
-}
-
-func writeJSON(t *testing.T, path string, v any) {
-	t.Helper()
-	data, _ := json.Marshal(v)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	SetTestResults(func(root, kind string, now time.Time) (TestRun, bool) {
+		r, ok := runs[kind]
+		return r, ok
+	})
+	t.Cleanup(func() { SetTestResults(nil) })
 }
 
 func TestTestsFamily(t *testing.T) {
@@ -54,10 +38,10 @@ func TestTestsFamily(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeRun(t, root, "aaa", now.Add(-48*time.Hour), "unit", testresults.Summary{Tests: 3, Passed: 2, Failed: 1, WallS: 30, SumS: 40, MeanMS: 13333, P50MS: 10, P90MS: 39000,
-		Parts: []testresults.Part{{Name: "cmd/playtest", Seconds: 30}}},
-		[]testresults.Test{{Name: "TestA", Part: "cmd/playtest", Area: "cmd", Seconds: 39, Outcome: "pass"}, {Name: "TestB", Part: ".", Area: ".", Seconds: 0.5, Outcome: "pass"}, {Name: "TestC", Part: ".", Area: ".", Seconds: 0.5, Outcome: "fail"}})
-	writeRun(t, root, "bbb", now.Add(time.Hour), "unit", testresults.Summary{Tests: 99}, nil) // after Now: ignored
+	fakeResults(t, map[string]TestRun{"unit": {Finished: now.Add(-48 * time.Hour),
+		Summary: testresults.Summary{Tests: 3, Passed: 2, Failed: 1, WallS: 30, SumS: 40, MeanMS: 13333, P50MS: 10, P90MS: 39000,
+			Parts: []testresults.Part{{Name: "cmd/playtest", Seconds: 30}}},
+		Tests: []testresults.Test{{Name: "TestA", Part: "cmd/playtest", Area: "cmd", Seconds: 39, Outcome: "pass"}, {Name: "TestB", Part: ".", Area: ".", Seconds: 0.5, Outcome: "pass"}, {Name: "TestC", Part: ".", Area: ".", Seconds: 0.5, Outcome: "fail"}}}})
 
 	env, err := NewEnv(proj, root, now)
 	if err != nil {

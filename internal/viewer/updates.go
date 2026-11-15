@@ -244,12 +244,16 @@ func buildUpdatesData(proj *tracker.Project, prefix string, plan *workflowupgrad
 	for i, c := range workflowupgrade.Categories {
 		catRank[c] = i
 	}
+	var live func(string) bool // one tmux listing per page, read on the first card
 	for _, p := range plan.Proposals {
 		if category != "" && p.Category != category {
 			continue
 		}
+		if live == nil {
+			live = liveSessionNames(proj)
+		}
 		card := UpdateCard{Proposal: p, Open: open == p.ID}
-		if session := installSession(proj, p.ID); agentSessionLive(proj, session) {
+		if session := installSession(proj, p.ID); live(session) {
 			card.Installing, card.Session, card.AttachCmd = true, agentDisplayName(proj, session), agentAttachCmd(proj, session)
 		}
 		d.Cards = append(d.Cards, card)
@@ -464,7 +468,7 @@ func (s *Server) handleUpdatesOverview(w http.ResponseWriter, r *http.Request) {
 	page := "updates_overview.html"
 	if r.URL.Query().Get("classic") != "1" {
 		page = "updates_overview_wb.html"
-		data.Header = WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: mapURL}, {Label: "Workflow updates", Current: true}}, Quiet: true, WaitingURL: "/needs-you", Waiting: s.waitingEverywhere()}
+		data.Header = WbHeader{Crumbs: []WbCrumb{{Label: "Map", URL: mapURL}, {Label: "Workflow updates", Current: true}}, Quiet: true, WaitingURL: "/needs-you", Waiting: s.needsYouEverywhere()}
 		data.Tally = []WbUpdTally{
 			{Key: "projects", Label: pluralWord(data.Projects, "project", "projects"), Value: data.Projects},
 			{Key: "behind", Label: "stamped, behind", Value: data.Behind, Tone: youIf(data.Behind)},
@@ -483,25 +487,4 @@ func youIf(n int) string {
 		return "you"
 	}
 	return ""
-}
-
-// waitingEverywhere is what waits on the owner across every project, the
-// header's Waiting count on the pages outside a project.
-func (s *Server) waitingEverywhere() int {
-	counts := make([]int, len(s.projects))
-	var wg sync.WaitGroup
-	for i := range s.projects {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			p := &s.projects[i]
-			counts[i] = len(waitingOnOwner(p, openIssuesOf(p)))
-		}(i)
-	}
-	wg.Wait()
-	n := 0
-	for _, c := range counts {
-		n += c
-	}
-	return n
 }

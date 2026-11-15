@@ -10,3 +10,8 @@ One-off helpers, not part of the binaries.
   Python Playwright; design artboards render through `dc-shim.js`.
   `tools/mockup-shots/shots.py <folder>`
   ([docs/UI/overview.md](../docs/UI/overview.md)).
+- `playtest-guides/` — copies docs/patterns/playtest/*.md into
+  cmd/issue-cli/guides/playtest, the folder issue-cli embeds (internal/guidesync).
+  Run by `go generate ./cmd/issue-cli/...`.
+- `doc-numbers/` — writes docs/numbers.md from the constants (internal/docnumbers).
+  Run by `go generate ./internal/docnumbers/...`.

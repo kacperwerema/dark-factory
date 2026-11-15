@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,37 +57,90 @@ type Waiting struct {
 	Since              time.Time
 }
 
-// WaitingIn lists the newest post-mortem of each issue under dir that has
-// open actions. It reads only the files Save names (*-postmortem-*.md), so
-// a page that counts what waits doesn't read every retro.
+// Waits are the post-mortems among entries the owner still has to answer,
+// each path with its open actions: WaitingIn's rule, the newest of each
+// issue and only with actions open. An older one an issue has moved past
+// doesn't wait.
+func Waits(entries []*retro.Entry) map[string]int {
+	newest := map[string]*retro.Entry{}
+	for _, e := range entries {
+		if e.Kind != Kind || e.IssueSlug == "" {
+			continue
+		}
+		if have := newest[e.IssueSlug]; have == nil || e.FileName > have.FileName {
+			newest[e.IssueSlug] = e // names start with the UTC time
+		}
+	}
+	out := map[string]int{}
+	for _, e := range newest {
+		if n := len(Pending(Actions(e.Body))); n > 0 {
+			out[e.FilePath] = n
+		}
+	}
+	return out
+}
+
+// WaitingIn lists the newest post-mortem of each issue under dir, archive/
+// included, that has open actions. It reads only the files Save names
+// (*-postmortem-*.md), so a page that counts what waits doesn't read every
+// retro.
 func WaitingIn(dir string) []Waiting {
+	var out []Waiting
+	for _, f := range newestFiles(dir) {
+		if n := len(Pending(Actions(f.body))); n > 0 {
+			out = append(out, f.waiting(n))
+		}
+	}
+	return out
+}
+
+// Queue is every open action WaitingIn counts, newest post-mortem first.
+func Queue(dir string) []Item {
+	var out []Item
+	for _, f := range newestFiles(dir) {
+		w := f.waiting(0)
+		for _, a := range Pending(Actions(f.body)) {
+			out = append(out, Item{Action: a, Issue: w.Issue, IssueTitle: w.Title, File: filepath.Base(f.path), Path: f.path, Since: w.Since})
+		}
+	}
+	return out
+}
+
+// retroFile is one post-mortem file read from disk.
+type retroFile struct {
+	path, body string
+	meta       map[string]string
+}
+
+func (f retroFile) waiting(pending int) Waiting {
+	w := Waiting{Issue: f.meta["Issue"], Title: f.meta["Title"], File: f.path, Pending: pending}
+	if t, err := time.Parse(time.RFC3339, f.meta["Date"]); err == nil {
+		w.Since = t
+	}
+	return w
+}
+
+// newestFiles is each issue's newest post-mortem in dir and its archive
+// folder, newest first. Names decide, wherever the file sits: they start
+// with the UTC time, and a move doesn't change them.
+func newestFiles(dir string) []retroFile {
 	files, _ := filepath.Glob(filepath.Join(dir, "*-postmortem-*.md"))
-	newest := map[string]Waiting{}
-	var order []string
-	for i := len(files) - 1; i >= 0; i-- { // names start with the UTC time: newest last
-		raw, err := os.ReadFile(files[i])
+	archived, _ := filepath.Glob(filepath.Join(dir, retro.ArchiveDir, "*-postmortem-*.md"))
+	files = append(files, archived...)
+	sort.SliceStable(files, func(i, j int) bool { return filepath.Base(files[i]) > filepath.Base(files[j]) })
+	seen := map[string]bool{}
+	var out []retroFile
+	for _, path := range files {
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
 		meta, body := retro.Parse(string(raw))
-		if meta["Kind"] != Kind || meta["Issue"] == "" {
+		if meta["Kind"] != Kind || meta["Issue"] == "" || seen[meta["Issue"]] {
 			continue
 		}
-		if _, seen := newest[meta["Issue"]]; seen {
-			continue
-		}
-		w := Waiting{Issue: meta["Issue"], Title: meta["Title"], File: files[i], Pending: len(Pending(Actions(body)))}
-		if t, err := time.Parse(time.RFC3339, meta["Date"]); err == nil {
-			w.Since = t
-		}
-		newest[w.Issue] = w
-		order = append(order, w.Issue)
-	}
-	var out []Waiting
-	for _, k := range order {
-		if w := newest[k]; w.Pending > 0 {
-			out = append(out, w)
-		}
+		seen[meta["Issue"]] = true
+		out = append(out, retroFile{path: path, body: body, meta: meta})
 	}
 	return out
 }

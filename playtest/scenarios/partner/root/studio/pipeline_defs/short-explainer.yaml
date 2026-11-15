@@ -1,0 +1,11 @@
+# A made-up pipeline for tests: four stages, two of them gated.
+name: short-explainer
+stages:
+  - name: brief
+    human_approval_default: false
+  - name: pitch
+    human_approval_default: true
+  - name: storyboard
+    human_approval_default: true
+  - name: render
+    human_approval_default: false

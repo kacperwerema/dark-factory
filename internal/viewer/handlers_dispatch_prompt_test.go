@@ -210,6 +210,7 @@ func TestHandleDispatchReprompt_PastesIntoLiveSession(t *testing.T) {
 
 func TestStartAgentSession_LaunchesWithPromptArgumentAndVerifiesDelivery(t *testing.T) {
 	isolateTmux(t)
+	standInAgentRuns(t)
 	withPromptDeliveryTimeout(t, 15*time.Second)
 	proj := &tracker.Project{Slug: "test", Terminal: "none", WorkDir: t.TempDir()}
 	prompt := "You have been assigned this issue: x\n\nbody line\nlast line of the briefing\n"
@@ -239,6 +240,7 @@ func TestStartAgentSession_LaunchesWithPromptArgumentAndVerifiesDelivery(t *test
 
 func TestStartAgentSession_ReportsUndeliveredPromptWithoutResending(t *testing.T) {
 	isolateTmux(t)
+	standInAgentRuns(t)
 	proj := &tracker.Project{Slug: "test", Terminal: "none", WorkDir: t.TempDir()}
 
 	// true prints nothing, like a Claude that dropped its prompt.
@@ -292,6 +294,7 @@ func TestPromptDeliveryStep_NoRepromptURLSuggestsManualPaste(t *testing.T) {
 // in the issue's stats sidecar.
 func TestStartAgentSession_LogsInProjectAndRecordsDispatch(t *testing.T) {
 	isolateTmux(t)
+	standInAgentRuns(t)
 	withPromptDeliveryTimeout(t, 15*time.Second)
 	proj, tmpDir := setupWorktreeProject(t)
 	proj.Terminal = "none" // the default opens alacritty through i3-msg

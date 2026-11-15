@@ -144,7 +144,7 @@ func TestStartShowsStatusAfterItsAdvance(t *testing.T) {
 		t.Fatalf("Status line doesn't read in progress:\n%s", out)
 	}
 	_, next, ok := strings.Cut(out, "== Next ==")
-	if !ok || !strings.Contains(next, `--to "testing"`) {
+	if !ok || !strings.Contains(next, `--to testing`) {
 		t.Fatalf("Next doesn't name the transition to testing:\n%s", out)
 	}
 }

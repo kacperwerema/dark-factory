@@ -13,6 +13,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/experiment"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
 
 // makeExperimentProject is a project with one issue labelled experiment
@@ -351,19 +352,19 @@ func TestYOLONeverPassesAnExperimentGate(t *testing.T) {
 	if err == nil {
 		t.Fatal("YOLO passed an experiment's gate")
 	}
-	assertContains(t, err.Error(), "experiments are adopted by the owner, even in YOLO")
+	assertContains(t, err.Error(), "the owner adopts experiments, even in YOLO")
 	issue := loadLeadIssue(t, proj, "design")
 	if comments, _ := tracker.LoadComments(issue.FilePath); len(comments) != 0 {
 		t.Fatalf("a YOLO approval was written: %+v", comments)
 	}
 	wf := proj.LoadWorkflowForIssue(issue)
-	if yoloEligible(wf, issue, "human-testing", "documentation", "documentation") {
+	if yolo.Eligible(wf, issue, "human-testing", "documentation") {
 		t.Fatal("experiment gate eligible")
 	}
 	ctx, out, _ := newTestContext(proj, false)
 	ctx.Now = func() time.Time { return now }
 	runTransition(ctx, []string{"design", "--to", "backlog", "--dry-run"})
-	assertContains(t, out.String(), "experiments are adopted by the owner")
+	assertContains(t, out.String(), "the owner adopts experiments")
 }
 
 // fakeBench stands in for `issue-cli bench` (factory/factory-benchmark-and-

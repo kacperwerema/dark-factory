@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>{{template "wb/head" (printf "%s · Product hall" .Lot.Name)}}</head>
+<head>{{template "wb/head" (printf "%s · %s" .Lot.Name .Label)}}</head>
 <body class="wb">
 <div class="wb-app">
 {{template "wb/header" .Header}}
 <main class="wb-main">
 <section class="wb-ground wb-map" aria-label="The production line">
     <div class="wb-titlebar">
-        <h1 class="wb-h1">Product hall</h1>
-        <span class="wb-sub">stations = statuses from <span class="wb-mono-inline">workflow.yaml</span> · one worker carries one issue</span>
+        <h1 class="wb-h1" data-testid="wb.title">{{.Label}}</h1>
+        <span class="wb-sub">stations = statuses from <span class="wb-mono-inline">{{.File}}</span> · one worker carries one issue</span>
     </div>
+    {{with .Switch}}{{template "wb/hall-switch" .}}{{end}}
     <div class="wb-hall" data-testid="hall.line">
         <div class="wb-hall-row">{{range .Top}}{{template "wb/hall-stop" .}}{{end}}</div>
         <div class="wb-belt-row wb-belt-row--right" aria-hidden="true"></div>
@@ -17,10 +18,11 @@
         <div class="wb-hall-row wb-hall-row--back">{{range .Bottom}}{{template "wb/hall-stop" .}}{{end}}{{template "wb/done-station" .Done}}</div>
         <div class="wb-belt-row wb-belt-row--left" aria-hidden="true"></div>
         <div class="wb-hall-foot">
-            {{template "wb/plan-card" .Retro}}
-            {{template "wb/parking" .Parking}}
+            {{if .Retro.Title}}{{template "wb/plan-card" .Retro}}{{end}}
+            {{if or (not .Dept) .Parking.URL}}{{template "wb/parking" .Parking}}{{end}}
         </div>
     </div>
+    {{with .Types}}{{template "wb/hall-types" .}}{{end}}
     <div class="wb-legend">
         <span><b>Crate</b> = an issue</span>
         <span>· <b class="wb-you-text">stamp</b> = a gate, only you</span>

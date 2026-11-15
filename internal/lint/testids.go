@@ -7,10 +7,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/kacperwerema/dark-factory/internal/testids"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // sessionsDir is where a repository keeps its playtest sessions.
@@ -42,59 +44,136 @@ var (
 // at its own pages, not these templates.
 func checkTestIDs(env *Env) []Finding {
 	root := env.Project.Root()
-	if _, err := os.Stat(filepath.Join(root, "internal", "testids")); err != nil {
+	dir := filepath.Join(root, "internal", "testids")
+	if _, err := os.Stat(dir); err != nil {
 		return nil
 	}
+	ids := repoTestIDs(dir)
 	files, _ := filepath.Glob(filepath.Join(root, sessionsDir, "*.yaml"))
 	sort.Strings(files)
 	var out []Finding
 	for _, f := range files {
-		out = append(out, sessionTestIDs(f, filepath.ToSlash(filepath.Join(sessionsDir, filepath.Base(f))))...)
+		out = append(out, sessionTestIDs(ids, f, filepath.ToSlash(filepath.Join(sessionsDir, filepath.Base(f))))...)
 	}
 	return out
 }
 
-// sessionTestIDs is the findings for one session file, named rel.
-func sessionTestIDs(path, rel string) []Finding {
-	raw, err := os.ReadFile(path)
+// sourceIDs keeps each internal/testids source file's parse, by (path,
+// size, mtime).
+var sourceIDs tracker.FileCache[[]string]
+
+// lastSet is the set built from the last list read, reused while the list
+// stays the same: /health runs the check on every load.
+var lastSet struct {
+	sync.Mutex
+	key string
+	set *testids.Set
+}
+
+// repoTestIDs is the ids the project's own internal/testids/*.go list on
+// disk, so a binary built before an id was added doesn't call it unknown.
+// A folder with no id in it (nothing parses) falls back to the list built
+// into this binary.
+func repoTestIDs(dir string) *testids.Set {
+	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	sort.Strings(files)
+	var ids []string
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		info, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		got, err := sourceIDs.Get(f, info, func() ([]string, error) {
+			src, err := os.ReadFile(f)
+			if err != nil {
+				return nil, err
+			}
+			return testids.ParseSource(f, src)
+		})
+		if err == nil {
+			ids = append(ids, got...)
+		}
+	}
+	if len(ids) == 0 {
+		return testids.Builtin()
+	}
+	key := strings.Join(ids, "\n")
+	lastSet.Lock()
+	defer lastSet.Unlock()
+	if lastSet.set == nil || lastSet.key != key {
+		lastSet.key, lastSet.set = key, testids.NewSet(ids)
+	}
+	return lastSet.set
+}
+
+// sessionTargets keeps each session file's parse: /health runs this check
+// on every load, and the yaml is most of its cost.
+var sessionTargets tracker.FileCache[[]namedTarget]
+
+// sessionTestIDs is the findings for one session file, named rel, against
+// the listed ids.
+func sessionTestIDs(ids *testids.Set, path, rel string) []Finding {
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil
 	}
-	var doc yaml.Node
-	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) == 0 {
-		return nil // make playtest-check reports a session that doesn't parse
-	}
-	steps := mapValue(doc.Content[0], "steps")
-	if steps == nil || steps.Kind != yaml.SequenceNode {
+	targets, err := sessionTargets.Get(path, info, func() ([]namedTarget, error) { return readTargets(path) })
+	if err != nil {
 		return nil
 	}
 	var out []Finding
+	seen := map[[2]string]bool{}
+	for _, t := range targets {
+		if seen[[2]string{t.step, t.id}] || ids.Known(t.id) {
+			continue
+		}
+		seen[[2]string{t.step, t.id}] = true
+		fix := "add the id to internal/testids (and the template), or point the step at a listed id"
+		if s := ids.Suggest(t.id); s != "" {
+			fix = fmt.Sprintf("did you mean %q? ", s) + fix
+		}
+		out = append(out, Finding{
+			Where:   fmt.Sprintf("%s:%d", rel, t.line),
+			Message: fmt.Sprintf("step %s names data-testid %q, which no template carries (not in internal/testids)", t.step, t.id),
+			Fix:     fix,
+		})
+	}
+	return out
+}
+
+// readTargets parses a session file into every data-testid its steps name.
+func readTargets(path string) ([]namedTarget, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) == 0 {
+		return nil, nil // make playtest-check reports a session that doesn't parse
+	}
+	steps := mapValue(doc.Content[0], "steps")
+	if steps == nil || steps.Kind != yaml.SequenceNode {
+		return nil, nil
+	}
+	var out []namedTarget
 	for _, step := range steps.Content {
 		id := "?"
 		if n := mapValue(step, "id"); n != nil && n.Value != "" {
 			id = n.Value
 		}
-		seen := map[string]bool{}
 		for _, t := range stepTargets(step) {
-			if seen[t.id] || testids.Known(t.id) {
-				continue
-			}
-			seen[t.id] = true
-			fix := "add the id to internal/testids (and the template), or point the step at a listed id"
-			if s := testids.Suggest(t.id); s != "" {
-				fix = fmt.Sprintf("did you mean %q? ", s) + fix
-			}
-			out = append(out, Finding{
-				Where:   fmt.Sprintf("%s:%d", rel, t.line),
-				Message: fmt.Sprintf("step %s names data-testid %q, which no template carries (not in internal/testids)", id, t.id),
-				Fix:     fix,
-			})
+			t.step = id
+			out = append(out, t)
 		}
 	}
-	return out
+	return out, nil
 }
 
 type namedTarget struct {
+	step string
 	id   string
 	line int
 }
@@ -105,7 +184,7 @@ func stepTargets(step *yaml.Node) []namedTarget {
 	var out []namedTarget
 	add := func(n *yaml.Node) {
 		if n != nil && n.Kind == yaml.ScalarNode && strings.TrimSpace(n.Value) != "" {
-			out = append(out, namedTarget{strings.TrimSpace(n.Value), n.Line})
+			out = append(out, namedTarget{id: strings.TrimSpace(n.Value), line: n.Line})
 		}
 	}
 	var walk func(n *yaml.Node, opaque bool)
@@ -116,7 +195,7 @@ func stepTargets(step *yaml.Node) []namedTarget {
 		switch n.Kind {
 		case yaml.ScalarNode:
 			for _, m := range testidAttrRe.FindAllStringSubmatch(n.Value, -1) {
-				out = append(out, namedTarget{m[1], n.Line})
+				out = append(out, namedTarget{id: m[1], line: n.Line})
 			}
 		case yaml.SequenceNode:
 			for _, c := range n.Content {

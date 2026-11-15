@@ -1,0 +1,13 @@
+# Post-mortem actions across post-mortems. Three done issues, each with a
+# post-mortem:
+# - ui/cart, ui/till: two workflow copies of one gate, plus a memory each
+# - ui/shelf (archived under retros/archive/): the third copy
+# Expected: 6 actions, the 3 workflow ones in one group (the newest, ui/cart's
+# A2, unticked), 3 memories alone.
+title: Post-mortem actions - the owner's round across post-mortems
+project:
+  name: Post-mortem Demo
+  slug: pmq
+issues: tracker
+workflow: workflow.yaml
+root: files

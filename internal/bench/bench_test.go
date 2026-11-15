@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -77,10 +78,10 @@ func newFixture(t *testing.T) *fixture {
 func fakeCLI(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "bin", "issue-cli")
-	write(t, path, "#!/bin/sh\necho '{\"prompt\":\"Fix it.\",\"slug\":\"calc/fix-add\"}'\n")
-	if err := os.Chmod(path, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	standin.Write(t, path, "echo '{\"prompt\":\"Fix it.\",\"slug\":\"calc/fix-add\"}'\n")
 	return path
 }
 
@@ -98,6 +99,7 @@ func (f *fixture) env(t *testing.T) Env {
 			return nil
 		},
 		IssueCLI: fakeCLI(t), TmpRoot: t.TempDir(), Poll: 50 * time.Millisecond, MemPoll: 10 * time.Millisecond,
+		MachineMemory: filepath.Join(t.TempDir(), "no-machine-memory.jsonl"),
 	}
 }
 

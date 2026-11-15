@@ -207,16 +207,15 @@ func (s *Server) handleSystemsWbNotFound(w http.ResponseWriter, proj *tracker.Pr
 }
 
 func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tracker.Issue, now time.Time) SystemsWbData {
-	company := s.buildCompany(p, prefix, now)
-	lot := company.Lot
+	lot := s.headerLot(p, now)
 	wf := p.LoadWorkflow()
 	st := newStatusTones(wf)
 	groups, none := groupSystems(issues, wf.Workbench)
 
 	d := SystemsWbData{Lot: lot, Legend: wbCrateKeys(), ClassicURL: prefix + "/systems?classic=1"}
-	d.Header = systemsHeader(p, prefix, company)
+	d.Header = systemsHeader(p, prefix, lot)
 
-	waits, workerOf := s.systemsWho(p, prefix, st, groups)
+	waits, workerOf := s.systemsWho(p, prefix, st, groups, lot.agents)
 	index := tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(p))
 	decisionsOf := map[*tracker.Issue]int{}
 	for _, e := range index.Entries {
@@ -304,9 +303,8 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 
 // systemsHeader is the hall header with the Systems tab current, for the
 // index and the Workshop page.
-func systemsHeader(p *tracker.Project, prefix string, company CompanyData) WbHeader {
-	lot := company.Lot
-	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true}
+func systemsHeader(p *tracker.Project, prefix string, lot MapLot) WbHeader {
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: lot.Waiting, HideDone: true}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
@@ -317,8 +315,9 @@ func systemsHeader(p *tracker.Project, prefix string, company CompanyData) WbHea
 }
 
 // systemsWho is what each open issue of the groups needs: the owner's
-// waiting items and the worker on it, both keyed by lower-case slug.
-func (s *Server) systemsWho(p *tracker.Project, prefix string, st *statusTones, groups []*systemGroup) (map[string][]WaitingItem, map[string]AgentNode) {
+// waiting items and the worker on it, both keyed by lower-case slug. agents
+// is the model the lot read; nil reads it here.
+func (s *Server) systemsWho(p *tracker.Project, prefix string, st *statusTones, groups []*systemGroup, agents *AgentsModel) (map[string][]WaitingItem, map[string]AgentNode) {
 	var open []*tracker.Issue
 	for _, g := range groups {
 		open = append(open, openIssues(st, g.Members)...)
@@ -329,7 +328,10 @@ func (s *Server) systemsWho(p *tracker.Project, prefix string, st *statusTones, 
 		waits[k] = append(waits[k], it)
 	}
 	workerOf := map[string]AgentNode{}
-	if agents, _ := s.buildAgentsModel(p, prefix); agents != nil {
+	if agents == nil {
+		agents, _ = s.buildAgentsModel(p, prefix)
+	}
+	if agents != nil {
 		for _, w := range agents.Workers {
 			if w.Issue != nil {
 				workerOf[strings.ToLower(w.Issue.Slug)] = w
@@ -439,6 +441,34 @@ func systemCrates(st *statusTones, prefix string, members []*tracker.Issue, wait
 // count.
 var filePattern = regexp.MustCompile(`[A-Za-z0-9_@.\-/]+\.(?:tsx|ts|jsx|js|mjs|cjs|go|rs|py|css|scss|html|gd|tscn|cs|swift|kt|java|rb|sql|sh|vue|svelte|cpp|c|h)\b`)
 
+// isPathByte is a byte filePattern's path run can hold. Every ASCII word
+// byte is one, so what ends a run is also a word boundary.
+func isPathByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '@' || b == '.' || b == '-' || b == '/'
+}
+
+// filePaths is filePattern.FindAllString(text, -1) without its cost: a match
+// can't cross a byte outside a path run and needs a dot, so the pattern only
+// sees the runs with one. Run over whole issue bodies it tries every word,
+// the costliest part of a /systems render on the real board.
+func filePaths(text string) []string {
+	var out []string
+	for i := 0; i < len(text); {
+		if !isPathByte(text[i]) {
+			i++
+			continue
+		}
+		start, dot := i, false
+		for ; i < len(text) && isPathByte(text[i]); i++ {
+			dot = dot || text[i] == '.'
+		}
+		if dot {
+			out = append(out, filePattern.FindAllString(text[start:i], -1)...)
+		}
+	}
+	return out
+}
+
 // codeIndex is the code map: the files each system owns (its paths: globs,
 // else the files its issues name), joined with the health snapshot's
 // hotspots and longest functions.
@@ -498,7 +528,7 @@ func (c *codeIndex) chipsFor(system string, globs []string, members []*tracker.I
 	named := map[string]int{}
 	for _, issue := range members {
 		seen := map[string]bool{}
-		for _, m := range filePattern.FindAllString(issue.BodyRaw, -1) {
+		for _, m := range filePaths(issue.BodyRaw) {
 			p := strings.TrimPrefix(strings.TrimLeft(m, "/"), "./")
 			if seen[p] || !c.fileExists(p) {
 				continue

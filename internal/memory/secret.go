@@ -42,6 +42,8 @@ func isReference(v string) bool {
 		return true
 	case strings.HasPrefix(v, "<") || strings.HasPrefix(v, "$") || strings.HasPrefix(v, "{{"):
 		return true
+	case strings.HasPrefix(v, "[redacted"):
+		return true // RedactSecrets' mark
 	case strings.Trim(v, "*x.") == "":
 		return true
 	}
@@ -106,4 +108,46 @@ func entropy(s string) float64 {
 		h -= p * math.Log2(p)
 	}
 	return h
+}
+
+// RedactSecrets replaces what FindSecret would refuse with
+// "[redacted: <kind>]" and names each kind it replaced, in order of first
+// match. The same rules scrub text kept on disk that isn't a memory (the
+// critic's raw output). A "password or token value" match loses only its
+// value; a reference (env:VAR) stays.
+func RedactSecrets(text string) (string, []string) {
+	var kinds []string
+	seen := map[string]bool{}
+	note := func(kind string) {
+		if !seen[kind] {
+			seen[kind] = true
+			kinds = append(kinds, kind)
+		}
+	}
+	for _, r := range secretRules {
+		r := r
+		text = r.re.ReplaceAllStringFunc(text, func(match string) string {
+			m := r.re.FindStringSubmatch(match)
+			if r.ok != nil && r.ok(m) {
+				return match
+			}
+			note(r.kind)
+			mark := "[redacted: " + r.kind + "]"
+			if len(m) > 1 && m[1] != "" {
+				if i := strings.LastIndex(match, m[1]); i >= 0 {
+					return match[:i] + mark + match[i+len(m[1]):]
+				}
+			}
+			return mark
+		})
+	}
+	const randomKind = "long random-looking string (a key or token?)"
+	text = tokenRe.ReplaceAllStringFunc(text, func(tok string) string {
+		if !looksRandom(tok) {
+			return tok
+		}
+		note(randomKind)
+		return "[redacted: " + randomKind + "]"
+	})
+	return text, kinds
 }

@@ -150,7 +150,7 @@ func InForceLead(x *DecisionIndex, department string, today time.Time) []InForce
 	}
 	var out []InForceEntry
 	for _, e := range x.Entries {
-		if e.ReplacedBy != nil || e.Deferred || e.ExpiredOn(today) {
+		if !e.ActiveOn(today) {
 			continue
 		}
 		kind, name := e.ScopeKind()
@@ -177,7 +177,7 @@ func InForceLead(x *DecisionIndex, department string, today time.Time) []InForce
 func LeadDecisionBlock(proj *Project, department string, wf *WorkflowConfig, today time.Time) DecisionBlock {
 	var issues []*Issue
 	if proj != nil && proj.IssueDir != "" {
-		issues, _ = LoadIssues(proj.IssueDir)
+		issues, _ = proj.LoadIssues()
 	}
 	index := BuildDecisionIndex(issues, ClosedIssueFunc(proj))
 	return NewDecisionBlock(InForceLead(index, department, today), DecisionBriefCap(wf))
@@ -253,6 +253,9 @@ func WarnInjected(issueDir string, in Injected, now time.Time) {
 
 // decisionsNow is the clock the briefing judges expiry by; a var for tests.
 var decisionsNow = time.Now
+
+// DecisionsNow is the time briefings judge decision expiry by.
+func DecisionsNow() time.Time { return decisionsNow() }
 
 func cutRunes(s string, n int) string {
 	r := []rune(s)

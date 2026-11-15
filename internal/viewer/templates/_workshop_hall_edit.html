@@ -53,6 +53,7 @@ static/hall-edit.js, styles in static/workshop.css ("L2: hall edit").
         <input type="checkbox" name="e{{.Index}}-gate" value="on"{{if .Gate}} checked{{end}}>
         <span class="wb-stamp wb-stamp--sm">{{template "wb/stamp-icon"}}</span>
         <span>Your approval to enter <span class="wb-mono-inline">{{.To}}</span></span>
+        {{if .OwnerOnly}}<span class="wb-owner-only" title="owner_only: true — kept as the file has it; change it in the file" data-testid="hall.edit.owner_only">only you, even in YOLO</span>{{end}}
     </label>{{end}}
     <ol class="wb-edit-rows" data-edit-rows>{{range .Rows}}{{template "wb/edit-row" .}}{{end}}</ol>
     <template data-edit-blank>{{template "wb/edit-row" .Blank}}</template>
@@ -71,7 +72,7 @@ static/hall-edit.js, styles in static/workshop.css ("L2: hall edit").
     {{if .Here}}<div class="wb-note">{{.Here}} issue{{if ne .Here 1}}s{{end}} in this station pick the change up on their next issue-cli call.</div>{{end}}
     {{with .Preview.Warnings}}<details class="wb-part-fold"><summary>{{len .}} other lint warning{{if ne (len .) 1}}s{{end}} in the file (not blocking)</summary><ul class="wb-part-actions">{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
     {{if .Preview.OK}}<div class="wb-edit-confirm">
-        <button type="submit" class="wb-btn wb-btn--you" formaction="{{.EditURL}}/save" data-edit-confirm data-testid="hall.edit.confirm">Confirm: write and commit on main</button>
+        <button type="submit" class="wb-btn wb-btn--you" formaction="{{.SaveURL}}" data-edit-confirm data-testid="hall.edit.confirm">{{if .InPlace}}Confirm: write in place, no commit{{else}}Confirm: write and commit on main{{end}}</button>
         <span class="wb-note" data-edit-stale hidden>You changed the form since this preview: preview again.</span>
     </div>{{end}}
 </section>

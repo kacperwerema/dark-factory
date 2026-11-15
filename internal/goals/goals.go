@@ -8,7 +8,9 @@ package goals
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -16,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -60,6 +64,13 @@ type Goal struct {
 	Note  string   `json:"note,omitempty"`
 	// Stale: the value is from before the current period.
 	Stale bool `json:"stale,omitempty"`
+	// NoValueSince is the date of the last value a job's metrics file held
+	// when a whole run of the job has been missed since: the number is not
+	// shown (Value and Progress are nil), "no value since <date>" is.
+	NoValueSince string `json:"no_value_since,omitempty"`
+	// Job is the key of the recurring job writing the goal's metrics file
+	// (file:<issues>/.goals/<dept>/<job id>.json), "" for any other source.
+	Job string `json:"job,omitempty"`
 	// Progress is 0–100 towards the target; nil without a target or value.
 	Progress *int `json:"progress,omitempty"`
 	// RolledUp: an HQ goal whose progress is the mean of its Children's;
@@ -91,6 +102,9 @@ func (g *Goal) Manual() bool { return isManual(g.Source) }
 
 // ValueText is the value with its unit, "—" without one.
 func (g *Goal) ValueText() string {
+	if g.NoValueSince != "" {
+		return "no value since " + g.NoValueSince
+	}
 	if g.Value == nil {
 		return "—"
 	}
@@ -307,12 +321,30 @@ func fill(p *tracker.Project, g *Goal, entries []Entry, now time.Time) {
 			}
 		}
 	case strings.HasPrefix(g.Source, "file:"):
-		v, date, err := readFile(p, strings.TrimPrefix(g.Source, "file:"))
+		spec := strings.TrimPrefix(g.Source, "file:")
+		var job *jobs.Ref
+		if path, _, err := ParseFileSource(spec); err == nil {
+			job = JobOf(p, path)
+		}
+		if job != nil {
+			g.Job = job.Key
+		}
+		v, date, err := readFile(p, spec)
 		if err != nil {
 			g.Err = err.Error()
+			if errors.Is(err, fs.ErrNotExist) && job != nil {
+				g.Err += " (" + writtenBy(job, now) + ")"
+			}
 			return
 		}
-		g.Value, g.Date = &v, date
+		g.Date = date
+		if missedRun(job, date, now) {
+			// The job missed a whole run since: its last number is not
+			// this period's, so it is not shown or counted.
+			g.NoValueSince = date
+			return
+		}
+		g.Value = &v
 		if start := PeriodStart(g.Period, now); !start.IsZero() && date != "" {
 			if d, err := time.ParseInLocation("2006-01-02", date, now.Location()); err == nil && d.Before(start) {
 				g.Stale = true
@@ -350,17 +382,14 @@ func progress(value, target float64, direction string) int {
 
 // PeriodStart is the start of the current week (Monday), month or
 // quarter; zero for none.
-func PeriodStart(period string, now time.Time) time.Time {
-	y, m, d := now.Date()
-	loc := now.Location()
-	switch strings.ToLower(period) {
+func PeriodStart(name string, now time.Time) time.Time {
+	switch strings.ToLower(name) {
 	case "week":
-		wd := (int(now.Weekday()) + 6) % 7
-		return time.Date(y, m, d-wd, 0, 0, 0, 0, loc)
+		return period.WeekStart(now)
 	case "month":
-		return time.Date(y, m, 1, 0, 0, 0, 0, loc)
+		return period.MonthStart(now)
 	case "quarter":
-		return time.Date(y, m-(m-1)%3, 1, 0, 0, 0, 0, loc)
+		return period.QuarterStart(now)
 	}
 	return time.Time{}
 }
@@ -393,10 +422,14 @@ func readFile(p *tracker.Project, spec string) (float64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(p.Root(), path)
+	rel := path
+	if path, err = ResolvePath(p, path); err != nil {
+		return 0, "", err
 	}
 	raw, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, "", notWrittenError{rel}
+	}
 	if err != nil {
 		return 0, "", fmt.Errorf("reading %s: %v", path, err)
 	}
@@ -420,6 +453,15 @@ func readFile(p *tracker.Project, spec string) (float64, string, error) {
 	}
 	return 0, "", fmt.Errorf("%s: no metric %q", path, id)
 }
+
+// notWrittenError is a metrics file not written yet; it is fs.ErrNotExist.
+type notWrittenError struct{ path string }
+
+func (e notWrittenError) Error() string {
+	return fmt.Sprintf("no value yet: %s is not written yet", e.path)
+}
+
+func (notWrittenError) Is(target error) bool { return target == fs.ErrNotExist }
 
 // rollUp hangs every goal of a department under a group on the group goal
 // its rolls_up: names, level by level up nested groups, then every other goal of Product and the departments

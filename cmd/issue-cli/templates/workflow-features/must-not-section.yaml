@@ -1,5 +1,5 @@
 id: must-not-section
-version: v0.59.0
+version: v0.61.0
 category: conventions
 propose: true
 templates: [development]
@@ -13,7 +13,9 @@ what: |
   (`tracker.MustNot` reads the lines). Lint check `criteria` warns about an issue past
   design whose Must not still holds only the placeholder, and about open acceptance
   criteria no test, command or playtest step could fail; the same criteria warnings print
-  when the issue leaves design.
+  when the issue leaves design. Since v0.61.0 each item ends with the criterion that fails
+  when it is broken, `→ AC2`, or `→ none: <why>`; lint warns about an item with neither or
+  naming a box the issue doesn't have, and the in-design prompt says so.
 why: |
   Acceptance criteria say what the change does; nothing said what it must leave alone, so
   a reviewer had only the agent's word that nothing else moved. A short list written at

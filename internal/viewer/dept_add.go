@@ -70,6 +70,13 @@ type DeptNewPlan struct {
 	Parent          string
 	Children        []DeptNewPlan
 	Reparent, Notes []string
+	// PartnerPath and Install are a template's partner: where the entry
+	// says it is installed, and the steps to install it there (shown,
+	// never run).
+	PartnerPath, Install string
+	// Connections are the handoffs to declare in projects.yaml (shown,
+	// never written).
+	Connections string
 }
 
 // DeptNewFile is one file of the plan; Word says what Add does with it.
@@ -152,7 +159,7 @@ func planDepartment(p *tracker.Project, key, parent string) (*depttemplate.Templ
 
 // deptNewPlan is plan as the preview page shows it.
 func deptNewPlan(plan *depttemplate.Plan) *DeptNewPlan {
-	d := &DeptNewPlan{Name: plan.Name, Key: plan.Key, Root: plan.Root, Config: plan.Config, Entry: plan.Entry, Parent: plan.Parent, Reparent: plan.Reparent, Notes: plan.Notes}
+	d := &DeptNewPlan{Name: plan.Name, Key: plan.Key, Root: plan.Root, Config: plan.Config, Entry: plan.Entry, Parent: plan.Parent, Reparent: plan.Reparent, Notes: plan.Notes, PartnerPath: plan.PartnerPath, Install: plan.Install, Connections: plan.Connections}
 	for _, f := range plan.Files {
 		d.Files = append(d.Files, DeptNewFile{Path: f.Path, State: f.State, Word: deptFileWords[f.State]})
 	}

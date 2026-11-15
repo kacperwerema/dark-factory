@@ -8,18 +8,20 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // checkRoots are the checkouts that may hold the issue's guided check
 // scripts: its worktree first (scripts stay on the branch), then the project.
-// Without the workflow's worktree, the git worktree on work/<slug> counts.
+// Without the workflow's worktree, the git worktree on work/<slug> counts,
+// else the one worktree holding a script for the issue (checks.WorktreeFor).
 // A worktree already merged into main and left clean comes after the
 // project: main has the newer scripts.
 func checkRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) []string {
 	roots := playtestRoots(proj, issue, wf)
 	if len(roots) == 1 {
-		if wt := checks.IssueWorktree(projectRoot(proj), issue.Slug); wt != "" {
+		if wt := checks.WorktreeFor(projectRoot(proj), issue.Slug); wt != "" {
 			roots = append(roots, wt)
 		}
 	}
@@ -32,12 +34,8 @@ func checkRoots(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Workflo
 // checkScriptCommand is what the check-script-<slug> window runs: the
 // owner's run, then a pause so the summary stays readable.
 func checkScriptCommand(proj *tracker.Project, slug string) []string {
-	run := "issue-cli --project " + shellQuote(proj.Slug) + " check-script " + shellQuote(slug)
+	run := "issue-cli --project " + shell.Quote(proj.Slug) + " check-script " + shell.Quote(slug)
 	return []string{"sh", "-c", run + `; printf '\nPress Enter to close this window. '; read _`}
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // createCheckWindow and checkWindowLive are seams over tmux for tests.

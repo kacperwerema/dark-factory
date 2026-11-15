@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -23,7 +24,9 @@ type HallPartData struct {
 	// Kind is station, gate or ci; Status the status the station or gate is.
 	Kind, Status string
 	HallURL      string
-	Title, Sub   string
+	// Label is the hall's name: "Product hall", "Marketing hall".
+	Label      string
+	Title, Sub string
 	// Station is the status with every issue in it (no hallCrates cap).
 	Station     *WbHallStation
 	Description string
@@ -92,7 +95,12 @@ func hallPartURL(prefix, kind, status string) string {
 }
 
 func (s *Server) handleHallPart(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, kind, key string) {
-	data, ok := s.buildHallPart(proj, prefix, kind, key, time.Now())
+	sc, err := hallScopeOf(proj, prefix, r)
+	if err != nil {
+		hallScopeError(w, err)
+		return
+	}
+	data, ok := s.buildHallPart(proj, sc, kind, key, time.Now())
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -105,39 +113,39 @@ func (s *Server) handleHallPart(w http.ResponseWriter, r *http.Request, proj *tr
 }
 
 // buildHallPart builds the page; false when there is no such part: an
-// unknown status, a status no gate stands before, or no ci: block.
-func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now time.Time) (HallPartData, bool) {
-	wf := p.LoadWorkflow()
-	var status *tracker.WorkflowStatus
-	for i := range wf.Statuses {
-		if hallPartKey(wf.Statuses[i].Name) == key {
-			status = &wf.Statuses[i]
-		}
-	}
+// unknown status, a status no gate stands before, or no ci: block (a
+// department hall has none).
+func (s *Server) buildHallPart(p *tracker.Project, sc *hallScope, kind, key string, now time.Time) (HallPartData, bool) {
+	prefix, wf := sc.prefix, sc.WF
+	status := sc.status(key)
 	if kind != "ci" && status == nil {
+		return HallPartData{}, false
+	}
+	if kind == "ci" && sc.Dept != "" {
 		return HallPartData{}, false
 	}
 
 	company := s.buildCompany(p, prefix, now)
 	lot := company.Lot
-	d := HallPartData{Kind: kind, HallURL: prefix + "/hall"}
+	d := HallPartData{Kind: kind, HallURL: sc.url("", ""), Label: sc.Label}
 	d.Header = WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs = append(wbCrumbs(1, p.Name, prefix+"/company"), WbCrumb{Current: true})
 	d.Header.Crumbs[1] = WbCrumb{Label: p.Name, URL: prefix + "/company", Color: lot.Color}
-	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", URL: d.HallURL, Color: companyProductColor}
+	d.Header.Crumbs[2] = WbCrumb{Label: sc.Label, URL: d.HallURL, Color: sc.Color}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.YOLOOn = lot.YOLO != nil && lot.YOLO.On
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)
 	}
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	sort.Slice(issues, func(i, j int) bool { return issues[i].Slug < issues[j].Slug })
-	issues = productIssues(p, issues)
-	open := openOnly(issues)
+	issues = sc.issues(p, issues)
+	open := openOnly(p, issues)
 	agents, _ := s.buildAgentsModel(p, prefix)
 	waiting := waitingOnOwner(p, open)
 	hc := newHallContext(p, prefix, open, agents, waiting, now)
+	hc.query = sc.Query
 
 	switch kind {
 	case "station":
@@ -149,9 +157,9 @@ func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now
 		// Done is the only status the hall's open issues leave; read it
 		// from every issue.
 		here := hc.byStatus[statusKey(status.Name)]
-		if statusKey(status.Name) == "done" {
+		if wf.IsLastStatus(status.Name) {
 			for _, issue := range issues {
-				if statusKey(issue.Status) == "done" {
+				if p.IssueDone(issue) {
 					here = append(here, issue)
 				}
 			}
@@ -163,13 +171,13 @@ func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now
 		}
 		st.Count = len(st.Crates)
 		d.Station = st
-		d.In, d.Out = hallPartEdges(prefix, wf, status.Name)
-		d.Overlays = hallPartOverlays(prefix, wf, status.Name, false)
-		if hallEditFile(p) != "" {
-			d.EditURL = hallPartURL(prefix, "station", status.Name) + "/edit"
+		d.In, d.Out = hallPartEdges(sc, wf, status.Name)
+		d.Overlays = hallPartOverlays(sc, wf, status.Name, false)
+		if sc.File != "" {
+			d.EditURL = sc.editURL(status.Name, "")
 		}
 	case "gate":
-		gates := hallGateEdges(prefix, wf, status.Name)
+		gates := hallGateEdges(sc, wf, status.Name)
 		if len(gates) == 0 {
 			return HallPartData{}, false
 		}
@@ -177,7 +185,7 @@ func (s *Server) buildHallPart(p *tracker.Project, prefix, kind, key string, now
 		d.Title = "Gate before " + status.Name
 		d.Sub = "your approval to enter " + status.Name
 		d.In = gates
-		d.Overlays = hallPartOverlays(prefix, wf, status.Name, true)
+		d.Overlays = hallPartOverlays(sc, wf, status.Name, true)
 		d.Raised = lot.YOLO != nil && lot.YOLO.On
 		for _, it := range waiting {
 			if it.Kind != "gate" || statusKey(it.Target) != statusKey(status.Name) {
@@ -215,14 +223,14 @@ func hallPartStationName(wf *tracker.WorkflowConfig, status string) string {
 
 // hallPartEdges is the transitions into and out of the status. A step of the
 // lifecycle with no transitions: entry is listed as implied (no actions).
-func hallPartEdges(prefix string, wf *tracker.WorkflowConfig, status string) (in, out []WbPartEdge) {
+func hallPartEdges(sc *hallScope, wf *tracker.WorkflowConfig, status string) (in, out []WbPartEdge) {
 	k := statusKey(status)
 	for _, t := range wf.Transitions {
 		switch {
 		case statusKey(t.To) == k:
-			in = append(in, partEdge(prefix, t, t.From))
+			in = append(in, partEdge(sc, t, t.From))
 		case statusKey(t.From) == k || t.From == "*":
-			out = append(out, partEdge(prefix, t, t.To))
+			out = append(out, partEdge(sc, t, t.To))
 		}
 	}
 	// The neighbours on the lifecycle, when no entry covers the step.
@@ -232,11 +240,11 @@ func hallPartEdges(prefix string, wf *tracker.WorkflowConfig, status string) (in
 		}
 		if i > 0 && !hasEdge(in, wf.Statuses[i-1].Name, status) {
 			prev := wf.Statuses[i-1].Name
-			in = append([]WbPartEdge{{From: prev, To: status, URL: hallPartURL(prefix, "station", prev), Implied: true}}, in...)
+			in = append([]WbPartEdge{{From: prev, To: status, URL: sc.url("station", prev), Implied: true}}, in...)
 		}
 		if i+1 < len(wf.Statuses) && !hasEdge(out, status, wf.Statuses[i+1].Name) {
 			next := wf.Statuses[i+1].Name
-			out = append([]WbPartEdge{{From: status, To: next, URL: hallPartURL(prefix, "station", next), Implied: true}}, out...)
+			out = append([]WbPartEdge{{From: status, To: next, URL: sc.url("station", next), Implied: true}}, out...)
 		}
 	}
 	return in, out
@@ -253,11 +261,11 @@ func hasEdge(edges []WbPartEdge, from, to string) bool {
 
 // hallGateEdges is the transitions that need the owner's approval to enter
 // the status.
-func hallGateEdges(prefix string, wf *tracker.WorkflowConfig, status string) []WbPartEdge {
+func hallGateEdges(sc *hallScope, wf *tracker.WorkflowConfig, status string) []WbPartEdge {
 	var out []WbPartEdge
 	for _, t := range wf.Transitions {
 		if transitionGates(t, status) {
-			out = append(out, partEdge(prefix, t, t.From))
+			out = append(out, partEdge(sc, t, t.From))
 		}
 	}
 	return out
@@ -283,10 +291,10 @@ func transitionGates(t tracker.WorkflowTransition, status string) bool {
 
 // partEdge is a transition as an edge; other is the status at its far end,
 // which the edge links to.
-func partEdge(prefix string, t tracker.WorkflowTransition, other string) WbPartEdge {
+func partEdge(sc *hallScope, t tracker.WorkflowTransition, other string) WbPartEdge {
 	e := WbPartEdge{From: t.From, To: t.To, Any: t.From == "*", Replace: t.Replace}
 	if other != "*" {
-		e.URL = hallPartURL(prefix, "station", other)
+		e.URL = sc.url("station", other)
 	}
 	for _, a := range t.Actions {
 		if a.Type == "require_human_approval" {
@@ -333,7 +341,7 @@ func actionWords(a tracker.WorkflowAction) string {
 // hallPartOverlays is every type and system that changes the status: its
 // prompt or description, an edge into or out of it, or (types) a path that
 // skips it. gate: only edges that gate the status count.
-func hallPartOverlays(prefix string, wf *tracker.WorkflowConfig, status string, gate bool) []WbPartOverlay {
+func hallPartOverlays(sc *hallScope, wf *tracker.WorkflowConfig, status string, gate bool) []WbPartOverlay {
 	k := statusKey(status)
 	read := func(kind, name string, statuses []tracker.WorkflowStatus, transitions []tracker.WorkflowTransition) (WbPartOverlay, bool) {
 		o := WbPartOverlay{Kind: kind, Name: name}
@@ -346,9 +354,9 @@ func hallPartOverlays(prefix string, wf *tracker.WorkflowConfig, status string, 
 			switch {
 			case gate && !transitionGates(t, status):
 			case gate || statusKey(t.To) == k:
-				o.Edges = append(o.Edges, partEdge(prefix, t, t.From))
+				o.Edges = append(o.Edges, partEdge(sc, t, t.From))
 			case statusKey(t.From) == k || t.From == "*":
-				o.Edges = append(o.Edges, partEdge(prefix, t, t.To))
+				o.Edges = append(o.Edges, partEdge(sc, t, t.To))
 			}
 		}
 		return o, o.Description != "" || o.Prompt != "" || len(o.Edges) > 0
@@ -402,7 +410,7 @@ func hallPartCI(prefix string, wf *tracker.WorkflowConfig, hc *hallContext) *WbP
 	if c.Branch == "" {
 		c.Branch = wf.CI.Branch
 	}
-	c.GreenSha, c.RedSince = shortSha(st.GreenSha), shortSha(st.RedSince)
+	c.GreenSha, c.RedSince = gitdir.ShortSHA(st.GreenSha), gitdir.ShortSHA(st.RedSince)
 	if !st.Updated.IsZero() {
 		c.Updated = shortDuration(hc.now.Sub(st.Updated)) + " ago"
 	}
@@ -418,18 +426,11 @@ func hallPartCI(prefix string, wf *tracker.WorkflowConfig, hc *hallContext) *WbP
 		if label == "" {
 			label = m.Branch
 		}
-		c.Merged = append(c.Merged, WbFact{Label: shortSha(m.Sha), Value: strings.TrimSpace(label + " " + m.Subject)})
+		c.Merged = append(c.Merged, WbFact{Label: gitdir.ShortSHA(m.Sha), Value: strings.TrimSpace(label + " " + m.Subject)})
 	}
 	for slug := range hc.blamed {
 		c.Blamed = append(c.Blamed, WbParked{Slug: slug, URL: prefix + "/issue/" + slug})
 	}
 	sort.Slice(c.Blamed, func(i, j int) bool { return c.Blamed[i].Slug < c.Blamed[j].Slug })
 	return c
-}
-
-func shortSha(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }

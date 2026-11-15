@@ -113,7 +113,7 @@ type CanvasCard struct {
 }
 
 func (s *Server) handleCanvas(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -216,9 +216,11 @@ func epicShortName(title string) string {
 // compareVersions orders dotted versions numerically (milestone.Compare).
 func compareVersions(a, b string) int { return milestone.Compare(a, b) }
 
-// canvasStatuses classifies statuses against the workflow: the final status
-// is "done", optional statuses are side statuses (obsolete, parked).
+// canvasStatuses classifies statuses against the workflow: closed is
+// tracker.IsClosedStatus, optional statuses are side statuses (obsolete,
+// parked).
 type canvasStatuses struct {
+	wf    *tracker.WorkflowConfig
 	index map[string]int
 	final string
 	side  map[string]bool
@@ -226,7 +228,7 @@ type canvasStatuses struct {
 }
 
 func newCanvasStatuses(wf *tracker.WorkflowConfig) *canvasStatuses {
-	cs := &canvasStatuses{index: map[string]int{}, side: map[string]bool{}}
+	cs := &canvasStatuses{wf: wf, index: map[string]int{}, side: map[string]bool{}}
 	var main, side []string
 	for i, st := range wf.Statuses {
 		name := statusKey(st.Name)
@@ -256,8 +258,7 @@ func statusKey(s string) string {
 }
 
 func (cs *canvasStatuses) closed(status string) bool {
-	k := statusKey(status)
-	return k == cs.final || cs.side[k]
+	return tracker.IsClosedStatus(cs.wf, status)
 }
 
 func (cs *canvasStatuses) pos(status string) int {

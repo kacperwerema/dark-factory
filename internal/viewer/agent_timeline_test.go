@@ -208,17 +208,6 @@ func TestEnrichTimeline_RuleDescriptionsAttached(t *testing.T) {
 	}
 }
 
-func TestSplitRule(t *testing.T) {
-	name, arg := splitRule("has_comment_prefix: tests:")
-	if name != "has_comment_prefix" || arg != "tests:" {
-		t.Errorf("splitRule: got (%q, %q), want (has_comment_prefix, tests:)", name, arg)
-	}
-	name, arg = splitRule("body_not_empty")
-	if name != "body_not_empty" || arg != "" {
-		t.Errorf("splitRule no colon: got (%q, %q)", name, arg)
-	}
-}
-
 func TestStripGlobalFlags(t *testing.T) {
 	cases := []struct {
 		name string
@@ -411,5 +400,21 @@ func TestLastCliCallTakesNewestEndAcrossLogs(t *testing.T) {
 	call, ok := lastCliCall("", newer, older)
 	if !ok || call.Cmd != "ci run" || !call.At.Equal(time.Date(2026, 10, 23, 10, 10, 0, 0, time.UTC)) {
 		t.Fatalf("lastCliCall = %+v, %v; want ci run ending 10:10", call, ok)
+	}
+}
+
+// A rule that takes an argument finds its description: the registry's key
+// is the name before the colon, not "approved_for: <status>".
+func TestActionToTimelineDescribesARuleWithAnArgument(t *testing.T) {
+	docs := ruleDescriptions()
+	got := actionToTimeline(tracker.WorkflowAction{Type: "validate", Rule: "approved_for: done"}, docs)
+	if !strings.Contains(got.Body, "human-approved") || !strings.Contains(got.Body, "Argument: done") {
+		t.Errorf("body = %q, want the description and the argument", got.Body)
+	}
+	for _, r := range tracker.WorkflowValidationRules {
+		name, _ := tracker.SplitRule(r.Name)
+		if docs[name] != r.Description {
+			t.Errorf("%s: description %q", name, docs[name])
+		}
 	}
 }

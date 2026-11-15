@@ -334,10 +334,7 @@ func printLeadChallenges(ctx *Context, command string) {
 		if me.Role == tracker.RoleDepartmentLead && !strings.EqualFold(ctx.Project.DepartmentOf(issue), me.Department) {
 			continue
 		}
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil {
-			continue
-		}
+		comments := issue.Comments()
 		head := tracker.ChallengePrefix + " " + c.Ref + " "
 		for _, cm := range comments {
 			if strings.HasPrefix(strings.TrimSpace(cm.Text), head) && cm.Status != "done" {

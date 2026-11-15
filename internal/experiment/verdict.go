@@ -25,6 +25,8 @@ type Run struct {
 		SHA             string `json:"sha"`
 		IssueCLIVersion string `json:"issue_cli_version"`
 		Label           string `json:"label"`
+		// Agent has a comma in a run on two agents (bench run --agents).
+		Agent string `json:"agent"`
 	} `json:"setup"`
 	Tasks []struct {
 		Task    string `json:"task"`
@@ -170,9 +172,9 @@ func holdoutText(r *Run) string {
 
 // Judge gives the verdict on candidate b against baseline a for target t,
 // with the reasons and the numbers. The rule (D-4):
-//   - broken when the runs can't be compared: either did not finish, other
-//     benchmarks or task sets, another holdout size, another model or
-//     Claude Code version, or the target metric has no value;
+//   - broken when the runs can't be compared: either did not finish or ran
+//     on two agents, other benchmarks or task sets, another holdout size,
+//     another model or Claude Code version, or the target metric has no value;
 //   - rejected when a task that passed in a fails in b, the pass rate drops,
 //     or the target misses its threshold;
 //   - promising otherwise.
@@ -192,6 +194,11 @@ func Judge(a, b *Run, t Target) (string, []string, *Result) {
 	for _, r := range []*Run{a, b} {
 		if !r.Finished() {
 			broken = append(broken, fmt.Sprintf("run %s did not finish (stop: %s)", r.ID, orNone(r.Stop)))
+		}
+	}
+	for _, r := range []*Run{a, b} {
+		if strings.Contains(r.Setup.Agent, ",") {
+			broken = append(broken, fmt.Sprintf("run %s ran on two agents (%s): one task is two records", r.ID, r.Setup.Agent))
 		}
 	}
 	if a.Holdout.Total != b.Holdout.Total {

@@ -184,10 +184,11 @@ func ownerPassedSteps(runs []timeline.PlaytestRun) map[string]bool {
 
 // guidedOwnerBoxes is, by box id, why a guided check left it to the owner:
 // the newest machine run of each of the issue's scripts, in its worktree,
-// the git worktree on its branch, or the project checkout.
+// the git worktree on its branch (or the one holding its scripts:
+// checks.WorktreeFor), or the project checkout.
 func guidedOwnerBoxes(root, worktree, slug string) map[string]string {
 	roots := []string{worktree}
-	if wt := checks.IssueWorktree(root, slug); wt != "" && filepath.Clean(wt) != filepath.Clean(worktree) {
+	if wt := checks.WorktreeFor(root, slug); wt != "" && filepath.Clean(wt) != filepath.Clean(worktree) {
 		roots = append(roots, wt)
 	}
 	roots = append(roots, root)

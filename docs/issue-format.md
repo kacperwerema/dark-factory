@@ -181,9 +181,9 @@ The line format is `- **D-<n>** · <YYYY-MM-DD>[ · deferred] · <how>: <text>[,
 - **States:**
   - `active`, or `deferred` (marked with `· deferred`).
   - `replaced` once another line names it in `(replaces …)`. The newest replacer wins.
-  - `stale` when it is replaced but an open issue still cites it. Open means the issue's status sorts before `done`; `done` and anything after it (e.g. `obsolete`) count as closed.
+  - `stale` when it is replaced but an open issue still cites it. Open means the issue's status isn't closed: `done` (or the end of a workflow without one), anything after it (e.g. `obsolete`) and `parked` count as closed (`tracker.IsClosedStatus`).
 - **What is skipped.** Only lines under a level-2 `## Decisions` heading and outside fenced code are parsed. Free-form notes in that section are left alone and not listed.
-- **The attribute group.** A line may end with `{scope: <s>; hard; at: <status>, …; paths: <glob>, …; expires: <YYYY-MM-DD>}`, last after the quote, `(also considered …)` and `(replaces …)`. Every key is optional and written in that order. A trailing `{…}` counts as the group only when every part is one of these five keys with a value that parses; anything else (`{from: marketing, to: product, via: hq}`) stays part of the text. A line without a group is scope `issue`, soft. See [Decision ledger](workflow.md#decision-ledger).
+- **The attribute group.** A line may end with `{scope: <s>; hard; at: <status>, …; paths: <glob>, …; expires: <YYYY-MM-DD>; ended: <YYYY-MM-DD>}`, last after the quote, `(also considered …)` and `(replaces …)`. Every key is optional and written in that order. A trailing `{…}` counts as the group only when every part is one of these keys with a value that parses; anything else (`{from: marketing, to: product, via: hq}`) stays part of the text. A line without a group is scope `issue`, soft. See [Decision ledger](workflow.md#decision-ledger).
 - **Confirming.** A decision without the owner's quote, with a `(provisional…)` mark in its text, or with how `YOLO` / provisional waits for the owner. Confirm on the Decisions log (or `issue-cli decide <slug> --confirm D-n --quote "…"`) rewrites the same line: `- **D-2** · 2026-10-04 · chat, confirmed by owner 2026-10-30: Balance later, "yes, later"`.
 - **Revising.** `issue-cli show` prints `== Cites replaced decisions ==` for an issue that still builds on a replaced decision.
 
@@ -250,7 +250,7 @@ Standard markdown images render in issue bodies and doc pages:
 ![Remote](https://example.com/shot.png)
 ```
 
-Relative paths resolve against the markdown file's own directory, the same as on GitHub or in an editor. They are served from `/p/<project>/files/<path>`, where `<path>` is relative to the project root (`workdir`, or the parent of the issues directory). Only image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `avif`) inside the project root are served; anything else returns 404 and the `src` is left as written. Images pasted into the create-issue form are stored under `<issues>/attachments/`.
+Relative paths resolve against the markdown file's own directory, the same as on GitHub or in an editor. They are served from `/p/<project>/files/<path>`, where `<path>` is relative to the project root (`workdir`, or the parent of the issues directory). Only image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `avif`) inside the project root are served; anything else returns 404 and the `src` is left as written. Images pasted into the create-issue form are stored under `<issues>/attachments/`; `issue-cli attach <slug> <file>` saves an image there from a shell and prints its link (see [CLI](CLI/overview.md#attach)).
 
 ## File Organization
 

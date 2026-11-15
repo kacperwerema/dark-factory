@@ -95,8 +95,9 @@ func TestSidebarNav(t *testing.T) {
 		return strings.Join(k, ",")
 	}
 	// Systems shows because the issues have systems (ui/workbench-sidebar-and-system-pages#D-2);
-	// Updates because the project shares the repo's template-based workflow.yaml.
-	if got := keys(nav.Main); got != "status,lead,systems,hall,list,decisions,updates,docs" {
+	// Updates because the project shares the repo's template-based workflow.yaml,
+	// Code map because that file has workbench.contexts.
+	if got := keys(nav.Main); got != "status,lead,systems,codemap,hall,list,decisions,updates,docs" {
 		t.Errorf("main = %s (Status first; Balance needs workbench.balance)", got)
 	}
 	if got := keys(nav.More); got != "board,workboard,graph,canvas,agents,retros,stats" {

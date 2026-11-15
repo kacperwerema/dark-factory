@@ -13,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -110,14 +111,7 @@ func (s *Server) handleCompany(w http.ResponseWriter, r *http.Request, proj *tra
 // buildCompany reuses the project's lot from the map and adds the factory
 // line, the goals and the Radio.
 func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) CompanyData {
-	color := p.Color
-	if color == "" {
-		for i := range s.projects {
-			if s.projects[i].Slug == p.Slug {
-				color = mapProjectColors[i%len(mapProjectColors)]
-			}
-		}
-	}
+	color := s.lotColor(p)
 	lot, all := s.buildLot(p, color, now)
 	// Outputs to review have their own rows in the panel (d.Shelf); they
 	// still count.
@@ -149,10 +143,10 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 
 	open, backlog := 0, 0
 	for _, issue := range issues {
-		if !strings.EqualFold(issue.Status, "done") {
+		if !p.IssueDone(issue) {
 			open++
 		}
-		if strings.EqualFold(issue.Status, "backlog") {
+		if wf.HasRole(issue.Status, tracker.StatusRoleQueue) {
 			backlog++
 		}
 	}
@@ -165,7 +159,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	}
 	d.Header = WbHeader{
 		Crumbs:  wbCrumbs(1, p.Name, prefix+"/company"),
-		Goals:   companyHeaderGoals(rep, issues, color),
+		Goals:   companyHeaderGoals(p, rep, issues, color),
 		Waiting: len(all), WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
 	}
 	d.Header.Crumbs[1].Color = color
@@ -222,6 +216,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 		Head:     WbRoomHead{Title: "Product · software factory", Color: companyProductColor, Meta: ""},
 		Stations: companyStations(wf, productIssues(p, issues), workers, waitsOf(waits, func(i *tracker.Issue) bool { return len(p.Departments) == 0 || p.DepartmentOf(i) == "" })),
 		Waiting:  lot.Waiting,
+		Open:     openCount(p, productIssues(p, issues)),
 		YOLO:     lot.YOLO,
 		HallURL:  prefix + "/hall",
 		Foot:     []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", lot.DoneWeek), Tone: "green"}},
@@ -312,8 +307,13 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	// The CEO's pane lines have no time: they stay on top, live; the
 	// comments follow newest first.
 	d.Radio = append(d.Radio, radioComments(p, prefix, issues, now, companyRadioMax)...)
-	d.Message = WbMessageBox{Session: lot.CEO.Session, SendURL: prefix + "/lead/send", Live: lot.CEO.Live, SpawnURL: prefix + "/lead/spawn"}
+	d.Message = ceoMessageBox(lot, prefix)
 	return d
+}
+
+// ceoMessageBox is the box that writes to the lot's CEO.
+func ceoMessageBox(lot MapLot, prefix string) WbMessageBox {
+	return WbMessageBox{Session: lot.CEO.Session, SendURL: prefix + "/lead/send", Live: lot.CEO.Live, SpawnURL: prefix + "/lead/spawn"}
 }
 
 // companyGroupRooms puts the rooms in projects.yaml order, a group's
@@ -371,9 +371,9 @@ func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department,
 			continue
 		}
 		own = append(own, issue)
-		if !strings.EqualFold(issue.Status, "done") {
+		if !p.IssueDone(issue) {
 			open++
-		} else if at, _ := doneAt(issue); now.Sub(at) <= mapDoneWindow {
+		} else if at, _ := doneAt(issue); !at.Before(period.DaysBack(now, mapDoneDays)) {
 			done++
 		}
 	}
@@ -395,29 +395,47 @@ func companyDeptRoom(p *tracker.Project, prefix string, dept tracker.Department,
 		},
 		Crew: wbCrew(robots),
 		Role: dept.Role,
+		Open: open,
 		Foot: []WbFootItem{{Text: fmt.Sprintf("✓ %d this week", done), Tone: "green"}, {Text: fmt.Sprintf("%d open", open)}},
 	}
 	if len(dept.Systems) > 0 {
 		room.Systems = strings.Join(dept.Systems, ", ")
 	}
+	if f := roomPartner(p, dept, own); f != nil {
+		room.Foot = append(room.Foot, *f)
+	}
 	// A department on its own workflow file shows that file's line.
 	if strings.TrimSpace(dept.Workflow) != "" {
 		room.WorkflowFile = filepath.Base(dept.Workflow)
+		room.HallURL = hallURLOf(prefix, dept.Name)
 		if wf, err := p.WorkflowFor(dept.Name); err != nil {
 			room.WorkflowError = err.Error()
 			room.Head.Chips = append(room.Head.Chips, WbChip{Tone: "red", Text: "workflow error"})
 		} else {
-			room.Stations = companyStations(wf, openOnly(own), workers, waitsOf(waits, func(i *tracker.Issue) bool { return p.DepartmentOf(i) == dept.Name }))
+			room.Stations = companyStations(wf, openOnly(p, own), workers, waitsOf(waits, func(i *tracker.Issue) bool { return p.DepartmentOf(i) == dept.Name }))
 		}
 	}
 	return room
 }
 
-// openOnly is the issues that are not done.
-func openOnly(issues []*tracker.Issue) []*tracker.Issue {
+// openCount is how many of issues have not finished, as a room's foot
+// counts them.
+func openCount(p *tracker.Project, issues []*tracker.Issue) int {
+	n := 0
+	for _, issue := range issues {
+		if !p.IssueDone(issue) {
+			n++
+		}
+	}
+	return n
+}
+
+// openOnly is the issues that have not finished their workflow. Parked
+// issues stay in: an owner's question on one still waits.
+func openOnly(p *tracker.Project, issues []*tracker.Issue) []*tracker.Issue {
 	var out []*tracker.Issue
 	for _, issue := range issues {
-		if !strings.EqualFold(issue.Status, "done") {
+		if !p.IssueDone(issue) {
 			out = append(out, issue)
 		}
 	}
@@ -425,9 +443,9 @@ func openOnly(issues []*tracker.Issue) []*tracker.Issue {
 }
 
 // companyHeaderGoals is HQ's configured goals, else the open epics.
-func companyHeaderGoals(rep *goals.Report, issues []*tracker.Issue, color string) []WbGoal {
+func companyHeaderGoals(p *tracker.Project, rep *goals.Report, issues []*tracker.Issue, color string) []WbGoal {
 	if rep.HQ == nil || len(rep.HQ.Goals) == 0 {
-		return companyGoalsOf(issues, color)
+		return companyGoalsOf(p, issues, color)
 	}
 	var out []WbGoal
 	for _, g := range rep.HQ.Goals {
@@ -478,7 +496,7 @@ func roomGoalsAll(o *goals.Owner, color string) []WbGoal {
 // progress; the tooltip says why it is muted (stale, unreadable).
 func goalChip(g *goals.Goal, color string) WbGoal {
 	chip := WbGoal{Color: color, Progress: WbProgress{Label: g.Label(), Done: g.Pct(), Total: 100}, Text: g.ValueText()}
-	if t := g.TargetText(); t != "" {
+	if t := g.TargetText(); t != "" && g.NoValueSince == "" {
 		chip.Text += " / " + t
 	}
 	var title []string
@@ -490,6 +508,9 @@ func goalChip(g *goals.Goal, color string) WbGoal {
 	case g.Err != "":
 		chip.Off = true
 		title = append(title, g.Err)
+	case g.NoValueSince != "":
+		chip.Off = true
+		title = append(title, fmt.Sprintf("%s: job %s missed a run", g.ValueText(), g.Job))
 	case g.Stale:
 		chip.Off = true
 		title = append(title, "stale: from "+g.Date)
@@ -504,16 +525,16 @@ func goalChip(g *goals.Goal, color string) WbGoal {
 
 // companyGoalsOf is the open epics furthest along, as the header's goals
 // when HQ has no goals configured.
-func companyGoalsOf(issues []*tracker.Issue, color string) []WbGoal {
+func companyGoalsOf(p *tracker.Project, issues []*tracker.Issue, color string) []WbGoal {
 	var goals []WbGoal
 	for _, issue := range issues {
-		if strings.EqualFold(issue.Status, "done") || !tracker.IsEpic(issue, issues) {
+		if p.IssueDone(issue) || !tracker.IsEpic(issue, issues) {
 			continue
 		}
 		g := WbGoal{Color: color, Progress: WbProgress{Label: issue.Title}}
 		for _, c := range tracker.EpicChildren(issues, issue.Slug) {
 			g.Progress.Total++
-			if strings.EqualFold(c.Status, "done") {
+			if p.IssueDone(c) {
 				g.Progress.Done++
 			}
 		}
@@ -543,7 +564,6 @@ type lineStop struct {
 // status up to done (parked is off the line; optional statuses are stations
 // too). Shared by the company's line (L1) and the hall (L2).
 func factoryLine(wf *tracker.WorkflowConfig) []lineStop {
-	cs := newCanvasStatuses(wf)
 	gated := map[string]bool{}
 	for _, t := range wf.Transitions {
 		for _, a := range t.Actions {
@@ -559,7 +579,7 @@ func factoryLine(wf *tracker.WorkflowConfig) []lineStop {
 	var out []lineStop
 	for _, st := range wf.Statuses {
 		k := statusKey(st.Name)
-		if k == cs.final || k == "done" || k == "parked" {
+		if tracker.IsClosedStatus(wf, st.Name) {
 			continue
 		}
 		owner := strings.Contains(k, "human")

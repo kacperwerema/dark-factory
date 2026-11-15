@@ -285,6 +285,9 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 		return naRefusal("%s is the owner's box (%s): an N/A can't skip it, and nothing changed. Leave it for the owner; under YOLO it waits in the review queue.%s\n\nAsk on your issue trail if it really doesn't apply:\n  %s",
 			it.ID, why, hint, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", issue.Slug)))
 	}
+	if tracker.NANoForm(it.Section) && endsInOrNone(it.Label()) {
+		return checkOrNone(ctx, issue, it, reason)
+	}
 	if tracker.NANoForm(it.Section) {
 		return naRefusal("%s is a %s box: shipping steps have no N/A form. Tick it plainly when it's done (a box that says \"or none\" is ticked as it is):\n  %s",
 			it.ID, it.Section, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli check %s %s", issue.Slug, it.ID)))
@@ -311,6 +314,46 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 		}
 	}
 	printCheckResult(ctx.Stdout, issue, newBody, []tracker.CheckboxItem{item}, nil)
+	return nil
+}
+
+// endsInOrNone reports whether a box's text ends in "or none" (a shipping
+// step like "Check scripts … removed before the merge, or none"): "none"
+// is one of its answers, so check --na ticks it as it is.
+func endsInOrNone(label string) bool {
+	l := strings.ToLower(strings.TrimRight(strings.TrimSpace(label), ".;:!)"))
+	return strings.HasSuffix(l, " or none") || strings.HasSuffix(l, ",or none")
+}
+
+// checkOrNone ticks a shipping box that says "or none" plainly, its text
+// unchanged, and records the --na reason as a comment: "none" is one of
+// the box's own answers, not an N/A.
+func checkOrNone(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem, reason string) error {
+	if reason == "" {
+		return naRefusal("%s says \"or none\": give the reason it is none, e.g. --na \"no check scripts on this branch\"", it.ID)
+	}
+	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
+		if it.Checked {
+			return body, false, nil
+		}
+		return tracker.CheckLines(body, []int{it.Line}), true, nil
+	})
+	if err != nil {
+		return naRefusal("%v\n\nRun: issue-cli checklist %s", err, issue.Slug)
+	}
+	text := fmt.Sprintf("progress: %s ticked as none: %s", it.ID, reason)
+	if err := tracker.AddCommentBy(issue.FilePath, 0, text, "cli", commentAuthor(ctx.Project, issue)); err != nil {
+		return err
+	}
+	var ticked, already []tracker.CheckboxItem
+	if it.Checked {
+		already = append(already, it)
+	} else {
+		it.Checked = true
+		ticked = append(ticked, it)
+	}
+	printCheckResult(ctx.Stdout, issue, newBody, ticked, already)
+	fmt.Fprintf(ctx.Stdout, "✓ %s says \"or none\": ticked as it is, the reason is a comment (%s)\n", it.ID, text)
 	return nil
 }
 

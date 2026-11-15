@@ -36,7 +36,13 @@ func (w *WorkflowConfig) checkAction(action WorkflowAction, issue *Issue, _ []Co
 		cfg.Children = func(slug string) []*validations.IssueView {
 			var out []*validations.IssueView
 			for _, c := range w.ChildrenOf(slug) {
-				out = append(out, toIssueView(c))
+				v := toIssueView(c)
+				if w.ClosedIssue != nil {
+					v.Closed = w.ClosedIssue(c)
+				} else {
+					v.Closed = IsClosedStatus(w, c.Status)
+				}
+				out = append(out, v)
 			}
 			return out
 		}
@@ -167,8 +173,15 @@ func structuredSummary(action WorkflowAction) string {
 		return fmt.Sprintf("Validate linked issue (frontmatter %q) is in status %q", action.RefKey, action.LinkedStatus)
 	case "has_section":
 		return fmt.Sprintf("Validate section %q exists", action.Section)
+	case "children_closed":
+		if len(action.Values) == 0 {
+			return "Validate every child issue is done, parked or obsolete"
+		}
+		return fmt.Sprintf("Validate every child issue is in [%s]", strings.Join(action.Values, ", "))
 	case "section_min_length":
 		return fmt.Sprintf("Validate section %q has ≥%d chars", action.Section, action.Min)
+	case "section_min_links":
+		return fmt.Sprintf("Validate section %q has ≥%d distinct http(s) links", action.Section, action.Min)
 	case "section_max_length":
 		return fmt.Sprintf("Validate section %q has ≤%d chars", action.Section, action.Max)
 	case "no_todo_markers":

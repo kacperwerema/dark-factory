@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
@@ -168,6 +169,8 @@ func runTelemetryPath(ctx *Context, args []string) error {
 }
 
 // parseSince turns --since into a lower time bound; zero means no bound.
+// "<n>d" counts calendar days (period.DaysBack): it starts at midnight of
+// the date n days back, so that whole day is in the window.
 func parseSince(v string, now time.Time) (time.Time, error) {
 	v = strings.TrimSpace(strings.ToLower(v))
 	switch v {
@@ -176,7 +179,7 @@ func parseSince(v string, now time.Time) (time.Time, error) {
 	}
 	if strings.HasSuffix(v, "d") {
 		if n, err := strconv.Atoi(strings.TrimSuffix(v, "d")); err == nil && n >= 0 {
-			return now.Add(-time.Duration(n) * 24 * time.Hour), nil
+			return period.DaysBack(now, n), nil
 		}
 	}
 	if d, err := time.ParseDuration(v); err == nil && d >= 0 {

@@ -1,0 +1,67 @@
+session: hall-department
+issue: ui/the-hall-shows-and-edits-a-department-workflow-like-the-software-one-marketing-first-every-types-path-and-gates
+title: A department's hall - Marketing's stations, every type's path and gates, Edit writing an untracked file in place
+scenario: hall-department
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Marketing's hall shows its line, the switcher and Paths by type with the owner_only gate
+    proves: [AC1, AC4]
+    setup:
+      - open: /p/{project}/hall?department=marketing
+    checks:
+      - visible: [hall.switch, hall.line, hall.station.open, hall.gate, hall.types, hall.type.gate]
+      - count: { pattern: hall.type, within: hall.types, equals: 5 }
+      - text_contains: { target: hall.types, text: "seo-pass" }
+      - text_contains: { target: hall.types, text: "market-size" }
+      - text_contains: { target: hall.types, text: "only you, even in YOLO" }
+      - text_contains: { target: hall.line, text: "marketing/refresh-the-pricing-page" }
+      - absent: hall.ci
+    targets:
+      - { id: hall.switch, note: "Product and Marketing: each workflow's hall" }
+      - { id: hall.types, note: "Each type's path, the gate before publish marked only you" }
+    do: |
+      1. Open the Marketing hall (the switcher under the title, or the floor's Marketing room → Open its hall).
+      2. Read the line and Paths by type, on the desktop and on your phone.
+    expect: |
+      The stations are Marketing's own (research … measure), and each type
+      shows the steps its issues walk, with the orange gate before publish
+      tagged "only you, even in YOLO". On the phone everything stacks and
+      nothing scrolls sideways.
+    why: ux-test checks the parts and the layout; only you can judge whether the paths read at a glance.
+
+  - id: TP5
+    title: Editing a Marketing station previews the diff and writes the untracked file in place
+    proves: [AC2, AC3]
+    setup:
+      - open: /p/{project}/hall/station/draft/edit?department=marketing
+      - wait_for: hall.edit
+    act:
+      - check: { visible: hall.edit.untracked }
+      - check: { absent: hall.edit.reason }
+      - type: { target: hall.edit.description, text: "Making the piece, in the brand's voice", clear: true }
+      - click: hall.edit.preview_button
+      - wait_for: hall.edit.diff
+      - check: { text_contains: { target: hall.edit.diff, text: "in the brand's voice" } }
+      - check: { text_contains: { target: hall.edit.confirm, text: "write in place, no commit" } }
+      - click: hall.edit.confirm
+      - wait_for: hall.part.saved
+    checks:
+      - visible: [hall.part, hall.part.saved]
+      - text_contains: { target: hall.part.saved, text: "Saved in place" }
+
+  - id: TP6
+    title: Product's hall keeps its own line, with the switcher and its own types
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/hall
+    checks:
+      - visible: [hall.switch, hall.line, hall.station.open, hall.types]
+      - count: { pattern: hall.type, within: hall.types, equals: 2 }
+      - text_contains: { target: hall.types, text: "tweak" }
+      - text_contains: { target: hall.line, text: "engine/faster-search" }

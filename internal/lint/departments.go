@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/connectors"
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
@@ -23,7 +24,12 @@ import (
 // department's gates need that aren't there yet (checkFileGates); connector
 // mistakes and connectors: on
 // company: or Product; declared connections: (connectionFindings); and the
-// outputs shelf's (checkOutputs); a budget: that doesn't parse.
+// outputs shelf's (checkOutputs); a budget: that doesn't parse; a partner:
+// block's (partnerFindings); a connector or partner the partners catalog
+// knows as AGPL with no exception: in force (licenceFindings); a partner's approval with no owner decision
+// on its issue (partnerApprovalFindings); a handoff_answered rule naming
+// no department (handoffGateFindings); an open issue whose system: names a
+// department it isn't in (unfiledFindings).
 func checkDepartments(env *Env) []Finding {
 	p := env.Project
 	var out []Finding
@@ -55,6 +61,23 @@ func checkDepartments(env *Env) []Finding {
 			}
 		}
 		seen := map[string]bool{}
+		missing := map[string][]string{}
+		missingJob := map[string]string{}
+		var missingOrder []string
+		defer func() {
+			for _, path := range missingOrder {
+				ids := missing[path]
+				label := "goal " + ids[0]
+				if len(ids) > 1 {
+					label = "goals " + strings.Join(ids, ", ")
+				}
+				msg := fmt.Sprintf("%s: source file %s does not exist", label, path)
+				if r := missingJob[path]; r != "" {
+					msg += fmt.Sprintf(" (job %s writes it on its first run: issue-cli goal write %s <id>=<value>...)", r, r)
+				}
+				add(owner, msg, "")
+			}
+		}()
 		for _, g := range gs {
 			id := strings.ToLower(strings.TrimSpace(g.ID))
 			label := "goal " + g.ID
@@ -80,11 +103,25 @@ func checkDepartments(env *Env) []Finding {
 					add(owner, label+": "+err.Error(), "")
 					break
 				}
-				if !filepath.IsAbs(path) {
-					path = filepath.Join(p.Root(), path)
+				source := path
+				if key, ok := goals.JobKeyOf(source); ok && goals.JobOf(p, source) == nil {
+					add(owner, fmt.Sprintf("%s: %s names no job %s (the job writing it decides when its value is stale: name the file after a job of this department's jobs:)", label, source, key), "")
+				}
+				path, err = goals.ResolvePath(p, path)
+				if err != nil {
+					add(owner, label+": "+err.Error(), "")
+					break
 				}
 				if _, err := os.Stat(path); err != nil {
-					add(owner, fmt.Sprintf("%s: source file %s does not exist", label, path), "")
+					// One finding per file: a job's metric file feeds
+					// several goals.
+					if missing[path] == nil {
+						missingOrder = append(missingOrder, path)
+						if r := goals.JobOf(p, source); r != nil {
+							missingJob[path] = r.Key
+						}
+					}
+					missing[path] = append(missing[path], g.ID)
 				}
 			default:
 				add(owner, fmt.Sprintf("%s: source %q is not manual or file:<path>#<metric id>", label, src), "")
@@ -138,9 +175,23 @@ func checkDepartments(env *Env) []Finding {
 		for _, f := range connectorFindings(d) {
 			add(d.Name, f, "")
 		}
+		for _, f := range restWideFindings(d) {
+			add(d.Name, f.Message, f.Fix)
+		}
+		for _, f := range atFindings(p, d) {
+			add(d.Name, f.Message, f.Fix)
+		}
 		for _, f := range checkFileGates(p, d.Name) {
 			add(d.Name, f.Message, f.Fix)
 		}
+		for _, f := range partnerFindings(p, d) {
+			add(d.Name, f.Message, f.Fix)
+		}
+		for _, f := range licenceFindings(env, d) {
+			add(d.Name, f.Message, f.Fix)
+		}
+		out = append(out, partnerApprovalFindings(env, d)...)
+		out = append(out, subredditFindings(p, d)...)
 	}
 	for _, f := range connectionFindings(p) {
 		add("connections", f.Message, f.Fix)
@@ -154,8 +205,62 @@ func checkDepartments(env *Env) []Finding {
 			add(tracker.ProductName, f.Message, f.Fix)
 		}
 	}
+	for _, f := range handoffGateFindings(p) {
+		add(f.Where, f.Message, f.Fix)
+	}
 	out = append(out, checkJobLog(env)...)
+	out = append(out, unfiledFindings(env)...)
 	return append(out, checkOutputs(env)...)
+}
+
+// unfiledFindings flags open issues whose system: names a department while
+// nothing puts them in it: they are Product's, on Product's workflow. A
+// closed issue is left alone, there is nothing left for it to walk.
+func unfiledFindings(env *Env) []Finding {
+	var out []Finding
+	for _, issue := range env.Issues {
+		name := env.Project.UnfiledDepartment(issue)
+		if name == "" || env.Project.IssueClosed(issue) {
+			continue
+		}
+		out = append(out, Finding{Where: issue.Slug,
+			Message: fmt.Sprintf("system: %s names a department, but the issue has no department: field and %s's systems: don't list it, so it is Product's", issue.System, name),
+			Fix:     fmt.Sprintf("issue-cli set-meta %s --key department --value %s, or list %s under %s's systems: in projects.yaml", issue.Slug, name, issue.System, name)})
+	}
+	return out
+}
+
+// handoffGateFindings flags a handoff_answered rule, in Product's workflow
+// or a department's, that names no department of the project: no issue
+// could ever answer it, so the edge would hold for good.
+func handoffGateFindings(p *tracker.Project) []Finding {
+	var out []Finding
+	look := func(owner string, wf *tracker.WorkflowConfig) {
+		for _, r := range wf.HandoffAnsweredRules() {
+			if r[0] != "" && p.DepartmentByKey(r[0]) != nil {
+				continue
+			}
+			name := r[0]
+			if name == "" {
+				name = "(none)"
+			}
+			out = append(out, Finding{
+				Where:   owner,
+				Message: fmt.Sprintf("%s: handoff_answered: %s names no department of this project: the edge holds until one answers", r[1], name),
+				Fix:     "issue-cli department add <template> (issue-cli department list), or fix the rule's department key",
+			})
+		}
+	}
+	look(tracker.ProductName, p.LoadWorkflow())
+	for _, d := range p.Departments {
+		if p.DepartmentWorkflowPath(d.Name) == "" {
+			continue // Product's file: looked at above
+		}
+		if wf, err := p.WorkflowFor(d.Name); err == nil {
+			look(d.Name, wf)
+		}
+	}
+	return out
 }
 
 // checkFileGates flags the files department dept's workflow gates on
@@ -184,7 +289,11 @@ func checkFileGates(p *tracker.Project, dept string) []Finding {
 				continue
 			}
 			seen[rel] = true
-			info, err := os.Stat(filepath.Join(p.Root(), filepath.FromSlash(rel)))
+			abs := filepath.Join(p.Root(), filepath.FromSlash(rel))
+			if rest, ok := strings.CutPrefix(rel, goals.IssuesPrefix); ok {
+				abs = filepath.Join(p.IssueDir, filepath.FromSlash(rest))
+			}
+			info, err := os.Stat(abs)
 			if err == nil && info.Mode().IsRegular() && info.Size() > 0 {
 				continue
 			}
@@ -251,7 +360,8 @@ func chainText(p *tracker.Project, d tracker.Department) string {
 // connectorFindings are department d's connector mistakes: an unknown
 // kind, a bad or duplicate name, mcp without command:, a secret reference
 // that is not env:/keychain: (which never quotes the raw value: it may be
-// one).
+// one), deny_tools: that aren't tool names or sit on a tool connector, and
+// a known server's tools that send or spend left on without sends: true.
 func connectorFindings(d tracker.Department) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -268,16 +378,179 @@ func connectorFindings(d tracker.Department) []string {
 		}
 		seen[c.Name] = true
 		if !slices.Contains(tracker.ConnectorKinds, c.Kind) {
-			out = append(out, fmt.Sprintf("%s: kind %q is not mcp or tool", label, c.Kind))
+			out = append(out, fmt.Sprintf("%s: kind %q is not mcp, tool or rest", label, c.Kind))
 		}
-		if c.Kind == tracker.ConnectorMCP && strings.TrimSpace(c.Command) == "" {
-			out = append(out, label+": an mcp connector needs command:")
+		hasURL := strings.TrimSpace(c.URL) != ""
+		isRest := c.Kind == tracker.ConnectorRest
+		switch {
+		case c.Kind == tracker.ConnectorMCP && strings.TrimSpace(c.Command) == "" && !hasURL:
+			out = append(out, label+": an mcp connector needs command: or url:")
+		case isRest && !hasURL:
+			out = append(out, label+": a rest connector needs url: (the API's base its get: paths are read under)")
+		case isRest && strings.TrimSpace(c.Command) != "":
+			out = append(out, label+": a rest connector runs no command: (issue-cli makes its GETs itself)")
+		case hasURL && c.Kind != tracker.ConnectorMCP && !isRest:
+			out = append(out, label+": url: is only for kind: mcp or rest")
+		case hasURL && strings.TrimSpace(c.Command) != "":
+			out = append(out, label+": give command: or url:, not both")
+		}
+		out = append(out, restFindings(label, c)...)
+		if hasURL {
+			if err := tracker.CheckConnectorURL(c.URL); err != nil {
+				out = append(out, label+": "+err.Error())
+			}
+			if len(c.Secrets) > 0 {
+				out = append(out, label+": secrets: are unused with url: (no child process gets them): send them as headers:")
+			}
+		} else if len(c.Headers) > 0 {
+			out = append(out, label+": headers: are only for a connector with url:")
+		}
+		for _, h := range slices.Sorted(maps.Keys(c.Headers)) {
+			if _, err := tracker.ParseHeaderValue(c.Headers[h]); err != nil {
+				out = append(out, fmt.Sprintf("%s: header %s: %s", label, h, err))
+			}
 		}
 		for _, v := range slices.Sorted(maps.Keys(c.Secrets)) {
 			if _, err := tracker.ParseSecretRef(c.Secrets[v]); err != nil {
 				out = append(out, fmt.Sprintf("%s: secret %s: %s", label, v, err))
 			}
 		}
+		for _, v := range c.Optional {
+			if _, ok := c.Secrets[v]; !ok {
+				out = append(out, fmt.Sprintf("%s: optional %s is not one of its secrets:", label, v))
+			}
+		}
+		if c.PerRun != nil {
+			if miss := c.PerRun.MissingSteps(); len(miss) > 0 {
+				out = append(out, fmt.Sprintf("%s: per_run: needs %s: connector exec refuses it until then", label, strings.Join(miss, ", ")))
+			}
+			if c.PerRun.Timeout < 0 {
+				out = append(out, fmt.Sprintf("%s: per_run: timeout: is seconds, above 0", label))
+			}
+			if why := c.PerRun.ToolProblem(); why != "" {
+				out = append(out, fmt.Sprintf("%s: per_run: tool: %s: connector exec refuses it until then", label, why))
+			}
+		}
+		if len(c.DenyTools) > 0 && c.Kind != tracker.ConnectorMCP && slices.Contains(tracker.ConnectorKinds, c.Kind) {
+			out = append(out, label+": deny_tools: does nothing on a kind: "+c.Kind+" connector (only an mcp server's tools are switched off at launch)")
+		}
+		denied := map[string]bool{}
+		for _, t := range c.DenyTools {
+			t = strings.TrimSpace(t)
+			switch {
+			case !tracker.ToolNameRe.MatchString(t):
+				out = append(out, fmt.Sprintf("%s: deny_tools: %q is not a tool name (letters, digits, _ . -); it is skipped at launch", label, t))
+			case denied[t]:
+				out = append(out, fmt.Sprintf("%s: deny_tools: %s appears twice", label, t))
+			}
+			denied[t] = true
+		}
+		out = append(out, holdFindings(label, c, hasURL)...)
+		if on := connectors.RiskyAllowed(c); len(on) > 0 {
+			out = append(out, fmt.Sprintf("%s: tools that send or spend are on: %s; add them to deny_tools: [%s], or mark the connector sends: true (an owner_only gate before the step that uses it)",
+				label, strings.Join(on, ", "), strings.Join(on, ", ")))
+		}
+	}
+	return out
+}
+
+// atFindings are the mistakes in d's connectors' at: blocks: on a
+// connector without url: (only the bridge sees the calls), a status the
+// department's workflow doesn't have (that entry never applies, and the
+// status the owner meant allows nothing), an entry that limits nothing,
+// names in allow: or deny_args: that aren't tool names, and a deny_args:
+// argument path that doesn't parse.
+func atFindings(p *tracker.Project, d tracker.Department) []Finding {
+	var out []Finding
+	var statuses []string
+	if wf, err := p.WorkflowFor(d.Name); err == nil {
+		for _, st := range wf.Statuses {
+			statuses = append(statuses, st.Name)
+		}
+	}
+	has := func(s string) bool {
+		for _, st := range statuses {
+			if strings.EqualFold(st, strings.TrimSpace(s)) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range d.Connectors {
+		if len(c.At) == 0 {
+			continue
+		}
+		label := "connector " + c.Name
+		switch {
+		case c.Kind == tracker.ConnectorRest:
+			out = append(out, Finding{Message: label + ": at: does nothing on a rest connector (it only reads, at every status)",
+				Fix: "drop at:, or narrow get: to what every status may read"})
+		case strings.TrimSpace(c.URL) == "":
+			out = append(out, Finding{Message: label + ": at: does nothing without url: (only connector exec's bridge sees a server's calls)",
+				Fix: "give the connector url:, or switch tools off with deny_tools:"})
+		}
+		for _, st := range c.AtStatuses() {
+			at := c.At[st]
+			if len(statuses) > 0 && !has(st) {
+				out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s is not a status of %s's workflow (%s): that entry never applies", label, st, d.Name, strings.Join(statuses, ", ")),
+					Fix: "name a status of the department's workflow"})
+			}
+			if len(at.Allow) == 0 && len(at.DenyArgs) == 0 {
+				out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s has neither allow: nor deny_args: (every tool passes there)", label, st)})
+			}
+			for _, t := range at.Allow {
+				if !tracker.ToolNameRe.MatchString(strings.TrimSpace(t)) {
+					out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s: allow: %q is not a tool name (letters, digits, _ . -)", label, st, t)})
+				}
+			}
+			for _, t := range slices.Sorted(maps.Keys(at.DenyArgs)) {
+				switch {
+				case !tracker.ToolNameRe.MatchString(t):
+					out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s: deny_args: %q is not a tool name (letters, digits, _ . -)", label, st, t)})
+				case len(at.Allow) > 0 && !slices.Contains(at.Allow, t):
+					out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s: deny_args: %s is not in allow: (it is refused there anyway)", label, st, t)})
+				}
+				for _, arg := range slices.Sorted(maps.Keys(at.DenyArgs[t])) {
+					if err := tracker.ArgPathError(arg); err != nil {
+						out = append(out, Finding{Message: fmt.Sprintf("%s: at: %s: deny_args: %s: %v; until it is fixed the bridge refuses every call of %s", label, st, t, err, t),
+							Fix: "write the argument as a name, or a path such as socialPost[].type (\".\" into an object, \"[]\" over every item of an array)"})
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// holdFindings are a connector's needs_approved_output: and read_tools:
+// mistakes: the hold on a command: mcp server, which the bridge can't see
+// into (connector exec then holds the whole server, its read tools too),
+// and read_tools: that do nothing or aren't tool names.
+func holdFindings(label string, c tracker.Connector, hasURL bool) []string {
+	var out []string
+	if c.NeedsApprovedOutput && c.Kind == tracker.ConnectorMCP && !hasURL {
+		out = append(out, label+": needs_approved_output: on a command: mcp server holds the whole server until the output is approved (the bridge sees only a url: server's calls): give it url: with read_tools:, or switch the sending tools off with deny_tools:")
+	}
+	if len(c.ReadTools) > 0 {
+		switch {
+		case !c.NeedsApprovedOutput:
+			out = append(out, label+": read_tools: does nothing without needs_approved_output: true")
+		case !hasURL:
+			out = append(out, label+": read_tools: does nothing without url: (only the bridge lets single tools through)")
+		case c.Kind == tracker.ConnectorRest:
+			out = append(out, label+": read_tools: does nothing on a rest connector (it has no tools; the hold holds it whole)")
+		}
+	}
+	seen := map[string]bool{}
+	for _, t := range c.ReadTools {
+		t = strings.TrimSpace(t)
+		switch {
+		case !tracker.ToolNameRe.MatchString(t):
+			out = append(out, fmt.Sprintf("%s: read_tools: %q is not a tool name (letters, digits, _ . -); it stays held", label, t))
+		case seen[t]:
+			out = append(out, fmt.Sprintf("%s: read_tools: %s appears twice", label, t))
+		}
+		seen[t] = true
 	}
 	return out
 }
@@ -317,7 +590,7 @@ func checkJobs(p *tracker.Project, dept string, js []tracker.Job) []Finding {
 				out = append(out, Finding{Message: fmt.Sprintf("%s: brief %s does not exist", label, brief), Fix: "create " + path + " or fix brief:"})
 			}
 		}
-		if strings.TrimSpace(j.Type) == "" {
+		if strings.TrimSpace(j.Type) == "" && jobs.BuiltinType(j.Brief) == "" {
 			continue
 		}
 		if wf == nil {
@@ -344,7 +617,7 @@ func checkJobLog(env *Env) []Finding {
 	var out []Finding
 	for _, is := range env.Issues {
 		key := strings.ToLower(is.Field("job"))
-		if key == "" || known[key] || p.IssueDone(is) || strings.EqualFold(is.Status, "parked") {
+		if key == "" || known[key] || p.IssueClosed(is) {
 			continue
 		}
 		out = append(out, Finding{Where: is.Slug, Message: fmt.Sprintf("open run of job %q, which projects.yaml no longer has", is.Field("job")),
@@ -386,6 +659,56 @@ func checkOutputs(env *Env) []Finding {
 	for _, key := range slices.Sorted(maps.Keys(gone)) {
 		out = append(out, Finding{Where: where, Message: fmt.Sprintf("%d output(s) of department %q, which projects.yaml no longer has", gone[key], key),
 			Fix: "add the department back under departments:, or leave them as history"})
+	}
+	return out
+}
+
+// restWideFindings warn on each get: entry of d's rest connectors whose
+// first segment is a wildcard: it reaches every route at the API's first
+// level, so a route that changes state on GET would be read too. The fix
+// names the first segment.
+func restWideFindings(d tracker.Department) []Finding {
+	var out []Finding
+	for _, c := range d.Connectors {
+		if c.Kind != tracker.ConnectorRest {
+			continue
+		}
+		for _, g := range connectors.RestPatterns(&c) {
+			if !connectors.RestPatternWide(g) {
+				continue
+			}
+			out = append(out, Finding{
+				Message: fmt.Sprintf("connector %s: get: %s opens every route at the API's first level, including any that changes state on GET", c.Name, g),
+				Fix:     fmt.Sprintf("name the first segment: get: %s (the paths it reads, e.g. /public/v1/analytics/*)", connectors.RestPatternNarrower(g)),
+			})
+		}
+	}
+	return out
+}
+
+// restFindings are a connector's get: mistakes: a rest connector with no
+// get: (it reads nothing), an entry that isn't a clean path pattern (it is
+// skipped at exec) or appears twice, and get: on another kind.
+func restFindings(label string, c tracker.Connector) []string {
+	var out []string
+	if len(c.Get) > 0 && c.Kind != tracker.ConnectorRest {
+		return append(out, label+": get: is only for kind: rest (it does nothing here)")
+	}
+	if c.Kind != tracker.ConnectorRest {
+		return nil
+	}
+	if len(c.Get) == 0 {
+		out = append(out, label+": a rest connector needs get: (the paths it may read); without it connector exec reads nothing")
+	}
+	seen := map[string]bool{}
+	for _, g := range c.Get {
+		t := strings.TrimSpace(g)
+		if why := connectors.RestPatternProblem(t); why != "" {
+			out = append(out, fmt.Sprintf("%s: get: %q %s; it is skipped at exec", label, g, why))
+		} else if seen[t] {
+			out = append(out, fmt.Sprintf("%s: get: %s appears twice", label, t))
+		}
+		seen[t] = true
 	}
 	return out
 }

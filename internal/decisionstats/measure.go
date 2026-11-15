@@ -13,7 +13,7 @@ import (
 
 // Scopes is the order the card lists scope kinds in: most specific first,
 // as the in-force block orders them.
-var Scopes = []string{tracker.ScopeIssue, tracker.ScopeType, tracker.ScopeSystem, tracker.ScopeDepartment, tracker.ScopeProject}
+var Scopes = tracker.ScopeKinds()
 
 // Briefings is the order the card lists briefing kinds in.
 var Briefings = []string{tracker.BriefingStart, tracker.BriefingDispatch, tracker.BriefingReprompt, tracker.BriefingLead, tracker.BriefingDepartmentLead}
@@ -41,10 +41,12 @@ type Counts struct {
 	ByScope map[string]int
 	// Hard and Soft split InForce.
 	Hard, Soft int
-	// Provisional is in force with no owner's words on the line yet
-	// (tracker.NeedsOwnerWords). A ledger state, not a waiting-on-you
-	// count: those are needsYouRows alone.
-	Provisional int
+	// Provisional is in force and marked YOLO or provisional, the list
+	// decisions --state provisional prints (tracker.ProvisionalOn);
+	// NoQuote is in force, unmarked and with no quote: with Provisional,
+	// every decision in force tracker.NeedsOwnerWords reports. Ledger
+	// states, not waiting-on-you counts: those are needsYouRows alone.
+	Provisional, NoQuote int
 	// ChallengesOpen is the refs whose last challenged event has no later
 	// resolved one; ChallengesEver every challenged event.
 	ChallengesOpen, ChallengesEver int
@@ -81,7 +83,7 @@ func Measure(in Input) Counts {
 	if in.Index != nil {
 		c.Total = len(in.Index.Entries)
 		for _, e := range in.Index.Entries {
-			if e.ReplacedBy != nil || e.Deferred || e.ExpiredOn(in.Today) {
+			if !e.ActiveOn(in.Today) {
 				continue
 			}
 			c.InForce++
@@ -92,8 +94,11 @@ func Measure(in Input) Counts {
 			} else {
 				c.Soft++
 			}
-			if tracker.NeedsOwnerWords(e.Decision) {
+			switch {
+			case e.ProvisionalOn(in.Today):
 				c.Provisional++
+			case tracker.NeedsOwnerWords(e.Decision):
+				c.NoQuote++
 			}
 		}
 	}
@@ -179,7 +184,7 @@ func contains(list []string, s string) bool {
 // events. The project's own closed-issue rule decides citations, as the
 // Decisions tab does.
 func Load(proj *tracker.Project) (*tracker.DecisionIndex, []tracker.DecisionEvent, error) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return nil, nil, err
 	}

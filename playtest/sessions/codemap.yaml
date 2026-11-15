@@ -1,0 +1,56 @@
+session: codemap
+issue: workflow/code-map-modules-grouped-into-contexts-with-the-boundaries-and-each-branchs-review-footprint
+title: Code map - contexts on layers, the upward import, a footprint and the Station's Affected block
+scenario: codemap
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The page draws the lanes top first, marks the upward import, lights a package's reach on click and paints ?files=
+    proves: [AC5]
+    setup:
+      - open: /p/{project}/codemap
+    act:
+      - check: { visible: [codemap.page, codemap.plan, codemap.matrix, codemap.upward, codemap.unmapped] }
+      - check: { visible: ["codemap.context.kernel", "codemap.context.feature", "codemap.context.binaries"] }
+      - check: { below: ["codemap.context.binaries", "codemap.context.kernel"] }
+      - check: { text_contains: { target: codemap.upward, text: "kernel/util → app/feature" } }
+      - check: { text_contains: { target: codemap.upward, text: "kernel/util/util.go:3" } }
+      - check: { text_contains: { target: codemap.unmapped, text: "app/stray" } }
+      - click: "codemap.chip.kernel-util"
+      - wait_for: { text_contains: { target: codemap.detail, text: "A change reaches:" } }
+      - check: { text_contains: { target: codemap.detail, text: "Imports up a layer: app/feature" } }
+      - check: { text_contains: { target: codemap.detail, text: "cmd/tool" } }
+      - click: codemap.clear
+      - wait_for: { text_contains: { target: codemap.detail, text: "Nothing selected" } }
+      - open: /p/{project}/codemap?files=app/billing/billing.go,docs/feature/a.md,README.md
+    checks:
+      - visible: codemap.footprint
+      - text_contains: { target: codemap.footprint, text: "Works in Feature; reaches Binaries." }
+      - text_contains: { target: codemap.footprint, text: "cmd/tool" }
+      - text_contains: { target: codemap.footprint, text: "Not mapped: README.md" }
+    do: Open the code map, click the kernel/util chip, then open it with ?files= as the Station's link does.
+    expect: >-
+      Surfaces sit on top and the kernel at the bottom. kernel/util has a wavy red underline. Clicking it
+      paints app/billing and cmd/tool orange (they reach it) and app/feature teal (it depends on it), and the
+      side panel lists the counts. With ?files= the Feature box is outlined and the footprint panel says
+      Works in Feature; reaches Binaries. At phone width the side panel drops under the lanes and nothing
+      scrolls sideways except the matrix.
+    why: ux-test checks the words and the layout; only you can judge whether the colours read as depends-on and reaches.
+
+  - id: TP4
+    title: The Station at human-testing shows the Affected block, and lint warns on the upward import
+    proves: [AC3, AC4]
+    setup:
+      - open: /p/{project}/issue/ui/station
+    checks:
+      - visible: [station.affected, station.affected.warn, station.affected.map]
+      - text_contains: { target: station.affected.warn, text: "no recorded base" }
+      - cli: { args: [health, lint, --check, contexts], contains: "kernel/util (Kernel, layer kernel) imports app/feature (Feature, layer domain): an import up a layer" }
+      - cli: { args: [health, lint, --check, contexts], contains: "package app/stray is in no context" }
+      - cli: { args: [affected, --files, app/billing/billing.go], contains: "Works in: Feature" }
+      - cli: { args: [codemap], contains: "Unmapped packages: 1" }

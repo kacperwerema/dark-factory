@@ -1,0 +1,6 @@
+{
+  "next_id": 2,
+  "items": [
+    {"id": 1, "slug": "workflow/guided-check-needs-the-lead", "state": "started", "added_at": "2026-11-02T09:00:00Z", "started_at": "2026-11-02T09:05:00Z", "started_by": "lead-leadproof"}
+  ]
+}

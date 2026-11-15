@@ -161,7 +161,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 
 	staticRows := buildStaticReferenceRows(wf)
 
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -178,10 +178,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 	if s.stats == nil {
 		s.stats = newStatsCache()
 	}
-	wide, aggMS := s.stats.aggregate(proj, wf, issues, opts.window(), now, s.statsBG("stats refresh "+proj.Slug))
+	agg := s.stats.aggregate(proj, wf, issues, opts.window(), now, s.statsBG("stats refresh "+proj.Slug))
+	wide := agg.Rep
 	dash := buildDashboard(dashIn{
 		Proj: proj, Base: prefix + "/stats", Prefix: prefix, WF: wf, Issues: issues, Opts: opts, Now: now,
-		Wide: wide, AggMS: aggMS, Snaps: health.Range(ciRootFor(proj), time.Time{}, now),
+		Wide: wide, AggMS: agg.MS, Updating: statsUpdatingNote(agg, opts.window()), Snaps: health.Range(ciRootFor(proj), time.Time{}, now),
 		Released: milestone.Released(r.Context(), projectRoot(proj), wf.Workbench.Changelog),
 	})
 	timeRep := wide.Filter(dash.From, dash.To)

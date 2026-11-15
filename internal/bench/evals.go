@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -208,7 +209,7 @@ func collect(r *Run) map[string]*side {
 			s = &side{tasks: map[string]TaskRecord{}, models: map[string]bool{}, ccVersions: map[string]bool{}}
 			out[w] = s
 		}
-		s.tasks[t.Task] = t
+		s.tasks[t.Key()] = t
 		if t.Outcome != OutcomeBroken {
 			s.scored++
 			if t.Outcome == OutcomePass {
@@ -223,13 +224,39 @@ func collect(r *Run) map[string]*side {
 		s.usd += t.Usage.USD
 		s.wall += t.WallSec + t.ScoreWallSec
 		if t.Usage.Model != "" {
-			s.models[t.Usage.Model] = true
+			s.models[agentPrefix(t)+t.Usage.Model] = true
 		}
 		if t.Usage.ToolVersion != "" {
-			s.ccVersions[t.Usage.ToolVersion] = true
+			s.ccVersions[agentPrefix(t)+t.Usage.ToolVersion] = true
 		}
 	}
 	return out
+}
+
+// agentPrefix marks a model or version with the record's agent in a run on
+// two agents: each agent is held to its own.
+func agentPrefix(t TaskRecord) string {
+	if t.Agent == "" {
+		return ""
+	}
+	return t.Agent + ": "
+}
+
+// mixed reports whether vals, each maybe marked by agentPrefix, hold two
+// values for one agent.
+func mixed(vals []string) bool {
+	seen := map[string]bool{}
+	for _, v := range vals {
+		agent, _, ok := strings.Cut(v, ": ")
+		if !ok {
+			agent = ""
+		}
+		if seen[agent] {
+			return true
+		}
+		seen[agent] = true
+	}
+	return false
 }
 
 func (s *side) rate() float64 {
@@ -306,10 +333,10 @@ func CompareByWorkflow(a, b *Run) []WorkflowVerdict {
 					broken = append(broken, id+" is only in "+a.ID)
 				}
 			}
-			if m := union(x.models, y.models); len(m) > 1 {
+			if m := union(x.models, y.models); mixed(m) {
 				broken = append(broken, "other models: "+strings.Join(m, ", "))
 			}
-			if m := union(x.ccVersions, y.ccVersions); len(m) > 1 {
+			if m := union(x.ccVersions, y.ccVersions); mixed(m) {
 				broken = append(broken, "other Claude Code versions: "+strings.Join(m, ", "))
 			}
 		}
@@ -416,8 +443,8 @@ func union(a, b map[string]bool) []string {
 
 // Estimate is what a run of b will likely take, from the newest finished
 // run's mean per task (worker and scoring time, tokens, cost) times b's
-// task count; "no previous run" when there is none.
-func Estimate(b *Benchmark) string {
+// task count × agents; "no previous run" when there is none.
+func Estimate(b *Benchmark, agents int) string {
 	runs := Runs(b.Name)
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
@@ -425,16 +452,16 @@ func Estimate(b *Benchmark) string {
 			continue
 		}
 		var wall, usd float64
-		var tokens int64
+		var spent int64
 		for _, t := range r.Tasks {
 			wall += t.WallSec + t.ScoreWallSec
 			usd += t.Usage.USD
-			tokens += t.Usage.Tokens()
+			spent += t.Usage.Tokens()
 		}
 		n := float64(len(r.Tasks))
-		k := float64(len(b.Tasks))
+		k := float64(len(b.Tasks) * max(agents, 1))
 		return fmt.Sprintf("about %s, %s tokens, $%.2f for %d tasks (run %s's mean per task: %s, $%.2f)",
-			(time.Duration(wall/n*k) * time.Second).Round(time.Minute), compact(int64(float64(tokens)/n*k)), usd/n*k, len(b.Tasks), r.ID,
+			(time.Duration(wall/n*k) * time.Second).Round(time.Minute), tokens.Format(int64(float64(spent)/n*k)), usd/n*k, int(k), r.ID,
 			(time.Duration(wall/n) * time.Second).Round(time.Second), usd/n)
 	}
 	return "no previous run, so no estimate yet"

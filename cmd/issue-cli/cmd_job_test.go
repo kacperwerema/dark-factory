@@ -120,6 +120,26 @@ func TestJob_RunOnTheOwnersWordsCreatesOneRunPerPeriod(t *testing.T) {
 	}
 }
 
+// A run whose worker dies at launch is reported and not logged as started:
+// the exit says so, and the run log and the issue's trail stay clean.
+func TestJob_RunThatDiesAtLaunchIsReported(t *testing.T) {
+	proj := makeJobProject(t)
+	stubDeadLaunch(t)
+	out, err := runJobCmd(t, proj, "run", "marketing/weekly-seo-pass", "--quote", "run the SEO pass now")
+	if err == nil || !strings.Contains(err.Error(), "dispatching seo/weekly-seo-pass-2026-w44 failed") {
+		t.Fatalf("err %v\n%s", err, out)
+	}
+	assertContains(t, out, "exited right after the launch")
+	if log := jobs.ReadLog(proj); len(log) != 0 {
+		t.Fatalf("log = %+v", log)
+	}
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	comments, _ := tracker.LoadComments(tracker.FindIssue(issues, "seo/weekly-seo-pass-2026-w44").FilePath)
+	if len(comments) != 0 {
+		t.Fatalf("comments = %+v", comments)
+	}
+}
+
 func TestJob_StandingStartRunsUnattendedWithinTheBudget(t *testing.T) {
 	proj := makeJobProject(t)
 	started := stubStart(t)
@@ -337,5 +357,46 @@ func TestJobs_ShowsTheLastRunsOutputs(t *testing.T) {
 	}
 	if want := "last run: seo/weekly-seo-pass-2026-w44 (2026-W44) brief · 2 outputs (2 to review) · 1 runs"; !strings.Contains(stdout.String(), want) {
 		t.Fatalf("jobs misses %q:\n%s", want, stdout.String())
+	}
+}
+
+// The lead's tick starts a due job on its standing start: autostart next and
+// queue next name it with its command, and queue next --start starts it
+// before any queue item, as job run --scheduled would.
+func TestJob_TickStartsADueStandingJob(t *testing.T) {
+	proj := makeJobProject(t)
+	started := stubStart(t)
+	tick := func(run func(*Context, []string) error, args ...string) (string, error) {
+		t.Helper()
+		ctx, stdout, _ := newTestContext(proj, false)
+		ctx.Now = func() time.Time { return jobNow }
+		err := run(ctx, args)
+		return stdout.String(), err
+	}
+	// No standing start: the tick says nothing about the job.
+	if out, _ := tick(runAutostart, "next"); strings.Contains(out, "weekly-seo-pass") {
+		t.Fatalf("autostart next without a standing start:\n%s", out)
+	}
+	if _, err := runJobCmd(t, proj, "auto", "on", "--all", "--quote", jobWords); err != nil {
+		t.Fatal(err)
+	}
+	want := "⚠ job marketing/weekly-seo-pass is due (2026-W44) on its standing start: issue-cli --project proj job run marketing/weekly-seo-pass --scheduled"
+	if out, _ := tick(runAutostart, "next"); !strings.Contains(out, want) {
+		t.Errorf("autostart next lacks the job:\n%s", out)
+	}
+	if out, _ := tick(runQueue, "next"); !strings.Contains(out, want) {
+		t.Errorf("queue next lacks the job:\n%s", out)
+	}
+	if len(*started) != 0 {
+		t.Fatalf("a look started %v", *started)
+	}
+	out, err := tick(runQueue, "next", "--start")
+	if err != nil || len(*started) != 1 || (*started)[0] != "seo/weekly-seo-pass-2026-w44" {
+		t.Fatalf("queue next --start: %v %v\n%s", err, *started, out)
+	}
+	assertContains(t, out, "Job marketing/weekly-seo-pass is due (2026-W44) on its standing start: starting it first.")
+	// Started: nothing is due any more, and the next tick says nothing.
+	if out, _ := tick(runAutostart, "next"); strings.Contains(out, "⚠ job") {
+		t.Fatalf("after the start:\n%s", out)
 	}
 }

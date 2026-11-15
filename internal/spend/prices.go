@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"gopkg.in/yaml.v3"
 )
 
@@ -60,27 +61,6 @@ func LoadPrices() map[string]bench.Price {
 	return out
 }
 
-// FormatTokens is a token count in short: 950, 12.3k, 4.1M, 2.0B.
-func FormatTokens(n int64) string {
-	f := float64(n)
-	switch {
-	case n < 1000:
-		return strconv.FormatInt(n, 10)
-	case n < 1_000_000:
-		return trimZero(f/1e3) + "k"
-	case n < 1_000_000_000:
-		return trimZero(f/1e6) + "M"
-	}
-	return trimZero(f/1e9) + "B"
-}
-
-func trimZero(f float64) string {
-	if f >= 100 {
-		return strconv.FormatFloat(math.Round(f), 'f', 0, 64)
-	}
-	return strings.TrimSuffix(strconv.FormatFloat(f, 'f', 1, 64), ".0")
-}
-
 // FormatUSD is a cost: $0.42, $12.40, $1,234.
 func FormatUSD(v float64) string {
 	if v >= 1000 {
@@ -113,5 +93,19 @@ func Line(t Tally) string {
 	if t.Empty() {
 		return "0 tokens"
 	}
-	return FormatTokens(t.Tokens()) + " tokens · " + CostText(t)
+	return tokens.Format(t.Tokens()) + " tokens · " + CostText(t)
+}
+
+// PricesNote says why models have no cost and where to add them: the file
+// missing, or naming none of them. "" with no models. Nothing is guessed.
+func PricesNote(models []string) string {
+	if len(models) == 0 {
+		return ""
+	}
+	list := strings.Join(models, ", ")
+	path := PricesPath()
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Sprintf("cost unknown for %s: no prices.yaml at %s, and no price is ever guessed", list, path)
+	}
+	return fmt.Sprintf("cost unknown for %s: add it to %s, no price is ever guessed", list, path)
 }

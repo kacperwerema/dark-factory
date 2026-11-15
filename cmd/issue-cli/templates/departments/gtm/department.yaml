@@ -6,12 +6,16 @@
 # workflows/gtm.yaml; role.md is written to departments/gtm/role.md. See
 # docs/departments.md#groups.
 name: GTM
-description: "Go-to-market: the group over Marketing (and Sales, later), with one lead over their leads and a weekly plan"
+description: "Go-to-market: the group over Marketing (and Sales, when you add it), with one lead over their leads and a weekly plan"
 color: "#F2A541"
 role: "Brings in the next customers: marketing and sales under one lead"
 mission: "A steady pipeline of new customers"
 group: true
 children: [marketing]
+# Departments that can join GTM later, each from its own template: not
+# installed with the group; department add gtm names them, and
+# department add sales-b2c --parent gtm puts Sales under it.
+optional: [sales-b2c]
 workflow: planning
 goals:
   - id: pipeline

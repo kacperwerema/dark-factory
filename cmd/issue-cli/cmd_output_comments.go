@@ -34,6 +34,9 @@ func readerURL(p *tracker.Project, o *outputs.Output) string {
 // newestDoc is the newest version rendered, ok false when it can't be read
 // (a link, or the file is gone).
 func newestDoc(p *tracker.Project, o *outputs.Output) (outputs.Doc, bool) {
+	if !o.IsMarkdown() {
+		return outputs.Doc{}, false
+	}
 	var path string
 	switch {
 	case o.File != "":
@@ -44,7 +47,7 @@ func newestDoc(p *tracker.Project, o *outputs.Output) (outputs.Doc, bool) {
 		return outputs.Doc{}, false
 	}
 	src, err := os.ReadFile(path)
-	if err != nil || !o.IsMarkdown() {
+	if err != nil {
 		return outputs.Doc{}, false
 	}
 	return outputs.Render(src), true
@@ -197,6 +200,10 @@ func runOutputRevise(ctx *Context, args []string) error {
 	printOutput(ctx.Stdout, o, "  ")
 	if o.OpenComments > 0 {
 		fmt.Fprintf(ctx.Stdout, "💬 %d open %s: answer each with issue-cli output reply %s <thread> --text \"...\" (issue-cli output comments %s lists them)\n", o.OpenComments, pluralWord(o.OpenComments, "comment", "comments"), shortID(o.ID), shortID(o.ID))
+	}
+	if o.IsVideo() {
+		printVideo(ctx.Stdout, p, o)
+		return nil
 	}
 	fmt.Fprintf(ctx.Stdout, "Changes: %s?view=changes\n", readerURL(p, o))
 	return nil

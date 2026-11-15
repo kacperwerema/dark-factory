@@ -35,7 +35,7 @@ static/workshop.css their styles in the "L2: docs" block).
 {{define "wb/doc-head"}}
 <div class="wb-doc-head">
     {{if or .Chips .AsOf}}<div class="wb-doc-meta">{{range .Chips}}{{template "wb/chip" .}}{{end}}{{with .AsOf}}<span class="wb-doc-date">{{.}}</span>{{end}}</div>{{end}}
-    <h1 class="wb-doc-title" data-testid="docs.title">{{.Title}}</h1>
+    <h1 class="wb-doc-title" data-testid="wb.title">{{.Title}}</h1>
     {{with .Lead}}<div class="wb-doc-lead wb-md">{{.}}</div>{{end}}
 </div>
 {{end}}

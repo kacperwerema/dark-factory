@@ -231,7 +231,7 @@ func TestCrateStorePage(t *testing.T) {
 	assertContains(t, html,
 		`<link rel="stylesheet" href="/static/workshop.css">`, `<title>Crate store · Dark Factory</title>`,
 		`aria-current="page" data-testid="hall.tab.issues">Issues</span>`, `href="/p/test-project/hall" data-testid="hall.tab.line"`,
-		`<h1 class="wb-h1 wb-h1--big">Crate store</h1>`,
+		`<h1 class="wb-h1 wb-h1--big" data-testid="wb.title">Crate store</h1>`,
 		`href="/p/test-project/?classic=1" data-testid="issues.classic">Classic view</a>`,
 		`<div class="wb-statbig-num">3</div><div class="wb-statbig-label">issues</div>`,
 		`data-testid="search.issues"`, `data-testid="filter.show_you">Waiting on you</a>`,

@@ -18,7 +18,7 @@ issue's forward path pass without the owner. Each pass writes
   approval: "YOLO" (yolo · <agent> · from <status>, <date>) → <status>
 on the issue and waits in the "after the fact" queue for the owner's review.
 CI, tests, review, retros and the agents' permission prompts stay on. YOLO
-never passes backwards steps, optional statuses (parked), Human Testing
+never passes backwards steps, gates into an optional status (parked), Human Testing
 approval itself, an experiment's gates, a gate marked owner_only (it spends
 money or publishes outside the machine), or release publish (unless
 unlocked with --allow-releases).
@@ -89,7 +89,7 @@ func yoloNotWorker(ctx *Context, what string) error {
 	if err != nil {
 		return err
 	}
-	if me := whoAmI(ctx.Project, issues); me.Role == tracker.RoleWorker {
+	if me := guardWho(ctx, issues, "yolo"); me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers never %s: YOLO is the owner's switch. Ask the CEO on your issue trail with a question: comment", what)
 	}
 	return nil
@@ -160,10 +160,7 @@ func runYOLOStatus(ctx *Context, args []string) error {
 func yoloPassedSince(issues []*tracker.Issue, since time.Time) int {
 	n := 0
 	for _, issue := range issues {
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil {
-			continue
-		}
+		comments := issue.Comments()
 		for _, p := range yolo.Passes(issue, comments) {
 			if at, ok := tracker.CommentTime(p.At); ok && !at.Before(since) {
 				n++
@@ -355,6 +352,7 @@ func runYOLOQueue(ctx *Context, args []string) error {
 		}
 	}
 	fmt.Fprintln(ctx.Stdout, "The owner reviews them by issue, with evidence: one Agree covers an issue's gates, owner boxes are ticked one by one: "+yoloReviewURL(ctx.Project))
+	fmt.Fprintln(ctx.Stdout, "To agree the whole queue at once, the owner uses Agree all on that page (signed-in browser only; agents can't call it).")
 	fmt.Fprintln(ctx.Stdout, "Or one at a time on the issue page (Agree / Back to <status>), or:")
 	fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli yolo review <slug> --agree --quote \"<owner's words>\""))
 	return nil

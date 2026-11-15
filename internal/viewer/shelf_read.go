@@ -45,7 +45,13 @@ type ShelfReadData struct {
 	Body template.HTML
 	// Missing: the file is gone (the page says so; comments still show).
 	Missing bool
-	Diff    *OdocDiff
+	// Video: the output is a video shelf file; the player replaces the
+	// sheet (VideoInfo its type and size, PrevURL the previous version's
+	// file) and nothing is read or rendered.
+	Video            bool
+	VideoInfo        string
+	PrevURL, PrevTag string
+	Diff             *OdocDiff
 	// Threads are the open ones in document order; Gone the open ones whose
 	// passage and heading are not in this version; Resolved the rest.
 	Threads, Gone, Resolved []OdocThread
@@ -165,7 +171,7 @@ func headingPath(toc []OdocTocItem, id string) string {
 func (s *Server) handleShelfRead(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, id string) {
 	list, _ := outputs.Load(proj)
 	o, err := outputs.Find(list, id)
-	if err != nil || o.ID != id || o.URL != "" || !o.IsMarkdown() {
+	if err != nil || o.ID != id || o.URL != "" || !(o.IsMarkdown() || (o.File != "" && o.IsVideo())) {
 		http.NotFound(w, r)
 		return
 	}
@@ -192,6 +198,34 @@ func (s *Server) buildShelfRead(p *tracker.Project, prefix string, o *outputs.Ou
 	if v := o.Versions; len(v) > 1 {
 		d.Revised = v[len(v)-1].Date.Local().Format("2006-01-02 15:04")
 		d.Prev = v[len(v)-2].N
+	}
+
+	if o.File != "" && o.IsVideo() {
+		d.Video, d.Missing = true, o.Missing
+		d.VideoInfo = outputs.VideoType(o.File)
+		if st, err := os.Stat(outputFile(p, o, o.File)); err == nil {
+			d.VideoInfo += fmt.Sprintf(" · %.1f MB", float64(st.Size())/(1<<20))
+		}
+		if d.Row.Poster != "" {
+			d.VideoInfo += " · poster: frame at 1 s"
+		} else {
+			d.VideoInfo += " · no poster"
+		}
+		if prev := o.Previous(); prev != nil {
+			d.PrevURL, d.PrevTag = prefix+"/shelf/file/"+prev.File, fmt.Sprintf("v%d", prev.N)
+		}
+		d.Marks = template.JS("[]")
+		for _, t := range talk[o.ID] {
+			th := odocThread(prefix, o, t, nil, outputs.PlaceWhole, 0)
+			th.Where = "Whole video"
+			if t.Resolved {
+				d.Resolved = append(d.Resolved, th)
+			} else {
+				d.Threads = append(d.Threads, th)
+			}
+		}
+		d.Open = len(d.Threads)
+		return d
 	}
 
 	src, err := readOutputText(outputFile(p, o, o.File))
@@ -413,7 +447,9 @@ func (s *Server) handleShelfComment(w http.ResponseWriter, r *http.Request, proj
 		resp["trail"] = "issue " + o.Issue + " not found: the comment is on the shelf only"
 	} else {
 		var toc []OdocTocItem
-		if src, err := readOutputText(outputFile(proj, o, o.File)); err == nil {
+		if !o.IsMarkdown() {
+			// A video has no headings; its file is never read here.
+		} else if src, err := readOutputText(outputFile(proj, o, o.File)); err == nil {
 			toc = renderOutputDoc(src).Toc
 		}
 		text := reviseComment(o, t, toc, t.Messages[len(t.Messages)-1].Text, req.Thread != "")
@@ -431,6 +467,9 @@ func (s *Server) handleShelfComment(w http.ResponseWriter, r *http.Request, proj
 func reviseComment(o *outputs.Output, t *outputs.Thread, toc []OdocTocItem, text string, reply bool) string {
 	short := o.ID[strings.LastIndex(o.ID, "-")+1:]
 	where := "whole document"
+	if o.IsVideo() {
+		where = "whole video"
+	}
 	if !t.Anchor.Whole() {
 		where = headingPath(toc, t.Anchor.Heading)
 		if where == "" {

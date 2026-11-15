@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -437,5 +438,107 @@ func TestVersionNamesReleaseCandidate(t *testing.T) {
 		if stdout.String() != want {
 			t.Errorf("version %s: got %q, want %q", v, stdout.String(), want)
 		}
+	}
+}
+
+// gitAt runs git in dir with no user config and no detached maintenance.
+func gitAt(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+		"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestReportBugFromOldBuildListsWhatMainFixedSince(t *testing.T) {
+	f := newReportBugFixture(t, "", engineEntry)
+	// The engine checkout is the engine issues folder's parent.
+	root := f.dir
+	gitAt(t, root, "init", "-q", "-b", "main")
+	src := filepath.Join(root, "rules.go")
+	os.WriteFile(src, []byte("package rules\n\nfunc check(name string) error { return fmt.Errorf(\"unknown validation rule %q\", name) }\n"), 0644)
+	gitAt(t, root, "add", "rules.go")
+	gitAt(t, root, "commit", "-q", "-m", "feat: rules")
+	gitAt(t, root, "tag", "v0.1.0")
+	os.WriteFile(filepath.Join(root, "other.go"), []byte("package rules\n"), 0644)
+	gitAt(t, root, "add", "other.go")
+	gitAt(t, root, "commit", "-q", "-m", "chore: unrelated")
+	os.WriteFile(src, []byte("package rules\n\nfunc check(name string) error { return nil }\n"), 0644)
+	gitAt(t, root, "commit", "-q", "-am", "fix(cli): know decision_unchallenged")
+	fix := gitAt(t, root, "rev-parse", "--short", "HEAD")
+	withVersion(t, "v0.1.0")
+
+	out := f.run(t, false, "Transition refuses in design. It prints `unknown validation rule \"decision_unchallenged\"` and stops.")
+	issues := f.cliBugs(t)
+	if len(issues) != 1 {
+		t.Fatalf("engine issues = %d, want 1:\n%s", len(issues), out)
+	}
+	issue := issues[0]
+	if !strings.Contains(issue.BodyRaw, "Maybe fixed since v0.1.0: main has commits") || !strings.Contains(issue.BodyRaw, "- "+fix+" fix(cli): know decision_unchallenged") {
+		t.Errorf("body does not list the fix %s:\n%s", fix, issue.BodyRaw)
+	}
+	if strings.Contains(issue.BodyRaw, "unrelated") {
+		t.Errorf("body lists an unrelated commit:\n%s", issue.BodyRaw)
+	}
+	if !hasLabel(issue, "maybe-fixed") || !hasLabel(issue, "cli-bug") {
+		t.Errorf("labels = %v, want cli-bug and maybe-fixed", issue.Labels)
+	}
+	for _, want := range []string{"Maybe fixed since your build: main has 1 commit(s)", "  - " + fix + " fix(cli): know decision_unchallenged", "go build -o ./issue-cli ./cmd/issue-cli"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+
+	// A second report of the same error from the old build: the comment
+	// lists the fix too.
+	out = f.run(t, true, "Another title entirely, quoting 'unknown validation rule \"decision_unchallenged\"' again")
+	var got map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["result"] != "commented" || got["matched"] != "error" || got["maybe_fixed"] == nil {
+		t.Fatalf("json = %s", out)
+	}
+}
+
+func TestReportBugUnknownBuildFilesWithoutSearch(t *testing.T) {
+	f := newReportBugFixture(t, "", engineEntry)
+	// No git repository at all, and a dev build: nothing to search, the
+	// report still files.
+	withVersion(t, "dev")
+	out := f.run(t, false, "Show crashes with `index out of range in show`")
+	issues := f.cliBugs(t)
+	if len(issues) != 1 || hasLabel(issues[0], "maybe-fixed") || strings.Contains(issues[0].BodyRaw, "Maybe fixed") || strings.Contains(out, "Maybe fixed") {
+		t.Fatalf("issues = %+v\n%s", issues, out)
+	}
+}
+
+func TestReportBugSameQuotedErrorBecomesAComment(t *testing.T) {
+	f := newReportBugFixture(t, "", engineEntry)
+	f.run(t, false, "Transition fails on a fresh issue. It says `cannot read sidecar: unexpected end of JSON input`.")
+	out := f.run(t, false, "Check-script breaks after a crash with \"cannot read sidecar: unexpected end of JSON input\"")
+	issues := f.cliBugs(t)
+	if len(issues) != 1 {
+		t.Fatalf("engine issues = %d, want 1:\n%s", len(issues), out)
+	}
+	comments, _ := tracker.LoadComments(issues[0].FilePath)
+	if len(comments) != 1 || !strings.HasPrefix(comments[0].Text, "report: Check-script breaks after a crash") {
+		t.Fatalf("comments = %+v", comments)
+	}
+	if !strings.Contains(out, "✓ Already reported (same quoted error): added your report to cli-bug issue "+issues[0].Slug) {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestReportBugSharedCommandQuoteFilesTwo(t *testing.T) {
+	f := newReportBugFixture(t, "", engineEntry)
+	f.run(t, false, "Transition loses the assignee after `issue-cli transition foo --to backlog`")
+	f.run(t, false, "Transition prints the wrong next status after `issue-cli transition foo --to backlog`")
+	if n := len(f.cliBugs(t)); n != 2 {
+		t.Fatalf("engine issues = %d, want 2: a shared command is not a shared error", n)
 	}
 }

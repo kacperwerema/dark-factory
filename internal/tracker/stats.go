@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/tokens"
 )
 
@@ -63,6 +64,19 @@ func DispatchBase(store StatsStore) (d Dispatch, ok bool) {
 	return Dispatch{}, false
 }
 
+// WorkerAgent is the agent CLI of the newest launch of issue slug's worker,
+// "" when it was never dispatched or the record has no agent. Other launches
+// on the issue (a post-mortem, say) sit in other sessions and don't count.
+func WorkerAgent(store StatsStore, slug string) string {
+	session := AgentSessionName(slug)
+	for i := len(store.Dispatches) - 1; i >= 0; i-- {
+		if d := store.Dispatches[i]; d.Session == session && d.Agent != "" {
+			return d.Agent
+		}
+	}
+	return ""
+}
+
 // StatsStore is the per-issue workflow-stats sidecar persisted as
 // <issue>.stats.json next to the markdown file.
 type StatsStore struct {
@@ -78,6 +92,9 @@ type StatsStore struct {
 	// Rounds are the issue's check results, oldest first, that
 	// internal/redrounds counts into red rounds.
 	Rounds []RoundResult `json:"rounds,omitempty"`
+	// Briefings are the briefings sent to the issue's agent, oldest first
+	// (RecordBriefing): size and ids only.
+	Briefings []Briefing `json:"briefings,omitempty"`
 }
 
 // StatsSidecarPath returns the stats sidecar path for an issue markdown file.
@@ -109,19 +126,33 @@ func LoadStats(issuePath string) (StatsStore, error) {
 	return store, nil
 }
 
-// SaveStats writes the stats sidecar atomically (temp file + fsync + rename).
-// Last-write-wins; the atomic rename guarantees no half-written file on disk.
+var statsCache FileCache[StatsStore]
+
+// StatsOf is LoadStats for a reader that won't change the store, shared with
+// other readers and parsed once per version of the sidecar: a page reads one
+// per issue, several times over.
+func StatsOf(issuePath string) (StatsStore, error) {
+	info, err := os.Stat(StatsSidecarPath(issuePath))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return StatsStore{}, nil
+		}
+		return StatsStore{}, err
+	}
+	return statsCache.Get(StatsSidecarPath(issuePath), info, func() (StatsStore, error) { return LoadStats(issuePath) })
+}
+
+// SaveStats writes the stats sidecar through jsonfile.Write (aside, then
+// renamed). Last-write-wins; the rename guarantees no half-written file on disk.
 func SaveStats(issuePath string, store StatsStore) error {
 	path := StatsSidecarPath(issuePath)
 	if store.Transitions == nil {
 		store.Transitions = []TransitionStat{}
 	}
-	encoded, err := json.MarshalIndent(store, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding stats store: %w", err)
+	if err := jsonfile.Write(path, store, 0o644); err != nil {
+		return fmt.Errorf("writing stats store: %w", err)
 	}
-	encoded = append(encoded, '\n')
-	return writeFileAtomically(path, encoded, 0644)
+	return nil
 }
 
 // AppendTransitionStat loads, appends, and saves the stats sidecar in one shot.

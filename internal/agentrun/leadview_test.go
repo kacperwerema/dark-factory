@@ -248,13 +248,14 @@ func TestLeadView_Misconfigured(t *testing.T) {
 // terminal: none changes no session's windows or selection.
 func TestStart_LeadTerminalAndHeadlessWorkers(t *testing.T) {
 	isolateTmux(t)
+	t.Setenv("SHELL", "/bin/sh")
 	orig := PromptDeliveryTimeout
 	PromptDeliveryTimeout = 0
 	t.Cleanup(func() { PromptDeliveryTimeout = orig })
 	tmuxRun(t, "new-session", "-d", "-s", "main", "-n", "shell", "/bin/sh")
 	proj := &tracker.Project{Slug: "p", Terminal: "none", TmuxSession: "work", WorkDir: t.TempDir(),
 		LeadTerminal: LeadTerminalTmuxWindow, LeadWindowSession: "main"}
-	lead := Spec{Session: "lead-p", LeadScope: tracker.LeadScopeProject, Prompt: "prompt", AgentType: "true"}
+	lead := Spec{Session: "lead-p", LeadScope: tracker.LeadScopeProject, Prompt: "60", AgentType: "sleep"}
 
 	if resp := Start(proj, lead); resp.Status != "dispatched" || resp.AttachCmd != "" {
 		t.Fatalf("lead: %q attach %q\n%s", resp.Status, resp.AttachCmd, stepNames(resp.Steps))
@@ -273,7 +274,7 @@ func TestStart_LeadTerminalAndHeadlessWorkers(t *testing.T) {
 
 	before := strings.Join(windowsOf(t, "main"), ",") + "|" + strings.Join(windowsOf(t, "work"), ",")
 	activeMain, activeWork := activeOf(t, "main"), activeOf(t, "work")
-	worker := Spec{Session: "agent-a", IssueSlug: "a", Prompt: "prompt", AgentType: "true"}
+	worker := Spec{Session: "agent-a", IssueSlug: "a", Prompt: "60", AgentType: "sleep"}
 	if resp := Start(proj, worker); resp.Status != "dispatched" || resp.AttachCmd == "" {
 		t.Fatalf("worker: %q\n%s", resp.Status, stepNames(resp.Steps))
 	}

@@ -9,6 +9,7 @@
     <div class="wb-titlebar">
         <h1 class="wb-h1">Post-mortem{{if .Pending}} <span class="wb-ny-count" data-testid="postmortem.count">{{.Pending}}</span>{{end}}</h1>
         <span class="wb-sub"><a href="{{.IssueURL}}">{{.IssueTitle}}</a> · written by a fresh agent from the run · each action names one place · one round: agree or refuse them all, then Submit</span>
+        <a class="wb-titlebar-end wb-oc-bar-link" href="{{.QueueURL}}" data-testid="postmortem.queue">Every waiting action ›</a>
     </div>
     <div class="wb-oc" data-pm-root data-decide-url="{{.DecideURL}}">
     {{if .NoPostmortem}}
@@ -25,11 +26,13 @@
             <div class="wb-pm-row" data-pm-action data-id="{{.ID}}" data-testid="postmortem.action.{{tid .ID}}">
                 <div class="wb-oc-text">
                     <div><b class="wb-oc-id">{{.ID}}</b> {{.Title}}</div>
-                    <div class="wb-oc-meta"><span class="wb-chip wb-chip--idle" data-testid="postmortem.action.{{tid .ID}}.place">{{.PlaceString}}</span>{{with .Under}}<span class="wb-mono">under “{{.}}”</span>{{end}}</div>
+                    <div class="wb-oc-meta"><span class="wb-chip wb-chip--idle" data-testid="postmortem.action.{{tid .ID}}.place">{{.PlaceString}}</span>{{with .Under}}<span class="wb-mono">under “{{.}}”</span>{{end}}{{with .At}}<span class="wb-mono">at {{.}}</span>{{end}}</div>
                     <div class="wb-oc-meta"><b>Differently:</b> {{.Differently}}</div>
                     {{with .Text}}<div class="wb-mono wb-pm-pre">{{.}}</div>{{end}}
+                    {{$id := .ID}}{{range .Reopened}}<div class="wb-oc-meta" data-testid="postmortem.action.{{tid $id}}.reopened">Reopened: {{.}}</div>{{end}}
                     {{if .Applied}}<div class="wb-ny-msg wb-ny-msg--ok" data-testid="postmortem.action.{{tid .ID}}.outcome">Applied: {{.Applied}}</div>
                     {{else if .Refused}}<div class="wb-ny-msg wb-ny-msg--err" data-testid="postmortem.action.{{tid .ID}}.outcome">Refused: {{.Refused}}</div>
+                    {{else if .Overtaken}}<div class="wb-ny-msg wb-ny-msg--ok" data-testid="postmortem.action.{{tid .ID}}.outcome">Overtaken: {{.Overtaken}}</div>
                     {{else}}
                     <div class="wb-pm-answer" data-testid="postmortem.action.{{tid .ID}}.answer">
                         <label><input type="radio" name="pm-{{.ID}}" value="agree" data-pm-agree> Agree</label>

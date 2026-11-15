@@ -36,19 +36,9 @@
         };
     }
 
-    // Color maps matching server-side template functions
-    var statusColors = {
-        'idea': '#8b5cf6', 'in design': '#3b82f6', 'backlog': '#64748b',
-        'in progress': '#eab308', 'testing': '#f97316', 'human-testing': '#ec4899',
-        'documentation': '#14b8a6', 'shipping': '#0ea5e9', 'done': '#22c55e'
-    };
-    var statusTextColors = { 'in progress': '#000000', 'testing': '#000000', 'human-testing': '#000000' };
-    var priorityColors = { 'low': '#6b7280', 'medium': '#3b82f6', 'high': '#f97316', 'critical': '#ef4444' };
+    // Status and priority colours come with each issue from /issues.json.
     var assigneeColorPalette = ['#f97316','#3b82f6','#22c55e','#a855f7','#ef4444','#eab308','#14b8a6','#ec4899','#6366f1','#84cc16'];
 
-    function statusColor(s) { return statusColors[s] || '#6b7280'; }
-    function statusTextColor(s) { return statusTextColors[s] || '#ffffff'; }
-    function priorityColor(p) { return priorityColors[p] || '#6b7280'; }
     // setAssignee shows a dot and the assignee as text: the name comes from
     // frontmatter, so it never goes through innerHTML.
     function setAssignee(el, color, name) {
@@ -188,7 +178,7 @@
 
             // Update status dot color
             var dot = card.querySelector('.board-card-dot');
-            if (dot) dot.style.borderColor = statusColor(iss.status);
+            if (dot) dot.style.borderColor = iss.status_color;
 
             renderActiveChip(card, 'board-agent-active', iss.active_sessions);
         });
@@ -225,13 +215,13 @@
             var badge = row.querySelector('.badge');
             if (badge) {
                 badge.textContent = iss.status;
-                badge.style.setProperty('--c', statusColor(iss.status));
+                badge.style.setProperty('--c', iss.status_color);
             }
 
             // Update priority
             var prioSpan = row.querySelector('.priority-dot');
             if (prioSpan && iss.priority) {
-                prioSpan.style.background = priorityColor(iss.priority);
+                prioSpan.style.background = iss.priority_color;
                 var prioText = prioSpan.parentElement.querySelector('span:last-child');
                 if (prioText) prioText.textContent = iss.priority;
             }
@@ -278,8 +268,8 @@
             var parent = badge.closest('.detail-meta-value, .issue-title-row, .detail-sidebar');
             if (parent) {
                 badge.textContent = iss.status;
-                badge.style.background = statusColor(iss.status);
-                badge.style.color = statusTextColor(iss.status);
+                badge.style.background = iss.status_color;
+                badge.style.color = iss.status_text_color;
             }
         });
 

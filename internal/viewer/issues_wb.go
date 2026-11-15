@@ -136,7 +136,7 @@ type storeIssue struct {
 }
 
 func (s *Server) handleIssuesWb(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -144,7 +144,7 @@ func (s *Server) handleIssuesWb(w http.ResponseWriter, r *http.Request, proj *tr
 	now := time.Now()
 	wf := proj.LoadWorkflow()
 	agents, _ := s.buildAgentsModel(proj, prefix)
-	open := openOnly(issues)
+	open := openOnly(proj, issues)
 	waiting := waitingOnOwner(proj, open)
 	hc := newHallContext(proj, prefix, open, agents, waiting, now)
 	you := map[string]string{}
@@ -222,19 +222,13 @@ func (f storeFilter) match(it storeIssue, wf *tracker.WorkflowConfig) bool {
 	}
 	switch f.Show {
 	case storeShowOpen:
-		return !storeFolds(it.Status)
+		return !tracker.IsClosedStatus(wf, it.Status)
 	case storeShowYou:
 		return it.You != ""
 	case storeShowAgent:
 		return it.Robot != nil
 	}
 	return true
-}
-
-// storeFolds reports whether a status's shelf folds (done, parked).
-func storeFolds(status string) bool {
-	k := statusKey(status)
-	return k == "done" || k == "parked"
 }
 
 // buildIssuesWb lays out the store from items (most recently changed first).
@@ -330,7 +324,9 @@ func buildIssuesWb(items []storeIssue, wf *tracker.WorkflowConfig, prefix string
 	sort.Strings(unknown)
 	order = append(order, unknown...)
 	// Folded shelves go last, in workflow order.
-	sort.SliceStable(order, func(i, j int) bool { return !storeFolds(order[i]) && storeFolds(order[j]) })
+	sort.SliceStable(order, func(i, j int) bool {
+		return !tracker.IsClosedStatus(wf, order[i]) && tracker.IsClosedStatus(wf, order[j])
+	})
 
 	for _, k := range order {
 		list := byStatus[k]
@@ -340,7 +336,7 @@ func buildIssuesWb(items []storeIssue, wf *tracker.WorkflowConfig, prefix string
 		sort.SliceStable(list, func(i, j int) bool { return storeRank(list[i]) < storeRank(list[j]) })
 		shelf := WbShelf{Label: fmt.Sprintf("%s · %d", names[k], len(list)), Status: names[k]}
 		for i, it := range list {
-			if storeFolds(k) && f.Status == "" && i == storeFolded {
+			if tracker.IsClosedStatus(wf, k) && f.Status == "" && i == storeFolded {
 				shelf.More = len(list) - storeFolded
 				g := f
 				g.Status, g.Show = it.Status, ""

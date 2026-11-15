@@ -11,17 +11,64 @@ import (
 // off.
 var YOLOOn func(workDir, project string) bool
 
+// What YOLO never passes, one name each. YOLONever* are the reasons
+// yolo.OwnerGates lists and YOLOOwnerOnly is the same rules for a briefing;
+// docs/Workflow/yolo.md quotes both (TestYOLOOwnerTextsReadOneSource). The
+// Human Testing approval is in neither: YOLO passes it like any gate (D-1 of
+// cli/under-yolo-transition-human-testing-documentation-dry-run-says-ready-the).
+const (
+	yoloSpends           = "spends money or publishes outside the machine"
+	YOLOOwnerAdopts      = "the owner adopts experiments"
+	yoloExperiments      = "experiments"
+	yoloReleasePublish   = "release publish"
+	yoloOptionalGate     = "a gate into an optional status"
+	yoloDesignFirst      = "the design gate of an issue labelled " + DesignFirstLabel
+	YOLOSpendsOwnerOnly  = "the step " + yoloSpends + " (owner_only in the workflow)"
+	YOLONeverOwnerOnly   = "owner_only: " + yoloSpends
+	YOLONeverExperiment  = "every gate of an issue labelled experiment: " + YOLOOwnerAdopts
+	YOLONeverRelease     = yoloReleasePublish + ": external releases wait for the owner"
+	YOLONeverOptional    = yoloOptionalGate + ": a side step the owner chooses"
+	YOLONeverDesignFirst = yoloDesignFirst + ": the owner looks at the design before the build"
+)
+
+// DesignFirstLabel marks an issue whose design the owner sees before the
+// build: under YOLO its gate out of the design status still waits for the
+// owner (yolo.OwnerReason).
+const DesignFirstLabel = "design-first"
+
+// IsDesignFirst reports whether labels mark the issue design-first.
+func IsDesignFirst(labels []string) bool {
+	for _, l := range labels {
+		if strings.EqualFold(strings.TrimSpace(l), DesignFirstLabel) {
+			return true
+		}
+	}
+	return false
+}
+
 // YOLOOwnerOnly is what still waits for the owner while YOLO is on: the
-// gates YOLO never passes and the questions too big to decide provisionally.
-const YOLOOwnerOnly = "experiments, product-policy rules, and anything that spends money or publishes outside the machine (owner_only gates)"
+// gates YOLO never passes, and product-policy rules, which name no gate: a
+// worker judges those itself (the owner's question from the 2026-11-03
+// audit, enforce or drop, is open). wf is the workflow the reader walks;
+// the list reads the same on every one today.
+func YOLOOwnerOnly(wf *WorkflowConfig) string {
+	return yoloExperiments + ", " + yoloReleasePublish + ", " + yoloOptionalGate +
+		", " + yoloDesignFirst + ", product-policy rules, and anything that " + yoloSpends + " (owner_only gates)"
+}
+
+// YOLORulePointer is what show and transition print while YOLO is on, in
+// place of YOLORule: the paragraph prints once a session, in the briefing
+// and in start.
+const YOLORulePointer = "YOLO on: the rule is in your briefing."
 
 // YOLORule is the one line a worker gets in place of "clarify with the
-// human" and "stop for approval" while YOLO is on.
-func YOLORule(slug string) string {
+// human" and "stop for approval" while YOLO is on; wf is the issue's
+// workflow.
+func YOLORule(wf *WorkflowConfig, slug string) string {
 	return "YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself: the design's go in its ## Clarify round, " +
 		"each marked assumed (issue-cli clarify " + slug + " --assume); record any other answer you give yourself with " +
 		"issue-cli decide " + slug + " --provisional --text \"...\"; put what you can't answer in a question: comment and go on. " +
-		"Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: " + YOLOOwnerOnly +
+		"Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: " + YOLOOwnerOnly(wf) +
 		"; for those post a question: comment and stop."
 }
 

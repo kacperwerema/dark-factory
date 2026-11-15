@@ -125,6 +125,7 @@ var funcMap = template.FuncMap{
 	// internal/testids).
 	"tid":        testids.Segment,
 	"plural":     plural,
+	"crumbUp":    crumbUp,
 	"stripLabel": stripLabel,
 	"ceoMode":    ceoModeLabel,
 	// leadStateText and switchLead draw the CEO chat's switcher

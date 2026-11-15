@@ -27,6 +27,54 @@ type WorkbenchConfig struct {
 	// in the viewer frame (docs/workbench-files.md, "Project pages").
 	StatusPage string          `yaml:"status_page,omitempty" desc:"Project HTML page /status shows by default (the built-in page stays one tab away), relative to the project root"`
 	Pages      []WorkbenchPage `yaml:"pages,omitempty" desc:"Extra project HTML pages listed in the sidebar under Status, each with a title and a path relative to the project root"`
+	// Layers and Contexts are the code map (internal/codemap): packages
+	// grouped into contexts, contexts stacked in layers, imports allowed
+	// down or sideways (docs/workbench-files.md#code-map).
+	Layers []WorkbenchLayer `yaml:"layers,omitempty" desc:"Code map layers, bottom first; an import may point down a layer or stay in its own, never up (docs/workbench-files.md#code-map)"`
+	// CodeMapExclude are folders the code map doesn't read (fixture trees).
+	CodeMapExclude []string           `yaml:"codemap_exclude,omitempty" desc:"Repo globs of folders the code map leaves out (fixture trees that hold Go files); testdata/, vendor/ and dot folders are always left out"`
+	Contexts       []WorkbenchContext `yaml:"contexts,omitempty" desc:"Code map contexts: Go packages (and other files by paths:) grouped under a name and a layer; enables issue-cli codemap / affected, the code map page and the Station's Affected block"`
+}
+
+// WorkbenchLayer is one code map layer.
+type WorkbenchLayer struct {
+	Name string `yaml:"name" desc:"Layer name, used by a context's layer: (required)"`
+	// Shared marks a layer every other may use (the kernel, the core): a
+	// surface file importing it doesn't "work in" its contexts.
+	Shared bool `yaml:"shared,omitempty" desc:"Every layer may use it; a surface file importing only shared contexts works in none"`
+}
+
+// WorkbenchContext is one code map context.
+type WorkbenchContext struct {
+	Name     string   `yaml:"name" desc:"Context name shown on the map (required)"`
+	Key      string   `yaml:"key,omitempty" desc:"Short id for --json, URLs and leaks; defaults to the name lowercased with dashes"`
+	Layer    string   `yaml:"layer" desc:"Name of one of workbench.layers (required)"`
+	Summary  string   `yaml:"summary,omitempty" desc:"One line on what the context does"`
+	Packages []string `yaml:"packages,omitempty" desc:"Go package directories relative to the repository root; dir/... takes every package under it, and an exact directory beats a /... one"`
+	Paths    []string `yaml:"paths,omitempty" desc:"Repo globs of other files that belong to the context (docs, YAML, templates): affected maps a changed non-Go file by them"`
+	Leaks    []string `yaml:"leaks,omitempty" desc:"Known upward imports from this context, each \"<from package dir> -> <to package dir>\": lint check contexts stays quiet about them and warns when one no longer happens"`
+}
+
+// ContextKey is the context's key: Key, else the name lowercased with
+// every run of other characters a dash.
+func (c WorkbenchContext) ContextKey() string {
+	if k := strings.TrimSpace(c.Key); k != "" {
+		return k
+	}
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(c.Name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+			continue
+		}
+		if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.TrimSuffix(b.String(), "-")
 }
 
 // WorkbenchPage is one `pages:` entry: a static HTML page in the project.
@@ -119,7 +167,7 @@ type WorkbenchBalance struct {
 // IsZero reports whether the block was left out.
 func (c WorkbenchConfig) IsZero() bool {
 	return len(c.Systems) == 0 && c.Metrics == (WorkbenchMetrics{}) && len(c.Tuning) == 0 && c.Balance == (WorkbenchBalance{}) && c.Changelog == "" && !c.ReleaseCandidates &&
-		c.StatusPage == "" && len(c.Pages) == 0
+		c.StatusPage == "" && len(c.Pages) == 0 && len(c.Layers) == 0 && len(c.Contexts) == 0 && len(c.CodeMapExclude) == 0
 }
 
 // PagePaths lists every configured project page: the status page first,

@@ -32,6 +32,29 @@ func Builtins() []string {
 	return out
 }
 
+// builtinTypes are the bundled briefs whose runs need one type of work: a
+// growth-scout run is research that ends on the shelf, never a piece that
+// walks to publish.
+var builtinTypes = map[string]string{
+	"growth-scout": "report",
+	// A flush ends by itself: on the report path each night's run would
+	// wait on the owner.
+	"lead-flush": tracker.ChoreType,
+}
+
+// LeadFlushBrief is the bundled brief of the nightly lead flush.
+const LeadFlushBrief = BuiltinPrefix + "lead-flush"
+
+// BuiltinType is the type of work the bundled brief named by brief needs
+// its runs to have; empty for a file brief or a bundled one that needs none.
+func BuiltinType(brief string) string {
+	name, ok := strings.CutPrefix(strings.TrimSpace(brief), BuiltinPrefix)
+	if !ok {
+		return ""
+	}
+	return builtinTypes[strings.TrimSpace(name)]
+}
+
 // IsBuiltin reports a brief: value naming a bundled brief.
 func IsBuiltin(brief string) bool {
 	return strings.HasPrefix(strings.TrimSpace(brief), BuiltinPrefix)

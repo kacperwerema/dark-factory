@@ -14,6 +14,7 @@ import (
 
 func TestDecisionsLogPage(t *testing.T) {
 	proj := setupDecisionsProject(t)
+	writeTillDecision(t, proj)
 	withMockTmuxSessions(t, nil)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
@@ -25,9 +26,9 @@ func TestDecisionsLogPage(t *testing.T) {
 	assertContains(t, html,
 		`<link rel="stylesheet" href="/static/workshop.css">`,
 		`href="/p/wb/company"`, `aria-current="page"><i class="wb-crumb-sq" style="background:#3D7BF7"></i>Product hall</span>`,
-		`<h1 class="wb-h1 wb-h1--big">Decisions log</h1>`,
+		`<h1 class="wb-h1 wb-h1--big" data-testid="wb.title">Decisions log</h1>`,
 		`href="/p/wb/decisions?classic=1" data-testid="decisions.classic">Classic view</a>`,
-		`<div class="wb-statbig-num">4</div><div class="wb-statbig-label">decisions · 2 active</div>`,
+		`<div class="wb-statbig-num">5</div><div class="wb-statbig-label">decisions · 3 active</div>`,
 		`wb-summary wb-summary--warn" data-testid="summary.decisions">`, `1 superseded · 1 stale citations`,
 		`data-testid="search.decisions"`, `data-testid="filter.who_all">All</a>`,
 		`With your words`, `Without your words · to confirm`,
@@ -46,9 +47,9 @@ func TestDecisionsLogPage(t *testing.T) {
 		`wb-chip wb-chip--green">active</span>`, `wb-chip wb-chip--idle">deferred</span>`, `wb-chip wb-chip--red">superseded · still cited</span>`,
 		// The decision taken alone asks the owner. Confirm posts to its own
 		// endpoint and works with the CEO off; Question it needs the CEO.
-		`data-testid="decisions.row.shop.d-2.confirm"`, `data-confirm="/p/wb/decisions/shop/D-2/confirm"`,
-		`data-testid="decisions.row.shop.d-2.words"`, `<button type="submit" class="wb-alone-btn" title="Records your words on shop#D-2`,
-		`disabled title="Start the CEO first" data-testid="decisions.row.shop.d-2.question"`, `data-testid="decisions.start_ceo"`,
+		`data-testid="decisions.row.till.d-1.confirm"`, `data-confirm="/p/wb/decisions/till/D-1/confirm"`,
+		`data-testid="decisions.row.till.d-1.words"`, `<button type="submit" class="wb-alone-btn" title="Records your words on till#D-1`,
+		`disabled title="Start the CEO first" data-testid="decisions.row.till.d-1.question"`, `data-testid="decisions.start_ceo"`,
 		// Right panel.
 		`data-testid="bars.decisions_by_system"`, `<span class="wb-bar-label">Economy</span>`, `<span class="wb-bar-count">2</span>`,
 		`<h2 class="wb-h2">Log hygiene</h2>`, `<span>Superseded</span><b>1</b>`, `<span>Stale citations</span><b class="wb-tone-red">1</b>`,
@@ -71,14 +72,22 @@ func TestDecisionsLogPage(t *testing.T) {
 	}
 }
 
+// writeTillDecision adds an active decision with no words: till#D-1 gets
+// the Confirm box, which shop#D-2, deferred, does not.
+func writeTillDecision(t *testing.T, proj tracker.Project) {
+	t.Helper()
+	writeWorkbenchIssue(t, proj.IssueDir, "till", "in design", "", "## Decisions\n- **D-1** · 2026-10-05 · chat: Round up.")
+}
+
 func TestDecisionsLogConfirmWithLiveCEO(t *testing.T) {
 	proj := setupDecisionsProject(t)
+	writeTillDecision(t, proj)
 	stubLeadPane(t, "⏺ Ready.\n")
 	withMockTmuxSessions(t, []AgentSession{{Name: tracker.LeadSessionName(&proj)}})
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 	_, html := getBody(t, ts.URL+"/p/wb/decisions")
-	assertContains(t, html, `title="Starts a message to the CEO; say why and press Send" data-testid="decisions.row.shop.d-2.question"`, `data-question="I question shop#D-2 (&#34;Balance later.&#34;): "`)
+	assertContains(t, html, `title="Starts a message to the CEO; say why and press Send" data-testid="decisions.row.till.d-1.question"`, `data-question="I question till#D-1 (&#34;Round up.&#34;): "`)
 	if strings.Contains(html, "The CEO is not running") || strings.Contains(html, `data-testid="decisions.start_ceo"`) {
 		t.Error("a live CEO still shows as off")
 	}

@@ -74,14 +74,14 @@ func family(_ context.Context, env health.Env) ([]health.Metric, error) {
 	if len(env.Project.Departments) == 0 {
 		return nil, nil
 	}
-	issues, err := tracker.LoadIssues(env.Project.IssueDir)
+	issues, err := env.Project.LoadIssues()
 	if err != nil {
 		return nil, err
 	}
 	past := health.Before(env.Root, env.Now.AddDate(0, 0, -movingDays))
 	return Measure(Input{Project: env.Project, Issues: issues, Config: env.Config, Past: past, Now: env.Now,
 		Comments: func(i *tracker.Issue) []tracker.Comment {
-			c, _ := tracker.LoadComments(i.FilePath)
+			c := i.Comments()
 			return c
 		}}), nil
 }

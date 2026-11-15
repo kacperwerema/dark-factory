@@ -1,0 +1,9 @@
+# One issue in testing whose AC2 waits on the lead's command (a lead proof
+# link in its sidecar, never run), and a queue so the Report draws its
+# Queue card. Nothing runs the command.
+title: A criterion waiting on the lead's command
+project:
+  name: Lead Proof Demo
+  slug: leadproof
+issues: tracker
+workflow: workflow.yaml

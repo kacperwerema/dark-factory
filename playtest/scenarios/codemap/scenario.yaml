@@ -1,0 +1,12 @@
+# The code map: a small module of three layers. kernel/util imports
+# app/feature, a layer up and not listed under leaks:, so the chip carries
+# the wavy underline and lint warns with util.go's line; app/stray is in no
+# context. ui/station waits at human-testing with no dispatch record, so
+# its Station shows the Affected block saying there is no footprint yet.
+title: Code map
+project:
+  name: Code Map
+  slug: cm
+issues: tracker
+workflow: workflow.yaml
+root: files

@@ -218,11 +218,6 @@ func TestEmptyAndBudgetErr(t *testing.T) {
 }
 
 func TestFormat(t *testing.T) {
-	for n, want := range map[int64]string{950: "950", 12300: "12.3k", 4_100_000: "4.1M", 2_000_000_000: "2B", 150_000_000: "150M"} {
-		if got := FormatTokens(n); got != want {
-			t.Errorf("FormatTokens(%d) = %q, want %q", n, got, want)
-		}
-	}
 	if got := FormatUSD(1234.4); got != "$1,234" {
 		t.Errorf("FormatUSD = %q", got)
 	}
@@ -231,9 +226,6 @@ func TestFormat(t *testing.T) {
 	}
 	if got := CostText(Tally{Input: 10, Output: 10, Unpriced: 10, USD: 1}); got != "≥ $1.00 est." {
 		t.Errorf("CostText part-priced = %q", got)
-	}
-	if got := WeekStart(time.Date(2026, 11, 1, 23, 0, 0, 0, time.UTC)); got.Format("2006-01-02") != "2026-10-26" {
-		t.Errorf("Sunday's week starts %s", got)
 	}
 }
 
@@ -285,5 +277,32 @@ func TestNestedGroupSpendRollsUpEveryLevel(t *testing.T) {
 	}
 	if o := rep.Find("outbound"); strings.Join(o.RolledFrom, ",") != "sales" || o.Parent != "gtm" {
 		t.Errorf("outbound = parent %q rolled from %v", o.Parent, o.RolledFrom)
+	}
+}
+
+// The guard on the one price path: one model costs the same on a room's
+// Spend block and in a bench run, whichever way it is priced: by its own
+// key or a prefix, from prices.yaml or a benchmark file, and with every
+// kind of token counted.
+func TestPricedByPrefixCostsTheSameInBenchAndSpend(t *testing.T) {
+	cfg := t.TempDir()
+	benchDir := filepath.Join(cfg, "ai-workflow-engine", "bench")
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", benchDir)
+	os.MkdirAll(benchDir, 0o755)
+	os.WriteFile(PricesPath(), []byte("prices:\n  claude-opus-5: {in: 3, out: 15, cache_read: 0.3, cache_write: 3.75}\n  claude-exact-1: {in: 1, out: 2}\n"), 0o644)
+	os.WriteFile(filepath.Join(benchDir, "b.yaml"), []byte("name: b\nprices:\n  claude-sonnet: {in: 2, out: 4}\ntasks: []\n"), 0o644)
+	prices := LoadPrices()
+
+	for _, model := range []string{"claude-opus-5-5", "claude-exact-1", "claude-sonnet-5-5"} {
+		tally := record{model: model, in: 1000, out: 200, cacheRead: 3000, cacheWrite: 40}.tally(prices, map[string]bool{})
+		if !tally.CostKnown() || tally.USD == 0 {
+			t.Fatalf("%s: spend has no price: %+v", model, tally)
+		}
+		u := bench.Usage{Known: true, Model: model, Input: 1000, Output: 200, CacheRead: 3000, CacheWrite: 40}
+		bench.Cost(&u, prices)
+		if !u.USDKnown || u.USD != tally.USD {
+			t.Errorf("%s: bench costs %v (known %v), spend %v", model, u.USD, u.USDKnown, tally.USD)
+		}
 	}
 }

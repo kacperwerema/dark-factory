@@ -59,7 +59,7 @@ func TestNightlyCardTwoNights(t *testing.T) {
 	want := map[string][3]string{
 		"pass":   {"2/4", "3/4", bench.Worse},
 		"time":   {"7m", "10m", bench.Better},
-		"tokens": {"12.5M", "12.0M", bench.Same},
+		"tokens": {"12.5M", "12M", bench.Same},
 	}
 	for _, n := range row.Numbers {
 		w := want[n.Key]

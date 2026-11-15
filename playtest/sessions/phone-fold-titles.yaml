@@ -1,0 +1,90 @@
+session: phone-fold-titles
+issue: ui/every-workshop-board-page-carries-wb-title-and-is-checked-by-phone-fold
+title: "The Workshop pages phone-fold missed, at 390x844: wb.title in the first half of the screen"
+scenario: hq-report
+
+# phone-fold's sibling: the same scenario, viewport and checks, for the pages
+# post-mortem 20261109-013141 found with no wb.title and no phone-fold step.
+# They live here because a session's step ids are its own issue's boxes.
+# max_top: 422 is half the screen: the title's top edge from the top of the page.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: "The docs reader at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/docs/handbook
+    checks:
+      - visible: yolo.band.line
+      - text_equals: { target: wb.title, text: "Client handbook" }
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP4
+    title: "The retro sorting room at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/retros
+    checks:
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP5
+    title: "The output reader at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      # out/case-study.md is a scenario file (files/out/), never a live output.
+      - cli: [output, add, --issue, seo/case-study-pages, --title, "Case study: a client site in two weeks", --kind, report, --file, out/case-study.md]
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/shelf
+    act:
+      - click: shelf.title
+      - wait_for: odoc.sheet
+    checks:
+      - visible: yolo.band.line
+      - text_equals: { target: wb.title, text: "Case study: a client site in two weeks" }
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP6
+    title: "The Crew page across projects (/crew) at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - open: /crew
+    checks:
+      - text_equals: { target: wb.title, text: "Crew" }
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP7
+    title: "Stats across projects (/stats) at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - open: /stats
+    checks:
+      - text_equals: { target: wb.title, text: "Stats, all projects" }
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP8
+    title: "Telemetry (/telemetry) at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - open: /telemetry
+    checks:
+      - text_equals: { target: wb.title, text: "Telemetry, other installs" }
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP9
+    title: "The CEO chat at 390x844: wb.title in the first half of the screen"
+    proves: [AC1, AC2]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/lead
+    checks:
+      # The CEO chat draws no YOLO band (its header is the chat's own band):
+      # the title is checked with YOLO on all the same.
+      - text_equals: { target: wb.title, text: "CEO" }
+      - size: { target: wb.title, max_top: 422 }

@@ -125,14 +125,25 @@ func (w *WorkflowConfig) ForIssue(issue *Issue) *WorkflowConfig {
 	if issue == nil {
 		return w.Clone()
 	}
-	scoped := w.ForType(issue.Type).ForSystem(issue.System)
-	if scoped.typePath == nil || issue.Status == "" || scoped.GetStatusIndex(issue.Status) != -1 {
-		return scoped
+	scoped := w.ForType(issue.Type)
+	scoped.mergeSystem(issue.System)
+	if w.offPath(scoped, issue) {
+		w.rescueOffPath(scoped, issue)
 	}
+	return scoped
+}
+
+// offPath reports whether issue sits on a base status its scoped path
+// (ForType then the system overlay) leaves out: ForIssue's rescue case.
+func (w *WorkflowConfig) offPath(scoped *WorkflowConfig, issue *Issue) bool {
+	return scoped.typePath != nil && issue.Status != "" &&
+		scoped.GetStatusIndex(issue.Status) == -1 && w.GetStatus(issue.Status) != nil
+}
+
+// rescueOffPath puts the issue's off-path status back into scoped, in
+// place, at its base position as a global, optional exit.
+func (w *WorkflowConfig) rescueOffPath(scoped *WorkflowConfig, issue *Issue) {
 	base := w.GetStatus(issue.Status)
-	if base == nil {
-		return scoped
-	}
 	rescued := *base
 	rescued.Global = true
 	rescued.Optional = true
@@ -147,7 +158,6 @@ func (w *WorkflowConfig) ForIssue(issue *Issue) *WorkflowConfig {
 	scoped.Statuses = append(scoped.Statuses[:at], append([]WorkflowStatus{rescued}, scoped.Statuses[at:]...)...)
 	scoped.typePath[issue.Status] = true
 	scoped.OffPathStatus = issue.Status
-	return scoped
 }
 
 // PathLine renders the scoped lifecycle as "a → b → c", leaving out optional
@@ -201,12 +211,16 @@ func (w *WorkflowConfig) Lint() []string {
 		out = append(out, err.Error())
 	}
 	if w.MaxRedRounds < 0 {
-		out = append(out, fmt.Sprintf("max_red_rounds is %d: it must be 1 or more, so the default %d is used (set max_red_rounds: 4, or remove it)", w.MaxRedRounds, DefaultMaxRedRounds))
+		out = append(out, fmt.Sprintf("max_red_rounds is %d: it must be 1 or more, so the default %[2]d is used (set max_red_rounds: %[2]d, or remove it)", w.MaxRedRounds, DefaultMaxRedRounds))
 	}
 	if strings.TrimSpace(w.Leads.Epic) != "" {
 		out = append(out, "leads.epic is obsolete and ignored: there is one lead per project (remove it)")
 	}
+	if strings.TrimSpace(w.Leads.Project) != "" {
+		out = append(out, "leads.project replaces the built-in lead brief, so it misses every later change to it: move what this project adds to leads.project_addendum and remove leads.project")
+	}
 	out = append(out, w.lintRules()...)
+	out = append(out, w.lintSessions()...)
 	if !w.HasTypes() {
 		return out
 	}
@@ -271,7 +285,7 @@ func (w *WorkflowConfig) Lint() []string {
 			for _, sys := range sortedSystemNames(w) {
 				for _, os := range w.Systems[sys].Statuses {
 					if os.Name == s.Name && os.Prompt != "" {
-						out = append(out, fmt.Sprintf("type %s and system %s both set the %q prompt; the system's replaces the type's (use inject_prompt on an edge in the system instead)", name, sys, s.Name))
+						out = append(out, fmt.Sprintf("type %s and system %s both set the %q prompt; the system's replaces the type's (use prompt_append in the system to add to it instead)", name, sys, s.Name))
 					}
 				}
 			}
@@ -317,14 +331,13 @@ func checkedSection(a WorkflowAction) string {
 	}
 	if a.Section != "" {
 		switch a.Rule {
-		case "has_section", "section_min_length":
+		case "has_section", "section_min_length", "section_min_links":
 			return strings.TrimSpace(a.Section)
 		}
 	}
-	for _, prefix := range []string{"section_checkboxes_checked:", "section_has_checkboxes:", "criteria_checkboxes:"} {
-		if strings.HasPrefix(a.Rule, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(a.Rule, prefix))
-		}
+	switch name, arg := SplitRule(a.Rule); name {
+	case "section_checkboxes_checked", "section_has_checkboxes", "criteria_checkboxes":
+		return arg
 	}
 	return ""
 }

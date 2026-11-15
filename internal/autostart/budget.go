@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
@@ -91,7 +92,7 @@ func WithBudget(dir string, fn func(last *Start) (*Start, error)) error {
 	}
 	started, err := fn(last)
 	if started != nil {
-		if werr := writeJSONFile(dir, lastPath(dir), started); werr != nil && err == nil {
+		if werr := jsonfile.Write(lastPath(dir), started, 0o600); werr != nil && err == nil {
 			err = werr
 		}
 	}

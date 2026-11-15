@@ -1,5 +1,5 @@
 id: decision-ledger
-version: v0.60.1
+version: v0.61.0
 category: gates
 propose: true
 templates: [development]
@@ -10,7 +10,7 @@ what: |
   every hard decision in force for the issue at its status (`issue-cli decisions --in-force
   <slug>`, the Decisions in force block) by its ref, or sets one aside with a line
   `n/a <ref>: <why>`; soft decisions and the issue's own never hold it, and a bare `n/a <ref>`
-  does. `citations_current`: no ref the body cites (outside its own `## Decisions` and
+  does. A shorthand `#D-n` on the same line as a full ref is that issue's D-n. `citations_current`: no ref the body cites (outside its own `## Decisions` and
   `(replaces …)`) is replaced or expired; the refusal names the replacer. Each refusal prints
   the ref, its text and the fix. Both take `since <date>` so issues filed earlier pass. Under
   YOLO a hold passes and leaves a `yolo-hold:` comment, listed in the review after the fact.

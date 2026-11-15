@@ -1,0 +1,2 @@
+{"version": "1.0", "project_id": "approved", "pipeline_type": "short-explainer", "stage": "brief", "status": "completed",
+ "timestamp": "2026-11-01T10:05:00Z", "artifacts": {"brief_doc": "artifacts/brief.json"}}

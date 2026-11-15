@@ -1,0 +1,31 @@
+# Connect socials: Marketing has its social connector (Postiz, per run) and
+# one check on file: LinkedIn connected, X expired. The key and every
+# network value are keychain: references nobody sets on this machine, so the
+# page reads "missing" / "not set" and no real credential is ever needed.
+# per_run's commands start nothing: the session only reads the page, which
+# never starts the tool.
+title: Marketing's Connect socials page with one check on file
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and socials
+        systems: [Social]
+        connectors:
+          - name: social
+            kind: mcp
+            url: http://127.0.0.1:47907/api/mcp
+            headers:
+              Authorization: "Bearer keychain:playtest-postiz-never-set"
+            sends: true
+            per_run:
+              tool: postiz
+              start: "true"
+              ready: "false"
+              stop: "true"
+              timeout: 5
+issues: tracker
+workflow: workflow.yaml

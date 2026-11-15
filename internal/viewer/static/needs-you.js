@@ -5,7 +5,8 @@
 // a failed row says why and the others still go through. A clarify option
 // answers its question (…/issue/<slug>/clarify, the Station's route), Reply
 // posts the owner's comment under an open question, and Agree settles a
-// YOLO entry (…/yolo/review). Each route keeps its own owner check.
+// YOLO entry (…/yolo/review), and Approve / Send back answers a partner's
+// stage (…/issue/<slug>/partner). Each route keeps its own owner check.
 (function () {
     'use strict';
     var dialog = document.querySelector('[data-ny-dialog]');
@@ -184,6 +185,29 @@
             row.classList.add('wb-ny-row--done');
         }).catch(function (err) {
             say(row, (act === 'renew' ? 'Not renewed: ' : 'Not let go: ') + err.message, false);
+            buttons.forEach(function (b) { b.disabled = false; });
+        });
+    });
+
+    // A partner's stage awaiting the owner: Approve or Send back (words
+    // needed), each a D-n on the issue (…/issue/<slug>/partner, owner-only).
+    document.addEventListener('submit', function (e) {
+        var form = e.target.closest('[data-ny-partner]');
+        if (!form) { return; }
+        e.preventDefault();
+        var row = rowOf(form);
+        var act = (e.submitter && e.submitter.value) || 'approve';
+        var words = form.querySelector('[data-ny-partner-text]').value.trim();
+        if (act === 'send-back' && !words) { say(row, 'Say what to revise first: your words reach the agent.', false); return; }
+        var buttons = form.querySelectorAll('button');
+        buttons.forEach(function (b) { b.disabled = true; });
+        say(row, act === 'approve' ? 'Approving…' : 'Sending back…', true);
+        postJSON(form.dataset.nyPartner, { action: act, stage: form.dataset.stage, words: words, from: 'needs-you' }).then(function (res) {
+            say(row, (act === 'approve' ? 'Approved ' : 'Sent back ') + res.stage + ' as ' + res.decision + (res.notified_session ? ', the worker is told ✓' : ' ✓ (' + res.notification_error + ')'), true);
+            form.hidden = true;
+            row.classList.add('wb-ny-row--done');
+        }).catch(function (err) {
+            say(row, (act === 'approve' ? 'Not approved: ' : 'Not sent back: ') + err.message, false);
             buttons.forEach(function (b) { b.disabled = false; });
         });
     });

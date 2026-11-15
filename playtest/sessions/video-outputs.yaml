@@ -1,0 +1,63 @@
+session: video-outputs
+issue: ui/video-outputs-on-the-shelf-kind-video-a-player-in-the-shelf-reader-and-station-size-limit-first-frame-thumbnail
+title: Video outputs - an mp4 on the shelf plays in the reader and on the Station
+scenario: shelf
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # The Station's stamp card has no rule at phone width (as in the other Station sessions).
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: An mp4 output plays in the shelf reader
+    proves: [AC1]
+    setup:
+      # out/draft.mp4: a 3 s, 320x180 H.264 test pattern (7.6 KB), made once with ffmpeg's testsrc.
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Draft: What is Acme", --kind, video, --file, out/draft.mp4]
+      - open: /p/acme/shelf
+    act:
+      - click: shelf.title
+      - wait_for: { media: { target: odoc.player, state: loaded }, ms: 8000 }
+      - click: shelf.video
+      - wait_for: { media: { target: odoc.player, state: playing }, ms: 8000 }
+    checks:
+      - media: { target: odoc.player, state: playing }
+      - text_contains: { target: odoc.vidinfo, text: "video/mp4" }
+      - exists: odoc.approve
+      - absent: odoc.toc
+      - absent: odoc.sheet
+      - size: { target: shelf.video, min_width: 300 }
+      - inside: { target: odoc.player, within: odoc.reader }
+    do: |
+      1. Open the video from the shelf, press play, seek to the middle.
+    expect: |
+      The reader shows the player where the document would be, with the
+      poster before play (when ffmpeg made one); it plays and seeks without
+      a reload. The margin says "On the whole video".
+    targets:
+      - { id: odoc.player, note: "The reader's player" }
+
+  - id: TP5
+    title: The Station's Outputs block plays the same video
+    proves: [AC1]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Draft: What is Acme", --kind, video, --file, out/draft.mp4]
+      - open: /p/acme/issue/seo/weekly-seo-pass
+    act:
+      - wait_for: { media: { target: station.video, state: loaded }, ms: 8000 }
+      - click: shelf.video
+      - wait_for: { media: { target: station.video, state: playing }, ms: 8000 }
+    checks:
+      - media: { target: station.video, state: playing }
+      - text_contains: { target: station.outputs, text: "Draft: What is Acme" }
+      - inside: { target: station.video, within: station.outputs }
+    do: |
+      1. Open the issue's Station and play the video in its Outputs block.
+    expect: |
+      Under the video's row sits the player, as wide as the panel allows
+      (520 px at most); it plays in place.
+    targets:
+      - { id: station.video, note: "The Station's player" }

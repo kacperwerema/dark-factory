@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -49,7 +50,7 @@ func ciReporter(ctx *Context, proj *tracker.Project, wf *tracker.WorkflowConfig,
 						issues, _ = tracker.LoadIssues(proj.IssueDir)
 					}
 				} else {
-					ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s, now failing `%s`%s. Log: %s", branch, ci.Short(run.Sha), run.Failed, failuresNote(run.Failures), run.Log))
+					ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s, now failing `%s`%s. Log: %s", branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures), run.Log))
 				}
 			}
 			text := tracker.InjectProject(proj, redComment(run, next))
@@ -58,11 +59,11 @@ func ciReporter(ctx *Context, proj *tracker.Project, wf *tracker.WorkflowConfig,
 			}
 		case run.State == ci.Red:
 			if next.RedIssue != "" {
-				ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s (`%s`). Log: %s", branch, ci.Short(run.Sha), run.Failed, run.Log))
+				ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s (`%s`). Log: %s", branch, gitdir.ShortSHA(run.Sha), run.Failed, run.Log))
 			}
 		case run.State == ci.Green && prevState == ci.Red:
 			if prev.RedIssue != "" {
-				ciComment(ctx, issues, prev.RedIssue, fmt.Sprintf("ci: %s green again at %s. Close this issue once its fix has shipped.", branch, ci.Short(run.Sha)))
+				ciComment(ctx, issues, prev.RedIssue, fmt.Sprintf("ci: %s green again at %s. Close this issue once its fix has shipped.", branch, gitdir.ShortSHA(run.Sha)))
 			}
 		}
 	}
@@ -78,12 +79,12 @@ func failuresNote(names []string) string {
 // redComment is the ci: comment on an issue merged since the last green run.
 func redComment(run *ci.Run, st *ci.State) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ci: local CI red on %s at %s: `%s` failed%s. ", run.Branch, ci.Short(run.Sha), run.Failed, failuresNote(run.Failures))
+	fmt.Fprintf(&b, "ci: local CI red on %s at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures))
 	var landed []string
 	for _, m := range st.Merged {
 		landed = append(landed, mergedLabel(m))
 	}
-	fmt.Fprintf(&b, "Landed since the last green run (%s): %s", ci.Short(st.GreenSha), strings.Join(landed, ", "))
+	fmt.Fprintf(&b, "Landed since the last green run (%s): %s", gitdir.ShortSHA(st.GreenSha), strings.Join(landed, ", "))
 	fmt.Fprintf(&b, ". Log: %s. The CEO decides whether to revert, fix forward or dispatch a fix", run.Log)
 	if st.RedIssue != "" {
 		fmt.Fprintf(&b, "; tracked in %s", st.RedIssue)
@@ -110,7 +111,7 @@ func fileRedIssue(ctx *Context, proj *tracker.Project, issues []*tracker.Issue, 
 	if len(cmdName) > 60 {
 		cmdName = cmdName[:60]
 	}
-	title := fmt.Sprintf("Fix red CI on %s at %s: %s", run.Branch, ci.Short(run.Sha), cmdName)
+	title := fmt.Sprintf("Fix red CI on %s at %s: %s", run.Branch, gitdir.ShortSHA(run.Sha), cmdName)
 	system := ""
 	for _, slug := range st.Blamed {
 		if issue := tracker.FindIssue(issues, slug); issue != nil && issue.System != "" {
@@ -143,9 +144,9 @@ func fileRedIssue(ctx *Context, proj *tracker.Project, issues []*tracker.Issue, 
 		return "", fmt.Errorf("created %q but cannot find it as %s", title, slug)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ci: filed by local CI. %s went red at %s: `%s` failed%s. ", run.Branch, ci.Short(run.Sha), run.Failed, failuresNote(run.Failures))
+	fmt.Fprintf(&b, "ci: filed by local CI. %s went red at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures))
 	if st.GreenSha != "" {
-		fmt.Fprintf(&b, "Range: %s..%s. ", ci.Short(st.GreenSha), ci.Short(run.Sha))
+		fmt.Fprintf(&b, "Range: %s..%s. ", gitdir.ShortSHA(st.GreenSha), gitdir.ShortSHA(run.Sha))
 	}
 	if len(st.Merged) > 0 {
 		var landed []string

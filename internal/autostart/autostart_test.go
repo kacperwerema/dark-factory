@@ -1,9 +1,6 @@
 package autostart
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -130,30 +127,5 @@ func TestWithBudget_OneStartAtATime(t *testing.T) {
 	last, err := LastStart(dir)
 	if err != nil || last == nil || last.Memory != 10 {
 		t.Fatalf("last = %+v, %v", last, err)
-	}
-}
-
-func fakeMemGuard(t *testing.T, used string, checkExit int) {
-	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\ncase \"$1\" in\n  used) echo " + used + " ;;\n  check) echo 'BLOCKED: memory used " + used + "%'; exit " + strconv.Itoa(checkExit) + " ;;\nesac\n"
-	if err := os.WriteFile(filepath.Join(dir, "mem-guard"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-}
-
-func TestReadMemGuard(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if m := readMemGuard(); m.Found {
-		t.Fatalf("no mem-guard on PATH: %+v", m)
-	}
-	fakeMemGuard(t, "31", 0)
-	if m := readMemGuard(); !m.Found || m.Used != 31 || !m.CanStart {
-		t.Fatalf("mem-guard 31%%, check ok: %+v", m)
-	}
-	fakeMemGuard(t, "80", 1)
-	if m := readMemGuard(); !m.Found || m.Used != 80 || m.CanStart || m.Note != "BLOCKED: memory used 80%" {
-		t.Fatalf("mem-guard 80%%, check refuses: %+v", m)
 	}
 }

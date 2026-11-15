@@ -225,7 +225,7 @@ func yourWords(in issueTabInput) *briefWords {
 		}
 	}
 	if in.Parent != nil {
-		if w := ownerQuote(tracker.ParseDecisions(in.Parent.Slug, in.Parent.BodyRaw), "epic "); w != nil {
+		if w := ownerQuote(in.Parent.Decisions(), "epic "); w != nil {
 			w.Href = in.Prefix + "/issue/" + in.Parent.Slug
 			return w
 		}
@@ -290,7 +290,7 @@ func issuePath(wf *tracker.WorkflowConfig, issue *tracker.Issue, tl Timeline) []
 	}
 	steps := make([]pathStep, 0, len(order))
 	for i, s := range order {
-		st := pathStep{Status: s, State: "next", Dur: durs[s], Playtest: strings.EqualFold(s, "human-testing")}
+		st := pathStep{Status: s, State: "next", Dur: durs[s], Playtest: wf.HasRole(s, tracker.StatusRoleOwnerTest)}
 		switch {
 		case cur >= 0 && i < cur:
 			st.State = "done"
@@ -599,7 +599,7 @@ func needsYouFor(in issueTabInput, t IssueTab) needsYou {
 	a, issue := in.Att, in.Issue
 	n := needsYou{Since: a.Since, Approx: a.SinceApprox, Wait: shortDuration(in.Now.Sub(a.Since))}
 	gate := a.Gate != nil && a.Gate.Ready
-	targets := gateTargets(in.Targets, a)
+	targets := gateTargets(in.WF, in.Targets, a)
 
 	var kinds []string
 	if a.OpenQuestion {
@@ -636,7 +636,7 @@ func needsYouFor(in issueTabInput, t IssueTab) needsYou {
 		n.AskedAt, _ = tracker.CommentTime(last.Date)
 	case len(kinds) > 0 && kinds[0] == "gate":
 		n.State, n.Targets = "gate", targets
-		n.Title = gateTitle(issue.Status, targets)
+		n.Title = gateTitle(in.WF, issue.Status, targets)
 		n.Text = gateCheck(t)
 		n.Command = `issue-cli approve ` + issue.Slug + ` --to "` + targets[0] + `" --quote "…"`
 	case len(kinds) > 0 && kinds[0] == "playtest":
@@ -665,13 +665,13 @@ func needsYouFor(in issueTabInput, t IssueTab) needsYou {
 // gateTargets orders the approve buttons: the required path first, a
 // handoff status (backlog) last; the attention's own gate when the status
 // has no listed approvals.
-func gateTargets(targets []string, a Attention) []string {
+func gateTargets(wf *tracker.WorkflowConfig, targets []string, a Attention) []string {
 	out := append([]string(nil), targets...)
 	if len(out) == 0 && a.Gate != nil {
 		out = []string{a.Gate.Target}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		return !tracker.IsHandoffStatus(out[i]) && tracker.IsHandoffStatus(out[j])
+		return !wf.IsHandoffStatus(out[i]) && wf.IsHandoffStatus(out[j])
 	})
 	return out
 }
@@ -688,12 +688,12 @@ var gateNoun = map[string]string{
 	"shipping":      "the release",
 }
 
-func gateTitle(status string, targets []string) string {
+func gateTitle(wf *tracker.WorkflowConfig, status string, targets []string) string {
 	noun := gateNoun[strings.ToLower(status)]
 	if noun == "" {
 		noun = status
 	}
-	if len(targets) == 2 && tracker.IsHandoffStatus(targets[1]) {
+	if len(targets) == 2 && wf.IsHandoffStatus(targets[1]) {
 		return "Approve " + noun + ": start it now, or queue it in " + targets[1] + "."
 	}
 	return "Approve " + noun + ": move it to " + strings.Join(targets, " or ") + "."
@@ -725,7 +725,7 @@ func quietState(n *needsYou, in issueTabInput) {
 		n.State, n.Label, n.Title, n.Text = "parked", "Parked", "Nobody is on it.", a.ParkReason
 		n.Meta = "since " + a.Since.Local().Format("2 Jan")
 		return
-	case strings.EqualFold(issue.Status, "done"):
+	case in.WF.IsLastStatus(issue.Status):
 		n.State, n.Label, n.Title = "done", "Done", "Nothing needs you."
 		n.Text = "Done " + a.Since.Local().Format("2 Jan 15:04") + "."
 		n.Meta = ""
@@ -754,7 +754,7 @@ func quietState(n *needsYou, in issueTabInput) {
 	case f != nil:
 		n.State, n.Label, n.Title = "stopped", "Nobody on it", "Nothing needs you. The agent stopped."
 		n.Text = joinSentences(note, "Its tmux session is not running; dispatch it again from the side column.")
-	case tracker.IsHandoffStatus(issue.Status):
+	case in.WF.IsHandoffStatus(issue.Status):
 		n.State, n.Label, n.Title = "queued", "Queued", "Nobody is on it yet."
 		n.Text = joinSentences(note, "Queued in "+issue.Status+".")
 	default:

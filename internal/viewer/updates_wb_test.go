@@ -106,8 +106,9 @@ func TestUpdatesWbFormsPostToTheEndpoints(t *testing.T) {
                 <input type="hidden" name="id" value="ci-test-results">`,
 		`name="words" rows="2" data-testid="upd.card.ci-test-results.words"`,
 		`data-testid="upd.card.ci-test-results.start"`,
+		// Decline sits inside the card's Details (one primary action per card).
 		`<form method="post" action="/p/test-project/updates/decline" class="upd-decline">
-            <input type="hidden" name="id" value="ci-test-results">`,
+                    <input type="hidden" name="id" value="ci-test-results">`,
 		`<form method="post" action="/p/test-project/updates/reopen">
             <input type="hidden" name="id" value="scoring">`,
 		"Which CI commands write test results",
@@ -150,11 +151,7 @@ func TestUpdatesWbShowsARunningInstall(t *testing.T) {
 	proj := updatesProject(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
-	orig := agentSessionLive
-	agentSessionLive = func(_ *tracker.Project, name string) bool {
-		return name == "agent-test-project-install-status-changelog"
-	}
-	t.Cleanup(func() { agentSessionLive = orig })
+	withMockTmuxSessions(t, []AgentSession{{Name: "agent-other"}, {Name: "agent-test-project-install-status-changelog"}})
 
 	_, body := getBody(t, ts.URL+"/p/test-project/updates")
 	if !strings.Contains(body, `data-testid="upd.card.status-changelog.installing"`) || !strings.Contains(body, `data-testid="upd.card.status-changelog.session"`) {
@@ -305,7 +302,7 @@ func TestUpdatesWbOffersDepartmentTemplates(t *testing.T) {
 		`data-testid="upd.departments"`,
 		"Departments you can add",
 		`data-testid="upd.dept.marketing"`,
-		"workflow: marketing · 2 goals · role prompt",
+		"workflow: marketing · 3 goals · role prompt",
 		`style="background: #E2559B"`,
 		"SEO and content: refreshed pages and posts on your site(s)",
 		`data-testid="upd.dept.marketing.command">issue-cli --project test-project department add marketing</code>`,

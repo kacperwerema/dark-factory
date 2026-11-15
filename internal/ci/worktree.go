@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // prepareWorktree puts the CI worktree on sha. It is created once and then
@@ -47,7 +49,7 @@ func isWorktree(path string) bool {
 // next run creates it again. It refuses while a run is in progress.
 func ResetWorktree(root string) error {
 	if l, alive := ReadLock(root); alive {
-		return fmt.Errorf("%w at %s (pid %d); wait for it or stop it first", ErrBusy, Short(l.Sha), l.PID)
+		return fmt.Errorf("%w at %s (pid %d); wait for it or stop it first", ErrBusy, gitdir.ShortSHA(l.Sha), l.PID)
 	}
 	path := WorktreePath(root)
 	_, _ = git(root, "worktree", "remove", "--force", path)

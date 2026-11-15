@@ -163,13 +163,13 @@ func (h *HealthConfig) FamilyTimeout() time.Duration {
 	return healthDefaultTimeout
 }
 
-// healthDefaultShrinkDays is how long after done shots stay full size.
-const healthDefaultShrinkDays = 30
+// HealthDefaultShrinkDays is how long after done shots stay full size.
+const HealthDefaultShrinkDays = 30
 
 // ShrinkShotsAfter is how long after done an issue's playtest shots are
 // shrunk; ok is false when shrinking is off (0) or the value is negative.
 func (h *HealthConfig) ShrinkShotsAfter() (time.Duration, bool) {
-	days := healthDefaultShrinkDays
+	days := HealthDefaultShrinkDays
 	if h != nil && h.ShrinkShotsAfterDays != nil {
 		days = *h.ShrinkShotsAfterDays
 	}

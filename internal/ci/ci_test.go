@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -120,7 +121,7 @@ func TestExecuteRedStopsAtFirstFailureAndPullsTestNames(t *testing.T) {
 	if st.State != Red || st.RedSince != r.Sha || st.Failed != c.Cmd || len(st.LogTail) == 0 {
 		t.Errorf("state = %+v", st)
 	}
-	if line := OneLine(st, nil, false, "", time.Now()); !strings.Contains(line, "main red since "+Short(r.Sha)) || !strings.Contains(line, "TestA, TestB") {
+	if line := OneLine(st, nil, false, "", time.Now()); !strings.Contains(line, "main red since "+gitdir.ShortSHA(r.Sha)) || !strings.Contains(line, "TestA, TestB") {
 		t.Errorf("OneLine = %q", line)
 	}
 }
@@ -296,9 +297,9 @@ func TestBlame(t *testing.T) {
 	got := blame(root, "main", green, head, issues)
 	var names []string
 	for _, m := range got {
-		names = append(names, m.Branch+"|"+m.Slug+"|"+Short(m.Sha))
+		names = append(names, m.Branch+"|"+m.Slug+"|"+gitdir.ShortSHA(m.Sha))
 	}
-	want := []string{"work/ui/a|ui/a|" + Short(a), "feature-y||", "||" + Short(direct)}
+	want := []string{"work/ui/a|ui/a|" + gitdir.ShortSHA(a), "feature-y||", "||" + gitdir.ShortSHA(direct)}
 	if len(got) != 3 || names[0] != want[0] || !strings.HasPrefix(names[1], "feature-y||") || names[2] != want[2] {
 		t.Fatalf("blame = %v, want like %v", names, want)
 	}

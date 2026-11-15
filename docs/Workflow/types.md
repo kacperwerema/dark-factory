@@ -96,8 +96,9 @@ can then move to any status on its path. `show`, `start` and `transition` print 
 ### Combining with system overlays
 
 The order is base → type → system, so a system's status `prompt` replaces the type's prompt for that status (the
-`Merge` rules as they are today). Systems that add guidance should use `inject_prompt` on an edge, which appends.
-The lint flags a status prompt that both a type and a system set.
+`Merge` rules as they are today). Systems that add guidance should use `prompt_append:` on the status, which keeps the
+type's prompt and adds their lines after it (or `inject_prompt` on an edge, for guidance about that one move).
+The lint flags a status prompt that both a type and a system set, and names `prompt_append`.
 
 ### Lint
 
@@ -164,6 +165,7 @@ wrote N/A into every testing box.
   (they read the docs); appends `## Shipping`.
 - No Test Plan, so no playtest, check-script or ux-test boxes. If the work needs code, the agent says the type should
   become tweak or feature.
+- Lint check `types` warns on an open docs issue whose `## Wanted` or open criterion names a test, a package or a `.go` path: that work needs a type with a Test Plan.
 - Catalog entry `docs-type` (requires `types-of-work`).
 
 Other changes that don't fit a testing box keep their type and tick the box with a named N/A form
@@ -193,9 +195,16 @@ write from its worktree. The `report` type in the bundled `development` template
   worker's).
 - `has_output` failing prints the `output add` command; `show`, `start` and `transition` print the shelf hint for an
   issue whose path gates on it. Lint check `reports` warns on an issue past the gate whose report is gone (never added,
-  file deleted, or rejected and not replaced).
+  file deleted, or rejected and not replaced), and on a done report whose Follow-ups list no issue or queue item quotes:
+  a follow-up with no home ([what counts as quoting](../workbench-files.md)), once per issue however many outputs it
+  has. A follow-up that is the owner's call ends `(owner)`, or sits under a sub-heading or lead-in line naming the owner
+  ("Owner actions:"); the check leaves those out and counts only the engine and docs work.
 - Catalog entry `report-type` (requires `types-of-work`). When the lead files an issue it picks the type
   ([which type to file](../patterns/lead-session.md#which-type-to-file)).
+
+## The `chore` type
+
+A recurring job's housekeeping: no code, no commit, nothing for the owner to review. A `chore` walks idea → in progress → done with one Chore box and a `progress:` comment, no approval, and its close starts no post-mortem. It exists because a nightly job on the `report` path waits on the owner every night: its run holds the next one (`job due`: "last run … is still in …") unless the job sets `overlap: true`, and either way adds a Needs you row. A bundled brief asks for it through `builtinTypes` (`internal/jobs/builtin.go`); `builtin:lead-flush` does. A workflow without the type refuses the run and names the upgrade.
 
 ## Slices
 

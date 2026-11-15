@@ -34,8 +34,8 @@ While YOLO is on, `issue-cli transition` (and `issue-cli start` on a backlog or 
 
 - the step is forward along the issue's path (not backwards);
 - the target status is not optional (diverting to `parked` still needs the owner);
-- the approval is not Human Testing's own (`approve --to human-testing` keeps refusing);
 - the issue is not labelled `experiment`: an experiment's change is adopted by the owner, so every gate of it waits (the refusal and `transition --dry-run` say so; see [Experiments](../workflow-stats.md#experiments));
+- the issue is not labelled `design-first` while the gate leaves the status with the `design` [role](overview.md#status-roles-role) (`in design → backlog` in the bundled workflow): the owner looks at the design before the build, so that one gate waits and the issue is in Needs you; its later gates pass as usual, and on a path with no design status the label holds nothing;
 - the gate is not `owner_only` (see [Gates YOLO never passes](#gates-yolo-never-passes));
 - nothing else is missing: every checkbox, proof, field and shell gate still applies.
 
@@ -47,9 +47,11 @@ approval: "YOLO" (yolo · agent-shop · from in design, 2026-10-29) → backlog
 
 Stats, the Timeline and the Evidence tab read it as an approval. The rest of the run is unchanged.
 
+The Human Testing approval passes too, like any gate, whatever the status holding the `owner-test` [role](overview.md#status-roles-role) is called, and waits for the owner's review after the fact (the owner's decision, D-1 of `cli/under-yolo-transition-human-testing-documentation-dry-run-says-ready-the`). Only YOLO passes it: `approve --to human-testing` from the CEO still refuses.
+
 At `human-testing → documentation` the worker runs the guided checks and playtests itself (`issue-cli check-script <slug> --yes`, `make ux-test ISSUE=<slug>`) and leaves the evidence; the `YOLO:` line in `start` and `show` says so.
 
-These still wait for the owner: `owner_only` gates, `release publish` (unless unlocked), merging and pushing rules the lead holds, and anything the lead's brief reserves.
+These still wait for the owner: the gates listed under [Gates YOLO never passes](#gates-yolo-never-passes), merging and pushing rules the lead holds, and anything the lead's brief reserves.
 
 ## Gates YOLO never passes
 
@@ -72,12 +74,15 @@ transitions:
 
 The gates YOLO never passes, listed by `issue-cli yolo status` (`never_passes` in `--json`), `yolo on`, the turn-on dialog ("Yours even in YOLO"), the sidebar and hazard bands ("never passes: N", the list on hover) and `yolo.json`:
 
-- each `owner_only` gate on the paths of Product's workflow and of every department with its own file, with the types that walk it when not all do;
-- the Human Testing approval;
-- every gate of an issue labelled `experiment`;
-- `release publish`, while releases are locked (the default; `yolo on --allow-releases` unlocks them for the window, and the valves line says so).
+- owner_only: spends money or publishes outside the machine. Each such gate on the paths of Product's workflow and of every department with its own file, with the types that walk it when not all do;
+- a gate into an optional status: a side step the owner chooses. Listed when a path has one, such as an approval on the way into `parked`;
+- every gate of an issue labelled experiment: the owner adopts experiments;
+- the design gate of an issue labelled design-first: the owner looks at the design before the build;
+- release publish: external releases wait for the owner. Listed while releases are locked (the default; `yolo on --allow-releases` unlocks them for the window, and the valves line says so).
 
-The bundled `content` and `marketing` templates have `owner_only` on `owner review → publish`: every marketing channel (piece, seo-pass, and the ppc / social / cold-outreach slots once uncommented) launches, posts or sends in `publish`. A project on an older copy gets it from `issue-cli workflow upgrade` (catalog entry `owner-only-gates`).
+One rule decides a step: `yolo.Eligible`, which the transition asks. `yolo on` and the turn-on dialog list what passes by asking it for each step on each type's path (`yolo.Gates`), so a step that needs an approval is in that list or in this one, never both on one path.
+
+The bundled `content` and `marketing` templates have `owner_only` on `owner review → publish`: every marketing channel (piece, seo-pass, social, and the ppc / cold-outreach slots once uncommented) launches, posts or sends in `publish`. A project on an older copy gets it from `issue-cli workflow upgrade` (catalog entry `owner-only-gates`).
 
 `issue-cli health lint` (check `owner-only`) warns when:
 
@@ -94,8 +99,14 @@ The bundled `content` and `marketing` templates have `owner_only` on `owner revi
 ## How agents find out
 
 - `start`, `show` and `context` print `YOLO: on until 08:00 (…)` next to the Lead line.
-- They also print the YOLO rule, one line: don't ask the owner and don't stop at gates; record your answers with `decide <slug> --provisional`, put what you can't answer in a `question:` comment and go on. It names what still waits for the owner in YOLO: experiments, product-policy rules, and anything that spends money or publishes outside the machine (owner_only gates). `start` and `transition` print it in their guidance block in place of the status and entry guidance sentences that say to ask, clarify with or tell the human, or to stop and end the turn (`tracker.YOLOGuidance`); the other sentences print as written. With YOLO off the guidance is unchanged.
-- The dispatch prompt follows: under YOLO its "stop at every gate" lines, the start / ask / transition steps and the in design / backlog reminders carry the YOLO wording, and its status guidance goes through the same filter with the rule after it.
+- The briefing and `start` print the YOLO rule, one paragraph (`tracker.YOLORule`):
+
+  > YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself: the design's go in its ## Clarify round, each marked assumed (issue-cli clarify <slug> --assume); record any other answer you give yourself with issue-cli decide <slug> --provisional --text "..."; put what you can't answer in a question: comment and go on. Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: experiments, release publish, a gate into an optional status, the design gate of an issue labelled design-first, product-policy rules, and anything that spends money or publishes outside the machine (owner_only gates); for those post a question: comment and stop.
+
+  It reads the same on every path. The Human Testing approval is not in it: YOLO passes that gate too, so a worker doesn't stop at `human-testing`.
+
+  Product-policy rules name no gate: nothing in the code holds them, so a worker judges what counts. `start` and `transition` print it in their guidance block in place of the status and entry guidance sentences that say to ask, clarify with or tell the human, or to stop and end the turn (`tracker.YOLOGuidance`); the other sentences print as written. `show` and `transition` print one line in its place, `YOLO on: the rule is in your briefing.` (`tracker.YOLORulePointer`), so the paragraph prints once a session. With YOLO off the guidance is unchanged.
+- The dispatch prompt follows: under YOLO its "stop at every gate" lines, the start / ask / transition steps (the ask step names the issue's slug, not `<slug>`) and the in design / backlog reminders carry the YOLO wording, and its status guidance goes through the same filter with the rule after it.
 - `transition` prints `YOLO: gate in design → backlog passed without the owner, marked for review after the fact`. Its next step says to run the gated transition instead of stopping.
 - `start` on a backlog issue passes the gate the same way, judging it as already claimed (in design → backlog clears the assignee), and prints the same line under its AUTO-ADVANCED banner.
 - `transition` passes the gate only when the approval is all it still lacks. When something else is open, it refuses with that and not with the approval: after backlog cleared the assignee, `transition --to "in progress"` says `no assignee — re-claim the issue with: issue-cli start <slug>` and `YOLO passes the "in progress" approval once this is done`, and leaves no YOLO approval behind. A gate that YOLO doesn't pass (YOLO off, owner-only) still says `not human-approved`.
@@ -122,8 +133,9 @@ The review unit is the issue. The queue holds one entry per issue (`yolo.Entry`:
 - **Agree** (one per issue) covers every gate still waiting: one `yolo-review: agreed …` comment per gate. The owner checks stay.
 - Each **owner check** is the owner's on its own: **Tick** (`…/owner-checks/tick`, the box is ticked on the issue) or **Agree without it** (the box stays unticked).
 - **Back to <status>** (one per issue, words required) moves the issue once, to the status it left at its latest gate, and settles its gates and owner checks with `yolo-review: back to <status> …`.
+- **Agree all** (the summary, in the owner's signed-in browser only) agrees the whole queue at once, every page of it: gates, assumed answers, decision items and owner checks. A confirm names the counts ("229 issues · 439 gates · 218 owner checks") and the oldest date, with optional words (default "Agree all on the YOLO review page, <date>"). It posts the items the page loaded (`{slug, key, comment}` each) and agrees each key through the same record as the issue's Agree; a key with a waiting pass the page did not show (it came in after the page loaded) is skipped, so is one nothing waits under any more. Owner checks are agreed without a tick: their boxes stay open. The page reloads to what is left with "Agreed N items on M issues ✓ · K skipped".
 
-Every write is the owner's: `yolo/review`, `…/yolo-review` and `owner-checks/tick` are owner-only routes (docs/API/security.md), so an agent, curl or a forged header gets 403. The page is linked from the header's count, the company's "To review after YOLO", Needs you and `issue-cli yolo status` / `yolo queue`.
+Every write is the owner's: `yolo/review`, `yolo/review/all`, `…/yolo-review` and `owner-checks/tick` are owner-only routes (docs/API/security.md), so an agent, curl or a forged header gets 403. The page is linked from the header's count, the company's "To review after YOLO", Needs you and `issue-cli yolo status` / `yolo queue`.
 
 ### Owner checks
 
@@ -157,11 +169,11 @@ An experiment's owner checks still block, like its gates. With YOLO off nothing 
 
 ### Assumed answers
 
-Under YOLO the design's questions are not asked; they are answered. When a YOLO gate passes on an issue whose `## Clarify` still has open answers, `transition` marks each one `assumed — YOLO: took the recommendation` and prints `YOLO: clarify Q1, Q2 assumed`. This replaces `decide --provisional` lines and `question:` comments for those questions ([The clarify round](../workflow.md#the-clarify-round)).
+Under YOLO the design's questions are not asked; they are answered. When a YOLO gate passes on an issue whose `## Clarify` still has open answers, `transition` marks each one `assumed — YOLO: took the recommendation (D-k)`, records D-k as a provisional decision naming the question, and prints `YOLO: clarify Q1 (D-3), Q2 (D-4) assumed`. This replaces `decide --provisional` lines and `question:` comments for those questions ([The clarify round](../workflow.md#the-clarify-round)).
 
 Each assumed answer on an issue that has a YOLO pass joins that issue's entry (`yolo.Entry.Questions`, "1 gate, 2 assumed answers"). It is listed on the review page (with a link to the Station's Clarify card) and under Passed in YOLO on the Station. It leaves the queue in either of two ways:
 
-- **The owner answers it** in the Clarify form. The assumed line becomes the owner's answer and a D-n decision.
+- **The owner answers it** in the Clarify form. The assumed line becomes the owner's answer and a D-n decision that replaces the assumption's provisional one.
 - **The owner reviews it**: the issue's Agree covers its gates and its assumed answers together (one `yolo-review: agreed … → Q2` per answer), and Back to settles them with the gates.
 
 An assumed answer is never counted twice: while the review holds it, it is not a Needs you Clarify row. An assumed answer on an issue that YOLO never passed waits on Needs you like an open one.
@@ -189,5 +201,6 @@ Yellow-black stripes mean YOLO only; orange stays the owner's colour.
 - `POST /p/<project>/yolo/on` `{until, words, ci_valve, releases}`, `/yolo/extend` `{until}`, `/yolo/off` `{reason}`.
 - `POST /p/<project>/issue/<slug>/yolo-review` `{status, verdict: agree|back, words}`.
 - `GET /p/<project>/yolo/review[?page=N]`: the review page; `POST /p/<project>/yolo/review` `{slug, verdict: agree|back, words}`: the owner's verdict on one issue's entry, answers `{ok, verdict, settled, checks_left, to}`.
+- `POST /p/<project>/yolo/review/all` `{items: [{slug, key, comment}], words}`: Agree all over the items the page loaded, answers `{ok, agreed, issues, skipped: [{slug, key, why}]}`; an empty list is 400.
 
 All writes go through the usual same-origin check.

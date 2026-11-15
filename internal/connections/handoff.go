@@ -169,7 +169,7 @@ func declineReason(comments []tracker.Comment) (string, bool) {
 // routes count). "" once forwarded, for a straight route, or when closed.
 func HandoffWaiting(p *tracker.Project, issue *tracker.Issue, comments []tracker.Comment) string {
 	via := handoffVia(issue)
-	if via == "" || closed(issue) {
+	if via == "" || p.IssueClosed(issue) {
 		return ""
 	}
 	if relayedBy(comments, RelayLead(p, via)) {
@@ -180,8 +180,10 @@ func HandoffWaiting(p *tracker.Project, issue *tracker.Issue, comments []tracker
 
 // done reports whether a closed issue finished rather than was parked.
 func done(issue *tracker.Issue) bool {
-	s := strings.ToLower(strings.TrimSpace(issue.Status))
-	return s == "done" || (s != "parked" && strings.TrimSpace(issue.DoneAt) != "")
+	if tracker.IsParkedStatus(issue.Status) {
+		return false
+	}
+	return tracker.IsClosedStatus(nil, issue.Status) || strings.TrimSpace(issue.DoneAt) != ""
 }
 
 // HandoffOf is issue's handoff with its state; ok false when it isn't one.
@@ -196,7 +198,7 @@ func HandoffOf(p *tracker.Project, issue *tracker.Issue, comments []tracker.Comm
 		For: strings.TrimSpace(issue.Field(HandoffForField)),
 	}
 	switch {
-	case !closed(issue):
+	case !p.IssueClosed(issue):
 		if via := HandoffWaiting(p, issue, comments); via != "" {
 			h.State, h.Word = StateWaiting, "waiting on "+BoxName(p, via)+" to forward"
 		} else {
@@ -228,7 +230,7 @@ func ListHandoffs(p *tracker.Project, issues []*tracker.Issue, comments func(*tr
 		if !IsHandoff(issue) {
 			continue
 		}
-		if closed(issue) && !recent(issue, now) {
+		if p.IssueClosed(issue) && !recent(issue, now) {
 			continue
 		}
 		var cs []tracker.Comment

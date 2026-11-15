@@ -7,7 +7,7 @@
 <div class="wb-scroll">
 <main class="wb-crewall" data-testid="crew_all.page">
     <section class="wb-crewall-hero" aria-label="Crew across projects">
-        <h1 class="wb-h1 wb-h1--big">Crew</h1>
+        <h1 class="wb-h1 wb-h1--big" data-testid="wb.title">Crew</h1>
         <div class="wb-crewall-sub">Every project's leads and workers · <span data-checked="{{.Checked}}" data-testid="crew_all.live">live · tmux checked just now</span></div>
         <div class="wb-crewall-machine" data-testid="crew_all.machine">
             {{range .Machine.Chips}}{{template "wb/chip" .}}{{end}}

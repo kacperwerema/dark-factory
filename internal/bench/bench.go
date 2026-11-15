@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
 )
 
 // Budget caps a run. Zero fields are no cap.
@@ -35,7 +37,7 @@ type Budget struct {
 	// Tokens is the run's cap on input+output+cache tokens; unset, the cap
 	// is DefaultTaskTokens per task (TokenCap).
 	Tokens int64 `yaml:"tokens,omitempty" json:"tokens,omitempty"`
-	// USD is the run's cap on cost (from Prices).
+	// USD is the run's cap on cost (priced by Cost).
 	USD float64 `yaml:"usd,omitempty" json:"usd,omitempty"`
 	// Wall is the run's cap on wall time ("6h").
 	Wall string `yaml:"wall,omitempty" json:"wall,omitempty"`
@@ -122,6 +124,12 @@ type Task struct {
 	// (ReferencePath).
 	Output    string `yaml:"output,omitempty"`
 	Reference string `yaml:"reference,omitempty"`
+	// Stages are the task's references per stage (StageReferences): the
+	// design, the code (the hidden tests above) and the docs. Nil on a task
+	// added before them.
+	Stages *Stages `yaml:"stages,omitempty"`
+	// DocsFiles are the docs the branch changed, the docs stage's reference.
+	DocsFiles []string `yaml:"docs_files,omitempty"`
 }
 
 // ProductWorkflow is the box key of Product's workflow file.
@@ -140,12 +148,17 @@ func (t Task) ID() string { return t.Project + "/" + t.Slug }
 
 // Benchmark is <config>/bench/<name>.yaml.
 type Benchmark struct {
-	Name   string           `yaml:"name"`
-	Budget Budget           `yaml:"budget,omitempty"`
+	Name   string `yaml:"name"`
+	Budget Budget `yaml:"budget,omitempty"`
+	// Prices fill models prices.yaml doesn't name, in spend.LoadPrices; a run
+	// holds that whole table here, so bench and spend cost a model the same.
 	Prices map[string]Price `yaml:"prices,omitempty"`
 	// Worker is the command a task's worker runs, the prompt on stdin, in
 	// the task's checkout; default DefaultWorker.
 	Worker string `yaml:"worker,omitempty"`
+	// Workers name the command per agent for bench run --agents, over
+	// Worker and the default for that agent (WorkerFor).
+	Workers map[string]string `yaml:"workers,omitempty"`
 	// Judge is the command that scores a finished task 0-5, the judge
 	// prompt on stdin; empty: no judge score.
 	Judge string `yaml:"judge,omitempty"`
@@ -173,6 +186,31 @@ type Benchmark struct {
 // the worker runs as the owner on this machine, which is why only the owner
 // starts a run.
 const DefaultWorker = "claude -p --output-format json --permission-mode bypassPermissions --disallowedTools SendMessage,ListAgents"
+
+// DefaultCodexWorker runs Codex headless with the prompt on stdin. Its own
+// sandbox lets it write the task's sandbox folder (tracker, worktree, git
+// dir, state: BENCH_SANDBOX) and the Go build cache (BENCH_GOCACHE), which
+// the worker's environment sets, and nothing else; never Codex's bypass flag.
+// Its usage comes from the session's rollout file (ReadCodexSessions).
+const DefaultCodexWorker = `codex exec --sandbox workspace-write --skip-git-repo-check --add-dir "$BENCH_SANDBOX" --add-dir "$BENCH_GOCACHE" -`
+
+// WorkerFor is the worker command for agent: workers: names it, else
+// worker: when that runs this agent, else the agent's default.
+func (b *Benchmark) WorkerFor(agent string) (string, error) {
+	if w := strings.TrimSpace(b.Workers[agent]); w != "" {
+		return w, nil
+	}
+	if WorkerAgent(b.Worker) == agent {
+		return b.Worker, nil
+	}
+	switch agent {
+	case AgentClaude:
+		return DefaultWorker, nil
+	case AgentCodex:
+		return DefaultCodexWorker, nil
+	}
+	return "", fmt.Errorf("no worker for agent %q: name one under workers: in %s", agent, b.Name)
+}
 
 // Path is where the benchmark was loaded from or will be saved.
 func (b *Benchmark) Path() string { return b.path }
@@ -286,11 +324,7 @@ func (b *Benchmark) Save() error {
 	if err := os.MkdirAll(filepath.Dir(b.path), 0o755); err != nil {
 		return err
 	}
-	tmp := b.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, b.path)
+	return gitfile.WriteAtomic(b.path, data, 0o644)
 }
 
 // List names the benchmarks in Dir, sorted.

@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/kacperwerema/dark-factory/internal/ci"
 )
 
 //go:embed review_prompt.md
@@ -238,8 +236,8 @@ func EvidencePack(in ReviewInput) string {
 		if len(areas) > 0 {
 			w("- tests per area next to the area's lines (find the least-tested):\n%s\n", strings.Join(areas, "\n"))
 		}
-		if _, sum, ok := ci.LatestResults(root, kind, now); ok && sum.List != "" {
-			w("- every test with its time: %s (JSON: name, area, part, s, outcome)\n", filepath.Join(root, sum.List))
+		if run, ok := latestTestRun(root, kind, now); ok && run.Summary.List != "" {
+			w("- every test with its time: %s (JSON: name, area, part, s, outcome)\n", filepath.Join(root, run.Summary.List))
 		}
 		w("\n")
 	}

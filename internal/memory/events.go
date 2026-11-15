@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 )
 
@@ -26,6 +28,7 @@ const (
 	OpPin         = "pin"
 	OpUnpin       = "unpin"
 	OpUse         = "use"
+	OpSetAt       = "set-at"
 	// OpNoop is an add that changed nothing (never written).
 	OpNoop = "noop"
 )
@@ -45,6 +48,12 @@ type Event struct {
 	Reason string `json:"reason,omitempty"`
 	// Target: the superseding memory's id (supersede).
 	Target string `json:"target,omitempty"`
+	// Status is the status a memory now matters at, "" for none (set-at),
+	// or the status of the stage the memories reached (use).
+	Status string `json:"status,omitempty"`
+	// Issue is the issue whose stage the memories reached (use): with
+	// Status, what usefulness joins to the issue's trace.
+	Issue string `json:"issue,omitempty"`
 	// IDs are the memories one use event covers.
 	IDs []string `json:"ids,omitempty"`
 }
@@ -94,10 +103,11 @@ func (s *Set) History(id string) []Event {
 	return out
 }
 
-// Recent is the events of the last days (use events left out), newest
-// first: what the agents learned lately.
+// Recent is the events of the last days calendar days (use events left
+// out), newest first: what the agents learned lately. The window starts at
+// period.DaysBack, so an event dated exactly days back is in it.
 func (s *Set) Recent(now time.Time, days int) []Event {
-	cut := now.Add(-time.Duration(days) * 24 * time.Hour).UTC().Format(time.RFC3339)
+	cut := period.DaysBack(now, days).UTC().Format(time.RFC3339)
 	var out []Event
 	for i := len(s.events) - 1; i >= 0; i-- {
 		e := s.events[i]
@@ -148,6 +158,8 @@ func fold(events []Event) *Set {
 			m.Pinned, m.PinnedBy, m.SuggestPin = true, e.By, false
 		case OpUnpin:
 			m.Pinned, m.PinnedBy = false, ""
+		case OpSetAt:
+			m.At = e.Status
 		case OpOwnerDelete:
 			delete(s.byID, e.ID)
 		}
@@ -241,15 +253,7 @@ func (s Store) rewrite(evs []Event) error {
 		buf.Write(b)
 		buf.WriteByte('\n')
 	}
-	tmp := fmt.Sprintf("%s.tmp-%d", s.Path, time.Now().UnixNano())
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.Path); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
+	return gitfile.WriteAtomic(s.Path, buf.Bytes(), 0o644)
 }
 
 func stamp(now time.Time) string { return now.UTC().Format(time.RFC3339) }
@@ -284,6 +288,11 @@ func (s Store) Edit(id, text, by string, owner bool, now time.Time) (Memory, err
 		return nil
 	})
 	return out, err
+}
+
+// SetAt makes memory id matter at status, or at none when status is "".
+func (s Store) SetAt(id, status, by string, now time.Time) error {
+	return s.change(id, Event{Op: OpSetAt, ID: id, At: stamp(now), By: by, Status: status})
 }
 
 // Forget invalidates memory id with the reason; it stays in the log.
@@ -321,14 +330,15 @@ func (s Store) change(id string, e Event) error {
 	})
 }
 
-// RecordUse notes that ids were shown to an agent (start), for ranking by
-// use later (phase 3).
-func (s Store) RecordUse(ids []string, by string, now time.Time) error {
+// RecordUse notes that ids were shown to an agent (start, transition, a
+// stage briefing), for ranking by use (phase 3) and, with the issue and
+// the status of the stage they reached, for usefulness (usefulness.go).
+func (s Store) RecordUse(ids []string, by, issue, status string, now time.Time) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	return s.locked(func() error {
-		return s.appendEvents(Event{Op: OpUse, At: stamp(now), By: by, IDs: ids})
+		return s.appendEvents(Event{Op: OpUse, At: stamp(now), By: by, IDs: ids, Issue: issue, Status: status})
 	})
 }
 

@@ -1,0 +1,45 @@
+id: chore-type
+version: v0.61.0
+category: lifecycle
+propose: true
+templates: [development]
+requires: [types-of-work]
+sources: ["@prompt"]
+title: "A chore type: a job's housekeeping run that closes itself"
+what: |
+  A `chore` type walking idea → in progress → done: one Chore box, a
+  `progress:` comment, no commit, no approval, no post-mortem. A recurring
+  job's bundled brief can ask for it; `builtin:lead-flush` does.
+why: |
+  A job's run that waits on the owner holds the next period's run unless the
+  job sets overlap: true, and adds a Needs you row either way. Housekeeping that
+  changes no code and sends nothing out has nothing for the owner to review.
+where: "a chore entry under types:"
+snippet: |
+  types:
+    chore:
+      description: "A recurring job's housekeeping: no code, no commit, nothing for the owner to review; the brief's steps are the work"
+      path: [idea, in progress, done]
+      transitions:
+        - from: "idea"
+          to: "in progress"
+          actions:
+            - type: "validate"
+              rule: "body_not_empty"
+            - type: "validate"
+              rule: "has_assignee"
+            - type: "append_section"
+              title: "Chore"
+              body: |
+                - [ ] Every step of the brief done, or why it stopped named in a progress: comment
+        - from: "in progress"
+          to: "done"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Chore"
+            - type: "validate"
+              rule: "has_comment_prefix: progress:"
+question: "Add a chore type for recurring jobs that close themselves (the nightly lead flush needs it)?"
+detect:
+  - path: types.*.description
+    contains: "a recurring job's housekeeping"

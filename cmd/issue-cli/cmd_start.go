@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"io"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -76,6 +78,11 @@ func runStart(ctx *Context, args []string) error {
 		return yoloRefusal(ctx.Stderr, gate, issue.Status, gate.To, ctx.now(), err)
 	}
 	issue = started.Issue
+	// Start's output is a briefing: its size goes in the stats sidecar.
+	counted := &countingWriter{w: ctx.Stdout}
+	stdout := ctx.Stdout
+	ctx.Stdout = counted
+	defer func() { ctx.Stdout = stdout }()
 
 	fmt.Fprintf(ctx.Stdout, "== Starting work on: %s ==\n", issue.Title)
 	// The status after start's own move: Next below reads from it too.
@@ -133,10 +140,29 @@ func runStart(ctx *Context, args []string) error {
 
 	printWorkflowNextSteps(ctx, wf, issue, issues)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
-	printStartDecisions(ctx, issue, issues, started.ToStatus, wf)
-	printStartMemories(ctx.Stdout, ctx, issue)
+	printStartOverlaps(ctx, issue, issues)
+	refs := printStartDecisions(ctx, issue, issues, started.ToStatus, wf)
+	mems := printStartMemories(ctx.Stdout, ctx, issue)
+	printStartRules(ctx)
 	printStartWorkflowReminder(ctx.Stdout, wf)
+	b := tracker.Briefing{At: ctx.now(), Kind: tracker.BriefingStart, Status: started.ToStatus, Session: assignee,
+		Bytes: counted.n, Tokens: tokens.EstimateBytes(counted.n), Memories: mems, Decisions: refs}
+	if err := tracker.RecordBriefing(issue.FilePath, b); err != nil {
+		fmt.Fprintf(ctx.Stderr, "warning: start's briefing was not recorded: %v\n", err)
+	}
 	return nil
+}
+
+// countingWriter counts the bytes written through it.
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
 }
 
 // passStartYOLOGate passes the gate start's handoff advance needs while YOLO
@@ -203,7 +229,7 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 	if prompt := wf.StatusPrompt(issue.Status); prompt != "" {
 		prompts = append(prompts, prompt)
 	}
-	prompts, rule := yoloGuidance(ctx, issue.Slug, prompts)
+	prompts, rule := yoloGuidance(ctx, wf, issue.Slug, prompts)
 	if len(prompts) > 0 || rule != "" {
 		fmt.Fprintln(w, "== Current Status Guidance ==")
 		for _, prompt := range prompts {
@@ -247,10 +273,10 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "Optional side-paths:")
 			for _, opt := range optionals {
-				fmt.Fprintf(w, "  issue-cli transition %s --to \"%s\"\n", issue.Slug, opt)
+				fmt.Fprintf(w, "  issue-cli transition %s --to %s\n", issue.Slug, shell.Quote(opt))
 			}
 		}
-		prompts, _ := yoloGuidance(ctx, issue.Slug, wf.EntryPrompts(issue.Status, next))
+		prompts, _ := yoloGuidance(ctx, wf, issue.Slug, wf.EntryPrompts(issue.Status, next))
 		if len(prompts) > 0 {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "== Entry Guidance ==")

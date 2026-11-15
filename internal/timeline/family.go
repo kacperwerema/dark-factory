@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/health"
-	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // The `workflow` health family: Aggregate over the issues done in the last
@@ -23,7 +22,7 @@ func workflowFamily(ctx context.Context, env health.Env) ([]health.Metric, error
 	if env.Project == nil || env.Project.IssueDir == "" {
 		return nil, errors.New("no project issues folder")
 	}
-	issues, err := tracker.LoadIssues(env.Project.IssueDir)
+	issues, err := env.Project.LoadIssues()
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ package milestone
 
 import (
 	"context"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,6 +164,9 @@ func Released(ctx context.Context, root, changelog string) string {
 			}
 		}
 	}
+	if gitdir.Outside(root) {
+		return ""
+	}
 	out, err := exec.CommandContext(ctx, "git", "-C", root, "for-each-ref", "--sort=-creatordate", "--format=%(refname:short)", "refs/tags").Output()
 	if err != nil {
 		return ""
@@ -203,7 +207,7 @@ func family(ctx context.Context, env health.Env) ([]health.Metric, error) {
 	if env.Project == nil || env.Project.IssueDir == "" {
 		return nil, nil
 	}
-	issues, err := tracker.LoadIssues(env.Project.IssueDir)
+	issues, err := env.Project.LoadIssues()
 	if err != nil {
 		return nil, err
 	}

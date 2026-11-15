@@ -12,6 +12,13 @@ your site(s): refreshed pages (local pages too), FAQs and schema, blog posts.
   `issue-cli create --department marketing --type seo-pass --system SEO`
   opens another. Anything else (one post, page or email) is a `piece`:
   brief → draft → owner review → publish → done.
+- Once per site, before seo-passes and articles, an `seo-baseline`
+  (system SEO) lays the groundwork: technical basics (sitemap, robots.txt,
+  JSON-LD, noindex on the app), a waitlist, pre-rendered pages and
+  measurement. `issue-cli create --department marketing --type
+  seo-baseline --system SEO --title "<site>: SEO baseline"`. Accounts,
+  DNS, the CDN's settings and the deploy are the owner's `(owner)` boxes;
+  docs/seo-baseline.md is the owner's walk-through.
 - Nothing goes out before the owner approves it.
 - Record every piece you make on the shelf:
   `issue-cli output add --issue <slug> --title "…" --kind page --url …`.
@@ -26,13 +33,21 @@ Read these before writing any brief. They sit next to this file:
 - `icp.md`: who the department targets, their problems, where they are
   and how to reach them.
 - `market.md`: TAM / SAM / SOM with sources and assumptions (optional).
+- `keywords.md`: the positioning line and the keyword clusters it rests
+  on, each marked own, contest or leave (optional). A brief targets a
+  cluster marked own or contest, never one marked leave.
 
 They come from the brand foundation, a `foundation` issue in research
 mode: `issue-cli create --department marketing --type foundation --title
 "Brand foundation: <topic>"`. The owner settles each answer before it is
 written here. Until `brand.md` and `icp.md` exist, no channel brief
 can move to draft. `market-size` issues size the market the same way,
-whenever it's needed.
+whenever it's needed, and `keyword-research` issues settle the keywords
+and the positioning line: `issue-cli create --department marketing
+--type keyword-research --title "Keywords and positioning: <topic>"`.
+Free data first (Search Console, autocomplete, competitors' pages,
+forums); paid keyword data only through the `openseo` connector, once
+the owner turns it on.
 
 ## Goals
 

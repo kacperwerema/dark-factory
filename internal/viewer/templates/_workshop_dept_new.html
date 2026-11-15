@@ -7,6 +7,10 @@
     </ul>
     <h2 class="wb-h2">projects.yaml <span class="wb-muted">added under departments: in <span class="wb-mono-inline">{{.Config}}</span>{{with .Parent}}, under the group {{.}}{{end}}</span></h2>
     <pre class="wb-deptnew-entry" data-testid="dept_new.entry">{{.Entry}}</pre>
+    {{with .Install}}<h2 class="wb-h2">Install its partner yourself <span class="wb-muted">at <span class="wb-mono-inline">{{$.PartnerPath}}</span> (partner: path: in projects.yaml moves it); Add never runs these</span></h2>
+    <pre class="wb-deptnew-entry" data-testid="dept_new.install">{{.}}</pre>{{end}}
+    {{with .Connections}}<h2 class="wb-h2">Handoffs to declare <span class="wb-muted">under the project's connections: in <span class="wb-mono-inline">{{$.Config}}</span>; Add doesn't write them (declared requests: make routing refuse every route not listed)</span></h2>
+    <pre class="wb-deptnew-entry" data-testid="dept_new.handoffs">{{.}}</pre>{{end}}
 {{end}}
 
 {{define "wb/dept-new-plan"}}

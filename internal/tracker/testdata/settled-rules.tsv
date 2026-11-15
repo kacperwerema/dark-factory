@@ -1,0 +1,60 @@
+# The Settled rules (docs/departments.md) and the scope and strength each source decision has on the board.
+# One row per rule and source; ref "-" is a source with no D-n (a retro, a playtest, an issue or code without a ref).
+# Read by TestSettledRulesScoped; scripts/checks/settled-rules-scopes.sh writes it to the board (the lead runs it).
+# rule	ref	scope	strength
+Secrets are references.	factory/department-connectors#D-1	system:Factory	hard
+Secrets are references.	factory/department-connectors#D-2	system:Factory	soft
+Secrets are references.	factory/department-connectors#D-3	system:Factory	soft
+Secrets are references.	factory/department-connectors#D-4	system:Factory	soft
+Secrets are references.	factory/department-connectors#D-5	system:Factory	soft
+Secrets are references.	factory/department-connectors#D-6	system:Factory	soft
+Secrets are references.	factory/department-connectors#D-7	system:Factory	soft
+Private projects stay private.	factory/factory-benchmark-and-evals#D-10	project	soft
+Private projects stay private.	-	-	soft
+Budgets are shown, never enforced.	factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room#D-2	system:Factory	soft
+Budgets are shown, never enforced.	factory/department-budgets-what-each-department-spends-in-tokens-and-money-shown-in-its-room#D-3	system:Factory	soft
+Budgets are shown, never enforced.	factory/route-work-between-claude-and-codex-subscriptions-ccr-pick-the-agent-per-task-fall-back-when-one-hits-its-limit#D-4	system:Factory	soft
+Business data sits with the work files.	factory/phone-notifications-web-push-from-the-viewer-when-something-new-waits-on-the-owner-installable-as-an-app-keys-generated-locally#D-1	system:Factory	soft
+Business data sits with the work files.	factory/department-outputs-shelf#D-1	system:Factory	soft
+Business data sits with the work files.	-	-	soft
+One waiting-on-you count.	factory/department-outputs-shelf#D-3	system:Factory	soft
+One waiting-on-you count.	-	-	soft
+Box keys.	factory/connections-between-boxes-requests-outputs-and-dependencies-drawn-between-departments-on-the-floor-map#D-3	system:Factory	soft
+Only real data, honest empty states.	-	-	soft
+Bootstrap mode reads projects.yaml.	-	-	soft
+Writing projects.yaml keeps it byte for byte.	factory/department-templates-add-a-department-to-any-project#D-2	system:Factory	soft
+Department lint: `departments`, plus `department` for workflow files.	factory/departments-the-settled-rules-written-down-once#D-1	system:Factory	soft
+New departments come from templates.	factory/factory-departments-floor-map-and-capabilities#D-9	system:Factory	hard
+New departments come from templates.	factory/factory-departments-floor-map-and-capabilities#D-10	system:Factory	hard
+New departments come from templates.	factory/marketing-pilot-seo-as-the-first-department#D-5	system:Factory	soft
+Groups nest up to 3 deep.	factory/factory-departments-floor-map-and-capabilities#D-5	system:Factory	hard
+Groups nest up to 3 deep.	factory/factory-departments-floor-map-and-capabilities#D-6	system:Factory	hard
+Groups nest up to 3 deep.	factory/department-groups-a-parent-with-a-lead-of-leads-gtm-over-marketing-and-sales#D-1	system:Factory	soft
+Groups nest up to 3 deep.	factory/department-groups-a-parent-with-a-lead-of-leads-gtm-over-marketing-and-sales#D-2	system:Factory	soft
+Groups nest up to 3 deep.	factory/nested-groups-a-group-inside-a-group-with-goals-rolling-up-and-the-map-drawing-it#D-1	system:Factory	soft
+Groups nest up to 3 deep.	factory/nested-groups-a-group-inside-a-group-with-goals-rolling-up-and-the-map-drawing-it#D-2	system:Factory	soft
+Channels are types, paired with a system of the same name.	factory/factory-departments-floor-map-and-capabilities#D-7	system:Factory	hard
+Channels are types, paired with a system of the same name.	factory/factory-departments-floor-map-and-capabilities#D-8	system:Factory	soft
+Channels are types, paired with a system of the same name.	factory/marketing-channels-as-types-seo-first-room-for-ppc-social-and-cold-outreach#D-1	system:Factory	soft
+A template's workflow change reaches tests outside the template.	-	-	soft
+Engine requests go via the CEO.	factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-8	system:Factory	hard
+Engine requests go via the CEO.	factory/declared-connections-who-may-ask-whom-and-what-feeds-what-with-routing-rules#D-6	system:Factory	soft
+Nothing goes out without the owner's stamp.	factory/department-outputs-shelf#D-2	system:Factory	soft
+Nothing goes out without the owner's stamp.	factory/department-connectors#D-6	system:Factory	soft
+Nothing goes out without the owner's stamp.	factory/department-recurring-jobs#D-3	system:Factory	soft
+Nothing goes out without the owner's stamp.	factory/marketing-pilot-seo-as-the-first-department#D-4	department:marketing	soft
+Nothing goes out without the owner's stamp.	-	-	soft
+Owner acts are the owner's: workers refused, the lead relays `--quote`, the viewer checks `fromOwnerBrowser`.	factory/department-outputs-shelf#D-2	system:Factory	soft
+Owner acts are the owner's: workers refused, the lead relays `--quote`, the viewer checks `fromOwnerBrowser`.	cli/agents-can-tick-owner-boxes-through-issue-cli-check-and-prove-run#D-1	project	soft
+Owner acts are the owner's: workers refused, the lead relays `--quote`, the viewer checks `fromOwnerBrowser`.	api/owner-only-routes-need-an-owner-credential-on-loopback#D-1	system:API	soft
+Owner acts are the owner's: workers refused, the lead relays `--quote`, the viewer checks `fromOwnerBrowser`.	api/owner-only-routes-need-an-owner-credential-on-loopback#D-2	project	soft
+Owner acts are the owner's: workers refused, the lead relays `--quote`, the viewer checks `fromOwnerBrowser`.	-	-	soft
+A human starts the work.	factory/a-fresh-critic-that-never-wrote-the-work-a-read-only-agent-given-only-paths-findings-blocksshouldnote-with-fileline-blocks-hold-the-gate#D-4	project	soft
+A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-1	project	soft
+A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-10	system:Factory	soft
+A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-11	system:Factory	soft
+Lint checks that read issues: `undated`, `na-boxes`, `owner-marker`, `show-footer`, `criteria`, `types`, `reports`, `decisions`	-	-	soft
+A pilot is rehearsed on a sandbox; go-live comes later.	factory/marketing-pilot-seo-as-the-first-department#D-2	system:Factory	soft
+A red newcomer walkthrough blocks shipping.	-	-	soft
+Research watches memory.	factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-2	department:marketing	hard
+Research watches memory.	factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-7	department:marketing	soft

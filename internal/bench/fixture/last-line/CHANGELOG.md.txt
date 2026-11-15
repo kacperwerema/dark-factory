@@ -1,0 +1,6 @@
+# Changelog
+
+## Unreleased
+
+- `Lines` counts a last line that has no newline at the end: `Lines("one\ntwo")` is 2, not 1.
+- First version: Words, Count and Lines.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -38,39 +39,59 @@ type HallData struct {
 	Agent   *WbAgentPanel
 	Numbers WbNumbers
 	Message WbMessageBox
+	// Label is the hall's name ("Product hall", "Marketing hall"), File
+	// the workflow file its stations come from; Switch the switcher
+	// between Product's and the departments' workflows (nil without
+	// department files); Types every type's path.
+	Label, File string
+	Dept        string
+	Switch      *WbHallSwitch
+	Types       []WbHallType
 }
 
 func (s *Server) handleHall(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	data := s.buildHall(proj, prefix, r.URL.Query().Get("agent"), time.Now())
+	sc, err := hallScopeOf(proj, prefix, r)
+	if err != nil {
+		hallScopeError(w, err)
+		return
+	}
+	data := s.buildHall(proj, sc, r.URL.Query().Get("agent"), time.Now())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "hall.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time.Time) HallData {
+func (s *Server) buildHall(p *tracker.Project, sc *hallScope, selected string, now time.Time) HallData {
+	prefix := sc.prefix
 	company := s.buildCompany(p, prefix, now)
 	lot := company.Lot
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	sort.Slice(issues, func(i, j int) bool { return issues[i].Slug < issues[j].Slug })
-	wf := p.LoadWorkflow()
+	wf := sc.WF
 	agents, _ := s.buildAgentsModel(p, prefix)
-	// The hall is Product's: issues of the other departments stay in their
-	// rooms.
-	issues = productIssues(p, issues)
-	open := openOnly(issues)
+	// A hall holds its own workflow's issues: Product's hall leaves the
+	// other departments' in their rooms, a department's hall takes only
+	// its own.
+	issues = sc.issues(p, issues)
+	open := openOnly(p, issues)
 	waiting := waitingOnOwner(p, open)
 
-	d := HallData{Lot: lot, Message: company.Message}
+	d := HallData{Lot: lot, Message: company.Message, Label: sc.Label, Dept: sc.Dept, Switch: hallSwitch(p, sc), Types: hallTypes(sc)}
+	d.File = "workflow.yaml"
+	if sc.File != "" {
+		d.File = hallEditFileName(p, sc.File)
+	}
 	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs[1].Color = lot.Color
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
-	d.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}
+	d.Header.Crumbs[2] = WbCrumb{Label: sc.Label, Current: true, Color: sc.Color}
 	if c := wbCIChip(lot.CI, lot.CILine); c != nil {
 		d.Header.Chips = append(d.Header.Chips, *c)
 	}
 
 	hc := newHallContext(p, prefix, open, agents, waiting, now)
+	hc.query = sc.Query
 	ci, blamed, workerOf, byStatus := hc.ci, hc.blamed, hc.workerOf, hc.byStatus
 	atGate := map[string]int{}
 	for _, it := range waiting {
@@ -104,9 +125,9 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	var stops []WbHallStop
 	for _, stop := range factoryLine(wf) {
 		if stop.Gated {
-			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key], Raised: raised, URL: hallPartURL(prefix, "gate", stop.Name)}})
+			stops = append(stops, WbHallStop{Gate: &WbGateCard{Name: "Gate", Status: stop.Name, Waiting: atGate[stop.Key], Raised: raised, URL: sc.url("gate", stop.Name)}})
 		}
-		st := &WbHallStation{Name: stationName(stop), Status: stop.Name, Who: stop.Description, Owner: stop.Owner, URL: hallPartURL(prefix, "station", stop.Name)}
+		st := &WbHallStation{Name: stationName(stop), Status: stop.Name, Who: stop.Description, Owner: stop.Owner, URL: sc.url("station", stop.Name)}
 		here := hc.sorted(byStatus[stop.Key])
 		st.Count = len(here)
 		for i, issue := range here {
@@ -121,10 +142,20 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	half := (len(stops) + 1) / 2
 	d.Top, d.Bottom = stops[:half], stops[half:]
 
-	stack := min(lot.DoneWeek, 9)
-	d.Done = WbDoneStation{Count: lot.DoneWeek, Stack: make([]int, stack), Who: "merged to main; releases are cut from here"}
+	doneWeek := lot.DoneWeek
+	d.Done = WbDoneStation{Who: "merged to main; releases are cut from here"}
+	if sc.Dept != "" {
+		doneWeek = hallDoneWeek(p, issues, now)
+		d.Done.Who = "finished: out, with the link and the numbers recorded"
+		if st := wf.GetStatus("done"); st != nil && st.Description != "" {
+			d.Done.Who = st.Description
+		}
+		// A department's hall has no CI scanner: CI runs on Product's main.
+		ci = nil
+	}
+	d.Done.Count, d.Done.Stack = doneWeek, make([]int, min(doneWeek, 9))
 	if wfHasStatus(wf, "done") {
-		d.Done.URL = hallPartURL(prefix, "station", "done")
+		d.Done.URL = sc.url("station", "done")
 	}
 
 	if ci != nil {
@@ -138,10 +169,10 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 	}
 
 	if wfHasStatus(wf, "parked") {
-		d.Parking.URL = hallPartURL(prefix, "station", "parked")
+		d.Parking.URL = sc.url("station", "parked")
 	}
 	for _, issue := range issues {
-		if statusKey(issue.Status) != "parked" {
+		if !tracker.IsParkedStatus(issue.Status) {
 			continue
 		}
 		d.Parking.Count++
@@ -154,10 +185,12 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 		}
 	}
 
-	d.Retro = WbPlanCard{
-		Label: "MISSING STAGE · TO BUILD", Title: "Retro and feedback",
-		Text:     "You already have retros/, report-bug, Stats and the Timeline. Put them into a station that closes the loop: done → idea.",
-		LinkText: "See the retros", LinkURL: prefix + "/retros", TestID: "retro",
+	if sc.Dept == "" {
+		d.Retro = WbPlanCard{
+			Label: "MISSING STAGE · TO BUILD", Title: "Retro and feedback",
+			Text:     "You already have retros/, report-bug, Stats and the Timeline. Put them into a station that closes the loop: done → idea.",
+			LinkText: "See the retros", LinkURL: prefix + "/retros", TestID: "retro",
+		}
 	}
 
 	if selected != "" {
@@ -171,7 +204,7 @@ func (s *Server) buildHall(p *tracker.Project, prefix, selected string, now time
 		}
 	}
 
-	d.Numbers = hallNumbers(issues, waiting, lot.DoneWeek, now)
+	d.Numbers = hallNumbers(p, issues, waiting, doneWeek, now)
 	return d
 }
 
@@ -206,6 +239,9 @@ type hallContext struct {
 	blamed   map[string]bool
 	marked   map[string]bool
 	byStatus map[string][]*tracker.Issue
+	// query is the hall's ?department= ("" for Product), kept on the
+	// crates' links back to the hall.
+	query string
 }
 
 func newHallContext(p *tracker.Project, prefix string, open []*tracker.Issue, agents *AgentsModel, waiting []WaitingItem, now time.Time) *hallContext {
@@ -250,7 +286,7 @@ func (hc *hallContext) sorted(here []*tracker.Issue) []*tracker.Issue {
 // crate is one issue as a crate, carried by its worker if it has one.
 func (hc *hallContext) crate(issue *tracker.Issue, selected string) WbCrate {
 	key := strings.ToLower(issue.Slug)
-	c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: hc.prefix + "/hall?agent=" + issue.Slug + "#agent", Question: hc.question[key], CI: hc.blamed[key], YOLO: hc.marked[key], Selected: strings.EqualFold(issue.Slug, selected)}
+	c := WbCrate{Slug: issue.Slug, Title: issue.Title, URL: hc.hallAgentURL(issue.Slug), Question: hc.question[key], CI: hc.blamed[key], YOLO: hc.marked[key], Selected: strings.EqualFold(issue.Slug, selected)}
 	if w, ok := hc.workerOf[key]; ok {
 		r := workerRobot(w)
 		c.Robot = &r
@@ -345,18 +381,18 @@ func hallAgentPanel(p *tracker.Project, prefix string, wf *tracker.WorkflowConfi
 
 // hallNumbers is the hall over the last 7 days: done, the average time from
 // created to done, and where work waits longest on the owner.
-func hallNumbers(issues []*tracker.Issue, waiting []WaitingItem, doneWeek int, now time.Time) WbNumbers {
+func hallNumbers(p *tracker.Project, issues []*tracker.Issue, waiting []WaitingItem, doneWeek int, now time.Time) WbNumbers {
 	n := WbNumbers{Title: "The hall in numbers · 7 days"}
 	n.Rows = append(n.Rows, WbFact{Label: "Done", Value: fmt.Sprint(doneWeek)})
 	var sum time.Duration
 	count := 0
 	for _, issue := range issues {
-		if !strings.EqualFold(issue.Status, "done") {
+		if !p.IssueDone(issue) {
 			continue
 		}
 		at, _ := doneAt(issue)
 		created, err := time.ParseInLocation("2006-01-02", issue.Created, time.Local)
-		if err != nil || now.Sub(at) > mapDoneWindow || at.Before(created) {
+		if err != nil || at.Before(period.DaysBack(now, mapDoneDays)) || at.Before(created) {
 			continue
 		}
 		sum += at.Sub(created)
@@ -377,6 +413,28 @@ func hallNumbers(issues []*tracker.Issue, waiting []WaitingItem, doneWeek int, n
 			where = oldest.Kind
 		}
 		n.Rows = append(n.Rows, WbFact{Label: "Waits longest on you", Value: where + " · " + shortDuration(now.Sub(oldest.Since)), Tone: "you"})
+	}
+	return n
+}
+
+// hallAgentURL is the hall with slug's crate picked.
+func (hc *hallContext) hallAgentURL(slug string) string {
+	if hc.query != "" {
+		return hc.prefix + "/hall" + hc.query + "&agent=" + slug + "#agent"
+	}
+	return hc.prefix + "/hall?agent=" + slug + "#agent"
+}
+
+// hallDoneWeek is how many of issues finished in the last 7 days.
+func hallDoneWeek(p *tracker.Project, issues []*tracker.Issue, now time.Time) int {
+	n := 0
+	for _, issue := range issues {
+		if !p.IssueDone(issue) {
+			continue
+		}
+		if at, ok := doneAt(issue); ok && !at.Before(period.DaysBack(now, mapDoneDays)) {
+			n++
+		}
 	}
 	return n
 }

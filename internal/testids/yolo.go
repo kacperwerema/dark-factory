@@ -10,6 +10,8 @@ func init() {
 		"yolo.band.passed", "yolo.band.never",
 		"yolo.band.extend",
 		"yolo.band.off",
+		// The band as one line at phone width; a tap opens Extend and Turn off.
+		"yolo.band.line",
 		"yolo.dialog",
 		"yolo.dialog.gates",
 		"yolo.dialog.guards",

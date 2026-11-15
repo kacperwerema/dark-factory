@@ -247,8 +247,8 @@ func TestProveHintWhenCriteriaMissing(t *testing.T) {
 	cases := []struct {
 		name, body, want string
 	}{
-		{"no section", "## Repro\nsteps\n", `issue-cli append cli/sample --section "Acceptance Criteria" --body "- [ ] ..."`},
-		{"section without boxes", "## Acceptance Criteria\nTBD\n", `issue-cli replace cli/sample --section "Acceptance Criteria" --body "- [ ] ..."`},
+		{"no section", "## Repro\nsteps\n", `issue-cli append cli/sample --section 'Acceptance Criteria' --body "- [ ] ..."`},
+		{"section without boxes", "## Acceptance Criteria\nTBD\n", `issue-cli replace cli/sample --section 'Acceptance Criteria' --body "- [ ] ..."`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -283,4 +283,124 @@ func TestProveHintWhenCriteriaMissing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A Proves: trailer that names a test links it, but the criterion stays
+// unproven until a tests: report: the dry run's criteria_proven line names
+// prove --run, the command that posts it.
+func TestTransitionDryRunNamesProveRunWhenNoTestsReport(t *testing.T) {
+	proj, _, _ := makeProofFixture(t, "2026-10-23")
+	dir := filepath.Dir(proj.WorkflowFile)
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("checkout", "-q", "-b", "work/cli/sample")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module sample\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "count_test.go"), []byte("package sample\n\nimport \"testing\"\n\nfunc TestCountShows(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "go.mod", "count_test.go")
+	git("commit", "-q", "-m", "feat: count\n\nRefs: cli/sample\nProves: AC1 TestCountShows")
+	git("checkout", "-q", "main")
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	err := runTransition(ctx, []string{"cli/sample", "--to", "human-testing", "--dry-run"})
+	if err == nil {
+		t.Fatal("dry run ready with no tests: report")
+	}
+	out := stdout.String()
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "[validator]") && strings.Contains(l, "proof link") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "no tests: report yet: issue-cli --project test prove cli/sample --run") {
+		t.Errorf("criteria_proven line doesn't name prove --run:\n%q\n\nfull output:\n%s", line, out)
+	}
+}
+
+// judgementRun writes a playtest run of session looks for cli/sample whose
+// TP4 is a judgement step proving AC1.
+func judgementRun(t *testing.T, proj *tracker.Project) {
+	t.Helper()
+	runDir := filepath.Join(projectRoot(proj), ".playtest", "runs", "looks", "1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	results := "session: looks\nissue: cli/sample\nmode: auto\nstarted: \"2026-10-31T10:00:00Z\"\nsteps:\n  - id: TP4\n    status: pass\n    judgement_step: true\n    proves: [AC1]\n"
+	if err := os.WriteFile(filepath.Join(runDir, "results.yaml"), []byte(results), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Proves: AC1 trailer names a test and a judgement step lists AC1 too:
+// prove --list and the transition into criteria_proven warn, naming the step.
+func TestProveListFlagsJudgementOverTest(t *testing.T) {
+	proj, _, _ := makeProofFixture(t, "2026-10-23")
+	dir := filepath.Dir(proj.WorkflowFile)
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("checkout", "-q", "-b", "work/cli/sample")
+	if err := os.WriteFile(filepath.Join(dir, "count_test.go"), []byte("package sample\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "count_test.go")
+	git("commit", "-q", "-m", "feat: count\n\nRefs: cli/sample\nProves: AC1 TestX")
+	git("checkout", "-q", "main")
+	judgementRun(t, proj)
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runProve(ctx, []string{"cli/sample", "--list"}); err != nil {
+		t.Fatalf("prove --list: %v", err)
+	}
+	want := "Warning: AC1 is the owner's only because judgement step TP4 (session looks) lists it, while test TestX"
+	assertContains(t, stdout.String(), want)
+	assertContains(t, stdout.String(), "drop AC1 from that step's proves:")
+
+	ctx, stdout, _ = newTestContext(proj, true)
+	if err := runProve(ctx, []string{"cli/sample", "--list"}); err != nil {
+		t.Fatalf("prove --list --json: %v", err)
+	}
+	var out struct {
+		Overlaps []struct {
+			ID    string   `json:"id"`
+			Steps []string `json:"steps"`
+		} `json:"overlaps"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Overlaps) != 1 || out.Overlaps[0].ID != "AC1" || len(out.Overlaps[0].Steps) != 1 {
+		t.Fatalf("overlaps = %+v, want AC1 by TP4", out.Overlaps)
+	}
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	_ = runTransition(ctx, []string{"cli/sample", "--to", "human-testing"})
+	assertContains(t, stdout.String(), want)
+}
+
+// Only the judgement step proves AC1: it is the owner's on purpose, no warning.
+func TestProveListJudgementOnlyQuiet(t *testing.T) {
+	proj, _, _ := makeProofFixture(t, "2026-10-23")
+	judgementRun(t, proj)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runProve(ctx, []string{"cli/sample", "--list"}); err != nil {
+		t.Fatalf("prove --list: %v", err)
+	}
+	if strings.Contains(stdout.String(), "Warning:") {
+		t.Fatalf("a warning with only the judgement step proving AC1:\n%s", stdout.String())
+	}
+	assertContains(t, stdout.String(), "owner check (playtest judgement step TP4)")
 }

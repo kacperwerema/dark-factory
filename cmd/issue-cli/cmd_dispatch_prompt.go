@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 )
 
 var dispatchPromptCommand = &Command{
@@ -63,7 +63,7 @@ func runDispatchPrompt(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	dp := tracker.BuildDispatchPrompt(ctx.Project, issue, wf, ctx.Project.TelemetryRoot(), sessionLive(ctx.Project))
+	dp := briefing.BuildDispatchPrompt(ctx.Project, issue, wf, ctx.Project.TelemetryRoot(), sessionLive(ctx.Project))
 	if ctx.JSONOutput || *jsonOut {
 		return writeJSON(ctx.Stdout, dp)
 	}

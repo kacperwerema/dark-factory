@@ -40,7 +40,7 @@ func runShow(ctx *Context, args []string) error {
 			"issue":         issue,
 			"comments":      comments,
 			"workflow_file": issueWorkflowFileLabel(ctx.Project, wf),
-			"decisions":     decisionsOrEmpty(tracker.ParseDecisions(issue.Slug, issue.BodyRaw)),
+			"decisions":     decisionsOrEmpty(issue.Decisions()),
 		}
 		if wf.Department != "" {
 			out["department"] = wf.Department
@@ -70,8 +70,9 @@ func runShow(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	printRedRoundsLine(ctx.Stdout, ctx, wf, issue)
-	if _, rule := yoloGuidance(ctx, issue.Slug, nil); rule != "" {
-		fmt.Fprintln(ctx.Stdout, rule)
+	// The rule's paragraph is in the briefing and start; show points at it.
+	if _, rule := yoloGuidance(ctx, wf, issue.Slug, nil); rule != "" {
+		fmt.Fprintln(ctx.Stdout, tracker.YOLORulePointer)
 	}
 	printDepLines(ctx, issue, issues)
 	// Where the issue's time went, to hand the owner a link.

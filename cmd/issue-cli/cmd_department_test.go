@@ -53,7 +53,8 @@ func TestDepartmentListShowsTemplates(t *testing.T) {
 	assertContains(t, s, "workflow: development")
 	assertContains(t, s, "== Templates ==")
 	assertContains(t, s, "marketing  Marketing (not installed)")
-	assertContains(t, s, "gtm        GTM (group: marketing) (not installed)")
+	assertContains(t, s, "legal      Legal (not installed)")
+	assertContains(t, s, "gtm        GTM (group: marketing; can join later: sales-b2c) (not installed)")
 	assertContains(t, s, "department add marketing")
 
 	ctx, out = goalsCtx(t, proj, true)
@@ -64,7 +65,7 @@ func TestDepartmentListShowsTemplates(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) < 4 || rows[0].Key != "hq" || rows[2].Key != "marketing" || rows[2].Installed || rows[3].Key != "gtm" || strings.Join(rows[3].Group, ",") != "marketing" {
+	if len(rows) < 7 || rows[0].Key != "hq" || rows[2].Key != "legal" || rows[3].Key != "marketing" || rows[3].Installed || rows[4].Key != "sales-b2c" || rows[5].Key != "video" || rows[6].Key != "gtm" || strings.Join(rows[6].Group, ",") != "marketing" {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
@@ -100,7 +101,7 @@ func TestDepartmentAddInstallsMarketing(t *testing.T) {
 	assertContains(t, s, `create --department marketing --title "<first brief>"`)
 	assertContains(t, s, "Edit departments/marketing/role.md to say what this department should know, and each job's brief (departments/marketing/jobs/weekly-seo-pass.md).")
 	assertContains(t, s, "connectors marketing prints the config")
-	assertContains(t, s, "Types of work: piece (default), foundation, market-size, seo-pass. Pick one with issue-cli")
+	assertContains(t, s, "Types of work: piece (default), foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social. Pick one with issue-cli")
 	after, _ := os.ReadFile(cfg)
 	if !strings.HasPrefix(string(after), string(before)) {
 		t.Fatalf("projects.yaml lines changed:\n%s", after)
@@ -160,7 +161,7 @@ func TestDepartmentAddRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"add", "nope"}, "templates: marketing, gtm"},
+		{[]string{"add", "nope"}, "templates: legal, marketing, sales-b2c, video, gtm"},
 		{[]string{"add", "marketing", "--name", "SEO"}, "name"},
 		{[]string{"add"}, "usage: issue-cli department add"},
 		{[]string{"frob"}, "usage: issue-cli department list|add"},
@@ -341,8 +342,8 @@ func TestDepartmentAddNamesUntrackedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := out.String()
-	assertContains(t, s, "New files git does not track yet: departments/marketing/jobs/weekly-seo-pass.md, departments/marketing/role.md, workflows/marketing.yaml")
-	assertContains(t, s, "add departments/marketing/jobs/weekly-seo-pass.md departments/marketing/role.md workflows/marketing.yaml && git -C")
+	assertContains(t, s, "New files git does not track yet: departments/marketing/jobs/weekly-seo-pass.md, departments/marketing/role.md, departments/marketing/subreddits.md, workflows/marketing.yaml")
+	assertContains(t, s, "add departments/marketing/jobs/weekly-seo-pass.md departments/marketing/role.md departments/marketing/subreddits.md workflows/marketing.yaml && git -C")
 	assertContains(t, s, "commit -m 'chore(departments): add the Marketing department' --")
 	assertContains(t, s, "projects.yaml is in this repository and has uncommitted changes, the new department entry among them")
 	if st := git(t, root, "status", "--porcelain"); !strings.Contains(st, "?? departments/") {

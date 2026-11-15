@@ -1,0 +1,28 @@
+statuses:
+  - name: "backlog"
+    description: "Ready to work on"
+  - name: "in progress"
+    description: "Being built"
+  - name: "testing"
+    description: "Being checked"
+  - name: "done"
+    description: "Finished"
+
+transitions:
+  - from: "backlog"
+    to: "in progress"
+    actions:
+      - type: "require_human_approval"
+        status: "in progress"
+  - from: "in progress"
+    to: "testing"
+  - from: "testing"
+    to: "done"
+
+default_type: feature
+types:
+  feature:
+    description: "New behaviour"
+  tweak:
+    description: "A small change that skips the build step"
+    path: [backlog, testing, done]

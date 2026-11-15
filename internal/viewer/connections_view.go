@@ -187,7 +187,7 @@ func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request, proj 
 }
 
 func (s *Server) handleConnectionsJSON(w http.ResponseWriter, r *http.Request, proj *tracker.Project) {
-	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	issues, _ := proj.LoadIssues()
 	q := r.URL.Query()
 	edges := connections.Select(connections.Load(proj, issues, time.Now()), connFilter(proj, q.Get("from"), q.Get("to"), q.Get("kind")))
 	if edges == nil {
@@ -216,7 +216,7 @@ func (s *Server) buildConnections(p *tracker.Project, prefix, from, to, kind str
 	d.NoDepartments = len(p.Departments) == 0
 	d.Declared = len(connections.Declared(p)) > 0
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	all := connections.Load(p, issues, now)
 	d.Empty = len(all) == 0
 	colors := boxColors(p)

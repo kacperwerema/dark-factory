@@ -83,11 +83,19 @@ func PlanRun(p *tracker.Project, r *Ref, runs []Run, period string, again bool) 
 	return n, nil
 }
 
-// RunType is the type of work job j's runs get in wf: its type:, else
-// default_type; empty when wf has no types. A type wf doesn't define is an
-// error naming the types.
+// RunType is the type of work job j's runs get in wf: its type:, else the
+// type its bundled brief needs (BuiltinType), else default_type; empty when
+// wf has no types. A type wf doesn't define is an error naming the types.
 func RunType(wf *tracker.WorkflowConfig, j tracker.Job) (string, error) {
 	want := strings.TrimSpace(j.Type)
+	if want == "" {
+		if need := BuiltinType(j.Brief); need != "" {
+			if _, known := wf.ResolveType(need); !wf.HasTypes() || !known {
+				return "", fmt.Errorf("%s runs are type %s: the workflow has no %s type (add it: issue-cli workflow upgrade --department <dept>, or set the job's type:)", strings.TrimSpace(j.Brief), need, need)
+			}
+			return need, nil
+		}
+	}
 	if want != "" && !wf.HasTypes() {
 		return "", fmt.Errorf("type %q: the workflow defines no types", want)
 	}

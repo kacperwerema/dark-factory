@@ -60,6 +60,35 @@ by status and the side column. Data is DetailData; the model is .Timeline
     </section>
     {{end}}
 
+    {{if .Stages}}
+    <section class="card tl-card" aria-labelledby="tl-stages" data-testid="timeline.stages">
+        <div class="tl-head">
+            <h2 id="tl-stages">By stage · one row per status visit</h2>
+            <span class="tl-mono tl-muted">{{.TraceFile}}</span>
+        </div>
+        <div class="tl-body tl-stages-wrap">
+            <table class="tl-stages">
+                <thead><tr><th>Status</th><th>Agent</th><th>Briefing</th><th>Tokens in / out / cached</th><th>Wall</th><th>CLI calls</th><th>Gate</th><th>Back</th></tr></thead>
+                <tbody>
+                {{range .Stages}}
+                <tr data-testid="timeline.stage" data-status="{{.Status}}">
+                    <td><span class="chip">{{.Status}}</span>{{if .Open}} <span class="tl-muted">now</span>{{end}}</td>
+                    <td>{{.Agent}}</td>
+                    <td class="tl-mono">{{.Briefing}}</td>
+                    <td class="tl-mono">{{.Tokens}}</td>
+                    <td class="tl-mono">{{.Wall}}</td>
+                    <td class="tl-mono">{{.Calls}}</td>
+                    <td>{{if .Tone}}<span class="chip tl-chip-{{.Tone}}">{{.Gate}}</span>{{else}}{{.Gate}}{{end}}</td>
+                    <td>{{if .Back}}<span class="tl-purple">{{.Back}}</span>{{end}}</td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+            {{if .StagesNote}}<p class="tl-muted tl-note" data-testid="timeline.stages.note">{{.StagesNote}} A value nothing recorded shows as —.</p>{{end}}
+        </div>
+    </section>
+    {{end}}
+
     <div class="tl-cols">
         <section class="card tl-card tl-stream" aria-labelledby="tl-life">
             <div class="tl-head">

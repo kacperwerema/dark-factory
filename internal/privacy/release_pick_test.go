@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -77,7 +78,7 @@ func TestPickFindsADoneIssuesCommitsByRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(res.Picked, " "), short(first)+" "+short(second); got != want {
+	if got, want := strings.Join(res.Picked, " "), gitdir.ShortSHA(first)+" "+gitdir.ShortSHA(second); got != want {
 		t.Errorf("picked %q, want %q (oldest first)", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(wt, "other.go")); err == nil {
@@ -111,7 +112,7 @@ func TestPickConflictNamesCommitAndFileAndKeepsTheBranch(t *testing.T) {
 	if err == nil {
 		t.Fatal("a conflicting pick passed")
 	}
-	for _, want := range []string{short(bad), "fix: main moved", "main.go", "release/v0.54 is as it was"} {
+	for _, want := range []string{gitdir.ShortSHA(bad), "fix: main moved", "main.go", "release/v0.54 is as it was"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
@@ -247,5 +248,62 @@ func TestPatchReleaseCutPickPublish(t *testing.T) {
 	mainLog, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md"))
 	if !strings.Contains(string(mainLog), "## Unreleased\n\n- later C\n\n## v0.54.1 — 2026-10-31\n\n- fix P\n") {
 		t.Errorf("main changelog:\n%s", mainLog)
+	}
+}
+
+// The v0.60.1 sequence: publish commits "vX is published" on main (only
+// the changelog: a released heading, no ## Unreleased line), the fix's
+// work branch is cut from main after it, and pick by slug lists every
+// commit of that branch the release lacks. Publish's move is skipped, so
+// the branch keeps one ## v0.54.0 heading and the patch publishes.
+func TestPickSkipsPublishsChangelogMove(t *testing.T) {
+	r := newReleaseRepo(t)
+	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	cut, err := Cut(r.root, "v0.54.0", "main", r.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	if _, err := Publish(PublishInput{Root: r.root, Worktree: cut.Worktree, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", Now: day}); err != nil {
+		t.Fatal(err)
+	}
+	moved := run(t, r.root, "git", "rev-parse", "HEAD")
+	if subj := run(t, r.root, "git", "log", "-1", "--format=%s", moved); subj != "docs(changelog): v0.54.0 is published" {
+		t.Fatalf("main's head after publish = %q", subj)
+	}
+	r.land(t, "ui/patch", "patch.go", "package main // patch\n", "- fix P")
+
+	res, err := Pick(r.root, "v0.54.1", []string{"ui/patch"}, PickOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Picked) != 1 || len(res.Skipped) != 1 || res.Skipped[0] != gitdir.ShortSHA(moved) {
+		t.Errorf("pick = %+v, want the fix picked and %s skipped", res, gitdir.ShortSHA(moved))
+	}
+	branchLog, _ := os.ReadFile(filepath.Join(cut.Worktree, "CHANGELOG.md"))
+	if n := strings.Count(string(branchLog), "## v0.54.0"); n != 1 {
+		t.Errorf("branch changelog has %d v0.54.0 headings:\n%s", n, branchLog)
+	}
+	if got := strings.Join(unreleasedLines(t, cut.Worktree), "|"); got != "- fix P" {
+		t.Errorf("branch Unreleased = %q, want only the picked line", got)
+	}
+
+	if _, err := Cut(r.root, "v0.54.1", "main", r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	pub, err := Publish(PublishInput{Root: r.root, Worktree: cut.Worktree, Cut: "v0.54.1", Cfg: r.cfg, Changelog: "CHANGELOG.md", Now: day.Add(time.Hour), DryRun: true})
+	if err != nil {
+		t.Fatalf("patch publish dry run refused: %v", err)
+	}
+	if strings.TrimSpace(pub.Message) != "v0.54.1\n\n- fix P" {
+		t.Errorf("patch message = %q", pub.Message)
+	}
+
+	// Picking the move by its sha skips it too.
+	again, err := Pick(r.root, "v0.54.1", []string{moved}, PickOptions{})
+	if err != nil || len(again.Picked) != 0 || len(again.Skipped) != 1 {
+		t.Errorf("picking the move by sha = %+v, %v", again, err)
 	}
 }

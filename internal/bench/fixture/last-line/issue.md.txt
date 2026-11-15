@@ -1,0 +1,6 @@
+`Lines("one\ntwo")` says 1: a last line without a newline at the end isn't counted. The owner: "count it, a file doesn't have to end in a newline".
+
+## Acceptance Criteria
+
+- [x] `Lines` counts a last line without a newline; an empty text is 0 lines.
+- [x] The CHANGELOG says so.

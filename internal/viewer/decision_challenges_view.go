@@ -36,7 +36,7 @@ func challengeNeedsYou(p *tracker.Project, color, prefix string, now time.Time) 
 	if err != nil || len(open) == 0 {
 		return nil
 	}
-	issues, err := tracker.LoadIssues(p.IssueDir)
+	issues, err := p.LoadIssues()
 	if err != nil {
 		return nil
 	}
@@ -191,7 +191,7 @@ func resolveChallengesAsOwner(proj *tracker.Project, ref, issue, words string, n
 	if len(list) == 0 {
 		return 0, fmt.Errorf("%s: %w", ref, errNoOpenChallenge)
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return 0, err
 	}

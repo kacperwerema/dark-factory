@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEachMessageCountsOnceWithTime(t *testing.T) {
@@ -65,5 +66,28 @@ func TestPriceFor(t *testing.T) {
 	}
 	if got := (Price{In: 1, Out: 10, CacheRead: 0.1, CacheWrite: 2}).USD(1e6, 1e6, 1e6, 1e6); got != 13.1 {
 		t.Errorf("USD = %v", got)
+	}
+}
+
+// A bench run prices a model as spend does, so a budget in USD trips on a
+// model priced only by a prefix.
+func TestCostPricesByPrefixAndTripsTheBudget(t *testing.T) {
+	u := Usage{Known: true, Model: "claude-opus-5-5", Input: 1e6}
+	Cost(&u, map[string]Price{"claude-opus-5": {In: 3}})
+	if !u.USDKnown || u.USD != 3 {
+		t.Fatalf("Cost = %+v", u)
+	}
+	if over := overBudget(Budget{Tokens: 1 << 40, USD: 2}, 1, &Run{}, time.Time{}, u.Tokens(), u.USD); !strings.Contains(over, "cost budget spent") {
+		t.Errorf("overBudget = %q", over)
+	}
+}
+
+// A result that names several models has one token count for all of them,
+// so no one price fits: the cost stays unknown, as with no price.
+func TestCostLeavesSeveralModelsUnknown(t *testing.T) {
+	u := Usage{Known: true, Model: "claude-haiku-5-5,claude-opus-5-5", Input: 1e6}
+	Cost(&u, map[string]Price{"claude-haiku": {In: 1}, "claude-opus": {In: 5}})
+	if u.USDKnown {
+		t.Errorf("Cost priced two models with one price: %+v", u)
 	}
 }

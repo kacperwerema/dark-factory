@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -161,6 +162,46 @@ func TestDecisionsRespectedRefusesUncited(t *testing.T) {
 	err := b.check()
 	wantRefusal(t, err, "decisions_respected", "orchard/rules#D-1", "internal/store/db.go", "The store is append-only",
 		"not cited", "issue-cli append orchard/child --section Design", "decisions --touched orchard/child")
+}
+
+// TestDecisionsRespectedCapsTouchedFiles: a branch touching 50 guarded
+// files gets a refusal, a yolo-hold entry and a dry run naming 10 and
+// "and 40 more"; decisions --touched (CheckRespected) keeps all 50.
+func TestDecisionsRespectedCapsTouchedFiles(t *testing.T) {
+	r := newRespectedRepo(t)
+	base := r.branch("orchard/child")
+	for i := 0; i < 50; i++ {
+		r.write(fmt.Sprintf("internal/store/f%02d.go", i), "package store\n")
+	}
+	r.commit("feat: split the store")
+	b := newRespectedBoard(t, r.dir, "Nothing cited.", base)
+
+	err := b.check()
+	wantRefusal(t, err, "internal/store/f00.go", "internal/store/f09.go and 40 more")
+	if strings.Contains(err.Error(), "internal/store/f10.go") {
+		t.Errorf("refusal names an 11th file:\n%v", err)
+	}
+	if n := strings.Count(err.Error(), "internal/store/f"); n != 10 {
+		t.Errorf("refusal names %d files, want 10:\n%v", n, err)
+	}
+
+	b.wf.DeferDecisionHolds = true
+	if err := b.check(); err != nil {
+		t.Fatalf("YOLO: want pass, got:\n%v", err)
+	}
+	holds := b.wf.DecisionHolds()
+	if len(holds) != 1 || !strings.Contains(holds[0].Why, "and 40 more") || strings.Contains(holds[0].Why, "f10.go") {
+		t.Fatalf("yolo-hold why = %+v", holds)
+	}
+
+	x, opts := b.wf.DecisionsInForce()
+	rep, err := CheckRespected(x, r.dir, b.dir, b.issue, opts.Today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Touched) != 1 || len(rep.Touched[0].Files) != 50 {
+		t.Fatalf("decisions --touched should keep every file, got %+v", rep.Touched)
+	}
 }
 
 // TestDecisionsRespectedCitationNAChallengesSoft is AC2.

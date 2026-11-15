@@ -7,6 +7,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/queue"
 	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -91,7 +92,7 @@ func QueueCIHold(proj *tracker.Project, root string) string {
 	if err != nil || !st.IsRed() {
 		return ""
 	}
-	return fmt.Sprintf("local CI red on %s at %s: no new starts until it is green", valueOrStr(st.Branch, "main"), ci.Short(st.LastSha))
+	return fmt.Sprintf("local CI red on %s at %s: no new starts until it is green", valueOrStr(st.Branch, "main"), gitdir.ShortSHA(st.LastSha))
 }
 
 func valueOrStr(s, def string) string {
@@ -119,7 +120,7 @@ func QueueEvaluate(in QueueInput) QueueVerdict {
 		st = *auto
 		out.Limits = "auto-start's"
 	} else {
-		st = autostart.State{On: true, Below: q.BelowOr(), MaxWorkers: q.MaxWorkers, GapMinutes: autostart.DefaultGapMinutes}
+		st = autostart.State{On: true, Below: q.BelowOr(), MaxWorkers: q.MaxWorkers, GapMinutes: autostart.DefaultGapMinutes, MaxLoad: auto.OwnerMaxLoad()}
 		if st.MaxWorkers <= 0 {
 			st.MaxWorkers = QueueNoCap
 		}

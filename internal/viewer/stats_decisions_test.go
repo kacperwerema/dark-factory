@@ -18,11 +18,12 @@ import (
 //
 //	rules#D-1 project, hard, the owner's words      in force
 //	rules#D-2 replaced by rules#D-3                  out
-//	rules#D-3 issue scope, soft, no quote            in force, provisional
+//	rules#D-3 issue scope, soft, no quote            in force, no quote
 //	rules#D-4 system:UI, soft, YOLO provisional      in force, provisional
 //	rules#D-5 type:bugfix, expired 2026-01-01        out
 //
-// In force 3 (project 1, issue 1, system 1), hard 1, soft 2, provisional 2.
+// In force 3 (project 1, issue 1, system 1), hard 1, soft 2, provisional 1,
+// no quote 1.
 // The log, inside the window: rules#D-1 held 3 times on 2 issues (1 passed),
 // rules#D-3 held once; 2 start and 1 dispatch briefings over 2 issues;
 // rules#D-1 challenged and resolved, rules#D-4 challenged: 1 open of 2.
@@ -94,7 +95,7 @@ func TestStatsDecisionsCardCounts(t *testing.T) {
 	if card.Empty != nil || card.Err != "" {
 		t.Fatalf("card empty/err: %+v %q", card.Empty, card.Err)
 	}
-	want := map[string]string{"in_force": "3", "hard": "1", "soft": "2", "provisional": "2", "challenges": "1"}
+	want := map[string]string{"in_force": "3", "hard": "1", "soft": "2", "provisional": "1", "challenges": "1"}
 	if got := tileValues(card); len(got) != len(want) {
 		t.Fatalf("tiles = %v", got)
 	} else {
@@ -146,7 +147,7 @@ func TestStatsDecisionsCardCounts(t *testing.T) {
 		rows[health.RowID(m.Name, m.Labels)] = m.Value
 	}
 	for id, v := range map[string]float64{
-		"decisions.total": 5, "decisions.in_force": 3, "decisions.hard": 1, "decisions.soft": 2, "decisions.provisional": 2,
+		"decisions.total": 5, "decisions.in_force": 3, "decisions.hard": 1, "decisions.soft": 2, "decisions.provisional": 1, "decisions.no_quote": 1,
 		"decisions.challenges_open": 1, "decisions.holds": 4, "decisions.injected": 3,
 		"decisions.in_force_by_scope{scope=project}": 1, "decisions.injected_by_briefing{briefing=start}": 2,
 	} {
@@ -258,5 +259,36 @@ func TestDecisionsFamilySnapshotAndTrend(t *testing.T) {
 	}
 	if !strings.Contains(page[i:], "<svg") {
 		t.Error("the Decisions trend draws no chart")
+	}
+}
+
+// TestProvisionalTileListsWhatItCounts: the tile's number is what its link
+// lists, and the same as decisions --state provisional's reader. The word
+// has one predicate: rules#D-3 (no quote, no mark) is not on the tile.
+func TestProvisionalTileListsWhatItCounts(t *testing.T) {
+	now := time.Now()
+	proj := decisionsFixture(t, now)
+	card := loadDecisionsCard(&proj, "/p/test-project", "Last 30 days", now.AddDate(0, 0, -30), now.Add(time.Second), now)
+	var tile WbStatsDecisionTile
+	for _, tl := range card.Tiles {
+		if tl.Key == "provisional" {
+			tile = tl
+		}
+	}
+	if !strings.HasSuffix(tile.URL, "?state="+tracker.DecisionProvisional) || !strings.Contains(tile.Note, "1 more with no quote") {
+		t.Fatalf("tile = %+v", tile)
+	}
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, e := range tracker.BuildDecisionIndex(issues, tracker.ClosedIssueFunc(&proj)).Entries {
+		if matchesDecisionStateFilter(e, tracker.DecisionProvisional, now) {
+			listed = append(listed, e.Ref)
+		}
+	}
+	if len(listed) != 1 || listed[0] != "rules#D-4" || tile.Value != strconv.Itoa(len(listed)) {
+		t.Errorf("tile %q, listed %v", tile.Value, listed)
 	}
 }

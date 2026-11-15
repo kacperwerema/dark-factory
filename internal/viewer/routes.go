@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/push"
@@ -21,9 +23,14 @@ var templateFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
+// Server is copied for each read request (oneBoardLoad): what outlives a
+// request sits behind a pointer, and go vet refuses a lock held by value.
 type Server struct {
-	projects []tracker.Project
-	tmpl     *template.Template
+	// liveWaiting is each project's rows for the lead chat's poll
+	// (leadWaitingLive).
+	liveWaiting *sync.Map
+	projects    []tracker.Project
+	tmpl        *template.Template
 	// allowedHosts are the Host names past loopback the viewer answers to
 	// (allowedHostsFor); Routes refuses the rest with 421.
 	allowedHosts []string
@@ -34,6 +41,8 @@ type Server struct {
 	bg *background
 	// stats caches the stats page's aggregate and CLI usage per project.
 	stats *statsCache
+	// lint keeps the Health page's Lint panel per project (lint_view.go).
+	lint *lintCache
 	// engine is the engine project's slug (where report-bug files), whose
 	// Status page shows a release candidate's soak; "" for none.
 	engine string
@@ -49,6 +58,8 @@ type Server struct {
 	// push sends the owner's phone notifications (push_view.go); a viewer
 	// without a config (or a sandbox) never sends.
 	push *pushService
+	// shared holds the projects of the requests in flight (request_board.go).
+	shared *sync.Map
 }
 
 // AgentSession is one live tmux session (or shared-session window).
@@ -66,20 +77,48 @@ type approvalResponse struct {
 	WordsError          string `json:"words_error,omitempty"`
 }
 
+// baseTemplates parses the embedded templates once per process: the
+// viewer's tests build hundreds of servers, and a parse of every page is
+// most of a NewServer. The base is never executed (html/template refuses
+// to clone a template after it ran): each server gets its own Clone and
+// binds its per-server funcs ("sidebar") on that copy only.
+var (
+	baseTemplatesOnce sync.Once
+	baseTemplatesTmpl *template.Template
+	baseTemplatesErr  error
+	// templateParses counts the parses this process ran (one, unless the
+	// first failed): TestTemplatesParsedOncePerProcess reads it.
+	templateParses atomic.Int64
+)
+
+func serverTemplates() (*template.Template, error) {
+	baseTemplatesOnce.Do(func() {
+		templateParses.Add(1)
+		baseTemplatesTmpl, baseTemplatesErr = template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")
+	})
+	if baseTemplatesErr != nil {
+		return nil, baseTemplatesErr
+	}
+	return baseTemplatesTmpl.Clone()
+}
+
 func NewServer(projects []tracker.Project) (*Server, error) {
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.html")
+	tmpl, err := serverTemplates()
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		projects: projects,
-		tmpl:     tmpl,
-		bg:       newBackground(context.Background()),
-		stats:    newStatsCache(),
-		engine:   engineSlug(&tracker.ProjectsConfig{Projects: projects}),
-		owner:    newOwnerAuth(),
-		push:     newPushService(push.Dir(), "", false, ""),
+		projects:    projects,
+		tmpl:        tmpl,
+		bg:          newBackground(context.Background()),
+		stats:       newStatsCache(),
+		lint:        newLintCache(),
+		engine:      engineSlug(&tracker.ProjectsConfig{Projects: projects}),
+		owner:       newOwnerAuth(),
+		push:        newPushService(push.Dir(), "", false, ""),
+		shared:      &sync.Map{},
+		liveWaiting: &sync.Map{},
 	}
 	tmpl.Funcs(template.FuncMap{"sidebar": s.sidebarNav})
 	return s, nil
@@ -96,18 +135,19 @@ func (s *Server) findProject(slug string) *tracker.Project {
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.handleProjectList)
-	mux.HandleFunc("/p/", s.handleProjectRoutes)
-	mux.HandleFunc("/stats", s.handleStatsOverview)
+	mux.HandleFunc("/", s.oneBoardLoad((*Server).handleProjectList))
+	mux.HandleFunc("/p/", s.oneBoardLoad((*Server).handleProjectRoutes))
+	mux.HandleFunc("/stats", s.oneBoardLoad((*Server).handleStatsOverview))
 	mux.HandleFunc("/telemetry", s.handleTelemetry)
-	mux.HandleFunc("/updates", s.handleUpdatesOverview)
-	mux.HandleFunc("/leads", s.handleLeads)
+	mux.HandleFunc("/updates", s.oneBoardLoad((*Server).handleUpdatesOverview))
+	mux.HandleFunc("/leads", s.oneBoardLoad((*Server).handleLeads))
 	mux.HandleFunc("/ceos", redirectTo("/leads"))
-	mux.HandleFunc("/needs-you", s.handleNeedsYouAll)
-	mux.HandleFunc("/crew", s.handleCrewAll)
+	mux.HandleFunc("/needs-you", s.oneBoardLoad((*Server).handleNeedsYouAll))
+	mux.HandleFunc("/crew", s.oneBoardLoad((*Server).handleCrewAll))
 	mux.HandleFunc("/project-for", s.handleProjectFor)
 	mux.HandleFunc("/owner", s.handleOwner)
 	mux.HandleFunc("/owner/", s.handleOwner)
+	mux.HandleFunc("/debug/pprof/", s.handlePprof)
 	mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	// Phone notifications and the installable app (push_view.go).
 	mux.HandleFunc("/push", s.handlePush)
@@ -196,10 +236,18 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleMemoryJSON(w, r, proj)
 	case (rest == "memory/edit" || rest == "memory/delete" || rest == "memory/pin" || rest == "memory/unpin") && r.Method == http.MethodPost:
 		s.handleMemoryWrite(w, r, proj, prefix, strings.TrimPrefix(rest, "memory/"))
+	case rest == "postmortems" && r.Method == http.MethodGet:
+		s.handlePostmortems(w, r, proj, prefix)
+	case rest == "postmortems/undo" && r.Method == http.MethodPost:
+		s.handlePostmortemsUndo(w, r, proj, prefix)
+	case rest == "postmortems/mark" && r.Method == http.MethodPost:
+		s.handlePostmortemsMark(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "postmortem/") && strings.HasSuffix(rest, "/decide") && r.Method == http.MethodPost:
 		s.handlePostmortemDecide(w, r, proj, prefix, strings.TrimSuffix(strings.TrimPrefix(rest, "postmortem/"), "/decide"))
 	case strings.HasPrefix(rest, "postmortem/") && r.Method == http.MethodGet:
 		s.handlePostmortem(w, r, proj, prefix, strings.TrimPrefix(rest, "postmortem/"))
+	case rest == "codemap" && r.Method == http.MethodGet:
+		s.handleCodemap(w, r, proj, prefix)
 	case rest == "owner-checks" && r.Method == http.MethodGet:
 		s.handleOwnerChecks(w, r, proj, prefix)
 	case rest == "owner-checks/tick" && r.Method == http.MethodPost:
@@ -208,6 +256,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleConnectorsCheck(w, r, proj, prefix)
 	case rest == "connectors.json" && r.Method == http.MethodGet:
 		s.handleConnectorsJSON(w, r, proj)
+	case strings.HasPrefix(rest, "socials/") && (r.Method == http.MethodGet || r.Method == http.MethodPost):
+		s.handleSocials(w, r, proj, prefix, rest)
 	case rest == "connections" && r.Method == http.MethodGet:
 		s.handleConnections(w, r, proj, prefix)
 	case rest == "connections.json" && r.Method == http.MethodGet:
@@ -398,6 +448,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleYOLOReviewPage(w, r, proj, prefix)
 	case rest == "yolo/review" && r.Method == http.MethodPost:
 		s.handleYOLOReviewIssue(w, r, proj)
+	case rest == "yolo/review/all" && r.Method == http.MethodPost:
+		s.handleYOLOReviewAll(w, r, proj)
 	case rest == "yolo.json" && r.Method == http.MethodGet:
 		s.handleYOLO(w, r, proj, "json")
 	case strings.HasPrefix(rest, "yolo/") && r.Method == http.MethodPost:
@@ -415,6 +467,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleYOLOReview(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/clarify") && r.Method == http.MethodPost:
 		s.handleClarifyAnswer(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/partner") && r.Method == http.MethodPost:
+		s.handlePartnerAnswer(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/send-back") && r.Method == http.MethodPost:
 		s.handleSendBack(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:

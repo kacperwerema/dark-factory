@@ -46,7 +46,7 @@ func loadIssueFile(t *testing.T, fp string) *Issue {
 
 func TestQueuedApproval_PromotedThenStartAdvances(t *testing.T) {
 	fp := writeDesignReady(t, "queued_approval: \"in progress\"\n")
-	wf := DefaultWorkflow()
+	wf := attachedDefault(t)
 
 	_, result, err := wf.ApplyTransitionToFile(fp, "backlog")
 	if err != nil {
@@ -81,7 +81,7 @@ func TestQueuedApproval_PromotedThenStartAdvances(t *testing.T) {
 // before and nothing is promoted.
 func TestQueuedApproval_NormalApprovalStillConsumed(t *testing.T) {
 	fp := writeDesignReady(t, "")
-	wf := DefaultWorkflow()
+	wf := attachedDefault(t)
 	_, result, err := wf.ApplyTransitionToFile(fp, "backlog")
 	if err != nil {
 		t.Fatal(err)

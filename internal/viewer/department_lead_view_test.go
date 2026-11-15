@@ -94,7 +94,7 @@ func TestLeadChat_Department(t *testing.T) {
 		t.Fatalf("status %d: %s", code, html)
 	}
 	for _, want := range []string{
-		`<h1 class="wb-h1">Marketing lead</h1>`,
+		`<h1 class="wb-h1" data-testid="wb.title">Marketing lead</h1>`,
 		`data-live-url="?part=live&amp;dept=marketing"`,
 		`data-ceo-send="/p/agents/lead/send?dept=marketing"`,
 		`data-key-url="/p/agents/lead/key?dept=marketing"`,

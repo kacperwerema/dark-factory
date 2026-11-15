@@ -7,10 +7,11 @@
 <main class="wb-main">
 <section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="yolo_review.page">
     <div class="wb-titlebar">
-        <h1 class="wb-h1">Review after YOLO</h1>
+        <h1 class="wb-h1" data-testid="wb.title">Review after YOLO</h1>
         <span class="wb-sub">gates YOLO passed without you and owner checks it left open · by issue · oldest first</span>
     </div>
     <div class="wb-yr" data-issue-url="{{.IssueURL}}" data-tick-url="{{.TickURL}}">
+    {{with .Done}}<div class="wb-ny-msg wb-ny-msg--ok" role="status" data-testid="yolo_review.agree_all.done">{{.}}</div>{{end}}
     {{if .Groups}}
         {{template "wb/yr-summary" .}}
         {{range .Groups}}{{template "wb/yr-group" .}}{{end}}

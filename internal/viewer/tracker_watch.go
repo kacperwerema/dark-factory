@@ -8,13 +8,13 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// The tracker watcher: every trackerSyncInterval the server syncs each
+// The tracker watcher: every TrackerSyncInterval the server syncs each
 // project's private tracker repo (privacy.work_files: tracker): commit any
 // change under the work paths, pull, push. It prompts no session; a failed
 // sync is recorded in the tracker's sync file and shows on Status as
 // "Backup failing". issue-cli tracker sync does the same on demand.
 
-const trackerSyncInterval = 10 * time.Minute
+const TrackerSyncInterval = 10 * time.Minute
 
 // trackerSync is privacy.Tracker.Sync; a var so tests count the calls.
 var trackerSync = func(t privacy.Tracker, now time.Time) (privacy.SyncResult, error) { return t.Sync(now) }
@@ -22,7 +22,7 @@ var trackerSync = func(t privacy.Tracker, now time.Time) (privacy.SyncResult, er
 // watchTrackers syncs on a tick until stop closes.
 func (s *Server) watchTrackers(stop <-chan struct{}) {
 	lastErr := map[string]string{}
-	ticker := time.NewTicker(trackerSyncInterval)
+	ticker := time.NewTicker(TrackerSyncInterval)
 	defer ticker.Stop()
 	for {
 		syncTrackers(s.projects, time.Now(), lastErr)

@@ -400,7 +400,7 @@ func TestEstimateUsesTheLastFinishedRunsMeanPerTask(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
 	b := New("est")
 	b.Tasks = []Task{{Project: "p", Slug: "a"}, {Project: "p", Slug: "b"}, {Project: "p", Slug: "c"}, {Project: "p", Slug: "d"}}
-	if got := Estimate(b); !strings.Contains(got, "no previous run") {
+	if got := Estimate(b, 1); !strings.Contains(got, "no previous run") {
 		t.Fatalf("estimate = %q", got)
 	}
 	at := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
@@ -412,7 +412,7 @@ func TestEstimateUsesTheLastFinishedRunsMeanPerTask(t *testing.T) {
 	if err := Save(r, recs); err != nil {
 		t.Fatal(err)
 	}
-	got := Estimate(b)
+	got := Estimate(b, 1)
 	if !strings.Contains(got, "about 40m0s") || !strings.Contains(got, "$12.00 for 4 tasks") || !strings.Contains(got, "r1's mean per task: 10m0s, $3.00") {
 		t.Fatalf("estimate = %q", got)
 	}

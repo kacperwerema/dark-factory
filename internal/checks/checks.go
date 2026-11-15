@@ -12,9 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/kacperwerema/dark-factory/internal/shell"
 )
 
 // Lib is the helper library every check script sources ($CHECKS_LIB).
@@ -54,19 +55,16 @@ func Find(roots []string, slug string) []Script {
 		if root == "" {
 			continue
 		}
-		files, _ := filepath.Glob(filepath.Join(root, Dir, "*.sh"))
-		sort.Strings(files)
-		for _, f := range files {
-			name := strings.TrimSuffix(filepath.Base(f), ".sh")
-			if seen[name] || IssueOf(f) != slug {
+		for _, f := range listScripts(root) {
+			if seen[f.name] || f.slug != slug {
 				continue
 			}
-			seen[name] = true
-			abs, err := filepath.Abs(f)
+			seen[f.name] = true
+			abs, err := filepath.Abs(f.path)
 			if err != nil {
-				abs = f
+				abs = f.path
 			}
-			out = append(out, Script{Name: name, Path: abs, Root: root})
+			out = append(out, Script{Name: f.name, Path: abs, Root: root})
 		}
 	}
 	return out
@@ -179,10 +177,12 @@ func Skeleton(slug, name string, boxes []Box) string {
 	fmt.Fprintf(&b, "# The owner's manual checks for %s, one step at a time. Run it with:\n", slug)
 	run := slug
 	if strings.ContainsAny(slug, " '") {
-		run = shellQuote(slug)
+		run = shell.Quote(slug)
 	}
 	fmt.Fprintf(&b, "#   issue-cli check-script %s\n", run)
 	b.WriteString("# The helpers (step, run, expect, ask, summary, sandbox_project, private_tmux, …): issue-cli check-script --lib\n")
+	b.WriteString("# After the merge this runs from history in a temporary folder: the repository is\n")
+	b.WriteString("# $CHECKS_ROOT and files beside it (" + name + "-*) are in $CHECKS_DIR, never BASH_SOURCE or $0.\n")
 	b.WriteString("# shellcheck source=/dev/null disable=SC2034,SC2154\n")
 	b.WriteString("source \"${CHECKS_LIB:?run me with: issue-cli check-script <slug>}\"\n\n")
 	b.WriteString("checks_intro \"TODO: what changed, in a line or two, and how long this takes.\"\n")
@@ -191,15 +191,11 @@ func Skeleton(slug, name string, boxes []Box) string {
 	}
 	for _, box := range boxes {
 		fmt.Fprintf(&b, "\n# ── %s %s\n", box.ID, strings.Repeat("─", max(1, 66-len(box.ID))))
-		fmt.Fprintf(&b, "step %s %s --box %s \\\n", box.ID, shellQuote(box.Text), box.ID)
+		fmt.Fprintf(&b, "step %s %s --box %s \\\n", box.ID, shell.Quote(box.Text), box.ID)
 		b.WriteString("\t--what \"TODO\" --why \"TODO\" --look \"TODO\" --expect \"TODO\"\n")
 		b.WriteString("run true\n")
 		b.WriteString("expect '[ $code = 0 ]' \"TODO: what a pass means\"\n")
 	}
 	b.WriteString("\nsummary\n")
 	return b.String()
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

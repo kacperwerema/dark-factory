@@ -2,6 +2,7 @@ package validations
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"strings"
 )
 
@@ -22,12 +23,12 @@ func SectionMinLength(action Action, issue *IssueView, _ Config) error {
 	if !ok {
 		return fail(action, issue,
 			fmt.Sprintf("section \"## %s\" is missing (need ≥%d chars)", section, action.Min),
-			fmt.Sprintf("add: issue-cli append %s --section %q --body \"...\"", issue.Slug, section))
+			fmt.Sprintf("add: issue-cli append %s --section %s --body \"...\"", issue.Slug, shell.Quote(section)))
 	}
 	if got < action.Min {
 		return fail(action, issue,
 			fmt.Sprintf("section \"## %s\" has %d chars, need ≥%d", section, got, action.Min),
-			fmt.Sprintf("expand: issue-cli append %s --section %q --body \"...\"", issue.Slug, section))
+			fmt.Sprintf("expand: issue-cli append %s --section %s --body \"...\"", issue.Slug, shell.Quote(section)))
 	}
 	return nil
 }

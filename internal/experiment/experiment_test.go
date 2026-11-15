@@ -326,3 +326,13 @@ func TestRollbackPreparesRevertBranch(t *testing.T) {
 		t.Fatalf("changed %v", files)
 	}
 }
+
+func TestJudgeWontMixARunOnTwoAgents(t *testing.T) {
+	a := run("a", map[string]string{"p/x": "pass"}, [2]int{}, 0.5)
+	b := run("b", map[string]string{"p/x": "pass"}, [2]int{}, 0.5)
+	b.Setup.Agent = "claude,codex"
+	v, why, _ := Judge(a, b, Target{Metric: "pass_rate"})
+	if v != Broken || !strings.Contains(strings.Join(why, "\n"), "ran on two agents") {
+		t.Errorf("verdict %s: %v", v, why)
+	}
+}

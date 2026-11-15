@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -17,12 +18,22 @@ import (
 // the newest tests: report and each playtest step's latest verdict.
 type checker struct {
 	root, worktree, ref, slug string
+	cache                     *timeline.Cache
 	issuesDir, statsPath      string
 	lastChange                time.Time
-	reportAt                  time.Time
-	hasReport                 bool
-	steps                     map[string]stepVerdict
-	tests                     map[string]Check
+	lastChangeSHA             string
+	// leadRuns are the sidecar's lead runs, for lead links.
+	leadRuns  []tracker.LeadRun
+	reportAt  time.Time
+	hasReport bool
+	// reportMatch: the newest tests: comment names a commit that covers the
+	// last change by sha or by patch (an amended commit), so its time
+	// doesn't make the report stale.
+	reportMatch bool
+	// commits are the branch's own commits, newest first.
+	commits []commit
+	steps   map[string]stepVerdict
+	tests   map[string]Check
 	// goModule: prove --run can run the tests (the project has a go.mod).
 	goModule bool
 }
@@ -45,7 +56,7 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 	// read, not git's trailers: those are only the last paragraph, and a
 	// Proves: line often sits in its own paragraph before Co-Authored-By.
 	args := []string{"log", "--first-parent", "--name-only", "--format=%x1e%H%x1f%ct%x1f%P%x1f%B%x1f"}
-	out, err := git(c.root, append(args, rng...)...)
+	out, err := tracker.GitCached(c.root, append(args, rng...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +74,7 @@ func (c *checker) branchCommits(stats tracker.StatsStore) ([]commit, error) {
 		cm.files = strings.Fields(f[4])
 		commits = append(commits, cm)
 	}
-	foreign := foreignCommits(c.root, c.issuesDir, c.statsPath, c.ref, stats, commits)
+	foreign := foreignCommits(c.cache, c.root, c.issuesDir, c.statsPath, c.ref, stats, commits)
 	own := commits[:0]
 	for _, cm := range commits {
 		if !foreign[cm.sha] {
@@ -98,16 +109,19 @@ func MessageLines(msg, key string) []string {
 // LogRange is the git log range of the work branch's own commits at ref:
 // main..ref while the branch is live, so commits merged in from main never
 // count; after the merge only the recorded head is left, so the walk stops
-// at the issue's first dispatch or transition. nil: nothing to walk.
+// at the issue's first dispatch or transition. nil: nothing to walk. ref is
+// a commit sha and main is named by its sha too: the range is a key for
+// tracker.GitCached, and it says the same thing as the branch's name.
 func LogRange(root, ref string, stats tracker.StatsStore) []string {
 	// A ref is never an option: it can come from the agent-written stats
 	// sidecar (docs/API/security.md).
 	if ref == "" || strings.HasPrefix(ref, "-") {
 		return nil
 	}
-	main, _ := tracker.MainBranch(root)
-	if _, err := git(root, "merge-base", "--is-ancestor", ref, main); main != "" && err != nil {
-		return []string{main + ".." + ref}
+	if _, main, _ := tracker.MainHead(root); main != "" {
+		if _, err := tracker.GitCached(root, "merge-base", "--is-ancestor", ref, main); err != nil {
+			return []string{main + ".." + ref}
+		}
 	}
 	since := issueStart(stats)
 	if since.IsZero() {
@@ -145,6 +159,8 @@ func (c *checker) check(l Link) Check {
 		return Check{OK: true, State: "reported"}
 	case tracker.ProofShot:
 		return c.checkShot(l.Ref)
+	case tracker.ProofLead:
+		return c.checkLead(l.Ref)
 	}
 	return Check{State: "unknown link kind " + l.Kind}
 }
@@ -168,7 +184,7 @@ func (c *checker) findTests(names []string) {
 	for _, n := range todo {
 		args = append(args, "-e", n)
 	}
-	out, _ := git(c.root, append(args, c.ref, "--")...)
+	out, _ := tracker.GitCached(c.root, append(args, c.ref, "--")...)
 	hit := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		// <ref>:<path>:<match>; the match is one of the names, which may
@@ -210,8 +226,11 @@ func (c *checker) checkTest(name string) Check {
 	if !c.hasReport {
 		return Check{State: "no tests: report", Fix: c.testsFix("run the tests, then")}
 	}
-	if !c.lastChange.IsZero() && c.reportAt.Before(c.lastChange) {
+	if !c.lastChange.IsZero() && c.reportAt.Before(c.lastChange) && !c.reportMatch {
 		return Check{State: "stale (code changed since the last tests: comment)", Fix: c.testsFix("re-run the tests, then")}
+	}
+	if !c.lastChange.IsZero() && c.reportAt.Before(c.lastChange) {
+		return Check{OK: true, State: "reported for the last change (its commit names it, by sha or patch)"}
 	}
 	return Check{OK: true, State: "reported after the last change"}
 }
@@ -251,7 +270,10 @@ func (c *checker) checkCommit(l Link) Check {
 	if err != nil {
 		return Check{State: "not found", Fix: "no commit " + l.Ref + " in the repository"}
 	}
-	if _, err := git(c.root, "merge-base", "--is-ancestor", full, c.ref); err != nil {
+	if _, err := tracker.GitCached(c.root, "merge-base", "--is-ancestor", full, c.ref); err != nil {
+		if m := c.patchMatch(full); m != "" {
+			return Check{OK: true, State: "found as " + gitdir.ShortSHA(m) + " (same patch)"}
+		}
 		return Check{State: "not found", Fix: l.Ref + " is not on the work branch or its merge"}
 	}
 	return Check{OK: true, State: "found"}
@@ -300,6 +322,7 @@ func Ways(slug, id string) []string {
 		fmt.Sprintf("a test: a `Proves: %s <TestName>` trailer on the commit that adds or changes it", id),
 		fmt.Sprintf("the change itself: a `Proves: %s` trailer on its commit", id),
 		fmt.Sprintf("or: issue-cli prove %s %s --test <Name> | --step <id> | --commit <sha> | --value \"<measured>\"", slug, id),
+		fmt.Sprintf("a command only the lead can run (the worker guard refuses it): issue-cli prove %s %s --lead \"issue-cli check-script %s --yes\", then stop: the lead's tick lists it", slug, id, slug),
 	}
 }
 
@@ -322,6 +345,20 @@ func gateError(r Report, unproven []Criterion) error {
 			}
 		}
 	}
+	var waits []string
+	for _, c := range unproven {
+		for _, l := range c.Links {
+			if l.Kind == tracker.ProofLead && !l.Check.OK {
+				waits = append(waits, c.ID+" "+l.Ref)
+			}
+		}
+	}
+	if len(waits) > 0 {
+		fmt.Fprintf(&b, "\n\nWaits on the lead: %s.\nNot yours to run: stop here, no question: comment needed. The lead's tick (issue-cli queue next) lists it; the lead runs issue-cli prove %s --lead-run.", strings.Join(waits, "; "), r.Slug)
+		if len(waits) == len(unproven) {
+			return fmt.Errorf("%s", b.String())
+		}
+	}
 	fmt.Fprintf(&b, "\n\nProve each one with any of (shown for %s):", unproven[0].ID)
 	for _, w := range Ways(r.Slug, unproven[0].ID) {
 		fmt.Fprintf(&b, "\n  - %s", w)
@@ -336,9 +373,9 @@ func Describe(l Link) string { return describe(l) }
 func describe(l Link) string {
 	ref := l.Ref
 	if l.Kind == tracker.ProofCommit {
-		ref = timeline.ShortSHA(ref)
+		ref = gitdir.ShortSHA(ref)
 	}
-	if l.Kind == tracker.ProofValue {
+	if l.Kind == tracker.ProofValue || l.Kind == tracker.ProofLead {
 		ref = strconv.Quote(ref)
 	}
 	s := l.Kind + " " + ref
@@ -399,7 +436,11 @@ func TickProven(issuePath string, r Report) ([]string, error) {
 
 // ResolveCommit returns the full sha of a commit in the repository at root.
 func ResolveCommit(root, sha string) (string, error) {
-	out, err := git(root, "rev-parse", "--verify", "--quiet", sha+"^{commit}")
+	read := git
+	if timeline.IsSHA(sha) {
+		read = tracker.GitCached // a missing commit isn't kept: it may come
+	}
+	out, err := read(root, "rev-parse", "--verify", "--quiet", sha+"^{commit}")
 	full := strings.TrimSpace(out)
 	if err != nil || full == "" {
 		return "", fmt.Errorf("no commit %s in %s", sha, root)

@@ -141,7 +141,7 @@ func TestForProject(t *testing.T) {
 }
 
 func TestParseSessions(t *testing.T) {
-	got := ParseSessions("issue-viewer\t1792610000\t/home/u/Work\nbad\n\nagent-x\t1792610100\t/p/.worktrees/x\n")
+	got := ParseSessions("issue-viewer|:|1792610000|:|/home/u/Work\nbad\n\nagent-x|:|1792610100|:|/p/.worktrees/x\n")
 	if len(got) != 2 || got[0].Name != "issue-viewer" || got[0].Path != "/home/u/Work" || got[1].Path != "/p/.worktrees/x" || got[0].StartTime == "" {
 		t.Errorf("ParseSessions = %+v", got)
 	}

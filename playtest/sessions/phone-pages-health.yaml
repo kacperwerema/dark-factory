@@ -1,0 +1,24 @@
+session: phone-pages-health
+issue: ui/phone-view-works-on-every-workshop-board-page-no-sideways-scroll-16px-gutters-big-tap-targets-tables-as-rows
+title: "Health at phone width: the Departments table as one card per row"
+scenario: department-health
+
+# 390x844 only. inside_viewport fails when documentElement.scrollWidth is
+# wider than the screen (the sideways-scroll check), naming the outermost
+# element that sticks out.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP8
+    title: At 390px Health fits the screen and each department is a card with its column names
+    proves: [AC1, AC2, AC5]
+    setup:
+      - open: /p/{project}/health
+    checks:
+      - visible: [health.page, health.departments, health.departments.row.marketing, health.departments.row.sales]
+      - css: { target: health.departments.row.marketing, property: display, equals: block }
+      - below: [health.departments.row.marketing, health.departments.row.sales]
+      - text_contains: { target: health.departments.row.marketing, text: "Marketing" }

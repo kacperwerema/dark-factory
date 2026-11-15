@@ -169,9 +169,30 @@ func TestEarlierWorkflowsDifferInWordingOnly(t *testing.T) {
 	}
 }
 
+// TestMarketingBeforeReportTypeIsUpgradesToOffer: the marketing file from just
+// before the report type left earlierTexts, because the type is more than
+// wording. Department update must keep that file, and workflow upgrade must
+// still offer the type, or the install could never reach a growth scout run.
+func TestMarketingBeforeReportTypeIsUpgradesToOffer(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "before-report-type", "marketing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(earlierTexts["marketing"].Files["workflow"], sha(raw)) {
+		t.Error("department update would bring the report type in behind workflow upgrade's offer")
+	}
+	plan, err := workflowupgrade.BuildPlan("workflow.yaml", raw, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(plan.Proposals, func(p workflowupgrade.Proposal) bool { return p.ID == "report-type" }) {
+		t.Errorf("workflow upgrade does not offer report-type: %+v", plan.Proposals)
+	}
+}
+
 // shapeDiff is where a and b differ other than in a text value, "" when
 // they don't. Mapping keys, node kinds, list lengths and every value but a
-// description: or prompt: must match. The features: record's installed:
+// description:, prompt: or hint: must match. The features: record's installed:
 // may list the same refs in another order (the catalog's order changed):
 // that adopts nothing.
 func shapeDiff(a, b *yaml.Node, at string) string {
@@ -191,10 +212,10 @@ func shapeDiff(a, b *yaml.Node, at string) string {
 		return ""
 	}
 	if a.Kind == yaml.ScalarNode {
-		// Text may change only in a description: or prompt: value, and in
+		// Text may change only in a description:, prompt: or hint: value, and in
 		// the template: stamp, which every catalog bump moves.
 		key := at[strings.LastIndex(at, "/")+1:]
-		if a.Tag != b.Tag || a.Value != b.Value && key != "description" && key != "prompt" && at != "/0/template" {
+		if a.Tag != b.Tag || a.Value != b.Value && !slices.Contains([]string{"description", "prompt", "hint"}, key) && at != "/0/template" {
 			return at
 		}
 		return ""
@@ -261,12 +282,13 @@ func oldMarketing(t *testing.T) (string, string) {
 	}
 	mustWriteFile(t, filepath.Join(root, "departments", "marketing", "role.md"), string(old))
 	mustWriteFile(t, filepath.Join(root, "departments", "marketing", "jobs", "weekly-seo-pass.md"), "Our own brief.\n")
-	// The workflow file as an earlier release wrote it, never upgraded.
-	wf, err := os.ReadFile(filepath.Join("testdata", "earlier", "marketing", "workflow.1"))
+	// A workflow file that isn't a listed earlier text: since v0.61 added
+	// gates no earlier marketing.yaml is (workflow upgrade brings them).
+	wf, err := workflowupgrade.ReadTemplate("marketing")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWriteFile(t, filepath.Join(root, "workflows", "marketing.yaml"), string(wf))
+	mustWriteFile(t, filepath.Join(root, "workflows", "marketing.yaml"), "# our copy\n"+string(wf))
 	return cfg, root
 }
 
@@ -295,7 +317,7 @@ func TestUpdateReplacesOnlyUntouchedEarlierText(t *testing.T) {
 	want := map[string]string{
 		"departments/marketing/role.md":                 UpdateOld,
 		"departments/marketing/jobs/weekly-seo-pass.md": UpdateEdited,
-		"workflows/marketing.yaml":                      UpdateOld,
+		"workflows/marketing.yaml":                      UpdateEdited,
 		"role":                                          UpdateOld,
 		"mission":                                       UpdateOld,
 		"goal pages name":                               UpdateOld,
@@ -306,8 +328,8 @@ func TestUpdateReplacesOnlyUntouchedEarlierText(t *testing.T) {
 			t.Errorf("%s = %q, want %q (items %v)", k, got[k], v, got)
 		}
 	}
-	if u.Pending() != 5 {
-		t.Fatalf("pending = %d, want 5", u.Pending())
+	if u.Pending() != 4 {
+		t.Fatalf("pending = %d, want 4", u.Pending())
 	}
 	before, _ := os.ReadFile(cfg)
 	if err := u.Apply(proj); err != nil {
@@ -321,16 +343,16 @@ func TestUpdateReplacesOnlyUntouchedEarlierText(t *testing.T) {
 		t.Fatalf("edited brief overwritten: %q", b)
 	}
 	wantWF, _ := workflowupgrade.ReadTemplate("marketing")
-	if b, _ := os.ReadFile(filepath.Join(root, "workflows", "marketing.yaml")); string(b) != string(wantWF) {
-		t.Fatal("the untouched earlier workflow file was not brought to the new text")
+	if b, _ := os.ReadFile(filepath.Join(root, "workflows", "marketing.yaml")); string(b) != "# our copy\n"+string(wantWF) {
+		t.Fatal("a workflow file that isn't an earlier text was replaced")
 	}
 	sides, err := u.SideFiles()
-	if err != nil || len(sides) != 1 || sides[0].Path != "departments/marketing/jobs/weekly-seo-pass.template.md" || sides[0].Kept {
+	if err != nil || len(sides) != 2 || sides[0].Path != "workflows/marketing.template.yaml" || sides[1].Path != "departments/marketing/jobs/weekly-seo-pass.template.md" || sides[1].Kept {
 		t.Fatalf("side files = %+v, %v", sides, err)
 	}
 	side := filepath.Join(root, "departments", "marketing", "jobs", "weekly-seo-pass.template.md")
 	mustWriteFile(t, side, "my notes\n")
-	if sides, _ := u.SideFiles(); len(sides) != 1 || !sides[0].Kept {
+	if sides, _ := u.SideFiles(); len(sides) != 2 || !sides[1].Kept {
 		t.Fatalf("an edited side file: %+v", sides)
 	}
 	if b, _ := os.ReadFile(side); string(b) != "my notes\n" {

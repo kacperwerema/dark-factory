@@ -108,8 +108,9 @@ func (s *Server) buildSystemWb(p *tracker.Project, prefix string, issues []*trac
 	st := newStatusTones(wf)
 	groups, _ := groupSystems(issues, wf.Workbench)
 
+	lot := s.headerLot(p, now)
 	d := SystemWbData{
-		Header:     systemsHeader(p, prefix, s.buildCompany(p, prefix, now)),
+		Header:     systemsHeader(p, prefix, lot),
 		Name:       page.Title,
 		Kind:       "system",
 		Summary:    page.Summary,
@@ -134,7 +135,7 @@ func (s *Server) buildSystemWb(p *tracker.Project, prefix string, issues []*trac
 	if fam != nil {
 		members = childrenOf(g.Members, fam.Umbrella)
 	}
-	waits, workerOf := s.systemsWho(p, prefix, st, groups)
+	waits, workerOf := s.systemsWho(p, prefix, st, groups, lot.agents)
 	cs := systemCrates(st, prefix, members, waits, workerOf)
 
 	d.Figures = []WbFigure{
@@ -257,7 +258,7 @@ func systemDecisions(p *tracker.Project, prefix string, issues, members []*track
 		if len(d.Rows) == recentCap {
 			break
 		}
-		row := decisionsRow(e, prefix)
+		row := decisionsRow(e, prefix, time.Now())
 		row.Confirm = nil // confirmed on the decisions log, where the CEO's state is known
 		if !e.Date.IsZero() {
 			row.Date = e.Date.Format("2006-01-02")

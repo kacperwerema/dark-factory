@@ -64,6 +64,9 @@ type FloorData struct {
 	// Inspectors are one per box, in plan order; Rooms the same as links.
 	Inspectors []FloorInspector
 	Rooms      []FloorLink
+	// List is the floor on a phone: one row per room, in plan order, the
+	// plan hidden (workshop.css, phone block).
+	List []FloorListRow
 	// AfterYOLO is how many issues wait for review after YOLO.
 	AfterYOLO int
 }
@@ -141,6 +144,21 @@ type FloorSlot struct {
 type FloorLink struct {
 	Box, Title, Color, Note string
 	Depth                   int
+}
+
+// FloorListRow is one room in the phone's list: its name (opening its
+// inspector), its counts and one button (Chat, or Product's Hall).
+type FloorListRow struct {
+	Box, Title, Color string
+	Depth             int
+	Open, ToReview    int
+	// Live: the CEO or the room's lead is running (not shown for Product).
+	Live bool
+	// YOLO is Product's after-the-fact count while YOLO is on or has a queue.
+	YOLO int
+	// Note is the row's extra word: Product's workers, a due job.
+	Note              string
+	Action, ActionURL string
 }
 
 // FloorRoad is a road as a polyline in plan pixels.
@@ -242,6 +260,7 @@ func buildFloor(c CompanyData, prefix, added, dept string) FloorData {
 		}
 		d.Rooms = append(d.Rooms, FloorLink{Box: in.Box, Title: in.Title, Color: in.Color, Depth: depth})
 	}
+	d.List = floorList(&d.CompanyData, d.Inspectors, d.Rooms)
 	d.Pick = connections.Product
 	eachRoom(d.CompanyData.Rooms, func(r *WbRoomDept) {
 		if dept != "" && (r.Box == dept || r.Box == tracker.DepartmentKey(dept)) {
@@ -701,6 +720,43 @@ func floorInspectors(c *CompanyData, prefix string) []FloorInspector {
 		}
 	}
 	walk(c.Rooms)
+	return out
+}
+
+// floorList is the phone's list of rooms: the inspectors' order and depth,
+// each room's open count, outputs to review and its chat (Product: its hall).
+func floorList(c *CompanyData, ins []FloorInspector, links []FloorLink) []FloorListRow {
+	out := make([]FloorListRow, 0, len(ins))
+	for i, in := range ins {
+		row := FloorListRow{Box: in.Box, Title: in.Title, Color: in.Color, Depth: links[i].Depth, Action: "Chat", ActionURL: in.ChatURL}
+		switch {
+		case in.HQ != nil:
+			row.Open, row.Live = in.HQ.Open, in.HQ.Desk.CEO.Live
+			if in.HQ.Shelf != nil {
+				row.ToReview = in.HQ.Shelf.ToReview
+			}
+		case in.Product != nil:
+			row.Open, row.Note = in.Product.Open, in.Lead
+			row.Action, row.ActionURL = "Hall", in.Product.HallURL
+			if in.Product.Shelf != nil {
+				row.ToReview = in.Product.Shelf.ToReview
+			}
+			if y := in.Product.YOLO; y != nil && (y.On || len(y.Queue) > 0) {
+				row.YOLO = len(y.Queue)
+			}
+		case in.Dept != nil:
+			r := in.Dept
+			row.Color = r.Head.Color
+			row.Open, row.Live = r.Open, r.Lead.Live
+			if r.Shelf != nil {
+				row.ToReview = r.Shelf.ToReview
+			}
+			if j := firstDueJob(r.Jobs); j != nil && (j.State == "due" || j.State == "waits") {
+				row.Note = "1 due job"
+			}
+		}
+		out = append(out, row)
+	}
 	return out
 }
 

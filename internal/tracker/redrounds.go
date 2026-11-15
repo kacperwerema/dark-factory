@@ -10,6 +10,11 @@ import (
 // spec-flow epic).
 const DefaultMaxRedRounds = 4
 
+// RedRoundsWhatCounts is what a red round is, in one phrase: the briefing's
+// Red checks section, the max_red_rounds line of process schema and the docs
+// quote it (TestDocsQuoteTheCode).
+const RedRoundsWhatCounts = "a gate's command, the proof check, a local CI command or the critic's held runs; one round per commit, each held critic run its own round; only a failure that comes back counts, and an owner comment starts the count over"
+
 // RedRoundCap is max_red_rounds, or DefaultMaxRedRounds when it is unset or
 // not positive (lint warns on a value below 1).
 func (w *WorkflowConfig) RedRoundCap() int {
@@ -65,9 +70,8 @@ func AppendRoundResults(issuePath string, results ...RoundResult) error {
 // and can go red on its own (a shell command, the proof check), as opposed
 // to a form the worker fills in (boxes, sections). ok is false for those.
 func CheckKey(action WorkflowAction) (key string, ok bool) {
-	rule := strings.TrimSpace(action.Rule)
-	name, _, _ := strings.Cut(rule, ":")
-	switch strings.TrimSpace(name) {
+	name, _ := SplitRule(action.Rule)
+	switch name {
 	case "command_succeeds":
 		cmd := strings.Join(strings.Fields(action.Command), " ")
 		if len(cmd) > 80 {
@@ -95,7 +99,7 @@ func (w *WorkflowConfig) TransitionCheckKeys(from, to string) map[string]bool {
 		if k, ok := CheckKey(a); ok {
 			out[k] = true
 		}
-		if name, _, _ := strings.Cut(a.Rule, ":"); strings.TrimSpace(name) == CritiqueRule {
+		if name, _ := SplitRule(a.Rule); name == CritiqueRule {
 			out[CritiqueCheckKey(from, to)] = true
 		}
 	}

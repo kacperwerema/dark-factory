@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -302,5 +304,62 @@ func TestFilterIssues(t *testing.T) {
 				t.Errorf("expected %d issues, got %d", tt.expected, len(result))
 			}
 		})
+	}
+}
+
+// The page paints from these after an auto-refresh, so they must fold case
+// the way the server's templates do (audit 1.5): "In Design" is in-design's
+// colour, not the grey a raw-name map gave it.
+func TestIssuesJSONCarriesTheServersColours(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	body := "---\ntitle: Mixed\nstatus: In Design\npriority: critical\n---\nx\n"
+	if err := os.WriteFile(filepath.Join(proj.IssueDir, "mixed.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/p/test-project/issues.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var issues []issueJSON
+	if err := json.NewDecoder(resp.Body).Decode(&issues); err != nil {
+		t.Fatal(err)
+	}
+	for _, iss := range issues {
+		if iss.Slug != "mixed" {
+			continue
+		}
+		if want := statusColorOf("in design"); iss.StatusColor != want || want == statusColorOf("no such status") {
+			t.Errorf("status_color = %q, want %q", iss.StatusColor, want)
+		}
+		if iss.StatusTextColor != statusTextColorOf("In Design") {
+			t.Errorf("status_text_color = %q", iss.StatusTextColor)
+		}
+		if iss.PriorityColor != priorityColorOf("critical") {
+			t.Errorf("priority_color = %q", iss.PriorityColor)
+		}
+		return
+	}
+	t.Fatalf("mixed missing from issues.json: %+v", issues)
+}
+
+// TestAutoRefreshKeepsNoColourMap: auto-refresh.js paints with the colours
+// /issues.json sends. A second map in the script drifted from the Go one.
+func TestAutoRefreshKeepsNoColourMap(t *testing.T) {
+	js, err := staticFS.ReadFile("static/auto-refresh.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, colour := range []string{statusColorOf("idea"), statusColorOf("backlog"), statusColorOf("shipping")} {
+		if strings.Contains(string(js), colour) {
+			t.Errorf("auto-refresh.js holds %s: status and priority colours come from /issues.json", colour)
+		}
+	}
+	for _, field := range []string{"iss.status_color", "iss.status_text_color", "iss.priority_color"} {
+		if !strings.Contains(string(js), field) {
+			t.Errorf("auto-refresh.js doesn't read %s", field)
+		}
 	}
 }

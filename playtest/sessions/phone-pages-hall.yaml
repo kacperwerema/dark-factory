@@ -1,0 +1,34 @@
+session: phone-pages-hall
+issue: ui/phone-view-works-on-every-workshop-board-page-no-sideways-scroll-16px-gutters-big-tap-targets-tables-as-rows
+title: "The hall and the sidebar Board at phone width: stations in one column, no sideways scroll"
+scenario: workboard
+
+# 390x844 only. inside_viewport fails when documentElement.scrollWidth is
+# wider than the screen (the sideways-scroll check), naming the outermost
+# element that sticks out.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: At 390px the hall's stations stack in one column; station heads and the header's ☰ are 44px
+    proves: [AC1, AC2, AC4]
+    setup:
+      - open: /p/{project}/hall
+    checks:
+      - visible: [hall.line, hall.station.open, hall.gate, map.waiting, map.drawer]
+      - size: { target: hall.station.open, min_height: 44 }
+      - size: { target: map.drawer, min_height: 44, min_width: 44 }
+      - size: { target: hall.gate, min_height: 44, max_height: 80 }
+      - below: [hall.station.open, hall.gate]
+
+  - id: TP5
+    title: At 390px the sidebar Board (/workboard) fits the screen the same way
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/workboard
+    checks:
+      - visible: [hall.line, hall.station.open]
+      - size: { target: hall.station.open, min_height: 44 }

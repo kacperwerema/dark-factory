@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // naProject is the simple project at testing, with a Testing section, a
@@ -85,6 +87,26 @@ func TestCheckNARefusesTheOwnersBoxes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// F30: a box unticked and ticked again must not claim the N/A it withdrew.
+func TestUncheckWithdrawsAnNA(t *testing.T) {
+	ctx, slug, issuePath := naProject(t)
+	if err := runCheck(ctx, []string{slug, "T2", "--na", "no page changes"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, readFile(t, issuePath), "(N/A: no page changes)")
+	if err := runUncheck(ctx, []string{slug, "T2"}); err != nil {
+		t.Fatal(err)
+	}
+	if body := readFile(t, issuePath); strings.Contains(body, "no page changes") {
+		t.Fatalf("uncheck kept the N/A:\n%s", body)
+	}
+	assertContains(t, readFile(t, issuePath), "- [ ] `make ux-test REPEAT=2` passed\n")
+	if err := runCheck(ctx, []string{slug, "T2"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, readFile(t, issuePath), "- [x] `make ux-test REPEAT=2` passed\n")
 }
 
 func TestCheckEditRefusesAnNAOnTheOwnersBox(t *testing.T) {
@@ -171,11 +193,11 @@ func TestCheckNAEveryRefusalSaysNotTicked(t *testing.T) {
 func TestCheckNAShippingBoxSaysTickPlainly(t *testing.T) {
 	asWorker(t)
 	ctx, slug, issuePath := naProject(t)
-	data := readFile(t, issuePath) + "\n## Shipping\n- [ ] Check scripts removed in a last commit before the merge, or none\n"
+	data := readFile(t, issuePath) + "\n## Shipping\n- [ ] Branch merged into main\n"
 	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := runCheck(ctx, []string{slug, "S1", "--na", "no check scripts were written"})
+	err := runCheck(ctx, []string{slug, "S1", "--na", "nothing to merge here"})
 	naRefused(t, err, issuePath, data, "shipping steps have no N/A form", "check "+slug+" S1")
 	if strings.Contains(err.Error(), "N/A: no page changes") {
 		t.Errorf("a Shipping refusal lists the N/A forms:\n%s", err)
@@ -183,6 +205,45 @@ func TestCheckNAShippingBoxSaysTickPlainly(t *testing.T) {
 	if err := runCheck(ctx, []string{slug, "S1"}); err != nil {
 		t.Fatalf("plain check of S1: %v", err)
 	}
+}
+
+// A shipping box whose text ends in "or none" takes check --na: "none" is
+// one of its answers, so it is ticked as it is and the reason becomes a
+// comment, instead of a refusal that says to tick it plainly.
+func TestCheckNAOrNoneBoxTicksAndRecordsTheReason(t *testing.T) {
+	asWorker(t)
+	ctx, slug, issuePath := naProject(t)
+	stdout := ctx.Stdout.(interface{ String() string })
+	data := readFile(t, issuePath) + "\n## Shipping\n- [ ] Check scripts removed in a last commit before the merge, or none\n- [ ] Follow-ups filed as their own issues, or none.\n"
+	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := runCheck(ctx, []string{slug, "S1", "--na", "no check scripts were written"}); err != nil {
+		t.Fatalf("check --na on an or-none box: %v", err)
+	}
+	body := readFile(t, issuePath)
+	assertContains(t, body, "- [x] Check scripts removed in a last commit before the merge, or none\n")
+	if strings.Contains(body, "or none (N/A") {
+		t.Errorf("an or-none box keeps its text, no N/A added:\n%s", body)
+	}
+	assertContains(t, stdout.String(), `S1 says "or none": ticked as it is`)
+	comments, err := tracker.LoadComments(issuePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range comments {
+		if strings.Contains(c.Text, "S1 ticked as none: no check scripts were written") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the reason is not a comment: %+v", comments)
+	}
+
+	// With no reason it still refuses and changes nothing.
+	data = readFile(t, issuePath)
+	naRefused(t, runCheck(ctx, []string{slug, "S2", "--na", " "}), issuePath, data, `S2 says "or none"`)
 }
 
 // AC3: the CLI-only form ticks a Test Plan box, and the page-state form

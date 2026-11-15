@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
@@ -25,12 +26,15 @@ type Rest struct {
 	// KnownReset is false when the message named no time (Until is a guess).
 	KnownReset bool      `json:"known_reset"`
 	SeenAt     time.Time `json:"seen_at"`
-	// Session and Project are where the message was seen; By is "scan" or
-	// "owner" (issue-cli agents rest).
+	// Session and Project are where the message was seen; By is "scan" (a
+	// limit message), "stop" (the agent reached its stop point, see Percent
+	// and StopAt) or "owner" (issue-cli agents rest).
 	Session string `json:"session,omitempty"`
 	Project string `json:"project,omitempty"`
 	Line    string `json:"line,omitempty"`
 	By      string `json:"by"`
+	Percent int    `json:"percent,omitempty"`
+	StopAt  int    `json:"stop_at,omitempty"`
 }
 
 // seen is one limit message already recorded, so the same message still on
@@ -47,6 +51,8 @@ type seen struct {
 type State struct {
 	Rests map[string]Rest `json:"rests"`
 	Seen  []seen          `json:"seen,omitempty"`
+	// Usage is each agent's newest weekly reading (FindUsage, SeeUsage).
+	Usage map[string]Usage `json:"usage,omitempty"`
 }
 
 // seenFor is how long a recorded message is remembered.
@@ -137,15 +143,10 @@ func update(dir string, fn func(*State) bool) (*State, error) {
 	if !fn(st) {
 		return st, nil
 	}
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
+	if err := jsonfile.Write(statePath(dir), st, 0o644); err != nil {
 		return nil, err
 	}
-	tmp := statePath(dir) + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return nil, err
-	}
-	return st, os.Rename(tmp, statePath(dir))
+	return st, nil
 }
 
 // Mark records a limit seen in project's session. A message already
@@ -187,11 +188,17 @@ func SetRest(dir, agent string, until, now time.Time) error {
 }
 
 // Clear ends agent's rest (issue-cli agents clear); found is false when it
-// wasn't resting.
+// wasn't resting. A usage reading is marked cleared, so the same percent still
+// on the panes doesn't rest the agent again; a higher one does (SeeUsage).
 func Clear(dir, agent string, now time.Time) (found bool, err error) {
 	_, err = update(dir, func(st *State) bool {
 		r, ok := st.Rests[agent]
 		found = ok && now.Before(r.Until)
+		if u, seen := st.Usage[agent]; seen && !u.Cleared {
+			u.Cleared = true
+			st.Usage[agent] = u
+			ok = true
+		}
 		if !ok {
 			return false
 		}

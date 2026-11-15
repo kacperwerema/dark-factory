@@ -44,8 +44,10 @@ func TestLeadSpawn_Department(t *testing.T) {
 			t.Errorf("brief missing %q:\n%s", want, spec.Prompt)
 		}
 	}
-	if !strings.Contains(stdout.String(), "✓ Spawned Marketing lead lead-proj-marketing") {
-		t.Errorf("stdout = %q", stdout.String())
+	for _, want := range []string{"✓ Spawned Marketing lead lead-proj-marketing", "Lead memories: none yet", "issue-cli --project proj memory add"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("no %q in stdout = %q", want, stdout.String())
+		}
 	}
 
 	// The CEO's spawn points at the department leads.

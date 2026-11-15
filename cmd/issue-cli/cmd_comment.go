@@ -26,7 +26,7 @@ Correct a comment you wrote (a typo in a tests: line):
   issue-cli comment edit <slug> <id|last> --text "tests: 44 on the branch"
 Only your own latest comment on the issue, from a session that signs its
 comments (a lead or a worker). The owner's comments, other agents' comments
-and approval:, dispatch:, yolo-review: and yolo-owner-check: comments can't be
+and approval:, dispatch:, stage:, yolo-review: and yolo-owner-check: comments can't be
 edited. The old text stays in the comment's history (edits in the file),
 and show marks the comment (edited). Decisions (decide) are never edited.`,
 	Run: runComment,
@@ -89,7 +89,7 @@ func runComment(ctx *Context, args []string) error {
 
 // lockedCommentPrefixes are comments no one edits: the owner's recorded
 // words and the YOLO review trail.
-var lockedCommentPrefixes = []string{"approval:", "dispatch:", "yolo-review:", "yolo-owner-check:"}
+var lockedCommentPrefixes = []string{"approval:", "dispatch:", "stage:", "yolo-review:", "yolo-owner-check:"}
 
 func lockedComment(text string) string {
 	t := strings.TrimSpace(text)

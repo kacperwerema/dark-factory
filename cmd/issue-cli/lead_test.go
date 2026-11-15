@@ -21,6 +21,7 @@ func init() {
 	}
 	liveSessionNames = func(*tracker.Project) map[string]bool { return nil }
 	currentTmuxNames = func() (string, string) { return "", "" }
+	liveWorkerSessions = func(*tracker.Project, string) []string { return nil }
 	workingDir = func() (string, error) { return "/home/someone/project", nil }
 	startAgent = func(*tracker.Project, agentrun.Spec) agentrun.Response {
 		panic("test started a real agent; stub startAgent")
@@ -175,6 +176,20 @@ func TestLeadSpawn_HeadlessFlag(t *testing.T) {
 			t.Errorf("%v: Headless = %v, want %v", tc.args, spec.Headless, tc.headless)
 		}
 	}
+}
+
+// A lead that dies at launch is no spawn: an error with the step that says
+// why, no "✓ Spawned".
+func TestLeadSpawn_DeadLaunchIsReported(t *testing.T) {
+	proj := makeLeadProject(t)
+	stubDeadLaunch(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	err := runLead(ctx, []string{"spawn"})
+	if err == nil || !strings.Contains(err.Error(), "spawning lead-proj failed") {
+		t.Fatalf("err = %v", err)
+	}
+	assertContains(t, stdout.String(), "exited right after the launch")
+	assertNotContains(t, stdout.String(), "✓ Spawned")
 }
 
 // Inside tmux with lead_terminal unset, a headless spawn says how to get the

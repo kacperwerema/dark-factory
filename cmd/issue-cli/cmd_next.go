@@ -9,9 +9,11 @@ import (
 var nextCommand = &Command{
 	Name:      "next",
 	ShortHelp: "Find work for a version (use --design for ideas-needing-design)",
-	LongHelp: `List actionable issues for the current version.
+	LongHelp: `List actionable issues for the current version: --version, else the
+project's version: in projects.yaml, else every version (a fresh project).
 
 Examples:
+  issue-cli next
   issue-cli next --version 0.1
   issue-cli next --design --version 0.1`,
 	Run: runNext,
@@ -35,8 +37,10 @@ func runNext(ctx *Context, args []string) error {
 	if version == "" {
 		version = proj.Version
 	}
-	if version == "" && !design {
-		return fmt.Errorf("--version is required (or set version in project.yaml)\n\nExample:\n  issue-cli next --version 0.1\n  issue-cli next --design --version 0.1")
+	// No version anywhere (a fresh project): every version's work.
+	which := "v" + version
+	if version == "" {
+		which = "every version"
 	}
 
 	issues, err := tracker.LoadIssues(proj.IssueDir)
@@ -53,6 +57,7 @@ func runNext(ctx *Context, args []string) error {
 		issues = filtered
 	}
 
+	wf := proj.LoadWorkflow()
 	priorityRank := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "": 4}
 	// Issues of departments on their own workflow file don't walk backlog →
 	// in progress → testing: they are listed by department after Product's.
@@ -61,7 +66,7 @@ func runNext(ctx *Context, args []string) error {
 	if design {
 		var matches []*tracker.Issue
 		for _, issue := range issues {
-			if issue.Status == "idea" || issue.Status == "in design" {
+			if wf.BeforeQueue(issue.Status) {
 				matches = append(matches, issue)
 			}
 		}
@@ -71,10 +76,10 @@ func runNext(ctx *Context, args []string) error {
 			return writeJSON(ctx.Stdout, matches)
 		}
 		if len(matches) == 0 {
-			fmt.Fprintf(ctx.Stdout, "No issues needing design work for version %s.\n", version)
+			fmt.Fprintf(ctx.Stdout, "No issues needing design work (%s).\n", which)
 			return nil
 		}
-		fmt.Fprintf(ctx.Stdout, "== Issues needing design work (v%s) ==\n", version)
+		fmt.Fprintf(ctx.Stdout, "== Issues needing design work (%s) ==\n", which)
 		for _, issue := range matches {
 			p := issue.Priority
 			if p == "" {
@@ -88,14 +93,14 @@ func runNext(ctx *Context, args []string) error {
 
 	var backlog, inProgress, testing []*tracker.Issue
 	for _, issue := range issues {
-		switch issue.Status {
-		case "backlog":
+		switch {
+		case wf.HasRole(issue.Status, tracker.StatusRoleQueue):
 			if issue.Assignee == "" {
 				backlog = append(backlog, issue)
 			}
-		case "in progress":
+		case wf.HasRole(issue.Status, tracker.StatusRoleWork):
 			inProgress = append(inProgress, issue)
-		case "testing":
+		case wf.HasRole(issue.Status, tracker.StatusRoleVerify):
 			testing = append(testing, issue)
 		}
 	}
@@ -113,11 +118,15 @@ func runNext(ctx *Context, args []string) error {
 	}
 
 	if len(backlog) == 0 && len(inProgress) == 0 && len(testing) == 0 && len(deptOpen) == 0 {
+		if version == "" {
+			fmt.Fprintln(ctx.Stdout, "No work available. Try: issue-cli next --design, or issue-cli create --title \"<title>\" to add an issue")
+			return nil
+		}
 		fmt.Fprintf(ctx.Stdout, "No work available for version %s. Try: issue-cli next --design --version %s\n", version, version)
 		return nil
 	}
 
-	fmt.Fprintf(ctx.Stdout, "== Work for v%s ==\n", version)
+	fmt.Fprintf(ctx.Stdout, "== Work for %s ==\n", which)
 	if len(inProgress) > 0 {
 		fmt.Fprintf(ctx.Stdout, "\nIn Progress (%d):\n", len(inProgress))
 		for _, issue := range inProgress {
@@ -175,7 +184,7 @@ func splitDepartmentWork(proj *tracker.Project, issues []*tracker.Issue) ([]*tra
 			product = append(product, issue)
 			continue
 		}
-		if wf := proj.LoadWorkflowForIssue(issue); wf.LoadErr == nil && !wf.IsLastStatus(issue.Status) {
+		if wf := proj.LoadWorkflowForIssue(issue); wf.LoadErr == nil && !tracker.IsClosedStatus(wf, issue.Status) {
 			byDept[d] = append(byDept[d], issue)
 		}
 	}

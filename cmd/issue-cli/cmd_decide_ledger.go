@@ -211,7 +211,7 @@ type ownerActRules struct {
 // ownerActFor applies approve's rule to this session: a worker is refused,
 // a lead (in scope) relays the owner's --quote, the owner's shell may.
 func ownerActFor(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, quote string) ownerActRules {
-	me := whoAmI(ctx.Project, issues)
+	me := guardWho(ctx, issues, "change a hard decision")
 	r := ownerActRules{me: me}
 	switch me.Role {
 	case tracker.RoleWorker:
@@ -254,7 +254,7 @@ func decisionWrite(ctx *Context, me Identity, relay *tracker.DecisionRelay) trac
 // type or a system; project and department scopes reach every briefing in
 // the project or department, so they are the lead's.
 func workerScopeRefusal(ctx *Context, me Identity, issue *tracker.Issue, issues []*tracker.Issue, scope string) error {
-	if me.Role != tracker.RoleWorker {
+	if me.Role != tracker.RoleWorker || sandboxPass(ctx, "decide --scope", string(me.Role)) {
 		return nil
 	}
 	kind, _ := tracker.DecisionAttrs{Scope: scope}.ScopeKind()

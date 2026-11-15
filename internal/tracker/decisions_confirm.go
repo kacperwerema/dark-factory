@@ -28,14 +28,26 @@ const (
 	defaultConfirmedQuote = "Confirmed."
 )
 
-// NeedsOwnerWords reports whether a decision still waits for the owner: it
-// has no quote, its text carries a "(provisional…)" mark, or it was made in
-// YOLO or provisionally, and it has not been confirmed since.
-func NeedsOwnerWords(d Decision) bool {
-	if strings.Contains(strings.ToLower(d.How), confirmedByOwner) {
+// IsProvisional reports a decision marked provisional: YOLO or provisional
+// in its how, or a "(provisional…)" mark in its text, and not confirmed
+// since. It is what the word provisional means everywhere: the Stats card,
+// decisions --state provisional and the drift sweep. A decision that only
+// lacks a quote is not provisional; NeedsOwnerWords counts that one too.
+func IsProvisional(d Decision) bool {
+	if confirmed(d) {
 		return false
 	}
-	return d.Quote == "" || provisionalMarkRe.MatchString(d.Text) || provisionalHow(d.How)
+	return provisionalMarkRe.MatchString(d.Text) || provisionalHow(d.How)
+}
+
+// NeedsOwnerWords reports whether a decision still waits for the owner: it
+// is provisional, or it has no quote and has not been confirmed since.
+func NeedsOwnerWords(d Decision) bool {
+	return IsProvisional(d) || (d.Quote == "" && !confirmed(d))
+}
+
+func confirmed(d Decision) bool {
+	return strings.Contains(strings.ToLower(d.How), confirmedByOwner)
 }
 
 func provisionalHow(how string) bool {

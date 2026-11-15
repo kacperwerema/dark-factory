@@ -1,0 +1,55 @@
+session: postmortems
+issue: ui/the-owners-post-mortem-round-works-across-post-mortems
+title: Every waiting post-mortem action on one page, refused by the group
+scenario: postmortems
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Actions of three post-mortems, one archived, are grouped by place and copy, the newest copy kept
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.count, text: "6" }
+      - text_contains: { target: postmortems.joined, text: "3 in 1 group" }
+      - visible: [postmortems.place.workflow, postmortems.place.memory, postmortems.warn, postmortems.group.workflow-0, postmortems.row.ui/cart.a2, postmortems.row.ui/till.a2, postmortems.row.ui/shelf.a2, postmortems.kept]
+      - text_contains: { target: postmortems.refuse.workflow-0, text: "Refuse 2" }
+      - text_contains: { target: postmortems.row.ui/cart.a2, text: "kept unless you tick it" }
+
+  - id: TP5
+    title: Refuse on a group takes a second click, refuses the ticked rows and leaves the kept one open
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/postmortems
+    act:
+      - click: postmortems.refuse.workflow-0
+      - check: { text_contains: { target: postmortems.refuse.workflow-0, text: "Confirm: refuse 2" } }
+      - click: postmortems.refuse.workflow-0
+      - wait_for: { visible: postmortems.row.ui/till.a2.msg, ms: 8000 }
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.count, text: "4" }
+      - absent: [postmortems.row.ui/till.a2, postmortems.row.ui/shelf.a2]
+      - text_contains: { target: postmortems.group.workflow-0, text: "1 alone" }
+      - issue: { slug: ui/till, comment_contains: "A2 refused on the actions page" }
+      - issue: { slug: ui/shelf, comment_contains: "retros/archive/20261101-090000-postmortem-ui-shelf.md" }
+
+  - id: TP6
+    title: The page reads like the Workshop Board at desktop and phone width
+    judgement_step: true
+    setup:
+      - open: /p/{project}/postmortems
+    checks:
+      - visible: [postmortems.page, postmortems.bar, postmortems.group.workflow-0]
+    targets:
+      - { id: postmortems.group.workflow-0, note: the group of copies with its foot }
+    do: |
+      1. Look at the page at both widths: the bar, a card per place, the open group, the foot's two acts.
+    expect: |
+      It reads as one Workshop Board page, orange only on what waits on you, and the foot wraps cleanly on a phone.
+    why: Whether a long list stays easy to scan is for the owner's eye.

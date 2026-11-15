@@ -60,7 +60,7 @@ type FilterParams struct {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -125,7 +125,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request, proj *tracke
 }
 
 func (s *Server) handleHash(w http.ResponseWriter, r *http.Request, proj *tracker.Project) {
-	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	issues, _ := proj.LoadIssues()
 	sessionMap, activeBots := sessionsByIssueSlug(proj, issues)
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]string{"hash": issuesHash(issues, sessionMap, activeBots)}
@@ -165,10 +165,15 @@ type issueJSON struct {
 	Type           string         `json:"type,omitempty"`
 	ActiveSessions []AgentSession `json:"active_sessions"`
 	HasActiveAgent bool           `json:"has_active_agent"`
+	// The server's colours: auto-refresh.js paints with these and keeps no
+	// map of its own.
+	StatusColor     string `json:"status_color"`
+	StatusTextColor string `json:"status_text_color"`
+	PriorityColor   string `json:"priority_color"`
 }
 
 func (s *Server) handleIssuesJSON(w http.ResponseWriter, r *http.Request, proj *tracker.Project) {
-	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	issues, _ := proj.LoadIssues()
 	sessionMap, _ := sessionsByIssueSlug(proj, issues)
 	wf := proj.LoadWorkflow()
 	result := make([]issueJSON, len(issues))
@@ -186,6 +191,10 @@ func (s *Server) handleIssuesJSON(w http.ResponseWriter, r *http.Request, proj *
 			Type:           resolvedType(wf, issue),
 			ActiveSessions: activeSessions,
 			HasActiveAgent: len(activeSessions) > 0,
+
+			StatusColor:     statusColorOf(issue.Status),
+			StatusTextColor: statusTextColorOf(issue.Status),
+			PriorityColor:   priorityColorOf(issue.Priority),
 		}
 		if result[i].Labels == nil {
 			result[i].Labels = []string{}
@@ -203,7 +212,7 @@ func (s *Server) handleIssuesJSON(w http.ResponseWriter, r *http.Request, proj *
 // inject for each of them, so the modal can prefill the description.
 func createOptions(wf *tracker.WorkflowConfig) ([]string, map[string]string) {
 	order := wf.GetStatusOrder()
-	backlogIdx := wf.GetStatusIndex("backlog")
+	backlogIdx := wf.GetStatusIndex(wf.RoleStatus(tracker.StatusRoleQueue))
 	if backlogIdx == -1 {
 		backlogIdx = 3
 	}

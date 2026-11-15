@@ -66,6 +66,24 @@ type WbCrumb struct {
 // where / alone is Needs you (the remote home).
 const mapURL = "/?map=1"
 
+// crumbUp is where a phone's ‹ goes: the nearest crumb with a link before
+// the current one; nil on a trail with none (the map).
+func crumbUp(cs []WbCrumb) *WbCrumb {
+	cur := len(cs)
+	for i := range cs {
+		if cs[i].Current {
+			cur = i
+			break
+		}
+	}
+	for i := cur - 1; i >= 0; i-- {
+		if cs[i].URL != "" {
+			return &cs[i]
+		}
+	}
+	return nil
+}
+
 func wbCrumbs(level int, projectName, projectURL string) []WbCrumb {
 	crumbs := []WbCrumb{
 		{Label: "Map", URL: mapURL},
@@ -218,6 +236,17 @@ type WbQueueCard struct {
 	ExpiryURL    string `json:"expiry_url,omitempty"`
 	RenewDefault string `json:"renew_default,omitempty"`
 	RenewMin     string `json:"renew_min,omitempty"`
+	// Partner is the department partner's line ("OpenMontage: pitch ·
+	// awaiting you"), PartnerNote its summary, spend and artifacts, LiveURL
+	// the partner's own viewer while it answers (Kind partner, or a gate
+	// the partner waits on too; partner_view.go).
+	Partner     string `json:"partner,omitempty"`
+	PartnerNote string `json:"partner_note,omitempty"`
+	LiveURL     string `json:"live_url,omitempty"`
+	// PartnerURL is where the owner answers the partner's stage
+	// PartnerStage (Kind partner): Approve or Send back, a D-n each.
+	PartnerURL   string `json:"partner_url,omitempty"`
+	PartnerStage string `json:"partner_stage,omitempty"`
 }
 
 // wbCountChips are the agent counts as chips: N waiting on you, N working,
@@ -345,13 +374,18 @@ type WbRoomDept struct {
 	Crew    WbCrew
 	Role    string
 	Systems string
+	// Open is how many of its issues have not finished (the foot's "N open").
+	Open int
 	// Stations are the department's line from its own workflow file
 	// (workflow: in projects.yaml); none when it runs on Product's.
 	Stations []WbStation
 	// WorkflowFile is that file's name; WorkflowError why it didn't load.
 	WorkflowFile, WorkflowError string
-	Mission                     string
-	Goals                       []WbGoal
+	// HallURL is the department's own hall (its workflow file as the line),
+	// "" without a workflow file.
+	HallURL string
+	Mission string
+	Goals   []WbGoal
 	// AllGoals is every goal (Goals shows the first few), for the floor's
 	// inspector.
 	AllGoals []WbGoal
@@ -387,6 +421,8 @@ type WbRoomFactory struct {
 	// inspector.
 	AllGoals []WbGoal
 	Waiting  int
+	// Open is how many of Product's issues have not finished.
+	Open     int
 	HallURL  string
 	Shelf    *WbShelfLink
 	Spend    *WbSpend

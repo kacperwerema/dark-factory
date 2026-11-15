@@ -1,0 +1,47 @@
+# Department template: what `issue-cli department add legal` installs. The
+# workflow file is the bundled workflow template named in workflow:, written
+# to workflows/<key>.yaml; role.md is written to departments/<key>/role.md.
+# Everything else becomes the department's entry in projects.yaml. See
+# docs/departments.md#templates and #legal.
+#
+# Legal is top-level (no parent:): it serves Product and Sales alike, so it
+# sits under no group. Its agents flag, cite and draft; they never give a
+# legal sign-off. A product's workflow asks it before a risky branch ships
+# by naming the rule `handoff_answered: legal` (docs/departments.md, "The
+# handoff gate").
+name: Legal
+description: "Compliance: GDPR and consumer-law checks citing the law by article, draft documents for the owner, a legal check before risky changes ship; never a sign-off"
+color: "#4F7CAC"
+role: "Compliance checks and draft documents; flags, cites and drafts, never signs off"
+mission: "No launch or change ships with a known legal gap the owner hasn't seen"
+workflow: legal
+goals:
+  - id: baseline-pass
+    name: Baseline checks passing
+    unit: pct
+    target: 100
+    period: month
+  - id: open-findings
+    name: Open findings
+    target: 0
+    direction: down
+    period: month
+# Recurring jobs: each run is an issue in the department (docs/departments.md,
+# "Recurring jobs"). A due run waits in Needs you until the owner starts it or
+# turns its standing start on: issue-cli job auto on legal/monthly-baseline.
+jobs:
+  - id: monthly-baseline
+    name: Compliance baseline
+    every: month
+    on: "1"
+    at: "07:00"
+    type: compliance-check
+    brief: jobs/monthly-baseline.md
+  # Quarterly in the outline; jobs run by day, week or month, so monthly.
+  - id: law-watch
+    name: Law watch
+    every: month
+    on: "15"
+    at: "07:00"
+    type: compliance-check
+    brief: jobs/law-watch.md

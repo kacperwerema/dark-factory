@@ -1,8 +1,12 @@
 package tracker
 
 import (
+	"errors"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
 // ValidateTransition checks whether an issue meets all validation rules for a transition.
@@ -53,7 +57,42 @@ func (w *WorkflowConfig) checkValidateAction(action WorkflowAction, issue *Issue
 	if isStructuredRule(action.Rule) {
 		return w.checkAction(action, issue, comments)
 	}
-	return w.checkRule(action.Rule, issue, comments)
+	if name, _ := SplitRule(action.Rule); name == HandoffAnsweredRule {
+		return w.checkHandoffAnswered(action, issue)
+	}
+	err := w.checkRule(action.Rule, issue, comments)
+	if hint := strings.TrimSpace(action.Hint); hint != "" {
+		var rf *ruleFailure
+		if errors.As(err, &rf) {
+			view := toIssueView(issue)
+			view.Department = w.departmentKey(issue)
+			return rf.withFix(validations.RenderHint(hint, view))
+		}
+	}
+	return err
+}
+
+// ruleFailure is a legacy rule's failure in two parts, what is wrong and how
+// to fix it, so an action's hint: can replace the fix the way it does on the
+// validations package's rules. sep joins them: " — ", or "\n" after a
+// problem that ends in a list.
+type ruleFailure struct {
+	problem, sep, fix string
+}
+
+func (f *ruleFailure) Error() string { return f.problem + f.sep + f.fix }
+
+// withFix is f with fix in place of its built-in one.
+func (f *ruleFailure) withFix(fix string) *ruleFailure {
+	sep := " — "
+	if strings.HasSuffix(f.problem, "\n") {
+		sep = "\n"
+	}
+	return &ruleFailure{problem: f.problem, sep: sep, fix: fix}
+}
+
+func failRule(problem, fix string) *ruleFailure {
+	return &ruleFailure{problem: problem, sep: " — ", fix: fix}
 }
 
 // Validate is kept for compatibility with older call sites and tests.
@@ -116,12 +155,7 @@ func DescribeAction(action WorkflowAction, defaultStatus string) string {
 }
 
 func validationSummary(rule string) string {
-	ruleName := rule
-	arg := ""
-	if idx := strings.Index(rule, ": "); idx != -1 {
-		ruleName = rule[:idx]
-		arg = rule[idx+2:]
-	}
+	ruleName, arg := SplitRule(rule)
 
 	switch ruleName {
 	case "body_not_empty":
@@ -146,10 +180,19 @@ func validationSummary(rule string) string {
 			return "Validate the issue has an output on the shelf (issue-cli output add --issue <slug>)"
 		}
 		return fmt.Sprintf("Validate the issue has a %s on the shelf (issue-cli output add --issue <slug> --kind %s)", arg, arg)
+	case outputsApprovedRule:
+		if arg == "" {
+			return "Validate the owner approved the issue's newest output on the shelf, with none still in review"
+		}
+		return fmt.Sprintf("Validate the owner approved the issue's newest %s on the shelf, with none still in review", arg)
+	case HandoffAnsweredRule:
+		return fmt.Sprintf("Validate a handoff to %s filed for the issue is done (issue-cli handoff %s --for <slug>)", arg, arg)
 	case DecisionsCitedRule:
 		return "Validate ## Design cites every hard decision in force for the issue, or says \"n/a <ref>: <why>\" (issue-cli decisions --in-force <slug>)"
 	case CitationsCurrentRule:
 		return "Validate no decision the issue cites is replaced or expired"
+	case DecisionUnchallengedRule:
+		return "Validate no challenge this issue made on a decision is still open (issue-cli decision challenge)"
 	case DecisionsRespectedRule:
 		return "Validate the issue cites every hard decision whose paths: the branch changes, with no open challenge of its own on it (issue-cli decisions --touched <slug>)"
 	case "has_assignee":
@@ -179,23 +222,17 @@ func validationSummary(rule string) string {
 }
 
 func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment) error {
-	// Parse "rule_name: arg" format
-	ruleName := rule
-	ruleArg := ""
-	if idx := strings.Index(rule, ": "); idx != -1 {
-		ruleName = rule[:idx]
-		ruleArg = rule[idx+2:]
-	}
+	ruleName, ruleArg := SplitRule(rule)
 
 	switch ruleName {
 	case "body_not_empty":
 		if strings.TrimSpace(issue.BodyRaw) == "" {
-			return fmt.Errorf("issue body is empty — add a description first")
+			return failRule("issue body is empty", "add a description first")
 		}
 	case "has_checkboxes":
 		total, _ := CountCheckboxes(issue.BodyRaw)
 		if total == 0 {
-			return fmt.Errorf("no checkboxes found — add acceptance criteria as checkboxes:\n\n  - [ ] First requirement\n  - [ ] Second requirement")
+			return failRule("no checkboxes found", "add acceptance criteria as checkboxes:\n\n  - [ ] First requirement\n  - [ ] Second requirement")
 		}
 	case "section_has_checkboxes":
 		if ruleArg == "" {
@@ -203,7 +240,7 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		}
 		total, _ := CountCheckboxesInSection(issue.BodyRaw, ruleArg)
 		if total == 0 {
-			return fmt.Errorf("no checkboxes found in section %q — add explicit checklist items there", ruleArg)
+			return failRule(fmt.Sprintf("no checkboxes found in section %q", ruleArg), "add explicit checklist items there")
 		}
 	case "criteria_checkboxes":
 		return w.checkCriteriaCheckboxes(ruleArg, issue)
@@ -213,6 +250,8 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		return w.checkCommitsReference(issue)
 	case hasOutputRule:
 		return w.checkHasOutput(ruleArg, issue)
+	case outputsApprovedRule:
+		return w.checkOutputsApproved(ruleArg, issue)
 	case CritiqueRule:
 		return w.checkCritique(issue)
 	case DecisionsCitedRule:
@@ -227,7 +266,7 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 		if issue.Assignee == "" {
 			// start re-claims and moves the issue on (backlog clears the
 			// assignee); claim only sets the name.
-			return fmt.Errorf("no assignee — re-claim the issue with:\n\n  issue-cli start %s\n\n(or only set the name: issue-cli claim %s --assignee \"your-name\")", issue.Slug, issue.Slug)
+			return failRule("no assignee", fmt.Sprintf("re-claim the issue with:\n\n  issue-cli start %s\n\n(or only set the name: issue-cli claim %s --assignee \"your-name\")", issue.Slug, issue.Slug))
 		}
 	case "all_checkboxes_checked":
 		items := ListCheckboxes(issue.BodyRaw)
@@ -244,7 +283,7 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 			// otherwise an issue imported without that section reaches the
 			// next status with none of its checklist content. Require the
 			// section to exist with at least one checkbox.
-			return fmt.Errorf("section %q has no checkboxes — add a %s checklist before transitioning", ruleArg, ruleArg)
+			return failRule(fmt.Sprintf("section %q has no checkboxes", ruleArg), fmt.Sprintf("add a %s checklist before transitioning", ruleArg))
 		}
 		if checked < total {
 			var inSection []CheckboxItem
@@ -258,14 +297,14 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 	case "has_test_plan":
 		hasAuto, hasManual := HasTestPlan(issue.BodyRaw)
 		if !hasAuto || !hasManual {
-			return fmt.Errorf("missing test plan — add one with:\n  issue-cli append <slug> --body \"## Test Plan\\n\\n### Automated\\n- test description\\n\\n### Manual\\n- verification step\"")
+			return failRule("missing test plan", "add one with:\n  issue-cli append <slug> --body \"## Test Plan\\n\\n### Automated\\n- test description\\n\\n### Manual\\n- verification step\"")
 		}
 	case "has_comment_prefix":
 		if ruleArg == "" {
 			return fmt.Errorf("has_comment_prefix rule requires an argument")
 		}
 		if !HasCommentWithPrefix(comments, ruleArg) {
-			return fmt.Errorf("no comment starting with %q — add one:\n\n  issue-cli comment %s --text \"%s ...\"", ruleArg, issue.Slug, ruleArg)
+			return failRule(fmt.Sprintf("no comment starting with %q", ruleArg), fmt.Sprintf("add one:\n\n  issue-cli comment %s --text %s", issue.Slug, shell.Quote(ruleArg+" ...")))
 		}
 	case "approved_for", "human_approval":
 		if ruleArg == "" {
@@ -298,7 +337,7 @@ func openCheckboxes(items []CheckboxItem) []CheckboxItem {
 // openCheckboxesError explains a checkbox gate failure: how many boxes are
 // still open out of total, each open box with its id, and the check command
 // that ticks them. section is "" for the whole-body gate.
-func openCheckboxesError(slug, section string, open []CheckboxItem, total int) error {
+func openCheckboxesError(slug, section string, open []CheckboxItem, total int) *ruleFailure {
 	var b strings.Builder
 	noun := "boxes"
 	if len(open) == 1 {
@@ -319,12 +358,11 @@ func openCheckboxesError(slug, section string, open []CheckboxItem, total int) e
 		}
 		fmt.Fprintf(&b, "  %-4s %s\n", ref, it.Label())
 	}
+	fix := fmt.Sprintf("\nSee every box with:\n  issue-cli checklist %s", slug)
 	if len(ids) > 0 {
-		fmt.Fprintf(&b, "\nTick the ones that are done (ids, several at once):\n  issue-cli check %s %s", slug, strings.Join(ids, " "))
-	} else {
-		fmt.Fprintf(&b, "\nSee every box with:\n  issue-cli checklist %s", slug)
+		fix = fmt.Sprintf("\nTick the ones that are done (ids, several at once):\n  issue-cli check %s %s", slug, strings.Join(ids, " "))
 	}
-	return fmt.Errorf("%s", b.String())
+	return &ruleFailure{problem: b.String(), fix: fix}
 }
 
 // ReadyForApproval reports whether every validate rule of fromStatus →

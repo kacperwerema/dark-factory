@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -24,16 +25,21 @@ import (
 // request a stranger would send. TestOwnerRoutesListedInSecurityDoc keeps the
 // two in step.
 var ownerRoutes = []struct{ method, path, body string }{
+	{"GET", "/debug/pprof/", ""},
+	{"GET", "/debug/pprof/goroutine", ""},
+	{"GET", "/debug/pprof/heap", ""},
 	{"POST", "/p/test-project/issue/some-issue/approve", `{"status":"in progress"}`},
 	{"POST", "/p/test-project/issue/System/some-issue/approve", `{"status":"in progress"}`},
 	{"POST", "/p/test-project/needs-you/approve", `{"slugs":["some-issue"]}`},
 	{"POST", "/p/test-project/issue/some-issue/send-back", `{"words":"x"}`},
 	{"POST", "/p/test-project/issue/some-issue/yolo-review", `{"status":"done","verdict":"agree","words":"ok"}`},
 	{"POST", "/p/test-project/issue/some-issue/clarify", `{"answers":[{"id":"Q1","option":1}]}`},
+	{"POST", "/p/test-project/issue/some-issue/partner", `{"action":"approve","stage":"pitch"}`},
 	{"POST", "/p/test-project/yolo/on", `{}`},
 	{"POST", "/p/test-project/yolo/extend", `{}`},
 	{"POST", "/p/test-project/yolo/off", `{}`},
 	{"POST", "/p/test-project/yolo/review", `{"slug":"some-issue","verdict":"agree"}`},
+	{"POST", "/p/test-project/yolo/review/all", `{"items":[{"slug":"some-issue","key":"done","comment":1}]}`},
 	{"POST", "/p/test-project/autostart/pause", `{}`},
 	{"POST", "/p/test-project/autostart/resume", `{}`},
 	{"POST", "/p/test-project/autostart/off", `{}`},
@@ -55,6 +61,8 @@ var ownerRoutes = []struct{ method, path, body string }{
 	{"POST", "/p/test-project/memory/pin", `{}`},
 	{"POST", "/p/test-project/memory/unpin", `{}`},
 	{"POST", "/p/test-project/postmortem/some-issue/decide", `{"answers":[]}`},
+	{"POST", "/p/test-project/postmortems/mark", `{"act":"refuse"}`},
+	{"POST", "/p/test-project/postmortems/undo", `{"items":[]}`},
 	{"POST", "/p/test-project/lead/file", `{}`},
 	{"GET", "/p/test-project/lead/file/0123456789abcdef0123456789abcdef/notes.md", ``},
 	{"POST", "/p/test-project/crew/lead", `{}`},
@@ -63,6 +71,14 @@ var ownerRoutes = []struct{ method, path, body string }{
 	{"GET", "/p/test-project/crew/tail", ``},
 	{"POST", "/p/test-project/queue/pause", `{}`},
 	{"POST", "/p/test-project/queue/resume", `{}`},
+	{"GET", "/p/test-project/socials/marketing", ``},
+	{"POST", "/p/test-project/socials/marketing/setup", ``},
+	{"POST", "/p/test-project/socials/marketing/key", ``},
+	{"POST", "/p/test-project/socials/marketing/fields", ``},
+	{"POST", "/p/test-project/socials/marketing/connect", ``},
+	{"POST", "/p/test-project/socials/marketing/connect-done", ``},
+	{"POST", "/p/test-project/socials/marketing/check", ``},
+	{"POST", "/p/test-project/socials/marketing/disconnect", ``},
 	// Phone notifications: global O routes (ownerOnlyGlobal).
 	{"POST", "/push/subscribe", `{}`},
 	{"POST", "/push/change", `{}`},
@@ -73,8 +89,20 @@ var ownerRoutes = []struct{ method, path, body string }{
 	{"POST", "/push/test", `{}`},
 }
 
+// standInLeadStart keeps a test that gets past the owner gate from launching
+// a real lead: signed in, POST /crew/lead reaches spawnLead.
+func standInLeadStart(t *testing.T) {
+	t.Helper()
+	orig := startLead
+	startLead = func(_ *tracker.Project, spec agentrun.Spec) agentrun.Response {
+		return agentrun.Response{Status: "dispatched", Session: spec.Session}
+	}
+	t.Cleanup(func() { startLead = orig })
+}
+
 func ownerTestServer(t *testing.T) (*Server, tracker.Project) {
 	t.Helper()
+	standInLeadStart(t)
 	proj, _ := setupTestProject(t)
 	srv, err := NewServer([]tracker.Project{proj})
 	if err != nil {

@@ -91,7 +91,11 @@ var controlWords = map[string]bool{"if": true, "else": true, "for": true, "forea
 // Comments and strings are skipped. It is a heuristic: a lambda or an
 // initializer is not counted, a constructor or a local function is.
 func braceFuncs(data []byte, lang string) []fn {
-	singleQuoted := lang == "js" || lang == "ts" || lang == "php" || lang == "shell"
+	shell := lang == "shell"
+	singleQuoted := lang == "js" || lang == "ts" || lang == "php" || shell
+	// In shell, // and /* are text (${x//a/b}, a */dir/* glob, a URL): only
+	// # starts a comment, at the start of a word.
+	slashComments := !shell
 	type open struct {
 		isFn bool
 		name string
@@ -112,20 +116,20 @@ func braceFuncs(data []byte, lang string) []fn {
 				header.WriteByte(' ')
 			}
 			continue
-		case c == '/' && i+1 < n && data[i+1] == '/':
+		case slashComments && c == '/' && i+1 < n && data[i+1] == '/':
 			for i < n && data[i] != '\n' {
 				i++
 			}
 			i--
 			continue
-		case c == '#' && header.Len() == 0:
+		case c == '#' && (!shell && header.Len() == 0 || shell && (i == 0 || strings.IndexByte(" \t\n;|&()", data[i-1]) >= 0)):
 			// a preprocessor line (C, C#) or a shell comment
 			for i < n && data[i] != '\n' {
 				i++
 			}
 			i--
 			continue
-		case c == '/' && i+1 < n && data[i+1] == '*':
+		case slashComments && c == '/' && i+1 < n && data[i+1] == '*':
 			i += 2
 			for i+1 < n && !(data[i] == '*' && data[i+1] == '/') {
 				if data[i] == '\n' {

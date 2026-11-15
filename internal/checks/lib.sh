@@ -80,9 +80,13 @@
 #                       SANDBOX (the sandbox folder, SANDBOX_PROJECT_DIR's
 #                       parent; an earlier sandbox_dir's $SANDBOX is kept), and
 #                       exports XDG_STATE_HOME, XDG_CONFIG_HOME and
-#                       ISSUE_VIEWER_CONFIG into the sandbox. Scratch projects must live outside
-#                       .worktrees/: there issue-cli takes the caller for a
-#                       worker and refuses dispatch and lead spawn. Building
+#                       ISSUE_VIEWER_CONFIG into the sandbox. It marks the
+#                       sandbox (.issue-cli-sandbox beside projects.yaml): a
+#                       worker's owner-only commands pass there while every
+#                       project path and both XDG dirs stay inside it (keep
+#                       your own settings' paths inside too); issue-cli lead
+#                       whoami says whether it passes and why not. Scratch
+#                       projects must live outside .worktrees/. Building
 #                       the branch yourself? Build from $CHECKS_ROOT (the
 #                       library cds there; $ISSUE_CLI is already that build).
 #   sandbox_project --add <slug> [template] [--workflow <file>] [--name <name>]
@@ -106,7 +110,12 @@
 #   sic <args…>         issue-cli against the sandbox project, from its folder
 #                       ($SANDBOX_ISSUE_CLI, else $ISSUE_CLI: the branch build check-script found or --cli named);
 #                       through clean_shell once a stand-in exists, so a dispatch
-#                       or lead spawn gets the stand-in
+#                       or lead spawn gets the stand-in. The worker's identity
+#                       goes along: on the marked sandbox sandbox_project makes,
+#                       the worker guard passes owner-only commands (department
+#                       add, transitions on sandbox issues, yolo on, output
+#                       review, job run…) and says so on stderr; dispatch, lead
+#                       spawn and other agent starts stay refused
 #   private_tmux [--clean]
 #                       a private tmux server (short TMUX_TMPDIR, marker file);
 #                       exports TMUX_TMPDIR and unsets TMUX for the rest of the
@@ -126,7 +135,11 @@
 #                       ($CHECKS_STAND_IN_DIR holds the records). --agent: it
 #                       says "<name> stand-in ready" and stays alive, appending
 #                       what it is sent to <name>.input (a re-sent prompt lands
-#                       there, never in a shell)
+#                       there, never in a shell). Each distinct script is
+#                       kept once, already run, under $TMPDIR and linked in:
+#                       macOS checks a new executable on its first run (up to
+#                       seconds), so a body that is the same every run (what
+#                       differs comes from the environment) starts at once
 #   expect_stand_in_ran <name> [meaning] [seconds]
 #                       a machine check that the stand-in, not the real <name>, ran
 #                       (eventually: agents start a moment later; default 30 s,
@@ -139,11 +152,12 @@
 #                       on PATH). Never use $SHELL -lic in a check that starts
 #                       agents: a login shell rereads the profile and the real
 #                       claude gets in front of the stand-in. env -i also drops
-#                       a worker's identity (AGENT_NAME, its tmux session), so
-#                       the worker guards don't see it: never use clean_shell
-#                       (or sic once a stand-in exists) to run an owner-only
-#                       command from a worker's run. Leave those steps to the
-#                       owner's run (if is_worker; then skip "…"; fi).
+#                       the tmux session and the worktree folder, so it carries
+#                       the caller's identity instead (ISSUE_VIEWER_ISSUE_SLUG,
+#                       ISSUE_VIEWER_LEAD_SCOPE, ISSUE_VIEWER_WORKER, AGENT_NAME,
+#                       CLAUDECODE): the worker guards still see a worker.
+#                       Owner-only commands pass only on a marked sandbox
+#                       (sandbox_project); never strip those variables.
 #   is_worker           0 when issue-cli's worker guard takes this shell for a
 #                       worker, 1 when not, 2 when issue-cli couldn't answer.
 #                       It asks issue-cli lead whoami (the guard's own test:
@@ -175,9 +189,10 @@
 #                       eventually: the box submitted a line holding <text>
 #   expect_box_empty <session> [meaning]
 #                       eventually: the box's ❯ line is empty (nothing left typed)
-#   sandbox_yolo_on     turns YOLO on in the sandbox (sic yolo on refuses a
-#                       worker) by writing its own .yolo/<project>.json; check
-#                       it with sic yolo status
+#   sandbox_yolo_on     turns YOLO on in the sandbox by writing its own
+#                       .yolo/<project>.json (kept for older scripts; on a
+#                       marked sandbox sic yolo on works too); check it with
+#                       sic yolo status
 #   seed_department <template> [--parent <group>]
 #                       a department template on the sandbox as department add
 #                       would put it, without running it (a worker is refused):
@@ -189,10 +204,16 @@
 #
 # Environment from check-script: CHECKS_LIB, CHECKS_SLUG, CHECKS_PROJECT (the
 # --project ticking uses), CHECKS_ROOT (the issue's checkout; the library cds
-# there), CHECKS_NAME, CHECKS_ISSUE_CLI (the binary that ticks), CHECKS_YES,
+# there), CHECKS_NAME, CHECKS_DIR (the folder the script and the files beside
+# it sit in), CHECKS_ISSUE_CLI (the binary that ticks), CHECKS_YES,
 # ISSUE_CLI (the binary a script checks: --cli, the branch build, else CHECKS_ISSUE_CLI).
 #
 # Gotchas
+#   - The script may not sit in the repository: after the merge check-script
+#     runs it from history, written into a temporary folder. Never compute
+#     paths from BASH_SOURCE or $0: the repository is $CHECKS_ROOT, and files
+#     beside the script (scripts/checks/<name>-*, <name>.*, <name>/, restored
+#     from the same commit) are under $CHECKS_DIR.
 #   - run runs its command in a subshell (to capture it): call helpers that
 #     change the script's state (sandbox_*, private_tmux, on_exit, background,
 #     cd, export) directly, never through run.
@@ -217,7 +238,7 @@
 # eyes", --touches-real steps are skipped, and nothing is ticked.
 # NO_COLOR, or stdout not a terminal, turns colour off.
 
-CHECKS_LIB_VERSION=3
+CHECKS_LIB_VERSION=4
 
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 	echo "guided checks need bash 4 or newer (this is bash ${BASH_VERSION:-unknown}): brew install bash, then run the script with issue-cli check-script <slug>, which finds it" >&2
@@ -232,6 +253,7 @@ if [ -z "${CHECKS_SLUG:-}" ]; then
 	CHECKS_SLUG=$(sed -n '1,15s/^# issue:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$_ck_script" 2> /dev/null | head -n 1)
 fi
 CHECKS_ROOT=${CHECKS_ROOT:-$PWD}
+CHECKS_DIR=${CHECKS_DIR:-$(cd "$(dirname "$_ck_script")" 2> /dev/null && pwd)}
 CHECKS_ISSUE_CLI=${CHECKS_ISSUE_CLI:-issue-cli}
 # The issue-cli a script checks: check-script --cli, else the branch build.
 ISSUE_CLI=${ISSUE_CLI:-$CHECKS_ISSUE_CLI}
@@ -250,8 +272,11 @@ else
 fi
 
 # The caller's environment as it was before any sandbox helper changed it:
-# ticking the real issue runs with it (_ck_real).
-_ck_saved_vars=(TMUX TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG SHELL PATH)
+# ticking the real issue runs with it (_ck_real). ISSUE_CLI_LOG goes at once:
+# what a script runs is the script's, and in a worker's shell every sandbox
+# call would land in its clilog; only the tick and comment on the real issue
+# are the caller's own.
+_ck_saved_vars=(TMUX TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG SHELL PATH ISSUE_CLI_LOG)
 declare -A _ck_saved=() _ck_saved_set=()
 for _ck_v in "${_ck_saved_vars[@]}"; do
 	if [ -n "${!_ck_v+x}" ]; then
@@ -259,7 +284,7 @@ for _ck_v in "${_ck_saved_vars[@]}"; do
 		_ck_saved_set[$_ck_v]=1
 	fi
 done
-unset _ck_v
+unset _ck_v ISSUE_CLI_LOG
 
 _ck_real() {
 	local unsets=() sets=() v
@@ -567,6 +592,7 @@ _ck_sandbox_state() {
 # a later one keeps it where it is (sandbox_project moves it to its own).
 sandbox_dir() {
 	local _ck_sd_var=${1:-SANDBOX} _ck_sd_path
+	_ck_pin_identity
 	_ck_sd_path=$(mktemp -d "$(_ck_tmp_base)/ck-XXXXXX") || {
 		echo "sandbox_dir: mktemp failed" >&2
 		exit 2
@@ -601,8 +627,17 @@ sandbox_project() {
 	_ck_sandbox_state "$dir"
 	export ISSUE_VIEWER_CONFIG=$SANDBOX_CONFIG
 	echo "projects:" > "$SANDBOX_CONFIG"
+	_ck_sandbox_mark "$dir"
 	_ck_sandbox_entry "$name" "$SANDBOX_PROJECT_DIR"
 	_ck_sandbox_repo "$SANDBOX_PROJECT_DIR"
+}
+# _ck_sandbox_mark <dir>: the sandbox marker beside $SANDBOX_CONFIG. On a
+# marked sandbox issue-cli's worker guard passes owner-only commands (except
+# those that start agents) when every project path and both XDG dirs sit in
+# <dir> under a temp folder. It declares; containment is the check.
+_ck_sandbox_mark() {
+	printf '{"folder": "%s", "created": "%s", "by": "lib.sh sandbox_project"}\n' \
+		"$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$1/.issue-cli-sandbox"
 }
 # _ck_sandbox_opts [template] [--template t] [--workflow f] [--name n]: sets
 # the caller's template, workflow and display.
@@ -744,6 +779,9 @@ is_worker() {
 }
 sic() {
 	local argv=("${SANDBOX_ISSUE_CLI:-$ISSUE_CLI}" --config "$SANDBOX_CONFIG" --project "$SANDBOX_PROJECT" "$@")
+	# Before the cd: a worker known by its folder under .worktrees/ is known
+	# here, not in the sandbox.
+	[ -z "${CHECKS_STAND_IN_DIR:-}" ] || _ck_pin_identity
 	(
 		cd "${SANDBOX_PROJECT_DIR:?sic needs sandbox_project first}" || exit 2
 		if [ -n "${CHECKS_STAND_IN_DIR:-}" ]; then
@@ -761,6 +799,7 @@ private_tmux() {
 	}
 	: > "$CHECKS_TMUX_DIR/.checks-private-tmux"
 	on_exit _ck_kill_private_tmux "$CHECKS_TMUX_DIR"
+	_ck_pin_identity
 	export TMUX_TMPDIR=$CHECKS_TMUX_DIR
 	unset TMUX
 	if [ "${1:-}" = --clean ]; then
@@ -797,8 +836,10 @@ _ck_stand_in_dir() {
 		sandbox_dir CHECKS_STAND_IN_DIR
 		export CHECKS_STAND_IN_DIR
 		mkdir -p "$CHECKS_STAND_IN_DIR/bin"
-		printf '#!/bin/sh\nexec bash --noprofile --norc "$@"\n' > "$CHECKS_STAND_IN_DIR/shell"
-		chmod +x "$CHECKS_STAND_IN_DIR/shell"
+		_ck_put_stand_in "$CHECKS_STAND_IN_DIR/shell" '#!/bin/sh
+[ -n "${STANDIN_WARM:-}" ] && exit 0
+exec bash --noprofile --norc "$@"
+'
 	fi
 }
 
@@ -811,15 +852,43 @@ stand_in() {
 	local name=${1:?stand_in needs a name}
 	_ck_stand_in_dir
 	local f=$CHECKS_STAND_IN_DIR/bin/$name body=${2:-exit 0}
+	# The records sit beside bin/ ("${0%/bin/*}"), so the script is the same
+	# in every sandbox and _ck_put_stand_in finds it already checked.
+	local dir='"${0%/bin/*}"'
 	if [ -n "$agent" ] && [ -z "${2:-}" ]; then
 		body="echo \"$name stand-in ready\"
-exec cat >> $(printf '%q' "$CHECKS_STAND_IN_DIR/$name.input")"
+exec cat >> $dir/$(printf '%q' "$name.input")"
 	fi
-	{
-		printf '#!/bin/sh\n'
-		printf 'echo "$0 $*" >> %q\n' "$CHECKS_STAND_IN_DIR/$name.calls"
-		printf '%s\n' "$body"
-	} > "$f"
+	_ck_put_stand_in "$f" "#!/bin/sh
+[ -n \"\${STANDIN_WARM:-}\" ] && exit 0
+echo \"\$0 \$*\" >> $dir/$(printf '%q' "$name.calls")
+$body
+"
+}
+
+# _ck_put_stand_in <file> <script> puts an executable <script> at <file>. Its
+# copy under $TMPDIR/dark-factory-standins/<sha256> ($CHECKS_STAND_IN_CACHE
+# names another folder: the Go tests share internal/standin's) was run once (as a no-op,
+# STANDIN_WARM=1) when made, so macOS's first-run check is paid once per
+# distinct script; <file> is a hard link to it. With no checksum tool or a
+# link that fails (another file system), a fresh file as before.
+_ck_put_stand_in() {
+	local f=$1 script=$2 cache sum tmp
+	rm -f -- "$f"
+	cache=${CHECKS_STAND_IN_CACHE:-${TMPDIR:-/tmp}}
+	[ -n "${CHECKS_STAND_IN_CACHE:-}" ] || cache=${cache%/}/dark-factory-standins
+	sum=$(printf '%s' "$script" | { shasum -a 256 2> /dev/null || sha256sum 2> /dev/null; })
+	sum=${sum%% *}
+	if [ -n "$sum" ] && mkdir -p "$cache" 2> /dev/null; then
+		if ! printf '%s' "$script" | cmp -s - "$cache/$sum" &&
+			tmp=$(mktemp "$cache/.tmp-XXXXXX" 2> /dev/null); then
+			printf '%s' "$script" > "$tmp" && chmod 555 "$tmp" &&
+				STANDIN_WARM=1 "$tmp" > /dev/null 2>&1 && mv -f "$tmp" "$cache/$sum"
+			rm -f -- "$tmp"
+		fi
+		ln "$cache/$sum" "$f" 2> /dev/null && return 0
+	fi
+	printf '%s' "$script" > "$f"
 	chmod +x "$f"
 }
 
@@ -838,14 +907,43 @@ expect_stand_in_got() {
 # sandbox variables.
 _ck_clean_argv() {
 	_ck_stand_in_dir
+	_ck_pin_identity
 	local keep=() v
-	for v in HOME TERM USER LANG TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG CHECKS_STAND_IN_DIR ${CLEAN_SHELL_KEEP:-}; do
+	for v in HOME TERM USER LANG TMUX_TMPDIR XDG_STATE_HOME XDG_CONFIG_HOME ISSUE_VIEWER_CONFIG CHECKS_STAND_IN_DIR \
+		ISSUE_VIEWER_ISSUE_SLUG ISSUE_VIEWER_LEAD_SCOPE ISSUE_VIEWER_WORKER AGENT_NAME CLAUDECODE ${CLEAN_SHELL_KEEP:-}; do
 		[ -n "${!v+x}" ] && keep+=("$v=${!v}")
 	done
 	_ck_argv=(env -i "${keep[@]}" SHELL="$CHECKS_STAND_IN_DIR/shell" PATH="$CHECKS_STAND_IN_DIR/bin:$PATH"
 		bash --noprofile --norc -c "exec $(printf '%q ' "$@")")
 }
 
+# _ck_pin_identity: once per script, before anything drops the tmux name or
+# leaves the worktree, a worker whose identity rests on those signals gets it
+# as a variable clean_shell carries: ISSUE_VIEWER_ISSUE_SLUG when its issue is
+# known, else ISSUE_VIEWER_WORKER. A lead's ISSUE_VIEWER_LEAD_SCOPE is carried
+# as it is. It only keeps an identity; it never clears one.
+_ck_pin_identity() {
+	[ -z "${_ck_identity_pinned:-}" ] || return 0
+	_ck_identity_pinned=1
+	[ -z "${ISSUE_VIEWER_ISSUE_SLUG:-}${ISSUE_VIEWER_LEAD_SCOPE:-}${ISSUE_VIEWER_WORKER:-}" ] || return 0
+	local cli=${SANDBOX_ISSUE_CLI:-${ISSUE_CLI:-${CHECKS_ISSUE_CLI:-}}} probe out role slug signal
+	[ -n "$cli" ] || return 0
+	probe=$(mktemp -d "$(_ck_tmp_base)/ck-whoami-XXXXXX") || return 0
+	mkdir -p "$probe/issues"
+	printf 'projects:\n  - name: "probe"\n    slug: "probe"\n    issues: "%s/issues"\n    workdir: "%s"\n' \
+		"$probe" "$probe" > "$probe/projects.yaml"
+	out=$("$cli" --config "$probe/projects.yaml" --project probe --json lead whoami 2> /dev/null)
+	rm -rf -- "$probe"
+	role=$(printf '%s\n' "$out" | sed -n 's/^ *"role": *"\([^"]*\)".*/\1/p' | head -n 1)
+	[ "$role" = worker ] || return 0
+	slug=$(printf '%s\n' "$out" | sed -n 's/^ *"issue": *"\([^"]*\)".*/\1/p' | head -n 1)
+	signal=$(printf '%s\n' "$out" | sed -n 's/^ *"signal": *"\([^"]*\)".*/\1/p' | head -n 1)
+	if [ -n "$slug" ]; then
+		export ISSUE_VIEWER_ISSUE_SLUG=$slug
+	else
+		export ISSUE_VIEWER_WORKER=${signal:-worker}
+	fi
+}
 clean_shell() {
 	_ck_clean_argv "$@"
 	"${_ck_argv[@]}"

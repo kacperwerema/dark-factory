@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/projectinit"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
@@ -105,7 +106,7 @@ func refuseWorkerConfig(ctx *Context, config string) error {
 	}
 	for _, own := range []string{ctx.ConfigPath, ctx.Project.ConfigPath} {
 		if own != "" && sameFile(config, own) {
-			return refuseWorker(ctx, "add projects to the config issue-cli reads")
+			return refuseWorker(ctx, "project init on my config", "add projects to the config issue-cli reads")
 		}
 	}
 	return nil
@@ -133,7 +134,7 @@ func projectInitNext(p *projectinit.Plan) []string {
 	cli := "issue-cli --config " + quoteArg(cfg) + " --project " + p.Slug
 	var next []string
 	if !p.GitRepo {
-		next = append(next, "git -C "+shellQuote(p.Dir)+" init   # workers commit their work with git (worktree: true in workflow.yaml gives each issue its own)")
+		next = append(next, "git -C "+shell.Quote(p.Dir)+" init   # workers commit their work with git (worktree: true in workflow.yaml gives each issue its own)")
 	}
 	next = append(next,
 		"issue-viewer -config "+quoteArg(cfg)+"   # then open /p/"+p.Slug+"/company: the New department tile adds a department",
@@ -147,28 +148,28 @@ func projectInitNext(p *projectinit.Plan) []string {
 
 // projectInitApply is the command that makes what a dry run listed.
 func projectInitApply(p *projectinit.Plan, name, slug, tmpl string) string {
-	cmd := "issue-cli project init " + shellQuote(p.Dir)
+	cmd := "issue-cli project init " + shell.Quote(p.Dir)
 	if name != "" {
-		cmd += " --name " + shellQuote(name)
+		cmd += " --name " + shell.Quote(name)
 	}
 	if slug != "" {
-		cmd += " --slug " + shellQuote(slug)
+		cmd += " --slug " + shell.Quote(slug)
 	}
 	if tmpl != projectinit.DefaultTemplate {
-		cmd += " --template " + shellQuote(tmpl)
+		cmd += " --template " + shell.Quote(tmpl)
 	}
 	if p.Config.Path != "" {
-		cmd += " --config " + shellQuote(p.Config.Path)
+		cmd += " --config " + shell.Quote(p.Config.Path)
 	}
 	return cmd
 }
 
-// quoteArg is shellQuote, keeping a <placeholder> as it is.
+// quoteArg is shell.Quote, keeping a <placeholder> as it is.
 func quoteArg(s string) string {
 	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
 		return s
 	}
-	return shellQuote(s)
+	return shell.Quote(s)
 }
 
 func printProjectInit(ctx *Context, p *projectinit.Plan, dry bool, next []string, apply string) {
@@ -206,7 +207,7 @@ func printProjectInit(ctx *Context, p *projectinit.Plan, dry bool, next []string
 	case projectinit.ConfigPrint:
 		fmt.Fprintln(w, "projects.yaml: not touched (no --config). Add this under projects: in yours:")
 		fmt.Fprint(w, entry)
-		fmt.Fprintf(w, "Or let init add it: issue-cli project init %s --config <file>\n", shellQuote(p.Dir))
+		fmt.Fprintf(w, "Or let init add it: issue-cli project init %s --config <file>\n", shell.Quote(p.Dir))
 	case projectinit.ConfigCreate:
 		verb := "would write a new file"
 		if !dry {

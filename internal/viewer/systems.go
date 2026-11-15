@@ -657,7 +657,7 @@ func familiesAndEpics(proj *tracker.Project, st *statusTones, prefix string, g *
 		familyUmbrellas[strings.ToLower(fam.Umbrella)] = true
 		card.Done, card.Total = doneTotal(st, kids)
 		card.Pct = pct(card.Done, card.Total)
-		card.Waiting = len(waitingOnOwner(proj, openIssues(st, kids)))
+		card.Waiting = needsYouIssueRows(proj, openIssues(st, kids))
 		for _, k := range kids {
 			covered[k] = true
 		}

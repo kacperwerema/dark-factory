@@ -14,6 +14,9 @@ checks_intro "issue-cli dispatch and issue-cli status replace the raw HTTP calls
 	"Needs: go, tmux, curl, python3. Your viewer on :8080, your viewer.json and your tmux sessions are never touched."
 
 cd "$CHECKS_ROOT" || exit 2
+# A worker's run keeps its identity (clean_shell carries it), so the steps that start an agent are the owner's.
+worker=
+if is_worker; then worker=1; fi
 sandbox_dir
 tmp=$SANDBOX
 private_tmux
@@ -22,7 +25,7 @@ proj=$tmp/proj
 cfg=$tmp/projects.yaml
 mkdir -p "$bin" "$proj/issues" "$tmp/state"
 export XDG_STATE_HOME=$tmp/state ISSUE_VIEWER_CONFIG=$cfg
-unset TMUX_PANE ISSUE_VIEWER_URL ISSUE_VIEWER_ISSUE_SLUG ISSUE_VIEWER_LEAD_SCOPE ISSUE_VIEWER_PROJECT ISSUE_CLI_LOG
+unset TMUX_PANE ISSUE_VIEWER_URL ISSUE_VIEWER_PROJECT ISSUE_CLI_LOG
 
 # The stand-in Claude shows its briefing (the last line is what "Prompt delivered" looks for), notes the folder
 # it started in, and then keeps reading what is pasted into it, so a re-sent briefing lands in claude.input
@@ -97,8 +100,8 @@ echo "Sandbox board: $base (pid $viewer_pid). Its startup lines:"
 sed 's/^/    /' "$tmp/viewer.log"
 pause
 
-# cli: the branch's issue-cli on the sandbox config and project, from the sandbox folder (under .worktrees/
-# issue-cli would take you for a worker, and workers can't dispatch), without your profile, stand-ins first.
+# cli: the branch's issue-cli on the sandbox config and project, from the sandbox folder, without your profile,
+# stand-ins first. clean_shell carries who you are: in a worker's run the dispatch steps are skipped above.
 cli() { (cd "$tmp" && clean_shell "$bin/issue-cli" --config "$cfg" --project sand "$@"); }
 # post <path> <json>: the HTTP status of a POST to the sandbox board.
 post() { command curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$2" "$base$1"; }
@@ -159,6 +162,7 @@ step TP4 "Dispatch refuses an issue that only waits on you" \
 	--why "a worker started there would only claim the issue and stop at the same gate." \
 	--look "the message: does it say why, where to approve, and how to dispatch anyway?" \
 	--expect "exit 3, the approve link on $base, the --force command, POST 409, no agent-gated session."
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli dispatch gated --quote "check"
 expect '[ $code = 3 ]' "exit 3: waiting on a gate"
 expect '[[ $out == *"A human approves at: $base/p/sand/issue/gated#approve-testing"* ]]' "the approve link is on the sandbox board"
@@ -175,6 +179,7 @@ step TP9 "A worker from issue-cli dispatch, then --reprompt" \
 	--look "the steps and the two commands below, then the worker's session in a second terminal." \
 	--expect "\"✓ Dispatched agent-try-dispatch\", Prompt delivered, Inside tmux / From a shell lines; the stand-in in $proj/.worktrees/try-dispatch with its briefing."
 echo "  Starting the worker (takes a few seconds while the prompt is delivered)…"
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli dispatch try-dispatch --quote "check"
 expect '[ $code = 0 ] && [[ $out == *"✓ Dispatched agent-try-dispatch for try-dispatch"* ]]' "dispatched (exit 0)"
 expect '[[ $out == *"Prompt delivered"* ]]' "the briefing reached the worker (no trust question with the stand-in)"
@@ -197,6 +202,7 @@ step TP5 "Dispatch onto a live worker re-attaches" \
 	--why "dispatch must never start a second agent on the same issue." \
 	--look "the first line and the session list." \
 	--expect "\"Already live: agent-try-dispatch\", exit 0, the attach lines, and still one agent-try-dispatch session."
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli dispatch try-dispatch --quote "check"
 expect '[ $code = 0 ] && [[ $out == *"Already live: agent-try-dispatch"* ]]' "re-attached (exit 0)"
 expect '[[ $out == *"Inside tmux:  tmux switch-client -t '\''=agent-try-dispatch:'\''"* ]]' "it prints the switch command"

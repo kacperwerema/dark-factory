@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="codemap.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1" data-testid="wb.title">Code map</h1>
+        <span class="wb-sub">{{if .Empty}}no workbench.contexts yet{{else}}{{.Packages}} packages · {{len .Keys}} contexts · {{len .Lanes}} layers{{if .Main}} · main at {{.Main}}{{end}} · click a package: teal is what it depends on, orange what a change to it reaches{{end}}</span>
+    </div>
+    {{if .Error}}<p class="wb-panel-sub" data-testid="codemap.error">The code map could not be read: {{.Error}}</p>
+    {{else if .Empty}}<div class="wb-panel" data-testid="codemap.empty"><div class="wb-panel-body"><p class="wb-panel-sub">This project's workflow.yaml has no <code>workbench.contexts</code>. Group its packages into contexts on layers (docs/workbench-files.md, Code map) and this page draws them; <code>issue-cli codemap</code> prints the same map.</p></div></div>
+    {{else}}
+    {{if not .HasGo}}<p class="wb-panel-sub">No go.mod: contexts map files by paths: only, with no import graph.</p>{{end}}
+    <div class="wb-cm">
+        <div class="wb-cm-plan" data-testid="codemap.plan">{{range .Lanes}}{{template "wb/cm-lane" .}}{{end}}</div>
+        <aside class="wb-cm-side">
+            {{template "wb/cm-footprint" .Footprint}}
+            <section class="wb-panel" aria-live="polite" data-testid="codemap.detail"><div class="wb-panel-head"><h2 class="wb-panel-h" data-cm-detail-h>Selection</h2></div><div class="wb-panel-body" data-cm-detail><p class="wb-panel-sub">Nothing selected. Click a package.</p></div></section>
+            <button type="button" class="wb-btn" data-cm-clear data-testid="codemap.clear">Clear</button>
+        </aside>
+    </div>
+    {{template "wb/cm-matrix" .}}
+    {{template "wb/cm-edges" .}}
+    <script type="application/json" id="codemap-graph">{{.Graph}}</script>
+    {{end}}
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/codemap.js"></script>
+</body>
+</html>

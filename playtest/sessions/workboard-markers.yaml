@@ -48,7 +48,7 @@ steps:
       - text_contains: { target: workboard.card.sim/balance.markers, text: question }
       - text_contains: { target: workboard.card.ui/redesign.agent, text: agent stopped }
       - absent: workboard.card.sim/events.agent
-      - text_contains: { target: workboard.filter.waiting, text: Waiting on you · 2 }
+      - text_contains: { target: workboard.filter.waiting, text: Issues with a marker · 2 }
 
   - id: TP6
     title: Group by epic and system, and the waiting, version and search filters narrow the cards

@@ -32,6 +32,7 @@ const staleAfter = 24 * time.Hour
 
 // WorkCard is one card on the workboard.
 type WorkCard struct {
+	done        bool // finished its workflow (Project.IssueDone)
 	Slug        string
 	Title       string
 	System      string
@@ -120,7 +121,9 @@ type WorkboardData struct {
 	Departments   []WorkDeptTab
 	WorkflowError string
 	WaitingOnly   bool
-	WaitingCount  int
+	// MarkedCount is the issues under the board's filters with an amber
+	// marker: not the waiting-on-you count, and the chip says so.
+	MarkedCount int
 	// ShowAll also draws the quiet cards; QuietCount is how many are hidden
 	// without it.
 	ShowAll    bool
@@ -173,7 +176,7 @@ func (d WorkboardData) href(group string, waiting, all bool) string {
 }
 
 func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -241,7 +244,7 @@ func (s *Server) handleWorkboard(w http.ResponseWriter, r *http.Request, proj *t
 		}
 		card := buildWorkCard(proj, prefix, issue, issues, mctx, agents, now)
 		if card.waiting {
-			data.WaitingCount++
+			data.MarkedCount++
 		}
 		if data.WaitingOnly && !card.waiting {
 			continue
@@ -300,7 +303,7 @@ func buildWorkCard(proj *tracker.Project, prefix string, issue *tracker.Issue, i
 		Progress:    epicProgress(proj, prefix, issue, issues),
 		Search:      strings.ToLower(issue.Title + " " + issue.Slug + " " + issue.System),
 	}
-	if p := tracker.FindIssue(issues, tracker.ParentSlug(issue)); p != nil && p.Status != "done" {
+	if p := tracker.FindIssue(issues, tracker.ParentSlug(issue)); p != nil && !proj.IssueDone(p) {
 		card.parent = p.Slug
 	}
 	att := mctx.attention[issue.Slug]
@@ -316,7 +319,8 @@ func buildWorkCard(proj *tracker.Project, prefix string, issue *tracker.Issue, i
 	}
 	card.idle = idleStatus(wf, issue.Status)
 	card.AgeOld = now.Sub(since) >= staleAfter && !card.idle
-	if issue.Status != "done" {
+	card.done = proj.IssueDone(issue)
+	if !card.done {
 		card.Markers = cardMarkers(mctx, issue)
 	} else {
 		card.Markers = ciMarkers(mctx, issue)
@@ -359,7 +363,7 @@ func idleStatus(wf *tracker.WorkflowConfig, status string) bool {
 	if len(order) > 0 && strings.EqualFold(order[0], status) {
 		return true
 	}
-	if strings.EqualFold(status, "done") {
+	if wf.IsLastStatus(status) {
 		return true
 	}
 	if st := wf.GetStatus(status); st != nil && st.Global {
@@ -408,7 +412,7 @@ func (ca *cardAgents) footer(wf *tracker.WorkflowConfig, issue *tracker.Issue, a
 	href := ca.prefix + "/agents?agent=" + name
 	wt, _, _ := resolveWorktree(ca.workDir, issue.Slug, wf)
 	if !ca.live[name] {
-		if issue.Status == "done" {
+		if wf.IsLastStatus(issue.Status) {
 			return nil
 		}
 		if activeStatus(wf, issue.Status) || (wt != "" && fileExists(wt)) {
@@ -417,7 +421,7 @@ func (ca *cardAgents) footer(wf *tracker.WorkflowConfig, issue *tracker.Issue, a
 		}
 		return nil
 	}
-	comments, _ := tracker.LoadComments(issue.FilePath)
+	comments := issue.Comments()
 	call, known := lastCliCall(ca.projSlug, agentLogPaths(ca.workDir, wt, name, issue.Assignee)...)
 	state, _ := workerState(wf, issue, comments, call, known, ca.now)
 	// The canvas calls any pending approval "at gate"; on a card only a ready
@@ -535,7 +539,7 @@ func columnsByStatus(prefix string, wf *tracker.WorkflowConfig, shown, all []*Wo
 			body = append(body, col)
 		case i == 0:
 			head = append(head, col)
-		case strings.EqualFold(st, "done"):
+		case wf.IsLastStatus(st):
 			done = append(done, col)
 		default:
 			tail = append(tail, col)
@@ -547,7 +551,7 @@ func columnsByStatus(prefix string, wf *tracker.WorkflowConfig, shown, all []*Wo
 func columnsBySystem(prefix string, cards []*WorkCard) []*WorkColumn {
 	bySystem := map[string][]*WorkCard{}
 	for _, c := range cards {
-		if c.Status == "done" {
+		if c.done {
 			continue
 		}
 		bySystem[c.System] = append(bySystem[c.System], c)
@@ -578,16 +582,16 @@ func columnsByEpic(proj *tracker.Project, prefix string, cards []*WorkCard, issu
 	byEpic := map[string][]*WorkCard{}
 	var none []*WorkCard
 	for _, c := range cards {
-		if c.Status == "done" {
+		if c.done {
 			continue
 		}
 		issue := tracker.FindIssue(issues, c.Slug)
 		parent := tracker.FindIssue(issues, tracker.ParentSlug(issue))
-		if parent != nil && parent.Status != "done" {
+		if parent != nil && !proj.IssueDone(parent) {
 			byEpic[parent.Slug] = append(byEpic[parent.Slug], c)
 			continue
 		}
-		if c.Epic && hasOpenChild(issues, c.Slug) {
+		if c.Epic && hasOpenChild(proj, issues, c.Slug) {
 			continue // shown as its own column's header
 		}
 		none = append(none, c)
@@ -614,9 +618,9 @@ func columnsByEpic(proj *tracker.Project, prefix string, cards []*WorkCard, issu
 	return cols
 }
 
-func hasOpenChild(issues []*tracker.Issue, slug string) bool {
+func hasOpenChild(proj *tracker.Project, issues []*tracker.Issue, slug string) bool {
 	for _, c := range tracker.EpicChildren(issues, slug) {
-		if c.Status != "done" {
+		if !proj.IssueDone(c) {
 			return true
 		}
 	}

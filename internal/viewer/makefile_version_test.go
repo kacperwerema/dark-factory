@@ -49,15 +49,18 @@ func TestMakefileStampsGitDescribe(t *testing.T) {
 	git("tag", "-a", "v9.9.0-rc.1", "-m", "rc")
 
 	out := dryRun("install")
+	// install builds each of issue-cli and issue-viewer to a temporary file
+	// and renames it into place (TestMakeInstallReplacesBinaryAtomically in
+	// cmd/issue-cli runs it).
 	for _, want := range []string{
-		`go install -ldflags "-X main.Version=v9.9.0-rc.1" ./cmd/issue-cli/`,
-		`go install -ldflags "-X main.Version=v9.9.0-rc.1" ./cmd/issue-viewer/`,
+		`for b in issue-cli issue-viewer; do`,
+		`go build -ldflags "-X main.Version=v9.9.0-rc.1" -o "$tmp" ./cmd/$b/`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("make install on the tag: missing %q:\n%s", want, out)
 		}
 	}
-	// go install names a binary after its package: never the module's
+	// Each binary is named after its package: never the module's
 	// dark-factory.
 	if strings.Contains(out, "dark-factory") {
 		t.Errorf("make install names a dark-factory binary:\n%s", out)

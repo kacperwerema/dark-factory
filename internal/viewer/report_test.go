@@ -28,7 +28,7 @@ func TestReportPage(t *testing.T) {
 		// Header: Map › project, Board | Report with Report on.
 		`<a class="wb-crumb wb-crumb--link" href="/?map=1">Map</a>`,
 		`href="/p/status/company" data-testid="view.board"`, `aria-current="page" data-testid="view.report">Report</span>`,
-		`>3 waiting on you</a>`,
+		`>3<span class="wb-you-words"> waiting on you</span></a>`,
 		// Title band and its buttons.
 		`data-copy-md="/p/status/status.md"`, `href="/p/status/status.md" data-testid="report.raw_md"`,
 		`href="/p/status/status?classic=1" data-testid="report.classic"`,

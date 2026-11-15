@@ -27,7 +27,8 @@ steps:
     setup:
       - open: /p/{project}/company?classic=1
     checks:
-      - visible: [map.brand, map.owner, company.room.hq]
-      - size: { target: map.brand, min_height: 44 }
-      - size: { target: map.owner, min_height: 44 }
+      # On a phone the header is ‹, the title, the count and ☰; YOU is in the drawer.
+      - visible: [map.up, map.drawer, company.room.hq]
+      - size: { target: map.up, min_height: 44 }
+      - size: { target: map.drawer, min_height: 44 }
       - size: { target: map.waiting, min_height: 44 }

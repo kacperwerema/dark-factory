@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // The decision ledger's diff audit (docs/workflow.md#decision-ledger):
@@ -37,7 +39,7 @@ func TouchedDecisions(x *DecisionIndex, changed []string, today time.Time) []Tou
 	}
 	var out []TouchedDecision
 	for _, e := range x.Entries {
-		if !e.Hard || len(e.Paths) == 0 || e.ReplacedBy != nil || e.Deferred || e.ExpiredOn(today) {
+		if !e.Hard || len(e.Paths) == 0 || !e.ActiveOn(today) {
 			continue
 		}
 		var files []string
@@ -73,7 +75,19 @@ func (h RespectedHold) Why() string {
 	if h.Challenged {
 		reasons = append(reasons, "this issue's challenge is open")
 	}
-	return fmt.Sprintf("touched (%s), %s", strings.Join(h.Files, ", "), strings.Join(reasons, ", "))
+	return fmt.Sprintf("touched (%s), %s", touchedFilesCut(h.Files), strings.Join(reasons, ", "))
+}
+
+// touchedFilesShown is how many touched files a refusal, a yolo-hold entry
+// or a dry run names before "and N more"; decisions --touched lists them all.
+const touchedFilesShown = 10
+
+// touchedFilesCut joins the first touchedFilesShown files and counts the rest.
+func touchedFilesCut(files []string) string {
+	if len(files) <= touchedFilesShown {
+		return strings.Join(files, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(files[:touchedFilesShown], ", "), len(files)-touchedFilesShown)
 }
 
 // RespectedHolds is what decisions_respected holds issue on, given the
@@ -99,16 +113,21 @@ func RespectedHolds(x *DecisionIndex, issue *Issue, touched []TouchedDecision, c
 }
 
 // BodyCitations is the refs issue's body cites outside its own
-// ## Decisions and outside "n/a <ref>: <why>" lines.
+// ## Decisions and outside n/a lines (parsed or not), with the shorthand
+// refs ## Design resolves.
 func BodyCitations(x *DecisionIndex, issue *Issue) map[string]bool {
 	var kept []string
 	for _, line := range strings.Split(bodyWithoutDecisions(issue.BodyRaw), "\n") {
-		if !naLineRe.MatchString(strings.TrimSpace(line)) {
+		if t := strings.TrimSpace(line); !naLineRe.MatchString(t) && !naStartRe.MatchString(t) {
 			kept = append(kept, line)
 		}
 	}
 	out := map[string]bool{}
 	for _, ref := range citedRefs(strings.Join(kept, "\n"), x.known) {
+		out[ref] = true
+	}
+	design, _ := designCitations(issue.BodyRaw, x.known)
+	for ref := range design {
 		out[ref] = true
 	}
 	return out
@@ -177,7 +196,7 @@ func BranchChanges(repoRoot string, issue *Issue) (BranchDiff, error) {
 	}
 	out, err := runGit(repoRoot, "diff", "--name-only", "--no-renames", from+"..."+head)
 	if err != nil {
-		return BranchDiff{Base: from, Head: head}, fmt.Errorf("decisions_respected: can't read the branch's changes (%s...%s): %v", shortSHA(from), shortSHA(head), err)
+		return BranchDiff{Base: from, Head: head}, fmt.Errorf("decisions_respected: can't read the branch's changes (%s...%s): %v", gitdir.ShortSHA(from), gitdir.ShortSHA(head), err)
 	}
 	diff := BranchDiff{Base: from, Head: head}
 	for _, f := range strings.Split(out, "\n") {
@@ -187,13 +206,6 @@ func BranchChanges(repoRoot string, issue *Issue) (BranchDiff, error) {
 	}
 	sort.Strings(diff.Files)
 	return diff, nil
-}
-
-func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 // RespectedReport is everything decisions_respected and decisions
@@ -274,7 +286,7 @@ func respectedError(slug string, holds []RespectedHold) error {
 	for _, h := range holds {
 		e := h.Entry
 		fmt.Fprintf(&b, "  %s: %s\n", e.Ref, oneLineCut(e.Text, decisionTextCut))
-		fmt.Fprintf(&b, "    files: %s  (paths: %s)\n", strings.Join(h.Files, ", "), strings.Join(e.Paths, ", "))
+		fmt.Fprintf(&b, "    files: %s  (paths: %s)\n", touchedFilesCut(h.Files), strings.Join(e.Paths, ", "))
 		if h.Uncited {
 			b.WriteString("    not cited (an n/a line doesn't count for a decision the branch touches)\n")
 		}

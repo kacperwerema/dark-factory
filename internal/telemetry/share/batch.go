@@ -98,7 +98,7 @@ var ErrClasses = []string{
 	telemetry.ErrUnknownFlag, telemetry.ErrFlagParse, telemetry.ErrUsage,
 	telemetry.ErrProjectResolution, telemetry.ErrApprovalMissing, telemetry.ErrIssueNotFound,
 	telemetry.ErrInvalidTransition, telemetry.ErrValidation, telemetry.ErrPanic, telemetry.ErrOther,
-	"wait_timeout",
+	"wait_timeout", telemetry.ErrHold,
 }
 
 // CustomTemplate stands for a workflow not stamped from a bundled template.
@@ -207,7 +207,9 @@ func Build(events []telemetry.Event, day string, meta Meta, vocab Vocab) Batch {
 		}
 		a.c.Calls++
 		a.dur = append(a.dur, e.DurMS)
-		if e.Exit != 0 {
+		if e.Exit != 0 && e.ErrClass == telemetry.ErrHold {
+			a.c.Errors[telemetry.ErrHold]++ // counted, but not a failure
+		} else if e.Exit != 0 {
 			a.c.Fails++
 			if errOK[e.ErrClass] {
 				a.c.Errors[e.ErrClass]++

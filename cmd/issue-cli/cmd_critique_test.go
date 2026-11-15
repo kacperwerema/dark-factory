@@ -12,6 +12,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/critique"
 	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -254,10 +255,7 @@ func critiqueStandIns(t *testing.T, scripts map[string]string) (calls string) {
 	paths := map[string]string{}
 	for agent, body := range scripts {
 		p := filepath.Join(bin, agent+"-standin")
-		mustWrite(t, p, "#!/bin/sh\ncat >/dev/null\necho "+agent+" >> \""+calls+"\"\n"+body)
-		if err := os.Chmod(p, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		standin.Write(t, p, "cat >/dev/null\necho "+agent+" >> \"${0%/*}/calls\"\n"+body)
 		paths[agent] = p
 	}
 	oldArgv, oldInstalled := critiqueArgv, routing.Installed
@@ -370,6 +368,152 @@ func TestCritiqueUsageLimitFallsBackOnce(t *testing.T) {
 	}
 }
 
+// critiqueByAgents is critiqueProject with no critique: command: and both
+// agents as stand-ins that report clear, in a fresh subscriptions folder.
+func critiqueByAgents(t *testing.T) (proj *tracker.Project, slug, issuePath, calls string) {
+	t.Helper()
+	proj, slug, issuePath, _ = critiqueProject(t)
+	mustWrite(t, filepath.Join(proj.WorkDir, "workflow.yaml"), strings.Replace(critiqueWorkflow, "  command: \"cat \\\"$CRITIC_OUT\\\"\"\n", "", 1))
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	clear := "printf 'Coverage: read 1 of 1\\nNot read: none\\n'\n"
+	return proj, slug, issuePath, critiqueStandIns(t, map[string]string{"codex": clear, "claude": clear})
+}
+
+func recordWorker(t *testing.T, issuePath, session, agent string) {
+	t.Helper()
+	if err := tracker.RecordDispatch(issuePath, tracker.Dispatch{At: time.Now(), Session: session, Agent: agent}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The critic is the other agent than the one on the dispatch record, in
+// both directions, whatever routing would pick now; a resting or missing
+// other falls back to the worker's agent and the run says why.
+func TestCritiqueRunsOnTheOtherAgentThanTheWorker(t *testing.T) {
+	run := func(t *testing.T, proj *tracker.Project, slug string, args ...string) (*critique.Run, string) {
+		t.Helper()
+		ctx, out, _ := newTestContext(proj, false)
+		if err := runCritique(ctx, append([]string{slug}, args...)); err != nil {
+			t.Fatalf("critique: %v", err)
+		}
+		runs, _ := critique.Load(proj.IssueDir, slug)
+		return runs[len(runs)-1], out.String()
+	}
+
+	t.Run("claude wrote it, codex reads it", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		r, out := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "codex" || r.Agent != "codex" || r.Worker != "claude" || r.SameAgent || r.Why != "not the worker's claude" {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+		assertContains(t, out, "Critic: codex (not the worker's claude)")
+	})
+
+	// Routing's default here is claude: only the record says codex wrote it.
+	t.Run("codex wrote it, claude reads it", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "codex")
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || r.Agent != "claude" || r.Worker != "codex" || r.SameAgent {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	t.Run("the other rests: the same agent, with the reason", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		if _, err := routing.Mark(routing.Dir(), routing.Limit{Agent: "codex", Until: time.Now().AddDate(0, 0, 2), KnownReset: true}, proj.Slug, "agent-x", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || r.Agent != "claude" || r.Worker != "claude" || !r.SameAgent {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+		assertContains(t, r.Why, "codex resting until")
+		assertContains(t, r.Why, "on the worker's claude")
+		assertContains(t, critique.CommentText(r), "same agent as the writer: codex resting until")
+	})
+
+	t.Run("the other not installed: the same agent, with the reason", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		routing.Installed = func(a string) bool { return a == "claude" }
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || !r.SameAgent || !strings.Contains(r.Why, "codex not installed") {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	t.Run("no dispatch record: routing's pick, said to be a guess", func(t *testing.T) {
+		proj, slug, _, calls := critiqueByAgents(t)
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "codex" || r.Worker != "" || r.Why != "not routing's pick claude, no dispatch record" {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	t.Run("a launch in another session is not the worker", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "codex")
+		recordWorker(t, issuePath, "postmortem-critic", "claude")
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || r.Worker != "codex" {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	t.Run("--agent wins, and the run still names the worker", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		r, _ := run(t, proj, slug, "--agent", "claude")
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || r.Worker != "claude" || !r.SameAgent || r.Why != "--agent" {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	t.Run("critique: agent: wins", func(t *testing.T) {
+		proj, slug, issuePath, calls := critiqueByAgents(t)
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		wfPath := filepath.Join(proj.WorkDir, "workflow.yaml")
+		mustWrite(t, wfPath, strings.Replace(readFile(t, wfPath), "critique:\n", "critique:\n  agent: claude\n", 1))
+		r, _ := run(t, proj, slug)
+		if strings.TrimSpace(readFile(t, calls)) != "claude" || r.Why != "critique: agent:" {
+			t.Fatalf("calls %q, run %+v", readFile(t, calls), r)
+		}
+	})
+
+	// The other agent meets its limit during the run: the one fallback lands
+	// on the worker's agent, and the run says it is the same one.
+	t.Run("a limit met during the run lands on the worker's agent", func(t *testing.T) {
+		proj, slug, issuePath, _ := critiqueByAgents(t)
+		calls := critiqueStandIns(t, map[string]string{
+			"codex":  codexLimitStandIn(time.Now().AddDate(0, 0, 5)),
+			"claude": "printf 'Coverage: all\\n'\n",
+		})
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		r, _ := run(t, proj, slug)
+		if got := strings.Fields(readFile(t, calls)); strings.Join(got, ",") != "codex,claude" {
+			t.Fatalf("critics run = %v", got)
+		}
+		if r.Agent != "claude" || !r.SameAgent || r.Why != "codex at its usage limit" {
+			t.Fatalf("run %+v", r)
+		}
+	})
+
+	// A command may run anything: the run names no CLI.
+	t.Run("critique: command: names no agent", func(t *testing.T) {
+		proj, slug, issuePath, criticOut := critiqueProject(t)
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		mustWrite(t, criticOut, "Coverage: all\n")
+		recordWorker(t, issuePath, tracker.AgentSessionName(slug), "claude")
+		r, _ := run(t, proj, slug)
+		if r.Agent != "" || r.Worker != "claude" || r.SameAgent || r.Why != "critique: command:" {
+			t.Fatalf("run %+v", r)
+		}
+	})
+}
+
 // Each held run is one red round of the critique check, even at one
 // branch head, and the same finding each time makes each one count; the
 // fourth posts the owner's question, and then neither the
@@ -418,5 +562,267 @@ func TestHeldCritiqueRunsAreRedRoundsAndTheFourthAsksTheOwner(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runTransition(ctx, []string{slug, "--to", "backlog"}); err == nil || !strings.Contains(err.Error(), "question for the owner") {
 		t.Fatalf("transition: %v", err)
+	}
+}
+
+// A run keeps the stand-in critic's stdout byte for byte in
+// .critique/raw/<run id>.txt, and the run record names that file.
+func TestCritiqueRunKeepsTheRawOutput(t *testing.T) {
+	proj, slug, _, criticOut := critiqueProject(t)
+	stdout := "Thinking about the diff first.\n\nblocks issues/Factory/critic.md:9 — no case for an empty list\nnote issues/Factory/critic.md:1 — fine\n  trailing prose the parser drops\nCoverage: read 1 of 1 files\n"
+	mustWrite(t, criticOut, stdout)
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := critique.Load(proj.IssueDir, slug)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs: %v, %d", err, len(runs))
+	}
+	run := runs[0]
+	if want := ".critique/raw/" + run.ID + ".txt"; run.Raw != want {
+		t.Fatalf("record names %q, want %q", run.Raw, want)
+	}
+	if got := readFile(t, filepath.Join(proj.IssueDir, filepath.FromSlash(run.Raw))); got != stdout {
+		t.Fatalf("raw file = %q\nwant %q", got, stdout)
+	}
+	if len(run.RawRedacted) != 0 {
+		t.Errorf("nothing to redact, got %v", run.RawRedacted)
+	}
+}
+
+// A secret in the critic's output is redacted in the kept file by the
+// memory's scan, and the record names the kind.
+func TestCritiqueRawOutputIsScrubbed(t *testing.T) {
+	proj, slug, _, criticOut := critiqueProject(t)
+	mustWrite(t, criticOut, "blocks issues/Factory/critic.md:9 — the fixture holds password=hunter22\nCoverage: read 1 of 1 files\n")
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := critique.Load(proj.IssueDir, slug)
+	raw := readFile(t, filepath.Join(proj.IssueDir, filepath.FromSlash(runs[0].Raw)))
+	if strings.Contains(raw, "hunter22") || !strings.Contains(raw, "password=[redacted: password or token value]") {
+		t.Fatalf("raw not scrubbed: %q", raw)
+	}
+	if len(runs[0].RawRedacted) != 1 {
+		t.Errorf("RawRedacted = %v", runs[0].RawRedacted)
+	}
+}
+
+// --reparse parses a run's kept raw output with the current parser: a
+// run recorded by an older parser that kept only a lead-in line ("Some
+// cases are not covered:") shows its bullet cases again, and nothing new
+// is recorded.
+func TestCritiqueReparseUsesTheCurrentParser(t *testing.T) {
+	proj, slug, _, _ := critiqueProject(t)
+	raw := "Read everything.\n\nshould issues/Factory/critic.md:9 — Some cases are not covered:\n- an empty list\n- a list of one\nCoverage: read 1 of 1 files\n"
+	old := critique.Report{Coverage: "read 1 of 1 files", Findings: []critique.Finding{{Severity: critique.Should, Path: "issues/Factory/critic.md", Line: 9, Text: "Some cases are not covered:"}}}
+	run := &critique.Run{Slug: slug, From: "in design", To: "backlog", At: time.Date(2026, 10, 31, 15, 35, 32, 0, time.UTC), Agent: "claude", Report: old}
+	if err := critique.RecordWithRaw(proj.IssueDir, run, raw); err != nil {
+		t.Fatal(err)
+	}
+	want := critique.Parse(raw)
+	if !strings.Contains(want.Findings[0].Text, "a list of one") {
+		t.Fatalf("the current parser lost the lead-in's cases: %+v", want.Findings)
+	}
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug, "--reparse", run.ID}); err != nil {
+		t.Fatal(err)
+	}
+	cur := *run
+	cur.Report = want
+	got := out.String()
+	assertContains(t, got, "Current parser:\n"+critique.CommentText(&cur))
+	assertContains(t, got, "Recorded:\n"+critique.CommentText(run))
+	assertContains(t, got, "Differs from the recorded report. Nothing was recorded.")
+	if runs, _ := critique.Load(proj.IssueDir, slug); len(runs) != 1 {
+		t.Fatalf("reparse recorded a run: %d runs", len(runs))
+	}
+
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug, "--reparse", "nope"}); err == nil || !strings.Contains(err.Error(), run.ID) {
+		t.Fatalf("unknown id: %v", err)
+	}
+	// A run from before raw outputs were kept says so.
+	if err := critique.Record(proj.IssueDir, &critique.Run{Slug: slug, From: "in design", To: "backlog", At: run.At.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := critique.Load(proj.IssueDir, slug)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug, "--reparse", runs[1].ID}); err == nil || !strings.Contains(err.Error(), "no raw output kept") {
+		t.Fatalf("old run: %v", err)
+	}
+}
+
+// byHandWorkflow has a gate on one edge only, so the issue in design has
+// none out of its status, and the block keeps the stand-in critic.
+const byHandWorkflow = `statuses:
+  - name: "in design"
+  - name: "testing"
+  - name: "done"
+critique:
+  command: "cat \"$CRITIC_OUT\""
+  timeout: 30s
+transitions:
+  - from: "in design"
+    to: "testing"
+    actions: []
+  - from: "testing"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "critique"
+`
+
+// A run from a status with no gate writes its record and its comment, holds
+// nothing, counts no red round, says so, and has nothing to override. A
+// later gate out of another status still wants a run of its own.
+func TestCritiqueRunsByHandWithoutAGate(t *testing.T) {
+	proj, slug, issuePath, criticOut := critiqueProject(t)
+	mustWrite(t, proj.WorkflowFile, byHandWorkflow)
+	mustWrite(t, criticOut, "blocks internal/x.go:42 — nil on an empty list\nCoverage: all\n")
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug, "--brief"}); err != nil {
+		t.Fatalf("--brief: %v", err)
+	}
+	brief := out.String()
+	if !strings.Contains(brief, "no gate") || strings.Contains(brief, "gate in design →") || strings.Contains(brief, "the gate holds") {
+		t.Fatalf("the brief should name no gate:\n%s", brief)
+	}
+	if runs, _ := critique.Load(proj.IssueDir, slug); len(runs) != 0 {
+		t.Fatalf("--brief recorded a run: %+v", runs)
+	}
+
+	for round := 1; round <= 5; round++ {
+		ctx, out, _ = newTestContext(proj, false)
+		if err := runCritique(ctx, []string{slug}); err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		text := out.String()
+		for _, want := range []string{"no gate", "holds nothing", "testing → done"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("round %d: output misses %q:\n%s", round, want, text)
+			}
+		}
+		for _, no := range []string{"The gate", "gate in design", "passes", "critique check is"} {
+			if strings.Contains(text, no) {
+				t.Errorf("round %d: output says %q:\n%s", round, no, text)
+			}
+		}
+	}
+
+	runs, _ := critique.Load(proj.IssueDir, slug)
+	if len(runs) != 5 {
+		t.Fatalf("runs = %d, want 5", len(runs))
+	}
+	run := runs[4]
+	if !run.ByHand() || run.From != "in design" || run.To != "" || run.Verdict() != "findings" {
+		t.Fatalf("run = %+v (verdict %s)", run, run.Verdict())
+	}
+	comments, _ := tracker.LoadComments(issuePath)
+	last := comments[len(comments)-1].Text
+	if !strings.Contains(last, "critique: in design, by hand (no gate), findings") || strings.Contains(last, "→") {
+		t.Fatalf("comment = %q", last)
+	}
+	if strings.Contains(strings.Join(commentTexts(comments), "\n"), "red rounds") {
+		t.Fatalf("a by-hand run became a red-round question: %v", commentTexts(comments))
+	}
+
+	// issue-cli show's line and --override both read the record.
+	wf, err := tracker.LoadWorkflow(proj.WorkflowFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := &tracker.Issue{Slug: slug, Status: "in design"}
+	if line := critiqueLine(proj.IssueDir, wf, issue); !strings.Contains(line, "in design, by hand (no gate) findings") {
+		t.Fatalf("critiqueLine = %q", line)
+	}
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug, "--override", "--quote", "ok"}); err != nil {
+		t.Fatalf("--override: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing to override") {
+		t.Fatalf("--override output: %s", out.String())
+	}
+
+	// The gate out of testing is not cleared by a run from in design.
+	if err := critique.GateError(critique.Latest(runs, slug, "testing"), slug, "testing"); err == nil {
+		t.Fatal("a by-hand run from another status cleared a gate")
+	}
+}
+
+func commentTexts(comments []tracker.Comment) []string {
+	var out []string
+	for _, c := range comments {
+		out = append(out, c.Text)
+	}
+	return out
+}
+
+// The doc's "This project runs it on" line names exactly the edges
+// workflow.yaml gates, on any type's path, and says the gate is off when
+// there are none; workflow.yaml's declined list agrees.
+func TestCritiqueDocMatchesTheWorkflow(t *testing.T) {
+	wf, err := tracker.LoadWorkflow("../../workflow.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gated := map[string]bool{}
+	add := func(edges []tracker.WorkflowTransition) {
+		for _, e := range edges {
+			gated["`"+e.From+" → "+e.To+"`"] = true
+		}
+	}
+	add(wf.CritiqueEdges())
+	for _, name := range wf.TypeNames() {
+		add(wf.ForType(name).CritiqueEdges())
+	}
+	declined := false
+	for _, id := range wf.Features.Declined {
+		declined = declined || id == "critique-gate"
+	}
+
+	raw, err := os.ReadFile("../../docs/Workflow/critique.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const lead = "This project runs it on "
+	var line string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(l, lead) {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("docs/Workflow/critique.md has no line starting %q", lead)
+	}
+	if len(gated) == 0 {
+		if !strings.HasPrefix(line, lead+"no edge") {
+			t.Fatalf("workflow.yaml gates no edge, the doc says: %s", line)
+		}
+		if !declined {
+			t.Fatal("no edge has the critique rule but critique-gate is not declined in workflow.yaml")
+		}
+		if !strings.Contains(line, "declined") {
+			t.Fatalf("the doc's line should say the gate is declined: %s", line)
+		}
+		return
+	}
+	if declined {
+		t.Fatal("critique-gate is declined in workflow.yaml but an edge has the critique rule")
+	}
+	sentence, _, _ := strings.Cut(line, ". ")
+	for edge := range gated {
+		if !strings.Contains(sentence, edge) {
+			t.Errorf("workflow.yaml gates %s, the doc's line doesn't: %s", edge, line)
+		}
+	}
+	if n := strings.Count(sentence, "→"); n != len(gated) {
+		t.Errorf("the doc's line names %d edges, workflow.yaml gates %d: %s", n, len(gated), line)
 	}
 }

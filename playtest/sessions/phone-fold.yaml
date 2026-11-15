@@ -1,0 +1,256 @@
+session: phone-fold
+issue: ui/phone-view-looks-right-one-line-yolo-band-one-row-header-the-company-floor-as-a-readable-list-on-a-phone
+title: "Every Workshop Board page at 390x844: one header row, the YOLO band one line, the title in the first half of the screen"
+scenario: hq-report
+
+# 390x844 only, YOLO on (the band is what pushed titles down). max_top: 422
+# is half the screen: the title's top edge from the top of the page.
+# inside_viewport fails on sideways scroll.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+  # wb-stampcard is a hook class playtests select by (wbHookClasses); it has no rule of its own.
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: "Needs you: one header row (‹, title, ! N, ☰), the YOLO band one 44px line that opens Extend and Turn off, the title above half the screen"
+    proves: [AC1, AC2, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/needs-you
+    act:
+      - check: { beside: [map.up, map.waiting] }
+      - check: { beside: [map.waiting, map.drawer] }
+      - check: { hidden: [map.owner, map.agents, map.brand] }
+      - check: { size: { target: yolo.band.line, max_height: 50 } }
+      - check: { hidden: [yolo.band.off, yolo.band.extend] }
+      - check: { size: { target: wb.title, max_top: 422 } }
+      - click: yolo.band.line
+      - check: { visible: [yolo.band.off, yolo.band.extend] }
+      - check: { size: { target: yolo.band.off, min_height: 44 } }
+      - click: map.drawer
+    checks:
+      - visible: [map.owner, map.agents]
+      - below: [map.drawer, map.owner]
+      - text_contains: { target: map.waiting, text: "waiting on you" }
+
+  - id: TP5
+    title: "The company on a phone: the same one-row header with ☰, the YOLO line, the floor as a list of rooms with their counts and Chat"
+    proves: [AC1, AC2, AC3, AC4]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/company
+    act:
+      - check: { beside: [map.up, map.waiting] }
+      - check: { beside: [map.waiting, map.drawer] }
+      - check: { hidden: [map.owner, floor.view, floor.rooms] }
+      - check: { size: { target: wb.title, max_top: 422 } }
+      - check: { size: { target: yolo.band.line, max_height: 50 } }
+      - check: { hidden: floor.yolo.off }
+      - check: { count: { pattern: floor.list.row, equals: 6 } }
+      - check: { text_contains: { target: floor.list.counts, text: "open" } }
+      - check: { size: { target: floor.list.go, min_height: 44 } }
+      - click: yolo.band.line
+      - check: { visible: [floor.yolo.off, floor.yolo.extend] }
+      - click: map.drawer
+      - check: { visible: [map.owner, floor.goal] }
+    checks:
+      - visible: [floor.list, floor.rail]
+      - below: [floor.list, floor.rail]
+
+  - id: TP6
+    title: "A room's name in the phone list opens its inspector below"
+    proves: [AC4]
+    setup:
+      - open: /p/{project}/company
+    act:
+      - click: floor.list.name
+    checks:
+      - text_contains: { target: floor.tab.room, text: "HQ" }
+      - visible: floor.inspector.hq
+
+  - id: TP7
+    title: "The Report at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/status
+    act:
+      - check: { hidden: view.board }
+      - click: map.drawer
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: report.title, max_top: 422 }
+      - visible: view.board
+
+  - id: TP8
+    title: "The hall at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/hall
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+      # the hall's tabs are its own navigation: a row under the header, no tap
+      - visible: hall.tabs
+
+  - id: TP9
+    title: "The crate store (Issues) at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+      - visible: hall.tabs
+
+  - id: TP10
+    title: "Hall stats at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/stats
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+      - visible: hall.tabs
+
+  - id: TP11
+    title: "Hall health at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/health
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP12
+    title: "The crew at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/agents
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP13
+    title: "Memory at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/memory
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP14
+    title: "The outputs shelf at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/shelf
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP15
+    title: "The decisions log at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/decisions
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP16
+    title: "Systems at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/systems
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP17
+    title: "Updates at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/updates
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP18
+    title: "The review after YOLO at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/yolo/review
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP19
+    title: "Post-mortem actions at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/postmortems
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP20
+    title: "A station (the issue page) at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/issue/engine/case-study-template
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: station.title, max_top: 422 }
+
+  - id: TP21
+    title: "The HQ report at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/hq/report
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }
+
+  - id: TP22
+    title: "The code map at 390x844: one header row, the YOLO line, the title in the first half of the screen"
+    proves: [AC1, AC3]
+    setup:
+      - post: { path: "/p/{project}/yolo/on", json: { until: "off", words: "go" }, status: 200 }
+      - open: /p/{project}/codemap
+    checks:
+      - beside: [map.waiting, map.drawer]
+      - visible: yolo.band.line
+      - size: { target: wb.title, max_top: 422 }

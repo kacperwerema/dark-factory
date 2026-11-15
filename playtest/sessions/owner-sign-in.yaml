@@ -19,7 +19,9 @@ steps:
       # for a code and typed the one its own board printed.
       - open: /owner
     act:
-      - check: { visible: [owner.page, owner.signed_in, owner.signout, map.owner] }
+      - check: { visible: [owner.page, owner.signed_in, owner.signout] }
+      # YOU sits in the header's ☰ drawer on a phone.
+      - check: { exists: map.owner }
       # An owner decision from the signed-in browser goes through.
       - open: /p/{project}/issue/shop/label-printer
       - type: { target: approve_words.station, text: "The label is cut off on the right" }

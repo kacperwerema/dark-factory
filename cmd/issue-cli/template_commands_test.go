@@ -58,6 +58,17 @@ func TestBundledTemplatesNameOnlyFlagsTheCommandAccepts(t *testing.T) {
 				valid, _ = introspectFlags(cmd, sub, issueDir)
 				flagsOf[key] = valid
 			}
+			// A word the command dispatches by hand (decisions log, decisions
+			// drift) isn't in Subcommands: read that word's FlagSet too.
+			if sub == "" && len(words) > 1 && !strings.HasPrefix(words[1], "-") {
+				hk := words[0] + " " + words[1] + " (by hand)"
+				byHand, seen := flagsOf[hk]
+				if !seen {
+					byHand, _ = introspectFlags(cmd, words[1], issueDir)
+					flagsOf[hk] = byHand
+				}
+				valid = append(slices.Clone(valid), byHand...)
+			}
 			for _, f := range templateFlagRe.FindAllStringSubmatch(strings.Join(words, " "), -1) {
 				if !slices.Contains(valid, f[1]) && !slices.Contains(global, f[1]) {
 					t.Errorf("%s: `issue-cli%s` uses --%s; %s accepts %v", path, m[1], f[1], strings.TrimSpace(key), valid)

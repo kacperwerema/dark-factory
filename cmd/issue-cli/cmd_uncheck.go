@@ -15,7 +15,9 @@ var uncheckCommand = &Command{
 	LongHelp: `Turn ticked boxes back into open ones, addressed by their ids from
 'issue-cli checklist'. Several ids in one call are all-or-nothing: if any id
 does not exist, nothing changes. A box that is already open is reported, not
-an error. The boxes keep their text, position and ids.
+an error. The boxes keep their position and ids, and their text except a
+closing "(N/A: ...)": unticking withdraws the N/A, so a later tick doesn't
+keep it.
 
 Examples:
   issue-cli uncheck <slug> D3
@@ -116,7 +118,7 @@ func (r boxReport) criterion(id string) (proof.Criterion, bool) {
 // refuseOwnerBoxes refuses an agent session changing the owner's boxes;
 // the owner, in their own shell, may.
 func refuseOwnerBoxes(ctx *Context, issue *tracker.Issue, r boxReport, refs []string, verb string) error {
-	who := agentSession(ctx)
+	who := guardAgent(ctx, "change owner boxes")
 	if who == "" {
 		return nil
 	}
@@ -159,7 +161,7 @@ func ownerBoxesError(ctx *Context, issue *tracker.Issue, who, verb string, hit [
 // is refused; for the owner it passes everything. The proof report is
 // read once, on the first write that leaves a ticked box.
 func ownerTickGuard(ctx *Context, issue *tracker.Issue) func(before, after string) error {
-	who := agentSession(ctx)
+	who := guardAgent(ctx, "tick owner boxes")
 	if who == "" {
 		return func(string, string) error { return nil }
 	}

@@ -1,0 +1,25 @@
+id: status-prompt-append
+version: v0.61.0
+category: lifecycle
+propose: false
+sources: ["internal/tracker/workflow_config.go#StatusPrompt", "internal/tracker/workflow_config.go#joinPrompt", "internal/tracker/workflow_merge.go#appendPrompt"]
+title: "Overlays append to a status prompt"
+what: |
+  `prompt_append:` on a status in a `types:` or `systems:` overlay adds lines after
+  the prompt in force (the base's, or the one the issue's type set) instead of
+  replacing it. Every layer's append is kept, in merge order, each text once.
+why: |
+  A system's guidance (run make security-check for API work) reaches tweaks and
+  bugfixes too, whose types set their own prompt for the same status, without
+  copying it into every type or relying on one transition's inject_prompt.
+where: "systems.<name>.statuses[].prompt_append (or types.<name>.statuses[])"
+snippet: |
+  systems:
+    API:
+      statuses:
+        - name: "in progress"
+          prompt_append: |
+            Run make security-check before testing; a new route goes in docs/API/security.md.
+question: "Does any system need guidance added to a status for every type of work, rather than replacing the type's prompt?"
+detect:
+  - path: statuses[].prompt_append

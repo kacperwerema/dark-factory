@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -113,7 +114,7 @@ type BranchHint struct {
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string, asJSON bool) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -639,13 +640,8 @@ var metricsFuncs = template.FuncMap{
 		return fmt.Sprint(*n)
 	},
 	"shortBranch": shortBranch,
-	"shortSha": func(s string) string {
-		if len(s) > 7 {
-			return s[:7]
-		}
-		return s
-	},
-	"pluralS": pluralS,
+	"shortSha":    gitdir.ShortSHA,
+	"pluralS":     pluralS,
 	"withPanel": func(n Nav, p NavPanel) Nav {
 		n.Panel = &p
 		return n

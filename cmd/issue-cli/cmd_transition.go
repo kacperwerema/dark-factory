@@ -5,8 +5,11 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -19,6 +22,10 @@ field answers required by the workflow.
 --dry-run lists every unmet requirement (checkboxes, comments, fields, human
 approval) with the command that fixes each, and changes nothing. Exit 0 when
 the transition would succeed, 1 otherwise.
+
+Both print first, under "From the lead since your last move", every lead:
+comment posted since the issue's last move (--json: lead_comments). A real
+transition warns on each with no reply after it; it never refuses over one.
 
 At a human-approval gate, tell the human what to approve, then stop and end
 your turn. The viewer's approve button nudges your session to resume; re-run
@@ -68,6 +75,8 @@ type transitionOutput struct {
 	Guidance             []string                  `json:"guidance,omitempty"`
 	// YOLORule replaces the guidance's ask and stop sentences while YOLO is on.
 	YOLORule string `json:"yolo_rule,omitempty"`
+	// LeadComments are the lead: comments posted since the previous move.
+	LeadComments []leadComment `json:"lead_comments,omitempty"`
 }
 
 func runTransition(ctx *Context, args []string) error {
@@ -124,6 +133,11 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
+	// Read before the move writes its row: the window is the previous move's.
+	leads := leadCommentsFor(ctx, issue)
+	if !ctx.JSONOutput {
+		printLeadComments(ctx.Stdout, leads)
+	}
 	if strings.EqualFold(strings.TrimSpace(issue.Status), strings.TrimSpace(to)) {
 		return printAlreadyAt(ctx, wf, issue)
 	}
@@ -132,7 +146,7 @@ func runTransition(ctx *Context, args []string) error {
 	wf.KeepOwnAssignee = isOwnWorker(ctx, issues, issue)
 
 	if *dryRun {
-		return runTransitionDryRun(ctx, wf, issue, issues, slug, to, fields)
+		return runTransitionDryRun(ctx, wf, issue, issues, slug, to, fields, leads)
 	}
 	// A real attempt logs each ledger hold its rules found (refused or
 	// passed under YOLO) as a held event, whatever the outcome.
@@ -170,8 +184,9 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	out := buildTransitionOutput(wf, issue, from, to, result)
+	out.LeadComments = leads
 	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
-	out.Guidance, out.YOLORule = yoloGuidance(ctx, issue.Slug, out.Guidance)
+	out.Guidance, out.YOLORule = yoloGuidance(ctx, wf, issue.Slug, out.Guidance)
 	if gate.Passed {
 		out.SideEffects = append(out.SideEffects, "YOLO: gate passed without the owner, marked for review after the fact")
 	}
@@ -181,14 +196,21 @@ func runTransition(ctx *Context, args []string) error {
 	if err := printTransitionResult(ctx, out); err != nil {
 		return err
 	}
+	fresh := markFreshSession(ctx, wf, issue, from, to)
 	if !ctx.JSONOutput {
 		printYOLOGate(ctx.Stdout, gate, from, to, ctx.now())
+		if line := tracker.HandoffReminder(wf); line != "" && out.NextStatus != "" && !fresh && whoAmI(ctx.Project, nil).Role == tracker.RoleWorker {
+			fmt.Fprintln(ctx.Stdout, line)
+		}
 		printWarnings(ctx.Stdout, criteriaWarnings(wf, issue, from, to))
 		printWarnings(ctx.Stdout, wf.DecisionWarnings())
+		printWarnings(ctx.Stdout, leadCommentWarnings(ctx, issue.Slug, leads))
 		if isShipStatus(wf, to) {
 			fmt.Fprintln(ctx.Stdout)
 			printShippingBlock(ctx, issue, issues)
 		}
+		printTransitionFootprint(ctx.Stdout, ctx, wf, issue)
+		printTransitionMemories(ctx.Stdout, ctx, issue)
 	}
 	if err := writeYOLOOwnerChecks(ctx, wf, issue, from, to, gate.Passed); err != nil {
 		return err
@@ -199,7 +221,7 @@ func runTransition(ctx *Context, args []string) error {
 	if err := clarifyOnTransition(ctx, wf, issue, from, gate.Passed); err != nil {
 		return err
 	}
-	if to == "done" {
+	if wf.IsLastStatus(to) {
 		archivePlaytestRuns(ctx, issue)
 	}
 	endOut := ctx.Stdout
@@ -207,9 +229,11 @@ func runTransition(ctx *Context, args []string) error {
 		endOut = ctx.Stderr
 	}
 	handoffEnded(ctx, endOut, wf, issue.Slug, to)
+	writeIssueTrace(ctx, endOut, issue)
 	queueMarkShipped(ctx, endOut, wf, issue.Slug, to)
 	postmortemAtTransition(ctx, endOut, wf, issue, to)
-	if to == "done" && !ctx.JSONOutput {
+	closeFinishedWorker(ctx, endOut, issue)
+	if wf.IsLastStatus(to) && !ctx.JSONOutput {
 		printCIAfterDone(ctx, wf)
 		printMemoryReflection(ctx.Stdout, ctx, issue)
 	}
@@ -231,20 +255,29 @@ func printAlreadyAt(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Iss
 	fmt.Fprintf(ctx.Stdout, "Status is already %s: nothing changed.\n", issue.Status)
 	if next := wf.NextRequiredStatus(issue.Status); next != "" {
 		fmt.Fprintf(ctx.Stdout, "Next, when its boxes are done:\n  %s\n",
-			tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %q", issue.Slug, next)))
+			tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %s", issue.Slug, shell.Quote(next))))
 	}
 	return nil
 }
 
 // tickProvenBeforeGate ticks the proven acceptance criteria when the
-// transition checks proof, so the boxes match what the gate sees.
+// transition checks proof, so the boxes match what the gate sees, and warns
+// about each criterion a judgement step makes the owner's while a test or
+// commit link proves it too (proof.Report.Overlaps).
 func tickProvenBeforeGate(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, to string) {
 	if !wf.TransitionChecksProof(issue.Status, to) || !wf.ProofRequired(issue) {
 		return
 	}
 	comments, _ := tracker.LoadComments(issue.FilePath)
-	ticked, err := proof.TickProven(issue.FilePath, proof.Collect(projectRoot(ctx.Project), issue, comments))
-	if err != nil || len(ticked) == 0 || ctx.JSONOutput {
+	report := proof.Collect(projectRoot(ctx.Project), issue, comments)
+	ticked, err := proof.TickProven(issue.FilePath, report)
+	if ctx.JSONOutput {
+		return
+	}
+	for _, o := range report.Overlaps() {
+		fmt.Fprintf(ctx.Stdout, "Warning: %s\n", o.Line())
+	}
+	if err != nil || len(ticked) == 0 {
 		return
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Ticked %s (proven)\n", strings.Join(ticked, ", "))
@@ -263,16 +296,16 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 	}
 	head, _ := ci.Head(root, branch)
 	fmt.Fprintf(ctx.Stdout, "Local CI tests %s at %s by itself: don't wait for it, you are done. If it goes red on your merge, the CEO may re-open this issue (%s).\n",
-		branch, ci.Short(head), tracker.InjectProject(ctx.Project, "issue-cli ci status"))
+		branch, gitdir.ShortSHA(head), tracker.InjectProject(ctx.Project, "issue-cli ci status"))
 }
 
 // runTransitionDryRun reports every unmet requirement for issue → to and
 // changes nothing. Exits 1 (silently — the report is the message) when any
 // requirement is unmet so scripts can branch on it.
-func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue, slug, to string, fields map[string]string) error {
+func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue, slug, to string, fields map[string]string, leads []leadComment) error {
 	from := issue.Status
 	problems, yoloNote := yoloDryRun(ctx, wf, issue, from, to, collectTransitionProblems(ctx, wf, issue, slug, from, to, fields))
-	out := dryRunOutput{DryRun: true, Ready: len(problems) == 0, From: from, To: to, Slug: slug, Problems: problems}
+	out := dryRunOutput{DryRun: true, Ready: len(problems) == 0, From: from, To: to, Slug: slug, Problems: problems, LeadComments: leads}
 	if isShipStatus(wf, to) {
 		out.Warnings = openDepWarnings(shipDeps(ctx, issue, issues))
 	}
@@ -560,7 +593,8 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 			fmt.Fprintf(w, "- %s\n", prompt)
 		}
 		if output.YOLORule != "" {
-			fmt.Fprintf(w, "- %s\n", output.YOLORule)
+			// The paragraph is in the briefing and start: one line here.
+			fmt.Fprintf(w, "- %s\n", tracker.YOLORulePointer)
 		}
 		fmt.Fprintln(w)
 	}
@@ -576,7 +610,7 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 		}
 		cmd := output.NextCommand
 		if cmd == "" {
-			cmd = fmt.Sprintf("issue-cli transition %s --to %q", slug, nextStatus)
+			cmd = fmt.Sprintf("issue-cli transition %s --to %s", slug, shell.Quote(nextStatus))
 		}
 		fmt.Fprintf(w, "  %s%s\n", cmd, suffix)
 		if output.NextCommandNote != "" {
@@ -587,8 +621,32 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "Optional side-paths:")
 			for _, opt := range optionalSidePaths {
-				fmt.Fprintf(w, "  issue-cli transition %s --to \"%s\"\n", slug, opt)
+				fmt.Fprintf(w, "  issue-cli transition %s --to %s\n", slug, shell.Quote(opt))
 			}
 		}
 	}
+}
+
+// markFreshSession posts the stage: mark when issue entered a session:
+// fresh status with its worker live, and tells whoever moved it what
+// happens next. It ends and starts nothing: a worker never starts an agent,
+// so the lead's dispatch --fresh does (agentrun.FreshStarts). It reports
+// whether it marked.
+func markFreshSession(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string) bool {
+	if from == to || !wf.IsFreshStatus(to) || !agentrun.IsLive(ctx.Project, tracker.AgentSessionName(issue.Slug)) {
+		return false
+	}
+	if err := tracker.AddCommentBy(issue.FilePath, 0, tracker.StageMarkComment(to), "cli", commentAuthor(ctx.Project, issue)); err != nil {
+		fmt.Fprintf(ctx.Stderr, "warning: the stage: mark was not written (%v): the lead's tick won't offer the fresh session\n", err)
+		return false
+	}
+	w := ctx.Stdout
+	if ctx.JSONOutput {
+		w = ctx.Stderr
+	}
+	fmt.Fprintln(w)
+	for _, line := range tracker.FreshSessionLines(issue.Slug, to) {
+		fmt.Fprintln(w, tracker.InjectProject(ctx.Project, line))
+	}
+	return true
 }

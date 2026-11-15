@@ -362,14 +362,6 @@ func TestCIWatchOnce(t *testing.T) {
 	_ = root
 }
 
-func TestShellQuote(t *testing.T) {
-	for in, want := range map[string]string{"/usr/bin/issue-cli": "/usr/bin/issue-cli", "--if-untested": "--if-untested", "a b": "'a b'", "it's": `'it'\''s'`, "": "''"} {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func itoa(n int) string {
 	b, _ := json.Marshal(n)
 	return string(b)
@@ -429,4 +421,42 @@ func TestCILineAbsentWithoutCIBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNotContains(t, stdout.String(), "Local CI")
+}
+
+func TestCIStatusShowsTierLines(t *testing.T) {
+	proj, root := makeCIFixture(t, ciBlockFor("mark"))
+	// No slow run yet: plain status prints no tier line.
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCI(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	assertNotContains(t, stdout.String(), "tier slow")
+
+	// The slow tier's command is `exit 1`: its run is red.
+	ctx, _, _ = newTestContext(proj, false)
+	_ = runCI(ctx, []string{"run", "--tier", "slow"})
+	st, err := ci.ReadState(root)
+	if err != nil || st == nil {
+		t.Fatalf("state: %v %v", st, err)
+	}
+	ts, ok := st.Tier("slow")
+	if !ok || ts.State != ci.Red {
+		t.Fatalf("slow tier: %+v", st.Tiers)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCI(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	assertContains(t, out, "tier slow: red at "+ts.Sha[:7])
+	assertContains(t, out, "inherited from main, not caused by your branch")
+
+	// --tier slow names it once, not twice.
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCI(ctx, []string{"status", "--tier", "slow"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(stdout.String(), "tier slow:"); n != 1 {
+		t.Errorf("--tier slow printed %d tier lines:\n%s", n, stdout.String())
+	}
 }

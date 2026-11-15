@@ -40,6 +40,9 @@ type AgentNode struct {
 	// ("" for Product).
 	Department string `json:"department,omitempty"`
 	Live       bool   `json:"live"`
+	// Exited: the session is there but only a shell runs in it (markExited,
+	// on the pages that take a snapshot).
+	Exited bool `json:"exited,omitempty"`
 	// State is working, idle, at-gate, question or stopped for workers; live
 	// or not-running for leads. Idle: live, but no issue-cli call for
 	// agentIdleAfter.
@@ -64,16 +67,21 @@ type AgentNode struct {
 	// ("You've hit your 5-hour limit · resets 5pm … — resets 17:00"); the
 	// agent is left running.
 	Limit string `json:"limit,omitempty"`
+	// Stalled says how the agent stalled ("stalled at Codex's trust
+	// dialog", agentrun.ScanStalls); the agent is left as it is.
+	Stalled string `json:"stalled,omitempty"`
 }
 
 // SubscriptionView is one agent CLI's subscription on this machine.
 type SubscriptionView struct {
 	Agent     string `json:"agent"`
 	Installed bool   `json:"installed"`
-	// State is working, resting until HH:MM (…) or unknown.
+	// State is working, resting until HH:MM (…) or unknown, with the weekly
+	// percent when a CLI printed it.
 	State   string `json:"state"`
 	Resting bool   `json:"resting"`
 	Live    int    `json:"live"`
+	Percent int    `json:"percent,omitempty"`
 }
 
 // EpicGroup is one open epic under the project lead and how its children
@@ -114,6 +122,14 @@ func statusColorOf(status string) string {
 	return funcMap["statusColor"].(func(string) string)(status)
 }
 
+func statusTextColorOf(status string) string {
+	return funcMap["statusTextColor"].(func(string) string)(status)
+}
+
+func priorityColorOf(priority string) string {
+	return funcMap["priorityColor"].(func(string) string)(priority)
+}
+
 func agentIssueOf(prefix string, issue *tracker.Issue) *AgentIssue {
 	return &AgentIssue{
 		Slug:   issue.Slug,
@@ -125,7 +141,7 @@ func agentIssueOf(prefix string, issue *tracker.Issue) *AgentIssue {
 }
 
 // activeStatus reports whether status is one where work is in flight: from
-// "in progress" (else the second status) up to, not including, "done" (else
+// the work status (else the second status) up to, not including, "done" (else
 // the last status).
 func activeStatus(wf *tracker.WorkflowConfig, status string) bool {
 	order := wf.GetStatusOrder()
@@ -134,7 +150,7 @@ func activeStatus(wf *tracker.WorkflowConfig, status string) bool {
 		return false
 	}
 	start, end := 1, len(order)-1
-	if i := wf.GetStatusIndex("in progress"); i >= 0 {
+	if i := wf.GetStatusIndex(wf.RoleStatus(tracker.StatusRoleWork)); i >= 0 {
 		start = i
 	}
 	if i := wf.GetStatusIndex("done"); i >= 0 {
@@ -144,7 +160,7 @@ func activeStatus(wf *tracker.WorkflowConfig, status string) bool {
 }
 
 func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*AgentsModel, error) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +183,10 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 	for _, l := range scanPaneLimits(proj, workDir, now) {
 		limits[l.Session] = l
 	}
+	stalls := map[string]agentrun.PaneStall{}
+	for _, s := range scanPaneStalls(proj, workDir, now) {
+		stalls[s.Session] = s
+	}
 	node := func(name, kind string) AgentNode {
 		sess, ok := live[name]
 		n := AgentNode{Name: name, Display: agentDisplayName(proj, name), Kind: kind, Live: ok, AttachCmd: agentAttachCmd(proj, name), SwitchCmd: agentrun.SwitchCmd(proj, name), StartTime: sess.StartTime}
@@ -177,6 +197,9 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 				if n.Agent == "" {
 					n.Agent = l.Limit.Agent
 				}
+			}
+			if s, hit := stalls[name]; hit {
+				n.Stalled = s.Words()
 			}
 		}
 		if kind == "project-lead" || kind == "department-lead" {
@@ -205,7 +228,7 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 	}
 
 	for _, issue := range issues {
-		if issue.Status == "done" || !tracker.IsEpic(issue, issues) {
+		if proj.IssueDone(issue) || !tracker.IsEpic(issue, issues) {
 			continue
 		}
 		g := EpicGroup{Issue: *agentIssueOf(prefix, issue)}
@@ -232,13 +255,13 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 		}
 		// A done issue without a live session is skipped below; skip it
 		// before parsing its workflow (800 done issues took 1.4 s).
-		if !n.Live && issue.Status == "done" {
+		if !n.Live && proj.IssueDone(issue) {
 			continue
 		}
 		wf := wfs.ForIssue(issue)
 		wt, _, _ := resolveWorktree(workDir, issue.Slug, wf)
 		if n.Live {
-			comments, _ := tracker.LoadComments(issue.FilePath)
+			comments := issue.Comments()
 			call, known := lastCliCall(proj.Slug, agentLogPaths(workDir, wt, name, issue.Assignee)...)
 			n.State, n.Gate = workerState(wf, issue, comments, call, known, time.Now())
 			if known {
@@ -273,15 +296,18 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 	return model, nil
 }
 
-// scanPaneLimits and sessionAgent read tmux; vars so tests need none.
+// scanPaneLimits, scanPaneStalls and sessionAgent read tmux; vars so tests
+// need none.
 var (
 	scanPaneLimits = agentrun.ScanLimits
+	scanPaneStalls = agentrun.ScanStalls
 	sessionAgent   = agentrun.SessionAgent
 )
 
 // subscriptionViews is each agent CLI's state for the Crew page, status.md
 // and agents.json: resting (from the machine's subscription state), working
-// when a live session of the model runs it, else unknown.
+// when a live session of the model runs it, else unknown; with the weekly
+// percent when a CLI printed it.
 func subscriptionViews(m *AgentsModel, now time.Time) []SubscriptionView {
 	live := map[string]int{}
 	count := func(n AgentNode) {
@@ -299,8 +325,12 @@ func subscriptionViews(m *AgentsModel, now time.Time) []SubscriptionView {
 	var out []SubscriptionView
 	for _, a := range routing.KnownAgents {
 		_, resting := st.Resting(a, now)
-		out = append(out, SubscriptionView{Agent: a, Installed: routing.Installed(a), Live: live[a], Resting: resting,
-			State: routing.StateWords(a, st, live[a] > 0, now)})
+		sv := SubscriptionView{Agent: a, Installed: routing.Installed(a), Live: live[a], Resting: resting,
+			State: routing.StateWords(a, st, live[a] > 0, now)}
+		if u, ok := st.UsageOf(a, now); ok {
+			sv.Percent = u.Percent
+		}
+		out = append(out, sv)
 	}
 	return out
 }
@@ -373,7 +403,7 @@ func (s *Server) agentDetailOf(proj *tracker.Project, name, slug string) AgentDe
 	detail := AgentDetail{Session: name}
 	if slug != "" {
 		if issue := s.findIssueBySlug(proj, slug); issue != nil {
-			comments, _ := tracker.LoadComments(issue.FilePath)
+			comments := issue.Comments()
 			if len(comments) > 5 {
 				comments = comments[len(comments)-5:]
 			}

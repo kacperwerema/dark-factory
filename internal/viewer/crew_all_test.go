@@ -180,6 +180,7 @@ func TestCrewAllListsTwoProjects(t *testing.T) {
 func TestCrewAllActionsNeedTheOwner(t *testing.T) {
 	crewTmux(t)
 	crewQuiet(t)
+	standInLeadStart(t)
 	a, _ := crewProjects(t)
 	srv := crewServer(t, a)
 	srv.allowedHosts = allowedHostsFor(defaultHost, []string{"factory.example.com"})
@@ -430,8 +431,8 @@ func TestCrewAllQueuePause(t *testing.T) {
 }
 
 func TestParsePanesAndProcs(t *testing.T) {
-	panes := agentrun.ParsePanes("agent-a\tagent-a\t101\nwork\tagent-b\t202\nbad line\n")
-	if len(panes) != 2 || panes[1].Window != "agent-b" || panes[1].PID != 202 {
+	panes := agentrun.ParsePanes("agent-a|:|agent-a|:|101|:|claude\nwork|:|agent-b|:|202|:|zsh\nbad line\n")
+	if len(panes) != 2 || panes[1].Window != "agent-b" || panes[1].PID != 202 || panes[1].Command != "zsh" {
 		t.Fatalf("panes = %+v", panes)
 	}
 	procs := agentrun.ParseProcs("  101     1 Ss\n  150   101 S+\n  151   150 T\n  202     1 Ss\n")
@@ -451,5 +452,61 @@ func TestParsePanesAndProcs(t *testing.T) {
 	}
 	if s.Paused(&tracker.Project{}, "agent-b") {
 		t.Error("agent-b is a window of the shared session, not a session of its own")
+	}
+}
+
+// A worker that died long after its launch: both Crew pages say so, in the
+// you tone that sorts it up; Stop stays to clear the session, a nudge would run as a command.
+func TestCrewPagesShowAWorkerWhoseAgentExited(t *testing.T) {
+	tmux := crewTmux(t)
+	crewQuiet(t)
+	a, _ := crewProjects(t)
+	crewSession(t, tmux, "agent-ui-asker", a.WorkDir)
+	args := append([]string{"new-session", "-d", "-s", "agent-ui-child", "-c", a.WorkDir}, agentrun.AgentCommand("true")...)
+	if out, err := tmux(args...); err != nil {
+		t.Fatal(err, out)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for !agentrun.TakeSnapshot().BareShell(&a, "agent-ui-child") {
+		if time.Now().After(deadline) {
+			t.Fatal("the pane never turned into a bare shell")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	srv := crewServer(t, a)
+	c := pairOwner(t, srv)
+
+	html := ownerDo(srv, "GET", "/crew", "", nil, c).Body.String()
+	assertContains(t, html, `data-testid="crew_all.row.agent-ui-child.stop"`, `data-testid="crew_all.row.agent-ui-asker.nudge"`,
+		`crew_all.row.agent-ui-child.state"><span class="wb-chip wb-chip--you">`, crewExited, "dispatch it again")
+	if strings.Contains(html, `crew_all.row.agent-ui-child.nudge`) {
+		t.Error("a shell is offered a nudge")
+	}
+
+	var sent []string
+	orig := crewNudgeSend
+	crewNudgeSend = func(target, text string) error { sent = append(sent, text); return nil }
+	t.Cleanup(func() { crewNudgeSend = orig })
+	rec := ownerDo(srv, "POST", "/p/agents/crew/nudge", `{"session":"agent-ui-child","text":"hi"}`, nil, c)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "only a shell") || len(sent) != 0 {
+		t.Errorf("nudge a shell = %d %s, sent %q", rec.Code, rec.Body, sent)
+	}
+
+	page := ownerDo(srv, "GET", "/p/agents/agents", "", nil, c).Body.String()
+	assertContains(t, page, `crew.card.agent-ui-child.state"><span class="wb-chip wb-chip--you">`, crewExited)
+	if !strings.Contains(page, "issue-cli dispatch ui/child") {
+		t.Errorf("the card names no dispatch:\n%s", page)
+	}
+}
+
+// A live worker keeps its state on the Crew page; a nil snapshot marks nobody.
+func TestMarkExitedNeedsASnapshot(t *testing.T) {
+	workers := []AgentNode{{Name: "agent-a", Exited: true}}
+	markExited(&tracker.Project{}, workers, nil)
+	if workers[0].Exited {
+		t.Error("a nil snapshot marked a worker")
+	}
+	if card := crewCard(AgentNode{Name: "agent-a", State: "working", Live: true}, "worker", "/p/x", time.Now()); card.State != "working" {
+		t.Errorf("state %q", card.State)
 	}
 }

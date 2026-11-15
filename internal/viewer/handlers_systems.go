@@ -13,7 +13,7 @@ import (
 // page, system_wb.go; the classic system page at ?classic=1).
 // rest is the route after the project prefix.
 func (s *Server) handleSystems(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -1,0 +1,25 @@
+{
+  "next_id": 3,
+  "entries": [
+    {
+      "id": 1,
+      "description": "a \u003cb\u003e \u0026 \"c\"",
+      "status": "pass",
+      "comment": "ok"
+    },
+    {
+      "id": 2,
+      "description": "é",
+      "status": "todo",
+      "tier": "t2",
+      "comment": ""
+    }
+  ],
+  "experiment": {
+    "a": 1,
+    "b": [
+      2,
+      3
+    ]
+  }
+}

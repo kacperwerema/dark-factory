@@ -21,4 +21,4 @@ snippet: |
 question: "Should any step require a section (or a minimum amount of text) in the issue body?"
 detect:
   - path: transitions[].actions[].rule
-    rule_in: [body_not_empty, has_section, section_min_length, section_max_length]
+    rule_in: [body_not_empty, has_section, section_min_length, section_min_links, section_max_length]

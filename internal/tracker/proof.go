@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"regexp"
 	"strings"
 	"time"
@@ -18,7 +19,25 @@ const (
 	ProofCommit = "commit"
 	ProofValue  = "value"
 	ProofShot   = "shot"
+	// ProofLead links a criterion to an issue-cli command only the lead
+	// can run (the worker guard refuses it from the worker's shell); the
+	// lead's `prove <slug> --lead-run` runs it and records a LeadRun.
+	ProofLead = "lead"
 )
+
+// LeadRun is one run of a lead link's command by the lead (`issue-cli prove
+// <slug> --lead-run`), kept in the data sidecar under "lead_runs".
+type LeadRun struct {
+	Command string    `json:"command"`
+	At      time.Time `json:"at"`
+	// Head is the issue worktree's HEAD when the command ran.
+	Head string `json:"head,omitempty"`
+	OK   bool   `json:"ok"`
+	Exit int    `json:"exit"`
+	By   string `json:"by,omitempty"`
+	// Tail is the last lines of the command's output.
+	Tail []string `json:"tail,omitempty"`
+}
 
 // ProofLink is one link from an acceptance criterion to its proof, written
 // by `issue-cli prove` into the data sidecar under "proofs". Links declared
@@ -79,6 +98,22 @@ func (w *WorkflowConfig) checkCommitsReference(issue *Issue) error {
 	return referenceChecker(w, issue)
 }
 
+// RequiresCommitReference reports whether a transition of the workflow runs
+// the commits_reference_issue rule.
+func (w *WorkflowConfig) RequiresCommitReference() bool {
+	if w == nil {
+		return false
+	}
+	for _, t := range w.Transitions {
+		for _, a := range t.Actions {
+			if a.Type == "validate" && strings.TrimSpace(a.Rule) == commitsReferenceRule {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ProofGateSince returns the date of the workflow's criteria_proven rule
 // ("criteria_proven: since 2026-10-24"), and whether the workflow has one.
 func (w *WorkflowConfig) ProofGateSince() (string, bool) {
@@ -90,8 +125,8 @@ func (w *WorkflowConfig) ProofGateSince() (string, bool) {
 			if a.Type != "validate" {
 				continue
 			}
-			name, arg, _ := strings.Cut(a.Rule, ":")
-			if strings.TrimSpace(name) == criteriaProvenRule {
+			name, arg := SplitRule(a.Rule)
+			if name == criteriaProvenRule {
 				since, _ := parseProofSince(arg)
 				return since, true
 			}
@@ -198,7 +233,7 @@ func (w *WorkflowConfig) checkCriteriaCheckboxes(section string, issue *Issue) e
 		fmt.Fprintf(&b, "\n\nReword a template box, or drop it (the other boxes keep their ids):\n  issue-cli check-edit %s %s --text \"<what someone can observe when it works>\"\n  issue-cli check-remove %s %s", issue.Slug, id, issue.Slug, id)
 	}
 	if len(plain) > 0 {
-		fmt.Fprintf(&b, "\n\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %q --body \"- [ ] ...\"", issue.Slug, section)
+		fmt.Fprintf(&b, "\n\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %s --body \"- [ ] ...\"", issue.Slug, shell.Quote(section))
 	}
 	return fmt.Errorf("%s", b.String())
 }
@@ -238,8 +273,8 @@ func (w *WorkflowConfig) SectionBoxes(section string) map[string]bool {
 // TransitionChecksProof reports whether from → to runs criteria_proven.
 func (w *WorkflowConfig) TransitionChecksProof(from, to string) bool {
 	for _, a := range w.transitionActions(from, to) {
-		name, _, _ := strings.Cut(a.Rule, ":")
-		if a.Type == "validate" && strings.TrimSpace(name) == criteriaProvenRule {
+		name, _ := SplitRule(a.Rule)
+		if a.Type == "validate" && name == criteriaProvenRule {
 			return true
 		}
 	}
@@ -286,6 +321,26 @@ func SetOutputChecker(fn func(w *WorkflowConfig, issue *Issue, kind string) erro
 
 const hasOutputRule = "has_output"
 
+// outputsApprovedRule is the has_output check's stricter sibling: the shelf
+// holds an approved (or published) output for the issue and none in review.
+const outputsApprovedRule = "outputs_approved"
+
+// outputsApprovedChecker runs the outputs_approved check, registered by
+// internal/outputs like outputChecker.
+var outputsApprovedChecker func(w *WorkflowConfig, issue *Issue, kind string) error
+
+// SetOutputsApprovedChecker registers the outputs_approved check.
+func SetOutputsApprovedChecker(fn func(w *WorkflowConfig, issue *Issue, kind string) error) {
+	outputsApprovedChecker = fn
+}
+
+func (w *WorkflowConfig) checkOutputsApproved(kind string, issue *Issue) error {
+	if outputsApprovedChecker == nil {
+		return fmt.Errorf("outputs_approved needs the outputs shelf, which this program doesn't include — run the transition with issue-cli")
+	}
+	return outputsApprovedChecker(w, issue, strings.TrimSpace(kind))
+}
+
 func (w *WorkflowConfig) checkHasOutput(kind string, issue *Issue) error {
 	if outputChecker == nil {
 		return fmt.Errorf("has_output needs the outputs shelf, which this program doesn't include — run the transition with issue-cli")
@@ -305,9 +360,9 @@ func (w *WorkflowConfig) HasOutputRule() (to, kind string, ok bool) {
 			if a.Type != "validate" {
 				continue
 			}
-			name, arg, _ := strings.Cut(a.Rule, ":")
-			if strings.TrimSpace(name) == hasOutputRule {
-				return t.To, strings.TrimSpace(arg), true
+			name, arg := SplitRule(a.Rule)
+			if name == hasOutputRule {
+				return t.To, arg, true
 			}
 		}
 	}

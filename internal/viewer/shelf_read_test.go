@@ -58,7 +58,7 @@ func TestShelfReaderRendersADocumentWithContents(t *testing.T) {
 	}
 	assertContains(t, html,
 		`data-testid="odoc.page"`,
-		`<h1 class="wb-odoc-title" data-testid="odoc.title">Brand and ICP: Dark Factory</h1>`,
+		`<h1 class="wb-odoc-title" data-testid="wb.title">Brand and ICP: Dark Factory</h1>`,
 		// Contents: h2 and h3 with their ids, indented by level.
 		`<a class="wb-odoc-toc-item wb-odoc-toc-item--2" href="#brand" data-testid="odoc.toc.item"><span class="wb-odoc-toc-text">Brand</span>`,
 		`<a class="wb-odoc-toc-item wb-odoc-toc-item--3" href="#voice" data-testid="odoc.toc.item">`,

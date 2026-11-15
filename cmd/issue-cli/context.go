@@ -53,6 +53,13 @@ type Context struct {
 	// FlagSet instead of parsing — used to enumerate a command's flags
 	// without running it.
 	introspect bool
+
+	// sandbox is the sandbox verdict, computed once (sandbox_pass.go);
+	// sandboxPassed / sandboxRefused say the worker guard passed a verb on
+	// a marked sandbox, or refused a never-in-sandbox one there (clilog).
+	sandbox        *sandboxVerdict
+	sandboxPassed  bool
+	sandboxRefused bool
 }
 
 func (c *Context) now() time.Time {
@@ -148,6 +155,10 @@ func parseFlagsArgs(ctx *Context, fs *flag.FlagSet, args []string) error {
 		panic(introspectedFlags{fs})
 	}
 	ctx.flagSets = append(ctx.flagSets, fs)
+	// Before --json joins fs: it is on every command, so text about it is text.
+	if err := refuseFlagWord(fs, args); err != nil {
+		return err
+	}
 	// The global --json also works after the command (`list --all --json`),
 	// unless the command defines its own.
 	if fs.Lookup("json") == nil {
@@ -186,15 +197,21 @@ func parsePositionals(ctx *Context, name string, args []string, max int) ([]stri
 // knows as non-boolean takes the next token as its value unless written as
 // --name=value. Unknown flags stay in the flag part so Parse rejects them.
 func flagsFirst(fs *flag.FlagSet, args []string) []string {
-	var flags, positionals []string
+	flags, words, literal := splitFlags(fs, args)
+	return append(append(append(flags, "--"), words...), literal...)
+}
+
+// splitFlags is flagsFirst's walk: the flags with their values, the words
+// among them, and whatever came after a "--".
+func splitFlags(fs *flag.FlagSet, args []string) (flags, words, literal []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
-			positionals = append(positionals, args[i+1:]...)
+			literal = args[i+1:]
 			break
 		}
 		if !isFlagToken(a) {
-			positionals = append(positionals, a)
+			words = append(words, a)
 			continue
 		}
 		flags = append(flags, a)
@@ -208,13 +225,35 @@ func flagsFirst(fs *flag.FlagSet, args []string) []string {
 			i++
 		}
 	}
-	return append(append(flags, "--"), positionals...)
+	return flags, words, literal
+}
+
+// refuseFlagWord refuses a word that starts with one of fs's flags and a
+// space: `memory add "fact" "--supersedes m-1"` is a flag and its value quoted
+// together, and taken as text it was stored with the flag not acted on. Text
+// that names no flag of the command stays text, and so does anything after a
+// "--", which is how to say the text really starts that way.
+func refuseFlagWord(fs *flag.FlagSet, args []string) error {
+	_, words, _ := splitFlags(fs, args)
+	for _, w := range words {
+		m := flagWordRe.FindStringSubmatch(w)
+		if m == nil || fs.Lookup(m[2]) == nil {
+			continue
+		}
+		flagName := m[1] + m[2]
+		return &usageError{msg: fmt.Sprintf("%s and the words after it came as one word for '%s': quote only its value, or put -- before text that really starts with %s%s", flagName, fs.Name(), flagName, helpHint(fs))}
+	}
+	return nil
 }
 
 // flagTokenRe matches "-name", "--name" and "--name=value": a word that is
 // meant as a flag. Text that merely starts with a dash ("- [ ] item",
-// "--force is bad", "-5") is a positional.
+// "--force is bad", "-5") is a positional, unless refuseFlagWord finds it
+// names a flag of the command.
 var flagTokenRe = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9_-]*(=|$)`)
+
+// flagWordRe matches a flag's name followed by a space, in one word.
+var flagWordRe = regexp.MustCompile(`^(--?)([A-Za-z][A-Za-z0-9_-]*)\s`)
 
 // isFlagToken reports whether a looks like a flag rather than a value.
 func isFlagToken(a string) bool {

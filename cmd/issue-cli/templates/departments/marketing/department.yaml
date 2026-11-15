@@ -1,7 +1,7 @@
 # Department template: what `issue-cli department add marketing` installs.
 # The workflow file is the bundled workflow template named in workflow:,
-# written to workflows/<key>.yaml; role.md is written to
-# departments/<key>/role.md. Everything else becomes the department's entry
+# written to workflows/<key>.yaml; role.md and the files: are written to
+# departments/<key>/. Everything else becomes the department's entry
 # in projects.yaml. See docs/departments.md#templates.
 name: Marketing
 description: "SEO and content: refreshed pages and posts on your site(s), each reviewed by the owner before it goes out"
@@ -9,11 +9,25 @@ color: "#E2559B"
 role: "SEO and content for your site(s)"
 mission: "Your site(s) refreshed every week"
 # Channels are types of work in the marketing workflow, each with a system
-# of the same name (its room and board filter): seo-pass ↔ SEO. Add PPC,
-# Social or Outreach here when you uncomment their type in
+# of the same name (its room and board filter): seo-pass ↔ SEO, social ↔
+# Social. Add PPC or Outreach here when you uncomment their type in
 # workflows/marketing.yaml (docs/departments.md, "Channels as types").
-systems: [SEO]
+systems: [SEO, Social]
 workflow: marketing
+# The partners catalog's slots this department fills: department add names
+# the tools listed for each (issue-cli department partners --slot <slot>)
+# and installs none of them.
+partner_slots: [seo, analytics, social]
+# The seo-pass measure step's sources, written into the department's entry
+# commented out (the owner uncomments them): the rankings from a self-hosted
+# OpenSEO over MCP (it costs nothing until the owner adds a DataForSEO key),
+# and visits from Umami over its REST API.
+connector_examples: connectors.example.yaml
+# Starter files the owner edits, written to departments/<key>/ (never over
+# one): subreddits.md lists the subreddits the social channel may read and
+# post in, each with its rule on self-promotion (docs/departments.md,
+# "Social: Reddit").
+files: [subreddits.md]
 goals:
   - id: pages
     name: Pages refreshed
@@ -23,6 +37,14 @@ goals:
     name: Posts published
     target: 2
     period: week
+  # Read from the metrics file the weekly SEO pass writes at measure
+  # (issue-cli goal write marketing/weekly-seo-pass visits=<n>), with the
+  # number read from the umami connector: no value until its first run.
+  - id: visits
+    name: Visits
+    target: 500
+    period: week
+    source: "file:<issues>/.goals/marketing/weekly-seo-pass.json#visits"
 # Recurring jobs: each run is an issue in the department (docs/departments.md,
 # "Recurring jobs"). A due run waits in Needs you until the owner starts it or
 # turns its standing start on: issue-cli job auto on marketing/weekly-seo-pass.

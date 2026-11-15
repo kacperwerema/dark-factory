@@ -2,6 +2,7 @@ package viewer
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/codemap"
 	"os"
 	"path/filepath"
 	"sort"
@@ -37,6 +38,11 @@ var navViews = []navView{
 		return isGitCheckout(projectRoot(p))
 	}},
 	{Key: "systems", Label: "Systems", Path: "/systems"},
+	// Code map: contexts, layers and imports (codemap_view.go), with
+	// workbench.contexts only.
+	{Key: "codemap", Label: "Code map", Path: "/codemap", Show: func(s *Server, p *tracker.Project) bool {
+		return codemap.Configured(p.LoadWorkflow().Workbench)
+	}},
 	// Board opens the hall; the old boards stay at ?classic=1 under More
 	// (factory/retire-board-canvas-graph#D-1).
 	{Key: "hall", Label: "Board", Path: "/hall"},
@@ -130,11 +136,11 @@ type Nav struct {
 // naming the current view (a navViews key, or "" for pages like issue detail).
 // Templates call it as {{template "sidebar" (sidebar .Prefix "board")}}.
 func (s *Server) sidebarNav(prefix, active string) Nav {
-	proj := s.findProject(strings.TrimPrefix(prefix, "/p/"))
+	proj := s.projectInFlight(strings.TrimPrefix(prefix, "/p/"))
 	if proj == nil {
 		return Nav{Prefix: prefix}
 	}
-	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	issues, _ := proj.LoadIssues()
 	_, activeBots := sessionsByIssueSlug(proj, issues)
 
 	open := 0
@@ -145,7 +151,7 @@ func (s *Server) sidebarNav(prefix, active string) Nav {
 		if name := strings.TrimSpace(issue.System); name != "" {
 			systemNames[strings.ToLower(name)] = true
 		}
-		if issue.Status == "done" {
+		if proj.IssueDone(issue) {
 			continue
 		}
 		open++

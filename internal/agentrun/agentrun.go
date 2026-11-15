@@ -6,6 +6,7 @@ package agentrun
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/routing"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -73,6 +75,10 @@ type Spec struct {
 	// writes once the agent is launched with it (nil: none). A reattach
 	// or a failed launch writes nothing.
 	Decisions *tracker.Injected
+	// Briefing is the briefing record (size and ids, no text) the issue's
+	// stats sidecar gets once the agent is launched with Prompt; nil for a
+	// launch that is not an issue's worker.
+	Briefing *tracker.Briefing
 }
 
 // validModelName limits --model values to characters that are safe in a
@@ -107,16 +113,16 @@ func LaunchCommandWith(proj *tracker.Project, agentType, session, promptPath str
 	}
 	extraFlags := ""
 	for _, f := range extra {
-		extraFlags += " " + shellWord(f)
+		extraFlags += " " + shell.Quote(f)
 	}
 	// agentType and promptPath reach a login shell: an agent that isn't a
 	// plain command name is single-quoted (and so fails to start), and the
 	// path is single-quoted, since Go's %q still expands $() and backticks
 	// inside the shell's double quotes (docs/API/security.md).
 	if !ValidAgentType(agentType) {
-		agentType = shellWord(agentType)
+		agentType = shell.Quote(agentType)
 	}
-	return fmt.Sprintf("%s%s%s%s \"$(cat %s)\"", agentType, nameFlag, modelFlag, extraFlags, shellWord(promptPath))
+	return fmt.Sprintf("%s%s%s%s \"$(cat %s)\"", agentType, nameFlag, modelFlag, extraFlags, shell.Quote(promptPath))
 }
 
 // validAgentType is a command name: what claude, codex or a configured
@@ -137,11 +143,11 @@ func ValidAgentType(agent string) bool {
 // trap stops the wrapper shell from abandoning the rest of the command along
 // with the agent.
 func AgentCommand(launch string) []string {
-	shell := strings.TrimSpace(os.Getenv("SHELL"))
-	if shell == "" {
-		shell = "/bin/sh"
+	login := strings.TrimSpace(os.Getenv("SHELL"))
+	if login == "" {
+		login = "/bin/sh"
 	}
-	return []string{shell, "-lic", "trap : INT; " + launch + "; exec " + shellWord(shell) + " -l"}
+	return []string{login, "-lic", "trap : INT; " + launch + "; exec " + shell.Quote(login) + " -l"}
 }
 
 // WritePrompt persists prompt as <sessionLogDir>/dispatch-prompt.txt and
@@ -166,9 +172,20 @@ func ProjectWorkDir(proj *tracker.Project) string {
 }
 
 // Start launches the agent described by spec, or re-attaches when its
-// session is already live (never starting a second one).
+// session is already live (never starting a second one). A session that is
+// only a shell (BareShell) is not live: it is removed and the agent starts.
+// "dispatched" means an agent is running: a launch that dies at once comes
+// back as an error with its session removed (reportDeadLaunch).
 func Start(proj *tracker.Project, spec Spec) Response {
 	session, prompt := spec.Session, spec.Prompt
+	// No agent named means the window would run an empty command: the
+	// shell says "permission denied" and an idle session is left behind.
+	// The caller routes (RouteAgent) or names the agent first.
+	if strings.TrimSpace(spec.AgentType) == "" {
+		return Response{Status: "error", Prompt: prompt, Session: session, Steps: []Step{{
+			Name: "Pick the agent", Status: "error",
+			Detail: "no agent named for " + session + ": nothing was started (the caller routes with routing: or names claude / codex)"}}}
+	}
 	workDir := spec.WorkDir
 	if workDir == "" {
 		workDir = ProjectWorkDir(proj)
@@ -184,6 +201,9 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	newDir, worktreeSteps, worktreeOK := EnsureWorktree(workDir, spec.Worktree, spec.Workflow)
 	if !worktreeOK {
 		return Response{Status: "error", Prompt: prompt, Session: session, Steps: worktreeSteps}
+	}
+	if spec.Worktree.Path != "" {
+		ExcludeHandoff(newDir)
 	}
 	// The session's logs (clilog, prompt, messages) stay in the project
 	// checkout, not the worktree, so removing a worktree loses no history.
@@ -224,6 +244,16 @@ func Start(proj *tracker.Project, spec Spec) Response {
 			setHints()
 		}
 		return ok
+	}
+
+	// An agent that exited leaves its window as a shell. Re-attaching to it
+	// would call a dead worker live, and nothing would restart it.
+	if HasSession(target) && BareShell(target) {
+		if err := KillTmux(proj, session); err != nil {
+			steps = append(steps, Step{Name: "Remove dead session", Status: "warning", Detail: err.Error()})
+		} else {
+			steps = append(steps, Step{Name: "Removed dead session", Status: "ok", Detail: session + " was only a shell: its agent had exited"})
+		}
 	}
 
 	if HasSession(target) {
@@ -292,6 +322,15 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// paste sent before the agent's input is ready is silently dropped. Both
 	// agents start interactive, so a human stays in the loop.
 	extra := ConnectorFlags(proj, spec, sessionLogDir, env, &steps)
+	env = append(env, ConnectorEnv(proj, spec)...)
+	if spec.AgentType == "codex" {
+		extra = append(CodexStartFlags(workDir), extra...)
+		sandbox := CodexSandboxFlags(codexSandbox(proj, spec.Workflow), projectIssueDir(proj), workDir)
+		if len(sandbox) > 0 {
+			extra = append(extra, sandbox...)
+			steps = append(steps, Step{Name: "Codex sandbox (routing: codex:)", Status: "ok", Detail: strings.Join(sandbox, " ")})
+		}
+	}
 	createName, createCmd := CreateTmux(proj, session, workDir, env,
 		AgentCommand(LaunchCommandWith(proj, spec.AgentType, session, promptPath, extra))...)
 	if !RunStep(&steps, fmt.Sprintf("%s, running %s (interactive, prompt as argument)", createName, spec.AgentType), createCmd) {
@@ -299,11 +338,10 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		response.Steps = steps
 		return response
 	}
+	// Recorded before the launch is known to hold: the worker reads it at
+	// its first call, and only this launch can name the base it cut.
 	if spec.IssueSlug != "" {
 		recordDispatch(proj, spec, base, &steps)
-	}
-	if spec.Decisions != nil && proj != nil {
-		tracker.WarnInjected(proj.IssueDir, *spec.Decisions, time.Now())
 	}
 
 	// In shared mode the window is already named after the session so it can be
@@ -325,13 +363,49 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		return response
 	}
 
+	// Watched before the delivery check, which would wait out its timeout on
+	// a pane that will never show the prompt, and looked at once more after.
+	dead := diedAtLaunch(target, LaunchSettle)
 	// Only Claude's pane rendering has been checked for the delivery marker.
-	if spec.AgentType != "codex" {
+	if !dead && spec.AgentType != "codex" {
 		PromptDeliveryStep(&steps, target, prompt, spec.RepromptHint)
+		dead = diedAtLaunch(target, 0)
+	}
+	if dead {
+		reportDeadLaunch(proj, spec, target, &response, &steps)
+		return response
+	}
+	if spec.Decisions != nil && proj != nil {
+		tracker.WarnInjected(proj.IssueDir, *spec.Decisions, time.Now())
+	}
+	if spec.Briefing != nil {
+		b := *spec.Briefing
+		b.At = time.Now()
+		b.Bytes, b.Tokens = len(prompt), tokens.Estimate(prompt)
+		recordBriefing(proj, spec.IssueSlug, b, &steps)
 	}
 
 	response.Steps = steps
 	return response
+}
+
+// reportDeadLaunch turns response into the error of a launch whose agent is
+// gone: the step quotes the pane's last lines, which the session takes with
+// it, and no session is left behind.
+func reportDeadLaunch(proj *tracker.Project, spec Spec, target string, response *Response, steps *[]Step) {
+	detail := spec.AgentType + " exited right after the launch; the session was removed"
+	if tail := paneTail(target); tail != "" {
+		detail += ". Its last lines: " + tail
+	}
+	if HasSession(target) {
+		if err := KillTmux(proj, spec.Session); err != nil {
+			detail = spec.AgentType + " exited right after the launch; removing the session failed: " + err.Error()
+		}
+	}
+	*steps = append(*steps, Step{Name: "Agent running", Status: "error", Detail: detail})
+	response.Status = "error"
+	response.AttachCmd, response.SwitchCmd = "", ""
+	response.Steps = *steps
 }
 
 // recordDispatch appends this launch to the issue's stats sidecar, with the
@@ -341,7 +415,7 @@ func recordDispatch(proj *tracker.Project, spec Spec, base tracker.Dispatch, ste
 	if proj == nil || proj.IssueDir == "" {
 		return
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err == nil {
 		if issue := tracker.FindIssue(issues, spec.IssueSlug); issue != nil {
 			err = tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: spec.Session, Agent: spec.AgentType, BaseBranch: base.BaseBranch, BaseSHA: base.BaseSHA})
@@ -349,6 +423,23 @@ func recordDispatch(proj *tracker.Project, spec Spec, base tracker.Dispatch, ste
 	}
 	if err != nil {
 		*steps = append(*steps, Step{Name: "Record dispatch time", Status: "warning", Detail: err.Error()})
+	}
+}
+
+// recordBriefing appends b to issue slug's stats sidecar. A failure is a
+// warning step; it never fails the launch.
+func recordBriefing(proj *tracker.Project, slug string, b tracker.Briefing, steps *[]Step) {
+	if proj == nil || proj.IssueDir == "" || slug == "" {
+		return
+	}
+	issues, err := proj.LoadIssues()
+	if err == nil {
+		if issue := tracker.FindIssue(issues, slug); issue != nil {
+			err = tracker.RecordBriefing(issue.FilePath, b)
+		}
+	}
+	if err != nil {
+		*steps = append(*steps, Step{Name: "Record briefing", Status: "warning", Detail: err.Error()})
 	}
 }
 
@@ -439,4 +530,15 @@ func Nudge(target, text string) error {
 		return fmt.Errorf("not delivered to %s: %s", target, d.problem())
 	}
 	return nil
+}
+
+// FailureDetail is the last error step's detail after ": " ("" when no step
+// has one), for a caller that reports a failed launch in one line.
+func FailureDetail(r Response) string {
+	for i := len(r.Steps) - 1; i >= 0; i-- {
+		if s := r.Steps[i]; s.Status == "error" && s.Detail != "" {
+			return ": " + s.Detail
+		}
+	}
+	return ""
 }

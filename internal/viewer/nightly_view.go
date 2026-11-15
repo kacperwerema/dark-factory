@@ -8,7 +8,9 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/chart"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -123,7 +125,7 @@ func nightlyRow(name string, m *bench.Morning, prefix string) WbNightlyRow {
 	if n == nil {
 		return row
 	}
-	row.Main = shortSHA(n.MainSHA)
+	row.Main = gitdir.ShortSHA(n.MainSHA)
 	if n.Stop != "" && n.Stop != bench.StopDone {
 		row.Stop = n.Stop
 	}
@@ -135,7 +137,7 @@ func nightlyRow(name string, m *bench.Morning, prefix string) WbNightlyRow {
 		before = m.Before
 	}
 	pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
-	tok := func(v float64) string { return bench.TokensText(int64(v)) }
+	tok := func(v float64) string { return tokens.Format(int64(v)) }
 	add := func(key, label string, c bench.Change, now, prev string, f func(float64) string) {
 		num := WbNightlyNumber{Key: key, Label: label, Now: now, Before: prev, Mark: c.Mark}
 		if len(c.Trend) > 1 {
@@ -158,9 +160,9 @@ func nightlyRow(name string, m *bench.Morning, prefix string) WbNightlyRow {
 	add("time", "Median time per task", m.Wall, bench.Duration(n.MedianWallSec), prev(func(x bench.Night) string { return bench.Duration(x.MedianWallSec) }), bench.Duration)
 	tokNow := "unknown"
 	if n.TokensKnown > 0 {
-		tokNow = bench.TokensText(n.MedianTokens)
+		tokNow = tokens.Format(n.MedianTokens)
 	}
-	add("tokens", "Median tokens per task", m.Tokens, tokNow, prev(func(x bench.Night) string { return bench.TokensText(x.MedianTokens) }), tok)
+	add("tokens", "Median tokens per task", m.Tokens, tokNow, prev(func(x bench.Night) string { return tokens.Format(x.MedianTokens) }), tok)
 	return row
 }
 

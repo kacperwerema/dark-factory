@@ -75,8 +75,8 @@ type ciRun struct {
 // clilogs, work branch, playtest runs), and the comments, decisions,
 // dispatch prompt and local CI runs only the tab shows. A source that can't
 // be read is listed in Missing; it never fails the page.
-func loadTimelineSources(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) timelineSources {
-	core := timeline.Load(proj, issue, nil)
+func loadTimelineSources(cache *timeline.Cache, proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) timelineSources {
+	core := timeline.Load(proj, issue, cache)
 	src := timelineSources{
 		Transitions: core.Transitions,
 		Dispatches:  core.Dispatches,
@@ -100,8 +100,8 @@ func loadTimelineSources(proj *tracker.Project, issue *tracker.Issue, wf *tracke
 		}
 	}
 
-	src.Comments, _ = tracker.LoadComments(issue.FilePath)
-	src.Decisions = tracker.ParseDecisions(issue.Slug, issue.BodyRaw)
+	src.Comments = issue.Comments()
+	src.Decisions = issue.Decisions()
 	src.Boxes = tracker.ListCheckboxes(issue.BodyRaw)
 	// The comments read goes after the stats and CLI log reads.
 	for _, r := range core.Read {
@@ -174,8 +174,6 @@ func loadCIRunsFrom(root, sha string) []ciRun {
 	return out
 }
 
-func shortSHA(sha string) string { return timeline.ShortSHA(sha) }
-
 // timelineTotalLabel is the Timeline tab's label on every tab: the life from
 // dispatch (or the agent's first call) to done, or "so far". It reads the
 // stats sidecar and the first line of each per-agent clilog only.
@@ -198,7 +196,7 @@ func timelineTotalLabel(proj *tracker.Project, issue *tracker.Issue) string {
 		}
 	}
 	start := timeline.LifeStart(src.core())
-	end, inFlight := timeline.LifeEnd(src.core(), timeline.In{Status: issue.Status, Now: time.Now()})
+	end, inFlight := timeline.LifeEnd(src.core(), timeline.In{Status: issue.Status, Now: time.Now(), WF: proj.LoadWorkflowForIssue(issue)})
 	if start.IsZero() || !end.After(start) {
 		return ""
 	}

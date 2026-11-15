@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -93,7 +94,7 @@ func buildBehind(root, branch, changelog, version string) *BehindRow {
 	if changelog == "" {
 		changelog = "CHANGELOG.md"
 	}
-	row := &BehindRow{Installed: strings.TrimSpace(version), Sha: shortSha(sha), Branch: branch, Ahead: n,
+	row := &BehindRow{Installed: strings.TrimSpace(version), Sha: gitdir.ShortSHA(sha), Branch: branch, Ahead: n,
 		Install: "cd " + root + " && make install"}
 	if text := gitShowFile(root, branch, changelog); text != "" {
 		row.Changelog = changelog

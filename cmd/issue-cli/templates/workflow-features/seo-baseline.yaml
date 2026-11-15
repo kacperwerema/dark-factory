@@ -1,0 +1,69 @@
+id: seo-baseline
+version: v0.61.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [types-of-work]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/role.md"]
+title: "SEO baseline, once per site (technical basics, waitlist, pre-rendered pages, measurement)"
+what: |
+  An `seo-baseline` type (system SEO; brief → draft → owner review → publish →
+  measure → done), filed once per site before seo-passes and articles. brief writes
+  the owner's answers to five questions under `## Owner answers` (where the traffic
+  goes, market, content cadence and who approves, where to start, whether AI
+  training bots are allowed); brief → draft needs that section and doesn't wait for
+  brand.md (technical, not content). It appends four sections whose boxes each say
+  what the site must have and what checks it: `## Technical basics` (sitemap with
+  lastmod, robots.txt naming the allowed bots, JSON-LD, an Open Graph image,
+  llms.txt, noindex by header on the app subdomain), `## Waitlist` (a no-JS form
+  stored server-side, consent and privacy policy, unsubscribe, spam limits; N/A when
+  the traffic goes elsewhere), `## Pre-rendered pages` (a static site generator, an
+  article template the build enforces, IndexNow on deploy) and `## Measurement` (a
+  bots check, Search Console through a reference-held key), plus `## Owner steps`:
+  `(owner)` boxes for the Search Console Domain property, the service account, Bing
+  Webmaster Tools, the CDN's AI-bot blocking and the deploy, which no agent can
+  tick. draft → owner review needs the four sections ticked and the change set on
+  the shelf (`has_output: site`); publish → measure needs the owner's steps. An
+  eval `seo-baseline` scores its runs. Walk-through: docs/seo-baseline.md.
+why: |
+  Every site needs the same groundwork before SEO work pays off, and half of it is
+  the owner's (accounts, DNS, the CDN's dashboard). Without it an agent asked for
+  "SEO basics" starts from nothing, misses that AI crawlers don't run JavaScript or
+  that a CDN can block them whatever robots.txt says, and can't tell which steps to
+  leave to the owner.
+where: "the seo-baseline type with its prompts and edges (brief → draft, draft → owner review, publish → measure, each replace: true); the seo-baseline eval"
+snippet: |
+  types:
+    seo-baseline:
+      description: "SEO baseline for one site, once: technical basics, waitlist, pre-rendered pages and measurement, with the owner's account, DNS and CDN steps (system SEO)"
+      path: [brief, draft, owner review, publish, measure, done]
+      transitions:
+        - from: "brief"
+          to: "draft"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "has_section"
+              section: "Owner answers"
+            # append_section: Technical basics, Waitlist, Pre-rendered pages,
+            # Measurement, Owner steps ("(owner)" boxes)
+        - from: "draft"
+          to: "owner review"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Technical basics"
+            - type: "validate"
+              rule: "has_output: site"
+        - from: "publish"
+          to: "measure"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Owner steps"
+  # The full prompts, boxes and edges are in the bundled marketing template
+  # (docs/seo-baseline.md).
+question: "Should Marketing get an SEO baseline type, filed once per site, with your account, DNS and CDN steps kept as yours? Which site should the first one cover?"
+detect:
+  - path: types.*.description
+    contains: "SEO baseline"

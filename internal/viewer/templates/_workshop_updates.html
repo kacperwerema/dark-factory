@@ -97,14 +97,13 @@ updates/reopen.
                 </dl>
                 <pre class="upd-snippet">{{.Snippet}}</pre>
                 {{if .Setup}}<div class="upd-setup"><span class="upd-label">What installing does</span><ol>{{range .Steps}}<li>{{template "wb/chip" .Who}} {{.Do}}</li>{{end}}</ol></div>{{end}}
+                {{/* Decline lives on the detail it belongs to: one primary per card (docs/UI/workshop-board.md). */}}
+                {{if not .Installing}}<form method="post" action="{{.Prefix}}/updates/decline" class="upd-decline">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <span class="wb-muted">Not for this project?</span> <button type="submit" class="upd-linkbtn" data-testid="upd.card.{{tid .ID}}.decline">Decline</button>
+                </form>{{end}}
             </div>
         </details>
-        {{if not .Installing}}
-        <form method="post" action="{{.Prefix}}/updates/decline" class="upd-decline">
-            <input type="hidden" name="id" value="{{.ID}}">
-            <button type="submit" class="upd-linkbtn" data-testid="upd.card.{{tid .ID}}.decline">Decline</button>
-        </form>
-        {{end}}
     </div>
 </article>
 {{end}}

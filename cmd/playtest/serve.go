@@ -13,6 +13,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
+	"github.com/kacperwerema/dark-factory/internal/memguard"
 )
 
 // A scenario board on demand (make serve SCENARIO=…): the scenario staged
@@ -69,16 +72,7 @@ func writeRecord(repo string, r *ServeRecord) error {
 	if err := os.MkdirAll(serveDir(repo), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(r, "", "  ")
-	if err != nil {
-		return err
-	}
-	p := recordPath(repo, r.Scenario)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return jsonfile.Write(recordPath(repo, r.Scenario), r, 0o644)
 }
 
 // loadRecords reads every record, sorted by scenario name.
@@ -359,12 +353,8 @@ func cmdServe(repo string, o opts, out, errw io.Writer) int {
 // mustBeQuiet runs mem-guard check when it is installed; a blocked machine
 // starts no board.
 func mustBeQuiet() error {
-	bin, err := exec.LookPath("mem-guard")
-	if err != nil {
-		return nil
-	}
-	if out, err := exec.Command(bin, "check").CombinedOutput(); err != nil {
-		return fmt.Errorf("mem-guard check: %s", strings.TrimSpace(string(out)))
+	if _, blocked, msg := memguard.Check(); blocked {
+		return fmt.Errorf("mem-guard check: %s", msg)
 	}
 	return nil
 }

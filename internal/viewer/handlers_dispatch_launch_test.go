@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -34,9 +35,7 @@ func installFakeAgents(t *testing.T) string {
 	t.Helper()
 	bin := t.TempDir()
 	for _, name := range []string{"claude", "codex"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(fakeAgentScript), 0755); err != nil {
-			t.Fatal(err)
-		}
+		standin.Write(t, filepath.Join(bin, name), fakeAgentScript)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
@@ -69,9 +68,7 @@ func waitForFile(t *testing.T, path string) string {
 // wrong moment (a loaded machine widens it) sees only the first line.
 func TestFakeAgentRecordsAreNeverSeenHalfWritten(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(script, []byte(fakeAgentScript), 0755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, script, fakeAgentScript)
 	prompt := "first line\n\nsecond line\nlast line"
 	want := prompt + "\x00"
 	dir := t.TempDir()
@@ -122,6 +119,7 @@ func TestStartAgentSession_TypingDuringDispatchCannotChangeTheStartCommand(t *te
 			t.Setenv("ISSUE_VIEWER_URL", "")
 			os.Unsetenv("ISSUE_VIEWER_URL")
 			isolateTmux(t)
+			standInAgentRuns(t)
 			withPromptDeliveryTimeout(t, 15*time.Second)
 			original := agentrun.SessionAttached
 			agentrun.SessionAttached = func(string) bool { return false }
@@ -211,10 +209,8 @@ func TestStartAgentSession_CtrlCOnTheAgentKeepsTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho started > \"$FAKE_AGENT_OUT.args\"\nexec sleep 60\n"
-	if err := os.WriteFile(fake, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
+	os.Remove(fake)
+	standin.Write(t, fake, "echo started > \"$FAKE_AGENT_OUT.args\"\nexec sleep 60\n")
 	proj := &tracker.Project{Slug: "test", Terminal: "none", TmuxSession: "work", WorkDir: t.TempDir()}
 	if resp := startAgentSession(proj, "agent-x", "prompt\n", "x", "claude", nil); resp.Status != "dispatched" {
 		t.Fatalf("Status = %q; steps=%+v", resp.Status, resp.Steps)

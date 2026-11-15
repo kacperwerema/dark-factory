@@ -4,7 +4,7 @@ view models, static/workshop.css their styles, static/memory.js asks before
 a Delete). /p/<project>/memory renders them; the forms post to
 …/memory/edit, …/memory/pin, …/memory/unpin and …/memory/delete.
 
-  wb/mem-filters  the scope, kind, state and pin seg links    data: []MemoryFilter
+  wb/mem-filters  the scope, kind, state, pin and usefulness seg links  data: []MemoryFilter
   wb/mem-recent   what agents learned in the last 7 days      data: []MemoryEventLine
   wb/mem-entities the entity index: who knows what             data: MemoryData
   wb/mem-group    the rows under one entity (?group=entity)  data: MemoryGroup
@@ -16,7 +16,7 @@ a Delete). /p/<project>/memory renders them; the forms post to
 <nav class="wb-mem-filters" aria-label="Filter memories" data-testid="memory.filters">
     {{range .}}<div class="wb-mem-filter" data-testid="memory.filter.{{.Name}}">
         <span class="wb-mem-filter-label">{{.Label}}</span>
-        {{range .Items}}<a class="wb-mem-filter-item{{if .On}} wb-mem-filter-item--on{{end}}" href="{{.Href}}"{{if .On}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+        {{range .Items}}<a class="wb-mem-filter-item{{if .On}} wb-mem-filter-item--on{{end}}" href="{{.Href}}" data-testid="memory.filter_item"{{if .On}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
     </div>{{end}}
 </nav>
 {{end}}
@@ -34,6 +34,8 @@ a Delete). /p/<project>/memory renders them; the forms post to
         <span class="wb-mem-id wb-mono-inline">{{$m.ID}}</span>
         <span class="wb-chip">{{$m.Kind}}</span>
         <span class="wb-chip wb-chip--idle">{{$m.Scope}}</span>
+        {{with $m.At}}<span class="wb-chip wb-chip--idle" title="transition prints it on entering this status" data-testid="memory.row.{{$m.ID}}.at">at {{.}}</span>{{end}}
+        <span class="wb-chip {{.UseChip}}" title="{{.UseTitle}}" data-testid="memory.row.{{$m.ID}}.usefulness">{{.UseText}}</span>
         {{if ne .State "valid"}}<span class="wb-chip wb-chip--red" data-testid="memory.row.{{$m.ID}}.state">{{.State}}{{with $m.InvalidReason}}: {{.}}{{end}}</span>{{end}}
         {{if $m.Pinned}}<span class="wb-chip wb-chip--green" title="in every briefing of its scope">📌 pinned by {{$m.PinnedBy}}</span>{{else if $m.SuggestPin}}<span class="wb-chip wb-chip--agent" data-testid="memory.row.{{$m.ID}}.suggested">a worker suggests pinning it</span>{{end}}
         <span class="wb-muted">{{$m.Day}}</span>
@@ -50,9 +52,13 @@ a Delete). /p/<project>/memory renders them; the forms post to
         <input type="hidden" name="id" value="{{$m.ID}}">
         <textarea class="wb-mem-text" name="text" rows="2" maxlength="500" aria-label="Memory {{$m.ID}}" data-testid="memory.row.{{$m.ID}}.text">{{$m.Text}}</textarea>
         <div class="wb-mem-actions">
-            <button class="wb-btn wb-btn--sm" type="submit" data-testid="memory.row.{{$m.ID}}.save">Save</button>
-            {{if $m.Pinned}}<button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.UnpinURL}}" data-testid="memory.row.{{$m.ID}}.unpin">Unpin</button>{{else}}<button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.PinURL}}" data-testid="memory.row.{{$m.ID}}.pin">Pin</button>{{end}}
-            <button class="wb-btn wb-btn--paper wb-btn--sm" type="submit" formaction="{{.DeleteURL}}" data-mem-delete data-testid="memory.row.{{$m.ID}}.delete">Delete</button>
+            <button class="wb-btn wb-btn--ink wb-btn--sm" type="submit" data-testid="memory.row.{{$m.ID}}.save">Save</button>
+            <details class="wb-menu" data-testid="memory.row.{{$m.ID}}.menu"><summary class="wb-btn wb-btn--sm wb-menu-btn" aria-label="More for {{$m.ID}}">⋯</summary>
+                <div class="wb-menu-list" role="menu">
+                    {{if $m.Pinned}}<button class="wb-btn" type="submit" formaction="{{.UnpinURL}}" data-testid="memory.row.{{$m.ID}}.unpin">Unpin</button>{{else}}<button class="wb-btn" type="submit" formaction="{{.PinURL}}" data-testid="memory.row.{{$m.ID}}.pin">Pin</button>{{end}}
+                    <button class="wb-btn wb-menu-danger" type="submit" formaction="{{.DeleteURL}}" data-mem-delete data-testid="memory.row.{{$m.ID}}.delete">Delete</button>
+                </div>
+            </details>
         </div>
     </form>
     <details class="wb-mem-history" data-testid="memory.row.{{$m.ID}}.history">

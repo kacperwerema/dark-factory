@@ -56,6 +56,12 @@ body { margin: 0; }
 <div class="spin" data-testid="styles.spin">spin</div>
 <div class="nothing" data-testid="styles.ignored"><span class="nothing-either" data-testid="styles.ignored.child">x</span></div>
 <div class="unstyled" data-testid="styles.bare">bare</div>
+<header><button>Header button</button></header>
+<div data-testid="btns">
+  <div data-testid="btns.ok"><button style="background:#F47B20">Approve</button><a href="#" class="x-btn" style="background:#fff">Review</a><details><summary class="x-btn">More</summary><button style="background:#1B1F2A;color:#fff">Chat</button></details></div>
+  <div data-testid="btns.two"><button style="background:#F47B20">Agree</button><button style="background:#1B1F2A;color:#fff">Stamp</button><button style="background:#1B1F2A" disabled>Off</button></div>
+  <div><button aria-pressed="true" style="background:#1B1F2A">Toggle</button><button data-copy="x">Copy</button><button hidden>Hidden</button><summary>Plain summary</summary></div>
+</div>
 <div class="unstyled" data-testid="styles.offscreen" style="display:none">gone</div>
 </body></html>`
 
@@ -215,6 +221,11 @@ func TestShapeChecks(t *testing.T) {
 		{"size", map[string]any{"target": "shape.a", "max_height": 49}, false, ""},
 		{"size", map[string]any{"target": "shape.a", "min_height": 50, "max_height": 50.5}, true, ""},
 		{"size", map[string]any{"target": "shape.nope", "min_width": 1}, false, "missing"},
+		// max_top: the box's top edge from the top of the page.
+		{"size", map[string]any{"target": "shape.c", "max_top": 50}, true, "1440x20 at top 50"},
+		{"size", map[string]any{"target": "shape.c", "max_top": 49}, false, "1440x20 at top 50"},
+		{"media", map[string]any{"target": "shape.a", "state": "loaded"}, false, "no video or audio element"},
+		{"media", map[string]any{"target": "shape.nope", "state": "playing"}, false, "missing"},
 	} {
 		got := run(tc.kind, tc.arg)
 		if got.Pass != tc.pass || (tc.actual != "" && got.Actual != tc.actual) {
@@ -235,5 +246,29 @@ func TestShapeChecksFollowMedia(t *testing.T) {
 	call("check", &r, map[string]any{"kind": "below", "arg": map[string]any{"a": "shape.a", "b": "shape.b"}}, map[string]string{})
 	if !r.Pass {
 		t.Errorf("below at 390 = %+v, want pass", r)
+	}
+}
+
+// TestButtonsCheck: buttons counts the visible actions (a closed menu's
+// items, toggles, Copy and the header left out) and one_primary flags two
+// filled buttons in one row, not a disabled one.
+func TestButtonsCheck(t *testing.T) {
+	_, call := fixturePage(t, 1440, 900)
+	var r struct {
+		Pass           bool
+		Actual, Detail string
+	}
+	call("check", &r, map[string]any{"kind": "buttons", "arg": map[string]any{"within": "btns.ok", "max": 3}}, map[string]string{})
+	if !r.Pass || r.Actual != "3" || r.Detail != "Approve | Review | More" {
+		t.Errorf("btns.ok: %+v, want 3: Approve | Review | More", r)
+	}
+	call("check", &r, map[string]any{"kind": "buttons", "arg": map[string]any{"within": "btns", "max": 5}}, map[string]string{})
+	if r.Pass || r.Actual != "6" {
+		t.Errorf("btns: %+v, want 6 over max 5", r)
+	}
+	var v []LayoutViolation
+	call("layout", &v, []string{"one_primary"}, []string{})
+	if len(v) != 1 || !strings.Contains(v[0].Detail, `beside "Agree": "Stamp"`) {
+		t.Errorf("one_primary: %+v, want one violation: Stamp beside Agree", v)
 	}
 }

@@ -44,13 +44,13 @@ func readOnlyAfterPending(t *testing.T, file string) (restore func()) {
 	t.Helper()
 	folder := filepath.Dir(file)
 	afterDecisionPending = func() {
-		if err := os.Chmod(folder, 0o555); err != nil {
+		if err := os.Chmod(folder, 0o555); err != nil { // not a stand-in: a read-only folder
 			t.Fatal(err)
 		}
 	}
 	restore = func() {
 		afterDecisionPending = nil
-		os.Chmod(folder, 0o755)
+		os.Chmod(folder, 0o755) // not a stand-in: the folder writable again
 		os.Remove(issueLockPath(file))
 	}
 	t.Cleanup(restore)

@@ -16,13 +16,16 @@ command -v go > /dev/null && command -v tmux > /dev/null || {
 	exit 2
 }
 cd "$CHECKS_ROOT" || exit 2
+# A worker's run keeps its identity (clean_shell carries it), so the steps that start an agent are the owner's.
+worker=
+if is_worker; then worker=1; fi
 
 # Your real tmux, for MV9 only; read before private_tmux replaces it.
 real_tmux=${TMUX:-}
 real_tmpdir=${TMUX_TMPDIR:-}
-# Nothing the script runs may think it is an agent of this or another project.
-unset TMUX_PANE ISSUE_VIEWER_URL ISSUE_VIEWER_ISSUE_SLUG ISSUE_VIEWER_PROJECT ISSUE_VIEWER_LEAD_SCOPE \
-	ISSUE_CLI_LOG ISSUE_VIEWER_SERVER_PWD CLAUDECODE ISSUE_VIEWER_CONFIG
+# Nothing the script runs may reach your viewer or log; who runs it (owner or worker) stays as it is.
+unset TMUX_PANE ISSUE_VIEWER_URL ISSUE_VIEWER_PROJECT \
+	ISSUE_CLI_LOG ISSUE_VIEWER_SERVER_PWD ISSUE_VIEWER_CONFIG
 
 echo "Building this branch's issue-viewer and issue-cli and starting the private server…"
 sandbox_dir S
@@ -107,6 +110,7 @@ step MV1 "lead spawn adds one detached tab" --box HT2 \
 	--why "you see the lead without it ever stealing your focus, and without workers opening anything." \
 	--look "the spawn's steps, then main's windows and which one is active." \
 	--expect "\"Lead tab added at main:3 — not selected\", main has 0:shell 3:view-lead-sbx, and shell is still active."
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli lead spawn
 expect '[ $code = 0 ] && [[ $out == *"Lead tab added at main:3 — not selected"* ]]' "the lead started and its tab went to main:3"
 expect '[[ $out == *"Prompt delivered"* ]]' "the lead got its brief"
@@ -140,6 +144,7 @@ step MV3 "Spawning again adds nothing" --box HT4 \
 	--why "a lead is spawned again after restarts and from both the CLI and the board; you must never collect duplicate tabs." \
 	--look "the steps and main's windows." \
 	--expect "\"Already live\", \"Lead tab already at main:3 — left as is\", and main's windows unchanged."
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli lead spawn
 expect '[[ $out == *"Already live"* ]] && [[ $out == *"Lead tab already at main:3 — left as is"* ]]' "reattached and the existing tab was found"
 run windows main
@@ -203,6 +208,7 @@ step MV7 "A taken lead_window slot falls back with a warning" --box HT8 \
 ptmux kill-window -t '=main:3'
 wait_for '! ptmux has-session -t =view-lead-sbx 2> /dev/null'
 run ptmux new-window -d -t '=main:3' -n mine /bin/sh
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli lead spawn
 expect '[[ $out == *"! Lead window slot taken — window 3 in main is taken (lead_window) — used 1"* ]]' "warned and named both slots"
 run windows main
@@ -215,6 +221,7 @@ step MV8 "A missing lead_window_session warns and hands out the attach commands"
 	--look "the steps and the two attach lines." \
 	--expect "\"! No lead tab added — session nope (lead_window_session) is not running\", then Inside tmux: / From a shell:, and no session nope."
 write_config "$S/projects.yaml" nope
+[ -z "$worker" ] || skip "starts an agent: never for a worker, even in a sandbox (D-4); the owner's run covers it"
 run cli lead spawn
 expect '[[ $out == *"No lead tab added — session nope (lead_window_session) is not running"* ]]' "warned with the session's name"
 expect '[[ $out == *"Inside tmux:"* ]] && [[ $out == *"From a shell:"* ]]' "printed both attach commands"

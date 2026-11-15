@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -38,11 +39,15 @@ var WorkflowActionTypes = []SchemaNamedDoc{
 	{Name: "set_fields", Description: "Set or clear a frontmatter field (field=assignee|priority|status|human_approval, value=\"\" to clear)"},
 }
 
-// WorkflowValidationRules lists every validation rule recognized by checkRule
-// or the validations sub-package. The first block is the legacy colon-string
-// shorthand; the second block is the structured-action form (one validator
-// per file under internal/tracker/validations/), which uses companion
-// fields on transitions[].actions[] (field, values, pattern, section, etc.).
+// WorkflowValidationRules is the one list of validation rules: KnownRule,
+// lint, the station editor, the catalog guard, process schema and the
+// timeline read it, and a rule's "since <YYYY-MM-DD>" argument here is what
+// ruleTakesSince sees. internal/tracker/rule_registry_test.go fails when
+// checkRule, validations.Registry, a summary or docs/workflow.md disagrees
+// with it. The first block is the legacy colon-string shorthand; the second
+// block is the structured-action form (one validator per file under
+// internal/tracker/validations/), which uses companion fields on
+// transitions[].actions[] (field, values, pattern, section, etc.).
 var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "body_not_empty", Description: "Issue body must contain non-whitespace content"},
 	{Name: "has_checkboxes", Description: "Body must contain at least one '- [ ]' or '- [x]' checkbox anywhere"},
@@ -51,6 +56,8 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "criteria_proven: since <YYYY-MM-DD>", Description: "Every Acceptance Criteria box has a proof link that passes its check (issue-cli prove); issues created before the date, and issues without criteria, pass"},
 	{Name: "commits_reference_issue", Description: "One of the work branch's own commits references the issue: its subject names the slug (chore(merge): main into <slug>) or a 'Refs: <slug>' line in its message does"},
 	{Name: "has_output: <kind>", Description: "The outputs shelf has an output for the issue (issue-cli output add --issue <slug>) of the given kind (any kind when omitted) that isn't rejected and whose file is still there"},
+	{Name: "outputs_approved: <kind>", Description: "The issue has an output on the shelf (of the given kind, any kind when omitted) that the owner approved or that is published, and none still in review: a revision puts an output back in review, so the gate waits for the newest version's approval"},
+	{Name: "handoff_answered: <department>", Description: "A handoff to that department filed for the issue (issue-cli handoff <department> --for <slug>) is done; a declined, parked or open one doesn't answer it. With action.paths (globs), it holds only when the work branch's own changes match one; a branch it can't read holds too. YOLO doesn't pass it: the answer is the department's done issue"},
 	{Name: "critique", Description: "The newest fresh-critic run from the current status (issue-cli critique <slug>) has no blocks finding, didn't fail, or the owner overrode it; the critique: block says how the critic starts"},
 	{Name: "decisions_cited: since <YYYY-MM-DD>", Description: "'## Design' cites every hard decision in force for the issue at its status (<slug>#D-n), or sets one aside with a line 'n/a <ref>: <why>'; the issue's own decisions, soft ones and issues created before the date pass. Under YOLO a hold passes and posts a yolo-hold: comment for review"},
 	{Name: "decision_unchallenged: since <YYYY-MM-DD>", Description: "No open challenge this issue made on a decision (issue-cli decision challenge) waits for the owner's answer; it holds only the challenger's own issue, never one that cites or touches the decision. Under YOLO a hold passes and posts a yolo-hold: comment for review"},
@@ -73,11 +80,13 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "has_any_label", Description: "Issue has at least one label"},
 	{Name: "has_pr_url", Description: "Frontmatter \"pr\" is a github pull request URL"},
 	{Name: "linked_issue_in_status", Description: "Issue referenced by action.ref_key (frontmatter key holding a slug) has status action.linked_status"},
+	{Name: "children_closed", Description: "Every child of the issue (the issues naming it in parent:) is in a closing status: action.values when set, else done, parked or obsolete. An issue with no children passes"},
 	{Name: "has_section", Description: "Body contains a '## <action.section>' heading"},
 	{Name: "section_min_length", Description: "Section '## <action.section>' has at least action.min non-whitespace chars"},
+	{Name: "section_min_links", Description: "Section '## <action.section>' has at least action.min distinct http(s) links (a trailing slash or full stop doesn't make a new one)"},
 	{Name: "section_max_length", Description: "Section '## <action.section>' has at most action.max non-whitespace chars (missing section passes)"},
 	{Name: "no_todo_markers", Description: "Body contains no whole-word TODO or FIXME markers"},
-	{Name: "file_exists", Description: "File action.path, relative to the project root, exists and isn't empty; templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}}; runs no shell"},
+	{Name: "file_exists", Description: "File action.path, relative to the project root (or the issues folder for a path starting with <issues>/), exists and isn't empty; templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}}; runs no shell"},
 	{Name: "command_succeeds", Description: "Shell command in action.command exits 0; templated with {{slug}}/{{number}}/{{repo}}/{{system}}; requires top-level allow_shell=true"},
 }
 
@@ -137,11 +146,20 @@ func schemaFieldsOf(t reflect.Type) []SchemaFieldDoc {
 		out = append(out, SchemaFieldDoc{
 			Name:        name,
 			Type:        schemaTypeName(f.Type),
-			Description: f.Tag.Get("desc"),
+			Description: schemaDescription(f.Tag.Get("desc")),
 			Optional:    optional,
 		})
 	}
 	return out
+}
+
+// schemaDescription fills a desc tag's {{…}} names: a struct tag is a literal,
+// so one that repeats a phrase with one source names it.
+func schemaDescription(desc string) string {
+	return strings.NewReplacer(
+		"{{red-rounds-what-counts}}", RedRoundsWhatCounts,
+		"{{default-max-red-rounds}}", strconv.Itoa(DefaultMaxRedRounds),
+	).Replace(desc)
 }
 
 func schemaTypeName(t reflect.Type) string {

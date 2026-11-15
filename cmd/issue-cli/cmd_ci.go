@@ -13,6 +13,8 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -135,16 +137,19 @@ func runCIStatus(ctx *Context, args []string) error {
 		return writeJSON(ctx.Stdout, out)
 	}
 	fmt.Fprintln(ctx.Stdout, line)
+	// Every tier with a run gets its line, so a red slow tier shows without
+	// --tier; --tier names one that has no run yet.
+	for _, name := range st.TierNames() {
+		fmt.Fprintln(ctx.Stdout, ci.TierLine(name, st.Tiers[name], branch, ctx.now()))
+	}
 	if *tierFlag != "" {
-		if ts, ok := st.Tier(*tierFlag); ok {
-			fmt.Fprintf(ctx.Stdout, "tier %s: %s at %s (%s ago)%s\n", *tierFlag, ts.State, ci.Short(ts.Sha), ci.Ago(ctx.now().Sub(ts.Finished)), failedSuffix(ts.Failed))
-		} else {
+		if _, ok := st.Tier(*tierFlag); !ok {
 			fmt.Fprintf(ctx.Stdout, "tier %s: no run yet — issue-cli ci run --tier %s\n", *tierFlag, *tierFlag)
 		}
 	}
 	if st.IsRed() {
 		if len(st.Merged) > 0 {
-			fmt.Fprintf(ctx.Stdout, "Landed since green %s:\n", ci.Short(st.GreenSha))
+			fmt.Fprintf(ctx.Stdout, "Landed since green %s:\n", gitdir.ShortSHA(st.GreenSha))
 			for _, m := range st.Merged {
 				fmt.Fprintf(ctx.Stdout, "  %s\n", mergedLabel(m))
 			}
@@ -168,7 +173,7 @@ func runCIStatus(ctx *Context, args []string) error {
 			if r.State == ci.Error {
 				detail = ": " + r.Error
 			}
-			fmt.Fprintf(ctx.Stdout, "  %s  %-5s  %s ago  %s%s%s\n", ci.Short(r.Sha), r.State, ci.Ago(ctx.now().Sub(r.Finished)), r.Finished.Sub(r.Started).Round(time.Second), tier, detail)
+			fmt.Fprintf(ctx.Stdout, "  %s  %-5s  %s ago  %s%s%s\n", gitdir.ShortSHA(r.Sha), r.State, ci.Ago(ctx.now().Sub(r.Finished)), r.Finished.Sub(r.Started).Round(time.Second), tier, detail)
 		}
 	}
 	return nil
@@ -188,7 +193,7 @@ func mergedLabel(m ci.Merged) string {
 	case m.Branch != "":
 		return m.Branch
 	default:
-		return fmt.Sprintf("%s %s", ci.Short(m.Sha), m.Subject)
+		return fmt.Sprintf("%s %s", gitdir.ShortSHA(m.Sha), m.Subject)
 	}
 }
 
@@ -207,7 +212,7 @@ func runCIRun(ctx *Context, args []string) error {
 	}
 	root := ciRoot(proj)
 	if lock, alive := ci.ReadLock(root); alive {
-		fmt.Fprintf(ctx.Stdout, "already running at %s (pid %d); it tests the newest head when done\n", ci.Short(lock.Sha), lock.PID)
+		fmt.Fprintf(ctx.Stdout, "already running at %s (pid %d); it tests the newest head when done\n", gitdir.ShortSHA(lock.Sha), lock.PID)
 		return nil
 	}
 	if *detachFlag {
@@ -234,7 +239,7 @@ func runCIRun(ctx *Context, args []string) error {
 		Now:          ctx.now,
 	})
 	if errors.Is(err, ci.ErrBusy) && held != nil {
-		fmt.Fprintf(ctx.Stdout, "already running at %s (pid %d); it tests the newest head when done\n", ci.Short(held.Sha), held.PID)
+		fmt.Fprintf(ctx.Stdout, "already running at %s (pid %d); it tests the newest head when done\n", gitdir.ShortSHA(held.Sha), held.PID)
 		return nil
 	}
 	if err != nil {
@@ -258,7 +263,7 @@ func runCIRun(ctx *Context, args []string) error {
 	st, _ := ci.ReadState(root)
 	fmt.Fprintln(ctx.Stdout, ci.OneLine(st, nil, false, "", ctx.now()))
 	if last.Tier != tracker.CIDefaultTier {
-		fmt.Fprintf(ctx.Stdout, "tier %s: %s at %s%s\n", last.Tier, last.State, ci.Short(last.Sha), failedSuffix(last.Failed))
+		fmt.Fprintf(ctx.Stdout, "tier %s: %s at %s%s\n", last.Tier, last.State, gitdir.ShortSHA(last.Sha), failedSuffix(last.Failed))
 	}
 	fmt.Fprintf(ctx.Stdout, "Log: %s\n", filepath.Join(root, last.Log))
 	if last.State != ci.Green {
@@ -314,15 +319,15 @@ func runCIWatch(ctx *Context, args []string) error {
 		} else if head, spawned, err := w.Check(root, wf.CI); err != nil {
 			fmt.Fprintf(ctx.Stderr, "ci watch: %v\n", err)
 		} else if spawned {
-			fmt.Fprintf(ctx.Stdout, "%s  new head %s: run started\n", ctx.now().Format("15:04:05"), ci.Short(head))
+			fmt.Fprintf(ctx.Stdout, "%s  new head %s: run started\n", ctx.now().Format("15:04:05"), gitdir.ShortSHA(head))
 		} else if n, err := w.CheckNightly(root, wf.CI); err != nil {
 			fmt.Fprintf(ctx.Stderr, "ci watch: nightly %s: %v\n", n.Tier, err)
 		} else if n.Spawned {
-			fmt.Fprintf(ctx.Stdout, "%s  nightly %s run started at %s\n", ctx.now().Format("15:04:05"), n.Tier, ci.Short(n.Head))
+			fmt.Fprintf(ctx.Stdout, "%s  nightly %s run started at %s\n", ctx.now().Format("15:04:05"), n.Tier, gitdir.ShortSHA(n.Head))
 		} else if n.Held != "" && *onceFlag {
 			fmt.Fprintf(ctx.Stdout, "nightly %s waits: %s\n", n.Tier, n.Held)
 		} else if *onceFlag {
-			fmt.Fprintf(ctx.Stdout, "head %s: nothing to run\n", ci.Short(head))
+			fmt.Fprintf(ctx.Stdout, "head %s: nothing to run\n", gitdir.ShortSHA(head))
 		}
 		if *onceFlag {
 			return nil
@@ -371,7 +376,7 @@ var startDetachedCI = func(ctx *Context, proj *tracker.Project, root, tier strin
 	}
 	quoted := make([]string, len(argv))
 	for i, a := range argv {
-		quoted[i] = shellQuote(a)
+		quoted[i] = shell.Quote(a)
 	}
 	script := strings.Join(quoted, " ") + `; echo; echo "[local CI run finished: press Enter to close]"; read _`
 	var cmd *exec.Cmd
@@ -415,13 +420,4 @@ func startBackgroundCI(root string, argv []string) (string, error) {
 	}
 	_ = cmd.Process.Release()
 	return "the background (no tmux), log " + logPath, nil
-}
-
-func shellQuote(s string) string {
-	if s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return !(r == '/' || r == '.' || r == '-' || r == '_' || r == '=' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
-	}) < 0 {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

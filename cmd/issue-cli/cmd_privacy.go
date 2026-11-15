@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kacperwerema/dark-factory/internal/privacy"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -108,9 +109,9 @@ func runPrivacyCheck(ctx *Context, args []string) error {
 // hookCLIArgs are the global flags the hook passes back to issue-cli, so
 // it loads this project's workflow from any folder.
 func hookCLIArgs(ctx *Context) string {
-	args := "--project " + shellQuote(ctx.Project.Slug)
+	args := "--project " + shell.Quote(ctx.Project.Slug)
 	if p := ctx.Project.ConfigPath; p != "" {
-		args = "--config " + shellQuote(p) + " " + args
+		args = "--config " + shell.Quote(p) + " " + args
 	}
 	return args
 }

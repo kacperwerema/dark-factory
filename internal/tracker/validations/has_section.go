@@ -2,6 +2,7 @@ package validations
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"strings"
 )
 
@@ -19,5 +20,5 @@ func HasSection(action Action, issue *IssueView, _ Config) error {
 	}
 	return fail(action, issue,
 		fmt.Sprintf("section \"## %s\" is missing", section),
-		fmt.Sprintf("add: issue-cli append %s --section %q --body \"...\"", issue.Slug, section))
+		fmt.Sprintf("add: issue-cli append %s --section %s --body \"...\"", issue.Slug, shell.Quote(section)))
 }

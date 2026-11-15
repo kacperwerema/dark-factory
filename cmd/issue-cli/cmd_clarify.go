@@ -89,7 +89,7 @@ func runClarify(ctx *Context, args []string) error {
 	case *assume && *answer != "":
 		return fmt.Errorf("--assume and --answer don't go together: one records the agent's answers, the other the owner's")
 	case *assume:
-		qs, err := tracker.AssumeOpen(issue.FilePath, tracker.ClarifySection, *reason)
+		qs, err := tracker.AssumeOpen(issue.FilePath, issue.Slug, tracker.AssumeInput{Reason: *reason, Log: decisionWrite(ctx, whoAmI(ctx.Project, nil), nil)}, ctx.now())
 		if err != nil {
 			return fmt.Errorf("failed to mark answers assumed: %w", err)
 		}
@@ -126,11 +126,7 @@ func runClarify(ctx *Context, args []string) error {
 	case *assume && len(out.Assumed) == 0:
 		fmt.Fprintln(w, "No open answer to assume.")
 	case *assume:
-		ids := make([]string, len(out.Assumed))
-		for i, q := range out.Assumed {
-			ids[i] = q.ID
-		}
-		fmt.Fprintf(w, "✓ Assumed %s (the recommendation); the owner can still answer them on the Station, and under YOLO they wait in the after-the-fact review.\n", strings.Join(ids, ", "))
+		fmt.Fprintf(w, "✓ Assumed %s (the recommendation), each a provisional decision; the owner can still answer them on the Station, and under YOLO they wait in the after-the-fact review.\n", assumedIDs(out.Assumed))
 	case out.Answered != nil:
 		fmt.Fprintf(w, "✓ Recorded the owner's answer to %s: %s\n", out.Answered.ID, out.Decision.Raw)
 	}
@@ -226,11 +222,23 @@ func clarifyCounts(c tracker.Clarify) string {
 	return s
 }
 
+// assumedIDs lists assumed questions as "Q1 (D-3), Q2 (D-4)".
+func assumedIDs(qs []tracker.ClarifyQuestion) string {
+	ids := make([]string, len(qs))
+	for i, q := range qs {
+		ids[i] = q.ID
+		if q.Answer.Decision != "" {
+			ids[i] += " (" + q.Answer.Decision + ")"
+		}
+	}
+	return strings.Join(ids, ", ")
+}
+
 // clarifyOnTransition runs after a transition out of from. When a YOLO
 // gate passed, every open clarify question becomes an assumed answer (the
 // recommendation), which the review after YOLO lists. Leaving a status whose
-// prompt asks for the round, it names the format's problems, or says the
-// round is missing.
+// prompt asks for the round, it names the format's problems, or, on a path
+// with a design status, says the round is missing and how to write it.
 func clarifyOnTransition(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from string, yoloPassed bool) error {
 	c, err := tracker.ClarifyOfFile(issue.FilePath)
 	if err != nil {
@@ -241,22 +249,23 @@ func clarifyOnTransition(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		w = ctx.Stderr
 	}
 	if yoloPassed && len(c.Open()) > 0 {
-		qs, err := tracker.AssumeOpen(issue.FilePath, tracker.ClarifySection, "YOLO: "+tracker.DefaultAssumedReason)
+		qs, err := tracker.AssumeOpen(issue.FilePath, issue.Slug, tracker.AssumeInput{Reason: "YOLO: " + tracker.DefaultAssumedReason, Log: decisionWrite(ctx, whoAmI(ctx.Project, nil), nil)}, ctx.now())
 		if err != nil {
 			return fmt.Errorf("YOLO: marking the open clarify answers assumed: %w", err)
 		}
-		ids := make([]string, len(qs))
-		for i, q := range qs {
-			ids[i] = q.ID
-		}
-		fmt.Fprintf(w, "YOLO: clarify %s assumed (the recommendation) — the owner reviews them after the fact, or answers them on the Station\n", strings.Join(ids, ", "))
+		fmt.Fprintf(w, "YOLO: clarify %s assumed (the recommendation) — the owner reviews them after the fact, or answers them on the Station\n", assumedIDs(qs))
 	}
 	if !strings.Contains(wf.StatusPrompt(from), "## Clarify") {
 		return nil
 	}
 	switch {
 	case !c.Found:
-		fmt.Fprintf(w, "Clarify: %s left %s with no ## Clarify. Write the round (or one \"Nothing to ask: <why>.\" line): issue-cli clarify %s\n", issue.Slug, from, issue.Slug)
+		// The base idea prompt asks for the round on every path; only a
+		// path with a design status writes one (a tweak's has none).
+		if wf.RoleStatus(tracker.StatusRoleDesign) == "" {
+			return nil
+		}
+		fmt.Fprintf(w, "Clarify: %s left %s with no ## Clarify. Write the round, or one line when there is nothing to ask: issue-cli --project %s append %s --section Clarify --body \"Nothing to ask: <why>.\"\n", issue.Slug, from, ctx.Project.Slug, issue.Slug)
 	case len(c.Problems) > 0:
 		fmt.Fprintf(w, "Clarify: the round's format has problems (issue-cli clarify %s):\n", issue.Slug)
 		for _, p := range c.Problems {

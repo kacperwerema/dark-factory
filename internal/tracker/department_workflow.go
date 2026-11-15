@@ -12,7 +12,7 @@ import (
 // ProjectWideKeys are the workflow.yaml keys only Product's file sets: a
 // department file takes them from it, and lint warns when one shows up in a
 // department file (factory/department-workflow-files#D-1).
-var ProjectWideKeys = []string{"workbench", "ci", "health", "privacy", "leads", "project_actions", "allow_shell", "max_red_rounds"}
+var ProjectWideKeys = []string{"workbench", "ci", "health", "privacy", "leads", "project_actions", "allow_shell", "max_red_rounds", "rules"}
 
 // DepartmentNamed is the department called name (any case), or nil.
 func (p *Project) DepartmentNamed(name string) *Department {
@@ -97,6 +97,7 @@ func departmentWorkflow(own, product *WorkflowConfig) *WorkflowConfig {
 	wf.ProjectActions = product.ProjectActions
 	wf.AllowShell = product.AllowShell
 	wf.MaxRedRounds = product.MaxRedRounds
+	wf.Rules = product.Rules
 	// The playtest runner is the repository's: a department file may name its
 	// own, else it uses Product's.
 	if own.PlaytestCommand == "" {
@@ -151,6 +152,32 @@ func (w *WorkflowConfig) StatusNames() string {
 		return ""
 	}
 	return strings.Join(w.GetStatusOrder(), ", ")
+}
+
+// AllStatuses is every status of the project's workflow and its departments'
+// own files, first spelling kept, Product's first: what a project-wide
+// reference to a status (a memory's --at) can name.
+func (p *Project) AllStatuses() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(wf *WorkflowConfig) {
+		if wf == nil {
+			return
+		}
+		for _, s := range wf.GetStatusOrder() {
+			if k := strings.ToLower(s); !seen[k] {
+				seen[k] = true
+				out = append(out, s)
+			}
+		}
+	}
+	add(p.LoadWorkflow())
+	for _, d := range p.WorkflowDepartments() {
+		if wf, err := p.WorkflowFor(d.Name); err == nil {
+			add(wf)
+		}
+	}
+	return out
 }
 
 // CheckDepartmentMove is nil when issue may move to department to with its
@@ -258,46 +285,57 @@ func (p *Project) WorkflowDepartment(issue *Issue) string {
 	return p.DepartmentOf(issue)
 }
 
-// IsLastStatus reports whether status ends the workflow: done, or the last
-// status of its order (a department file may end elsewhere, e.g. published).
-func (w *WorkflowConfig) IsLastStatus(status string) bool {
-	if strings.EqualFold(status, "done") {
-		return true
+// UnfiledDepartment is the department issue's system: names although the
+// issue isn't in it: no department: field, and that department's systems:
+// don't list the system, so DepartmentOf falls through to Product and the
+// issue walks Product's workflow. "" for anything else, an issue another
+// department claims included. Lint and create warn on it (the system: of a
+// department's work is easy to take for the department).
+func (p *Project) UnfiledDepartment(issue *Issue) string {
+	if p == nil || strings.TrimSpace(issue.System) == "" || strings.TrimSpace(issue.Field("department")) != "" {
+		return ""
 	}
-	order := w.GetStatusOrder()
-	return len(order) > 0 && strings.EqualFold(order[len(order)-1], status)
+	if p.DepartmentOf(issue) != "" {
+		return ""
+	}
+	if d := p.DepartmentByKey(issue.System); d != nil {
+		return d.Name
+	}
+	return ""
 }
 
 // IssueDone reports whether issue has finished its own workflow: done for
-// Product's, the end of its department's file otherwise. Epic progress
-// counts children with it, so a child in another department counts.
+// Product's, the end of its department's file otherwise. Parked is closed
+// but not finished. Epic progress counts children with it, so a child in
+// another department counts.
 func (p *Project) IssueDone(issue *Issue) bool {
 	if p == nil || p.WorkflowDepartment(issue) == "" {
-		return strings.EqualFold(issue.Status, "done")
+		return strings.EqualFold(strings.TrimSpace(issue.Status), statusDone)
 	}
 	wf, err := p.WorkflowFor(p.DepartmentOf(issue))
 	if err != nil {
-		return strings.EqualFold(issue.Status, "done")
+		return strings.EqualFold(strings.TrimSpace(issue.Status), statusDone)
 	}
 	return wf.IsLastStatus(issue.Status)
 }
 
-// WorkflowMemo parses each department's workflow once for a pass over many
-// issues: LoadWorkflowForIssue per issue parsed workflow.yaml again for
-// every one (15 departments and 60 issues took most of the company page's
-// time). ForIssue still derives each issue's own copy (ForType clones).
+// WorkflowMemo derives each workflow once for a pass over many issues:
+// each department's file is parsed once (LoadWorkflowForIssue per issue
+// parsed workflow.yaml again for every one), and each (department, type,
+// system) scope is derived once through that department's ScopeMemo.
 type WorkflowMemo struct {
 	p  *Project
 	mu sync.Mutex
-	m  map[string]*WorkflowConfig
+	m  map[string]*ScopeMemo
 }
 
 // WorkflowMemo starts an empty memo for p.
 func (p *Project) WorkflowMemo() *WorkflowMemo {
-	return &WorkflowMemo{p: p, m: map[string]*WorkflowConfig{}}
+	return &WorkflowMemo{p: p, m: map[string]*ScopeMemo{}}
 }
 
-// ForIssue is LoadWorkflowForIssue with the department's file parsed once.
+// ForIssue is LoadWorkflowForIssue with the department's file parsed once
+// and each scope derived once.
 func (m *WorkflowMemo) ForIssue(issue *Issue) *WorkflowConfig {
 	if m == nil {
 		return nil
@@ -308,17 +346,70 @@ func (m *WorkflowMemo) ForIssue(issue *Issue) *WorkflowConfig {
 	dept := m.p.DepartmentOf(issue)
 	key := strings.ToLower(dept)
 	m.mu.Lock()
-	base, ok := m.m[key]
+	scopes, ok := m.m[key]
 	m.mu.Unlock()
 	if !ok {
 		wf, err := m.p.WorkflowFor(dept)
 		if err != nil {
 			return m.p.brokenWorkflow(dept, err)
 		}
-		base = wf
+		scopes = wf.ScopeMemo()
 		m.mu.Lock()
-		m.m[key] = base
+		m.m[key] = scopes
 		m.mu.Unlock()
 	}
-	return base.ForIssue(issue)
+	return scopes.ForIssue(issue)
+}
+
+// ScopeMemo is ForIssue on one workflow for a pass over many issues: each
+// (type, system) scope is derived once instead of once per issue (a Clone
+// each: ~35% of the health page's time on 520 issues). An issue on a status
+// off its path gets its own rescued copy.
+//
+// What ForIssue hands out shares its slices and maps with the other issues
+// of that scope: callers read it and never change it
+// (TestWorkflowMemoCallersDoNotMutate). Each gets its own decision runtime,
+// so holds and warnings stay per config.
+type ScopeMemo struct {
+	w  *WorkflowConfig
+	mu sync.Mutex
+	m  map[scopeKey]*WorkflowConfig
+}
+
+// scopeKey is one scope: the resolved type and the system.
+type scopeKey struct{ typ, system string }
+
+// ScopeMemo starts an empty scope memo over w.
+func (w *WorkflowConfig) ScopeMemo() *ScopeMemo {
+	return &ScopeMemo{w: w, m: map[scopeKey]*WorkflowConfig{}}
+}
+
+// ForIssue is w.ForIssue(issue) with the issue's scope derived once.
+func (s *ScopeMemo) ForIssue(issue *Issue) *WorkflowConfig {
+	if s == nil || s.w == nil {
+		return nil
+	}
+	if issue == nil {
+		return s.w.ForIssue(nil)
+	}
+	typ, _ := s.w.ResolveType(issue.Type)
+	key := scopeKey{typ: typ, system: issue.System}
+	s.mu.Lock()
+	scoped, ok := s.m[key]
+	s.mu.Unlock()
+	if !ok {
+		scoped = s.w.ForType(issue.Type)
+		scoped.mergeSystem(issue.System)
+		s.mu.Lock()
+		s.m[key] = scoped
+		s.mu.Unlock()
+	}
+	if s.w.offPath(scoped, issue) {
+		rescued := scoped.Clone()
+		s.w.rescueOffPath(rescued, issue)
+		return rescued
+	}
+	cp := *scoped
+	cp.decisionState = nil
+	return &cp
 }

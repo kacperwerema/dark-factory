@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -320,7 +321,7 @@ func CodeBadge(in Input) Badge {
 			if n > 1 {
 				what = fmt.Sprintf("%d commits that are not release snapshots", n)
 			}
-			b.Sentence = fmt.Sprintf("Dev history is public: %s/%s has %s (newest %s)", remote, branch, what, short(tip))
+			b.Sentence = fmt.Sprintf("Dev history is public: %s/%s has %s (newest %s)", remote, branch, what, gitdir.ShortSHA(tip))
 			b.Fix = "Clean it from a mirror (docs/workflow.md, Private work and code)"
 			b.Where = remote + "/" + branch + " not a snapshot"
 			return b
@@ -334,7 +335,7 @@ func CodeBadge(in Input) Badge {
 	// reads Unverified there.
 	if tip != "" && !commitSigned(in.Root, tip) {
 		b.Level, b.Label, b.Marker = Amber, "Release unsigned", "Unsigned"
-		b.Sentence = fmt.Sprintf("%s/%s's tip %s is not signed, so GitHub shows it Unverified", remote, branch, short(tip))
+		b.Sentence = fmt.Sprintf("%s/%s's tip %s is not signed, so GitHub shows it Unverified", remote, branch, gitdir.ShortSHA(tip))
 		if key, _ := git(in.Root, "config", "user.signingkey"); key == "" {
 			b.Fix = "git config user.signingkey <a key registered on GitHub>; release publish then signs each snapshot"
 		} else {

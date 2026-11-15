@@ -1,0 +1,37 @@
+session: shelf-frontmatter
+issue: cli/pka-shelf-read-wywietla-frontmatter-yaml-pliku-md-jako-zwyky-tekst
+title: Shelf reader - a markdown output's YAML frontmatter shows as a metadata table, not as article text
+scenario: shelf
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: An output with frontmatter opens with its "# " heading as the title and the frontmatter as a table
+    setup:
+      # out/article.md: an SEO article shaped like the reported output (title:, slug:, keywords:, faq:).
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Jadłospis", --kind, report, --file, out/article.md]
+      - open: /p/acme/shelf
+    act:
+      - click: shelf.title
+      - wait_for: odoc.sheet
+    checks:
+      # Before the fix the frontmatter pushed the "# " heading down: no title.
+      - text_equals: { target: wb.title, text: "Jadłospis na tydzień z Thermomixem" }
+      # Keys and values in table cells, not "slug: …" as a paragraph.
+      - text_contains: { target: odoc.sheet, text: "slug jadlospis-na-tydzien" }
+      - text_contains: { target: odoc.sheet, text: "q Ile czasu zajmuje planowanie?" }
+      - text_contains: { target: odoc.sheet, text: "Planujesz obiady raz, a nie codziennie." }
+      - text_contains: { target: odoc.toc, text: "Contents 1" }
+    do: |
+      1. Open the article from the shelf.
+      2. Look at the top of the sheet, in Day and in Night.
+    expect: |
+      Above the article sits a small grey table: title, slug, keywords as a
+      list, faq as question/answer pairs. No horizontal rule, no "title:"
+      line as a paragraph. The article's own heading is the page title.
+    targets:
+      - { id: odoc.sheet, note: "The document with its metadata table" }

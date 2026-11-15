@@ -169,6 +169,6 @@ func anyBody(bodies []string, ok func(string) bool) bool {
 
 // title is the section a rule names, as written.
 func title(rule string) string {
-	_, t, _ := strings.Cut(rule, ":")
-	return strings.TrimSpace(t)
+	_, t := tracker.SplitRule(rule)
+	return t
 }

@@ -91,7 +91,7 @@ One JSON body per UTC day, `POST <url>/v1/batch`:
 | `install` | A random id made on the first run (or on `share on` after an off). It isn't derived from the machine, the user or a path. |
 | `day` | The UTC day the counts cover. Today is never sent, because it isn't over yet. |
 | `ver`, `os`, `arch` | The issue-cli build (`v0.55.0`, `v0.55.0-rc.1-3-gabc1234`, `dev`; anything else is sent as `other`) and Go's platform names (an unknown one is sent as `other`). |
-| `commands` | One row per command or command + subcommand that was called that day: calls, failures, median duration, how often each **flag name** was used, and failures by error class. |
+| `commands` | One row per command or command + subcommand that was called that day: calls, failures, median duration, how often each **flag name** was used, and failures by error class (`hold` is counted under `errors` but not in `fails`). |
 | `templates` | The bundled workflow templates the configured projects were stamped from. `custom` stands for any other workflow. |
 | `features` | The workflow-feature catalog ids found in the projects' workflow files. |
 | `counts` | The number of configured projects, issue files and departments. |
@@ -169,7 +169,7 @@ Every `issue-cli` call also writes one line to the clilog, the log the issue pag
 | File | Holds |
 |:--|:--|
 | `<workdir>/.agent-logs/clilog.jsonl` (`${XDG_STATE_HOME:-~/.local/state}/issue-cli/clilog.jsonl` when no project resolves) | every call in the project, by agents, the lead and you |
-| `$ISSUE_CLI_LOG`, when set | the dispatched agent's own log (see [Agent Dispatch](../agent-dispatch.md#environment-variables)) |
+| `$ISSUE_CLI_LOG`, when set | the dispatched agent's own log (see [Agent Dispatch](../agent-dispatch.md#environment-variables)); guided check scripts, `make security-check` and the playtest runner drop it for their sandbox calls |
 | `<workdir>/.agent-logs/<assignee>/<assignee>.clilog` | calls naming an issue with an assignee; the path is resolved before the call, so the transition that clears the assignee still lands here, and after it for `start`, which sets one |
 
 A path listed twice is written once. A read-only call on another project skips the first and third rows there, see below. All of them live in the project's checkout, so removing a worktree loses none of them, and `.agent-logs/` is gitignored. Before v0.54 the shared copy was `$TMPDIR/issue-cli-logs/actions.jsonl`, lost on reboot; nothing writes it now, and the Timeline tab still reads it while it exists.
@@ -217,7 +217,7 @@ Titles, comment and append bodies, retrospective text, `set-meta` values, `--fie
 
 ### Error classes
 
-`unknown_command`, `unknown_subcommand`, `unknown_topic`, `unknown_flag` (including a removed flag such as `--wait`), `flag_parse`, `usage` (missing positional or required flag), `project_resolution`, `approval_missing`, `issue_not_found`, `invalid_transition` (target status not reachable), `validation` (a workflow rule, a missing field answer, or `--dry-run` reporting unmet requirements), `panic`, `other`. Events recorded before v0.49.0 may also hold `wait_timeout` (exit 3, from the removed `--wait`).
+`unknown_command`, `unknown_subcommand`, `unknown_topic`, `unknown_flag` (including a removed flag such as `--wait`), `flag_parse`, `usage` (missing positional or required flag), `project_resolution`, `approval_missing`, `issue_not_found`, `invalid_transition` (target status not reachable), `validation` (a workflow rule, a missing field answer, or `--dry-run` reporting unmet requirements), `hold` (a non-zero exit that is the expected answer, not a failure: `queue next --start` found nothing ready or a hold stopped it; it still exits 1 for the lead's tick), `panic`, `other`. Events recorded before v0.49.0 may also hold `wait_timeout` (exit 3, from the removed `--wait`).
 
 ## `issue-cli telemetry report`
 
@@ -226,7 +226,7 @@ issue-cli --project <slug> telemetry report [--since 30d|12h|2026-09-01|all] [--
 issue-cli --project <slug> --json telemetry report ...
 ```
 
-- `--since` sets the window (default `30d`). It accepts a duration with a `d`, `h` or `m` suffix, a date, or `all`.
+- `--since` sets the window (default `30d`). It accepts a duration with a `d`, `h` or `m` suffix, a date, or `all`. Days count calendar days: `7d` starts at midnight of the date 7 days back, so a DST day doesn't move it by an hour.
 - `--global` reads the no-project fallback file instead.
 - `--top` caps the Errors, Unknown and Retry sequences sections (default 10).
 
@@ -234,12 +234,12 @@ The text output is agent-facing, with stable section headings:
 
 | Section | Contents |
 |:--|:--|
-| `== Summary ==` | Source file, window, event and failure counts, callers and distinct assignees |
-| `== Commands ==` | Calls, error % and median duration per `cmd` / `cmd sub` |
+| `== Summary ==` | Source file, window, event and failure counts (`hold` exits are counted apart as `N held`, not as failures), callers and distinct assignees |
+| `== Commands ==` | Calls, error % and median duration per `cmd` / `cmd sub`; holds are left out of the error % and shown as `N held` (`holds` in JSON) |
 | `== Never used ==` | Commands, aliases, subcommands, topics, global flags and per-command flags with no calls in the window |
 | `== Errors ==` | Top `err_class` × command |
 | `== Unknown ==` | Top unknown command, subcommand, topic and flag tokens: what bots *expect* to exist |
-| `== Retry sequences ==` | A failed call paired with the next call from the same `ppid` within 120 s, e.g. `transition (validation) ⇒ same args again` or `?add-comment (unknown_command) ⇒ comment --text → ok` |
+| `== Retry sequences ==` | A failed call (not a hold) paired with the next call from the same `ppid` within 120 s, e.g. `transition (validation) ⇒ same args again` or `?add-comment (unknown_command) ⇒ comment --text → ok` |
 
 ### How "never used" knows every flag
 

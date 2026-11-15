@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/deptfamily"
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/weekplan"
@@ -101,7 +101,7 @@ func (s *Server) buildHQReport(p *tracker.Project, prefix string, now time.Time)
 	issues := company.Lot.issues
 	d := HQReportData{
 		Header: company.Header, Name: p.Name, Week: weekplan.Key(now), MDURL: hqReportURL(prefix) + ".md",
-		Window: now.Add(-weekplan.Window).Format("Jan 2") + " – " + now.Format("Jan 2"),
+		Window: period.DaysBack(now, weekplan.WindowDays).Format("Jan 2") + " – " + now.Format("Jan 2"),
 	}
 	d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "HQ report", Current: true}
@@ -117,18 +117,7 @@ func (s *Server) buildHQReport(p *tracker.Project, prefix string, now time.Time)
 
 	// One comment read per issue, shared by the blocked lines and the
 	// leads' progress lines.
-	var mu sync.Mutex
-	cache := map[string][]tracker.Comment{}
-	comments := func(is *tracker.Issue) []tracker.Comment {
-		mu.Lock()
-		defer mu.Unlock()
-		c, ok := cache[is.FilePath]
-		if !ok {
-			c, _ = tracker.LoadComments(is.FilePath)
-			cache[is.FilePath] = c
-		}
-		return c
-	}
+	comments := (*tracker.Issue).Comments
 	sections := map[string]*weekplan.Section{}
 	if len(p.Departments) > 0 {
 		in := weekplan.Input{Project: p, Issues: issues, Jobs: viewerJobs(p, issues, now), Comments: comments, Now: now}
@@ -306,7 +295,7 @@ func productBox(p *tracker.Project, prefix string, c CompanyData, issues []*trac
 	b := HQRBox{Key: connections.Product, Name: "Product", Color: companyProductColor, Kind: "product", Tone: "idle", Link: prefix + "/status", LinkText: "Product's Report"}
 	open := 0
 	for _, is := range issues {
-		if (len(p.Departments) == 0 || p.DepartmentOf(is) == "") && !strings.EqualFold(is.Status, "done") && !strings.EqualFold(is.Status, "parked") {
+		if (len(p.Departments) == 0 || p.DepartmentOf(is) == "") && !p.IssueClosed(is) {
 			open++
 		}
 	}

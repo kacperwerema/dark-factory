@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // replayRepo is a Go module repo for replays: base has Add (wrong) and Sub,
@@ -32,9 +34,7 @@ func newReplayRepo(t *testing.T) *replayRepo {
 	r.git("commit", "-qm", "base")
 	r.base = r.git("rev-parse", "HEAD")
 	hook := filepath.Join(r.dir, ".git", "hooks", "post-checkout")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch "+r.marker+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, hook, "touch "+r.marker+"\n")
 	return r
 }
 

@@ -1,9 +1,12 @@
 // Package health takes project health snapshots: dated JSON files under
-// .health/snapshots/ in the main checkout, one row per metric. Metric
-// families (codebase here; workflow, context cost and check speed in their
+// .health/snapshots/ in the main checkout, one row per metric. It is a
+// registry: metric families (codebase, shape, storage, opinion and tests
+// here; workflow, bench, decisions, departments, milestone and lint in their
 // own packages) register with Register from init(), so whichever binary
-// imports them takes the same snapshot. See docs/workbench-files.md,
-// "Health snapshots".
+// imports them takes the same snapshot. health imports none of those
+// packages: what it needs from one (local CI's test results) is plugged in
+// by that package (SetTestResults). See docs/workbench-files.md, "Health
+// snapshots".
 package health
 
 import (
@@ -17,7 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/gitmain"
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -268,13 +273,17 @@ func NewEnv(proj *tracker.Project, dir string, now time.Time) (Env, error) {
 	if _, err := gitOut(context.Background(), dir, "rev-parse", "--git-dir"); err != nil {
 		return Env{}, fmt.Errorf("%s: %w", dir, ErrNotGit)
 	}
-	root := ci.RepoRoot(dir)
+	root := gitmain.Root(dir)
 	wf := proj.LoadWorkflow()
-	branch, err := ci.ResolveBranch(root, wf.CI)
+	configured := ""
+	if wf.CI != nil {
+		configured = wf.CI.Branch
+	}
+	branch, err := gitmain.Branch(root, configured)
 	if err != nil {
 		return Env{}, err
 	}
-	head, err := ci.Head(root, branch)
+	head, err := gitmain.Head(root, branch)
 	if err != nil || head == "" {
 		return Env{}, fmt.Errorf("branch %s has no commit in %s", branch, root)
 	}
@@ -296,7 +305,7 @@ func take(ctx context.Context, env Env, trigger string, fams []registered) (*Sna
 	}
 	start := time.Now()
 	snap := &Snapshot{
-		Run:      RunInfo{Date: env.Now.Local().Format(dateLayout), Branch: env.Branch, Commit: ci.Short(env.Commit), Trigger: trigger},
+		Run:      RunInfo{Date: env.Now.Local().Format(dateLayout), Branch: env.Branch, Commit: gitdir.ShortSHA(env.Commit), Trigger: trigger},
 		Families: map[string]FamilyResult{},
 	}
 	if env.Project != nil {
@@ -377,7 +386,7 @@ func Write(root string, snap *Snapshot, now time.Time) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(SnapshotsDir(root), now.Local().Format(fileLayout)+".json")
-	return path, writeJSONFile(path, snap)
+	return path, jsonfile.Write(path, snap, 0o600)
 }
 
 // ensureDir creates .health/snapshots and a .gitignore that ignores the

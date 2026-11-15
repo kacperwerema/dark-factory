@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/memory"
+
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -20,10 +21,10 @@ come after. issue-cli start prints the pinned ones and those that match
 the issue under == Memories ==.
 
   memory add "<fact>" [--kind fact|convention|pitfall|howto|who]
-             [--scope project|department|agent|machine] [--issue <slug>]
+             [--scope project|lead|department|agent|machine] [--issue <slug>]
              [--commit <sha>] [--comment N] [--tag a,b] [--system S]
-             [--expires YYYY-MM-DD] [--links id,id] [--suggest-pin]
-             [--updates <id> | --supersedes <id>[,<id>] | --new]
+             [--expires YYYY-MM-DD] [--at <status>] [--links id,id]
+             [--suggest-pin] [--updates <id> | --supersedes <id>[,<id>] | --new]
       Store a fact of at most 500 characters. The update step: the same
       fact again changes nothing; a near-duplicate is refused with the
       similar memories, and you decide: --updates <id> (better wording of
@@ -31,15 +32,22 @@ the issue under == Memories ==.
       replaces it, the old one stays in history as invalid) or --new (a
       different fact). The source is your own issue when you are a worker.
       Scope: a department's agents write to their department by default,
-      others to the project; agent is your own notebook; machine reaches
+      others to the project; agent is your own notebook; lead is for every
+      lead and no worker but the lead flush's, which reads it and only a
+      lead or the owner changes it (a standing rule; it stays in the project's log,
+      and deal, client or price context stays out); machine reaches
       every project on this machine and is refused from a project whose
       privacy: keeps work or code private. Text that looks like a secret is
       refused and never stored: name where it lives (env:<VAR>).
-  memory search <words...|#topic|@name> [--kind K] [--scope S] [--tag T] [--system S] [--all] [--limit N]
+      --at <status>: the fact belongs to a step, not a subject. transition
+      prints it to whoever enters that status, whatever the issue is about
+      (at most 3 memories and 600 characters; a pinned one stays in the
+      briefing), and start prints it while the issue is there.
+  memory search <words...|#topic|@name> [--kind K] [--scope S] [--tag T] [--system S] [--at <status>] [--all] [--limit N]
       The memories you can see, best match first (BM25). A #topic or
       @name in the query is a filter: only memories that carry it (in
       their text or tags); with entities alone, newest first.
-  memory list [--kind K] [--scope S] [--tag T] [--pinned] [--suggested] [--all]
+  memory list [--kind K] [--scope S] [--tag T] [--at <status>] [--pinned] [--suggested] [--all]
       Every memory you can see, newest first; --all adds invalid ones.
   memory entities [--only topic|agent] [--kind K] [--scope S] [--all]
       Who knows what: every #topic and @name in the memories you can see,
@@ -47,9 +55,10 @@ the issue under == Memories ==.
       a who memory links to it ("known by").
   memory show <id>
       One memory, its state, links and history.
-  memory edit <id> --text "<fact>"
+  memory edit <id> [--text "<fact>"] [--at <status>|none]
   memory forget <id> --reason "<why it is no longer true>"
-      Correct or invalidate a memory (it stays in history).
+      Correct or invalidate a memory (it stays in history); --at ties it
+      to a status, none unties it.
   memory pin <id> | unpin <id>
       A pinned memory goes into every briefing of its scope. Leads and the
       owner only; a worker adds with --suggest-pin.
@@ -85,6 +94,7 @@ sees, edits, pins and deletes every memory at /p/<project>/memory.
 Examples:
   issue-cli memory add "make shot URL= takes one screenshot; no playtest session needed" --kind howto
   issue-cli memory add "the runner finds Chrome for Testing itself" --updates m-3fa2c1
+  issue-cli memory add "merge main again right before the ff" --kind howto --at shipping
   issue-cli memory search playtest chrome
   issue-cli memory search @lead-dark-factory
   issue-cli memory search '#playtest' chrome    (quote a #: unquoted, the shell reads a comment)
@@ -143,6 +153,17 @@ func projectIsPrivate(p *tracker.Project) bool {
 	return wf != nil && (wf.Privacy.Tracker() || wf.Privacy.Snapshots())
 }
 
+// refuseMachineWrite stops a private project's words reaching a machine
+// memory by id: --updates, --supersedes and memory edit --text name the
+// memory instead of --scope machine, and what they write would reach every
+// project's briefing.
+func refuseMachineWrite(p *tracker.Project, id string) error {
+	if memory.StoreOfID(id) == "machine" && projectIsPrivate(p) {
+		return fmt.Errorf("refused: %s keeps its work private (privacy: in workflow.yaml), so its words can't go into machine memory %s; add a project memory instead", projectKey(p), id)
+	}
+	return nil
+}
+
 // memCaller is who runs a memory command.
 type memCaller struct {
 	Name   string
@@ -162,7 +183,7 @@ func memoryCaller(p *tracker.Project, issues []*tracker.Issue) memCaller {
 		return memCaller{Name: me.Name, Viewer: memory.Viewer{All: true, Agent: me.Name}, Lead: true}
 	case tracker.RoleDepartmentLead:
 		return memCaller{Name: me.Name, Department: me.Department, Lead: true,
-			Viewer: memory.Viewer{Department: tracker.DepartmentKey(me.Department), Agent: me.Name}}
+			Viewer: memory.Viewer{Department: tracker.DepartmentKey(me.Department), Agent: me.Name, Lead: true}}
 	case tracker.RoleWorker:
 		c := memCaller{Name: me.Name}
 		if me.Slug != "" {
@@ -175,9 +196,34 @@ func memoryCaller(p *tracker.Project, issues []*tracker.Issue) memCaller {
 			c.Department = p.DepartmentOf(c.Issue)
 		}
 		c.Viewer = memory.Viewer{Department: deptKey(c.Department), Agent: c.Name}
+		// The lead flush hands the day to the next lead and tidies memory:
+		// it reads the lead scope it reports on, and changes none of it
+		// (refuseLeadChange; Lead stays false).
+		if c.Issue != nil && checkLeadFlushRun(p, c.Issue) == nil {
+			c.Viewer.Lead = true
+		}
 		return c
 	}
 	return memCaller{Name: "owner", Viewer: memory.Viewer{All: true}, Owner: true}
+}
+
+// refuseLeadChange refuses changing a lead-scope memory to a caller who is
+// neither a lead nor the owner: a worker may read one (the lead flush does)
+// or add a new one, never edit, forget, update or supersede it.
+func refuseLeadChange(store memory.Store, who memCaller, ids ...string) error {
+	if who.Lead || who.Owner {
+		return nil
+	}
+	set, err := store.Load()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if m := set.Get(id); m != nil && m.Scope == memory.ScopeLead {
+			return fmt.Errorf("refused: %s is in the lead scope, which only a lead or the owner changes; name it in a progress: comment and the lead tidies it", id)
+		}
+	}
+	return nil
 }
 
 func deptKey(name string) string {
@@ -200,13 +246,14 @@ func splitList(s string) []string {
 func runMemoryAdd(ctx *Context, args []string) error {
 	fs := newFlagSet("memory add", ctx)
 	kind := fs.String("kind", memory.KindFact, "fact, convention, pitfall, howto or who")
-	scope := fs.String("scope", "", "project, department, agent or machine (default: your department, else the project)")
+	scope := fs.String("scope", "", "project, lead, department, agent or machine (default: your department, else the project)")
 	issueFlag := fs.String("issue", "", "the issue it was learned on (a worker's own by default)")
 	commit := fs.String("commit", "", "the commit it was learned from")
 	comment := fs.Int("comment", 0, "the issue comment (1-based) it was learned from")
 	tags := fs.String("tag", "", "tags, comma-separated")
 	system := fs.String("system", "", "the system it is about (default: the source issue's)")
 	expires := fs.String("expires", "", "the last day it is true (YYYY-MM-DD)")
+	at := fs.String("at", "", "the status it matters at: transition prints it on entering that status")
 	links := fs.String("links", "", "related memory ids, comma-separated")
 	suggest := fs.Bool("suggest-pin", false, "ask a lead or the owner to pin it")
 	updates := fs.String("updates", "", "UPDATE: replace this memory's text (the same fact, better worded)")
@@ -239,10 +286,14 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	}
 
 	p := ctx.Project
+	atStatus, err := memoryAtStatus(p, *at)
+	if err != nil {
+		return err
+	}
 	issues, _ := tracker.LoadIssues(p.IssueDir)
 	who := memoryCaller(p, issues)
 	d := memory.Draft{Text: text, Kind: *kind, Project: projectKey(p), Author: who.Name, Tags: splitList(*tags),
-		Links: splitList(*links), Expires: strings.TrimSpace(*expires), SuggestPin: *suggest,
+		Links: splitList(*links), Expires: strings.TrimSpace(*expires), At: atStatus, SuggestPin: *suggest,
 		Source: memory.Source{Commit: strings.TrimSpace(*commit), Comment: *comment}}
 	issue := who.Issue
 	if slug := strings.TrimSpace(*issueFlag); slug != "" {
@@ -270,6 +321,8 @@ func runMemoryAdd(ctx *Context, args []string) error {
 		}
 	case memory.ScopeProject:
 		d.Scope = memory.ScopeProject
+	case memory.ScopeLead:
+		d.Scope = memory.ScopeLead
 	case "department":
 		if dept == "" {
 			return fmt.Errorf("no department to scope it to: the issue is Product's and you are not a department's agent; use --scope project")
@@ -286,6 +339,9 @@ func runMemoryAdd(ctx *Context, args []string) error {
 		d.Scope = strings.TrimSpace(*scope)
 	}
 	if opt.Target != "" && memory.StoreOfID(opt.Target) == "machine" {
+		if err := refuseMachineWrite(p, opt.Target); err != nil {
+			return err
+		}
 		store = memory.MachineStore()
 	}
 	for _, id := range opt.Targets {
@@ -294,6 +350,14 @@ func runMemoryAdd(ctx *Context, args []string) error {
 		}
 	}
 
+	if opt.Target != "" {
+		if err := refuseLeadChange(store, who, append([]string{opt.Target}, opt.Targets...)...); err != nil {
+			return err
+		}
+	}
+	if err := checkDurable(ctx, who, issue, issues, text); err != nil {
+		return err
+	}
 	res, err := store.Add(d, opt, ctx.now())
 	if err != nil {
 		return err
@@ -305,6 +369,10 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	w := ctx.Stdout
 	switch res.Op {
 	case memory.OpNoop:
+		if atStatus != "" {
+			fmt.Fprintf(w, "Already remembered as %s; its text stands, and it matters at %s.\n", m.ID, m.At)
+			return nil
+		}
 		fmt.Fprintf(w, "Already remembered as %s; nothing written.\n", m.ID)
 		return nil
 	case memory.OpUpdate:
@@ -320,14 +388,22 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	}
 	fmt.Fprintln(w, line)
 	printEntityHint(w, m)
-	fmt.Fprintf(w, "Agents see it at start when it matches their issue. Fix it: issue-cli memory edit %s --text \"...\"; no longer true: issue-cli memory forget %s --reason \"...\"\n", m.ID, m.ID)
+	switch {
+	case m.Scope == memory.ScopeLead && !m.Pinned:
+		fmt.Fprintf(w, "Every lead's brief lists it, and no worker reads it but the lead flush; a lead pins it for the whole text: issue-cli memory pin %s.", m.ID)
+	case m.At != "":
+		fmt.Fprintf(w, "Agents see it on entering %s, whatever their issue is about.", m.At)
+	default:
+		fmt.Fprintf(w, "Agents see it at start when it matches their issue; a fact about a step, not a subject, takes --at <status>.")
+	}
+	fmt.Fprintf(w, " Fix it: issue-cli memory edit %s --text \"...\"; no longer true: issue-cli memory forget %s --reason \"...\"\n", m.ID, m.ID)
 	return nil
 }
 
 // memFilter narrows what search and list show.
 type memFilter struct {
-	Kind, Scope, Tag, System string
-	All, Pinned, Suggested   bool
+	Kind, Scope, Tag, System, At string
+	All, Pinned, Suggested       bool
 	// Entities (#topic, @name) must all be on the memory.
 	Entities []string
 }
@@ -343,6 +419,9 @@ func (f memFilter) keep(m memory.Memory, ctx *Context) bool {
 		return false
 	}
 	if f.System != "" && !strings.EqualFold(m.System, f.System) {
+		return false
+	}
+	if f.At != "" && !strings.EqualFold(m.At, f.At) {
 		return false
 	}
 	if f.Pinned && !m.Pinned {
@@ -373,7 +452,7 @@ func (f memFilter) check() error {
 		}
 	}
 	switch f.Scope {
-	case "", "project", "department", "agent", "machine":
+	case "", "project", "lead", "department", "agent", "machine":
 		return nil
 	}
 	if err := memory.CheckScope(f.Scope); err != nil {
@@ -387,12 +466,32 @@ func filterFlags(fs interface {
 	Bool(string, bool, string) *bool
 }) (*memFilter, func()) {
 	kind := fs.String("kind", "", "only this kind")
-	scope := fs.String("scope", "", "only this scope (project, department, agent, machine, or a full scope)")
+	scope := fs.String("scope", "", "only this scope (project, lead, department, agent, machine, or a full scope)")
 	tag := fs.String("tag", "", "only memories with this tag")
 	system := fs.String("system", "", "only memories about this system")
+	at := fs.String("at", "", "only memories that matter at this status")
 	all := fs.Bool("all", false, "include superseded, forgotten and expired memories")
 	f := &memFilter{}
-	return f, func() { f.Kind, f.Scope, f.Tag, f.System, f.All = *kind, *scope, *tag, *system, *all }
+	return f, func() {
+		f.Kind, f.Scope, f.Tag, f.System, f.At, f.All = *kind, *scope, *tag, *system, strings.TrimSpace(*at), *all
+	}
+}
+
+// memoryAtStatus is raw as the workflows spell it: "" stays "", a status
+// no workflow of the project has is refused with the names, so a typo can't
+// write a memory nobody is ever shown.
+func memoryAtStatus(p *tracker.Project, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	names := p.AllStatuses()
+	for _, s := range names {
+		if strings.EqualFold(s, raw) {
+			return s, nil
+		}
+	}
+	return "", &usageError{msg: fmt.Sprintf("--at %q: no such status (%s)", raw, strings.Join(names, ", "))}
 }
 
 // visibleMemories is the project's and the machine's memories the caller
@@ -451,7 +550,7 @@ func runMemorySearch(ctx *Context, args []string) error {
 		}
 	} else {
 		var ranker memory.Ranker
-		ranker, hybrid = memoryRanker(ctx)
+		ranker, hybrid = memoryRankerScored(ctx, memoryScores(ctx))
 		hits = ranker.Rank(memory.Query{Text: words, Department: who.Viewer.Department, Limit: *limit}, mems)
 	}
 	if ctx.JSONOutput {
@@ -496,6 +595,7 @@ func runMemoryList(ctx *Context, args []string) error {
 		if mems == nil {
 			mems = []memory.Memory{}
 		}
+		memoryScores(ctx).Attach(mems)
 		return writeJSON(ctx.Stdout, mems)
 	}
 	if len(mems) == 0 {
@@ -554,8 +654,9 @@ func runMemoryShow(ctx *Context, args []string) error {
 		return fmt.Errorf("%s is in scope %s, which you can't read", id, m.Scope)
 	}
 	hist := set.History(id)
+	use := memoryScores(ctx).Of(id)
 	if ctx.JSONOutput {
-		return writeJSON(ctx.Stdout, map[string]any{"memory": m, "history": hist})
+		return writeJSON(ctx.Stdout, map[string]any{"memory": m, "history": hist, "usefulness": use})
 	}
 	w := ctx.Stdout
 	printMemory(w, *m, ctx)
@@ -572,6 +673,10 @@ func runMemoryShow(ctx *Context, args []string) error {
 		fmt.Fprintf(w, " · pinned by %s", m.PinnedBy)
 	}
 	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", usefulnessLine(use))
+	if !m.Pinned && use.ProposeForget() {
+		fmt.Fprintln(w, "  no help over enough stages: the next memory consolidate proposes forgetting it to the owner")
+	}
 	if len(m.Links) > 0 {
 		fmt.Fprintf(w, "  links: %s\n", strings.Join(m.Links, ", "))
 	}
@@ -604,33 +709,71 @@ func eventDetail(e memory.Event) string {
 		return ": superseded by " + e.Target
 	case memory.OpForget:
 		return ": " + e.Reason
+	case memory.OpSetAt:
+		if e.Status == "" {
+			return ": at no status"
+		}
+		return ": at " + e.Status
 	}
 	return ""
 }
 
+const memoryEditUsage = `usage: issue-cli memory edit <id> [--text "<fact>"] [--at <status>|none]`
+
 func runMemoryEdit(ctx *Context, args []string) error {
 	fs := newFlagSet("memory edit", ctx)
 	text := fs.String("text", "", "the new text")
+	at := fs.String("at", "", "the status it matters at; none unties it")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
-	store, id, err := oneID(ctx, fs, `usage: issue-cli memory edit <id> --text "<fact>"`)
+	store, id, err := oneID(ctx, fs, memoryEditUsage)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(*text) == "" {
-		return &usageError{msg: `usage: issue-cli memory edit <id> --text "<fact>"`}
+	newText, newAt := strings.TrimSpace(*text), strings.TrimSpace(*at)
+	if newText == "" && newAt == "" {
+		return &usageError{msg: memoryEditUsage}
+	}
+	status := ""
+	if !strings.EqualFold(newAt, "none") {
+		if status, err = memoryAtStatus(ctx.Project, newAt); err != nil {
+			return err
+		}
 	}
 	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
 	who := memoryCaller(ctx.Project, issues)
-	m, err := store.Edit(id, *text, who.Name, who.Owner, ctx.now())
-	if err != nil {
-		return memoryNotFound(err)
+	if err := refuseLeadChange(store, who, id); err != nil {
+		return err
+	}
+	if newText != "" {
+		if err := refuseMachineWrite(ctx.Project, id); err != nil {
+			return err
+		}
+		if _, err := store.Edit(id, newText, who.Name, who.Owner, ctx.now()); err != nil {
+			return memoryNotFound(err)
+		}
+	}
+	if newAt != "" {
+		if err := store.SetAt(id, status, who.Name, ctx.now()); err != nil {
+			return memoryNotFound(err)
+		}
 	}
 	if ctx.JSONOutput {
-		return writeJSON(ctx.Stdout, m)
+		set, err := store.Load()
+		if err != nil {
+			return err
+		}
+		return writeJSON(ctx.Stdout, set.Get(id))
 	}
-	fmt.Fprintf(ctx.Stdout, "✓ Edited %s (history kept)\n", m.ID)
+	line := fmt.Sprintf("✓ Edited %s (history kept)", id)
+	switch {
+	case newAt != "" && status == "":
+		line += ": it matters at no status now"
+	case newAt != "":
+		line += ": transition prints it on entering " + status
+	}
+	fmt.Fprintln(ctx.Stdout, line)
 	return nil
 }
 
@@ -645,7 +788,11 @@ func runMemoryForget(ctx *Context, args []string) error {
 		return err
 	}
 	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
-	if err := store.Forget(id, *reason, memoryCaller(ctx.Project, issues).Name, ctx.now()); err != nil {
+	who := memoryCaller(ctx.Project, issues)
+	if err := refuseLeadChange(store, who, id); err != nil {
+		return err
+	}
+	if err := store.Forget(id, *reason, who.Name, ctx.now()); err != nil {
 		return memoryNotFound(err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Forgot %s: agents no longer see it; it stays in history (issue-cli memory show %s)\n", id, id)
@@ -697,115 +844,14 @@ func printMemory(w io.Writer, m memory.Memory, ctx *Context) {
 	if m.Pinned {
 		head += " · pinned"
 	}
+	if m.At != "" {
+		head += " · at " + m.At
+	}
 	if st := m.State(ctx.now()); st != "valid" {
 		head += " · " + st
 	}
 	fmt.Fprintf(w, "%s\n  %s\n", head, m.Text)
 	if s := m.Source.String(); s != "" {
 		fmt.Fprintf(w, "  (%s)\n", s)
-	}
-}
-
-// Start's injection limits: pins are Letta-style core memory (a few, short).
-const (
-	startMemoryLimit = 5
-	pinLimit         = 10
-	pinChars         = 1500
-)
-
-// issueViewer is what the worker on issue may read.
-func issueViewer(p *tracker.Project, issue *tracker.Issue) memory.Viewer {
-	return memory.Viewer{Department: deptKey(p.DepartmentOf(issue)), Agent: agentNameForSlug(issue.Slug)}
-}
-
-// issueQuery is the ranker's query for issue.
-func issueQuery(p *tracker.Project, issue *tracker.Issue, limit int) memory.Query {
-	return memory.Query{
-		Text:   issue.Title + " " + issue.System + " " + strings.Join(issue.Labels, " ") + " " + issue.Slug,
-		System: issue.System, Department: deptKey(p.DepartmentOf(issue)), Limit: limit,
-	}
-}
-
-// printStartMemories is start's == Memories == block: the pinned memories
-// of the issue's scopes, then those matching the issue, recorded as used.
-func printStartMemories(w io.Writer, ctx *Context, issue *tracker.Issue) {
-	p := ctx.Project
-	fmt.Fprintln(w, "\n== Memories ==")
-	mems, err := visibleMemories(ctx, issueViewer(p, issue), memFilter{})
-	if err != nil {
-		fmt.Fprintf(w, "Could not read the memories: %v\n", err)
-		return
-	}
-	pins, rest := memory.SplitPins(mems, pinLimit, pinChars)
-	ranker, _ := memoryRanker(ctx)
-	hits := ranker.Rank(issueQuery(p, issue, startMemoryLimit), rest)
-	if len(mems) == 0 {
-		fmt.Fprintln(w, "None yet on this project.")
-	}
-	if len(pins.Shown) > 0 {
-		fmt.Fprintln(w, "Pinned:")
-		for _, m := range pins.Shown {
-			fmt.Fprintf(w, "  %s (%s) %s\n", m.ID, m.Kind, m.Text)
-		}
-		if pins.More > 0 {
-			fmt.Fprintf(w, "  +%d pinned: issue-cli memory list --pinned\n", pins.More)
-		}
-	}
-	if len(hits) > 0 {
-		fmt.Fprintln(w, "Matching this issue:")
-		for _, h := range hits {
-			printMemory(w, h.Memory, ctx)
-		}
-	} else if len(mems) > 0 {
-		fmt.Fprintln(w, "None matches this issue.")
-	}
-	if len(mems) > len(pins.Shown)+len(hits) {
-		fmt.Fprintf(w, "(%d you can see: issue-cli memory search <words>)\n", len(mems))
-	}
-	var used []string
-	for _, m := range pins.Shown {
-		used = append(used, m.ID)
-	}
-	for _, h := range hits {
-		used = append(used, h.ID)
-	}
-	recordUse(ctx, used, agentNameForSlug(issue.Slug))
-	fmt.Fprintf(w, "Learned something the next agent should know? issue-cli memory add \"<fact>\" --kind fact|convention|pitfall|howto|who (a similar one: --updates <id>)\n")
-}
-
-// recordUse writes use events to each id's store; errors only cost the
-// count.
-func recordUse(ctx *Context, ids []string, by string) {
-	var own, machine []string
-	for _, id := range ids {
-		if memory.StoreOfID(id) == "machine" {
-			machine = append(machine, id)
-		} else {
-			own = append(own, id)
-		}
-	}
-	_ = memory.ProjectStore(ctx.Project.IssueDir).RecordUse(own, by, ctx.now())
-	_ = memory.MachineStore().RecordUse(machine, by, ctx.now())
-}
-
-// printMemoryReflection is the hint at done and retrospective
-// (LangMem's reflection, done by the agent): what to add, and the similar
-// memories to update instead.
-func printMemoryReflection(w io.Writer, ctx *Context, issue *tracker.Issue) {
-	fmt.Fprintln(w, "\n== Memory ==")
-	fmt.Fprintf(w, "Anything the next agent should know? issue-cli memory add \"<fact>\" --issue %s --kind fact|convention|pitfall|howto|who\n", issue.Slug)
-	fmt.Fprintf(w, "What this issue's trail could teach: issue-cli memory candidates %s\n", issue.Slug)
-	mems, err := visibleMemories(ctx, issueViewer(ctx.Project, issue), memFilter{})
-	if err != nil {
-		return
-	}
-	ranker, _ := memoryRanker(ctx)
-	hits := ranker.Rank(issueQuery(ctx.Project, issue, 3), mems)
-	if len(hits) == 0 {
-		return
-	}
-	fmt.Fprintln(w, "Already remembered about this (update one instead with --updates <id>, or --supersedes <id> if it is no longer true):")
-	for _, h := range hits {
-		fmt.Fprintf(w, "  %s (%s) %s\n", h.ID, h.Kind, h.Text)
 	}
 }

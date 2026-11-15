@@ -165,7 +165,7 @@ func TestRunChecksOpensTheCheckScriptWindow(t *testing.T) {
 	if len(made) != 1 || made[0].name != "check-script-cli-lead-tab" || made[0].dir != wt {
 		t.Fatalf("created = %+v", made)
 	}
-	if cmd := strings.Join(made[0].cmd, " "); !strings.Contains(cmd, "issue-cli --project 'chk' check-script 'cli/lead-tab'") || !strings.Contains(cmd, "Press Enter to close") {
+	if cmd := strings.Join(made[0].cmd, " "); !strings.Contains(cmd, "issue-cli --project chk check-script cli/lead-tab") || !strings.Contains(cmd, "Press Enter to close") {
 		t.Fatalf("command = %q", cmd)
 	}
 	if len(opened) != 1 || opened[0] != "check-script-cli-lead-tab" {
@@ -235,5 +235,43 @@ func TestCheckRootsFindTheBranchWorktreeWithoutWorktreeConfig(t *testing.T) {
 	git("merge", "-q", "--ff-only", "work/cli/lead-tab")
 	if roots := checkRoots(&proj, issue, proj.LoadWorkflowForIssue(issue)); roots[0] != root {
 		t.Fatalf("roots = %v, want the project first once work/cli/lead-tab is merged", roots)
+	}
+}
+
+// A project whose workers branch as <system>/<short>: the one
+// worktree holding a script for the issue is its checkout, so the owner's
+// Needs you row and ▶ Run checks see the script.
+func TestCheckRootsFindTheWorktreeHoldingTheIssuesScript(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	proj, _ := setupChecksProject(t)
+	root := proj.WorkDir
+	os.WriteFile(proj.WorkflowFile, []byte("statuses:\n  - name: \"testing\"\n  - name: \"human-testing\"\n  - name: \"done\"\n"), 0o644)
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("config", "maintenance.auto", "false")
+	git("config", "gc.auto", "0")
+	git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(root, ".worktrees", "tab")
+	git("worktree", "add", "-q", "-b", "cli/tab", wt)
+	os.MkdirAll(filepath.Join(wt, "scripts", "checks"), 0o755)
+	os.WriteFile(filepath.Join(wt, "scripts", "checks", "own.sh"), []byte("#!/usr/bin/env bash\n# issue: cli/lead-tab\n"), 0o644)
+
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	var issue *tracker.Issue
+	for _, i := range issues {
+		if i.Slug == "cli/lead-tab" {
+			issue = i
+		}
+	}
+	if a := ownerAttention(&proj, issue); !reflect.DeepEqual(a.Checks, []string{"own"}) {
+		t.Fatalf("checks due = %v, want the script in .worktrees/tab on cli/tab", a.Checks)
 	}
 }

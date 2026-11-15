@@ -1,0 +1,2 @@
+{"version": "1.0", "project_id": "broke", "pipeline_type": "short-explainer", "stage": "brief", "status": "failed",
+ "timestamp": "2026-11-01T10:05:00Z", "artifacts": {}, "error": {"message": "no narration tool available"}}

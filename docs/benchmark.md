@@ -25,9 +25,10 @@ Everything lives in the owner's folder, outside every repo and worktree:
 ```yaml
 name: factory-v1
 budget: {tokens: 250000000, usd: 40, wall: 6h, task_wall: 45m}   # 10 tasks at 25M tokens each
-prices:                       # USD per million tokens, when the worker reports no cost
+prices:                       # USD per million tokens, when the worker reports no cost; prices.yaml wins
   claude-opus-5-5: {in: 0, out: 0, cache_read: 0, cache_write: 0}
 worker: ""                    # default: claude -p --output-format json --permission-mode bypassPermissions --disallowedTools SendMessage,ListAgents
+workers: {}                   # optional: a command per agent for bench run --agents, e.g. {codex: "codex exec -m gpt-… -"}
 judge: ""                     # optional: a command that reads the judge prompt on stdin and prints SCORE: 0-5 and REASON: …
 grader: ""                    # optional: grades evals' rubric lines (prompt on stdin, {reason, pass, score} out), e.g. claude -p --model claude-haiku-5-5
 worker_home: sandbox          # default; owner keeps the owner's HOME for the worker (see The worker's home)
@@ -55,7 +56,7 @@ tasks:
 
 ## Picking tasks
 
-`issue-cli --project <p> bench candidates [--all] [--benchmark <name>]` lists the project's done issues that make good tasks: a recorded branch head (the stats sidecar's `branch_head`/`merge_sha`), test files in the branch's own commits with at least one Go test (the scorer runs only Go tests, so one without would be judged by its check alone), at most 600 changed lines. `--all` lists the rest with why they are left out. A proposed row has a `risk:` line when its hidden tests' own bodies drive tmux, a headless browser (or it changed playtest files), sleeps or time limits (`timing`), when it has over 20 hidden tests (`broad`: it only changed tests, so every test in its files judges it), when the issue has an "(owner)" box (`owner steps`), or when main merged into the branch after base (`main merged in (N files not its own)`: base..merged differs in files the branch never changed, which the worker starts without, so hidden tests leaning on them may not build). `--json` adds `system`, `tests` (the hidden test names) and `risks`. It writes nothing. An agent proposes from this list on its issue trail; the owner adds.
+`issue-cli --project <p> bench candidates [--all] [--limit <n>] [--benchmark <name>]` lists the project's done issues that make good tasks: a recorded branch head (the stats sidecar's `branch_head`/`merge_sha`), test files in the branch's own commits with at least one Go test (the scorer runs only Go tests, so one without would be judged by its check alone), at most 600 changed lines and 15 changed files. It shows 20, so the owner can pick about 10: the rows with the fewest risks first, one of each type in turn so a table by type has data, newest first inside a type (`Showing 20 of 149 proposed`). `--limit <n>` shows another number. `--all` lists every proposed row and the rest with why they are left out. `--replay <slug>...` replays the named slugs whether or not the limit shows them. A proposed row has a `risk:` line when its hidden tests' own bodies drive tmux, a headless browser (or it changed playtest files), sleeps or time limits (`timing`), when it has over 20 hidden tests (`broad`: it only changed tests, so every test in its files judges it), when the issue has an "(owner)" box (`owner steps`), or when main merged into the branch after base (`main merged in (N files not its own)`: base..merged differs in files the branch never changed, which the worker starts without, so hidden tests leaning on them may not build). `--json` adds `system`, `tests` (the hidden test names) and `risks`. It writes nothing. It runs five git processes however many issues are done, fed on stdin (`internal/bench/history.go`), so a new per-issue git call fails `TestCandidatesRunsNoGitPerIssue`. An agent proposes from this list on its issue trail; the owner adds.
 
 `bench candidates --replay [<slug>...]` also replays each proposed candidate (only the named slugs when given) to see whether it is solvable from its base. One at a time, in a throwaway `git worktree add --detach` under the temp dir (never `.worktrees/`; the repo's hooks are off), removed with `git worktree remove` and `git worktree prune` when it finishes or fails. The replayed `go test` gets a TMPDIR inside that folder, so what old tests leave in the temp dir goes with it:
 
@@ -65,16 +66,80 @@ tasks:
 
 Every `go test` waits on `mem-guard check`: BLOCKED, or a reading of 70% or more, marks the candidate **not checked: memory …** and the list goes on. Each row gets a `replay: <verdict> — <why>` line; `--json` adds `replay` and `replay_why`. Progress (`replaying <slug> (i/n)`) goes to stderr. No model is called and nothing is written, so agents may run it; the replay labels, it never drops a candidate.
 
-`issue-cli --project <p> bench task add <benchmark> <slug>` (creates the benchmark):
+`bench candidates` ends with who does what: an agent proposes on its issue trail (a `proposal:` comment); only the owner adds, removes or changes a task. With no candidate in a project it names `bench fixture init`.
+
+`issue-cli --project <p> bench task add <benchmark> <slug> [--docs-rubric "<line>"]...` (creates the benchmark):
 
 - **base and merged** come from the issue's stats: merged is the move to done's merge commit, else the last branch head; base is the parent of the oldest commit on the branch head's first-parent line since the issue's first dispatch. `--base` / `--merged` set them.
 - **hidden** are the test files the branch's own commits changed (merges from main left out) that exist at merged; **hidden_tests** the Go test functions they add (or, when they only change tests, every test in them).
 - **the snapshot** is the issue file in its tracker's git history just after it entered `--start` (default `in progress`, else the issue's first status), with `status:` set and `assignee`, approvals and `done_at` removed. `--snapshot <file>` gives it by hand.
+- **the stage references**: design.md, docs.diff and the docs rubric ([A reference per stage](#a-reference-per-stage)).
 - **the check**: in a throwaway clone, the hidden tests run at merged (one that fails there is dropped, with a warning) and `--check` must pass at merged and at base without the hidden files. Either failing refuses the task. `--no-verify` skips it.
+
+## A reference per stage
+
+A golden task carries a reference for each stage of the work, so a stage can be scored on its own (the fresh-agent-per-stage epic; [Scores per stage](#scores-per-stage)). `bench task add` writes them beside the snapshot, in `<bench>/tasks/<project>/<slug>/`, where no sandbox sees them, and a `stages:` block on the task:
+
+```yaml
+    stages:
+      design: {reference: design.md}       # the issue's ## Design as it stood when it left its design status
+      code: {}                             # the hidden tests and check above
+      docs: {reference: docs.diff, rubric: ["The changed docs say what the issue asks for, in the reader's words", "..."]}
+      missing: {design: never went through a design status}   # only for a stage with no reference
+    docs_files: [README.md]
+```
+
+- **design.md**: the issue file in its tracker's git history just after it left its first status with `role: design`, cut to its `## Design` section. A path that skips design (a tweak) or an empty section gives `missing: {design: …}`; nothing is made up.
+- **docs.diff**: `git diff base <branch head>` over the markdown files the branch's own commits changed, outside the issue folder, `retros/` and `sessions/` (`docs_files`). Both files are cut at 60 kB.
+- **rubric**: three bundled lines (`bench.DefaultDocsRubric`: the docs say what the issue asks, match the code, document every new command, flag or key), plus each `--docs-rubric "<line>"` given to `task add`.
+
+A stage before the task's `start:` is given to the worker in the snapshot (a task that starts at `in progress` already has its design). `bench show` prints one `stages:` line per task, `design ✓ · code 3 tests · docs rubric 4, reference 1 file`; a task added before stages says how to get them. `bench candidates` prints what each proposed row would get (`stages: design · code (3 tests) · docs (1 file)`, `--json` `stages`), read from the stats and body with no git call.
+
+### Scores per stage
+
+After the worker stops, a task with stage references is scored per stage, and the record gets `stages:` in run.json, one entry per stage in path order:
+
+```json
+"stages": [
+  {"stage": "design", "status": "in design", "score": 0.9, "pass": true, "reason": "judge: same plan", "judge": 4, "tokens": 0, "tokens_known": false, "wall_sec": 0},
+  {"stage": "code", "status": "in progress", "score": 1, "pass": true, "judge": -1, ...},
+  {"stage": "docs", "score": -1, "pass": false, "reason": "nothing to score: the reference changed no docs and the run wrote none", "judge": -1, ...}
+]
+```
+
+- **design**: the sandbox issue's `## Design` at the end of the run, graded against design.md by the benchmark's `judge:` (a design prompt: the issue, the reference design, the run's design; its 0-5 counts as score/5) and by the rubric through the `grader:` (the task's design rubric, else `bench.DefaultDesignRubric`, plus the eval's). The score is the mean of the ones that ran. No ## Design written scores 0.
+- **code**: the hidden tests and check the task already ran: passed / total, 0 when the check fails, the check alone 1 or 0. It passes only when everything passes.
+- **docs**: the run's diff of markdown files outside `retros/` and `sessions/`, graded by the docs rubric (plus the eval's) through the `grader:` against docs.diff. The run changed no docs: 0; neither the reference nor the run changed any: nothing to score.
+- **Unknown, never 0**: a stage that could not be graded has `score: -1` and its reason: a `missing:` reference, no `judge:` and no `grader:` ("add one to score the design"), no hidden tests and no check.
+- **status** is the workflow status the stage is: the eval's `stages.<stage>.status`, else the status with `role: design` for design and `role: work` for code; docs has none unless an eval names it. **tokens** and **wall_sec** are that status's share of the task's trace; without a trace `tokens_known` is false.
+- Stage scores never change the task's outcome, its eval score or the verdict per workflow. Only scores and one-line reasons are stored, never the design or docs text. The judge's and grader's tokens are added to the task's usage, their time to `score_wall_sec`.
+
+An eval may set each stage's status, extra rubric lines and pass bar (default 0.7; code's bar is every test):
+
+```yaml
+evals:
+  - id: code
+    types: [feature, tweak, bugfix]
+    stages:
+      design: {status: "in design", rubric: ["Says what is not included"], pass: 0.7}
+      docs: {status: "documentation", pass: 0.6}
+```
+
+`bench report` prints a `stages:` line under each task (`design 0.90 ✓ · code 1.00 ✓ · docs — (nothing to score: …)`); `bench compare` adds **By stage, scores**: per stage, its status, the tasks with stages in both runs, the mean score, passed of scored, and the mean tokens and wall time, A → B (`--json`: `stage_scores`).
+
+## The fixture project
+
+So a result doesn't rest on this repo alone, `issue-cli bench fixture init <dir> [--config <projects.yaml>]` writes a small project we wrote, with three done tasks and their known solutions, as the git history the benchmark reads from any project:
+
+- `<dir>/repo`: `example.com/tally`, a word and line counter in the standard library only. A base commit, then each task's `work/<task>` branch from main with its solution, its test and its docs, merged with `--no-ff`. Every commit has the author and committer `Bench Fixture <fixture@example.com>` and a fixed date, so the SHAs are the same on every machine (`TestFixtureInitWritesTheSameProjectOnEveryRun` pins main).
+- `<dir>/tracker`: the bundled development workflow and each task's issue committed at every status it passed, with its stats sidecar (dispatch, branch head, merge commit).
+- The tasks: **feature** `TopWords(text, n)` (ties in alphabetical order, a README line), **tweak** `Lines` counts a last line without a newline (a CHANGELOG line; a tweak has no design status, so its design is `missing`), **feature** `Options.Fold` for `WordsWith` / `CountWith` (a README line). Each one's hidden tests fail on its base and pass on its branch (`bench candidates --replay` says `solvable`).
+
+The projects.yaml entry (`Tally fixture`, slug `bench-fixture`) is printed; `--config` adds it to that file as text (created when missing, refused when it already has `bench-fixture`). A non-empty `<dir>` is refused. The command runs without a project and writes nothing in the benchmark folder: then `issue-cli --project bench-fixture bench candidates`, and the owner's `bench task add`; after `--config <file>` both printed commands carry `--config <file>` (its absolute path, shell-quoted), so they run as printed. The fixture's files are `internal/bench/fixture/`, each with a `.txt` suffix the write drops.
 
 ## A run
 
-`issue-cli --project <p> bench run <benchmark> [--label <name>] [--setup <engine ref>] [--engine <dir>] [--workflow <file>] [--resume <run>] [--keep]`, one task at a time:
+`issue-cli --project <p> bench run <benchmark> [--agents claude,codex] [--label <name>] [--setup <engine ref>] [--engine <dir>] [--workflow <file>] [--resume <run>] [--keep]`, one task at a time ([Both agents](#both-agents) for `--agents`):
 
 1. `mem-guard check`; while it says BLOCKED the task waits (up to 30 minutes, then the run stops as `paused`). Without mem-guard on PATH there is a warning and no wait.
 2. **The sandbox** under `$TMPDIR/awe-bench/<run>/<n>/`: a `git clone --shared` of the project with its remote removed, checked out detached at base, hidden files deleted; a scratch tracker holding only the snapshot and the workflow under test; its own `projects.yaml` (`terminal: none`), `XDG_STATE_HOME` and YOLO on in the clone's `.yolo/`, so gates pass by themselves. When the workflow uses worktrees, the issue's worktree is made as dispatch would.
@@ -92,9 +157,54 @@ When the run ends, a health snapshot is taken of each project with a task (trigg
 - `bench` lists the benchmarks with their last run; with none it says how to start.
 - `bench show <benchmark>`: tasks (holdout names only from the owner's shell), budget, worker, judge.
 - `bench report [<benchmark>/<run>|<benchmark>/latest]`: setup, who started it, stop, `6/8 passed, holdout 2/2, judge 4.1, … tokens, $…`, first-try gates, refused calls, backward moves, then one line per task.
-- `bench compare <a> <b>`: the verdict, the pass rate (holdout included) and judge, token, cost and wall deltas, warnings (other benchmark, a run not finished, different tasks or holdout, a different model or Claude Code version), then the tasks with regressions first. Exit **0** no regression, **1** B regresses (a task that passed fails, the pass rate drops, or the holdout passes fewer), **2** not comparable.
-- **The Report** (`/p/<project>/status`) has a **Benchmark** card for each benchmark with a task in the project: passed n/m, the holdout count, cost, tokens and the change against the previous finished run (red on a regression). Without a run it names `issue-cli bench run <name>`. Without a benchmark, **To unlock** offers `issue-cli bench candidates`.
+- Each task record in `run.json` has a `trace`: one span per status visit of the sandbox issue ([Traces](workflow-stats.md#traces)), from its stats sidecar and clilog and the worker's transcript messages; the first span's briefing is the prompt the bench sent (its size and decision refs, never its text). A Codex worker's spans have tokens unknown. Runs before v0.63 have none, and compare as before.
+- `bench compare <a> <b>`: the verdict, the pass rate (holdout included) and judge, token, cost and wall deltas, warnings (other benchmark, a run not finished, different tasks or holdout, a different model or Claude Code version), then **By stage** when both runs are traced (per status, A → B: the tasks that visited it, mean tokens, wall time and CLI calls per task, the share of gates out passed first try; `stages` in `--json`), then the tasks with regressions first. Exit **0** no regression, **1** B regresses (a task that passed fails, the pass rate drops, or the holdout passes fewer), **2** not comparable.
+- **The Report** (`/p/<project>/status`) has a **Benchmark** card for each benchmark with a task in the project: passed n/m, the holdout count, cost, tokens and the change against the previous finished run (red on a regression). The newest finished run on two agents adds its table by agent and type and its routing lines, even when a one-agent run came after it. Without a run it names `issue-cli bench run <name>`. Without a benchmark, **To unlock** offers `issue-cli bench candidates`.
 - **Stats** draws "Factory benchmark pass rate" from the [bench family](workbench-files.md#the-bench-family), one line per benchmark.
+
+## Both agents
+
+Routing picks an agent by the issue's type and status, and that choice stays honest only if both agents are measured on the same work (the two-agents epic, D-1). One task is done by both agents only for critique and for this A/B (D-2), so it runs only when asked: `bench nightly` and `experiment run` stay on one agent, and the experiment judge calls a two-agent run broken rather than mix its records.
+
+```
+issue-cli bench candidates                                  # about 20; the owner adds about 10 with task add
+issue-cli bench run factory-v1 --agents claude,codex --label a-b
+issue-cli bench compare factory-v1/latest
+```
+
+**The run.** Every task runs on each agent, one after the other, each in its own sandbox under the same mem-guard and budget as any run. One `run.json` holds both: `setup.agent` is `claude,codex`, and each task has one record per agent with `agent` set (a one-agent run records none, so old runs compare as they did). `--resume` keeps the run's agents. `--agents codex` alone is a one-agent run on that worker. `--agents` with `--worker` is refused, and so is a worker whose command isn't on PATH, before anything is spent. The default token cap counts tasks × agents.
+
+**The workers.** An agent's command is `workers: {<agent>: "…"}` in the benchmark file, else `worker:` when it runs that CLI, else the default. Any other agent name needs `workers:`. Codex's default is `codex exec --sandbox workspace-write --skip-git-repo-check --add-dir "$BENCH_SANDBOX" --add-dir "$BENCH_GOCACHE" -`. Its sandbox can write the task's folder (scratch tracker, worktree, git dir, state) and the Go build cache and nothing else, with no network. The default never passes Codex's bypass flag: the bench sandbox is no OS sandbox, and Claude's `bypassPermissions` default is a known exception, not the pattern. The worker's environment sets those two variables for any worker command.
+
+**Codex's usage.** Codex prints no result object, so a Codex worker's usage comes from its session's rollout files (`<worker home>/.codex/sessions/**/rollout-*.jsonl`, the session's cwd in the sandbox; `$CODEX_HOME/sessions` under `worker_home: owner`): the last running total of each session, input without its cached part, the cached part as cache read, the model and the CLI version. Only those fields are decoded, never a message. The budget watcher reads the same files. `outside_touched` stays empty for Codex: its rollout isn't read for tool calls, and its sandbox is what keeps writes in. A Codex worker that exits non-zero before using a token is `error`, not `fail`.
+
+**The table.** `bench compare <run>` prints it for one run; `bench compare <a> <b>` when the two hold two agents between them (for one task and agent, B's record wins), so two `--worker` runs work too; `bench report` of a two-agent run too. `--json` adds `by_agent` and `routing`.
+
+```
+By agent (mean per task; the holdout stays in the overall n/m):
+  type     agent   pass      time    tokens  cost
+  all      claude  7/10 70%  11m4s   14.2M   $3.10
+  all      codex   6/10 60%  8m12s   9.8M    cost unknown
+  bugfix   claude  2/3 67%   6m0s    8.1M    $1.80
+  bugfix   codex   3/3 100%  5m10s   6.0M    cost unknown
+⚠ cost unknown for gpt-…: no prices.yaml at ~/.config/ai-workflow-engine/prices.yaml, and no price is ever guessed
+Routing: type bugfix → claude contradicted: codex passed 3/3, claude 2/3
+Routing: type feature (default → claude) too few tasks: 2 both ran, 3 needed
+```
+
+A pass counts `pass`; `fail` and `timeout` are lost tasks; `broken` is left out; `error` and `budget` show as `N not scored`, because a login error says nothing about the agent. Time is worker plus scoring. Tokens and cost are means over the tasks that have them: tokens that can't be read read `unknown`, and cost is `cost unknown` with no price, `$x (2 of 3 priced)` with some, never a guess or `$0.00`. Prices come from `prices.yaml` as everywhere ([Prices](departments.md#prices-the-estimate)); the line under the table says when the file is missing or which models it lacks. `report`, the run list and the Report card say `cost unknown` or `≥ $x` the same way. The holdout is never split by agent or type.
+
+**The routing line.** For each type in the table, `routing.Route` says which rule picks which agent as a golden task starts (status `in progress`), read from the project's workflow file; the table's numbers then say, over the tasks both agents ran:
+
+- **contradicted**: the other agent passes more, or passes the same at 10% less cost (tokens when a task has no cost) with wall time under 25% more;
+- **supported**: the same the other way;
+- **no difference**: anything else;
+- **too few tasks**: under 3 both ran (`bench.MinRoutingTasks`);
+- **not run**: the rule's agent has no task in the runs.
+
+The thresholds are `bench compare`'s. It only reports: the owner changes `routing:`.
+
+**What the numbers don't say.** Tokens are as each CLI counts them, so read them with the pass rate. The first run of Codex's default worker on a real task is the owner's to start; the tests run stand-ins.
 
 ## Evals
 
@@ -129,7 +239,7 @@ evals:
 
 `score:` is `tests` (the default), `output` (the run's newest output on the shelf) or `diff` (the worker's diff against the task's base, for a change in files with no hidden tests, such as docs). `output` and `diff` are graded by the rubric and assertions; for `diff`, `{{reference}}` is the known good diff (base → merged commit), and both are cut to 60 kB like the judge's.
 
-The development template has `code`, `report` and `docs` (a diff eval); the marketing template has `foundation` (foundation, market-size), `piece` and `seo-pass`; the content template has `content`, with no `types:` (the file has none, so it covers every issue). Catalog entry: `workflow-evals`.
+The development template has `code`, `report` and `docs` (a diff eval); the marketing template has `foundation` (foundation, market-size), `keyword-research`, `report`, `piece`, `seo-pass` and `seo-baseline`; the content template has `content`, with no `types:` (the file has none, so it covers every issue). Catalog entry: `workflow-evals`.
 
 A department's golden task is a done issue whose output the **owner** approved on the shelf. `issue-cli bench task add <benchmark> <slug> [--output <id>] [--base <sha>] [--start <status>] [--snapshot <file>]` (owner only) copies the approved file as the task's reference (`{{reference}}` in a rubric line) and runs the task on the department's own workflow file. An output in review, rejected or link-only is refused.
 
@@ -146,6 +256,7 @@ A department's golden task is a done issue whose output the **owner** approved o
 - an `assert:` type the scorer doesn't pass through. Passed through are promptfoo 0.124.1's model-free types and their `not-` forms: equals, contains, icontains, contains-all/any, icontains-all/any, starts-with, regex, is-json, contains-json, is-html, contains-html, is-sql, contains-sql, is-xml, contains-xml, levenshtein, word-count, rouge-n, bleu, gleu. A type that needs a model (llm-rubric, g-eval, similar, factuality, …) goes under `rubric:`; one that runs code or calls out (javascript, python, ruby, webhook) is never passed through;
 - two evals listing one type (the first scores it, the second never does), or two evals with no `types:`;
 - when the file has `types:` and no eval without types, each type no eval lists (its tasks would be scored by hidden tests only).
+- under an eval's `stages:`, a key other than design, code or docs, a stage `status:` the workflow lacks, a stage `pass:` outside 0-1, and `rubric:` lines on code (graded by its tests, so never read).
 
 Every finding is a warning.
 
@@ -156,7 +267,7 @@ Only inside `bench run`, which the owner starts: from their own shell, or by an 
 1. **Before**, `bench run` prints an estimate: the task count × the newest finished run's mean time and cost per task, or "no previous run". The budget caps stay as above.
 2. **Each task** runs in its own sandbox (below). The worker works the issue. Then a `tests` eval runs the hidden tests and checks, an `output` eval runs promptfoo on the newest output the run put on the sandbox's shelf, and a `diff` eval runs it on the worker's diff. No output, or no diff, is a **fail**.
 3. **promptfoo** (MIT, local, pinned 0.124.1, `npx --yes promptfoo@0.124.1`; `scorer:` in the benchmark replaces it) gets a config whose "model" is its `echo` provider over the output (or diff) text, with `reference.txt` and `brief.md` as vars. Each rubric line becomes an `llm-rubric` assertion graded by the benchmark's `grader:` command: the prompt on stdin, `{reason, pass, score}` JSON out, for example `claude -p --model claude-haiku-5-5`. Without a grader, rubric lines are left out and listed in the record's `eval_skipped`. An eval with nothing it can grade stops the task as `error` before the worker starts. **pass** = score ≥ `pass` and checks green.
-4. **Time and cost**: every task records the worker's wall time plus scoring time (`score_wall_sec`), and tokens and cost for the worker and grader. Cost uses the benchmark's `prices:`, then `prices.yaml` as the rooms' spend does. `bench report` shows them per task.
+4. **Time and cost**: every task records the worker's wall time plus scoring time (`score_wall_sec`), and tokens and cost for the worker and grader. Cost is priced exactly as the rooms' spend prices it: `prices.yaml`, then the benchmark files' `prices:`, and a key prices every model it is a prefix of. A result naming several models keeps its cost unknown unless the worker reports one. `bench report` shows them per task.
 
 Why promptfoo (D-1, provisional): its YAML assertions are what a workflow file declares, it is one pinned command with no venv, and `exec:` lets the owner's own command grade. Inspect (MIT, Python) owns the agent loop and sandboxes the benchmark already has. DeepEval sends telemetry unless you opt out, and its LLM metrics default to OpenAI. OpenAI Evals is mostly unmaintained.
 
@@ -164,8 +275,9 @@ Why promptfoo (D-1, provisional): its YAML assertions are what a workflow file d
 
 Each task's sandbox is `$TMPDIR/awe-bench/<run>/<n>/`, removed after the task (`--keep` leaves it):
 
-- a `git clone --shared` of the project at the task's base with no remote, and a scratch tracker holding only the snapshot and the workflow under test;
-- for the worker and the scorer: `XDG_STATE_HOME` and `XDG_CONFIG_HOME` in the sandbox (no owner's viewer.json, projects.yaml, prices or YOLO state), `ISSUE_VIEWER_CONFIG` the sandbox's projects.yaml, tmux's socket folder in the sandbox (no live session is visible), git with no global config, and `ISSUE_VIEWER_BENCH_DIR`, the `TMUX*` and lead/worker variables removed, so the benchmark folder and its holdout aren't visible;
+- a `git clone --shared` of the project at the task's base with no remote and **no ref past base**: every branch, tag and reflog is dropped and each branch the clone had is set at base, so `git log --all` and `git reflog` reach nothing later (the merged commit's objects stay reachable by hash through the alternates file, and nothing names it);
+- a scratch tracker holding only the snapshot and the workflow under test, and **the shared memory as of the base commit**: the project's log (`<issues>/.memory/events.jsonl`) and the machine's are copied in with only the events at or before the base commit's committer time, and none of a memory whose source issue is the task's own or whose author is the task's agent (a design-stage memory can predate base). Edits, pins and forgets after the cut go with it, so the memories fold to the set as it stood then. Vectors aren't copied. The task's record has `memory: {cut, project, machine, dropped_after, dropped_own}`, counts only, and `bench report` prints `memory as of <date>: N project, M machine (… later and … of its own left out)`;
+- for the worker and the scorer: `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` in the sandbox (the machine memory store is under the data home, so the owner's is never read, under either worker home) (no owner's viewer.json, projects.yaml, prices or YOLO state), `ISSUE_VIEWER_CONFIG` the sandbox's projects.yaml, tmux's socket folder in the sandbox (no live session is visible), git with no global config, and `ISSUE_VIEWER_BENCH_DIR`, the `TMUX*` and lead/worker variables removed, so the benchmark folder and its holdout aren't visible;
 - for the scorer, also `HOME` in the sandbox (`eval/home`), with promptfoo's config and cache under `eval/.promptfoo`, telemetry, update check and sharing off, and `--no-write` (no results database). npm's cache stays where it is, so npx downloads promptfoo once. Its network use is that first download and whatever the grader command does.
 - for the worker, also its own `HOME` (`home/`, below), so the owner's Claude Code settings, hooks, plugins, skills and history don't reach it. Files its tools wrote outside the sandbox are recorded (`outside_touched`) and shown in `bench report`.
 
@@ -248,7 +360,7 @@ Its standing start is off until the owner turns it on with their words: `issue-c
 1. **Who.** The owner's shell; an agent with `--quote`; or `--run <slug>`: a run of a job whose brief is `builtin:nightly-improve` and whose standing start is on, whose words become the runs' quote. A worker passes only its own run. Without the standing start: `✗ Not run: product/nightly-improve has no standing start …` (exit 1).
 2. **Which benchmark.** The one named, else the only one with a task in the project, else the one whose file says `nightly: true`.
 3. **One night per date.** A second call the same local date is refused (exit 1) naming the run; a held night may be tried again.
-4. **The machine.** Memory under 50% (mem-guard's reading) and the 1-minute load at most the core count, else the night is recorded **held** with the reason and nothing runs. During the run each task also waits while memory is 50% or more (the run pauses after 30 minutes, as with mem-guard's BLOCKED).
+4. **The machine.** Memory under 50% (mem-guard's reading) and the 1-minute load under the core count (or `max_load` while the project's auto-start is on), else the night is recorded **held** with the reason and nothing runs. During the run each task also waits while memory is 50% or more (the run pauses after 30 minutes, as with mem-guard's BLOCKED).
 5. **Baseline.** `bench run <b> --setup <main's head> --label nightly:<date>@<sha>`, the same code as `bench run`, within the benchmark's `budget:`.
 6. **One experiment.** When the baseline finished (`stop: done`), the oldest experiment the owner queued (`experiment queue`, [Workflow Stats](workflow-stats.md#experiments)) gets `experiment run`'s guard and one candidate run, judged against tonight's baseline and recorded as `experiment run` records it (block, `experiment:` comment, `## Experiment result`). Its queue entry is marked with the night's date, so it never runs twice. A baseline that stopped (budget, paused) or a machine over the line leaves it queued for the next night; a guard problem ends its entry with a comment. Nothing here adopts, parks or reverts.
 7. **The night.** One line in `<bench>/runs/<benchmark>/nights.jsonl`: date, main's sha, the run, its stop, pass rate (as `summary.pass_rate`, holdout apart), passed/scored, the **median time and median tokens per scored task** (tokens over the tasks whose usage was read), the holdout as n/m, the experiment and its verdict, the job run. The morning report, `nights/<date>.md`, has the three numbers against the night before and the last 7 nights, the experiment, and `bench report` / `bench compare` for the runs.
@@ -268,8 +380,8 @@ Tests never start a worker: `nightlyBenchRun` is swapped for a stand-in that wri
 `internal/bench/record.go` holds the types; fields are added, never renamed.
 
 - `bench run <benchmark> [--setup <ref>] [--workflow <file>] [--label <name>] --json` prints the `Run`.
-- `bench compare <a> <b> --json` prints `{a, b, comparable, regressions, improved, tasks, pass_rate_a, pass_rate_b, pass_rate_delta, judge_delta, tokens_delta, usd_delta, wall_delta_sec, holdout_a, holdout_b, warnings, workflows}` and exits 0, 1 or 2. `workflows` is `[{workflow, tasks, verdict, why, pass_rate_a, pass_rate_b, score_a, score_b, tokens_a, tokens_b, usd_a, usd_b, wall_a_sec, wall_b_sec, regressions, improved}]` ([The verdict per workflow](#the-verdict-per-workflow)).
-- A task record also has `workflow`, `eval`, `eval_score` (-1 when no eval graded it), `eval_passed`, `eval_total`, `eval_failed`, `eval_skipped` and `score_wall_sec`.
+- `bench compare <a> <b> --json` prints `{a, b, comparable, regressions, improved, tasks, pass_rate_a, pass_rate_b, pass_rate_delta, judge_delta, tokens_delta, usd_delta, wall_delta_sec, holdout_a, holdout_b, warnings, workflows, by_agent, routing}` and exits 0, 1 or 2. `by_agent` is `{agents, types, rows, unpriced}` with rows `{agent, type, scored, passed, not_scored, pass_rate, wall_sec, tokens, tokens_known, usd, priced}`; `routing` is `[{rule, type, agent, other, verdict, why}]`. `bench compare <run> --json` prints `{run, by_agent, routing}`. A task in a two-agent run shows as `<task>@<agent>` in `tasks`, `regressions` and `improved`. `workflows` is `[{workflow, tasks, verdict, why, pass_rate_a, pass_rate_b, score_a, score_b, tokens_a, tokens_b, usd_a, usd_b, wall_a_sec, wall_b_sec, regressions, improved}]` ([The verdict per workflow](#the-verdict-per-workflow)).
+- A task record also has `agent` (only in a run on two agents), `workflow`, `eval`, `eval_score` (-1 when no eval graded it), `eval_passed`, `eval_total`, `eval_failed`, `eval_skipped` and `score_wall_sec`.
 - `run.json`: `{id, benchmark, started, ended, stop: done|budget|paused|error, stop_note, setup {ref, sha, issue_cli, issue_cli_version, workflow, label}, started_by, quote, budget, tasks: [TaskRecord], holdout {passed, total}, summary {tasks, scored, passed, pass_rate, judge, tokens, tokens_known, usd, wall_sec, cli_refused, rework_backward, gates_first_try_rate}, spent_tokens, spent_usd}`. `summary.pass_rate` leaves the holdout out; compare's rates include it. `setup.sha` is the engine commit the issue-cli under test was built from (the resolved `--setup` ref, or the binary's own vcs.revision; empty when the build carries none); `experiment run` reads it for the baseline and falls back to `setup.ref` for older runs.
 
 The loop never writes these files and never edits the benchmark.

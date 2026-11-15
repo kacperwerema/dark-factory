@@ -65,10 +65,7 @@ func yoloBand(proj *tracker.Project, issues []*tracker.Issue, now time.Time) *YO
 	b.Valves = yoloValvesShort(st.Valves)
 	b.Never = yolo.OwnerGates(proj, st.Valves)
 	for _, issue := range issues {
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil {
-			continue
-		}
+		comments := issue.Comments()
 		for _, p := range yolo.Passes(issue, comments) {
 			if at, ok := tracker.CommentTime(p.At); !ok || !at.Before(st.Since) {
 				b.Passed++
@@ -136,7 +133,7 @@ func (s *Server) handleYOLO(w http.ResponseWriter, r *http.Request, proj *tracke
 	now := time.Now()
 	root := ciRootFor(proj)
 	if action == "json" {
-		issues, _ := tracker.LoadIssues(proj.IssueDir)
+		issues, _ := proj.LoadIssues()
 		b := yoloBand(proj, issues, now)
 		if b == nil {
 			writeYOLOError(w, http.StatusInternalServerError, "reading YOLO state failed")

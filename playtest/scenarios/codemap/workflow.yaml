@@ -1,0 +1,34 @@
+statuses:
+  - name: "idea"
+  - name: "testing"
+    role: "verify"
+  - name: "human-testing"
+    role: "owner-test"
+  - name: "done"
+transitions:
+  - from: "idea"
+    to: "testing"
+  - from: "testing"
+    to: "human-testing"
+  - from: "human-testing"
+    to: "done"
+workbench:
+  layers:
+    - name: kernel
+      shared: true
+    - name: domain
+    - name: surfaces
+  contexts:
+    - name: Kernel
+      layer: kernel
+      summary: "Leaf helpers."
+      packages: [kernel/...]
+    - name: Feature
+      layer: domain
+      summary: "The feature and billing."
+      packages: [app/feature, app/billing]
+      paths: [docs/feature/]
+    - name: Binaries
+      layer: surfaces
+      summary: "The tool."
+      packages: [cmd/...]

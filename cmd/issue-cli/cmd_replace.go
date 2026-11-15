@@ -20,6 +20,8 @@ Whole section:
 
 --body-file <path> (or - for stdin) reads the new content as raw bytes, as
 append does, which avoids shell mangling of backticks and parentheses.
+A new body that lacks a ### heading the old section had is still written,
+with a warning naming each dropped heading.
 
 One line, by number or by a regexp that matches exactly one line:
   issue-cli replace <slug> --section "Design" --line 3 --text "new line"
@@ -83,10 +85,18 @@ func runReplace(ctx *Context, args []string) error {
 	}
 
 	guard := ownerTickGuard(ctx, issue)
+	var dropped []string
+	var testPlanShort bool
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
+		old, _ := tracker.SectionText(body, section)
 		next, ok, err := tracker.ReplaceIssueBodySection(body, section, text, force)
 		if err == nil && ok {
 			err = guard(body, next)
+		}
+		dropped = droppedSubheadings(old, text)
+		if strings.EqualFold(strings.TrimSpace(strings.TrimLeft(section, "# ")), "Test Plan") {
+			auto, manual := tracker.HasTestPlan(next)
+			testPlanShort = !auto || !manual
 		}
 		return next, ok, err
 	})
@@ -94,7 +104,48 @@ func runReplace(ctx *Context, args []string) error {
 		return writeErr("failed to replace", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Replaced section %q in %s\n", section, issue.Slug)
+	if len(dropped) > 0 {
+		fmt.Fprintf(ctx.Stdout, "⚠ the new body drops %s, which the old section had\n", strings.Join(dropped, ", "))
+		if testPlanShort {
+			fmt.Fprintln(ctx.Stdout, "  has_test_plan needs `### Automated` and `### Manual` under ## Test Plan: put them back before the next transition")
+		}
+	}
 	return nil
+}
+
+// droppedSubheadings lists each "### " heading of old that new lacks, in
+// old's order, compared without case; headings inside fenced code don't count.
+func droppedSubheadings(old, new string) []string {
+	have := map[string]bool{}
+	for _, h := range subheadings(new) {
+		have[strings.ToLower(h)] = true
+	}
+	var dropped []string
+	for _, h := range subheadings(old) {
+		if key := strings.ToLower(h); !have[key] {
+			have[key] = true
+			dropped = append(dropped, "`"+h+"`")
+		}
+	}
+	return dropped
+}
+
+// subheadings returns the "### " heading lines of text, trimmed, outside
+// fenced code.
+func subheadings(text string) []string {
+	var out []string
+	fenced := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if !fenced && strings.HasPrefix(trimmed, "### ") {
+			out = append(out, strings.Join(strings.Fields(trimmed), " "))
+		}
+	}
+	return out
 }
 
 // replaceLine is replace --line / --match: one line of the section.

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/clilog"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -116,7 +117,7 @@ func TestWorkboard_MarkersAndFooters(t *testing.T) {
 	}
 	// ready and epic (no boxes left) wait on an approval, asked and
 	// someday-asks on an answer.
-	if m := regexp.MustCompile(`Waiting on you · (\d+)`).FindStringSubmatch(html); m == nil || m[1] != "4" {
+	if m := regexp.MustCompile(`Issues with a marker · (\d+)`).FindStringSubmatch(html); m == nil || m[1] != "4" {
 		t.Errorf("waiting count = %v, want 4", m)
 	}
 	// Quiet cards (idle, blocked, other, approved: no marker, agent or amber age) are
@@ -290,7 +291,7 @@ func TestWorkerState(t *testing.T) {
 func TestLastCliCall_ReadsTheNewestRecordOfTheProject(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "a.clilog")
-	long := strings.Repeat("x", cliTailBytes) // the first record is cut off by the tail read
+	long := strings.Repeat("x", clilog.TailBytes) // the first record is cut off by the tail read
 	os.WriteFile(p, []byte(`{"args":["--project","wb","append","s","--body","`+long+`"],"ts":"2026-10-21T10:00:00Z"}`+"\n"+
 		`{"args":["--project","wb","check","s","D1"],"ts":"2026-10-21T11:00:00Z"}`+"\n"+
 		`{"args":["--project","other","list"],"ts":"2026-10-21T12:00:00Z"}`+"\n"+

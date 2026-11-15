@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // Defaults for a window turned on without limits.
@@ -86,28 +88,7 @@ func Save(root, project string, st *State) error {
 			return err
 		}
 	}
-	return writeJSONFile(Dir(root), Path(root, project), st)
-}
-
-func writeJSONFile(dir, path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return jsonfile.Write(Path(root, project), st, 0o600)
 }
 
 // TurnOn opens a window with the owner's words. Zero limits take the

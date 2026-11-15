@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -200,6 +201,10 @@ type PickOptions struct {
 type PickResult struct {
 	Picked  []string // short shas, in order
 	Already []string // items whose commits the branch already has
+	// Skipped is publish's changelog moves (short shas) left out: on main
+	// they put released lines under a released heading, which the release
+	// branch already has (isChangelogMove).
+	Skipped []string
 	// Changelog is set when a pick's changelog conflict was resolved by
 	// keeping the branch's ## Unreleased plus the picked commit's own lines.
 	Changelog bool
@@ -291,13 +296,17 @@ func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error
 		return res, err
 	}
 	for _, sha := range shas {
+		if isChangelogMove(root, sha, changelog) {
+			res.Skipped = append(res.Skipped, gitdir.ShortSHA(sha))
+			continue
+		}
 		if _, err := git(wt, "-c", "commit.gpgsign=false", "cherry-pick", "-x", sha); err != nil {
 			out, _ := git(wt, "diff", "--name-only", "--diff-filter=U")
 			conflicted := lines(out)
 			if len(conflicted) == 1 && conflicted[0] == changelog {
 				if rerr := resolveChangelogPick(wt, changelog, sha); rerr == nil {
 					res.Changelog = true
-					res.Picked = append(res.Picked, short(sha))
+					res.Picked = append(res.Picked, gitdir.ShortSHA(sha))
 					continue
 				}
 			}
@@ -308,9 +317,9 @@ func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error
 			if len(conflicted) == 0 {
 				why = "(" + err.Error() + ")"
 			}
-			return PickResult{Already: res.Already}, fmt.Errorf("%s %q conflicts with %s %s: nothing picked, %s is as it was. Pick the commits it builds on first, or apply it by hand in %s", short(sha), subj, branch, why, branch, wt)
+			return PickResult{Already: res.Already}, fmt.Errorf("%s %q conflicts with %s %s: nothing picked, %s is as it was. Pick the commits it builds on first, or apply it by hand in %s", gitdir.ShortSHA(sha), subj, branch, why, branch, wt)
 		}
-		res.Picked = append(res.Picked, short(sha))
+		res.Picked = append(res.Picked, gitdir.ShortSHA(sha))
 	}
 	res.Built, res.BuildFailed = CheckBuild(root, cut)
 	return res, nil
@@ -380,6 +389,40 @@ func refsCommits(root, mainBranch, slug string) ([]string, error) {
 		}
 	}
 	return shas, nil
+}
+
+// releasedHeadingRe is a changelog's version heading ("## v0.60.0 — …").
+var releasedHeadingRe = regexp.MustCompile(`(?m)^##[ \t]+\[?v?[0-9][^\n]*$`)
+
+// isChangelogMove is whether sha is publish's changelog move on main
+// (moveReleasedLines, "vX is published"), or one like it: it changes only
+// the changelog, adds no ## Unreleased line, and opens a version heading
+// its parent lacked. On a release branch that heading is already there
+// (publish renamed ## Unreleased to it), so picking the move duplicates
+// the heading and leaves no ## Unreleased for the patch.
+func isChangelogMove(dir, sha, changelog string) bool {
+	files, err := git(dir, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha)
+	if err != nil || strings.TrimSpace(files) != changelog {
+		return false
+	}
+	if len(addedEntries(dir, sha, changelog)) > 0 {
+		return false
+	}
+	after, err := git(dir, "show", sha+":"+changelog)
+	if err != nil {
+		return false
+	}
+	before, _ := git(dir, "show", sha+"^:"+changelog)
+	had := map[string]bool{}
+	for _, h := range releasedHeadingRe.FindAllString(before, -1) {
+		had[strings.TrimSpace(h)] = true
+	}
+	for _, h := range releasedHeadingRe.FindAllString(after, -1) {
+		if !had[strings.TrimSpace(h)] {
+			return true
+		}
+	}
+	return false
 }
 
 // unreleasedEntries is the non-blank lines of text's ## Unreleased section
@@ -506,13 +549,6 @@ func fileExistsAt(path string) bool {
 	return err == nil
 }
 
-func short(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
-}
-
 // PublishInput is what Publish needs.
 type PublishInput struct {
 	Root      string // the main checkout
@@ -592,7 +628,7 @@ func Publish(in PublishInput) (PublishResult, error) {
 		base, _ := git(in.Root, "config", publicBaseKey)
 		if !in.First && res.Parent != base {
 			subj, _ := git(in.Root, "log", "-1", "--format=%s", res.Parent)
-			return res, fmt.Errorf("%s/%s's tip %s (%q) is not a release snapshot: dev history reached the public repo. Clean it (docs/workflow.md, Private work and code), or pass --first if this is the old history the first snapshot goes on", remote, pubBranch, short(res.Parent), subj)
+			return res, fmt.Errorf("%s/%s's tip %s (%q) is not a release snapshot: dev history reached the public repo. Clean it (docs/workflow.md, Private work and code), or pass --first if this is the old history the first snapshot goes on", remote, pubBranch, gitdir.ShortSHA(res.Parent), subj)
 		}
 	}
 
@@ -660,7 +696,7 @@ func Publish(in PublishInput) (PublishResult, error) {
 		return res, err
 	}
 	if _, err := git(in.Root, "push", "-q", remote, res.Snapshot+":refs/heads/"+pubBranch); err != nil {
-		return res, fmt.Errorf("pushing the snapshot %s to %s: %w", short(res.Snapshot), remote, err)
+		return res, fmt.Errorf("pushing the snapshot %s to %s: %w", gitdir.ShortSHA(res.Snapshot), remote, err)
 	}
 	git(in.Root, "update-ref", tracking, res.Snapshot)
 

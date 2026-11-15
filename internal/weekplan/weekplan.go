@@ -19,11 +19,12 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// Window is how far back the week looks.
-const Window = 7 * 24 * time.Hour
+// WindowDays is how many calendar days back the week looks.
+const WindowDays = 7
 
 // PlanSection is the run issue's section the plan is written in.
 const PlanSection = "Week plan"
@@ -157,18 +158,11 @@ type BlockedLine struct {
 
 // Key is the ISO week t falls in: 2026-W44, as weekly job periods are keyed.
 func Key(t time.Time) string {
-	y, w := t.ISOWeek()
-	return fmt.Sprintf("%d-W%02d", y, w)
+	return period.WeekKey(t)
 }
 
 // ValidKey reports whether key is an ISO week key (it names a report file).
-func ValidKey(key string) bool {
-	var y, w int
-	if n, err := fmt.Sscanf(key, "%4d-W%02d", &y, &w); err != nil || n != 2 {
-		return false
-	}
-	return key == fmt.Sprintf("%d-W%02d", y, w) && w >= 1 && w <= 53 && y >= 2000
-}
+func ValidKey(key string) bool { return period.ValidWeekKey(key) }
 
 // Resolve is the department a week is for: a department or group by name or
 // key. HQ and Product are refused: they have the Status page and the Report.
@@ -209,7 +203,7 @@ func Gather(in Input, dept *tracker.Department) *Week {
 	now := in.Now
 	w := &Week{
 		Box: tracker.DepartmentKey(dept.Name), Name: dept.Name, Group: p.IsGroup(dept.Name),
-		Key: Key(now), From: now.Add(-Window), To: now,
+		Key: Key(now), From: period.DaysBack(now, WindowDays), To: now,
 	}
 	boxes := []tracker.Department{*dept}
 	boxes = append(boxes, p.Descendants(dept.Name)...)
@@ -234,13 +228,13 @@ func Gather(in Input, dept *tracker.Department) *Week {
 // connections are read once for all of them (the HQ report).
 func Sections(in Input) []*Section {
 	in = withComments(in)
-	return gatherSections(in, in.Project.Departments, in.Now.Add(-Window))
+	return gatherSections(in, in.Project.Departments, period.DaysBack(in.Now, WindowDays))
 }
 
 func withComments(in Input) Input {
 	if in.Comments == nil {
 		in.Comments = func(is *tracker.Issue) []tracker.Comment {
-			c, _ := tracker.LoadComments(is.FilePath)
+			c := is.Comments()
 			return c
 		}
 	}
@@ -270,7 +264,7 @@ func gatherSections(in Input, boxes []tracker.Department, from time.Time) []*Sec
 		}
 		s.HandoffsIn, s.HandoffsOut = handoffLines(p, in, edges, s.Box)
 		for _, is := range in.Issues {
-			if p.DepartmentOf(is) != d.Name || closed(is) {
+			if p.DepartmentOf(is) != d.Name || p.IssueClosed(is) {
 				continue
 			}
 			s.OpenIssues++
@@ -286,14 +280,6 @@ func plural(n int, one, many string) string {
 		return "1 " + one
 	}
 	return fmt.Sprintf("%d %s", n, many)
-}
-
-func closed(is *tracker.Issue) bool {
-	switch strings.ToLower(strings.TrimSpace(is.Status)) {
-	case "done", "parked", "closed", "archived":
-		return true
-	}
-	return false
 }
 
 // goalLine says where g is and how far it moved since from: the newest
@@ -428,7 +414,7 @@ func blockedLines(p *tracker.Project, in Input, is *tracker.Issue) []BlockedLine
 		l := base
 		l.On, l.Why = slug, "blocked_on: "+slug
 		if dep := tracker.FindIssue(in.Issues, slug); dep != nil {
-			if closed(dep) {
+			if p.IssueClosed(dep) {
 				continue
 			}
 			l.On = connections.BoxName(p, connections.BoxOf(p, dep)) + " (" + dep.Slug + ", " + dep.Status + ")"

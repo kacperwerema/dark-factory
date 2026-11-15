@@ -385,3 +385,32 @@ func TestHoldIgnoresChecksTheTransitionDoesNotRun(t *testing.T) {
 		}
 	}
 }
+
+// The docs say what FromCritique does with a run by hand: it has no gate,
+// so it holds nothing and is no round, however many blocks it reports.
+func TestDocsSayByHandRunsAreNotRounds(t *testing.T) {
+	byHand := &critique.Run{ID: "h", Slug: "f/x", From: "in progress", At: t0, Report: critique.Parse("blocks a.go:1 — x\nCoverage: all")}
+	if !byHand.ByHand() {
+		t.Fatal("a run with no To must be by hand")
+	}
+	if r := FromCritique([]*critique.Run{byHand, byHand, byHand, byHand, byHand}, "f/x"); len(r) != 0 {
+		t.Errorf("by-hand runs counted: %+v", r)
+	}
+	quotes := []struct{ file, want string }{
+		{"workflow.md", "Each gated run with a blocks finding is a red round of `critique <from> → <to>` (a run by hand, from a status with no gate, holds nothing and is not a round)"},
+		{filepath.Join("Workflow", "critique.md"), "Each gated run with a blocks finding is one red round of the gate's critique check (a run by hand, from a status with no gate, holds nothing and is not a round)"},
+	}
+	for _, q := range quotes {
+		data, err := os.ReadFile(filepath.Join("..", "..", "docs", q.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		if !strings.Contains(s, q.want) {
+			t.Errorf("docs/%s no longer says %q", q.file, q.want)
+		}
+		if strings.Contains(s, "Each run with a blocks finding") {
+			t.Errorf("docs/%s counts every run with a blocks finding: a run by hand is not a round", q.file)
+		}
+	}
+}

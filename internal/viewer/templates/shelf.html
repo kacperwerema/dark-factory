@@ -7,7 +7,7 @@
 <main class="wb-main">
 <section class="wb-ground wb-map" aria-label="{{.Name}}: outputs shelf" data-testid="shelf.page">
     <div class="wb-titlebar">
-        <h1 class="wb-h1">Outputs shelf</h1>
+        <h1 class="wb-h1" data-testid="wb.title">Outputs shelf</h1>
         <span class="wb-sub">what each department made · <span class="wb-you-text">review</span> = waits for your yes before it goes out</span>
     </div>
     <div class="wb-shelf-page">
@@ -16,7 +16,7 @@
         <div class="wb-shelf-list" data-testid="shelf.list">
         {{range .Rows}}
             <div class="wb-shelf-row" data-testid="shelf.row" data-id="{{.ID}}" data-state="{{.State}}">
-                <div class="wb-shelf-thumb">{{if .Thumb}}<img src="{{.Thumb}}" alt="" loading="lazy" data-testid="shelf.thumb">{{else}}<span aria-hidden="true">{{.Icon}}</span>{{end}}</div>
+                <div class="wb-shelf-thumb{{if .Video}} wb-shelf-thumb--video{{end}}">{{if .Thumb}}<img src="{{.Thumb}}" alt="" loading="lazy" data-testid="shelf.thumb">{{else}}<span aria-hidden="true">{{.Icon}}</span>{{end}}</div>
                 <div class="wb-shelf-main">
                     <div class="wb-shelf-item">{{if .Link}}<a class="wb-shelf-title" href="{{.Link}}" rel="noopener noreferrer" data-testid="shelf.title">{{.Title}}</a>{{else}}<span class="wb-shelf-title" data-testid="shelf.title">{{.Title}}</span>{{end}}<span class="wb-shelf-state wb-shelf-state--{{.State}}" data-testid="shelf.state">{{.State}}</span></div>
                     <div class="wb-shelf-meta">

@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -246,5 +248,189 @@ func TestOutputsListGroupsEachDepartmentOnce(t *testing.T) {
 	}
 	if !(strings.Index(s, "== Product") < strings.Index(s, "== Marketing") && strings.Index(s, "M2") < strings.Index(s, "M1")) {
 		t.Errorf("want Product first, then Marketing newest first:\n%s", s)
+	}
+}
+
+// A video added to the shelf says where it plays and whether it got a
+// poster; over 200 MB it is refused naming the limit.
+func TestOutputAddVideo(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	bin := t.TempDir()
+	standin.Write(t, filepath.Join(bin, "ffmpeg"), "for a; do last=$a; done\nprintf jpg > \"$last\"\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/bin:/usr/bin")
+	src := filepath.Join(t.TempDir(), "final.mp4")
+	mustWrite(t, src, "mp4")
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"add", "--title", "Draft", "--kind", "video", "--file", src}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	assertContains(t, s, "🎬 ")
+	assertContains(t, s, "  video   .outputs/files/product/o-20261029-")
+	assertContains(t, s, "-final.mp4 (0.0 MB, video/mp4, up to 200 MB)")
+	assertContains(t, s, "-final.mp4.poster.jpg (frame at 1 s, ffmpeg)")
+	assertContains(t, s, "Plays at: ")
+	assertContains(t, s, "/p/acme/shelf/read/o-20261029-")
+
+	// Without ffmpeg the add goes through and says why there is no poster.
+	t.Setenv("PATH", t.TempDir())
+	ctx, out = goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"add", "--title", "Draft 2", "--kind", "video", "--file", src}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "poster  none: ffmpeg is not on PATH (the shelf shows 🎬")
+
+	big := filepath.Join(t.TempDir(), "master.mp4")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Truncate(outputs.MaxVideoBytes + 1)
+	f.Close()
+	ctx, _ = goalsCtx(t, proj, false)
+	err = runOutput(ctx, []string{"add", "--title", "Master", "--kind", "video", "--file", big})
+	if err == nil || !strings.Contains(err.Error(), "over the shelf's 200 MB for a video") {
+		t.Errorf("over the limit: %v", err)
+	}
+}
+
+func TestOutputAddHintsReviseOnTheSameTitle(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	file := filepath.Join(t.TempDir(), "scan.md")
+	mustWrite(t, file, "# scan\n")
+	add := func(jsonOut bool, args ...string) (string, string) {
+		t.Helper()
+		ctx, out, errOut := newTestContext(proj, jsonOut)
+		if err := runOutput(ctx, append([]string{"add", "--issue", "seo-pass", "--kind", "report"}, args...)); err != nil {
+			t.Fatal(err)
+		}
+		return out.String(), errOut.String()
+	}
+	first, _ := add(false, "--title", "Keyword scan", "--file", file)
+	assertNotContains(t, first, "Hint:")
+	list, _ := outputs.Load(proj)
+	id := list[0].ID
+	short := id[strings.LastIndex(id, "-")+1:]
+
+	second, _ := add(false, "--title", " keyword SCAN ", "--file", file)
+	assertContains(t, second, "Hint: "+short+" on this issue has the same title")
+	assertContains(t, second, "issue-cli output revise "+short+" --file <file>")
+
+	// --json keeps stdout one object; the hint goes to stderr.
+	stdout, stderr := add(true, "--title", "Keyword scan", "--file", file)
+	var o outputs.Output
+	if err := json.Unmarshal([]byte(stdout), &o); err != nil {
+		t.Fatalf("%v: %s", err, stdout)
+	}
+	assertContains(t, stderr, "output revise")
+
+	// Another title, or a same-titled output on another issue, is no hint.
+	other, _ := add(false, "--title", "Another", "--file", file)
+	assertNotContains(t, other, "Hint:")
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runOutput(ctx, []string{"add", "--issue", "engine", "--title", "Keyword scan", "--kind", "report", "--file", file}); err != nil {
+		t.Fatal(err)
+	}
+	assertNotContains(t, out.String(), "Hint:")
+}
+
+// revise refuses a link and a published output, so neither is hinted at.
+func TestOutputSameTitleSkipsWhatReviseRefuses(t *testing.T) {
+	list := []*outputs.Output{
+		{ID: "o-3", Issue: "a", Title: "T", URL: "https://a.example"},
+		{ID: "o-2", Issue: "a", Title: "T", File: "f2", State: outputs.StatePublished},
+		{ID: "o-1", Issue: "a", Title: "T", File: "f1", State: outputs.StateRejected},
+	}
+	if got := outputs.SameTitle(list, "a", "t"); got == nil || got.ID != "o-1" {
+		t.Fatalf("got %+v, want o-1", got)
+	}
+	if got := outputs.SameTitle(list[:2], "a", "T"); got != nil {
+		t.Fatalf("nothing revisable: got %+v", got)
+	}
+	if got := outputs.SameTitle(list, "", "T"); got != nil {
+		t.Fatalf("no issue: got %+v", got)
+	}
+}
+
+// output show prints the file's absolute path, one a caller in any folder
+// can open, for a --file and a --path output alike.
+func TestOutputShowAbsolutePath(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	src := filepath.Join(t.TempDir(), "brief.md")
+	mustWrite(t, src, "# Brief\n")
+	shelved := addOutput(t, proj, "--issue", "seo-pass", "--title", "Brief", "--kind", "report", "--file", src)
+	linked := addOutput(t, proj, "--title", "Report", "--kind", "report", "--path", "docs/report.md")
+	url := addOutput(t, proj, "--title", "Live", "--kind", "page", "--url", "https://a.example/live")
+	t.Chdir(t.TempDir())
+	for _, o := range []*outputs.Output{shelved, linked} {
+		ctx, out := goalsCtx(t, proj, false)
+		if err := runOutput(ctx, []string{"show", shortID(o.ID)}); err != nil {
+			t.Fatal(err)
+		}
+		var path string
+		for _, line := range strings.Split(out.String(), "\n") {
+			if p, ok := strings.CutPrefix(line, "File: "); ok {
+				path = p
+			}
+		}
+		if !filepath.IsAbs(path) {
+			t.Fatalf("%s: File: line %q is not absolute:\n%s", o.Title, path, out)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s: %v", o.Title, err)
+		}
+	}
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"show", shortID(url.ID)}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "File: ") {
+		t.Errorf("a link output has no file:\n%s", out)
+	}
+}
+
+// output show --text prints a markdown output's newest version; any other
+// output refuses, naming where it is.
+func TestOutputShowText(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	src := filepath.Join(t.TempDir(), "brief.md")
+	mustWrite(t, src, "# Brief\n\nv1\n")
+	o := addOutput(t, proj, "--issue", "seo-pass", "--title", "Brief", "--kind", "report", "--file", src)
+	mustWrite(t, src, "# Brief\n\n## Follow-ups\n\n- v2 item")
+	ctx, _ := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"revise", shortID(o.ID), "--file", src}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"show", shortID(o.ID), "--text"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "# Brief\n\n## Follow-ups\n\n- v2 item\n" {
+		t.Errorf("--text = %q, want the newest version", got)
+	}
+
+	png := filepath.Join(t.TempDir(), "hero.png")
+	mustWrite(t, png, "png")
+	img := addOutput(t, proj, "--title", "Hero", "--kind", "design", "--file", png)
+	link := addOutput(t, proj, "--title", "Live", "--kind", "page", "--url", "https://a.example/live")
+	for _, c := range []struct {
+		o    *outputs.Output
+		want string
+	}{
+		{img, outputs.LocalPath(proj, img)},
+		{link, "https://a.example/live"},
+	} {
+		ctx, out := goalsCtx(t, proj, false)
+		err := runOutput(ctx, []string{"show", shortID(c.o.ID), "--text"})
+		if err == nil || !strings.Contains(err.Error(), "is not markdown") || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want a refusal naming %q", c.o.Title, err, c.want)
+		}
+		if out.Len() != 0 {
+			t.Errorf("%s: refused --text printed %q", c.o.Title, out)
+		}
 	}
 }

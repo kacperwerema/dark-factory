@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -25,8 +26,9 @@ be newer than the last release in cmd/issue-cli/CHANGELOG.md, so projects
 that have the feature get an update proposal. When nothing a project adopts
 changed (a refactor, a fix), mark it on a branch commit instead:
   Catalog: n/a <id>[,<id>...] <why>
-The line counts in any paragraph of the message, merge commits included;
-one without an entry id, or naming an entry the catalog lacks, fails the
+The line counts in any paragraph of the message, merge commits included,
+and only once it is committed: a line in a message you haven't committed
+yet reads as missing here. One without an entry id, or naming an entry the catalog lacks, fails the
 check. Files the branch has only because it merged main aren't asked about.
 On a release/vX.Y branch only the commits after its newest vX.Y.Z or
 vX.Y.Z-rc.N tag are read: the tagged ones are published and were checked.
@@ -116,7 +118,7 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		printCatalogCheck(ctx.Stdout, rep)
 	}
 	if !rep.OK() {
-		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
+		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s, which counts only once committed), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
 	}
 	return nil
 }
@@ -249,7 +251,7 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 		fmt.Fprintf(w, "✗ catalog: this branch changes %s\n", strings.Join(e.Files, ", "))
 		fmt.Fprintf(w, "    entry %s is %s; the next release is %s (last: %s in %s)\n", e.ID, e.Version, rep.NextRelease, rep.LastRelease, workflowupgrade.ChangelogPath)
 		fmt.Fprintf(w, "    → if what projects adopt changed: issue-cli workflow catalog-bump %s (sets version: %s and the bundled template stamps with it), then update its what/snippet\n", e.ID, rep.NextRelease)
-		fmt.Fprintf(w, "    → if not (refactor, fix): add a commit trailer  Catalog: n/a %s <why>\n", e.ID)
+		fmt.Fprintf(w, "    → if not (refactor, fix): add a commit trailer  Catalog: n/a %s <why>  (it counts only once committed: until then this check stays red)\n", e.ID)
 	}
 	for _, t := range rep.Templates {
 		if t.State == "bumped" {
@@ -274,7 +276,10 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 }
 
 // catalogChangedFiles lists the files changed since mergeBase, in commits and
-// in the working tree, untracked files included.
+// in the working tree, untracked files included. A file moved with its
+// content unchanged (a 100%-similarity rename) is left out on both sides:
+// a pure rename changes nothing a project adopts and needs no trailer. A
+// bundled template stays in, its name being its file name.
 func catalogChangedFiles(root, mergeBase string) ([]string, error) {
 	diff, err := catalogGit(root, "diff", "--name-only", mergeBase)
 	if err != nil {
@@ -284,13 +289,39 @@ func catalogChangedFiles(root, mergeBase string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	renamed, err := catalogPureRenames(root, mergeBase)
+	if err != nil {
+		return nil, err
+	}
 	var files []string
 	for _, f := range strings.Split(diff+"\n"+untracked, "\n") {
-		if f = strings.TrimSpace(f); f != "" {
+		if f = strings.TrimSpace(f); f != "" && !renamed[f] {
 			files = append(files, f)
 		}
 	}
 	return files, nil
+}
+
+// catalogPureRenames is both paths of every file the diff since mergeBase
+// moves with its content unchanged (git diff -M100%), bundled templates
+// left out.
+func catalogPureRenames(root, mergeBase string) (map[string]bool, error) {
+	out, err := catalogGit(root, "diff", "--name-status", "-M100%", "--diff-filter=R", mergeBase)
+	if err != nil {
+		return nil, err
+	}
+	renamed := map[string]bool{}
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Split(l, "\t")
+		if len(f) != 3 || f[0] != "R100" {
+			continue
+		}
+		if path.Dir(f[1]) == workflowupgrade.TemplatesPath || path.Dir(f[2]) == workflowupgrade.TemplatesPath {
+			continue
+		}
+		renamed[f[1]], renamed[f[2]] = true, true
+	}
+	return renamed, nil
 }
 
 func catalogGit(dir string, args ...string) (string, error) {

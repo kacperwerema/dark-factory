@@ -103,7 +103,41 @@ func TestMemoryCandidatesListsTrailAndRetro(t *testing.T) {
 	}
 }
 
-func TestMemoryCandidatesEmptyTrail(t *testing.T) {
+// A report-only run's facts: a report: comment and the Known and
+// Corrections items of the issue's shelf report are candidates; another
+// issue's report is not.
+func TestMemoryCandidatesReadsReportComments(t *testing.T) {
+	memoryAs(t, "")
+	proj := goalsProject(t)
+	path := filepath.Join(proj.IssueDir, "engine.md")
+	mustWrite(t, path, "---\ntitle: \"Engine\"\nstatus: \"in progress\"\nsystem: \"Factory\"\n---\nBody.\n")
+	if err := tracker.SaveComments(path, []tracker.Comment{
+		{ID: 1, Date: "2026-11-15", Text: "report: Postiz has no inbound side; comments and DMs are not read"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	shelveReport(t, proj, "engine", "## Findings\n- a finding, not a fact\n\n## Known\n- Channel analytics exist only over REST\n- none\n\n### Corrections\n- The earlier count was 12 providers, not 14\n")
+	shelveReport(t, proj, "seo-pass", "## Known\n- another issue's fact\n")
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runMemory(ctx, []string{"candidates", "engine"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	for _, want := range []string{
+		"comment 1 (report)\n  Postiz has no inbound side; comments and DMs are not read",
+		"· known\n  Channel analytics exist only over REST",
+		"· known\n  The earlier count was 12 providers, not 14",
+	} {
+		assertContains(t, s, want)
+	}
+	for _, not := range []string{"a finding, not a fact", "another issue's fact", "none"} {
+		if strings.Contains(s, not) {
+			t.Errorf("candidates show %q:\n%s", not, s)
+		}
+	}
+}
+
+func TestMemoryCandidatesEmptyText(t *testing.T) {
 	memoryAs(t, "")
 	proj := goalsProject(t)
 	ctx, out := goalsCtx(t, proj, false)
@@ -111,6 +145,7 @@ func TestMemoryCandidatesEmptyTrail(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, out.String(), "No candidates on seo-pass")
+	assertContains(t, out.String(), "decision: or report: comments")
 	if err := runMemory(ctx, []string{"candidates"}); err == nil {
 		t.Error("candidates without a slug should be a usage error")
 	}
@@ -209,7 +244,7 @@ func TestMemorySearchDecaysOldUnusedMemories(t *testing.T) {
 			newID = m.ID
 		}
 	}
-	if err := memory.ProjectStore(proj.IssueDir).RecordUse([]string{newID}, "agent-x", ctx.now()); err != nil {
+	if err := memory.ProjectStore(proj.IssueDir).RecordUse([]string{newID}, "agent-x", "", "", ctx.now()); err != nil {
 		t.Fatal(err)
 	}
 	ctx, out := goalsCtx(t, proj, true)

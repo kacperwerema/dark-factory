@@ -1,0 +1,83 @@
+# Department template: what `issue-cli department add sales-b2c` installs. A
+# B2C Sales department: the offer, the landing page and waitlist, launches,
+# and the weekly funnel review. No CRM, no pipeline, no outreach (those are
+# B2B work). The workflow file is the bundled sales-b2c workflow, written to
+# workflows/<key>.yaml; role.md to departments/<key>/role.md; everything
+# else becomes the department's entry in projects.yaml. See
+# docs/departments.md#sales-b2c.
+#
+# It usually sits in a GTM group, beside Marketing, whose brand foundation
+# its briefs read: department add sales-b2c --parent gtm. Money (checkout,
+# prices, refunds, revenue goals) is a commented block in its workflow file,
+# for when the product starts charging.
+name: Sales
+description: "B2C sales: the offer, the landing page and waitlist, launches and a weekly funnel review; money and refunds ready for when you charge, each the owner's"
+color: "#2BB673"
+role: "Turns visitors into testers now, paying customers later, and keeps them"
+mission: "Every week more people trying the product, and staying"
+systems: [Offer, Landing, Funnel]
+workflow: sales-b2c
+# The partners catalog's slots this department fills: department add names
+# the tools listed for each (issue-cli department partners --slot <slot>)
+# and installs none of them.
+partner_slots: [analytics, email, support]
+# Visits for the weekly funnel review from Umami, and email for a launch
+# from SendPortal (it sends: held to the owner's approved output), written
+# into the department's entry commented out (the owner uncomments them).
+connector_examples: connectors.example.yaml
+# The goals read the metrics file the weekly funnel review writes from real numbers
+# (connectors, or the owner's): no value until its first run. Targets are a
+# starting point; set your own in projects.yaml.
+goals:
+  - id: visits
+    name: Visits
+    target: 500
+    period: week
+    source: "file:<issues>/.goals/sales/weekly-funnel.json#visits"
+  - id: signups
+    name: Sign-ups
+    target: 25
+    period: week
+    source: "file:<issues>/.goals/sales/weekly-funnel.json#signups"
+  - id: testers
+    name: Active testers
+    target: 20
+    period: week
+    source: "file:<issues>/.goals/sales/weekly-funnel.json#testers"
+  - id: retention
+    name: Testers still active after 4 weeks
+    unit: pct
+    target: 40
+    period: month
+    source: "file:<issues>/.goals/sales/weekly-funnel.json#retention"
+# Recurring jobs, each run an issue (docs/departments.md, "Recurring jobs").
+# Both are off until the owner turns the standing start on:
+# issue-cli job auto on sales/weekly-funnel.
+jobs:
+  - id: weekly-funnel
+    name: Weekly funnel review
+    every: week
+    on: mon
+    at: "08:30"
+    type: funnel-review
+    brief: jobs/weekly-funnel.md
+  - id: support-digest
+    name: Support digest
+    every: week
+    on: fri
+    at: "16:00"
+    type: support-digest
+    brief: jobs/support-digest.md
+# Handoffs to declare in projects.yaml's connections: (department add prints
+# them and writes nothing: once a project declares any requests:, routing
+# refuses every route not declared). Box keys: sales is this department.
+connections:
+  feeds:
+    - from: marketing
+      to: sales
+      what: "launch audience and campaign results"
+  requests:
+    - from: sales
+      to: product
+      via: hq
+      what: "feature requests and checkout changes"

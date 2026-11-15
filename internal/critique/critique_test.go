@@ -129,6 +129,22 @@ func TestBriefCarriesPathsOnly(t *testing.T) {
 	}
 }
 
+// TestBriefListsTheFootprint: the code map's footprint lines go in as
+// given, under their own heading, and a brief without them has none.
+func TestBriefListsTheFootprint(t *testing.T) {
+	in := Input{Slug: "f/x", From: "testing", To: "human-testing", Issue: "/i/f/x.md", Footprint: []string{"works in: Board & workflow core (1 packages changed)", "watch: internal/tracker import up a layer"}}
+	b := Brief(in)
+	for _, want := range []string{"Footprint (from the code map, not the author; issue-cli affected f/x)", "- works in: Board & workflow core (1 packages changed)", "- watch: internal/tracker import up a layer"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief lacks %q:\n%s", want, b)
+		}
+	}
+	in.Footprint = nil
+	if strings.Contains(Brief(in), "Footprint") {
+		t.Error("no footprint, no heading")
+	}
+}
+
 // loadFixture reads testdata/spec-flow-runs.jsonl: the six critique records
 // of the critic's first real use (factory/spec-flow-in-use-…, 2026-10-31),
 // copied unchanged from the dark-factory run log.

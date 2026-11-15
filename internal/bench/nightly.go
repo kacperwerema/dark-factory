@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 )
 
 // The nightly loop (factory/nightly-self-improvement-loop-…): every night
@@ -317,17 +320,6 @@ func Duration(sec float64) string {
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
-// TokensText is a token count as "14.2M" or "850k".
-func TokensText(n int64) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1_000:
-		return fmt.Sprintf("%.0fk", float64(n)/1e3)
-	}
-	return fmt.Sprint(n)
-}
-
 // Line is the morning in one line, for status.md and the report comment:
 // "pass 7/8 (same) · median 11m (better) · 14.2M tokens (worse) ·
 // experiment x: rejected".
@@ -348,7 +340,7 @@ func (m *Morning) Line() string {
 			fmt.Sprintf("median %s%s", Duration(n.MedianWallSec), markText(m.Wall.Mark)),
 		)
 		if n.TokensKnown > 0 {
-			parts = append(parts, fmt.Sprintf("%s tokens%s", TokensText(n.MedianTokens), markText(m.Tokens.Mark)))
+			parts = append(parts, fmt.Sprintf("%s tokens%s", tokens.Format(n.MedianTokens), markText(m.Tokens.Mark)))
 		} else {
 			parts = append(parts, "tokens unknown")
 		}
@@ -395,7 +387,7 @@ func (m *Morning) Markdown() string {
 		b.WriteString("No night has measured anything yet.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "Main %s, run %s", short(n.MainSHA), n.Run)
+	fmt.Fprintf(&b, "Main %s, run %s", gitdir.ShortSHA(n.MainSHA), n.Run)
 	if n.Stop != "" && n.Stop != StopDone {
 		fmt.Fprintf(&b, " (stopped: %s)", n.Stop)
 	}
@@ -415,9 +407,9 @@ func (m *Morning) Markdown() string {
 		m.Pass.Mark, m.Pass.Trend, pct)
 	row("median time per task", Duration(n.MedianWallSec), before(func(x Night) string { return Duration(x.MedianWallSec) }),
 		m.Wall.Mark, m.Wall.Trend, Duration)
-	tok := func(v float64) string { return TokensText(int64(v)) }
-	row("median tokens per task", fmt.Sprintf("%s (%d known)", TokensText(n.MedianTokens), n.TokensKnown),
-		before(func(x Night) string { return TokensText(x.MedianTokens) }), m.Tokens.Mark, m.Tokens.Trend, tok)
+	tok := func(v float64) string { return tokens.Format(int64(v)) }
+	row("median tokens per task", fmt.Sprintf("%s (%d known)", tokens.Format(n.MedianTokens), n.TokensKnown),
+		before(func(x Night) string { return tokens.Format(x.MedianTokens) }), m.Tokens.Mark, m.Tokens.Trend, tok)
 	if n.Holdout.Total > 0 {
 		fmt.Fprintf(&b, "\nHoldout: passed %d/%d.\n", n.Holdout.Passed, n.Holdout.Total)
 	}

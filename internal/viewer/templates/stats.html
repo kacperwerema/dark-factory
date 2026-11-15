@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2' y='8' width='3' height='6' fill='%238b949e'/><rect x='6.5' y='4' width='3' height='10' fill='%238b949e'/><rect x='11' y='2' width='3' height='12' fill='%238b949e'/></svg>">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/theme.js"></script>
-    <script src="/static/events.js"></script>
+    <script src="/static/events.js"></script>     <script src="/static/owner-signin.js"></script>
     <script src="/static/stats.js" defer></script>
 </head>
 <body>
@@ -22,6 +22,7 @@
                 <div class="stats-crumb"><a href="/stats">All projects</a> / {{.Project}}</div>
                 <h1 class="page-title">Stats</h1>
                 <p class="stats-sub">{{if .Latest}}<span data-testid="stats.snapshots">{{plural .Snapshots "snapshot" "snapshots"}}{{if .Backfilled}}, {{.Backfilled}} backfilled{{end}}</span>, latest {{.Latest}}{{else}}<span data-testid="stats.snapshots">No health snapshot yet</span>{{end}} · <span title="{{if .AggMS}}The aggregate took {{.AggMS}} ms to build; it is cached{{end}}">gauges and bars computed now</span> · rules: docs/workflow-stats.md, "Stats page" · <a href="{{.WorkshopURL}}" data-testid="stats.workshop">Workshop view</a></p>
+                {{with .Updating}}<p class="stats-sub" data-testid="stats.updating">{{.}}</p>{{end}}
             </div>
             <nav class="stats-options" aria-label="Chart options" data-testid="stats.options">
                 <div class="stats-seg" role="group" aria-label="Range" data-testid="stats.range">
@@ -48,7 +49,7 @@
                 {{if .Pending}}
                 <div class="stats-gauge pending" data-testid="stats.gauge">
                     <div class="stats-gauge-title">{{.Title}}</div>
-                    <p class="stats-muted">No data yet. Comes with <a href="/p/{{$.Dash.Project}}/issue/{{.Pending}}" class="mono">{{.Pending}}</a></p>
+                    <p class="stats-muted">No data yet. {{.Pending}}</p>
                 </div>
                 {{else}}
                 <a {{if .Href}}href="{{.Href}}" {{end}}class="stats-gauge" data-testid="stats.gauge">
@@ -85,7 +86,7 @@
                 {{range .Pending}}
                 <div class="stats-pending" data-testid="stats.pending">
                     <strong>{{.Title}}</strong>
-                    <p class="stats-muted">No data yet: no snapshot has the <code>{{.Family}}</code> family. Comes with <a href="/p/{{$.Dash.Project}}/issue/{{.Issue}}" class="mono">{{.Issue}}</a></p>
+                    <p class="stats-muted">No data yet: no snapshot has the <code>{{.Family}}</code> family. {{.Need}}</p>
                 </div>
                 {{end}}
                 </div>

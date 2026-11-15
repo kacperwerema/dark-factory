@@ -204,7 +204,7 @@ func TestForgetPinUseAndExpiry(t *testing.T) {
 	if err := s.Pin(b.ID, "lead-acme", true, t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordUse([]string{b.ID}, "agent-y", t0); err != nil {
+	if err := s.RecordUse([]string{b.ID}, "agent-y", "", "", t0); err != nil {
 		t.Fatal(err)
 	}
 	set := load(t, s)
@@ -262,6 +262,10 @@ func TestScopesAndVisibility(t *testing.T) {
 		{"department:marketing", Viewer{All: true}, true},
 		{"agent:lead-acme", Viewer{Agent: "lead-acme"}, true},
 		{"agent:lead-acme", Viewer{Agent: "agent-x"}, false},
+		{ScopeLead, Viewer{Lead: true}, true},
+		{ScopeLead, Viewer{All: true}, true},
+		{ScopeLead, Viewer{Department: "marketing", Agent: "agent-x"}, false},
+		{ScopeLead, Viewer{}, false},
 	}
 	for _, c := range cases {
 		if got := (Memory{Scope: c.scope}).VisibleTo(c.v); got != c.want {
@@ -348,5 +352,132 @@ func TestSearchAt5000IsCheap(t *testing.T) {
 	}
 	if len(hits) != 5 {
 		t.Errorf("%d hits", len(hits))
+	}
+}
+
+// RedactSecrets scrubs every secret FindSecret refuses, leaving nothing
+// FindSecret would still see, and keeps plain text and references.
+func TestRedactSecretsScrubsWhatFindSecretRefuses(t *testing.T) {
+	for _, text := range []string{
+		"the deploy key is -----BEGIN OPENSSH PRIVATE KEY----- b3Blbn",
+		"use sk-proj-AbCdEf0123456789AbCdEf0123 for the bench",
+		"token " + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789 works",
+		"curl -H 'Authorization: Bearer abcdef0123456789abcdef'",
+		"the db is postgres://admin:hunter22@db.local/app",
+		"login with password=hunter22 on staging",
+		"the cookie was Zm9vYmFyQmF6UXV4MTIzNDU2Nzg5MEFiQ2RFZkdo for the run",
+		"client_secret: 7a9b8c6d5e4f",
+	} {
+		got, kinds := RedactSecrets(text)
+		if len(kinds) == 0 || !strings.Contains(got, "[redacted: ") {
+			t.Errorf("%q not redacted: %q", text, got)
+		}
+		if k := FindSecret(got); k != "" {
+			t.Errorf("%q still holds a %s after redaction: %q", text, k, got)
+		}
+	}
+	got, _ := RedactSecrets("login with password=hunter22 on staging")
+	if got != "login with password=[redacted: password or token value] on staging" {
+		t.Errorf("value redaction = %q", got)
+	}
+	for _, text := range []string{"blocks cmd/x.go:12 — no case for an empty list\nCoverage: all", "token: env:GH_TOKEN", "commit 4e26802c1ad78b9b4e26802c1ad78b9b4e26802c"} {
+		if got, kinds := RedactSecrets(text); got != text || len(kinds) != 0 {
+			t.Errorf("%q changed to %q (%v)", text, got, kinds)
+		}
+	}
+}
+
+func atMem(id, status, text string) Memory {
+	return Memory{ID: id, At: status, Text: text, Created: "2026-11-01T00:00:00Z"}
+}
+
+// ForStatus picks by status alone, leaves pins and dead memories out, and
+// keeps to both budgets; what didn't fit stays in rest.
+func TestForStatusPicksAndCaps(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	long := strings.Repeat("x", 500)
+	pinned, gone, expired := atMem("m-pin", "shipping", "pin"), atMem("m-gone", "shipping", "gone"), atMem("m-exp", "shipping", "exp")
+	pinned.Pinned = true
+	gone.InvalidAt = "2026-11-02T00:00:00Z"
+	expired.Expires = "2026-11-02"
+	other, plain := atMem("m-other", "testing", "other"), atMem("m-plain", "", "plain")
+	got, rest := ForStatus([]Memory{pinned, gone, expired, other, plain, atMem("m-a", "Shipping", "a")}, "shipping", now, 3, 600)
+	if len(got.Shown) != 1 || got.Shown[0].ID != "m-a" || got.More != 0 {
+		t.Fatalf("shown %+v more %d", got.Shown, got.More)
+	}
+	if len(rest) != 5 {
+		t.Fatalf("rest %+v", rest)
+	}
+
+	mems := []Memory{atMem("m-1", "shipping", "one"), atMem("m-2", "shipping", "two"), atMem("m-3", "shipping", "three"), atMem("m-4", "shipping", "four")}
+	got, rest = ForStatus(mems, "shipping", now, 3, 600)
+	if len(got.Shown) != 3 || got.More != 1 || len(rest) != 1 {
+		t.Fatalf("limit: shown %d more %d rest %d", len(got.Shown), got.More, len(rest))
+	}
+
+	mems = []Memory{atMem("m-1", "shipping", long), atMem("m-2", "shipping", long)}
+	got, _ = ForStatus(mems, "shipping", now, 3, 600)
+	if len(got.Shown) != 1 || got.More != 1 {
+		t.Fatalf("chars: shown %d more %d", len(got.Shown), got.More)
+	}
+}
+
+// The strongest come first, so the cap keeps what has been of use.
+func TestForStatusStrongestFirst(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	old, used := atMem("m-old", "shipping", "old"), atMem("m-used", "shipping", "used")
+	old.Created = "2025-01-01T00:00:00Z"
+	used.Uses = 20
+	got, _ := ForStatus([]Memory{old, used}, "shipping", now, 1, 600)
+	if len(got.Shown) != 1 || got.Shown[0].ID != "m-used" {
+		t.Fatalf("shown %+v", got.Shown)
+	}
+}
+
+// A status is set at add, changed and cleared by an event, and survives an
+// update, a supersede and adding the same fact again.
+func TestStatusThroughTheUpdateStep(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	s := Store{Path: filepath.Join(t.TempDir(), "events.jsonl")}
+	d := Draft{Text: "merge main again right before the fast forward", Scope: ScopeProject, At: "shipping"}
+	res, err := s.Add(d, AddOptions{}, now)
+	if err != nil || res.Memory.At != "shipping" {
+		t.Fatalf("add: %+v %v", res, err)
+	}
+	id := res.Memory.ID
+	at := func(id string) string {
+		t.Helper()
+		set, err := s.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set.Get(id).At
+	}
+	if err := s.SetAt(id, "testing", "w", now); err != nil || at(id) != "testing" {
+		t.Fatalf("set: %v, at %q", err, at(id))
+	}
+	if err := s.SetAt(id, "", "w", now); err != nil || at(id) != "" {
+		t.Fatalf("clear: %v, at %q", err, at(id))
+	}
+	if err := s.SetAt("m-nope", "shipping", "w", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("no such memory: %v", err)
+	}
+
+	again, err := s.Add(d, AddOptions{}, now)
+	if err != nil || again.Op != OpNoop || at(id) != "shipping" {
+		t.Fatalf("same fact with --at: %+v %v, at %q", again, err, at(id))
+	}
+	up := Draft{Text: "merge main once more right before the ff", Scope: ScopeProject, At: "documentation"}
+	if res, err := s.Add(up, AddOptions{Mode: ModeUpdates, Target: id}, now); err != nil || res.Memory.At != "documentation" || at(id) != "documentation" {
+		t.Fatalf("update: %+v %v, at %q", res, err, at(id))
+	}
+	sup := Draft{Text: "fast forward at once after a merge of main", Scope: ScopeProject}
+	res, err = s.Add(sup, AddOptions{Mode: ModeSupersedes, Target: id}, now)
+	if err != nil || res.Memory.At != "documentation" {
+		t.Fatalf("a supersede keeps the status: %+v %v", res, err)
+	}
+	over := Draft{Text: "ff right after the merge, nothing in between", Scope: ScopeProject, At: "shipping"}
+	if res, err = s.Add(over, AddOptions{Mode: ModeSupersedes, Target: res.Memory.ID}, now); err != nil || res.Memory.At != "shipping" {
+		t.Fatalf("--at wins over the old status: %+v %v", res, err)
 	}
 }

@@ -1,0 +1,5 @@
+{"version": "1.0", "project_id": "waiting", "pipeline_type": "short-explainer", "stage": "pitch", "status": "awaiting_human",
+ "timestamp": "2026-11-01T10:20:00Z", "human_approval_required": true, "human_approved": false,
+ "artifacts": {"pitch_packet": "artifacts/pitch.json", "cost_plan": "artifacts/cost.json"},
+ "review": {"summary": "Three concepts; the second fits a 30 s cut"},
+ "cost_snapshot": {"total_spent_usd": 0.40, "total_reserved_usd": 0.10, "budget_remaining_usd": 1.50}}

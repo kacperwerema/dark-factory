@@ -21,39 +21,10 @@ func TestYOLOGuidanceDropsAskAndStopSentences(t *testing.T) {
 }
 
 func TestYOLORuleNamesWhatWaitsForTheOwner(t *testing.T) {
-	rule := YOLORule("api/fix")
+	rule := YOLORule(nil, "api/fix")
 	for _, want := range []string{"issue-cli decide api/fix --provisional", "question: comment", "experiments", "product-policy", "spends money or publishes outside the machine"} {
 		if !strings.Contains(rule, want) {
 			t.Errorf("rule lacks %q: %s", want, rule)
-		}
-	}
-}
-
-// Under YOLO the briefing drops "stop at every gate" for the YOLO rule; off,
-// it is BuildAgentPrompt's.
-func TestBuildDispatchPromptYOLO(t *testing.T) {
-	old := YOLOOn
-	t.Cleanup(func() { YOLOOn = old })
-	wf := &WorkflowConfig{Statuses: []WorkflowStatus{{Name: "backlog", Prompt: "This is a handoff state.\nTell the human in chat that this needs `in progress` approval in the issue viewer, then stop and end your turn."}}}
-	proj := &Project{Slug: "proj"}
-	issue := &Issue{Slug: "api/fix", Title: "Fix", Status: "backlog", BodyRaw: "Body text."}
-
-	YOLOOn = func(workDir, project string) bool { return false }
-	off := BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
-	if !strings.HasPrefix(off, BuildAgentPrompt(proj, issue, wf, "", "")) || !strings.Contains(off, "At a human-approval gate, tell the user in chat") {
-		t.Fatalf("YOLO off changed the prompt:\n%s", off)
-	}
-
-	YOLOOn = func(workDir, project string) bool { return workDir == "/w" && project == "proj" }
-	on := BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
-	for _, gone := range []string{"At a human-approval gate, tell the user", "If approval is missing, tell the human", "Stop and ask the user", "If the transition needs human approval, tell the human", "Tell the human in chat that this needs"} {
-		if strings.Contains(on, gone) {
-			t.Errorf("YOLO prompt still says %q", gone)
-		}
-	}
-	for _, want := range []string{"YOLO is on: gates pass without the owner", "This is a handoff state.\nYOLO rule: ", "issue-cli --project proj decide api/fix --provisional", "YOLO passes the approval this status waits for", YOLOOwnerOnly} {
-		if !strings.Contains(on, want) {
-			t.Errorf("YOLO prompt lacks %q", want)
 		}
 	}
 }

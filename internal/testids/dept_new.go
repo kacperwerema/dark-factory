@@ -8,6 +8,8 @@ func init() {
 		"dept_new.plan",
 		"dept_new.file.*",
 		"dept_new.entry",
+		"dept_new.install",
+		"dept_new.handoffs",
 		"dept_new.child.*",
 		"dept_new.reparent",
 		"dept_new.add",

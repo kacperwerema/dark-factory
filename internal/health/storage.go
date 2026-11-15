@@ -2,15 +2,17 @@ package health
 
 import (
 	"context"
-	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // The storage family: how many MB the project takes on disk, by area, so
 // the Stats page shows the growth of worktrees and playtest shots. One walk
-// of the main checkout, sizes from Lstat (symlinks are not followed). It
-// only knows the present: backfill leaves it out. See docs/workbench-files.md,
+// of the main checkout by a bounded pool of readers, sizes from Lstat
+// (symlinks are not followed). It only knows the present: backfill leaves
+// it out. See docs/workbench-files.md,
 // "The storage family".
 func init() {
 	Register("storage", storageFamily)
@@ -63,32 +65,26 @@ func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
 	}, nil
 }
 
+// storageWorkers bounds the walk's pool. The walk waits on lstat and
+// readdir; measured on a 13 GB checkout (800k entries, APFS), 8 readers
+// took it from 23 s to about 4 s, and more were slower (the kernel's
+// locks), so 8 it is.
+var storageWorkers = 8
+
 // measureStorage walks root once and sorts every file's size into its area.
 // attachments is the issues' attachments folder; when it is outside root it
-// is walked on its own and left out of the total.
+// is walked on its own and left out of the total. Directories are read by a
+// bounded pool (storageWorkers); a cancelled ctx stops it.
 func measureStorage(ctx context.Context, root, attachments string) (storageSizes, error) {
-	var s storageSizes
 	root, _ = filepath.Abs(root)
-	n := 0
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // unreadable: left out
-		}
-		if n++; n%2000 == 0 && ctx.Err() != nil {
-			return ctx.Err()
-		}
-		rel, _ := filepath.Rel(root, p)
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		size := info.Size()
-		if strings.HasPrefix(rel, ".worktrees/") && d.Name() == ".git" {
-			s.worktreeCount++ // a worktree's .git file (or a nested repo)
+	attachRel := "" // attachments relative to root, when inside it
+	if attachments != "" && within(root, attachments) {
+		rel, _ := filepath.Rel(root, attachments)
+		attachRel = filepath.ToSlash(rel)
+	}
+	s, err := walkSizes(ctx, root, storageWorkers, func(s *storageSizes, rel, name string, size int64) {
+		if strings.HasPrefix(rel, ".worktrees/") && name == ".git" {
+			s.worktreeCount++ // a worktree's .git file
 		}
 		s.total += size
 		switch first, _, _ := strings.Cut(rel, "/"); {
@@ -107,25 +103,103 @@ func measureStorage(ctx context.Context, root, attachments string) (storageSizes
 		case first == ".ci":
 			s.ci += size
 		}
-		if attachments != "" && within(attachments, p) {
+		if attachRel != "" && (attachRel == "." || rel == attachRel || strings.HasPrefix(rel, attachRel+"/")) {
 			s.attachments += size
 		}
-		return nil
 	})
 	if err != nil {
 		return s, err
 	}
-	if attachments != "" && !within(root, attachments) {
-		filepath.WalkDir(attachments, func(_ string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() {
-				if info, err := d.Info(); err == nil {
-					s.attachments += info.Size()
-				}
-			}
-			return nil
+	if attachments != "" && attachRel == "" {
+		a, err := walkSizes(ctx, attachments, storageWorkers, func(s *storageSizes, _, _ string, size int64) {
+			s.attachments += size
 		})
+		if err != nil {
+			return s, err
+		}
+		s.attachments += a.attachments
 	}
 	return s, nil
+}
+
+// walkSizes calls file for every entry under root that is not a directory
+// (symlinks are not followed; sizes come from Lstat), with its slash path
+// relative to root, and returns the sum of what the calls added. Each
+// worker adds into its own storageSizes; a directory found while every
+// worker is busy is read by the one that found it, so the pool never
+// blocks on itself. Unreadable entries are left out.
+func walkSizes(ctx context.Context, root string, workers int, file func(s *storageSizes, rel, name string, size int64)) (storageSizes, error) {
+	type dir struct{ abs, rel string }
+	work := make(chan dir, workers)
+	var pending, done sync.WaitGroup
+	sums := make([]storageSizes, workers)
+	var read func(s *storageSizes, d dir)
+	read = func(s *storageSizes, d dir) {
+		if ctx.Err() != nil {
+			return
+		}
+		if storageDirHook != nil {
+			storageDirHook(d.rel)
+		}
+		entries, _ := os.ReadDir(d.abs) // unreadable: what was read counts
+		for _, e := range entries {
+			name := e.Name()
+			sub := dir{abs: filepath.Join(d.abs, name), rel: name}
+			if d.rel != "" {
+				sub.rel = d.rel + "/" + name
+			}
+			if e.IsDir() {
+				pending.Add(1)
+				select {
+				case work <- sub:
+				default:
+					read(s, sub)
+					pending.Done()
+				}
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			file(s, sub.rel, name, info.Size())
+		}
+	}
+	for i := range workers {
+		done.Add(1)
+		go func(s *storageSizes) {
+			defer done.Done()
+			for d := range work {
+				read(s, d)
+				pending.Done()
+			}
+		}(&sums[i])
+	}
+	pending.Add(1)
+	work <- dir{abs: root}
+	pending.Wait()
+	close(work)
+	done.Wait()
+	var total storageSizes
+	for _, s := range sums {
+		total.add(s)
+	}
+	return total, ctx.Err()
+}
+
+// storageDirHook, when set (tests only), is called with each directory's
+// relative path before it is read.
+var storageDirHook func(rel string)
+
+func (s *storageSizes) add(o storageSizes) {
+	s.total += o.total
+	s.git += o.git
+	s.worktrees += o.worktrees
+	s.playtest += o.playtest
+	s.agentLogs += o.agentLogs
+	s.ci += o.ci
+	s.attachments += o.attachments
+	s.worktreeCount += o.worktreeCount
 }
 
 func within(dir, p string) bool {

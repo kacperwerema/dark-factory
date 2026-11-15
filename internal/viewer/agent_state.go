@@ -1,9 +1,6 @@
 package viewer
 
 import (
-	"encoding/json"
-	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -19,10 +16,6 @@ import (
 // It is the Timeline's idle gap, so the canvas and the split agree.
 const agentIdleAfter = timeline.IdleAfter
 
-// cliTailBytes is how much of a clilog's end lastCliCall reads: enough for
-// the newest record even when its args carry a long --body.
-const cliTailBytes = 64 * 1024
-
 // lastCall is an agent's newest issue-cli call.
 type lastCall struct {
 	At  time.Time
@@ -30,57 +23,13 @@ type lastCall struct {
 }
 
 // lastCliCall is the newest call across the clilogs at paths for project
-// projSlug: the one that ended last (start + duration; old records have
-// only the start). Records naming another --project are skipped: test runs
-// in the agent's shell inherit ISSUE_CLI_LOG and log their fixture projects.
+// projSlug (clilog.Newest).
 func lastCliCall(projSlug string, paths ...string) (lastCall, bool) {
-	var newest lastCall
-	found := false
-	for _, p := range paths {
-		if c, ok := tailCliRecord(p, projSlug); ok && (!found || c.At.After(newest.At)) {
-			newest, found = c, true
-		}
-	}
-	return newest, found
-}
-
-func tailCliRecord(path, projSlug string) (lastCall, bool) {
-	f, err := os.Open(path)
-	if err != nil {
+	rec, ok := clilog.Newest(projSlug, paths...)
+	if !ok {
 		return lastCall{}, false
 	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return lastCall{}, false
-	}
-	start := info.Size() - cliTailBytes
-	if start < 0 {
-		start = 0
-	}
-	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return lastCall{}, false
-	}
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return lastCall{}, false
-	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		var rec clilog.Record
-		if json.Unmarshal([]byte(lines[i]), &rec) != nil {
-			continue // the first line may be cut mid-record
-		}
-		if p := flagValue(rec.Args, "--project"); p != "" && projSlug != "" && p != projSlug {
-			continue
-		}
-		at := rec.End()
-		if at.IsZero() {
-			continue
-		}
-		return lastCall{At: at, Cmd: strings.Join(stripGlobalFlags(rec.Args), " ")}, true
-	}
-	return lastCall{}, false
+	return lastCall{At: rec.End(), Cmd: strings.Join(stripGlobalFlags(rec.Args), " ")}, true
 }
 
 // agentLogPaths are where a worker's clilog may be: the project work dir

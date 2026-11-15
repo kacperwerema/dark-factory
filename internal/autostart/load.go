@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/recent"
 )
 
 // CPU is the machine's CPU load: the 1-minute load average and the cores.
@@ -22,7 +24,11 @@ type CPU struct {
 // machine's real load.
 var ReadLoad = readLoad
 
-func readLoad() CPU {
+var lastLoad recent.Reading[CPU]
+
+func readLoad() CPU { return lastLoad.Get(readLoadNow) }
+
+func readLoadNow() CPU {
 	l := CPU{Cores: runtime.NumCPU()}
 	var avg float64
 	var err error
@@ -81,6 +87,24 @@ func (s *State) LoadLimit(cores int) float64 {
 		return s.MaxLoad
 	}
 	return float64(cores)
+}
+
+// OwnerMaxLoad is the max_load the owner set, while auto-start is on; 0
+// when it is off or none was set (the core count).
+func (s *State) OwnerMaxLoad() float64 {
+	if s == nil || !s.On {
+		return 0
+	}
+	return s.MaxLoad
+}
+
+// MaxLoadOf is project's OwnerMaxLoad under root; an unreadable state is 0.
+func MaxLoadOf(root, project string) float64 {
+	st, err := Load(root, project)
+	if err != nil {
+		return 0
+	}
+	return st.OwnerMaxLoad()
 }
 
 // FormatLoad prints a load average with one decimal ("4.3").

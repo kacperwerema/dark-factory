@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -49,7 +50,7 @@ func runDecisionsTouched(ctx *Context, slug string) error {
 		fmt.Fprintf(ctx.Stdout, "The branch of %s (%d files changed) touches no hard decision's paths:.\n", issue.Slug, out.Changed)
 		return nil
 	}
-	fmt.Fprintf(ctx.Stdout, "== Hard decisions the branch of %s touches (%d files changed, %s...%s) ==\n", issue.Slug, out.Changed, shortHex(out.Base), shortHex(out.Head))
+	fmt.Fprintf(ctx.Stdout, "== Hard decisions the branch of %s touches (%d files changed, %s...%s) ==\n", issue.Slug, out.Changed, gitdir.ShortSHA(out.Base), gitdir.ShortSHA(out.Head))
 	held := 0
 	for _, r := range out.Touched {
 		state := "cited"
@@ -93,13 +94,6 @@ func touchedFor(proj *tracker.Project, issue *tracker.Issue, issues []*tracker.I
 		})
 	}
 	return out, nil
-}
-
-func shortHex(s string) string {
-	if len(s) > 7 {
-		return s[:7]
-	}
-	return s
 }
 
 func oneLineText(s string, n int) string {

@@ -205,3 +205,30 @@ func TestServers(t *testing.T) {
 		t.Error("Product or Sales got servers")
 	}
 }
+
+func TestOptionalSecrets(t *testing.T) {
+	fakeSecrets(t, map[string]string{"env:ACME_REQ": fakeValue, "env:ACME_TTS": "tts"})
+	c := tracker.Connector{Name: "video", Kind: tracker.ConnectorMCP, Command: "om",
+		Secrets:  map[string]string{"REQ": "env:ACME_REQ", "TTS": "env:ACME_TTS", "IMG": "env:ACME_IMG"},
+		Optional: []string{"TTS", "IMG"}}
+	if m := c.Missing(); len(m) != 0 {
+		t.Errorf("Missing = %v, want none (IMG is optional)", m)
+	}
+	env, err := Env(&c, nil)
+	if err != nil || strings.Join(env, " ") != "REQ="+fakeValue+" TTS=tts" {
+		t.Errorf("Env = %v, %v", env, err)
+	}
+	r := RunCheck(context.Background(), "Marketing", &tracker.Connector{Name: "video", Secrets: c.Secrets, Optional: c.Optional, Check: "true"}, time.Now)
+	if r.Result != ResultOK || len(r.Optional) != 2 || r.Optional[0] != (OptionalSecret{Var: "IMG"}) || r.Optional[1] != (OptionalSecret{Var: "TTS", Set: true}) {
+		t.Errorf("check = %+v", r)
+	}
+	p := &tracker.Project{Slug: "acme", Departments: []tracker.Department{{Name: "Marketing", Connectors: []tracker.Connector{c}}}}
+	if s := Servers(p, "Marketing", nil); len(s) != 1 {
+		t.Errorf("Servers = %+v, want video launched with its optional secret unset", s)
+	}
+	// An invalid optional reference is still missing; a required unset one too.
+	bad := tracker.Connector{Secrets: map[string]string{"X": "raw-value", "REQ": "env:ACME_NONE"}, Optional: []string{"X"}}
+	if m := bad.Missing(); strings.Join(m, ",") != "REQ,X" {
+		t.Errorf("Missing = %v", m)
+	}
+}

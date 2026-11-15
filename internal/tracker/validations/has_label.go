@@ -2,6 +2,7 @@ package validations
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"strings"
 )
 
@@ -24,5 +25,5 @@ func HasLabel(action Action, issue *IssueView, _ Config) error {
 	combined = append(combined, want)
 	return fail(action, issue,
 		fmt.Sprintf("missing label %q", want),
-		fmt.Sprintf("add: issue-cli set-meta %s --key labels --value %q", issue.Slug, strings.Join(combined, ",")))
+		fmt.Sprintf("add: issue-cli set-meta %s --key labels --value %s", issue.Slug, shell.Quote(strings.Join(combined, ","))))
 }

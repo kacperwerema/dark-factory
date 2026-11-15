@@ -9,7 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
-	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
 // checkSchema walks workflow.yaml against the struct tags the parser reads
@@ -198,23 +197,6 @@ func UnknownRule(f Finding) bool {
 	return f.Check == "schema" && strings.Contains(f.Message, unknownRuleMark)
 }
 
-// knownRule reports whether this build's validate actions know rule (its
-// name before ": <arg>"): a structured validator, or a rule process schema
-// prints.
-func knownRule(rule string) bool {
-	name, _, _ := strings.Cut(strings.TrimSpace(rule), ": ")
-	if validations.Has(name) {
-		return true
-	}
-	for _, r := range tracker.WorkflowValidationRules {
-		known, _, _ := strings.Cut(r.Name, ": ")
-		if known == name {
-			return true
-		}
-	}
-	return false
-}
-
 // unknownRules finds every validate action (transitions, overlays, types)
 // whose rule this build doesn't know. The transition refuses it, so most
 // often the workflow file is newer than the installed issue-cli: main added
@@ -238,10 +220,10 @@ func unknownRules(env *Env, n *yaml.Node, out *[]Finding) {
 				unknownRules(env, v, out)
 			}
 		}
-		if typ == nil || typ.Value != "validate" || rule == nil || rule.Value == "" || knownRule(rule.Value) {
+		if typ == nil || typ.Value != "validate" || rule == nil || rule.Value == "" || tracker.KnownRule(rule.Value) {
 			return
 		}
-		name, _, _ := strings.Cut(strings.TrimSpace(rule.Value), ": ")
+		name, _ := tracker.SplitRule(rule.Value)
 		v := tracker.BuildVersion
 		if v == "" {
 			v = "dev"

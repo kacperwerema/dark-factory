@@ -111,6 +111,13 @@ func (e *stepEnv) do(ctx context.Context, a Action) error {
 		m, _ := argMap(a.Arg)
 		t, text := fmt.Sprint(m["target"]), fmt.Sprint(m["text"])
 		clear := m["clear"] != false
+		if text == ownerCodeText {
+			code, err := e.sc.awaitOwnerCode(actionBudget)
+			if err != nil {
+				return fmt.Errorf("type into %s: %v", t, err)
+			}
+			text = code
+		}
 		if _, err := retry(ctx, actionBudget, func() (ptResult, error) {
 			var r ptResult
 			return r, e.page.Call(ctx, &r, "focus", t, clear)

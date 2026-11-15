@@ -82,7 +82,7 @@ func runCheckEdit(ctx *Context, args []string) error {
 // owner box from the owner: an N/A written into it, or its "(owner)"
 // marker dropped. Other edits to the wording pass.
 func refuseOwnerBoxEdit(ctx *Context, issue *tracker.Issue, ref, text string) error {
-	who := agentSession(ctx)
+	who := guardAgent(ctx, "edit owner boxes")
 	if who == "" {
 		return nil
 	}

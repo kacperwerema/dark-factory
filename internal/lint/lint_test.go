@@ -93,7 +93,7 @@ func TestMinimalWorkflowIsClean(t *testing.T) {
 	if len(rep.Findings) != 0 {
 		t.Errorf("findings on a clean workflow: %+v", rep.Findings)
 	}
-	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,untracked,paths,owner-only,na-boxes,owner-marker,criteria,reports,routing,memory,evals,department,critique,testids" {
+	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,untracked,paths,contexts,roles,rules,owner-only,na-boxes,owner-marker,show-footer,criteria,types,reports,routing,memory,evals,department,critique,decisions,testids,shas" {
 		t.Errorf("checks = %v", rep.Checks)
 	}
 }
@@ -529,5 +529,20 @@ systems:
 	}
 	if fs := run(t, lintProject(t, minimalWorkflow, nil), "schema"); len(fs) != 0 {
 		t.Errorf("known rules flagged: %+v", fs)
+	}
+}
+
+// An unknown rule is one finding, the schema check's with its line, not a
+// second one from the workflow check.
+func TestUnknownRuleIsOneFinding(t *testing.T) {
+	wf := minimalWorkflow + `      - type: validate
+        rule: no-such-rule
+`
+	env := lintProject(t, wf, nil)
+	if fs := run(t, env, "workflow"); len(fs) != 0 {
+		t.Errorf("workflow check repeats it: %+v", fs)
+	}
+	if fs := run(t, env, "schema"); len(fs) != 1 {
+		t.Errorf("schema findings = %+v, want one", fs)
 	}
 }

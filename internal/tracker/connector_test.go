@@ -75,39 +75,100 @@ func TestConnectorSecretStates(t *testing.T) {
 	}
 }
 
-func TestConnectorsBriefAndLine(t *testing.T) {
+func TestConnectorDeniedTools(t *testing.T) {
 	fakeSecrets(t, map[string]string{"keychain:acme-gsc": "v1", "env:ACME_WP": "v2"})
 	p := connectorProject()
-	got := ConnectorsBrief(p, "Marketing", false)
-	for _, want := range []string{
-		"- Connectors: search-console (MCP, loaded in this session)",
-		"wordpress (tool: issue-cli connector exec marketing/wordpress -- <cmd>) — it sends: use it only for an output the owner approved, then issue-cli output publish",
-		"quickbooks: secret QB_ID, QB_TOKEN missing on this machine, ask your lead (issue-cli connectors marketing)",
+	p.Departments[0].Connectors[0].DenyTools = []string{" submit_urls", "bad name", "share", "submit_urls"}
+	if got := strings.Join(p.Departments[0].Connectors[0].DeniedTools(), ","); got != "submit_urls,share" {
+		t.Errorf("DeniedTools = %q", got)
+	}
+	if got := ConnectorsBrief(p, "Marketing", false); !strings.Contains(got, "search-console (MCP, loaded in this session; tools off: submit_urls, share)") {
+		t.Errorf("brief = %s", got)
+	}
+	tool := Connector{Kind: ConnectorTool, DenyTools: []string{"post"}}
+	if got := tool.DeniedTools(); got != nil {
+		t.Errorf("tool connector DeniedTools = %v", got)
+	}
+}
+
+func TestParseHeaderValue(t *testing.T) {
+	for raw, want := range map[string][2]string{
+		"Bearer keychain:openseo": {"Bearer ", "keychain:openseo"},
+		"env:ACME_KEY":            {"", "env:ACME_KEY"},
+		"Token  keychain:svc/bot": {"Token  ", "keychain:svc/bot"},
+		" Basic env:ACME_BASIC ":  {"Basic ", "env:ACME_BASIC"},
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("brief missing %q:\n%s", want, got)
+		hv, err := ParseHeaderValue(raw)
+		if err != nil || hv.Prefix != want[0] || hv.Ref.String() != want[1] {
+			t.Errorf("ParseHeaderValue(%q) = %q %q, %v; want %q", raw, hv.Prefix, hv.Ref, err, want)
 		}
 	}
-	if lead := ConnectorsBrief(p, "Marketing", true); !strings.Contains(lead, "ask the owner") {
-		t.Errorf("lead brief = %s", lead)
+	for _, raw := range []string{"Bearer fake-pasted-value-123", "fake-pasted-value-123", ""} {
+		_, err := ParseHeaderValue(raw)
+		if err == nil {
+			t.Errorf("ParseHeaderValue(%q) accepted a bare value", raw)
+		} else if raw != "" && strings.Contains(err.Error(), "fake-pasted") {
+			t.Errorf("error repeats the value: %v", err)
+		}
 	}
-	if s := ConnectorsBrief(p, "Sales", false) + ConnectorsBrief(p, "", false); s != "" {
-		t.Errorf("no connectors gave %q", s)
-	}
-	if l := ConnectorsLine(p, "Marketing"); l != "Connectors: 3 (1 missing) — issue-cli connectors marketing" {
-		t.Errorf("line = %q", l)
-	}
-	if l := ConnectorsLine(p, ""); l != "" {
-		t.Errorf("Product line = %q", l)
-	}
+}
 
-	// The worker's ## Your department carries it; Product's issues get none.
-	sec := DepartmentPromptSection(p, &Issue{Slug: "seo/page", System: "SEO"})
-	if !strings.Contains(sec, "- Connectors: search-console") {
-		t.Errorf("department section:\n%s", sec)
+func TestCheckConnectorURL(t *testing.T) {
+	for _, ok := range []string{"https://mcp.example.com/mcp", "http://localhost:3011/mcp", "http://127.0.0.1:8080/mcp", "http://[::1]:9/mcp", "http://127.5.0.1/mcp"} {
+		if err := CheckConnectorURL(ok); err != nil {
+			t.Errorf("CheckConnectorURL(%q) = %v", ok, err)
+		}
 	}
-	lead := DepartmentLeadBrief(nil, &p.Departments[0], LeadBriefInput{Project: p})
-	if !strings.Contains(lead, "- Connectors: search-console") {
-		t.Errorf("lead brief:\n%s", lead)
+	for raw, want := range map[string]string{
+		"http://mcp.example.com/mcp":         "http is allowed only on this machine",
+		"http://192.168.1.4:3011/mcp":        "http is allowed only on this machine",
+		"ftp://localhost/mcp":                "wants https://",
+		"localhost:3011/mcp":                 "not an absolute",
+		"/mcp":                               "not an absolute",
+		"https://user:pw-secret@example.com": "holds a user or password",
+	} {
+		err := CheckConnectorURL(raw)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("CheckConnectorURL(%q) = %v; want %q", raw, err, want)
+		}
+		if err != nil && strings.Contains(err.Error(), "pw-secret") {
+			t.Errorf("error repeats the password: %v", err)
+		}
+	}
+}
+
+func TestSecretStatesListHeaders(t *testing.T) {
+	fakeSecrets(t, map[string]string{"env:ACME_SEO": "v"})
+	c := Connector{Name: "openseo", Kind: ConnectorMCP, URL: "http://localhost:3011/mcp",
+		Headers: map[string]string{"Authorization": "Bearer env:ACME_SEO", "X-Quota": "env:ACME_QUOTA_UNSET", "X-Bad": "pasted"}}
+	got := c.SecretStates()
+	if len(got) != 3 || !got[0].Header || got[0].Var != "Authorization" || got[0].Ref != "Bearer env:ACME_SEO" || !got[0].Set {
+		t.Fatalf("states = %+v", got)
+	}
+	if got[1].Var != "X-Bad" || got[1].Err == "" || got[2].Var != "X-Quota" || got[2].Set {
+		t.Errorf("states = %+v", got)
+	}
+	if miss := c.Missing(); strings.Join(miss, ",") != "X-Bad,X-Quota" {
+		t.Errorf("missing = %v", miss)
+	}
+}
+
+func TestConnectorsBriefNamesAPerRunTool(t *testing.T) {
+	p := &Project{Departments: []Department{{Name: "Marketing", Connectors: []Connector{
+		{Name: "heavy", Kind: ConnectorMCP, Command: "x", PerRun: &PerRun{Start: "a", Ready: "b", Stop: "c"}},
+	}}}}
+	got := ConnectorsBrief(p, "Marketing", false)
+	for _, want := range []string{"heavy (MCP, loaded in this session)", "it starts per run, stopped after", "mem-guard held it"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief lacks %q: %s", want, got)
+		}
+	}
+	// A url: server starts at the first call, and says what a held one answers.
+	p.Departments[0].Connectors[0].Command, p.Departments[0].Connectors[0].URL = "", "http://localhost:3011/mcp"
+	got = ConnectorsBrief(p, "Marketing", false)
+	for _, want := range []string{"it starts at your first call to one of its tools", `"stays stopped" means mem-guard held it`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("url: brief lacks %q: %s", want, got)
+		}
 	}
 }

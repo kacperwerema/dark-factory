@@ -54,7 +54,7 @@ func TestDecisionsExpiredState(t *testing.T) {
 	assertContains(t, expired, "sim/rules#D-1 · 2026-10-01 · expired after 2026-10-30 · hard · waits for the owner")
 	assertContains(t, expired, "renew: issue-cli")
 	assertContains(t, expired, "decide sim/rules --let-go D-1")
-	assertContains(t, expired, "sim/rules#D-3 · 2026-10-03 · expired after 2026-10-20 · needs owner's words · scope project")
+	assertContains(t, expired, "sim/rules#D-3 · 2026-10-03 · expired after 2026-10-20 · scope project")
 	if strings.Contains(expired, "sim/rules#D-2 ") {
 		t.Fatalf("expires: today listed as expired:\n%s", expired)
 	}

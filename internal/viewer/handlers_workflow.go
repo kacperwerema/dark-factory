@@ -54,7 +54,7 @@ type statusUpdateResponse struct {
 }
 
 func (s *Server) handleRetros(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -106,6 +106,38 @@ func (s *Server) handleRetros(w http.ResponseWriter, r *http.Request, proj *trac
 	}
 }
 
+// retroCache keeps parsed retros: every agents model lists them all, and a
+// body rendered to HTML is the expensive part.
+var retroCache tracker.FileCache[*RetroEntry]
+
+func parseRetroFile(path string, info os.FileInfo) (*RetroEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	meta, body := retro.Parse(string(data))
+	if strings.TrimSpace(body) == "" {
+		body = strings.TrimSpace(string(data))
+	}
+	page, err := tracker.ParseDocPage(filepath.Base(path), []byte(body))
+	if err != nil {
+		return nil, err
+	}
+	return &RetroEntry{
+		FileName:     info.Name(),
+		FilePath:     path,
+		IssueSlug:    meta["Issue"],
+		IssueTitle:   meta["Title"],
+		Status:       meta["Status"],
+		System:       meta["System"],
+		Date:         meta["Date"],
+		BodyHTML:     page.BodyHTML,
+		BodyRaw:      body,
+		ModTime:      info.ModTime(),
+		ReviewStatus: normalizeRetroReviewStatus(meta["ReviewStatus"]),
+	}, nil
+}
+
 func loadRetrospectives(proj *tracker.Project) ([]*RetroEntry, error) {
 	retroDir := filepath.Join(projectRoot(proj), "retros")
 	info, err := os.Stat(retroDir)
@@ -125,38 +157,16 @@ func loadRetrospectives(proj *tracker.Project) ([]*RetroEntry, error) {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		meta, body := retro.Parse(string(data))
-		if strings.TrimSpace(body) == "" {
-			body = strings.TrimSpace(string(data))
-		}
-
-		page, err := tracker.ParseDocPage(filepath.Base(path), []byte(body))
-		if err != nil {
-			return err
-		}
-
 		fileInfo, err := d.Info()
 		if err != nil {
 			return err
 		}
-
-		retros = append(retros, &RetroEntry{
-			FileName:     d.Name(),
-			FilePath:     path,
-			IssueSlug:    meta["Issue"],
-			IssueTitle:   meta["Title"],
-			Status:       meta["Status"],
-			System:       meta["System"],
-			Date:         meta["Date"],
-			BodyHTML:     page.BodyHTML,
-			BodyRaw:      body,
-			ModTime:      fileInfo.ModTime(),
-			ReviewStatus: normalizeRetroReviewStatus(meta["ReviewStatus"]),
-		})
+		entry, err := retroCache.Get(path, fileInfo, func() (*RetroEntry, error) { return parseRetroFile(path, fileInfo) })
+		if err != nil {
+			return err
+		}
+		c := *entry
+		retros = append(retros, &c)
 		return nil
 	})
 	if err != nil {
@@ -423,7 +433,7 @@ func (s *Server) handleUpdateBugStatus(w http.ResponseWriter, r *http.Request, p
 	}
 	status := normalizeBugStatus(body.Status)
 
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, strings.ReplaceAll(err.Error(), `"`, `'`)), http.StatusInternalServerError)
 		return

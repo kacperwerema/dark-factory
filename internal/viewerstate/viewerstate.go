@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // State is the content of viewer.json.
@@ -53,26 +55,10 @@ func Write(s State) error {
 	if path == "" {
 		return errors.New("no home directory for the viewer state")
 	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "viewer-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return jsonfile.Write(path, s, 0o600)
 }
 
 // Read loads viewer.json. A missing file is an error wrapping os.ErrNotExist.

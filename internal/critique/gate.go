@@ -44,7 +44,7 @@ func GateError(run *Run, slug, status string) error {
 			b.WriteString("  blocks " + p + "\n")
 		}
 	}
-	fmt.Fprintf(&b, "\nFix each, then run the critic again (the new run is what counts):\n\n  %s\n\nOr the owner overrides: issue-cli critique %s --override --quote \"<the owner's words>\"", again, slug)
+	fmt.Fprintf(&b, "\nFix each where it is wrong, in place (the code, or the issue text with issue-cli replace %s --section <name>), not by appending a note: the critic reads the text, not its history. Then run the critic again (the new run is what counts):\n\n  %s\n\nOr the owner overrides: issue-cli critique %s --override --quote \"<the owner's words>\"", slug, again, slug)
 	return fmt.Errorf("%s", b.String())
 }
 
@@ -61,10 +61,13 @@ func plural(n int) string {
 func CommentText(r *Run) string {
 	var b strings.Builder
 	rep := r.Report
-	fmt.Fprintf(&b, "critique: %s → %s, %s (%s) — %d blocks, %d should, %d note", r.From, r.To, r.Verdict(), valueOr(r.Agent, "critic"),
+	fmt.Fprintf(&b, "critique: %s, %s (%s) — %d blocks, %d should, %d note", r.Edge(), r.Verdict(), valueOr(r.Agent, "critic"),
 		rep.Count(Blocks), rep.Count(Should), rep.Count(Note))
 	if r.Fallback != "" {
 		fmt.Fprintf(&b, "; %s", r.Fallback)
+	}
+	if r.SameAgent {
+		fmt.Fprintf(&b, "; same agent as the writer: %s", r.Why)
 	}
 	if r.Failed {
 		fmt.Fprintf(&b, "; failed: %s", r.Error)

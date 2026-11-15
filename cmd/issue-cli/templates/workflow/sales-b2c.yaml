@@ -1,0 +1,339 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: sales-b2c@v0.61.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - brand-foundation@v0.61.0
+    - measure-after-publish@v0.58.0
+    - report-type@v0.58.0
+    - status-prompt-append@v0.61.0
+    - status-prompts@v0.36.0
+    - types-of-work@v0.36.0
+    - body-structure-gates@v0.36.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - failure-hints@v0.36.0
+    - file-exists-gates@v0.61.0
+    - human-approval-gates@v0.36.0
+    - owner-only-gates@v0.58.0
+    - publish-stamp@v0.55.0
+    - checklist-sections@v0.36.0
+    - board-card-fields@v0.36.0
+    - board-columns@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# A B2C Sales department's own workflow file (projects.yaml departments:
+# workflow: workflows/<key>.yaml): an offer, the landing page and waitlist,
+# launches to the waitlist, and the weekly reports. No CRM, no pipeline, no
+# outreach. Everything a customer sees goes out only through owner review →
+# publish, which is owner_only: YOLO never passes it (docs/Workflow/yolo.md).
+#
+# Sales writes in Marketing's voice: a brief moves to draft only once
+# Marketing's brand foundation is settled (departments/marketing/brand.md and
+# icp.md). Product changes (the landing page in the product's code, a
+# feature request) go to Product as a request via HQ.
+#
+# Money is not on this path. When the product starts charging, uncomment the
+# "When you start charging" block at the end: checkout, price changes and
+# refunds, each behind the same owner_only gate. docs/departments.md, "Sales
+# (B2C)".
+board:
+  columns:
+    - research
+    - brief
+    - draft
+    - owner review
+    - publish
+    - measure
+    - done
+  card_fields:
+    - type
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "research"
+    description: "Reading the week's numbers or conversations"
+    prompt: |
+      Read the brief: which week, which sources. Numbers come from a connector (`issue-cli connectors <department>` lists them) or from the owner on the issue; never estimate one. A number you can't read is left out and named under ## Research as "no value yet" with the reason.
+      Put the report on the shelf (`issue-cli output add --issue <slug> --kind report --file <report>`), then move to owner review.
+  - name: "brief"
+    description: "What to make, for whom, where it goes"
+    prompt: |
+      Read Marketing's brand and ICP first (departments/marketing/brand.md and icp.md); the brief can't move to draft without them.
+      Write the brief: what this is (an offer, the landing page, a launch), who it is for (which ICP segment), where it goes (the product's site, the waitlist, an email) and what counts as done.
+      Never promise what the product doesn't do: name the features the offer rests on, as they are today. Ask the owner about anything the brief can't say on its own, then move to draft.
+  - name: "draft"
+    description: "Making the text a customer will see"
+    prompt: |
+      Write what the brief asks for. Put the full text (or a link to the file) under ## Draft, and put it on the department's shelf: `issue-cli output add --issue <slug> --title "..." --kind <offer|page|email|...> (--file | --url)`.
+      Check every claim against the product as it is, and every name and link. A form that collects personal data says what is kept, why and for how long, and asks for consent in words the customer reads.
+      When the draft is ready, move to owner review.
+  - name: "owner review"
+    description: "Waiting for the owner's yes before a customer sees anything"
+    prompt: |
+      Nothing is out yet. Say in chat what the owner reviews (## Draft, or the report on the shelf) and where it will go; publishing needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+      If the owner asks for changes, they leave a `revise:` comment: go back to draft (a report: back to research).
+  - name: "publish"
+    description: "Putting the approved text out"
+    prompt: |
+      Publish exactly what the owner approved, where the brief says. Do not change it on the way out.
+      When it goes into the product's own code (the landing page lives in its repository), file it as a request to Product via HQ with the approved output: `issue-cli create --title "..." --requested-by <department>` naming the output id. Sales never edits the product's code.
+      Mark it published on the shelf (`issue-cli output publish <id> --url <link>`; `issue-cli outputs --issue <slug>` lists the ids), record the link under ## Published (the Product request, when that is what carries it), then move to the next status.
+  - name: "measure"
+    description: "What it did: the funnel's numbers"
+    prompt: |
+      Write under ## Measure what changed: visits, sign-ups, active testers, with the dates and where each number came from. The department's goals read the weekly funnel review's metrics file (<issues>/.goals/<department>/weekly-funnel.json); only that job writes it, don't write it here.
+      A number you can't read yet is "no value yet", not zero. Then move to done.
+  - name: "done"
+    description: "Out (or reported), with the link and the numbers recorded"
+
+transitions:
+  - from: "brief"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      # Marketing's brand foundation first: the voice and the ICP every text
+      # a customer sees is written to.
+      - type: "validate"
+        rule: "file_exists"
+        path: "departments/marketing/brand.md"
+        hint: "Sales writes in Marketing's voice: settle its brand foundation first: issue-cli create --department marketing --type foundation --title \"Brand foundation: <topic>\" (no Marketing yet: issue-cli department add marketing)"
+      - type: "validate"
+        rule: "file_exists"
+        path: "departments/marketing/icp.md"
+        hint: "Sales writes in Marketing's voice: settle its brand foundation first: issue-cli create --department marketing --type foundation --title \"Brand foundation: <topic>\" (no Marketing yet: issue-cli department add marketing)"
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Audience, where it goes and what counts as done stated
+          - [ ] The product features it rests on named, as they are today
+      - type: "append_section"
+        title: "Draft"
+        body: |
+          - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
+          - [ ] Claims checked against the product; names and links checked
+          - [ ] Personal data asked for: what is kept, why, how long, and the consent wording
+  - from: "draft"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Draft"
+      - type: "validate"
+        rule: "has_output"
+        hint: "put the draft on the shelf first: issue-cli output add --issue {{slug}} --kind <offer|page|email> --file <draft>"
+  - from: "owner review"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "owner review"
+    to: "publish"
+    actions:
+      # The issue stamp and the shelf stamp agree: the newest version on the
+      # shelf is the one the owner approved.
+      - type: "validate"
+        rule: "outputs_approved"
+        hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+      - type: "require_human_approval"
+        status: "publish"
+        owner_only: true # a customer sees it (or money moves): the owner's even in YOLO
+      - type: "append_section"
+        title: "Published"
+        body: |
+          - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+  # No publish → done here: a type that measures can't skip measure. A type
+  # without measure (offer) adds its own publish → done.
+  - from: "publish"
+    to: "measure"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Published"
+      - type: "append_section"
+        title: "Measure"
+        body: |
+          - [ ] What changed, with dates and where each number came from (or "no value yet" and why)
+  - from: "measure"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Measure"
+
+# Types of work (docs/Workflow/types.md). An issue without type: is an offer.
+# A recurring job picks its type with type: (projects.yaml jobs:).
+default_type: offer
+types:
+  offer:
+    description: "The offer: what a plan or test invite contains, what it costs (nothing, while testing) and the text that says so"
+    path: [brief, draft, owner review, publish, done]
+    transitions:
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+
+  landing:
+    description: "The landing page and the waitlist form: the text, the sign-up, the consent wording; then what it did"
+    path: [brief, draft, owner review, publish, measure, done]
+
+  launch:
+    description: "A launch to the waitlist: an invite wave or an announcement, sent only after the owner's yes; then what it did"
+    path: [brief, draft, owner review, publish, measure, done]
+    statuses:
+      - name: "publish"
+        prompt_append: |
+          Send the email through the department's `sendportal` connector (`issue-cli connectors <department>` lists it), only to the list the brief names. First check that this list's subscribers signed up under the consent wording the owner approved: double opt-in is unverified in SendPortal. If the list is unconfirmed, stop and say so on the issue. If the department has no email connector, say so on the issue and stop: the owner sends it. `connector exec` refuses until the owner has approved the newest output on the shelf.
+
+  # The weekly funnel review (job weekly-funnel): the numbers into the job's
+  # metrics file <issues>/.goals/<department>/weekly-funnel.json (issue-cli
+  # goal write), which the goals read, and the report on the shelf for the
+  # owner.
+  funnel-review:
+    description: "Weekly funnel review: visits, sign-ups, active testers and retention from real numbers, into the metrics file the goals read and a report"
+    path: [research, owner review, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Read the week's numbers: visits (the analytics connector), sign-ups and active testers (the product's own metrics: an export or endpoint the owner names), retention. Each from a connector or the owner's numbers on the issue; never estimate one.
+          Write the numbers you read with `issue-cli goal write <department>/weekly-funnel visits=<n> signups=<n> ...`: it replaces <issues>/.goals/<department>/weekly-funnel.json atomically, in the metric run format, and says which goal reads each id. The ids are the department's goal ids (`issue-cli goals <department>`). Leave out a number you couldn't read; the goal then shows no value.
+          Write the report: each number with last week's beside it, where it came from, what moved and one thing to try next week. Put it on the shelf (`issue-cli output add --issue <slug> --title "Funnel: week <n>" --kind report --file <report>`), then move to owner review.
+      - name: "owner review"
+        prompt: |
+          Say in chat that the week's funnel report is on the shelf for the owner. Then end your turn; the owner approves it there (or leaves `revise:`: back to research).
+    transitions:
+      - from: "research"
+        to: "owner review"
+        actions:
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the report on the shelf: issue-cli output add --issue {{slug}} --kind report --file <report>"
+          - type: "validate"
+            rule: "file_exists"
+            path: "<issues>/.goals/{{department}}/weekly-funnel.json"
+            hint: "write the numbers you read before the report goes to the owner: issue-cli goal write {{department}}/weekly-funnel <id>=<value>..."
+      - from: "owner review"
+        to: "research"
+        actions:
+          - type: "validate"
+            rule: "has_comment_prefix: revise:"
+      - from: "owner review"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the report on the shelf (/p/<project>/shelf)"
+
+  # The weekly support digest (job support-digest): themes from the
+  # customers' conversations; feature requests go to Product via HQ.
+  support-digest:
+    description: "Weekly support digest: the customers' conversations grouped by theme, feature requests sent to Product via HQ"
+    path: [research, owner review, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Read the week's support conversations: the support connector (`issue-cli connectors <department>`), or what the owner gives on the issue. With no source, say so under ## Research and stop there: no digest from nothing.
+          Group them by theme, with a count and one quote per theme (no names, emails or other personal data in the digest).
+          File each feature request as a request to Product via HQ: `issue-cli create --title "..." --requested-by <department>`, and list the slugs. Put the digest on the shelf (`--kind report`), then move to owner review.
+      - name: "owner review"
+        prompt: |
+          Say in chat that the week's support digest is on the shelf for the owner. Then end your turn; the owner approves it there (or leaves `revise:`: back to research).
+    transitions:
+      - from: "research"
+        to: "owner review"
+        actions:
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the digest on the shelf: issue-cli output add --issue {{slug}} --kind report --file <digest>"
+      - from: "owner review"
+        to: "research"
+        actions:
+          - type: "validate"
+            rule: "has_comment_prefix: revise:"
+      - from: "owner review"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the digest on the shelf (/p/<project>/shelf)"
+
+  # --- When you start charging ------------------------------------------
+  # Uncomment the three types below (remove "# " from each line up to the
+  # end marker) when the product starts taking money. Each one reaches
+  # publish only through the owner_only owner review → publish gate above:
+  # prices, the checkout and every refund are the owner's, even in YOLO.
+  # Then:
+  #   - add their systems to the department in projects.yaml
+  #     (systems: [Offer, Landing, Funnel, Checkout]);
+  #   - add the money goals to the department's goals: in projects.yaml,
+  #     read from the same file the weekly funnel review writes:
+  #       - {id: paid, name: Paying customers, target: 10, period: month, source: "file:<issues>/.goals/sales/weekly-funnel.json#paid"}
+  #       - {id: mrr, name: Monthly revenue, unit: zł, target: 500, period: month, source: "file:<issues>/.goals/sales/weekly-funnel.json#mrr"}
+  #       - {id: refunds, name: Refunds, target: 0, period: month, direction: down, source: "file:<issues>/.goals/sales/weekly-funnel.json#refunds"}
+  #       - {id: churn, name: Churn, unit: pct, target: 5, period: month, direction: down, source: "file:<issues>/.goals/sales/weekly-funnel.json#churn"}
+  #   - the payment provider's connector reads with a read-only key; a
+  #     refund needs a separate restricted key (a keychain: reference),
+  #     used only in publish, after the owner's yes.
+  # Checkout and price changes also wait for Legal's answer (a `legal:`
+  # comment) on the text before publish, until a Legal department's handoff
+  # replaces it.
+  # BEGIN when-you-start-charging
+  # checkout:
+  #   description: "The checkout: flow and texts, consumer-law information, the confirmation; built by Product from the approved request"
+  #   path: [brief, draft, owner review, publish, measure, done]
+  #   transitions:
+  #     - from: "owner review"
+  #       to: "publish"
+  #       actions:
+  #         - type: "validate"
+  #           rule: "has_comment_prefix: legal:"
+  #           hint: "Legal checks the checkout's texts first: ask for a legal: comment on {{slug}}"
+  #
+  # price-change:
+  #   description: "A price, discount or promotion: the new price, the lowest price of the last 30 days beside any discount, the date it starts"
+  #   path: [brief, draft, owner review, publish, measure, done]
+  #   statuses:
+  #     - name: "draft"
+  #       prompt: |
+  #         Write the change: the new price, its start date, and for a discount the lowest price of the last 30 days (shown beside it). Put it on the shelf (--kind offer), then move to owner review.
+  #   transitions:
+  #     - from: "owner review"
+  #       to: "publish"
+  #       actions:
+  #         - type: "validate"
+  #           rule: "has_comment_prefix: legal:"
+  #           hint: "Legal checks the price text first: ask for a legal: comment on {{slug}}"
+  #
+  # refund:
+  #   description: "One customer's refund or withdrawal: the decision and the amount, for the owner's yes; nothing is refunded before it"
+  #   path: [brief, owner review, publish, done]
+  #   statuses:
+  #     - name: "brief"
+  #       prompt: |
+  #         Write the case: the order, what the customer asks, the amount, and the rule it falls under (the 14-day withdrawal or the terms). Put the proposed answer on the shelf (--kind email), then move to owner review.
+  #     - name: "publish"
+  #       prompt: |
+  #         Only after the owner's yes: refund exactly the approved amount through the payment connector's refund key, send the approved answer, record both under ## Published, then move to done.
+  #   transitions:
+  #     - from: "brief"
+  #       to: "owner review"
+  #       actions:
+  #         - type: "validate"
+  #           rule: "body_not_empty"
+  #         - type: "validate"
+  #           rule: "has_output"
+  #           hint: "put the proposed answer on the shelf: issue-cli output add --issue {{slug}} --kind email --file <answer>"
+  #     - from: "publish"
+  #       to: "done"
+  #       actions:
+  #         - type: "validate"
+  #           rule: "section_checkboxes_checked: Published"
+  # END when-you-start-charging

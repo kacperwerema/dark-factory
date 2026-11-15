@@ -1,0 +1,23 @@
+session: memory-at-status
+issue: factory/a-memory-can-say-which-status-it-matters-at
+title: A memory tied to a status shows the status on the Memory page
+scenario: memory
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: memory edit --at sets a status, the row carries it, and --at none takes it off
+    proves: [AC2]
+    setup:
+      - cli: { args: [memory, edit, m-aaa001, --at, testing], contains: "on entering testing" }
+      - open: /p/{project}/memory
+    checks:
+      - visible: [memory.row.m-aaa001.at]
+      - text_contains: { target: memory.row.m-aaa001.at, text: "at testing" }
+      - text_contains: { target: memory.recent, text: "at testing" }
+      - cli: { args: [memory, list, --at, testing], contains: "m-aaa001" }
+      - cli: { args: [memory, edit, m-aaa001, --at, none], contains: "at no status" }

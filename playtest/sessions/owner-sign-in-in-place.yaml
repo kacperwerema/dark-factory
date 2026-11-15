@@ -1,0 +1,60 @@
+session: owner-sign-in-in-place
+issue: api/owner-sign-in-survives-a-viewer-restart-and-an-owner-only-refusal-offers-sign-in-in-place-instead-of-a-dead-end
+title: A signed-out browser's Agree opens the sign-in in place and is recorded after the code
+scenario: yolo-review
+
+session_checks:
+  # One viewport: the step agrees the oldest issue's gates, which a second
+  # run on the same board would find already agreed.
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  # The refused Agree is a 403 the browser itself logs; the dialog answers it.
+  console_ignore: ['status of 403 \(Forbidden\) \(http://[^)]*/p/[^/]+/yolo/review:']
+
+steps:
+  - id: AC3
+    title: Signed out, Agree on the YOLO review list opens the sign-in dialog; after the code it records the Agree and the browser stays signed in
+    proves: [AC3]
+    setup:
+      # The runner signed this browser in; sign it out the way a viewer
+      # restart did before this fix.
+      - open: /owner
+      - click: owner.signout
+      - wait_for: { visible: owner.signed_out, ms: 6000 }
+      # The runner's own sign-in asked for a code moments ago; a new one
+      # comes 30 s after it (ownerCodeEvery).
+      - wait: 30000
+      - open: /p/{project}/yolo/review
+    act:
+      - click: yolo_review.agree
+      - wait_for: { visible: owner_signin.dialog, ms: 8000 }
+      - click: owner_signin.send
+      - wait_for: { text_contains: { target: owner_signin.msg, text: "Code shown in" }, ms: 8000 }
+      - type: { target: owner_signin.code, text: "{owner_code}" }
+      - click: owner_signin.submit
+      - wait_for: { text_contains: { target: yolo_review.msg, text: "Agreed" }, ms: 8000 }
+      - check: { absent: owner_signin.dialog }
+      - open: /owner
+    checks:
+      - visible: [owner.signed_in]
+      - issue: { slug: shop/price-history-per-item, comment_contains: "yolo-review:" }
+
+  - id: TP2
+    title: The sign-in in place reads clearly on your own Mac, and a restart keeps you signed in
+    judgement_step: true
+    setup:
+      - open: /p/{project}/yolo/review
+    checks:
+      - visible: [yolo_review.page, yolo_review.agree]
+    targets:
+      - { id: owner_signin.dialog, note: the sign-in dialog the refused Agree opens }
+    do: |
+      1. Restart your viewer (or press Sign out on /owner).
+      2. Open Review after YOLO and press Agree on an issue.
+      3. In the dialog press Send me a code, type the code your Mac shows, press Sign in.
+    expect: |
+      The dialog opens over the page instead of a red "Not recorded" line.
+      After Sign in the Agree goes through by itself ("Agreed ✓"), and a
+      later viewer restart doesn't sign the browser out again.
+    why: ux-test runs it with the code printed on the sandbox board's terminal; only you see the dialog on your own Mac.

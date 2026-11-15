@@ -93,7 +93,7 @@ func (d *DecisionsData) FilterURL(system, state string) string {
 }
 
 func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -129,7 +129,7 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request, proj *t
 		if data.System != "" && !strings.EqualFold(e.Issue.System, data.System) {
 			continue
 		}
-		if !matchesDecisionStateFilter(e, data.State) {
+		if !matchesDecisionStateFilter(e, data.State, now) {
 			continue
 		}
 		data.Rows = append(data.Rows, DecisionView{DecisionEntry: e, Prefix: prefix, now: now})
@@ -144,12 +144,14 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request, proj *t
 	}
 }
 
-func matchesDecisionStateFilter(e *tracker.DecisionEntry, state string) bool {
+func matchesDecisionStateFilter(e *tracker.DecisionEntry, state string, now time.Time) bool {
 	switch state {
 	case "":
 		return true
 	case tracker.DecisionReplaced:
 		return e.ReplacedBy != nil
+	case tracker.DecisionProvisional:
+		return e.ProvisionalOn(now)
 	default:
 		return e.State == state
 	}

@@ -79,6 +79,7 @@ func ParseDecisions(slug, body string) []Decision {
 	if !strings.Contains(body, "**D-") {
 		return nil
 	}
+	loadCounts.decisionParses.Add(1)
 	lines := strings.Split(body, "\n")
 	fence := computeFenceFlags(lines)
 	seen := map[int]bool{}
@@ -354,7 +355,7 @@ func BuildDecisionIndex(issues []*Issue, isClosed func(*Issue) bool) *DecisionIn
 	for _, issue := range issues {
 		known[issue.Slug] = true
 		x.issues[issue.Slug] = issue
-		for _, d := range ParseDecisions(issue.Slug, issue.BodyRaw) {
+		for _, d := range issue.Decisions() {
 			e := &DecisionEntry{Decision: d, Issue: issue}
 			x.Entries = append(x.Entries, e)
 			x.byRef[d.Ref] = e
@@ -381,7 +382,7 @@ func BuildDecisionIndex(issues []*Issue, isClosed func(*Issue) bool) *DecisionIn
 	}
 
 	for _, issue := range issues {
-		refs := citedRefs(issue.BodyRaw, known)
+		refs := resolveRefs(issue.refCandidates(), known)
 		x.cites[issue.Slug] = refs
 		for _, ref := range refs {
 			e := x.byRef[ref]
@@ -418,31 +419,44 @@ func BuildDecisionIndex(issues []*Issue, isClosed func(*Issue) bool) *DecisionIn
 // slug is retried without its leading path segments, so a pasted viewer URL
 // (`…/issue/sim/x#D-1`) still resolves.
 func citedRefs(body string, known map[string]bool) []string {
+	return resolveRefs(scanRefCandidates(body), known)
+}
+
+// resolveRefs turns a body's ref candidates into its distinct, sorted refs
+// to known slugs.
+func resolveRefs(cands []refCandidate, known map[string]bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range cands {
+		slug := resolveRefSlug(c.slug, known)
+		if slug == "" {
+			continue
+		}
+		ref := slug + "#D-" + c.num
+		if !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// refLines is the lines of body a ref can be cited on: outside fenced code,
+// with `(replaces …)` parentheticals cut.
+func refLines(body string) []string {
 	if !strings.Contains(body, "#D-") {
 		return nil
 	}
 	lines := strings.Split(body, "\n")
 	fence := computeFenceFlags(lines)
-	seen := map[string]bool{}
 	var out []string
 	for i, line := range lines {
 		if fence[i] || !strings.Contains(line, "#D-") {
 			continue
 		}
-		line = replacesParenRe.ReplaceAllString(line, "")
-		for _, m := range decisionRefRe.FindAllStringSubmatch(line, -1) {
-			slug := resolveRefSlug(m[1], known)
-			if slug == "" {
-				continue
-			}
-			ref := slug + "#D-" + m[2]
-			if !seen[ref] {
-				seen[ref] = true
-				out = append(out, ref)
-			}
-		}
+		out = append(out, replacesParenRe.ReplaceAllString(line, ""))
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -458,33 +472,6 @@ func resolveRefSlug(candidate string, known map[string]bool) string {
 		candidate = rest
 	}
 	return ""
-}
-
-// ClosedIssueFunc reports an issue as closed when its status is `done` or
-// sorts after it in the issue's workflow (e.g. `obsolete`). Without a `done`
-// status, only the workflow's last status is closed.
-func ClosedIssueFunc(proj *Project) func(*Issue) bool {
-	workflows := map[string]*WorkflowConfig{}
-	return func(issue *Issue) bool {
-		key := issue.System + "|" + issue.Type
-		wf, ok := workflows[key]
-		if !ok {
-			wf = proj.LoadWorkflowForIssue(issue)
-			workflows[key] = wf
-		}
-		if wf == nil || len(wf.Statuses) == 0 {
-			return strings.EqualFold(issue.Status, "done")
-		}
-		idx := wf.GetStatusIndex(issue.Status)
-		if idx < 0 {
-			return strings.EqualFold(issue.Status, "done")
-		}
-		done := wf.GetStatusIndex("done")
-		if done < 0 {
-			done = len(wf.Statuses) - 1
-		}
-		return idx >= done
-	}
 }
 
 // appendToSectionTight appends content at the end of the first level-2

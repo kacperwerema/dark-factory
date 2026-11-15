@@ -82,6 +82,29 @@ func TestWithNA(t *testing.T) {
 	}
 }
 
+func TestWithoutNA(t *testing.T) {
+	cases := map[string]string{
+		"ux-test passed (N/A: no page changes)":              "ux-test passed",
+		"ux-test passed (n/a: the test (TestFoo) covers it)": "ux-test passed",
+		"ux-test passed — N/A: something before":             "ux-test passed",
+		"ux-test passed – n/a: something before":             "ux-test passed",
+		"ux-test passed (or N/A: no page changes)":           "ux-test passed (or N/A: no page changes)",
+		"Box (N/A: a reason) and words after it":             "Box (N/A: a reason) and words after it",
+		"Box (N/A: a reason) and (more)":                     "Box (N/A: a reason) and (more)",
+		"Box (N/A: never closed":                             "Box (N/A: never closed",
+		"Plain box":                                          "Plain box",
+	}
+	for in, want := range cases {
+		if got := WithoutNA(in); got != want {
+			t.Errorf("WithoutNA(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// What check --na writes, uncheck takes back.
+	if got := WithoutNA(WithNA("ux-test passed", "no page changes")); got != "ux-test passed" {
+		t.Errorf("round trip = %q", got)
+	}
+}
+
 // A form longer than the column puts its use on the next line, under the
 // others' uses, instead of running into it.
 func TestNAFormsHelpLongForm(t *testing.T) {

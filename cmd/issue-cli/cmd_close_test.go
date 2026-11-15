@@ -118,7 +118,7 @@ func TestClose_WorkerParksDuplicateOfItsIssue(t *testing.T) {
 		t.Errorf("main changed: %s\n%s", main.Status, main.BodyRaw)
 	}
 	if out := stdout.String(); !strings.Contains(out, "cli/dup: idea → parked (duplicate of cli/main)") ||
-		!strings.Contains(out, `Undo: issue-cli --project proj transition cli/dup --to "idea"`) {
+		!strings.Contains(out, `Undo: issue-cli --project proj transition cli/dup --to idea`) {
 		t.Errorf("stdout = %q", out)
 	}
 }

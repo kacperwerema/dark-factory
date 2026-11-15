@@ -22,8 +22,8 @@ const ScoreFamily = "score"
 // is written.
 const minCoverage = 0.5
 
-// trendDays is how far back the trend components compare.
-const trendDays = 30
+// TrendDays is how far back the trend components compare.
+const TrendDays = 30
 
 // Component is one part of the derived score.
 type Component struct {
@@ -55,8 +55,8 @@ func DefaultComponents() []Component {
 			Missing: "no e2e run in local CI (issue-cli ci run --tier slow) and no estimate", measure: e2eWait},
 		{Name: "e2e_coverage", Help: "Done work (90 days) in systems with a playtest session", Good: 0.9, Bad: 0.5, Weight: 10, Unit: UnitShare,
 			Missing: "no playtest sessions or no done issues with a system", measure: row("tests.e2e.coverage")},
-		{Name: "flaky", Help: "Flaky e2e steps / steps run, 14 days", Good: 0, Bad: 0.05, Weight: 10, Unit: UnitShare,
-			Missing: "needs the playtest telemetry (health-check-speed)", measure: row("tests.e2e.flaky_share", "window", "14d")},
+		{Name: "flaky", Help: "ux-test steps that failed and passed on one build / steps run, 14 days", Good: 0, Bad: 0.05, Weight: 10, Unit: UnitShare,
+			Missing: "no ux-test run in 14 days (make ux-test, or local CI's slow tier)", measure: row("tests.e2e.flaky_share", "window", "14d")},
 		{Name: "big_files", Help: "Source lines in big files", Good: 0.05, Bad: 0.30, Weight: 15, Unit: UnitShare,
 			Missing: "no shape family rows", measure: row("shape.big_lines.share")},
 		{Name: "long_funcs", Help: "Functions over the long-function limit", Good: 0.02, Bad: 0.10, Weight: 10, Unit: UnitShare,
@@ -145,7 +145,7 @@ func Derive(cur, past *Snapshot, comps []Component) []Metric {
 
 // deriveInto adds the score rows to snap, from the snapshot 30 days before.
 func deriveInto(env Env, snap *Snapshot) {
-	past := Before(env.Root, env.Now.AddDate(0, 0, -trendDays))
+	past := Before(env.Root, env.Now.AddDate(0, 0, -TrendDays))
 	rows := Derive(snap, past, Components(env.Config))
 	if len(rows) == 0 {
 		return

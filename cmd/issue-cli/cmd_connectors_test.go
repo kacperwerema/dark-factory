@@ -2,15 +2,19 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/connectors"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -232,11 +236,11 @@ func TestConnectorSecretNeverWritten(t *testing.T) {
 	issues, _ := tracker.LoadIssues(proj.IssueDir)
 	page := tracker.FindIssue(issues, "seo/page")
 	printed.WriteString(tracker.DepartmentPromptSection(proj, page))
-	printed.WriteString(tracker.DepartmentLeadBrief(nil, &proj.Departments[0], tracker.LeadBriefInput{Project: proj}))
+	printed.WriteString(briefing.DepartmentLeadBrief(nil, &proj.Departments[0], briefing.LeadBriefInput{Project: proj}))
 	sessionDir := filepath.Join(root, ".agent-logs", "agent-seo-page")
 	os.MkdirAll(sessionDir, 0755)
 	flags := agentrun.ConnectorFlags(proj, agentrun.Spec{IssueSlug: "seo/page", AgentType: "claude"}, sessionDir, []string{"ISSUE_VIEWER_ISSUE_SLUG=seo/page"}, new([]agentrun.Step))
-	if len(flags) != 2 {
+	if len(flags) != 1 || !strings.HasPrefix(flags[0], "--mcp-config=") {
 		t.Fatalf("flags = %v", flags)
 	}
 
@@ -266,3 +270,216 @@ func TestConnectorSecretNeverWritten(t *testing.T) {
 		t.Errorf("scanned only %d files", seen)
 	}
 }
+
+// connectorOptionalFixture adds marketing/video to connectorFixture: a tool
+// whose child writes the env vars it got to <root>/video.txt, with one
+// required secret (set), one optional secret set and one optional unset.
+func connectorOptionalFixture(t *testing.T) (root string) {
+	t.Helper()
+	root = connectorFixture(t)
+	cfg := os.Getenv("ISSUE_VIEWER_CONFIG")
+	b, _ := os.ReadFile(cfg)
+	mustWrite(t, cfg, string(b)+`          - name: video
+            kind: tool
+            command: /bin/sh
+            args: ["-c", "printf 'req=%s set=%s unset=%s:%s' \"$VIDEO_KEY\" \"$TTS_KEY\" \"${IMG_KEY-absent}\" \"$(env | grep -c '^IMG_KEY=')\" > `+filepath.Join(root, "video.txt")+`"]
+            secrets:
+              VIDEO_KEY: env:ACME_WP
+              TTS_KEY: env:ACME_TTS
+              IMG_KEY: env:ACME_IMG_UNSET
+            optional: [TTS_KEY, IMG_KEY]
+            check: 'test -n "$VIDEO_KEY"'
+`)
+	t.Setenv("ACME_TTS", "tts-fake")
+	t.Setenv("ACME_IMG_UNSET", "")
+	return root
+}
+
+// AC1: a connector with an optional unset secret runs, and its child gets
+// only the secrets that are set.
+func TestConnectorExecOptionalSecret(t *testing.T) {
+	root := connectorOptionalFixture(t)
+	if out, err := runCLI(t, "connector", "exec", "marketing/video", "--as-owner"); err != nil {
+		t.Fatalf("exec with an optional secret unset: %s", out)
+	}
+	b, _ := os.ReadFile(filepath.Join(root, "video.txt"))
+	if want := "req=" + fakeConnectorValue + " set=tts-fake unset=absent:0"; string(b) != want {
+		t.Fatalf("the child got %q, want %q", b, want)
+	}
+	out, _ := runCLI(t, "connectors", "marketing")
+	assertContains(t, out, "  IMG_KEY env:ACME_IMG_UNSET not set (optional)")
+	assertContains(t, out, "  TTS_KEY env:ACME_TTS set (optional)")
+	out, _ = runCLI(t, "show", "seo/page")
+	assertContains(t, out, "Connectors: 4 (1 missing)") // qb only
+
+	// A required secret still stops it.
+	t.Setenv("ACME_WP", "")
+	if out, err := runCLI(t, "connector", "exec", "marketing/video", "--as-owner"); err == nil || !strings.Contains(out, "secret VIDEO_KEY (env:ACME_WP) is missing") {
+		t.Errorf("required missing: %s", out)
+	}
+}
+
+// AC2: connector check lists each optional secret as set or not set.
+func TestConnectorCheckOptionalSecrets(t *testing.T) {
+	root := connectorOptionalFixture(t)
+	out, err := runCLI(t, "connector", "check", "marketing/video")
+	if err != nil {
+		t.Fatalf("check: %v\n%s", err, out)
+	}
+	assertContains(t, out, "✓ marketing/video ok\n  IMG_KEY optional: not set\n  TTS_KEY optional: set\n")
+	b, _ := os.ReadFile(filepath.Join(root, "issues", ".connectors", "checks.jsonl"))
+	assertContains(t, string(b), `"optional":[{"var":"IMG_KEY","set":false},{"var":"TTS_KEY","set":true}]`)
+	if strings.Contains(string(b), "tts-fake") || strings.Contains(string(b), fakeConnectorValue) {
+		t.Errorf("the checks log holds a secret value:\n%s", b)
+	}
+	out, _ = runCLI(t, "connector", "check", "marketing/video", "--json")
+	var recs []connectors.Record
+	if err := json.Unmarshal([]byte(out), &recs); err != nil || len(recs) != 1 || len(recs[0].Optional) != 2 || recs[0].Optional[0].Set || !recs[0].Optional[1].Set {
+		t.Errorf("json: %v\n%s", err, out)
+	}
+}
+
+// perRunFixture adds a tool with per_run: to connectorFixture's Marketing:
+// start: leaves the file up, stop: removes it, and each prints to stdout.
+func perRunFixture(t *testing.T) (root, up string) {
+	t.Helper()
+	root = connectorFixture(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	bin := filepath.Join(root, "bin")
+	os.MkdirAll(bin, 0755)
+	standin.Write(t, filepath.Join(bin, "mem-guard"), "echo 'ok: memory used 50% (< 75%)'\n")
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	up = filepath.Join(root, "up")
+	cfg := os.Getenv("ISSUE_VIEWER_CONFIG")
+	b, _ := os.ReadFile(cfg)
+	mustWrite(t, cfg, string(b)+`          - name: heavy
+            kind: tool
+            command: /bin/sh
+            per_run:
+              start: 'echo leaked-by-start; echo "$WP_PASSWORD"; touch `+up+`'
+              ready: 'test -f `+up+`'
+              stop: 'echo leaked-by-stop; echo x >> `+up+`.stops; rm `+up+`'
+              timeout: 10
+            secrets:
+              WP_PASSWORD: env:ACME_WP
+`)
+	return root, up
+}
+
+func TestConnectorExecPerRun(t *testing.T) {
+	root, up := perRunFixture(t)
+	seen := filepath.Join(root, "seen")
+	out, err := runCLI(t, "connector", "exec", "marketing/heavy", "--as-owner", "--", "/bin/sh", "-c", "test -f "+up+" && touch "+seen+" && echo child-output")
+	if err != nil {
+		t.Fatal(out)
+	}
+	if !fileExists(seen) {
+		t.Error("the child ran before the tool was up")
+	}
+	if fileExists(up) {
+		t.Error("the tool is still up after the run")
+	}
+	assertContains(t, out, "child-output")
+
+	list, _ := runCLI(t, "connectors", "marketing")
+	assertContains(t, list, "marketing/heavy (tool) · starts per run, stopped")
+}
+
+func TestConnectorRunOutputStaysOut(t *testing.T) {
+	root, _ := perRunFixture(t)
+	out, err := runCLI(t, "connector", "exec", "marketing/heavy", "--as-owner", "--", "/bin/sh", "-c", "echo child-output")
+	if err != nil {
+		t.Fatal(out)
+	}
+	if strings.TrimSpace(out) != "child-output" {
+		t.Errorf("start:/stop: output reached the run: %q", out)
+	}
+	log, _ := os.ReadFile(filepath.Join(root, "issues", ".connectors", "runs.jsonl"))
+	if strings.Contains(string(log), "leaked") || strings.Contains(string(log), fakeConnectorValue) {
+		t.Errorf("run log holds a command's output: %s", log)
+	}
+}
+
+func TestConnectorExecPerRunStopsOnAFailingChild(t *testing.T) {
+	_, up := perRunFixture(t)
+	_, err := runCLI(t, "connector", "exec", "marketing/heavy", "--as-owner", "--", "/bin/sh", "-c", "exit 7")
+	var code *exitCodeError
+	if !errors.As(err, &code) || code.Code != 7 {
+		t.Fatalf("err = %v, want exit 7 through", err)
+	}
+	if fileExists(up) {
+		t.Error("the tool is still up after a failing child")
+	}
+}
+
+func TestConnectorExecPerRunStopsOnASignal(t *testing.T) {
+	root, up := perRunFixture(t)
+	began := filepath.Join(root, "began")
+	done := make(chan error, 1)
+	go func() {
+		_, err := runCLI(t, "connector", "exec", "marketing/heavy", "--as-owner", "--", "/bin/sh", "-c", "touch "+began+"; exec sleep 60")
+		done <- err
+	}()
+	deadline := time.Now().Add(30 * time.Second)
+	for !fileExists(began) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child never ran")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// connector exec is listening: this is what a closed tmux pane's HUP does.
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the run didn't end on the signal")
+	}
+	if fileExists(up) {
+		t.Error("the tool is still up after the signal")
+	}
+}
+
+func TestConnectorExecWrongCallStartsNothing(t *testing.T) {
+	_, up := perRunFixture(t)
+	cfg := os.Getenv("ISSUE_VIEWER_CONFIG")
+	b, _ := os.ReadFile(cfg)
+	mustWrite(t, cfg, strings.Replace(string(b), "command: /bin/sh\n            per_run", "per_run", 1))
+	if out, err := runCLI(t, "connector", "exec", "marketing/heavy", "--as-owner"); err == nil || !strings.Contains(out, "has no command") {
+		t.Fatalf("no command: %s", out)
+	}
+	if fileExists(up + ".stops") {
+		t.Error("a wrong call ran the tool's commands")
+	}
+}
+
+func TestConnectorSweepCommand(t *testing.T) {
+	perRunFixture(t)
+	out, err := runCLI(t, "connector", "sweep", "marketing")
+	if err != nil {
+		t.Fatal(out)
+	}
+	assertContains(t, out, "no per-run tool left up")
+	if out, err := runCLI(t, "connector", "sweep", "ops"); err == nil || !strings.Contains(out, `no department "ops"`) {
+		t.Errorf("unknown department: %s", out)
+	}
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "SEO/page")
+	if out, err := runCLI(t, "connector", "sweep"); err == nil || !strings.Contains(out, "for the owner or a department's lead") {
+		t.Errorf("a worker swept: %s", out)
+	}
+}
+
+func TestConnectorCheckStoppedTool(t *testing.T) {
+	_, up := perRunFixture(t)
+	out, err := runCLI(t, "connector", "check", "marketing/heavy")
+	if err != nil {
+		t.Fatal(out)
+	}
+	assertContains(t, out, "· marketing/heavy stopped")
+	if fileExists(up) {
+		t.Error("a check started the tool")
+	}
+}
+
+func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }

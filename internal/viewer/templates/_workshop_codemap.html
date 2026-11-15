@@ -1,0 +1,58 @@
+{{/*
+Workshop Board components of the code map page (/p/<project>/codemap). View
+model in codemap_view.go, styles in static/workshop.css ("The code map"),
+behaviour in static/codemap.js. templates/codemap.html composes them.
+
+  wb/cm-lane       one layer and its context boxes          data: CodemapLane
+  wb/cm-context    one context: name, counts, package chips data: CodemapContext
+  wb/cm-footprint  ?files= on the map: works in, reaches    data: *CodemapFootprint
+  wb/cm-matrix     imports between contexts, upward in red  data: CodemapData
+  wb/cm-edges      the upward imports and unmapped packages data: CodemapData
+*/}}
+
+{{define "wb/cm-lane"}}
+<section class="wb-cm-lane" data-testid="codemap.lane" data-layer="{{.Name}}">
+    <div class="wb-cm-lane-h"><b>{{.Name}}</b><span>layer {{.Level}}{{if .Shared}} · shared{{end}}</span></div>
+    <div class="wb-cm-boxes">{{range .Contexts}}{{template "wb/cm-context" .}}{{end}}</div>
+</section>
+{{end}}
+
+{{define "wb/cm-context"}}
+<div class="wb-cm-box" data-testid="codemap.context.{{.Key}}" data-ctx="{{.Key}}"{{with .Mark}} data-mark="{{.}}"{{end}} title="{{.Summary}}">
+    <div class="wb-cm-box-h"><strong>{{.Name}}</strong><span>{{len .Packages}} pkg · {{.Lines}} lines</span></div>
+    <div class="wb-cm-chips">{{range .Packages}}<button type="button" class="wb-cm-chip{{if .Big}} wb-cm-chip--big{{end}}{{if .Up}} wb-cm-chip--up{{end}}" data-testid="codemap.chip.{{.ID}}" data-p="{{.Dir}}"{{with .Mark}} data-mark="{{.}}"{{end}} title="{{.Dir}} · {{.Lines}} lines{{if .Up}} · imports up a layer{{end}}">{{.Label}}</button>{{end}}</div>
+    {{if .Surface}}<span class="wb-cm-files">{{.Surface}} viewer / CLI files work in it</span>{{end}}
+</div>
+{{end}}
+
+{{define "wb/cm-footprint"}}{{with .}}
+<section class="wb-panel" data-testid="codemap.footprint" aria-labelledby="cm-fp-h">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="cm-fp-h">Footprint</h2><span class="wb-panel-sub">{{.Files}} files · {{.Changed}} packages changed · {{.Reached}} more reached</span></div>
+    <div class="wb-panel-body">
+        <p class="wb-panel-sub">Works in {{range $i, $c := .WorksIn}}{{if $i}}, {{end}}<b>{{$c}}</b>{{else}}none{{end}}{{if .Reaches}}; reaches {{range $i, $c := .Reaches}}{{if $i}}, {{end}}{{$c}}{{end}}{{end}}.</p>
+        <p class="wb-panel-sub">Rebuild: {{range $i, $b := .Binaries}}{{if $i}}, {{end}}<code>{{$b}}</code>{{else}}nothing{{end}}{{if .Watch}} · Watch: {{range $i, $w := .Watch}}{{if $i}}, {{end}}<code>{{$w}}</code>{{end}} import up a layer{{end}}</p>
+        {{if .Other}}<p class="wb-panel-sub">Not mapped: {{range $i, $o := .Other}}{{if $i}}, {{end}}<code>{{$o}}</code>{{end}}</p>{{end}}
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/cm-matrix"}}
+<section class="wb-panel" aria-labelledby="cm-mx-h" data-testid="codemap.matrix">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="cm-mx-h">Imports between contexts</h2><span class="wb-panel-sub">package imports, row imports column · red points up a layer</span></div>
+    <div class="wb-panel-body wb-cm-mx-wrap"><table class="wb-cm-mx">
+        <tr><th></th>{{range .Keys}}<th title="{{.Name}}">{{.Key}}</th>{{end}}</tr>
+        {{range .Matrix}}<tr><th scope="row">{{.Name}}</th>{{range .Cells}}<td{{if .Self}} class="wb-cm-self"{{else if and .N .Up}} class="wb-cm-up"{{end}}>{{if .Self}}·{{else if .N}}{{.N}}{{end}}</td>{{end}}</tr>{{end}}
+    </table></div>
+</section>
+{{end}}
+
+{{define "wb/cm-edges"}}
+<section class="wb-panel" aria-labelledby="cm-up-h" data-testid="codemap.upward">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="cm-up-h">Imports up a layer · {{len .Upward}}</h2><span class="wb-panel-sub">known ones are listed under the context's leaks:</span></div>
+    <div class="wb-panel-body"><ul class="wb-st-list">
+        {{range .Upward}}<li data-known="{{.Known}}"><code>{{.From}}</code> → <code>{{.To}}</code> ({{.FromName}} → {{.ToName}}) · {{if .Known}}known leak{{else}}<b>new</b>{{end}} · <code>{{.File}}:{{.Line}}</code></li>{{else}}<li>None.</li>{{end}}
+    </ul>
+    {{if .Unmapped}}<p class="wb-panel-sub" data-testid="codemap.unmapped">Unmapped: {{range $i, $u := .Unmapped}}{{if $i}}, {{end}}<code>{{$u}}</code>{{end}}</p>{{end}}
+    </div>
+</section>
+{{end}}

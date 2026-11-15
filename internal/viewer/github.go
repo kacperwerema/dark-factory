@@ -57,7 +57,7 @@ func FetchGitHubIssues(repo string) ([]GitHubIssue, error) {
 // if set, any explicit `github_url` frontmatter value. The URL is the canonical
 // reference — matching on it avoids the ambiguity of bare issue numbers.
 func LocalGitHubURLs(proj *tracker.Project) (map[string]bool, error) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return nil, err
 	}

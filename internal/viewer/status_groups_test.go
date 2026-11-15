@@ -225,6 +225,7 @@ func TestStatusMarkdownCaps(t *testing.T) {
 	m := &StatusModel{Project: "Big", AsOf: now}
 	for i := 0; i < 40; i++ {
 		m.Waiting = append(m.Waiting, WaitingItem{Kind: "gate", Target: "backlog", Issue: &tracker.Issue{Slug: fmt.Sprintf("ui/g%d", i), Status: "in design"}})
+		m.NeedsYou = append(m.NeedsYou, WbQueueCard{Kind: "gate"})
 		m.Active = append(m.Active, ActiveRow{Issue: &tracker.Issue{Slug: fmt.Sprintf("ui/a%d", i), Status: "in progress"}})
 		m.Backlog = append(m.Backlog, &tracker.Issue{Slug: fmt.Sprintf("ui/b%d", i)})
 		m.Parked = append(m.Parked, ParkedRow{Issue: &tracker.Issue{Slug: fmt.Sprintf("ui/p%d", i)}})

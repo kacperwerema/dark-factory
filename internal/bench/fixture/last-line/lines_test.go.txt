@@ -1,0 +1,11 @@
+package tally
+
+import "testing"
+
+func TestLinesCountsALastLineWithoutANewline(t *testing.T) {
+	for text, want := range map[string]int{"one\ntwo": 2, "one": 1, "": 0, "one\n": 1, "\n": 1} {
+		if n := Lines(text); n != want {
+			t.Errorf("Lines(%q) = %d, want %d", text, n, want)
+		}
+	}
+}

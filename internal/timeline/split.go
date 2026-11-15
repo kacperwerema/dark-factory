@@ -146,18 +146,19 @@ func LifeStart(src Sources) time.Time {
 
 // LifeEnd is the last done transition's time, or now for an issue in flight.
 func LifeEnd(src Sources, in In) (time.Time, bool) {
-	if in.Status == "done" {
-		if t, ok := DoneAt(src.Transitions); ok {
+	done := in.WF.IsLastStatus(in.Status)
+	if done {
+		if t, ok := DoneAt(src.Transitions, in.WF); ok {
 			return t, false
 		}
 	}
-	return in.Now, in.Status != "done"
+	return in.Now, !done
 }
 
-// DoneAt is the time of the last transition to done.
-func DoneAt(rows []tracker.TransitionStat) (time.Time, bool) {
+// DoneAt is the time of the last transition to the end of wf.
+func DoneAt(rows []tracker.TransitionStat, wf *tracker.WorkflowConfig) (time.Time, bool) {
 	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].To == "done" {
+		if wf.IsLastStatus(rows[i].To) {
 			return rows[i].TS, true
 		}
 	}
@@ -167,7 +168,7 @@ func DoneAt(rows []tracker.TransitionStat) (time.Time, bool) {
 func lifeBands(src Sources, in In, start, end time.Time) []Band {
 	rows := src.Transitions
 	if len(rows) == 0 {
-		return []Band{{Status: in.Status, From: start, To: end, Gated: in.OpenGated, Open: in.Status != "done"}}
+		return []Band{{Status: in.Status, From: start, To: end, Gated: in.OpenGated, Open: !in.WF.IsLastStatus(in.Status)}}
 	}
 	var bands []Band
 	from := start
@@ -182,7 +183,7 @@ func lifeBands(src Sources, in In, start, end time.Time) []Band {
 		from = r.TS
 	}
 	last := rows[len(rows)-1].To
-	if last != "done" {
+	if !in.WF.IsLastStatus(last) {
 		bands = append(bands, Band{Status: last, From: from, To: end, Gated: in.OpenGated, Open: true})
 	}
 	return bands
@@ -441,12 +442,12 @@ func TestingStart(rows []tracker.TransitionStat, wf *tracker.WorkflowConfig) tim
 	if wf == nil {
 		return time.Time{}
 	}
-	ti := wf.GetStatusIndex("testing")
+	ti := wf.GetStatusIndex(wf.RoleStatus(tracker.StatusRoleVerify))
 	if ti < 0 {
 		return time.Time{}
 	}
 	for _, r := range rows {
-		if idx := wf.GetStatusIndex(r.To); idx >= ti && r.To != "parked" {
+		if idx := wf.GetStatusIndex(r.To); idx >= ti && !tracker.IsParkedStatus(r.To) {
 			return r.TS
 		}
 	}

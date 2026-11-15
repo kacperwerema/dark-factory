@@ -27,7 +27,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/liveboard"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 const usage = `playtest — run issue-viewer playtest sessions (playtest/sessions/*.yaml)
@@ -80,6 +82,7 @@ func main() {
 }
 
 type opts struct {
+	repo                      string
 	sessions, scenarios, runs string
 	issue, session, steps     string
 	project                   string
@@ -104,7 +107,7 @@ func run(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "playtest:", err)
 		return 2
 	}
-	var o opts
+	o := opts{repo: repo}
 	fs := flag.NewFlagSet("playtest "+cmd, flag.ContinueOnError)
 	fs.SetOutput(errw)
 	fs.StringVar(&o.sessions, "sessions", filepath.Join(repo, "playtest", "sessions"), "session files")
@@ -113,7 +116,7 @@ func run(args []string, out, errw io.Writer) int {
 	fs.StringVar(&o.issue, "issue", "", "only sessions for this issue slug")
 	fs.StringVar(&o.session, "s", "", "only this session")
 	fs.StringVar(&o.steps, "step", "", "only these step ids (comma-separated)")
-	fs.StringVar(&o.project, "project", "", "issue-cli --project for the real issue (default $PLAYTEST_PROJECT; for report also $ISSUE_VIEWER_PROJECT and the configured project whose issues dir is this repo's; else issue-viewer)")
+	fs.StringVar(&o.project, "project", "", "check, report: the project of the real issue (default $PLAYTEST_PROJECT, $ISSUE_VIEWER_PROJECT, the configured project whose issues dir is this repo's; else issue-viewer)")
 	fs.StringVar(&o.results, "results", resultsDefault(), "ux-test: also write the e2e results (sessions, steps, times) here; default $CI_RESULTS_DIR/e2e.json in local CI")
 	fs.IntVar(&o.repeat, "repeat", 1, "run N times and fail if results differ")
 	fs.BoolVar(&o.keep, "keep", false, "keep scenario temp dirs")
@@ -136,17 +139,9 @@ func run(args []string, out, errw io.Writer) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	switch {
-	case o.project != "":
-	case cmd == "report":
-		// report writes to the issue: it must reach a project this
-		// machine has.
+	if o.project == "" && (cmd == "check" || cmd == "report") {
+		// Both read the real board; report writes to it too.
 		o.project = defaultProject(os.Getenv, listProjects, repoIssueDirs(repo))
-	default:
-		// check reads step ids against the board only where
-		// PLAYTEST_PROJECT asks for it; elsewhere ids are checked for
-		// shape (the old default).
-		o.project = envOr("PLAYTEST_PROJECT", "issue-viewer")
 	}
 
 	switch cmd {
@@ -201,13 +196,21 @@ func repoRoot() (string, error) {
 func loadAll(o opts, out, errw io.Writer, resolve bool) []*Session {
 	all, errs := LoadSessions(o.sessions)
 	v := &Validator{ScenarioDir: o.scenarios}
+	var open func(string) bool
 	if resolve {
-		v.Checklist = issueChecklist(o.project)
+		var note string
+		v.Checklist, open, note = boardChecklist(o.project, o.repo, listProjects)
+		if note != "" {
+			fmt.Fprintln(out, "note:", note)
+		}
 	}
 	for _, s := range all {
 		errs = append(errs, v.Validate(s)...)
 	}
 	for _, n := range v.Notes {
+		fmt.Fprintln(out, "note:", n)
+	}
+	if n := UnresolvedNote(v.Unresolved); n != "" {
 		fmt.Fprintln(out, "note:", n)
 	}
 	if len(errs) > 0 {
@@ -216,6 +219,11 @@ func loadAll(o opts, out, errw io.Writer, resolve bool) []*Session {
 		}
 		fmt.Fprintf(errw, "✗ %d problem(s) in %s\n", len(errs), o.sessions)
 		return nil
+	}
+	if resolve {
+		for _, w := range ProofOverlapWarnings(all, open) {
+			fmt.Fprintln(out, "warning:", w)
+		}
 	}
 	return all
 }
@@ -356,7 +364,7 @@ func failLines(res *Results) []string {
 // defaultProject is the issue-cli project for the real issue when -project
 // is not given: $PLAYTEST_PROJECT, the dispatched worker's
 // $ISSUE_VIEWER_PROJECT, the configured project (issue-cli --json projects)
-// whose issue_dir is one of issueDirs, and only then "issue-viewer", the
+// whose issue_dir is one of issueDirs, and only then fallbackProject, the
 // engine board's old name. A name this machine doesn't have makes every
 // issue-cli call fail, so APPLY ticks nothing.
 func defaultProject(getenv func(string) string, list func() ([]byte, error), issueDirs []string) string {
@@ -365,22 +373,38 @@ func defaultProject(getenv func(string) string, list func() ([]byte, error), iss
 			return v
 		}
 	}
-	if raw, err := list(); err == nil {
-		var ps []struct {
-			Slug     string `json:"slug"`
-			IssueDir string `json:"issue_dir"`
-		}
-		if json.Unmarshal(raw, &ps) == nil {
-			for _, d := range issueDirs {
-				for _, p := range ps {
-					if p.IssueDir != "" && samePath(p.IssueDir, d) {
-						return p.Slug
-					}
-				}
+	ps := configuredProjects(list)
+	for _, d := range issueDirs {
+		for _, p := range ps {
+			if p.IssueDir != "" && samePath(p.IssueDir, d) {
+				return p.Slug
 			}
 		}
 	}
-	return "issue-viewer"
+	return fallbackProject
+}
+
+// fallbackProject is what defaultProject answers when nothing named a
+// project and none matched this repo.
+const fallbackProject = "issue-viewer"
+
+// configuredProject is one row of issue-cli --json projects.
+type configuredProject struct {
+	Slug     string `json:"slug"`
+	IssueDir string `json:"issue_dir"`
+}
+
+// configuredProjects is what list prints, nil when it can't be read.
+func configuredProjects(list func() ([]byte, error)) []configuredProject {
+	raw, err := list()
+	if err != nil {
+		return nil
+	}
+	var ps []configuredProject
+	if json.Unmarshal(raw, &ps) != nil {
+		return nil
+	}
+	return ps
 }
 
 func samePath(a, b string) bool {
@@ -406,51 +430,86 @@ func repoIssueDirs(repo string) []string {
 	return dirs
 }
 
+// listProjects asks issue-cli for the configured projects. The call is the
+// tool's, not the worker's: it runs without ISSUE_CLI_LOG, so it stays out
+// of the clilog of the agent running make validate. It runs from the
+// filesystem root because issue-cli answers a folder with an issues/ as its
+// one project: from the primary checkout the configured list never arrives.
 func listProjects() ([]byte, error) {
 	bin, err := exec.LookPath(issueCLI())
 	if err != nil {
 		return nil, err
 	}
-	return exec.Command(bin, "--json", "projects").Output()
+	if bin, err = filepath.Abs(bin); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(bin, "--json", "projects")
+	cmd.Dir = string(filepath.Separator)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "ISSUE_CLI_LOG=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	return cmd.Output()
 }
 
 // issueCLI is the real issue-cli, used to read and update the real issue.
 func issueCLI() string { return envOr("PLAYTEST_ISSUE_CLI", "issue-cli") }
 
-// issueChecklist reads an issue's checkbox ids through the real issue-cli.
-// It returns ok=false when the issue can't be resolved here.
-func issueChecklist(project string) func(string) (map[string]string, bool) {
-	cache := map[string]map[string]string{}
-	return func(slug string) (map[string]string, bool) {
-		if ids, ok := cache[slug]; ok {
-			return ids, ids != nil
+// boardDir is the board check reads: LIVE_BOARD when set, as for tests,
+// then the project's issue_dir, then, when nothing named a project, the
+// board beside this repo's git common dir. A project named but not listed
+// is an error: it never reads another project's board.
+func boardDir(project, repo string, list func() ([]byte, error)) (string, error) {
+	if v := os.Getenv(liveboard.Env); v != "" {
+		return liveboard.Find(repo, v)
+	}
+	for _, p := range configuredProjects(list) {
+		if p.Slug == project && p.IssueDir != "" {
+			return p.IssueDir, nil
 		}
-		cache[slug] = nil
-		bin, err := exec.LookPath(issueCLI())
-		if err != nil {
-			return nil, false
-		}
-		cmd := exec.Command(bin, "--project", project, "--json", "checklist", slug)
-		raw, err := cmd.Output()
-		if err != nil {
-			return nil, false
-		}
-		var doc struct {
-			Items []struct {
-				ID      string `json:"id"`
-				Section string `json:"section"`
-			} `json:"items"`
-		}
-		if json.Unmarshal(raw, &doc) != nil {
-			return nil, false
-		}
+	}
+	if project == fallbackProject {
+		return liveboard.Find(repo, "")
+	}
+	return "", errors.New("issue-cli doesn't list it here")
+}
+
+// boardChecklist reads the project's board once and answers each issue's
+// checkbox ids (uppercase) with their sections, and whether each is still
+// open. The issue files are read
+// here, not through issue-cli checklist: a session outlives its issue, and a
+// child per session would add a record to the project's clilog on every
+// validate, a failing one for each issue that has left the board.
+//
+// A project it can't read gives a nil checklist and open, so nothing is
+// looked up, and the one note that says so.
+func boardChecklist(project, repo string, list func() ([]byte, error)) (func(string) (map[string]string, bool), func(string) bool, string) {
+	unread := func(why string) (func(string) (map[string]string, bool), func(string) bool, string) {
+		return nil, nil, fmt.Sprintf("no board read for project %q (%s; -project, PLAYTEST_PROJECT or LIVE_BOARD names one): step ids checked for shape only", project, why)
+	}
+	dir, err := boardDir(project, repo, list)
+	if err != nil {
+		return unread(err.Error())
+	}
+	issues, err := tracker.LoadIssues(dir)
+	if err != nil {
+		return unread(err.Error())
+	}
+	board := make(map[string]map[string]string, len(issues))
+	open := make(map[string]bool, len(issues))
+	for _, issue := range issues {
 		ids := map[string]string{}
-		for _, it := range doc.Items {
+		for _, it := range tracker.ListCheckboxes(issue.BodyRaw) {
 			if it.ID != "" {
 				ids[strings.ToUpper(it.ID)] = it.Section
 			}
 		}
-		cache[slug] = ids
-		return ids, true
+		board[strings.ToLower(issue.Slug)] = ids
+		open[strings.ToLower(issue.Slug)] = !tracker.IsClosedStatus(nil, issue.Status)
 	}
+	return func(slug string) (map[string]string, bool) {
+		ids, ok := board[strings.ToLower(slug)]
+		return ids, ok
+	}, func(slug string) bool { return open[strings.ToLower(slug)] }, ""
 }

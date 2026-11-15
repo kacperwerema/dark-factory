@@ -1,14 +1,17 @@
 package checks
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // IssueWorktree is the git worktree of the repository at root checked out on
@@ -19,22 +22,81 @@ func IssueWorktree(root, slug string) string {
 	if root == "" || slug == "" {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", root, "worktree", "list", "--porcelain").Output()
-	if err != nil {
+	path := Worktrees(root)["work/"+slug]
+	if path == "" {
 		return ""
 	}
-	want := "branch refs/heads/work/" + slug
-	path := ""
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
-	for sc.Scan() {
-		line := sc.Text()
-		if p, ok := strings.CutPrefix(line, "worktree "); ok {
-			path = p
-		} else if line == want && path != "" {
-			if _, err := os.Stat(path); err == nil {
-				return path
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// ScriptWorktrees are the linked worktrees of the repository at root (not
+// root itself) holding a scripts/checks/*.sh whose header names slug, while
+// root holds none: a script in the main checkout (merged, or a project that
+// works without worktrees) is where the issue's checks are. A project may
+// branch as it likes (<system>/<short> in .worktrees/<short>), so
+// when there is no work/<slug> worktree, the issue's own scripts say where
+// its work is. Sorted; nil when none.
+func ScriptWorktrees(root, slug string) []string {
+	if root == "" || slug == "" {
+		return nil
+	}
+	h := scriptHomesOf(root)
+	if h.main[slug] {
+		return nil
+	}
+	return slices.Clone(h.trees[slug])
+}
+
+// scriptHomes is which slugs the scripts of a repository name: in its main
+// checkout, and per slug the linked worktrees (resolved, sorted) holding one.
+type scriptHomes struct {
+	main  map[string]bool
+	trees map[string][]string
+}
+
+var recentHomes recent.Readings[string, scriptHomes]
+
+// scriptHomesOf lists every worktree's scripts once, for every slug a pass
+// asks about; in the viewer it stands for one page (recent.Keep).
+func scriptHomesOf(root string) scriptHomes {
+	return recentHomes.Get(root, func() scriptHomes {
+		h := scriptHomes{main: map[string]bool{}, trees: map[string][]string{}}
+		for _, f := range listScripts(root) {
+			h.main[f.slug] = true
+		}
+		main := resolved(root)
+		for _, w := range worktreeList(root) {
+			p := resolved(w.Path)
+			if p == main {
+				continue
+			}
+			seen := map[string]bool{}
+			for _, f := range listScripts(p) {
+				if f.slug != "" && !seen[f.slug] {
+					seen[f.slug] = true
+					h.trees[f.slug] = append(h.trees[f.slug], p)
+				}
 			}
 		}
+		for _, trees := range h.trees {
+			sort.Strings(trees)
+		}
+		return h
+	})
+}
+
+// WorktreeFor is the issue's worktree when the workflow declares none: the
+// one on work/<slug> (IssueWorktree), else the single worktree holding its
+// scripts (ScriptWorktrees); "" when there is none or several.
+func WorktreeFor(root, slug string) string {
+	if wt := IssueWorktree(root, slug); wt != "" {
+		return wt
+	}
+	if trees := ScriptWorktrees(root, slug); len(trees) == 1 {
+		return trees[0]
 	}
 	return ""
 }
@@ -47,23 +109,43 @@ func MergedInto(root, wt string) string {
 	if root == "" || wt == "" || resolved(root) == resolved(wt) {
 		return ""
 	}
-	git := func(dir string, args ...string) (string, error) {
-		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-		return strings.TrimSpace(string(out)), err
-	}
 	for _, main := range []string{"main", "master"} {
-		if _, err := git(root, "rev-parse", "--verify", "--quiet", "refs/heads/"+main); err != nil {
+		mainSha := tracker.BranchHead(root, main)
+		if mainSha == "" {
 			continue
 		}
-		if _, err := git(wt, "merge-base", "--is-ancestor", "HEAD", "refs/heads/"+main); err != nil {
+		head := worktreeHead(root, wt)
+		if head == "" {
 			return ""
 		}
-		if status, err := git(wt, "status", "--porcelain"); err != nil || status != "" {
+		if _, err := tracker.GitCached(root, "merge-base", "--is-ancestor", head, mainSha); err != nil {
+			return ""
+		}
+		out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+		if err != nil || strings.TrimSpace(string(out)) != "" {
 			return ""
 		}
 		return main
 	}
 	return ""
+}
+
+// worktreeHead is the commit the worktree wt has checked out, from the
+// repository's branch heads while it is on a branch; "" when unreadable.
+func worktreeHead(root, wt string) string {
+	want := resolved(wt)
+	for _, w := range worktreeList(root) {
+		if w.Branch != "" && resolved(w.Path) == want {
+			if sha := tracker.BranchHead(root, w.Branch); sha != "" {
+				return sha
+			}
+		}
+	}
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "--verify", "--quiet", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // WorktreeHolding is the git worktree of the repository at root that holds
@@ -74,19 +156,11 @@ func WorktreeHolding(root, dir string) string {
 	if root == "" || dir == "" {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", root, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		return ""
-	}
+	trees := worktreeList(root)
 	root, dir = resolved(root), resolved(dir)
 	best := ""
-	sc := bufio.NewScanner(strings.NewReader(string(out)))
-	for sc.Scan() {
-		p, ok := strings.CutPrefix(sc.Text(), "worktree ")
-		if !ok {
-			continue
-		}
-		p = resolved(p)
+	for _, w := range trees {
+		p := resolved(w.Path)
 		if p == root || len(p) <= len(best) {
 			continue
 		}

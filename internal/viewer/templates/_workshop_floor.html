@@ -15,27 +15,39 @@ fit is in the inspector. The classic company page is at ?classic=1.
   wb/fl-insp       one room in the rail                            data: FloorInspector
   wb/fl-num        one of a tile's three numbers                   data: FloorNum
   wb/fl-goals      a tile's goals as bars (detail level)           data: []WbGoal
+  wb/fl-list       the floor on a phone: one row per room          data: []FloorListRow
 */}}
 
 {{define "wb/fl-header"}}
 <header class="wb-fl-header">
     <a class="wb-fl-logo" href="/" title="Dark Factory: the map" data-testid="map.brand"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/></svg></a>
+    <a class="wb-crumb-up" href="/" aria-label="Up: Map" title="Map" data-testid="map.up">‹</a>
     <nav class="wb-fl-crumbs" aria-label="Level">
         <a class="wb-fl-crumb" href="/">Map</a>
         <span aria-hidden="true" class="wb-crumb-sep">›</span>
         <span class="wb-fl-crumb wb-fl-crumb--on" aria-current="page"><i class="wb-fl-crumb-sq" style="background:{{.Lot.Color}}"></i>{{.Lot.Name}}</span>
     </nav>
+    <input type="checkbox" id="wb-drawer" class="wb-drawer-toggle" aria-label="Show the header's goals, views and sign-in">
+    <label for="wb-drawer" class="wb-drawer-btn" title="More: goals, views, YOLO and sign-in" data-testid="map.drawer"><span class="wb-drawer-open" aria-hidden="true">☰</span><span class="wb-drawer-close" aria-hidden="true">✕</span></label>
+    {{/* .wb-fl-stats is display: contents: above 640px its children sit in the
+       header row as before; at 640px and below all but the waiting count fold
+       into the ☰ drawer (workshop.css, phone block). */}}
+    <div class="wb-fl-stats">
     <div class="wb-fl-goals">{{range .Header.Goals}}<span class="wb-fl-goal{{if .Off}} wb-fl-goal--off{{end}}" title="Goal: {{if .Title}}{{.Title}}{{else}}{{.Progress.Label}}{{end}}" data-testid="floor.goal"><span class="wb-fl-goal-name">{{.Progress.Label}}</span><span class="wb-fl-goal-bar"><i style="width:{{.Progress.Pct}}%"></i></span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span>{{end}}</div>
     <span class="wb-grow"></span>
     {{with .Header.YOLO}}{{if not .On}}{{template "wb/yolo-switch" .}}{{end}}{{end}}
     {{if .AfterYOLO}}<a class="wb-fl-after" href="{{.YOLOReviewURL}}" title="Issues YOLO moved without you, waiting for your review" data-testid="floor.after_yolo"><i class="wb-fl-hazard-sq" aria-hidden="true"></i>{{.AfterYOLO}} after the fact</a>{{end}}
-    <a class="wb-fl-you{{if not .Waiting}} wb-fl-you--calm{{end}}" href="{{.Header.WaitingURL}}" data-testid="map.waiting"><span class="wb-fl-you-mark">!</span>{{.Waiting}} waiting on you</a>
-    <a class="wb-fl-avatar" href="/owner" title="You: owner sign-in (approvals and other owner decisions need it)" data-testid="map.owner">YOU</a>
+    {{with .Toggle}}<div class="wb-toggle wb-fl-drawer-views" role="group" aria-label="Project view">{{range .}}{{if .Current}}<span class="wb-toggle-on" aria-current="page">{{.Label}}</span>{{else}}<a href="{{.URL}}">{{.Label}}</a>{{end}}{{end}}</div>{{end}}
+    <a class="wb-fl-you{{if not .Waiting}} wb-fl-you--calm{{end}}" href="{{.Header.WaitingURL}}" data-testid="map.waiting"><span class="wb-fl-you-mark">!</span>{{.Waiting}}<span class="wb-you-words"> waiting on you</span></a>
+    <a class="wb-fl-avatar" href="/owner" title="You: owner sign-in (approvals and other owner decisions need it)" data-testid="map.owner">YOU<span class="wb-avatar-words">· Owner sign-in</span></a>
+    </div>
 </header>
 {{end}}
 
 {{define "wb/fl-yolo"}}<div data-yolo-prefix="{{.Prefix}}" hidden></div>{{if .On}}
 <div class="wb-fl-yolo" role="status" data-testid="floor.yolo">
+    <input type="checkbox" id="wb-yolo-open" class="wb-drawer-toggle wb-hazard-toggle" aria-label="Show YOLO's details: Extend and Turn off">
+    {{template "wb/yolo-line" .}}
     <form class="wb-fl-yolo-card">
         <span class="wb-fl-yolo-tag">YOLO</span>
         <b data-testid="floor.yolo.since">since {{.Since}} · {{if eq .End "until turned off"}}until turned off{{else}}until {{.End}}{{end}}</b>
@@ -54,6 +66,13 @@ fit is in the inspector. The classic company page is at ?classic=1.
     </form>
 </div>
 {{end}}{{end}}
+
+{{/* The floor at 640px and below: the plan and its legend hide and this
+list shows (hidden above). A name opens its inspector in the rail, as a
+tile's head does. */}}
+{{define "wb/fl-list"}}<ul class="wb-fl-list" aria-label="Rooms" data-testid="floor.list">{{range .}}
+    <li class="wb-fl-lrow" style="--lrow:{{.Color}};--depth:{{.Depth}}" data-box="{{.Box}}" data-testid="floor.list.row"><a class="wb-fl-lname" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.list.name"><span class="wb-fl-lhead"><b>{{.Title}}</b>{{if .Live}} <span class="wb-fl-llive">● live</span>{{end}}{{if .YOLO}} <span class="wb-fl-yolo-pill">YOLO · {{.YOLO}}</span>{{end}}</span><span class="wb-fl-lcounts" data-testid="floor.list.counts"><b>{{.Open}}</b> open{{if .ToReview}} · <span class="wb-fl-you-text">{{.ToReview}} to review</span>{{end}}{{with .Note}} · {{.}}{{end}}</span></a>{{if .ActionURL}}<a class="wb-fl-lgo" href="{{.ActionURL}}" data-testid="floor.list.go">{{.Action}}</a>{{end}}</li>{{end}}
+</ul>{{end}}
 
 {{define "wb/fl-num"}}<div class="wb-fl-num{{with .Tone}} wb-fl-num--{{.}}{{end}}"{{with .Title}} title="{{.}}"{{end}}><div class="wb-fl-num-v">{{.Value}}</div><div class="wb-fl-num-l">{{.Label}}</div></div>{{end}}
 
@@ -200,7 +219,7 @@ fit is in the inspector. The classic company page is at ?classic=1.
         {{with $.Children}}<div class="wb-fl-isec"><h3>DEPARTMENTS · {{len .}}</h3>{{range .}}<a class="wb-fl-irow" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.inspector.child"><i class="wb-fl-dot"{{with .Color}} style="background:{{.}}"{{end}}></i><span>{{.Title}}</span>{{with .Note}}<span class="wb-muted">{{.}}</span>{{end}}<span class="wb-qrow-go">›</span></a>{{end}}</div>{{end}}
         {{with .AllGoals}}<div class="wb-fl-isec"><h3>GOALS · {{len .}}</h3><div class="wb-fl-isec-body">{{template "wb/room-goals" .}}</div></div>{{end}}
         {{with .Jobs}}<div class="wb-fl-isec"><h3>JOBS</h3><div class="wb-fl-isec-body">{{template "wb/room-jobs" .}}</div></div>{{end}}
-        {{with .Stations}}<div class="wb-fl-isec"><h3>LINE · {{$.Dept.WorkflowFile}}</h3>{{range .}}<div class="wb-fl-irow"><span>{{if .Gate}}gate · {{.Title}}{{else}}{{.Label}}{{end}}</span><b>{{.Count}}</b></div>{{end}}</div>{{end}}
+        {{with .Stations}}<div class="wb-fl-isec"><h3>LINE · {{$.Dept.WorkflowFile}}</h3>{{range .}}<div class="wb-fl-irow"><span>{{if .Gate}}gate · {{.Title}}{{else}}{{.Label}}{{end}}</span><b>{{.Count}}</b></div>{{end}}{{with $.Dept.HallURL}}<a class="wb-fl-irow" href="{{.}}" data-testid="floor.dept.hall"><span>Open its hall: stations, paths and Edit</span><span class="wb-qrow-go">›</span></a>{{end}}</div>{{end}}
         {{with .WorkflowError}}<div class="wb-dept-error" role="alert">{{.}}</div>{{end}}
         {{with .Shelf}}<div class="wb-fl-isec"><h3>OUTPUTS</h3><div class="wb-fl-isec-body">{{template "wb/shelf-link" .}}</div></div>{{end}}
         {{with .Week}}<div class="wb-fl-isec"><h3>WEEK</h3><div class="wb-fl-isec-body">{{template "wb/week-report" .}}</div></div>{{end}}

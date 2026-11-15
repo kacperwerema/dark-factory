@@ -168,7 +168,7 @@ func TestNightly_WhoMayStartIt(t *testing.T) {
 	}
 }
 
-// AC6: memory at the 50% line, or the load over the cores, holds the night:
+// AC6: memory at the 50% line, or the load at the limit, holds the night:
 // no bench run, the night recorded held with the reason. A baseline that
 // stopped on budget runs no experiment.
 func TestNightly_HeldByMemoryLoadAndBudget(t *testing.T) {
@@ -185,7 +185,7 @@ func TestNightly_HeldByMemoryLoadAndBudget(t *testing.T) {
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
 	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 20, Cores: 14} }
 	out, err = runNightly(t, proj, jobNow, "--quote", "tonight")
-	if err != nil || len(*calls) != 0 || !strings.Contains(out, "held: load 20.0 over 14 cores") {
+	if err != nil || len(*calls) != 0 || !strings.Contains(out, "held: load 20.0 on 14 cores (max 14)") {
 		t.Fatalf("load: %v calls %v\n%s", err, *calls, out)
 	}
 	nights := bench.LoadNights("b1")

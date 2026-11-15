@@ -45,22 +45,53 @@ var earlierTexts = map[string]earlier{
 				"5d566b734815afb8e62f4855cf1d84b7c3a3926e15f42539b3235e48d1231a70",
 				"907d58571442e47138c82723d4b6bdb61d3e53397b6b51f071bf9ffb31a391bd",
 				"348cd5805be38a4b9a1bc6440a125354d89ad129560803f80f2f19631aa7cc44",
+				// Before keywords.md and the keyword-research type.
+				"4ef43daa736fa59d2950ae6f049a77e543402e482ebdf8f6b62f911b7ab074bb",
+				// Before the seo-baseline type.
+				"8e2b11d11db640c9f2b81919fe20bea06169c46a5571b7cf985e0ecfbc1695e0",
 			},
 			"jobs/weekly-seo-pass.md": {
 				"ceebb064382c0d1ce29bbf644c9e0abd0c384a5f5697119fb949f498dd192524",
 				"a7c01c3b318fa469d416e382c43f9f9fa944b7fa059da1c5eb3e2326130ea15c",
 				"b69458ba3738b42a9fb48f597ce4254ff1c1c15f6699961f3795381d22e6dd04",
 				"c4d8b20e5d9cc91f948cdb95baa95f3de12de39730d39257aba3888f1b04bd0c",
+				// Before the measure step read the openseo connector.
+				"6bb7607d955440311d342db35eaadaa6613aff5fe48af9a44be6158988373622",
 			},
-			"workflow": {
-				"b52ab5a5500eaf1e272cc4a17b2f5a6eb2756f2463eb23857d9d73e7847e411d",
-				// v0.59: features: installed in the catalog's old order.
-				"c12bde7ed8e3354dc35b4453904ce4c564deeb20f47c96d04f8976aa4b93982b",
-			},
+			// No workflow text: the report type is a catalog feature, not
+			// wording, and so were v0.61's gates (section_min_links,
+			// outputs_approved). A marketing.yaml from before them gets those
+			// from workflow upgrade (report-type, brand-foundation), not from
+			// department update (TestMarketingBeforeReportTypeIsUpgradesToOffer).
 		},
 		Role:      []string{"SEO and content for the client sites"},
 		Mission:   []string{"Every client site refreshed every week"},
 		GoalNames: map[string][]string{"pages": {"Client pages refreshed"}},
+	},
+	"sales-b2c": {
+		Files: map[string][]string{
+			// Before the job's metrics file moved to
+			// <issues>/.goals/sales/weekly-funnel.json (issue-cli goal write).
+			"role.md":               {"c7cec5416443db736d974ba1f5135360dc2989eb41114e8fbeefa90588285d66"},
+			"jobs/weekly-funnel.md": {"3afe86366058a6fcbe9db7d37e3cd038178ed0baf58ea610bd0fa945c06908b3"},
+			// No workflow text: its funnel-review gate path changed, which
+			// is not wording; edit an earlier one's path by hand (docs).
+		},
+	},
+	"legal": {
+		Files: map[string][]string{
+			// Before the shared heavy-tools line (departments/_shared).
+			"role.md":           {"a9eb1385eac394fa006675f46f7703d9c6ed0f4ba0d06e7927d9b87e260a3615"},
+			"jobs/law-watch.md": {"aa50b600c6271e95dac81154893b1979e0601e1a5dabe4001deb0315a55fb591"},
+			"workflow":          {"c11a25f9516f4a83e89c62c210d5cd2ae614904422153d66fb6b38c86f674b2a"},
+		},
+	},
+	"video": {
+		Files: map[string][]string{
+			// Before the shared heavy-tools line (departments/_shared).
+			"role.md":  {"b2e18d1eb95f8bb78b1abcd6bfe358be2f2a7feef99653e049e9f6ffdfedb73e"},
+			"workflow": {"07c0a3f34f710b3c65c95c717b7c669569c79b4d3890786743c66d8573b8649b"},
+		},
 	},
 	"gtm": {
 		Files: map[string][]string{

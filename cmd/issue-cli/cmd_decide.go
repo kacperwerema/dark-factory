@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/partner"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -105,11 +106,14 @@ var decisionsCommand = &Command{
 active, deferred, replaced, or stale (replaced but still cited by open issues).
 
   --system S       only decisions recorded in issues of system S
-  --state X        active | expired | deferred | replaced | stale
+  --state X        active | expired | deferred | replaced | stale | provisional
                    (expired: past its expires: day, not replaced; an
                    expired hard one waits on the owner until renewed or
-                   let go, and the listing prints both commands)
-  --issue <slug>   only decisions recorded in this issue
+                   let go, and the listing prints both commands;
+                   provisional: active, marked YOLO or provisional, not
+                   confirmed by the owner)
+  --issue <slug>   only decisions recorded in this issue (also
+                   decisions <slug>)
   --in-force <slug>
                    the decisions in force for that issue: not replaced,
                    deferred or expired, at: naming its status, and a scope
@@ -128,6 +132,19 @@ issue-cli decisions log [--ref <slug>#D-n] [--issue <slug>] [--since YYYY-MM-DD]
                    a decision held (held: refused, or passed under YOLO).
                    Writes that did not land are left out. Reads only.
 
+issue-cli decisions drift [--record] [--since <commit>] [--json]
+                   the drift sweep, as markdown: open issues citing
+                   replaced or expired refs; hard decisions whose paths:
+                   changed on main since the last sweep in commits whose
+                   issue (a Refs: line, else the work branch that made it)
+                   doesn't cite them; "Settled rules" lines in the docs
+                   naming replaced or expired refs (file:line); provisional
+                   decisions older than 14 days that reach beyond their
+                   issue. Reads only; --record also moves the last-sweep
+                   mark (<issues>/.decisions/drift.json) to main's head, as
+                   the decision-drift job (brief: builtin:decision-drift)
+                   does. No mark: main's last 14 days.
+
 start, show and the worker and lead briefings carry the capped view of
 --in-force (--lead for leads) as "Decisions in force": hard ones always,
 soft ones up to decisions: brief_cap: (12), the rest as a count line.
@@ -137,6 +154,7 @@ The same index is the viewer's Decisions tab (/p/<project>/decisions).
 Examples:
   issue-cli decisions --state stale
   issue-cli decisions --issue sim/gdd-match-phases --json
+  issue-cli decisions sim/gdd-match-phases
   issue-cli decisions --in-force sim/creep-camps --status "in progress"
   issue-cli decisions --lead ceo
   issue-cli decisions log --ref sim/gdd-match-phases#D-2 --since 2026-10-01`,
@@ -305,6 +323,20 @@ func runDecide(ctx *Context, args []string) error {
 	me := whoAmI(ctx.Project, issues)
 	var relay *tracker.DecisionRelay
 	var owner ownerActRules
+	// The owner's answer to a partner's gate is the owner's act too
+	// (docs/departments.md#the-owners-answer): a worker writes the partner's
+	// approval only after it, so it can't record it itself.
+	partnerAnswer := false
+	for _, ref := range nd.Refs {
+		partnerAnswer = partnerAnswer || partner.IsAnswerRef(ref)
+	}
+	if partnerAnswer {
+		owner = ownerActFor(ctx, issue, issues, *quoteFlag)
+		if owner.err != nil {
+			return fmt.Errorf("--ref %s… records the owner's answer to a partner's gate: the owner answers on Needs you or the Station, a lead relays their words with --quote. %w", partner.ApprovedRefPrefix, owner.err)
+		}
+		me, relay = owner.me, owner.relay
+	}
 	if nd.Attrs.Hard || len(hardReplaced) > 0 || len(challenged) > 0 {
 		owner = ownerActFor(ctx, issue, issues, *quoteFlag)
 		if owner.err != nil {
@@ -458,16 +490,31 @@ func runDecisions(ctx *Context, args []string) error {
 	if len(args) > 0 && args[0] == "log" {
 		return runDecisionsLog(ctx, args[1:])
 	}
+	if len(args) > 0 && args[0] == "drift" {
+		return runDecisionsDrift(ctx, args[1:])
+	}
 	fs := newFlagSet("decisions", ctx)
 	systemFlag := fs.String("system", "", "only decisions recorded in issues of this system")
-	stateFlag := fs.String("state", "", "active | expired | deferred | replaced | stale")
+	stateFlag := fs.String("state", "", "active | expired | deferred | replaced | stale | provisional")
 	issueFlag := fs.String("issue", "", "only decisions recorded in this issue")
 	inForceFlag := fs.String("in-force", "", "<slug>: the decisions in force for this issue")
 	statusFlag := fs.String("status", "", "with --in-force: at this status (default the issue's own)")
 	leadFlag := fs.String("lead", "", "ceo|<department>: the decisions in force for that lead")
 	touchedFlag := fs.String("touched", "", "<slug>: the hard decisions whose paths: the issue's branch changes (the decisions_respected audit)")
-	if err := parseFlags(ctx, fs, args); err != nil {
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
+	}
+	// decisions <slug> is --issue <slug>, the way decide <slug> names one.
+	switch fs.NArg() {
+	case 0:
+	case 1:
+		pos := fs.Arg(0)
+		if *issueFlag != "" && !strings.EqualFold(strings.TrimSpace(*issueFlag), strings.TrimSpace(pos)) {
+			return fmt.Errorf("decisions %s --issue %s: name one issue", pos, *issueFlag)
+		}
+		*issueFlag = pos
+	default:
+		return unexpectedArgError(fs, fs.Arg(1))
 	}
 	if slug := strings.TrimSpace(*touchedFlag); slug != "" {
 		if *systemFlag != "" || *stateFlag != "" || *issueFlag != "" || *inForceFlag != "" || *statusFlag != "" || *leadFlag != "" {
@@ -492,9 +539,9 @@ func runDecisions(ctx *Context, args []string) error {
 	}
 	state := strings.ToLower(strings.TrimSpace(*stateFlag))
 	switch state {
-	case "", tracker.DecisionActive, tracker.DecisionExpired, tracker.DecisionDeferred, tracker.DecisionReplaced, tracker.DecisionStale:
+	case "", tracker.DecisionActive, tracker.DecisionExpired, tracker.DecisionDeferred, tracker.DecisionReplaced, tracker.DecisionStale, tracker.DecisionProvisional:
 	default:
-		return fmt.Errorf("--state %q: want active, expired, deferred, replaced or stale", *stateFlag)
+		return fmt.Errorf("--state %q: want active, expired, deferred, replaced, stale or provisional", *stateFlag)
 	}
 	today := ctx.now()
 
@@ -551,6 +598,7 @@ func runDecisions(ctx *Context, args []string) error {
 		return nil
 	}
 	fmt.Fprintf(ctx.Stdout, "== Decisions (%d) ==\n", len(rows))
+	stale := 0
 	for _, r := range rows {
 		state := r.State
 		if state == tracker.DecisionStale {
@@ -562,7 +610,7 @@ func runDecisions(ctx *Context, args []string) error {
 				state += " · let go " + r.Ended
 			}
 		}
-		if r.ReplacedBy == "" && tracker.NeedsOwnerWords(r.Decision) {
+		if r.State == tracker.DecisionActive && tracker.NeedsOwnerWords(r.Decision) {
 			state += " · needs owner's words"
 		}
 		if r.Hard {
@@ -589,7 +637,11 @@ func runDecisions(ctx *Context, args []string) error {
 		}
 		if r.State == tracker.DecisionStale {
 			fmt.Fprintf(ctx.Stdout, "    still cited by: %s\n", strings.Join(r.CitedOpen, ", "))
+			stale++
 		}
+	}
+	if stale > 0 {
+		fmt.Fprintln(ctx.Stdout, tracker.InjectProject(ctx.Project, driftHint))
 	}
 	return nil
 }
@@ -600,6 +652,8 @@ func matchesDecisionState(e *tracker.DecisionEntry, state string, today time.Tim
 		return true
 	case tracker.DecisionReplaced:
 		return e.ReplacedBy != nil
+	case tracker.DecisionProvisional:
+		return e.ProvisionalOn(today)
 	default:
 		return e.StateOn(today) == state
 	}

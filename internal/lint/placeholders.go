@@ -65,12 +65,15 @@ func placeholderFields(wf *tracker.WorkflowConfig) []field {
 	for _, a := range wf.ProjectActions {
 		out = append(out, field{fmt.Sprintf("project_actions[%s].prompt", a.ID), a.Prompt, projectNames, true})
 	}
-	out = append(out, field{"leads.project", wf.Leads.Project, leadNames, true})
+	out = append(out,
+		field{"leads.project", wf.Leads.Project, leadNames, true},
+		field{"leads.project_addendum", wf.Leads.ProjectAddendum, leadNames, true})
 
 	scope := func(prefix string, statuses []tracker.WorkflowStatus, transitions []tracker.WorkflowTransition) {
 		for _, s := range statuses {
 			out = append(out,
 				field{fmt.Sprintf("%sstatuses[%s].prompt", prefix, s.Name), s.Prompt, nil, false},
+				field{fmt.Sprintf("%sstatuses[%s].prompt_append", prefix, s.Name), s.PromptAppend, nil, false},
 				field{fmt.Sprintf("%sstatuses[%s].template", prefix, s.Name), s.Template, nil, false})
 		}
 		for _, t := range transitions {

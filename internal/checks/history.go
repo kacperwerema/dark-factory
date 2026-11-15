@@ -9,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // Removed is a script for an issue that a commit took off the branch: the
@@ -19,6 +21,25 @@ type Removed struct {
 	Path    string // scripts/checks/<name>.sh, as it was in the repository
 	Commit  string // the commit that removed it
 	Content []byte // the script as it was just before
+	Files   []File // its files beside it the same commit removed (Beside)
+}
+
+// File is one file a script keeps beside it, as it was before its removal.
+type File struct {
+	Rel     string // path under scripts/checks/ ("<name>-probe.sh", "<name>/fixture.txt")
+	Content []byte
+	Exec    bool // git had it executable
+}
+
+// Beside reports whether rel, a path under scripts/checks/, belongs to the
+// script name: <name>-*, <name>.* (not the script itself) or anything under
+// a <name>/ folder.
+func Beside(name, rel string) bool {
+	first, _, _ := strings.Cut(rel, "/")
+	if first == name+".sh" {
+		return false
+	}
+	return first == name || strings.HasPrefix(first, name+"-") || strings.HasPrefix(first, name+".")
 }
 
 // FromHistory finds slug's scripts that commits reachable from HEAD in the
@@ -39,43 +60,72 @@ func FromHistory(root, slug string) []Removed {
 	if err != nil {
 		return nil
 	}
-	seen := map[string]bool{}
-	var found []Removed
-	commit := ""
+	type removal struct {
+		commit string
+		paths  []string
+	}
+	var removals []removal
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if c, ok := strings.CutPrefix(line, "commit "); ok {
-			commit = c
+			removals = append(removals, removal{commit: c})
 			continue
 		}
-		if commit == "" || path.Dir(line) != Dir || path.Ext(line) != ".sh" {
-			continue
+		if line != "" && len(removals) > 0 {
+			removals[len(removals)-1].paths = append(removals[len(removals)-1].paths, line)
 		}
-		name := strings.TrimSuffix(path.Base(line), ".sh")
-		if seen[name] {
-			continue
+	}
+	seen := map[string]bool{}
+	var found []Removed
+	for _, rm := range removals {
+		for _, line := range rm.paths {
+			if path.Dir(line) != Dir || path.Ext(line) != ".sh" {
+				continue
+			}
+			name := strings.TrimSuffix(path.Base(line), ".sh")
+			if seen[name] {
+				continue
+			}
+			content, err := exec.Command("git", "-C", root, "show", rm.commit+"^:"+line).Output()
+			if err != nil || issueOfContent(content) != slug {
+				continue
+			}
+			seen[name] = true
+			found = append(found, Removed{Name: name, Path: line, Commit: rm.commit, Content: content, Files: filesBeside(root, rm.commit, name, rm.paths)})
 		}
-		content, err := exec.Command("git", "-C", root, "show", commit+"^:"+line).Output()
-		if err != nil || issueOfContent(content) != slug {
-			continue
-		}
-		seen[name] = true
-		found = append(found, Removed{Name: name, Path: line, Commit: commit, Content: content})
 	}
 	return found
 }
 
-// Short is the removing commit's abbreviated hash.
-func (r Removed) Short() string {
-	if len(r.Commit) > 7 {
-		return r.Commit[:7]
+// filesBeside reads the files of script name among paths, which commit
+// removed, as they were in its parent.
+func filesBeside(root, commit, name string, paths []string) []File {
+	var files []File
+	for _, p := range paths {
+		rel, ok := strings.CutPrefix(p, Dir+"/")
+		if !ok || !Beside(name, rel) {
+			continue
+		}
+		content, err := exec.Command("git", "-C", root, "show", commit+"^:"+p).Output()
+		if err != nil {
+			continue
+		}
+		// "100755 blob <sha>\t<path>"; --format needs git 2.36.
+		tree, _ := exec.Command("git", "-C", root, "ls-tree", commit+"^", "--", p).Output()
+		files = append(files, File{Rel: rel, Content: content, Exec: strings.HasPrefix(string(tree), "100755 ")})
 	}
-	return r.Commit
+	return files
 }
 
-// WriteRemoved writes the scripts into a new temporary folder, as Scripts
-// that run from root, and returns them with a cleanup that removes the folder.
+// Short is the removing commit's abbreviated hash.
+func (r Removed) Short() string {
+	return gitdir.ShortSHA(r.Commit)
+}
+
+// WriteRemoved writes the scripts, and the files each keeps beside it, into a
+// new temporary folder, as Scripts that run from root ($CHECKS_DIR is that
+// folder), and returns them with a cleanup that removes the folder.
 func WriteRemoved(root string, removed []Removed) ([]Script, func(), error) {
 	dir, err := os.MkdirTemp("", "check-script-")
 	if err != nil {
@@ -88,6 +138,21 @@ func WriteRemoved(root string, removed []Removed) ([]Script, func(), error) {
 		if err := os.WriteFile(p, r.Content, 0o755); err != nil {
 			cleanup()
 			return nil, func() {}, fmt.Errorf("writing %s from history: %w", r.Path, err)
+		}
+		for _, f := range r.Files {
+			fp := filepath.Join(dir, filepath.FromSlash(f.Rel))
+			mode := os.FileMode(0o644)
+			if f.Exec {
+				mode = 0o755
+			}
+			if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
+				cleanup()
+				return nil, func() {}, fmt.Errorf("writing %s/%s from history: %w", Dir, f.Rel, err)
+			}
+			if err := os.WriteFile(fp, f.Content, mode); err != nil {
+				cleanup()
+				return nil, func() {}, fmt.Errorf("writing %s/%s from history: %w", Dir, f.Rel, err)
+			}
 		}
 		out = append(out, Script{Name: r.Name, Path: p, Root: root, From: r.Commit})
 	}

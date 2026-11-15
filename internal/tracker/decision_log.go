@@ -220,6 +220,8 @@ type decisionChange struct {
 	Events      []DecisionEvent
 	RelayRef    string
 	RelayAction string
+	// Unchanged: nothing to write (no events, no comment, the body as read).
+	Unchanged bool
 }
 
 // writeDecision runs one D-n write: under the issue's lock it computes the
@@ -232,6 +234,9 @@ func writeDecision(filePath string, w DecisionWrite, now time.Time, change func(
 		c, err := change(body)
 		if err != nil {
 			return "", nil, false, err
+		}
+		if c.Unchanged {
+			return body, comments, false, nil
 		}
 		commentID := 0
 		var cm *Comment

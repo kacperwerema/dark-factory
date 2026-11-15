@@ -10,6 +10,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/experiment"
 	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -31,55 +32,12 @@ type yoloGate struct {
 	// Ended: YOLO closed recently; the gate waits and the refusal says why.
 	Ended string
 	// OwnerOnly: YOLO is on but the gate is the owner's even in YOLO; the
-	// note says why (yoloOwnerReason).
+	// note says why (yolo.OwnerReason).
 	OwnerOnly string
 	// Blocked: YOLO would pass the approval, but these other requirements
 	// are still open, so it was held back. A refusal names them, not the
 	// approval (blockedRefusal).
 	Blocked []transitionProblem
-}
-
-// yoloExperimentNote is what an experiment's gate says while YOLO is on.
-const yoloExperimentNote = "YOLO is on, but experiments are adopted by the owner, even in YOLO: this gate waits for the owner's approval in the issue viewer."
-
-// yoloOwnerOnlyNote is what an owner_only gate says while YOLO is on.
-const yoloOwnerOnlyNote = "YOLO is on, but this gate is the owner's even in YOLO: the step spends money or publishes outside the machine (owner_only in the workflow). It waits for the owner's approval in the issue viewer, where it is in Needs you. Stop here and tell your lead."
-
-// yoloOwnerReason is why the from → to gate is the owner's even with YOLO
-// on, "" when it isn't: the one place that says so. An owner_only gate
-// (it spends money or publishes outside the machine) and any gate of an
-// experiment (the owner adopts experiments, factory/factory-experiment-loop
-// D-6). The Human Testing approval is the human's too; yoloEligible keeps
-// that rule, as it has no note.
-func yoloOwnerReason(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string) string {
-	switch {
-	case wf.OwnerOnlyGate(from, to):
-		return yoloOwnerOnlyNote
-	case issue != nil && experiment.Is(issue.Labels):
-		return yoloExperimentNote
-	}
-	return ""
-}
-
-// yoloEligible reports whether YOLO may pass the from → to gate: a forward
-// step on the issue's path, to a status that isn't optional, and never the
-// human's own Human Testing approval or a gate that is the owner's even in
-// YOLO (yoloOwnerReason).
-func yoloEligible(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to, required string) bool {
-	if required == "" || strings.ReplaceAll(strings.ToLower(required), " ", "-") == "human-testing" {
-		return false
-	}
-	if yoloOwnerReason(wf, issue, from, to) != "" {
-		return false
-	}
-	fi, ti := wf.GetStatusIndex(from), wf.GetStatusIndex(to)
-	if fi < 0 || ti <= fi {
-		return false
-	}
-	if s := wf.GetStatus(to); s == nil || s.Optional {
-		return false
-	}
-	return true
 }
 
 // passYOLOGate lets issue through its from → to approval gate when YOLO is
@@ -104,8 +62,8 @@ func passYOLOGate(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue
 		}
 		return g, nil
 	}
-	if !yoloEligible(wf, issue, from, to, required) {
-		g.OwnerOnly = yoloOwnerReason(wf, issue, from, to)
+	if !yolo.Eligible(wf, issue, from, to) {
+		g.OwnerOnly = yolo.OwnerReason(wf, issue, from, to)
 		return g, nil
 	}
 	for _, p := range collectTransitionProblems(ctx, wf, issue, issue.Slug, from, to, fields) {
@@ -199,7 +157,7 @@ func yoloHeaderLine(proj *tracker.Project, now time.Time) string {
 // yoloGuidance is prompts with the ask-the-human and stop-for-approval
 // sentences left out, and the YOLO rule that replaces them, while YOLO is
 // on; prompts unchanged and "" when it is off.
-func yoloGuidance(ctx *Context, slug string, prompts []string) ([]string, string) {
+func yoloGuidance(ctx *Context, wf *tracker.WorkflowConfig, slug string, prompts []string) ([]string, string) {
 	if _, on, err := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); err != nil || !on {
 		return prompts, ""
 	}
@@ -209,14 +167,13 @@ func yoloGuidance(ctx *Context, slug string, prompts []string) ([]string, string
 			kept = append(kept, k)
 		}
 	}
-	return kept, tracker.InjectProject(ctx.Project, tracker.YOLORule(slug))
+	return kept, tracker.InjectProject(ctx.Project, tracker.YOLORule(wf, slug))
 }
 
 // yoloWouldPass reports whether YOLO is on and would pass the from → to
 // gate, with the state for the end phrase.
 func yoloWouldPass(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string) (bool, *yolo.State) {
-	required := wf.RequiredHumanApproval(from, to)
-	if !yoloEligible(wf, issue, from, to, required) {
+	if !yolo.Eligible(wf, issue, from, to) {
 		return false, nil
 	}
 	st, on, err := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now())
@@ -235,12 +192,12 @@ func yoloNextStep(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue
 	slug := issue.Slug
 	ok, st := yoloWouldPass(ctx, wf, issue, from, next)
 	if !ok {
-		if reason := yoloOwnerReason(wf, issue, from, next); reason != "" && wf.RequiredHumanApproval(from, next) != "" && yoloIsOn(ctx) {
+		if reason := yolo.OwnerReason(wf, issue, from, next); reason != "" && wf.RequiredHumanApproval(from, next) != "" && yoloIsOn(ctx) {
 			return cmd, "(" + reason + ")"
 		}
 		return cmd, note
 	}
-	return fmt.Sprintf("issue-cli transition %s --to %q", slug, next),
+	return fmt.Sprintf("issue-cli transition %s --to %s", slug, shell.Quote(next)),
 		fmt.Sprintf("(YOLO is on %s: this gate passes without the owner once everything else is done; run it, no need to stop. The owner reviews it after the fact.)", yoloEndPhrase(st, ctx.now()))
 }
 
@@ -248,7 +205,7 @@ func yoloNextStep(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue
 func yoloDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string, problems []transitionProblem) ([]transitionProblem, string) {
 	ok, st := yoloWouldPass(ctx, wf, issue, from, to)
 	if !ok {
-		if reason := yoloOwnerReason(wf, issue, from, to); reason != "" && wf.RequiredHumanApproval(from, to) != "" && yoloIsOn(ctx) {
+		if reason := yolo.OwnerReason(wf, issue, from, to); reason != "" && wf.RequiredHumanApproval(from, to) != "" && yoloIsOn(ctx) {
 			return problems, reason
 		}
 		return problems, ""
@@ -294,8 +251,8 @@ func writeYOLOOwnerChecks(ctx *Context, wf *tracker.WorkflowConfig, issue *track
 	if !wf.DeferOwnerProof {
 		return nil
 	}
-	pastWork := strings.EqualFold(to, "done") || approvalPassed && wf.GetStatusIndex(from) >= wf.GetStatusIndex("testing")
-	if !pastWork && !wf.TransitionChecksProof(from, to) && !(strings.EqualFold(to, "human-testing") && usesCheckScripts(wf)) {
+	pastWork := wf.IsLastStatus(to) || approvalPassed && wf.GetStatusIndex(from) >= wf.GetStatusIndex(wf.RoleStatus(tracker.StatusRoleVerify))
+	if !pastWork && !wf.TransitionChecksProof(from, to) && !(wf.HasRole(to, tracker.StatusRoleOwnerTest) && usesCheckScripts(wf)) {
 		return nil
 	}
 	comments, _ := tracker.LoadComments(issue.FilePath)

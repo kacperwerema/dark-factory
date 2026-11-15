@@ -17,6 +17,7 @@ steps:
     act:
       - click: tile.new_department
       - wait_for: { visible: company.new_dept.form }
+      - click: company.new_dept.template.marketing
       - click: company.new_dept.preview
       - wait_for: { visible: dept_new.plan }
     checks:
@@ -36,7 +37,9 @@ steps:
       - wait_for: { visible: company.added }
     checks:
       - url: { matches: "^/p/acme/company\\?" }
-      - text_contains: { target: company.added, text: "Added Marketing: 2 files written, 1 edited file of yours kept" }
+      # No file count: it follows the template's files: (TestDeptAddInstallsAndTheRoomShows checks it against the plan).
+      - text_contains: { target: company.added, text: "Added Marketing:" }
+      - text_contains: { target: company.added, text: "files written, 1 edited file of yours kept" }
       # Add lands on the floor: the new room's tile and its inspector.
       - text_contains: { target: floor.tile.dept, text: "Marketing" }
       - visible: floor.inspector.marketing

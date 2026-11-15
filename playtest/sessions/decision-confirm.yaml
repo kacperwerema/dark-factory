@@ -32,7 +32,8 @@ steps:
     setup:
       - open: /p/{project}/decisions
     act:
-      - check: { disabled: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.question }
+      # Deferred, so the row offers no box; the route still confirms it.
+      - check: { absent: decisions.row.sim/lane-formations-morale-waves-and-mixing.d-5.question }
       - post: { path: "/p/{project}/decisions/sim/lane-formations-morale-waves-and-mixing/D-5/confirm", json: {}, status: 200 }
       - post: { path: "/p/{project}/decisions/sim/lane-formations-morale-waves-and-mixing/D-5/confirm", json: {}, status: 409 }
       - reload: true

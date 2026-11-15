@@ -7,27 +7,24 @@ import (
 
 func init() { register("children_closed", ChildrenClosed) }
 
-// closedByDefault are the statuses that close a child when the rule names
-// none in values:.
-var closedByDefault = []string{"done", "parked", "obsolete"}
-
 // ChildrenClosed passes when every child of the issue (the issues naming it
-// in parent:) is in a closing status: values: when set, else done, parked or
-// obsolete. An epic with no children passes. Requires cfg.Children, which the
-// tracker injects from its issue store.
+// in parent:) is closed: in values: when set, else by its own workflow
+// (tracker.IsClosedStatus, the Closed the tracker sets on each child). An epic
+// with no children passes. Requires cfg.Children, which the tracker injects
+// from its issue store.
 func ChildrenClosed(action Action, issue *IssueView, cfg Config) error {
 	if cfg.Children == nil {
 		return fail(action, issue,
 			"children_closed requires the issue store, but none is configured",
 			"run validation via the issue-cli or server (sets it automatically)")
 	}
-	closed := action.Values
-	if len(closed) == 0 {
-		closed = closedByDefault
-	}
 	var open []string
 	for _, c := range cfg.Children(issue.Slug) {
-		if !inFold(c.Status, closed) {
+		closed := c.Closed
+		if len(action.Values) > 0 {
+			closed = inFold(c.Status, action.Values)
+		}
+		if !closed {
 			open = append(open, c.Slug+" ("+c.Status+")")
 		}
 	}
@@ -36,7 +33,7 @@ func ChildrenClosed(action Action, issue *IssueView, cfg Config) error {
 	}
 	return fail(action, issue,
 		fmt.Sprintf("%d of its children are still open: %s", len(open), strings.Join(open, ", ")),
-		fmt.Sprintf("finish, park or obsolete them first (issue-cli list --parent %s)", issue.Slug))
+		fmt.Sprintf("finish or park them first (issue-cli list --parent %s)", issue.Slug))
 }
 
 func inFold(s string, list []string) bool {

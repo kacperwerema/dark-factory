@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/postmortem"
 	"github.com/kacperwerema/dark-factory/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -43,7 +46,9 @@ from the retro.
                              saved, when an action fails the test or names
                              no place
   show <slug>                the newest post-mortem's actions and outcomes
-  list                       every post-mortem and how many actions wait
+  list                       every post-mortem and how many actions wait; the
+                             owner refuses them across post-mortems, or marks
+                             them overtaken, on /p/<project>/postmortems
 
 ` + postmortemUsage,
 	Run:         runPostmortem,
@@ -88,7 +93,8 @@ func postmortemRun(ctx *Context, issue *tracker.Issue) postmortem.Run {
 	r := postmortem.Run{
 		Project: ctx.Project.Slug, Slug: issue.Slug, Title: issue.Title,
 		IssueFile: issue.FilePath, Repo: root,
-		CLI: tracker.InjectProject(ctx.Project, "issue-cli"),
+		CLI:      tracker.InjectProject(ctx.Project, "issue-cli"),
+		Statuses: ctx.Project.AllStatuses(),
 	}
 	if p := tracker.SidecarPath(issue.FilePath); pathExists(p) {
 		r.DataFile = p
@@ -99,7 +105,14 @@ func postmortemRun(ctx *Context, issue *tracker.Issue) postmortem.Run {
 	if d := filepath.Join(root, ".agent-logs", tracker.AgentSessionName(issue.Slug)); pathExists(d) {
 		r.AgentLogs = d
 	}
-	r.Branch = "work/" + issue.Slug
+	// Only a branch that exists is named: a merged one is often deleted,
+	// and the brief then points at main's commits by slug instead.
+	if tracker.BranchHead(root, "work/"+issue.Slug) != "" {
+		r.Branch = "work/" + issue.Slug
+	}
+	if name, err := tracker.MainBranch(root); err == nil {
+		r.Main = name
+	}
 	if st, err := tracker.LoadStats(issue.FilePath); err == nil {
 		if d, ok := tracker.DispatchBase(st); ok {
 			r.Base = d.BaseSHA
@@ -109,6 +122,26 @@ func postmortemRun(ctx *Context, issue *tracker.Issue) postmortem.Run {
 	for _, e := range entries {
 		if e.IssueSlug == issue.Slug && e.Kind != postmortem.Kind {
 			r.Retros = append(r.Retros, e.FilePath)
+		}
+	}
+	// An epic's post-mortem reads its children's runs too: paths only.
+	if issues, err := ctx.Project.LoadIssues(); err == nil && tracker.IsEpic(issue, issues) {
+		for _, child := range tracker.EpicChildren(issues, issue.Slug) {
+			c := postmortem.Child{Slug: child.Slug, IssueFile: child.FilePath}
+			if tracker.BranchHead(root, "work/"+child.Slug) != "" {
+				c.Branch = "work/" + child.Slug
+			}
+			for _, e := range entries {
+				if e.IssueSlug != child.Slug {
+					continue
+				}
+				if e.Kind == postmortem.Kind {
+					c.Postmortems = append(c.Postmortems, e.FilePath)
+				} else {
+					c.Retros = append(c.Retros, e.FilePath)
+				}
+			}
+			r.Children = append(r.Children, c)
 		}
 	}
 	return r
@@ -141,6 +174,9 @@ type postmortemStart struct {
 	Attach     bool
 }
 
+// killAgentSession removes an agent's session; a var so tests stub it.
+var killAgentSession = agentrun.KillTmux
+
 // errPostmortemHeld is a start that didn't happen and why; nothing is wrong.
 type errPostmortemHeld struct{ why string }
 
@@ -155,8 +191,16 @@ func startPostmortem(ctx *Context, issue *tracker.Issue, wf *tracker.WorkflowCon
 	if have := postmortem.Of(entries, issue.Slug); len(have) > 0 && !ps.Again {
 		return agentrun.Response{}, &errPostmortemHeld{fmt.Sprintf("%s has a post-mortem already (%s); --again writes a new one", issue.Slug, filepath.Base(have[0].FilePath))}
 	}
-	if agentrun.HasSession(agentrun.Target(ctx.Project, session)) {
-		return agentrun.Response{}, &errPostmortemHeld{session + " is running already"}
+	target := agentrun.Target(ctx.Project, session)
+	if agentrun.HasSession(target) {
+		// A pane that is only a shell is a launch whose agent exited or
+		// never started: dead, not running. It goes, and this start runs.
+		// One whose post-mortem is written since its start is finished:
+		// an agent idling at its prompt, not running.
+		if !agentrun.BareShell(target) && !postmortemWritten(issue) {
+			return agentrun.Response{}, &errPostmortemHeld{session + " is running already"}
+		}
+		_ = killAgentSession(ctx.Project, session)
 	}
 	if m := autostart.ReadMemory(); m.Found && !m.CanStart {
 		return agentrun.Response{}, &errPostmortemHeld{"mem-guard says no (" + strings.TrimSpace(m.Note) + ")"}
@@ -165,6 +209,13 @@ func startPostmortem(ctx *Context, issue *tracker.Issue, wf *tracker.WorkflowCon
 	if agent == "" && wf != nil && wf.Postmortem != nil {
 		agent = wf.Postmortem.Agent
 	}
+	// postmortem: agent: (or --agent) names it; else routing: picks it, as
+	// for the issue's own worker. Never an empty agent: the pane would run
+	// an empty command.
+	route := agentrun.RouteAgent(ctx.Project, wf, projectRoot(ctx.Project), routing.IssueSubject(ctx.Project, issue), agent, ctx.now())
+	if route.Hold != "" {
+		return agentrun.Response{}, &errPostmortemHeld{route.Hold}
+	}
 	startedBy := fmt.Sprintf("Started on the owner's words: %q (%s, %s).", ps.Quote, ps.How, ctx.now().Format("2006-01-02"))
 	if ps.Auto {
 		startedBy = fmt.Sprintf("Started by the transition into %s (workflow postmortem: start: auto, %s).", issue.Status, ctx.now().Format("2006-01-02"))
@@ -172,14 +223,17 @@ func startPostmortem(ctx *Context, issue *tracker.Issue, wf *tracker.WorkflowCon
 	resp := startAgent(ctx.Project, agentrun.Spec{
 		Session:   session,
 		Prompt:    postmortem.Brief(postmortemRun(ctx, issue)) + "\n" + startedBy + "\n",
-		AgentType: agent,
+		AgentType: route.Agent,
+		Route:     &route,
 		IssueSlug: issue.Slug,
 		WorkDir:   projectRoot(ctx.Project),
 		Workflow:  wf,
 		Headless:  !ps.Attach,
 	})
+	// Start removes a launch that dies at once (not on PATH, an empty
+	// command): no session left and no "started" comment.
 	if resp.Status == "error" {
-		return resp, fmt.Errorf("starting %s failed", session)
+		return resp, fmt.Errorf("starting %s failed%s", session, agentrun.FailureDetail(resp))
 	}
 	author := commentAuthor(ctx.Project, issue)
 	_ = tracker.AddCommentBy(issue.FilePath, 0, "postmortem: started "+session+". "+startedBy, "cli", author)
@@ -206,6 +260,7 @@ func runPostmortemStart(ctx *Context, args []string) error {
 	}
 	me := whoAmI(ctx.Project, issues)
 	if me.Role == tracker.RoleWorker {
+		guardNever(ctx, "postmortem start")
 		return fmt.Errorf("workers can't start agents (you are %s, detected from %s). The transition into done starts the post-mortem when the workflow says start: auto; else ask on your issue trail:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
 			tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
 	}
@@ -247,9 +302,18 @@ func postmortemAtTransition(ctx *Context, w io.Writer, wf *tracker.WorkflowConfi
 	if at == "" || !strings.EqualFold(at, to) {
 		return
 	}
+	if issue.Type == tracker.ChoreType && !wf.PostmortemListsType(issue.Type) {
+		// A night's housekeeping: a fresh agent each time is spend with
+		// nothing to learn.
+		return
+	}
 	cmd := tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli postmortem start %s --quote \"<the owner's words>\"", issue.Slug))
 	fmt.Fprintln(w, "\n== Post-mortem ==")
-	if !wf.PostmortemAutoStart() {
+	if !wf.PostmortemAutoFor(issue.Type) {
+		if wf.PostmortemAutoStart() {
+			// start: auto with auto_types: this type gets one only when asked.
+			fmt.Fprintf(w, "Not started by itself: postmortem: auto_types: %s starts it, and this is %s.\n", strings.Join(wf.Postmortem.AutoTypes, ", "), postmortemTypeWords(wf, issue.Type))
+		}
 		fmt.Fprintf(w, "A fresh agent writes this issue's post-mortem when the lead starts it on the owner's words:\n  %s\n", cmd)
 		return
 	}
@@ -264,6 +328,22 @@ func postmortemAtTransition(ctx *Context, w io.Writer, wf *tracker.WorkflowConfi
 		printPostmortemStarted(w, ctx, resp)
 		fmt.Fprintln(w, "  You are done: don't wait for it. The owner agrees to its actions in one round.")
 	}
+}
+
+// postmortemTypeWords names an issue's type for the not-started line: "a
+// tweak", or "an issue with no type" when nothing resolves.
+func postmortemTypeWords(wf *tracker.WorkflowConfig, issueType string) string {
+	t := strings.TrimSpace(issueType)
+	if resolved, _ := wf.ResolveType(t); resolved != "" {
+		t = resolved
+	}
+	if t == "" {
+		return "an issue with no type"
+	}
+	if strings.ContainsRune("aeiou", rune(strings.ToLower(t)[0])) {
+		return "an " + t
+	}
+	return "a " + t
 }
 
 func runPostmortemWrite(ctx *Context, args []string) error {
@@ -288,7 +368,7 @@ func runPostmortemWrite(ctx *Context, args []string) error {
 		return err
 	}
 	_, body := retro.Parse(string(data))
-	acts, err := postmortem.Check(body, projectRoot(ctx.Project))
+	acts, err := postmortem.Check(body, projectRoot(ctx.Project), ctx.Project.AllStatuses())
 	if err != nil {
 		return err
 	}
@@ -306,7 +386,46 @@ func runPostmortemWrite(ctx *Context, args []string) error {
 	_ = tracker.AddCommentBy(issue.FilePath, 0, fmt.Sprintf("postmortem: saved retros/%s — %s", filepath.Base(path), note), "cli", author)
 	fmt.Fprintf(ctx.Stdout, "✓ Post-mortem saved for %s\nfile: %s\n", issue.Slug, path)
 	fmt.Fprintf(ctx.Stdout, "%s. You are done: stop here.\n", capitalize(note))
+	if closeOwnPostmortemSession(ctx.Project, issue.Slug) {
+		fmt.Fprintf(ctx.Stdout, "This session (%s) closes now.\n", postmortemSession(issue.Slug))
+	}
 	return nil
+}
+
+// postmortemWritten reports whether issue's last post-mortem comment is a
+// saved one: the agent its last start launched has written its post-mortem.
+func postmortemWritten(issue *tracker.Issue) bool {
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	for i := len(comments) - 1; i >= 0; i-- {
+		if text := comments[i].Text; strings.HasPrefix(text, "postmortem: ") {
+			return strings.HasPrefix(text, "postmortem: saved ")
+		}
+	}
+	return false
+}
+
+// closeOwnPostmortemSession closes slug's post-mortem session when this
+// process runs inside it, and reports whether it does. The kill runs
+// detached in its own process session, a moment later, so this command's
+// output reaches the agent first and the kill outlives the pane's hangup.
+// It names the session (or, in shared mode, the window) exactly; never
+// kill-server.
+func closeOwnPostmortemSession(proj *tracker.Project, slug string) bool {
+	name := postmortemSession(slug)
+	if !inOwnPane(proj, name) {
+		return false
+	}
+	verb := "kill-session"
+	if agentrun.SharedSession(proj) != "" {
+		verb = "kill-window"
+	}
+	cmd := exec.Command("sh", "-c", `sleep 1; exec tmux "$0" -t "$1"`, verb, agentrun.Target(proj, name))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+	go func() { _ = cmd.Wait() }()
+	return true
 }
 
 func postmortemURL(proj *tracker.Project, slug string) string {
@@ -367,8 +486,13 @@ func runPostmortemShow(ctx *Context, args []string) error {
 			state = "applied: " + a.Applied
 		case a.Refused != "":
 			state = "refused: " + a.Refused
+		case a.Overtaken != "":
+			state = "overtaken: " + a.Overtaken
 		}
 		fmt.Fprintf(ctx.Stdout, "  %s [%s] %s\n      %s\n", a.ID, a.PlaceString(), a.Title, state)
+		for _, line := range a.Reopened {
+			fmt.Fprintf(ctx.Stdout, "      reopened: %s\n", line)
+		}
 	}
 	if v.Pending > 0 {
 		fmt.Fprintf(ctx.Stdout, "The owner agrees or refuses them in one round: %s\n", postmortemURL(ctx.Project, issue.Slug))
@@ -395,8 +519,13 @@ func runPostmortemList(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, "No post-mortems yet. One starts when an issue reaches the workflow's postmortem: at: status, or by hand: issue-cli postmortem start <slug> --quote \"…\"")
 		return nil
 	}
+	waiting := 0
 	for _, v := range views {
 		fmt.Fprintf(ctx.Stdout, "  %s  %d action(s), %d waiting  %s\n", v.Issue, len(v.Actions), v.Pending, filepath.Base(v.File))
+		waiting += v.Pending
+	}
+	if waiting > 0 {
+		fmt.Fprintf(ctx.Stdout, "The owner sees them together, and refuses or marks them overtaken, on %s/p/%s/postmortems\n", viewerBaseURL(ctx.Project), ctx.Project.Slug)
 	}
 	return nil
 }

@@ -1,0 +1,14 @@
+"Go" and "go" count as two words. Callers want to choose: an option to fold case.
+
+## Design
+
+- `Options{Fold bool}` in a new `options.go`.
+- `WordsWith(text, opt)` and `CountWith(text, opt)`: `Words` and `Count` with options. `Words` and `Count` stay as they are (no breaking change).
+- Fold lowercases with `strings.ToLower` after the split, so the split rule is the same.
+- README: one line for `WordsWith` / `CountWith`.
+
+## Acceptance Criteria
+
+- [x] `WordsWith` with `Fold` lowercases every word; without it, it is `Words`.
+- [x] `CountWith` with `Fold` counts "Go" and "go" as one word.
+- [x] The README documents the option.

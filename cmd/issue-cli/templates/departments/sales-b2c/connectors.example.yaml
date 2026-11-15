@@ -1,0 +1,60 @@
+# Visits, for the weekly funnel review: Umami (MIT, umami.is), read over its
+# REST API. Off until you uncomment it (drop "# " after the indent).
+# kind: rest makes only GETs, on the get: path, inside issue-cli with the
+# key read from Keychain at the call: no write call is reachable, so
+# sends: false. Where it runs is yours: self-hosted (port 3000 by default)
+# or Umami Cloud; edit url: and check: to yours. No per_run:, since the
+# collector must stay up to receive visits.
+#
+# - The key is a Keychain item, never in this file:
+#   security add-generic-password -s umami-api-key -a "$USER" -w
+#   (self-hosted: a token from /api/auth/login; Cloud: an API key).
+# - A call, from the weekly funnel review (the week's visits, visitors and
+#   pageviews):
+#   issue-cli connector exec sales/umami --
+#     '/websites/<id>/stats?startAt=<ms>&endAt=<ms>'
+#   On Cloud: url: https://api.umami.is/v1 and the header
+#   x-umami-api-key: "keychain:umami-api-key" in place of Authorization.
+# - Marketing has the same example: one Umami serves both departments.
+connectors:
+  - name: umami
+    kind: rest
+    url: http://localhost:3000/api
+    headers:
+      Authorization: "Bearer keychain:umami-api-key"
+    get: [/websites/*/stats]
+    check: "curl -fsS http://localhost:3000/api/heartbeat"
+    sends: false
+    note: "Umami analytics, read-only (GET): the week's visits for sales/visits (goal write sales/weekly-funnel)"
+  # Email, for a launch to the waitlist: SendPortal (MIT, sendportal.io),
+  # self-hosted, called over its REST API with curl. It sends to real
+  # people, so two things hold it: the owner_only gate before publish, and
+  # needs_approved_output (connector exec refuses until the owner approves
+  # the issue's newest output on the shelf; the owner's own shell passes
+  # with --as-owner). Where it runs and the mail provider it sends through
+  # (SES, Postmark, SendGrid, Mailgun, Mailjet or SMTP; SMTP may not track
+  # opens or clicks) are yours, and a paid provider is your sign-up. Edit
+  # the host in check: and in your calls. The paths (/api/v1/ping,
+  # /api/v1/campaigns/<id>/send) and port 8000 come from SendPortal's docs
+  # and are unchecked against a running install: run the check: call
+  # (issue-cli connector check sales/sendportal) on yours to confirm them
+  # before the first send. No per_run:, since it must stay
+  # up to take sign-ups. The token is a Keychain item (SendPortal: Settings,
+  # API Tokens): security add-generic-password -s sendportal-api-token -a "$USER" -w
+  # Consent: double opt-in is unverified in SendPortal. Before a campaign
+  # goes to a list collected under a new consent version (the landing
+  # page's consent wording changed), check that its subscribers signed up
+  # under that wording; if you can't tell, don't send to it. A send, from
+  # a launch's publish step after the owner's yes:
+  #   issue-cli connector exec sales/sendportal -- sh -c 'curl -fsS -X POST
+  #     -H "Authorization: Bearer $SENDPORTAL_API_TOKEN" -H "Accept: application/json"
+  #     "http://localhost:8000/api/v1/campaigns/<id>/send"'
+  - name: sendportal
+    kind: tool
+    command: curl
+    secrets:
+      SENDPORTAL_API_TOKEN: keychain:sendportal-api-token
+    check: 'curl -fsS -H "Authorization: Bearer $SENDPORTAL_API_TOKEN" -H "Accept: application/json" http://localhost:8000/api/v1/ping'
+    sends: true
+    needs_approved_output: true
+    note: "SendPortal email: sends a launch the owner approved to the waitlist list the brief names; check the list's consent version first"

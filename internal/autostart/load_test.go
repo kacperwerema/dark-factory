@@ -108,3 +108,77 @@ func TestLoadLimitAndLine(t *testing.T) {
 		t.Errorf("LoadLine without a reading = %q", got)
 	}
 }
+
+// The one hold's boundary: at the line holds, a step under doesn't.
+func TestMachineHold(t *testing.T) {
+	ok := Memory{Found: true, Used: 49, CanStart: true}
+	cases := []struct {
+		name    string
+		mem     Memory
+		cpu     CPU
+		maxLoad float64
+		want    string
+	}{
+		{"all under", ok, load(13.9, 14), 0, ""},
+		{"no mem-guard", Memory{}, load(1, 14), 0, "mem-guard not found: memory is read from mem-guard"},
+		{"check refuses, a note", Memory{Found: true, Used: 10, Note: "BLOCKED"}, load(1, 14), 0, "mem-guard says no: BLOCKED"},
+		{"check refuses, no note", Memory{Found: true, Used: 10}, load(1, 14), 0, "mem-guard says no"},
+		{"memory at the line", Memory{Found: true, Used: 50, CanStart: true}, load(1, 14), 0, "memory 50% ≥ 50%"},
+		{"load at the cores", ok, load(14, 14), 0, "load 14.0 on 14 cores (max 14)"},
+		{"load at max_load", ok, load(10.5, 14), 10.5, "load 10.5 on 14 cores (max 10.5)"},
+		{"max_load over the cores", ok, load(15, 14), 20, ""},
+		{"no load reading", ok, CPU{Cores: 14}, 0, ""},
+		{"no cores known", ok, CPU{Found: true, Avg1: 3}, 0, ""},
+	}
+	for _, c := range cases {
+		if got := MachineHold(c.mem, c.cpu, DefaultBelow, c.maxLoad); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// OwnerMaxLoad counts only while auto-start is on: a closed window's limit
+// holds nothing.
+func TestMaxLoadOf(t *testing.T) {
+	root := t.TempDir()
+	if got := MaxLoadOf(root, "p"); got != 0 {
+		t.Fatalf("no state: %v", got)
+	}
+	if err := Save(root, "p", &State{On: true, MaxLoad: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if got := MaxLoadOf(root, "p"); got != 7 {
+		t.Fatalf("on: %v", got)
+	}
+	if err := Save(root, "p", &State{MaxLoad: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if got := MaxLoadOf(root, "p"); got != 0 {
+		t.Fatalf("off: %v", got)
+	}
+}
+
+// The brief's sentence comes from the rules Decide runs: every rule but the
+// pause (the brief states that one apart) has words, and a Decide that holds
+// on a rule names something the sentence says.
+func TestHoldClausesCoverEveryRule(t *testing.T) {
+	for i, r := range holdRules {
+		if r.hold == nil {
+			t.Errorf("rule %d has no check", i)
+		}
+		if r.words == nil && i != 0 {
+			t.Errorf("rule %d is missing from the lead brief's sentence: give it words", i)
+		}
+	}
+	got := HoldSentence(HoldClauses(Limits{Below: 50, MaxWorkers: 3, MaxLoad: 10.5}))
+	if want := "memory is at or above 50%, the 1-minute load is at or above 10.5, 3 workers are live, or another project just started one"; got != want {
+		t.Errorf("sentence = %q", got)
+	}
+	got = HoldSentence(append(HoldClauses(Limits{}), CIRedClause))
+	if want := "memory is at or above its limit, the 1-minute load is at or above the core count, the worker cap is reached, another project just started one, or local CI is red on main"; got != want {
+		t.Errorf("queue sentence = %q", got)
+	}
+	if got := HoldSentence([]string{"one"}); got != "one" {
+		t.Errorf("one clause = %q", got)
+	}
+}

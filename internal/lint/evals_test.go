@@ -79,7 +79,7 @@ func TestEvalsLintNamesTheBasicMistakes(t *testing.T) {
 func TestBundledTemplatesDeclareEvalsTheCheckAccepts(t *testing.T) {
 	for name, want := range map[string][]string{
 		"development": {"code", "report", "docs"},
-		"marketing":   {"foundation", "piece", "seo-pass"},
+		"marketing":   {"foundation", "keyword-research", "report", "piece", "seo-pass", "seo-baseline", "social"},
 		"content":     {"content"},
 	} {
 		raw, err := workflowupgrade.ReadTemplate(name)
@@ -116,7 +116,7 @@ func TestBundledTemplatesDeclareEvalsTheCheckAccepts(t *testing.T) {
 	if e := cwf.EvalFor(""); e == nil || e.ID != "content" || e.ScoreKind() != "output" || len(e.Rubric) == 0 {
 		t.Errorf("content template has no catch-all output eval: %+v", e)
 	}
-	for _, typ := range []string{"foundation", "market-size", "piece", "seo-pass"} {
+	for _, typ := range []string{"foundation", "keyword-research", "market-size", "piece", "seo-pass", "seo-baseline", "social"} {
 		if e := wf.EvalFor(typ); e == nil || e.ScoreKind() != "output" || len(e.Rubric) == 0 {
 			t.Errorf("marketing type %s has no output eval: %+v", typ, e)
 		}
@@ -188,5 +188,36 @@ evals:
 	got = strings.Join(evalFindings(t, raw), "\n")
 	if !strings.Contains(got, "evals all and rest both have no types:") || strings.Contains(got, "has no eval") {
 		t.Errorf("catch-all findings:\n%s", got)
+	}
+}
+
+func TestLintEvalStages(t *testing.T) {
+	ok := evalsBase + `evals:
+  - id: piece
+    stages:
+      design: {status: idea, rubric: ["names what is left out"], pass: 0.6}
+      docs: {status: done}
+`
+	if got := evalFindings(t, ok); len(got) != 0 {
+		t.Fatalf("well-formed stages: findings = %q", got)
+	}
+	raw := evalsBase + `evals:
+  - id: piece
+    stages:
+      design: {status: drafting}
+      code: {rubric: ["tidy"]}
+      docs: {pass: 2}
+      review: {}
+`
+	got := strings.Join(evalFindings(t, raw), "\n")
+	for _, want := range []string{
+		`stage design names status "drafting", which this workflow lacks`,
+		`stage code has rubric: lines`,
+		`stage docs pass: 2 is outside 0-1`,
+		`stages: "review" is not a stage`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("findings lack %q:\n%s", want, got)
+		}
 	}
 }

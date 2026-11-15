@@ -1,0 +1,42 @@
+session: phone-pages-report
+issue: ui/phone-view-works-on-every-workshop-board-page-no-sideways-scroll-16px-gutters-big-tap-targets-tables-as-rows
+title: "The Report, the HQ report and the company floor at phone width"
+scenario: hq-report
+
+# 390x844 only. inside_viewport fails when documentElement.scrollWidth is
+# wider than the screen (the sideways-scroll check), naming the outermost
+# element that sticks out.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP14
+    title: At 390px the Report fits the screen with 16px gutters
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - visible: [report.page, report.title, report.active, map.drawer]
+      # 16px gutters: a card is 390 - 2x16 = 358px wide (with 28px it was 334).
+      - size: { target: report.active, min_width: 356 }
+
+  - id: TP15
+    title: At 390px the HQ report fits the screen; the header's goal chips are in the drawer
+    proves: [AC1, AC2, AC6]
+    setup:
+      - open: /p/{project}/hq/report
+    act:
+      - click: map.drawer
+    checks:
+      - visible: [hq_report.page, company.goal]
+
+  - id: TP16
+    title: At 390px the company floor is a list of rooms, so the rail follows right after it
+    proves: [AC1, AC2]
+    setup:
+      - open: /p/{project}/company
+    checks:
+      - visible: [floor.list, floor.rail]
+      - below: [floor.list, floor.rail]

@@ -119,7 +119,7 @@ func TestCatalogCheckAttributesANewRuleCaseToItsEntry(t *testing.T) {
 	}
 
 	// A change inside an existing case is that case's entry's alone.
-	edited := inCheckRule(t, src, `return fmt.Errorf("no assignee`, `return fmt.Errorf("still no assignee`)
+	edited := inCheckRule(t, src, `return failRule("no assignee"`, `return failRule("still no assignee"`)
 	rep, err = CheckBranch(realBranch(t, []string{validatePath}, nil, map[string]string{validatePath: edited}), "v0.36.0")
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestCatalogCheckAttributesANewRuleCaseToItsEntry(t *testing.T) {
 	}
 
 	// A change outside the switch is every entry's on checkRule: strict.
-	outside := inCheckRule(t, src, `ruleArg = rule[idx+2:]`, `ruleArg = strings.TrimSpace(rule[idx+2:])`)
+	outside := inCheckRule(t, src, `ruleName, ruleArg := SplitRule(rule)`, `ruleName, ruleArg := SplitRule(strings.TrimSpace(rule))`)
 	rep, err = CheckBranch(realBranch(t, []string{validatePath}, nil, map[string]string{validatePath: outside}), "v0.36.0")
 	if err != nil {
 		t.Fatal(err)

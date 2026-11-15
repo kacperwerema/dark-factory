@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -115,9 +116,9 @@ func CommitFiles(root string, files []string, subject string) (string, error) {
 func CommitCommand(root string, files []string, subject string) string {
 	q := make([]string, len(files))
 	for i, f := range files {
-		q[i] = shellQuote(f)
+		q[i] = shell.Quote(f)
 	}
-	return fmt.Sprintf("git -C %s add %s && git -C %s commit -m %s -- %s", shellQuote(root), strings.Join(q, " "), shellQuote(root), shellQuote(subject), strings.Join(q, " "))
+	return fmt.Sprintf("git -C %s add %s && git -C %s commit -m %s -- %s", shell.Quote(root), strings.Join(q, " "), shell.Quote(root), shell.Quote(subject), strings.Join(q, " "))
 }
 
 // RemoveCommand is the rm that deletes files (relative to root), runnable
@@ -125,7 +126,7 @@ func CommitCommand(root string, files []string, subject string) string {
 func RemoveCommand(root string, files []string) string {
 	q := make([]string, len(files))
 	for i, f := range files {
-		q[i] = shellQuote(filepath.ToSlash(filepath.Join(root, filepath.FromSlash(f))))
+		q[i] = shell.Quote(filepath.ToSlash(filepath.Join(root, filepath.FromSlash(f))))
 	}
 	return "rm -- " + strings.Join(q, " ")
 }
@@ -143,13 +144,4 @@ func ConfigUncommitted(root, configPath string) bool {
 	top, err1 := gitfile.Git(root, "rev-parse", "--show-toplevel")
 	ctop, err2 := gitfile.Git(filepath.Dir(configPath), "rev-parse", "--show-toplevel")
 	return err1 == nil && err2 == nil && gitfile.RealPath(top) == gitfile.RealPath(ctop)
-}
-
-func shellQuote(s string) string {
-	if s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return !(r == '/' || r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
-	}) < 0 {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

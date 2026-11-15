@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -26,9 +27,10 @@ func TestYOLOPassAssumesOpenClarifyQuestionsIntoTheReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("YOLO transition: %v", err)
 	}
-	assertContains(t, out, "YOLO: clarify Q1, Q2 assumed (the recommendation)")
+	assertContains(t, out, "YOLO: clarify Q1 (D-1), Q2 (D-2) assumed (the recommendation)")
 	body := readFile(t, path)
-	if strings.Count(body, "**Answer:** assumed — YOLO: took the recommendation") != 2 {
+	if strings.Count(body, "**Answer:** assumed — YOLO: took the recommendation (D-") != 2 ||
+		strings.Count(body, "· clarify round, provisional: Q") != 2 {
 		t.Fatalf("body:\n%s", body)
 	}
 
@@ -119,7 +121,7 @@ func TestTemplateAndBriefingDescribeTheClarifyRound(t *testing.T) {
 	issue := &tracker.Issue{Slug: "api/fix", Title: "Fix", Status: "in design", BodyRaw: "Body."}
 	for _, on := range []bool{false, true} {
 		tracker.YOLOOn = func(string, string) bool { return on }
-		p := tracker.BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
+		p := briefing.BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
 		for _, want := range []string{"Questions for the owner go only in the design's clarify round", "issue-cli --project proj clarify <slug>", "a question: comment is for a blocker only"} {
 			if !strings.Contains(p, want) {
 				t.Errorf("YOLO %v: briefing lacks %q", on, want)
@@ -127,7 +129,53 @@ func TestTemplateAndBriefingDescribeTheClarifyRound(t *testing.T) {
 		}
 	}
 	tracker.YOLOOn = func(string, string) bool { return true }
-	if rule := tracker.YOLORule("api/fix"); !strings.Contains(rule, "## Clarify round, each marked assumed (issue-cli clarify api/fix --assume)") {
+	if rule := tracker.YOLORule(wf, "api/fix"); !strings.Contains(rule, "## Clarify round, each marked assumed (issue-cli clarify api/fix --assume)") {
 		t.Errorf("YOLO rule = %s", rule)
 	}
+}
+
+// clarifyNudge runs clarifyOnTransition out of idea for an issue of typ on
+// the bundled development template, with no ## Clarify in its body.
+func clarifyNudge(t *testing.T, typ string) string {
+	t.Helper()
+	data, err := templates.FS.ReadFile("workflow/development.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	wfPath := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(wfPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := tracker.LoadWorkflow(wfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "x.md")
+	if err := os.WriteFile(path, []byte("---\ntitle: \"X\"\nstatus: \"in progress\"\ntype: \""+typ+"\"\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	issue := &tracker.Issue{Slug: "cli/x", Status: "in progress", Type: typ, FilePath: path}
+	proj := &tracker.Project{Slug: "proj", IssueDir: dir, WorkDir: dir, WorkflowFile: wfPath}
+	ctx, out, _ := newTestContext(proj, false)
+	if err := clarifyOnTransition(ctx, wf.ForIssue(issue), issue, "idea", false); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
+// AC1: the base idea prompt mentions ## Clarify on every path, but a tweak's
+// path has no design status, so it is not asked to write a round.
+func TestClarifyNudgeSkipsPathsWithoutDesign(t *testing.T) {
+	if out := clarifyNudge(t, "tweak"); strings.Contains(out, "Clarify") {
+		t.Fatalf("tweak leaving idea got a Clarify line:\n%s", out)
+	}
+}
+
+// AC2: a feature's path has a design status: the nudge stays, naming the
+// command that writes the line (issue-cli clarify only reads a round).
+func TestClarifyNudgeNamesTheWriteCommand(t *testing.T) {
+	out := clarifyNudge(t, "feature")
+	assertContains(t, out, "Clarify: cli/x left idea with no ## Clarify.")
+	assertContains(t, out, `issue-cli --project proj append cli/x --section Clarify --body "Nothing to ask: <why>."`)
 }

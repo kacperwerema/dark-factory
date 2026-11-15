@@ -1,0 +1,191 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: video@v0.61.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - report-type@v0.58.0
+    - status-prompts@v0.36.0
+    - body-structure-gates@v0.36.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - human-approval-gates@v0.36.0
+    - owner-only-gates@v0.58.0
+    - publish-stamp@v0.55.0
+    - checklist-sections@v0.36.0
+    - board-card-fields@v0.36.0
+    - board-columns@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# A video studio department's work, one video per issue, made by an outside
+# partner program the department drives (its partner: block in projects.yaml;
+# OpenMontage first, docs/departments.md#partners). Each status is one of the
+# partner's stages; each stage the owner reviews ends in an owner_only gate,
+# which YOLO never passes: proposal, script, scene plan, assets, review and
+# publish (docs/Workflow/yolo.md). Made to be a department's own file
+# (projects.yaml departments: workflow: workflows/<name>.yaml).
+board:
+  columns:
+    - brief
+    - proposal
+    - script
+    - scene plan
+    - assets
+    - compose
+    - review
+    - publish
+    - done
+  card_fields:
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "brief"
+    description: "What video, for whom, how long, where it goes"
+    prompt: |
+      Write the brief under ## Brief: the topic, the audience, the length, where the video will be shown, and which of the partner's pipelines fits (an explainer, a screen demo, ...).
+      A video another department asked for comes as a handoff: its ## Handoff section says who asked and why.
+      No spend: the department works with local models first; a paid key is used only when the owner says so on this issue.
+      Then move to proposal.
+  - name: "proposal"
+    description: "The partner's research and concepts; the owner picks one"
+    prompt: |
+      Work in the partner's checkout (the role file says where and with which env). Start the partner's project for this issue (its id is the issue's partner_project:, else the slug's last part) and follow the partner's own guide for its research and proposal stages.
+      Run `mem-guard check` before each model load; one local model at a time on this machine.
+      When the partner's proposal waits for approval, summarise the concepts, the cost estimate and the production path under ## Proposal, say in chat what the owner reviews, and end your turn. Don't wait or poll: the owner's stamp (or a `revise:` comment) resumes you.
+      After the owner's stamp, record their approval at the partner as its guide says, quoting the owner's words from the issue, then go on.
+  - name: "script"
+    description: "The narration script; the owner approves it"
+    prompt: |
+      Write the script at the partner's script stage. Put it (or its path) under ## Script, with the length it reads at.
+      When the partner's script stage waits for approval, say in chat what the owner reviews and end your turn. Don't wait or poll.
+      After the owner's stamp, record the approval at the partner quoting the owner's words, then go on. A `revise:` comment means another pass at this stage.
+  - name: "scene plan"
+    description: "The scenes and the assets each needs; the owner approves them"
+    prompt: |
+      Make the scene plan at the partner's scene-plan stage. List the scenes and what each needs under ## Scene plan, marking anything a paid tool would make.
+      When it waits for approval, say in chat what the owner reviews and end your turn. Don't wait or poll.
+      After the owner's stamp, record the approval at the partner quoting the owner's words, then go on.
+  - name: "assets"
+    description: "Narration, images and clips made; the owner reviews them and the spend"
+    prompt: |
+      Make the assets at the partner's assets stage, local models first. `mem-guard check` before each model load, and one model loaded at a time: free it before the next.
+      A paid tool runs only through the department's connector (`issue-cli connector exec <name> -- ...`), with keys from the owner's Keychain, never written to a file.
+      List the assets and the spend so far under ## Assets. When the stage waits for approval, say in chat what the owner reviews and end your turn. Don't wait or poll.
+      After the owner's stamp, record the approval at the partner quoting the owner's words, then go on.
+  - name: "compose"
+    description: "Edit and render; the render goes on the shelf"
+    prompt: |
+      Run the partner's edit and compose stages. Check the render (length, picture, sound: `ffprobe <file>`).
+      Put the render on the shelf: `issue-cli output add --issue <slug> --title "..." --kind video --file <checkout>/projects/<id>/renders/<file>.mp4`. The shelf keeps a copy, so the video stays when the checkout is cleaned.
+      Tick ## Render, then move to review.
+  - name: "review"
+    description: "Waiting for the owner's yes on the render"
+    prompt: |
+      Nothing is published. Say in chat where the render is on the shelf and that publishing needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll.
+      If the owner asks for changes, they leave a `revise:` comment: go back to compose.
+  - name: "publish"
+    description: "The export bundle; the owner approves it before it goes anywhere"
+    prompt: |
+      Make the partner's export bundle (title, description, chapters, thumbnail) for what the owner approved, and list it under ## Published. Nothing goes outside the machine yet.
+      Say in chat what the owner approves and end your turn. Don't wait or poll. After the owner's stamp, put it out where the brief says, mark it on the shelf (`issue-cli output publish <id> --url <link>`), record the link and move to done.
+  - name: "done"
+    description: "Out, with the link recorded"
+
+transitions:
+  - from: "brief"
+    to: "proposal"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Topic, audience, length and where it is shown stated
+          - [ ] The partner's pipeline named
+  - from: "proposal"
+    to: "brief"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "proposal"
+    to: "script"
+    actions:
+      - type: "require_human_approval"
+        status: "script"
+        owner_only: true # a creative pick that commits the spend: the owner's even in YOLO
+  - from: "script"
+    to: "proposal"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "script"
+    to: "scene plan"
+    actions:
+      - type: "require_human_approval"
+        status: "scene plan"
+        owner_only: true # the owner's review of the script: never passed by YOLO
+  - from: "scene plan"
+    to: "script"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "scene plan"
+    to: "assets"
+    actions:
+      - type: "require_human_approval"
+        status: "assets"
+        owner_only: true # the owner's review of the scenes: never passed by YOLO
+  - from: "assets"
+    to: "scene plan"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "assets"
+    to: "compose"
+    actions:
+      - type: "require_human_approval"
+        status: "compose"
+        owner_only: true # where paid tools spend: the owner's even in YOLO
+      - type: "append_section"
+        title: "Render"
+        body: |
+          - [ ] Render checked (length, picture, sound)
+          - [ ] Render on the shelf (issue-cli output add --issue <slug> --kind video --file ...)
+  - from: "compose"
+    to: "review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Render"
+      - type: "validate"
+        rule: "has_output: video"
+  - from: "review"
+    to: "compose"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "review"
+    to: "publish"
+    actions:
+      - type: "require_human_approval"
+        status: "publish"
+        owner_only: true # the owner's review of the render: never passed by YOLO
+      - type: "append_section"
+        title: "Published"
+        body: |
+          - [ ] Export bundle listed and approved
+          - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+  - from: "publish"
+    to: "done"
+    actions:
+      - type: "require_human_approval"
+        status: "done"
+        owner_only: true # it publishes outside the machine: the owner's even in YOLO
+      - type: "validate"
+        rule: "section_checkboxes_checked: Published"

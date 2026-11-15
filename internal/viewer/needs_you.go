@@ -28,7 +28,7 @@ var needsYouKinds = []struct {
 	Kinds      []string
 }{
 	{"ci", "CI red", []string{"ci"}},
-	{"approve", "To approve", []string{"gate"}},
+	{"approve", "To approve", []string{"gate", "partner"}},
 	{"test", "To test", []string{"playtest", "checks"}},
 	{"answer", "To answer", []string{"question", "clarify", "challenge", "decision"}},
 	{"outputs", "Outputs to review", []string{"outputs"}},
@@ -48,6 +48,9 @@ type NeedsYouData struct {
 	Ready int
 	// OwnerChecksURL is the project's Owner checks page ("" across projects).
 	OwnerChecksURL string
+	// PostmortemsURL is the project's queue of post-mortem actions, when
+	// any row is a post-mortem ("" across projects).
+	PostmortemsURL string
 	// Projects is the switcher on the page across projects: every project
 	// with its count (the length of its needsYouRows).
 	Projects []NeedsYouProject
@@ -171,6 +174,35 @@ func needsYouCount(p *tracker.Project, prefix string, open []*tracker.Issue) int
 	return len(needsYouRows(p, "", prefix, open, time.Now()))
 }
 
+// needsYouIssueRows is how many of the list's issue rows are on these
+// issues: one system's or family's slice, never a project's total.
+func needsYouIssueRows(p *tracker.Project, issues []*tracker.Issue) int {
+	return len(waitingOnOwner(p, issues))
+}
+
+// needsYouTotal is the number across projects for each project's count: the
+// sum, with unsent bug reports once (appendNeedsYou). A count of -1 was not
+// taken in time and adds nothing.
+func needsYouTotal(counts []int) int {
+	total, counted := 0, 0
+	for _, n := range counts {
+		if n >= 0 {
+			total += n
+			counted++
+		}
+	}
+	if counted > 1 && unsentBugReports() > 0 {
+		total -= counted - 1
+	}
+	return total
+}
+
+// needsYouEverywhere is what waits on the owner across every project: the
+// header's count on the pages outside a project.
+func (s *Server) needsYouEverywhere() int {
+	return needsYouTotal(s.needsYouCounts(false, time.Now()))
+}
+
 // appendNeedsYou adds a project's rows to a list across projects. Unsent bug
 // reports are this user's, not a project's: they are listed once.
 func appendNeedsYou(all, rows []WbQueueCard) []WbQueueCard {
@@ -211,6 +243,16 @@ func mapQueueRow(p *tracker.Project, color, prefix string, it WaitingItem, now t
 		row.Note = it.Issue.Title + " · " + it.Issue.Status + " → " + it.Target
 		row.URL += "#approve-" + strings.ReplaceAll(strings.TrimSpace(it.Target), " ", "-")
 		row.From, row.Target, row.Ready = it.Issue.Status, it.Target, true
+		if w := it.Partner; w != nil {
+			row.Partner, row.PartnerNote, row.LiveURL = w.Line, w.Note(), w.LiveURL
+		}
+	case "partner":
+		w := it.Partner
+		row.Label, row.CTA = w.Name+": "+w.Stage, "Open"
+		row.Note = it.Issue.Title + " · " + w.Stage + " waits for your approval at " + w.Name
+		row.Partner, row.PartnerNote, row.LiveURL = w.Line, w.Note(), w.LiveURL
+		row.PartnerURL, row.PartnerStage = row.URL+"/partner", w.Stage
+		row.URL += "#partner"
 	case "playtest":
 		row.Label, row.CTA = "Playtest", "Open"
 		row.Note = it.Issue.Title + " · " + strings.Join(it.Sessions, ", ")
@@ -335,6 +377,12 @@ func (s *Server) buildNeedsYou(p *tracker.Project, prefix string, now time.Time)
 		d.Groups = []NeedsYouGroup{g}
 	}
 	d.Ready = readyCount(d.Groups)
+	for _, r := range rows {
+		if r.Kind == "postmortem" {
+			d.PostmortemsURL = prefix + "/postmortems"
+			break
+		}
+	}
 	return d
 }
 
@@ -353,7 +401,7 @@ func (s *Server) buildNeedsYouAll(now time.Time) NeedsYouData {
 		go func(i int) {
 			defer wg.Done()
 			p := &s.projects[i]
-			if _, err := tracker.LoadIssues(p.IssueDir); err != nil {
+			if _, err := p.LoadIssues(); err != nil {
 				res[i].err = err
 			}
 			res[i].lot, res[i].rows = s.buildLot(p, s.projectColor(p), now)
@@ -472,6 +520,7 @@ func (s *Server) handleNeedsYouApprove(w http.ResponseWriter, r *http.Request, p
 			res.Error = "could not write the approval: " + err.Error()
 		} else {
 			res.OK, res.WordsError = true, wordsErr
+			partnerAlongGate(proj, issue, words, "Needs you", now)
 			log.Printf("needs you: %s approved for %q", issue.Slug, it.Status)
 		}
 		results = append(results, res)

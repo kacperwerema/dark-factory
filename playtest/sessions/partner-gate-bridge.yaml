@@ -1,0 +1,54 @@
+session: partner-gate-bridge
+issue: factory/gate-bridge-the-owners-needs-you-answer-becomes-a-d-n-and-the-worker-writes-the-partners-approval-only-with-it
+title: Gate bridge - Approve on the partner's row is a D-n that reaches the worker; an approval without one is flagged
+scenario: partner
+
+# The Pitch video's worker is a `cat` session on the private tmux server,
+# so its pane shows the nudge the worker would read.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC1
+    title: Approve on the partner's Needs you row records a D-n with your words and nudges the worker
+    proves: [AC1]
+    setup:
+      - tmux: [new-session, -d, -s, agent-video-pitch-video, cat]
+      - open: /p/acme/needs-you
+      - wait_for: needs_you.partner.form
+    act:
+      - type: { target: needs_you.partner.words, text: "go with concept B" }
+      - click: needs_you.partner.approve
+      - wait_for: { text_contains: { target: needs_you.row.msg, text: 'Approved pitch as video/pitch-video#D-1' } }
+    checks:
+      - issue: { slug: video/pitch-video, body_contains: 'owner on Needs you: OpenMontage pitch approved, "go with concept B" (ref partner-approved:pitch@20261101T102000Z)' }
+      - tmux: { pane: agent-video-pitch-video, contains: 'OpenMontage: the owner approved pitch (video/pitch-video#D-1)' }
+      - http:
+          path: /p/acme/issue/video/pitch-video
+          status: 200
+          body_contains: 'You approved pitch (video/pitch-video#D-1): the worker writes it at OpenMontage'
+    do: >-
+      On Needs you, find the "OpenMontage: pitch" row, write "go with concept B" in its box and press "Approve pitch".
+    expect: >-
+      The row says "Approved pitch as video/pitch-video#D-1, the worker is told" and dims. The issue's Decisions
+      gain D-1 with your words; the worker's pane reads the decision and that it now writes checkpoint_pitch.json
+      with human_approved=True and a decision_log entry quoting D-1. Reloading, the row is gone, and the Station's
+      Partner panel says "You approved pitch (…D-1): the worker writes it at OpenMontage".
+    why: The owner's answer is the only thing that may unlock the partner's gate, and the worker hears it at once.
+
+  - id: AC2
+    title: A gated stage approved at the partner with no owner decision is flagged on the Station
+    proves: [AC2]
+    setup:
+      - open: /p/acme/issue/video/self-approved-video
+    checks:
+      - visible: [station.partner, station.partner.unpaired]
+      - text_contains: { target: station.partner.unpaired, text: 'OpenMontage: pitch approved at the partner with no owner decision (partner-approved:pitch)' }
+    do: Open the Self approved video's Station.
+    expect: >-
+      Under the Partner panel's status line, a red chip reads "OpenMontage: pitch approved at the partner with no
+      owner decision (partner-approved:pitch)". health lint names the same issue.
+    why: The partner's approval flag is one an agent writes; the check makes a flag set without the owner visible.

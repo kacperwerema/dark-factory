@@ -22,6 +22,7 @@ type Limits struct {
 	Below      int
 	MaxWorkers int
 	Gap        time.Duration
+	MaxLoad    float64 // the owner's max_load; 0: the core count
 }
 
 // DefaultLimits are auto-start's defaults (memory under 50%, 2 workers,
@@ -36,6 +37,7 @@ var DefaultLimits = Limits{
 type Input struct {
 	State   *State
 	Memory  autostart.Memory
+	CPU     autostart.CPU
 	Workers int // the project's live workers, without leads
 	Last    *autostart.Start
 	Limits  Limits
@@ -124,14 +126,10 @@ func decide(r *Ref, s Status, in Input) (verdict, reason string, memory int) {
 		return VerdictStart, "", 0
 	}
 	m, lim := in.Memory, in.Limits
-	switch {
-	case !m.Found:
-		return VerdictHold, "mem-guard is not on PATH", 0
-	case !m.CanStart:
-		return VerdictHold, "mem-guard check refuses: " + m.Note, m.Used
-	case m.Used >= lim.Below:
-		return VerdictHold, fmt.Sprintf("memory %d%% ≥ %d%%", m.Used, lim.Below), m.Used
-	case in.Workers >= lim.MaxWorkers:
+	if why := autostart.MachineHold(m, in.CPU, lim.Below, lim.MaxLoad); why != "" {
+		return VerdictHold, why, m.Used
+	}
+	if in.Workers >= lim.MaxWorkers {
 		return VerdictHold, fmt.Sprintf("%d/%d workers live", in.Workers, lim.MaxWorkers), m.Used
 	}
 	if l := in.Last; l != nil {

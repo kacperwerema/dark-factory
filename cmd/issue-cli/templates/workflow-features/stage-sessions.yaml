@@ -1,0 +1,32 @@
+id: stage-sessions
+version: v0.61.0
+category: dispatch
+propose: false
+sources: ["internal/tracker/stage_session.go", "internal/tracker/stage_briefing.go", "internal/briefing/stage.go", "internal/agentrun/fresh.go"]
+title: "Fresh session per stage: session: fresh on a status, a briefing trimmed to the stage"
+what: |
+  `session: fresh` on a status ends the worker's session when the issue enters it, and the
+  next session starts in the same worktree on a briefing of paths only: the issue file,
+  the sections the stage before wrote, HANDOFF.md, the stage's guidance, its output and the
+  gate out, and only the decisions in force and the memories for that status. No chat
+  carries over. The transition marks it (`stage: fresh session at <status>`) and tells the
+  worker to write HANDOFF.md and end its turn; the lead's tick starts the new session with
+  `issue-cli dispatch <slug> --fresh` on the issue's own dispatch words. `briefing_budget:`
+  caps the stage briefing in estimated tokens (default 3000); over it, memories, the
+  decisions list, shell notes, local CI, the build note and the red-round rules fold to the
+  command that prints them. Unset (`continue`) keeps today's single session and briefing.
+why: |
+  One session from design to shipping drifts: by testing it carries the design chat and
+  every red run. A fresh agent per stage starts from what the stage before settled, on a
+  smaller briefing. Measured first: the fresh-vs-continue experiment on the benchmark's
+  golden set decides where it pays.
+where: "statuses[].session and statuses[].briefing_budget"
+question: "Should a stage (design, review, docs) start from a fresh agent that reads only the issue file and HANDOFF.md?"
+snippet: |
+  statuses:
+    - name: "documentation"
+      session: fresh            # continue (default) | fresh
+      briefing_budget: 3000     # estimated tokens of the stage briefing
+detect:
+  - path: statuses[].session
+  - path: statuses[].briefing_budget

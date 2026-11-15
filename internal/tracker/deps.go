@@ -80,7 +80,7 @@ func IssueDeps(issue *Issue, issues []*Issue, index *DecisionIndex, isClosed fun
 		if isClosed != nil {
 			return isClosed(i)
 		}
-		return isClosedStatus(i.Status)
+		return IsClosedStatus(nil, i.Status)
 	}
 	var out []IssueDep
 	for _, slug := range DependsOn(issue) {
@@ -160,7 +160,7 @@ func IssueSharedFiles(root string, issue *Issue, issues []*Issue) *SharedFiles {
 		return nil
 	}
 	name := "work/" + issue.Slug
-	if !refExists(root, name) {
+	if BranchHead(root, name) == "" {
 		return nil
 	}
 	branches := OpenBranches(root, "", issues)

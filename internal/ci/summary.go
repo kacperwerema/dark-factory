@@ -2,9 +2,11 @@ package ci
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -27,9 +29,9 @@ func OneLine(st *State, lock *Lock, alive bool, branch string, now time.Time) st
 	case st == nil || st.State == "":
 		line = branch + ": no CI run yet"
 	case st.State == Green:
-		line = fmt.Sprintf("%s green at %s (%s ago)", branch, Short(st.GreenSha), Ago(now.Sub(st.GreenAt)))
+		line = fmt.Sprintf("%s green at %s (%s ago)", branch, gitdir.ShortSHA(st.GreenSha), Ago(now.Sub(st.GreenAt)))
 	case st.State == Red:
-		line = fmt.Sprintf("%s red since %s: %s", branch, Short(st.RedSince), st.Failed)
+		line = fmt.Sprintf("%s red since %s: %s", branch, gitdir.ShortSHA(st.RedSince), st.Failed)
 		if f := FailureList(st.Failures); f != "" {
 			line += ": " + f
 		}
@@ -37,7 +39,7 @@ func OneLine(st *State, lock *Lock, alive bool, branch string, now time.Time) st
 		line = fmt.Sprintf("%s: CI can't run: %s — issue-cli ci reset", branch, firstLine(st.Error))
 	}
 	if lock != nil && alive {
-		line += fmt.Sprintf(" · running at %s (%s)", Short(lock.Sha), Ago(now.Sub(lock.Started)))
+		line += fmt.Sprintf(" · running at %s (%s)", gitdir.ShortSHA(lock.Sha), Ago(now.Sub(lock.Started)))
 	}
 	return line
 }
@@ -76,9 +78,60 @@ func AgentLine(workDir string, wf *tracker.WorkflowConfig) string {
 	st, _ := ReadState(root)
 	lock, alive := ReadLock(root)
 	branch, _ := ResolveBranch(root, wf.CI)
-	line := "Local CI: " + OneLine(st, lock, alive, branch, time.Now())
+	now := time.Now()
+	line := "Local CI: " + OneLine(st, lock, alive, branch, now)
 	if st.IsRed() {
 		line += " — inherited from " + st.Branch + ", not caused by your branch"
 	}
+	for _, name := range st.TierNames() {
+		if ts := st.Tiers[name]; ts.State == Red {
+			line += "\nLocal CI " + TierLine(name, ts, st.branchOr(branch), now)
+		}
+	}
 	return line
+}
+
+// TierLine is one non-default tier's newest run, as `ci status` and the
+// agents' line print it:
+//
+//	tier slow: green at abc1234 (3h ago)
+//	tier slow: red at abc1234 (3h ago): make ux-test: crew-all/TP5 — inherited from main, not caused by your branch
+//
+// A red tier is marked inherited the way a red default tier is: a worker
+// whose make ux-test fails reads that main already has it.
+func TierLine(name string, ts TierState, branch string, now time.Time) string {
+	line := fmt.Sprintf("tier %s: %s at %s (%s ago)", name, ts.State, gitdir.ShortSHA(ts.Sha), Ago(now.Sub(ts.Finished)))
+	if ts.Failed != "" {
+		line += ": " + ts.Failed
+	}
+	if f := FailureList(ts.Failures); f != "" {
+		line += ": " + f
+	}
+	if ts.State == Red {
+		line += " — inherited from " + branch + ", not caused by your branch"
+	}
+	return line
+}
+
+// TierNames are the non-default tiers with a run, sorted.
+func (s *State) TierNames() []string {
+	if s == nil {
+		return nil
+	}
+	names := make([]string, 0, len(s.Tiers))
+	for name := range s.Tiers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (s *State) branchOr(branch string) string {
+	if s != nil && s.Branch != "" {
+		return s.Branch
+	}
+	if branch == "" {
+		return "branch"
+	}
+	return branch
 }

@@ -14,11 +14,12 @@ import (
 // page across projects shows it and never stops or nudges it (killing it
 // would lose work mem-guard means to resume).
 
-// Pane is one tmux pane: its session, its window and the pid of the
-// process it runs.
+// Pane is one tmux pane: its session, its window, the pid of the process it
+// runs and its current command.
 type Pane struct {
 	Session, Window string
 	PID             int
+	Command         string
 }
 
 // Proc is one row of the process table.
@@ -34,27 +35,29 @@ var (
 )
 
 func defaultListPanes() []Pane {
-	out, err := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{pane_pid}").Output()
+	out, err := exec.Command("tmux", "list-panes", "-a", "-F", panesFormat).Output()
 	if err != nil {
 		return nil
 	}
 	return ParsePanes(string(out))
 }
 
-// ParsePanes reads `tmux list-panes -a -F
-// '#{session_name}\t#{window_name}\t#{pane_pid}'` output.
+// panesFormat is the list-panes format ParsePanes reads.
+var panesFormat = Format("session_name", "window_name", "pane_pid", "pane_current_command")
+
+// ParsePanes reads `tmux list-panes -a -F panesFormat` output.
 func ParsePanes(out string) []Pane {
 	var panes []Pane
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.Split(strings.TrimSpace(line), "\t")
-		if len(f) != 3 {
+		f := SplitFields(line, 4)
+		if len(f) != 4 {
 			continue
 		}
 		pid, err := strconv.Atoi(f[2])
 		if err != nil || pid <= 0 {
 			continue
 		}
-		panes = append(panes, Pane{Session: f[0], Window: f[1], PID: pid})
+		panes = append(panes, Pane{Session: f[0], Window: f[1], PID: pid, Command: f[3]})
 	}
 	return panes
 }
@@ -112,17 +115,46 @@ func (s *Snapshot) Paused(proj *tracker.Project, name string) bool {
 	if s == nil {
 		return false
 	}
+	for _, p := range s.panesOf(proj, name) {
+		if s.treeStopped(p.PID) {
+			return true
+		}
+	}
+	return false
+}
+
+// BareShell is the package's BareShell for a page over many agents: every
+// pane of the agent called name is only a shell, read from this snapshot. A
+// stopped process is mem-guard's pause, never a death, and a snapshot with no
+// process table can't tell.
+func (s *Snapshot) BareShell(proj *tracker.Project, name string) bool {
+	if s == nil || len(s.children) == 0 {
+		return false
+	}
+	panes := s.panesOf(proj, name)
+	for _, p := range panes {
+		if s.treeStopped(p.PID) || !bareShellPane(p.PID, p.Command, len(s.children[p.PID]) > 0) {
+			return false
+		}
+	}
+	return len(panes) > 0
+}
+
+// panesOf is the panes of the agent called name in proj: a bare session name,
+// or a window of the project's shared session.
+func (s *Snapshot) panesOf(proj *tracker.Project, name string) []Pane {
 	shared := SharedSession(proj)
+	var out []Pane
 	for _, p := range s.panes {
 		mine := p.Session == name
 		if shared != "" {
 			mine = p.Session == shared && p.Window == name
 		}
-		if mine && s.treeStopped(p.PID) {
-			return true
+		if mine {
+			out = append(out, p)
 		}
 	}
-	return false
+	return out
 }
 
 func (s *Snapshot) treeStopped(root int) bool {

@@ -47,10 +47,10 @@ func TestAgentTmuxTarget(t *testing.T) {
 }
 
 func TestParseSharedAgentWindows(t *testing.T) {
-	out := "work\tagent-bug-in-login\n" +
-		"work\tzsh\n" + // not an agent window
-		"agent-other\tother\n" + // per-agent session, already listed by tmux ls
-		"agent-other\tagent-x\n" +
+	out := "work|:|agent-bug-in-login\n" +
+		"work|:|zsh\n" + // not an agent window
+		"agent-other|:|other\n" + // per-agent session, already listed by tmux ls
+		"agent-other|:|agent-x\n" +
 		"\n"
 	got := parseSharedAgentWindows(out)
 	if len(got) != 1 || got[0].Name != "work:agent-bug-in-login" {
@@ -62,7 +62,7 @@ func TestParseSharedAgentWindows(t *testing.T) {
 }
 
 func TestParseSharedAgentWindows_KeepsLeadWindows(t *testing.T) {
-	out := "work\tlead-issue-viewer\nwork\tlead-ui-epic\nwork\tagent-ui-child\nwork\tzsh\nlead-x\tlead-x\n"
+	out := "work|:|lead-issue-viewer\nwork|:|lead-ui-epic\nwork|:|agent-ui-child\nwork|:|zsh\nlead-x|:|lead-x\n"
 	got := parseSharedAgentWindows(out)
 	var names []string
 	for _, s := range got {

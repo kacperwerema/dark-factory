@@ -1,0 +1,50 @@
+session: buttons-station
+issue: ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded
+title: "The Station shows one primary per card; Rename, Delete and the other agent actions wait under ⋯ More"
+scenario: issue-tab
+
+# One primary action per card or row (docs/UI/workshop-board.md). buttons
+# counts the visible actions (toggles, Copy and the header left out);
+# one_primary fails on two filled buttons in one row.
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+  # wb-stampcard is a hook class playtests select by (wbHookClasses); it has no rule of its own.
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: The Station shows 7 actions; the title's ⋯ More holds Rename, Classic view, Edit in nvim and Delete…, the agent's holds Codex, Open in tmux, Send the prompt and the dispatch prompt
+    proves: [AC1, AC2, AC3]
+    setup:
+      - open: /p/{project}/issue/ui/folded-brief
+    act:
+      - check: { buttons: { max: 7 } }
+      - check: { visible: [station.menu, station.agent.menu, station.dispatch.claude] }
+      - check: { hidden: [station.rename, station.delete, station.body.nvim, station.agent.prompt, station.dispatch.codex] }
+      - click: station.menu
+      - check: { visible: [station.rename, station.classic, station.body.nvim, station.delete] }
+      - key: Escape
+      - check: { hidden: station.rename }
+      - click: station.agent.menu
+    checks:
+      - visible: [station.dispatch.codex, station.agent.open, station.agent.prompt, station.dispatch.prompt]
+      - disabled: station.agent.open
+      - hidden: station.rename
+
+  - id: TP5
+    title: Delete… from the title's menu still asks first, and Keep it leaves the issue
+    proves: [AC2]
+    viewports: [1440x900]
+    setup:
+      - open: /p/{project}/issue/ui/folded-brief
+    act:
+      - click: station.menu
+      - click: station.delete
+      - wait_for: { visible: station.delete.confirm, ms: 3000 }
+      - check: { hidden: station.rename }
+      - click: station.delete.keep
+    checks:
+      - hidden: station.delete.confirm
+      - visible: station.title

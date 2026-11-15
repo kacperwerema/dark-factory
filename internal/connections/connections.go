@@ -136,14 +136,6 @@ func Boxes(p *tracker.Project) []string {
 	return append([]string{HQ, Product}, p.DepartmentKeys()...)
 }
 
-func closed(issue *tracker.Issue) bool {
-	switch strings.ToLower(strings.TrimSpace(issue.Status)) {
-	case "done", "parked", "closed":
-		return true
-	}
-	return false
-}
-
 // recent reports whether a closed issue closed within the window; an
 // issue without done_at is not listed.
 func recent(issue *tracker.Issue, now time.Time) bool {
@@ -197,7 +189,7 @@ func (b *builder) add(from, to, kind, via string, item Item, isOpen bool) {
 // (true), closed (false) or not at all (ok false).
 func (b *builder) issueItem(issue *tracker.Issue, why string) (item Item, isOpen, ok bool) {
 	item = Item{Slug: issue.Slug, Title: issue.Title, Status: issue.Status, Why: why}
-	if !closed(issue) {
+	if !b.in.Project.IssueClosed(issue) {
 		return item, true, true
 	}
 	return item, false, recent(issue, b.in.Now)
@@ -232,7 +224,7 @@ func Derive(in Input) []Edge {
 		}
 		for _, slug := range order {
 			y := bySlug[slug]
-			if y == nil || closed(y) {
+			if y == nil || p.IssueClosed(y) {
 				continue
 			}
 			if item, isOpen, ok := b.issueItem(x, deps[slug]); ok {
@@ -513,7 +505,7 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time) []Edge {
 		Project: p, Issues: issues, Outputs: outs, Now: now,
 		Decisions: tracker.BuildDecisionIndex(issues, nil),
 		Comments: func(i *tracker.Issue) []tracker.Comment {
-			c, _ := tracker.LoadComments(i.FilePath)
+			c := i.Comments()
 			return c
 		},
 	}))

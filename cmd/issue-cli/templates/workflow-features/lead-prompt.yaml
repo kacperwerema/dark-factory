@@ -1,29 +1,29 @@
 id: lead-prompt
-version: v0.54.0
+version: v0.61.0
 category: dispatch
 propose: true
-sources: ["internal/tracker/lead_brief.go", "internal/tracker/lead.go", "cmd/issue-cli/cmd_lead.go"]
+sources: ["internal/tracker/lead_brief.go", "internal/briefing/lead.go", "internal/tracker/lead.go", "cmd/issue-cli/cmd_lead.go"]
 title: "Project lead brief"
 what: |
-  `leads.project` is the brief the project lead starts with (`issue-cli lead spawn`,
-  one lead per project): what it owns, how it routes work to workers, and that it
-  records your answers with `issue-cli decide --quote` in your words. It templates
-  `{{project}}` and `{{lead}}`; without it the built-in brief applies. Whatever it
-  says, the CLI adds the lead's limits: answer workers only from recorded decisions,
-  ask you when none covers it, dispatch only the issues you name
-  (`issue-cli dispatch --quote`), tick gates only with your quote.
+  `leads.project_addendum` is what your project adds to the brief the project lead
+  starts with (`issue-cli lead spawn`, one lead per project). The built-in brief says
+  what the lead owns, how it routes work to workers, and that it records your answers
+  with `issue-cli decide --quote` in your words. The addendum goes after it and
+  templates `{{project}}` and `{{lead}}`. The CLI adds the lead's limits: answer workers
+  only from recorded decisions, ask you when none covers it, dispatch only the issues
+  you name (`issue-cli dispatch --quote`), tick gates only with your quote. An old
+  `leads.project` still replaces the built-in brief; lint warns, because a replaced
+  brief misses every later change to it.
 why: |
-  The lead is the one session that sees every worker. A brief written for this
-  project tells it what you care about and what it may decide alone.
-where: "top-level leads.project"
+  The lead is the one session that sees every worker. An addendum tells it what you
+  care about and what it may decide alone, and keeps the built-in brief current.
+where: "top-level leads.project_addendum"
 snippet: |
   leads:
-    project: |
-      You are the project lead of {{project}}, running in {{lead}} in the main checkout.
-      The human decides. Groom ideas, dispatch the workers the human names, relay their
-      questions and approvals, and review their designs and diffs.
-      Record each answer in the human's words:
-      issue-cli decide <slug> --text "..." --how "lead chat" --quote "<their words>".
-question: "What should the project lead own, and what must it always bring to you?"
+    project_addendum: |
+      - In this repo: designs live in docs/design/, and you review every diff.
+      - Bring each question with the asker's recommendation and yours.
+question: "What should the project lead own here, beyond the built-in brief, and what must it always bring to you?"
 detect:
+  - path: leads.project_addendum
   - path: leads.project

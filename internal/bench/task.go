@@ -10,12 +10,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // MaxCandidateLines is the biggest branch (lines added plus removed) that
 // `bench candidates` proposes: bigger tasks cost a lot per run.
 const MaxCandidateLines = 600
+
+// MaxCandidateFiles is the most files a proposed branch may change: past it a
+// task is a sprawl to judge and costs like one.
+const MaxCandidateFiles = 15
+
+// DefaultCandidateLimit is how many `bench candidates` shows: about twice
+// the 10 or so tasks the owner picks.
+const DefaultCandidateLimit = 20
 
 // DefaultStart is the status a task's worker starts at when the issue went
 // through it: the design is given, the worker builds it.
@@ -39,6 +48,10 @@ type Candidate struct {
 	// Risks name what may make it a poor task though it is proposed (see
 	// CandidateRisks).
 	Risks []string `json:"risks,omitempty"`
+	// Stages name the references per stage task add would give it
+	// (candidateStages): "design", "code (n tests)", "docs (n files)" or
+	// "docs (rubric only)"; a design it can't have is "no design: <why>".
+	Stages []string `json:"stages,omitempty"`
 	// Why is set when the issue is not proposed: what it lacks.
 	Why string `json:"why,omitempty"`
 	// Replay and ReplayWhy are the solvability check's verdict and reason
@@ -150,29 +163,71 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 		return nil
 	}
 	repo = strings.TrimSpace(repo)
-	var out []Candidate
+	// The issues to look at, then every range from one read of the history.
+	type row struct {
+		c     Candidate
+		issue *tracker.Issue
+		rec   recorded
+		rng   Range
+		err   error
+		stats tracker.StatsStore
+	}
+	var rows []*row
+	var tips []string
 	for _, is := range issues {
 		if !p.IssueDone(is) {
 			continue
 		}
-		c := Candidate{Project: p.Slug, Slug: is.Slug, Type: is.Type, Done: is.DoneAt, System: is.System}
 		if in != nil {
 			if _, t := in.Task(p.Slug + "/" + is.Slug); t != nil {
 				continue
 			}
 		}
+		x := &row{c: Candidate{Project: p.Slug, Slug: is.Slug, Type: is.Type, Done: is.DoneAt, System: is.System}, issue: is}
 		stats, _ := tracker.LoadStats(is.FilePath)
-		r, err := FindRange(repo, stats)
+		x.stats = stats
+		if x.rec, x.err = recordedOf(stats); x.err == nil {
+			tips = append(tips, x.rec.walk())
+		}
+		rows = append(rows, x)
+	}
+	h, herr := loadHistory(repo, tips)
+	var ranges []*Range
+	for _, x := range rows {
 		switch {
-		case err != nil:
-			c.Why = err.Error()
+		case x.err != nil:
+		case herr != nil:
+			x.err = herr
+		default:
+			if x.rng, x.err = h.rangeOf(x.rec); x.err == nil {
+				ranges = append(ranges, &x.rng)
+			}
+		}
+	}
+	ferr := fillRanges(repo, h, ranges)
+
+	o := openObjects(repo)
+	defer o.close()
+	wf := p.LoadWorkflow()
+	issueDir := ""
+	if rel, err := filepath.Rel(repo, p.IssueDir); err == nil && !strings.HasPrefix(rel, "..") {
+		issueDir = rel
+	}
+	var fits []*row // the rows that pass every rule, for main's files below
+	for _, x := range rows {
+		c, r := &x.c, x.rng
+		switch {
+		case x.err != nil:
+			c.Why = x.err.Error()
+		case ferr != nil:
+			c.Why = ferr.Error()
 		case r.Commits == 0:
 			c.Why = "no commits of its own"
 		default:
-			hidden := HiddenFiles(repo, r)
+			hidden := o.hiddenFiles(r)
 			c.repo, c.rng, c.hidden = repo, r, hidden
-			c.Base, c.Merged, c.Lines, c.Files, c.Hidden = short(r.Base), short(r.Merged), r.Lines, len(r.Files), len(hidden)
-			c.TestNames = HiddenTests(repo, r, hidden)
+			c.Base, c.Merged, c.Lines, c.Files, c.Hidden = gitdir.ShortSHA(r.Base), gitdir.ShortSHA(r.Merged), r.Lines, len(r.Files), len(hidden)
+			c.TestNames = o.hiddenTests(r, hidden)
 			c.Tests = len(c.TestNames)
 			switch {
 			case len(hidden) == 0:
@@ -181,18 +236,31 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 				c.Why = "no Go tests in its test files (the scorer runs Go tests only, so just --check would judge it)"
 			case r.Lines > MaxCandidateLines:
 				c.Why = fmt.Sprintf("%d lines (over %d)", r.Lines, MaxCandidateLines)
+			case len(r.Files) > MaxCandidateFiles:
+				c.Why = fmt.Sprintf("%d files (over %d)", len(r.Files), MaxCandidateFiles)
 			default:
 				sources := map[string]string{}
 				for _, f := range hidden {
-					sources[f], _ = git(repo, "show", r.Merged+":"+f)
+					sources[f], _ = o.read(r.Merged, f)
 				}
-				c.Risks = CandidateRisks(sources, c.TestNames, is.BodyRaw)
-				if n := len(ForeignFiles(repo, r)); n > 0 {
-					c.Risks = append(c.Risks, fmt.Sprintf("main merged in (%d files not its own)", n))
-				}
+				c.Risks = CandidateRisks(sources, c.TestNames, x.issue.BodyRaw)
+				c.Stages = candidateStages(wf, x.stats, x.issue.BodyRaw, c.Tests, len(DocsFiles(r, issueDir)))
+				fits = append(fits, x)
 			}
 		}
-		out = append(out, c)
+	}
+	diffs := make([]Range, len(fits))
+	for i, x := range fits {
+		diffs[i] = x.rng
+	}
+	for i, foreign := range foreignFiles(repo, diffs) {
+		if n := len(foreign); n > 0 {
+			fits[i].c.Risks = append(fits[i].c.Risks, fmt.Sprintf("main merged in (%d files not its own)", n))
+		}
+	}
+	var out []Candidate
+	for _, x := range rows {
+		out = append(out, x.c)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].Why == "") != (out[j].Why == "") {
@@ -200,6 +268,52 @@ func Candidates(p *tracker.Project, issues []*tracker.Issue, in *Benchmark) []Ca
 		}
 		return out[i].Done > out[j].Done
 	})
+	return out
+}
+
+// PickCandidates is at most n of cands' proposed rows (Why empty), the ones
+// with the fewest risks first and within those one of each type in turn, so
+// a table by type has data; each type stays newest first.
+func PickCandidates(cands []Candidate, n int) []Candidate {
+	byRisk := map[int][]Candidate{}
+	var risks []int
+	for _, c := range cands {
+		if c.Why != "" {
+			continue
+		}
+		k := len(c.Risks)
+		if _, ok := byRisk[k]; !ok {
+			risks = append(risks, k)
+		}
+		byRisk[k] = append(byRisk[k], c)
+	}
+	sort.Ints(risks)
+	var out []Candidate
+	for _, k := range risks {
+		out = append(out, acrossTypes(byRisk[k])...)
+	}
+	return out[:max(min(n, len(out)), 0)]
+}
+
+// acrossTypes takes one row of each type in turn, types in first-seen order.
+func acrossTypes(cands []Candidate) []Candidate {
+	byType := map[string][]Candidate{}
+	var types []string
+	for _, c := range cands {
+		if _, ok := byType[c.Type]; !ok {
+			types = append(types, c.Type)
+		}
+		byType[c.Type] = append(byType[c.Type], c)
+	}
+	var out []Candidate
+	for len(out) < len(cands) {
+		for _, t := range types {
+			if rows := byType[t]; len(rows) > 0 {
+				out = append(out, rows[0])
+				byType[t] = rows[1:]
+			}
+		}
+	}
 	return out
 }
 
@@ -242,6 +356,9 @@ type AddOptions struct {
 	// Verify runs the base and merged checks (see Verify).
 	Verify bool
 	Log    func(format string, args ...any)
+	// DocsRubric are rubric lines for the docs stage beside
+	// DefaultDocsRubric (--docs-rubric).
+	DocsRubric []string
 }
 
 // NewTask builds the task for issue and writes its snapshot. It does not add
@@ -280,14 +397,11 @@ func NewTask(ctx context.Context, p *tracker.Project, issue *tracker.Issue, opt 
 	t.Hidden = HiddenFiles(repo, r)
 	t.HiddenTests = HiddenTests(repo, r, t.Hidden)
 	if len(t.Hidden) == 0 && t.Check == "" {
-		return t, nil, fmt.Errorf("%s has no test files in %s..%s and no --check: nothing could tell a good result", issue.Slug, short(r.Base), short(r.Merged))
+		return t, nil, fmt.Errorf("%s has no test files in %s..%s and no --check: nothing could tell a good result", issue.Slug, gitdir.ShortSHA(r.Base), gitdir.ShortSHA(r.Merged))
 	}
 	t.Start = opt.Start
 	if t.Start == "" {
-		t.Start = DefaultStart
-		if !wentThrough(stats, DefaultStart) && len(stats.Transitions) > 0 {
-			t.Start = stats.Transitions[0].To
-		}
+		t.Start = defaultStart(p.LoadWorkflow(), stats)
 	}
 	var snap []byte
 	if opt.Snapshot != "" {
@@ -309,7 +423,23 @@ func NewTask(ctx context.Context, p *tracker.Project, issue *tracker.Issue, opt 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return t, warnings, err
 	}
-	return t, warnings, os.WriteFile(path, snap, 0o644)
+	if err := os.WriteFile(path, snap, 0o644); err != nil {
+		return t, warnings, err
+	}
+	return t, warnings, StageReferences(repo, p, issue, stats, r, &t, opt.DocsRubric)
+}
+
+// defaultStart is the status a task's worker starts at with no --start: the
+// workflow's work status, or the issue's first step when it never went there.
+func defaultStart(wf *tracker.WorkflowConfig, stats tracker.StatsStore) string {
+	start := wf.RoleStatus(tracker.StatusRoleWork)
+	if start == "" {
+		start = DefaultStart
+	}
+	if !wentThrough(stats, start) && len(stats.Transitions) > 0 {
+		return stats.Transitions[0].To
+	}
+	return start
 }
 
 func wentThrough(stats tracker.StatsStore, status string) bool {
@@ -339,7 +469,7 @@ func Verify(ctx context.Context, repo string, t *Task, log func(string, ...any))
 		return nil, err
 	}
 	var warnings []string
-	log("  checking the merged commit %s", short(t.Merged))
+	log("  checking the merged commit %s", gitdir.ShortSHA(t.Merged))
 	if _, err := git(clone, "checkout", "--quiet", "--detach", t.Merged); err != nil {
 		return nil, err
 	}
@@ -366,7 +496,7 @@ func Verify(ctx context.Context, repo string, t *Task, log func(string, ...any))
 	if t.Check == "" {
 		return warnings, nil
 	}
-	log("  checking the base %s", short(t.Base))
+	log("  checking the base %s", gitdir.ShortSHA(t.Base))
 	if _, err := git(clone, "checkout", "--quiet", "--force", "--detach", t.Base); err != nil {
 		return warnings, err
 	}
@@ -380,4 +510,33 @@ func Verify(ctx context.Context, repo string, t *Task, log func(string, ...any))
 		return warnings, fmt.Errorf("the check fails at the base: %s", lastLine(out))
 	}
 	return warnings, nil
+}
+
+// candidateStages is what task add would give a candidate per stage, read
+// from its stats and body (no git call): a design when it left a design
+// status with a ## Design section, the code's tests, the docs it changed.
+func candidateStages(wf *tracker.WorkflowConfig, stats tracker.StatsStore, body string, tests, docs int) []string {
+	var out []string
+	went := false
+	for _, tr := range stats.Transitions {
+		if wf.HasRole(tr.From, "design") {
+			went = true
+			break
+		}
+	}
+	switch text, ok := tracker.SectionText(body, "Design"); {
+	case !went:
+		out = append(out, "no design: never went through a design status")
+	case !ok || strings.TrimSpace(text) == "":
+		out = append(out, "no design: no ## Design section")
+	default:
+		out = append(out, StageDesign)
+	}
+	out = append(out, fmt.Sprintf("code (%s)", plural(tests, "test")))
+	if docs > 0 {
+		out = append(out, fmt.Sprintf("docs (%s)", plural(docs, "file")))
+	} else {
+		out = append(out, "docs (rubric only)")
+	}
+	return out
 }

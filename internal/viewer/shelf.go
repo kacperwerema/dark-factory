@@ -56,6 +56,9 @@ type WbShelfRow struct {
 	// version (shown from 2); Open the comments not resolved.
 	Raw           string
 	Version, Open int
+	// Video is a video shelf file's URL (the player's src), VideoType its
+	// media type, Poster its poster's URL ("" without one).
+	Video, VideoType, Poster string
 }
 
 // WbShelfLink is a room's way to its shelf: in review and made this week.
@@ -123,7 +126,14 @@ func shelfRow(p *tracker.Project, prefix string, o *outputs.Output, colors map[s
 	case o.Path != "":
 		row.Path = o.Path
 	}
-	if o.URL == "" && o.IsMarkdown() {
+	if o.File != "" && !o.Missing && o.IsVideo() {
+		row.Video, row.VideoType = row.Link, outputs.VideoType(o.File)
+		if o.Poster != "" && fileExists(filepath.Join(outputs.FilesDir(p), filepath.FromSlash(o.Poster))) {
+			row.Poster = prefix + "/shelf/file/" + o.Poster
+			row.Thumb = row.Poster
+		}
+	}
+	if o.URL == "" && (o.IsMarkdown() || (o.File != "" && o.IsVideo())) {
 		row.Raw, row.Link = row.Link, shelfReadURL(prefix, o.ID)
 	}
 	row.Version, row.Open = o.Version(), outputs.OpenCount(talk[o.ID])
@@ -199,7 +209,7 @@ func (s *Server) handleShelfReview(w http.ResponseWriter, r *http.Request, proj 
 // handleShelfFile serves a file output add copied onto the shelf; nothing
 // outside .outputs/files, symlinks resolved (F-15, as /files/ does). A
 // sandbox CSP keeps an SVG or HTML file from running script on the viewer's
-// origin.
+// origin. Range requests get 206 (a video's seeks) with the same headers.
 func (s *Server) handleShelfFile(w http.ResponseWriter, r *http.Request, proj *tracker.Project, rel string) {
 	root, err := filepath.EvalSymlinks(outputs.FilesDir(proj))
 	if err != nil {
@@ -222,6 +232,11 @@ func (s *Server) handleShelfFile(w http.ResponseWriter, r *http.Request, proj *t
 	}
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if t := outputs.VideoType(path); t != "" {
+		// Go's mime table has no video types and nosniff forbids a guess;
+		// ServeFile answers Range requests (206) for the player's seeks.
+		w.Header().Set("Content-Type", t)
+	}
 	http.ServeFile(w, r, path)
 }
 

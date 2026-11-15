@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // The verdicts of a candidate's replay (Replay).
@@ -125,7 +127,7 @@ func Replay(ctx context.Context, repo string, r Range, hidden, tests []string, e
 		return ReplayResult{ReplayNotChecked, stop}
 	}
 	if len(onBase) == len(tests) {
-		return ReplayResult{ReplayPassOnBase, fmt.Sprintf("all %d hidden tests pass on base %s without the change", len(tests), short(r.Base))}
+		return ReplayResult{ReplayPassOnBase, fmt.Sprintf("all %d hidden tests pass on base %s without the change", len(tests), gitdir.ShortSHA(r.Base))}
 	}
 
 	// Replay side: base plus the branch's own commits.
@@ -139,7 +141,7 @@ func Replay(ctx context.Context, repo string, r Range, hidden, tests []string, e
 		if _, err := replayGit(wt, "cherry-pick", "--no-commit", c); err != nil {
 			conflicts, _ := replayGit(wt, "diff", "--name-only", "--diff-filter=U")
 			subject, _ := git(repo, "log", "-1", "--format=%s", c)
-			why := fmt.Sprintf("commit %s (%s) does not apply on base %s", short(c), strings.TrimSpace(subject), short(r.Base))
+			why := fmt.Sprintf("commit %s (%s) does not apply on base %s", gitdir.ShortSHA(c), strings.TrimSpace(subject), gitdir.ShortSHA(r.Base))
 			if f := strings.Fields(conflicts); len(f) > 0 {
 				why += ": conflicts in " + listSome(f, 3)
 			}
@@ -181,7 +183,7 @@ func Replay(ctx context.Context, repo string, r Range, hidden, tests []string, e
 		}
 	}
 	if len(stillFail) > 0 {
-		return ReplayResult{ReplayNotChecked, fmt.Sprintf("%s fail on the merged commit %s too", listSome(stillFail, 3), short(r.Merged))}
+		return ReplayResult{ReplayNotChecked, fmt.Sprintf("%s fail on the merged commit %s too", listSome(stillFail, 3), gitdir.ShortSHA(r.Merged))}
 	}
 	why := fmt.Sprintf("%s fail on base + its own commits but pass on the merged commit", listSome(failing, 3))
 	if n := len(ForeignFiles(repo, r)); n > 0 {

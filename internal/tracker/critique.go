@@ -9,7 +9,7 @@ import (
 // critique` starts the fresh critic that the `critique` gate reads. Every
 // key is optional (docs/Workflow/critique.md).
 type CritiqueConfig struct {
-	Agent   string `yaml:"agent,omitempty" desc:"Agent CLI the critic runs on (claude or codex); default: routing's pick, switched to the other installed agent when there is one"`
+	Agent   string `yaml:"agent,omitempty" desc:"Agent CLI the critic runs on (claude or codex); default: the other agent than the worker's on the dispatch record, the same one when the other rests"`
 	Command string `yaml:"command,omitempty" desc:"Command that runs the critic instead of the agent's own (sh -c, the brief on stdin, findings on stdout); a stand-in in tests"`
 	Timeout string `yaml:"timeout,omitempty" desc:"How long a critic may run (Go duration, default 15m)"`
 }
@@ -79,8 +79,7 @@ func TransitionHasRule(actions []WorkflowAction, rule string) bool {
 		if a.Type != "validate" {
 			continue
 		}
-		name, _, _ := strings.Cut(a.Rule, ":")
-		if strings.TrimSpace(name) == rule {
+		if name, _ := SplitRule(a.Rule); name == rule {
 			return true
 		}
 	}

@@ -28,7 +28,7 @@ statuses:
   - name: "testing"
 ```
 
-With this config, `in progress → testing` is valid (skips the optional status). `in progress → waiting-for-team-input` is also valid (ordinary forward step). Backward transitions into an optional status still require an explicit `transitions:` edge. See [Workflow Overview](Workflow/overview) for full semantics.
+With this config, `in progress → testing` is valid (skips the optional status). `in progress → waiting-for-team-input` is also valid (ordinary forward step). Backward transitions into an optional status still require an explicit `transitions:` edge. See [Workflow Overview](Workflow/overview.md) for full semantics.
 
 If a transition into an optional status also has `require_human_approval`, the detail view hides the approval checkbox behind a CTA button so the default (required) next step stays unambiguous. Customise the button text with `cta_label` on the transition:
 
@@ -94,21 +94,21 @@ In practice:
 - `status.prompt` defines how an agent should behave while in a status
 - `inject_prompt` adds extra guidance triggered by a specific transition
 
-For the full end-to-end agent flow from dispatch through approvals, retrospectives, and bug reporting, see [Agent Workflow Flow](agent-workflow-flow).
+For the full end-to-end agent flow from dispatch through approvals, retrospectives, and bug reporting, see [Agent Workflow Flow](agent-workflow-flow.md).
 
 ### Lead brief (`leads:`)
 
-A top-level `leads:` block sets the brief the [project lead](patterns/lead-session.md) is spawned with by `issue-cli lead spawn`:
+A top-level `leads:` block adds to the built-in brief the [project lead](patterns/lead-session.md) is spawned with by `issue-cli lead spawn`:
 
 ```yaml
 leads:
-  project: |
-    You are the project lead of {{project}}, running in {{lead}}.
-    Dispatch workers from the board and relay their questions to the human one at a time.
+  project_addendum: |
+    - In this repo: designs live in docs/design/, and you review every diff.
 ```
 
 - Placeholders: `{{project}}` and `{{lead}}` (the lead's tmux name). `issue-cli` commands get `--project` injected.
-- A missing or empty `project` uses the built-in default brief, so a workflow without `leads:` still gets a working lead.
+- A workflow without `leads:` gets the built-in brief alone, so it still has a working lead.
+- `project_addendum` goes after the built-in brief, which stays the one source. An old `project` key still replaces the built-in brief; `issue-cli health lint` and `process workflow` warn, because a replaced brief misses every later change to it. Move what the project adds to `project_addendum`.
 - The CLI always appends a footer: role, what the lead may tick, and its handoff note under `sessions/`.
 - An old `epic` key still loads but is ignored; `issue-cli process workflow` warns about it.
 - `leads:` is project-wide: type, system and per-issue overlays keep it as it is.
@@ -130,15 +130,15 @@ The design step asks the owner once. The bundled `development` template's `in de
 - The answer line is one of three forms:
   - `—`: open.
   - `<n> · <date> · owner: "<words>" (D-k)`: the owner's answer, which is also decision D-k (how `clarify round`, the owner's words as its quote).
-  - `assumed — <reason>`: the agent took the answer alone. Without an option number it is the recommendation; `assumed 2 — …` picks option 2.
+  - `assumed — <reason> (D-k)`: the agent took the answer alone. Without an option number it is the recommendation; `assumed 2 — …` picks option 2. D-k is the provisional decision the assumption recorded (`clarify round, provisional: Q1 <question> → <option>`), so the choice is written once and the critic finds it under `## Decisions`; the owner's later answer records its own D-n that replaces D-k.
 - With nothing to ask, the section is one line: `Nothing to ask: <why>.`
 - Outside the round, a `question:` comment is for a blocker only. The worker briefing says so.
 
 The owner answers on the issue's Station: the **Clarify** card shows every question as one form, with the recommendation preselected and an optional words box per question. **Answer all** posts them (`POST …/issue/<slug>/clarify`, owner's browser only). Each answer is recorded on its own. If a question changed after the page loaded, it is refused and the owner reloads. Needs you lists one **Clarify** row per issue with questions waiting ("2 questions to answer"), counted in the one waiting-on-you count.
 
-`issue-cli clarify <slug>` prints the round, each answer's state and the format's problems: option count, no recommendation, no `Cost:`, no answer line. `--assume [--reason]` marks the open answers assumed. `--answer Q2=1 --quote "…" [--how chat]` records an answer the owner gave in chat, relayed by the lead. When an issue leaves a status whose prompt asks for `## Clarify`, `transition` prints the round's problems, or a hint if the issue has no round.
+`issue-cli clarify <slug>` prints the round, each answer's state and the format's problems: option count, no recommendation, no `Cost:`, no answer line. `--assume [--reason]` marks the open answers assumed, each with its provisional D-n. `--answer Q2=1 --quote "…" [--how chat]` records an answer the owner gave in chat, relayed by the lead. When an issue leaves a status whose prompt asks for `## Clarify`, `transition` prints the round's problems, or, when the issue's path has a design status, a hint if it has no round, naming the command that writes the one-line round (`issue-cli append <slug> --section Clarify --body "Nothing to ask: <why>."`). A tweak's path has no design status, so leaving idea without a round prints nothing.
 
-Under YOLO the gate that takes the issue out of design marks every open answer `assumed — YOLO: took the recommendation`, and the answers wait in that issue's entry of the [review after YOLO](Workflow/yolo.md#assumed-answers). Other sections reuse the format through `tracker.ParseQuestions(body, section)` and `tracker.AppendQuestion` (the red-round and post-mortem questions). Catalog entry `clarify-round` (factory/one-clarify-round-per-design-every-question-at-once-with-options-cost-and-the-recommendation-first-assumed-answers-marked).
+Under YOLO the gate that takes the issue out of design marks every open answer `assumed — YOLO: took the recommendation (D-k)` with a provisional D-k each, and the answers wait in that issue's entry of the [review after YOLO](Workflow/yolo.md#assumed-answers). Other sections reuse the format through `tracker.ParseQuestions(body, section)` and `tracker.AppendQuestion` (the red-round and post-mortem questions). Catalog entry `clarify-round` (factory/one-clarify-round-per-design-every-question-at-once-with-options-cost-and-the-recommendation-first-assumed-answers-marked).
 
 ## Side-Effects
 
@@ -157,10 +157,12 @@ This is used so design agents are unassigned when an issue moves to backlog, bef
 
 Each `transitions[].actions[]` entry of `type: validate` runs one rule against the issue. There are two flavors of rule encoding:
 
-- **Legacy colon-string** — the rule and (optional) argument live in a single `rule:` string, e.g. `rule: "section_checkboxes_checked: Design"`. Used by the original 10 rules: `body_not_empty`, `has_checkboxes`, `section_has_checkboxes`, `has_assignee`, `all_checkboxes_checked`, `section_checkboxes_checked`, `has_test_plan`, `has_comment_prefix`, `approved_for` / `human_approval`, and by `criteria_checkboxes` and `criteria_proven`.
+- **Legacy colon-string** — the rule and (optional) argument live in a single `rule:` string, e.g. `rule: "section_checkboxes_checked: Design"`. Used by the original 10 rules: `body_not_empty`, `has_checkboxes`, `section_has_checkboxes`, `has_assignee`, `all_checkboxes_checked`, `section_checkboxes_checked`, `has_test_plan`, `has_comment_prefix`, `approved_for` / `human_approval`, and by `criteria_checkboxes` and `criteria_proven`. The name ends at the first colon: `approved_for:done` is `approved_for: done`.
 - **Structured action params** — the rule name in `rule:` plus companion fields on the same action (e.g. `field`, `values`, `pattern`, `section`, `min`, `max`, `command`, `ref_key`, `linked_status`, `hint`). All new validators use this form.
 
 Both flavors can mix freely in the same workflow. New validators should use the structured form for clarity; existing legacy rules keep working unchanged.
+
+A `hint:` on the action replaces the failure's built-in fix, templated the same way (`{{slug}}`, `{{number}}`, `{{repo}}`, `{{system}}`, `{{department}}`), on the structured rules and on the original legacy rules (`body_not_empty`, `has_checkboxes`, `section_has_checkboxes`, `has_assignee`, `all_checkboxes_checked`, `section_checkboxes_checked`, `has_test_plan`, `has_comment_prefix`): the error keeps what is wrong (`no comment starting with "docs:"`, the open boxes) and the hint takes the place of the fix, in the transition and in `transition --dry-run`. The other rules keep their own text.
 
 ### Frontmatter validators
 
@@ -191,7 +193,7 @@ Both flavors can mix freely in the same workflow. New validators should use the 
 
 - `has_pr_url` — frontmatter `pr` is a github pull request URL (`https://github.com/<org>/<repo>/pull/<N>`).
 - `linked_issue_in_status` — the issue referenced by `action.ref_key` (a frontmatter key whose value is another issue's slug) has the status `action.linked_status`.
-- `children_closed` — every child of the issue (the issues naming it in `parent:`) is in a closing status: `values:` when set, else done, parked or obsolete. An issue with no children passes. The `epic` type uses it on in progress → done.
+- `children_closed` — every child of the issue (the issues naming it in `parent:`) is closed: in `values:` when set, else by its own workflow (`tracker.IsClosedStatus`: the workflow's end, anything listed after it, and parked). An issue with no children passes. The `epic` type uses it on in progress → done.
 
 ### Body-structure validators
 
@@ -206,6 +208,7 @@ Both flavors can mix freely in the same workflow. New validators should use the 
 
 - `has_section` — body contains `## <action.section>`.
 - `section_min_length` — section `## <action.section>` has at least `action.min` non-whitespace chars.
+- `section_min_links` — section `## <action.section>` has at least `action.min` distinct http(s) links (the same link with a trailing slash or full stop counts once). The marketing `research` edges use it with `min: 5`: research is measured by its sources, not its length.
 - `section_max_length` — section `## <action.section>` has at most `action.max` non-whitespace chars (a missing section passes; pair with `has_section` if presence matters).
 - `no_todo_markers` — body contains no whole-word `TODO` or `FIXME` (case-sensitive).
 
@@ -219,6 +222,8 @@ Both flavors can mix freely in the same workflow. New validators should use the 
 - `criteria_checkboxes: <Title>` — every list item in `## <Title>` is a checkbox, and none still holds the text the workflow's `append_section` wrote there. Used on `Acceptance Criteria` at the design gates.
 - `criteria_proven[: since YYYY-MM-DD]` — every `Acceptance Criteria` box has a proof link that passes its check. Issues created before the date, and issues without criteria, pass. See [Proof Links](Workflow/proof.md).
 - `has_output[: <kind>]` — the outputs shelf holds an output for the issue (`issue-cli output add --issue <slug>`), of that kind when one is named, that isn't rejected and whose file is still there. The failure prints the `output add` command, and names a rejected or gone output. The `report` type runs `has_output: report` at `in progress → human-testing`; lint check `reports` warns on an issue past the gate whose output has since gone.
+- `outputs_approved[: <kind>]` — the shelf holds an output for the issue (of that kind, when named) that the owner approved or that is published, and none still in review. `output revise` puts an output back in review, so the gate waits for the newest version's approval, not an older one's. Rejected outputs don't count. The marketing template runs it on `owner review → publish` (`outputs_approved: report` on the foundation, market-size and keyword-research paths), so the issue's publish approval and the shelf's approval agree.
+- `handoff_answered: <department>` — a handoff to that department filed for the issue (`issue-cli handoff <department> --for <slug>`) is done; an open, declined or parked one doesn't answer it. With `paths:` (globs) on the action it holds only when the work branch's own changes match one; a branch it can't read holds too. YOLO doesn't pass it. See [The handoff gate](departments.md#the-handoff-gate).
 - `commits_reference_issue` — one of the work branch's own commits references the issue: its subject names the slug (`chore(merge): main into <slug>`) or its message has a `Refs: <slug>` line, in any paragraph. Commits merged in from main don't count; after the fast-forward the walk starts at the issue's dispatch, so it passes at `done` too. The failure shows the commit to add (a merge of main or an empty commit with `Refs:`), never a reword, since `Proves:` trailers pin their shas. This project runs it at `shipping → done`, and the shipping guidance runs that transition's `--dry-run` before the fast-forward.
 
 A box that doesn't fit the change (no page for ux-test, a repro that is a go test) is ticked with a named N/A form, never free words: `issue-cli check <slug> <id> --na "no page changes"`. The forms and refusals are in [the CLI doc](CLI/overview.md#na-boxes-check---na); the testing prompt lists them (catalog entry `testing-na-forms`), and lint check `na-boxes` warns on a ticked N/A out of form or on the owner's box. Docs-only issues use the `docs` type, which has no Test Plan ([Types of Work](Workflow/types.md#the-docs-type)). Research and report-only issues use the `report` type: no build boxes and no commit ([The `report` type](Workflow/types.md#the-report-type)).
@@ -340,6 +345,55 @@ The owner can change a station of the Product line from the viewer: the Product 
 
 For a window the owner chooses (until 08:00, 4 hours, or until turned off), `require_human_approval` gates on forward steps pass without them once nothing else is missing. Each pass leaves an `approval: "YOLO"` comment and waits in the "after the fact" queue for the owner to Agree or send the issue back. Every other validator, CI, tests, review, retros and permission prompts stay on; CI red for more than 30 minutes turns it off. A gate marked `owner_only: true` (a step that spends money or publishes outside the machine, like the marketing template's `owner review → publish`) is never passed: it waits for the owner. Turn it on from the Workshop Board's company level or with `issue-cli yolo on`. See [YOLO Mode](Workflow/yolo.md).
 
+## Rules
+
+Standing rules come in two layers, and every lead and worker is briefed with both. Source: factory/two-agents-and-a-short-lived-lead-routing-on-benchmarks-cross-model-critique-handover-on-limits-memory-as-the-one-source-a-nightly-lead-flush#D-8.
+
+| Layer | Where | Who writes it | Reaches |
+|---|---|---|---|
+| On every project | `~/.config/ai-workflow-engine/rules.md` (`$XDG_CONFIG_HOME` honoured) | the owner, by hand; no command or agent writes it | every project's leads and workers |
+| On this project | `rules:` in Product's workflow.yaml | whoever changes the workflow | that project's leads and workers, its departments' too |
+
+The machine file is markdown. Every `- ` bullet is one rule, an indented line continues it, and a leading `[key]` names it so a project rule can point at it. Headings, comments and blank lines are skipped. Any other line reaches nobody, so lint names it.
+
+```markdown
+# Rules on this machine
+- [no-install] Never run make install from a worker.
+- Keep a commit to one topic.
+```
+
+A project adds its own:
+
+```yaml
+rules:
+  - text: "Every release note names the issue."
+  - id: release-worktree
+    text: "make install runs only from the release worktree."
+    narrows: no-install     # the machine rule's [key]
+```
+
+A rule only leads need on one project is a lead-scope memory instead ([Lead rules](memory.md#lead-rules)).
+
+`rules:` is project-wide: a department's own workflow file takes it from Product's, and lint warns when one sets it. The rest of workflow.yaml (prompts, `prompt_append`) stays project text; `rules:` is the part lint can compare with the machine's.
+
+Don't name a private project in `rules.md`: it reaches every project's workers (Settled rule "Private projects stay private").
+
+**In a briefing.** A worker's `## Rules` section and each lead's brief show `On every project` and `On this project` apart. `## Memory` does the same with pins: `Pinned on every project:` for machine memories, `Pinned on this project:` for the rest, one budget between them. With no rules in either layer a worker gets no section; a lead still gets one line on where each layer lives. Each layer carries at most 4,000 characters, whole rules only, then `+N more: issue-cli rules`. `issue-cli start` prints one line with the counts, for a session no briefing reached.
+
+**Narrowing.** A project rule can tighten a machine rule, or apply it to a case. It says so with `narrows: <key>`, prints as `(narrows [key])`, and the machine rule stays in the briefing beside it: nothing a project writes removes one. An agent who sees two rules disagree follows the machine's and asks.
+
+**Lint.** `issue-cli health lint --check rules` names:
+
+- a project rule that contradicts a machine one without `narrows:`: it takes a machine rule's key, or one of the two forbids (never, not, no, don't, avoid) while the other doesn't, with at least two content words in common covering half or more of the shorter rule. Wording is a heuristic: when it matches a real narrowing, declare it. To narrow a rule with no `[key]`, the owner gives it one first;
+- `narrows:` naming no machine rule, a project rule with no text, a repeated key or id;
+- a `rules.md` line that isn't a rule, a file that can't be read, and a layer over the briefing's cap.
+
+A finding names a machine rule by key and line, never by its text. Pinned memories aren't compared.
+
+**Reading them.** `issue-cli rules [--json]` lists both layers. It only reads.
+
+**Private projects.** A private project reads the machine's rules like any other, and nothing of it goes the other way: there is no write command for `rules.md`, `memory add --scope machine` is refused, and so are `--updates`, `--supersedes` and `memory edit --text` on a machine memory (`s-…`).
+
 ## Decision ledger
 
 Decisions are the `D-n` lines under an issue's `## Decisions` ([format](issue-format.md#decisions)). Each line may end with an attribute group that says whom it reaches and how strong it is; the line stays the one record, and its ref (`<slug>#D-n`) never changes.
@@ -382,11 +436,13 @@ Decisions are the `D-n` lines under an issue's `## Decisions` ([format](issue-fo
   rule: "citations_current: since 2026-11-01"
 ```
 
-- `decisions_cited`: `## Design` names every **hard** decision in force for the issue at its current status (the Decisions in force block, `decisions --in-force <slug>`), other than the issue's own: by its ref (`Follows sim/rules#D-4: …`), or on a line `n/a <ref>: <why>` (a list item or a plain line). A bare `n/a <ref>` refuses. Soft decisions never hold it. The Design checklist's "Decisions in force cited" box is the step.
+- `decisions_cited`: `## Design` names every **hard** decision in force for the issue at its current status (the Decisions in force block, `decisions --in-force <slug>`), other than the issue's own: by its ref (`Follows sim/rules#D-4: …`), or on a line `n/a <ref>[, <ref>…]: <why>` (a list item or a plain line; several refs share the one reason, and after the first a bare `#D-n` takes the slug of the ref before it: `n/a sim/rules#D-4, #D-5, sim/epic#D-1: docs only`). A bare `n/a <ref>` refuses, and so does a line that starts with `n/a` but doesn't parse (`n/a sim/rules#D-4 and #D-5: …`): it sets nothing aside and cites nothing, and the refusal quotes it. In `## Design` a shorthand `#D-n` on the same line as a full ref is that issue's D-n (`sim/rules#D-4 and #D-5`; with two full refs on the line, the nearest one before it); alone on its line it names nothing and the decision stays uncited. `decisions_respected` reads it the same way; `citations_current` checks full refs only, so a replaced decision is caught only when written in full. Soft decisions never hold it. The Design checklist's "Decisions in force cited" box is the step.
 - `citations_current`: no ref cited in the body outside its own `## Decisions` is replaced or expired. The refusal names the replacer and its text; cite it instead, or write the history as `(replaces <ref>)`, which is no citation.
 - Each refusal lists the refs with their scope and text, the `issue-cli append … --section Design` lines that fix it, and how to challenge a decision (`decision challenge`, below).
 - Under YOLO the holds pass and wait in the review after the fact as `yolo-hold:` comments ([YOLO Mode](Workflow/yolo.md)).
 - `issue-cli health lint` (check `workflow`) warns on a validate rule the build doesn't know and on a bad `since` date. The rules build the project's decision index only when they run, so a workflow without them is unchanged.
+- `issue-cli health lint --check decisions` re-checks the lines already on the board: a group that names a decision key but doesn't parse or a scope naming no system, department or type; `hard` without the owner's words; `paths:` matching no file; `at:` naming no status ([the lint family](workbench-files.md)).
+- The Settled rules' sources (docs/departments.md) are scoped records: `internal/tracker/testdata/settled-rules.tsv` gives each its scope and strength, `TestSettledRulesScoped` checks the board against it, and the lead writes a new row to the board with `decide --amend` (scope, and `--hard --quote` with the quote already on the line). The first 44 went on with the guided check script `settled-rules-scopes` of factory/scope-the-settled-rules-as-hard-decisions-and-lint-check-decisions, which `issue-cli check-script` still finds in history.
 
 **Challenges.** An agent that thinks a decision is wrong says so on the record, and only its own issue waits:
 
@@ -419,6 +475,15 @@ Decisions are the `D-n` lines under an issue's `## Decisions` ([format](issue-fo
 
 **Reading the audit log.** `issue-cli decisions log [--ref <slug>#D-n] [--issue <slug>] [--since YYYY-MM-DD] [--json]` prints the `done` events in time order, one line each (`2026-10-31 14:02 · amended · econ/gold#D-2 · {…} → {…} · lead-x (lead-relay)`). `--ref` keeps that decision's events and the briefings that carried it; `--issue` the issue's own decisions and the briefings, holds and challenges naming it; `--since` is inclusive, local time. `decide --amend` and a refused transition print the command for their ref. The Stats page's **Decisions** card counts the same ledger (in force by scope, hard and soft, provisional, open challenges, gate holds by decision, the briefings that carried the block, in the page's range), and the `decisions` health family snapshots it ([Workbench Files](workbench-files.md#the-decisions-family)). "Provisional" there is a ledger state; the one waiting-on-you count stays `needsYouRows`.
 
+**The drift sweep.** The gates catch drift only when an issue crosses one. `issue-cli decisions drift [--record] [--since <commit>] [--json]` lists what moved away from the decisions between gates, as markdown (a `## <kind> (n)` heading per kind, each finding with its fix; "No drift." when clean):
+
+- **Citations:** an open issue whose body cites a replaced or expired ref (the `citations_current` rules: its own `## Decisions` and `(replaces …)` don't count), naming the replacer or the expiry day.
+- **Paths:** a non-merge commit on main since the last sweep whose files match an active hard decision's `paths:`, made on or after the decision's day, whose issue doesn't cite it. A commit's issue is the slug a `Refs: <slug>` line names, else the `work/<slug>` branch that made it: on that branch's first-parent line (a commit merged in from main never is) and after the base its dispatch recorded (else after the issue's start). No issue is drift too ("no issue": a direct commit on main). Paths only, as the diff audit.
+- **Docs:** a line under a "Settled rules" heading in any docs file that names a replaced or expired ref, as `docs/departments.md:23`. A bare `#D-2` after `slug#D-1` on the line is `slug#D-2`.
+- **Provisional:** an active decision marked YOLO or provisional, more than 14 calendar days old (its date against today's local date, never hours: one exactly 14 days old is not listed), whose scope is wider than `issue` or that has `paths:`; the rest are one count line (`decisions --state provisional` lists them).
+
+It only reads. `--record` also writes `<issues>/.decisions/drift.json` (`at`, main's sha, who) under a lock, so the next sweep reads main after it; without a mark, or with one no longer in main's history, it reads main from local midnight 14 calendar days back and says so. `--since <commit>` reads a window you choose for one run. The `decision-drift` job runs it on a schedule (`brief: builtin:decision-drift` on the Product entry's or a department's `jobs:`, [Recurring jobs](departments.md#recurring-jobs)): each run sweeps with `--record` and, when there is drift, files one issue "Decision drift (<period>)" with the report for the owner and the lead; it changes no decision, doc or other issue. Its standing start is off until the owner turns it on with their words (Settled rule "Nothing goes out without the owner's stamp", factory/department-recurring-jobs#D-3). No gate and no Needs you row: the filed issue is the place. Source: factory/decision-drift-sweep-decisions-drift-and-the-decision-drift-job.
+
 ## Post-mortem
 
 When an issue closes, a fresh agent that did none of the work reads the run and writes a post-mortem: a retro whose lessons each go to one place, and only once the owner agrees. Source: factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees.
@@ -427,26 +492,31 @@ When an issue closes, a fresh agent that did none of the work reads the run and 
 postmortem:
   at: done        # the status whose transition starts it (default: the last status)
   start: ask      # ask (default): print the start command · auto: the transition starts the agent
+  auto_types: [feature, epic]  # optional, with start: auto: only these types start by themselves
   agent: claude   # optional; else routing: picks it as for a worker
 ```
 
-- **The agent.** `postmortem-<slug>`, headless, in the project checkout (no worktree). Its brief (`issue-cli postmortem brief <slug>`) has **paths only**: the issue file (body, decisions, comments), its data and stats sidecars, the worker's `.agent-logs/agent-<slug>/` (clilog, prompt), the branch and the base it was cut from, and the worker's own retros. None of the run's text is pasted. It only reads. A post-mortem that exists already, a live session or `mem-guard check` saying no holds the start, and the output prints the command for later. By hand: `issue-cli postmortem start <slug> --quote "<the owner's words>"` (the lead or the owner, workers can't; `--again` writes a new one).
-- **The retro.** `issue-cli postmortem write <slug> --file <path>` saves it under `retros/` with the header `Kind: postmortem` and six sections: `## Steps`, `## Worked`, `## Did not work`, `## Decisions`, `## Known`, `## Proposed actions`. The retro sorting room, `experiment candidates` and `memory candidates` read it like any retro.
-- **An action** is `- [ ] A<n>: <action>` with `Differently:` (the answer to "would a fresh agent do something differently next session because of it?"), `Place:` and `Text:` (`Under: <heading>` optional):
+- **Which closes start one.** With `start: auto` and no `auto_types:`, every close starts the agent but a chore's (a night's housekeeping: nothing to learn). With `auto_types:`, only an issue whose type is listed starts it, matched as written or as `default_type` resolves an untyped issue; any other type prints `Not started by itself: postmortem: auto_types: feature, epic starts it, and this is a tweak.` and the start command, as `start: ask` does, so the lead or the owner can still start one on purpose. A chore stays silent unless it is listed. With `start: ask` the list changes nothing. This repo lists `[feature, epic]`: tweaks, bugfixes and docs make most closes and repeat the same lessons (owner, 2026-11-06, "Yes I think that auto post-mortems should go on a high-er level.").
+
+- **The agent.** `postmortem-<slug>`, headless, in the project checkout (no worktree). Its brief (`issue-cli postmortem brief <slug>`) has **paths only**: the issue file (body, decisions, comments), its data and stats sidecars, the worker's `.agent-logs/agent-<slug>/` (clilog, prompt), the branch and the base it was cut from (the range read with `git log --first-parent`, so a `chore(merge)` of main doesn't bring in other issues' commits), and the worker's own retros. A branch is named only while `work/<slug>` exists: once it is merged and deleted the brief points at `git log --grep <slug> main` instead. An epic's brief adds a **Children** part: each child's issue file, `work/<slug>` branch (or its commits on main by slug when the branch is gone), retros and post-mortems, so it reads the epic's whole run at the higher level (what repeats across children). None of the run's text is pasted. It only reads. A post-mortem that exists already, a live session or `mem-guard check` saying no holds the start, and the output prints the command for later. A session whose pane is only a shell (its agent exited or never started) counts as dead: the start removes it and goes on. So does a live session whose post-mortem is written (the trail's last `postmortem:` comment is `saved`): an agent idling at its prompt is finished, not running. The agent is `--agent`, else `agent:`, else routing's pick; a launch whose agent is gone within a few seconds is a failed start, as for any agent ([A launch that dies](agent-dispatch.md#a-launch-that-dies)): the session is removed and no `postmortem: started` comment is posted. By hand: `issue-cli postmortem start <slug> --quote "<the owner's words>"` (the lead or the owner, workers can't; `--again` writes a new one).
+- **The retro.** `issue-cli postmortem write <slug> --file <path>` saves it under `retros/` with the header `Kind: postmortem` and six sections: `## Steps`, `## Worked`, `## Did not work`, `## Decisions`, `## Known`, `## Proposed actions`. The retro sorting room, `experiment candidates` and `memory candidates` read it like any retro. Run from inside its own session (`postmortem-<slug>`, or that window in a shared session), `write` closes that session a second after printing its result (a detached `tmux kill-session -t =<name>:`, never `kill-server`), so no post-mortem agent outlives its post-mortem.
+- **An action** is `- [ ] A<n>: <action>` with `Differently:` (the answer to "would a fresh agent do something differently next session because of it?"), `Place:` and `Text:` (`Under: <heading>` optional; `At: <status>` optional on a memory action):
 
   | Place | Applied as |
   |---|---|
-  | `memory <kind>` (fact, convention, pitfall, howto, who) | a project memory, sourced to the issue and the retro (a near-duplicate is updated, not doubled) |
+  | `memory <kind>` (fact, convention, pitfall, howto, who) | a project memory, sourced to the issue and the retro (a near-duplicate is updated, not doubled); with `At: <status>` it is tied to that status as `memory add --at` ties it, so `transition` shows it to whoever enters the status (an updated near-duplicate is tied too). The round checks the status again: one the workflow dropped since leaves the action open with the statuses |
   | `file <path.md>` (CLAUDE.md, AGENTS.md, docs/…) | the text spliced in under `Under:` (else at the end), one-file commit on main: `docs(postmortem): …` with `Owner: agreed …` and `Refs: <slug>` |
   | `skill <name>` | the same, in `.claude/skills/<name>/SKILL.md` |
   | `workflow` | an experiment proposal: an idea issue labelled `experiment` whose source is the retro (the [experiment loop](workflow-stats.md) measures it; nothing edits `workflow.yaml` directly) |
   | `none <doc path#anchor>` | nothing: the docs already say it, and the doc is named |
 
-- **Refused, nothing saved.** `write` refuses a missing section, an action with no `Differently:` or a non-answer there ("n/a", too short, the action repeated), no or two places, an unknown place or memory kind, no `Text:`, a file path that is absolute, leaves the repo, isn't markdown or sits under `issues/`, `retros/`, `sessions/`, `.git/`, `.worktrees/` or `.agent-logs/`, a `none` naming a missing doc, a secret in `Text:`, and a duplicate id. Each refusal prints the shape that passes.
+- **Refused, nothing saved.** `write` refuses a missing section, an action with no `Differently:` or a non-answer there ("n/a", too short, the action repeated), no or two places, an unknown place or memory kind, no `Text:`, a file path that is absolute, leaves the repo, isn't markdown or sits under `issues/`, `retros/`, `sessions/`, `.git/`, `.worktrees/` or `.agent-logs/`, a `none` naming a missing doc, `At:` naming no status of the project's workflows or on a place other than memory, a secret in `Text:`, and a duplicate id. Each refusal prints the shape that passes.
 - **The owner's one round.** `/p/<project>/postmortem/<slug>` folds the five sections and lists every action with Agree / Refuse and a note, then **one** Submit (POST `…/postmortem/<slug>/decide`, the owner's browser only: an O route in [Security](API/security.md)). The round must answer every open action. Agreed ones are applied in order. A failed one (a heading gone, the checkout not on main) stays open with its error while the others apply. Once nothing is open the form is read-only and another POST gets 409. YOLO never answers it.
+- **Across post-mortems.** `/p/<project>/postmortems` (linked from Needs you and each post-mortem page) lists every open action of the post-mortems Needs you counts, by place, biggest place first. Within a place, actions of different issues whose words overlap at least 0.3 (title, `Differently:`, `Text:`; `postmortem.SameThreshold`, no model) sit together as copies, and the rest as "alone". In a group of copies everything starts ticked but the newest row: agree one, refuse the rest. Each group's foot acts on its ticked rows, after a second click: **Refuse** writes a `Refused:` line, and **Overtaken** takes a commit on main and writes `Overtaken: <sha> · <date> (owner)[: note]`, for an action the work has moved past. Both are the owner's, from the browser (POST `…/postmortems/mark`, there is no CLI verb), and neither applies anything: Agree stays on the post-mortem's page, whose round then answers only what is still open. Each issue's trail gets one line. `postmortem list`, `show`, the pages and Needs you all stop counting a refused or overtaken action.
+- **Undoing a mark.** The queue page's **Marked lately** card lists the owner's refused and overtaken actions of the last 7 calendar days (`postmortem.MarkedDays`), newest first, from either page, even when the queue is empty. Undo reopens the ticked rows after a second click (POST `…/postmortems/undo`, the owner's browser only, no CLI verb): the line becomes `Reopened: <time> (owner), was Refused: <the old line>`, so the action is open again everywhere and the file keeps each step. Each issue's trail gets one line. An `Applied:` action can't be reopened, since what it made stays. Older marks: delete the line by hand in the retro.
 - **Traceable.** Each action's line in the retro is ticked with `Applied: memory m-… | commit <sha> (<path>) | experiment <slug> | none (…)`, or gets `Refused: <date> (owner): <note>`. The issue gets one `postmortem: decided — N applied, M refused` comment. `issue-cli postmortem show <slug>` and `postmortem list` print them.
-- **Waiting on you.** A post-mortem with open actions is one Needs you row (one waiting-on-you count, docs/departments.md Settled rules).
-- **Lint.** The workflow check warns on an `at:` that names no status and a `start:` other than auto or ask. Catalog entry `postmortem`.
+- **Waiting on you.** An issue's newest post-mortem with open actions is one Needs you row, wherever the file sits: `retros/` or `retros/archive/` (one waiting-on-you count, docs/departments.md Settled rules).
+- **Lint.** The workflow check warns on an `at:` that names no status, a `start:` other than auto or ask, and an `auto_types:` name the workflow's `types:` doesn't define (or any name, when it has no `types:`). Catalog entry `postmortem`.
 
 ## Local CI
 
@@ -547,14 +617,14 @@ Without the viewer, `issue-cli ci watch` does the polling; `--once` checks once.
 - **Quiet while still red:** later red runs comment and message again only if the failing command changes. The lead hears once more when main is green again, and the chips go.
 - **CI can't run** (git or the worktree failed): the state is `error`, not red. Nobody is blamed, the card says why, and the lead hears once.
 - **Health snapshot:** after each default-tier run, red or green, `ci run` takes a [health snapshot](workbench-files.md#health-snapshots) at the tested commit and prints `health: snapshot <path>`. A failed snapshot prints one line and never changes the run's result.
-- **Slow tiers:** `issue-cli ci run --tier slow` runs the default commands, then the slow ones, once. Its result is shown separately (`ci status --tier slow`) and never turns main red, blames issues or messages anyone.
+- **Slow tiers:** `issue-cli ci run --tier slow` runs the default commands, then the slow ones, once. Its result is shown separately (a `tier slow:` line under `ci status`'s first line) and never turns main red, blames issues or messages anyone. While the newest slow run is red, the agents' Local CI line (start, the dispatch briefing) adds it with its sha and age, marked inherited from main, so a worker whose `make ux-test` fails does not debug main's red as its own.
 
 ### What agents and the lead see
 
 - `issue-cli start` and the dispatch prompt print the one-line state, for example `Local CI: main red since def5678: make validate: TestFoo — inherited from main, not caused by your branch`. An agent can tell a failure it inherited from one it caused.
 - After `issue-cli transition <slug> --to done`, the agent reads that CI tests main by itself and that it must not wait.
 - The lead brief adds a line when `ci:` is set: check `issue-cli ci status` before any push, and never push a release while main is red.
-- `issue-cli ci status` prints the one-liner first, then what landed and the recent runs; `--json` dumps the state and runs. See [CLI Overview](CLI/overview#ci).
+- `issue-cli ci status` prints the one-liner first, then what landed and the recent runs; `--json` dumps the state and runs. See [CLI Overview](CLI/overview.md#ci).
 
 ## Red-round cap
 
@@ -564,15 +634,40 @@ A check that stays red round after round becomes a question for the owner, and t
 max_red_rounds: 4   # top level, project-wide like ci:; 4 when unset
 ```
 
-- **What counts.** Checks that run and can go red without the worker touching them: a gate's `command_succeeds` command (`gate:command_succeeds:<command>`), the proof check (`gate:criteria_proven`), and a local CI command on a run that merged the issue (`ci:<command>`). Checkbox and section gates don't count, because the worker fills those in. `issue-cli transition` records each check it ran, red or green, in the issue's stats sidecar (`rounds:` in `<issue>.stats.json`). CI runs are read from `.ci/runs`. The fresh critic's runs are read from `<issues>/.critique/runs.jsonl`. Each run with a blocks finding is a red round of `critique <from> → <to>`, and the fourth that counts posts the question. While it is open, `issue-cli critique` refuses as well ([The Fresh Critic](Workflow/critique.md#the-gate)).
+The briefing and `process schema` say what counts in one phrase (`tracker.RedRoundsWhatCounts`):
+
+> a gate's command, the proof check, a local CI command or the critic's held runs; one round per commit, each held critic run its own round; only a failure that comes back counts, and an owner comment starts the count over
+
+The rest of this section is the detail behind it.
+
+- **What counts.** Checks that run and can go red without the worker touching them: a gate's `command_succeeds` command (`gate:command_succeeds:<command>`), the proof check (`gate:criteria_proven`), and a local CI command on a run that merged the issue (`ci:<command>`). Checkbox and section gates don't count, because the worker fills those in. `issue-cli transition` records each check it ran, red or green, in the issue's stats sidecar (`rounds:` in `<issue>.stats.json`). CI runs are read from `.ci/runs`. The fresh critic's runs are read from `<issues>/.critique/runs.jsonl`. Each gated run with a blocks finding is a red round of `critique <from> → <to>` (a run by hand, from a status with no gate, holds nothing and is not a round), and the fourth that counts posts the question. While it is open, `issue-cli critique` refuses as well ([The Fresh Critic](Workflow/critique.md#the-gate)).
 - **A round** is one fix attempt. Critique runs are the exception: each held run is its own round. Otherwise, reds at the same work-branch head fold into one round, so retrying without a new commit doesn't add to the count. With no branch, each red is a round. A green ends the check's streak.
 - **Only a repeated failure counts.** Each round keeps what failed: the critic's blocks findings (matched by path and text, with case, spacing and punctuation folded and the line left out), the failing tests (`--- FAIL:` lines, or local CI's failure names), the unproven criteria of the proof check (by id), or else the failure text with numbers and shas masked. A round counts when one of its failures was a failure of an earlier round since the last green. A round whose failures are all new starts the count over at 1: a design whose critic finds new, fewer problems each run (3, 2, 1, 1) stays at "red 1 of 4". The same finding four times still reaches the cap, and so does a finding that comes back after a run without it. Records from before v0.60 have no failures kept: their failure line is compared instead.
 - **An owner comment starts the count over.** Any comment by the owner on the issue (author `owner`, from the viewer) makes every round before it stop counting, for every check. A cap question that is already open stays open: only resolving it answers it.
-- **At the cap.** The transition that records the fourth counted red posts `question: red rounds: <check> — red 4 of 4 …` with the recommendation first and the options after it, then refuses. While that question is open, every `transition` that runs that check refuses *before* running anything, naming the question. A question on a gate or critique check the transition doesn't run (the critic gate was taken out of workflow.yaml, or it sits on another edge) stays open for the owner but doesn't hold the transition; a question on a local CI check or a name given with `--cannot-fix` holds every forward transition. A transition to a side status (`parked`, or any optional status every status can move to) is never held: it passes and counts no rounds, and `close --duplicate-of/--fixed-by` parks the same way. The check is not retried automatically. YOLO doesn't pass it: it's a question, not a gate approval. The question is a `question:` comment, so it shows on Needs you like any other.
+- **At the cap.** The transition that records the fourth counted red posts `question: red rounds: <check> — red 4 of 4 …` with the recommendation first and the options after it, then refuses. While that question is open, every `transition` that runs that check refuses *before* running anything, naming the question. A question on a gate or critique check the transition doesn't run (the critic gate was taken out of workflow.yaml, or it sits on another edge) stays open for the owner but doesn't hold the transition; a question on a local CI check or a name given with `--cannot-fix` holds every forward transition. A transition to a side status (`parked`, or any optional status every status can move to) is never held: it passes and counts no rounds, and `close --duplicate-of/--fixed-by` parks the same way. `transition --dry-run` lists the same hold (kind `hold` in `--json`): the open question that would refuse the transition, or a check at the cap it would post as a question first; it posts nothing. The check is not retried automatically. YOLO doesn't pass it: it's a question, not a gate approval. The question is a `question:` comment, so it shows on Needs you like any other.
 - **The owner's answer** is resolving the question (the comment toggle on the issue page). Rounds before it no longer count, and the next transition runs the check again.
 - **Can't fix it.** `issue-cli rounds <slug> --cannot-fix "<check>" --why "…"` raises the question at once, for a listed check or a new name such as `test:TestFoo`.
 - **Where it shows.** A red check's refusal says `red 2 of 4 (max_red_rounds)`. `issue-cli rounds <slug> [--json]` lists every red check and each of its rounds since the last green: `round 3 · count 2 · same finding: design.md — … as round 1`, or `all failures new: the count starts over` (`history` in the JSON). `show` and `start` print a `Red rounds:` line. The worker briefing has a `## Red checks` section. The Station's Tests and proofs panel lists *red checks* with "red 3 of 4".
 - **Lint.** `workflow` warns on a value below 1. `max_red_rounds` is project-wide, so a department's own file setting it gets the `department` warning. Catalog entry `red-round-cap`.
+
+## Fresh session per stage
+
+A status can say that its work starts in a new session instead of the one that did the stage before. The epic behind it measures first and adopts only what wins (factory/fresh-agent-per-stage-measured-tracing-a-golden-set-evals-per-stage-and-the-fresh-vs-continue-experiment#D-1), so dark-factory's own workflow.yaml sets it nowhere yet: the fresh-vs-continue experiment decides.
+
+```yaml
+statuses:
+  - name: "documentation"
+    session: fresh            # continue (default) | fresh
+    briefing_budget: 3000     # the stage briefing's cap, in estimated tokens
+```
+
+- **Unset or `continue`** is the single session from design to shipping, with today's briefing.
+- **Entering a fresh status.** When the issue has a live worker (`agent-<slug>`), `transition` posts `stage: fresh session at <status>` and tells the worker to write `HANDOFF.md` (what's done, the next step, open questions) and end its turn. It starts and kills nothing: a worker never starts an agent.
+- **Who starts the new session.** The lead, at its check-in. `issue-cli queue next`, `autostart next` and `agents` print `issue-cli dispatch <slug> --fresh` when it may run, or the hold: the old pane still in a turn, no `dispatch:` words to quote, the owner's gate outside YOLO. `dispatch --fresh` quotes the issue's newest `dispatch:` words, as a [takeover](agent-dispatch.md#takeover-at-a-usage-limit) does, checks mem-guard and the machine-wide start gap under the same lock, closes the old session and starts `agent-<slug>` in the same worktree. It leaves `dispatch: "<words>" (fresh session at <status>, <date>)`, which answers the mark; the takeover's once-per-issue count doesn't see it.
+- **The stage briefing.** Any dispatch at a fresh status (▶, `--quote`, `--fresh`, `dispatch-prompt`, the benchmark's sandbox) gets it instead of the full briefing. It is paths, not the issue's body or earlier chat: the issue file, the sections the stage before wrote (those the transition into it appended, walking back over a status that appends none, such as backlog), and `<worktree>/HANDOFF.md`. Then the stage's guidance (with the YOLO rule when on), its output (the sections the transition into this status appended) and the gate out (the next transition's requirements), the stop lines, a short command list, the worktree rules, the handoff, your lead, your rules, the memories `--at` this status and the decisions in force at it. Shell notes, local CI, the build note and the red-round rules come only at statuses whose role isn't design or queue.
+- **The budget.** The briefing ends with `Briefing: N tokens of B`. Over `briefing_budget:` (3000 when unset), parts fold to the command that prints them, in this order: memories, the decisions list, shell, local CI, build, red rounds. Still over, the line adds `over budget`. The owner's rules, the YOLO rule, the stop lines and the worktree rules never fold. `dispatch-prompt --json` carries the size as `stage: {budget, tokens, folded, over_budget}`.
+- **HANDOFF.md on every issue.** The worker briefing's `## Handoff` and `transition`'s reminder no longer need a `routing:` block, and `agentrun.Start` keeps the file out of git in every worktree.
+- **Lint.** `workflow` warns on a `session:` other than `fresh` or `continue`, a `briefing_budget:` under 500, and a budget on a status that isn't fresh. `process workflow` marks each fresh status with its budget. Catalog entry `stage-sessions` (not proposed until the experiment says so).
 
 ## Private work and code
 
@@ -648,7 +743,7 @@ Tracked files must not carry this machine's private data. The scan (`internal/pr
 - a Claude Code scratchpad path (`/claude-<uid>/`);
 - a name from the owner's private-names list, `$XDG_CONFIG_HOME/ai-workflow-engine/private-names.txt` (default `~/.config/ai-workflow-engine/private-names.txt`): one name per line, `#` for comments, matched as a whole word without case. The list stays outside the repo, so the names never reach it. With no list, only the path patterns run.
 
-`TestTrackedFilesCarryNoLeaks` (internal/privacy) runs it over the repo, so `make validate` fails on a hit and names the file and line. `issue-cli release publish` runs it over the release branch's tree and refuses, the `--dry-run` too, before anything goes public.
+`TestTrackedFilesCarryNoLeaks` (internal/privacy) runs it over the repo, so `make validate` fails on a hit and names the file and line (`make leak-check` runs it alone, before the test suite). `issue-cli release publish` runs it over the release branch's tree and refuses, the `--dry-run` too, before anything goes public.
 
 Beside it, `TestTrackedFilesNameUpstreamOnlyInLicense` (`internal/privacy/upstream.go`) guards the upstream author's name: in any case, it may appear in LICENSE.md only (its Required Notice lines), and a hit in any other tracked file fails `make validate` with its file and line. `issue-cli release publish` (and its `--dry-run`) runs the same check over the release branch's tree and refuses a hit, even on a machine with no private-names list. Fixtures and docs use placeholder owners such as `example-org/example-repo`; this repo is `github.com/kacperwerema/dark-factory`. Source: factory/public-repo-cleanup-v0-60-0-module-path-layout-leftovers-naming-licence-and-attribution#D-4.
 
@@ -692,12 +787,16 @@ systems:
     transitions: []
 ```
 
+`prompt:` replaces the status prompt for that system's issues, including a prompt their type set. To add to it
+instead, use `prompt_append:` on the overlay status: its lines follow the base or type prompt, so tweaks and bugfixes
+get the system's guidance too ([Workflow overview: System Overlays](Workflow/overview.md#system-overlays)).
+
 System-specific documentation lives in `docs/<System>/` and agents should reference it during the documentation status. See:
 
-- [API Overview](API/overview)
-- [CLI Overview](CLI/overview)
-- [UI Overview](UI/overview)
-- [Workflow Overview](Workflow/overview)
+- [API Overview](API/overview.md)
+- [CLI Overview](CLI/overview.md)
+- [UI Overview](UI/overview.md)
+- [Workflow Overview](Workflow/overview.md)
 
 ## Department workflows
 
@@ -756,4 +855,4 @@ Projects edit their `workflow.yaml` heavily, so a newer issue-cli never overwrit
 - With a `features:` record, the record decides what is offered: the stamp hides nothing undecided. Bump the stamp only once every proposal is installed or declined.
 - `upgrade` calls a current stamp `up_to_date` only when the record decides everything: `undecided` while proposals wait on you, `stale_record` when the file has features the record misses. `process workflow` and `health lint` warn about a stale record and name `issue-cli workflow scan`.
 
-Details: [Workflow Overview](Workflow/overview) (stamp, record, catalog, keeping it complete) and [CLI Overview](CLI/overview) (`workflow upgrade`, `workflow scan`, `workflow catalog-check`).
+Details: [Workflow Overview](Workflow/overview.md) (stamp, record, catalog, keeping it complete) and [CLI Overview](CLI/overview.md) (`workflow upgrade`, `workflow scan`, `workflow catalog-check`).

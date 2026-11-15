@@ -3,7 +3,7 @@ version: v0.54.0
 category: workbench
 propose: false
 requires: [status-changelog]
-sources: ["internal/viewer/release_candidate.go", "internal/milestone/rc.go", "internal/telemetry/version.go", "cmd/issue-cli/cmd_version.go#rcNote", "cmd/issue-cli/cmd_report_bug.go#rcMilestone", "internal/tracker/lead_brief.go#releaseCandidateBrief"]
+sources: ["internal/viewer/release_candidate.go", "internal/milestone/rc.go", "internal/telemetry/version.go", "cmd/issue-cli/cmd_version.go#rcNote", "cmd/issue-cli/cmd_report_bug.go#rcMilestone", "internal/briefing/lead.go#releaseCandidateBrief"]
 title: "Release candidates before a release"
 what: |
   `workbench.release_candidates: true` puts a soak before each release. When the

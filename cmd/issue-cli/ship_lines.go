@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -25,7 +26,7 @@ func baseLine(issue *tracker.Issue) string {
 	if !ok {
 		return ""
 	}
-	return fmt.Sprintf("Base: %s at %s (cut by the dispatch on %s)", d.BaseBranch, tracker.ShortSHA(d.BaseSHA), d.At.Format("2006-01-02"))
+	return fmt.Sprintf("Base: %s at %s (cut by the dispatch on %s)", d.BaseBranch, gitdir.ShortSHA(d.BaseSHA), d.At.Format("2006-01-02"))
 }
 
 // baseJSON is show --json's "base", or nil.

@@ -1,9 +1,9 @@
 id: workflow-evals
-version: v0.59.0
+version: v0.61.0
 category: lifecycle
 propose: true
 templates: [development, marketing, content]
-sources: ["internal/tracker/evals.go", "internal/bench/evals.go", "internal/bench/scorer.go", "internal/lint/evals.go"]
+sources: ["internal/tracker/evals.go", "internal/bench/evals.go", "internal/bench/scorer.go", "internal/bench/stage_score.go", "internal/lint/evals.go"]
 title: "Evals: how the benchmark scores each type"
 what: |
   A top-level `evals:` list says, per type of work, what a good run looks like and how the
@@ -13,7 +13,10 @@ what: |
   grader and `assert:` items (promptfoo assertions without a model), with a `pass:` bar. Golden tasks for output
   evals come from outputs the owner approved. `bench compare` then gives each workflow its
   own verdict (net positive, net negative, no change), with pass rate, score, wall time,
-  tokens and cost side by side.
+  tokens and cost side by side. An eval's optional `stages:` (design, code, docs) names the
+  status each stage is and adds rubric lines and a pass bar per stage: a golden task with
+  references per stage is then scored per stage in run.json, and `bench compare` sets the
+  stages side by side.
 why: |
   Without evals the benchmark only measures code with hidden tests, so a change to a
   department's workflow or to shared guidance can't be called a net positive or negative,
@@ -33,5 +36,7 @@ snippet: |
         - type: not-icontains
           value: "lorem ipsum"
       pass: 0.7
+      stages:                          # optional: scores per stage of a golden task
+        design: {rubric: ["Names who the piece is for"], pass: 0.7}
 detect:
   - path: evals

@@ -165,7 +165,7 @@ func Aggregate(ctx context.Context, proj *tracker.Project, wf *tracker.WorkflowC
 		if ctx.Err() != nil {
 			break
 		}
-		if issue.Status != "done" {
+		if !proj.IssueDone(issue) {
 			continue
 		}
 		stats, err := tracker.LoadStats(issue.FilePath)
@@ -173,7 +173,11 @@ func Aggregate(ctx context.Context, proj *tracker.Project, wf *tracker.WorkflowC
 			rep.Unread = append(rep.Unread, issue.Slug)
 			continue
 		}
-		doneAt, ok := DoneAt(stats.Transitions)
+		iwf := wf
+		if wf != nil {
+			iwf = wf.ForIssue(issue)
+		}
+		doneAt, ok := DoneAt(stats.Transitions, iwf)
 		if !ok {
 			rep.Unread = append(rep.Unread, issue.Slug)
 			continue
@@ -181,12 +185,8 @@ func Aggregate(ctx context.Context, proj *tracker.Project, wf *tracker.WorkflowC
 		if doneAt.Before(rep.From) || doneAt.After(now) {
 			continue
 		}
-		iwf := wf
-		if wf != nil {
-			iwf = wf.ForIssue(issue)
-		}
 		src := Load(proj, issue, cache)
-		rep.Issues = append(rep.Issues, issueStat(issue, src, Split(src, In{Status: "done", Now: now, WF: iwf}), iwf))
+		rep.Issues = append(rep.Issues, issueStat(issue, src, Split(src, In{Status: issue.Status, Now: now, WF: iwf}), iwf))
 	}
 	sort.SliceStable(rep.Issues, func(i, j int) bool { return rep.Issues[i].DoneAt.Before(rep.Issues[j].DoneAt) })
 	rep.summarize(wf)

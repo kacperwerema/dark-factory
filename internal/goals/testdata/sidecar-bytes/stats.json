@@ -1,0 +1,21 @@
+{
+  "transitions": [
+    {
+      "from": "idea",
+      "to": "in progress",
+      "ts": "2026-11-15T09:30:00Z",
+      "static_tokens": 10,
+      "dynamic_tokens": 20,
+      "actual_tokens": 1200
+    },
+    {
+      "from": "in progress",
+      "to": "testing",
+      "ts": "2026-11-15T10:30:00Z",
+      "static_tokens": 0,
+      "dynamic_tokens": 0,
+      "actual_tokens": null,
+      "branch_head": "0fdbaaf1"
+    }
+  ]
+}

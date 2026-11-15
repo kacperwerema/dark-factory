@@ -1,0 +1,46 @@
+id: code-map
+version: v0.61.0
+category: workbench
+propose: true
+sources: ["internal/codemap/codemap.go", "internal/codemap/affected.go", "internal/codemap/build.go", "internal/tracker/workbench.go#WorkbenchLayer", "internal/tracker/workbench.go#WorkbenchContext", "cmd/issue-cli/cmd_codemap.go", "internal/lint/contexts.go", "internal/viewer/codemap_view.go", "internal/viewer/station_affected.go"]
+unlocks:
+  - text: "Code map: contexts, layers and what a change reaches"
+    url: /codemap
+title: "Code map"
+what: |
+  Groups the repository's Go packages into named contexts, each on a layer
+  (bottom first), and reads the imports between them from the source.
+  `issue-cli codemap` prints the contexts, the imports between them and the
+  ones that point up a layer. `issue-cli affected <slug>` shows a branch's
+  footprint: the packages it changes and reaches through reverse imports, the
+  contexts it works in and reaches, and the binaries to rebuild. The Station
+  shows that footprint at testing and human-testing, and the critic's brief
+  lists it. Lint check `contexts` warns about an unmapped package and a new
+  upward import. A project without go.mod maps files by `paths:` only.
+why: |
+  You see the boundaries between parts of the code, and at review what a
+  branch affects beyond the files it touched.
+where: "workbench.layers, workbench.contexts (name, key, layer, summary, packages, paths, leaks), workbench.codemap_exclude; docs/workbench-files.md#code-map"
+snippet: |
+  workbench:
+    layers:
+      - {name: kernel, shared: true}
+      - {name: domain}
+      - {name: surfaces}
+    contexts:
+      - name: Helpers
+        layer: kernel
+        packages: [internal/util/...]
+      - name: Billing
+        layer: domain
+        summary: "Invoices and payments."
+        packages: [internal/billing/...]
+        paths: [docs/billing/]
+      - name: Binaries
+        layer: surfaces
+        packages: [cmd/...]
+question: "Which parts of your code would you name as separate contexts, and which may import which?"
+detect:
+  - path: workbench.contexts
+  - path: workbench.layers
+  - path: workbench.codemap_exclude

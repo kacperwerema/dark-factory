@@ -25,7 +25,7 @@ func SpecDepartment(proj *tracker.Project, spec Spec) string {
 	if spec.LeadScope != "" || spec.IssueSlug == "" || proj.IssueDir == "" {
 		return ""
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return ""
 	}
@@ -35,9 +35,21 @@ func SpecDepartment(proj *tracker.Project, spec Spec) string {
 	return ""
 }
 
+// ConnectorEnv is the session env a department's connectors need: claude's
+// wait for an MCP server whose tool starts per run.
+func ConnectorEnv(proj *tracker.Project, spec Spec) []string {
+	dept := SpecDepartment(proj, spec)
+	if dept == "" || spec.AgentType != "claude" {
+		return nil
+	}
+	return connectors.ClaudeStartEnv(connectors.Servers(proj, dept, nil))
+}
+
 // ConnectorFlags are the launch flags giving a department's agent its MCP
-// connectors (factory/department-connectors#D-4): claude's --mcp-config
-// <sessionLogDir>/mcp.json, codex's -c mcp_servers.… overrides. Each server
+// connectors (factory/department-connectors#D-4): claude's --mcp-config=
+// <sessionLogDir>/mcp.json and --disallowedTools=mcp__<server>__<tool>,…
+// for each connector's deny_tools:, codex's -c mcp_servers.… overrides
+// (disabled_tools for the denied ones). Each server
 // is issue-cli connector exec, so neither holds a secret. env is the
 // session's environment; its ISSUE_VIEWER_* and ISSUE_CLI_LOG entries are
 // passed on to the servers. nil for Product, the CEO, or no connectors.
@@ -59,7 +71,16 @@ func ConnectorFlags(proj *tracker.Project, spec Spec, sessionLogDir string, env 
 	}
 	var names []string
 	for _, s := range servers {
-		names = append(names, s.Name)
+		name := s.Name
+		if n := len(s.DenyTools); n == 1 {
+			name += " (1 tool off)"
+		} else if n > 1 {
+			name += fmt.Sprintf(" (%d tools off)", n)
+		}
+		if s.StartSeconds > 0 {
+			name += " (starts per run)"
+		}
+		names = append(names, name)
 	}
 	switch spec.AgentType {
 	case "claude":
@@ -69,7 +90,13 @@ func ConnectorFlags(proj *tracker.Project, spec Spec, sessionLogDir string, env 
 			return nil
 		}
 		*steps = append(*steps, Step{Name: fmt.Sprintf("%s connectors: %s", dept, strings.Join(names, ", ")), Status: "ok", Detail: path})
-		return []string{"--mcp-config", path}
+		// Both flags take a variadic list: written --flag=value, neither
+		// swallows the prompt that follows them (LaunchCommandWith).
+		out := []string{"--mcp-config=" + path}
+		if off := connectors.ClaudeDisallowed(servers); off != "" {
+			out = append(out, "--disallowedTools="+off)
+		}
+		return out
 	case "codex":
 		*steps = append(*steps, Step{Name: fmt.Sprintf("%s connectors: %s", dept, strings.Join(names, ", ")), Status: "ok"})
 		return connectors.CodexFlags(servers)

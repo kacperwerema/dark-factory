@@ -102,6 +102,14 @@ branch build at `<worktree>/issue-cli` (`go build -o ./issue-cli ./cmd/issue-cli
 what the briefing tells a worker to make when the installed build is behind
 main), else the issue-cli running the scripts. Ticking always uses the latter.
 
+A machine run refuses a branch build (the implicit one, or `--cli` on the same
+file) older than the checkout's code, the newest commit under `cmd/` and
+`internal/` or the newest Go source or embedded file there (not a clilog or other
+file a run leaves), so a pass is never about old code. It names the change and prints
+the build command. A commit made after the build counts too: rebuild and run
+again. The owner's run from a terminal and a `--cli` path elsewhere are not
+compared.
+
 A script is short: a header, the library, then the steps.
 
 ```bash
@@ -125,7 +133,8 @@ summary --all HT1
 The library is built into issue-cli and is never copied into the project.
 `check-script` hands it to the script as `$CHECKS_LIB`, together with
 `CHECKS_SLUG`, `CHECKS_PROJECT`, `CHECKS_ROOT` (the checkout it runs in; the
-library cds there) and `CHECKS_ISSUE_CLI` (the binary that ticks).
+library cds there), `CHECKS_DIR` (the folder the script and its files sit
+in) and `CHECKS_ISSUE_CLI` (the binary that ticks).
 `issue-cli check-script --lib` prints the library: its header is the full
 API reference.
 
@@ -172,6 +181,12 @@ exists.
 
 These come from the first scripts' mistakes:
 
+- Sourcing the library unsets `ISSUE_CLI_LOG`: in a worker's shell every
+  sandbox call (`sic`, a viewer, the script's own `$ISSUE_CLI`) would land in
+  the worker's clilog and count against it in the Timeline and CLI error
+  telemetry. The library's tick and comment on the real issue run with the
+  caller's environment and keep it. `scripts/security-check.sh` starts its
+  sandbox viewer without it the same way.
 - `sandbox_dir [var]`: a temp folder outside any `.worktrees/`, removed on
   exit. Scratch projects inside `.worktrees/` make issue-cli take the caller
   for a worker and refuse dispatch and lead spawn. Its path is resolved
@@ -230,21 +245,53 @@ These come from the first scripts' mistakes:
 - `on_exit <cmd…>`: cleanup that runs on exit, `q`, Ctrl-C or a kill, last
   registered first.
 
-`clean_shell` starts its command with `env -i`, and that drops a worker's
-identity (`AGENT_NAME`, its tmux session) along with the profile: the worker
-guards don't see a worker any more. Never use it, or `sic` once a stand-in
-exists, to run an owner-only command (`department add`, `job run`,
-`connector check`, `output review`, a transition of another issue, `yolo on`)
-from a worker's run. Skip those steps when `is_worker` says so (`if
-is_worker; then skip "the owner's run covers this"; fi`) and leave them to
-the owner's run. `is_worker` asks `issue-cli lead whoami`, the guard's own
-test (`ISSUE_VIEWER_ISSUE_SLUG`, an `agent-` tmux name, a folder under
-`.worktrees/`); `$AGENT_NAME` is often unset in a worker and isn't one of
-them. It only reports: the library has no wrapper that clears the identity
-to get past the guard. A sanctioned way for a sandbox is an open design
-(the sandbox marker in
-`cli/guided-checks-owner-only-commands-on-a-sandbox-and-the-shared-stand-ins`),
-waiting for the owner.
+### Owner-only commands in a sandbox
+
+`clean_shell` starts its command with `env -i`, which drops the profile,
+the tmux session and the folder, so it carries the caller's identity
+instead: `ISSUE_VIEWER_ISSUE_SLUG`, `ISSUE_VIEWER_LEAD_SCOPE`, `AGENT_NAME`,
+`CLAUDECODE`, and for a worker known only by its tmux name or its folder
+under `.worktrees/`, `ISSUE_VIEWER_WORKER` (the library asks `issue-cli lead
+whoami` once, before anything leaves the worktree). The worker guards still
+see a worker in every `sic` and `clean_shell` call. Never unset or empty
+those variables, and never give a sandbox issue the worker's slug
+(`TestCheckScriptsKeepTheWorkerIdentity` scans the scripts for both).
+
+On the sandbox `sandbox_project` makes, owner-only commands pass for a
+worker anyway: `department add/remove`, `job run`, `output review`, a
+transition or claim of another issue, `yolo on`, owner-box ticks, `decide
+--hard`, `approve`. `sandbox_project` writes `.issue-cli-sandbox` beside the
+sandbox's projects.yaml, and the guard passes a command only while all of
+this holds (cmd/issue-cli/sandbox_pass.go):
+
+- the config came from `--config` or `$ISSUE_VIEWER_CONFIG`, and is not the
+  owner's (the default projects.yaml or the one viewer.json names);
+- the marker sits beside it and names its own folder;
+- that folder is under `/tmp`, `/var/tmp` or `/var/folders` (not `$TMPDIR`,
+  which a worker sets) and outside every `.worktrees/`;
+- every project path (issues, docs, workflow, workdir, department files, a
+  workdir's `.git` file target) and both `$XDG_STATE_HOME` and
+  `$XDG_CONFIG_HOME` resolve inside it, symlinks followed.
+
+The marker declares; containment is the check, since a worker can write any
+file under the temp dir. A pass prints `sandbox: the worker guard passed
+<verb> for worker (marked sandbox <folder>)` on stderr and marks the call's
+clilog record `"sandbox": true`. When it doesn't pass on a sandbox-looking
+config the refusal is followed by `not a marked sandbox: <the condition that
+failed>`, and `issue-cli lead whoami` (`--json`: `"sandbox"`) says the same.
+Keep the settings you add to `$SANDBOX_CONFIG` inside the sandbox folder.
+
+What starts an agent stays refused for a worker even on a marked sandbox
+(the owner's rule, for now): `dispatch`, `lead spawn`, `lead message`,
+`queue next --start`, `health review --spawn`, `postmortem start`,
+`experiment queue`, `bench run`, `bench nightly`. The refusal adds `sandbox:
+<verb> stays refused in a sandbox (owner's rule, D-4); tell the owner if
+this blocks a check`, and the clilog record gets `"sandbox_refused": true`.
+Skip those steps in a worker's run (`if is_worker; then skip "the owner's
+run covers this"; fi`); `is_worker` asks `issue-cli lead whoami`, the
+guard's own test. Whether a new guarded command passes in a sandbox is the
+owner's call, asked in that command's design
+(`TestEveryWorkerGuardConsultsTheSandboxPass` names a guard with no rule).
 
 The sandbox variables are exported for the rest of the script. Ticking the
 real issue at the end runs with the environment the script started with.
@@ -273,7 +320,8 @@ Stand-ins that check scripts kept writing for themselves, now in the library:
   and nudge bugs. `expect_box_submitted <session> "<text>"` checks a line was
   submitted, `expect_box_empty <session>` that nothing is left typed.
 - `sandbox_yolo_on`: turns YOLO on in the sandbox by writing its own
-  `.yolo/<project>.json` (`sic yolo on` refuses a worker). Check it with
+  `.yolo/<project>.json`, kept for older scripts: on a marked sandbox `sic
+  yolo on --until 4h --quote "…"` works for a worker too. Check it with
   `sic yolo status`.
 - `seed_department <template> [--parent <group>]`: puts a department
   template on the sandbox as `department add` would, without running it (a
@@ -286,6 +334,11 @@ Stand-ins that check scripts kept writing for themselves, now in the library:
 
 ### Gotchas
 
+- The script may not sit in the repository. After the merge `check-script`
+  runs it from history, written into a temporary folder, so never compute
+  paths from `BASH_SOURCE` or `$0`: the repository is `$CHECKS_ROOT`, and
+  the files beside the script are in `$CHECKS_DIR` (see
+  [Where scripts live](#where-scripts-live)).
 - `run` runs its command in a subshell to capture the output. Call helpers
   that change the script's state (`sandbox_dir`, `sandbox_project`,
   `private_tmux`, `on_exit`, `cd`, `export`) directly, never through `run`.
@@ -293,12 +346,17 @@ Stand-ins that check scripts kept writing for themselves, now in the library:
   `$out`/`$code` used only inside `expect` strings: declare sandbox variables
   first (`build=`) and put `# shellcheck source=/dev/null
   disable=SC2034,SC2154` above the source line (`--new` writes it).
+- `TestLibPassesShellcheck` skips where shellcheck isn't installed, as on a
+  stock Mac (`make test` says so): after changing `lib.sh`, `make linux-check`
+  runs it.
 - A viewer writes `viewer.json` under `XDG_STATE_HOME`: start sandbox viewers
   after `sandbox_dir` or `sandbox_project`, which move it into the sandbox
   (the project's own when there is one). Without them a
   viewer with a temp-folder config leaves the shared `viewer.json` alone,
   so issue-cli outside the script can't find it. Never pass
   `-record-viewer` from a script.
+- A step a script can't take, the briefing's rule: The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml: it knows you by your environment, tmux name and worktree, not by the config. Walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment to get past it.
+- A viewer outside a script, the briefing's rule: A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
 - Read anything you need from the owner's real environment (their tmux
   session, `$TMUX`) before `private_tmux`, and only in an owner run.
 - `sandbox_dir` is removed on exit, with any screenshot in it: `show` or
@@ -316,7 +374,10 @@ The owner's run may still be due after the merge. When the issue's checkout
 has no script for it, `check-script <slug>` looks in git history: the newest
 commit reachable from main (and from `work/<slug>`, while that branch exists)
 that removed a `scripts/checks/*.sh` whose `# issue:` line names the slug. It
-runs that copy from the project folder and says where it came from:
+runs that copy from the project folder and says where it came from. The
+files the script keeps beside it (`scripts/checks/<name>-*`, `<name>.*` and
+a `<name>/` folder, a probe or a fixture) come back from the same commit,
+written next to it in a temporary folder that `$CHECKS_DIR` names:
 
 ```
 scripts/checks/nudge-delivery.sh from history (removed in ea7e704 before the merge): running it from /home/me/issue-viewer
@@ -329,10 +390,15 @@ the issue-cli that runs it.
 
 The issue's checkout is its worktree (`worktree:` in workflow.yaml); when the
 workflow declares none, it is the git worktree checked out on `work/<slug>`,
-whatever its folder is called. Without one (a slug with a space, such as
-`level design/…`, can't have a `work/` branch) it is the worktree of the
-project check-script runs from, and only from the main checkout the project
-folder.
+whatever its folder is called. Without one, a project whose workers branch
+as they like (`<system>/<short>` in `.worktrees/<short>`) is
+covered by the scripts themselves: while the main checkout holds no script
+for the slug, the one linked worktree whose `scripts/checks/*.sh` names it is
+the checkout. Two or more such worktrees: check-script runs from the one you
+are in, else names them all and stops. With none of these (a slug with a
+space, such as `level design/…`, can't have a `work/` branch) it is the
+worktree of the project check-script runs from, and only from the main
+checkout the project folder.
 `--new` writes there, and `--list`, `--yes`, the owner's run and ▶ Run checks
 look there, except once the branch is merged: a worktree whose HEAD is
 already on main and that holds no uncommitted change is older than main, so

@@ -210,3 +210,21 @@ func TestDepartmentLine(t *testing.T) {
 		t.Errorf("no Product config: line = %q, want none", got)
 	}
 }
+
+func TestDepartmentShowNamesItsHall(t *testing.T) {
+	proj := goalsProject(t)
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"show", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Workflow: ") {
+		t.Errorf("a department on Product's workflow names a hall:\n%s", out)
+	}
+	proj.Departments[0].Workflow = "workflows/marketing.yaml"
+	out.Reset()
+	if err := runDepartment(ctx, []string{"show", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Workflow: workflows/marketing.yaml · its hall (stations, every type's path, Edit): ")
+	assertContains(t, out.String(), "/p/"+proj.Slug+"/hall?department=marketing")
+}

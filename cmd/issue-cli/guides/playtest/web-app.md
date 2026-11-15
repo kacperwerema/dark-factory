@@ -24,7 +24,13 @@ cmd/playtest/assets/overlay.js  the owner's overlay (injected; the board has non
 
 The make targets:
 
-- `make playtest-check`, which is part of `make validate`
+- `make playtest-check`, which is part of `make validate`. It checks step ids
+  against the real board when it finds one, from the primary checkout or a
+  worktree alike (the order is under Test ids below), and reads the issue
+  files once. A project named but not listed, or a fresh clone with no board,
+  gets one `note:` line and a shape-only check, so it still passes. A session
+  whose issue has left the board stays shape-only under the note that counts
+  them.
 - `make ux-test [ISSUE=…] [S=…] [STEP=TP2,TP3] [REPEAT=2]`
 - `make ux-test ALL=1`: every session, on any branch (it drops `ISSUE=` and `S=`)
 - `make playtest [ISSUE=…]`
@@ -51,6 +57,12 @@ In a dispatched worktree (branch `work/<slug>`) `ISSUE` defaults to `<slug>`, so
   `workboard.go`, ...), which appends to `testids.IDs`. `TestTemplateTestIDs`
   fails on an unlisted template id or an unused entry. `playtest check`
   rejects a session target that matches no entry, and suggests the closest.
+  It checks step ids against the board named by `LIVE_BOARD`, else the
+  project's (`-project`, `PLAYTEST_PROJECT`, a worker's `ISSUE_VIEWER_PROJECT`,
+  or the configured project whose issues dir is this repo's), else the board
+  beside the git common dir, so it reads the same one from the primary
+  checkout, a worktree and a machine with no issue-cli. A project named but
+  not listed, or a clone with no board, is one note and a shape check only.
 - Label containers too (`nav.sidebar`, `board.filters`). A `layout_ignore`
   on a container waives everything inside it.
 
@@ -84,6 +96,9 @@ Each step at each viewport starts a fresh scenario:
     marker. tmux calls refuse to run without the marker, and teardown's
     `kill-server` only runs when it is there.
   - Agent variables (`CLAUDECODE`, `AGENT_NAME`, …) are dropped.
+  - `ISSUE_VIEWER_READ_AFRESH=1` makes the viewer read tmux, mem-guard and
+    the load on every request, so a step sees the sessions its `tmux:` setup
+    just started. A viewer without it keeps each reading for 500 ms.
 - **A pinned order:** the board sorts issues by file mtime, so each fixture's
   mtime is set from its `created:` date.
 
@@ -218,6 +233,11 @@ branches:
       It caught v0.48.0: a lost `}` put the rest of `style.css` inside a
       `max-width: 900px` block, the desktop pages rendered unstyled, and
       every content check and the four rules above still passed.
+    - `one_primary`: no two filled buttons share a parent: one primary
+      action per card or row (docs/UI/workshop-board.md, "One primary
+      action"). A filled button has a background that is neither
+      transparent nor near white; a disabled one doesn't count. The error
+      names both labels: `a second primary beside "Agree": "Stamp"`.
 - **On failure:** the log holds the actions, the processes' output, and
   every test id on the page with its rect, visible and enabled state and
   text.
@@ -231,7 +251,7 @@ branches:
 | `open` | `open: /p/{project}/board` (`{project}`, `{base}`, `{dir}` expand) |
 | `reload` | `reload: true` |
 | `click` / `hover` | `click: board.transition_modal.confirm`. A real mouse event at the centre; refused when the target is hidden, disabled or covered. |
-| `type` | `type: { target: list.search, text: csv, enter: true }` (clears first unless `clear: false`) |
+| `type` | `type: { target: list.search, text: csv, enter: true }` (clears first unless `clear: false`; `text: "{owner_code}"` types the owner sign-in code the board printed last, after a page asked for one) |
 | `select` | `select: { target: list.filter.status, value: backlog }` |
 | `key` | `key: Escape` (also `"1"`–`"4"`, `f`, `+`, `-`: keys a page binds itself, and `Control+1`, `Control+f`, `Meta+f` to check it leaves the browser's own alone) |
 | `drag` | `drag: { target: board.card.ui/x, to: board.column.backlog.cards }`. A real mouse drag (native HTML5 drag and drop) when both ends are on screen, else synthetic drag events. |
@@ -241,7 +261,7 @@ branches:
 | `write` | `write: { path: docs/status/index.html, text: "<p>v2</p>" }`. Replaces a file under the scenario's project root (a page an agent rewrites). |
 | `upload` | `upload: { target: lead_chat.image_input, path: files/shot.png }`. Picks a file under the scenario's project root in a file input, as the file dialog does (its change event fires; the input may be hidden). |
 | `cli` | `cli: [transition, cli/x, --to, backlog]` or `{ args: […], exit: 1 }`. Runs the scenario's issue-cli. |
-| `tmux` | `tmux: [new-session, -d, -s, lead]`. Runs on the private server. |
+| `tmux` | `tmux: [new-session, -d, -s, lead]`. Runs on the private server. A stand-in agent pane on a page that tells a live agent from a bare shell (the Crew pages, push) starts as `[new-session, -d, -s, agent-x, cat, -]`: tmux runs a single command through `$SHELL -c`, and until the shell execs it the pane reads as an exited agent. |
 | `snapshot` | `snapshot: { name: before, target: board.column.backlog.count }` |
 | `check` | `check: { count: { pattern: list.row.*, equals: 2 } }`. An inline check that must pass now. |
 
@@ -266,6 +286,7 @@ A step can install scripts that run in its page before the page's own (`stubs: [
 | `text_equals` / `text_contains` | `{ target, text }` on whitespace-normalised text (an input's value) |
 | `value_equals` | `{ target, value }` on a form control |
 | `count` | `{ pattern, within?, equals\|min\|max }` visible matches |
+| `buttons` | `{ max\|min\|equals, within? }` visible buttons on the page or inside `within`: `button`, input buttons, `role=button`, and a link or summary with "btn" in its class; toggles (`aria-pressed`, `role=tab`), Copy (`data-copy`), the header and nav, and anything hidden (a closed menu) don't count. A failure lists the counted labels |
 | `url` | `{ equals\|contains\|matches }` on path and query |
 | `changed` / `unchanged` | `{ target, since: <snapshot> }` |
 | `issue` | `{ slug, field, equals }`, `{ slug, checkbox: P1, checked: true }`, `{ slug, comment_contains }`, `{ slug, body_contains }`. Reads the scenario's issue file. |
@@ -276,7 +297,8 @@ A step can install scripts that run in its page before the page's own (`stubs: [
 | `below` | `[a, b]` or `{ a, b }`: b starts below a's bottom edge |
 | `inside` | `{ target, within }`: target's box lies wholly inside within's (±1px), as it is now: nothing is scrolled into view first |
 | `css` | `{ target, property, equals \| in: [..] \| not }` on the computed value, e.g. `{ target: board.column.backlog, property: display, equals: flex }` |
-| `size` | `{ target, min_width?, max_width?, min_height?, max_height? }` in CSS px, from the element's box |
+| `size` | `{ target, min_width?, max_width?, min_height?, max_height?, max_top? }` in CSS px, from the element's box; `max_top` is its top edge from the top of the page (scrolling doesn't change it): `max_top: 422` at 390x844 puts a page's title in the first half of the first screen |
+| `media` | `{ target, state: loaded \| playing }` on a `<video>`/`<audio>` (the target or the first one inside it): `loaded` = metadata read and a duration, `playing` = not paused and its time past 0; any media error fails it. Wait for it: `wait_for: { media: { target: shelf.video, state: playing }, ms: 8000 }` after a `click` on the player |
 
 Content checks pass on an unstyled page that stacks top to bottom, and so do
 the layout rules. Give each view a few shape checks for its main

@@ -1,0 +1,66 @@
+id: social-channel
+version: v0.61.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [brand-foundation]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/department.yaml", "cmd/issue-cli/templates/departments/marketing/subreddits.md"]
+title: "Social channel with research before the brief (similar profiles, competitors, trends)"
+what: |
+  A `social` type (system Social; research → brief → draft → owner review → publish →
+  measure → done). research is read-only: what works on similar profiles and
+  competitors (from departments/<key>/competitors.md and icp.md where they exist:
+  posts, formats, cadence, hooks, each with its link) and rising trends per network
+  (topics, hashtags, sounds, formats), through the department's `trends` and
+  `competitors` connectors' read calls when they are on, else public pages, said so;
+  never posting, scheduling or logging in to read. research → brief needs 5 links
+  under `## Research` and the research report on the shelf (`has_output: report`);
+  the brief cites that output by id and the finding behind each choice, a Brief box
+  brief → draft checks. draft makes no connector call; owner review → publish is
+  `owner_only` and waits for both outputs' approval; publish schedules only the
+  approved posts through the `social` connector; measure reads each post's
+  numbers through the read-only `social-analytics` connector (kind: rest, GET
+  only) when the department has it, else the `social` connector's analytics
+  read calls. Prompts name connectors, never the tool behind them. An eval `social` scores
+  its runs. Reddit: research reads the subreddits the owner lists in
+  departments/<key>/subreddits.md (each with its self-promotion rule) through the
+  `reddit` connector's read calls, else nothing from Reddit; a Brief box holds every
+  Reddit post or reply to a listed subreddit and its quoted rule; replies in other
+  people's threads go in the draft for the owner to post by hand.
+why: |
+  A social post planned without looking at what works for similar profiles and
+  competitors, or at what is rising, is a guess. The research step puts that
+  evidence, with links, in front of the brief and the owner.
+where: "the social type under types: with its prompts and edges, the social eval, Social in the department's systems"
+snippet: |
+  types:
+    social:
+      description: "Social posts: research on similar profiles, competitors and trends, brief, post copy and images, owner review, post, measure reach (system Social)"
+      path: [research, brief, draft, owner review, publish, measure, done]
+      transitions:
+        - from: "research"
+          to: "brief"
+          actions:
+            - type: "validate"
+              rule: "section_min_links"
+              section: "Research"
+              min: 5
+            - type: "validate"
+              rule: "has_output: report"
+            - type: "append_section"
+              title: "Brief"
+              body: |
+                - [ ] Cites the research output by its id (o-…) and the finding each choice rests on
+        - from: "brief"
+          to: "draft"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Brief"
+  # The full prompts and edges are in the bundled marketing template
+  # (docs/departments.md, "Social: research before the brief"). Add Social to
+  # the department's systems: in projects.yaml.
+question: "Should Marketing run a social channel that starts with research on similar profiles, competitors and trends before each brief? Which networks and which profile should the first run cover?"
+detect:
+  - path: types.*.description
+    contains: "research on similar profiles, competitors and trends"

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -44,7 +45,7 @@ func TestConnectorFlags(t *testing.T) {
 		var steps []Step
 		flags := ConnectorFlags(proj, spec, dir, env, &steps)
 		path := filepath.Join(dir, "mcp.json")
-		if strings.Join(flags, " ") != "--mcp-config "+path {
+		if strings.Join(flags, " ") != "--mcp-config="+path {
 			t.Fatalf("%s: flags = %v", name, flags)
 		}
 		b, err := os.ReadFile(path)
@@ -69,7 +70,7 @@ func TestConnectorFlags(t *testing.T) {
 			t.Errorf("%s: steps %s", name, stepNames(steps))
 		}
 		launch := LaunchCommandWith(proj, "claude", spec.Session, "/p", flags)
-		if !strings.Contains(launch, " --mcp-config "+shellWord(path)+" ") {
+		if !strings.Contains(launch, " "+shell.Quote("--mcp-config="+path)+" ") {
 			t.Errorf("%s: launch = %s", name, launch)
 		}
 	}
@@ -95,5 +96,59 @@ func TestConnectorFlags(t *testing.T) {
 	}
 	if got := LaunchCommand(proj, "claude", "agent-x", "/p"); strings.Contains(got, "mcp") {
 		t.Errorf("LaunchCommand = %s", got)
+	}
+}
+
+// A connector's deny_tools: reach both CLIs' argv at launch, written so no
+// variadic claude flag swallows the prompt; a bad name never reaches a
+// shell word or a TOML value.
+func TestConnectorFlagsDenyTools(t *testing.T) {
+	proj := connectorProject(t)
+	gsc := &proj.Departments[0].Connectors[0]
+	gsc.DenyTools = []string{"submit_indexnow_urls", "set_report_sharing", "bad name;rm", "submit_indexnow_urls"}
+	env := []string{"ISSUE_VIEWER_ISSUE_SLUG=page"}
+
+	dir := t.TempDir()
+	var steps []Step
+	flags := ConnectorFlags(proj, Spec{Session: "agent-page", IssueSlug: "page", AgentType: "claude"}, dir, env, &steps)
+	want := []string{"--mcp-config=" + filepath.Join(dir, "mcp.json"),
+		"--disallowedTools=mcp__gsc__submit_indexnow_urls,mcp__gsc__set_report_sharing"}
+	if strings.Join(flags, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("claude flags = %q, want %q", flags, want)
+	}
+	if !strings.Contains(stepNames(steps), "Marketing connectors: gsc (2 tools off)") {
+		t.Errorf("steps %s", stepNames(steps))
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "mcp.json"))
+	if strings.Contains(string(b), "submit_indexnow_urls") {
+		t.Errorf("mcp.json carries the deny list:\n%s", b)
+	}
+	launch := LaunchCommandWith(proj, "claude", "agent-page", "/p/prompt.md", flags)
+	if !strings.HasSuffix(launch, " '--disallowedTools=mcp__gsc__submit_indexnow_urls,mcp__gsc__set_report_sharing' \"$(cat /p/prompt.md)\"") {
+		t.Errorf("launch = %s", launch)
+	}
+	for _, f := range flags {
+		if strings.Contains(f, "bad") || strings.Contains(f, fakeValue) {
+			t.Errorf("flag %q", f)
+		}
+	}
+
+	codex := ConnectorFlags(proj, Spec{IssueSlug: "page", AgentType: "codex"}, t.TempDir(), env, new([]Step))
+	got := strings.Join(codex, " ")
+	if !strings.Contains(got, `-c mcp_servers.gsc.disabled_tools=["submit_indexnow_urls","set_report_sharing"]`) {
+		t.Errorf("codex flags = %v", codex)
+	}
+	if strings.Contains(got, "bad") || strings.Contains(got, "mcp_servers.qb") {
+		t.Errorf("codex flags = %v", codex)
+	}
+
+	// No deny list: no --disallowedTools, no disabled_tools.
+	gsc.DenyTools = nil
+	flags = ConnectorFlags(proj, Spec{Session: "agent-page", IssueSlug: "page", AgentType: "claude"}, t.TempDir(), env, new([]Step))
+	if len(flags) != 1 {
+		t.Errorf("flags = %v", flags)
+	}
+	if c := ConnectorFlags(proj, Spec{IssueSlug: "page", AgentType: "codex"}, t.TempDir(), env, new([]Step)); strings.Contains(strings.Join(c, " "), "disabled_tools") {
+		t.Errorf("codex flags = %v", c)
 	}
 }

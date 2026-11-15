@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -109,7 +110,7 @@ func Runs(p *tracker.Project, issues []*tracker.Issue, key string) []Run {
 }
 
 func open(p *tracker.Project, is *tracker.Issue) bool {
-	return !p.IssueDone(is) && !strings.EqualFold(is.Status, "parked")
+	return !p.IssueClosed(is)
 }
 
 // Log events.
@@ -276,25 +277,7 @@ func saveState(root, project string, st *State) error {
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	path := StatePath(root, project)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return jsonfile.Write(StatePath(root, project), st, 0o600)
 }
 
 // TurnOn stores the owner's words as key's standing start ("*" for every

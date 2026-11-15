@@ -12,6 +12,7 @@ func init() {
 		"stats.chart.*",
 		"stats.card.*",
 		"stats.snapshots",
+		"stats.updating",
 		"stats.done",
 		"stats.table.*",
 		"stats.table_btn.*",

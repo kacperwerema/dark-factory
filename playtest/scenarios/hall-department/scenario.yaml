@@ -1,0 +1,22 @@
+# A department hall: Marketing runs on its own workflows/marketing.yaml
+# (the bundled marketing template: research, brand, icp, market size, brief,
+# draft, owner review, publish, measure; types foundation, market-size,
+# piece, seo-pass; owner review → publish is owner_only). The file is
+# git-ignored, as workflows/ is untracked in the engine's repo, so the
+# hall's Edit writes it in place and commits nothing. Product keeps a
+# small workflow with a tweak type, and one issue each side.
+title: Product and Marketing, each on its own workflow file
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Marketing
+        color: "#E2559B"
+        role: SEO and content for the client sites
+        mission: "Every client site refreshed every week"
+        workflow: workflows/marketing.yaml
+issues: tracker
+workflow: workflow.yaml
+root: files
+untracked: [workflows/]

@@ -29,6 +29,7 @@ type PostmortemData struct {
 	Slug, IssueTitle   string
 	IssueURL, File     string
 	DecideURL          string
+	QueueURL           string
 	Sections           []PostmortemSection
 	Actions            []postmortem.Action
 	Pending            int
@@ -57,7 +58,7 @@ func (s *Server) buildPostmortem(p *tracker.Project, prefix string, issue *track
 	color := s.projectColor(p)
 	lot, rows := s.buildLot(p, color, now)
 	d := PostmortemData{Title: p.Name + " · Post-mortem", Slug: issue.Slug, IssueTitle: issue.Title,
-		IssueURL: prefix + "/issue/" + issue.Slug, DecideURL: prefix + "/postmortem/" + issue.Slug + "/decide"}
+		IssueURL: prefix + "/issue/" + issue.Slug, DecideURL: prefix + "/postmortem/" + issue.Slug + "/decide", QueueURL: prefix + "/postmortems"}
 	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Post-mortem", Current: true}
@@ -67,7 +68,7 @@ func (s *Server) buildPostmortem(p *tracker.Project, prefix string, issue *track
 		d.NoPostmortem = true
 		return d
 	}
-	d.File = "retros/" + e.FileName
+	d.File = retroRef(p, e.FilePath)
 	secs, _ := postmortem.SplitSections(e.Body)
 	for _, name := range postmortem.Sections[:len(postmortem.Sections)-1] {
 		d.Sections = append(d.Sections, PostmortemSection{Name: name, Text: secs[strings.ToLower(name)]})
@@ -126,13 +127,14 @@ func (s *Server) handlePostmortemDecide(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	now := time.Now()
+	ref := retroRef(proj, e.FilePath)
 	env := postmortem.Env{
 		Repo: projectRoot(proj), IssueDir: proj.IssueDir, Project: proj.Slug,
 		Issue: issue.Slug, System: issue.System,
-		RetroPath: e.FilePath, RetroRef: "retros/" + e.FileName,
-		Owner: tracker.OwnerAuthor, Now: now,
+		RetroPath: e.FilePath, RetroRef: ref,
+		Owner: tracker.OwnerAuthor, Now: now, Statuses: proj.AllStatuses(),
 		NewExperiment: func(a postmortem.Action) (string, error) {
-			return postmortemExperiment(proj, issue, e.FileName, a, now)
+			return postmortemExperiment(proj, issue, ref, a, now)
 		},
 	}
 	outs, err := postmortem.Decide(env, body.Answers)
@@ -163,7 +165,7 @@ func (s *Server) handlePostmortemDecide(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		res["error"] = err.Error()
 	}
-	if cerr := tracker.AddCommentBy(issue.FilePath, 0, line+" (retros/"+e.FileName+")", "app", tracker.OwnerAuthor); cerr != nil {
+	if cerr := tracker.AddCommentBy(issue.FilePath, 0, line+" ("+ref+")", "app", tracker.OwnerAuthor); cerr != nil {
 		res["comment_error"] = cerr.Error()
 	}
 	log.Printf("postmortem: %s decided by the owner: %d applied, %d refused, %d failed", issue.Slug, applied, refused, failed)
@@ -172,11 +174,11 @@ func (s *Server) handlePostmortemDecide(w http.ResponseWriter, r *http.Request, 
 
 // postmortemExperiment files an agreed workflow action as an experiment
 // proposal: an idea issue labelled experiment whose source is the retro.
-func postmortemExperiment(proj *tracker.Project, issue *tracker.Issue, retroFile string, a postmortem.Action, now time.Time) (string, error) {
+func postmortemExperiment(proj *tracker.Project, issue *tracker.Issue, retroRef string, a postmortem.Action, now time.Time) (string, error) {
 	title := "Experiment: " + strings.TrimSuffix(strings.TrimSpace(a.Title), ".")
 	body := fmt.Sprintf(`## What the owner asked
 
-Agreed on the post-mortem of %s (retros/%s, %s) on %s.
+Agreed on the post-mortem of %s (%s, %s) on %s.
 
 ## Change to try
 
@@ -188,15 +190,19 @@ Agreed on the post-mortem of %s (retros/%s, %s) on %s.
 
 ## Next
 
-issue-cli experiment init <this slug> --hypothesis "..." --target <metric>:<up|down>:<threshold> --source retros/%s
-`, issue.Slug, retroFile, a.ID, now.Format("2006-01-02"), strings.TrimSpace(a.Text), strings.TrimSpace(a.Differently), retroFile)
+issue-cli experiment init <this slug> --hypothesis "..." --target <metric>:<up|down>:<threshold> --source %s
+`, issue.Slug, retroRef, a.ID, now.Format("2006-01-02"), strings.TrimSpace(a.Text), strings.TrimSpace(a.Differently), retroRef)
+	status := ""
+	if order := proj.LoadWorkflow().GetStatusOrder(); len(order) > 0 {
+		status = order[0]
+	}
 	path, slug, err := tracker.CreateIssueFileOpts(proj.IssueDir, tracker.CreateIssueOpts{
-		Title: title, Status: "idea", System: issue.System, Labels: []string{"experiment"}, Body: body, Now: now,
+		Title: title, Status: status, System: issue.System, Labels: []string{"experiment"}, Body: body, Now: now,
 	})
 	if err != nil {
 		return "", err
 	}
-	if fresh, err := tracker.LoadIssues(proj.IssueDir); err == nil {
+	if fresh, err := proj.LoadIssues(); err == nil {
 		for _, is := range fresh {
 			if is.FilePath == path {
 				slug = is.Slug

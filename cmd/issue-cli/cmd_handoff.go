@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/connections"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -365,7 +366,7 @@ func runHandoffDecline(ctx *Context, args []string) error {
 	printYOLOGate(ctx.Stdout, gate, from, park, ctx.now())
 	h.State, h.Reason, h.Word = connections.StateDeclined, r, "declined: "+r
 	tellAsker(ctx, ctx.Stdout, h, author)
-	fmt.Fprintf(ctx.Stdout, "Undo: %s\n", tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %q", h.Slug, from)))
+	fmt.Fprintf(ctx.Stdout, "Undo: %s\n", tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %s", h.Slug, shell.Quote(from))))
 	return nil
 }
 
@@ -456,7 +457,7 @@ func runHandoffs(ctx *Context, args []string) error {
 	}
 	issues, _ := tracker.LoadIssues(p.IssueDir)
 	list := connections.ListHandoffs(p, issues, func(i *tracker.Issue) []tracker.Comment {
-		c, _ := tracker.LoadComments(i.FilePath)
+		c := i.Comments()
 		return c
 	}, f, ctx.now())
 	if ctx.JSONOutput {

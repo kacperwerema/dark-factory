@@ -137,6 +137,7 @@ var pushKindWords = map[string]string{
 	"connectors": "Connector failing",
 	"nightly":    "Factory pass rate",
 	"stuck":      "Worker stuck",
+	"exited":     "Worker exited",
 	"limit":      "Usage limit",
 }
 
@@ -187,9 +188,10 @@ var pushRows = func(p *tracker.Project, open []*tracker.Issue, now time.Time) []
 	return needsYouRows(p, "", "/p/"+p.Slug, open, now)
 }
 
-// pushStuck finds live workers stuck at a menu: idle (no issue-cli call
-// for agentIdleAfter) while the pane shows a numbered prompt. Questions and
-// gates are rows already.
+// pushStuck finds workers that need a look: a session left as only a shell
+// (its agent exited, kind exited), and live workers stuck: stalled
+// (agentrun.ScanStalls), or idle (no issue-cli call for agentIdleAfter) while
+// the pane shows a numbered prompt. Questions and gates are rows already.
 var pushStuck = func(p *tracker.Project, open []*tracker.Issue, now time.Time) []push.Seen {
 	sessions := projectSessions(p)
 	if len(sessions) == 0 {
@@ -201,14 +203,38 @@ var pushStuck = func(p *tracker.Project, open []*tracker.Issue, now time.Time) [
 	}
 	wf := p.LoadWorkflow()
 	workDir := resolveProjectWorkDir(p)
+	snap := crewSnapshot()
+	stalled := map[string]bool{}
+	for _, s := range scanPaneStalls(p, workDir, now) {
+		stalled[s.Session] = true
+	}
 	var out []push.Seen
 	for _, issue := range open {
 		name := tracker.AgentSessionName(issue.Slug)
 		if !live[name] {
 			continue
 		}
+		if snap.BareShell(p, name) {
+			out = append(out, push.Seen{
+				Key: p.Slug + "|exited|" + name + "|", Project: p.Slug, ProjectName: p.Name, Kind: "exited",
+				Title: pushTitle("exited", issue.Title), URL: push.SafeURL("/p/" + p.Slug + "/agents?agent=" + name),
+				Cooldown: stuckCooldown,
+			})
+			continue
+		}
+		seen := push.Seen{
+			Key: p.Slug + "|stuck|" + name + "|", Project: p.Slug, ProjectName: p.Name, Kind: "stuck",
+			Title: pushTitle("stuck", issue.Title), URL: push.SafeURL("/p/" + p.Slug + "/agents?agent=" + name),
+			Cooldown: stuckCooldown,
+		}
+		// A stalled worker may have made no call, so it never reads as idle
+		// below.
+		if stalled[name] {
+			out = append(out, seen)
+			continue
+		}
 		wt, _, _ := resolveWorktree(workDir, issue.Slug, wf)
-		comments, _ := tracker.LoadComments(issue.FilePath)
+		comments := issue.Comments()
 		call, known := lastCliCall(p.Slug, agentLogPaths(workDir, wt, name, issue.Assignee)...)
 		if state, _ := workerState(wf, issue, comments, call, known, now); state != "idle" {
 			continue
@@ -221,11 +247,7 @@ var pushStuck = func(p *tracker.Project, open []*tracker.Issue, now time.Time) [
 		if m, _ := paneMenu(lines, max(0, len(lines)-40)); m == nil {
 			continue
 		}
-		out = append(out, push.Seen{
-			Key: p.Slug + "|stuck|" + name + "|", Project: p.Slug, ProjectName: p.Name, Kind: "stuck",
-			Title: pushTitle("stuck", issue.Title), URL: push.SafeURL("/p/" + p.Slug + "/agents?agent=" + name),
-			Cooldown: stuckCooldown,
-		})
+		out = append(out, seen)
 	}
 	return out
 }
@@ -259,13 +281,13 @@ func (s *Server) pushSeen(now time.Time) ([]push.Seen, []string) {
 	scanned := []string{""}
 	for i := range s.projects {
 		p := &s.projects[i]
-		issues, err := tracker.LoadIssues(p.IssueDir)
+		issues, err := p.LoadIssues()
 		if err != nil {
 			continue
 		}
 		var open []*tracker.Issue
 		for _, is := range issues {
-			if is.Status != "done" {
+			if !p.IssueDone(is) {
 				open = append(open, is)
 			}
 		}

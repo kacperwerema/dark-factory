@@ -42,6 +42,9 @@ func TestQueueCard(t *testing.T) {
 		q.Find("2").BlockedOn = []string{"#1"}
 		it := q.Find(strconv.Itoa(id))
 		it.State, it.DoneAt, it.DoneSHA = queue.Done, now, "becb5631234"
+		id, _ = q.Add(queue.Item{Slug: "unmerged"}, queue.Where{}, now)
+		q.MarkDone("unmerged", "", now)
+		q.Find(strconv.Itoa(id)).Note = queue.NotOnMain
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -52,7 +55,8 @@ func TestQueueCard(t *testing.T) {
 	for _, want := range []string{
 		`data-testid="status.queue"`, `data-testid="status.queue.count">2<`, "1 blocked",
 		`href="/p/yp/issue/shop">shop</a>`, "idea: a bulk review page", "blocked on #1",
-		`data-testid="status.queue.done"`, "becb563", "∞ Out of work: think up more",
+		`data-testid="status.queue.done"`, "becb563",
+		`data-testid="status.queue.not_on_main">done (not on main)</span> <a href="/p/yp/issue/unmerged">unmerged</a>`, "∞ Out of work: think up more",
 		`data-testid="status.queue.verdict">start shop (item 1)<`,
 	} {
 		if !strings.Contains(page, want) {
@@ -60,12 +64,30 @@ func TestQueueCard(t *testing.T) {
 		}
 	}
 	md := pageGet(t, ts.URL+"/p/yp/status.md")
-	if !strings.Contains(md, "Queue: 2 active · 1 blocked · 1 done today · next shop · now: start shop (item 1) (issue-cli --project yp queue next --start)") {
+	if !strings.Contains(md, "Queue: 2 active · 1 blocked · 2 done today · next shop · now: start shop (item 1) (issue-cli --project yp queue next --start)") {
 		t.Errorf("status.md lacks the Queue: line:\n%s", md)
 	}
 	after, _ := os.ReadFile(queue.Path(proj.IssueDir))
 	if string(before) != string(after) {
 		t.Error("the viewer wrote the queue")
+	}
+
+	// A criterion waiting on the lead's command: one line on the card and
+	// a part of the Queue: line.
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	for _, is := range issues {
+		if is.Slug == "shop" {
+			store := tracker.DataStore{Proofs: map[string][]tracker.ProofLink{"AC1": {{Kind: tracker.ProofLead, Ref: "issue-cli check-script shop --yes", At: now}}}}
+			if err := tracker.SaveData(is.FilePath, store); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if page := pageGet(t, ts.URL+"/p/yp/status"); !strings.Contains(page, `data-testid="status.queue.lead_waits">1 criterion waits on the lead's command (issue-cli --project yp queue next lists them)`) {
+		t.Error("Queue card lacks the waits-on-the-lead line")
+	}
+	if md := pageGet(t, ts.URL+"/p/yp/status.md"); !strings.Contains(md, "· 1 waiting on the lead ·") {
+		t.Errorf("status.md Queue: line lacks the lead count:\n%s", md)
 	}
 
 	// A corrupt file: the card says so, the page still renders.

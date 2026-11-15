@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/proof"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -257,7 +258,7 @@ func evidenceCriteria(r proof.Report) ([]evCriterion, []evStray) {
 				el.Class = "st"
 			}
 			if l.Kind == tracker.ProofCommit {
-				el.Ref = timeline.ShortSHA(l.Ref)
+				el.Ref = gitdir.ShortSHA(l.Ref)
 			}
 			if strings.HasPrefix(el.State, "stale") {
 				el.State = "stale"
@@ -737,22 +738,22 @@ func evidenceVerdict(in evidenceIn, t *EvidenceTab) evVerdict {
 	v := evVerdict{Status: in.Status, FromDispatch: in.Total}
 	for i := len(in.Transitions) - 1; i >= 0; i-- {
 		if in.Transitions[i].MergeSHA != "" {
-			v.Merge = timeline.ShortSHA(in.Transitions[i].MergeSHA)
+			v.Merge = gitdir.ShortSHA(in.Transitions[i].MergeSHA)
 			v.MergeAt = evWhen(in.Transitions[i].TS, in.Now)
 			break
 		}
 	}
 	if v.Merge == "" && strings.HasPrefix(r.RefName, "work/") {
-		v.Head = timeline.ShortSHA(r.Ref)
+		v.Head = gitdir.ShortSHA(r.Ref)
 	}
 	if !r.TestsAt.IsZero() {
 		v.HasTests = true
 		v.TestsAt = evWhen(r.TestsAt, in.Now)
 		v.Tests = testsSummary(in.Comments)
-		v.TestsAfter = r.LastChange.IsZero() || !r.TestsAt.Before(r.LastChange)
+		v.TestsAfter = r.LastChange.IsZero() || !r.TestsAt.Before(r.LastChange) || r.TestsMatch != ""
 	}
 	if r.LastChangeSHA != "" {
-		v.LastChangeSHA = timeline.ShortSHA(r.LastChangeSHA)
+		v.LastChangeSHA = gitdir.ShortSHA(r.LastChangeSHA)
 		v.LastChangeAt = evWhen(r.LastChange, in.Now)
 	}
 	if in.WaitKnown && in.Waiting > 0 {
@@ -770,6 +771,9 @@ func evidenceVerdict(in evidenceIn, t *EvidenceTab) evVerdict {
 		why := "no link"
 		if len(c.Links) > 0 {
 			why = c.Links[0].Kind + " " + c.Links[0].State
+		}
+		if l, ok := waitingLeadLink(c); ok {
+			why = l.State
 		}
 		short = append(short, c.ID+" ("+why+")")
 	}
@@ -859,27 +863,33 @@ func pastDesign(wf *tracker.WorkflowConfig, status string) bool {
 // evidenceReport is the proof report the label and the tab read: the one
 // issue-cli prove --list and the criteria_proven gate read.
 func evidenceReport(proj *tracker.Project, issue *tracker.Issue, comments []tracker.Comment) proof.Report {
+	return evidenceReportWith(nil, proj, issue, comments)
+}
+
+// evidenceReportWith is evidenceReport for a page that reads other sources
+// through cache: one per request.
+func evidenceReportWith(cache *timeline.Cache, proj *tracker.Project, issue *tracker.Issue, comments []tracker.Comment) proof.Report {
 	root := projectRoot(proj)
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
-	return proof.Collect(root, issue, comments)
+	return proof.CollectWith(cache, root, issue, comments)
 }
 
 // loadEvidenceTab gathers the tab's sources: the proof report, the playtest
 // runs in the checkout and the worktree, comments, the change and the
 // Timeline's totals.
-func loadEvidenceTab(proj *tracker.Project, prefix string, issue *tracker.Issue, wf *tracker.WorkflowConfig, report proof.Report) *EvidenceTab {
+func loadEvidenceTab(cache *timeline.Cache, proj *tracker.Project, prefix string, issue *tracker.Issue, wf *tracker.WorkflowConfig, report proof.Report) *EvidenceTab {
 	root := projectRoot(proj)
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
 	worktree := filepath.Join(root, ".worktrees", issue.Slug)
 	stats, _ := tracker.LoadStats(issue.FilePath)
-	src := loadTimelineSources(proj, issue, wf)
+	src := loadTimelineSources(cache, proj, issue, wf)
 	tl := buildTimeline(src, timelineInput{Status: issue.Status, Now: time.Now(), WF: wf})
 	// A run that can't be read is in report.Missing (proof.Collect).
-	runs, _ := timeline.LoadPlaytestRuns(nil, issue.Slug, root, worktree)
+	runs, _ := timeline.LoadPlaytestRuns(cache, issue.Slug, root, worktree)
 	run := playtestRunURL(prefix+"/issue/"+issue.Slug, ownerAttention(proj, issue), wf)
 	return buildEvidence(evidenceIn{
 		RunPlaytest:     run,

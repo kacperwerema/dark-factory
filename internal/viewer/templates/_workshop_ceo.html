@@ -30,7 +30,7 @@ static/ceo-chat.js).
 <div class="wb-ground wb-ceo-band">
     <div class="wb-ceo-big{{if not .Live}} wb-ceo-big--off{{end}}" style="--body: {{.Color}}" aria-hidden="true"><svg width="22" height="14" viewBox="0 0 16 10"><path d="M1 9L2 2l3.5 3.5L8 1l2.5 4.5L14 2l1 7z" fill="#F2B233" stroke="#1B1F2A" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="wb-bot-body"><i></i><i></i></span></div>
     <div class="wb-ceo-name">
-        <h1 class="wb-h1">{{.Who}}</h1>
+        <h1 class="wb-h1" data-testid="wb.title">{{.Who}}</h1>
         <div class="wb-ceo-meta">
             <span class="wb-mono-inline" data-testid="lead_chat.session">{{.Display}}</span>
             {{if .Live}}<span class="wb-chip wb-chip--green" data-testid="lead_chat.state"><span class="wb-chip-dot"></span>live</span>{{else}}<span class="wb-chip wb-chip--idle" data-testid="lead_chat.state">not running</span>{{end}}
@@ -185,8 +185,8 @@ static/ceo-chat.js).
 
 {{define "wb/waiting-band"}}
 <div class="wb-wait{{if .}} wb-wait--on{{end}}" id="waiting" data-testid="lead_chat.waiting">
-    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">no gate is waiting</span>{{else}}<a class="wb-wait-sub" href="needs-you" data-testid="lead_chat.waiting.all">See all and approve →</a>{{end}}</div>
-    {{range .}}<a class="wb-wait-row" href="{{.ActionURL}}" data-testid="lead_chat.waiting.{{.Kind}}.{{tid .Slug}}"><span class="wb-kind wb-kind--you">{{.Action}}</span><span class="wb-wait-title">{{.Title}}</span><span class="wb-wait-detail">{{.Detail}} · {{.Age}}</span></a>{{end}}
+    <div class="wb-wait-head"><span class="wb-wait-dot"></span><b data-testid="lead_chat.waiting.count">Waiting on you: {{len .}}</b>{{if not .}}<span class="wb-wait-sub">nothing is waiting</span>{{else}}<a class="wb-wait-sub" href="needs-you" data-testid="lead_chat.waiting.all">See all and approve →</a>{{end}}</div>
+    {{range .}}<a class="wb-wait-row" href="{{.ActionURL}}" data-testid="lead_chat.waiting.{{.Kind}}.{{tid .Slug}}"><span class="wb-kind wb-kind--you">{{.Action}}</span><span class="wb-wait-title">{{.Title}}</span><span class="wb-wait-detail">{{.Detail}}{{with .Age}} · {{.}}{{end}}</span></a>{{end}}
 </div>
 {{end}}
 

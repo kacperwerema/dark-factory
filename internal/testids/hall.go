@@ -61,6 +61,14 @@ func init() {
 		"hall.edit.save",
 		"hall.edit.reason",
 		"hall.edit.preview_button",
+		"hall.edit.untracked",
+		"hall.edit.owner_only",
+
+		// Department halls (hall_scope.go, ?department=<name>).
+		"hall.switch",
+		"hall.types",
+		"hall.type",
+		"hall.type.gate",
 
 		"hall.tabs",
 		"hall.tab.*",

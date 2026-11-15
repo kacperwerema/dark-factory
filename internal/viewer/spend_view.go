@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -73,7 +74,7 @@ func roomSpend(rep *spend.Report, key, prefix, projectFlag string) *WbSpend {
 	if b == nil {
 		return nil
 	}
-	out := &WbSpend{Box: b.Key, Line: spend.Line(b.ThisWeek()) + " this week", Empty: b.Empty(), Tokens: spend.FormatTokens(b.ThisWeek().Tokens())}
+	out := &WbSpend{Box: b.Key, Line: spend.Line(b.ThisWeek()) + " this week", Empty: b.Empty(), Tokens: tokens.Format(b.ThisWeek().Tokens())}
 	if out.Empty {
 		out.Hint = "issue-cli" + projectFlag + " spend " + b.Key
 	}
@@ -119,7 +120,7 @@ func roomSpend(rep *spend.Report, key, prefix, projectFlag string) *WbSpend {
 	}
 	t := b.ThisWeek()
 	out.Title = fmt.Sprintf("this week: input %s · output %s · cache read %s · cache write %s. %s",
-		spend.FormatTokens(t.Input), spend.FormatTokens(t.Output), spend.FormatTokens(t.CacheRead), spend.FormatTokens(t.CacheWrite), spendNote)
+		tokens.Format(t.Input), tokens.Format(t.Output), tokens.Format(t.CacheRead), tokens.Format(t.CacheWrite), spendNote)
 	if len(rep.Unpriced) > 0 {
 		out.Title += " No price for " + strings.Join(rep.Unpriced, ", ") + ": add it to " + rep.PricesPath + "."
 	}
@@ -136,7 +137,7 @@ func subscriptionsLine(rep *spend.Report) string {
 			continue
 		}
 		spent++
-		parts = append(parts, s.Agent+" "+spend.FormatTokens(s.ThisWeek().Tokens())+" tokens")
+		parts = append(parts, s.Agent+" "+tokens.Format(s.ThisWeek().Tokens())+" tokens")
 	}
 	if spent < 2 {
 		return ""

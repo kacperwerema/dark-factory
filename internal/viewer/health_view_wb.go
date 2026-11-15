@@ -43,7 +43,7 @@ var healthUnlock = map[string]string{
 	"unit_cost_trend": "It compares with the unit results of 30 days ago: it unlocks 30 days after unit results first land.",
 	"e2e_wait":        `Run the slow tier, issue-cli ci run --tier slow, with a results: entry of kind e2e (docs/workbench-files.md, "Test results").`,
 	"e2e_coverage":    "Playtest sessions under playtest/sessions/ and done issues with a system: field.",
-	"flaky":           "It needs the playtest telemetry (health-check-speed).",
+	"flaky":           "Run make ux-test, or let local CI's slow tier run (issue-cli ci run --tier slow): a step that failed and passed on one build counts as flaky.",
 	"test_balance":    "It unlocks once the code grows within 30 days.",
 	"big_files":       "Take a new measurement: issue-cli health snapshot.",
 	"long_funcs":      "Take a new measurement: issue-cli health snapshot.",
@@ -695,10 +695,9 @@ func healthTrends(c *HealthPage) []WbTrendCard {
 // handleHealthWb renders the page; ?classic=1 keeps the classic one.
 func (s *Server) handleHealthWb(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string, classic *HealthPage) {
 	now := time.Now()
-	company := s.buildCompany(proj, prefix, now)
-	lot := company.Lot
+	lot := s.headerLot(proj, now)
 	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait,
-		DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "health")}
+		DoneWeek: lot.DoneWeek, Waiting: lot.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "health")}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", URL: prefix + "/hall", Color: companyProductColor}
@@ -715,7 +714,7 @@ func (s *Server) handleHealthWb(w http.ResponseWriter, r *http.Request, proj *tr
 	session := "review-" + proj.Slug
 	in := healthWbIn{
 		healthIn: healthIn{Proj: proj, Prefix: prefix, Range: r.URL.Query().Get("range"), Snaps: snaps, Root: root, WF: proj.LoadWorkflow(), Now: now},
-		Header:   h, CEO: company.Message, Snapshot: latest, Opinion: op, Review: session,
+		Header:   h, CEO: ceoMessageBox(lot, prefix), Snapshot: latest, Opinion: op, Review: session,
 		Live: agentSessionLive(proj, session), Attach: agentAttachCmd(proj, session),
 	}
 	page := buildHealthWb(in, classic)

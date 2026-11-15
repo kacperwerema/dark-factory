@@ -1,0 +1,19 @@
+{{/*
+The owner sign-in in place (api/owner-sign-in-survives-a-viewer-restart…):
+static/owner-signin.js builds this dialog on any page whose owner decision
+was refused with the X-Owner-Sign-In header (owner.go refuseNonOwner), signs
+the browser in with a one-time code and sends the request again. The script
+loads beside events.js on every page; this define is the dialog's markup and
+test ids, kept in step with the script by hand.
+*/}}
+{{define "owner-signin"}}<dialog data-testid="owner_signin.dialog" aria-labelledby="owner-signin-title">
+    <h2 id="owner-signin-title">Sign in as the owner</h2>
+    <p>Only the owner records this, and this browser isn’t signed in. Ask for a one-time code: the viewer shows it on this Mac, in a dialog or its terminal.</p>
+    <button type="button" data-testid="owner_signin.send">Send me a code</button>
+    <form>
+        <input type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="1234-5678" aria-label="Code" data-testid="owner_signin.code">
+        <button type="submit" data-testid="owner_signin.submit">Sign in</button>
+        <button type="button" data-testid="owner_signin.cancel">Cancel</button>
+    </form>
+    <p role="status" data-testid="owner_signin.msg"></p>
+</dialog>{{end}}

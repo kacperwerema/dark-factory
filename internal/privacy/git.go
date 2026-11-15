@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ var gitTimeout = 2 * time.Minute
 // git runs git in dir with extra leading args (e.g. --git-dir) and returns
 // trimmed stdout.
 func git(dir string, args ...string) (string, error) {
+	if gitdir.NoRepo(dir, args...) {
+		return "", fmt.Errorf("git %s: not a git repository", strings.Join(args, " "))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)

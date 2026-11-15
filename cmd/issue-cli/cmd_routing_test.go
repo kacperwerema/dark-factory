@@ -218,3 +218,116 @@ func TestRouting_CodexLimitPaneAgreesAtAnyClock(t *testing.T) {
 		}
 	}
 }
+
+// claudeUsagePane is Claude Code's footer at pct of the weekly limit, its
+// reset three days away so the test passes at any time of day.
+func claudeUsagePane(now time.Time, pct string) (pane string, reset time.Time) {
+	reset = time.Date(now.Year(), now.Month(), now.Day()+3, 8, 0, 0, 0, now.Location())
+	return "  ⏵⏵ auto mode on · esc to interrupt\n  You've used " + pct + "% of your weekly limit · resets " + reset.Format("Jan 2 at 3pm") + " …\n", reset
+}
+
+// A pane at 98% on Claude sends routed starts to Codex; with Codex at its
+// stop point too, auto-start holds and says why; issue-cli agents shows each
+// percent (the issue's acceptance criteria).
+func TestRouting_AStopPointSendsStartsToTheOtherAndBothAtTheirsHold(t *testing.T) {
+	proj := makeRoutingProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	raw, _ := os.ReadFile(proj.WorkflowFile)
+	mustWrite(t, proj.WorkflowFile, strings.Replace(string(raw), "routing:\n", "routing:\n  stop_at: {codex: 95}\n", 1))
+	for _, f := range []string{"high.md", "blocked.md", "claimed.md"} {
+		os.Remove(filepath.Join(proj.IssueDir, f)) // low, routed to the default claude, is next
+	}
+	now := time.Now()
+	pane, _ := claudeUsagePane(now, "98")
+	typed := stubPanes(t, map[string]string{"agent-base": pane})
+	spec := captureStart(t, "dispatched")
+	ctx, stdout, _ := newTestContext(proj, false)
+	ctx.Now = func() time.Time { return now }
+
+	if err := runDispatch(ctx, []string{"low", "--quote", "start low"}); err != nil {
+		t.Fatal(err)
+	}
+	if spec.AgentType != "codex" || !spec.Route.Fallback || !strings.Contains(spec.Route.Why, "at its stop point 98%") {
+		t.Fatalf("low at claude's stop point: agent %q route %+v", spec.AgentType, spec.Route)
+	}
+	if len(*typed) != 0 {
+		t.Fatalf("something was typed into a pane: %v", *typed)
+	}
+
+	stdout.Reset()
+	if err := runAgents(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := stdout.String(); !strings.Contains(out, "used 98%, stop point 98%, seen in agent-base") || !strings.Contains(out, "codex   unknown · stops at 95%") {
+		t.Fatalf("agents status:\n%s", out)
+	}
+	if strings.Contains(stdout.String(), "Showing a limit now") {
+		t.Fatalf("a stop point listed as a limit:\n%s", stdout.String())
+	}
+
+	stubPanes(t, map[string]string{"agent-docs": "⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.\n"})
+	autostartOnFor(t, proj)
+	started := stubStart(t)
+	stdout.Reset()
+	if err := runAutostart(ctx, []string{"next"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := stdout.String(); !strings.Contains(out, "every agent to try is resting (claude until") || !strings.Contains(out, "at its stop point 98%") || !strings.Contains(out, "codex until") {
+		t.Fatalf("autostart next with both at their stop points:\n%s", out)
+	}
+	if err := runDispatch(ctx, []string{"low", "--autostart"}); exitOf(err) != 1 || len(*started) != 0 {
+		t.Fatalf("dispatch --autostart with both at their stop points: %v, started %v", err, *started)
+	}
+}
+
+func TestRouting_AgentsShowsThePercentBelowTheStopPoint(t *testing.T) {
+	proj := makeRoutingProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Now()
+	pane, _ := claudeUsagePane(now, "92")
+	stubPanes(t, map[string]string{"agent-base": pane})
+	ctx, stdout, _ := newTestContext(proj, false)
+	ctx.Now = func() time.Time { return now }
+	if err := runAgents(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := stdout.String(); !strings.Contains(out, "92% of the weekly limit") || !strings.Contains(out, "stops at 98%") {
+		t.Fatalf("agents status:\n%s", out)
+	}
+	rep := agentsReport(ctx)
+	if rep.Agents[0].Percent != 92 || rep.Agents[0].StopAt != 98 {
+		t.Errorf("--json line = %+v", rep.Agents[0])
+	}
+}
+
+// A worker stalled at a startup dialog changes no issue: the commands a
+// lead's tick runs and agents status name it.
+func TestStalledWorkerShowsInTheLeadsTick(t *testing.T) {
+	proj := makeRoutingProject(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	orig := scanStalls
+	t.Cleanup(func() { scanStalls = orig })
+	scanStalls = func(*tracker.Project, string, time.Time) []agentrun.PaneStall {
+		return []agentrun.PaneStall{{Session: "agent-base", Dialog: "Codex's trust dialog"}, {Session: "agent-quiet", NoCall: 7 * time.Minute}}
+	}
+	for name, run := range map[string]func(*Context) error{
+		"agents status":  func(c *Context) error { return runAgents(c, []string{"status"}) },
+		"autostart next": func(c *Context) error { return runAutostart(c, []string{"next"}) },
+		"queue next":     func(c *Context) error { return runQueue(c, []string{"next"}) },
+	} {
+		ctx, stdout, _ := newTestContext(proj, false)
+		if err := run(ctx); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(stdout.String(), "agent-base") || !strings.Contains(stdout.String(), "stalled at Codex's trust dialog") {
+			t.Errorf("%s:\n%s", name, stdout)
+		}
+		if !strings.Contains(stdout.String(), "agent-quiet") || !strings.Contains(stdout.String(), "no issue-cli call in the 7 m since launch") {
+			t.Errorf("%s:\n%s", name, stdout)
+		}
+	}
+	ctx, _, _ := newTestContext(proj, false)
+	if rep := agentsReport(ctx); len(rep.Stalled) != 2 || rep.Stalled[0].Session != "agent-base" {
+		t.Errorf("--json: %+v", rep.Stalled)
+	}
+}

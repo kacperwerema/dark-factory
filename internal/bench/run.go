@@ -6,18 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/trace"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+
 	"slices"
-	"strconv"
+
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/memory"
+
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -51,6 +54,9 @@ type Env struct {
 	Log  io.Writer
 	// Keep leaves each task's sandbox in place.
 	Keep bool
+	// MachineMemory is the machine memory log the sandbox's is cut from;
+	// "" is memory.MachinePath().
+	MachineMemory string
 }
 
 // Options are one run's choices.
@@ -61,6 +67,10 @@ type Options struct {
 	// key) for its tasks, and wins over Workflow.
 	Workflow  string
 	Workflows map[string]string
+	// Agents are the agent CLIs to run every task on (bench run --agents):
+	// with two or more, one record per task and agent. Empty or one: the
+	// benchmark's worker as it is. A resumed run keeps its own.
+	Agents []string
 	// Resume continues run id: tasks with a final outcome are kept.
 	Resume string
 	// StartedBy and Quote go into the run (Run.StartedBy, Run.Quote).
@@ -83,7 +93,40 @@ func (e *Env) logf(format string, args ...any) {
 // NewRunID is a run id from its start time.
 func NewRunID(at time.Time) string { return at.UTC().Format("20060102-150405") }
 
-// Execute runs every task of b in order and saves the run after each task.
+// job is one task on one worker; agent is set in a run on two or more.
+type job struct {
+	task          Task
+	agent, worker string
+}
+
+// jobsFor is every task on every agent, the tasks in order; with under two
+// agents, every task on the benchmark's worker.
+func jobsFor(b *Benchmark, agents []string) ([]job, error) {
+	var out []job
+	if len(agents) < 2 {
+		worker := b.Worker
+		if worker == "" {
+			worker = DefaultWorker
+		}
+		for _, t := range b.Tasks {
+			out = append(out, job{task: t, worker: worker})
+		}
+		return out, nil
+	}
+	for _, t := range b.Tasks {
+		for _, a := range agents {
+			w, err := b.WorkerFor(a)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, job{task: t, agent: a, worker: w})
+		}
+	}
+	return out, nil
+}
+
+// Execute runs every task of b in order, on each of opt.Agents, and saves
+// the run after each task.
 func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, error) {
 	if err := validWorkerHome(b.WorkerHome); err != nil {
 		return nil, err
@@ -102,6 +145,7 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 		}
 		run = prev
 		run.Ended, run.Stop, run.StopNote = time.Time{}, "", ""
+		opt.Agents = prev.Setup.Agents()
 		for _, r := range all {
 			if r.Outcome != OutcomeBudget {
 				records = append(records, r)
@@ -114,13 +158,17 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 	if env.Poll <= 0 {
 		env.Poll = 30 * time.Second
 	}
+	jobs, err := jobsFor(b, opt.Agents)
+	if err != nil {
+		return nil, err
+	}
 	env.logf("%s", HomeNote(b.HomeMode(), env.Home))
 	if env.MemPoll <= 0 {
 		env.MemPoll = time.Minute
 	}
 	done := map[string]bool{}
 	for _, r := range records {
-		done[r.Task] = true
+		done[r.Key()] = true
 	}
 	recount := func() {
 		run.SpentTokens, run.SpentUSD = 0, 0
@@ -134,17 +182,19 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 		run.Stop, run.StopNote, run.Ended = stop, note, env.now()
 		return run, Save(run, records)
 	}
-	for i, t := range b.Tasks {
-		if done[t.ID()] {
+	for i, j := range jobs {
+		t := j.task
+		if done[JobKey(t.ID(), j.agent)] {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
 			return finish(StopError, "interrupted")
 		}
-		if over := overBudget(b.Budget, len(b.Tasks), run, env.now(), 0, 0); over != "" {
-			for _, rest := range b.Tasks[i:] {
-				if !done[rest.ID()] {
-					records = append(records, TaskRecord{Task: rest.ID(), Project: rest.Project, Type: rest.Type, Holdout: rest.Holdout, Outcome: OutcomeBudget, Reason: over, Judge: -1})
+		if over := overBudget(b.Budget, len(jobs), run, env.now(), 0, 0); over != "" {
+			for _, rest := range jobs[i:] {
+				rt := rest.task
+				if !done[JobKey(rt.ID(), rest.agent)] {
+					records = append(records, TaskRecord{Task: rt.ID(), Project: rt.Project, Type: rt.Type, Holdout: rt.Holdout, Agent: rest.agent, Outcome: OutcomeBudget, Reason: over, Judge: -1})
 				}
 			}
 			return finish(StopBudget, over)
@@ -157,8 +207,11 @@ func Execute(ctx context.Context, b *Benchmark, env Env, opt Options) (*Run, err
 		if t.Holdout {
 			label = fmt.Sprintf("holdout task %d", i+1)
 		}
-		env.logf("▶ %d/%d %s", i+1, len(b.Tasks), label)
-		rec := runTask(ctx, b, t, i, run, &env, opt)
+		if j.agent != "" {
+			label += " on " + j.agent
+		}
+		env.logf("▶ %d/%d %s", i+1, len(jobs), label)
+		rec := runTask(ctx, b, j, len(jobs), i, run, &env, opt)
 		records = append(records, rec)
 		recount()
 		if t.Holdout {
@@ -218,12 +271,28 @@ type sandbox struct {
 	// home is the worker's HOME under worker_home: sandbox, "" when it
 	// keeps the owner's.
 	home string
-	proj *tracker.Project
-	wf   *tracker.WorkflowConfig
+	// memory is what the sandbox's memory stores hold (cutMemory).
+	memory *MemoryCut
+	proj   *tracker.Project
+	wf     *tracker.WorkflowConfig
+	// status, refs and memories are the issue's status when the worker got
+	// its prompt and the decision refs and memory ids the prompt carried.
+	status         string
+	refs, memories []string
 }
 
-func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *Env, opt Options) TaskRecord {
-	rec := TaskRecord{Task: t.ID(), Project: t.Project, Type: t.Type, Holdout: t.Holdout, Judge: -1, EvalScore: -1, Workflow: t.WorkflowKey(), Started: env.now()}
+func runTask(ctx context.Context, b *Benchmark, j job, jobs, n int, run *Run, env *Env, opt Options) TaskRecord {
+	t := j.task
+	// cli is the agent CLI the worker runs, whose usage to read.
+	cli := j.agent
+	if cli == "" {
+		if a := run.Setup.Agents(); len(a) == 1 {
+			cli = a[0]
+		} else {
+			cli = WorkerAgent(j.worker)
+		}
+	}
+	rec := TaskRecord{Task: t.ID(), Project: t.Project, Type: t.Type, Holdout: t.Holdout, Agent: j.agent, Judge: -1, EvalScore: -1, Workflow: t.WorkflowKey(), Started: env.now()}
 	fail := func(outcome, reason string) TaskRecord {
 		rec.Outcome, rec.Reason = outcome, reason
 		rec.WallSec = env.now().Sub(rec.Started).Seconds()
@@ -236,6 +305,9 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	sb, err := newSandbox(env, run.ID, n, t, p, opt, b.HomeMode())
 	if !env.Keep && sb != nil {
 		defer os.RemoveAll(sb.dir)
+	}
+	if sb != nil {
+		rec.Memory = sb.memory
 	}
 	if err != nil {
 		return fail(OutcomeError, "sandbox: "+err.Error())
@@ -280,9 +352,9 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 			case <-stopWatch:
 				return
 			case <-tick.C:
-				tr := sb.transcript(env)
+				tr := sb.transcript(env, cli, rec.Started)
 				Cost(&tr.Usage, b.Prices)
-				if over := overBudget(b.Budget, len(b.Tasks), run, env.now(), tr.Usage.Tokens(), tr.Usage.USD); over != "" {
+				if over := overBudget(b.Budget, jobs, run, env.now(), tr.Usage.Tokens(), tr.Usage.USD); over != "" {
 					mu.Lock()
 					budgetHit = over
 					mu.Unlock()
@@ -292,16 +364,14 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 			}
 		}
 	}()
-	worker := b.Worker
-	if worker == "" {
-		worker = DefaultWorker
-	}
-	stdout, stderr, werr := runWorker(wctx, sb.work, worker, prompt, sb.env(env))
+	stdout, stderr, werr := runWorker(wctx, sb.work, j.worker, prompt, sb.env(env))
 	close(stopWatch)
 	rec.WallSec = env.now().Sub(rec.Started).Seconds()
 
-	tr := sb.transcript(env)
-	if u, ok := ParseResult(stdout); ok {
+	tr := sb.transcript(env, cli, rec.Started)
+	// A Codex stdout is no Claude Code result: a --json stream's last line
+	// would read as one, with the cached input counted twice.
+	if u, ok := ParseResult(stdout); ok && cli != AgentCodex {
 		u.ToolVersion = tr.Usage.ToolVersion
 		if u.Model == "" {
 			u.Model = tr.Usage.Model
@@ -313,6 +383,7 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	Cost(&rec.Usage, b.Prices)
 	rec.OutsideTouched = tr.Outside
 	sb.clilogStats(&rec)
+	rec.Trace = sb.trace(rec, tr, cli, prompt)
 
 	mu.Lock()
 	hit := budgetHit
@@ -327,6 +398,10 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 		return rec
 	case werr != nil && sb.home != "" && saysNoLogin(stdout, stderr):
 		rec.Outcome, rec.Reason = OutcomeError, NoLoginReason
+	case werr != nil && !rec.Usage.Known && (j.agent != "" || cli == AgentCodex):
+		// It never got to work: no verdict on the agent, on the numbers by
+		// agent least of all.
+		rec.Outcome, rec.Reason = OutcomeError, "worker stopped before using a token: "+lastLine(string(stderr))
 	}
 
 	rec.DiffLines = diffLines(sb.work, t.Base)
@@ -357,6 +432,11 @@ func runTask(ctx context.Context, b *Benchmark, t Task, n int, run *Run, env *En
 	if b.Judge != "" {
 		judge(ctx, b, t, sb, workerDiff, &rec)
 	}
+	if t.Stages != nil && ctx.Err() == nil {
+		brief, _ := os.ReadFile(SnapshotPath(t))
+		scoreStages(ctx, stageInput{task: t, wf: sb.wf, ev: ev, b: b, dir: sb.dir, env: sb.scorerEnv(),
+			brief: string(brief), design: workerDesign(sb.proj.IssueDir), docs: workerDocs(sb.work, t.Base)}, &rec)
+	}
 	return rec
 }
 
@@ -373,7 +453,7 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	sb.tracker = filepath.Join(sb.dir, "tracker")
 	sb.state = filepath.Join(sb.dir, "state")
 	sb.config = filepath.Join(sb.dir, "projects.yaml")
-	for _, d := range []string{sb.tracker, sb.state, sb.xdgConfig()} {
+	for _, d := range []string{sb.tracker, sb.state, sb.xdgConfig(), sb.xdgData()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return sb, err
 		}
@@ -397,6 +477,9 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	if _, err := git(sb.repo, "checkout", "--quiet", "--detach", t.Base); err != nil {
 		return sb, err
 	}
+	if err := cutRefs(sb.repo, t.Base); err != nil {
+		return sb, fmt.Errorf("refs: %w", err)
+	}
 	for _, h := range t.Hidden {
 		_ = os.Remove(filepath.Join(sb.repo, filepath.FromSlash(h)))
 	}
@@ -413,6 +496,13 @@ func newSandbox(env *Env, runID string, n int, t Task, p *tracker.Project, opt O
 	}
 	if err := os.WriteFile(sb.issue, snap, 0o644); err != nil {
 		return sb, err
+	}
+	machineLog := env.MachineMemory
+	if machineLog == "" {
+		machineLog = memory.MachinePath()
+	}
+	if sb.memory, err = sb.cutMemory(p, t, machineLog); err != nil {
+		return sb, fmt.Errorf("memory: %w", err)
 	}
 	key := t.WorkflowKey()
 	wfSrc := opt.Workflows[key]
@@ -466,16 +556,33 @@ func (sb *sandbox) env(env *Env) []string {
 	if env.IssueCLI != "" {
 		path = filepath.Dir(env.IssueCLI) + string(os.PathListSeparator) + path
 	}
-	out = append(out, "PATH="+path, "ISSUE_VIEWER_CONFIG="+sb.config, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(),
+	out = append(out, "PATH="+path, "ISSUE_VIEWER_CONFIG="+sb.config, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(), "XDG_DATA_HOME="+sb.xdgData(),
 		"TMUX_TMPDIR="+sb.state, "ISSUE_VIEWER_ISSUE_SLUG="+sb.slug, "AGENT_NAME="+tracker.AgentSessionName(sb.slug))
+	// The folders a Codex worker's sandbox opens (DefaultCodexWorker).
+	dir := sb.dir
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	out = append(out, "BENCH_SANDBOX="+dir, "BENCH_GOCACHE="+goCache(dir))
 	return gitEnv(out)
+}
+
+// goCache is the Go build cache the worker's go uses, or dir without one.
+func goCache(dir string) string {
+	if c := os.Getenv("GOCACHE"); c != "" {
+		return c
+	}
+	if c, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(c, "go-build")
+	}
+	return dir
 }
 
 // isolatedEnviron is this process's environment without what points at the
 // owner's sessions, state, config or benchmark (the holdout lives there):
 // every child of a run starts from it.
 func isolatedEnviron() []string {
-	drop := []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ISSUE_VIEWER_LEAD_SCOPE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_BENCH_DIR", "AGENT_NAME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "PATH"}
+	drop := []string{"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "ISSUE_VIEWER_LEAD_SCOPE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_BENCH_DIR", "AGENT_NAME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "PATH"}
 	var out []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -508,7 +615,7 @@ func (sb *sandbox) scorerEnv() []string {
 	}
 	home := filepath.Join(sb.dir, "eval", "home")
 	_ = os.MkdirAll(home, 0o755)
-	out = append(out, "PATH="+os.Getenv("PATH"), "HOME="+home, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(), "TMUX_TMPDIR="+sb.state)
+	out = append(out, "PATH="+os.Getenv("PATH"), "HOME="+home, "XDG_STATE_HOME="+sb.state, "XDG_CONFIG_HOME="+sb.xdgConfig(), "XDG_DATA_HOME="+sb.xdgData(), "TMUX_TMPDIR="+sb.state)
 	if cache != "" {
 		out = append(out, "npm_config_cache="+cache)
 	}
@@ -527,7 +634,7 @@ func (sb *sandbox) prompt(ctx context.Context, env *Env) (string, error) {
 		return "", fmt.Errorf("the snapshot does not load as one issue: %v", err)
 	}
 	slug := issues[0].Slug
-	sb.slug = slug
+	sb.slug, sb.status = slug, issues[0].Status
 	cmd := exec.CommandContext(ctx, cli, "--config", sb.config, "--project", sb.proj.Slug, "dispatch-prompt", slug, "--json")
 	cmd.Dir = sb.repo
 	cmd.Env = sb.env(env)
@@ -537,13 +644,16 @@ func (sb *sandbox) prompt(ctx context.Context, env *Env) (string, error) {
 		return "", fmt.Errorf("%s dispatch-prompt: %v %s", cli, err, strings.TrimSpace(errb.String()))
 	}
 	var dp struct {
-		Prompt   string `json:"prompt"`
-		Worktree string `json:"worktree"`
-		Branch   string `json:"branch"`
+		Prompt       string   `json:"prompt"`
+		Worktree     string   `json:"worktree"`
+		Branch       string   `json:"branch"`
+		DecisionRefs []string `json:"decision_refs"`
+		MemoryIDs    []string `json:"memory_ids"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &dp); err != nil {
 		return "", err
 	}
+	sb.refs, sb.memories = dp.DecisionRefs, dp.MemoryIDs
 	if dp.Worktree != "" && dp.Branch != "" {
 		if _, err := git(sb.repo, "worktree", "add", "--quiet", "-b", dp.Branch, dp.Worktree, "HEAD"); err != nil {
 			return "", err
@@ -555,11 +665,15 @@ func (sb *sandbox) prompt(ctx context.Context, env *Env) (string, error) {
 
 // transcript reads the worker's transcripts. Claude Code names their folder
 // after its working directory, which may be the resolved path (/private/var
-// for /var on macOS), so both are read.
-func (sb *sandbox) transcript(env *Env) Transcript {
+// for /var on macOS), so both are read. A Codex worker's come from its
+// rollout files instead, sessions since rec's start in the sandbox.
+func (sb *sandbox) transcript(env *Env, cli string, since time.Time) Transcript {
 	home := env.Home
 	if sb.home != "" {
 		home = sb.home
+	}
+	if cli == AgentCodex {
+		return sb.codexTranscript(home, since)
 	}
 	if home == "" {
 		return Transcript{}
@@ -579,6 +693,23 @@ func (sb *sandbox) transcript(env *Env) Transcript {
 		}
 	}
 	return tr
+}
+
+func (sb *sandbox) codexTranscript(home string, since time.Time) Transcript {
+	dir := CodexSessions(home)
+	if sb.home != "" {
+		// Everything in its own home is this task's.
+		since = time.Time{}
+	} else if c := os.Getenv("CODEX_HOME"); c != "" {
+		dir = filepath.Join(c, "sessions")
+	} else if home == "" {
+		return Transcript{}
+	}
+	roots := []string{sb.dir}
+	if real, err := filepath.EvalSymlinks(sb.dir); err == nil {
+		roots = append(roots, real)
+	}
+	return ReadCodexSessions(dir, since, roots...)
 }
 
 // clilogStats fills the record's issue-cli numbers from the sandbox's clilog
@@ -626,228 +757,37 @@ func (sb *sandbox) clilogStats(rec *TaskRecord) {
 	}
 }
 
-// score puts the merged commit's hidden test files over the worker's, runs
-// the hidden Go tests and the task's check.
-func score(ctx context.Context, sb *sandbox, t Task, rec *TaskRecord) {
-	for _, h := range t.Hidden {
-		data, err := git(sb.repo, "show", t.Merged+":"+h)
-		if err != nil {
-			continue
-		}
-		dst := filepath.Join(sb.work, filepath.FromSlash(h))
-		_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-		_ = os.WriteFile(dst, []byte(data), 0o644)
-	}
-	rec.HiddenTotal = len(t.HiddenTests)
-	if rec.HiddenTotal > 0 {
-		rec.HiddenPassed = len(goHidden(ctx, sb.work, t))
-	}
-	rec.CheckOK = true
-	if t.Check != "" {
-		rec.CheckOK, _ = shell(ctx, sb.work, t.Check, nil, 30*time.Minute)
-	}
-}
-
-// goHidden runs the hidden Go tests in their packages and returns the ones
-// that passed; a test that never ran (the package does not build) failed.
-func goHidden(ctx context.Context, dir string, t Task) map[string]bool {
-	return goHiddenEnv(ctx, dir, t, nil)
-}
-
-// goHiddenEnv is goHidden with the go command's environment (nil: this
-// process's).
-func goHiddenEnv(ctx context.Context, dir string, t Task, env []string) map[string]bool {
-	pkgs := map[string]bool{}
-	for _, h := range t.Hidden {
-		if strings.HasSuffix(h, "_test.go") {
-			pkgs["./"+filepath.ToSlash(filepath.Dir(h))] = true
+// trace is the task's trace (internal/trace): the sandbox issue's
+// transitions and clilog, the worker's transcript messages, and the prompt
+// the bench sent as the first span's briefing.
+func (sb *sandbox) trace(rec TaskRecord, tr Transcript, cli, prompt string) []trace.Span {
+	stats, _ := tracker.LoadStats(sb.issue)
+	var calls []clilog.Record
+	clilog.Read(clilog.ProjectPath(sb.repo), func(r clilog.Record) { calls = append(calls, r) })
+	var statuses []string
+	if sb.wf != nil {
+		for _, s := range sb.wf.Statuses {
+			statuses = append(statuses, s.Name)
 		}
 	}
-	var quoted []string
-	for _, name := range t.HiddenTests {
-		quoted = append(quoted, regexp.QuoteMeta(name))
+	status := rec.FinalStatus
+	if status == "" {
+		status = sb.status
 	}
-	args := []string{"test", "-json", "-count=1", "-run", "^(" + strings.Join(quoted, "|") + ")$"}
-	for p := range pkgs {
-		args = append(args, p)
-	}
-	tctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(tctx, "go", args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	out, _ := cmd.Output()
-	want := map[string]bool{}
-	for _, n := range t.HiddenTests {
-		want[n] = true
-	}
-	passed := map[string]bool{}
-	for _, l := range bytes.Split(out, []byte("\n")) {
-		var ev struct{ Action, Test string }
-		if json.Unmarshal(l, &ev) == nil && ev.Action == "pass" && want[ev.Test] {
-			passed[ev.Test] = true
-		}
-	}
-	return passed
-}
-
-var judgeScore = regexp.MustCompile(`(?im)^\s*SCORE:\s*([0-5])\b`)
-var judgeReason = regexp.MustCompile(`(?im)^\s*REASON:\s*(.+)$`)
-
-// JudgePrompt is what the judge reads: the issue, the known good diff and
-// the worker's diff, each cut to limit bytes.
-func JudgePrompt(issue, merged, worker string) string {
-	cut := cutDiff
-	return "You judge one benchmark task. Compare the WORKER DIFF with the KNOWN GOOD DIFF for the ISSUE: does it do what the issue asks, as well as the known good one? Different code that meets the issue is fine.\n" +
-		"Answer with exactly two lines:\nSCORE: <0-5>  (5 = as good or better, 0 = nothing useful)\nREASON: <one line>\n\n" +
-		"## ISSUE\n\n" + cut(issue) + "\n\n## KNOWN GOOD DIFF\n\n" + cut(merged) + "\n\n## WORKER DIFF\n\n" + cut(worker) + "\n"
-}
-
-// diffLimit caps each text the judge and a diff eval read.
-const diffLimit = 60000
-
-// cutDiff cuts s to diffLimit bytes.
-func cutDiff(s string) string {
-	if len(s) > diffLimit {
-		return s[:diffLimit] + "\n… (cut)\n"
-	}
-	return s
-}
-
-func judge(ctx context.Context, b *Benchmark, t Task, sb *sandbox, workerDiff string, rec *TaskRecord) {
-	issue, _ := os.ReadFile(SnapshotPath(t))
-	merged, _ := git(sb.repo, "diff", t.Base, t.Merged)
-	jctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-	defer cancel()
-	out, _, err := runWorker(jctx, sb.dir, b.Judge, JudgePrompt(string(issue), merged, workerDiff), gitEnv(os.Environ()))
-	if err != nil && len(out) == 0 {
-		rec.JudgeReason = "judge: " + err.Error()
-		return
-	}
-	text := string(out)
-	var res struct {
-		Result string `json:"result"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(out), &res) == nil && res.Result != "" {
-		text = res.Result
-		if u, ok := ParseResult(out); ok {
-			Cost(&u, b.Prices)
-			rec.Usage.Input += u.Input
-			rec.Usage.Output += u.Output
-			rec.Usage.CacheRead += u.CacheRead
-			rec.Usage.CacheWrite += u.CacheWrite
-			rec.Usage.USD += u.USD
-		}
-	}
-	if m := judgeScore.FindStringSubmatch(text); m != nil {
-		rec.Judge, _ = strconv.Atoi(m[1])
-	} else {
-		rec.JudgeReason = "judge gave no SCORE line"
-		return
-	}
-	if m := judgeReason.FindStringSubmatch(text); m != nil {
-		rec.JudgeReason = strings.TrimSpace(m[1])
-	}
-}
-
-// runWorker runs command in dir through sh with prompt on stdin, in its own
-// process group so a stop ends every process it started.
-func runWorker(ctx context.Context, dir, command, prompt string, env []string) (stdout, stderr []byte, err error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader(prompt)
-	var out bytes.Buffer
-	errTail := &tailBuffer{max: 4096}
-	cmd.Stdout = &out
-	cmd.Stderr = errTail
-	ownGroup(cmd)
-	cmd.WaitDelay = 10 * time.Second
-	err = cmd.Run()
-	return out.Bytes(), errTail.buf, err
-}
-
-// tailBuffer keeps the last max bytes written to it.
-type tailBuffer struct {
-	buf []byte
-	max int
-}
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.buf = append(t.buf, p...)
-	if len(t.buf) > t.max {
-		t.buf = append([]byte(nil), t.buf[len(t.buf)-t.max:]...)
-	}
-	return len(p), nil
-}
-
-// shell runs command in dir and reports whether it exited 0, with its
-// combined output.
-func shell(ctx context.Context, dir, command string, env []string, limit time.Duration) (bool, string) {
-	sctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
-	cmd := exec.CommandContext(sctx, "sh", "-c", command)
-	cmd.Dir = dir
-	if env != nil {
-		cmd.Env = env
-	}
-	ownGroup(cmd)
-	cmd.WaitDelay = 10 * time.Second
-	out, err := cmd.CombinedOutput()
-	return err == nil, string(out)
-}
-
-func diffLines(dir, base string) int {
-	_, _ = git(dir, "add", "-A", "-N")
-	out, err := git(dir, "diff", "--numstat", base)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, l := range strings.Split(out, "\n") {
-		f := strings.Fields(l)
-		if len(f) >= 2 {
-			a, _ := strconv.Atoi(f[0])
-			d, _ := strconv.Atoi(f[1])
-			n += a + d
-		}
-	}
-	return n
-}
-
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
-}
-
-func okText(ok bool) string {
-	if ok {
-		return "green"
-	}
-	return "red"
-}
-
-func tokensText(u Usage) string {
-	if !u.Known {
-		return "tokens unknown"
-	}
-	s := fmt.Sprintf("%s tokens", compact(u.Tokens()))
-	if u.USDKnown {
-		s += fmt.Sprintf(" $%.2f", u.USD)
-	}
-	return s
-}
-
-func wallText(sec float64) string {
-	return (time.Duration(sec) * time.Second).Round(time.Second).String()
-}
-
-func compact(n int64) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1_000:
-		return fmt.Sprintf("%.0fk", float64(n)/1e3)
-	}
-	return strconv.FormatInt(n, 10)
+	open := sb.wf == nil || !sb.wf.IsLastStatus(status)
+	briefing := tracker.NewBriefing(tracker.BriefingDispatch, sb.status, "", prompt, sb.memories, sb.refs, rec.Started)
+	return trace.Build(trace.In{
+		Transitions: stats.Transitions,
+		Briefings:   append([]tracker.Briefing{briefing}, stats.Briefings...),
+		Calls:       calls,
+		Messages:    tr.Messages,
+		Statuses:    statuses,
+		Status:      status,
+		Start:       rec.Started,
+		End:         rec.Started.Add(time.Duration(rec.WallSec * float64(time.Second))),
+		Open:        open,
+		CallsKnown:  len(calls) > 0,
+		TokensKnown: len(tr.Messages) > 0,
+		Agent:       cli,
+	})
 }

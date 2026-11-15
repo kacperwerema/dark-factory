@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/redrounds"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -126,8 +127,47 @@ func (r *redRoundsRun) finish(err error) error {
 	if _, open := r.state.Open[last.Check]; open {
 		return fmt.Errorf("%w\n\n%v", err, r.state.Hold(r.issue.Slug, r.runs))
 	}
-	return fmt.Errorf("%w\n\n%s is %s (max_red_rounds); at %d it becomes a question for the owner. Can't fix it? issue-cli rounds %s --cannot-fix %q --why \"...\"",
-		err, last.Check, s.Label(r.state.Max), r.state.Max, r.issue.Slug, last.Check)
+	return fmt.Errorf("%w\n\n%s is %s (max_red_rounds); at %d it becomes a question for the owner. Can't fix it? issue-cli rounds %s --cannot-fix %s --why \"...\"",
+		err, last.Check, s.Label(r.state.Max), r.state.Max, r.issue.Slug, shell.Quote(last.Check))
+}
+
+// redRoundsProblem is the red-round hold transition from → to would refuse
+// on, for the dry run, so the two agree: an open cap question that holds
+// it (State.Hold over the checks it runs), or else a streak at the cap
+// transition would post as a question first. Nothing is posted; nil when
+// nothing holds, for a side status, or when the rounds can't be read.
+func redRoundsProblem(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, slug, to string) *transitionProblem {
+	if wf.IsSideStatus(to) {
+		return nil
+	}
+	state, err := loadRedRounds(ctx, wf, issue)
+	if err != nil {
+		return nil
+	}
+	runs := wf.TransitionCheckKeys(issue.Status, to)
+	msg := ""
+	if err := state.Hold(slug, runs); err != nil {
+		msg = err.Error()
+	} else if need := state.NeedQuestion(); len(need) > 0 {
+		open := map[string]redrounds.Question{}
+		for _, s := range need {
+			open[s.Check] = redrounds.Question{Check: s.Check, Open: true}
+		}
+		var held *redrounds.HoldError
+		if errors.As(redrounds.State{Max: state.Max, Streaks: state.Streaks, Open: open}.Hold(slug, runs), &held) {
+			msg = fmt.Sprintf("%s is %s: transition posts it as a question for the owner and refuses without re-running it.\nStop working on this check; the owner resolving the question starts the count over.",
+				held.Question.Check, held.Streak.Label(state.Max))
+		}
+	}
+	if msg == "" {
+		return nil
+	}
+	return &transitionProblem{
+		Kind:        "hold",
+		Requirement: fmt.Sprintf("No red-round cap (max_red_rounds %d) on a check %s → %s runs", state.Max, issue.Status, to),
+		Message:     msg,
+		Fix:         []string{tracker.InjectProject(ctx.Project, "issue-cli rounds "+slug)},
+	}
 }
 
 func firstErrLine(err error) string {

@@ -1,9 +1,8 @@
 package timeline
 
 import (
-	"context"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -15,13 +14,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/playtestruns"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
-
-// GitTimeout bounds each git call, so a slow or locked repo never holds up
-// a page.
-const GitTimeout = 2 * time.Second
 
 // ProjectRoot is the project's checkout: its workdir, else the folder that
 // holds its issues folder, else the current directory.
@@ -49,17 +45,21 @@ func WorkDir(proj *tracker.Project) string {
 	return wd
 }
 
-// Cache keeps what Load reads from files many issues share: the clilogs and
-// the playtest runs' results, read once per Cache rather than once per
-// issue. The aggregate uses one; a nil *Cache reads from disk on every call.
-// Not safe for concurrent use.
+// Cache keeps what Load and proof.Collect read from files many issues
+// share: the clilogs, the playtest runs' results and the playtest sessions,
+// read once per Cache rather than once per issue. It lives for one pass: the
+// aggregate, or one page's request, which reads its issues side by side. A
+// nil *Cache reads from disk on every call.
 type Cache struct {
-	recs map[string][]clilog.Record
-	runs map[string][]playtestResultsFile
+	mu       sync.Mutex
+	recs     map[string][]clilog.Record
+	runs     map[string][]playtestResultsFile
+	sessions map[string][]tracker.PlaytestSessionFile
+	heads    map[string][]RecordedHead
 }
 
 func NewCache() *Cache {
-	return &Cache{recs: map[string][]clilog.Record{}, runs: map[string][]playtestResultsFile{}}
+	return &Cache{recs: map[string][]clilog.Record{}, runs: map[string][]playtestResultsFile{}, sessions: map[string][]tracker.PlaytestSessionFile{}, heads: map[string][]RecordedHead{}}
 }
 
 func (c *Cache) read(path string, visit func(clilog.Record)) {
@@ -67,11 +67,13 @@ func (c *Cache) read(path string, visit func(clilog.Record)) {
 		clilog.Read(path, visit)
 		return
 	}
+	c.mu.Lock()
 	recs, ok := c.recs[path]
 	if !ok {
 		clilog.Read(path, func(r clilog.Record) { recs = append(recs, r) })
 		c.recs[path] = recs
 	}
+	c.mu.Unlock()
 	for _, r := range recs {
 		visit(r)
 	}
@@ -80,6 +82,8 @@ func (c *Cache) read(path string, visit func(clilog.Record)) {
 // results are the playtest results.yaml files in dir's .playtest/runs.
 func (c *Cache) results(dir string) []playtestResultsFile {
 	if c != nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		if r, ok := c.runs[dir]; ok {
 			return r
 		}
@@ -93,6 +97,73 @@ func (c *Cache) results(dir string) []playtestResultsFile {
 	}
 	if c != nil {
 		c.runs[dir] = out
+	}
+	return out
+}
+
+// PlaytestSessions is tracker.IssuePlaytestSessions, each folder read once
+// per Cache.
+func (c *Cache) PlaytestSessions(root string, slugs ...string) []tracker.PlaytestSessionFile {
+	if c == nil {
+		return tracker.IssuePlaytestSessions(root, slugs...)
+	}
+	return tracker.IssuePlaytestSessionsIn(func(dir string) []tracker.PlaytestSessionFile {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		s, ok := c.sessions[dir]
+		if !ok {
+			s = tracker.PlaytestSessionFiles(dir)
+			c.sessions[dir] = s
+		}
+		return s
+	}, root, slugs...)
+}
+
+// RecordedHead is a branch head an issue's stats sidecar recorded at a
+// transition.
+type RecordedHead struct {
+	Stats string // the sidecar's path
+	At    time.Time
+	SHA   string
+}
+
+// RecordedHeads is every branch head the stats sidecars under issuesDir
+// recorded, read once per Cache.
+func (c *Cache) RecordedHeads(issuesDir string) []RecordedHead {
+	if c != nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if h, ok := c.heads[issuesDir]; ok {
+			return h
+		}
+	}
+	var out []RecordedHead
+	_ = filepath.WalkDir(issuesDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if p != issuesDir && tracker.NotIssueFolder(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(p, ".stats.json") {
+			return nil
+		}
+		st, err := tracker.LoadStats(strings.TrimSuffix(p, ".stats.json") + ".md")
+		if err != nil {
+			return nil
+		}
+		for _, t := range st.Transitions {
+			if t.BranchHead != "" {
+				out = append(out, RecordedHead{Stats: p, At: t.TS, SHA: t.BranchHead})
+			}
+		}
+		return nil
+	})
+	if c != nil {
+		c.heads[issuesDir] = out
 	}
 	return out
 }
@@ -147,7 +218,7 @@ func Load(proj *tracker.Project, issue *tracker.Issue, cache *Cache) Sources {
 		src.Commits = commits
 		src.Read = append(src.Read, "git ("+plural(len(commits), "commit", "commits")+" on "+refName+")")
 	}
-	if src.MergeSHA == "" && issue.Status == "done" {
+	if src.MergeSHA == "" && proj.IssueDone(issue) {
 		// A fast-forward merge makes main's commit the branch head itself.
 		src.MergeSHA = lastBranchHead(src.Transitions)
 		if src.MergeSHA == "" && ref != "" && strings.HasPrefix(refName, "work/") {
@@ -274,18 +345,18 @@ func MatchesIssue(rec clilog.Record, projSlug, issueSlug string) bool {
 // the last branch head the stats sidecar recorded, else its merge sha.
 func GitRef(root, slug string, rows []tracker.TransitionStat) (ref, name string) {
 	branch := "work/" + slug
-	if out, err := git(root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}"); err == nil && out != "" {
-		return strings.TrimSpace(out), branch
+	if head := tracker.BranchHead(root, branch); head != "" {
+		return head, branch
 	}
 	// Recorded heads come from the stats sidecar, which agents write: only
 	// a hex sha is used, so "--output=<file>" never reaches git as an
 	// option (docs/API/security.md).
 	if h := lastBranchHead(rows); IsSHA(h) {
-		return h, "the recorded branch head " + ShortSHA(h)
+		return h, "the recorded branch head " + gitdir.ShortSHA(h)
 	}
 	for i := len(rows) - 1; i >= 0; i-- {
 		if IsSHA(rows[i].MergeSHA) {
-			return rows[i].MergeSHA, "the merge " + ShortSHA(rows[i].MergeSHA)
+			return rows[i].MergeSHA, "the merge " + gitdir.ShortSHA(rows[i].MergeSHA)
 		}
 	}
 	return "", ""
@@ -296,15 +367,15 @@ var shaRe = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 // IsSHA reports whether s is a (short or full) hex commit id.
 func IsSHA(s string) bool { return shaRe.MatchString(s) }
 
-// LoadCommits walks the first-parent chain from ref back to since, so a
-// merge of main into the branch is one commit and other issues' commits that
-// came with it never show.
+// LoadCommits walks the first-parent chain from ref, a commit sha, back to
+// since, so a merge of main into the branch is one commit and other issues'
+// commits that came with it never show.
 func LoadCommits(root, ref string, since time.Time) ([]Commit, error) {
 	args := []string{"log", "--first-parent", "--format=%H%x1f%P%x1f%ct%x1f%s", ref}
 	if !since.IsZero() {
 		args = append(args, "--since="+strconv.FormatInt(since.Add(-time.Minute).Unix(), 10))
 	}
-	out, err := git(root, args...)
+	out, err := tracker.GitCached(root, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -335,20 +406,6 @@ func LoadCommits(root, ref string, since time.Time) ([]Commit, error) {
 		commits[i], commits[j] = commits[j], commits[i]
 	}
 	return commits, nil
-}
-
-func git(root string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), GitTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...).Output()
-	return string(out), err
-}
-
-func ShortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 type playtestResultsFile struct {

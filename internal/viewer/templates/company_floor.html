@@ -8,7 +8,7 @@
 <main class="wb-fl-main">
 <section class="wb-fl-floor" aria-label="{{.Lot.Name}}: the company floor">
     <div class="wb-fl-titlebar">
-        <h1 class="wb-fl-h1">{{.Lot.Name}}</h1>
+        <h1 class="wb-fl-h1" data-testid="wb.title">{{.Lot.Name}}</h1>
         <span class="wb-fl-subtitle">{{.Departments}} departments · CEO <span class="wb-fl-mono">{{.Lot.CEO.Session}}</span>{{with .Lot.Kind}} · {{.}}{{end}}</span>
         <span class="wb-grow"></span>
         <a class="wb-fl-classic" href="?classic=1" title="The company page as it was, every block stacked" data-testid="floor.classic">Classic page</a>
@@ -21,6 +21,7 @@
             {{range .Plan.Tiles}}{{template "wb/fl-tile" .}}{{end}}
         </div>
     </div>
+    {{template "wb/fl-list" .List}}
     <div class="wb-fl-legend">
         <span><b>Click a room name</b> to inspect it →</span>
         <span>· <b>Chat with the CEO</b> (or a lead) is one click on its room</span>

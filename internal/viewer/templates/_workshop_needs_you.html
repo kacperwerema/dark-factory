@@ -51,6 +51,7 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
         <div class="wb-card-meta"><span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span><span class="wb-age">{{.Age}}</span></div>
         <div class="wb-slug">{{.Slug}}</div>
         <div class="wb-card-note">{{.Note}}</div>
+        {{with .Partner}}<div class="wb-ny-also" data-testid="needs_you.partner">{{.}}{{with $.PartnerNote}} · {{.}}{{end}}{{with $.LiveURL}} · <a href="{{.}}" target="_blank" rel="noopener" data-testid="needs_you.partner.live">live view</a>{{end}}</div>{{end}}
         {{with .Decision}}<blockquote class="wb-ny-q wb-ny-q--decision" data-testid="needs_you.challenge.decision">{{$.ResolveRef}}: {{.}}</blockquote>{{end}}
         {{with .Question}}<blockquote class="wb-ny-q" data-testid="needs_you.question">{{.}}</blockquote>{{end}}
         {{if .Also}}<div class="wb-ny-also" data-testid="needs_you.challenge.also">Also on it, not held: {{range $i, $a := .Also}}{{if $i}} · {{end}}{{$a}}{{end}}</div>{{end}}
@@ -77,6 +78,13 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
                 <button type="submit" value="let-go" class="wb-btn wb-btn--quiet" data-testid="needs_you.expiry.let_go">Let go</button>
             </div>
         </form>{{end}}
+        {{if .PartnerURL}}<form class="wb-ny-expiry" data-ny-partner="{{.PartnerURL}}" data-stage="{{.PartnerStage}}" data-testid="needs_you.partner.form">
+            <textarea rows="2" aria-label="Your words on {{.PartnerStage}} (needed to send it back)" placeholder="Your words (needed to send it back)" data-ny-partner-text data-testid="needs_you.partner.words"></textarea>
+            <div class="wb-ny-expiry-acts">
+                <button type="submit" value="approve" class="wb-btn wb-btn--you" data-testid="needs_you.partner.approve">Approve {{.PartnerStage}}</button>
+                <button type="submit" value="send-back" class="wb-btn wb-btn--quiet" data-testid="needs_you.partner.send_back">Send back</button>
+            </div>
+        </form>{{end}}
         <div class="wb-ny-msg" role="status" data-ny-msg data-testid="needs_you.row.msg"></div>
     </div>
     <div class="wb-ny-acts">
@@ -84,8 +92,13 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
         {{if .RunURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-run="{{.RunURL}}" data-testid="needs_you.run">{{.RunLabel}}</button>{{end}}
         {{if .ReplyURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-reply aria-expanded="false" data-testid="needs_you.reply">Reply</button>{{end}}
         {{if .ResolveURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-resolve aria-expanded="false" data-testid="needs_you.challenge.open">Keep it</button>{{end}}
-        <a class="wb-btn{{if or .Ready .RunURL .ReplyURL .Clarify .ResolveURL .ExpiryURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
-        {{with .ChatURL}}<a class="wb-btn wb-btn--quiet" href="{{.}}" data-testid="needs_you.chat">Chat</a>{{end}}
+        {{/* One primary per row (docs/UI/workshop-board.md "One primary action"): with a
+             primary button above and Chat too, Open and Chat go under the row's ⋯. */}}
+        {{if and (or .Ready .RunURL .ReplyURL .ResolveURL) .ChatURL}}<details class="wb-menu" data-testid="needs_you.row.menu"><summary class="wb-btn wb-menu-btn" aria-label="More for {{.Slug}}">⋯</summary>
+            <div class="wb-menu-list" role="menu"><a href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a><a href="{{.ChatURL}}" data-testid="needs_you.chat">Chat</a></div>
+        </details>{{else}}
+        <a class="wb-btn{{if or .Ready .RunURL .ReplyURL .Clarify .ResolveURL .ExpiryURL .PartnerURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
+        {{with .ChatURL}}<a class="wb-btn wb-btn--quiet" href="{{.}}" data-testid="needs_you.chat">Chat</a>{{end}}{{end}}
     </div>
 </div>
 {{end}}

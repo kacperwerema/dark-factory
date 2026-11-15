@@ -7,7 +7,7 @@
 <main class="wb-main">
 <section class="wb-ground wb-map" aria-label="HQ report" data-testid="hq_report.page">
     <div class="wb-titlebar">
-        <h1 class="wb-h1">HQ report · week {{.Week}}</h1>
+        <h1 class="wb-h1" data-testid="wb.title">HQ report · week {{.Week}}</h1>
         <span class="wb-sub">every department in one line, then its detail · {{.Window}} · {{.Snapshot}}{{with .SnapshotCmd}} (<code>{{.}}</code>){{end}}</span>
     </div>
     <div class="wb-hqr">

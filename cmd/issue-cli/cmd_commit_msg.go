@@ -10,6 +10,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
@@ -25,6 +26,9 @@ it with the fix when a line marks or links nothing:
   Proves: AC1[, AC2] [TestName ...]     test names only: no <slug>#AC1, no
                                         package path, no playtest step (steps
                                         prove through proves: in their session)
+On a work/<slug> branch whose workflow runs commits_reference_issue, an
+accepted message gets a note with the Refs: <slug> line until one commit on
+the branch references the issue.
 --install writes the repository's commit-msg hook (core.hooksPath, else the
 common .git/hooks every worktree shares); an existing hook is kept as
 commit-msg.local and runs first.`
@@ -88,18 +92,126 @@ func runCommitMsg(ctx *Context, args []string) error {
 			known = ids
 		}
 	}
-	problems := CommitMsgProblems(string(data), known)
+	msg := string(data)
+	slug, noCriteria := "<slug>", false
+	var issue *tracker.Issue
+	var proj *tracker.Project
+	if rootErr == nil {
+		if issue, proj = commitMsgIssue(ctx, root); issue != nil {
+			slug, noCriteria = issue.Slug, len(tracker.Criteria(issue.BodyRaw)) == 0
+		}
+	}
+	problems := commitMsgProblems(msg, known, noCriteria, slug)
 	if len(problems) == 0 {
+		for _, n := range CommitMsgNotes(msg, slug, noCriteria) {
+			fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
+		}
+		if issue != nil && needsRefsLine(root, proj, issue, msg) {
+			fmt.Fprintf(ctx.Stderr, "note: %s\n", refsHint(issue.Slug))
+		}
 		return nil
 	}
 	printCommitMsgProblems(ctx.Stderr, problems)
 	return &exitCodeError{Code: 1}
 }
 
+// needsRefsLine reports whether the ship would still want a commit that
+// references the issue: the workflow runs commits_reference_issue, msg
+// doesn't reference it, and no commit on the branch does. The rule's own
+// reading (proof.Reference) decides. A git failure stays quiet: this is a
+// hint, and the rule still runs at the ship.
+func needsRefsLine(root string, proj *tracker.Project, issue *tracker.Issue, msg string) bool {
+	if !proj.LoadWorkflowForIssue(issue).RequiresCommitReference() {
+		return false
+	}
+	if proof.MessageReferences(stripCommitComments(msg), issue.Slug) {
+		return false
+	}
+	sha, _, err := proof.Reference(root, issue)
+	return err == nil && sha == ""
+}
+
+// refsHint gives the line to add. Amending is safe here: the commit was
+// made a moment ago, so no Proves: link pins its sha yet.
+func refsHint(slug string) string {
+	return fmt.Sprintf("no commit on work/%s references the issue yet. Add this line to the message (git commit --amend now, or your next commit) and the ship needs no empty commit:\n    %s: %s", slug, proof.RefsKey, slug)
+}
+
+// commitMsgIssue is the issue whose work/<slug> branch is checked out at
+// root and its project, nil when the branch isn't one or no configured
+// project has it.
+func commitMsgIssue(ctx *Context, root string) (*tracker.Issue, *tracker.Project) {
+	branch, err := catalogGit(root, "rev-parse", "--abbrev-ref", "HEAD")
+	slug, ok := strings.CutPrefix(branch, "work/")
+	if err != nil || !ok || slug == "" {
+		return nil, nil
+	}
+	projects := ctx.AllProjects
+	if ctx.Project != nil {
+		projects = append([]tracker.Project{*ctx.Project}, projects...)
+	}
+	seen := map[string]bool{}
+	for i := range projects {
+		p := &projects[i]
+		if p.IssueDir == "" || seen[p.IssueDir] {
+			continue
+		}
+		seen[p.IssueDir] = true
+		issues, err := tracker.LoadIssues(p.IssueDir)
+		if err != nil {
+			continue
+		}
+		if issue := tracker.FindIssue(issues, slug); issue != nil {
+			return issue, p
+		}
+	}
+	return nil, nil
+}
+
+// CommitMsgNotes is what an accepted message's Proves: lines still leave
+// to do: a criterion linked to a test stays unproven until prove --run
+// posts the tests: report; on an issue with no acceptance criteria
+// (noCriteria) the line isn't needed at all.
+func CommitMsgNotes(msg, slug string, noCriteria bool) []string {
+	lines := proof.MessageLines(stripCommitComments(msg), "Proves")
+	if len(lines) == 0 {
+		return nil
+	}
+	if noCriteria {
+		return []string{strings.TrimPrefix(noProvesNeeded(slug), "note: ")}
+	}
+	var out []string
+	for _, v := range lines {
+		ids, tests := proof.ProvesParts(v, "AC")
+		if len(tests) == 0 {
+			continue // Proves: AC1 alone: the commit is the proof
+		}
+		for _, id := range ids {
+			out = append(out, fmt.Sprintf("%s stays unproven until `issue-cli prove %s --run` runs %s and posts a tests: comment", id, slug, strings.Join(tests, ", ")))
+		}
+	}
+	return out
+}
+
+// noProvesNeeded says a Proves: line has nothing to link on an issue with
+// no ## Acceptance criteria.
+func noProvesNeeded(slug string) string {
+	return fmt.Sprintf("note: %s has no ## Acceptance criteria: no Proves: line is needed here (drop it; box ids such as B1, I1 or TP1 are ticked with issue-cli check %s <id>)", slug, slug)
+}
+
 // CommitMsgProblems lists every Catalog: and Proves: line of msg (a commit
 // message as git hands it to the hook) that marks or links nothing, each
 // as `<the line>: <what is wrong and the fix>`.
 func CommitMsgProblems(msg string, known map[string]bool) []string {
+	return commitMsgProblems(msg, known, false, "")
+}
+
+// commitMsgProblems is CommitMsgProblems for the issue slug. On an issue
+// with no acceptance criteria (noCriteria) a refused Proves: line's only
+// problem is that it exists: its one fix is noProvesNeeded, and the
+// per-word hints (a step id's proves: [AC1] on step ...) would name
+// criteria and steps the issue doesn't have.
+func commitMsgProblems(msg string, known map[string]bool, noCriteria bool, slug string) []string {
 	msg = stripCommitComments(msg)
 	var out []string
 	var trailers []workflowupgrade.Trailer
@@ -110,7 +222,12 @@ func CommitMsgProblems(msg string, known map[string]bool) []string {
 		out = append(out, fmt.Sprintf("Catalog: %s\n    → %s", b.Value, b.Problem))
 	}
 	for _, v := range proof.MessageLines(msg, "Proves") {
-		for _, p := range proof.CheckProves(v, "AC") {
+		problems := proof.CheckProves(v, "AC")
+		if noCriteria && len(problems) > 0 {
+			out = append(out, fmt.Sprintf("Proves: %s\n    → %s", v, strings.TrimPrefix(noProvesNeeded(slug), "note: ")))
+			continue
+		}
+		for _, p := range problems {
 			out = append(out, fmt.Sprintf("Proves: %s\n    → %s", v, p))
 		}
 	}

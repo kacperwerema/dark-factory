@@ -3,7 +3,7 @@ version: v0.58.0
 category: gates
 propose: true
 templates: [content, marketing]
-sources: ["cmd/issue-cli/yolo_gate.go#yoloOwnerReason", "internal/tracker/workflow_config.go#OwnerOnlyGate", "internal/yolo/queue.go#OwnerGates", "internal/lint/owner_only.go", "cmd/issue-cli/templates/workflow/content.yaml", "cmd/issue-cli/templates/workflow/marketing.yaml"]
+sources: ["internal/yolo/eligible.go#OwnerReason", "internal/tracker/workflow_config.go#OwnerOnlyGate", "internal/yolo/queue.go#OwnerGates", "internal/lint/owner_only.go", "cmd/issue-cli/templates/workflow/content.yaml", "cmd/issue-cli/templates/workflow/marketing.yaml"]
 title: "Gates YOLO never passes"
 what: |
   `owner_only: true` on a `require_human_approval` action makes that gate the

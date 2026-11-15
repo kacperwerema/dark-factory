@@ -13,11 +13,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -41,7 +41,7 @@ func (s *Server) handleUpdateIssue(w http.ResponseWriter, r *http.Request, proj 
 		return
 	}
 
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -130,7 +130,7 @@ func (s *Server) handleUpdateIssue(w http.ResponseWriter, r *http.Request, proj 
 		}
 	}
 
-	if payload.Status != nil && *payload.Status == "done" && proj.SupportsGitHub && found.Repo != "" && found.Number > 0 {
+	if payload.Status != nil && proj.SupportsGitHub && found.Repo != "" && found.Number > 0 && proj.LoadWorkflowForIssue(found).IsLastStatus(*payload.Status) {
 		s.bg.Go(fmt.Sprintf("github close %s#%d", found.Repo, found.Number), func() {
 			closeGithubIssue(s.bg.hard, found, s.githubTokenCommand)
 		})
@@ -355,6 +355,9 @@ func (s *Server) handleApproveIssue(w http.ResponseWriter, r *http.Request, proj
 		WordsError:     wordsErr,
 	}
 	if humanApproval != "" {
+		// A partner stage awaiting the owner rode on this gate: the same
+		// click answers it (partner_view.go).
+		partnerLine := partnerAlongGate(proj, issue, words, "the Station", time.Now())
 		sessionMap, _ := sessionsByIssueSlug(proj, []*tracker.Issue{issue})
 		activeSessions := sessionMap[issue.Slug]
 		if len(activeSessions) == 0 {
@@ -362,6 +365,9 @@ func (s *Server) handleApproveIssue(w http.ResponseWriter, r *http.Request, proj
 		} else {
 			target := activeSessions[0].Name
 			messageLines := []string{approvalNudge(issue.Slug, body.Status, queued, words)}
+			if line := partnerLine; line != "" {
+				messageLines = []string{messageLines[0] + " " + line}
+			}
 			if err := tmuxSendKeys(target, messageLines); err != nil {
 				resp.NotificationError = err.Error()
 			} else {
@@ -492,7 +498,7 @@ func openEditorTerminal(proj *tracker.Project, session string) (string, error) {
 			return "", fmt.Errorf("switch i3 workspace: %w", err)
 		}
 	}
-	if err := exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -e tmux attach -t %s", agentrun.ShellWord(session))).Run(); err != nil {
+	if err := exec.Command("i3-msg", "exec", fmt.Sprintf("alacritty -e tmux attach -t %s", shell.Quote(session))).Run(); err != nil {
 		return "", fmt.Errorf("open alacritty: %w", err)
 	}
 	return "", nil
@@ -595,7 +601,7 @@ func startIssueBodyEditor(bg *background, proj *tracker.Project, issue *tracker.
 
 	time.Sleep(500 * time.Millisecond)
 
-	editCmd := fmt.Sprintf("nvim %s; code=$?; printf '%%s' \"$code\" > %s; tmux wait-for -S %s; exit $code", agentrun.ShellWord(editPath), agentrun.ShellWord(statusPath), agentrun.ShellWord(waitSignal))
+	editCmd := fmt.Sprintf("nvim %s; code=$?; printf '%%s' \"$code\" > %s; tmux wait-for -S %s; exit $code", shell.Quote(editPath), shell.Quote(statusPath), shell.Quote(waitSignal))
 	if err := exec.Command("tmux", "send-keys", "-t", target, editCmd, "Enter").Run(); err != nil {
 		return BodyEditResponse{}, fmt.Errorf("start nvim: %w", err)
 	}
@@ -773,28 +779,15 @@ func (s *Server) handleCreateIssue(w http.ResponseWriter, r *http.Request, proj 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "slug": slug})
 }
 
-// uploadExt maps the image types an upload may be to the extension it is
-// saved and served with.
-var uploadExt = map[string]string{
-	"image/png":  ".png",
-	"image/jpeg": ".jpg",
-	"image/gif":  ".gif",
-	"image/webp": ".webp",
-}
-
-// attachmentName is the only file name /attachments/ serves: what upload
-// writes, a hash and an image extension.
-var attachmentName = regexp.MustCompile(`^[0-9a-f]{32}\.(png|jpg|gif|webp)$`)
-
 // handleAttachment serves one upload: a hash-named image, a regular file
 // (no symlinks, no listing, no dot-files), nosniff and a CSP that runs
 // nothing even when opened directly.
 func handleAttachment(w http.ResponseWriter, r *http.Request, proj *tracker.Project, name string) {
-	if !attachmentName.MatchString(name) {
+	if !tracker.AttachmentNamePattern.MatchString(name) {
 		http.NotFound(w, r)
 		return
 	}
-	path := filepath.Join(proj.IssueDir, "attachments", name)
+	path := filepath.Join(tracker.AttachmentsDir(proj.IssueDir), name)
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		http.NotFound(w, r)
@@ -806,9 +799,9 @@ func handleAttachment(w http.ResponseWriter, r *http.Request, proj *tracker.Proj
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, tracker.MaxAttachmentBytes)
 
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	if err := r.ParseMultipartForm(tracker.MaxAttachmentBytes); err != nil {
 		http.Error(w, "file too large (max 10MB)", http.StatusBadRequest)
 		return
 	}
@@ -826,27 +819,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, proj *trac
 		return
 	}
 
-	// The extension comes from the sniffed type, never the client's file
-	// name: GIF89a<script>… named x.html sniffs as an image but would be
-	// served as HTML on the viewer's origin (docs/API/security.md).
-	ext, ok := uploadExt[http.DetectContentType(data)]
-	if !ok {
+	// tracker.SaveAttachment names the file from its sniffed type, never
+	// the client's file name (docs/API/security.md); issue-cli attach saves
+	// through the same function.
+	if _, ok := tracker.AttachmentExt(data); !ok {
 		http.Error(w, "only PNG, JPEG, GIF or WebP images allowed", http.StatusBadRequest)
 		return
 	}
-
-	hash := sha256.Sum256(data)
-	filename := fmt.Sprintf("%x%s", hash[:16], ext)
-
-	attachDir := filepath.Join(proj.IssueDir, "attachments")
-	os.MkdirAll(attachDir, 0755)
-
-	dest := filepath.Join(attachDir, filename)
-	if _, err := os.Stat(dest); os.IsNotExist(err) {
-		if err := os.WriteFile(dest, data, 0644); err != nil {
-			http.Error(w, "write error", http.StatusInternalServerError)
-			return
-		}
+	filename, err := tracker.SaveAttachment(proj.IssueDir, data)
+	if err != nil {
+		http.Error(w, "write error", http.StatusInternalServerError)
+		return
 	}
 
 	urlPath := prefix + "/attachments/" + filename

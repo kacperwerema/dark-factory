@@ -1,11 +1,12 @@
 id: system-overlays
-version: v0.36.0
+version: v0.61.0
 category: lifecycle
 propose: true
 sources: ["internal/tracker/workflow_merge.go"]
 title: "Per-system prompt and checklist overlays"
 what: |
-  `systems:` overrides status prompts and appends transition actions for issues whose
+  `systems:` overrides status prompts (`prompt:`) or adds to them (`prompt_append:`,
+  which keeps the type's prompt) and appends transition actions for issues whose
   `system:` frontmatter matches, e.g. telling API issues to update docs/API/ in the
   documentation step.
 why: |

@@ -72,7 +72,7 @@ func TestOpenStation(t *testing.T) {
 func TestApplyPromptTouchesOnlyThePrompt(t *testing.T) {
 	path := fixture(t)
 	st, _ := Open(path, "in progress")
-	pv, err := Apply(path, "in progress", st.Hash, Change{Prompt: str("Build it.\r\nWrite the tests first.")})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Prompt: str("Build it.\r\nWrite the tests first.")}, lintCheck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,18 +95,18 @@ func TestApplyPromptTouchesOnlyThePrompt(t *testing.T) {
 
 func TestApplyPromptAddedAndRemoved(t *testing.T) {
 	path := fixture(t)
-	pv, err := Apply(path, "testing", "", Change{Prompt: str("Verify it.")})
+	pv, err := Apply(path, "testing", "", Change{Prompt: str("Verify it.")}, lintCheck)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(changedLines(pv.Diff), "\n"); got != `+    prompt: "Verify it."` {
 		t.Errorf("added prompt diff:\n%s", pv.Diff)
 	}
-	pv, _ = Apply(path, "idea", "", Change{Prompt: str("  ")})
+	pv, _ = Apply(path, "idea", "", Change{Prompt: str("  ")}, lintCheck)
 	if got := strings.Join(changedLines(pv.Diff), "\n"); got != "-    prompt: |\n-      Clarify the idea." || pv.Summary != "prompt removed" {
 		t.Errorf("removed prompt %q diff:\n%s", pv.Summary, pv.Diff)
 	}
-	pv, _ = Apply(path, "idea", "", Change{Description: str("Raw idea, to clarify")})
+	pv, _ = Apply(path, "idea", "", Change{Description: str("Raw idea, to clarify")}, lintCheck)
 	if got := strings.Join(changedLines(pv.Diff), "\n"); got != "-    description: \"Raw idea\"\n+    description: \"Raw idea, to clarify\"" {
 		t.Errorf("description diff:\n%s", pv.Diff)
 	}
@@ -116,7 +116,7 @@ func TestApplyGateToggle(t *testing.T) {
 	path := fixture(t)
 	st, _ := Open(path, "in progress")
 	in := st.In[0]
-	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}}, lintCheck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestApplyGateToggle(t *testing.T) {
 	}
 
 	out := st.Out[0]
-	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: SetGate(out.Actions, out.To, true)}})
+	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: SetGate(out.Actions, out.To, true)}}, lintCheck)
 	want := "+      - type: \"require_human_approval\"\n+        status: \"testing\""
 	if got := strings.Join(changedLines(pv.Diff), "\n"); got != want || pv.Summary != "gate into testing added" {
 		t.Errorf("gate on %q diff:\n%s", pv.Summary, pv.Diff)
@@ -152,7 +152,7 @@ func TestApplyReorderAddRemove(t *testing.T) {
 		{Type: "validate", Rule: "has_test_plan"},
 		out.Actions[0],
 	}
-	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: acts}})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: acts}}, lintCheck)
 	if err != nil || !pv.OK() {
 		t.Fatalf("err %v errors %v", err, pv.Errors)
 	}
@@ -169,7 +169,7 @@ func TestApplyReorderAddRemove(t *testing.T) {
 	}
 
 	// Removing every action writes actions: [].
-	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: nil}})
+	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{out.Index: nil}}, lintCheck)
 	if !pv.OK() || !strings.Contains(string(pv.New), "    to: \"testing\"\n    actions: []\n") {
 		t.Errorf("errors %v new:\n%s", pv.Errors, pv.New)
 	}
@@ -201,7 +201,7 @@ func TestApplyRefusesBadActions(t *testing.T) {
 		"set_none": {tracker.WorkflowAction{Type: "set_fields"}, "set_fields needs a field"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{i: {tc.act}}})
+			pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{i: {tc.act}}}, lintCheck)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -210,8 +210,28 @@ func TestApplyRefusesBadActions(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{2: nil}}); err == nil {
+	if _, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{2: nil}}, lintCheck); err == nil {
 		t.Error("an edge not at the station was accepted")
+	}
+}
+
+// Every rule this build runs can be kept on a station edit, children_closed
+// among them (the registry missed it, and Apply refused the epic's gate).
+func TestApplyAcceptsEveryRegisteredRule(t *testing.T) {
+	path := fixture(t)
+	st, _ := Open(path, "in progress")
+	i := st.Out[0].Index
+	for _, rule := range []string{"children_closed", "file_exists", "approved_for: done", "approved_for:done"} {
+		if why := actionProblem(tracker.WorkflowAction{Type: "validate", Rule: rule}, nil); why != "" {
+			t.Errorf("%s: %s", rule, why)
+		}
+	}
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{i: {{Type: "validate", Rule: "children_closed"}}}}, lintCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pv.OK() {
+		t.Errorf("errors = %v", pv.Errors)
 	}
 }
 
@@ -221,12 +241,12 @@ func TestApplyKeepsAnOldBrokenAction(t *testing.T) {
 	path := writeTemp(t, []byte(strings.Replace(string(raw), `rule: "has_assignee"`+"\n      # Sections", `rule: "has_vibes"`+"\n      # Sections", 1)))
 	st, _ := Open(path, "in progress")
 	in := st.In[0]
-	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}}, lintCheck)
 	if err != nil || !pv.OK() {
 		t.Fatalf("err %v errors %v", err, pv.Errors)
 	}
 	acts := append(SetGate(in.Actions, in.To, false), tracker.WorkflowAction{Type: "validate", Rule: "has_vibes_too"})
-	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: acts}})
+	pv, _ = Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: acts}}, lintCheck)
 	if len(pv.Errors) != 1 || !strings.Contains(pv.Errors[0], "has_vibes_too") {
 		t.Errorf("errors = %v, want only the new action's", pv.Errors)
 	}
@@ -237,7 +257,7 @@ func TestApplyStale(t *testing.T) {
 	st, _ := Open(path, "idea")
 	raw, _ := os.ReadFile(path)
 	os.WriteFile(path, append(raw, '\n'), 0o644)
-	if _, err := Apply(path, "idea", st.Hash, Change{Prompt: str("x")}); !errors.Is(err, ErrStale) {
+	if _, err := Apply(path, "idea", st.Hash, Change{Prompt: str("x")}, lintCheck); !errors.Is(err, ErrStale) {
 		t.Errorf("err = %v, want ErrStale", err)
 	}
 }
@@ -245,7 +265,7 @@ func TestApplyStale(t *testing.T) {
 func TestApplyNoChange(t *testing.T) {
 	path := fixture(t)
 	st, _ := Open(path, "in progress")
-	pv, err := Apply(path, "in progress", st.Hash, Change{Prompt: str(st.Prompt), Description: str(st.Description), Edges: map[int][]tracker.WorkflowAction{st.In[0].Index: st.In[0].Actions}})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Prompt: str(st.Prompt), Description: str(st.Description), Edges: map[int][]tracker.WorkflowAction{st.In[0].Index: st.In[0].Actions}}, lintCheck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +327,7 @@ func TestGateToggleOnRealFiles(t *testing.T) {
 			}
 			for _, e := range st.In {
 				on := !e.Gate()
-				pv, err := Apply(path, name, st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{e.Index: SetGate(e.Actions, e.To, on)}})
+				pv, err := Apply(path, name, st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{e.Index: SetGate(e.Actions, e.To, on)}}, lintCheck)
 				if err != nil {
 					t.Fatalf("%s %s: %v", path, e.Label(), err)
 				}

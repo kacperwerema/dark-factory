@@ -1,0 +1,3 @@
+memory used: 44%  start<75  pause>=82  resume<=70  hard=85
+paused pids: 
+watchdog: running

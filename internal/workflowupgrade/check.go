@@ -271,7 +271,7 @@ func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []B
 			bad = append(bad, BadTrailer{t, "only n/a is read in a Catalog: line: a bumped entry needs no line (issue-cli workflow catalog-bump <id>), an unchanged one is " + TrailerForm})
 			continue
 		case m[1] == "":
-			bad = append(bad, BadTrailer{t, "names no entry: the entry id comes right after n/a"})
+			bad = append(bad, BadTrailer{t, "names no entry: when the change touches no catalog entry leave the Catalog: line out; otherwise the entry id comes right after n/a (" + TrailerForm + ")"})
 			continue
 		}
 		var ids, unknown, colon []string

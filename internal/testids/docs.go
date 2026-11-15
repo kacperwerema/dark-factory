@@ -8,7 +8,6 @@ func init() {
 		"docs.binder",
 		"docs.item.*",
 		"docs.reader",
-		"docs.title",
 		"docs.guard_rule",
 		"docs.sections",
 		"docs.body",

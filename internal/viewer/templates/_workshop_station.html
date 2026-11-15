@@ -20,6 +20,8 @@ behaviour in static/station.js. templates/station.html composes them.
   wb/sessions      tmux sessions on the issue              data: WbSessionList
   wb/station-outputs what the issue made, from the shelf   data: *WbStationOutputs
   wb/station-critique the fresh critic's newest run        data: *WbStationCritique
+  wb/station-affected the branch's footprint on the code map data: *WbStationAffected
+  wb/station-partner where the department's partner is      data: *WbPartner
   wb/body-index    the body by section, with counts        data: WbBodyIndex
   wb/fields        the fields: edited in place, then rows  data: WbFields
   wb/move-preview  a status change's preview and approval  data: *WbFieldEdit
@@ -29,7 +31,8 @@ behaviour in static/station.js. templates/station.html composes them.
   wb/relations     depends on, depended on by, decided by  data: *WbRelations
   wb/epic-children an epic's children by version           data: *WbEpicChildren
   wb/full-body     the body by section: boxes, the editor  data: WbBody
-  wb/dispatch      Claude / Codex, custom actions, steps   data: WbDispatch
+  wb/dispatch      the agent panel's primary + ⋯ More, steps data: WbStationAgent
+  wb/dispatch-first the first Dispatch button (routed or Claude) data: WbDispatch
   wb/station-missing sources the page could not read       data: []string
 */}}
 
@@ -39,7 +42,15 @@ behaviour in static/station.js. templates/station.html composes them.
     <div class="wb-ititle-main">
         <div class="wb-st-titlerow">
             <h1 class="wb-ititle-h" data-st-title>{{.Title}}</h1>
-            {{if .EditURL}}<button type="button" class="wb-btn wb-btn--quiet wb-btn--sm" data-st-rename data-testid="station.rename">Rename</button>{{end}}
+            <details class="wb-menu" data-testid="station.menu"><summary class="wb-btn wb-btn--sm wb-menu-btn" aria-label="More on this issue">⋯ More</summary>
+                <div class="wb-menu-list" role="menu">
+                    {{if .EditURL}}<button type="button" class="wb-btn" data-st-rename data-testid="station.rename">Rename</button>{{end}}
+                    <a href="{{.ClassicURL}}" data-testid="station.classic">Classic view</a>
+                    {{with .NvimURL}}<button type="button" class="wb-btn" data-nvim="{{.}}" data-testid="station.body.nvim">Edit in nvim</button>{{end}}
+                    {{if .DeleteURL}}<hr class="wb-menu-sep"><button type="button" class="wb-btn wb-menu-danger" data-st-delete="{{.DeleteURL}}" data-store="{{.StoreURL}}" data-testid="station.delete">Delete…</button>{{end}}
+                </div>
+            </details>
+            <span class="wb-site-msg" role="status"></span>
         </div>
         {{if .EditURL}}<form class="wb-st-rename" data-st-rename-form="{{.EditURL}}" data-hold-open data-slug="{{.Slug}}" data-prefix="{{.Prefix}}" hidden>
             <label class="wb-words-label" for="st-title">Title</label>
@@ -50,8 +61,6 @@ behaviour in static/station.js. templates/station.html composes them.
         <div class="wb-ititle-meta">
             {{range .Chips}}{{template "wb/chip" .}}{{end}}
             <span class="wb-ititle-slug">{{.Slug}}</span>
-            <a class="wb-ititle-classic" href="{{.ClassicURL}}" data-testid="station.classic">Classic view</a>
-            {{if .DeleteURL}}<button type="button" class="wb-btn wb-btn--sm wb-st-danger" data-st-delete="{{.DeleteURL}}" data-store="{{.StoreURL}}" data-testid="station.delete">Delete…</button>{{end}}
         </div>
         {{if .DeleteURL}}<div class="wb-st-confirm" data-st-delete-confirm data-hold-open hidden data-testid="station.delete.confirm">
             <span>Delete <b>{{.Title}}</b>? The file goes; git keeps its history.</span>
@@ -249,7 +258,7 @@ behaviour in static/station.js. templates/station.html composes them.
             {{with .Tests}}<div class="wb-tests-said"><div class="wb-eyebrow">THE AGENT'S TESTS LINE{{with $.TestsAt}} · {{.}}{{end}}</div><div class="wb-tests-text">{{.}}</div></div>{{end}}
         </div>{{end}}
         {{if .Criteria}}<div class="wb-crits">
-            {{range .Criteria}}<div class="wb-crit"><span class="wb-box{{if .Proven}} wb-box--on{{end}}">{{.ID}}</span><span class="wb-crit-text">{{.Text}}</span><span class="wb-crit-proof{{if .Proven}} wb-tone-green{{end}}">{{.Proof}}</span></div>{{end}}
+            {{range .Criteria}}<div class="wb-crit"><span class="wb-box{{if .Proven}} wb-box--on{{end}}">{{.ID}}</span><span class="wb-crit-text">{{.Text}}</span><span class="wb-crit-proof{{if .Proven}} wb-tone-green{{end}}"{{if .Lead}} data-testid="station.criterion.lead" title="{{.Proof}}"{{end}}>{{if .Lead}}<span class="wb-crit-lead">lead</span> {{end}}{{.Proof}}</span></div>{{end}}
         </div>{{end}}
         {{if .RedRounds}}<div class="wb-eyebrow">RED CHECKS</div>
         <div class="wb-crits" data-testid="station.tests.red_rounds">{{range .RedRounds}}<div class="wb-crit"><span class="wb-crit-proof{{if .Question}} wb-tone-red{{end}}">{{.Label}}{{if .Question}} · your question{{end}}</span><span class="wb-crit-text"><code class="wb-mono-inline">{{.Check}}</code>{{with .Why}} — {{.}}{{end}}</span></div>{{end}}</div>{{end}}
@@ -287,28 +296,39 @@ behaviour in static/station.js. templates/station.html composes them.
         <div class="wb-agent-name"><a class="wb-mono-inline" href="{{.AgentsURL}}">{{.Name}}</a><div><span class="wb-chip wb-chip--{{.Tone}}">{{.StateLabel}}</span></div></div>
     </div>
     {{if .Facts}}<dl class="wb-facts">{{range .Facts}}<dt>{{.Label}}</dt><dd class="{{if .Mono}}wb-mono-inline{{end}}{{with .Tone}} wb-tone-{{.}}{{end}}">{{.Value}}</dd>{{end}}</dl>{{end}}
-    <div class="wb-sagent-actions">
-        <button type="button" class="wb-btn wb-btn--paper" data-open-session="{{.Name}}" data-open-url="{{.OpenURL}}" data-testid="station.agent.open"{{if not .Live}} disabled title="The agent's tmux session is not running"{{end}}>Open in tmux</button>
-        <button type="button" class="wb-btn wb-btn--paper" data-reprompt="{{.PromptURL}}" data-testid="station.agent.prompt"{{if not .Live}} title="The session is not running: the steps say what failed"{{end}}>Send the prompt</button>
-    </div>
+    {{template "wb/dispatch" .}}
     <div class="wb-site-msg" role="status"></div>
-    {{template "wb/dispatch" .Dispatch}}
 </div>
 {{end}}
 
-{{define "wb/dispatch"}}
-<div class="wb-st-dispatch" data-st-dispatch="{{.URL}}" data-testid="station.dispatch">
+{{/* wb/dispatch: the agent panel's actions. One primary (Open in tmux while the
+     session runs, else Dispatch), the rest under ⋯ More (docs/UI/workshop-board.md
+     "One primary action"). The data-st-dispatch box holds both, so station.js finds
+     every data-st-agent and data-st-action button inside it. Data: WbStationAgent. */}}
+{{define "wb/dispatch"}}{{$d := .Dispatch}}
+<div class="wb-st-dispatch" data-st-dispatch="{{$d.URL}}" data-testid="station.dispatch">
     <div class="wb-st-btns">
-        {{if .Routed}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="" title="{{.Why}}" data-testid="station.dispatch.routed">Dispatch · {{.Routed}}</button>
-        <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Claude</button>{{else}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>{{end}}
-        <button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-agent="codex" data-testid="station.dispatch.codex">Codex</button>
-        {{range .Actions}}<button type="button" class="wb-btn wb-btn--paper wb-btn--sm" data-st-action="{{$.ActionURL}}{{.ID}}" data-label="{{.Label}}" data-testid="station.dispatch.action.{{tid .ID}}">{{.Label}}</button>{{end}}
+        {{if .Live}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-open-session="{{.Name}}" data-open-url="{{.OpenURL}}" data-testid="station.agent.open">Open in tmux</button>
+        {{else}}{{template "wb/dispatch-first" $d}}{{end}}
+        <details class="wb-menu" data-testid="station.agent.menu"><summary class="wb-btn wb-btn--sm wb-menu-btn" aria-label="More agent actions">⋯ More</summary>
+            <div class="wb-menu-list" role="menu">
+                {{if .Live}}{{template "wb/dispatch-first" $d}}{{end}}
+                {{if $d.Routed}}<button type="button" class="wb-btn" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>{{end}}
+                <button type="button" class="wb-btn" data-st-agent="codex" data-testid="station.dispatch.codex">Dispatch to Codex</button>
+                {{range $d.Actions}}<button type="button" class="wb-btn" data-st-action="{{$d.ActionURL}}{{.ID}}" data-label="{{.Label}}" data-testid="station.dispatch.action.{{tid .ID}}">{{.Label}}</button>{{end}}
+                {{if not .Live}}<button type="button" class="wb-btn" data-open-session="{{.Name}}" data-open-url="{{.OpenURL}}" data-testid="station.agent.open" disabled title="The agent's tmux session is not running">Open in tmux</button>{{end}}
+                <button type="button" class="wb-btn" data-reprompt="{{.PromptURL}}" data-testid="station.agent.prompt"{{if not .Live}} title="The session is not running: the steps say what failed"{{end}}>Send the prompt</button>
+                <hr class="wb-menu-sep">
+                <a href="{{$d.PromptURL}}" target="_blank" rel="noopener" data-testid="station.dispatch.prompt">The dispatch prompt</a>
+            </div>
+        </details>
     </div>
-    {{if .Routed}}<div class="wb-note" data-testid="station.dispatch.why">Routing: {{.Why}}</div>{{end}}
-    <a class="wb-fields-link" href="{{.PromptURL}}" target="_blank" rel="noopener" data-testid="station.dispatch.prompt">The dispatch prompt</a>
+    {{if $d.Routed}}<div class="wb-note" data-testid="station.dispatch.why">Routing: {{$d.Why}}</div>{{end}}
     <div class="wb-st-steps" role="status" aria-live="polite" data-st-steps data-testid="station.dispatch.steps" hidden></div>
 </div>
 {{end}}
+
+{{define "wb/dispatch-first"}}{{if .Routed}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="" title="{{.Why}}" data-testid="station.dispatch.routed">Dispatch · {{.Routed}}</button>{{else}}<button type="button" class="wb-btn wb-btn--ink wb-btn--sm" data-st-agent="claude" data-testid="station.dispatch.claude">Dispatch to Claude</button>{{end}}{{end}}
 
 {{define "wb/sessions"}}
 <div class="wb-sessions" data-testid="station.sessions">
@@ -322,8 +342,6 @@ behaviour in static/station.js. templates/station.html composes them.
     <div class="wb-eyebrow">ISSUE BODY{{if .Comments}} · {{.Comments}} {{if eq .Comments 1}}comment{{else}}comments{{end}}{{end}}</div>
     {{range .Sections}}<a class="wb-bodyrow" href="{{.URL}}"><span>{{.Title}}</span>{{if .Count}}<span class="wb-chip wb-chip--{{.Tone}}">{{.Count}}</span>{{end}}</a>{{end}}
     {{range .NotStarted}}<div class="wb-bodyrow wb-bodyrow--plan"><span>{{.}}</span><span class="wb-bodyrow-note">not started</span></div>{{end}}
-    <button type="button" class="wb-btn wb-btn--link" data-nvim="{{.EditURL}}" data-testid="station.body.nvim">Edit in nvim</button>
-    <div class="wb-site-msg" role="status"></div>
 </div>
 {{end}}
 
@@ -460,10 +478,11 @@ behaviour in static/station.js. templates/station.html composes them.
 
 {{define "wb/station-critique"}}{{with .}}
 <section class="wb-panel" aria-labelledby="critique-h" data-testid="station.critique" data-verdict="{{if .Empty}}none{{else}}{{.Verdict}}{{end}}">
-    <div class="wb-panel-head"><h2 class="wb-panel-h" id="critique-h">Critique{{if not .Empty}} · {{.Verdict}}{{end}}</h2><span class="wb-panel-sub">{{if .Empty}}a fresh critic reads the work before {{range $i, $g := .Gates}}{{if $i}}, {{end}}{{$g}}{{end}}{{else}}{{.Edge}} · {{if .Agent}}{{.Agent}} · {{end}}{{.When}}{{end}}</span></div>
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="critique-h">Critique{{if not .Empty}} · {{.Verdict}}{{end}}</h2><span class="wb-panel-sub">{{if .Empty}}a fresh critic reads the work before {{range $i, $g := .Gates}}{{if $i}}, {{end}}{{$g}}{{end}}{{else}}{{.Edge}} · {{if .Worker}}written by {{.Worker}} · {{end}}{{if .Agent}}{{if .Worker}}read by {{end}}{{.Agent}} · {{end}}{{.When}}{{end}}</span></div>
     <div class="wb-panel-body">
     {{if .Empty}}<p class="wb-panel-sub">No critic has read this issue yet. The worker runs <code>issue-cli critique {{.Slug}}</code> before the gate.</p>{{else}}
-    <p class="wb-panel-sub">{{if .Holds}}<span class="wb-you-text">Holds the gate</span>{{else if .Override}}Overridden by the owner: “{{.Override}}”{{else}}No blocks finding{{end}} · {{.Blocks}} blocks · {{.Should}} should · {{len .Notes}} {{if eq (len .Notes) 1}}note{{else}}notes{{end}}{{if .Error}} · failed: {{.Error}}{{end}}</p>
+    <p class="wb-panel-sub">{{if .ByHand}}By hand: no gate waits on this run{{else if .Holds}}<span class="wb-you-text">Holds the gate</span>{{else if .Override}}Overridden by the owner: “{{.Override}}”{{else}}No blocks finding{{end}} · {{.Blocks}} blocks · {{.Should}} should · {{len .Notes}} {{if eq (len .Notes) 1}}note{{else}}notes{{end}}{{if .Error}} · failed: {{.Error}}{{end}}</p>
+    {{if .SameWhy}}<p class="wb-panel-sub" data-testid="station.critique.same">Same agent as the writer: {{.SameWhy}}</p>{{end}}
     {{if or .Findings .Problems}}<ul class="wb-st-list">
         {{range .Findings}}<li data-testid="station.critique.finding" data-severity="{{.Severity}}"><b>{{.Severity}}</b>{{if .Malformed}} (malformed) {{.Text}}{{else}} <code>{{.Where}}</code> {{.Text}}{{end}}</li>{{end}}
         {{range .Problems}}<li data-testid="station.critique.finding" data-severity="blocks"><b>blocks</b> {{.}}</li>{{end}}
@@ -475,9 +494,54 @@ behaviour in static/station.js. templates/station.html composes them.
 </section>
 {{end}}{{end}}
 
+{{define "wb/station-affected"}}{{with .}}
+<section class="wb-panel" id="affected" aria-labelledby="affected-h" data-testid="station.affected">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="affected-h">Affected</h2><span class="wb-panel-sub">{{if .Files}}{{.Files}} files · {{.Changed}} packages changed · {{.Reached}} more reached{{end}}{{if .Main}} · map of main at {{.Main}}{{end}}</span></div>
+    <div class="wb-panel-body">
+    {{if .Warn}}<p class="wb-panel-sub" data-testid="station.affected.warn">{{.Warn}}</p>{{end}}
+    {{if .Files}}
+    <p class="wb-aff-pills" data-testid="station.affected.contexts">{{range .WorksIn}}<span class="wb-chip wb-chip--you" data-kind="works-in">{{.}}</span> {{end}}{{range .Reaches}}<span class="wb-chip" data-kind="reaches">{{.}}</span> {{end}}{{if .Watch}}<span class="wb-chip wb-chip--red" data-testid="station.affected.watch" title="{{range $i, $w := .Watch}}{{if $i}}, {{end}}{{$w}}{{end}} import up a layer">Watch: imports up a layer</span>{{end}}</p>
+    <p class="wb-panel-sub">Works in {{range $i, $c := .WorksIn}}{{if $i}}, {{end}}{{$c}}{{end}}{{if .Reaches}}; reaches {{range $i, $c := .Reaches}}{{if $i}}, {{end}}{{$c}}{{end}}{{end}}. Rebuild: {{if .Binaries}}{{range $i, $b := .Binaries}}{{if $i}}, {{end}}<code>{{$b}}</code>{{end}}{{else}}nothing{{end}}.</p>
+    {{if or .Groups .Surface}}<details class="wb-panel-sub"><summary>Packages by context{{if .Surface}} and surface files{{end}}</summary><ul class="wb-st-list">
+        {{range .Groups}}<li><b>{{.Name}}</b> {{range $i, $p := .Packages}}{{if $i}}, {{end}}<code>{{$p}}</code>{{end}}</li>{{end}}
+        {{range .Surface}}<li><code>{{.File}}</code> → {{.Contexts}}</li>{{end}}
+    </ul></details>{{end}}
+    {{else if not .Warn}}<p class="wb-panel-sub">The branch changes no file yet.</p>{{end}}
+    <p class="wb-panel-sub"><a href="{{.MapURL}}" data-testid="station.affected.map">Open the code map</a></p>
+    </div>
+</section>
+{{end}}{{end}}
+
+{{define "wb/station-partner"}}{{with .}}
+<section class="wb-panel" id="partner" aria-labelledby="partner-h" data-testid="station.partner" data-state="{{if .Unknown}}unknown{{else if .Problem}}problem{{else}}{{.State}}{{end}}">
+    <div class="wb-panel-head"><h2 class="wb-panel-h" id="partner-h">Partner · {{.Name}}</h2><span class="wb-panel-sub">{{if .Project}}project {{.Project}}{{end}}</span></div>
+    <div class="wb-panel-body">
+    <p class="wb-panel-sub" data-testid="station.partner.line">{{if .Awaiting}}<span class="wb-chip wb-chip--you"><span class="wb-chip-dot"></span>{{.Line}}</span>{{else if .Problem}}<span class="wb-chip wb-chip--red">{{.Line}}</span>{{else}}{{.Line}}{{end}}</p>
+    {{if or .Summary .Spend .Error .Artifacts .LiveURL}}<ul class="wb-st-list">
+        {{with .Summary}}<li>{{.}}</li>{{end}}
+        {{with .Spend}}<li data-testid="station.partner.spend">{{.}}</li>{{end}}
+        {{with .Error}}<li>Error: {{.}}</li>{{end}}
+        {{if .Artifacts}}<li>Artifacts: {{range $i, $a := .Artifacts}}{{if $i}}, {{end}}<code>{{$a}}</code>{{end}}</li>{{end}}
+        {{with .LiveURL}}<li><a href="{{.}}" target="_blank" rel="noopener" data-testid="station.partner.live">Open the partner's live view</a></li>{{end}}
+    </ul>{{end}}
+    {{with .AnsweredLine}}<p class="wb-panel-sub" data-testid="station.partner.answered">{{.}}</p>{{end}}
+    {{range .Unpaired}}<p class="wb-panel-sub"><span class="wb-chip wb-chip--red" data-testid="station.partner.unpaired">{{.}}</span></p>{{end}}
+    {{with .AnswerURL}}<form class="wb-ny-expiry" data-partner-answer="{{.}}" data-stage="{{$.Stage}}" data-testid="station.partner.form">
+        <textarea rows="2" aria-label="Your words on {{$.Stage}} (needed to send it back)" placeholder="Your words (needed to send it back)" data-partner-words data-testid="station.partner.words"></textarea>
+        <div class="wb-ny-expiry-acts">
+            <button type="submit" value="approve" class="wb-btn wb-btn--you" data-testid="station.partner.approve">Approve {{$.Stage}}</button>
+            <button type="submit" value="send-back" class="wb-btn wb-btn--quiet" data-testid="station.partner.send_back">Send back</button>
+        </div>
+        <p class="wb-site-msg" role="status"></p>
+    </form>{{end}}
+    {{if eq .State "none"}}<p class="wb-panel-sub">The partner has no folder for this issue yet. Its id is the slug's last part, or <code>partner_project:</code> (<code>issue-cli set-meta &lt;slug&gt; partner_project &lt;id&gt;</code>).</p>{{end}}
+    </div>
+</section>
+{{end}}{{end}}
+
 {{define "wb/station-outputs"}}{{with .}}
 <section class="wb-panel" aria-labelledby="outputs-h" data-testid="station.outputs">
     <div class="wb-panel-head"><h2 class="wb-panel-h" id="outputs-h">Outputs · {{len .Rows}}</h2><span class="wb-panel-sub">{{if .ToReview}}<span class="wb-you-text">{{.ToReview}} to review</span> · {{end}}<a href="{{.URL}}">the shelf</a></span></div>
-    {{range .Rows}}{{template "wb/shelf-item" .}}{{end}}
+    {{range .Rows}}{{template "wb/shelf-item" .}}{{if .Video}}<div class="wb-st-video" data-testid="station.video">{{template "wb/shelf-video" .}}</div>{{end}}{{end}}
 </section>
 {{end}}{{end}}

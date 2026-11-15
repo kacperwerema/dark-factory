@@ -68,13 +68,15 @@ func TestClarifyShowsAssumesAndRecordsTheOwnersAnswer(t *testing.T) {
 
 	// --assume marks the rest assumed and leaves the owner's answer.
 	ctx, stdout, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time { return time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local) }
 	if err := runClarify(ctx, []string{"cli/sample", "--assume"}); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, stdout.String(), "✓ Assumed Q1 (the recommendation)")
+	assertContains(t, stdout.String(), "✓ Assumed Q1 (D-2) (the recommendation), each a provisional decision")
 	assertContains(t, stdout.String(), "Q1. Where does the owner answer?  [assumed — took the recommendation]")
 	assertContains(t, stdout.String(), "→ 1. On the Station")
-	assertContains(t, readFile(t, samplePath), "**Answer:** assumed — took the recommendation")
+	assertContains(t, readFile(t, samplePath), "**Answer:** assumed — took the recommendation (D-2)")
+	assertContains(t, readFile(t, samplePath), "- **D-2** · 2026-10-31 · clarify round, provisional: Q1 Where does the owner answer → On the Station")
 
 	ctx, stdout, _ = newTestContext(proj, true)
 	if err := runClarify(ctx, []string{"cli/sample"}); err != nil {

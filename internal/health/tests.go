@@ -4,11 +4,12 @@ import (
 	"context"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -20,6 +21,94 @@ import (
 func init() {
 	Register("tests", testsFamily)
 	Describe("tests", "slowest tests and uncovered systems: issue-cli health --family tests")
+}
+
+// TestRun is the newest local CI run that wrote results of one kind: when it
+// finished, its summary and, when it kept the list, every test.
+type TestRun struct {
+	Finished time.Time
+	Summary  testresults.Summary
+	Tests    []testresults.Test
+}
+
+// TestResults finds the newest TestRun of kind at or before now under the
+// main checkout root. internal/ci sets it from init() (SetTestResults);
+// unset, the tests family has no CI rows and the review pack no test list.
+type TestResults func(root, kind string, now time.Time) (TestRun, bool)
+
+var (
+	testResultsMu sync.Mutex
+	testResults   TestResults
+)
+
+// SetTestResults plugs in where test results come from (internal/ci).
+func SetTestResults(f TestResults) {
+	testResultsMu.Lock()
+	defer testResultsMu.Unlock()
+	testResults = f
+}
+
+func latestTestRun(root, kind string, now time.Time) (TestRun, bool) {
+	testResultsMu.Lock()
+	f := testResults
+	testResultsMu.Unlock()
+	if f == nil {
+		return TestRun{}, false
+	}
+	return f(root, kind, now)
+}
+
+// E2ERuns is what the ux-test runs started in [from, to] under the main
+// checkout root say about flaky steps: how many runs, how many distinct steps
+// passed or failed, and the steps that both failed and passed on one build.
+// ok is false when there was no run. internal/ci sets it from init()
+// (SetE2ERuns, read by internal/playtestruns); unset, the tests family has no
+// flaky rows.
+type E2ERuns func(root string, from, to time.Time) (runs, steps int, flaky []string, ok bool)
+
+var e2eRuns E2ERuns
+
+// SetE2ERuns plugs in where the ux-test runs are read (internal/ci).
+func SetE2ERuns(f E2ERuns) {
+	testResultsMu.Lock()
+	defer testResultsMu.Unlock()
+	e2eRuns = f
+}
+
+// FlakyDays is the flaky component's window, in calendar days.
+const FlakyDays = 14
+
+// flakyTop is how many flaky steps the family names.
+const flakyTop = 10
+
+// flakyMetrics: the share of the steps run in the last FlakyDays days that
+// failed and passed on one build. No run in the window is no rows, so the
+// score says "no data" instead of a 0.
+func flakyMetrics(env Env) []Metric {
+	testResultsMu.Lock()
+	f := e2eRuns
+	testResultsMu.Unlock()
+	if f == nil {
+		return nil
+	}
+	runs, steps, flaky, ok := f(env.Root, period.DaysBack(env.Now, FlakyDays), env.Now)
+	if !ok || runs == 0 || steps == 0 {
+		return nil
+	}
+	w := map[string]string{"window": "14d"}
+	out := []Metric{
+		{Name: "tests.e2e.flaky_share", Labels: w, Value: shareOf(len(flaky), steps), Unit: UnitShare, Help: "ux-test steps that failed and passed on one build / steps run, 14 days"},
+		{Name: "tests.e2e.flaky_steps", Labels: w, Value: float64(len(flaky)), Unit: UnitCount, Help: "ux-test steps that failed and passed on one build, 14 days"},
+		{Name: "tests.e2e.steps_run", Labels: w, Value: float64(steps), Unit: UnitCount, Help: "Distinct ux-test steps that passed or failed, 14 days"},
+		{Name: "tests.e2e.runs", Labels: w, Value: float64(runs), Unit: UnitCount, Help: "ux-test runs (main checkout and local CI), 14 days"},
+	}
+	for i, name := range flaky {
+		if i == flakyTop {
+			break
+		}
+		out = append(out, Metric{Name: "tests.e2e.flaky", Labels: map[string]string{"step": name}, Value: 1, Unit: UnitCount, Help: "A flaky step: <session>/<step>"})
+	}
+	return out
 }
 
 // TestKinds are the kinds a results: entry may name, in output order.
@@ -36,12 +125,13 @@ var slowFrom = map[string]float64{"unit": 1, "e2e": 30}
 func testsFamily(ctx context.Context, env Env) ([]Metric, error) {
 	var out []Metric
 	for _, kind := range TestKinds {
-		run, sum, ok := ci.LatestResults(env.Root, kind, env.Now)
+		run, ok := latestTestRun(env.Root, kind, env.Now)
 		if !ok {
 			continue
 		}
-		out = append(out, resultsMetrics(kind, run, sum, ci.ReadTests(env.Root, sum), env.Now)...)
+		out = append(out, resultsMetrics(kind, run.Finished, run.Summary, run.Tests, env.Now)...)
 	}
+	out = append(out, flakyMetrics(env)...)
 	e2e, err := sessionMetrics(ctx, env)
 	if err != nil {
 		return nil, err
@@ -49,7 +139,7 @@ func testsFamily(ctx context.Context, env Env) ([]Metric, error) {
 	return append(out, e2e...), ctx.Err()
 }
 
-func resultsMetrics(kind string, run *ci.Run, s testresults.Summary, tests []testresults.Test, now time.Time) []Metric {
+func resultsMetrics(kind string, finished time.Time, s testresults.Summary, tests []testresults.Test, now time.Time) []Metric {
 	k := map[string]string{"kind": kind}
 	with := func(key, v string) map[string]string { return map[string]string{"kind": kind, key: v} }
 	out := []Metric{
@@ -63,7 +153,7 @@ func resultsMetrics(kind string, run *ci.Run, s testresults.Summary, tests []tes
 		{Name: "tests.per_test_ms", Labels: with("stat", "mean"), Value: s.MeanMS, Help: "Per-test runtime, ms"},
 		{Name: "tests.per_test_ms", Labels: with("stat", "p50"), Value: s.P50MS},
 		{Name: "tests.per_test_ms", Labels: with("stat", "p90"), Value: s.P90MS},
-		{Name: "tests.run_age_days", Labels: k, Value: math.Round(now.Sub(run.Finished).Hours()/24*10) / 10, Help: "Age of the CI run the numbers come from, in days"},
+		{Name: "tests.run_age_days", Labels: k, Value: math.Round(now.Sub(finished).Hours()/24*10) / 10, Help: "Age of the CI run the numbers come from, in days"},
 	}
 	for _, p := range s.Parts {
 		out = append(out, Metric{Name: "tests.part.seconds", Labels: with("part", p.Name), Value: p.Seconds, Unit: UnitSeconds, Help: "The slowest parts (package, test class, session): their own time"})
@@ -128,7 +218,7 @@ func sessionMetrics(ctx context.Context, env Env) ([]Metric, error) {
 	}
 	var issues []*tracker.Issue
 	if env.Project != nil && env.Project.IssueDir != "" {
-		issues, _ = tracker.LoadIssues(env.Project.IssueDir)
+		issues, _ = env.Project.LoadIssues()
 	}
 	system := map[string]string{}
 	for _, is := range issues {
@@ -155,21 +245,22 @@ func sessionMetrics(ctx context.Context, env Env) ([]Metric, error) {
 			Metric{Name: "tests.e2e.sessions", Labels: l, Value: float64(bySys[sys]), Unit: UnitCount},
 			Metric{Name: "tests.e2e.steps", Labels: l, Value: float64(steps[sys]), Unit: UnitCount})
 	}
-	return append(out, coverageMetrics(issues, bySys, env.Now)...), nil
+	return append(out, coverageMetrics(env, issues, bySys)...), nil
 }
 
 // coverageMetrics: of the issues done in the last coverageDays (with a
 // system), the share in systems with at least one session, and how many were
 // done in each system that has none.
-func coverageMetrics(issues []*tracker.Issue, sessions map[string]int, now time.Time) []Metric {
+func coverageMetrics(env Env, issues []*tracker.Issue, sessions map[string]int) []Metric {
+	now := env.Now
 	from := now.AddDate(0, 0, -coverageDays)
 	done := map[string]int{}
 	total, covered := 0, 0
 	for _, is := range issues {
-		if is.Status != "done" || is.System == "" {
+		if !env.Project.IssueDone(is) || is.System == "" {
 			continue
 		}
-		at, ok := doneAt(is.FilePath)
+		at, ok := doneAt(is.FilePath, env.Workflow)
 		if !ok || at.Before(from) || at.After(now) {
 			continue
 		}
@@ -192,13 +283,13 @@ func coverageMetrics(issues []*tracker.Issue, sessions map[string]int, now time.
 }
 
 // doneAt is the last recorded transition to done in the issue's stats.
-func doneAt(issuePath string) (time.Time, bool) {
+func doneAt(issuePath string, wf *tracker.WorkflowConfig) (time.Time, bool) {
 	st, err := tracker.LoadStats(issuePath)
 	if err != nil {
 		return time.Time{}, false
 	}
 	for i := len(st.Transitions) - 1; i >= 0; i-- {
-		if st.Transitions[i].To == "done" {
+		if wf.IsLastStatus(st.Transitions[i].To) {
 			return st.Transitions[i].TS, true
 		}
 	}

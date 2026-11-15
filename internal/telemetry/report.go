@@ -53,9 +53,12 @@ type Report struct {
 }
 
 type Summary struct {
-	Events    int            `json:"events"`
-	Failures  int            `json:"failures"`
-	ErrorPct  float64        `json:"error_pct"`
+	Events   int     `json:"events"`
+	Failures int     `json:"failures"`
+	ErrorPct float64 `json:"error_pct"`
+	// Holds are non-zero exits classed ErrHold: counted here, left out
+	// of Failures and ErrorPct.
+	Holds     int            `json:"holds,omitempty"`
 	First     string         `json:"first,omitempty"`
 	Last      string         `json:"last,omitempty"`
 	Callers   map[string]int `json:"callers"`
@@ -67,6 +70,7 @@ type CommandStat struct {
 	Calls    int     `json:"calls"`
 	Failures int     `json:"failures"`
 	ErrorPct float64 `json:"error_pct"`
+	Holds    int     `json:"holds,omitempty"`
 	P50MS    int64   `json:"p50_ms"`
 }
 
@@ -117,8 +121,8 @@ func Aggregate(events []Event, m Manifest, opt Options) Report {
 	r.Summary.Callers = map[string]int{}
 
 	type cmdAgg struct {
-		calls, fails int
-		durs         []int64
+		calls, fails, holds int
+		durs                []int64
 	}
 	cmds := map[string]*cmdAgg{}
 	seenCmd := map[string]bool{}
@@ -153,9 +157,13 @@ func Aggregate(events []Event, m Manifest, opt Options) Report {
 		if e.Assignee != "" {
 			assignees[e.Assignee] = true
 		}
-		failed := e.Exit != 0
+		held := e.Exit != 0 && e.ErrClass == ErrHold
+		failed := e.Exit != 0 && !held
 		if failed {
 			r.Summary.Failures++
+		}
+		if held {
+			r.Summary.Holds++
 		}
 
 		if e.Cmd != "" {
@@ -169,6 +177,9 @@ func Aggregate(events []Event, m Manifest, opt Options) Report {
 			a.durs = append(a.durs, e.DurMS)
 			if failed {
 				a.fails++
+			}
+			if held {
+				a.holds++
 			}
 			seenCmd[e.Cmd] = true
 			seenKey[key] = true
@@ -207,6 +218,7 @@ func Aggregate(events []Event, m Manifest, opt Options) Report {
 			Calls:    a.calls,
 			Failures: a.fails,
 			ErrorPct: pct(a.fails, a.calls),
+			Holds:    a.holds,
 			P50MS:    median(a.durs),
 		})
 	}
@@ -322,7 +334,7 @@ func retrySequences(events []Event, globals map[string]bool) []RetryStat {
 		sort.SliceStable(seq, func(i, j int) bool { return seq[i].TS < seq[j].TS })
 		for i := 0; i+1 < len(seq); i++ {
 			cur, next := seq[i], seq[i+1]
-			if cur.Exit == 0 {
+			if cur.Exit == 0 || cur.ErrClass == ErrHold {
 				continue
 			}
 			t1, err1 := time.Parse(time.RFC3339Nano, cur.TS)
@@ -386,7 +398,7 @@ func RenderText(w io.Writer, r Report) {
 	if r.Since != "" {
 		fmt.Fprintf(w, "since:     %s\n", r.Since)
 	}
-	fmt.Fprintf(w, "events:    %d (%d failed, %.1f%%)\n", r.Summary.Events, r.Summary.Failures, r.Summary.ErrorPct)
+	fmt.Fprintf(w, "events:    %d (%d failed, %.1f%%%s)\n", r.Summary.Events, r.Summary.Failures, r.Summary.ErrorPct, heldNote(r.Summary.Holds))
 	if r.Summary.First != "" {
 		fmt.Fprintf(w, "range:     %s .. %s\n", r.Summary.First, r.Summary.Last)
 	}
@@ -405,7 +417,11 @@ func RenderText(w io.Writer, r Report) {
 		}
 	}
 	for _, c := range r.Commands {
-		fmt.Fprintf(w, "  %-*s  %5d calls  %5.1f%% err  p50 %dms\n", width, c.Command, c.Calls, c.ErrorPct, c.P50MS)
+		held := ""
+		if c.Holds > 0 {
+			held = fmt.Sprintf("  %d held", c.Holds)
+		}
+		fmt.Fprintf(w, "  %-*s  %5d calls  %5.1f%% err  p50 %dms%s\n", width, c.Command, c.Calls, c.ErrorPct, c.P50MS, held)
 	}
 
 	fmt.Fprintln(w)
@@ -520,4 +536,12 @@ func capLen[T any](s []T, n int) []T {
 		return s[:n]
 	}
 	return s
+}
+
+// heldNote is ", N held" when holds were left out of an error rate.
+func heldNote(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d held", n)
 }

@@ -55,6 +55,9 @@ var ownerActRows = []struct {
 	{"amend adds expires", []string{"sim/rules", "--amend", "D-2", "--expires", "2027-01-31"}},
 	{"amend changes scope", []string{"sim/rules", "--amend", "D-2", "--scope", "system:Sim"}},
 	{"replaces a hard one", []string{"sim/rules", "--text", "Merge via PRs.", "--replaces", "D-2"}},
+	// The owner's answer to a partner's gate (docs/departments.md#the-owners-answer).
+	{"partner approval", []string{"sim/rules", "--text", "OpenMontage pitch approved.", "--ref", "partner-approved:pitch@20261101T102000Z"}},
+	{"partner send-back", []string{"sim/rules", "--text", "OpenMontage pitch sent back.", "--ref", "partner-sent-back:pitch"}},
 }
 
 func withQuote(args []string) []string {

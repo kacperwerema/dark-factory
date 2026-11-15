@@ -22,5 +22,11 @@ func init() {
 		"yolo_review.back",
 		"yolo_review.pager",
 		"yolo_review.empty",
+		"yolo_review.agree_all",
+		"yolo_review.agree_all.confirm",
+		"yolo_review.agree_all.counts",
+		"yolo_review.agree_all.words",
+		"yolo_review.agree_all.go",
+		"yolo_review.agree_all.done",
 	)
 }

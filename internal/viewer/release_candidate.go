@@ -3,6 +3,7 @@ package viewer
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"net/http"
 	"os/exec"
 	"regexp"
@@ -108,6 +109,9 @@ type rcTag struct {
 
 // gitRCTags lists cut's local candidate tags. A var so tests don't run git.
 var gitRCTags = func(root, cut string) []rcTag {
+	if gitdir.Outside(root) {
+		return nil
+	}
 	out, err := exec.Command("git", "-C", root, "for-each-ref",
 		"--format=%(refname:short)%00%(creatordate:unix)", "refs/tags/"+cut+"-rc.*").Output()
 	if err != nil {
@@ -369,10 +373,8 @@ var reportVersionRe = regexp.MustCompile(`(?m)^- issue-cli: (\S+)`)
 // came from ("rc.2"), from its body and report: comments; "" for none.
 func foundInCandidate(issue *tracker.Issue, cut string) string {
 	text := issue.BodyRaw
-	if comments, err := tracker.LoadComments(issue.FilePath); err == nil {
-		for _, cm := range comments {
-			text += "\n" + cm.Text
-		}
+	for _, cm := range issue.Comments() {
+		text += "\n" + cm.Text
 	}
 	best := 0
 	for _, m := range reportVersionRe.FindAllStringSubmatch(text, -1) {

@@ -8,6 +8,8 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/chart"
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -40,11 +42,57 @@ type WbBenchRow struct {
 	// Delta compares with the previous finished run: "+12 points, 1
 	// regression"; Tone is green, red or "".
 	Delta, Tone string
+	// Agents is the newest run on two agents, nil without one.
+	Agents *WbBenchAgents
+}
+
+// WbBenchAgents is one run by agent and type, and what it says of the
+// project's routing: rules. The holdout is not split.
+type WbBenchAgents struct {
+	RunID   string
+	Rows    []bench.AgentRow
+	Routing []WbBenchRouting
+	// Prices says why a cost is unknown and where to fill it.
+	Prices string
+}
+
+// WbBenchRouting is one routing line; Tone is red for a rule the numbers
+// contradict, green for one they support.
+type WbBenchRouting struct {
+	Text, Tone string
+}
+
+// benchAgents is the card's by-agent block for benchmark name.
+func benchAgents(name string, cfg *tracker.RoutingConfig) *WbBenchAgents {
+	r := bench.NewestTwoAgents(name)
+	if r == nil {
+		return nil
+	}
+	t := bench.ByAgent(r)
+	if t == nil {
+		return nil
+	}
+	out := &WbBenchAgents{RunID: r.ID, Rows: t.Rows, Prices: spend.PricesNote(t.Unpriced)}
+	for _, c := range bench.CheckRouting(cfg, t) {
+		l := WbBenchRouting{Text: c.Line()}
+		switch c.Verdict {
+		case bench.RoutingContradicted:
+			l.Tone = "red"
+		case bench.RoutingSupported:
+			l.Tone = "green"
+		}
+		out.Routing = append(out.Routing, l)
+	}
+	return out
 }
 
 // reportBench builds the card from the owner's bench folder.
 func reportBench(p *tracker.Project, now time.Time) *WbBench {
 	var card WbBench
+	var cfg *tracker.RoutingConfig
+	if wf := p.LoadWorkflow(); wf != nil {
+		cfg = wf.Routing
+	}
 	for _, name := range bench.List() {
 		b, err := bench.Load(name)
 		if err != nil {
@@ -69,13 +117,14 @@ func reportBench(p *tracker.Project, now time.Time) *WbBench {
 		r := runs[len(runs)-1]
 		s := r.Summary
 		row.RunID, row.Label = r.ID, r.Setup.Label
+		row.Agents = benchAgents(name, cfg)
 		row.When = ageText(now.Sub(r.Started)) + " ago"
 		row.Pass = fmt.Sprintf("%d/%d passed", s.Passed, s.Scored)
 		if r.Holdout.Total > 0 {
 			row.Holdout = fmt.Sprintf("holdout %d/%d", r.Holdout.Passed, r.Holdout.Total)
 		}
-		row.Cost = fmt.Sprintf("$%.2f", r.SpentUSD)
-		row.Tokens = compactCount(r.SpentTokens) + " tokens"
+		row.Cost = r.CostText()
+		row.Tokens = tokens.Format(r.SpentTokens) + " tokens"
 		if !s.TokensKnown {
 			row.Tokens += " (some unknown)"
 		}
@@ -127,16 +176,6 @@ func ageText(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
-}
-
-func compactCount(n int64) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
-	case n >= 1_000:
-		return fmt.Sprintf("%.0fk", float64(n)/1e3)
-	}
-	return fmt.Sprint(n)
 }
 
 // benchSeries is the bench family's pass rate per benchmark across snaps,

@@ -94,7 +94,7 @@ func runPlaytest(ctx *Context, args []string) error {
 	before := int64(0)
 	var archived []string // one line per done issue
 	for _, is := range targets {
-		done := is.Status == "done"
+		done := ctx.Project.IssueDone(is)
 		rep, err := playtestruns.Prune(root, is.Slug, done, *dryRun)
 		if err != nil {
 			return fmt.Errorf("%s: %w", is.Slug, err)

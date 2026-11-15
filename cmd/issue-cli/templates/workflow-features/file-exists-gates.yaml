@@ -1,5 +1,5 @@
 id: file-exists-gates
-version: v0.58.0
+version: v0.61.0
 category: gates
 propose: false
 templates: [marketing]
@@ -7,7 +7,9 @@ sources: ["internal/tracker/validations/file_exists.go"]
 title: "File gates (file_exists)"
 what: |
   The `file_exists` validator passes when `path:`, relative to the project root, is a
-  file with something in it. The path is templated like hints, plus {{department}}
+  file with something in it. A path starting with `<issues>/` is read from the issues
+  folder (the work files) instead: a recurring job's metrics file,
+  `<issues>/.goals/{{department}}/<job id>.json`, written with `issue-cli goal write`. The path is templated like hints, plus {{department}}
   (the department's key; hints get it too). It runs no shell, so it needs no `allow_shell`.
 why: |
   Some work needs another piece of work's result first (a brand doc before a brief, a

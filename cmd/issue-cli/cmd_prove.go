@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -37,6 +38,10 @@ prove is the fallback, and the only way to record a measured value:
   issue-cli prove <slug> <AC-id> --value "690 vs 380 (1.82×)"
   issue-cli prove <slug> <AC-id> --shot <path>          only without a playtest runner,
                                                         for a criterion ending in (visual)
+  issue-cli prove <slug> <AC-id> --lead "<command>"     a command only the lead can run (the worker
+                                                        guard refuses it): the criterion waits on the
+                                                        lead; stop, no question: comment needed
+  issue-cli prove <slug> --lead-run [<AC-id>…]          the lead: run those commands, record each run
   issue-cli prove <slug> <AC-id> --clear                removes this criterion's prove links
   issue-cli prove <slug> [--list] [--json]              every criterion, its links and checks
   issue-cli prove <slug> --run [--json]                 run the tests the test links name and
@@ -51,6 +56,15 @@ Checks:
   commit  reachable from the work branch or its merge
   value   none: shown as "reported"
   shot    the file exists
+  lead    the lead's newest run of the command passed, after the branch's
+          last code commit; until then "waits on the lead: <command>" on
+          prove --list, the gate, the Station and the lead's tick
+
+A lead command is never run through a shell. It is
+  [NAME=value …] issue-cli check-script <slug> [--yes] [--cli <path in the worktree>]
+  [NAME=value …] issue-cli prove <slug> --run
+on the issue's own slug; env names that change how a program runs (PATH,
+HOME, LD_*, GIT_*, …) are refused.
 
 The order for a test: commit it with its Proves: trailer, then run
 prove <slug> --run after the last code commit. --run (Go projects) runs
@@ -75,6 +89,9 @@ type proveOutput struct {
 	Proven int      `json:"proven"`
 	Total  int      `json:"total"`
 	Ticked []string `json:"ticked"`
+	// Overlaps are the criteria a judgement step makes the owner's while a
+	// test or commit link proves them too (proof.Report.Overlaps).
+	Overlaps []proof.Overlap `json:"overlaps,omitempty"`
 	// Run is what prove --run ran (nil without --run).
 	Run *proof.TestRun `json:"run,omitempty"`
 }
@@ -86,7 +103,7 @@ func runProve(ctx *Context, args []string) error {
 	}
 	fs := newFlagSet("prove", ctx)
 	var links []tracker.ProofLink
-	for _, kind := range []string{tracker.ProofTest, tracker.ProofStep, tracker.ProofCommit, tracker.ProofValue, tracker.ProofShot} {
+	for _, kind := range []string{tracker.ProofTest, tracker.ProofStep, tracker.ProofCommit, tracker.ProofValue, tracker.ProofShot, tracker.ProofLead} {
 		kind := kind
 		fs.Func(kind, "repeatable: link the criterion to this "+kind, func(v string) error {
 			if strings.TrimSpace(v) == "" {
@@ -98,6 +115,7 @@ func runProve(ctx *Context, args []string) error {
 	}
 	clearFlag := fs.Bool("clear", false, "remove this criterion's prove links")
 	runFlag := fs.Bool("run", false, "run the tests the test links name and post the tests: comment when all pass")
+	leadRunFlag := fs.Bool("lead-run", false, "the lead: run the lead links' commands and record each run")
 	fs.Bool("list", false, "list every criterion with its links and checks (the default without a criterion)")
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
@@ -117,7 +135,14 @@ func runProve(ctx *Context, args []string) error {
 		if !tracker.HasSection(issue.BodyRaw, tracker.CriteriaSection) {
 			verb = "append"
 		}
-		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli %s %s --section %q --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, verb, issue.Slug, tracker.CriteriaSection)
+		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli %s %s --section %s --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, verb, issue.Slug, shell.Quote(tracker.CriteriaSection))
+	}
+
+	if *leadRunFlag {
+		if *runFlag || *clearFlag || len(links) > 0 {
+			return fmt.Errorf("--lead-run runs the lead links' commands: use it alone, issue-cli prove %s --lead-run [<AC-id>]", issue.Slug)
+		}
+		return runProveLead(ctx, issue, criteria, fs.Args())
 	}
 
 	if *runFlag {
@@ -152,6 +177,11 @@ func runProve(ctx *Context, args []string) error {
 		if err := saveProofLinks(ctx, issue, it, links, *clearFlag); err != nil {
 			return err
 		}
+		for _, l := range links {
+			if l.Kind == tracker.ProofLead && !ctx.JSONOutput {
+				fmt.Fprintf(ctx.Stdout, "%s waits on the lead: %s\nIt shows on the lead's tick (issue-cli queue next) and the Station. Stop here: no question: comment needed. The lead runs: issue-cli prove %s --lead-run\n", it.ID, l.Ref, issue.Slug)
+			}
+		}
 	} else if *clearFlag || len(links) > 0 {
 		return fmt.Errorf("name the criterion: issue-cli prove %s <AC-id> ... (criteria: %s)", issue.Slug, criteriaIDs(criteria))
 	}
@@ -183,12 +213,16 @@ func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem,
 				return fmt.Errorf("--commit: %w", err)
 			}
 			links[i].Ref = full
+		case tracker.ProofLead:
+			if _, err := proof.ParseLeadCommand(issue.Slug, l.Ref); err != nil {
+				return fmt.Errorf("--lead: %w", err)
+			}
 		case tracker.ProofShot:
 			if hasPlaytestRunner(root, ctx.Project.LoadWorkflow()) {
 				return fmt.Errorf("--shot is refused: this project has a playtest runner, so its screenshots come from playtest runs. Add `proves: [%s]` to the step that shows it", it.ID)
 			}
 			if !tracker.IsVisualCriterion(it.Text) {
-				return fmt.Errorf("--shot is refused: %s is not marked visual. Only a criterion ending in \"(visual)\" takes a screenshot:\n  issue-cli check-edit %s %s --text \"%s (visual)\"", it.ID, issue.Slug, it.ID, it.Text)
+				return fmt.Errorf("--shot is refused: %s is not marked visual. Only a criterion ending in \"(visual)\" takes a screenshot:\n  issue-cli check-edit %s %s --text %s", it.ID, issue.Slug, it.ID, shell.Quote(it.Text+" (visual)"))
 			}
 			if !proof.InsideCheckout(root, issue.Slug, l.Ref) {
 				return fmt.Errorf("--shot %s: the file must be in the issue's worktree or the project checkout", l.Ref)
@@ -254,7 +288,7 @@ func printProof(ctx *Context, issue *tracker.Issue, run *proof.TestRun) error {
 			}
 		}
 	}
-	out := proveOutput{Report: report, Total: len(report.Criteria), Ticked: ticked, Run: run}
+	out := proveOutput{Report: report, Total: len(report.Criteria), Ticked: ticked, Run: run, Overlaps: report.Overlaps()}
 	out.Proven = out.Total - len(report.Unproven())
 	if out.Ticked == nil {
 		out.Ticked = []string{}
@@ -311,6 +345,9 @@ func writeProofReport(w io.Writer, out proveOutput) {
 		for _, way := range proof.Ways(out.Slug, unproven[0].ID) {
 			fmt.Fprintf(w, "  - %s\n", way)
 		}
+	}
+	for _, o := range out.Overlaps {
+		fmt.Fprintf(w, "Warning: %s\n", o.Line())
 	}
 	for _, s := range out.Strays {
 		fmt.Fprintf(w, "Unknown criterion %s: %s — the issue has no such box; fix the trailer or proves: line\n", s.ID, proof.Describe(s.Link))

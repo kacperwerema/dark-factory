@@ -20,6 +20,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // Item states.
@@ -36,9 +39,11 @@ const RefillText = "Out of work: think up more. Read the roadmap, the epics, the
 // Default limits while auto-start is off (factory/the-leads-queue-…#D-3):
 // memory under 50%, no worker cap (the owner, 2026-10-31: "don't limit
 // yourself on the 5 individual workers - just on the memory you have").
-const (
-	DefaultBelow = 50
-)
+const DefaultBelow = autostart.DefaultBelow
+
+// NotOnMain is a done item's note when its work branch's tip is not on
+// the project's main branch: it shipped no commit, so it has no SHA.
+const NotOnMain = "not on main"
 
 // Item is one entry of the queue.
 type Item struct {
@@ -168,24 +173,7 @@ func save(issueDir string, q *Queue) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(q, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "queue.json.*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), Path(issueDir))
+	return jsonfile.Write(Path(issueDir), q, 0o600)
 }
 
 // LockWait is how long Update waits for another writer.

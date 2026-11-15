@@ -288,7 +288,10 @@ func DeleteComment(filePath string, commentID int) error {
 	})
 }
 
+// LoadComments reads the file now. An issue from LoadIssues already holds
+// its comments (Issue.Comments): read here when a fresh read is the point.
 func LoadComments(filePath string) ([]Comment, error) {
+	loadCounts.commentReads.Add(1)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", filePath, err)

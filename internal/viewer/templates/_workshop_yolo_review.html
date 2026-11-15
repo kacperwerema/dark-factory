@@ -12,6 +12,7 @@ renders them.
   wb/yr-check     one owner box left open: Tick, Agree        data: WbYOLOPass
                   without it
   wb/yr-pager     newer / older issues                        data: YOLOReviewData
+  wb/yr-all       Agree all's confirm (owner's browser only)  data: YOLOReviewData
 */}}
 
 {{define "wb/yr-summary"}}
@@ -21,6 +22,23 @@ renders them.
     <div class="wb-yr-fig"><b>{{.OwnerChecks}}</b><span>owner {{if eq .OwnerChecks 1}}check{{else}}checks{{end}}</span></div>
     {{with .Oldest}}<div class="wb-yr-fig"><b>{{.}}</b><span>oldest</span></div>{{end}}
     <span class="wb-yr-sum-note">One Agree covers all of an issue's gates; Back to sends the issue back once, with your words. Owner boxes are ticked one by one.{{if gt .Pages 1}} · page {{.Page}} of {{.Pages}}{{end}}</span>
+    {{if and .SignedIn .All}}<button type="button" class="wb-btn wb-btn--you" data-yr-all-open disabled data-testid="yolo_review.agree_all">Agree all {{.Issues}}…</button>{{end}}
+</div>
+{{if and .SignedIn .All}}{{template "wb/yr-all" .}}{{end}}
+{{end}}
+
+{{define "wb/yr-all"}}
+<div class="wb-yr-all" role="dialog" aria-labelledby="yr-all-h" data-yr-all data-url="{{.AllURL}}" data-items="{{.All}}" hidden data-testid="yolo_review.agree_all.confirm">
+    <h2 class="wb-yr-all-h" id="yr-all-h">Agree all {{.Issues}} {{if eq .Issues 1}}issue{{else}}issues{{end}}?</h2>
+    <p class="wb-yr-all-counts" data-testid="yolo_review.agree_all.counts">{{plural .Issues "issue" "issues"}}{{with .Gates}} · {{plural . "gate" "gates"}}{{end}}{{with .OwnerChecks}} · {{plural . "owner check" "owner checks"}}{{end}}{{with .Questions}} · {{plural . "assumed answer" "assumed answers"}}{{end}}{{with .Decisions}} · {{plural . "decision item" "decision items"}}{{end}}</p>
+    <p class="wb-yr-all-text">{{with .OldestDate}}Oldest from {{.}}. {{end}}Owner checks are agreed without a tick: their boxes stay open on their issues. Items added after this page loaded are not included.</p>
+    <label class="wb-words-label" for="yr-all-words">Your words <span>— optional; without them: "Agree all on the YOLO review page, &lt;date&gt;"</span></label>
+    <textarea id="yr-all-words" rows="2" class="wb-words" placeholder="Agree all on the YOLO review page" data-yr-all-words data-testid="yolo_review.agree_all.words"></textarea>
+    <div class="wb-yr-foot-row">
+        <div class="wb-ny-msg" role="status" data-yr-all-msg>Every page of the queue, not only this one.</div>
+        <button type="button" class="wb-btn wb-btn--paper" data-yr-all-cancel>Cancel</button>
+        <button type="button" class="wb-btn wb-btn--you" data-yr-all-go data-testid="yolo_review.agree_all.go">Agree all {{.Issues}}</button>
+    </div>
 </div>
 {{end}}
 

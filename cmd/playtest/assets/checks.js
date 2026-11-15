@@ -104,6 +104,40 @@
     return true;
   }
 
+  // --- buttons: the visible actions a page shows --------------------
+
+  // A button-like control: a button, an input button, role=button, and a
+  // link or summary drawn as a button (a class with "btn" in it). Not
+  // counted: toggles and tabs (aria-pressed, role=tab), Copy beside a
+  // command (data-copy), the page header and navigation, and anything not
+  // visible (a closed menu's items, a hidden form). docs/UI/workshop-board.md
+  // "One primary action".
+  var buttonSel = 'button, input[type=button], input[type=submit], [role=button], a[class*="btn"], summary[class*="btn"]';
+  function buttons(root) {
+    root = root || document;
+    return Array.prototype.filter.call(root.querySelectorAll(buttonSel), function (el) {
+      if (!visible(el)) return false;
+      if (el.hasAttribute('aria-pressed') || el.getAttribute('role') === 'tab' || el.hasAttribute('data-copy')) return false;
+      if (el.closest('header, nav, [role=tablist]')) return false;
+      return true;
+    });
+  }
+  function label(el) {
+    var t = norm(el.innerText || el.value || el.getAttribute('aria-label') || el.title || '');
+    if (t.length > 32) t = t.slice(0, 31) + '…';
+    return t || describe(el);
+  }
+  // filled: a button with a background that is neither transparent nor
+  // near white, i.e. drawn as a primary (orange, ink, a stamp).
+  function filled(el) {
+    if (disabled(el)) return false;
+    var m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+    if (!m) return false;
+    var r = +m[0], g = +m[1], b = +m[2], a = m.length > 3 ? +m[3] : 1;
+    if (a < 0.5) return false;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.9;
+  }
+
   // check evaluates one DOM check. snapshots maps a snapshot name to the
   // text it stored (see the snapshot action).
   function check(c, snapshots) {
@@ -124,6 +158,12 @@
       case 'count': {
         var n = find(a.pattern, a.within).filter(visible).length;
         return res(cmpCount(n, a), n);
+      }
+      case 'buttons': {
+        var root = a.within ? first(a.within) : document;
+        if (!root) return res(false, 'missing', a.within + ' not found');
+        var bs = buttons(root);
+        return res(cmpCount(bs.length, a), bs.length, bs.map(label).join(' | '));
       }
       case 'url': {
         var u = location.pathname + location.search;
@@ -172,11 +212,28 @@
       case 'size': {
         if (!el) return res(false, 'missing');
         var sr = el.getBoundingClientRect();
+        // top: the box's top edge from the top of the page (not the
+        // viewport), so a scrolled page reads the same: max_top 422 at
+        // 390x844 is "in the first half of the first screen".
+        var top = sr.top + window.scrollY;
         var sok = (a.min_width == null || sr.width >= Number(a.min_width)) &&
           (a.max_width == null || sr.width <= Number(a.max_width)) &&
           (a.min_height == null || sr.height >= Number(a.min_height)) &&
-          (a.max_height == null || sr.height <= Number(a.max_height));
-        return res(sok, Math.round(sr.width) + 'x' + Math.round(sr.height));
+          (a.max_height == null || sr.height <= Number(a.max_height)) &&
+          (a.max_top == null || top <= Number(a.max_top));
+        return res(sok, Math.round(sr.width) + 'x' + Math.round(sr.height) + (a.max_top == null ? '' : ' at top ' + Math.round(top)));
+      }
+      case 'media': {
+        // A <video>/<audio> (the target or the first one inside it): loaded
+        // (metadata read, a duration) or playing (not paused, time moving).
+        if (!el) return res(false, 'missing');
+        var m = /^(VIDEO|AUDIO)$/.test(el.tagName) ? el : el.querySelector('video, audio');
+        if (!m) return res(false, 'no video or audio element');
+        var dur = isFinite(m.duration) ? m.duration.toFixed(1) : '?';
+        var said = m.error ? 'error ' + m.error.code + (m.error.message ? ': ' + m.error.message : '') :
+          'readyState ' + m.readyState + ', ' + m.currentTime.toFixed(1) + '/' + dur + ' s, ' + (m.paused ? 'paused' : 'playing');
+        var mok = !m.error && (a.state === 'playing' ? !m.paused && m.currentTime > 0 : m.readyState >= 1 && m.duration > 0);
+        return res(mok, said);
       }
     }
     return res(false, '', 'not a DOM check: ' + c.kind);
@@ -448,6 +505,16 @@
           var r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) v(rule, el, 'text in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box');
         });
+      } else if (rule === 'one_primary') {
+        // One primary per action row: two filled buttons with the same
+        // parent are two primaries in one card or row.
+        var seen = [];
+        buttons(document).filter(filled).forEach(function (el) {
+          var p = el.parentElement;
+          var twin = seen.filter(function (o) { return o.parentElement === p; })[0];
+          if (twin) out.push({ rule: rule, id: describe(el), detail: 'a second primary beside "' + label(twin) + '": "' + label(el) + '" (one primary per card or row; the rest go under its ⋯ More menu)' });
+          else seen.push(el);
+        });
       } else if (rule === 'styles_applied') {
         var idx = activeClassRules(), n = 0, more = 0;
         var at = innerWidth + 'x' + innerHeight;
@@ -539,7 +606,7 @@
 
   window.__pt = {
     patternRe: patternRe, find: find, first: first, visible: visible, text: text,
-    check: check, layout: layout, point: point, focus: focus, select: select,
+    check: check, layout: layout, buttons: buttons, filled: filled, point: point, focus: focus, select: select,
     drag: drag, targets: targets, describe: describe, cssPath: cssPath
   };
 })();

@@ -84,7 +84,7 @@ func (s *Server) handleDecisionExpiry(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	now := time.Now() // once: the check, the line, the comment and the log agree
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		writeYOLOError(w, http.StatusInternalServerError, err.Error())
 		return

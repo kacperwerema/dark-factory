@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,7 @@ func TestNewDeptTileAddsAGroupThenNoMore(t *testing.T) {
 	_, preview := getBody(t, ts.URL+"/p/acme/departments/new?template=gtm")
 	assertContains(t, preview, `data-testid="dept_new.child.marketing"`, "In the group: Marketing", "parent: gtm", "departments/gtm/role.md")
 
+	wrote, _ := plannedFiles(t, &proj, "gtm", "")
 	resp := postAdd(t, ts.URL, url.Values{"template": {"gtm"}}, sameOrigin)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("add gtm: status %d", resp.StatusCode)
@@ -128,7 +130,21 @@ func TestNewDeptTileAddsAGroupThenNoMore(t *testing.T) {
 	assertContains(t, string(cfg), "- name: GTM", "- name: Marketing", "parent: gtm")
 
 	_, company = getBody(t, ts.URL+resp.Header.Get("Location"))
-	assertContains(t, company, "✓ Added GTM: 6 files written", `data-testid="floor.tile.group"`, "Every department template is added")
+	assertContains(t, company, "✓ Added GTM: "+strconv.Itoa(wrote)+" files written", `data-testid="floor.tile.group"`, `value="video"`)
+	// Sales (under GTM), Video and Legal are the templates left; with them added
+	// the tile offers none.
+	if resp := postAdd(t, ts.URL, url.Values{"template": {"sales-b2c"}, "parent": {"gtm"}}, sameOrigin); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("add sales-b2c: status %d", resp.StatusCode)
+	}
+	if resp := postAdd(t, ts.URL, url.Values{"template": {"video"}}, sameOrigin); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("add video: status %d", resp.StatusCode)
+	}
+	if resp := postAdd(t, ts.URL, url.Values{"template": {"legal"}}, sameOrigin); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("add legal: status %d", resp.StatusCode)
+	}
+	cfg, _ = os.ReadFile(config)
+	_, company = getBody(t, ts.URL+"/p/acme/company?classic=1")
+	assertContains(t, company, "Every department template is added")
 	if strings.Contains(company, `data-testid="company.new_dept.form"`) {
 		t.Error("every template is added: the tile still has its form")
 	}

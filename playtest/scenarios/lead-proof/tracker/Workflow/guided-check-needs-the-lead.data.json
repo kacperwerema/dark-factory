@@ -1,0 +1,14 @@
+{
+  "next_id": 1,
+  "entries": [],
+  "proofs": {
+    "AC2": [
+      {
+        "kind": "lead",
+        "ref": "issue-cli check-script workflow/guided-check-needs-the-lead --yes",
+        "at": "2026-11-02T10:00:00Z",
+        "criterion": "The guided check passes"
+      }
+    ]
+  }
+}

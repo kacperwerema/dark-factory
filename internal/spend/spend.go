@@ -19,6 +19,8 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/goals"
+	"github.com/kacperwerema/dark-factory/internal/period"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -201,13 +203,6 @@ func DefaultProjectsDir() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
-// WeekStart is the Monday 00:00 (local) of t's week.
-func WeekStart(t time.Time) time.Time {
-	d := (int(t.Weekday()) + 6) % 7
-	y, m, day := t.Date()
-	return time.Date(y, m, day-d, 0, 0, 0, 0, t.Location())
-}
-
 // Load reads p's spend for the Weeks weeks up to now.
 func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Options) *Report {
 	if opt.ProjectsDir == "" {
@@ -217,7 +212,7 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Option
 	if prices == nil {
 		prices = LoadPrices()
 	}
-	monday := WeekStart(now)
+	monday := period.WeekStart(now)
 	starts := make([]time.Time, Weeks)
 	for i := range starts {
 		starts[i] = monday.AddDate(0, 0, -7*i)
@@ -465,7 +460,7 @@ func (s *BudgetState) fill(b *Box) {
 	}
 	if s.Tokens > 0 {
 		s.Over = s.Spent.Tokens() > s.Tokens
-		s.Text = FormatTokens(s.Spent.Tokens()) + " of " + FormatTokens(s.Tokens) + " tokens " + period
+		s.Text = tokens.Format(s.Spent.Tokens()) + " of " + tokens.Format(s.Tokens) + " tokens " + period
 		return
 	}
 	s.Over = s.Spent.USD > s.USD
@@ -581,7 +576,7 @@ func readFile(path string, st os.FileInfo) *fileRead {
 		fr.recs = append(fr.recs, record{id: m.ID, at: m.Timestamp, model: m.Model,
 			in: m.Input, out: m.Output, cacheRead: m.CacheRead, cacheWrite: m.CacheWrite})
 	})
-	fr.agent = agentName(path)
+	fr.agent = AgentName(path)
 	cacheMu.Lock()
 	cache[path] = fr
 	cacheMu.Unlock()
@@ -596,8 +591,9 @@ var nameRecordRe = regexp.MustCompile(`^\{\s*"type"\s*:\s*"(?:agent-name|custom-
 // nameRe is the name in such a record.
 var nameRe = regexp.MustCompile(`"(?:agentName|customTitle)"\s*:\s*"([^"\\]+)"`)
 
-// agentName is the last name record in the file, or "".
-func agentName(path string) string {
+// AgentName is the name a transcript file's session runs under: its last
+// name record, or "".
+func AgentName(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""

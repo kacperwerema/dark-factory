@@ -3,11 +3,15 @@ package bench
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/trace"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // Outcomes of a task.
@@ -62,6 +66,9 @@ type TaskRecord struct {
 	Project string `json:"project"`
 	Type    string `json:"type,omitempty"`
 	Holdout bool   `json:"holdout,omitempty"`
+	// Agent is the agent CLI the task ran on, set only in a run on two or
+	// more agents (Setup.Agents), where a task has one record per agent.
+	Agent   string `json:"agent,omitempty"`
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`
 
@@ -104,6 +111,28 @@ type TaskRecord struct {
 	// ScoreWallSec is how long scoring the eval took (the grader's time);
 	// a task's whole time is WallSec + ScoreWallSec.
 	ScoreWallSec float64 `json:"score_wall_sec,omitempty"`
+
+	// Trace is the task's trace, one span per status visit
+	// (internal/trace); empty in runs before v0.63.
+	Trace []trace.Span `json:"trace,omitempty"`
+	// Memory is what the sandbox's memory stores held: the cut at the base
+	// commit and the counts, never a memory's text.
+	Memory *MemoryCut `json:"memory,omitempty"`
+	// Stages are the task's scores per stage (design, code, docs), for a
+	// task with stage references; they never change Outcome.
+	Stages []StageRecord `json:"stages,omitempty"`
+}
+
+// Key names the record in its run: the task, with its agent in a run on two
+// agents. Records are matched across runs by it.
+func (t TaskRecord) Key() string { return JobKey(t.Task, t.Agent) }
+
+// JobKey is a TaskRecord's Key.
+func JobKey(task, agent string) string {
+	if agent == "" {
+		return task
+	}
+	return task + "@" + agent
 }
 
 // Setup is what a run measured: the issue-cli and workflow under test.
@@ -123,8 +152,20 @@ type Setup struct {
 	// owner; "" in runs from before it existed: owner).
 	WorkerHome string `json:"worker_home,omitempty"`
 	// Agent is the worker command's CLI (its first word: claude, codex),
-	// so runs of the same tasks on two agents can be compared (routing).
+	// so runs of the same tasks on two agents can be compared (routing). A
+	// run on several (bench run --agents) names them with commas.
 	Agent string `json:"agent,omitempty"`
+}
+
+// Agents are the run's agents, in order; none in a run from before Agent.
+func (s Setup) Agents() []string {
+	var out []string
+	for _, a := range strings.Split(s.Agent, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // WorkerAgent is the agent CLI a worker command runs: its first word, the
@@ -182,6 +223,28 @@ type Run struct {
 	// checked against Budget.
 	SpentTokens int64   `json:"spent_tokens"`
 	SpentUSD    float64 `json:"spent_usd"`
+}
+
+// CostText is what the run cost as far as prices tell: "$4.10", "≥ $4.10"
+// when some task has no cost, "cost unknown" when none has, never a guessed
+// or $0.00 figure for tokens with no price.
+func (r *Run) CostText() string {
+	priced, unpriced := 0, 0
+	for _, t := range r.Tasks {
+		switch {
+		case t.Usage.USDKnown:
+			priced++
+		case t.Usage.Known:
+			unpriced++
+		}
+	}
+	switch {
+	case unpriced == 0:
+		return fmt.Sprintf("$%.2f", r.SpentUSD)
+	case priced == 0:
+		return "cost unknown"
+	}
+	return fmt.Sprintf("≥ $%.2f", r.SpentUSD)
 }
 
 // Finished reports whether the run ended (any stop but paused).
@@ -264,25 +327,13 @@ func Save(r *Run, records []TaskRecord) error {
 			r.Tasks = append(r.Tasks, t)
 		}
 	}
-	if err := writeJSON(filepath.Join(dir, "run.json"), r); err != nil {
+	if err := jsonfile.Write(filepath.Join(dir, "run.json"), r, 0o644); err != nil {
 		return err
 	}
 	if len(hold) == 0 {
 		return nil
 	}
-	return writeJSON(filepath.Join(dir, "holdout.json"), hold)
-}
-
-func writeJSON(path string, v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return jsonfile.Write(filepath.Join(dir, "holdout.json"), hold, 0o644)
 }
 
 // LoadRun reads run.json of benchmark's run id.

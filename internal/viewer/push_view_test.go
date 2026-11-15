@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/push"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/webpush"
@@ -550,5 +551,37 @@ func TestPushTitleScrubsAndClips(t *testing.T) {
 	}
 	if deviceLabel("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit Version/18.0 Mobile Safari/604.1") != "iPhone · Safari" {
 		t.Fatal("deviceLabel")
+	}
+}
+
+// A worker whose agent exited pushes once as its own kind, with no pane read:
+// a shell shows no menu, so the stuck check alone would never see it.
+func TestPushStuckFindsAWorkerWhoseAgentExited(t *testing.T) {
+	proj, _ := setupTestProject(t)
+	issues, err := proj.LoadIssues()
+	if err != nil || len(issues) < 2 {
+		t.Fatalf("issues %d, %v", len(issues), err)
+	}
+	dead, alive := tracker.AgentSessionName(issues[0].Slug), tracker.AgentSessionName(issues[1].Slug)
+	withMockTmuxSessions(t, []AgentSession{{Name: dead}, {Name: alive}})
+	lp, pt, pa, cp := agentrun.ListPanes, agentrun.ProcessTable, agentrun.PaneArgs, agentrun.CapturePane
+	t.Cleanup(func() {
+		agentrun.ListPanes, agentrun.ProcessTable, agentrun.PaneArgs, agentrun.CapturePane = lp, pt, pa, cp
+	})
+	agentrun.ListPanes = func() []agentrun.Pane {
+		return []agentrun.Pane{{Session: dead, Window: "w", PID: 10, Command: "zsh"}, {Session: alive, Window: "w", PID: 20, Command: "claude"}}
+	}
+	agentrun.ProcessTable = func() []agentrun.Proc { return []agentrun.Proc{{PID: 10, PPID: 1, Stat: "S"}} }
+	agentrun.PaneArgs = func(int) (string, error) { return "-zsh", nil }
+	agentrun.CapturePane = func(target string) (string, error) {
+		if strings.Contains(target, dead) {
+			t.Errorf("read the dead pane %s", target)
+		}
+		return "", nil
+	}
+	got := pushStuck(&proj, issues, time.Now())
+	if len(got) != 1 || got[0].Kind != "exited" || got[0].Key != proj.Slug+"|exited|"+dead+"|" || got[0].Cooldown != stuckCooldown ||
+		!strings.HasPrefix(got[0].Title, "Worker exited: ") || !strings.HasSuffix(got[0].URL, "/agents?agent="+dead) {
+		t.Fatalf("seen %+v", got)
 	}
 }

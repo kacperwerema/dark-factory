@@ -1,5 +1,5 @@
 id: brand-foundation
-version: v0.59.0
+version: v0.61.0
 category: lifecycle
 propose: true
 templates: [marketing]
@@ -14,6 +14,9 @@ what: |
   owner review → publish → done) does TAM / SAM / SOM into market.md, later or
   again. Every channel's brief → draft checks brand.md and icp.md with `file_exists`,
   and the refusal gives the `issue-cli create --type foundation` command.
+  research moves on only with at least 5 distinct source links under ## Research
+  (`section_min_links`), and owner review → publish waits until the newest shelf
+  version is approved (`outputs_approved`), so the publish stamp and the shelf agree.
 why: |
   Without a settled brand and ICP every brief guesses who it is for and how it
   should sound. The foundation makes the owner settle them once, and the gate keeps
@@ -48,3 +51,5 @@ question: "Before channel work, should Marketing settle the brand and the ICP wi
 detect:
   - path: statuses[].name
     equals: icp
+  - path: transitions[].actions[].rule
+    rule_in: [outputs_approved]

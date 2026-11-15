@@ -26,6 +26,9 @@ type IssueView struct {
 	// Department is the key of the department the issue's workflow belongs
 	// to ("marketing"), "" for Product. Fills {{department}}.
 	Department string
+	// Closed is set on the issues Config.Children lists: the tracker's answer
+	// by the child's own workflow (IsClosedStatus).
+	Closed bool
 
 	// Frontmatter is keyed by the lower-case frontmatter field name.
 	// Use Frontmatter[k] for the value and ok-by-presence with HasKey.

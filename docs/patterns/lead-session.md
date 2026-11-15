@@ -58,19 +58,19 @@ When the lead files an issue (`issue-cli create --type <t>`, or `issue-cli set-t
 - `bugfix`: something that worked is broken. `tweak`: a small change the owner already decided. `epic`: tracking only.
 - `feature` otherwise.
 
-This repo's `leads.project` brief says the same in two lines.
+This repo's `leads.project_addendum` says the same in two lines.
 
 ### Brief
 
-The lead starts with the brief in `leads.project` of `workflow.yaml`. A workflow without it gets a built-in default, so every project has a lead without editing anything.
+The lead starts with a built-in brief, so every project has a lead without editing anything. What a project adds goes in `leads.project_addendum` of `workflow.yaml`, after the built-in brief:
 
 ```yaml
 leads:
-  project: |
-    You are the project lead of {{project}}. You run in {{lead}}. ...
+  project_addendum: |
+    - In this repo: designs live in docs/design/, and you review every diff.
 ```
 
-Placeholders: `{{project}}` and `{{lead}}`. `issue-cli` commands in the brief get `--project` injected, as in dispatch prompts. The CLI appends a fixed footer: the lead's role, what it may tick, its handoff note, and `issue-cli lead whoami`. An old `leads.epic` key still loads, does nothing, and `issue-cli process workflow` warns about it.
+Placeholders: `{{project}}` and `{{lead}}`. `issue-cli` commands in the brief get `--project` injected, as in dispatch prompts. The CLI appends a fixed footer: the lead's role, what it may tick, its handoff note, and `issue-cli lead whoami`. An old `leads.project` still replaces the built-in brief, and lint warns: a replaced brief misses every later change to it. An old `leads.epic` key still loads, does nothing, and `issue-cli process workflow` warns about it.
 
 ## Routing: who is my lead
 
@@ -88,7 +88,11 @@ The worker's dispatch prompt names its lead and its epic under `## Your lead`. `
 | `/p/<project>/lead` | The CEO chat: the lead's conversation, its open questions, what waits on you and the live workers |
 | `/p/<project>/agents` | The Crew page: the CEO, a column per department with its lead and workers, each agent's state and the stopped jobs. Pick an agent for its panel: Open in a terminal, the attach (switch with `terminal: none`) command, its gate's approve link at the station, its branch. The classic canvas is at `?classic=1` |
 
-Agents can also message each other with Claude Code's built-in messaging between sessions (`ListAgents` / `SendMessage`): Claude agents are launched with `-n <tmux name>`, so `lead-<project>` and `agent-<slug>` are their addresses, and the lead may message a worker this way. Workers don't message the lead or a peer unless the human, in the worker's own chat, gives permission or asks them to (owner, 2026-10-24: "they can only talk to lead after my permission or when i explicitly ask them"); they ask the human in their chat or post `question:` comments. Nothing in the tool gates or records these messages. `lead message` is the tmux-paste fallback for Codex only: `issue-cli` never pastes into a Claude session. Workers can't use it; they post `question:` comments, which their lead reads from the issue trail. A lead still reads everything without interrupting anyone:
+Agents can also message each other with Claude Code's built-in messaging between sessions (`ListAgents` / `SendMessage`): Claude agents are launched with `-n <tmux name>`, so `lead-<project>` and `agent-<slug>` are their addresses, and the lead may message a worker this way. Workers don't message the lead or a peer unless the human, in the worker's own chat, gives permission or asks them to (owner, 2026-10-24: "they can only talk to lead after my permission or when i explicitly ask them"); they ask the human in their chat or post `question:` comments. Nothing in the tool gates or records these messages. `lead message` is the tmux-paste fallback for Codex only: `issue-cli` never pastes into a Claude session. Workers can't use it; they post `question:` comments, which their lead reads from the issue trail.
+
+The other way, a lead adds scope after dispatch as a `lead:` comment (`issue-cli comment <slug> "lead: …"`). Such a comment reaches the worker at its next transition: `issue-cli transition` (and its `--dry-run`) prints every `lead:` comment posted since the issue's last move, first, under `== From the lead since your last move ==`, and `--json` carries them as `lead_comments`. With no move recorded yet it prints every one. A real transition then warns on each that has no reply after it; nothing refuses. A comment the worker must act on before its next step still needs a message.
+
+A lead still reads everything without interrupting anyone:
 
 | Channel | Command | Shows |
 |---|---|---|
@@ -133,16 +137,22 @@ With `workbench.release_candidates: true` (issue-viewer has it), a release goes 
 
 Workers that need a decision ask in chat: they message the lead (Claude Code's SendMessage, addressed by tmux name) with the options and their recommendation, say they're waiting, and stop. The lead brings questions to you **one at a time**, with the worker's recommendation and its own. It records your answer in your words with `issue-cli decide <slug> --text "…" --how "lead chat" --quote "…"`, which writes the `D-n` line under `## Decisions`, then messages the asker.
 
-The lead recalls decisions; it never invents them. It answers a worker only from what is recorded (the issue body and its `## Decisions`, comments, design docs, approvals) and cites the source (`D-2`, the comment, the doc path). When nothing recorded covers the question, it doesn't decide: it asks you and tells the worker to wait. Every lead brief carries these rules (`tracker.LeadRules`), whatever `leads.project` says.
+The lead recalls decisions; it never invents them. It answers a worker only from what is recorded (the issue body and its `## Decisions`, comments, design docs, approvals) and cites the source (`D-2`, the comment, the doc path). When nothing recorded covers the question, it doesn't decide: it asks you and tells the worker to wait. Every lead brief carries these rules (`tracker.LeadRules`), whatever the workflow adds.
+
+### Retro sweeps
+
+A sweep worker reads what's new (`issue-cli retro list`), proposes one issue per cause in its report and files nothing. You file the proposals. The owner still decides each post-mortem action on its page, and an issue never applies one. The sweep ends with `issue-cli retro archive --until <time>`; see [`retro`](../CLI/overview.md#retro), and `brief: builtin:retro-sweep` for the steps.
 
 ### Worker rules
 
 The dispatch prompt and the status prompts in `workflow.yaml` already tell workers these, but a short doc your `CLAUDE.md` points to helps sessions that weren't dispatched:
 
 - Own your issue only. New ideas become `idea` issues (`issue-cli create`), referenced with `#slug`. In a worker session, `start`, `claim` and `transition` on another slug fail ("you work on <own-slug> only; ask your lead").
-- Duplicates of your issue are the one exception. When the lead asks, a worker closes an issue that duplicates its own, or that its change fixes: `issue-cli close <dup> --duplicate-of <own-slug>` (or `--fixed-by <own-slug>`) parks it from any status in one step, sets `duplicate_of:` / `fixed_by:`, comments on both issues and leaves every checkbox alone. Any other worker is refused with the rule; the lead and the human close any issue. A worker may also file a child issue of its own when the lead asks; other new issues still need the human's ok.
+- Duplicates of your issue are the one exception. When the lead asks, a worker closes an issue that duplicates its own, or that its change fixes: `issue-cli close <dup> --duplicate-of <own-slug>` (or `--fixed-by <own-slug>`) parks it from any status in one step, sets `duplicate_of:` / `fixed_by:`, comments on both issues and leaves every checkbox alone. Any other worker is refused with the rule; the lead and the human close any issue. A worker may also file a child issue of its own when the lead asks; other new issues still need the human's ok, apart from a red on main (next rule).
+- A red already on main gets an issue. The first worker to see a failure that `issue-cli ci status` also shows on main files it (`issue-cli create`) or, when one is filed, names that issue in its `tests:` comment. It is not that worker's to fix, and a comment alone leaves the next worker to diagnose it again.
 - One task, then stop. When the issue reaches its last status, or a gate that waits on the human, stop: don't run `issue-cli next`, don't pick up another issue, don't start other agents.
 - Stop at human gates. Ask once in chat, then stop and end your turn; don't wait or poll. Continue when the human messages you that it is approved. A "go" in your chat is not an approval.
+- Proof that only the lead can run (a guided check script the worker guard refuses: `dispatch`, `lead spawn`): link the criterion to it with `issue-cli prove <slug> <AC> --lead "issue-cli check-script <slug> --yes"` and stop, without a `question:` comment. The lead's tick (`queue next`) lists it as "Waits on you", and the lead runs `issue-cli prove <slug> --lead-run` ([Proof that waits on the lead](../Workflow/proof.md#proof-that-waits-on-the-lead)).
 - Leave a trail: tick boxes as they're done, add `progress:` comments at milestones, and the comments your gates require (`tests:`, `docs:`, …).
 - Commit on your own branch as you go; only shipping merges.
 - Write a retrospective when you stop (`issue-cli retrospective`).
@@ -159,6 +169,36 @@ The dispatch prompt and the status prompts in `workflow.yaml` already tell worke
 ### Handoff and restarts
 
 The lead writes a handoff note before it exits: `sessions/YYYY-MM-DD-lead-<project>.md`. The note ends with a `## Next` section: the ordered next steps. The viewer's Status page (`/p/<project>/status`) shows that `## Next` list in its What's next tile, and its text form, `issue-cli status` (the viewer's `status.md`; `--json` for the data), is a ready-made stand-up to paste. Its lists are capped: each "+K more" line names the `issue-cli list` command that shows the rest. Its **Waiting for release** block tells the lead when the current milestone is ready to cut (or what blocks it), what is merged and not released, and what is not pushed. A new lead's brief names its newest note to read first, falling back to the older `sessions/*-lead-session.md`.
+
+### The nightly flush
+
+A lead session doesn't live for days. The `lead-flush` job ends it each night and the owner starts a fresh one in the morning. It is a recurring job on the Product entry of projects.yaml, with an `at:` after the day's work:
+
+```yaml
+departments:
+  - name: Product
+    jobs:
+      - id: lead-flush
+        name: Lead flush
+        every: day
+        at: "23:30"
+        brief: builtin:lead-flush
+```
+
+Nothing runs until the owner turns on its standing start (`issue-cli job auto on product/lead-flush --quote "<their words>"`). The lead's check-in then starts it from `job due`, or from `queue next --start`, which starts a due job on its standing start before any queue item. Starting a run takes the workflow's `chore` type ([Types of Work](../Workflow/types.md#the-chore-type)).
+
+It needs no `type:`: the brief asks for `chore`. The run's worker takes `issue-cli lead flush` step by step, each with `--run <its run>`:
+
+| Step | What it does |
+| --- | --- |
+| `pack` | Reads only: the previous note, the commands that show the state, and the last 24 hours of lead chat. The chat comes from the lead's Claude Code transcript, or its pane for a Codex lead, with tool calls left out |
+| `note --file <f>` | Writes `sessions/<date>-lead-<project>.md`. Refuses over 80 lines, without the sections State, Queue, Waiting on the owner, Rules in force, How to resume and Next, or with a secret |
+| `summary --file <f>` | Writes `sessions/<date>-lead-<project>.summary.md`, 30 lines at most, no secret |
+| `close` | Closes the lead's session. Refuses until both files exist and while the lead is in the middle of a turn; the worker tries twice more, ten minutes apart, then leaves it open and says so |
+
+`<date>` is the run's created day. Between `summary` and `close` the worker tidies memory from `issue-cli memory consolidate`. Proven memories are only named in its progress comment: the flush files nothing. It reads the lead scope (`memory list --scope lead`), which no other worker does, and changes none of it: the lead-scope memories that look stale go in its progress comment, and the next lead tidies them. A worker can take these steps only on its own run, and the flush starts, sends and decides nothing.
+
+`issue-cli lead spawn` puts the newest note and its summary into the CEO's first prompt under `## Where the last lead left off`, beside the memory pins the brief always carries. An older note over the cap is cut, with its path. Department leads keep the line naming their note.
 
 After a restart (tmux and the board gone, worktrees kept):
 

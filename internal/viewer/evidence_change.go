@@ -1,14 +1,13 @@
 package viewer
 
 import (
-	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/proof"
-	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -57,12 +56,12 @@ func loadEvidenceChange(root, ref, refName string, stats tracker.StatsStore) evC
 	if rng == nil {
 		return evChange{Unreadable: "No dispatch or transition recorded: the merged branch's own commits can't be told apart."}
 	}
-	args := append([]string{"-C", root, "log", "--first-parent", "--numstat", "--format=%x1e%H%x1f%P%x1f%ct%x1f%s"}, rng...)
-	out, err := exec.Command("git", args...).Output()
+	args := append([]string{"log", "--first-parent", "--numstat", "--format=%x1e%H%x1f%P%x1f%ct%x1f%s"}, rng...)
+	out, err := tracker.GitCached(root, args...)
 	if err != nil {
 		return evChange{Unreadable: "git log on " + refName + ": " + err.Error()}
 	}
-	c := parseEvidenceChange(string(out))
+	c := parseEvidenceChange(out)
 	c.Range = refName
 	return c
 }
@@ -89,7 +88,7 @@ func parseEvidenceChange(out string) evChange {
 			continue
 		}
 		at, _ := strconv.ParseInt(f[2], 10, 64)
-		cm := evCommit{SHA: timeline.ShortSHA(f[0]), Subject: f[3], At: time.Unix(at, 0)}
+		cm := evCommit{SHA: gitdir.ShortSHA(f[0]), Subject: f[3], At: time.Unix(at, 0)}
 		for _, line := range strings.Split(body, "\n") {
 			parts := strings.SplitN(strings.TrimSpace(line), "\t", 3)
 			if len(parts) < 3 {

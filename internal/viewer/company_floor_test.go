@@ -147,7 +147,7 @@ func TestCompanyFloorWaitingCount(t *testing.T) {
 		t.Fatal("the scenario waits on the owner for nothing")
 	}
 	page := pageGet(t, url+"/p/acme/company")
-	assertContains(t, page, fmt.Sprintf("Waiting on you · %d</h2>", ny.Count), fmt.Sprintf("</span>%d waiting on you", ny.Count))
+	assertContains(t, page, fmt.Sprintf("Waiting on you · %d</h2>", ny.Count), fmt.Sprintf("</span>%d<span class=\"wb-you-words\"> waiting on you</span>", ny.Count))
 	if ny.Count > floorWaitRows {
 		assertContains(t, page, fmt.Sprintf("%d more: see all and approve", ny.Count-floorWaitRows))
 	}
@@ -445,4 +445,56 @@ func TestCompanyFloorChatIsOneClick(t *testing.T) {
 	defer done2()
 	long := pageGet(t, url2+"/p/acme/company")
 	assertContains(t, long, `href="/p/acme/lead?dept=research" draggable="false" data-testid="floor.dept.chat"`)
+}
+
+// TestFloorListHasEveryRoom: the floor on a phone (wb/fl-list) has one row
+// per room, HQ and Product first, each with its open count, a name that
+// opens its inspector, and the chat (Product: its hall); a group's
+// departments sit one level deeper than the group.
+func TestFloorListHasEveryRoom(t *testing.T) {
+	for _, sc := range []string{"nested-groups", "company-floor-long", "hq-report"} {
+		t.Run(sc, func(t *testing.T) {
+			url, proj, done := floorServer(t, sc)
+			defer done()
+			page := pageGet(t, url+"/p/acme/company")
+			list := section(page, `data-testid="floor.list"`, `</ul>`)
+			row := regexp.MustCompile(`<li class="wb-fl-lrow" style="--lrow:[^;]*;--depth:(\d+)" data-box="([^"]+)"`)
+			rows := row.FindAllStringSubmatch(list, -1)
+			want := 2 + len(proj.Departments)
+			if len(rows) != want {
+				t.Fatalf("%d rows, want %d (HQ, Product, %d departments)", len(rows), want, len(proj.Departments))
+			}
+			if rows[0][2] != "hq" || rows[1][2] != "product" {
+				t.Errorf("first rows %s, %s; want hq, product", rows[0][2], rows[1][2])
+			}
+			depth := map[string]string{}
+			for _, m := range rows {
+				depth[m[2]] = m[1]
+				if !strings.Contains(list, `href="#room-`+m[2]+`" data-pick="`+m[2]+`" data-testid="floor.list.name"`) {
+					t.Errorf("%s: its name doesn't open its inspector", m[2])
+				}
+			}
+			if n := strings.Count(list, `data-testid="floor.list.counts"><b>`); n != want {
+				t.Errorf("%d rows with an open count, want %d", n, want)
+			}
+			if n := strings.Count(list, `data-testid="floor.list.go"`); n != want {
+				t.Errorf("%d rows with a button, want %d", n, want)
+			}
+			if !strings.Contains(list, `href="/p/acme/hall" data-testid="floor.list.go">Hall</a>`) {
+				t.Error("Product's button is not its hall")
+			}
+			for _, d := range proj.Departments {
+				key := tracker.DepartmentKey(d.Name)
+				if _, ok := depth[key]; !ok {
+					t.Errorf("%s has no row", d.Name)
+				}
+				if p := d.Parent; p != "" {
+					pd, kd := depth[tracker.DepartmentKey(p)], depth[key]
+					if pd == "" || kd <= pd {
+						t.Errorf("%s (depth %s) is not under %s (depth %s)", d.Name, kd, p, pd)
+					}
+				}
+			}
+		})
+	}
 }

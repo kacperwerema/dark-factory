@@ -24,7 +24,7 @@ steps:
       - count: { pattern: health.lint.row, equals: 3 }
       - text_contains: { target: health.lint.list, text: 'schema workflow.yaml:23 unknown key "colums" in board' }
       - text_contains: { target: health.lint.list, text: 'did you mean "columns"?' }
-      - text_contains: { target: health.lint.list, text: "statuses[in design].prompt is not templated, so {{slug}} reaches the agent as written" }
+      - text_contains: { target: health.lint.list, text: "statuses[drafting].prompt is not templated, so {{slug}} reaches the agent as written" }
       - text_contains: { target: health.lint.list, text: "undated cli/voice-directions" }
       - text_equals: { target: health.lint.cmd, text: issue-cli --project lintdemo health lint }
       # The lint score component counts them: 3 warnings between good 0 and bad 20.

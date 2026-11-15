@@ -3,7 +3,8 @@
 // comments (an answer, send back for fixes), check-script, agents/open,
 // dispatch/reprompt and edit-in-nvim; and, taken over from the classic page,
 // the issue update (title, fields, status after the transition preview,
-// body), type, delete, dispatch, custom actions and checkbox.
+// body), type, delete, dispatch, custom actions and checkbox; and the
+// partner's stage awaiting you (…/partner: Approve or Send back).
 (function () {
   function post(url, body) {
     return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
@@ -16,7 +17,7 @@
       });
   }
   function say(el, text) {
-    var box = el.closest('form, .wb-step, .wb-st-confirm, .wb-sagent, .wb-bodyidx, .wb-fields, .wb-panel');
+    var box = el.closest('form, .wb-step, .wb-st-confirm, .wb-st-titlerow, .wb-sagent, .wb-bodyidx, .wb-fields, .wb-panel');
     var msg = box && box.querySelector('.wb-site-msg');
     if (msg) msg.textContent = text;
   }
@@ -24,6 +25,27 @@
     var bad = (body.steps || []).filter(function (s) { return s.status === 'error'; })[0];
     return bad ? bad.name + (bad.detail ? ': ' + bad.detail : '') : (body.error || body.message || 'unknown error');
   }
+
+  // The partner's stage awaiting you: Approve or Send back (your words
+  // needed), each a D-n on the issue; the worker is told.
+  document.querySelectorAll('[data-partner-answer]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var act = (e.submitter && e.submitter.value) || 'approve';
+      var words = form.querySelector('[data-partner-words]').value.trim();
+      if (act === 'send-back' && !words) { say(form, 'Say what to revise first: your words reach the agent.'); return; }
+      var buttons = form.querySelectorAll('button');
+      buttons.forEach(function (b) { b.disabled = true; });
+      post(form.getAttribute('data-partner-answer'), { action: act, stage: form.getAttribute('data-stage'), words: words }).then(function (res) {
+        if (!res.ok) { buttons.forEach(function (b) { b.disabled = false; }); say(form, (act === 'approve' ? 'Not approved: ' : 'Not sent back: ') + (res.body.error || 'unknown error')); return; }
+        var d = res.body;
+        var what = (act === 'approve' ? 'Approved ' : 'Sent back ') + d.stage + ' as ' + d.decision;
+        what += d.notified_session ? '. Told ' + d.notified_session : ', ' + d.notification_error;
+        say(form, what + '.');
+        setTimeout(function () { location.reload(); }, 1500);
+      }).catch(function (err) { buttons.forEach(function (b) { b.disabled = false; }); say(form, 'Not sent: ' + err); });
+    });
+  });
 
   // The clarify round: every question's picked option and words, posted
   // together; each answer is recorded on its own and the reply says which.

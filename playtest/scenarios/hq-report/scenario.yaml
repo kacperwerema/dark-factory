@@ -8,7 +8,8 @@
 # report is under tracker/.reports/gtm/. The viewer's health watcher takes
 # today's snapshot at start (the departments family's on-track rows);
 # transcripts give this week's spend (no prices: "cost unknown"), and
-# Marketing has a token budget.
+# Marketing has a token budget. docs/ holds one page (the docs reader) and
+# files/out/case-study.md a markdown output a session adds (the output reader).
 title: HQ, GTM over Marketing and Sales, and Factory, in one report
 project:
   name: Acme
@@ -48,6 +49,7 @@ project:
           - {id: sites, name: Sites live, target: 5}
 issues: tracker
 workflow: workflow.yaml
+docs: docs
 root: files
 transcripts:
   - cwd: .worktrees/seo/case-study-pages

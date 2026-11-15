@@ -21,6 +21,8 @@
 
   // Fit is never clamped: the whole plan always fits the view.
   function fit() {
+    // At phone width the plan is hidden and the list shows (workshop.css).
+    if (!view.clientWidth) return;
     var s = Math.min(view.clientWidth / PW, view.clientHeight / PH);
     plan.style.transform = 'scale(' + s + ')';
     view.dataset.scale = s.toFixed(3);
@@ -66,7 +68,14 @@
   }
   document.addEventListener('click', function (e) {
     var a = e.target.closest('[data-pick]');
-    if (a) { e.preventDefault(); pick(a.dataset.pick); document.querySelector('.wb-fl-rail-body').scrollTop = 0; return; }
+    if (a) {
+      e.preventDefault();
+      var got = pick(a.dataset.pick);
+      document.querySelector('.wb-fl-rail-body').scrollTop = 0;
+      // From the phone's list the rail is below: bring the room into view.
+      if (got && a.closest('.wb-fl-list')) got.scrollIntoView({ block: 'start' });
+      return;
+    }
     var tb = e.target.closest('[data-tab], [data-tab-go]');
     if (tb) { e.preventDefault(); tab(tb.dataset.tab || tb.dataset.tabGo); }
   });

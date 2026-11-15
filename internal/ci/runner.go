@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -170,7 +171,7 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 	}
 	defer logFile.Close()
 	out := io.MultiWriter(logFile, opts.Out)
-	fmt.Fprintf(out, "== local CI: %s at %s (%s), tier %s, %s ==\n", branch, Short(sha), run.Subject, tier, run.Started.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(out, "== local CI: %s at %s (%s), tier %s, %s ==\n", branch, gitdir.ShortSHA(sha), run.Subject, tier, run.Started.Format("2006-01-02 15:04:05"))
 
 	dir, err := prepareWorktree(root, sha)
 	if err != nil {
@@ -215,7 +216,7 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 	if run.Failed != "" {
 		verdict += ": " + run.Failed
 	}
-	fmt.Fprintf(out, "\n== local CI %s at %s in %s ==\n", verdict, Short(sha), run.Finished.Sub(run.Started).Round(time.Second))
+	fmt.Fprintf(out, "\n== local CI %s at %s in %s ==\n", verdict, gitdir.ShortSHA(sha), run.Finished.Sub(run.Started).Round(time.Second))
 	logFile.Sync()
 	run.LogTail = tail(logPath, tailLines)
 	return run

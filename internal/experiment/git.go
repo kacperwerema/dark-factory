@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // Trailer is the commit trailer an adopted experiment's commits carry.
@@ -120,9 +122,9 @@ func PrepareRevert(repo, ref, slug string, shas []string) (string, error) {
 		}
 		if _, err := git(wt, append(args, sha)...); err != nil {
 			git(wt, "revert", "--abort") //nolint:errcheck
-			return fail(fmt.Errorf("revert of %s does not apply cleanly on %s: %w", short(sha), ref, err))
+			return fail(fmt.Errorf("revert of %s does not apply cleanly on %s: %w", gitdir.ShortSHA(sha), ref, err))
 		}
-		listed = append(listed, short(sha))
+		listed = append(listed, gitdir.ShortSHA(sha))
 	}
 	msg := fmt.Sprintf("revert(experiment): roll back %s\n\nReverts %s.\n\nCatalog: n/a experiment rollback", slug, strings.Join(listed, ", "))
 	if _, err := git(wt, "commit", "-q", "-m", msg); err != nil {
@@ -130,11 +132,4 @@ func PrepareRevert(repo, ref, slug string, shas []string) (string, error) {
 	}
 	git(repo, "worktree", "remove", "--force", wt) //nolint:errcheck // the branch is made either way
 	return branch, nil
-}
-
-func short(sha string) string {
-	if len(sha) > 9 {
-		return sha[:9]
-	}
-	return sha
 }

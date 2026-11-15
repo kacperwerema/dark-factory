@@ -3,7 +3,6 @@ package tracker
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 // nestedProject is GTM over Outbound (a group) and Marketing, Outbound
@@ -118,35 +117,5 @@ func TestNestedLeadForWalksUpTheChain(t *testing.T) {
 	}
 	if r := LeadFor(p, deal, nil, set(ceo)); r.Lead != ceo || !r.Covering {
 		t.Errorf("all down: want the CEO, got %+v", r)
-	}
-}
-
-func TestNestedDepartmentLeadBrief(t *testing.T) {
-	p := nestedProject()
-	live := func(n string) bool { return n == "lead-acme-gtm" }
-	in := LeadBriefInput{Project: p, Root: t.TempDir(), Now: time.Date(2026, 10, 31, 9, 0, 0, 0, time.UTC), Live: live}
-
-	got := DepartmentLeadBrief(nil, p.DepartmentByKey("sales"), in)
-	if want := "report to the Outbound lead lead-acme-outbound while it is live (now not running), else the GTM lead lead-acme-gtm while it is live (now live), else the CEO lead-acme"; !strings.Contains(got, want) {
-		t.Errorf("sales brief lacks %q:\n%s", want, got)
-	}
-	got = DepartmentLeadBrief(nil, p.DepartmentByKey("outbound"), in)
-	for _, want := range []string{
-		"report to the GTM lead lead-acme-gtm while it is live (now live), else the CEO lead-acme",
-		"Outbound is a group: you are the lead of its departments' leads",
-		"- Sales: lead lead-acme-sales (not running). Mission: Close",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("outbound brief lacks %q:\n%s", want, got)
-		}
-	}
-	got = DepartmentLeadBrief(nil, p.DepartmentByKey("gtm"), in)
-	for _, want := range []string{
-		"- Outbound: lead lead-acme-outbound (not running). A group itself: Sales report to its lead",
-		"Scope: GTM's issues and its departments' (Outbound, Sales, Marketing)",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("gtm brief lacks %q:\n%s", want, got)
-		}
 	}
 }

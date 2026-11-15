@@ -211,7 +211,10 @@ func TestStatsWbComponentsStandAlone(t *testing.T) {
 		{"wb/gauge", WbGauge{Key: "k", Title: "T", Locked: true, Need: "Comes later.", URL: "/p/x/issue/y"}, []string{"wb-gauge--locked", "Comes later.", `href="/p/x/issue/y"`}},
 		{"wb/gauge", WbGauge{Key: "k", Title: "T", Href: "/h", Value: "3", Context: "over 500 lines", Verdict: "Over limit", Over: true}, []string{`<a href="/h">T</a>`, "wb-chip--red", "Over limit"}},
 		{"wb/data-table", WbTable{RowHead: true, Head: []WbTH{{Text: "A"}, {Text: "B", Num: true}}, Rows: [][]WbCell{{{Text: "r"}, {Text: "2", Num: true}}, {{Text: "s", URL: "/s"}, {Text: "c", Code: true}}}},
-			[]string{`<th scope="row">r</th>`, `<td class="wb-num">2</td>`, `<a href="/s">s</a>`, "<code>c</code>"}},
+			[]string{`<th scope="row">r</th>`, `<td class="wb-num" data-label="B">2</td>`, `<a href="/s">s</a>`, "<code>c</code>", "wb-table--stack"}},
+		// A row with more cells than the head renders the extra cell with an empty label.
+		{"wb/data-table", WbTable{Head: []WbTH{{Text: "A"}}, Rows: [][]WbCell{{{Text: "x"}, {Text: "y"}}}},
+			[]string{`<td data-label="A">x</td>`, `<td data-label="">y</td>`}},
 		{"wb/table-card", WbTable{Key: "k", Title: "T", Empty: &WbEmpty{Text: "None."}}, []string{`data-testid="stats.table_card.k"`, "None."}},
 		{"wb/fold", WbFold{Key: "f", Title: "Folded", Open: true, Tables: []WbTable{{Key: "a", Title: "A", Empty: &WbEmpty{Text: "None."}}}}, []string{"<details class=\"wb-fold\" open", "<summary>Folded</summary>", "stats.table_card.a"}},
 		{"wb/see-also", WbSeeAlso{Key: "k", Title: "T", Text: "There.", URL: "/h", Link: "Open"}, []string{`data-testid="stats.see_also.k"`, `href="/h">Open ›`}},

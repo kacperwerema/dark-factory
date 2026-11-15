@@ -23,7 +23,7 @@ func dashboardFor(t *testing.T, proj *tracker.Project, query string, snaps []*he
 	q, _ := url.ParseQuery(query)
 	opts := parseStatsOpts(q)
 	wf := proj.LoadWorkflow()
-	wide, _ := newStatsCache().aggregate(proj, wf, issues, opts.window(), now, nil)
+	wide := newStatsCache().aggregate(proj, wf, issues, opts.window(), now, nil).Rep
 	return buildDashboard(dashIn{Proj: proj, Base: "/p/" + proj.Slug + "/stats", Prefix: "/p/" + proj.Slug, WF: wf, Issues: issues, Opts: opts, Now: now, Wide: wide, Snaps: snaps})
 }
 
@@ -45,7 +45,7 @@ func TestDashboardMatchesTimelineTab(t *testing.T) {
 		t.Fatal("no fix-it issue")
 	}
 	wf := proj.LoadWorkflow()
-	tab := buildTimeline(loadTimelineSources(&proj, fix, wf), timelineInput{Status: "done", Now: now, WF: wf})
+	tab := buildTimeline(loadTimelineSources(nil, &proj, fix, wf), timelineInput{Status: "done", Now: now, WF: wf})
 	if !tab.Known || tab.Waiting == 0 || tab.Working == 0 {
 		t.Fatalf("tab = known %v working %v waiting %v", tab.Known, tab.Working, tab.Waiting)
 	}

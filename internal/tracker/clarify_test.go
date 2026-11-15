@@ -2,6 +2,8 @@ package tracker
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,7 +200,7 @@ func TestAnswerQuestion_RecordsLineAndDecision(t *testing.T) {
 
 func TestAssumeOpen_MarksOnlyOpenQuestions(t *testing.T) {
 	fp := writeDecisionIssue(t, "## Clarify\n\n### Q1. A?\n1. **x** (recommended) Cost: 1.\n2. **y** Cost: 2.\n**Answer:** —\n\n### Q2. B?\n1. **x** (recommended) Cost: 1.\n2. **y** Cost: 2.\n\n### Q3. C?\n1. **x** (recommended) Cost: 1.\n2. **y** Cost: 2.\n**Answer:** assumed — earlier\n\n## Design\nText.")
-	got, err := AssumeOpen(fp, "", "")
+	got, err := AssumeOpen(fp, "f/x", AssumeInput{}, time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local))
 	if err != nil || len(got) != 2 || got[0].ID != "Q1" || got[1].ID != "Q2" {
 		t.Fatalf("assumed = %+v, %v", got, err)
 	}
@@ -206,7 +208,58 @@ func TestAssumeOpen_MarksOnlyOpenQuestions(t *testing.T) {
 	if len(c.Open()) != 0 || len(c.Assumed()) != 3 || c.Questions[0].Answer.Reason != DefaultAssumedReason || c.Questions[2].Answer.Reason != "earlier" || len(c.Problems) != 0 {
 		t.Fatalf("after = %+v %q\n%s", c.Questions, c.Problems, readBody(t, fp))
 	}
-	if got, err := AssumeOpen(fp, "", ""); err != nil || len(got) != 0 {
+	before := readBody(t, fp)
+	if got, err := AssumeOpen(fp, "f/x", AssumeInput{}, time.Now()); err != nil || len(got) != 0 || readBody(t, fp) != before {
 		t.Fatalf("second run = %+v, %v", got, err)
+	}
+}
+
+// Each assumed answer is also a provisional D-n naming its question, and the
+// answer line names that D-n, so the choice is recorded once. The owner's
+// later answer replaces it.
+func TestAssumeOpenRecordsProvisionalDecisions(t *testing.T) {
+	fp := writeDecisionIssue(t, "## Clarify\n\n### Q1. Where does it go?\n1. **Row** (recommended) Cost: 2.\n2. **Station** Cost: 1.\n**Answer:** —\n\n### Q2. Keep the old lines?\n1. **Keep them** (recommended) Cost: 0.\n2. **Drop them** Cost: 1.\n**Answer:** —\n\n## Decisions\n\n- **D-1** · 2026-10-30 · chat: Earlier, \"yes\"")
+	dir := filepath.Dir(fp)
+	now := time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local)
+	got, err := AssumeOpen(fp, "f/x", AssumeInput{Reason: "YOLO: took the recommendation", Log: DecisionWrite{IssueDir: dir, Actor: DecisionActor{Name: "agent-x", Role: "worker"}}}, now)
+	if err != nil || len(got) != 2 || got[0].Answer.Decision != "D-2" || got[1].Answer.Decision != "D-3" {
+		t.Fatalf("assumed = %+v, %v", got, err)
+	}
+	body := readBody(t, fp)
+	for _, want := range []string{
+		"**Answer:** assumed — YOLO: took the recommendation (D-2)",
+		"**Answer:** assumed — YOLO: took the recommendation (D-3)",
+		"- **D-2** · 2026-10-31 · clarify round, provisional: Q1 Where does it go → Row",
+		"- **D-3** · 2026-10-31 · clarify round, provisional: Q2 Keep the old lines → Keep them",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, body)
+		}
+	}
+	c := ParseClarify(body)
+	if a := c.Questions[0].Answer; a.State != AnswerAssumed || a.Decision != "D-2" || a.Reason != "YOLO: took the recommendation" || len(c.Problems) != 0 {
+		t.Fatalf("parsed Q1 answer = %+v, problems %q", a, c.Problems)
+	}
+	ds := ParseDecisions("f/x", body)
+	if len(ds) != 3 {
+		t.Fatalf("decisions = %+v", ds)
+	}
+	for i, q := range []string{"Q1", "Q2"} {
+		if d := ds[i+1]; !IsProvisional(d) || !strings.HasPrefix(d.Text, q+" ") {
+			t.Fatalf("%s decision = %+v", q, d)
+		}
+	}
+	log, err := os.ReadFile(DecisionLogPath(dir))
+	if err != nil || strings.Count(string(log), `"ref":"f/x#D-2"`) != 2 || strings.Count(string(log), `"ref":"f/x#D-3"`) != 2 {
+		t.Fatalf("log (pending and done per D-n) = %s, %v", log, err)
+	}
+
+	// The owner answers Q1 the other way: D-4 replaces the provisional D-2.
+	q, d, err := AnswerQuestion(fp, "f/x", AnswerInput{ID: "Q1", Option: 2, Words: "On the Station"}, now)
+	if err != nil || q.Answer.Decision != "D-4" || len(d.Replaces) != 1 || d.Replaces[0] != "f/x#D-2" {
+		t.Fatalf("owner answer = %+v, %+v, %v", q, d, err)
+	}
+	if !strings.Contains(readBody(t, fp), `clarify round: Q1 Where does it go → Station, "On the Station" (replaces f/x#D-2)`) {
+		t.Fatalf("body:\n%s", readBody(t, fp))
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -118,6 +119,9 @@ type BranchState struct {
 // gitBranchState reads branch (else the checked-out one) and its upstream in
 // one for-each-ref call. A var so tests don't run git.
 var gitBranchState = func(root, branch string) (BranchState, bool) {
+	if gitdir.Outside(root) {
+		return BranchState{}, false
+	}
 	out, err := exec.Command("git", "-C", root, "for-each-ref",
 		"--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(objectname)%00%(committerdate:unix)",
 		"refs/heads").Output()
@@ -328,12 +332,12 @@ func ciCheck(st *ci.State, branch, head string) ReleaseCheck {
 		if st.Branch != "" {
 			branch = st.Branch
 		}
-		c.Detail = fmt.Sprintf("%s red since %s: %s", branch, ci.Short(st.RedSince), st.Failed)
+		c.Detail = fmt.Sprintf("%s red since %s: %s", branch, gitdir.ShortSHA(st.RedSince), st.Failed)
 	case st.State == ci.Green && (head == "" || sameSha(head, st.GreenSha)):
-		c.OK, c.Meta = true, ci.Short(st.GreenSha)
+		c.OK, c.Meta = true, gitdir.ShortSHA(st.GreenSha)
 	case st.State == ci.Green:
 		c.Meta = "untested"
-		c.Detail = fmt.Sprintf("head %s not tested yet (green at %s)", ci.Short(head), ci.Short(st.GreenSha))
+		c.Detail = fmt.Sprintf("head %s not tested yet (green at %s)", gitdir.ShortSHA(head), gitdir.ShortSHA(st.GreenSha))
 	default:
 		c.Meta = "error"
 		c.Detail = "CI can't run: " + strings.SplitN(st.Error, "\n", 2)[0]

@@ -13,6 +13,11 @@ func init() {
 		list, _ := Load(p)
 		return GateError(list, issue.Slug, kind)
 	})
+	tracker.SetOutputsApprovedChecker(func(w *tracker.WorkflowConfig, issue *tracker.Issue, kind string) error {
+		p := &tracker.Project{IssueDir: w.IssuesRoot, WorkDir: w.ProjectRoot}
+		list, _ := Load(p)
+		return ApprovedError(list, issue.Slug, kind)
+	})
 }
 
 // GateError is the has_output check: nil when the shelf has an output for
@@ -51,4 +56,40 @@ func GateError(list []*Output, slug, kind string) error {
 		msg += fmt.Sprintf(" (%s: its file is gone)", strings.Join(gone, ", "))
 	}
 	return fmt.Errorf("%s — put %s there:\n\n  %s", msg, what, add)
+}
+
+// ApprovedError is the outputs_approved check: nil when the shelf has an
+// output for slug (of kind, when kind is set) that the owner approved or that
+// is published, and none still in review. A revision (output revise) puts an
+// output back in review, so the check waits for the newest version's
+// approval, not an older one's. Rejected outputs don't count either way.
+func ApprovedError(list []*Output, slug, kind string) error {
+	var inReview []string
+	approved := false
+	found := false
+	for _, o := range Select(list, Filter{Issue: slug}) {
+		if kind != "" && !strings.EqualFold(strings.TrimSpace(o.Kind), kind) {
+			continue
+		}
+		found = true
+		switch o.State {
+		case StateReview:
+			inReview = append(inReview, fmt.Sprintf("%s v%d", o.ID, o.Version()))
+		case StateApproved, StatePublished:
+			approved = true
+		}
+	}
+	what := "output"
+	if kind != "" {
+		what = kind
+	}
+	switch {
+	case len(inReview) > 0:
+		return fmt.Errorf("%s still in review on the shelf for %s — the owner approves the newest version first (the shelf page's Approve, or issue-cli output review <id> approve --quote \"<the owner's words>\")", strings.Join(inReview, ", "), slug)
+	case !found:
+		return GateError(list, slug, kind)
+	case !approved:
+		return fmt.Errorf("no approved %s on the shelf for %s: every one is rejected — add a new one that answers the review (issue-cli output add --issue %s ...)", what, slug, slug)
+	}
+	return nil
 }

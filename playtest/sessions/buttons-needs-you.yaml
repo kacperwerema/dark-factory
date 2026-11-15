@@ -1,0 +1,24 @@
+session: buttons-needs-you
+issue: ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded
+title: "Needs you: each row shows its primary and ⋯; Review or Open and Chat are under it"
+scenario: needs-you
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP6
+    title: Needs you shows 11 actions (Approve selected, then the primary and ⋯ on each row); the row's ⋯ opens Review and Chat
+    proves: [AC1, AC2, AC3]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - check: { buttons: { max: 11 } }
+      - check: { visible: [needs_you.approve, needs_you.row.menu] }
+      - check: { hidden: [needs_you.open, needs_you.chat] }
+      - click: needs_you.row.menu
+    checks:
+      - visible: [needs_you.open, needs_you.chat]
+      - size: { target: needs_you.open, min_height: 40 }

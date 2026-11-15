@@ -88,3 +88,32 @@ func TestFileExists_NeedsPathAndRoot(t *testing.T) {
 		t.Errorf("want no-root error, got %v", err)
 	}
 }
+
+// A path starting with <issues>/ is a work file: read from the issues
+// folder, not the project root (a job's metrics file, written from a
+// worktree with issue-cli goal write).
+func TestFileExists_IssuesPrefixReadsTheIssuesFolder(t *testing.T) {
+	root, issues := t.TempDir(), t.TempDir()
+	issue := sampleIssue()
+	issue.Department = "sales"
+	a := Action{Rule: "file_exists", Path: "<issues>/.goals/{{department}}/weekly-funnel.json"}
+	cfg := Config{ProjectRoot: root, IssuesRoot: issues}
+	writeFile(t, root, ".goals/sales/weekly-funnel.json", `{"date":"2026-10-26"}`)
+	err := FileExists(a, issue, cfg)
+	if err == nil || !strings.Contains(err.Error(), "<issues>/.goals/sales/weekly-funnel.json is missing") {
+		t.Fatalf("a file under the project root passed an <issues>/ gate: %v", err)
+	}
+	writeFile(t, issues, ".goals/sales/weekly-funnel.json", `{"date":"2026-10-26"}`)
+	if err := FileExists(a, issue, cfg); err != nil {
+		t.Fatalf("expected pass, got %v", err)
+	}
+	for _, bad := range []string{"<issues>/../x.json", "<issues>/"} {
+		err := FileExists(Action{Rule: "file_exists", Path: bad}, issue, cfg)
+		if err == nil || !strings.Contains(err.Error(), "must stay inside the issues folder") {
+			t.Errorf("%s: %v", bad, err)
+		}
+	}
+	if err := FileExists(a, issue, Config{ProjectRoot: root}); err == nil || !strings.Contains(err.Error(), "no issues folder") {
+		t.Errorf("no issues root: %v", err)
+	}
+}

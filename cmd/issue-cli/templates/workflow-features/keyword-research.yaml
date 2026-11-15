@@ -1,0 +1,55 @@
+id: keyword-research
+version: v0.61.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [brand-foundation]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/role.md"]
+title: "Keyword research for positioning (research mode)"
+what: |
+  A `keyword-research` type (research → shortlist → owner review → publish → done)
+  that asks which words the ICP searches with, which of them the department can own
+  and which to leave, and what positioning line they support. research uses free
+  data first (Search Console through the `openseo` connector when it is on,
+  autocomplete and related searches, competitors' pages, forums and reviews); paid
+  volume only through `openseo` with its Keychain-held key. shortlist writes
+  `## Keywords` (clusters with intent, a difficulty guess, our fit: own, contest or
+  leave, and sources) and `## Positioning` (one statement and the clusters it rests
+  on), and puts the draft on the shelf (`has_output: report`). owner review →
+  publish is `owner_only` and waits for the newest shelf version (`outputs_approved:
+  report`); publish writes departments/<key>/keywords.md, and publish → done checks it
+  with `file_exists`. It gates nothing: the channels' brief prompts read keywords.md
+  where it exists. An eval `keyword-research` scores its runs.
+why: |
+  The brand foundation settles who the brand is for, not the words they search
+  with. Without a settled keyword set every SEO brief picks its own targets, and
+  nothing says which terms to leave to bigger players or what positioning line the
+  words support.
+where: "status shortlist (and board.columns) after market size; the keyword-research type with its edges; the keyword-research eval; a keywords.md line in the brief prompts"
+snippet: |
+  statuses:
+    - name: "shortlist"
+      description: "Keyword clusters by intent, what we can own, and a positioning line"
+  types:
+    keyword-research:
+      path: [research, shortlist, owner review, publish, done]
+      transitions:
+        - from: "shortlist"
+          to: "owner review"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Keywords"
+            - type: "validate"
+              rule: "has_output: report"
+        - from: "publish"
+          to: "done"
+          actions:
+            - type: "validate"
+              rule: "file_exists"
+              path: "departments/{{department}}/keywords.md"
+  # The full prompts and edges are in the bundled marketing template
+  # (docs/departments.md, "Keyword research for positioning").
+question: "Should Marketing research the words your ICP searches with and propose a positioning line for you to settle? Which business or product should the first run cover?"
+detect:
+  - path: statuses[].name
+    equals: shortlist

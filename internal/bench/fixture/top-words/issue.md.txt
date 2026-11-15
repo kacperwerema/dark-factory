@@ -1,0 +1,16 @@
+People want the most used words of a text, not the whole count map: "show me the top 10 words".
+
+## Design
+
+- `TopWords(text string, n int) []WordCount` in a new `topwords.go`, built on `Count`.
+- `WordCount{Word string; Count int}`.
+- Order: count descending, then the word ascending, so the result is the same on every run (map order is random).
+- `n <= 0` returns nil; `n` over the number of distinct words returns all of them.
+- README: one line for `TopWords` under the list of functions.
+
+## Acceptance Criteria
+
+- [x] `TopWords` returns the n most frequent words, most frequent first.
+- [x] Ties are in alphabetical order.
+- [x] n of 0 or less gives none, n over the words gives all.
+- [x] The README documents `TopWords`.

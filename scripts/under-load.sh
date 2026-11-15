@@ -32,7 +32,7 @@ if [ $# -eq 0 ]; then
 fi
 
 used_pct() {
-	mem-guard status 2>/dev/null | sed -n 's/^memory used: \([0-9]*\)%.*/\1/p'
+	mem-guard used 2>/dev/null
 }
 
 if command -v mem-guard >/dev/null 2>&1; then

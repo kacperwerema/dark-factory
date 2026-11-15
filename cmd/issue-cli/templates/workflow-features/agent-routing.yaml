@@ -1,5 +1,5 @@
 id: agent-routing
-version: v0.59.0
+version: v0.61.0
 category: dispatch
 propose: true
 sources: ["internal/tracker/routing.go", "internal/routing/**", "internal/agentrun/route.go", "internal/lint/routing.go"]
@@ -11,8 +11,13 @@ what: |
   a CLI shows its usage-limit message in a live pane ("You've hit your 5-hour limit ·
   resets 5pm", "You’ve hit your usage limit … try again at 6:30 PM"), that subscription
   rests until the reset and new starts take the next agent in `fallback:`; auto-start holds
-  when none is free. A running worker is left alone and shown on the Crew page. `--agent`
+  when none is free. `stop_at:` rests an agent the same way at a percent of its weekly
+  limit (default 98), read from the usage line its CLI prints. A running worker is left
+  alone and shown on the Crew page. `--agent`
   still wins. No keys, accounts or logins: only which installed CLI starts next.
+  An optional `codex:` block says how a Codex start may run: `writable:` adds the issue
+  folder or the git dirs to its sandbox, `approval:` picks who answers its requests
+  (`ask`, `auto-review`, `never`). Unset, a start is unchanged.
 why: |
   With two subscriptions, docs and reports can go to one and design to the other, and a
   usage limit on one no longer stalls every new start until someone notices.
@@ -26,5 +31,8 @@ snippet: |
       - {type: docs, agent: codex}
       - {label: design, agent: claude}
       - {lead: true, agent: claude}
+    # codex:                    # how a Codex start may run; each option's risk: docs/agent-dispatch.md
+    #   writable: [issues, git]
+    #   approval: ask           # ask | auto-review | never
 detect:
   - path: routing

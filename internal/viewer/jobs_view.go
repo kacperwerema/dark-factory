@@ -42,7 +42,7 @@ func jobNeedsYouRows(p *tracker.Project, color, prefix string, now time.Time) []
 	if len(jobs.List(p)) == 0 {
 		return nil
 	}
-	issues, err := tracker.LoadIssues(p.IssueDir)
+	issues, err := p.LoadIssues()
 	if err != nil {
 		return nil
 	}
@@ -206,7 +206,7 @@ func (s *Server) handleJobRun(w http.ResponseWriter, r *http.Request, proj *trac
 		fail(http.StatusConflict, "job "+ref.Key+": "+ref.Err.Error())
 		return
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		fail(http.StatusInternalServerError, err.Error())
 		return

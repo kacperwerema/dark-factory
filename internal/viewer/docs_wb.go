@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -231,7 +232,7 @@ func (s *Server) buildDocsWb(p *tracker.Project, prefix, slug string, now time.T
 	d.Doc = doc
 	d.Title = doc.Title + " · Docs"
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	d.Side = buildDocSide(p, prefix, issues, meta, raws[selected.Slug], abs, relPath, now)
 	d.Side.EditURL = prefix + "/docs/" + selected.Slug + "/edit-in-nvim"
 	d.Message.Prefill = "About " + relPath + ": "
@@ -493,7 +494,7 @@ func buildDocSide(p *tracker.Project, prefix string, issues []*tracker.Issue, m 
 		side.Guards = append(side.Guards, WbGuardPath{Path: g, Missing: err != nil})
 	}
 
-	open := openOnly(issues)
+	open := openOnly(p, issues)
 	sort.Slice(open, func(i, j int) bool { return open[i].Slug < open[j].Slug })
 	sessions, _ := sessionsByIssueSlug(p, open)
 	base := filepath.Base(abs)
@@ -563,7 +564,7 @@ func startDocEditor(proj *tracker.Project, slug, abs string) (BodyEditResponse, 
 	if err := createCmd.Run(); err != nil {
 		return BodyEditResponse{}, fmt.Errorf("create tmux session: %w", err)
 	}
-	editCmd := fmt.Sprintf("nvim %s; exit", agentrun.ShellWord(abs))
+	editCmd := fmt.Sprintf("nvim %s; exit", shell.Quote(abs))
 	if err := tmuxTypeCommand(target, []string{editCmd}); err != nil {
 		killAgentTmux(proj, session)
 		return BodyEditResponse{}, fmt.Errorf("start nvim: %w", err)

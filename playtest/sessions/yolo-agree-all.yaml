@@ -1,0 +1,40 @@
+session: yolo-agree-all
+issue: ui/agree-all-on-the-yolo-review-page-one-owner-only-button-agrees-every-gate-and-owner-check-in-the-queue
+title: Agree all on the review after YOLO - the owner's one button over the whole queue
+scenario: yolo-review
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The owner's Agree all opens a confirm that names the counts
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/yolo/review
+    act:
+      - check: { visible: [yolo_review.summary, yolo_review.agree_all] }
+      - click: yolo_review.agree_all
+      - wait_for: { visible: yolo_review.agree_all.confirm, ms: 4000 }
+    checks:
+      - visible: [yolo_review.agree_all.confirm, yolo_review.agree_all.counts, yolo_review.agree_all.words, yolo_review.agree_all.go]
+      - text_contains: { target: yolo_review.agree_all.counts, text: "3 issues" }
+      - text_contains: { target: yolo_review.agree_all.counts, text: "owner check" }
+      - text_contains: { target: yolo_review.agree_all.confirm, text: "agreed without a tick" }
+
+  - id: TP5
+    title: Its go agrees every item and the page reloads to the empty queue
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/yolo/review
+    act:
+      - click: yolo_review.agree_all
+      - wait_for: { visible: yolo_review.agree_all.confirm, ms: 4000 }
+      - click: yolo_review.agree_all.go
+      - wait_for: { visible: yolo_review.empty, ms: 10000 }
+    checks:
+      - visible: [yolo_review.empty, yolo_review.agree_all.done]
+      - text_contains: { target: yolo_review.agree_all.done, text: "on 3 issues" }
+      - text_contains: { target: yolo_review.agree_all.done, text: "0 skipped" }

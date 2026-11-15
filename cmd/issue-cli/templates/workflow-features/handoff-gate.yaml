@@ -1,0 +1,33 @@
+id: handoff-gate
+version: v0.61.0
+category: gates
+propose: false
+templates: []
+sources: ["internal/tracker/handoff_answered.go", "internal/connections/handoff_gate.go"]
+title: "A department's answer before shipping (handoff_answered)"
+what: |
+  The `handoff_answered: <department>` rule holds a transition until a handoff to that
+  department filed for the issue (`issue-cli handoff <department> --for <slug>`) is done.
+  An open, declined or parked handoff doesn't answer it. With `paths:` (globs) on the
+  action it holds only when the work branch's own changes match one, so a product can ask
+  Legal about the branches that touch data flows, customer-facing text or a dependency
+  manifest and let the rest through. A branch it can't read holds too. YOLO doesn't pass
+  it: the answer is the department's done issue, and the legal template's done needs the
+  owner's approval of the answer on the shelf.
+why: |
+  Some changes need another department's answer before they ship (a legal check before a
+  change to personal data or the terms a customer sees). outputs_approved reads only the
+  issue's own outputs and can't skip branches that touch nothing risky.
+where: "a validate action on the edge before shipping (testing → human-testing, or before shipping)"
+snippet: |
+  transitions:
+    - from: "testing"
+      to: "human-testing"
+      actions:
+        - type: "validate"
+          rule: "handoff_answered: legal"
+          paths: ["server/**", "src/copy/**", "package.json", "go.mod"]
+question: "Should a branch that touches personal data, customer-facing text or a new third party wait for Legal's answer before it ships? Which paths, on which transition?"
+detect:
+  - path: transitions[].actions[].rule
+    rule_in: [handoff_answered]

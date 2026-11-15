@@ -197,10 +197,7 @@ func ProjectOpenAsks(issues []*Issue, isClosed func(*Issue) bool) []SiblingAsk {
 		if isClosed != nil && isClosed(issue) {
 			continue
 		}
-		comments, err := LoadComments(issue.FilePath)
-		if err != nil {
-			continue
-		}
+		comments := issue.Comments()
 		out = append(out, OpenAsksOn(issue.Slug, comments)...)
 	}
 	sort.SliceStable(out, func(i, j int) bool {

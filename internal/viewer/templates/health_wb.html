@@ -6,7 +6,7 @@
 {{template "wb/header" .Header}}
 <section class="wb-ground wb-hhead">
     <div class="wb-hhead-text">
-        <h1 class="wb-h1 wb-h1--xl">Hall health</h1>
+        <h1 class="wb-h1 wb-h1--xl" data-testid="wb.title">Hall health</h1>
         <div class="wb-hhead-sub">{{if .Latest}}Last measurement {{.Latest}} · {{plural .Snapshots "measurement" "measurements"}}{{else}}No measurement yet{{end}} · how we count: <span class="wb-mono-inline">docs/workbench-files.md</span>, “Scores” · <a href="{{.ClassicURL}}" data-testid="health.classic">Classic view</a></div>
     </div>
     {{template "wb/health-range" .Ranges}}

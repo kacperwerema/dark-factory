@@ -18,7 +18,10 @@ type Draft struct {
 	Tags, Links                 []string
 	Source                      Source
 	Expires                     string
-	SuggestPin                  bool
+	// At is the status it matters at; the caller checks it against the
+	// workflows, which this package doesn't read.
+	At         string
+	SuggestPin bool
 }
 
 // Modes of the update step: what the agent decided after seeing similar
@@ -185,8 +188,12 @@ func (s Store) Add(d Draft, opt AddOptions, now time.Time) (AddResult, error) {
 			if m == nil {
 				return fmt.Errorf("%w %q", ErrNotFound, opt.Target)
 			}
-			e := Event{Op: OpUpdate, ID: m.ID, At: at, By: d.Author, Old: m.Text, Text: d.Text}
-			if err := s.appendEvents(e); err != nil {
+			evs := []Event{{Op: OpUpdate, ID: m.ID, At: at, By: d.Author, Old: m.Text, Text: d.Text}}
+			if d.At != "" {
+				evs = append(evs, Event{Op: OpSetAt, ID: m.ID, At: at, By: d.Author, Status: d.At})
+				m.At = d.At
+			}
+			if err := s.appendEvents(evs...); err != nil {
 				return err
 			}
 			m.Text, m.Hash, m.Updated = d.Text, Hash(d.Text), at
@@ -207,6 +214,11 @@ func (s Store) Add(d Draft, opt AddOptions, now time.Time) (AddResult, error) {
 			}
 			m := s.newMemory(d, set, at)
 			m.Supersedes = olds[0].ID
+			for _, old := range olds { // a merge keeps the step they mattered at
+				if m.At == "" {
+					m.At = old.At
+				}
+			}
 			for _, old := range olds {
 				m.Links = appendUnique(m.Links, old.ID)
 			}
@@ -223,6 +235,12 @@ func (s Store) Add(d Draft, opt AddOptions, now time.Time) (AddResult, error) {
 			h := Hash(d.Text)
 			for _, m := range set.Active(now) {
 				if m.Hash == h && m.Scope == d.Scope {
+					if d.At != "" && d.At != m.At { // the same fact, now tied to a step
+						if err := s.appendEvents(Event{Op: OpSetAt, ID: m.ID, At: at, By: d.Author, Status: d.At}); err != nil {
+							return err
+						}
+						m.At = d.At
+					}
 					res = AddResult{Op: OpNoop, Memory: m}
 					return nil
 				}
@@ -245,7 +263,7 @@ func (s Store) newMemory(d Draft, set *Set, at string) Memory {
 	return Memory{
 		ID: newID(s.Machine, set), Text: d.Text, Kind: d.Kind, Scope: d.Scope,
 		Project: d.Project, System: d.System, Department: d.Department, Tags: d.Tags,
-		Source: d.Source, Author: d.Author, Created: at, Expires: d.Expires,
+		Source: d.Source, Author: d.Author, Created: at, Expires: d.Expires, At: d.At,
 		Links: d.Links, SuggestPin: d.SuggestPin, Hash: Hash(d.Text),
 	}
 }

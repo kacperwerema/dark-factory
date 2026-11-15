@@ -10,6 +10,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -126,7 +127,7 @@ func (w *ciWatcher) check(projects []tracker.Project) {
 			}
 		case spawned:
 			delete(w.lastErr, root)
-			log.Printf("ci: %s: new head %s, run started", proj.Slug, ci.Short(head))
+			log.Printf("ci: %s: new head %s, run started", proj.Slug, gitdir.ShortSHA(head))
 		default:
 			delete(w.lastErr, root)
 		}
@@ -155,6 +156,6 @@ func (w *ciWatcher) checkNightly(proj *tracker.Project, root string, watcher *ci
 		}
 	case n.Spawned:
 		delete(w.lastErr, key)
-		log.Printf("ci: %s: nightly %s run started at %s", proj.Slug, n.Tier, ci.Short(n.Head))
+		log.Printf("ci: %s: nightly %s run started at %s", proj.Slug, n.Tier, gitdir.ShortSHA(n.Head))
 	}
 }

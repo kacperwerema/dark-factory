@@ -110,7 +110,7 @@ func writeCheckScript(t *testing.T, root, slug string, steps ...string) {
 	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(script, []byte("#!/usr/bin/env bash\n# issue: "+slug+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env bash\n# issue: "+slug+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(root, checks.RecordDir, "walk")
@@ -241,6 +241,14 @@ func TestIsOwnerCriterionAnywhere(t *testing.T) {
 		"Ownership moves to the lead":                       false,
 		"Owner-only criteria defer under YOLO (tests)":      false,
 		"A box marked (visual) renders a shot":              false,
+		// A status or gate named at the start is not the owner's check.
+		"owner review → publish stays owner_only for social": false,
+		"Owner review -> publish needs an approval":          false,
+		"Owner review => done is a gate":                     false,
+		"owner review status keeps its gate (tests)":         false,
+		"Owner approval gate stays owner_only (tests)":       false,
+		"Owner review of the page":                           true,
+		"Owner review: the page reads well":                  true,
 	} {
 		if got := IsOwnerCriterion(text); got != want {
 			t.Errorf("IsOwnerCriterion(%q) = %v, want %v", text, got, want)

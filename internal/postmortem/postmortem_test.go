@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 )
 
 const sections = `## Steps
@@ -60,7 +61,7 @@ func repo(t *testing.T) string {
 }
 
 func TestAGoodPostmortemPasses(t *testing.T) {
-	acts, err := Check(good(), repo(t))
+	acts, err := Check(good(), repo(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +103,7 @@ func TestActionsWithoutTheTestOrAPlaceAreRefused(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := Check(sections+"## Proposed actions\n\n"+c.item, root)
+			_, err := Check(sections+"## Proposed actions\n\n"+c.item, root, nil)
 			var re *RefusedError
 			if !errors.As(err, &re) {
 				t.Fatalf("not refused: %v", err)
@@ -119,7 +120,7 @@ func TestActionsWithoutTheTestOrAPlaceAreRefused(t *testing.T) {
 
 func TestAMissingSectionIsRefused(t *testing.T) {
 	body := strings.Replace(good(), "## Known\nnone\n", "", 1)
-	_, err := Check(body, repo(t))
+	_, err := Check(body, repo(t), nil)
 	if err == nil || !strings.Contains(err.Error(), "## Known") {
 		t.Fatalf("want the Known section named, got %v", err)
 	}
@@ -148,7 +149,7 @@ func TestMarkTicksAndRecords(t *testing.T) {
 		t.Fatal("marking a decided action twice passed")
 	}
 	// The outcome lines are fields, not refusals: a marked file still passes.
-	if _, err := Check(out, repo(t)); err != nil {
+	if _, err := Check(out, repo(t), nil); err != nil {
 		t.Fatalf("a marked post-mortem no longer passes: %v", err)
 	}
 }
@@ -283,5 +284,91 @@ func TestAFailedApplyStaysOpen(t *testing.T) {
 	pend := Pending(Actions(string(raw)))
 	if len(pend) != 1 || pend[0].ID != "A1" {
 		t.Fatalf("pending: %+v", pend)
+	}
+}
+
+// Waits is WaitingIn's rule over loaded retros: only an issue's newest
+// post-mortem, only with actions open, wherever it sits.
+func TestWaitsNewestOfAnIssueWithOpenActions(t *testing.T) {
+	open := "## Proposed actions\n\n- [ ] A1: Do it\n  Differently: a fresh agent does it this other way\n  Place: none docs/x.md\n"
+	entry := func(name, slug, body string) *retro.Entry {
+		return &retro.Entry{FileName: name, FilePath: "/r/" + name, IssueSlug: slug, Kind: Kind, Body: body}
+	}
+	got := Waits([]*retro.Entry{
+		entry("20261101-000000-postmortem-a.md", "a", open), // a's newest answered it
+		entry("20261102-000000-postmortem-a.md", "a", "## Proposed actions\n\nNone.\n"),
+		entry("20261101-000000-postmortem-b.md", "b", open),
+		entry("20261101-000000-postmortem-none.md", "", open),
+		{FileName: "20261101-000000-c.md", FilePath: "/r/c", IssueSlug: "c", Body: open},
+	})
+	if len(got) != 1 || got["/r/20261101-000000-postmortem-b.md"] != 1 {
+		t.Errorf("waits %v", got)
+	}
+}
+
+// AC4: an epic's brief lists each child's issue file, branch, retro and
+// post-mortem as paths, and a plain issue's brief has no Children part.
+func TestBriefListsEpicChildren(t *testing.T) {
+	r := Run{Slug: "x/epic", Title: "Epic", IssueFile: "/b/issues/X/epic.md", Children: []Child{
+		{Slug: "x/one", IssueFile: "/b/issues/X/one.md", Branch: "work/x/one", Retros: []string{"/b/retros/1-x-one.md"}, Postmortems: []string{"/b/retros/2-x-one.md"}},
+		{Slug: "x/two", IssueFile: "/b/issues/X/two.md", Branch: "work/x/two"},
+	}}
+	got := Brief(r)
+	for _, want := range []string{
+		"### Children",
+		"- x/one: issue /b/issues/X/one.md · branch work/x/one · retro /b/retros/1-x-one.md · post-mortem /b/retros/2-x-one.md\n",
+		"- x/two: issue /b/issues/X/two.md · branch work/x/two\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("brief lacks %q:\n%s", want, got)
+		}
+	}
+	r.Children = nil
+	if strings.Contains(Brief(r), "### Children") {
+		t.Error("a plain issue's brief has a Children part")
+	}
+}
+
+var atStatuses = []string{"idea", "in progress", "testing", "shipping", "done"}
+
+// AC2: At: naming a status the workflow lacks, or At: on a place other
+// than memory, is a refusal that names the statuses.
+func TestCheckRefusesUnknownAt(t *testing.T) {
+	item := func(place, at string) string {
+		return sections + "## Proposed actions\n\n- [ ] A1: Tie it to a step\n  Differently: a fresh agent would merge main again before the ff\n  Place: " + place + "\n  Text: Merge main again before the ff.\n  At: " + at + "\n"
+	}
+	root := repo(t)
+	_, err := Check(item("memory pitfall", "shiping"), root, atStatuses)
+	if err == nil || !strings.Contains(err.Error(), `At: "shiping" is not a status`) || !strings.Contains(err.Error(), "in progress, testing, shipping") {
+		t.Fatalf("an unknown status: %v", err)
+	}
+	if !strings.Contains(err.Error(), "  At: <optional, memory only") {
+		t.Errorf("the refusal's shape lacks At:\n%s", err)
+	}
+	if _, err := Check(item("file CLAUDE.md", "shipping"), root, atStatuses); err == nil || !strings.Contains(err.Error(), "for Place: memory only") {
+		t.Fatalf("At: on a file action: %v", err)
+	}
+	if _, err := Check(item("memory pitfall", "shipping"), root, nil); err == nil || !strings.Contains(err.Error(), "statuses aren't known") {
+		t.Fatalf("no statuses to check against: %v", err)
+	}
+	acts, err := Check(item("memory pitfall", "Shipping"), root, atStatuses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acts[0].At != "shipping" || strings.Contains(acts[0].Text, "At:") {
+		t.Fatalf("parsed as %+v", acts[0])
+	}
+}
+
+// AC3: the brief's places list names At: on the memory place, with the
+// workflow's statuses.
+func TestBriefListsAt(t *testing.T) {
+	got := Brief(Run{Slug: "x/one", Title: "One", Statuses: atStatuses})
+	want := "- memory <kind>: a shared memory (fact, convention, pitfall, howto, who); At: <status> when it matters at one step, so transition shows it to whoever enters that status (idea, in progress, testing, shipping, done)\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("brief lacks %q:\n%s", want, got)
+	}
+	if !strings.Contains(got, "  At: <optional, memory only") {
+		t.Errorf("the brief's shape lacks At:\n%s", got)
 	}
 }

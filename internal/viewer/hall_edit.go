@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/lint"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/wfedit"
 )
@@ -29,6 +31,13 @@ type HallEditData struct {
 	Title   string
 	PartURL string
 	EditURL string
+	// PreviewURL and SaveURL are the form's two POSTs.
+	PreviewURL, SaveURL string
+	// Label is the hall's name ("Marketing hall"). InPlace: the file is a
+	// department's that git does not track, so Save writes it in place,
+	// checked and read back, and commits nothing (no reason box).
+	Label   string
+	InPlace bool
 	// File is the workflow file as the page names it; Hash the version the
 	// form was made from.
 	File, Hash          string
@@ -55,8 +64,12 @@ type HallEditEdge struct {
 	In       bool
 	Gate     bool
 	GatePos  int
-	Line     int
-	Actions  []tracker.WorkflowAction
+	// GateAction is the gate as the file has it: keeping the gate on puts
+	// it back unchanged (owner_only:, hint:); OwnerOnly is its mark.
+	GateAction *tracker.WorkflowAction
+	OwnerOnly  bool
+	Line       int
+	Actions    []tracker.WorkflowAction
 	// Rows are Actions as the form draws them; Blank is the row + Add
 	// action copies.
 	Rows  []HallEditRow
@@ -85,26 +98,19 @@ type HallEditPreview struct {
 // HallDiffLine is one line of the diff; Kind is add, del, hunk or "".
 type HallDiffLine struct{ Kind, Text string }
 
-// hallEditFile is the workflow file the Product hall's stations come
-// from, "" when the project runs on the built-in workflow.
-func hallEditFile(p *tracker.Project) string { return p.WorkflowPath() }
-
-// hallEditStatus is the status the URL key names, "" when none.
-func hallEditStatus(p *tracker.Project, key string) string {
-	for _, st := range p.LoadWorkflow().Statuses {
-		if hallPartKey(st.Name) == key {
-			return st.Name
-		}
-	}
-	return ""
-}
-
 func (s *Server) handleHallEdit(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, key, action string) {
-	file, status := hallEditFile(proj), hallEditStatus(proj, key)
-	if status == "" {
+	sc, err := hallScopeOf(proj, prefix, r)
+	if err != nil {
+		hallScopeError(w, err)
+		return
+	}
+	file := sc.File
+	st0 := sc.status(key)
+	if st0 == nil {
 		http.NotFound(w, r)
 		return
 	}
+	status := st0.Name
 	if file == "" {
 		http.Error(w, "this project runs on the built-in workflow: there is no workflow.yaml to edit (issue-cli workflow init writes one)", http.StatusNotFound)
 		return
@@ -114,7 +120,7 @@ func (s *Server) handleHallEdit(w http.ResponseWriter, r *http.Request, proj *tr
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	d := s.hallEditPage(proj, prefix, key, file, st)
+	d := s.hallEditPage(proj, sc, key, file, st)
 	if action == "" {
 		s.renderHallEdit(w, d, http.StatusOK)
 		return
@@ -128,7 +134,7 @@ func (s *Server) handleHallEdit(w http.ResponseWriter, r *http.Request, proj *tr
 	ch, edges := hallEditChange(r, st)
 	d.Hash, d.Edges = hash, edges
 	d.Description, d.Prompt, d.Reason = *ch.Description, *ch.Prompt, r.PostForm.Get("reason")
-	pv, err := wfedit.Apply(file, status, hash, ch)
+	pv, err := wfedit.Apply(file, status, hash, ch, editCheck)
 	if err != nil {
 		d.Error = err.Error()
 		if errors.Is(err, wfedit.ErrStale) {
@@ -143,6 +149,21 @@ func (s *Server) handleHallEdit(w http.ResponseWriter, r *http.Request, proj *tr
 		s.renderHallEdit(w, d, http.StatusOK)
 		return
 	}
+	if d.InPlace {
+		// A department file git does not track: written in place, never
+		// committed (and never added to git).
+		if err := wfedit.Write(pv); err != nil {
+			d.Error = err.Error()
+			code := http.StatusBadRequest
+			if errors.Is(err, wfedit.ErrStale) {
+				code = http.StatusConflict
+			}
+			s.renderHallEdit(w, d, code)
+			return
+		}
+		http.Redirect(w, r, hallSavedURL(d.PartURL, hallSavedInPlace), http.StatusSeeOther)
+		return
+	}
 	saved, err := wfedit.Save(pv, d.Reason)
 	if err != nil {
 		d.Error = err.Error()
@@ -153,7 +174,7 @@ func (s *Server) handleHallEdit(w http.ResponseWriter, r *http.Request, proj *tr
 		s.renderHallEdit(w, d, code)
 		return
 	}
-	http.Redirect(w, r, d.PartURL+"?saved="+saved.Commit, http.StatusSeeOther)
+	http.Redirect(w, r, hallSavedURL(d.PartURL, saved.Commit), http.StatusSeeOther)
 }
 
 func (s *Server) renderHallEdit(w http.ResponseWriter, d HallEditData, code int) {
@@ -174,11 +195,12 @@ func (s *Server) renderHallEdit(w http.ResponseWriter, d HallEditData, code int)
 }
 
 // hallEditPage is the form as the file is now.
-func (s *Server) hallEditPage(p *tracker.Project, prefix, key, file string, st *wfedit.Station) HallEditData {
-	part, _ := s.buildHallPart(p, prefix, "station", key, time.Now())
-	d := HallEditData{Header: part.Header, Status: st.Name, Title: part.Title, PartURL: hallPartURL(prefix, "station", st.Name),
-		File: hallEditFileName(p, file), Hash: st.Hash, Description: st.Description, Prompt: st.Prompt, ReadOnly: st.ReadOnly}
-	d.EditURL = d.PartURL + "/edit"
+func (s *Server) hallEditPage(p *tracker.Project, sc *hallScope, key, file string, st *wfedit.Station) HallEditData {
+	part, _ := s.buildHallPart(p, sc, "station", key, time.Now())
+	d := HallEditData{Header: part.Header, Status: st.Name, Title: part.Title, PartURL: sc.url("station", st.Name),
+		File: hallEditFileName(p, file), Hash: st.Hash, Description: st.Description, Prompt: st.Prompt, ReadOnly: st.ReadOnly, Label: sc.Label}
+	d.EditURL, d.PreviewURL, d.SaveURL = sc.editURL(st.Name, ""), sc.editURL(st.Name, "preview"), sc.editURL(st.Name, "save")
+	d.InPlace = sc.Dept != "" && !gitfile.Tracked(file)
 	// "Edit" stands in for the station's crumb (the title bar links back to
 	// it), so the header keeps its width on a phone.
 	if n := len(d.Header.Crumbs); n > 0 {
@@ -216,7 +238,8 @@ func hallEditEdges(st *wfedit.Station) []HallEditEdge {
 		for i, a := range e.Actions {
 			if a.Type == "require_human_approval" && (strings.TrimSpace(a.Status) == "" || a.Status == e.To) {
 				if !he.Gate {
-					he.Gate, he.GatePos = true, i
+					gate := a
+					he.Gate, he.GatePos, he.GateAction, he.OwnerOnly = true, i, &gate, a.OwnerOnly
 				}
 				continue
 			}
@@ -253,7 +276,7 @@ func hallEditChange(r *http.Request, st *wfedit.Station) (wfedit.Change, []HallE
 		acts := rows
 		if e.In {
 			e.Gate = f.Get(pre+"gate") != ""
-			acts = placeGate(rows, e.To, e.Gate, e.GatePos)
+			acts = placeGate(rows, e.To, e.Gate, e.GatePos, e.GateAction)
 		}
 		ch.Edges[e.Index] = acts
 		edges = append(edges, e)
@@ -261,18 +284,19 @@ func hallEditChange(r *http.Request, st *wfedit.Station) (wfedit.Change, []HallE
 	return ch, edges
 }
 
-// placeGate is rows with the gate for to: at pos when it was there before
-// (so keeping it on changes nothing), else where wfedit.SetGate puts it.
-func placeGate(rows []tracker.WorkflowAction, to string, on bool, pos int) []tracker.WorkflowAction {
+// placeGate is rows with the gate for to: the file's own gate action at
+// pos when it was there before (so keeping it on changes nothing, its
+// owner_only: and hint: included), else where wfedit.SetGate puts it.
+func placeGate(rows []tracker.WorkflowAction, to string, on bool, pos int, was *tracker.WorkflowAction) []tracker.WorkflowAction {
 	if !on {
 		return rows
 	}
-	if pos < 0 {
+	if pos < 0 || was == nil {
 		return wfedit.SetGate(rows, to, true)
 	}
 	pos = min(pos, len(rows))
 	out := append([]tracker.WorkflowAction(nil), rows[:pos]...)
-	out = append(out, tracker.WorkflowAction{Type: "require_human_approval", Status: to})
+	out = append(out, *was)
 	return append(out, rows[pos:]...)
 }
 
@@ -324,12 +348,35 @@ func hallEditPreview(pv *wfedit.Preview) *HallEditPreview {
 }
 
 // hallSavedSha is the ?saved= commit the station page reports after a
-// save, "" when absent or not a short sha.
+// save, "" when absent or not a short sha; hallSavedInPlace stands for a
+// file written in place, with no commit.
 var hallSavedSha = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
+const hallSavedInPlace = "in-place"
+
 func hallSaved(r *http.Request) string {
-	if v := r.URL.Query().Get("saved"); hallSavedSha.MatchString(v) {
+	if v := r.URL.Query().Get("saved"); v == hallSavedInPlace || hallSavedSha.MatchString(v) {
 		return v
 	}
 	return ""
+}
+
+// hallSavedURL is the station page reporting saved.
+func hallSavedURL(partURL, saved string) string {
+	sep := "?"
+	if strings.Contains(partURL, "?") {
+		sep = "&"
+	}
+	return partURL + sep + "saved=" + saved
+}
+
+// editCheck is lint's check of a workflow file for the station editor,
+// handed to wfedit.Apply so that wfedit never imports lint.
+func editCheck(path string, raw []byte, now time.Time) ([]wfedit.Finding, error) {
+	fs, err := lint.EditCheck(path, raw, now)
+	out := make([]wfedit.Finding, len(fs))
+	for i, f := range fs {
+		out[i] = wfedit.Finding(f)
+	}
+	return out, err
 }

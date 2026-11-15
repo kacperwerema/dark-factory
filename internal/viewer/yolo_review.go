@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -46,6 +47,19 @@ type YOLOReviewData struct {
 	// IssueURL is where an issue's Agree / Back posts, TickURL where an
 	// owner box is ticked.
 	IssueURL, TickURL string
+	// SignedIn is whether the request came from the owner's signed-in
+	// browser: only then does the summary carry Agree all.
+	SignedIn bool
+	// AllURL is where Agree all posts; All every item of the queue as the
+	// page loaded it (every page, not only this one), the JSON list the
+	// POST carries back; Questions and Decisions the confirm's other
+	// counts, OldestDate the oldest item's day ("Tue 27 Oct").
+	AllURL, All          string
+	Questions, Decisions int
+	OldestDate           string
+	// Done is the line after Agree all ("Agreed 920 items on 229 issues ✓"),
+	// read from the reload's query.
+	Done string
 }
 
 // YOLOReviewGroup is one issue's entry: its passed gates (one Agree covers
@@ -150,10 +164,10 @@ func yoloQueueOldest(entries []yolo.Entry) (time.Time, bool) {
 }
 
 // yoloReviewEvidence reads one issue's Evidence tab and keeps the strip.
-func yoloReviewEvidence(proj *tracker.Project, prefix string, issue *tracker.Issue) YOLOReviewEvidence {
-	comments, _ := tracker.LoadComments(issue.FilePath)
+func yoloReviewEvidence(cache *timeline.Cache, proj *tracker.Project, prefix string, issue *tracker.Issue) YOLOReviewEvidence {
+	comments := issue.Comments()
 	wf := proj.LoadWorkflowForIssue(issue)
-	t := loadEvidenceTab(proj, prefix, issue, wf, evidenceReport(proj, issue, comments))
+	t := loadEvidenceTab(cache, proj, prefix, issue, wf, evidenceReportWith(cache, proj, issue, comments))
 	var ev YOLOReviewEvidence
 	for _, s := range t.Shots {
 		if s.Src == "" {
@@ -211,6 +225,19 @@ func (s *Server) buildYOLOReview(p *tracker.Project, prefix string, page int, no
 	d.Gates, d.OwnerChecks = yolo.Totals(entries)
 	if t, ok := yoloQueueOldest(entries); ok {
 		d.Oldest = shortDuration(now.Sub(t))
+		d.OldestDate = t.Format("Mon 2 Jan")
+	}
+	d.AllURL = prefix + "/yolo/review/all"
+	var all []yoloAllItem
+	for _, e := range entries {
+		d.Questions += len(e.Questions)
+		d.Decisions += len(e.Decisions)
+		for _, p := range e.Items() {
+			all = append(all, yoloAllItem{Slug: e.Slug, Key: p.Key(), Comment: p.Comment})
+		}
+	}
+	if raw, err := json.Marshal(all); err == nil && len(all) > 0 {
+		d.All = string(raw)
 	}
 	groups := yoloReviewGroups(entries, now)
 	d.Pages = max((len(groups)+yoloReviewPageSize-1)/yoloReviewPageSize, 1)
@@ -226,9 +253,10 @@ func (s *Server) buildYOLOReview(p *tracker.Project, prefix string, page int, no
 	hi := min(lo+yoloReviewPageSize, len(groups))
 	d.Groups = groups[lo:hi]
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	sem := make(chan struct{}, yoloReviewWorkers)
 	var wg sync.WaitGroup
+	cache := timeline.NewCache() // the page's entries read the same logs and sessions
 	for i := range d.Groups {
 		g := &d.Groups[i]
 		issueURL := prefix + "/issue/" + g.Slug
@@ -247,7 +275,7 @@ func (s *Server) buildYOLOReview(p *tracker.Project, prefix string, page int, no
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			g.Evidence = yoloReviewEvidence(p, prefix, issue)
+			g.Evidence = yoloReviewEvidence(cache, p, prefix, issue)
 		}(g, issue)
 	}
 	wg.Wait()
@@ -267,8 +295,11 @@ func yoloIssueBack(wf *tracker.WorkflowConfig, gates, checks []WbYOLOPass) strin
 }
 
 func (s *Server) handleYOLOReviewPage(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
 	d := s.buildYOLOReview(proj, prefix, page, time.Now())
+	d.SignedIn = s.fromOwner(r)
+	d.Done = yoloAllDoneLine(q.Get("agreed"), q.Get("issues"), q.Get("skipped"))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "yolo_review.html", d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -401,6 +432,161 @@ func yoloKeys(list []yolo.Pass) []string {
 		}
 	}
 	return out
+}
+
+// yoloAllItem is one queue item as the review page loaded it: the issue,
+// the key its review names, and the comment that put it in the queue.
+type yoloAllItem struct {
+	Slug    string `json:"slug"`
+	Key     string `json:"key"`
+	Comment int    `json:"comment"`
+}
+
+// YOLOAgreeAll is the answer to Agree all.
+type YOLOAgreeAll struct {
+	OK bool `json:"ok"`
+	// Agreed is how many queue items it agreed, on Issues issues.
+	Agreed int `json:"agreed"`
+	Issues int `json:"issues"`
+	// Skipped is each key it left waiting, and why.
+	Skipped []YOLOAllSkip `json:"skipped"`
+}
+
+// YOLOAllSkip is one key Agree all left in the queue.
+type YOLOAllSkip struct {
+	Slug string `json:"slug"`
+	Key  string `json:"key"`
+	Why  string `json:"why"`
+}
+
+// Why Agree all leaves a key in the queue.
+const (
+	yoloAllGone    = "no longer waits for review"
+	yoloAllChanged = "changed since the page loaded"
+)
+
+// handleYOLOReviewAll serves POST yolo/review/all {items, words}: the
+// owner's Agree all on the review page. Owner-only through ownerOnlyRoute's
+// yolo/ prefix; agents and the CLI have no way to it.
+func (s *Server) handleYOLOReviewAll(w http.ResponseWriter, r *http.Request, proj *tracker.Project) {
+	var body struct {
+		Items []yoloAllItem `json:"items"`
+		Words string        `json:"words"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeYOLOError(w, http.StatusBadRequest, "bad request: {items: [{slug, key, comment}], words}")
+		return
+	}
+	if len(body.Items) == 0 {
+		writeYOLOError(w, http.StatusBadRequest, "nothing to agree: the page showed an empty queue")
+		return
+	}
+	res := agreeAllYOLO(proj, body.Items, body.Words, time.Now())
+	log.Printf("yolo review: %s: the owner's Agree all agreed %d items on %d issues, skipped %d", proj.Slug, res.Agreed, res.Issues, len(res.Skipped))
+	writeJSONStatus(w, http.StatusOK, res)
+}
+
+// agreeAllYOLO agrees every item the page showed, issue by issue, through
+// reviewYOLOPass (the record the issue's Agree and the Station write).
+// A review names a key and settles every waiting pass with it, so a key is
+// agreed only when each pass waiting under it is one the page showed: one
+// that came in after the page loaded leaves the key waiting (changed), and
+// a key nothing waits under any more is skipped (gone). Owner checks are
+// agreed without a tick: their boxes stay open.
+func agreeAllYOLO(proj *tracker.Project, items []yoloAllItem, words string, now time.Time) YOLOAgreeAll {
+	res := YOLOAgreeAll{OK: true, Skipped: []YOLOAllSkip{}}
+	issues, _ := proj.LoadIssues()
+	date := now.Format("2006-01-02")
+	if words = strings.TrimSpace(words); words == "" {
+		words = "Agree all on the YOLO review page, " + date
+	}
+	type shownKey struct {
+		key      string
+		comments map[int]bool
+	}
+	var slugs []string
+	shown := map[string][]*shownKey{}
+	for _, it := range items {
+		if it.Slug == "" || it.Key == "" {
+			continue
+		}
+		if _, ok := shown[it.Slug]; !ok {
+			slugs = append(slugs, it.Slug)
+		}
+		var sk *shownKey
+		for _, k := range shown[it.Slug] {
+			if strings.EqualFold(k.key, it.Key) {
+				sk = k
+			}
+		}
+		if sk == nil {
+			sk = &shownKey{key: it.Key, comments: map[int]bool{}}
+			shown[it.Slug] = append(shown[it.Slug], sk)
+		}
+		sk.comments[it.Comment] = true
+	}
+	for _, slug := range slugs {
+		keys := shown[slug]
+		issue := tracker.FindIssue(issues, slug)
+		if issue == nil {
+			for _, k := range keys {
+				res.Skipped = append(res.Skipped, YOLOAllSkip{Slug: slug, Key: k.key, Why: "issue not found"})
+			}
+			continue
+		}
+		comments, _ := tracker.LoadComments(issue.FilePath)
+		waiting := map[string][]int{}
+		for _, p := range yolo.Unreviewed(issue, comments) {
+			k := strings.ToLower(p.Key())
+			waiting[k] = append(waiting[k], p.Comment)
+		}
+		agreed := 0
+		for _, k := range keys {
+			ids := waiting[strings.ToLower(k.key)]
+			why := ""
+			if len(ids) == 0 {
+				why = yoloAllGone
+			}
+			for _, id := range ids {
+				if !k.comments[id] {
+					why = yoloAllChanged
+				}
+			}
+			if why == "" {
+				if code, msg := reviewYOLOPass(proj, issue, k.key, "agree", words); code != 0 {
+					why = msg
+				}
+			}
+			if why != "" {
+				res.Skipped = append(res.Skipped, YOLOAllSkip{Slug: issue.Slug, Key: k.key, Why: why})
+				continue
+			}
+			agreed += len(ids)
+		}
+		if agreed > 0 {
+			res.Agreed += agreed
+			res.Issues++
+		}
+	}
+	return res
+}
+
+// yoloAllDoneLine is the line the page shows after Agree all reloads it,
+// from the query's counts; "" when there are none.
+func yoloAllDoneLine(agreed, issues, skipped string) string {
+	a, err := strconv.Atoi(agreed)
+	if err != nil || a < 0 {
+		return ""
+	}
+	n, _ := strconv.Atoi(issues)
+	k, _ := strconv.Atoi(skipped)
+	line := fmt.Sprintf("Agreed %s on %s ✓", plural(a, "item", "items"), plural(max(n, 0), "issue", "issues"))
+	if k > 0 {
+		line += fmt.Sprintf(" · %d skipped: changed since the page loaded or no longer waiting; they stay below", k)
+	} else {
+		line += " · 0 skipped"
+	}
+	return line
 }
 
 // yoloTotals is yolo.Totals, named for the pages.

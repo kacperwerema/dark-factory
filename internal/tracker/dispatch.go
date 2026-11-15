@@ -43,6 +43,7 @@ This issue is your one task. When it reaches its last status, or a gate that wai
 
 2. Run: issue-cli show {{slug}}
    Read the full context — body, comments, checklist status.
+   A brief's cause, cache key, fix or quoted form is a proposal, even from your lead: measure it on the unchanged code or read the parser first. If it differs, record a D-n (issue-cli decide {{slug}} --provisional --text "..."); if your repro disproves the title, retitle it (issue-cli update {{slug}} --title "...").
 
 3. Work through each checkbox in the issue. 'issue-cli checklist' shows each box's id (D3, AC2).
    Mark finished boxes by id — several in one call:
@@ -101,7 +102,7 @@ If you hit friction, ambiguity, or missing guardrails while using issue-cli or t
 ## Commands that require user approval — DO NOT run without asking
 
   Any transition backwards                       # ask first
-  Creating or deleting issues                    # ask first, unless your lead asks you to file a child issue of yours
+  Creating or deleting issues                    # ask first, unless your lead asks you to file a child issue of yours, or you file a failure main already has and no issue names
 
 ## Issue metadata
   Title: {{title}}
@@ -114,10 +115,10 @@ If you hit friction, ambiguity, or missing guardrails while using issue-cli or t
 // in the worker brief, issue-cli close's help and its refusal.
 const CloseRule = "Who closes: the lead and the human close any issue; a worker closes only duplicates of its own issue (--duplicate-of or --fixed-by its own slug), when its lead asks. Moving any other issue stays the lead's job."
 
-// dispatchGateLines fills the template's stop lines: today's with YOLO off,
+// DispatchGateLines fills the template's stop lines: today's with YOLO off,
 // the YOLO rule's with it on (D-5 of
 // workflow/yolo-one-rule-in-the-status-guidance-instead-of-clarify-with-the-human).
-func dispatchGateLines(yoloOn bool) map[string]string {
+func DispatchGateLines(wf *WorkflowConfig, yoloOn bool) map[string]string {
 	if !yoloOn {
 		return map[string]string{
 			"gate_rules": `Stop and ask the user whenever clarification or manual verification is required.
@@ -135,7 +136,7 @@ Do not wait, poll or re-run commands to check for the approval: the human messag
 	}
 	return map[string]string{
 		"gate_rules": `YOLO is on: gates pass without the owner and are reviewed after the fact, so don't stop at them and don't stop to ask (the YOLO rule under Current status guidance).
-Only what still waits for the owner stops you: ` + YOLOOwnerOnly + `. For those post a question: comment, tell the user in chat, then stop and end your turn.
+Only what still waits for the owner stops you: ` + YOLOOwnerOnly(wf) + `. For those post a question: comment, tell the user in chat, then stop and end your turn.
 Do not wait, poll or re-run commands to check for an approval.`,
 		"start_wait": `   It claims the issue and shows your checklist and next steps; under YOLO it passes a missing approval itself.`,
 		"ask_rule": `4. If you are unsure about something, decide it yourself and record it as provisional:

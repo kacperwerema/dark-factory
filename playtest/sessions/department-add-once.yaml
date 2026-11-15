@@ -10,7 +10,7 @@ session_checks:
 
 steps:
   - id: TP3
-    title: After GTM (with Marketing inside) is added the tile offers no form and says every template is added
+    title: After GTM (with Marketing inside), Sales, Video and Legal are added the tile offers no form and says every template is added
     proves: [AC1]
     setup:
       - open: /p/acme/company?classic=1
@@ -19,6 +19,19 @@ steps:
       - wait_for: { visible: company.new_dept.form }
       - click: company.new_dept.template.gtm
       - click: company.new_dept.preview
+      - wait_for: { visible: dept_new.add }
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+      # Sales, Video and Legal are the templates left after GTM.
+      - open: /p/acme/departments/new?template=sales-b2c
+      - wait_for: { visible: dept_new.add }
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+      - open: /p/acme/departments/new?template=video
+      - wait_for: { visible: dept_new.add }
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+      - open: /p/acme/departments/new?template=legal
       - wait_for: { visible: dept_new.add }
       - click: dept_new.add
       - wait_for: { visible: company.added }

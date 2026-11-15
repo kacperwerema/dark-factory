@@ -16,6 +16,18 @@ var createCommand = &Command{
 	LongHelp: `Create a new issue file in the issues directory (or in issues/<system>/ when
 --system is supplied). Only allows statuses earlier than backlog.
 
+A --system named after a department does not put the issue in it: unless the
+department lists that system, create warns and the issue is Product's; pass
+--department to file it there.
+
+--body gives the issue its first text in the same call (written above the
+status template's sections); --body-file <path> (or - for stdin) reads it
+raw, as append does, so backticks and $ survive the shell.
+
+--parent <epic> writes parent: (the epic it belongs to); a slug that isn't
+an epic on the board (type epic, or already another issue's parent) is
+refused.
+
 When workflow.yaml defines types of work, --type picks the issue's path
 (default: default_type); the issue starts at that type's first status.
 
@@ -29,7 +41,9 @@ asking off those routes is refused with the routes it has.
 Example:
   issue-cli create --title "Fix heat overflow" --system Combat --status idea
   issue-cli create --title "Bigger play cards" --system UI --type tweak
-  issue-cli create --title "Engine: brand fields" --system Factory --requested-by marketing`,
+  issue-cli create --title "Board: card colours" --system UI --parent ui/board-redesign
+  issue-cli create --title "Engine: brand fields" --system Factory --requested-by marketing
+  issue-cli create --department marketing --title "Spring menu post" --body "## Brief\n\nWhat and why."`,
 	Run: runCreate,
 }
 
@@ -46,19 +60,36 @@ func runCreate(ctx *Context, args []string) error {
 	typeFlag := fs.String("type", "", "type of work (when workflow.yaml defines types:)")
 	deptFlag := fs.String("department", "", "department (projects.yaml departments:): the issue walks its workflow file")
 	requestedFlag := fs.String("requested-by", "", "the department (or hq) that asked for it; filled from a department lead or worker when unset")
+	bodyFlag := fs.String("body", "", "the issue's first text, above the status template")
+	bodyFileFlag := fs.String("body-file", "", "read the body from a file (or - for stdin); avoids shell mangling")
+	parentFlag := fs.String("parent", "", parentFlagHelp)
 	if err := parseFlags(ctx, fs, args); err != nil {
+		return err
+	}
+	body, err := resolveBodyInput(ctx, normalizeEscapedText(*bodyFlag), flagWasSet(fs, "body"), *bodyFileFlag, flagWasSet(fs, "body-file"))
+	if err != nil {
 		return err
 	}
 	if *titleFlag == "" {
 		return fmt.Errorf("--title is required\n\nExample:\n  issue-cli create --title \"Fix heat overflow\" --system Combat --status idea")
 	}
-	_, err := writeNewIssue(ctx, newIssueSpec{
-		Title: *titleFlag, System: *systemFlag, Status: *statusFlag, Priority: *priorityFlag,
-		Type: *typeFlag, Department: *deptFlag, RequestedBy: *requestedFlag,
-	})
-	if err == nil {
-		fmt.Fprintln(ctx.Stdout, "\nThank you!")
+	var extra [][2]string
+	if flagWasSet(fs, "parent") {
+		issues, err := ctx.Project.LoadIssues()
+		if err != nil {
+			return err
+		}
+		parent, err := checkParent(issues, *parentFlag, "")
+		if err != nil {
+			return fmt.Errorf("create: %w", err)
+		}
+		extra = append(extra, [2]string{"parent", parent})
 	}
+	_, err = writeNewIssue(ctx, newIssueSpec{
+		Title: *titleFlag, System: *systemFlag, Status: *statusFlag, Priority: *priorityFlag,
+		Type: *typeFlag, Department: *deptFlag, RequestedBy: *requestedFlag, Body: body,
+		Extra: extra,
+	})
 	return err
 }
 
@@ -77,7 +108,7 @@ type newIssue struct {
 }
 
 // writeNewIssue checks spec, writes the issue file and prints create's
-// lines (no closing "Thank you!").
+// lines.
 func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	title, system, status, priority := spec.Title, spec.System, spec.Status, spec.Priority
 	deptFlag, requestedFlag, typeFlag := &spec.Department, &spec.RequestedBy, &spec.Type
@@ -128,7 +159,7 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	}
 
 	idx := base.GetStatusIndex(status)
-	backlogIdx := base.GetStatusIndex("backlog")
+	backlogIdx := base.GetStatusIndex(base.RoleStatus(tracker.StatusRoleQueue))
 	if backlogIdx == -1 {
 		backlogIdx = 3
 	}
@@ -228,6 +259,10 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	if typ != "" {
 		fmt.Fprintf(ctx.Stdout, "  Type: %s%s\n", typ, otherTypesNote(base, typ, *typeFlag == "", display, status))
 		fmt.Fprintf(ctx.Stdout, "  Path: %s\n", wf.PathLine())
+	}
+	if name := proj.UnfiledDepartment(&tracker.Issue{System: system}); name != "" && *deptFlag == "" {
+		fmt.Fprintf(ctx.Stdout, "  ⚠ System %s names a department, but this issue is Product's: %s's systems: don't list it.\n", system, name)
+		fmt.Fprintf(ctx.Stdout, "  For %s's work: issue-cli set-meta %s --key department --value %s (or create with --department %s)\n", name, display, name, name)
 	}
 	if requestedBy != "" {
 		fmt.Fprintf(ctx.Stdout, "  Requested by %s: drawn as a request %s → %s on the company page (issue-cli connections)\n",

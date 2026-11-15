@@ -113,3 +113,24 @@ func TestCompanyRoomConnectors(t *testing.T) {
 		t.Error("a page or JSON response holds the secret value")
 	}
 }
+
+// A per-run tool's room line, and its failed start as the one Needs you row.
+func TestConnectorRoomShowsAPerRunTool(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "")
+	withMockTmuxSessions(t, nil)
+	a.Departments = []tracker.Department{{Name: "Marketing", Systems: []string{"UI"}, Connectors: []tracker.Connector{
+		{Name: "heavy", Kind: "tool", Command: "x", PerRun: &tracker.PerRun{Start: "a", Ready: "b", Stop: "c"}},
+	}}}
+	if err := connectors.AppendRun(&a, connectors.RunRecord{Connector: "marketing/heavy", Date: time.Now(), Event: connectors.RunStartFailed, Note: "ready: timed out"}); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/p/agents/company")
+	assertContains(t, html, `data-testid="company.room.connector.run">starts per run, stopped</div>`)
+	_, needs := getBody(t, ts.URL+"/p/agents/needs-you")
+	assertContains(t, needs, "Marketing: heavy start failing (issue-cli connectors marketing).")
+}

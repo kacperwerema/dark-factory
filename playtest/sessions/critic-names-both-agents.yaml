@@ -1,0 +1,36 @@
+session: critic-names-both-agents
+issue: factory/the-critic-runs-on-the-other-agent-than-the-worker
+title: The station's Critique block names who wrote the work and who read it
+scenario: critique
+
+# The runs in the scenario's tracker/.critique/runs.jsonl are fixtures; no
+# real critic runs.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+  layout_ignore: [station.stamp]
+
+steps:
+  - id: TP4
+    title: A run by the other agent names the writer and the reader, with no same-agent line
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/issue/factory/read-by-the-other-agent
+    checks:
+      - visible: [station.critique]
+      - text_contains: { target: station.critique, text: "written by claude" }
+      - text_contains: { target: station.critique, text: "read by codex" }
+      - absent: [station.critique.same]
+
+  - id: TP5
+    title: A run on the worker's own agent names both and says why
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/issue/factory/read-by-the-same-agent
+    checks:
+      - visible: [station.critique, station.critique.same]
+      - text_contains: { target: station.critique, text: "written by claude" }
+      - text_contains: { target: station.critique, text: "read by claude" }
+      - text_contains: { target: station.critique.same, text: "Same agent as the writer: codex resting until 17:00" }

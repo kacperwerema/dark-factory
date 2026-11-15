@@ -41,16 +41,27 @@ var sessionAgent = agentrun.SessionAgent
 
 // currentTmuxNames returns the tmux session and window this process runs in,
 // or "", "" outside tmux. A var for tests.
-var currentTmuxNames = func() (session, window string) {
+var currentTmuxNames = tmuxNames
+
+// tmuxNames is currentTmuxNames' real reading.
+func tmuxNames() (session, window string) {
 	if os.Getenv("TMUX") == "" {
 		return "", ""
 	}
-	out, err := exec.Command("tmux", "display-message", "-p", "#S\t#W").Output()
+	// TMUX_PANE names this process's own pane; without it tmux answers for
+	// the attached client's current pane, which may be another session.
+	args := []string{"display-message", "-p"}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args = append(args, "-t", pane)
+	}
+	out, err := exec.Command("tmux", append(args, agentrun.Format("session_name", "window_name"))...).Output()
 	if err != nil {
 		return "", ""
 	}
-	session, window, _ = strings.Cut(strings.TrimSpace(string(out)), "\t")
-	return session, window
+	if f := agentrun.SplitFields(string(out), 2); len(f) == 2 {
+		return f[0], f[1]
+	}
+	return strings.TrimSpace(string(out)), ""
 }
 
 // workingDir is os.Getwd, a var so tests don't depend on where they run.
@@ -105,6 +116,12 @@ func whoAmI(proj *tracker.Project, issues []*tracker.Issue) Identity {
 			}
 			return id
 		}
+	}
+	// A guided check's clean shell drops the tmux name and the worktree
+	// folder; lib.sh carries a worker's identity through it in this variable.
+	// It can only make a shell a worker, never a lead or the owner.
+	if sig := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_WORKER")); sig != "" {
+		return Identity{Role: tracker.RoleWorker, Signal: "ISSUE_VIEWER_WORKER (" + sig + ")"}
 	}
 	if wd, err := workingDir(); err == nil && strings.Contains(filepath.ToSlash(wd), "/.worktrees/") {
 		return Identity{Role: tracker.RoleWorker, Signal: "working directory under .worktrees/"}

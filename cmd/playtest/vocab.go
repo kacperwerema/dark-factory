@@ -22,6 +22,7 @@ var (
 		"text_equals": true, "text_contains": true, "value_equals": true,
 		"count": true, "url": true, "changed": true, "unchanged": true,
 		"beside": true, "below": true, "inside": true, "css": true, "size": true,
+		"media": true, "buttons": true,
 	}
 	runnerChecks = map[string]bool{"issue": true, "cli": true, "tmux": true, "http": true}
 	actionKinds  = map[string]bool{
@@ -36,7 +37,7 @@ var (
 	}
 	layoutRules = map[string]bool{
 		"inside_viewport": true, "no_page_scroll": true, "no_clipping": true, "no_overlap": true, "no_zero_size_text": true,
-		"styles_applied": true,
+		"styles_applied": true, "one_primary": true,
 	}
 	keyNames = map[string]bool{
 		"Enter": true, "Escape": true, "Tab": true, "Backspace": true, "Delete": true,
@@ -63,11 +64,27 @@ type Validator struct {
 	ScenarioDir string
 	// Checklist, when set, returns the issue's checkbox ids (uppercase),
 	// each with its section, so step ids and proves: ids can be checked
-	// against it. It returns ok=false when the issue can't be resolved here
-	// (no config, not found); ids are then only checked for shape.
+	// against it. It returns ok=false for an issue not on the board; its
+	// ids are then only checked for shape.
 	Checklist func(issue string) (sections map[string]string, ok bool)
-	// Notes collects non-fatal remarks (an issue that couldn't be resolved).
+	// Notes collects non-fatal remarks.
 	Notes []string
+	// Unresolved lists "<session file>: issue <slug>" for each session whose
+	// issue couldn't be resolved here; UnresolvedNote words them.
+	Unresolved []string
+}
+
+// UnresolvedNote is the one note for the sessions whose issue couldn't be
+// resolved: the session itself when it is one, a count when there are more.
+// "" for none.
+func UnresolvedNote(unresolved []string) string {
+	switch len(unresolved) {
+	case 0:
+		return ""
+	case 1:
+		return unresolved[0] + " not resolvable here; step ids checked for shape only"
+	}
+	return fmt.Sprintf("%d sessions' issues not resolvable here (not on this project's board; first: %s); their step ids checked for shape only", len(unresolved), unresolved[0])
 }
 
 // Validate returns every problem in s as file:line errors.
@@ -119,7 +136,7 @@ func (v *Validator) Validate(s *Session) []error {
 		var ok bool
 		if ids, ok = v.Checklist(s.Issue); !ok {
 			ids = nil
-			v.Notes = append(v.Notes, fmt.Sprintf("%s: issue %s not resolvable here; step ids checked for shape only", s.File, s.Issue))
+			v.Unresolved = append(v.Unresolved, fmt.Sprintf("%s: issue %s", s.File, s.Issue))
 		}
 	}
 	seen := map[string]bool{}
@@ -425,6 +442,11 @@ func (v *Validator) check(c Check, at errAt) {
 		if w := str("within"); w != "" {
 			v.target(w, c.Line, at)
 		}
+	case "buttons":
+		need(has("equals", "min", "max"), "{max|min|equals, within?} (visible buttons: toggles, Copy and the header not counted)")
+		if w := str("within"); w != "" {
+			v.target(w, c.Line, at)
+		}
 	case "url":
 		need(has("equals", "contains", "matches"), "{equals|contains|matches}")
 		if m := str("matches"); m != "" {
@@ -470,14 +492,14 @@ func (v *Validator) check(c Check, at errAt) {
 		}
 	case "size":
 		bounds := map[string]float64{}
-		for _, k := range []string{"min_width", "max_width", "min_height", "max_height"} {
+		for _, k := range []string{"min_width", "max_width", "min_height", "max_height", "max_top"} {
 			if x, ok := c.Arg[k]; ok {
 				f, isNum := number(x)
 				need(isNum && f >= 0, k+": a number of CSS px")
 				bounds[k] = f
 			}
 		}
-		need(str("target") != "" && len(bounds) > 0, "{target, min_width?, max_width?, min_height?, max_height?} with at least one bound")
+		need(str("target") != "" && len(bounds) > 0, "{target, min_width?, max_width?, min_height?, max_height?, max_top?} with at least one bound")
 		for _, d := range []string{"width", "height"} {
 			lo, hasLo := bounds["min_"+d]
 			hi, hasHi := bounds["max_"+d]
@@ -485,6 +507,8 @@ func (v *Validator) check(c Check, at errAt) {
 				at(c.Line, "size: min_%s %v is above max_%s %v", d, lo, d, hi)
 			}
 		}
+	case "media":
+		need(str("target") != "" && (str("state") == "loaded" || str("state") == "playing"), "{target, state: loaded|playing} (a video or audio element, or one inside the target)")
 	case "issue":
 		need(str("slug") != "" && has("field", "checkbox", "comment_contains", "body_contains"),
 			"{slug, field+equals | checkbox+checked | comment_contains | body_contains}")

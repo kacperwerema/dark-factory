@@ -9,6 +9,8 @@ func init() {
 		"memory.filters",
 		// One filter group by name (scope, kind, state, pinned).
 		"memory.filter.*",
+		// One choice in a filter group (a link): the phone session sizes it.
+		"memory.filter_item",
 		"memory.recent",
 		// The entity index (who knows what), one entity by key
 		// (topic-<name>, agent-<name>), the ?entity= filter line, and a
@@ -23,6 +25,8 @@ func init() {
 		// One memory by id: state, pin suggestion, source, text, actions, history.
 		"memory.row.*",
 		"memory.row.*.state",
+		"memory.row.*.at",
+		"memory.row.*.usefulness",
 		"memory.row.*.suggested",
 		"memory.row.*.source",
 		"memory.row.*.text",
@@ -30,6 +34,8 @@ func init() {
 		"memory.row.*.pin",
 		"memory.row.*.unpin",
 		"memory.row.*.delete",
+		// The row's ⋯ More menu: Pin or Unpin, Delete.
+		"memory.row.*.menu",
 		"memory.row.*.history",
 	)
 }

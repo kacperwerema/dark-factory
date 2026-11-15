@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/kacperwerema/dark-factory/internal/shell"
 )
 
 // fail builds a "<problem> — <hint>" error, applying templating + the
@@ -15,16 +16,22 @@ import (
 func fail(action Action, issue *IssueView, problem, defaultHint string) error {
 	hint := defaultHint
 	if h := strings.TrimSpace(action.Hint); h != "" {
-		if rendered, err := renderTemplate(h, issue); err == nil {
-			hint = rendered
-		} else {
-			hint = h
-		}
+		hint = RenderHint(h, issue)
 	}
 	if hint == "" {
 		return fmt.Errorf("%s", problem)
 	}
 	return fmt.Errorf("%s — %s", problem, hint)
+}
+
+// RenderHint is an action's hint: with {{slug}} & co filled in from issue,
+// or as written when it does not parse. The tracker's legacy rules use it too,
+// so a hint reads the same on every rule.
+func RenderHint(hint string, issue *IssueView) string {
+	if rendered, err := renderTemplate(hint, issue); err == nil {
+		return rendered
+	}
+	return hint
 }
 
 // renderTemplate applies text/template substitution with {{slug}}, {{number}},
@@ -51,9 +58,6 @@ func templateFuncs(issue *IssueView) template.FuncMap {
 	}
 }
 
-// shellSafe is a value that means the same quoted or not.
-var shellSafe = regexp.MustCompile(`^[A-Za-z0-9._/@+-]*$`)
-
 // renderShellTemplate is renderTemplate for a command line: a value with
 // anything a shell would act on ($, ;, quotes, spaces) is single-quoted, so
 // frontmatter (system:, repo:) can't run a command (docs/API/security.md).
@@ -63,7 +67,7 @@ func renderShellTemplate(s string, issue *IssueView) (string, error) {
 	for name, f := range templateFuncs(issue) {
 		switch f := f.(type) {
 		case func() string:
-			funcs[name] = func() string { return shellQuote(f()) }
+			funcs[name] = func() string { return shell.Quote(f()) }
 		default:
 			funcs[name] = f
 		}
@@ -77,13 +81,6 @@ func renderShellTemplate(s string, issue *IssueView) (string, error) {
 		return s, err
 	}
 	return buf.String(), nil
-}
-
-func shellQuote(v string) string {
-	if shellSafe.MatchString(v) {
-		return v
-	}
-	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
 }
 
 // TemplateNames lists the {{name}} placeholders a validator's hint and

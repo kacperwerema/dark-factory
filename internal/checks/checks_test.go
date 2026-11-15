@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 func writeScript(t *testing.T, root, name, body string) string {
@@ -15,7 +17,7 @@ func writeScript(t *testing.T, root, name, body string) string {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -265,7 +267,7 @@ func TestFindBashPrefersAVersionFourOrNewer(t *testing.T) {
 	dir := t.TempDir()
 	fake := func(name, major string) string {
 		p := filepath.Join(dir, name)
-		os.WriteFile(p, []byte("#!/bin/sh\necho "+major+"\n"), 0o755)
+		standin.Write(t, p, "echo "+major+"\n")
 		return p
 	}
 	old, newer := fake("old", "3"), fake("new", "5")
@@ -276,5 +278,21 @@ func TestFindBashPrefersAVersionFourOrNewer(t *testing.T) {
 	_, err = findBash([]string{old})
 	if err == nil || !strings.Contains(err.Error(), "brew install bash") || !strings.Contains(err.Error(), old+" is bash 3") {
 		t.Fatalf("only bash 3: %v", err)
+	}
+}
+
+func TestBesideNamesTheScriptsOwnFiles(t *testing.T) {
+	for rel, want := range map[string]bool{
+		"lead-tab-probe.sh":    true,
+		"lead-tab.probe.py":    true,
+		"lead-tab/fixture.txt": true,
+		"lead-tab.sh":          false,
+		"lead-tabs-probe.sh":   false,
+		"other-probe.sh":       false,
+		"other/lead-tab-x":     false,
+	} {
+		if got := Beside("lead-tab", rel); got != want {
+			t.Errorf("Beside(lead-tab, %q) = %v, want %v", rel, got, want)
+		}
 	}
 }

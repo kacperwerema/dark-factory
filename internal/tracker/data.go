@@ -6,6 +6,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // DataEntry is a single row in an issue's structured data store.
@@ -27,6 +29,8 @@ type DataStore struct {
 	Entries []DataEntry `json:"entries"`
 	// Proofs are the issue-cli prove links, keyed by criterion id ("AC2").
 	Proofs map[string][]ProofLink `json:"proofs,omitempty"`
+	// LeadRuns are the lead's runs of lead links' commands, oldest first.
+	LeadRuns []LeadRun `json:"lead_runs,omitempty"`
 	// Experiment is the experiment block of an issue labelled experiment
 	// (internal/experiment reads and writes it; kept raw here).
 	Experiment json.RawMessage `json:"experiment,omitempty"`
@@ -75,18 +79,16 @@ func LoadData(issuePath string) (DataStore, error) {
 	return store, nil
 }
 
-// SaveData writes the sidecar atomically (temp file + fsync + rename).
+// SaveData writes the sidecar through jsonfile.Write (aside, then renamed).
 // Last-write-wins: callers do not lock, so a racing writer can overwrite
 // concurrent changes. The atomic rename guarantees the file on disk is
 // never half-written.
 func SaveData(issuePath string, store DataStore) error {
 	path := SidecarPath(issuePath)
-	encoded, err := json.MarshalIndent(store, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding data store: %w", err)
+	if err := jsonfile.Write(path, store, 0o644); err != nil {
+		return fmt.Errorf("writing data store: %w", err)
 	}
-	encoded = append(encoded, '\n')
-	return writeFileAtomically(path, encoded, 0644)
+	return nil
 }
 
 // AddEntry appends a new entry without a tier. See AddEntryWithTier for the

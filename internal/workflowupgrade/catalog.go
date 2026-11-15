@@ -191,8 +191,8 @@ func (p Probe) matches(v any) bool {
 	case len(p.OneOf) > 0:
 		return isString && containsString(p.OneOf, strings.TrimSpace(s))
 	case len(p.RuleIn) > 0:
-		name, _, _ := strings.Cut(s, ":")
-		return isString && containsString(p.RuleIn, strings.TrimSpace(name))
+		name, _ := tracker.SplitRule(s)
+		return isString && containsString(p.RuleIn, name)
 	case p.Contains != "":
 		return isString && strings.Contains(strings.ToLower(s), strings.ToLower(p.Contains))
 	default:

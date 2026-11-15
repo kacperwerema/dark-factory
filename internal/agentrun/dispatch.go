@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/routing"
-
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -16,7 +16,7 @@ const StatusWaitingOnGate = "waiting-on-gate"
 
 // DispatchSpec builds the launch spec for issue's worker: what ▶ on the board
 // and `issue-cli dispatch` both start, from the same prompt
-// (tracker.BuildDispatchPrompt), session and worktree. workDir is the project
+// (briefing.BuildDispatchPrompt), session and worktree. workDir is the project
 // checkout the worktree is resolved against. The caller starts the spec with
 // Start.
 //
@@ -51,7 +51,7 @@ func DispatchSpec(proj *tracker.Project, issue *tracker.Issue, agentType, workDi
 			}
 		}
 	}
-	dp := tracker.BuildDispatchPrompt(proj, issue, wf, workDir, func(name string) bool { return IsLive(proj, name) })
+	dp := briefing.BuildDispatchPrompt(proj, issue, wf, workDir, func(name string) bool { return IsLive(proj, name) })
 	route := RouteAgent(proj, wf, workDir, routing.IssueSubject(proj, issue), agentType, time.Now())
 	return Spec{
 		Session:      session,
@@ -64,6 +64,7 @@ func DispatchSpec(proj *tracker.Project, issue *tracker.Issue, agentType, workDi
 		Workflow:     wf,
 		RepromptHint: RepromptHint(proj, issue.Slug),
 		Decisions:    workerInjected(tracker.BriefingDispatch, issue.Slug, dp.DecisionRefs),
+		Briefing:     workerBriefing(tracker.BriefingDispatch, issue, dp),
 	}, nil
 }
 
@@ -79,13 +80,23 @@ const QuoteHint = ` --quote "<the human's words>"`
 
 // Reprompt pastes issue's current briefing into its live worker session (see
 // Paste): Status "reprompted" when it arrived, "no-session" when no worker is
-// running. workDir is the project checkout, as for DispatchSpec.
+// running. A session that is only a shell has no worker: the briefing would
+// run as commands, so nothing is pasted. workDir is the project checkout, as
+// for DispatchSpec.
 func Reprompt(proj *tracker.Project, issue *tracker.Issue, workDir string) Response {
 	if workDir == "" {
 		workDir = ProjectWorkDir(proj)
 	}
 	session := tracker.AgentSessionName(issue.Slug)
-	dp := tracker.BuildDispatchPrompt(proj, issue, proj.LoadWorkflowForIssue(issue), workDir, func(name string) bool { return IsLive(proj, name) })
+	if target := Target(proj, session); HasSession(target) && BareShell(target) {
+		name := tracker.AgentDisplayName(proj, session)
+		return Response{Status: "no-session", Session: name, Steps: []Step{{
+			Name:   "No live agent session",
+			Status: "error",
+			Detail: fmt.Sprintf("%s is only a shell: its agent exited, and nothing was pasted; dispatch the issue instead, which replaces the session: %s", name, tracker.InjectProject(proj, "issue-cli dispatch "+issue.Slug+QuoteHint)),
+		}}}
+	}
+	dp := briefing.BuildDispatchPrompt(proj, issue, proj.LoadWorkflowForIssue(issue), workDir, func(name string) bool { return IsLive(proj, name) })
 	textFile := filepath.Join(workDir, ".agent-logs", session, "dispatch-prompt.txt")
 	response := Paste(proj, session, dp.Prompt, textFile, RepromptHint(proj, issue.Slug))
 	switch response.Status {
@@ -94,6 +105,9 @@ func Reprompt(proj *tracker.Project, issue *tracker.Issue, workDir string) Respo
 		if in := workerInjected(tracker.BriefingReprompt, issue.Slug, dp.DecisionRefs); in != nil {
 			tracker.WarnInjected(proj.IssueDir, *in, time.Now())
 		}
+		b := workerBriefing(tracker.BriefingReprompt, issue, dp)
+		b.At = time.Now()
+		recordBriefing(proj, issue.Slug, *b, &response.Steps)
 	case "no-session":
 		response.Steps = []Step{{
 			Name:   "No live agent session",
@@ -102,6 +116,13 @@ func Reprompt(proj *tracker.Project, issue *tracker.Issue, workDir string) Respo
 		}}
 	}
 	return response
+}
+
+// workerBriefing is the briefing record of dp sent as kind; its time is
+// set when it is sent.
+func workerBriefing(kind string, issue *tracker.Issue, dp tracker.DispatchPrompt) *tracker.Briefing {
+	b := tracker.NewBriefing(kind, issue.Status, tracker.AgentSessionName(issue.Slug), dp.Prompt, dp.MemoryIDs, dp.DecisionRefs, time.Time{})
+	return &b
 }
 
 // workerInjected is the injected event for a worker briefing on slug; nil

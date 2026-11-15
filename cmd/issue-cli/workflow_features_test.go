@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -160,5 +162,84 @@ func TestStaleRecordIsReportedByUpgradeAndProcess(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "features: record") {
 		t.Errorf("process workflow warns about undecided proposals:\n%s", stdout.String())
+	}
+}
+
+// scanWorktreeRepo makes a repo whose main holds workflow.yaml (committed in
+// a second commit) and two linked worktrees under .worktrees/: "x" on main's
+// head and "old" on the first commit, which has no workflow.yaml. The project
+// points at the primary checkout's file, as projects.yaml does.
+func scanWorktreeRepo(t *testing.T) (proj *tracker.Project, primary string) {
+	t.Helper()
+	primary = t.TempDir() // not resolved: on a Mac it is under /var, a link
+	git := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+			"-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "core.hooksPath=/dev/null"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(primary, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(primary, ".gitignore"), []byte(".worktrees/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(primary, "add", "-A")
+	git(primary, "commit", "-q", "-m", "first")
+	if err := os.WriteFile(filepath.Join(primary, "workflow.yaml"), []byte(oldDevelopmentWorkflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(primary, "add", "-A")
+	git(primary, "commit", "-q", "-m", "workflow")
+	git(primary, "worktree", "add", "-q", "-b", "work/x", filepath.Join(primary, ".worktrees", "x"))
+	git(primary, "worktree", "add", "-q", "-b", "work/old", filepath.Join(primary, ".worktrees", "old"), "HEAD~1")
+	return &tracker.Project{Name: "test", Slug: "test", IssueDir: filepath.Join(primary, "issues"), WorkflowFile: filepath.Join(primary, "workflow.yaml")}, primary
+}
+
+// Run from a worker's worktree, scan writes the worktree's workflow.yaml,
+// not the primary checkout's (main's working tree); a worktree without the
+// file is refused, and from the primary checkout scan still writes there.
+func TestWorkflowScanFromAWorktreeWritesTheWorktreesFile(t *testing.T) {
+	proj, primary := scanWorktreeRepo(t)
+	wt := filepath.Join(primary, ".worktrees", "x")
+	chdir(t, wt)
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "Mode:   wrote the features: record")
+	if got, _ := os.ReadFile(filepath.Join(primary, "workflow.yaml")); string(got) != oldDevelopmentWorkflow {
+		t.Fatal("scan from a worktree wrote the primary checkout's workflow.yaml")
+	}
+	got, _ := os.ReadFile(filepath.Join(wt, "workflow.yaml"))
+	if _, ok := workflowupgrade.ReadRecord(got); !ok {
+		t.Fatalf("the worktree's workflow.yaml has no record:\n%s", got)
+	}
+
+	// upgrade reads the same file scan writes: the worktree's, with its record.
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"upgrade"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "Record:   features: (")
+
+	chdir(t, filepath.Join(primary, ".worktrees", "old"))
+	ctx, _, _ = newTestContext(proj, false)
+	err := runWorkflow(ctx, []string{"scan"})
+	if err == nil || !strings.Contains(err.Error(), "has no workflow.yaml") {
+		t.Fatalf("scan in a worktree without the file: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(primary, "workflow.yaml")); string(got) != oldDevelopmentWorkflow {
+		t.Fatal("the refused scan wrote the primary checkout's workflow.yaml")
+	}
+
+	chdir(t, primary)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"scan"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(primary, "workflow.yaml")); string(got) == oldDevelopmentWorkflow {
+		t.Fatal("scan from the primary checkout no longer writes its workflow.yaml")
 	}
 }

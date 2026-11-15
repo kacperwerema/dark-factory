@@ -107,6 +107,8 @@ type healthIn struct {
 	Root   string
 	WF     *tracker.WorkflowConfig
 	Now    time.Time
+	// Lint gives the Lint panel (the server's lintCache); nil runs lint live.
+	Lint func() *LintPanel
 }
 
 // healthRanges are the view's range options (the stats page's).
@@ -158,7 +160,11 @@ func buildHealthPage(in healthIn) *HealthPage {
 			snaps = append(snaps, s)
 		}
 	}
-	p.Lint = lintPanel(in.Proj, in.Now)
+	if in.Lint != nil {
+		p.Lint = in.Lint()
+	} else {
+		p.Lint = lintPanel(in.Proj, in.Now)
+	}
 	p.Scores = scoresChart(snaps, o, in.Root, from, in.Now)
 	p.LOC = locChart(snaps, from, in.Now)
 	for _, kind := range health.TestKinds {
@@ -448,7 +454,8 @@ func healthNavNote(proj *tracker.Project) string {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	root := ciRootFor(proj)
 	page := buildHealthPage(healthIn{Proj: proj, Prefix: prefix, Range: r.URL.Query().Get("range"),
-		Snaps: health.Range(root, time.Time{}, time.Now()), Root: root, WF: proj.LoadWorkflow(), Now: time.Now()})
+		Snaps: health.Range(root, time.Time{}, time.Now()), Root: root, WF: proj.LoadWorkflow(), Now: time.Now(),
+		Lint: func() *LintPanel { return s.lint.panel(proj, s.statsBG("lint refresh "+proj.Slug)) }})
 	q := r.URL.Query()
 	switch {
 	case q.Get("filed") != "":

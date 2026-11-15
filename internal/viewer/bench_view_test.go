@@ -1,6 +1,8 @@
 package viewer
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -97,5 +99,67 @@ func TestBenchSeriesIsOneLinePerBenchmarkFromTheSnapshots(t *testing.T) {
 	}
 	if benchSeries([]*health.Snapshot{snap("2026-10-30T10:00")}) != nil {
 		t.Error("no bench rows must give no series (no card)")
+	}
+}
+
+func TestReportBenchCardShowsTheNewestTwoAgentRunAndTheRuleItContradicts(t *testing.T) {
+	t.Setenv("ISSUE_VIEWER_BENCH_DIR", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	wf := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(wf, []byte("statuses:\n  - name: backlog\n  - name: done\nrouting:\n  default: claude\n  rules:\n    - {type: bugfix, agent: claude}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj := &tracker.Project{Slug: "orchard", IssueDir: filepath.Join(dir, "issues"), WorkflowFile: wf}
+	b := bench.New("ab")
+	b.Tasks = []bench.Task{{Project: "orchard", Slug: "a"}}
+	if err := b.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rec := func(task, agent, outcome string, usd float64) bench.TaskRecord {
+		return bench.TaskRecord{Task: "orchard/" + task, Type: "bugfix", Agent: agent, Outcome: outcome, Judge: -1, WallSec: 60,
+			Usage: bench.Usage{Known: true, Input: 2000, USD: usd, USDKnown: usd > 0, Model: agent + "-model"}}
+	}
+	at := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	var records []bench.TaskRecord
+	for _, task := range []string{"a", "b", "c"} {
+		records = append(records, rec(task, "claude", bench.OutcomeFail, 0.5), rec(task, "codex", bench.OutcomePass, 0))
+	}
+	records = append(records, bench.TaskRecord{Task: "orchard/secret-one", Type: "bugfix", Agent: "codex", Holdout: true, Outcome: bench.OutcomePass, Judge: -1})
+	if err := bench.Save(&bench.Run{ID: "ab-run", Benchmark: "ab", Started: at, Ended: at.Add(time.Hour), Stop: bench.StopDone, Setup: bench.Setup{Agent: "claude,codex"}}, records); err != nil {
+		t.Fatal(err)
+	}
+	// A later one-agent run doesn't hide it.
+	later := at.Add(5 * time.Hour)
+	if err := bench.Save(&bench.Run{ID: "nightly", Benchmark: "ab", Started: later, Ended: later.Add(time.Hour), Stop: bench.StopDone, Setup: bench.Setup{Agent: "claude"}}, []bench.TaskRecord{{Task: "orchard/a", Outcome: bench.OutcomePass}}); err != nil {
+		t.Fatal(err)
+	}
+	card := reportBench(proj, at.Add(8*time.Hour))
+	a := card.Rows[0].Agents
+	if a == nil || a.RunID != "ab-run" || len(a.Rows) != 4 {
+		t.Fatalf("agents = %+v", a)
+	}
+	if len(a.Routing) != 1 || a.Routing[0].Tone != "red" || !strings.Contains(a.Routing[0].Text, "type bugfix → claude contradicted: codex passed 3/3, claude 0/3") {
+		t.Fatalf("routing = %+v", a.Routing)
+	}
+	if !strings.Contains(a.Prices, "no prices.yaml") || !strings.Contains(a.Prices, "codex-model") {
+		t.Fatalf("prices = %q", a.Prices)
+	}
+	srv, err := NewServer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if err := srv.tmpl.ExecuteTemplate(&out, "wb/bench", card); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{`data-testid="report.bench.agents"`, `data-testid="report.bench.agent.bugfix.codex"`, `data-testid="report.bench.routing"`, `data-testid="report.bench.prices"`, "3/3 100%", "cost unknown", "$0.50", "wb-chip--you"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("card lacks %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, "secret-one") {
+		t.Errorf("the card names a holdout task:\n%s", html)
 	}
 }

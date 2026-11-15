@@ -45,7 +45,8 @@ const Shape = `## Proposed actions
   Differently: <what a fresh agent would do differently next session because of it>
   Place: memory <fact|convention|pitfall|howto|who> | file <repo path .md> | skill <name> | workflow | none <doc path#anchor that already says it>
   Text: <the memory, or the text to add to the file or skill; for workflow, the change to try>
-  Under: <optional: the file's heading to add it under; else the end>`
+  Under: <optional: the file's heading to add it under; else the end>
+  At: <optional, memory only: the status it matters at; transition shows it to whoever enters that status>`
 
 // Action is one proposed action.
 type Action struct {
@@ -58,16 +59,26 @@ type Action struct {
 	Arg   string `json:"arg,omitempty"`
 	Text  string `json:"text,omitempty"`
 	Under string `json:"under,omitempty"`
-	// Done is the box ticked; Applied or Refused says how it ended.
-	Done    bool   `json:"done"`
-	Applied string `json:"applied,omitempty"`
-	Refused string `json:"refused,omitempty"`
+	// At is the status a memory action's memory matters at (memory add
+	// --at), as the workflow spells it once Check has read it.
+	At string `json:"at,omitempty"`
+	// Done is the box ticked; Applied, Refused or Overtaken says how it
+	// ended.
+	Done      bool   `json:"done"`
+	Applied   string `json:"applied,omitempty"`
+	Refused   string `json:"refused,omitempty"`
+	Overtaken string `json:"overtaken,omitempty"`
+	// Reopened is each undone mark, oldest first: the action's history.
+	// It doesn't decide anything: a reopened action is open.
+	Reopened []string `json:"reopened,omitempty"`
 	// Line is the 0-based line of the item in the body it was parsed from.
 	Line int `json:"-"`
 }
 
 // Decided is whether the owner's round has answered this action.
-func (a Action) Decided() bool { return a.Done || a.Applied != "" || a.Refused != "" }
+func (a Action) Decided() bool {
+	return a.Done || a.Applied != "" || a.Refused != "" || a.Overtaken != ""
+}
 
 // Target is the file a file or skill action edits, relative to the repo.
 func (a Action) Target() string {
@@ -165,7 +176,7 @@ func Actions(body string) []Action {
 
 func knownField(k string) bool {
 	switch strings.ToLower(k) {
-	case "differently", "place", "text", "under", "applied", "refused":
+	case "differently", "place", "text", "under", "at", "applied", "refused", "overtaken", "reopened":
 		return true
 	}
 	return false
@@ -185,10 +196,16 @@ func setField(a *Action, key, val string) {
 		a.Text = val
 	case "under":
 		a.Under = strings.TrimLeft(val, "# ")
+	case "at":
+		a.At = val
 	case "applied":
 		a.Applied = val
 	case "refused":
 		a.Refused = val
+	case "overtaken":
+		a.Overtaken = val
+	case "reopened":
+		a.Reopened = append(a.Reopened, val)
 	}
 }
 
@@ -219,8 +236,10 @@ func (e *RefusedError) Error() string {
 
 // Check parses body as a post-mortem and refuses it unless it has the six
 // sections and every action passes the test and names one place. root is
-// the repo a file action and a none reference are checked against.
-func Check(body, root string) ([]Action, error) {
+// the repo a file action and a none reference are checked against;
+// statuses are the workflow's, which a memory action's At: must name (the
+// returned actions carry the workflow's spelling).
+func Check(body, root string, statuses []string) ([]Action, error) {
 	var refs []Refusal
 	secs, _ := SplitSections(body)
 	for _, s := range Sections {
@@ -230,8 +249,13 @@ func Check(body, root string) ([]Action, error) {
 	}
 	acts := Actions(body)
 	seen := map[string]bool{}
-	for _, a := range acts {
-		for _, why := range a.problems(root) {
+	for i, a := range acts {
+		if a.At != "" && a.Place == PlaceMemory {
+			if s, ok := MatchStatus(a.At, statuses); ok {
+				acts[i].At = s
+			}
+		}
+		for _, why := range a.problems(root, statuses) {
 			refs = append(refs, Refusal{ID: a.label(), Why: why})
 		}
 		if a.ID != "" {
@@ -259,7 +283,7 @@ func (a Action) label() string {
 }
 
 // problems are why a fails the test or the place rule; none is a pass.
-func (a Action) problems(root string) []string {
+func (a Action) problems(root string, statuses []string) []string {
 	var out []string
 	if a.ID == "" {
 		return []string{"not an action item: write it as \"- [ ] A<n>: <action>\" with Differently:, Place: and Text: lines below"}
@@ -293,8 +317,16 @@ func (a Action) problems(root string) []string {
 	if k := memory.FindSecret(a.Text); k != "" {
 		out = append(out, "Text: looks like a secret ("+k+"): a post-mortem never carries one")
 	}
+	if a.At != "" && a.Place != PlaceMemory {
+		out = append(out, fmt.Sprintf("At: %q is for Place: memory only: a %s action has no status to tie", a.At, a.Place))
+	}
 	switch a.Place {
 	case PlaceMemory:
+		if a.At != "" {
+			if why := badStatus(a.At, statuses); why != "" {
+				out = append(out, why)
+			}
+		}
 		if a.Arg == "" {
 			out = append(out, "Place: memory needs a kind: "+strings.Join(memory.Kinds, ", "))
 		} else if err := memory.CheckKind(a.Arg); err != nil {
@@ -333,6 +365,28 @@ func (a Action) problems(root string) []string {
 		}
 	}
 	return out
+}
+
+// MatchStatus is raw as statuses spell it, matched without case.
+func MatchStatus(raw string, statuses []string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	for _, s := range statuses {
+		if strings.EqualFold(s, raw) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// badStatus is why an At: line's status can't be used, or "".
+func badStatus(raw string, statuses []string) string {
+	if _, ok := MatchStatus(raw, statuses); ok {
+		return ""
+	}
+	if len(statuses) == 0 {
+		return fmt.Sprintf("At: %q: the workflow's statuses aren't known here, so no status can be checked", raw)
+	}
+	return fmt.Sprintf("At: %q is not a status of the workflow: one of %s", raw, strings.Join(statuses, ", "))
 }
 
 // badFile is why path can't be a file action's target, or "".
@@ -374,10 +428,27 @@ func Pending(acts []Action) []Action {
 	return out
 }
 
+// How an action ended, as Mark records it.
+const (
+	OutcomeApplied   = "Applied"
+	OutcomeRefused   = "Refused"
+	OutcomeOvertaken = "Overtaken"
+	// lineReopened is the field an undone mark's line becomes.
+	lineReopened = "Reopened"
+)
+
 // Mark records one action's outcome in raw (a retro file): it ticks the
 // box and adds the "Applied: …" line, or adds "Refused: …" and leaves the
 // box open. An action already decided is refused.
 func Mark(raw, id string, applied bool, outcome string) (string, error) {
+	if applied {
+		return MarkAs(raw, id, OutcomeApplied, outcome)
+	}
+	return MarkAs(raw, id, OutcomeRefused, outcome)
+}
+
+// MarkAs is Mark for any outcome; only Applied ticks the box.
+func MarkAs(raw, id, how, outcome string) (string, error) {
 	lines := strings.Split(raw, "\n")
 	for _, a := range Actions(raw) {
 		if a.ID != strings.ToUpper(id) {
@@ -387,10 +458,9 @@ func Mark(raw, id string, applied bool, outcome string) (string, error) {
 			return "", fmt.Errorf("%s is already decided", a.ID)
 		}
 		item := lines[a.Line]
-		key := "Refused: "
-		if applied {
+		key := how + ": "
+		if how == OutcomeApplied {
 			item = strings.Replace(item, "[ ]", "[x]", 1)
-			key = "Applied: "
 		}
 		indent := "  "
 		if j := a.Line + 1; j < len(lines) {

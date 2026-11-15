@@ -63,10 +63,10 @@ func TestYOLOOwnerOnlyGateRefuses(t *testing.T) {
 
 	// The gate after it still passes in YOLO.
 	wf := proj.LoadWorkflowForIssue(issue)
-	if yoloEligible(wf, issue, "in design", "backlog", "backlog") {
+	if yolo.Eligible(wf, issue, "in design", "backlog") {
 		t.Fatal("owner_only gate eligible")
 	}
-	if !yoloEligible(wf, issue, "backlog", "in progress", "in progress") {
+	if !yolo.Eligible(wf, issue, "backlog", "in progress") {
 		t.Fatal("plain gate not eligible")
 	}
 }
@@ -135,13 +135,17 @@ func TestYOLOStatusListsNeverPasses(t *testing.T) {
 	for _, want := range []string{
 		"Never passes (the owner's, even in YOLO):",
 		"  - in design → backlog: owner_only: spends money or publishes outside the machine",
-		"  - the Human Testing approval: the human's own",
 		"  - every gate of an issue labelled experiment",
 		"  - release publish: external releases wait for the owner",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("on lacks %q:\n%s", want, out)
 		}
+	}
+	// The Human Testing approval passes in YOLO: never on the list.
+	const humanTesting = "Human Testing approval"
+	if strings.Contains(out, humanTesting) {
+		t.Errorf("on lists the Human Testing approval as the owner's:\n%s", out)
 	}
 
 	out = run(false, "status")
@@ -151,5 +155,25 @@ func TestYOLOStatusListsNeverPasses(t *testing.T) {
 	out = run(true, "status")
 	if !strings.Contains(out, `"never_passes"`) || !strings.Contains(out, `"approves": "backlog"`) {
 		t.Fatalf("status --json:\n%s", out)
+	}
+
+	// A gate that does ask for it passes too: still not on the list.
+	raw, err := os.ReadFile(proj.WorkflowFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gated := strings.Replace(string(raw), `    to: "human-testing"
+`, `    to: "human-testing"
+    actions:
+      - type: "require_human_approval"
+`, 1)
+	if gated == string(raw) {
+		t.Fatal("test workflow did not change")
+	}
+	if err := os.WriteFile(proj.WorkflowFile, []byte(gated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(false, "status"); strings.Contains(out, humanTesting) {
+		t.Fatalf("status lists a gate that asks for the approval as the owner's:\n%s", out)
 	}
 }

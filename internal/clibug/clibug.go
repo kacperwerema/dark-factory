@@ -156,6 +156,13 @@ type Result struct {
 	// the issue already had one).
 	Milestone string `json:"milestone,omitempty"`
 	FoundIn   string `json:"found_in,omitempty"`
+	// Matched is what joined a report to an open issue: "title" or
+	// "error" (the same quoted error); "" for a new issue.
+	Matched string `json:"matched,omitempty"`
+	// MaybeFixed are the commits on Branch since the reporter's build that
+	// touch the quoted error.
+	MaybeFixed []Commit `json:"maybe_fixed,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
 }
 
 // Sender delivers a report somewhere it gets triaged: the local engine board

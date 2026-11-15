@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/codemap"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,32 +19,43 @@ import (
 
 var critiqueCommand = &Command{
 	Name:      "critique",
-	ShortHelp: "Run a fresh read-only critic on an issue before its critique gate",
+	ShortHelp: "Run a fresh read-only critic on an issue, before its critique gate or by hand",
 	LongHelp: `Run a fresh critic: a read-only agent that did not write the work reads the
 issue, the branch's diff, the changed files and the settled rules (paths only,
 never your summary), assumes the work is wrong and reports findings. A blocks
 finding holds the workflow's critique gate until a new run clears it or the
 owner overrides it. should findings are shown; notes are kept in the log.
 
+From a status with no critique gate out of it the run is by hand: the same
+critic, record and comment, but it holds nothing and counts no red round.
+
 Usage:
   issue-cli critique <slug> [--agent claude|codex] [--brief]
   issue-cli critique <slug> --show
+  issue-cli critique <slug> --reparse <run id>
   issue-cli critique <slug> --override --quote "<the owner's words>"
 
   --brief      print the brief the critic would get and start nothing
   --show       print the newest run from the current status
+  --reparse    parse a run's kept raw output again with the current parser
+               and print the result beside the recorded one; records nothing
   --override   the owner lets the gate pass past the newest run (refused
                from a worker's shell)
 
 Before starting it checks mem-guard and the CPU load (under the core count).
 It runs headless and read-only: claude -p with only Read/Grep/Glob, or codex
 exec --sandbox read-only, in the issue's worktree (so its tokens count for
-the issue in issue-cli spend). The agent is routing's pick switched to the
-other installed agent, unless critique: agent: or --agent names one;
-critique: command: in workflow.yaml replaces the command (brief on stdin).
+the issue in issue-cli spend). The critic is the agent that did not write the
+work: the other one than the worker's agent on the dispatch record (routing's
+pick when there is none), or the same one when the other rests or isn't
+installed, which the run record and its comment say. critique: agent: or
+--agent names one instead; critique: command: in workflow.yaml replaces the
+command (brief on stdin).
 
 Runs are kept in <issues>/.critique/runs.jsonl and each leaves a critique:
-comment on the issue.
+comment on the issue. The critic's stdout is kept beside each run in
+<issues>/.critique/raw/<run id>.txt (secrets redacted by the same scan as
+memory); the run record names the file.
 
 The critic's output format:
 
@@ -66,6 +78,7 @@ func runCritique(ctx *Context, args []string) error {
 	show := fs.Bool("show", false, "print the newest run from the current status")
 	override := fs.Bool("override", false, "the owner lets the gate pass past the newest run")
 	quoteFlag := fs.String("quote", "", "with --override: the owner's words")
+	reparse := fs.String("reparse", "", "parse a run's kept raw output again with the current parser")
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -80,6 +93,10 @@ func runCritique(ctx *Context, args []string) error {
 	}
 	wf = wf.ForIssue(issue)
 	issuesDir := ctx.Project.IssueDir
+
+	if id := strings.TrimSpace(*reparse); id != "" {
+		return critiqueReparse(ctx, issuesDir, slug, id)
+	}
 
 	if *show || *override {
 		runs, err := critique.Load(issuesDir, slug)
@@ -99,7 +116,7 @@ func runCritique(ctx *Context, args []string) error {
 			}
 			return nil
 		}
-		me := whoAmI(ctx.Project, issues)
+		me := guardWho(ctx, issues, "critique --override")
 		if me.Role == tracker.RoleWorker {
 			return fmt.Errorf("an override is the owner's (you are %s, detected from %s): fix the blocks findings and run issue-cli critique %s again, or ask on your trail:\n  %s",
 				valueOr(me.Name, "a worker"), me.Signal, slug,
@@ -109,8 +126,8 @@ func runCritique(ctx *Context, args []string) error {
 		if quote == "" {
 			return &usageError{msg: "critique --override needs --quote: the owner's words that let the gate pass. Nothing was recorded."}
 		}
-		if !latest.Holds() {
-			fmt.Fprintf(ctx.Stdout, "Run %s is %s: nothing to override.\n", latest.ID, latest.Verdict())
+		if latest.ByHand() || !latest.Holds() {
+			fmt.Fprintf(ctx.Stdout, "Run %s is %s: nothing to override.\n", latest.ID, latest.Edge()+" "+latest.Verdict())
 			return nil
 		}
 		o := critique.Override{At: ctx.Now(), Quote: quote, By: valueOr(me.Name, "owner")}
@@ -122,18 +139,8 @@ func runCritique(ctx *Context, args []string) error {
 		return nil
 	}
 
-	to, ok := wf.CritiqueEdge(issue.Status)
-	if !ok {
-		var edges []string
-		for _, t := range wf.CritiqueEdges() {
-			edges = append(edges, t.From+" → "+t.To)
-		}
-		where := "no edge in this workflow has one"
-		if len(edges) > 0 {
-			where = "it has one on " + strings.Join(edges, ", ")
-		}
-		return fmt.Errorf("no critique gate out of %s for %s (%s); nothing to critique now", issue.Status, slug, where)
-	}
+	// No gate out of this status: the run is by hand, to stays "".
+	to, gated := wf.CritiqueEdge(issue.Status)
 
 	root := projectRoot(ctx.Project)
 	dir := filepath.Join(root, ".worktrees", slug)
@@ -148,7 +155,7 @@ func runCritique(ctx *Context, args []string) error {
 
 	// Held runs are red rounds of the critique check: while its cap
 	// question is open the critic is not run again.
-	if rr, err := loadRedRounds(ctx, wf, issue); err == nil {
+	if rr, err := loadRedRounds(ctx, wf, issue); gated && err == nil {
 		check := redrounds.CritiqueCheck(issue.Status, to)
 		if q, open := rr.Open[check]; open {
 			return &redrounds.HoldError{Slug: slug, Question: q, Streak: rr.Streak(check), Max: rr.Max}
@@ -162,15 +169,15 @@ func runCritique(ctx *Context, args []string) error {
 	if mem := autostart.ReadMemory(); mem.Found && !mem.CanStart {
 		return fmt.Errorf("mem-guard says no new agent now (%s); nothing started — run issue-cli critique %s again when memory is lower", mem.Note, slug)
 	}
-	if cpu := autostart.ReadLoad(); cpu.Found && cpu.Cores > 0 && cpu.Avg1 >= float64(cpu.Cores) {
+	if cpu := autostart.ReadLoad(); autostart.LoadHold(cpu, 0) != "" {
 		return fmt.Errorf("load %s on %d cores: the machine is busy; nothing started — run issue-cli critique %s again when the load is under %d", autostart.FormatLoad(cpu.Avg1), cpu.Cores, slug, cpu.Cores)
 	}
 
-	agent, why := critiqueAgent(ctx.Project, wf, issue, *agentFlag, ctx.Now())
+	pick := critiqueAgent(ctx.Project, wf, issue, *agentFlag, ctx.Now())
 	var command string
 	if wf.Critique != nil && strings.TrimSpace(wf.Critique.Command) != "" {
 		command = wf.Critique.Command
-		why += "; critique: command:"
+		pick.Why, pick.Same = "critique: command:", false
 	}
 	argvFor := func(agent string) ([]string, error) {
 		if command != "" {
@@ -185,7 +192,7 @@ func runCritique(ctx *Context, args []string) error {
 		}
 		return argv, nil
 	}
-	argv, err := argvFor(agent)
+	argv, err := argvFor(pick.Agent)
 	if err != nil {
 		return err
 	}
@@ -198,36 +205,36 @@ func runCritique(ctx *Context, args []string) error {
 	brief := critique.Brief(in)
 	env := []string{"CRITIQUE_SLUG=" + slug, "CRITIQUE_FROM=" + issue.Status, "CRITIQUE_TO=" + to, "CRITIQUE_PATHS=" + strings.Join(in.Paths(), "\n")}
 	runCritic := func(agent, why string, argv []string) (string, error) {
-		fmt.Fprintf(ctx.Stdout, "Critic: %s (%s), read-only in %s, %s → %s; up to %s…\n", agent, why, dir, issue.Status, to, timeout)
+		edge := (&critique.Run{From: issue.Status, To: to}).Edge()
+		fmt.Fprintf(ctx.Stdout, "Critic: %s (%s), read-only in %s, %s; up to %s…\n", agent, why, dir, edge, timeout)
 		return critique.Exec(context.Background(), dir, command, argv, brief, env, timeout)
 	}
-	out, runErr := runCritic(agent, why, argv)
+	out, runErr := runCritic(pick.Agent, pick.Why, argv)
 
 	// A critic stopped by its usage limit: that subscription rests
 	// (routing's state, as for a worker) and the critic runs once more on
 	// the other installed agent that isn't resting.
 	var fallback string
-	if lim, ok := critiqueLimit(agent, command, out, runErr, ctx.Now()); ok {
+	if lim, ok := critiqueLimit(pick.Agent, command, out, runErr, ctx.Now()); ok {
 		_, _ = routing.Mark(routing.Dir(), lim, ctx.Project.Slug, "critique:"+slug, ctx.Now())
 		fallback = fmt.Sprintf("%s hit its usage limit (resting until %s)", lim.Agent, routing.RestUntilText(routing.Rest{Until: lim.Until, KnownReset: lim.KnownReset}, ctx.Now()))
 		fmt.Fprintf(ctx.Stdout, "%s: marked resting.\n", fallback)
 		next := ""
-		chosen := strings.HasPrefix(why, "--agent") || strings.HasPrefix(why, "critique: agent:")
-		if command == "" && !chosen {
+		if command == "" && !pick.Chosen {
 			st, _ := routing.Load(routing.Dir())
-			next = critiqueOther(st, lim.Agent, ctx.Now())
+			next, _ = routing.Other(st, lim.Agent, ctx.Now())
 		}
-		if chosen {
-			fmt.Fprintf(ctx.Stdout, "%s was chosen by %s, so no other agent is tried; the run is recorded as failed.\n", lim.Agent, why)
+		if pick.Chosen {
+			fmt.Fprintf(ctx.Stdout, "%s was chosen by %s, so no other agent is tried; the run is recorded as failed.\n", lim.Agent, pick.Why)
 		} else if next == "" {
 			fmt.Fprintln(ctx.Stdout, "No other agent to run the critic on (installed and not resting); the run is recorded as failed.")
 		} else if nargv, err := argvFor(next); err != nil {
 			fmt.Fprintf(ctx.Stdout, "No fallback run on %s: %v; the run is recorded as failed.\n", next, err)
 			fallback += "; no fallback run on " + next + ": " + err.Error()
 		} else {
-			agent = next
+			pick.Agent, pick.Why, pick.Same = next, lim.Agent+" at its usage limit", next == pick.writer
 			fallback += "; ran on " + next
-			out, runErr = runCritic(next, "fallback: "+lim.Agent+" at its usage limit", nargv)
+			out, runErr = runCritic(next, "fallback: "+pick.Why, nargv)
 			// Only one fallback; a second limit is marked, not run again.
 			if lim2, ok := critiqueLimit(next, command, out, runErr, ctx.Now()); ok {
 				_, _ = routing.Mark(routing.Dir(), lim2, ctx.Project.Slug, "critique:"+slug, ctx.Now())
@@ -236,11 +243,14 @@ func runCritique(ctx *Context, args []string) error {
 		}
 	}
 
-	run := &critique.Run{Slug: slug, From: issue.Status, To: to, At: ctx.Now(), Agent: agent, Head: head, Report: critique.Parse(out), Fallback: fallback}
+	run := &critique.Run{Slug: slug, From: issue.Status, To: to, At: ctx.Now(), Agent: pick.Agent, Worker: pick.Worker, Why: pick.Why, SameAgent: pick.Same, Head: head, Report: critique.Parse(out), Fallback: fallback}
+	if command != "" {
+		run.Agent = "" // nobody knows which CLI the command runs
+	}
 	if runErr != nil {
 		run.Failed, run.Error = true, runErr.Error()
 	}
-	if err := critique.Record(issuesDir, run); err != nil {
+	if err := critique.RecordWithRaw(issuesDir, run, out); err != nil {
 		return fmt.Errorf("recording the critique run: %w", err)
 	}
 	text := critique.CommentText(run)
@@ -250,6 +260,10 @@ func runCritique(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "\n%d malformed finding%s kept at their severity (see above).\n", len(mal), critiquePlural(len(mal)))
 	}
 	fmt.Fprintln(ctx.Stdout)
+	if !gated {
+		fmt.Fprintf(ctx.Stdout, "%s: this run was by hand and holds nothing.\n", critiqueNoGate(wf, issue.Status))
+		return nil
+	}
 	if err := critique.GateError(run, slug, issue.Status); err != nil {
 		fmt.Fprintf(ctx.Stdout, "The gate %s → %s holds: %v\n", issue.Status, to, err)
 		critiqueRedRound(ctx, wf, issue, redrounds.CritiqueCheck(issue.Status, to))
@@ -258,6 +272,61 @@ func runCritique(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "✓ No blocks finding: the critique gate %s → %s passes.\n", issue.Status, to)
 	if n := run.Report.Count(critique.Should); n > 0 {
 		fmt.Fprintf(ctx.Stdout, "%d should finding%s above: fix them or say why not on the trail.\n", n, critiquePlural(n))
+	}
+	return nil
+}
+
+// critiqueNoGate says there is no gate out of status and where the workflow
+// has one.
+func critiqueNoGate(wf *tracker.WorkflowConfig, status string) string {
+	var edges []string
+	for _, t := range wf.CritiqueEdges() {
+		edges = append(edges, t.From+" → "+t.To)
+	}
+	where := "no edge in this workflow has one"
+	if len(edges) > 0 {
+		where = "this workflow has one on " + strings.Join(edges, ", ")
+	}
+	return fmt.Sprintf("There is no gate out of %s (%s)", status, where)
+}
+
+// critiqueReparse parses run id's kept raw output with the current parser
+// and prints the result after the recorded one. It records nothing: it is
+// how a parser fix is tried on a real run.
+func critiqueReparse(ctx *Context, issuesDir, slug, id string) error {
+	runs, err := critique.Load(issuesDir, slug)
+	if err != nil {
+		return err
+	}
+	run := critique.Find(runs, id)
+	if run == nil {
+		var ids []string
+		for _, r := range runs {
+			ids = append(ids, r.ID)
+		}
+		known := "none"
+		if len(ids) > 0 {
+			known = strings.Join(ids, ", ")
+		}
+		return fmt.Errorf("no critique run %s for %s (its runs: %s)", id, slug, known)
+	}
+	raw, err := critique.ReadRaw(issuesDir, run)
+	if err != nil {
+		return err
+	}
+	again := *run
+	again.Report = critique.Parse(raw)
+	before, after := critique.CommentText(run), critique.CommentText(&again)
+	fmt.Fprintf(ctx.Stdout, "Run %s, raw output %s (%d bytes).\n\nRecorded:\n%s\n\nCurrent parser:\n%s\n", run.ID, run.Raw, len(raw), before, after)
+	for _, f := range again.Report.Of(critique.Note) {
+		if !f.Malformed {
+			fmt.Fprintln(ctx.Stdout, "- "+f.String())
+		}
+	}
+	if before == after && len(run.Report.Findings) == len(again.Report.Findings) {
+		fmt.Fprintln(ctx.Stdout, "\nSame as recorded. Nothing was recorded.")
+	} else {
+		fmt.Fprintln(ctx.Stdout, "\nDiffers from the recorded report. Nothing was recorded.")
 	}
 	return nil
 }
@@ -317,40 +386,53 @@ func critiqueLimit(agent, command, out string, runErr error, now time.Time) (rou
 	return routing.FindLimit(scan, text, now)
 }
 
-// critiqueOther is another known agent than not, installed and not resting;
-// "" when there is none.
-func critiqueOther(st *routing.State, not string, now time.Time) string {
-	for _, other := range routing.KnownAgents {
-		if other == not {
-			continue
-		}
-		if _, resting := st.Resting(other, now); !resting && routing.Installed(other) {
-			return other
-		}
-	}
-	return ""
+// criticPick is the critic's agent and how it came to be.
+type criticPick struct {
+	Agent string
+	// Worker is the agent on the issue's dispatch record, "" without one.
+	Worker string
+	// Why is the reason in words, kept in the run record.
+	Why string
+	// Same: the critic is the agent that wrote the work (or routing's
+	// pick, with no dispatch record).
+	Same bool
+	// Chosen: --agent or critique: agent: named it, so no fallback.
+	Chosen bool
+	// writer is Worker, else routing's pick: who Same compares with.
+	writer string
 }
 
 // critiqueAgent picks the critic's CLI: --agent or critique: agent: wins;
-// otherwise routing's pick for the issue (the worker's agent), switched to
-// the other known agent when it is installed and not resting.
-func critiqueAgent(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue, explicit string, now time.Time) (agent, why string) {
+// otherwise the other known agent than the one that wrote the work, or the
+// writer itself when no other is installed and awake. The writer is the
+// dispatch record's agent; only without a record is it routing's pick for
+// the issue, a guess the reason says is one.
+func critiqueAgent(proj *tracker.Project, wf *tracker.WorkflowConfig, issue *tracker.Issue, explicit string, now time.Time) criticPick {
+	stats, _ := tracker.StatsOf(issue.FilePath)
+	worker := tracker.WorkerAgent(stats, issue.Slug)
+	chosen := func(agent, why string) criticPick {
+		return criticPick{Agent: agent, Worker: worker, Why: why, Same: agent == worker, Chosen: true, writer: worker}
+	}
 	if a := strings.TrimSpace(explicit); a != "" {
-		return a, "--agent"
+		return chosen(a, "--agent")
 	}
 	if wf.Critique != nil && strings.TrimSpace(wf.Critique.Agent) != "" {
-		return strings.TrimSpace(wf.Critique.Agent), "critique: agent:"
+		return chosen(strings.TrimSpace(wf.Critique.Agent), "critique: agent:")
 	}
 	st, _ := routing.Load(routing.Dir())
-	c := routing.Pick(wf.Routing, routing.IssueSubject(proj, issue), "", st, now)
-	worker := c.Agent
-	if worker == "" {
-		worker = tracker.DefaultAgent
+	writer, whose := worker, "the worker's "+worker
+	if writer == "" {
+		writer = routing.Pick(wf.Routing, routing.IssueSubject(proj, issue), "", st, now).Agent
+		if writer == "" {
+			writer = tracker.DefaultAgent
+		}
+		whose = "routing's pick " + writer + ", no dispatch record"
 	}
-	if other := critiqueOther(st, worker, now); other != "" {
-		return other, "not the worker's " + worker
+	other, away := routing.Other(st, writer, now)
+	if other != "" {
+		return criticPick{Agent: other, Worker: worker, Why: "not " + whose, writer: writer}
 	}
-	return worker, "routing: " + c.Why
+	return criticPick{Agent: writer, Worker: worker, Why: away + "; on " + whose, Same: true, writer: writer}
 }
 
 // critiqueInput gathers the paths the critic reads, relative to dir where
@@ -383,11 +465,26 @@ func critiqueInput(root, dir string, proj *tracker.Project, issue *tracker.Issue
 		}
 	}
 	in.Touched = critiqueTouched(proj, issues, in.Changed, now)
+	in.Footprint = critiqueFootprint(proj, issue, in.Changed)
 	if len(in.Changed) > 0 {
 		in.Diff = critiqueDiffFile
 		critiqueDiffBase = base
 	}
 	return in, head
+}
+
+// critiqueFootprint is the changed files' footprint on the project's code
+// map, as plain lines; nil without workbench.contexts.
+func critiqueFootprint(proj *tracker.Project, issue *tracker.Issue, changed []string) []string {
+	if len(changed) == 0 {
+		return nil
+	}
+	m, sha, err := codemap.ForProject(proj, proj.LoadWorkflowForIssue(issue))
+	if err != nil || m == nil {
+		return nil
+	}
+	f := &codemap.IssueFootprint{Map: m, Main: sha, Footprint: m.Affected(changed)}
+	return f.Lines()
 }
 
 // critiqueDiffFile is where the branch's diff is written, relative to the
@@ -450,8 +547,8 @@ func critiqueLine(issuesDir string, wf *tracker.WorkflowConfig, issue *tracker.I
 	switch {
 	case latest != nil && (!gate || strings.EqualFold(latest.From, issue.Status)):
 		r := latest.Report
-		return fmt.Sprintf("Critique: %s → %s %s (%d blocks, %d should, %d note) — issue-cli critique %s --show",
-			latest.From, latest.To, latest.Verdict(), r.Count(critique.Blocks)+len(r.Problems), r.Count(critique.Should), r.Count(critique.Note), issue.Slug)
+		return fmt.Sprintf("Critique: %s %s (%d blocks, %d should, %d note) — issue-cli critique %s --show",
+			latest.Edge(), latest.Verdict(), r.Count(critique.Blocks)+len(r.Problems), r.Count(critique.Should), r.Count(critique.Note), issue.Slug)
 	case gate:
 		return fmt.Sprintf("Critique: none from %s yet; the next gate wants one — issue-cli critique %s", issue.Status, issue.Slug)
 	}

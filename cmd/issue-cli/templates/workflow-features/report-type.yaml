@@ -1,8 +1,8 @@
 id: report-type
-version: v0.58.0
+version: v0.61.0
 category: lifecycle
 propose: true
-templates: [development]
+templates: [development, marketing]
 requires: [types-of-work]
 sources: ["internal/outputs/gate.go", "internal/lint/reports.go"]
 title: "A report type: research and report-only issues skip the build path"
@@ -14,7 +14,12 @@ what: |
   comment gate the owner review, whose one box is the owner's. No Implementation,
   Test Plan or Shipping, and no commit: done needs only the owner's approval
   (the YOLO queue under YOLO). Code fixes the research finds are filed as their
-  own issues.
+  own issues; a follow-up that is the owner's call ends "(owner)" (or sits under a
+  sub-heading or lead-in naming the owner), and lint's `reports` check, which warns
+  once per done report whose Follow-ups nothing quotes, counts only the rest. The marketing template has the same type in research mode
+  (research → owner review → done: at least 5 sources under ## Research, the
+  report on the shelf and a `report:` comment, then the owner's approval);
+  a growth-scout job's runs (`brief: builtin:growth-scout`) take it by themselves.
 why: |
   A report-only feature walked the full feature path: 13 boxes ticked N/A, plus
   an empty commit only so commits_reference_issue passed and main could be

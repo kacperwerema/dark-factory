@@ -1,0 +1,23 @@
+package tally
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestWordsWithFoldLowercases(t *testing.T) {
+	got := WordsWith("Go go GO", Options{Fold: true})
+	if want := []string{"go", "go", "go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("WordsWith = %q, want %q", got, want)
+	}
+	if got := WordsWith("Go go", Options{}); !reflect.DeepEqual(got, []string{"Go", "go"}) {
+		t.Fatalf("no Fold changed the case: %q", got)
+	}
+}
+
+func TestCountWithFoldMergesCases(t *testing.T) {
+	got := CountWith("Go go Rust", Options{Fold: true})
+	if got["go"] != 2 || got["rust"] != 1 || len(got) != 2 {
+		t.Fatalf("CountWith = %v", got)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/spend"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -172,7 +173,7 @@ func spendLine(rep *spend.Report, key string) string {
 	}
 	var weeks []string
 	for _, wk := range b.Weeks {
-		weeks = append(weeks, spend.FormatTokens(wk.Tokens()))
+		weeks = append(weeks, tokens.Format(wk.Tokens()))
 	}
 	line := fmt.Sprintf("Spend: %s this week · %d weeks: %s", spend.Line(b.ThisWeek()), spend.Weeks, strings.Join(weeks, " / "))
 	if b.Budget != nil {

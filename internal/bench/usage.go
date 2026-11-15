@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"github.com/kacperwerema/dark-factory/internal/trace"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -70,6 +71,9 @@ func TranscriptDir(home, cwd string) string {
 type Transcript struct {
 	Usage   Usage
 	Outside []string
+	// Messages are the counted messages, numbers only, for the trace's
+	// tokens by stage.
+	Messages []trace.Message
 }
 
 // ReadTranscripts sums every transcript in dir (a worker may start more than
@@ -124,6 +128,8 @@ func readTranscript(path string, roots []string, tr *Transcript, seen, outside, 
 		tr.Usage.CacheRead += m.CacheRead
 		tr.Usage.CacheWrite += m.CacheWrite
 		tr.Usage.Turns++
+		tr.Messages = append(tr.Messages, trace.Message{At: m.Timestamp, Session: m.SessionID, Model: m.Model,
+			Input: m.Input, Output: m.Output, CacheRead: m.CacheRead, CacheWrite: m.CacheWrite})
 	})
 }
 
@@ -225,18 +231,19 @@ func within(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// Cost fills u.USD from prices when the worker did not report it. A model
-// with no price leaves the cost unknown.
+// Cost fills u.USD from prices when the worker did not report it, priced as
+// spend prices a message (PriceFor, Price.USD). A model with no price leaves
+// the cost unknown, and so does a result naming several models (ParseResult
+// joins them with commas): one token count has no one price.
 func Cost(u *Usage, prices map[string]Price) {
-	if u.USDKnown || !u.Known {
+	if u.USDKnown || !u.Known || strings.Contains(u.Model, ",") {
 		return
 	}
-	p, ok := prices[u.Model]
+	p, ok := PriceFor(u.Model, prices)
 	if !ok {
 		return
 	}
-	u.USD = (float64(u.Input)*p.In + float64(u.Output)*p.Out +
-		float64(u.CacheRead)*p.CacheRead + float64(u.CacheWrite)*p.CacheWrite) / 1e6
+	u.USD = p.USD(u.Input, u.Output, u.CacheRead, u.CacheWrite)
 	u.USDKnown = true
 }
 

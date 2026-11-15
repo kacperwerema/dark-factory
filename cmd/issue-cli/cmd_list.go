@@ -13,11 +13,13 @@ var listCommand = &Command{
 	ShortHelp: "List issues with filters",
 	LongHelp: `List issues. Filters: --status (open|closed|<name>), --system, --assignee,
 --version, --type (projects with types of work), --department (projects.yaml
-departments:; product is the rest), --sort score.
+departments:; product is the rest), --parent <epic> (the epic's children:
+parent:, or the legacy umbrella:), --sort score.
 
 When the project sets a version, list shows only that version by default.
 --all drops that default and lists every issue in every status and version;
-filters you pass still apply (list --all --status done).`,
+filters you pass still apply (list --all --status done). --parent drops it
+too: an epic's children are listed whatever their version.`,
 	Run: runList,
 }
 
@@ -45,6 +47,7 @@ func runList(ctx *Context, args []string) error {
 	sortFlag := fs.String("sort", "", "sort key (score)")
 	typeFlag := fs.String("type", "", "filter by type of work (untyped issues count as default_type)")
 	deptFlag := fs.String("department", "", "filter by department (projects.yaml departments:; product for the rest)")
+	parentFlag := fs.String("parent", "", "<epic>: only that epic's children (parent:, or the legacy umbrella:)")
 	allFlag := fs.Bool("all", false, "every status and version: drop the default project-version filter")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
@@ -64,7 +67,14 @@ func runList(ctx *Context, args []string) error {
 	assignee := *assigneeFlag
 	version := *versionFlag
 	defaultVersion := false
-	if version == "" && proj.Version != "" && !*allFlag {
+	parent := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(*parentFlag), ".md"))
+	if parent != "" && tracker.FindIssue(issues, parent) == nil && len(tracker.EpicChildren(issues, parent)) == 0 {
+		// Neither an issue nor anyone's parent: a typo, not an empty epic.
+		if _, _, err := findIssueOrErr(ctx, parent); err != nil {
+			return err
+		}
+	}
+	if version == "" && proj.Version != "" && !*allFlag && parent == "" {
 		version = proj.Version
 		defaultVersion = true
 	}
@@ -86,15 +96,16 @@ func runList(ctx *Context, args []string) error {
 
 	var filtered []*tracker.Issue
 	hiddenByVersion := 0
+	closed := tracker.ClosedIssueFunc(proj)
 	for _, issue := range issues {
 		if status != "" {
 			switch strings.ToLower(status) {
 			case "open":
-				if issue.Status == "done" {
+				if closed(issue) {
 					continue
 				}
 			case "closed":
-				if issue.Status != "done" {
+				if !closed(issue) {
 					continue
 				}
 			default:
@@ -107,6 +118,9 @@ func runList(ctx *Context, args []string) error {
 			continue
 		}
 		if *deptFlag != "" && proj.DepartmentOf(issue) != dept {
+			continue
+		}
+		if parent != "" && !strings.EqualFold(tracker.ParentSlug(issue), parent) {
 			continue
 		}
 		if assignee != "" && issue.Assignee != assignee {

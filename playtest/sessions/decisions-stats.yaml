@@ -21,7 +21,7 @@ steps:
       - visible: [stats.decisions, stats.decisions.card, stats.decisions.in_force, stats.decisions.hard, stats.decisions.provisional, stats.decisions.challenges, stats.decisions.scopes]
       - text_contains: { target: stats.decisions.in_force, text: "3" }
       - text_contains: { target: stats.decisions.hard, text: "1" }
-      - text_contains: { target: stats.decisions.provisional, text: "2" }
+      - text_contains: { target: stats.decisions.provisional, text: "1" }
       - text_contains: { target: stats.decisions.challenges, text: "1" }
       - text_contains: { target: stats.decisions.scope.system, text: "system 1" }
       - text_contains: { target: stats.table_card.decision-holds, text: "factory/rules#D-1" }

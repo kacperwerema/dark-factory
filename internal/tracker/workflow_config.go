@@ -4,17 +4,24 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
 	"gopkg.in/yaml.v3"
 )
 
 type WorkflowStatus struct {
-	Name        string   `yaml:"name" desc:"Status identifier (e.g. \"in progress\")"`
-	Description string   `yaml:"description" desc:"Short one-line description shown in lists and board columns"`
-	Prompt      string   `yaml:"prompt,omitempty" desc:"Agent guidance injected when entering this status"`
-	Template    string   `yaml:"template" desc:"Legacy body template appended on entry (prefer transitions[].actions[] append_section)" deprecated:"use an append_section action on the transition into this status"`
-	Validation  []string `yaml:"validation" desc:"Legacy shorthand for validation rules (prefer transitions[].actions[] validate)" deprecated:"use validate actions on the transition into this status"`
-	SideEffects []string `yaml:"side_effects" desc:"Legacy shorthand for side effects (prefer transitions[].actions[] set_fields)" deprecated:"use set_fields actions on the transition into this status"`
+	Name        string `yaml:"name" desc:"Status identifier (e.g. \"in progress\")"`
+	Description string `yaml:"description" desc:"Short one-line description shown in lists and board columns"`
+	Prompt      string `yaml:"prompt,omitempty" desc:"Agent guidance injected when entering this status"`
+	// PromptAppend adds lines after the prompt in force. In a types: or
+	// systems: overlay it keeps the base or type prompt instead of
+	// replacing it; Merge collects every layer's append, StatusPrompt joins.
+	PromptAppend string   `yaml:"prompt_append,omitempty" desc:"Lines added after the status prompt in force; in a types:/systems: overlay it adds to the base or type prompt instead of replacing it"`
+	Template     string   `yaml:"template" desc:"Legacy body template appended on entry (prefer transitions[].actions[] append_section)" deprecated:"use an append_section action on the transition into this status"`
+	Validation   []string `yaml:"validation" desc:"Legacy shorthand for validation rules (prefer transitions[].actions[] validate)" deprecated:"use validate actions on the transition into this status"`
+	SideEffects  []string `yaml:"side_effects" desc:"Legacy shorthand for side effects (prefer transitions[].actions[] set_fields)" deprecated:"use set_fields actions on the transition into this status"`
 	// Optional marks the status as skippable on forward transitions. A transition
 	// from A to C is valid if every status strictly between them is Optional.
 	Optional bool `yaml:"optional,omitempty" desc:"Skippable on forward transitions; surfaced with a CTA in the viewer"`
@@ -23,6 +30,15 @@ type WorkflowStatus struct {
 	// parked states (deferred, blocked, on-hold) that should return to the
 	// lifecycle at any point without needing explicit edges for every target.
 	Global bool `yaml:"global,omitempty" desc:"Transitions from this status to any status are allowed (no lifecycle constraint)"`
+	// Role is what code needs to know about this status, so that its name
+	// is free to change; see status_role.go.
+	Role string `yaml:"role,omitempty" desc:"What this status means to the engine, so its name can change: design, queue, work, verify or owner-test; at most one status each; unset, the old names (in design, backlog, in progress, testing, human-testing) hold them"`
+	// Session is how a worker meets this status: continue (unset) keeps
+	// the session it has; fresh starts a new one on the stage briefing
+	// (stage_session.go, stage_briefing.go).
+	Session string `yaml:"session,omitempty" desc:"How the worker meets this status: continue (default) keeps its session; fresh ends it and the lead's dispatch --fresh starts a new one in the same worktree on a briefing of paths only, trimmed to the stage"`
+	// BriefingBudget caps a fresh stage's briefing, in estimated tokens.
+	BriefingBudget int `yaml:"briefing_budget,omitempty" desc:"For session: fresh, the stage briefing's cap in estimated tokens (default 3000); over it, parts fold to the command that prints them"`
 }
 
 type WorkflowAction struct {
@@ -43,14 +59,15 @@ type WorkflowAction struct {
 	// workflow_validators.go for the full catalog.
 	Values         []string `yaml:"values,omitempty" desc:"Allowed values for field_in"`
 	Pattern        string   `yaml:"pattern,omitempty" desc:"Regex (Go RE2) for field_matches"`
-	Section        string   `yaml:"section,omitempty" desc:"Section title for has_section / section_min_length / section_max_length"`
-	Min            int      `yaml:"min,omitempty" desc:"Lower length bound for section_min_length"`
+	Section        string   `yaml:"section,omitempty" desc:"Section title for has_section / section_min_length / section_min_links / section_max_length"`
+	Min            int      `yaml:"min,omitempty" desc:"Lower bound for section_min_length (chars) and section_min_links (links)"`
 	Max            int      `yaml:"max,omitempty" desc:"Upper length bound for section_max_length"`
 	Command        string   `yaml:"command,omitempty" desc:"Shell command for command_succeeds (templated with {{slug}}/{{number}}/{{repo}}/{{system}})"`
-	Path           string   `yaml:"path,omitempty" desc:"File path for file_exists, relative to the project root (templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}})"`
+	Path           string   `yaml:"path,omitempty" desc:"File path for file_exists, relative to the project root, or to the issues folder when it starts with <issues>/ (templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}})"`
 	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty" desc:"Per-action timeout for command_succeeds (default 10)"`
 	RefKey         string   `yaml:"ref_key,omitempty" desc:"Frontmatter key holding the linked issue slug for linked_issue_in_status"`
 	LinkedStatus   string   `yaml:"linked_status,omitempty" desc:"Required status of the linked issue for linked_issue_in_status"`
+	Paths          []string `yaml:"paths,omitempty" desc:"Globs for handoff_answered: the rule holds only when the work branch's own changes match one (none: it always holds)"`
 	Hint           string   `yaml:"hint,omitempty" desc:"Custom failure hint; templated with {{slug}}/{{number}}/{{repo}}/{{system}}"`
 }
 
@@ -144,10 +161,13 @@ type ScoringConfig struct {
 	DefaultSort string         `yaml:"default_sort,omitempty" desc:"Initial sort on list/board: score_desc, created_desc, updated_desc"`
 }
 
-// LeadsConfig is the `leads:` block of workflow.yaml: the brief the project
-// lead is spawned with. An empty prompt uses the built-in default.
+// LeadsConfig is the `leads:` block of workflow.yaml: what the project adds
+// to the built-in brief the project lead is spawned with.
 type LeadsConfig struct {
-	Project string `yaml:"project,omitempty" desc:"Brief for the project lead (one per project, runs in the project checkout)"`
+	// ProjectAddendum is added after the brief; the default stays one source.
+	ProjectAddendum string `yaml:"project_addendum,omitempty" desc:"What this project adds to the project lead's built-in brief"`
+	// Project replaces the built-in brief, which then drifts; lint warns.
+	Project string `yaml:"project,omitempty" desc:"Replaces the project lead's built-in brief; lint warns, use project_addendum"`
 	// Epic is obsolete: still parsed so old configs load, ignored, and
 	// reported by Lint.
 	Epic string `yaml:"epic,omitempty" desc:"Obsolete and ignored (one lead per project); lint warns when set"`
@@ -191,7 +211,7 @@ type WorkflowConfig struct {
 	ProjectActions []CustomAction `yaml:"project_actions,omitempty" desc:"Custom one-shot agent buttons shown on the project views (list/board/graph); prompts template with {{project}}"`
 	// Leads holds the brief the project lead is spawned with (`issue-cli
 	// lead spawn`). An empty prompt falls back to the built-in default.
-	Leads   LeadsConfig         `yaml:"leads,omitempty" desc:"Brief for the project lead: project; the prompt templates with {{project}}/{{lead}}"`
+	Leads   LeadsConfig         `yaml:"leads,omitempty" desc:"Project lead brief: project_addendum adds to the built-in one; the prompts template with {{project}}/{{lead}}"`
 	Board   WorkflowBoardConfig `yaml:"board" desc:"Board display configuration"`
 	Scoring ScoringConfig       `yaml:"scoring,omitempty" desc:"Ticket scoring policy (opt-in)"`
 	// Workbench points the workbench views at the project's own files. It is
@@ -201,8 +221,8 @@ type WorkflowConfig struct {
 	// move. Project-wide like Workbench; nil means CI is off.
 	// MaxRedRounds is how many fix rounds a check may stay red before it
 	// becomes a question for the owner (internal/redrounds); RedRoundCap
-	// gives 4 when unset. Project-wide like CI.
-	MaxRedRounds int       `yaml:"max_red_rounds,omitempty" desc:"Fix rounds a check (a gate's command, the proof check, a local CI command) may stay red before it becomes a question for the owner and is not re-run; 4 when unset (issue-cli rounds <slug>)"`
+	// gives the default when unset. Project-wide like CI.
+	MaxRedRounds int       `yaml:"max_red_rounds,omitempty" desc:"Fix rounds a check ({{red-rounds-what-counts}}) may stay red before it becomes a question for the owner and is not re-run; {{default-max-red-rounds}} when unset (issue-cli rounds <slug>)"`
 	CI           *CIConfig `yaml:"ci,omitempty" desc:"Optional local CI: commands run on the integration branch after every move, results in .ci/ (see docs/workflow.md, Local CI)"`
 	// Health tunes the project health snapshots. Project-wide like CI; nil
 	// means snapshots with the defaults.
@@ -232,6 +252,11 @@ type WorkflowConfig struct {
 	// Postmortem starts a fresh agent that writes the post-mortem when an
 	// issue reaches its status (docs/workflow.md, Post-mortem). nil means none.
 	Postmortem *PostmortemConfig `yaml:"postmortem,omitempty" desc:"Post-mortem at close: at (status, default the last), start (auto | ask), agent (see docs/workflow.md, Post-mortem)"`
+
+	// Rules are what this project adds to the machine's rules.md
+	// (docs/workflow.md, Rules). Project-wide: a department's file takes
+	// them from Product's.
+	Rules []ProjectRule `yaml:"rules,omitempty" desc:"This project's standing rules, added to the machine's rules.md in every briefing: text, optional id, narrows: a machine rule's key (see docs/workflow.md, Rules)"`
 
 	// Memory configures the agents' shared memory: an optional local
 	// embedder for search (docs/memory.md). nil means BM25 only.
@@ -278,7 +303,11 @@ type WorkflowConfig struct {
 	// ChildrenOf lists an epic's children for children_closed; set like
 	// LookupIssue by attachRuntime.
 	ChildrenOf func(slug string) []*Issue `yaml:"-" json:"-"`
-	IssuesRoot string                     `yaml:"-" json:"-"`
+	// ClosedIssue answers children_closed by the child's own workflow (a
+	// child in another department closes where its file ends); set like
+	// LookupIssue by attachRuntime, IsClosedStatus over this config without it.
+	ClosedIssue func(*Issue) bool `yaml:"-" json:"-"`
+	IssuesRoot  string            `yaml:"-" json:"-"`
 	// ProjectRoot is the project's folder (Project.Root), what file_exists
 	// paths are relative to.
 	ProjectRoot string `yaml:"-" json:"-"`
@@ -410,184 +439,61 @@ func stringPtr(s string) *string {
 	return &v
 }
 
+// LoadWorkflow parses the file once for each (path, size, mtime): a page asks
+// many times and the file barely changes. The config is the caller's own
+// (Clone; attachRuntime and overlays write to it).
 func LoadWorkflow(path string) (*WorkflowConfig, error) {
+	key := workflowCacheKey(path)
+	info, statErr := os.Stat(path)
+	if statErr == nil {
+		if c, ok := workflowCache.Load(key); ok && c.(cachedWorkflow).stamp.same(stampOf(info)) {
+			return c.(cachedWorkflow).config.Clone(), nil
+		}
+	}
+
+	readAt := time.Now()
 	data, err := os.ReadFile(path)
 	if err != nil {
+		workflowCache.Delete(key)
 		return nil, fmt.Errorf("reading workflow %s: %w", path, err)
 	}
 
+	loadCounts.workflowParses.Add(1)
 	var cfg WorkflowConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		workflowCache.Delete(key)
 		return nil, fmt.Errorf("parsing workflow %s: %w", path, err)
 	}
 
+	if statErr == nil && stampOf(info).settled(readAt) {
+		workflowCache.Store(key, cachedWorkflow{stamp: stampOf(info), config: cfg.Clone()})
+	}
 	return &cfg, nil
 }
 
-func DefaultWorkflow() *WorkflowConfig {
-	return &WorkflowConfig{
-		Statuses: []WorkflowStatus{
-			{
-				Name:        "idea",
-				Description: "Raw idea, needs exploration",
-				Prompt:      "Clarify the issue with the human before moving into structured design.\nAsk focused questions to remove ambiguity around goals, scope, and success criteria.",
-			},
-			{
-				Name:        "in design",
-				Description: "Being designed and specced out",
-				Prompt:      "Review the relevant context before proposing changes.\nTurn the problem into explicit checklists, assumptions, and open questions.\nWhen the design is complete, stop and ask for backlog approval in the issue viewer before attempting the transition.",
-			},
-			{
-				Name:        "backlog",
-				Description: "Ready to work on",
-				Prompt:      "This is a handoff state.\nDo not run `issue-cli start` until a human approves `in progress` in the issue viewer.",
-			},
-			{
-				Name:        "in progress",
-				Description: "Actively being implemented",
-				Prompt:      "Implement the accepted design and keep the issue body, implementation checklist, and test plan accurate as work progresses.",
-			},
-			{
-				Name:        "testing",
-				Description: "Under verification",
-				Prompt:      "Build or update the relevant automated coverage, record concrete test evidence, and surface any remaining manual checks clearly.",
-			},
-			{
-				Name:        "human-testing",
-				Description: "Manual verification by humans",
-				Prompt:      "Stop here and wait for human verification.\nMake sure the manual checks are explicit, minimal, and reproducible.",
-			},
-			{
-				Name:        "documentation",
-				Description: "Being documented",
-				Prompt:      "Update the relevant docs for the change and record the documentation work clearly.",
-			},
-			{
-				Name:        "shipping",
-				Description: "Committing and pushing changes",
-				Prompt:      "Commit the changes with a message referencing the issue, push the commit to the remote, and note a PR link if one is opened.\nStop and ask for `done` approval in the issue viewer once the commit is pushed.",
-			},
-			{
-				Name:        "done",
-				Description: "Completed",
-			},
-		},
-		Transitions: []WorkflowTransition{
-			{
-				From: "idea",
-				To:   "in design",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "body_not_empty"},
-					{Type: "append_section", Title: "Idea", Body: "- [ ] Problem described clearly\n- [ ] Scope defined\n- [ ] Constraints and open questions captured"},
-					{Type: "append_section", Title: "Design", Body: "- [ ] Approach documented\n- [ ] Dependencies and risks identified\n- [ ] Human approval requested for backlog"},
-					{Type: "append_section", Title: "Acceptance Criteria", Body: "- [ ] First observable requirement\n- [ ] Second observable requirement"},
-				},
-			},
-			{
-				From: "in design",
-				To:   "backlog",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "section_checkboxes_checked: Design"},
-					{Type: "validate", Rule: "section_has_checkboxes: Acceptance Criteria"},
-					{Type: "require_human_approval", Status: "backlog"},
-					{Type: "set_fields", Field: "assignee", Value: ""},
-				},
-			},
-			{
-				From: "backlog",
-				To:   "in progress",
-				Actions: []WorkflowAction{
-					{Type: "require_human_approval", Status: "in progress"},
-					{Type: "validate", Rule: "has_assignee"},
-					{Type: "append_section", Title: "Implementation", Body: "- [ ] Code changes complete\n- [ ] Automated tests added or updated where practical\n- [ ] Cross-cutting impact reviewed where relevant"},
-					{Type: "append_section", Title: "Test Plan", Body: "### Automated\n- [ ] Automated verification recorded\n\n### Manual\n- [ ] Manual verification steps listed if needed"},
-					{Type: "inject_prompt", Prompt: "Implement the issue, update the Implementation section as work progresses, and keep the test plan concrete.\nCall out cross-cutting impact early if the change affects shared state, shared config, or behavior outside the immediate subsystem."},
-				},
-			},
-			{
-				From: "in progress",
-				To:   "testing",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "section_checkboxes_checked: Implementation"},
-					{Type: "validate", Rule: "has_test_plan"},
-					{Type: "append_section", Title: "Testing", Body: "- [ ] Relevant tests for changed code passing\n- [ ] Known unrelated failures documented if full suite is red\n- [ ] Test results logged with `issue-cli comment <slug> --text \"tests: ...\"`"},
-					{Type: "inject_prompt", Prompt: "Verify the implementation, run the relevant tests for the changed code, and record the results in a `tests:` comment before continuing. If unrelated failures block the full suite, document them explicitly."},
-				},
-			},
-			{
-				From: "testing",
-				To:   "human-testing",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "has_test_plan"},
-					{Type: "validate", Rule: "section_checkboxes_checked: Testing"},
-					{Type: "validate", Rule: "has_comment_prefix: tests:"},
-					{Type: "append_section", Title: "Human Testing", Body: "- [ ] Manual verification completed by a human if required"},
-				},
-			},
-			{
-				From: "human-testing",
-				To:   "documentation",
-				Actions: []WorkflowAction{
-					{Type: "require_human_approval", Status: "documentation"},
-					{Type: "append_section", Title: "Documentation", Body: "- [ ] User-facing docs updated if behavior changed\n- [ ] `docs:` comment prepared with the documentation changes"},
-				},
-			},
-			{
-				From: "documentation",
-				To:   "shipping",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "section_checkboxes_checked: Documentation"},
-					{Type: "validate", Rule: "has_comment_prefix: docs:"},
-					{Type: "append_section", Title: "Shipping", Body: "- [ ] Changes committed with a message referencing the issue\n- [ ] Commit pushed to the remote\n- [ ] PR opened if applicable"},
-				},
-			},
-			{
-				From: "shipping",
-				To:   "done",
-				Actions: []WorkflowAction{
-					{Type: "validate", Rule: "section_checkboxes_checked: Shipping"},
-					{Type: "require_human_approval", Status: "done"},
-				},
-			},
-		},
-		Systems: map[string]WorkflowOverlay{
-			"Combat": {
-				Transitions: []WorkflowTransition{
-					{
-						From: "backlog",
-						To:   "in progress",
-						Actions: []WorkflowAction{
-							{Type: "inject_prompt", Prompt: "Check combat edge cases, balance implications, and regression coverage before closing implementation."},
-						},
-					},
-				},
-			},
-			"UI": {
-				Statuses: []WorkflowStatus{
-					{
-						Name:   "in design",
-						Prompt: "Review the relevant context before proposing changes.\nTurn the problem into explicit checklists, assumptions, and open questions.\nFor UI work that launches local tools or editors, state whether to reuse existing tmux/alacritty patterns, whether handlers may block on local processes, and what feedback the user sees after launch.\nWhen the design is complete, stop and ask for backlog approval in the issue viewer before attempting the transition.",
-					},
-				},
-			},
-			"API": {
-				Statuses: []WorkflowStatus{
-					{
-						Name:   "in design",
-						Prompt: "Review the relevant context before proposing changes.\nTurn the problem into explicit checklists, assumptions, and open questions.\nFor API changes that affect UI-visible state, state the source of truth, whether server-side polling plus `/hash` is the expected refresh path, and whether manual browser verification is required before human-testing.\nWhen the design is complete, stop and ask for backlog approval in the issue viewer before attempting the transition.",
-					},
-				},
-			},
-			"CLI": {
-				Statuses: []WorkflowStatus{
-					{
-						Name:   "in design",
-						Prompt: "Review the relevant context before proposing changes.\nTurn the problem into explicit checklists, assumptions, and open questions.\nDocument the output contract early: whether text is human-facing or agent-facing, whether script compatibility matters, and whether `--json` or other machine-readable output is in scope for this issue.\nWhen the design is complete, stop and ask for backlog approval in the issue viewer before attempting the transition.",
-					},
-				},
-			},
-		},
+// defaultWorkflowPath is the bundled template a project without a
+// workflow.yaml runs on.
+const defaultWorkflowPath = "workflow/development.yaml"
+
+// bundledDefault parses the template once. It is embedded and a test parses
+// it, so a failure here is a broken build, not bad input.
+var bundledDefault = sync.OnceValue(func() *WorkflowConfig {
+	data, err := templates.FS.ReadFile(defaultWorkflowPath)
+	if err != nil {
+		panic(fmt.Sprintf("bundled workflow: %v", err))
 	}
+	var cfg WorkflowConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		panic(fmt.Sprintf("bundled workflow %s: %v", defaultWorkflowPath, err))
+	}
+	return &cfg
+})
+
+// DefaultWorkflow is the bundled development template: what a project with
+// no workflow.yaml runs on, and the same file `workflow init` copies. The
+// config is the caller's own.
+func DefaultWorkflow() *WorkflowConfig {
+	return bundledDefault().Clone()
 }
 
 func (w *WorkflowConfig) RequiredHumanApproval(fromStatus, toStatus string) string {
@@ -754,7 +660,20 @@ func (w *WorkflowConfig) StatusPrompt(name string) string {
 	if s == nil {
 		return ""
 	}
-	return strings.TrimSpace(s.Prompt)
+	return joinPrompt(s.Prompt, s.PromptAppend)
+}
+
+// joinPrompt is a prompt and the lines appended to it, each trimmed, one
+// newline between; either may be empty.
+func joinPrompt(prompt, appended string) string {
+	prompt, appended = strings.TrimSpace(prompt), strings.TrimSpace(appended)
+	switch {
+	case prompt == "":
+		return appended
+	case appended == "":
+		return prompt
+	}
+	return prompt + "\n" + appended
 }
 
 func (w *WorkflowConfig) TransitionPrompts(from, to string) []string {

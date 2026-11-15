@@ -1,0 +1,203 @@
+# Bundled template stamp: which template this file came from and the
+# issue-cli release that last changed it. `issue-cli workflow upgrade` compares
+# it with the template bundled in the binary and proposes newer features.
+# Set it to `custom` if this workflow is no longer based on a template.
+template: legal@v0.61.0
+
+# Feature record: catalog features this file has (<id>@<version>) and the
+# ones the human declined. Written by `issue-cli workflow scan`, read by
+# `issue-cli workflow upgrade`.
+features:
+  installed:
+    - brand-foundation@v0.61.0
+    - report-type@v0.58.0
+    - status-prompts@v0.36.0
+    - types-of-work@v0.36.0
+    - body-structure-gates@v0.36.0
+    - checklist-gates@v0.36.0
+    - comment-evidence-gates@v0.36.0
+    - failure-hints@v0.36.0
+    - human-approval-gates@v0.36.0
+    - owner-only-gates@v0.58.0
+    - publish-stamp@v0.55.0
+    - checklist-sections@v0.36.0
+    - board-card-fields@v0.36.0
+    - board-columns@v0.36.0
+    - lead-handoff-prompts@v0.36.0
+
+# Legal's own workflow file (projects.yaml departments: workflow:
+# workflows/legal.yaml, installed by `issue-cli department add legal`).
+# The department checks the product against the law, drafts documents and
+# answers other departments' legal checks. Its agents flag, cite and draft;
+# they never sign off. Every answer is a report or a draft on the outputs
+# shelf, and done needs the owner's approval of it there (outputs_approved,
+# which YOLO never stamps). A document goes out only through publish, an
+# owner_only gate YOLO never passes (docs/Workflow/yolo.md).
+# A product's workflow asks Legal before a risky branch ships with the rule
+# `handoff_answered: legal` (docs/departments.md, "The handoff gate").
+board:
+  columns:
+    - brief
+    - research
+    - draft
+    - owner review
+    - publish
+    - done
+  card_fields:
+    - labels
+    - priority
+    - assignee
+
+statuses:
+  - name: "brief"
+    description: "What to check or draft, for which product, and why now"
+    prompt: |
+      Write the brief under ## Brief: the product (repo, site, the countries it sells in), what this issue checks or drafts, and why now.
+      A legal check another department asked for comes as a handoff: its ## Handoff section and handoff_for: name the issue it serves. Read that issue and its branch's changes.
+      You flag, cite and draft; you never sign off (the role file says how). Then move on.
+  - name: "research"
+    description: "Reading the product and the law, finding by finding"
+    prompt: |
+      Read the product as it is today (code, data flows, the texts a customer sees, the third parties it calls) and the law at its official text: EUR-Lex for EU law, ISAP or the Dz.U. ELI link for Polish law, the regulator's own pages for guidance.
+      Write each finding as one line: check · source (article, read on <date>) · how to verify · status (passes, fails, missing, n/a, check). Never "compliant" or "approved".
+      `mem-guard check` before a browser or a bulk fetch; plain fetches first, one browser at a time.
+      Put the report on the shelf: `issue-cli output add --issue <slug> --kind report --title "..." --file <report.md>`.
+  - name: "draft"
+    description: "Drafting the report or the document for the owner"
+    prompt: |
+      Draft what the brief asks for: the report's findings with what to change, or the document (privacy policy, terms or regulamin, cookie notice, DPIA, art. 30 register, breach procedure, a processing agreement).
+      A document says at its top that it is a draft by an agent, not legal advice, and names the sources it rests on with the dates they were read.
+      Put it on the shelf (`issue-cli output add --issue <slug> --kind document --title "..." --file <draft.md>`, or `--kind report` for a report). Then move to owner review.
+  - name: "owner review"
+    description: "Waiting for the owner's review on the shelf"
+    prompt: |
+      Nothing is settled yet. Say in chat what the owner reviews (the shelf output, the findings marked high, anything that needs a lawyer) and end your turn. Don't wait or poll: the owner's approval on the shelf (or a `revise:` comment) resumes you.
+      If the owner asks for changes, they leave a `revise:` comment: go back, revise the output on the shelf (`issue-cli output revise <id> --file <file> --note "..."`), and return here.
+  - name: "publish"
+    description: "The approved document goes where it belongs; the owner's gate"
+    prompt: |
+      Put out exactly the version the owner approved on the shelf, where the brief says (the product's repo, its site, the owner's documents folder). A document a customer sees goes out through the product's own work: file it for Product as a handoff (`issue-cli handoff product --for <slug> --title "..." --why "..."`) unless the brief says otherwise.
+      Mark it on the shelf (`issue-cli output publish <id> --url <where it is>`), then move to done.
+  - name: "done"
+    description: "Answered: the owner approved it, or it is out"
+
+transitions:
+  - from: "brief"
+    to: "research"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Product, scope and why now stated
+      - type: "append_section"
+        title: "Research"
+        body: |
+          - [ ] Every finding cites its source by article, with the date it was read
+          - [ ] Each finding has a status and how to verify it; nothing says "compliant" or "approved"
+          - [ ] Report on the shelf (issue-cli output add --issue <slug> --kind report ...)
+  - from: "brief"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "body_not_empty"
+      - type: "append_section"
+        title: "Brief"
+        body: |
+          - [ ] Document, product, audience and where it goes stated
+      - type: "append_section"
+        title: "Draft"
+        body: |
+          - [ ] Draft on the shelf (issue-cli output add --issue <slug> --kind document ...), marked as an agent's draft, not legal advice
+          - [ ] Its sources named by article, with the dates they were read
+  - from: "research"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Research"
+      - type: "append_section"
+        title: "Draft"
+        body: |
+          - [ ] What to change for each failing finding, or the document drafted, on the shelf
+          - [ ] Findings marked high name whether a lawyer should see them
+  - from: "research"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Research"
+      - type: "validate"
+        rule: "has_output: report"
+  - from: "draft"
+    to: "owner review"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Draft"
+      - type: "validate"
+        rule: "has_output"
+  - from: "owner review"
+    to: "research"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  - from: "owner review"
+    to: "draft"
+    actions:
+      - type: "validate"
+        rule: "has_comment_prefix: revise:"
+  # The answer is the owner's: done waits for their approval of the newest
+  # version on the shelf, which YOLO never stamps.
+  - from: "owner review"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "outputs_approved"
+        hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+      - type: "require_human_approval"
+        status: "done"
+  - from: "owner review"
+    to: "publish"
+    actions:
+      - type: "validate"
+        rule: "outputs_approved"
+        hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+      - type: "require_human_approval"
+        status: "publish"
+        owner_only: true # a customer sees it, it binds the owner, or it leaves the machine: the owner's even in YOLO
+      - type: "append_section"
+        title: "Published"
+        body: |
+          - [ ] The approved version is out where the brief says, marked on the shelf (issue-cli output publish <id> --url <where>)
+  - from: "publish"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "section_checkboxes_checked: Published"
+
+# Types of work (docs/Workflow/types.md). An issue without type: is a
+# compliance-check; a recurring job picks one with type: (projects.yaml jobs:).
+default_type: compliance-check
+types:
+  compliance-check:
+    description: "A check of the product against the law: findings citing articles with dates, a report on the shelf for the owner"
+    path: [brief, research, draft, owner review, done]
+  document:
+    description: "A draft document (privacy policy, terms, DPIA, art. 30 register, breach procedure): the owner approves it, publish is the owner's"
+    path: [brief, draft, owner review, publish, done]
+  legal-check:
+    description: "The answer to another department's handoff (issue-cli handoff legal --for <slug>): a report on the shelf, approved by the owner"
+    path: [brief, research, owner review, done]
+  due-diligence:
+    description: "A due-diligence pack for a product or a component: dependencies and licences, provenance, data posture, evidence; sharing it is the owner's"
+    path: [brief, research, draft, owner review, publish, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Describe the product or the component the brief names as neutral engineering documentation, each part from its source:
+          - dependencies and their licences (the lock files and module lists, each licence from the dependency's own LICENSE file);
+          - code provenance: who and which agent wrote what, and when (git log and blame over the component's paths);
+          - ties to third-party terms and content (the services it calls, the content it stores);
+          - the data and GDPR posture (what personal data, where, on which basis);
+          - test and benchmark evidence; an architecture summary.
+          Never write deal, buyer or price context into any file, briefing or memory.
+          Put the pack on the shelf: `issue-cli output add --issue <slug> --kind report --title "Due diligence: <component>" --file <pack.md>`.

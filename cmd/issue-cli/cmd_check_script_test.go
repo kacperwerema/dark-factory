@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -119,7 +121,7 @@ func writeCheckScript(t *testing.T, dir, name, slug, body string) {
 	t.Helper()
 	path := filepath.Join(dir, "scripts", "checks", name+".sh")
 	os.MkdirAll(filepath.Dir(path), 0o755)
-	os.WriteFile(path, []byte("#!/usr/bin/env bash\n# issue: "+slug+"\nsource \"${CHECKS_LIB:?}\"\n"+body), 0o755)
+	os.WriteFile(path, []byte("#!/usr/bin/env bash\n# issue: "+slug+"\nsource \"${CHECKS_LIB:?}\"\n"+body), 0o644)
 }
 
 func TestCheckScriptListAndJSON(t *testing.T) {
@@ -314,12 +316,12 @@ func TestCheckScriptRunsAMergedBranchFromTheProjectFolder(t *testing.T) {
 	}
 	old := filepath.Join(wt, "scripts", "checks", "lead-tab.sh")
 	os.MkdirAll(filepath.Dir(old), 0o755)
-	os.WriteFile(old, []byte(checks.Skeleton(checkSlug, "lead-tab", nil)), 0o755)
+	os.WriteFile(old, []byte(checks.Skeleton(checkSlug, "lead-tab", nil)), 0o644)
 	git(wt, "add", "scripts")
 	git(wt, "commit", "-q", "-m", "check script")
 	git(dir, "merge", "-q", "--ff-only", "work/"+checkSlug)
 	// main moves on and fixes the script; the worktree keeps the old copy.
-	os.WriteFile(filepath.Join(dir, "scripts", "checks", "lead-tab.sh"), []byte(checks.Skeleton(checkSlug, "lead-tab", nil)+"# fixed\n"), 0o755)
+	os.WriteFile(filepath.Join(dir, "scripts", "checks", "lead-tab.sh"), []byte(checks.Skeleton(checkSlug, "lead-tab", nil)+"# fixed\n"), 0o644)
 	git(dir, "commit", "-q", "-am", "fix the script")
 
 	ctx, out, _ := newTestContext(proj, false)
@@ -480,7 +482,7 @@ func TestCheckScriptFindsScriptsForASlugWithASpace(t *testing.T) {
 	// From the main checkout, a script there is found too.
 	workingDir = func() (string, error) { return dir, nil }
 	os.MkdirAll(filepath.Join(dir, "scripts", "checks"), 0o755)
-	os.WriteFile(filepath.Join(dir, "scripts", "checks", "main.sh"), []byte(checks.Skeleton(slug, "main", nil)), 0o755)
+	os.WriteFile(filepath.Join(dir, "scripts", "checks", "main.sh"), []byte(checks.Skeleton(slug, "main", nil)), 0o644)
 	ctx, out, _ = newTestContext(proj, false)
 	if err := runCheckScript(ctx, []string{slug, "--list"}); err != nil {
 		t.Fatalf("--list from the main checkout: %v", err)
@@ -589,9 +591,7 @@ expect true fine
 summary
 `)
 	stub := filepath.Join(t.TempDir(), "issue-cli")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho stub\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, stub, "echo stub\n")
 
 	ctx, out, _ := newTestContext(proj, false)
 	if err := runCheckScript(ctx, []string{checkSlug, "--yes", "--cli", stub}); err != nil {
@@ -623,10 +623,12 @@ func TestCheckScriptUsesTheBranchBuildInTheWorktree(t *testing.T) {
 	wt := issueWorktree(t, dir, checkSlug)
 	writeCheckScript(t, wt, "lead-tab", checkSlug, "echo \"ISSUE_CLI=$ISSUE_CLI\"\nstep TP3 passes\nexpect true fine\nsummary\n")
 	build := filepath.Join(wt, tracker.BranchBuild)
+	// not a stand-in: a branch build whose mtime the test sets
 	if err := os.WriteFile(build, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// A build left in the project folder is no branch's: never picked.
+	// not a stand-in: a branch build, only its place matters
 	if err := os.WriteFile(filepath.Join(dir, tracker.BranchBuild), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -637,4 +639,189 @@ func TestCheckScriptUsesTheBranchBuildInTheWorktree(t *testing.T) {
 	}
 	assertContains(t, out.String(), "Checking the branch build "+build)
 	assertContains(t, out.String(), "ISSUE_CLI="+build+"\n")
+}
+
+// A machine run refuses a ./issue-cli older than the checkout's code: nothing
+// runs, and the refusal names the change and the build command. --cli on the
+// same file is refused too; a build elsewhere is the caller's choice. The run
+// goes through once the build is newer.
+func TestCheckScriptYesRefusesAStaleBranchBuild(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	orig := stdinIsTerminal
+	t.Cleanup(func() { stdinIsTerminal = orig })
+	stdinIsTerminal = func() bool { return false }
+
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+	writeCheckScript(t, wt, "lead-tab", checkSlug, "echo SCRIPT-RAN\nstep TP3 passes\nexpect true fine\nsummary\n")
+	build := filepath.Join(wt, tracker.BranchBuild)
+	// not a stand-in: a branch build whose mtime the test sets
+	if err := os.WriteFile(build, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code := filepath.Join(wt, "cmd", "issue-cli", "main.go")
+	if err := os.MkdirAll(filepath.Dir(code), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(code, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(code, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, args := range map[string][]string{
+		"yes":       {checkSlug, "--yes"},
+		"cli":       {checkSlug, "--yes", "--cli", build},
+		"from pipe": {checkSlug},
+	} {
+		ctx, out, _ := newTestContext(proj, false)
+		err := runCheckScript(ctx, args)
+		var ec *exitCodeError
+		if !errors.As(err, &ec) || ec.Code != 1 {
+			t.Fatalf("%s: want exit 1, got %v\n%s", name, err, out)
+		}
+		assertContains(t, ec.Msg, build+" is older than the code")
+		assertContains(t, ec.Msg, filepath.Join("cmd", "issue-cli", "main.go")+" changed")
+		assertContains(t, ec.Msg, "go build -o ./issue-cli ./cmd/issue-cli")
+		if strings.Contains(out.String(), "SCRIPT-RAN") {
+			t.Fatalf("%s: the script ran on a stale build:\n%s", name, out)
+		}
+	}
+
+	// The owner's run from a terminal asks them, on whatever build there is.
+	stdinIsTerminal = func() bool { return true }
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug}); err != nil {
+		t.Fatalf("owner's run: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "SCRIPT-RAN")
+	stdinIsTerminal = func() bool { return false }
+
+	// Another build, named: not compared.
+	other := filepath.Join(t.TempDir(), "issue-cli-old")
+	standin.Write(t, other, "")
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes", "--cli", other}); err != nil {
+		t.Fatalf("--cli elsewhere: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "SCRIPT-RAN")
+
+	// Rebuilt: runs.
+	later := future.Add(time.Minute)
+	if err := os.Chtimes(build, later, later); err != nil {
+		t.Fatal(err)
+	}
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("rebuilt: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "SCRIPT-RAN")
+}
+
+// A script from history that calls a probe beside it: the files under
+// scripts/checks/ named after it, removed in the same commit, come back beside
+// it, and $CHECKS_DIR names the folder they sit in (in a checkout too).
+func TestCheckScriptFromHistoryRestoresItsProbe(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := issueWorktree(t, dir, checkSlug)
+	git := func(in string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", in, "-c", "user.email=t@t", "-c", "user.name=t"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	writeCheckScript(t, wt, "lead-tab", checkSlug, `
+echo "DIR=$CHECKS_DIR"
+step TP3 "the probe answers"
+run "$CHECKS_DIR/lead-tab-probe.sh"
+expect '[ $code = 0 ] && [ "$out" = probe-ok ]' "the probe ran"
+step TP4 "its fixture is there"
+run cat "$CHECKS_DIR/lead-tab/fixture.txt"
+expect '[ "$out" = fixture-ok ]' "the fixture came back"
+summary
+`)
+	checksDir := filepath.Join(wt, "scripts", "checks")
+	standin.Write(t, filepath.Join(checksDir, "lead-tab-probe.sh"), "echo probe-ok\n")
+	os.MkdirAll(filepath.Join(checksDir, "lead-tab"), 0o755)
+	os.WriteFile(filepath.Join(checksDir, "lead-tab", "fixture.txt"), []byte("fixture-ok\n"), 0o644)
+	standin.Write(t, filepath.Join(checksDir, "other-probe.sh"), "echo other\n")
+	git(wt, "add", "scripts")
+	git(wt, "commit", "-q", "-m", "check scripts")
+
+	// In the worktree, $CHECKS_DIR is its scripts/checks.
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("run in the worktree: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "DIR="+checksDir)
+	assertContains(t, out.String(), "✓ TP3 pass")
+
+	git(wt, "rm", "-q", "-r", "scripts")
+	git(wt, "commit", "-q", "-m", "drop the check scripts before the merge")
+	git(dir, "merge", "-q", "--no-ff", "-m", "merge", "work/"+checkSlug)
+
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("run from history: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "✓ TP3 pass")
+	assertContains(t, out.String(), "✓ TP4 pass")
+	assertNotContains(t, out.String(), "DIR="+checksDir)
+}
+
+// A project whose workers branch as <system>/<short> in .worktrees/<short>, with a
+// workflow declaring no worktrees: check-script found neither work/<slug> nor
+// a worktree around the current folder, and said there were no scripts. The
+// one worktree whose script names the issue is where they run.
+func TestCheckScriptFindsTheWorktreeWhoseScriptNamesTheIssue(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := worktreeOn(t, dir, "gameplay/lead-tab")
+	writeCheckScript(t, wt, "lead-tab", checkSlug, "summary\n")
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list: %v\n%s", err, out)
+	}
+	assertContains(t, out.String(), "lead-tab  "+filepath.Join(wt, "scripts", "checks", "lead-tab.sh"))
+
+	// A script for the issue in the main checkout (merged, or a project
+	// working without worktrees) is where its checks are, as before.
+	writeCheckScript(t, dir, "lead-tab", checkSlug, "summary\n")
+	ctx, out, _ = newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--list"}); err != nil {
+		t.Fatalf("--list with main's copy: %v", err)
+	}
+	assertContains(t, out.String(), "lead-tab  "+filepath.Join(dir, "scripts", "checks", "lead-tab.sh"))
+}
+
+// Two worktrees with a script for the same issue: check-script picks neither
+// and names both.
+func TestCheckScriptNamesEveryWorktreeWhenSeveralHoldTheIssuesScripts(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	one := worktreeOn(t, dir, "gameplay/lead-tab")
+	two := filepath.Join(dir, ".worktrees", "second")
+	cmd := exec.Command("git", "-C", dir, "worktree", "add", "-q", "-b", "gameplay/lead-tab-2", two)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	two, _ = filepath.EvalSymlinks(two)
+	writeCheckScript(t, one, "lead-tab", checkSlug, "summary\n")
+	writeCheckScript(t, two, "lead-tab", checkSlug, "summary\n# changed\n")
+
+	ctx, _, _ := newTestContext(proj, false)
+	err := runCheckScript(ctx, []string{checkSlug, "--list"})
+	if err == nil {
+		t.Fatal("--list picked one of two worktrees")
+	}
+	assertContains(t, err.Error(), one)
+	assertContains(t, err.Error(), two)
+	assertContains(t, err.Error(), "from inside")
 }

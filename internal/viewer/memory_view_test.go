@@ -116,6 +116,20 @@ func TestMemoryPageShowsEveryMemoryWithHistory(t *testing.T) {
 	}
 }
 
+// The owner sees the lead scope and can filter by it.
+func TestMemoryPageFiltersTheLeadScope(t *testing.T) {
+	sb := memorySandbox(t)
+	r, err := memory.ProjectStore(sb.proj.IssueDir).Add(memory.Draft{Text: "read the newest handoff note first", Scope: memory.ScopeLead}, memory.AddOptions{}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body := getResp(t, sb.base+"/p/acme/memory?scope=lead")
+	assertContains(t, body, `data-testid="memory.row.`+r.Memory.ID+`"`)
+	if strings.Contains(body, `data-testid="memory.row.`+sb.own.ID+`"`) {
+		t.Error("the lead filter let a project memory through")
+	}
+}
+
 // TestMemoryPageOwnerWrites (AC3, AC4): the owner's browser edits, pins
 // and deletes; a script is refused; a secret is refused; the delete
 // scrubs the text from the log.
@@ -220,4 +234,58 @@ func TestMemoryPageByEntity(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil || len(got.Entities) == 0 || got.Entities[0].Name != "#playtest" {
 		t.Fatalf("memory.json entities %s (%v)", body, err)
 	}
+}
+
+// The status a memory matters at shows on its row, and the change in its
+// history in words.
+func TestMemoryPageShowsTheStatus(t *testing.T) {
+	sb := memorySandbox(t)
+	if err := memory.ProjectStore(sb.proj.IssueDir).SetAt(sb.own.ID, "shipping", "agent-x", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	_, body := getResp(t, sb.base+"/p/acme/memory")
+	assertContains(t, body, `data-testid="memory.row.`+sb.own.ID+`.at">at shipping</span>`)
+	assertContains(t, body, `<b>set-at</b>`)
+}
+
+// The memory page shows each memory's usefulness from the traces and
+// filters by it; memory.json carries it.
+func TestMemoryPageUsefulness(t *testing.T) {
+	sb := memorySandbox(t)
+	store := memory.ProjectStore(sb.proj.IssueDir)
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < memory.ForgetMin; i++ {
+		slug := "ui/stage-" + string(rune('a'+i))
+		from := t0.Add(time.Duration(i) * 24 * time.Hour)
+		line := func(ft bool) string {
+			b, _ := json.Marshal(map[string]any{"status": "in design", "from": from, "to": from.Add(time.Hour), "gate": map[string]any{"first_try": ft}})
+			return string(b) + "\n"
+		}
+		dir := sb.proj.IssueDir + "/" + memory.TraceDir + "/ui"
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dir+"/stage-"+string(rune('a'+i))+".jsonl", []byte(line(false)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dir+"/base-"+string(rune('a'+i))+".jsonl", []byte(line(true)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.RecordUse([]string{sb.own.ID}, "agent-x", slug, "in design", from.Add(time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, body := getResp(t, sb.base+"/p/acme/memory")
+	assertContains(t, body, `data-testid="memory.row.`+sb.own.ID+`.usefulness">no help -0.50 · 15</span>`)
+	assertContains(t, body, `data-testid="memory.row.`+sb.dept.ID+`.usefulness">usefulness — 0/8</span>`)
+	assertContains(t, body, `data-testid="memory.filter.use"`)
+
+	_, body = getResp(t, sb.base+"/p/acme/memory?use=nohelp")
+	assertContains(t, body, `memory.row.`+sb.own.ID+`"`)
+	if strings.Contains(body, `memory.row.`+sb.dept.ID+`"`) {
+		t.Fatal("?use=nohelp kept an unmeasured memory")
+	}
+
+	_, js := getResp(t, sb.base+"/p/acme/memory.json")
+	assertContains(t, js, `"usefulness"`)
 }

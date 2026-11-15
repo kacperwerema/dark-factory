@@ -13,9 +13,9 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// "Waiting on you" means the same on every view: the status page panel, the
-// system pages' chip, the board card markers and the agents canvas all read
-// it from ownerAttention / waitingOnOwner.
+// What waits on the owner on one issue is read here (ownerAttention,
+// waitingOnOwner). A count of "waiting on you" is never taken from it:
+// needsYouRows is the list and adds what no issue holds.
 
 // GateInfo is a transition waiting on the human's approval.
 type GateInfo struct {
@@ -57,7 +57,7 @@ type Attention struct {
 // WaitingItem is one thing the owner has to do on an issue.
 type WaitingItem struct {
 	Issue *tracker.Issue
-	// Kind is gate, playtest, checks, question or clarify.
+	// Kind is gate, playtest, checks, question, clarify or partner.
 	Kind string
 	// Count is how many clarify questions wait (Kind clarify), Questions
 	// those questions; Question is an open question's text (Kind question).
@@ -71,6 +71,10 @@ type WaitingItem struct {
 	Since    time.Time
 	// Approx: Since is the file's mtime, not a recorded transition.
 	Approx bool
+	// Partner is the department partner's stage waiting for the owner
+	// (Kind partner), or riding on the issue's ready gate row (Kind gate)
+	// so one decision is one row (partner_view.go).
+	Partner *WbPartner
 }
 
 // pendingGate returns the status the issue waits on the human for: its next
@@ -98,7 +102,7 @@ func ownerAttention(proj *tracker.Project, issue *tracker.Issue) Attention {
 // attentionWith is ownerAttention with the issue's workflow already loaded
 // (a pass over many issues reads it from a tracker.WorkflowMemo).
 func attentionWith(proj *tracker.Project, issue *tracker.Issue, wf *tracker.WorkflowConfig) Attention {
-	comments, _ := tracker.LoadComments(issue.FilePath)
+	comments := issue.Comments()
 	var a Attention
 	if _, gate := tracker.NextGate(wf, issue); gate != "" {
 		a.Gate = &GateInfo{Target: gate, Ready: tracker.WaitingOnGate(wf, issue, comments) != ""}
@@ -109,7 +113,7 @@ func attentionWith(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Work
 	}
 	a.ClarifyQs = clarifyWaiting(issue, comments)
 	a.Clarify = len(a.ClarifyQs)
-	if strings.EqualFold(issue.Status, "human-testing") {
+	if wf.HasRole(issue.Status, tracker.StatusRoleOwnerTest) {
 		if wf.PlaytestForOwner() {
 			a.Playtests = playtestsToRun(playtestRoots(proj, issue, wf), issue.Slug)
 			a.PlaytestDue = len(a.Playtests) > 0
@@ -117,7 +121,7 @@ func attentionWith(proj *tracker.Project, issue *tracker.Issue, wf *tracker.Work
 		a.Checks = checks.Due(checkRoots(proj, issue, wf), issue.Slug)
 		a.ChecksDue = len(a.Checks) > 0
 	}
-	if strings.EqualFold(issue.Status, "parked") {
+	if tracker.IsParkedStatus(issue.Status) {
 		a.Parked = true
 		a.ParkReason = parkReason(issue.BodyRaw)
 	}
@@ -133,8 +137,18 @@ func waitingOnOwner(proj *tracker.Project, issues []*tracker.Issue) []WaitingIte
 	wfs := proj.WorkflowMemo()
 	for _, issue := range issues {
 		a := attentionWith(proj, issue, wfs.ForIssue(issue))
+		var pt *WbPartner
+		if w := partnerOf(proj, issue); w != nil && w.Awaiting {
+			pt = w
+		}
 		if a.Gate != nil && a.Gate.Ready {
-			items = append(items, WaitingItem{Issue: issue, Kind: "gate", Target: a.Gate.Target, Since: a.Since, Approx: a.SinceApprox})
+			items = append(items, WaitingItem{Issue: issue, Kind: "gate", Target: a.Gate.Target, Since: a.Since, Approx: a.SinceApprox, Partner: pt})
+		} else if pt != nil {
+			since, approx := pt.Since, false
+			if since.IsZero() {
+				since, approx = a.Since, a.SinceApprox
+			}
+			items = append(items, WaitingItem{Issue: issue, Kind: "partner", Since: since, Approx: approx, Partner: pt})
 		}
 		if a.PlaytestDue {
 			items = append(items, WaitingItem{Issue: issue, Kind: "playtest", Sessions: a.Playtests, Since: a.Since, Approx: a.SinceApprox})
@@ -156,7 +170,7 @@ func waitingOnOwner(proj *tracker.Project, issues []*tracker.Issue) []WaitingIte
 // statusSince is when the issue entered its current status, from the stats
 // sidecar; approx is true when it falls back to the file's mtime.
 func statusSince(issue *tracker.Issue) (since time.Time, approx bool) {
-	store, _ := tracker.LoadStats(issue.FilePath)
+	store, _ := tracker.StatsOf(issue.FilePath)
 	for i := len(store.Transitions) - 1; i >= 0; i-- {
 		if strings.EqualFold(store.Transitions[i].To, issue.Status) {
 			return store.Transitions[i].TS, false

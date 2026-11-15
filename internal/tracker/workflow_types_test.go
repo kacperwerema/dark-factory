@@ -295,7 +295,7 @@ func TestLint_BrokenType(t *testing.T) {
 		`type broken: status override "balance" is not on the path (ignored)`,
 		`type broken: transition idea → discussion leaves the path (ignored)`,
 		`type broken: shipping → done checks section "Shipping", but nothing on broken's path appends it`,
-		`type prompty and system UI both set the "discussion" prompt`,
+		`type prompty and system UI both set the "discussion" prompt; the system's replaces the type's (use prompt_append`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("lint missing %q\ngot:\n%s", want, got)
@@ -358,12 +358,25 @@ func TestParseIssue_Type(t *testing.T) {
 // leads.epic still loads (TestLeadBrief_CustomPromptsAndPlaceholders), but
 // lint calls it obsolete, with or without types.
 func TestLint_ObsoleteLeadsEpic(t *testing.T) {
-	wf := WorkflowConfig{Leads: LeadsConfig{Project: "p", Epic: "old brief"}}
+	wf := WorkflowConfig{Leads: LeadsConfig{ProjectAddendum: "p", Epic: "old brief"}}
 	if got := wf.Lint(); len(got) != 1 || !strings.Contains(got[0], "leads.epic is obsolete and ignored") {
 		t.Errorf("lint = %q", got)
 	}
 	wf.Leads.Epic = ""
 	if got := wf.Lint(); got != nil {
 		t.Errorf("no leads.epic: lint = %q", got)
+	}
+}
+
+// leads.project still works, but it replaces the built-in brief, so lint
+// names the addendum as the way to add to it.
+func TestLint_LeadsProjectReplacesTheDefault(t *testing.T) {
+	wf := WorkflowConfig{Leads: LeadsConfig{Project: "my own brief"}}
+	if got := wf.Lint(); len(got) != 1 || !strings.Contains(got[0], "leads.project replaces the built-in lead brief") || !strings.Contains(got[0], "leads.project_addendum") {
+		t.Errorf("lint = %q", got)
+	}
+	wf.Leads.Project = "  \n"
+	if got := wf.Lint(); got != nil {
+		t.Errorf("blank leads.project: lint = %q", got)
 	}
 }

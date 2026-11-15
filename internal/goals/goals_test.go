@@ -98,7 +98,7 @@ func TestResolveOwnValueBeatsRollUp(t *testing.T) {
 
 func TestResolveFileErrors(t *testing.T) {
 	cases := map[string]struct{ body, source, want string }{
-		"missing file": {"", "file:docs/none.json#x", "reading"},
+		"missing file": {"", "file:docs/none.json#x", "no value yet: docs/none.json is not written yet"},
 		"missing id":   {`{"metrics":[{"id":"a","value":1}]}`, "file:run.json#b", `no metric "b"`},
 		"not a number": {`{"metrics":[{"id":"a","value":"n/a"}]}`, "file:run.json#a", "not a number"},
 		"no id":        {`{}`, "file:run.json", "want file:<path>#<metric id>"},

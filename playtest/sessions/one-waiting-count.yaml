@@ -1,0 +1,63 @@
+session: one-waiting-count
+issue: ui/one-waiting-on-you-count-on-every-page
+title: One waiting-on-you number on every page
+scenario: needs-you
+
+session_checks:
+  viewports: [1440x900]
+  layout: [no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The Needs you list says 5 and the Report agrees
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/needs-you
+    checks:
+      - text_equals: { target: needs_you.count, text: "5" }
+    do: Open Needs you, then the Report, the classic Status page, the CEO chat, /crew and /updates.
+    expect: The same number of things waiting on you on every one of them.
+  - id: TP3
+    title: The Report says 5
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - text_contains: { target: map.waiting, text: "5 waiting on you" }
+      - text_contains: { target: report.card.waiting, text: "5" }
+  - id: TP6
+    title: The classic Status card says 5
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/status?classic=1
+    checks:
+      - text_equals: { target: status.waiting.count, text: "5" }
+  - id: TP7
+    title: The lead chat says 5
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/lead
+    checks:
+      - text_contains: { target: lead_chat.waiting.count, text: "Waiting on you: 5" }
+  - id: TP4
+    title: /crew says 5
+    proves: [AC1]
+    setup:
+      - open: /crew
+    checks:
+      - text_contains: { target: map.waiting, text: "5 waiting on you" }
+  - id: TP8
+    title: /updates says 5
+    proves: [AC1]
+    setup:
+      - open: /updates
+    checks:
+      - text_contains: { target: map.waiting, text: "5 waiting on you" }
+  - id: TP5
+    title: The Board's chip says it counts issues with a marker
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/workboard?classic=1
+    checks:
+      - text_contains: { target: workboard.filter.waiting, text: "Issues with a marker" }

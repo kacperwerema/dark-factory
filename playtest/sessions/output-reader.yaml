@@ -20,7 +20,7 @@ steps:
       - click: shelf.title
       - wait_for: odoc.sheet
     checks:
-      - text_equals: { target: odoc.title, text: "Brand and ICP: Dark Factory" }
+      - text_equals: { target: wb.title, text: "Brand and ICP: Dark Factory" }
       - visible: [odoc.toc, odoc.sheet, odoc.margin, odoc.approve, odoc.raw]
       # 20 headings, h2 to h4 (the contents start folded on a phone).
       - text_contains: { target: odoc.toc, text: "Contents 20" }

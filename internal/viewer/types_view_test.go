@@ -114,9 +114,21 @@ func TestBoard_TypeBadgeAndFilter(t *testing.T) {
 	}
 }
 
+// untypedWorkflow is a workflow file with no types:. A project with no file
+// at all runs on the bundled template, which has them.
+func untypedWorkflow(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "workflow.yaml")
+	body := "statuses:\n  - name: idea\n  - name: backlog\n  - name: in progress\n  - name: done\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestBoard_UntypedProjectHasNoTypeControls(t *testing.T) {
 	proj, _ := setupTestProject(t)
-	proj.WorkflowFile = "workflow.yaml.example" // untyped; the repo's workflow.yaml defines types
+	proj.WorkflowFile = untypedWorkflow(t)
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
 	for _, page := range []string{"/board?classic=1", "/", "/graph"} {
@@ -225,7 +237,7 @@ func TestDispatchPrompt_TypeLine(t *testing.T) {
 	}
 
 	plain, _ := setupTestProject(t)
-	plain.WorkflowFile = "workflow.yaml.example" // untyped; the repo's workflow.yaml defines types
+	plain.WorkflowFile = untypedWorkflow(t)
 	untyped := &tracker.Issue{Title: "U", Slug: "u", Status: "idea"}
 	if p := buildAgentPrompt(&plain, untyped, plain.LoadWorkflowForIssue(untyped), "", ""); strings.Contains(p, "Type:") {
 		t.Error("untyped dispatch prompt has a Type line")

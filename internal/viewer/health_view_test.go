@@ -99,7 +99,7 @@ func TestBuildHealthPage(t *testing.T) {
 		t.Errorf("coverage %q, components %+v", p.Coverage, p.Components)
 	}
 	for _, c := range p.Components {
-		if c.Name == "flaky" && (c.Has || !strings.Contains(c.Missing, "telemetry")) {
+		if c.Name == "flaky" && (c.Has || !strings.Contains(c.Missing, "make ux-test")) {
 			t.Errorf("flaky has no data and must say why: %+v", c)
 		}
 		if c.Name == "big_files" && (c.Measured != "18.2%" || c.Sub != 47 || c.Range != "5.0% → 30.0%") {

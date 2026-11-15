@@ -60,7 +60,7 @@ func (s *Server) handleDecisionConfirm(w http.ResponseWriter, r *http.Request, p
 		writeYOLOError(w, http.StatusBadRequest, "bad request")
 		return
 	}
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		writeYOLOError(w, http.StatusInternalServerError, err.Error())
 		return

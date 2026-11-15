@@ -14,6 +14,8 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -54,8 +56,14 @@ type StationData struct {
 	Agent     WbStationAgent
 	Sessions  WbSessionList
 	Outputs   *WbStationOutputs
+	// Partner is where the department's outside partner is with the issue
+	// (partner_view.go); nil when its department names none.
+	Partner *WbPartner
 	// Critique is the newest fresh critic run (station_critique.go).
-	Critique   *WbStationCritique
+	Critique *WbStationCritique
+	// Affected is the branch's footprint on the code map, at a verify or
+	// owner-test status (station_affected.go).
+	Affected   *WbStationAffected
 	Body       WbBodyIndex
 	Fields     WbFields
 	IssueURL   string
@@ -89,6 +97,8 @@ type WbIssueTitle struct {
 	// the page goes to StoreURL.
 	EditURL, DeleteURL, StoreURL string
 	Prefix                       string
+	// NvimURL opens the body in nvim (POST): in the title's ⋯ More menu.
+	NvimURL string
 }
 
 // WbBelt is an issue's own belt: its path through the statuses.
@@ -224,6 +234,9 @@ type WbRedRound struct {
 type WbCriterion struct {
 	ID, Text, Proof string
 	Proven          bool
+	// Lead: the criterion waits on the lead's command (a lead link with no
+	// passing run); Proof then reads "waits on the lead: <command>".
+	Lead bool
 }
 
 // WbCheckGroup is a section's checkboxes. You: the owner ticks them (human
@@ -289,7 +302,6 @@ type WbBodyIndex struct {
 	Sections   []WbBodySection
 	NotStarted []string
 	Comments   int
-	EditURL    string
 }
 
 // WbBodySection is one section; Tone of its count is green, you or idle.
@@ -326,7 +338,12 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	hallURL := prefix + "/hall?agent=" + url.QueryEscape(issue.Slug) + "#agent"
 	d := StationData{IssueURL: issueURL, ClassicURL: issueURL + "?classic=1"}
 	d.Outputs = stationOutputs(p, prefix, issue)
+	d.Partner = partnerOf(p, issue)
+	if d.Partner != nil && d.Partner.Awaiting {
+		d.Partner.AnswerURL = issueURL + "/partner"
+	}
 	d.Critique = stationCritique(p, wf, issue, now)
+	d.Affected = stationAffected(p, wf, prefix, issue)
 
 	// The header: Map › project › Hall › Station.
 	company := s.buildCompany(p, prefix, now)
@@ -343,7 +360,8 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	// What the page reads, once: the timeline's sources, the owner's
 	// attention, the agent's last call, the proofs.
 	targets, _ := issueApprovals(wf, issue)
-	src := loadTimelineSources(p, issue, wf)
+	cache := timeline.NewCache()
+	src := loadTimelineSources(cache, p, issue, wf)
 	tl := buildTimeline(src, timelineInput{Status: issue.Status, Now: now, Show: show, WF: wf, OpenGated: len(targets) > 0})
 	att := ownerAttention(p, issue)
 	ca := newCardAgents(p, prefix, now)
@@ -363,7 +381,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 			return path
 		},
 	})
-	report := evidenceReport(p, issue, src.Comments)
+	report := evidenceReportWith(cache, p, issue, src.Comments)
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
@@ -379,6 +397,7 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 
 	d.Title = stationTitle(wf, issue, d.ClassicURL)
 	d.Title.EditURL, d.Title.DeleteURL, d.Title.StoreURL, d.Title.Prefix = issueURL, issueURL+"/delete", prefix+"/", prefix
+	d.Title.NvimURL = issueURL + "/edit-in-nvim"
 	d.Belt = stationBelt(wf, issue, tab.Path, att, hallURL)
 	d.Time = stationTime(tl)
 	d.Move = stationMove(p.Slug, wf, issue, issueURL, tab.Needs, att, targets, src.Comments, now)
@@ -558,8 +577,8 @@ func stationMove(project string, wf *tracker.WorkflowConfig, issue *tracker.Issu
 			Text: text, Command: "issue-cli --project " + project + " check-script " + issue.Slug, RunURL: issueURL + "/check-script", Sessions: att.Checks})
 		names = append(names, "guided checks")
 	}
-	gt := gateTargets(targets, att)
-	if len(gt) > 0 && !strings.EqualFold(issue.Status, "done") {
+	gt := gateTargets(wf, targets, att)
+	if len(gt) > 0 && !wf.IsLastStatus(issue.Status) {
 		n++
 		st := &WbStamp{N: n, Targets: gt, Approved: issue.HumanApproval, ApproveURL: issueURL + "/approve", SendBackURL: issueURL + "/send-back"}
 		// The owner may stamp ahead of their own steps, as on the classic page.
@@ -632,6 +651,20 @@ func stationChange(c evChange) WbChangeCard {
 	return out
 }
 
+// waitingLeadLink is an unproven criterion's lead link that has no passing
+// run: what the criterion waits on.
+func waitingLeadLink(c evCriterion) (evLink, bool) {
+	if c.Proven {
+		return evLink{}, false
+	}
+	for _, l := range c.Links {
+		if l.Kind == tracker.ProofLead && strings.HasPrefix(l.State, proof.LeadWaitsPrefix) {
+			return l, true
+		}
+	}
+	return evLink{}, false
+}
+
 // stationTests is tests and proofs: criteria proven, the agent's newest
 // tests: comment, CI and the checklist by section.
 func stationTests(ev *EvidenceTab, boxes []tracker.CheckboxItem, ci *ciSummary) WbTestsCard {
@@ -648,6 +681,9 @@ func stationTests(ev *EvidenceTab, boxes []tracker.CheckboxItem, ci *ciSummary) 
 		if len(c.Links) > 0 {
 			l := c.Links[0]
 			cr.Proof = strings.TrimSpace(l.Kind + " " + l.Ref + " · " + l.State)
+		}
+		if l, ok := waitingLeadLink(c); ok {
+			cr.Proof, cr.Lead = l.State, true
 		}
 		t.Criteria = append(t.Criteria, cr)
 	}
@@ -890,7 +926,7 @@ func stationSessions(sessions []AgentSession, agent string, waits bool) WbSessio
 // stationBody is the body by "## " section with its counts, each linking
 // its section in the station's own body panel.
 func stationBody(fold []foldSection, notStarted []string, comments, decisions int, classic, issueURL string) WbBodyIndex {
-	b := WbBodyIndex{NotStarted: notStarted, Comments: comments, EditURL: issueURL + "/edit-in-nvim"}
+	b := WbBodyIndex{NotStarted: notStarted, Comments: comments}
 	for _, f := range fold {
 		s := WbBodySection{Title: f.Title, URL: "#body-" + f.ID, Tone: "idle"}
 		switch {

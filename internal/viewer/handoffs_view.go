@@ -52,7 +52,7 @@ func handoffTone(state string) string {
 // roomHandoffs builds every box's block from the project's handoffs.
 func roomHandoffs(p *tracker.Project, prefix string, issues []*tracker.Issue, now time.Time) map[string]*WbHandoffs {
 	all := connections.ListHandoffs(p, issues, func(i *tracker.Issue) []tracker.Comment {
-		c, _ := tracker.LoadComments(i.FilePath)
+		c := i.Comments()
 		return c
 	}, connections.HandoffFilter{}, now)
 	out := map[string]*WbHandoffs{}

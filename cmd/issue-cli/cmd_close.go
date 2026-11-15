@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -114,7 +115,10 @@ func runClose(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "✓ Comment on %s and on %s\n", issue.Slug, target.Slug)
 	printYOLOGate(ctx.Stdout, gate, from, park, ctx.now())
 	handoffEnded(ctx, ctx.Stdout, wf, issue.Slug, park)
-	fmt.Fprintf(ctx.Stdout, "Undo: %s\n", tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %q", issue.Slug, from)))
+	if parked, _, err := findIssueOrErr(ctx, issue.Slug); err == nil {
+		closeFinishedWorker(ctx, ctx.Stdout, parked)
+	}
+	fmt.Fprintf(ctx.Stdout, "Undo: %s\n", tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli transition %s --to %s", issue.Slug, shell.Quote(from))))
 	return nil
 }
 
@@ -122,7 +126,7 @@ func runClose(ctx *Context, args []string) error {
 // own issue for; a worker whose issue is unknown can't show that and is
 // refused. Leads and the human pass.
 func closeAllowed(ctx *Context, issues []*tracker.Issue, issue, target *tracker.Issue) error {
-	me := whoAmI(ctx.Project, issues)
+	me := guardWho(ctx, issues, "close")
 	if me.Role != tracker.RoleWorker {
 		return nil
 	}
@@ -153,7 +157,7 @@ func parkStatus(wf *tracker.WorkflowConfig, status string) string {
 		if t == nil && s.Name != status {
 			continue
 		}
-		if s.Name == "parked" {
+		if tracker.IsParkedStatus(s.Name) {
 			return s.Name
 		}
 		if found == "" {

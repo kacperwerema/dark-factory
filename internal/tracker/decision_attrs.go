@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -199,7 +200,7 @@ func ParseAttrs(inner string) (DecisionAttrs, error) {
 			}
 			a.Ended = val
 		default:
-			return a, fmt.Errorf("%q is not a decision attribute (scope, hard, at, paths, expires, ended)", part)
+			return a, fmt.Errorf("%q is not a decision attribute (%s)", part, DecisionKeyList())
 		}
 	}
 	if a.Scope == "" {
@@ -260,4 +261,49 @@ func ValidateGlob(g string) error {
 		return fmt.Errorf("paths: %q: %v", g, err)
 	}
 	return nil
+}
+
+// decisionKeyOrder is the attribute group's keys in the order RenderAttrs
+// writes them: the one list. Error texts, lint and BrokenAttrs read it, and
+// TestDecisionKeysHaveOneSource holds the docs' lists to it.
+var decisionKeyOrder = []string{"scope", "hard", "at", "paths", "expires", "ended"}
+
+// decisionKeys is decisionKeyOrder as a set.
+var decisionKeys = func() map[string]bool {
+	set := make(map[string]bool, len(decisionKeyOrder))
+	for _, k := range decisionKeyOrder {
+		set[k] = true
+	}
+	return set
+}()
+
+// DecisionKeys returns the attribute group's keys, in written order.
+func DecisionKeys() []string { return slices.Clone(decisionKeyOrder) }
+
+// DecisionKeyList is DecisionKeys as a comma list, for messages.
+func DecisionKeyList() string { return strings.Join(decisionKeyOrder, ", ") }
+
+// BrokenAttrs is why a D-n line's trailing {…} names a decision key yet is
+// not read as its attribute group (an unknown key beside them, a scope
+// kind that doesn't exist, a bad date), so the line silently reads as
+// scope issue, soft. It is nil when the line has a group, ends in no {…},
+// or ends in one that is plain text ({from: marketing, to: product, via: hq}).
+func BrokenAttrs(d Decision) error {
+	if d.AttrsAt >= 0 {
+		return nil
+	}
+	m := decisionAttrsRe.FindStringSubmatch(d.Raw)
+	if m == nil {
+		return nil
+	}
+	named := false
+	for _, part := range strings.Split(m[1], ";") {
+		key, _, _ := strings.Cut(part, ":")
+		named = named || decisionKeys[strings.TrimSpace(key)]
+	}
+	if !named {
+		return nil
+	}
+	_, err := ParseAttrs(m[1])
+	return err
 }

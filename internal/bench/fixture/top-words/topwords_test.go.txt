@@ -1,0 +1,31 @@
+package tally
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestTopWordsMostFrequentFirst(t *testing.T) {
+	got := TopWords("b a b c b a", 2)
+	want := []WordCount{{"b", 3}, {"a", 2}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("TopWords = %v, want %v", got, want)
+	}
+}
+
+func TestTopWordsBreaksTiesAlphabetically(t *testing.T) {
+	got := TopWords("pear apple fig", 3)
+	want := []WordCount{{"apple", 1}, {"fig", 1}, {"pear", 1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("TopWords = %v, want %v", got, want)
+	}
+}
+
+func TestTopWordsEdges(t *testing.T) {
+	if got := TopWords("a b", 0); got != nil {
+		t.Fatalf("n=0: %v, want nil", got)
+	}
+	if got := TopWords("a b", 5); len(got) != 2 {
+		t.Fatalf("n over the words: %v, want both", got)
+	}
+}

@@ -188,7 +188,7 @@ func TestNextStepCommand(t *testing.T) {
 	wf := proj.LoadWorkflow()
 
 	cmd, note := nextStepCommand(wf, "cli/x", "in design", "backlog")
-	if cmd != `issue-cli transition cli/x --to "backlog"` || note == "" {
+	if cmd != `issue-cli transition cli/x --to backlog` || note == "" {
 		t.Fatalf("gated non-handoff: %q / %q", cmd, note)
 	}
 	cmd, _ = nextStepCommand(wf, "cli/x", "backlog", "in progress")
@@ -196,7 +196,7 @@ func TestNextStepCommand(t *testing.T) {
 		t.Fatalf("gated handoff: %q", cmd)
 	}
 	cmd, note = nextStepCommand(wf, "cli/x", "in progress", "done")
-	if cmd != `issue-cli transition cli/x --to "done"` || note != "" {
+	if cmd != `issue-cli transition cli/x --to done` || note != "" {
 		t.Fatalf("done must never carry an approval note: %q / %q", cmd, note)
 	}
 }
@@ -284,4 +284,32 @@ func TestTransitionDryRunNamesSectionTopUp(t *testing.T) {
 	if after := readFile(t, issuePath); after != raw {
 		t.Fatalf("dry run modified the issue:\n%s", after)
 	}
+}
+
+// TestTransitionDryRunPrintsALegacyRuleHint: the dry run prints a legacy
+// rule's hint: (templated) in place of its built-in fix, for a comment prefix
+// and for a section's open boxes.
+func TestTransitionDryRunPrintsALegacyRuleHint(t *testing.T) {
+	proj, _ := makeGateFixture(t, "in design", "backlog", false)
+	workflow := strings.Replace(readFile(t, proj.WorkflowFile), `        rule: "section_checkboxes_checked: Design"
+`, `        rule: "section_checkboxes_checked: Design"
+        hint: "finish the design of {{slug}} first"
+      - type: validate
+        rule: "has_comment_prefix: docs:"
+        hint: "issue-cli comment {{slug}} --text \"docs: <pages changed>\""
+`, 1)
+	if err := os.WriteFile(proj.WorkflowFile, []byte(workflow), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stdout, _ := newTestContext(proj, false)
+
+	err := runTransition(ctx, []string{"cli/sample", "--to", "backlog", "--dry-run"})
+	if code := exitCode(t, err); code != 1 {
+		t.Fatalf("exit code = %d, want 1:\n%s", code, stdout)
+	}
+	out := stdout.String()
+	assertContains(t, out, "finish the design of cli/sample first")
+	assertContains(t, out, `no comment starting with "docs:" — issue-cli comment cli/sample --text "docs: <pages changed>"`)
+	assertNotContains(t, out, "issue-cli check cli/sample D2")
+	assertNotContains(t, out, "add one:")
 }

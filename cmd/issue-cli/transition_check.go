@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -14,6 +15,11 @@ import (
 type exitCodeError struct {
 	Code int
 	Msg  string
+	// Hold marks a refusal that is the expected answer, not a failure:
+	// queue next --start found nothing to start or a hold stopped it. The
+	// exit code stays (the lead's tick reads it); telemetry classes it
+	// ErrHold instead of ErrValidation.
+	Hold bool
 }
 
 func (e *exitCodeError) Error() string { return e.Msg }
@@ -68,15 +74,15 @@ func approvalNote(required string) string {
 // agent to hand the approval to the human and stop, instead of waiting or polling. `done`
 // is excluded: only humans close issues.
 func nextStepCommand(wf *tracker.WorkflowConfig, slug, from, next string) (cmd, note string) {
-	plain := fmt.Sprintf("issue-cli transition %s --to %q", slug, next)
-	if next == "done" {
+	plain := fmt.Sprintf("issue-cli transition %s --to %s", slug, shell.Quote(next))
+	if wf.IsLastStatus(next) {
 		return plain, ""
 	}
 	required := wf.RequiredHumanApproval(from, next)
 	if required == "" {
 		return plain, ""
 	}
-	if tracker.IsHandoffStatus(from) {
+	if wf.IsHandoffStatus(from) {
 		return fmt.Sprintf("issue-cli start %s", slug), approvalNote(required)
 	}
 	return plain, approvalNote(required)
@@ -84,8 +90,8 @@ func nextStepCommand(wf *tracker.WorkflowConfig, slug, from, next string) (cmd, 
 
 // transitionProblem is one unmet requirement for a transition.
 type transitionProblem struct {
-	// Kind is "order", "field", "validator", or "approval". Only "approval"
-	// is resolved by a human click.
+	// Kind is "order", "field", "validator", "approval" or "hold" (a
+	// red-round cap question). Only "approval" is resolved by a human click.
 	Kind        string   `json:"kind"`
 	Requirement string   `json:"requirement"`
 	Message     string   `json:"message,omitempty"`
@@ -102,6 +108,9 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 	}
 
 	var problems []transitionProblem
+	if p := redRoundsProblem(ctx, wf, issue, slug, to); p != nil {
+		problems = append(problems, *p)
+	}
 	merged := wf.MergeFieldValuesFromFrontmatter(issue, from, to, fields)
 	for _, field := range wf.TransitionFields(from, to) {
 		if !field.Required || strings.TrimSpace(merged[field.Name]) != "" {
@@ -114,7 +123,7 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 		problems = append(problems, transitionProblem{
 			Kind:        "field",
 			Requirement: fmt.Sprintf("Field %q answered: %s", field.Name, label),
-			Fix:         []string{fmt.Sprintf("issue-cli transition %s --to %q --field %s=\"...\"", slug, to, field.Name)},
+			Fix:         []string{fmt.Sprintf("issue-cli transition %s --to %s --field %s=\"...\"", slug, shell.Quote(to), field.Name)},
 		})
 	}
 
@@ -137,7 +146,11 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 			}
 		default:
 			p.Kind = "validator"
-			p.Fix = checkboxFixes(slug, issue.BodyRaw, step.Action.Rule)
+			if strings.TrimSpace(step.Action.Hint) == "" {
+				// A hint: is the fix, in the message already.
+				p.Fix = checkboxFixes(slug, issue.BodyRaw, step.Action.Rule)
+			}
+			p.Requirement += proofRunHint(ctx, slug, step.Action.Rule, step.Message)
 		}
 		problems = append(problems, p)
 	}
@@ -147,15 +160,23 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 	return problems
 }
 
+// proofRunHint names prove --run on the criteria_proven line when a named
+// test is only waiting for its tests: report: the trailer linked it, and
+// nothing runs it until prove --run posts the report.
+func proofRunHint(ctx *Context, slug, rule, msg string) string {
+	name, _ := tracker.SplitRule(rule)
+	if name != "criteria_proven" || !strings.Contains(msg, "no tests: report") {
+		return ""
+	}
+	return " — no tests: report yet: " + tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli prove %s --run", slug)) + " runs the named tests and posts it"
+}
+
 // checkboxFixes is the `issue-cli check` command that ticks every open box a
 // checkbox gate is waiting on — by id when ids are available (one call,
 // several ids), else one call per box text. Other rules already embed their
 // fix in the message.
 func checkboxFixes(slug, body, rule string) []string {
-	name, arg := rule, ""
-	if idx := strings.Index(rule, ": "); idx != -1 {
-		name, arg = rule[:idx], strings.TrimSpace(rule[idx+2:])
-	}
+	name, arg := tracker.SplitRule(rule)
 	if name != "section_checkboxes_checked" && name != "all_checkboxes_checked" {
 		return nil
 	}
@@ -165,7 +186,7 @@ func checkboxFixes(slug, body, rule string) []string {
 			continue
 		}
 		if item.ID == "" {
-			byText = append(byText, fmt.Sprintf("issue-cli check %s %q", slug, item.Text))
+			byText = append(byText, fmt.Sprintf("issue-cli check %s %s", slug, shell.Quote(item.Text)))
 			continue
 		}
 		ids = append(ids, item.ID)
@@ -186,6 +207,8 @@ type dryRunOutput struct {
 	SideEffects []string            `json:"side_effects,omitempty"`
 	// Warnings never make the transition unready (an open depends_on).
 	Warnings []string `json:"warnings,omitempty"`
+	// LeadComments are the lead: comments posted since the previous move.
+	LeadComments []leadComment `json:"lead_comments,omitempty"`
 }
 
 // printProblemReport renders problems for --dry-run. Messages from checkRule

@@ -69,6 +69,9 @@ steps:
   - id: TP7
     title: The header's agent counts and the Company HQ room lead to Crew
     proves: [AC7]
+    # At phone width the counts sit in the header's ☰ drawer
+    # (phone-pages-header TP6 opens it); here the desktop header.
+    viewports: [1440x900]
     setup:
       - open: /p/{project}/decisions
     act:

@@ -27,6 +27,17 @@ type InForceEntry struct {
 // scopeRank orders the in-force list: most specific scope first.
 var scopeRank = map[string]int{ScopeIssue: 0, ScopeType: 1, ScopeSystem: 2, ScopeDepartment: 3, ScopeProject: 4}
 
+// ScopeKinds returns the scope kinds in scopeRank's order, most specific
+// first.
+func ScopeKinds() []string {
+	kinds := make([]string, 0, len(scopeRank))
+	for k := range scopeRank {
+		kinds = append(kinds, k)
+	}
+	sort.Slice(kinds, func(i, j int) bool { return scopeRank[kinds[i]] < scopeRank[kinds[j]] })
+	return kinds
+}
+
 // InForce returns the decisions in force for issue at status: not
 // replaced, not deferred, not expired, at: empty or naming the status, and
 // a scope that reaches the issue. Issue scope reaches the decision's own
@@ -61,7 +72,7 @@ func InForce(x *DecisionIndex, issue *Issue, status string, o InForceOptions) []
 
 	var out []InForceEntry
 	for _, e := range x.Entries {
-		if e.ReplacedBy != nil || e.Deferred || e.ExpiredOn(o.Today) || !e.AtStatus(status) {
+		if !e.ActiveOn(o.Today) || !e.AtStatus(status) {
 			continue
 		}
 		why := ""

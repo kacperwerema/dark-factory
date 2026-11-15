@@ -36,7 +36,7 @@
     <div class="wb-gauge-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{{.Title}}</div>
     <div class="wb-fog wb-gauge-fog" aria-hidden="true"></div>
     <div class="wb-trend-need">{{.Need}}</div>
-    <a class="wb-trend-cmd" href="{{.URL}}">Open the issue</a>
+    {{if .URL}}<a class="wb-trend-cmd" href="{{.URL}}">Open the issue</a>{{end}}
 </div>
 {{else}}
 <div class="wb-gauge" data-testid="stats.gauge.{{.Key}}">
@@ -92,9 +92,9 @@
 {{end}}
 
 {{define "wb/data-table"}}
-<div class="wb-table-scroll"><table class="wb-table">
+<div class="wb-table-scroll"><table class="wb-table wb-table--stack">
     <thead><tr>{{range .Head}}<th scope="col"{{if .Num}} class="wb-num"{{end}}>{{.Text}}</th>{{end}}</tr></thead>
-    <tbody>{{range .Rows}}<tr>{{range $i, $c := .}}{{if and (eq $i 0) $.RowHead}}<th scope="row">{{template "wb/cell" $c}}</th>{{else}}<td{{if $c.Num}} class="wb-num"{{end}}>{{template "wb/cell" $c}}</td>{{end}}{{end}}</tr>{{end}}</tbody>
+    <tbody>{{range .Rows}}<tr>{{range $i, $c := .}}{{if and (eq $i 0) $.RowHead}}<th scope="row">{{template "wb/cell" $c}}</th>{{else}}<td{{if $c.Num}} class="wb-num"{{end}} data-label="{{if lt $i (len $.Head)}}{{(index $.Head $i).Text}}{{end}}">{{template "wb/cell" $c}}</td>{{end}}{{end}}</tr>{{end}}</tbody>
 </table></div>
 {{end}}
 

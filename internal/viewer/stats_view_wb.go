@@ -35,6 +35,7 @@ type StatsWbPage struct {
 	// tables split an issue's time.
 	AllURL     string
 	AggTitle   string
+	Updating   string
 	TimeRules  string
 	Range      WbSegLinks
 	Group      WbSegLinks
@@ -188,6 +189,7 @@ func buildStatsWb(in statsWbIn) StatsWbPage {
 	}
 	p.Sub += " · gauges and bars computed now"
 	p.AllURL = "/stats"
+	p.Updating = d.Updating
 	if d.AggMS > 0 {
 		p.AggTitle = fmt.Sprintf("The aggregate took %d ms to build; it is cached", d.AggMS)
 	}
@@ -213,7 +215,7 @@ func buildStatsWb(in statsWbIn) StatsWbPage {
 	}
 	for _, pc := range d.Pending {
 		p.Locked = append(p.Locked, WbTrendCard{Key: pc.Family + "-" + slugKey(pc.Title), Title: pc.Title, Locked: true,
-			Need: "No snapshot has the " + pc.Family + " family yet. It comes with this issue:", Cmd: pc.Issue, URL: data.Prefix + "/issue/" + pc.Issue})
+			Need: "No snapshot has the " + pc.Family + " family yet. " + pc.Need})
 	}
 
 	p.TimeSub = fmt.Sprintf("%s done %s – %s", plural(d.Done, "issue", "issues"), d.From.Local().Format("2 Jan 2006"), d.To.Local().Format("2 Jan 2006"))
@@ -247,7 +249,7 @@ func wbGauge(g GaugeCard, prefix, slug string) WbGauge {
 	}
 	switch {
 	case g.Pending != "":
-		out.Locked, out.Need, out.URL = true, "No data yet. It comes with "+g.Pending+".", prefix+"/issue/"+g.Pending
+		out.Locked, out.Need = true, "No data yet. "+g.Pending
 	case g.Title == "Big files":
 		out.Href = prefix + "/health"
 		if g.Empty != "" {

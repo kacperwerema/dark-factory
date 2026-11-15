@@ -1,0 +1,34 @@
+// Package tally counts the words and lines of a text.
+package tally
+
+import (
+	"strings"
+	"unicode"
+)
+
+// Words splits text into its words: runs of letters and digits. Case is
+// kept.
+func Words(text string) []string {
+	return strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+}
+
+// Count is how many times each word appears in text.
+func Count(text string) map[string]int {
+	out := map[string]int{}
+	for _, w := range Words(text) {
+		out[w]++
+	}
+	return out
+}
+
+// Lines is how many lines text has. A last line without a newline counts;
+// an empty text has none.
+func Lines(text string) int {
+	n := strings.Count(text, "\n")
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		n++
+	}
+	return n
+}

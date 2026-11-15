@@ -1,0 +1,1 @@
+- [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)

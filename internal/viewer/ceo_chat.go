@@ -142,7 +142,9 @@ func (s *Server) handleCEOChat(w http.ResponseWriter, r *http.Request, proj *tra
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.URL.Query().Get("part") == "live" {
 		w.Header().Set("Cache-Control", "no-store")
-		live := s.buildCEOLive(proj, prefix, dept, s.buildLeadChat(proj, prefix, name, true))
+		m := s.buildLeadChat(proj, prefix, name, false)
+		m.Waiting, m.WaitingIn = s.leadWaitingLive(proj, prefix, time.Now()), true
+		live := s.buildCEOLive(proj, prefix, dept, m)
 		if err := s.tmpl.ExecuteTemplate(w, "wb/ceo-live", live); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}

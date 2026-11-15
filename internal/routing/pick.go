@@ -133,16 +133,16 @@ func Pick(cfg *tracker.RoutingConfig, s Subject, explicit string, st *State, now
 			continue
 		}
 		c.Agent, c.Fallback = a, true
-		c.Why = fmt.Sprintf("%s resting until %s; fallback → %s", agent, RestUntilText(r, now), a)
+		c.Why = fmt.Sprintf("%s resting until %s%s; fallback → %s", agent, RestUntilText(r, now), stopWords(r), a)
 		return c
 	}
 	var parts []string
 	for _, sk := range c.Skipped {
-		parts = append(parts, sk.Agent+" until "+RestUntilText(sk, now))
+		parts = append(parts, sk.Agent+" until "+RestUntilText(sk, now)+stopWords(sk))
 	}
 	c.Hold = "every agent to try is resting (" + strings.Join(parts, ", ") + ")"
 	if len(order) == 0 {
-		c.Hold = fmt.Sprintf("%s is resting until %s and routing: has no fallback", agent, RestUntilText(r, now))
+		c.Hold = fmt.Sprintf("%s is resting until %s%s and routing: has no fallback", agent, RestUntilText(r, now), stopWords(r))
 	}
 	return c
 }
@@ -161,9 +161,25 @@ func RestUntilText(r Rest, now time.Time) string {
 	return t
 }
 
+// stopWords is " at its stop point 98%" for a rest the stop point started,
+// else "".
+func stopWords(r Rest) string {
+	if r.By != "stop" {
+		return ""
+	}
+	return fmt.Sprintf(" at its stop point %d%%", r.StopAt)
+}
+
 func restSource(r Rest) string {
 	if r.By == "owner" {
 		return "set by the owner"
+	}
+	if r.By == "stop" {
+		s := fmt.Sprintf("used %d%%, stop point %d%%", r.Percent, r.StopAt)
+		if r.Session != "" {
+			s += ", seen in " + r.Session
+		}
+		return s
 	}
 	if r.Session != "" {
 		return "limit seen in " + r.Session
@@ -173,13 +189,46 @@ func restSource(r Rest) string {
 
 // StateWords is a subscription's state for pages: "resting until 17:00
 // (limit seen in agent-x)", "working" when a live session runs it, or
-// "unknown".
+// "unknown"; with the weekly percent when a reading is live ("working · 92%
+// of the weekly limit").
 func StateWords(agent string, st *State, live bool, now time.Time) string {
 	if r, ok := st.Resting(agent, now); ok {
-		return "resting until " + RestUntilText(r, now) + " (" + restSource(r) + ")"
+		return "resting until " + RestUntilText(r, now) + " (" + restSource(r) + ")" + percentWords(agent, st, r, now)
 	}
+	state := "unknown"
 	if live {
-		return "working"
+		state = "working"
 	}
-	return "unknown"
+	return state + percentWords(agent, st, Rest{}, now)
+}
+
+// percentWords is " · 92% of the weekly limit" when agent has a live reading
+// that r's own words don't already give.
+func percentWords(agent string, st *State, r Rest, now time.Time) string {
+	u, ok := st.UsageOf(agent, now)
+	if !ok || r.By == "stop" {
+		return ""
+	}
+	return fmt.Sprintf(" · %d%% of the weekly limit", u.Percent)
+}
+
+// Other is another known agent than not, installed and not resting; when
+// there is none it is "" and why says what each other agent is doing.
+func Other(st *State, not string, now time.Time) (agent, why string) {
+	var away []string
+	for _, other := range KnownAgents {
+		if other == not {
+			continue
+		}
+		if r, resting := st.Resting(other, now); resting {
+			away = append(away, other+" resting until "+RestUntilText(r, now))
+			continue
+		}
+		if !Installed(other) {
+			away = append(away, other+" not installed")
+			continue
+		}
+		return other, ""
+	}
+	return "", strings.Join(away, ", ")
 }

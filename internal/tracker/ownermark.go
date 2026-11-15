@@ -15,7 +15,10 @@ import (
 //     marker, it doesn't mark the box;
 //   - or it starts with "Owner " and names a check,
 //     read-through, review or decision ("Owner visual check … (after ship)",
-//     "Owner decides the price").
+//     "Owner decides the price"), unless those words name a status or a
+//     gate: followed by an arrow ("owner review → publish stays
+//     owner_only") or by status, gate, stage, step or column ("owner
+//     review status keeps its gate").
 //
 // Widening the rule only makes more boxes the owner's: an agent never
 // ticks more because of it.
@@ -27,6 +30,10 @@ var (
 	// box. "checks" is left out: "Owner checks page …" is a page's name.
 	ownerLead = regexp.MustCompile(`(?i)^owner\s+((visual|manual|final|hands-on|eyes-on|ui|ux|page|board)\s+)?` +
 		`(check|look|read-through|read|review|reviews|decision|decides|picks|chooses|approves|approval|confirms|judges|judgement|sign-off|signs\s+off|playtest|walk-through|walks)\b`)
+	// statusAfterLead is what, right after ownerLead's words, says they name
+	// a status or a gate ("owner review → publish", "owner review status"),
+	// not the owner's check.
+	statusAfterLead = regexp.MustCompile(`(?i)^\s*(→|->|=>|⇒|(status|statuses|gate|gates|stage|step|column|transition)\b)`)
 	// ownerLooking is wording that reads like a check only the owner does,
 	// anywhere in a box: lint's hint, never the rule itself.
 	ownerLooking = regexp.MustCompile(`(?i)\b(the\s+owner\s+(\w+\s+)?(checks|looks|reviews|reads|confirms|decides|picks|chooses|approves|judges|verifies|walks|signs\s+off)|owner'?s?\s+(visual\s+check|manual\s+check|read-through|sign-off|eyes)|visual\s+check\s+by\s+the\s+owner)\b`)
@@ -41,7 +48,11 @@ func unquoted(text string) string {
 // rule above.
 func IsOwnerMarked(text string) bool {
 	t := strings.TrimSpace(unquoted(text))
-	return strings.Contains(strings.ToLower(t), "(owner)") || ownerLead.MatchString(t)
+	if strings.Contains(strings.ToLower(t), "(owner)") {
+		return true
+	}
+	loc := ownerLead.FindStringIndex(t)
+	return loc != nil && !statusAfterLead.MatchString(t[loc[1]:])
 }
 
 // LooksLikeOwnerCheck reports whether a box reads like a check only the

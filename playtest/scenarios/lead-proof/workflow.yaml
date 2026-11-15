@@ -1,0 +1,16 @@
+statuses:
+  - name: "backlog"
+    description: "Ready to work on"
+  - name: "testing"
+    description: "Being checked"
+  - name: "done"
+    description: "Finished"
+transitions:
+  - from: "backlog"
+    to: "testing"
+    actions: []
+  - from: "testing"
+    to: "done"
+    actions:
+      - type: "validate"
+        rule: "criteria_proven: since 2026-10-01"

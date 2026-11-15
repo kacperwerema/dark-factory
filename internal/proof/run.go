@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -341,7 +341,7 @@ func ShortHead(dir string) string {
 	if err != nil {
 		return ""
 	}
-	return timeline.ShortSHA(strings.TrimSpace(out))
+	return gitdir.ShortSHA(strings.TrimSpace(out))
 }
 
 // DirtyCode lists the changed or untracked files in the checkout at dir that

@@ -1,0 +1,22 @@
+session: buttons-updates
+issue: ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded
+title: "Updates: each card shows Install with an agent and Details; Decline sits inside Details"
+scenario: updates
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_zero_size_text, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP9
+    title: A card on Updates shows two actions; Details opens what, why, where and Decline
+    proves: [AC1, AC2, AC3]
+    setup:
+      - open: /p/{project}/updates
+    act:
+      - check: { buttons: { within: upd.card.status-changelog, max: 2 } }
+      - check: { hidden: upd.card.status-changelog.decline }
+      - click: upd.card.status-changelog.details
+    checks:
+      - visible: upd.card.status-changelog.decline

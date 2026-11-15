@@ -22,3 +22,6 @@ transitions:
         status: "documentation"
   - from: "documentation"
     to: "done"
+
+health:
+  shrink_shots_after_days: 0 # the runs under files/ are dated: keep their shots as committed

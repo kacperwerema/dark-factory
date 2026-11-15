@@ -22,13 +22,16 @@ func (s *Server) loadStatus(proj *tracker.Project, prefix string) (*StatusModel,
 // loadStatusWith is loadStatus that also returns the issues and agents it
 // read (agents nil without tmux), for the Report built on the same model.
 func (s *Server) loadStatusWith(proj *tracker.Project, prefix string) (*StatusModel, []*tracker.Issue, *AgentsModel, error) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	agents, _ := s.buildAgentsModel(proj, prefix)
 	m := buildStatus(proj, issues, agents, time.Now())
-	m.Prefix = prefix
+	if m.Prefix != prefix { // no agents model: the rows need their links
+		m.Prefix = prefix
+		m.NeedsYou = needsYouRowsWith(proj, "", prefix, m.Waiting, m.AsOf)
+	}
 	m.AutoStart = autostartView(proj, issues, prefix, m.AsOf)
 	m.Queue = queueView(proj, issues, prefix, m.AsOf)
 	m.Jobs = jobsStatusLine(viewerJobs(proj, issues, m.AsOf))
@@ -39,14 +42,22 @@ func (s *Server) loadStatusWith(proj *tracker.Project, prefix string) (*StatusMo
 	if len(proj.Departments) > 0 {
 		m.HQReport = hqReportURL(m.Prefix) + ".md"
 	}
-	if rw := m.ReleaseWait; rw != nil && rw.Milestone != nil && rw.Milestone.Candidate != nil && proj.Slug == s.engine {
-		rw.Milestone.addSoak(soakInput{projects: s.projects, issues: issues, cs: newCanvasStatuses(proj.LoadWorkflow()), viewer: Version})
+	if proj.Slug == s.engine {
+		s.addEngineSoak(m.ReleaseWait, proj, issues)
 	}
 	if proj.Slug == s.engine {
 		m.Behind = projectBehind(proj, Version)
 	}
 	m.Push = s.pushStatusLine()
 	return m, issues, agents, nil
+}
+
+// addEngineSoak puts the soak row on the engine's release candidate, if it
+// has one.
+func (s *Server) addEngineSoak(rw *ReleaseWait, proj *tracker.Project, issues []*tracker.Issue) {
+	if rw != nil && rw.Milestone != nil && rw.Milestone.Candidate != nil {
+		rw.Milestone.addSoak(soakInput{projects: s.projects, issues: issues, cs: newCanvasStatuses(proj.LoadWorkflow()), viewer: Version})
+	}
 }
 
 // handleStatusMD serves the Status page as markdown: the stand-up the lead
@@ -98,7 +109,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request, proj *trac
 		data.ReleasesURL = "https://github.com/" + proj.Repo + "/releases"
 	}
 	if m.Next.Found {
-		issues, _ := tracker.LoadIssues(proj.IssueDir)
+		issues, _ := proj.LoadIssues()
 		data.NextHTML = template.HTML(linkCodeSlugs(renderMarkdown(m.Next.Text), prefix, issues))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

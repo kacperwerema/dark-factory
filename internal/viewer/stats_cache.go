@@ -18,17 +18,22 @@ import (
 // alone is ~500 ms, the CLI usage report ~300 ms).
 //
 // The aggregate is kept for the widest window asked for and filtered down
-// for narrower ones. It is rebuilt at once when the done issues change
-// (their fingerprint), and in the background, serving the old one
-// meanwhile, once it is older than statsAggregateTTL (clilogs move on
-// without touching an issue file). The CLI usage report never blocks: it is
-// served from the cache and refreshed in the background.
+// for narrower ones. Once there is one, a request never builds it: when the
+// done issues changed (their fingerprint: on a busy board several times an
+// hour, so a warm-up alone goes stale) or the range asks for more than it
+// covers, the page gets the last one marked updating, and the new one is
+// built in the background. Only with none at all, before the warm-up lands,
+// does a request wait for the build. Older than statsAggregateTTL it is
+// refreshed in the background too, unmarked: clilogs move on without
+// touching an issue file. The CLI usage report never blocks: it is served
+// from the cache and refreshed in the background.
 
 const (
 	statsAggregateTTL = 15 * time.Minute
 	statsUsageTTL     = 5 * time.Minute
 	// statsWarmWindow is what the server computes at start: the 90-day
-	// range plus the 30 days a trend point looks back.
+	// range plus the 30 days a trend point looks back, so it covers the
+	// default 30-day view too (TestWarmStatsCoversTheDefaultView).
 	statsWarmWindow = 120 * 24 * time.Hour
 )
 
@@ -55,18 +60,38 @@ type statsCache struct {
 	// buildMu serializes aggregate builds per project, so two requests on
 	// a cold cache build it once.
 	buildMu map[string]*sync.Mutex
+	// compute builds the report; tests stand in for timeline.Aggregate.
+	compute func(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, now time.Time, window time.Duration) timeline.Report
 }
 
 func newStatsCache() *statsCache {
-	return &statsCache{agg: map[string]*statsAggregate{}, usage: map[string]*statsUsage{}, buildMu: map[string]*sync.Mutex{}}
+	return &statsCache{
+		agg: map[string]*statsAggregate{}, usage: map[string]*statsUsage{}, buildMu: map[string]*sync.Mutex{},
+		compute: func(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, now time.Time, window time.Duration) timeline.Report {
+			return timeline.Aggregate(context.Background(), proj, wf, issues, now, window)
+		},
+	}
+}
+
+// statsRead is what a request gets from the cache.
+type statsRead struct {
+	Rep timeline.Report
+	MS  int64
+	// Updating: Rep is the last aggregate, not one for this board and
+	// range; the new one is being built in the background.
+	Updating bool
+	// Built is when Rep was built, Covers the window it covers. A request
+	// wider than Covers sees only that much until the rebuild lands.
+	Built  time.Time
+	Covers time.Duration
 }
 
 // doneFingerprint changes when an issue is done or leaves done, or a done
 // issue's file changes: what the aggregate reads besides the clilogs.
-func doneFingerprint(issues []*tracker.Issue) string {
+func doneFingerprint(p *tracker.Project, issues []*tracker.Issue) string {
 	h := sha256.New()
 	for _, is := range issues {
-		if is.Status == "done" {
+		if p.IssueDone(is) {
 			fmt.Fprintf(h, "%s:%d\n", is.Slug, is.ModTime.UnixNano())
 		}
 	}
@@ -84,45 +109,62 @@ func (c *statsCache) lockFor(slug string) *sync.Mutex {
 	return m
 }
 
-// aggregate is the project report over at least window before now, and how
-// long it took to build. bg runs the stale refresh; nil refreshes inline.
-func (c *statsCache) aggregate(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, window time.Duration, now time.Time, bg func(func())) (timeline.Report, int64) {
-	fp := doneFingerprint(issues)
+// aggregate is the project report over at least window and how long it took
+// to build. bg runs the background builds. With bg nil, or with no aggregate
+// yet, a miss builds inline; otherwise a miss answers with the last aggregate
+// marked Updating.
+func (c *statsCache) aggregate(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, window time.Duration, now time.Time, bg func(func())) statsRead {
+	fp := doneFingerprint(proj, issues)
 	c.mu.Lock()
 	a := c.agg[proj.Slug]
-	if a != nil && a.fp == fp && a.window >= window {
-		rep, ms := a.rep, a.ms
-		if now.Sub(a.at) > statsAggregateTTL && !a.running && bg != nil {
+	if a != nil && (bg != nil || a.fp == fp && a.window >= window) {
+		read := statsRead{Rep: a.rep, MS: a.ms, Built: a.at, Covers: a.window}
+		read.Updating = a.fp != fp || a.window < window
+		if (read.Updating || now.Sub(a.at) > statsAggregateTTL) && !a.running && bg != nil {
 			a.running = true
-			bg(func() { c.build(proj, wf, issues, fp, a.window, time.Now()) })
+			wide := max(a.window, window)
+			bg(func() { c.build(proj, wf, issues, fp, wide, time.Now()) })
 		}
 		c.mu.Unlock()
-		return rep, ms
+		return read
 	}
 	c.mu.Unlock()
-	if a != nil && a.window > window {
-		window = a.window
+	if a != nil {
+		window = max(a.window, window)
 	}
 	return c.build(proj, wf, issues, fp, window, now)
 }
 
-func (c *statsCache) build(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, fp string, window time.Duration, now time.Time) (timeline.Report, int64) {
+func (c *statsCache) build(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, fp string, window time.Duration, now time.Time) statsRead {
 	lock := c.lockFor(proj.Slug)
 	lock.Lock()
 	defer lock.Unlock()
 	c.mu.Lock()
 	if a := c.agg[proj.Slug]; a != nil && a.fp == fp && a.window >= window && now.Sub(a.at) <= statsAggregateTTL {
 		c.mu.Unlock()
-		return a.rep, a.ms
+		return statsRead{Rep: a.rep, MS: a.ms, Built: a.at, Covers: a.window}
 	}
 	c.mu.Unlock()
 	start := time.Now()
-	rep := timeline.Aggregate(context.Background(), proj, wf, issues, now, window)
+	rep := c.compute(proj, wf, issues, now, window)
 	ms := time.Since(start).Milliseconds()
 	c.mu.Lock()
 	c.agg[proj.Slug] = &statsAggregate{fp: fp, window: window, at: now, rep: rep, ms: ms}
 	c.mu.Unlock()
-	return rep, ms
+	return statsRead{Rep: rep, MS: ms, Built: now, Covers: window}
+}
+
+// statsUpdatingNote is the page's line for a read marked Updating: how old
+// the numbers are, and how far they reach when the range asks for more.
+func statsUpdatingNote(read statsRead, window time.Duration) string {
+	if !read.Updating {
+		return ""
+	}
+	note := "Updating: these numbers were built " + read.Built.Format("2 Jan 15:04") + "; reload in a few seconds"
+	if read.Covers < window {
+		note += fmt.Sprintf(". Until then they reach back only %d days", int(read.Covers/(24*time.Hour)))
+	}
+	return note
 }
 
 // cliUsage is the cached CLI usage report and its notice. It never waits
@@ -166,7 +208,7 @@ func (s *Server) warmStats(stop <-chan struct{}) {
 		default:
 		}
 		proj := &s.projects[i]
-		issues, err := tracker.LoadIssues(proj.IssueDir)
+		issues, err := proj.LoadIssues()
 		if err != nil {
 			log.Printf("stats: %s: %v", proj.Slug, err)
 			continue

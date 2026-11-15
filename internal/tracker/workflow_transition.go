@@ -75,13 +75,16 @@ type ApprovalMissingError struct {
 	FromStatus string
 	Required   string
 	Verb       string
+	// Queued says start was refused at the queue: the status needs no
+	// naming, as the issue was simply waiting there.
+	Queued bool
 }
 
 func (e *ApprovalMissingError) Error() string {
 	if e.Verb == "validate" {
 		return fmt.Sprintf("issue is not human-approved for %q — a human must approve it in the issue viewer first", e.Required)
 	}
-	if e.FromStatus == "" || e.FromStatus == "backlog" {
+	if e.FromStatus == "" || e.Queued {
 		return fmt.Sprintf("cannot start %s: human approval for %q is missing; no changes were made", e.Slug, e.Required)
 	}
 	return fmt.Sprintf("cannot start %s from %q: human approval for %q is missing; no changes were made", e.Slug, e.FromStatus, e.Required)
@@ -200,12 +203,12 @@ func branchShas(repo, slug, toStatus string) (head, merge string) {
 func (w *WorkflowConfig) GatesSection(title string) bool {
 	_, title, _ = parseHeadingLine(normalizeHeading(title))
 	gates := func(rule string) bool {
-		name, arg, _ := strings.Cut(rule, ":")
-		switch strings.TrimSpace(name) {
+		name, arg := SplitRule(rule)
+		switch name {
 		case "all_checkboxes_checked":
 			return true
 		case "section_checkboxes_checked":
-			return strings.EqualFold(strings.TrimSpace(arg), title)
+			return strings.EqualFold(arg, title)
 		}
 		return false
 	}
@@ -238,11 +241,7 @@ func (w *WorkflowConfig) transitionActions(from, to string) []WorkflowAction {
 
 	var actions []WorkflowAction
 	for _, rule := range s.Validation {
-		if strings.HasPrefix(rule, "approved_for: ") || strings.HasPrefix(rule, "human_approval: ") {
-			status := strings.TrimSpace(strings.TrimPrefix(rule, "approved_for: "))
-			if strings.HasPrefix(rule, "human_approval: ") {
-				status = strings.TrimSpace(strings.TrimPrefix(rule, "human_approval: "))
-			}
+		if name, status := SplitRule(rule); status != "" && (name == "approved_for" || name == "human_approval") {
 			actions = append(actions, WorkflowAction{
 				Type:   "require_human_approval",
 				Status: status,
@@ -514,22 +513,10 @@ type StartIssueResult struct {
 	ToStatus     string
 }
 
-// IsHandoffStatus returns true when the agent's job at this status is to hand
-// off — not to work a checklist. start advances through handoff statuses and
-// lands on the next work status, so the next step from here is `start`, not
-// `transition`.
-func IsHandoffStatus(status string) bool {
-	switch status {
-	case "backlog", "human-testing":
-		return true
-	}
-	return false
-}
-
 // StartTarget is the status start advances to from status: the next work
 // status after a handoff status, "" from any other status (start only claims).
 func (w *WorkflowConfig) StartTarget(status string) string {
-	if !IsHandoffStatus(status) {
+	if !w.IsHandoffStatus(status) {
 		return ""
 	}
 	if to := w.NextRequiredStatus(status); to != "" {
@@ -564,7 +551,7 @@ func (w *WorkflowConfig) StartIssueOnce(filePath, slug, assignee string) (*Start
 		}
 
 		toStatus := w.StartTarget(fromStatus)
-		if IsHandoffStatus(fromStatus) && toStatus == "" {
+		if w.IsHandoffStatus(fromStatus) && toStatus == "" {
 			return fmt.Errorf("issue %s cannot be started from status %q: no forward status available", slug, fromStatus)
 		}
 
@@ -588,7 +575,7 @@ func (w *WorkflowConfig) StartIssueOnce(filePath, slug, assignee string) (*Start
 
 			if err := w.ValidateTransition(&candidate, fromStatus, toStatus, comments); err != nil {
 				if required := w.RequiredHumanApproval(fromStatus, toStatus); required != "" && !strings.EqualFold(issue.HumanApproval, required) {
-					return &ApprovalMissingError{Slug: slug, FromStatus: fromStatus, Required: required}
+					return &ApprovalMissingError{Slug: slug, FromStatus: fromStatus, Required: required, Queued: w.HasRole(fromStatus, StatusRoleQueue)}
 				}
 				return markErr(err, ErrTransitionValidation)
 			}

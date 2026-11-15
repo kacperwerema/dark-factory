@@ -17,6 +17,7 @@ import (
 
 	_ "github.com/kacperwerema/dark-factory/internal/proof" // registers the criteria_proven check for transition previews
 	"github.com/kacperwerema/dark-factory/internal/push"
+	"github.com/kacperwerema/dark-factory/internal/recent"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
@@ -39,10 +40,25 @@ const (
 	shutdownGrace = 10 * time.Second
 )
 
+// machineReadingKeep spans one page: its parts ask tmux, mem-guard and the
+// load several times, and the map asks once per project. Set in Run, not
+// run: a test binary always reads afresh.
+const machineReadingKeep = 500 * time.Millisecond
+
+// machineReadingWindow is machineReadingKeep, or 0 in a scenario viewer
+// (recent.OffEnv).
+func machineReadingWindow() time.Duration {
+	if os.Getenv(recent.OffEnv) == "1" {
+		return 0
+	}
+	return machineReadingKeep
+}
+
 // Run is the viewer's command line: it parses args (flags, no program
 // name), serves until SIGINT or SIGTERM and returns why it stopped.
 // cmd/issue-viewer is its main.
 func Run(args []string) error {
+	recent.Keep(machineReadingWindow())
 	return run(args)
 }
 
@@ -124,6 +140,11 @@ func run(args []string) error {
 	if engine != "" {
 		srv.engine = engine
 	}
+	// The owner's sessions outlive a restart (owner_store.go); the state
+	// dir is per viewer in a sandbox (XDG_STATE_HOME).
+	if err := srv.owner.keepIn(ownerSessionsFile()); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
 
 	// The first signal starts a graceful shutdown; stop() then restores the
 	// default handling, so a second one kills the process straight away.
@@ -156,6 +177,11 @@ func run(args []string) error {
 	srv.bg.Go("yolo watcher", func() { srv.watchYOLO(ctx.Done()) })
 	// Private trackers: commit, pull and push the work files (tracker_watch.go).
 	srv.bg.Go("tracker sync", func() { srv.watchTrackers(ctx.Done()) })
+	// Worker sessions of closed issues and dead panes: close them
+	// (session_sweep.go). Only the viewer holding viewer.json sweeps.
+	srv.bg.Go("session sweep", func() { srv.watchSessions(ctx.Done()) })
+	// Per-run connectors: stop what a killed run left up (connector_watch.go).
+	srv.bg.Go("connector sweep", func() { srv.watchConnectors(ctx.Done()) })
 	// The stats page's aggregate and CLI usage, built before the first
 	// visit (stats_cache.go).
 	srv.bg.Go("stats warm-up", func() { srv.warmStats(ctx.Done()) })

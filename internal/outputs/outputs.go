@@ -50,11 +50,11 @@ const StaleReview = 14 * 24 * time.Hour
 
 // kindIcons are the kinds with an icon; any other kind shows as written.
 var kindIcons = map[string]string{
-	"post": "📝", "design": "🎨", "site": "🌐", "page": "📄", "report": "📊", "invoice": "🧾",
+	"post": "📝", "design": "🎨", "site": "🌐", "page": "📄", "report": "📊", "invoice": "🧾", "video": "🎬",
 }
 
 // Kinds are the kinds with an icon, for help texts.
-var Kinds = []string{"post", "design", "site", "page", "report", "invoice"}
+var Kinds = []string{"post", "design", "site", "page", "report", "invoice", "video"}
 
 // Icon is the kind's icon, 📦 for any other kind.
 func Icon(kind string) string {
@@ -76,9 +76,11 @@ type Event struct {
 	URL        string `json:"url,omitempty"`
 	File       string `json:"file,omitempty"`
 	Path       string `json:"path,omitempty"`
-	Issue      string `json:"issue,omitempty"`
-	Job        string `json:"job,omitempty"`
-	Note       string `json:"note,omitempty"`
+	// Poster is a video file's poster under FilesDir (add and revise).
+	Poster string `json:"poster,omitempty"`
+	Issue  string `json:"issue,omitempty"`
+	Job    string `json:"job,omitempty"`
+	Note   string `json:"note,omitempty"`
 	// review
 	State string `json:"state,omitempty"`
 	Quote string `json:"quote,omitempty"`
@@ -97,15 +99,17 @@ type Output struct {
 	Title      string `json:"title"`
 	Kind       string `json:"kind"`
 	// One of URL, File (under FilesDir) and Path (from the project root).
-	URL   string    `json:"url,omitempty"`
-	File  string    `json:"file,omitempty"`
-	Path  string    `json:"path,omitempty"`
-	Issue string    `json:"issue,omitempty"`
-	Job   string    `json:"job,omitempty"`
-	Note  string    `json:"note,omitempty"`
-	By    string    `json:"by,omitempty"`
-	Added time.Time `json:"added"`
-	State string    `json:"state"`
+	URL  string `json:"url,omitempty"`
+	File string `json:"file,omitempty"`
+	Path string `json:"path,omitempty"`
+	// Poster is the newest video file's poster under FilesDir ("" for none).
+	Poster string    `json:"poster,omitempty"`
+	Issue  string    `json:"issue,omitempty"`
+	Job    string    `json:"job,omitempty"`
+	Note   string    `json:"note,omitempty"`
+	By     string    `json:"by,omitempty"`
+	Added  time.Time `json:"added"`
+	State  string    `json:"state"`
 	// Reviewed is the newest review; Quote the owner's words.
 	Reviewed   time.Time `json:"reviewed,omitempty"`
 	ReviewedBy string    `json:"reviewed_by,omitempty"`
@@ -121,15 +125,19 @@ type Output struct {
 	// OpenComments is how many of the owner's comment threads on it are
 	// not resolved (comments.go).
 	OpenComments int `json:"open_comments,omitempty"`
+	// PosterErr is why Add or Revise made no poster for a video file
+	// (ErrNoFfmpeg, an ffmpeg failure); only on the output they return.
+	PosterErr error `json:"-"`
 }
 
 // Version is one version of a file output.
 type Version struct {
-	N    int       `json:"n"`
-	File string    `json:"file"`
-	Date time.Time `json:"date"`
-	By   string    `json:"by,omitempty"`
-	Note string    `json:"note,omitempty"`
+	N      int       `json:"n"`
+	File   string    `json:"file"`
+	Poster string    `json:"poster,omitempty"`
+	Date   time.Time `json:"date"`
+	By     string    `json:"by,omitempty"`
+	Note   string    `json:"note,omitempty"`
 }
 
 // Version is the output's newest version number, 1 without revisions.
@@ -338,11 +346,11 @@ func apply(byID map[string]*Output, e Event) error {
 		}
 		byID[e.ID] = &Output{
 			ID: e.ID, Department: e.Department, Title: e.Title, Kind: e.Kind,
-			URL: e.URL, File: e.File, Path: e.Path, Issue: e.Issue, Job: e.Job, Note: e.Note,
+			URL: e.URL, File: e.File, Path: e.Path, Poster: e.Poster, Issue: e.Issue, Job: e.Job, Note: e.Note,
 			By: e.By, Added: when, State: StateReview,
 		}
 		if e.File != "" {
-			byID[e.ID].Versions = []Version{{N: 1, File: e.File, Date: when, By: e.By}}
+			byID[e.ID].Versions = []Version{{N: 1, File: e.File, Poster: e.Poster, Date: when, By: e.By}}
 		}
 	case OpReview:
 		o, ok := byID[e.ID]
@@ -382,8 +390,8 @@ func apply(byID map[string]*Output, e Event) error {
 		if o.State == StatePublished {
 			return fmt.Errorf("revise of published output %s", e.ID)
 		}
-		o.Versions = append(o.Versions, Version{N: o.Version() + 1, File: e.File, Date: when, By: e.By, Note: e.Note})
-		o.File, o.State = e.File, StateReview
+		o.Versions = append(o.Versions, Version{N: o.Version() + 1, File: e.File, Poster: e.Poster, Date: when, By: e.By, Note: e.Note})
+		o.File, o.Poster, o.State = e.File, e.Poster, StateReview
 	default:
 		return fmt.Errorf("unknown op %q", e.Op)
 	}
@@ -391,19 +399,38 @@ func apply(byID map[string]*Output, e Event) error {
 }
 
 func missing(p *tracker.Project, o *Output) bool {
-	var path string
-	switch {
-	case o.URL != "":
-		return false
-	case o.File != "":
-		path = filepath.Join(FilesDir(p), filepath.FromSlash(o.File))
-	case o.Path != "":
-		path = filepath.Join(p.Root(), filepath.FromSlash(o.Path))
-	default:
+	path := localPath(p, o)
+	if path == "" {
 		return false
 	}
 	_, err := os.Stat(path)
 	return err != nil
+}
+
+// localPath is where an output's file sits on this machine; "" for a link.
+// LocalPath is the absolute path of a file or path output's newest version on
+// this machine, "" for a link.
+func LocalPath(p *tracker.Project, o *Output) string {
+	path := localPath(p, o)
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+func localPath(p *tracker.Project, o *Output) string {
+	switch {
+	case o.URL != "":
+		return ""
+	case o.File != "":
+		return filepath.Join(FilesDir(p), filepath.FromSlash(o.File))
+	case o.Path != "":
+		return filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+	}
+	return ""
 }
 
 // Find is the output with id, or the one whose id ends with it (the short
@@ -481,11 +508,15 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 	if set != 1 {
 		return nil, errors.New("give exactly one of --url (a link), --file (a file to copy onto the shelf) or --path (a file in the repo)")
 	}
+	if err := checkVideoInput(in); err != nil {
+		return nil, err
+	}
 	if !Configured(p, in.Department) {
 		return nil, fmt.Errorf("no department %q (departments: %s)", in.Department, strings.Join(Keys(p), ", "))
 	}
 	list, _ := Load(p)
 	id := NewID(list, now)
+	var posterErr error
 	e := Event{
 		Op: OpAdd, ID: id, Date: now.UTC().Format(time.RFC3339Nano), Department: in.Department,
 		Title: in.Title, Kind: in.Kind, Issue: in.Issue, Job: strings.TrimSpace(in.Job),
@@ -509,12 +540,17 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 			return nil, err
 		}
 		e.File = rel
+		e.Poster, posterErr = posterFor(p, rel)
 	}
 	if err := Append(p, e); err != nil {
 		return nil, fmt.Errorf("recording the output: %w", err)
 	}
 	list, _ = Load(p)
-	return Find(list, id)
+	o, err := Find(list, id)
+	if o != nil {
+		o.PosterErr = posterErr
+	}
+	return o, err
 }
 
 // CheckURL accepts an http(s) URL with a host.
@@ -553,8 +589,12 @@ func copyFile(p *tracker.Project, dept, id, src string) (string, error) {
 	if st.IsDir() {
 		return "", fmt.Errorf("--file %q is a folder; give one file", src)
 	}
-	if st.Size() > MaxFileBytes {
-		return "", fmt.Errorf("--file %q is %d MB, over the shelf's %d MB: put it somewhere and pass --url", src, st.Size()>>20, MaxFileBytes>>20)
+	if limit, words := limitFor(src); st.Size() > limit {
+		fix := "put it somewhere and pass --url"
+		if VideoType(src) != "" {
+			fix = "export a smaller cut (ffmpeg -i in.mp4 -vf scale=1920:-2 -crf 28 out.mp4) or " + fix
+		}
+		return "", fmt.Errorf("--file %q is %d MB, over the shelf's %s: %s", src, st.Size()>>20, words, fix)
 	}
 	rel := filepath.ToSlash(filepath.Join(dept, id+"-"+filepath.Base(src)))
 	dst := filepath.Join(FilesDir(p), filepath.FromSlash(rel))
@@ -595,16 +635,37 @@ func Revise(p *tracker.Project, id, src, note, by string, now time.Time) (*Outpu
 	case strings.TrimSpace(src) == "":
 		return nil, errors.New("output revise needs --file, the new version")
 	}
+	if o.IsVideo() && VideoType(src) == "" {
+		return nil, fmt.Errorf("output %s is a video: the new version must be .mp4 or .webm too, got %s", o.ID, filepath.Base(src))
+	}
 	rel, err := copyFile(p, o.Department, fmt.Sprintf("%s-v%d", o.ID, o.Version()+1), src)
 	if err != nil {
 		return nil, err
 	}
-	e := Event{Op: OpRevise, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), File: rel, Note: strings.TrimSpace(note), By: by}
+	poster, posterErr := posterFor(p, rel)
+	e := Event{Op: OpRevise, ID: o.ID, Date: now.UTC().Format(time.RFC3339Nano), File: rel, Poster: poster, Note: strings.TrimSpace(note), By: by}
 	if err := Append(p, e); err != nil {
 		return nil, fmt.Errorf("recording the revision: %w", err)
 	}
 	list, _ = Load(p)
-	return Find(list, o.ID)
+	out, err := Find(list, o.ID)
+	if out != nil {
+		out.PosterErr = posterErr
+	}
+	return out, err
+}
+
+// SameTitle is the newest output of issue titled title (any case) that
+// Revise would take, or nil: a published or non-file one can't get a new
+// version, so naming it would send the caller to a refusal.
+func SameTitle(list []*Output, issue, title string) *Output {
+	title = strings.TrimSpace(title)
+	for _, o := range Select(list, Filter{Issue: issue}) {
+		if issue != "" && strings.EqualFold(strings.TrimSpace(o.Title), title) && o.File != "" && o.State != StatePublished {
+			return o
+		}
+	}
+	return nil
 }
 
 // Review records the owner's approve or reject. A published output can't

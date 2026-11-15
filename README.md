@@ -158,6 +158,7 @@ go install github.com/kacperwerema/dark-factory/cmd/issue-cli@latest github.com/
 #    or both from a clone:
 git clone https://github.com/kacperwerema/dark-factory && cd dark-factory
 GOBIN="$HOME/.local/bin" make install
+#    (make install also installs a commit-msg hook in this clone's .git/hooks)
 
 # 2. A project: issues/, docs/, workflow.yaml and its entry in projects.yaml
 issue-cli project init ~/src/shop --name "Shop" --config ~/.config/ai-workflow-engine/projects.yaml

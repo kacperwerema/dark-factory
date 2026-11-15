@@ -28,7 +28,7 @@ func ProjectActionValues(proj *Project) map[string]string {
 	return map[string]string{"project": proj.Name}
 }
 
-// LeadValues fills the lead brief (leads.project).
+// LeadValues fills the lead brief (leads.project_addendum, leads.project).
 func LeadValues(projectName, lead string) map[string]string {
 	return map[string]string{"project": projectName, "lead": lead, "project_lead": lead}
 }

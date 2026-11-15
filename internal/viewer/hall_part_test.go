@@ -166,7 +166,7 @@ func mustLoad(t *testing.T, p tracker.Project) []*tracker.Issue {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return openOnly(issues)
+	return openOnly(&p, issues)
 }
 
 func TestHallPartCI(t *testing.T) {

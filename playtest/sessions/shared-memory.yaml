@@ -9,7 +9,7 @@ session_checks:
   console: no_errors
 
 steps:
-  - id: TP4
+  - id: AC2
     title: A memory an agent adds through issue-cli shows on the Memory page with its kind, scope and source
     proves: [AC2, AC3]
     setup:
@@ -23,7 +23,7 @@ steps:
       - absent: [memory.row.m-aaa003]
       - cli: { args: [memory, search, robots, staging], contains: "m-aaa002" }
 
-  - id: TP5
+  - id: AC3
     title: The owner edits a memory on the page; the edit is in its history
     proves: [AC3]
     setup:
@@ -36,7 +36,7 @@ steps:
       - text_contains: { target: memory.flash, text: "m-aaa001 saved" }
       - cli: { args: [memory, show, m-aaa001], contains: "owner-edit by owner" }
 
-  - id: TP6
+  - id: TP1
     title: The state filter shows the superseded memory with its state and link
     proves: [AC3]
     setup:
@@ -46,7 +46,7 @@ steps:
       - text_contains: { target: memory.row.m-aaa003.state, text: "superseded" }
       - text_contains: { target: memory.row.m-aaa003, text: "superseded by m-aaa001" }
 
-  - id: TP7
+  - id: HT1
     title: The Memory page reads like the Workshop Board at desktop and phone width
     judgement_step: true
     setup:

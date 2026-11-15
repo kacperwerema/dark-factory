@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "wb/head" .Title}}</head>
+<body class="wb">
+<div class="wb-app">
+{{template "wb/header" .Header}}
+<main class="wb-main">
+<section class="wb-ground wb-map" aria-label="{{.Title}}" data-testid="postmortems.page">
+    <div class="wb-titlebar">
+        <h1 class="wb-h1" data-testid="wb.title">Post-mortem actions{{if .Count}} <span class="wb-ny-count" data-testid="postmortems.count">{{.Count}}</span>{{end}}</h1>
+        <span class="wb-sub">every open action of {{plural .Posts "post-mortem" "post-mortems"}}, by place, then by what says the same thing · Refuse and Overtaken apply to the ticked rows · Agree stays on each post-mortem's page{{if .Marked}} · Undo is under Marked lately{{end}}</span>
+    </div>
+    <div class="wb-oc" data-pmq-root data-mark-url="{{.MarkURL}}" data-undo-url="{{.UndoURL}}">
+    {{if not .Count}}
+        <div class="wb-oc-empty" data-testid="postmortems.empty">No post-mortem action waits for you.</div>
+    {{else}}
+        <div class="wb-oc-bar" data-testid="postmortems.bar">
+            {{range .Places}}<a class="wb-oc-bar-link" href="#place-{{.Place}}">{{.Place}} {{.Count}}</a>{{end}}
+            <span class="wb-oc-bar-sum" data-testid="postmortems.joined">{{.Joined}} in {{plural .Groups "group" "groups"}} of the same thing</span>
+        </div>
+        {{range .Places}}
+        <section class="wb-oc-issue" id="place-{{.Place}}" data-testid="postmortems.place.{{tid .Place}}">
+            <div class="wb-oc-issue-head"><h2 class="wb-oc-issue-title wb-pmq-place">{{.Place}}</h2><span class="wb-oc-bar-sum">{{.Count}} wait · {{plural .Groups "group" "groups"}} · {{.Alone}} alone</span></div>
+            {{with .Warn}}<div class="wb-pmq-warn" data-testid="postmortems.warn">{{.}}</div>{{end}}
+            {{range .Rows}}
+            <details class="wb-pmq-group" data-pmq-group {{if not .Alone}}open{{end}} data-testid="postmortems.group.{{tid .Key}}">
+                <summary><span class="wb-chip wb-chip--idle">{{if .Alone}}{{.Count}} alone{{else}}{{.Count}} say the same{{end}}</span> {{if .Alone}}None of these reads like another; nothing is ticked{{else}}{{.Title}}{{end}}</summary>
+                {{range .Rows}}
+                <label class="wb-pmq-row" data-pmq-row data-file="{{.File}}" data-id="{{.ID}}" data-testid="postmortems.row.{{tid .Issue}}.{{tid .ID}}">
+                    <input type="checkbox" data-pmq-tick {{if .Ticked}}checked{{end}} aria-label="Tick {{.ID}} of {{.Issue}}">
+                    <span class="wb-pmq-title"><b class="wb-oc-id">{{.ID}}</b> {{.Title}}{{if .Kept}} <span class="wb-pmq-kept" data-testid="postmortems.kept">kept unless you tick it</span>{{end}}</span>
+                    <a class="wb-oc-bar-link wb-pmq-open" href="{{.URL}}">Open ›</a>
+                    <span class="wb-pmq-from">{{.Place}} · {{.Issue}}</span>
+                    <span class="wb-ny-msg wb-pmq-msg" role="status" data-pmq-msg data-testid="postmortems.row.{{tid .Issue}}.{{tid .ID}}.msg"></span>
+                </label>
+                {{end}}
+                <div class="wb-pm-foot" data-testid="postmortems.foot.{{tid .Key}}">
+                    <input type="text" class="wb-pm-note" placeholder="why (optional)" aria-label="Why" data-pmq-note data-testid="postmortems.note.{{tid .Key}}">
+                    <button type="button" class="wb-btn wb-btn--you" data-pmq-act="refuse" data-testid="postmortems.refuse.{{tid .Key}}">Refuse {{.Ticked}}</button>
+                    <button type="button" class="wb-pmq-all" data-pmq-all data-testid="postmortems.all.{{tid .Key}}">Tick all</button>
+                    <input type="text" class="wb-pm-note wb-pmq-sha" placeholder="commit on main" aria-label="Commit that overtook them" data-pmq-sha data-testid="postmortems.sha.{{tid .Key}}">
+                    <button type="button" class="wb-btn wb-btn--paper" data-pmq-act="overtaken" data-testid="postmortems.overtaken.{{tid .Key}}">Overtaken {{.Ticked}}</button>
+                </div>
+            </details>
+            {{end}}
+        </section>
+        {{end}}
+    {{end}}
+    {{if .Marked}}
+        <section class="wb-oc-issue" id="marked" data-testid="postmortems.marked">
+            <div class="wb-oc-issue-head"><h2 class="wb-oc-issue-title">Marked lately</h2><span class="wb-oc-bar-sum" data-testid="postmortems.marked.count">{{len .Marked}} in the last {{.MarkedDays}} days</span></div>
+            <details class="wb-pmq-group" data-pmq-group open>
+                <summary><span class="wb-chip wb-chip--idle">{{plural (len .Marked) "mark" "marks"}}</span> Newest first, tick the ones to reopen</summary>
+                {{range .Marked}}
+                <label class="wb-pmq-row" data-pmq-row data-file="{{.File}}" data-id="{{.ID}}" data-testid="postmortems.marked.row.{{tid .Issue}}.{{tid .ID}}">
+                    <input type="checkbox" data-pmq-tick aria-label="Tick {{.ID}} of {{.Issue}}" data-testid="postmortems.marked.row.{{tid .Issue}}.{{tid .ID}}.tick">
+                    <span class="wb-pmq-title"><b class="wb-oc-id">{{.ID}}</b> {{.Title}}</span>
+                    <a class="wb-oc-bar-link wb-pmq-open" href="{{.URL}}">Open ›</a>
+                    <span class="wb-ny-msg wb-pmq-msg {{if .Overtaken}}wb-ny-msg--ok{{else}}wb-ny-msg--err{{end}}" data-testid="postmortems.marked.row.{{tid .Issue}}.{{tid .ID}}.mark">{{.Mark}}</span>
+                    <span class="wb-pmq-from">{{.Place}} · {{.Issue}}</span>
+                    <span class="wb-ny-msg wb-pmq-msg" role="status" data-pmq-msg data-testid="postmortems.marked.row.{{tid .Issue}}.{{tid .ID}}.msg"></span>
+                </label>
+                {{end}}
+                <div class="wb-pm-foot">
+                    <button type="button" class="wb-btn wb-btn--paper" data-pmq-act="undo" data-testid="postmortems.undo">Undo 0</button>
+                    <button type="button" class="wb-pmq-all" data-pmq-all data-testid="postmortems.marked.all">Tick all</button>
+                </div>
+            </details>
+        </section>
+    {{end}}
+    </div>
+</section>
+</main>
+</div>
+<script src="/static/workshop.js"></script>
+<script src="/static/postmortems.js"></script>
+</body>
+</html>

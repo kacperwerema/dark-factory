@@ -12,6 +12,7 @@ package testids
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -94,7 +95,10 @@ func Regexp(pattern string) *regexp.Regexp {
 // same segment count, and each segment pair is equal or one side is a
 // wildcard (`*` matches anything, `#` matches digits or a wildcard).
 func Compatible(a, b string) bool {
-	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	return segsCompatible(strings.Split(a, "."), strings.Split(b, "."))
+}
+
+func segsCompatible(as, bs []string) bool {
 	if len(as) != len(bs) {
 		return false
 	}
@@ -144,10 +148,48 @@ var StubIDs = []string{
 	"playtest.lead_posts",
 }
 
+// idIndex answers Known without a walk over every entry: lint asks it for
+// each target of each playtest session on every /health. Entries are split
+// once and kept by segment count, as only ids of one length can match.
+type idIndex struct {
+	exact map[string]bool
+	all   map[int][][]string
+	// wild is the entries with a `*` or `#` segment: the only ones a
+	// concrete id can match without being equal to them.
+	wild map[int][][]string
+}
+
+// newIndex indexes a list of entries.
+func newIndex(ids []string) *idIndex {
+	x := &idIndex{exact: map[string]bool{}, all: map[int][][]string{}, wild: map[int][][]string{}}
+	for _, e := range ids {
+		x.exact[e] = true
+		segs := strings.Split(e, ".")
+		x.all[len(segs)] = append(x.all[len(segs)], segs)
+		if slices.Contains(segs, "*") || slices.Contains(segs, "#") {
+			x.wild[len(segs)] = append(x.wild[len(segs)], segs)
+		}
+	}
+	return x
+}
+
 // Known reports whether id (concrete or a pattern) matches an entry in IDs.
-func Known(id string) bool {
-	for _, e := range allIDs() {
-		if Compatible(e, id) {
+// The list is the one built into this binary: Builtin.
+func Known(id string) bool { return Builtin().Known(id) }
+
+// Known reports whether id (concrete or a pattern) matches an entry of s.
+func (s *Set) Known(id string) bool {
+	x := s.idx
+	if x.exact[id] {
+		return true
+	}
+	pool := x.wild
+	if strings.ContainsAny(id, "*#") {
+		pool = x.all // a pattern can match an exact entry it doesn't equal
+	}
+	segs := strings.Split(id, ".")
+	for _, e := range pool[len(segs)] {
+		if segsCompatible(e, segs) {
 			return true
 		}
 	}
@@ -158,10 +200,13 @@ func Known(id string) bool {
 // "did you mean" hints. An entry's wildcard segments take id's segment at
 // the same place, so `board.colum.backlog` is close to `board.column.*`.
 // Returns "" when nothing is reasonably close.
-func Suggest(id string) string {
+func Suggest(id string) string { return Builtin().Suggest(id) }
+
+// Suggest is the entry of s closest to id, as the package's Suggest.
+func (s *Set) Suggest(id string) string {
 	best, bestD := "", len(id)/2+2
 	idSegs := strings.Split(id, ".")
-	for _, e := range allIDs() {
+	for _, e := range s.ids {
 		filled := e
 		if segs := strings.Split(e, "."); len(segs) == len(idSegs) {
 			for i, s := range segs {

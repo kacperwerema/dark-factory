@@ -2,14 +2,15 @@ id: linked-issue-gate
 version: v0.36.0
 category: gates
 propose: false
-sources: ["internal/tracker/validations/linked_issue_in_status.go"]
+sources: ["internal/tracker/validations/linked_issue_in_status.go", "internal/tracker/validations/children_closed.go"]
 title: "Linked issue status gate"
 what: |
   `linked_issue_in_status` requires the issue named in a frontmatter key (`ref_key:`)
-  to be in `linked_status:`, e.g. a child waits for its parent.
+  to be in `linked_status:`, e.g. a child waits for its parent. `children_closed` is
+  the other way round: an epic waits for its children to reach a closing status.
 why: |
   Enforces ordering between issues (epics, dependencies) in the engine.
-where: "transitions[].actions[] rule: linked_issue_in_status (ref_key:, linked_status:)"
+where: "transitions[].actions[] rule: linked_issue_in_status (ref_key:, linked_status:), children_closed (values:)"
 snippet: |
   transitions:
     - from: "shipping"
@@ -22,4 +23,4 @@ snippet: |
 question: "Do some issues depend on others? Should a step wait for the linked issue?"
 detect:
   - path: transitions[].actions[].rule
-    rule_in: [linked_issue_in_status]
+    rule_in: [linked_issue_in_status, children_closed]

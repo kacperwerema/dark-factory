@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,8 +135,24 @@ steps:
 	if errs := v.Validate(s); len(errs) != 0 {
 		t.Errorf("an unresolvable issue should only check shape, got %v", errs)
 	}
-	if len(v.Notes) != 1 {
-		t.Errorf("want a note about the unresolvable issue, got %v", v.Notes)
+	if len(v.Unresolved) != 1 || !strings.Contains(UnresolvedNote(v.Unresolved), "issue some/issue not resolvable here") {
+		t.Errorf("want the unresolvable issue noted, got %v", v.Unresolved)
+	}
+}
+
+// TestUnresolvedNoteIsOneLine: with no board every session's issue is
+// unresolvable; check prints one line for them all, not one per session.
+func TestUnresolvedNoteIsOneLine(t *testing.T) {
+	if UnresolvedNote(nil) != "" {
+		t.Error("no unresolved sessions: no note")
+	}
+	var many []string
+	for i := 0; i < 144; i++ {
+		many = append(many, fmt.Sprintf("s%d.yaml: issue ui/x%d", i, i))
+	}
+	n := UnresolvedNote(many)
+	if strings.Contains(n, "\n") || !strings.HasPrefix(n, "144 sessions' issues not resolvable here") || !strings.Contains(n, "s0.yaml: issue ui/x0") {
+		t.Errorf("note = %q", n)
 	}
 }
 
@@ -311,7 +328,7 @@ steps:
 		`bad.yaml:14: css: want {target, property, equals | in: [..] | not}`,
 		`bad.yaml:15: css: want {target, property, equals | in: [..] | not}`,
 		`bad.yaml:16: css: want in: a list of values`,
-		`bad.yaml:17: size: want {target, min_width?, max_width?, min_height?, max_height?} with at least one bound`,
+		`bad.yaml:17: size: want {target, min_width?, max_width?, min_height?, max_height?, max_top?} with at least one bound`,
 		`bad.yaml:18: size: want min_width: a number of CSS px`,
 		`bad.yaml:19: size: min_height 50 is above max_height 10`,
 	} {

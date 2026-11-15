@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -69,7 +70,7 @@ func parseResult(root, dir string, r tracker.CIResult) testresults.Summary {
 	sum := testresults.Summarize(suite)
 	sum.File = r.File
 	list := filepath.Join(dir, r.Kind+".tests.json")
-	if err := writeJSONFile(list, suite.Tests); err == nil {
+	if err := jsonfile.Write(list, suite.Tests, 0o600); err == nil {
 		if rel, err := filepath.Rel(root, list); err == nil {
 			sum.List = rel
 		}

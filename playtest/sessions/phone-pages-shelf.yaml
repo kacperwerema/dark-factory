@@ -1,0 +1,23 @@
+session: phone-pages-shelf
+issue: ui/phone-view-works-on-every-workshop-board-page-no-sideways-scroll-16px-gutters-big-tap-targets-tables-as-rows
+title: "The outputs shelf at phone width"
+scenario: shelf
+
+# 390x844 only. inside_viewport fails when documentElement.scrollWidth is
+# wider than the screen (the sideways-scroll check), naming the outermost
+# element that sticks out.
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP11
+    title: At 390px the shelf fits the screen; Approve is 44px
+    proves: [AC1, AC2, AC4]
+    setup:
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Acme: FAQ refresh", --kind, page, --url, "https://acme.example/faq"]
+      - open: /p/{project}/shelf
+    checks:
+      - visible: [shelf.page, shelf.list, shelf.approve]
+      - size: { target: shelf.approve, min_height: 44 }

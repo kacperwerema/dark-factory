@@ -1,0 +1,18 @@
+session: buttons-report
+issue: ui/the-one-primary-action-guard-holds-the-pages-already-within-the-rule
+title: "The Report stays at its count of visible actions, one primary per card or row"
+scenario: status
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP6
+    title: The Report shows at most 3 actions, one primary per card or row
+    proves: [AC1, AC3]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - buttons: { max: 3 }

@@ -9,5 +9,10 @@ package tokens
 
 // Estimate returns an approximate token count for s.
 func Estimate(s string) int {
-	return len(s) / 4
+	return EstimateBytes(len(s))
+}
+
+// EstimateBytes is Estimate for a text of n bytes.
+func EstimateBytes(n int) int {
+	return n / 4
 }

@@ -85,6 +85,20 @@ func computeFenceFlags(lines []string) []bool {
 	return flags
 }
 
+// LinesOutsideFences returns text's lines that are not in a fenced code
+// block, by the fence rule the section parsers use.
+func LinesOutsideFences(text string) []string {
+	lines := strings.Split(text, "\n")
+	fence := computeFenceFlags(lines)
+	out := lines[:0:0]
+	for i, line := range lines {
+		if !fence[i] {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // HasSection reports whether body has a heading titled title, the way
 // replace and append --section match it.
 func HasSection(body, title string) bool {

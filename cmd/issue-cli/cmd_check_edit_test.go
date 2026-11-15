@@ -81,3 +81,37 @@ func TestReplaceLine(t *testing.T) {
 		t.Error("a failed replace changed the file")
 	}
 }
+
+func TestReplaceWarnsWhenItDropsASubheading(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "in progress")
+	ctx, stdout, _ := newTestContext(proj, false)
+	keep := "### Automated\n- [ ] go test\n\n### Manual\n- [ ] look"
+	if err := runReplace(ctx, []string{slug, "--section", "Test Plan", "--body", keep}); err != nil {
+		t.Fatalf("replace keeping the subheadings: %v", err)
+	}
+	if strings.Contains(stdout.String(), "⚠") {
+		t.Errorf("a replace that keeps every ### heading warned:\n%s", stdout)
+	}
+
+	stdout.Reset()
+	if err := runReplace(ctx, []string{slug, "--section", "Test Plan", "--body", "- [ ] only a box"}); err != nil {
+		t.Fatalf("replace dropping the subheadings: %v", err)
+	}
+	assertContains(t, stdout.String(), "⚠ the new body drops `### Automated`, `### Manual`, which the old section had")
+	assertContains(t, stdout.String(), "has_test_plan needs `### Automated` and `### Manual`")
+	data, _ := os.ReadFile(issuePath)
+	assertContains(t, string(data), "## Test Plan\n- [ ] only a box")
+
+	// Another section: the warning names the heading, without the Test Plan note.
+	if err := runReplace(ctx, []string{slug, "--section", "Design", "--body", "### Risks\n- none"}); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := runReplace(ctx, []string{slug, "--section", "Design", "--body", "- plain"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "⚠ the new body drops `### Risks`")
+	if strings.Contains(stdout.String(), "has_test_plan") {
+		t.Errorf("a Design replace got the Test Plan note:\n%s", stdout)
+	}
+}

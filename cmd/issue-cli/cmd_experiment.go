@@ -12,7 +12,9 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/experiment"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -150,7 +152,7 @@ func runExperimentCandidates(ctx *Context, args []string) error {
 	}
 	var open []experiment.Open
 	for _, is := range exps {
-		if is.Status == "done" || is.Status == "parked" {
+		if ctx.Project.IssueClosed(is) {
 			continue
 		}
 		if b, _ := experiment.Load(is.FilePath); b != nil {
@@ -354,10 +356,10 @@ func runExperimentShow(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "Source:     %s\n", strings.Join(b.Source, " "))
 	}
 	if b.Baseline != nil {
-		fmt.Fprintf(w, "Baseline:   %s %s run %s\n", b.Baseline.Ref, shortSHA(b.Baseline.SHA), orDash(b.Baseline.Run))
+		fmt.Fprintf(w, "Baseline:   %s %s run %s\n", b.Baseline.Ref, gitdir.ShortSHA(b.Baseline.SHA), orDash(b.Baseline.Run))
 	}
 	if b.Candidate != nil {
-		fmt.Fprintf(w, "Candidate:  %s %s run %s\n", b.Candidate.Ref, shortSHA(b.Candidate.SHA), orDash(b.Candidate.Run))
+		fmt.Fprintf(w, "Candidate:  %s %s run %s\n", b.Candidate.Ref, gitdir.ShortSHA(b.Candidate.SHA), orDash(b.Candidate.Run))
 	}
 	fmt.Fprintf(w, "Verdict:    %s\n", b.VerdictLine())
 	for _, r := range b.Reasons {
@@ -376,13 +378,6 @@ func runExperimentShow(ctx *Context, args []string) error {
 		fmt.Fprintln(w, "Queue it for a night: "+tracker.InjectProject(ctx.Project, "issue-cli experiment queue "+issue.Slug+" --quote \"<owner's words>\""))
 	}
 	return nil
-}
-
-func shortSHA(s string) string {
-	if len(s) > 9 {
-		return s[:9]
-	}
-	return s
 }
 
 func orDash(s string) string {
@@ -486,7 +481,7 @@ func planExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, ref
 		p.Problems = append(p.Problems, ref+" is main itself: make the change on the issue's branch first")
 	}
 	if !experiment.Contains(repo, ref, p.MainSHA) {
-		p.Problems = append(p.Problems, fmt.Sprintf("%s does not contain main (%s): merge main, then run again, so both runs differ only by the change", ref, shortSHA(p.MainSHA)))
+		p.Problems = append(p.Problems, fmt.Sprintf("%s does not contain main (%s): merge main, then run again, so both runs differ only by the change", ref, gitdir.ShortSHA(p.MainSHA)))
 	}
 	protected, err := experiment.Protected(benchDir, name)
 	if err != nil {
@@ -569,13 +564,13 @@ func runExperimentRun(ctx *Context, args []string) error {
 		return fmt.Errorf("experiment run refused for %s (%d problem(s) above)", issue.Slug, len(p.Problems))
 	}
 	fmt.Fprintln(w, "Guard: ok (no protected path, contains main)")
-	label := "experiment:" + issue.Slug + "@" + shortSHA(p.RefSHA)
+	label := "experiment:" + issue.Slug + "@" + gitdir.ShortSHA(p.RefSHA)
 	if p.Baseline != nil {
-		fmt.Fprintf(w, "Baseline: reuse run %s (main %s)\n", p.Baseline.ID, shortSHA(p.MainSHA))
+		fmt.Fprintf(w, "Baseline: reuse run %s (main %s)\n", p.Baseline.ID, gitdir.ShortSHA(p.MainSHA))
 	} else {
-		fmt.Fprintf(w, "Baseline: bench run %s --setup %s (main)\n", p.Benchmark, shortSHA(p.MainSHA))
+		fmt.Fprintf(w, "Baseline: bench run %s --setup %s (main)\n", p.Benchmark, gitdir.ShortSHA(p.MainSHA))
 	}
-	fmt.Fprintf(w, "Candidate: bench run %s --setup %s --label %s\n", p.Benchmark, shortSHA(p.RefSHA), label)
+	fmt.Fprintf(w, "Candidate: bench run %s --setup %s --label %s\n", p.Benchmark, gitdir.ShortSHA(p.RefSHA), label)
 	if *dry {
 		fmt.Fprintln(w, "(dry run — nothing was run)")
 		return nil
@@ -601,7 +596,7 @@ func runExperimentRun(ctx *Context, args []string) error {
 	}
 	base := p.Baseline
 	if base == nil {
-		if base, err = runBench(p.MainSHA, "experiment-baseline@"+shortSHA(p.MainSHA)); err != nil {
+		if base, err = runBench(p.MainSHA, "experiment-baseline@"+gitdir.ShortSHA(p.MainSHA)); err != nil {
 			return err
 		}
 	}
@@ -801,13 +796,13 @@ func experimentHeaderLine(proj *tracker.Project, issue *tracker.Issue) string {
 	}
 	b, _ := experiment.Load(issue.FilePath)
 	if b == nil {
-		return tracker.InjectProject(proj, fmt.Sprintf("Experiment: no block yet (issue-cli experiment init %s --hypothesis ... --target ...); the owner adopts experiments, even in YOLO", issue.Slug))
+		return tracker.InjectProject(proj, fmt.Sprintf("Experiment: no block yet (issue-cli experiment init %s --hypothesis ... --target ...); %s, even in YOLO", issue.Slug, tracker.YOLOOwnerAdopts))
 	}
 	next := ""
 	if b.Verdict == "" {
 		next = tracker.InjectProject(proj, fmt.Sprintf("; measure it: issue-cli experiment run %s --dry-run", issue.Slug))
 	}
-	return fmt.Sprintf("Experiment: %s · %s%s; the owner adopts experiments, even in YOLO", b.Target, b.VerdictLine(), next)
+	return fmt.Sprintf("Experiment: %s · %s%s; %s, even in YOLO", b.Target, b.VerdictLine(), next, tracker.YOLOOwnerAdopts)
 }
 
 // experimentWorkflows are the per-workflow verdicts of b's two runs, read
@@ -873,7 +868,7 @@ func printExperimentWorkflows(w io.Writer, b *experiment.Block) {
 		fmt.Fprintf(w, "  %s: %s · %d tasks%s\n", v.Workflow, v.Verdict, v.Tasks, mark)
 		fmt.Fprintf(w, "      pass %.0f%% → %.0f%% · score %s → %s · tokens %s → %s · cost $%.2f → $%.2f · wall %s → %s\n",
 			v.PassRateA*100, v.PassRateB*100, scoreText(v.ScoreA), scoreText(v.ScoreB),
-			compactTokens(v.TokensA), compactTokens(v.TokensB), v.USDA, v.USDB, secText(v.WallA), secText(v.WallB))
+			tokens.Format(v.TokensA), tokens.Format(v.TokensB), v.USDA, v.USDB, secText(v.WallA), secText(v.WallB))
 		if len(v.Why) > 0 {
 			fmt.Fprintf(w, "      %s\n", strings.Join(v.Why, "; "))
 		}
@@ -919,6 +914,7 @@ func runExperimentQueue(ctx *Context, args []string, on bool) error {
 	}
 	me := whoAmI(ctx.Project, nil)
 	if me.Role == tracker.RoleWorker {
+		guardNever(ctx, "experiment queue")
 		return fmt.Errorf("workers never queue experiments: a night spends tokens on the owner's word. Ask with a question: comment on your issue")
 	}
 	quote := strings.TrimSpace(normalizeEscapedText(*quoteFlag))

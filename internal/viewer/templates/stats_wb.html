@@ -6,8 +6,9 @@
 {{template "wb/header" .Header}}
 <section class="wb-ground wb-hhead">
     <div class="wb-hhead-text">
-        <h1 class="wb-h1 wb-h1--xl">Hall stats</h1>
+        <h1 class="wb-h1 wb-h1--xl" data-testid="wb.title">Hall stats</h1>
         <div class="wb-hhead-sub" data-testid="stats.snapshots"{{with .AggTitle}} title="{{.}}"{{end}}>{{.Sub}} · how we count: <span class="wb-mono-inline">docs/workflow-stats.md</span>, “Stats page”</div>
+        {{with .Updating}}<div class="wb-hhead-sub" data-testid="stats.updating">{{.}}</div>{{end}}
         <div class="wb-hhead-sub"><a href="{{.AllURL}}" data-testid="stats.all">All projects' stats</a> · <a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
     </div>
     {{template "wb/seg-links" .Range}}

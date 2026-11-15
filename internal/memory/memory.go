@@ -27,10 +27,11 @@ import (
 )
 
 // Scopes. A department scope is "department:<key>", an agent's
-// "agent:<session name>".
+// "agent:<session name>". The lead scope is every lead's and no worker's.
 const (
 	ScopeProject = "project"
 	ScopeMachine = "machine"
+	ScopeLead    = "lead"
 	deptPrefix   = "department:"
 	agentPrefix  = "agent:"
 )
@@ -73,6 +74,10 @@ type Memory struct {
 	Updated    string   `json:"updated,omitempty"`
 	// Expires (YYYY-MM-DD): the memory stops being valid after that day.
 	Expires string `json:"expires,omitempty"`
+	// At is the one status the memory matters at, as the workflow spells it:
+	// transition prints it on entering that status, whatever the issue is
+	// about. "" for a memory of a subject rather than a step.
+	At string `json:"at_status,omitempty"`
 	// InvalidAt is when it was superseded or forgotten; it stays in the log.
 	InvalidAt     string   `json:"invalid_at,omitempty"`
 	InvalidReason string   `json:"invalid_reason,omitempty"`
@@ -85,6 +90,9 @@ type Memory struct {
 	Uses          int      `json:"uses,omitempty"`
 	LastUsed      string   `json:"last_used,omitempty"`
 	Hash          string   `json:"hash,omitempty"`
+	// Usefulness is set by readers that scored it (memory list --json, the
+	// memory page's memory.json), never written to the log.
+	Usefulness *Usefulness `json:"usefulness,omitempty"`
 }
 
 // Source is where a memory was learned.
@@ -172,10 +180,12 @@ func (m Memory) ScopeDepartment() string {
 }
 
 // Viewer is who reads: a department's agent sees its department's
-// memories, a session its own; All (the CEO, the owner) sees every scope.
+// memories, a session its own, a lead the lead scope; All (the CEO, the
+// owner) sees every scope.
 type Viewer struct {
 	Department string
 	Agent      string
+	Lead       bool
 	All        bool
 }
 
@@ -186,6 +196,8 @@ func (m Memory) VisibleTo(v Viewer) bool {
 		return true
 	case v.All:
 		return true
+	case m.Scope == ScopeLead:
+		return v.Lead
 	case strings.HasPrefix(m.Scope, deptPrefix):
 		return v.Department != "" && strings.TrimPrefix(m.Scope, deptPrefix) == v.Department
 	case strings.HasPrefix(m.Scope, agentPrefix):
@@ -197,14 +209,14 @@ func (m Memory) VisibleTo(v Viewer) bool {
 // CheckScope is why scope is not one a memory can have, or nil.
 func CheckScope(scope string) error {
 	switch {
-	case scope == ScopeProject || scope == ScopeMachine:
+	case scope == ScopeProject || scope == ScopeMachine || scope == ScopeLead:
 		return nil
 	case strings.HasPrefix(scope, deptPrefix) && len(scope) > len(deptPrefix):
 		return nil
 	case strings.HasPrefix(scope, agentPrefix) && len(scope) > len(agentPrefix):
 		return nil
 	}
-	return fmt.Errorf("no scope %q: project, department:<key>, agent:<session> or machine", scope)
+	return fmt.Errorf("no scope %q: project, lead, department:<key>, agent:<session> or machine", scope)
 }
 
 // CheckKind is why kind is unknown, or nil.

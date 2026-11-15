@@ -7,9 +7,12 @@ import (
 )
 
 // The playtest guides ship inside issue-cli so bots in any project can read
-// them; docs/patterns/playtest/ holds the same files for the docs view
-// (TestPlaytestGuidesInSync keeps them equal).
+// them. docs/patterns/playtest/ is their one source (the docs view shows it);
+// guides/playtest/ is generated from it, since go:embed cannot reach ..
+// (TestPlaytestGuidesInSync keeps them equal). Edit docs/, then run
+// go generate ./cmd/issue-cli/...
 //
+//go:generate go run ../../tools/playtest-guides ../../docs/patterns/playtest guides/playtest
 //go:embed guides/playtest/*.md
 var playtestGuides embed.FS
 

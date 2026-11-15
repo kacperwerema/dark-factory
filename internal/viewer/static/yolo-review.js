@@ -41,6 +41,41 @@
         }
     }
 
+    // Agree all (the owner's browser only: the server renders it then):
+    // the confirm names the counts; the POST carries every item the page
+    // loaded, so one added since is not agreed. The page reloads to show
+    // what is left, with the counts in the query.
+    var allOpen = root.querySelector('[data-yr-all-open]');
+    var all = root.querySelector('[data-yr-all]');
+    if (allOpen && all) {
+        var allGo = all.querySelector('[data-yr-all-go]');
+        var allMsg = all.querySelector('[data-yr-all-msg]');
+        allOpen.disabled = false;
+        allOpen.addEventListener('click', function () {
+            all.hidden = false;
+            allGo.focus();
+        });
+        all.querySelector('[data-yr-all-cancel]').addEventListener('click', function () {
+            all.hidden = true;
+            allOpen.focus();
+        });
+        allGo.addEventListener('click', function () {
+            var items;
+            try { items = JSON.parse(all.dataset.items || '[]'); } catch (e) { items = []; }
+            allGo.disabled = true;
+            say(allMsg, 'Agreeing…', true);
+            post(all.dataset.url, { items: items, words: all.querySelector('[data-yr-all-words]').value.trim() }).then(function (res) {
+                if (!res.ok) {
+                    allGo.disabled = false;
+                    say(allMsg, 'Not recorded: ' + (res.j.error || 'the server refused it') + '.', false);
+                    return;
+                }
+                var q = '?agreed=' + res.j.agreed + '&issues=' + res.j.issues + '&skipped=' + (res.j.skipped || []).length;
+                location.href = location.pathname + q;
+            });
+        });
+    }
+
     root.addEventListener('click', function (ev) {
         var btn = ev.target.closest('[data-yr-issue], [data-yr-check-act]');
         if (!btn || btn.disabled) { return; }

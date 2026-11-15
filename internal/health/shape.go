@@ -23,7 +23,7 @@ func init() {
 
 const (
 	shapeTop       = 20
-	churnDays      = 30
+	ChurnDays      = 30
 	hotspotCommits = 5
 )
 
@@ -139,10 +139,10 @@ func shapeFamily(ctx context.Context, env Env) ([]Metric, error) {
 	return append(out, churn...), nil
 }
 
-// churnMetrics reads the last churnDays of history up to the commit: lines
+// churnMetrics reads the last ChurnDays of history up to the commit: lines
 // changed and commits per source file still in the tree.
 func churnMetrics(ctx context.Context, env Env, source map[string]shapeFile) ([]Metric, error) {
-	since := env.Now.AddDate(0, 0, -churnDays).Format(time.RFC3339)
+	since := env.Now.AddDate(0, 0, -ChurnDays).Format(time.RFC3339)
 	log, err := gitOut(ctx, env.Root, "log", env.Commit, "--no-renames", "--numstat", "--format=", "--since="+since)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func churnMetrics(ctx context.Context, env Env, source map[string]shapeFile) ([]
 			inBig += n
 		}
 	}
-	window := map[string]string{"window": fmt.Sprintf("%dd", churnDays)}
+	window := map[string]string{"window": fmt.Sprintf("%dd", ChurnDays)}
 	var out []Metric
 	if total > 0 {
 		out = append(out, Metric{Name: "shape.churn.big_share", Labels: window, Value: shareOf(inBig, total), Unit: UnitShare, Help: "Share of source churn (lines changed) in big files"})
@@ -209,7 +209,7 @@ func churnMetrics(ctx context.Context, env Env, source map[string]shapeFile) ([]
 		if i == shapeTop {
 			break
 		}
-		out = append(out, Metric{Name: "shape.hotspot", Labels: map[string]string{"path": p}, Value: float64(source[p].lines * commits[p]), Unit: UnitCount, Help: fmt.Sprintf("Big files changed in %d+ commits in %d days: lines × commits", hotspotCommits, churnDays)})
+		out = append(out, Metric{Name: "shape.hotspot", Labels: map[string]string{"path": p}, Value: float64(source[p].lines * commits[p]), Unit: UnitCount, Help: fmt.Sprintf("Big files changed in %d+ commits in %d days: lines × commits", hotspotCommits, ChurnDays)})
 	}
 	return out, nil
 }

@@ -81,7 +81,7 @@ func yoloDialog(p *tracker.Project, wf *tracker.WorkflowConfig) *WbYOLODialog {
 	d := &WbYOLODialog{Project: p.Name, CI: wf.CI.Enabled()}
 	for _, g := range yolo.Gates(wf) {
 		gate := WbYOLOGate{Name: yoloGateName(g), Step: g.From + " → " + g.To}
-		if statusKey(g.From) == "human-testing" {
+		if wf.HasRole(g.From, tracker.StatusRoleOwnerTest) {
 			gate.Note = "the agent runs the guided checks itself"
 		}
 		d.Gates = append(d.Gates, gate)
@@ -173,8 +173,8 @@ func stationYOLOReview(issue *tracker.Issue, wf *tracker.WorkflowConfig, comment
 func yoloMarked(issues []*tracker.Issue) map[string]bool {
 	out := map[string]bool{}
 	for _, issue := range issues {
-		comments, err := tracker.LoadComments(issue.FilePath)
-		if err != nil || len(comments) == 0 {
+		comments := issue.Comments()
+		if len(comments) == 0 {
 			continue
 		}
 		if len(yolo.Passes(issue, comments)) > 0 {

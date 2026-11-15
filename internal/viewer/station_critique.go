@@ -14,10 +14,13 @@ type WbStationCritique struct {
 	Slug     string
 	Empty    bool
 	Gates    []string // the critique edges, "in design → backlog"
-	Verdict  string   // clear, holds, overridden, failed
+	Verdict  string   // clear, holds, overridden, failed; findings for a run by hand
 	Holds    bool
+	ByHand   bool // run from a status with no gate: it holds nothing
 	Edge     string
 	Agent    string
+	Worker   string // the agent that wrote the work, "" for a run without a record
+	SameWhy  string // why the critic is that same agent, "" when it isn't
 	When     string
 	Error    string
 	Override string // the owner's words, when overridden
@@ -54,10 +57,14 @@ func stationCritique(p *tracker.Project, wf *tracker.WorkflowConfig, issue *trac
 		return &WbStationCritique{Slug: issue.Slug, Empty: true, Gates: gates}
 	}
 	c := &WbStationCritique{
-		Slug: issue.Slug, Gates: gates, Verdict: latest.Verdict(), Holds: latest.Holds(),
-		Edge: latest.From + " → " + latest.To, Agent: latest.Agent, When: agoText(now.Sub(latest.At)) + " ago",
+		Slug: issue.Slug, Gates: gates, Verdict: latest.Verdict(), Holds: latest.Holds(), ByHand: latest.ByHand(),
+		Edge: latest.Edge(), Agent: latest.Agent, When: agoText(now.Sub(latest.At)) + " ago",
 		Error: latest.Error, Problems: latest.Report.Problems, Coverage: latest.Report.Coverage, Unread: latest.Report.Unread,
 		Blocks: latest.Report.Count(critique.Blocks), Should: latest.Report.Count(critique.Should),
+	}
+	c.Worker = latest.Worker
+	if latest.SameAgent {
+		c.SameWhy = latest.Why
 	}
 	if latest.Override != nil {
 		c.Override = latest.Override.Quote

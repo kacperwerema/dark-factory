@@ -1,0 +1,3 @@
+{"version": "1.0", "project_id": "approved", "pipeline_type": "short-explainer", "stage": "pitch", "status": "completed",
+ "timestamp": "2026-11-01T10:40:00Z", "human_approval_required": true, "human_approved": true,
+ "artifacts": {"pitch_packet": "artifacts/pitch.json"}}

@@ -13,6 +13,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,6 +22,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/partner"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
@@ -49,10 +52,68 @@ type Template struct {
 	// the planning workflow (its weekly plan).
 	Group    bool     `yaml:"group" json:"group,omitempty"`
 	Children []string `yaml:"children" json:"children,omitempty"`
+	// Optional are a group's departments that can join it later (template
+	// keys): not installed with the group, named after its add, and a
+	// department added beside the group without --parent hears it can go
+	// under it.
+	Optional []string `yaml:"optional" json:"optional,omitempty"`
+	// Connections are the handoffs the department usually has, by box key
+	// (the template's own department is its name's key): printed by
+	// department add for the owner to declare under connections: in
+	// projects.yaml, never written there (declaring any requests: makes
+	// routing refuse every route not declared).
+	Connections *tracker.Connections `yaml:"connections" json:"connections,omitempty"`
+	// Partner is the outside program the department drives (Video's
+	// OpenMontage): installed by the user, never by the engine. The entry
+	// records its name, adapter, path and pinned commit only.
+	Partner *TemplatePartner `yaml:"partner" json:"partner,omitempty"`
+	// Connectors are the department's outside tools, config only: secrets
+	// are references, every value the owner's. {{path}} in a command or
+	// check is the partner's checkout.
+	Connectors []tracker.Connector `yaml:"connectors" json:"connectors,omitempty"`
+	// ConnectorExamples is a file in the template's folder holding a
+	// connectors: list the department can use but doesn't get: department
+	// add writes it into the entry commented out, for the owner to
+	// uncomment (Marketing's openseo rankings source). Nothing in it runs or
+	// costs anything until then.
+	ConnectorExamples string `yaml:"connector_examples" json:"-"`
+	// Install is a file in the template's folder: the steps department add
+	// prints (and never runs) to install the partner, with {{path}},
+	// {{commit}} and {{repo}} filled in.
+	Install string `yaml:"install" json:"-"`
+	// PartnerSlots are the partners catalog's slots this department fills
+	// (analytics, email, …): department add names the catalog's rows for
+	// them, and installs none (partner.Catalog, issue-cli department
+	// partners).
+	PartnerSlots []string `yaml:"partner_slots" json:"partner_slots,omitempty"`
+	// Files are starter files in the template's folder the owner edits
+	// (Marketing's subreddits.md), each installed as
+	// departments/<key>/<file> like role.md, never overwriting one: a plain
+	// file name, not role.md and not under jobs/.
+	Files []string `yaml:"files" json:"files,omitempty"`
+	// FileTexts are the Files' contents, by file name.
+	FileTexts map[string][]byte `yaml:"-" json:"-"`
 	// RolePrompt is role.md's content.
 	RolePrompt []byte `yaml:"-" json:"-"`
+	// ExamplesText is the connector_examples: file's content.
+	ExamplesText []byte `yaml:"-" json:"-"`
 	// JobBriefs are the jobs' brief files' content, by job id.
 	JobBriefs map[string][]byte `yaml:"-" json:"-"`
+	// InstallText is the Install file's content.
+	InstallText []byte `yaml:"-" json:"-"`
+}
+
+// TemplatePartner is a template's partner: block: tracker.Partner's
+// fields, plus where the user clones it from.
+type TemplatePartner struct {
+	Name    string `yaml:"name" json:"name"`
+	Adapter string `yaml:"adapter" json:"adapter"`
+	// Path is the default checkout path; department add --partner-path
+	// picks another.
+	Path   string `yaml:"path" json:"path"`
+	Commit string `yaml:"commit" json:"commit"`
+	// Repo is the clone URL the install steps name; not recorded.
+	Repo string `yaml:"repo" json:"repo,omitempty"`
 }
 
 // List is every bundled template, by key: departments, then groups.
@@ -127,8 +188,38 @@ func Load(key string) (*Template, error) {
 			return nil, fmt.Errorf("department template %s: child %s is a group: groups are one level", key, c)
 		}
 	}
+	if len(t.Optional) > 0 && !t.Group {
+		return nil, fmt.Errorf("department template %s: optional: needs group: true", key)
+	}
+	for _, c := range t.Optional {
+		if slices.Contains(t.Children, c) {
+			return nil, fmt.Errorf("department template %s: %s is in both children: and optional:", key, c)
+		}
+		ct, err := Load(c)
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("department template %s: optional %s: %w", key, c, err)
+		case ct.Group:
+			return nil, fmt.Errorf("department template %s: optional %s is a group: groups are one level", key, c)
+		}
+	}
+	if err := t.checkConnections(); err != nil {
+		return nil, err
+	}
+	if err := checkPartnerSlots(key, t.PartnerSlots); err != nil {
+		return nil, err
+	}
 	if t.RolePrompt, err = fs.ReadFile(templates.FS, path.Join(templatesDir, key, "role.md")); err != nil {
 		return nil, fmt.Errorf("department template %s: no role.md", key)
+	}
+	if err := t.loadPartner(); err != nil {
+		return nil, err
+	}
+	if err := t.loadExamples(); err != nil {
+		return nil, err
+	}
+	if err := t.loadFiles(); err != nil {
+		return nil, err
 	}
 	t.JobBriefs = map[string][]byte{}
 	for _, j := range t.Jobs {
@@ -142,6 +233,142 @@ func Load(key string) (*Template, error) {
 		t.JobBriefs[j.ID] = brief
 	}
 	return t, nil
+}
+
+// fileNameRe is what a template's files: entry may be: one plain file name.
+var fileNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// loadFiles reads the files: entries, each a plain file name in the
+// template's folder, once, never role.md.
+func (t *Template) loadFiles() error {
+	t.FileTexts = map[string][]byte{}
+	for _, f := range t.Files {
+		switch {
+		case !fileNameRe.MatchString(f) || strings.Contains(f, ".."):
+			return fmt.Errorf("department template %s: files: %q is not a plain file name in the template's folder", t.Key, f)
+		case f == "role.md":
+			return fmt.Errorf("department template %s: files: role.md is installed already", t.Key)
+		case t.FileTexts[f] != nil:
+			return fmt.Errorf("department template %s: files: %s twice", t.Key, f)
+		}
+		data, err := fs.ReadFile(templates.FS, path.Join(templatesDir, t.Key, f))
+		if err != nil {
+			return fmt.Errorf("department template %s: files: no %s in the template's folder", t.Key, f)
+		}
+		t.FileTexts[f] = data
+	}
+	return nil
+}
+
+// checkPartnerSlots: each slot is one of the partners catalog's, once.
+func checkPartnerSlots(key string, slots []string) error {
+	for i, s := range slots {
+		if !slices.Contains(partner.Slots, s) {
+			return fmt.Errorf("department template %s: partner_slots: %q is not a slot of the partners catalog (%s)", key, s, strings.Join(partner.Slots, ", "))
+		}
+		if slices.Contains(slots[:i], s) {
+			return fmt.Errorf("department template %s: partner_slots: %s twice", key, s)
+		}
+	}
+	return nil
+}
+
+// checkConnections: every route has both ends, by box key, and one of them
+// is the template's own department; via: is for requests only.
+func (t *Template) checkConnections() error {
+	if t.Connections == nil {
+		return nil
+	}
+	own := tracker.DepartmentKey(t.Name)
+	check := func(kind string, rs []tracker.Route) error {
+		for _, r := range rs {
+			from, to := strings.TrimSpace(r.From), strings.TrimSpace(r.To)
+			switch {
+			case from == "" || to == "" || from == to:
+				return fmt.Errorf("department template %s: connections %s: a route needs from: and to:, two boxes", t.Key, kind)
+			case from != own && to != own:
+				return fmt.Errorf("department template %s: connections %s: %s → %s doesn't touch %s", t.Key, kind, from, to, own)
+			case kind == "feeds" && strings.TrimSpace(r.Via) != "":
+				return fmt.Errorf("department template %s: connections feeds: via: is for requests only", t.Key)
+			}
+		}
+		return nil
+	}
+	if err := check("requests", t.Connections.Requests); err != nil {
+		return err
+	}
+	return check("feeds", t.Connections.Feeds)
+}
+
+// loadExamples reads the connector_examples: file and checks it is a
+// connectors: list of named connectors of a known kind. It is decoded
+// loosely: the example may name a field newer than this build.
+func (t *Template) loadExamples() error {
+	if t.ConnectorExamples == "" {
+		return nil
+	}
+	if len(t.Goals) == 0 && len(t.Jobs) == 0 && t.Partner == nil && len(t.Connectors) == 0 {
+		return fmt.Errorf("department template %s: connector_examples: is written before the entry's goals:, jobs:, partner: or connectors:, and it has none", t.Key)
+	}
+	raw, err := fs.ReadFile(templates.FS, path.Join(templatesDir, t.Key, t.ConnectorExamples))
+	if err != nil {
+		return fmt.Errorf("department template %s: no connector_examples file %s", t.Key, t.ConnectorExamples)
+	}
+	var ex struct {
+		Connectors []tracker.Connector `yaml:"connectors"`
+	}
+	if err := yaml.Unmarshal(raw, &ex); err != nil {
+		return fmt.Errorf("department template %s: connector_examples %s: %w", t.Key, t.ConnectorExamples, err)
+	}
+	if len(ex.Connectors) == 0 {
+		return fmt.Errorf("department template %s: connector_examples %s has no connectors:", t.Key, t.ConnectorExamples)
+	}
+	for _, c := range ex.Connectors {
+		if !tracker.ConnectorNameRe.MatchString(c.Name) || !slices.Contains(tracker.ConnectorKinds, c.Kind) {
+			return fmt.Errorf("department template %s: connector_examples %s: connector %q needs a name and kind %s", t.Key, t.ConnectorExamples, c.Name, strings.Join(tracker.ConnectorKinds, ", "))
+		}
+		if slices.ContainsFunc(t.Connectors, func(o tracker.Connector) bool { return o.Name == c.Name }) {
+			return fmt.Errorf("department template %s: connector_examples %s: %s is also in connectors:", t.Key, t.ConnectorExamples, c.Name)
+		}
+	}
+	t.ExamplesText = raw
+	return nil
+}
+
+// loadPartner checks the partner:, connectors: and install: a template
+// carries, and reads the install file.
+func (t *Template) loadPartner() error {
+	if pt := t.Partner; pt != nil {
+		if _, err := partner.For(tracker.Partner{Name: pt.Name, Adapter: pt.Adapter}); err != nil {
+			return fmt.Errorf("department template %s: %w", t.Key, err)
+		}
+		if strings.TrimSpace(pt.Path) == "" || strings.TrimSpace(pt.Commit) == "" {
+			return fmt.Errorf("department template %s: partner: needs a default path: and a pinned commit:", t.Key)
+		}
+	}
+	for _, c := range t.Connectors {
+		if !tracker.ConnectorNameRe.MatchString(c.Name) {
+			return fmt.Errorf("department template %s: connector name %q", t.Key, c.Name)
+		}
+		if !slices.Contains(tracker.ConnectorKinds, c.Kind) {
+			return fmt.Errorf("department template %s: connector %s: kind %q (one of %s)", t.Key, c.Name, c.Kind, strings.Join(tracker.ConnectorKinds, ", "))
+		}
+		if t.Partner == nil && (strings.Contains(c.Command, "{{path}}") || strings.Contains(c.Check, "{{path}}")) {
+			return fmt.Errorf("department template %s: connector %s names {{path}} but the template has no partner:", t.Key, c.Name)
+		}
+	}
+	if t.Install == "" {
+		return nil
+	}
+	if t.Partner == nil {
+		return fmt.Errorf("department template %s: install: is the partner's steps, and there is no partner:", t.Key)
+	}
+	raw, err := fs.ReadFile(templates.FS, path.Join(templatesDir, t.Key, t.Install))
+	if err != nil {
+		return fmt.Errorf("department template %s: no install file %s", t.Key, t.Install)
+	}
+	t.InstallText = raw
+	return nil
 }
 
 // InstalledAs is proj's department installed from t, nil when there is
@@ -230,6 +457,34 @@ type Plan struct {
 	Children []*Plan  `json:"children,omitempty"`
 	Reparent []string `json:"reparent,omitempty"`
 	Notes    []string `json:"notes,omitempty"`
+	// PartnerPath is the partner's checkout path the entry records ("" for
+	// a template without a partner); Install is the steps to install it
+	// there, printed and never run.
+	PartnerPath string `json:"partner_path,omitempty"`
+	Install     string `json:"install,omitempty"`
+	// Connections is the template's handoffs as projects.yaml spells them
+	// under connections: ("" for none): printed for the owner to declare,
+	// never written.
+	Connections string `json:"connections,omitempty"`
+	// Optional are the group's departments that can join it later and
+	// aren't in the project yet: "Sales (issue-cli department add
+	// sales-b2c --parent gtm)".
+	Optional []OptionalChild `json:"optional,omitempty"`
+}
+
+// OptionalChild is a department that can join a group later.
+type OptionalChild struct {
+	Template string `json:"template"`
+	Name     string `json:"name"`
+}
+
+// Options are NewPlanWith's choices.
+type Options struct {
+	// Parent is the group the department goes under ("" for none).
+	Parent string
+	// PartnerPath is where the user installs the template's partner (""
+	// for the template's default).
+	PartnerPath string
 }
 
 // NewPlan plans installing t into proj under t's own name. It refuses HQ,
@@ -243,6 +498,12 @@ func NewPlan(proj *tracker.Project, t *Template) (*Plan, error) {
 // department proj has, "" for none). A group may go under a group too,
 // while its departments stay within tracker.MaxGroupDepth.
 func NewPlanUnder(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
+	return NewPlanWith(proj, t, Options{Parent: parent})
+}
+
+// NewPlanWith is NewPlanUnder with the partner's path chosen too.
+func NewPlanWith(proj *tracker.Project, t *Template, opts Options) (*Plan, error) {
+	parent := opts.Parent
 	if d := t.InstalledAs(proj); d != nil {
 		return nil, &InstalledError{Template: t, Dept: d, Project: proj}
 	}
@@ -273,9 +534,24 @@ func NewPlanUnder(proj *tracker.Project, t *Template, parent string) (*Plan, err
 		}
 		parent = tracker.DepartmentKey(g.Name)
 	}
-	p, err := newPlan(proj, t, parent)
-	if err != nil || !t.Group {
-		return p, err
+	p, err := newPlan(proj, t, parent, opts.PartnerPath)
+	if err != nil {
+		return nil, err
+	}
+	if !t.Group {
+		if parent == "" {
+			p.Notes = append(p.Notes, groupsTaking(proj, t)...)
+		}
+		return p, nil
+	}
+	for _, c := range t.Optional {
+		ct, err := Load(c)
+		if err != nil {
+			return nil, err
+		}
+		if !ct.Installed(proj) {
+			p.Optional = append(p.Optional, OptionalChild{Template: ct.Key, Name: ct.Name})
+		}
 	}
 	for _, c := range t.Children {
 		ct, err := Load(c)
@@ -293,13 +569,32 @@ func NewPlanUnder(proj *tracker.Project, t *Template, parent string) (*Plan, err
 			}
 			continue
 		}
-		cp, err := newPlan(proj, ct, p.Key)
+		cp, err := newPlan(proj, ct, p.Key, "")
 		if err != nil {
 			return nil, fmt.Errorf("child %s: %w", c, err)
 		}
 		p.Children = append(p.Children, cp)
 	}
 	return p, nil
+}
+
+// groupsTaking are notes for t added with no parent: each installed group
+// whose template lists t as an optional child, and how to put it there.
+func groupsTaking(proj *tracker.Project, t *Template) []string {
+	var out []string
+	for _, g := range List() {
+		if !g.Group || !slices.Contains(g.Optional, t.Key) {
+			continue
+		}
+		d := g.InstalledAs(proj)
+		if d == nil {
+			continue
+		}
+		key := tracker.DepartmentKey(d.Name)
+		out = append(out, fmt.Sprintf("%s is a group here and takes %s: add --parent %s to put it under %s (%s)", d.Name, t.Name, key, d.Name,
+			tracker.InjectProject(proj, "issue-cli department add "+t.Key+" --parent "+key)))
+	}
+	return out
 }
 
 // groupNames lists proj's groups for an error, "none yet" without one.
@@ -314,7 +609,7 @@ func groupNames(proj *tracker.Project) string {
 	return strings.Join(out, ", ")
 }
 
-func newPlan(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
+func newPlan(proj *tracker.Project, t *Template, parent, partnerPath string) (*Plan, error) {
 	name := t.Name
 	key := tracker.DepartmentKey(name)
 	switch {
@@ -345,6 +640,12 @@ func newPlan(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
 			data []byte
 		}{{workflowRel, wf}}, files...)
 	}
+	for _, f := range t.Files {
+		files = append(files, struct {
+			rel  string
+			data []byte
+		}{"departments/" + key + "/" + f, t.FileTexts[f]})
+	}
 	briefs := map[string]string{}
 	for _, j := range t.Jobs {
 		briefs[j.ID] = "departments/" + key + "/jobs/" + j.ID + ".md"
@@ -365,12 +666,84 @@ func newPlan(proj *tracker.Project, t *Template, parent string) (*Plan, error) {
 		}
 		p.Files = append(p.Files, a)
 	}
-	entry, err := renderEntry(t, name, parent, workflowRel, promptRel, briefs)
+	var pt *tracker.Partner
+	if t.Partner != nil {
+		if partnerPath = strings.TrimSpace(partnerPath); partnerPath == "" {
+			partnerPath = t.Partner.Path
+		}
+		pt = &tracker.Partner{Name: t.Partner.Name, Adapter: t.Partner.Adapter, Path: partnerPath, Commit: t.Partner.Commit}
+		p.PartnerPath = partnerPath
+		p.Install = fillPartner(string(t.InstallText), t.Partner, pt.Dir(p.Root))
+	} else if strings.TrimSpace(partnerPath) != "" {
+		return nil, fmt.Errorf("template %s has no partner: --partner-path is only for a template with one", t.Key)
+	}
+	entry, err := renderEntry(t, name, parent, workflowRel, promptRel, briefs, pt, p.Root)
 	if err != nil {
 		return nil, err
 	}
 	p.Entry = entry
+	if p.Connections, err = renderConnections(proj, t.Connections); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// route is a declared connection as projects.yaml spells it, one flow line.
+type route struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
+	Via  string `yaml:"via,omitempty"`
+	What string `yaml:"what,omitempty"`
+}
+
+// renderConnections is the connections: block for the template's handoffs
+// proj doesn't declare yet, "" when there are none left.
+func renderConnections(proj *tracker.Project, c *tracker.Connections) (string, error) {
+	if c == nil {
+		return "", nil
+	}
+	declared := func(have []tracker.Route, r tracker.Route) bool {
+		for _, h := range have {
+			if tracker.DepartmentKey(h.From) == r.From && tracker.DepartmentKey(h.To) == r.To {
+				return true
+			}
+		}
+		return false
+	}
+	var have tracker.Connections
+	if proj.Connections != nil {
+		have = *proj.Connections
+	}
+	type block struct {
+		Requests []route `yaml:"requests,omitempty"`
+		Feeds    []route `yaml:"feeds,omitempty"`
+	}
+	var b block
+	for _, r := range c.Requests {
+		if !declared(have.Requests, r) {
+			b.Requests = append(b.Requests, route{From: r.From, To: r.To, Via: r.Via, What: r.What})
+		}
+	}
+	for _, r := range c.Feeds {
+		if !declared(have.Feeds, r) {
+			b.Feeds = append(b.Feeds, route{From: r.From, To: r.To, What: r.What})
+		}
+	}
+	if len(b.Requests)+len(b.Feeds) == 0 {
+		return "", nil
+	}
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(struct {
+		Connections block `yaml:"connections"`
+	}{b}); err != nil {
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 // Apply writes the plan's missing files, then adds the entry to the
@@ -425,6 +798,32 @@ type entry struct {
 	Workflow string      `yaml:"workflow,omitempty"`
 	Goals    []entryGoal `yaml:"goals,omitempty"`
 	Jobs     []entryJob  `yaml:"jobs,omitempty"`
+	// Partner and Connectors come last: the outside program and tools.
+	Partner    *entryPartner    `yaml:"partner,omitempty"`
+	Connectors []entryConnector `yaml:"connectors,omitempty"`
+}
+
+// entryPartner is what the entry records of a partner: never more than
+// its name, adapter, the path the user chose and the pinned commit.
+type entryPartner struct {
+	Name    string `yaml:"name,omitempty"`
+	Adapter string `yaml:"adapter"`
+	Path    string `yaml:"path"`
+	Commit  string `yaml:"commit,omitempty"`
+}
+
+type entryConnector struct {
+	Name     string            `yaml:"name"`
+	Kind     string            `yaml:"kind"`
+	Command  string            `yaml:"command,omitempty"`
+	Args     []string          `yaml:"args,omitempty"`
+	URL      string            `yaml:"url,omitempty"`
+	Headers  map[string]string `yaml:"headers,omitempty"`
+	Secrets  map[string]string `yaml:"secrets,omitempty"`
+	Optional []string          `yaml:"optional,flow,omitempty"`
+	Check    string            `yaml:"check,omitempty"`
+	Sends    bool              `yaml:"sends,omitempty"`
+	Note     string            `yaml:"note,omitempty"`
 }
 
 type entryJob struct {
@@ -453,13 +852,26 @@ type entryGoal struct {
 // renderEntry is the department's departments: item, starting "- name:",
 // indented by two spaces per level. briefs are the jobs' installed brief
 // paths, by job id.
-func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[string]string) (string, error) {
+func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[string]string, pt *tracker.Partner, root string) (string, error) {
 	e := entry{Name: name, Parent: parent, Color: t.Color, Role: t.Role, Mission: t.Mission, Systems: t.Systems, Prompt: prompt, Workflow: workflow}
 	for _, g := range t.Goals {
 		e.Goals = append(e.Goals, entryGoal{ID: g.ID, Name: g.Name, Target: g.Target, Unit: g.Unit, Period: g.Period, Direction: g.Direction, Source: g.Source, RollsUp: g.RollsUp})
 	}
 	for _, j := range t.Jobs {
 		e.Jobs = append(e.Jobs, entryJob{ID: j.ID, Name: j.Name, Every: j.Every, On: j.On, At: j.At, Brief: briefs[j.ID], Priority: j.Priority, Type: j.Type, Overlap: j.Overlap})
+	}
+	dir := ""
+	if pt != nil {
+		e.Partner = &entryPartner{Name: pt.Name, Adapter: pt.Adapter, Path: pt.Path, Commit: pt.Commit}
+		dir = pt.Dir(root)
+	}
+	for _, c := range t.Connectors {
+		fill := func(s string) string { return strings.ReplaceAll(s, "{{path}}", dir) }
+		ec := entryConnector{Name: c.Name, Kind: c.Kind, Command: fill(c.Command), URL: c.URL, Headers: c.Headers, Secrets: c.Secrets, Optional: c.Optional, Check: fill(c.Check), Sends: c.Sends, Note: c.Note}
+		for _, a := range c.Args {
+			ec.Args = append(ec.Args, fill(a))
+		}
+		e.Connectors = append(e.Connectors, ec)
 	}
 	var b bytes.Buffer
 	enc := yaml.NewEncoder(&b)
@@ -470,7 +882,34 @@ func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[
 	if err := enc.Close(); err != nil {
 		return "", err
 	}
-	return b.String(), nil
+	return withExamples(b.String(), t.ExamplesText), nil
+}
+
+// withExamples writes examples into the rendered entry, every line
+// commented, right before its goals:, jobs:, partner: or connectors: key:
+// inside the item, so adding another department after it or removing it
+// (both by the item's last line) keeps the comments with the entry.
+func withExamples(item string, examples []byte) string {
+	if len(bytes.TrimSpace(examples)) == 0 {
+		return item
+	}
+	var block strings.Builder
+	for _, l := range strings.Split(strings.TrimRight(string(examples), "\n"), "\n") {
+		if strings.TrimSpace(l) == "" {
+			block.WriteString("  #\n")
+			continue
+		}
+		block.WriteString("  # " + l + "\n")
+	}
+	lines := strings.SplitAfter(item, "\n")
+	for i, l := range lines {
+		for _, k := range []string{"goals:", "jobs:", "partner:", "connectors:"} {
+			if strings.HasPrefix(l, "  "+k) {
+				return strings.Join(lines[:i], "") + block.String() + strings.Join(lines[i:], "")
+			}
+		}
+	}
+	return item
 }
 
 // chainNames is group g and the groups above it, "Outbound → GTM".
@@ -480,4 +919,10 @@ func chainNames(g *tracker.Department, above []*tracker.Department) string {
 		names = append(names, a.Name)
 	}
 	return strings.Join(names, " → ")
+}
+
+// fillPartner is an install file with {{path}} (the checkout, absolute),
+// {{commit}} and {{repo}} filled in.
+func fillPartner(text string, pt *TemplatePartner, dir string) string {
+	return strings.NewReplacer("{{path}}", dir, "{{commit}}", pt.Commit, "{{repo}}", pt.Repo).Replace(text)
 }

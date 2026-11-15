@@ -20,7 +20,11 @@ git clone https://github.com/kacperwerema/dark-factory && cd dark-factory
 GOBIN="$HOME/.local/bin" make install
 ```
 
-Both put `issue-cli` and `issue-viewer` in `~/.local/bin`; make sure it is on your `PATH`. Plain `make install` uses `go install`, which writes to `$(go env GOPATH)/bin` (usually `~/go/bin`), often not on `PATH`. Check with `issue-cli version`.
+Both put `issue-cli` and `issue-viewer` in `~/.local/bin`; make sure it is on your `PATH`. Plain `make install` writes where `go install` would, `$(go env GOPATH)/bin` (usually `~/go/bin`), often not on `PATH`. Check with `issue-cli version`.
+
+To update, run the same command again: both write each new binary to a temporary file beside the old one and rename it into place. Never `cp` a build over an installed binary: on macOS the copied binary is killed as it starts (exit 137, no output) because the system still holds the old file's code signature, and every agent's issue-cli fails until the file is replaced. If you must copy, copy to `issue-cli.new` and `mv -f` it over `issue-cli`.
+
+From a clone, `make install` also installs a commit-msg hook in the clone's `.git/hooks` (`make hooks`, shared by its worktrees): it refuses a commit whose `Catalog:` or `Proves:` trailer would mark or link nothing. A commit-msg hook you already had is kept as `commit-msg.local`.
 
 **2. Make a project.**
 
@@ -37,7 +41,7 @@ cd ~/src/shop && git init && git add -A && git commit -m "Start the shop"
 issue-viewer -config ~/.config/ai-workflow-engine/projects.yaml
 ```
 
-Open <http://localhost:8080> and click the Shop lot. Leave the viewer running. While it runs, `issue-cli --project shop …` works from any folder. To approve anything on the board, sign in as the owner: click **YOU** (or open `/owner`), press **Show me a code** and type the code the viewer shows (in a dialog on a Mac, otherwise in the viewer's terminal).
+Open <http://localhost:8080> and click the Shop lot. Leave the viewer running. While it runs, `issue-cli --project shop …` works from any folder. To approve anything on the board, sign in as the owner: click **YOU** (or open `/owner`), press **Show me a code** and type the code the viewer shows (in a dialog on a Mac, otherwise in the viewer's terminal). The browser stays signed in across viewer restarts for 30 days. If an approval asks you to sign in, a dialog opens on the page itself, and the approval goes through once you type the code.
 
 **4. Write a first issue.**
 
@@ -76,9 +80,12 @@ None of these is needed. Each one adds something:
 
 Agents' commands differ by shell and OS. A worker's briefing has a `## Shell on this machine` section with the notes that apply to yours, picked from `$SHELL`, the OS and whether `rtk` is on `PATH`:
 
-- **zsh**: a `$VAR` holding a command doesn't word-split, so use a shell function; `$B:h` is a modifier; quote globs (`--include='*.go'`).
-- **rtk** shortens `git log` and hides `go test -v` test names and `t.Log` lines. When output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>` (`rtk proxy go test -v …`).
-- **macOS BSD tools**: `sed -i ''`, `script` has no `-c`, no `timeout`, `cp` is `/bin/cp`, no `shellcheck`.
+- zsh: `$VAR` holding a command doesn't word-split (use a shell function), `$B:h` is a modifier, and unquoted globs fail: quote them (`'*.go'`).
+- rtk shortens some output (`git log`, `make validate`; `go test -v` loses its test names and `t.Log` lines): when output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>` (`rtk proxy go test -v …`). `make validate` loses its verdict line: run it in the background with `make validate > <log> 2>&1` and watch the log. A `validate: red so far: <step>` line means that step is red: stop and fix it instead of waiting for the suite. The verdict is the last `validate:` line, `validate: PASS` or `validate: FAIL (<step>, <step>)` (on red, make's own error line comes after it).
+- `rtk grep` is ripgrep, and a plain `grep` can be rewritten to it: `--include` fails and prints a false "0 matches". Use `-g '*.go'`.
+- Never pipe or chain a command whose exit code decides the next step: `make validate | tail` shows tail's exit code, and the next command runs on red.
+- A "no verdict" from auto mode means a hook rewrote a call sent beside it: send that call alone.
+- macOS BSD tools: `sed -i ''`, `script` has no `-c`, no `timeout`, `cp` is `/bin/cp`.
 
 ### When a step fails
 
@@ -115,11 +122,14 @@ Needs Go 1.25 or newer.
 ```bash
 make build        # issue-viewer
 make build-cli    # issue-cli
-make install      # both, via go install
+make install      # both, into BINDIR (default: go install's folder)
 make validate     # go vet, tests and the issue-cli coverage gate
+make linux-check  # the public CI's steps in an ubuntu:24.04 container (needs docker)
+make linux-check PKG=./internal/x RUN=TestY  # only that go test, in the same container
 ```
 
-`make install` runs `go install`, which writes to `$GOBIN`, else `$(go env GOPATH)/bin`. Put that folder on your `PATH`, or install somewhere already on it: `GOBIN="$HOME/.local/bin" make install`.
+`make install` writes to `BINDIR`: `$GOBIN`, else `$(go env GOPATH)/bin`, as `go install` would. Put that folder on your `PATH`, or install somewhere already on it: `make install BINDIR="$HOME/.local/bin"` (or `GOBIN="$HOME/.local/bin" make install`). Each binary is built to a temporary file in that folder and renamed over the old one, so a running agent never sees it missing or half written.
+It also installs the clone's commit-msg hook first (`make hooks`).
 
 ### Privacy: usage stats
 
@@ -278,6 +288,10 @@ This mode can't set dispatch options such as `terminal`, so use a `projects.yaml
 | `-owner-code` | `auto` | Where the owner sign-in code shows: `dialog` (macOS), `terminal` (the viewer's stderr), `auto` (the dialog, else the terminal) |
 | `-version` | `false`     | Print the version and exit                |
 
+A worker's briefing has the rule for trying a viewer out:
+
+> A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
+
 The server listens on loopback only. Its POST endpoints start agents, tmux sessions and editors on your machine, so binding to another interface (`-host 0.0.0.0`) lets anyone who can reach the port drive them; it is an explicit opt-in and the server prints a warning at startup. Writes from another site in your browser are refused either way (see [API: Design Considerations](API/overview.md#design-considerations)).
 
 The server also answers only to loopback names: a request whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `*.localhost` gets `421 Misdirected Request`, which stops a DNS-rebinding page from reaching it. With a non-loopback `-host`, the bind address is accepted too (every interface address for `-host 0.0.0.0`), and the warning lists them. To reach the viewer by another name, such as a LAN or VPN hostname, list it in `projects.yaml`:
@@ -320,7 +334,7 @@ The viewer can push to your phone and browsers when something new waits on you, 
 4. **On iPhone or iPad:** open the viewer on its public name (Safari can't get pushes in a tab), Share → **Add to Home Screen**, open **Factory** from the Home Screen, go to `/push` there and tap **Notify me here**. Android Chrome works from the tab or the installed app.
 5. **Settings.** Mute a project, or set quiet hours: nothing is sent in them, and when they end one push says how many things came in.
 
-What sends a push: every new row of Needs you (CI red, a ready gate, a playtest or checks to run, a `question:`, a clarify round, outputs to review, a due job, a post-mortem, a failing connector, the nightly pass rate), a live worker stuck at a menu (once an hour at most), and a subscription resting after its usage limit. Each event goes to each device once; it can send again only after it went away and came back.
+What sends a push: every new row of Needs you (CI red, a ready gate, a playtest or checks to run, a `question:`, a clarify round, outputs to review, a due job, a post-mortem, a failing connector, the nightly pass rate), a live worker stuck at a menu, a worker whose agent exited and left only a shell in its session (each once an hour at most), and a subscription resting after its usage limit. Each event goes to each device once; it can send again only after it went away and came back.
 
 Where it lives: the VAPID keys, the devices and the settings are in `$XDG_STATE_HOME/ai-workflow-engine/push/` (files 0600), never in your projects or `projects.yaml`. Only the viewer that holds `viewer.json` for the config `push/` is bound to sends; a sandbox viewer with the shared state dir sends nothing. If you moved `projects.yaml`, `/push` shows **Use this viewer** to move the sender. `status.md` has a `Push:` line (devices, mutes, quiet hours, a device the push service removed).
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -81,15 +82,13 @@ func Parse(j tracker.Job) (Schedule, error) {
 
 // periodStart is the first day of the period holding t, at midnight.
 func (s Schedule) periodStart(t time.Time) time.Time {
-	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 	switch s.Every {
 	case "week":
-		back := (int(day.Weekday()) + 6) % 7 // ISO weeks start on Monday
-		return day.AddDate(0, 0, -back)
+		return period.WeekStart(t)
 	case "month":
-		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
+		return period.MonthStart(t)
 	}
-	return day
+	return period.DayStart(t)
 }
 
 // next is the start of the period after the one starting at start.
@@ -135,12 +134,11 @@ func (s Schedule) dueAt(start time.Time) time.Time {
 func (s Schedule) Key(start time.Time) string {
 	switch s.Every {
 	case "week":
-		y, w := start.ISOWeek()
-		return fmt.Sprintf("%d-W%02d", y, w)
+		return period.WeekKey(start)
 	case "month":
-		return start.Format("2006-01")
+		return period.MonthKey(start)
 	}
-	return start.Format("2006-01-02")
+	return period.DayKey(start)
 }
 
 // Latest is the newest period whose run is due by now: its key and when it
@@ -151,6 +149,17 @@ func (s Schedule) Latest(now time.Time) (key string, due time.Time) {
 		start = s.prev(start)
 	}
 	return s.Key(start), s.dueAt(start)
+}
+
+// PrevDue is when the run before the latest due one was due: a value that
+// run's job wrote before that day means a whole run was missed since
+// (internal/goals reads it to call a job-written metrics file stale).
+func (s Schedule) PrevDue(now time.Time) time.Time {
+	start := s.periodStart(now)
+	if s.dueAt(start).After(now) {
+		start = s.prev(start)
+	}
+	return s.dueAt(s.prev(start))
 }
 
 // Next is when the first run after now is due.

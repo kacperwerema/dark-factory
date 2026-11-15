@@ -1,6 +1,13 @@
 package tracker
 
-import "strings"
+import (
+	"strings"
+	"sync/atomic"
+)
+
+// cloneCount counts Clone calls, for the tests that pin how many a pass
+// costs (TestWorkflowMemoClonesOncePerKey).
+var cloneCount atomic.Int64
 
 func cloneBoardConfig(b WorkflowBoardConfig) WorkflowBoardConfig {
 	return WorkflowBoardConfig{
@@ -41,6 +48,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 	if w == nil {
 		return nil
 	}
+	cloneCount.Add(1)
 
 	clone := &WorkflowConfig{
 		Template: w.Template,
@@ -61,6 +69,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		CI:               cloneCI(w.CI),
 		Health:           cloneHealth(w.Health),
 		Evals:            cloneEvals(w.Evals),
+		Rules:            append([]ProjectRule(nil), w.Rules...),
 		Routing:          cloneRouting(w.Routing),
 		Critique:         cloneCritique(w.Critique),
 		Postmortem:       w.Postmortem,
@@ -76,6 +85,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		WorktreeSetup:    w.WorktreeSetup,
 		LookupIssue:      w.LookupIssue,
 		ChildrenOf:       w.ChildrenOf,
+		ClosedIssue:      w.ClosedIssue,
 		DecisionsInForce: w.DecisionsInForce,
 		// The per-call runtime fields issue-cli sets before a transition;
 		// the decision runtime (decisionState) stays per config: its holds
@@ -147,36 +157,44 @@ func cloneTransitions(ts []WorkflowTransition) []WorkflowTransition {
 	return out
 }
 
+// ForSystem is a copy of w with the system's overlay merged in.
 func (w *WorkflowConfig) ForSystem(system string) *WorkflowConfig {
 	if w == nil {
 		return nil
 	}
-	if strings.TrimSpace(system) == "" || len(w.Systems) == 0 {
-		return w.Clone()
-	}
+	merged := w.Clone()
+	merged.mergeSystem(system)
+	return merged
+}
 
+// mergeSystem merges the system's overlay into w in place: ForIssue's
+// second step on the copy ForType already made, so one issue's workflow
+// costs one Clone.
+func (w *WorkflowConfig) mergeSystem(system string) {
+	if strings.TrimSpace(system) == "" || len(w.Systems) == 0 {
+		return
+	}
 	overlay, ok := w.Systems[system]
 	if !ok {
-		return w.Clone()
+		return
 	}
-
-	merged := w.Clone()
 	statuses, transitions := overlay.Statuses, overlay.Transitions
-	if merged.typePath != nil {
+	if w.typePath != nil {
 		// A type path is in force: the overlay may not re-add statuses or
 		// edges the type dropped.
-		statuses, transitions = restrictToPath(statuses, transitions, merged.typePath)
+		statuses, transitions = restrictToPath(statuses, transitions, w.typePath)
 	}
-	merged.Merge(&WorkflowConfig{
+	w.Merge(&WorkflowConfig{
 		Statuses:    statuses,
 		Transitions: transitions,
 	})
-	return merged
 }
 
 // Merge overlays custom workflow config onto this one.
 // For matching statuses: appends validation and side_effects (deduped),
-// overrides description and template if set in custom.
+// overrides description, prompt and template if set in custom, and adds
+// prompt_append after the appends already there (StatusPrompt joins them
+// to the prompt, so a later prompt: never swallows one).
 // New statuses from custom are appended.
 func (w *WorkflowConfig) Merge(custom *WorkflowConfig) {
 	for _, cs := range custom.Statuses {
@@ -191,6 +209,7 @@ func (w *WorkflowConfig) Merge(custom *WorkflowConfig) {
 		if cs.Prompt != "" {
 			base.Prompt = cs.Prompt
 		}
+		base.PromptAppend = appendPrompt(base.PromptAppend, cs.PromptAppend)
 		if cs.Template != "" {
 			base.Template = cs.Template
 		}
@@ -199,6 +218,15 @@ func (w *WorkflowConfig) Merge(custom *WorkflowConfig) {
 		}
 		if cs.Global {
 			base.Global = true
+		}
+		if cs.Role != "" {
+			base.Role = cs.Role
+		}
+		if cs.Session != "" {
+			base.Session = cs.Session
+		}
+		if cs.BriefingBudget != 0 {
+			base.BriefingBudget = cs.BriefingBudget
 		}
 		base.Validation = appendUnique(base.Validation, cs.Validation)
 		base.SideEffects = appendUnique(base.SideEffects, cs.SideEffects)
@@ -241,6 +269,17 @@ func (w *WorkflowConfig) Merge(custom *WorkflowConfig) {
 			}
 		}
 	}
+}
+
+// appendPrompt adds an overlay's prompt_append to the lines already
+// appended, skipping a text already there as whole lines (the same overlay merged
+// twice).
+func appendPrompt(have, add string) string {
+	add = strings.TrimSpace(add)
+	if add == "" || strings.Contains("\n"+have+"\n", "\n"+add+"\n") {
+		return have
+	}
+	return joinPrompt(have, add)
 }
 
 func appendUnique(base, extra []string) []string {

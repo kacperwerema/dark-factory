@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // leadDeptProject is a project at dir with a Marketing department on its own
@@ -63,34 +62,31 @@ func TestDepartmentPromptSection_MissingAndLongPrompt(t *testing.T) {
 	}
 }
 
-func TestDepartmentLeadBrief(t *testing.T) {
-	proj := leadDeptProject(t, "You write local SEO pages.")
-	wf := &WorkflowConfig{Statuses: []WorkflowStatus{{Name: "draft"}, {Name: "publish"}}}
-	got := DepartmentLeadBrief(wf, &proj.Departments[0], LeadBriefInput{Project: proj, Root: proj.Root(), Now: time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)})
+// The gate bridge's rule reaches the worker: a department with a partner
+// gets a Partner bullet saying the partner's approval waits for the
+// owner's D-n, in the adapter's words when it has some.
+func TestDepartmentPromptSectionPartner(t *testing.T) {
+	proj := leadDeptProject(t, "")
+	seo := &Issue{Slug: "seo/x", System: "SEO"}
+	if got := DepartmentPromptSection(proj, seo); strings.Contains(got, "- Partner:") {
+		t.Fatalf("no partner, yet a bullet:\n%s", got)
+	}
+	proj.Departments[0].Partner = &Partner{Name: "Studio", Adapter: "studio", Path: "/opt/studio"}
+	defer func(old func(Partner, string, string) string) { PartnerApprovalHow = old }(PartnerApprovalHow)
+	PartnerApprovalHow = nil
+	got := DepartmentPromptSection(proj, seo)
 	for _, want := range []string{
-		"You are the Marketing lead of Acme. You run in lead-acme-marketing", "report to the CEO lead-acme",
-		"- Mission: Every site refreshed weekly", "- Workflow: marketing.yaml (draft → publish)",
-		"issue-cli --project acme list --department marketing", "You write local SEO pages.",
-		"- Scope: only Marketing's issues", "Dispatch only when the human tells you to",
-		"2026-10-30-lead-acme-marketing.md",
+		"- Partner: Studio (adapter studio, checkout /opt/studio).",
+		"which records a D-n on this issue (ref partner-approved:<stage> or partner-sent-back:<stage>)",
+		"Only then write the partner's approval of <stage> the way its guide says, quoting <D-n ref>; never without that D-n",
+		"issue-cli show seo/x",
 	} {
 		if !strings.Contains(got, want) {
-			t.Errorf("brief lacks %q:\n%s", want, got)
+			t.Errorf("bullet lacks %q:\n%s", want, got)
 		}
 	}
-}
-
-func TestBuildDispatchPrompt_DepartmentLead(t *testing.T) {
-	proj := leadDeptProject(t, "Role text.")
-	seo := &Issue{Slug: "seo/acme-faq", System: "SEO", Status: "draft"}
-	live := func(n string) bool { return n == "lead-acme" }
-	got := BuildDispatchPrompt(proj, seo, nil, proj.Root(), live).Prompt
-	if !strings.Contains(got, "## Your department") || !strings.Contains(got, "You report to the CEO lead-acme (live), covering for the Marketing lead lead-acme-marketing") {
-		t.Errorf("covering prompt:\n%s", got)
-	}
-	live = func(n string) bool { return n == "lead-acme" || n == "lead-acme-marketing" }
-	dp := BuildDispatchPrompt(proj, seo, nil, proj.Root(), live)
-	if !strings.Contains(dp.Prompt, "You report to the Marketing lead lead-acme-marketing (live), who reports to the CEO lead-acme.") || dp.Lead != "lead-acme-marketing" {
-		t.Errorf("department lead prompt (lead %q):\n%s", dp.Lead, dp.Prompt)
+	PartnerApprovalHow = func(_ Partner, stage, ref string) string { return "set approved on " + stage + " citing " + ref }
+	if got := DepartmentPromptSection(proj, seo); !strings.Contains(got, "Only then set approved on <stage> citing <D-n ref>; never without") {
+		t.Errorf("the adapter's words are not used:\n%s", got)
 	}
 }

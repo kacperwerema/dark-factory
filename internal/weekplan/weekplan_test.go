@@ -300,3 +300,50 @@ transitions:
 		t.Errorf("all boxes ticked waits on the owner: %q (all: %v)", got, on)
 	}
 }
+
+// The week's window counts dates: on the day after the autumn change (a
+// 25-hour day) an output reviewed in the first minutes of the seventh day
+// back is in, one from the evening before is not. Now minus 7×24h starts
+// at 01:30 and misses the first.
+func TestWindowHoldsTheWholeSeventhDay(t *testing.T) {
+	warsaw, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 26, 0, 30, 0, 0, warsaw)
+	p := sandbox(t)
+	stamp := func(d, h, m int) string {
+		return time.Date(2026, 10, d, h, m, 0, 0, warsaw).Format(time.RFC3339)
+	}
+	for _, e := range []outputs.Event{
+		{Op: outputs.OpAdd, ID: "o1", Date: stamp(1, 10, 0), Department: "marketing", Title: "Seventh", Kind: "page", URL: "https://example.test/a"},
+		{Op: outputs.OpReview, ID: "o1", Date: stamp(19, 0, 15), State: outputs.StateApproved, By: "owner", Quote: "ok"},
+		{Op: outputs.OpAdd, ID: "o2", Date: stamp(1, 10, 0), Department: "marketing", Title: "Eighth", Kind: "page", URL: "https://example.test/b"},
+		{Op: outputs.OpReview, ID: "o2", Date: stamp(18, 23, 50), State: outputs.StateApproved, By: "owner", Quote: "ok"},
+	} {
+		if err := outputs.Append(p, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := Resolve(p, "marketing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Input{Project: p, Issues: load(t, p), Now: now}
+	w := Gather(in, d)
+	if want := time.Date(2026, 10, 19, 0, 0, 0, 0, warsaw); !w.From.Equal(want) {
+		t.Errorf("From = %v, want %v", w.From, want)
+	}
+	if w.Counts.Reviewed != 1 {
+		t.Errorf("reviewed = %d, want 1 (the seventh day's)", w.Counts.Reviewed)
+	}
+	var sections int
+	for _, s := range Sections(in) {
+		if s.Box == "marketing" {
+			sections = len(s.Reviewed)
+		}
+	}
+	if sections != 1 {
+		t.Errorf("Sections reviewed = %d, want 1: the same window as Gather", sections)
+	}
+}

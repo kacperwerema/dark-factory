@@ -2,6 +2,7 @@ package testids
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,44 @@ func TestIDsAreWellFormed(t *testing.T) {
 		seen[id] = true
 		if !WellFormed(id) {
 			t.Errorf("id %q is not lower snake case with dots", id)
+		}
+	}
+}
+
+// TestKnownMatchesEveryListedID checks the index against the walk it
+// replaced, on every entry and the ids and patterns made from it.
+func TestKnownMatchesEveryListedID(t *testing.T) {
+	walk := func(id string) bool {
+		for _, e := range allIDs() {
+			if Compatible(e, id) {
+				return true
+			}
+		}
+		return false
+	}
+	check := func(id string) {
+		t.Helper()
+		if got, want := Known(id), walk(id); got != want {
+			t.Errorf("Known(%q) = %v, the walk says %v", id, got, want)
+		}
+	}
+	for _, id := range []string{"", ".", "x", "*", "#", "*.*", "#.#", "*.*.*.*.*.*.*.*", "status-*.x", "a.status-*.b"} {
+		check(id)
+	}
+	for _, e := range allIDs() {
+		check(e)
+		check(e + ".extra")
+		segs := strings.Split(e, ".")
+		check(strings.Join(segs[:len(segs)-1], "."))
+		for _, fill := range []string{"x", "7", "ui/some-slug"} {
+			check(strings.NewReplacer("*", fill, "#", fill).Replace(e))
+		}
+		for i, seg := range segs {
+			for _, swap := range []string{"*", "#", "7", "nope", seg + "x"} {
+				other := append([]string(nil), segs...)
+				other[i] = swap
+				check(strings.Join(other, "."))
+			}
 		}
 	}
 }

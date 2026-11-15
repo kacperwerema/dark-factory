@@ -161,3 +161,42 @@ func WithNA(text, reason string) string {
 	}
 	return fmt.Sprintf("%s (N/A: %s)", text, strings.TrimSpace(reason))
 }
+
+// WithoutNA returns a box's text with its N/A claim withdrawn: a closing
+// "(N/A: why)" or "— N/A: why". Anything else stays: the template's offer
+// "(or N/A: …)", a claim with words after it, and "N/A:" in the box's own
+// sentence, where cutting would lose the author's text.
+func WithoutNA(text string) string {
+	locs := naClaimRe.FindAllStringIndex(text, -1)
+	if len(locs) == 0 {
+		return text
+	}
+	start := locs[len(locs)-1][0]
+	before := strings.TrimRight(text[:start], " ")
+	if strings.HasSuffix(before, "—") || strings.HasSuffix(before, "–") {
+		return strings.TrimRight(before, " —–")
+	}
+	rest := strings.TrimRight(text[start:], " ")
+	if !strings.HasSuffix(before, "(") || !closesLast(rest) {
+		return text
+	}
+	return strings.TrimRight(strings.TrimSuffix(before, "("), " ")
+}
+
+// closesLast reports whether the paren opened before s closes at s's last
+// byte, and not earlier.
+func closesLast(s string) bool {
+	depth := 1
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+		if depth == 0 {
+			return i == len(s)-1
+		}
+	}
+	return false
+}

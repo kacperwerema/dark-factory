@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -289,6 +290,7 @@ func TestClassifyError(t *testing.T) {
 		{"usage", invocation{}, errors.New("transition requires <slug>\n\nExample"), telemetry.ErrUsage, ""},
 		{"removed flag", invocation{}, rejectRemovedWaitFlags([]string{"--to", "backlog", "--wait"}), telemetry.ErrUnknownFlag, "--wait"},
 		{"dry-run not ready", invocation{}, &exitCodeError{Code: 1}, telemetry.ErrValidation, ""},
+		{"queue hold", invocation{}, &exitCodeError{Code: 1, Hold: true}, telemetry.ErrHold, ""},
 		{"other", invocation{}, errors.New("disk on fire"), telemetry.ErrOther, ""},
 	}
 	for _, c := range cases {
@@ -389,7 +391,7 @@ func TestIntrospectFlagsEveryCommandWithoutSideEffects(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"transition":       "dry-run,field,to",
-		"process":          "department,system,type,workflow",
+		"process":          "department,file,system,type,workflow",
 		"data add":         "description,status,tier",
 		"telemetry report": "global,since,top",
 		"comment":          "body,body-file,text",
@@ -471,6 +473,69 @@ func TestTelemetryReportCommand(t *testing.T) {
 	}
 }
 
+// queue next --start exits 1 on a hold or when nothing is ready (the lead's
+// tick reads that), but the report counts it as a hold: queue next's error
+// rate holds only the real failures, and a hold starts no retry sequence.
+func TestTelemetryReportLeavesHoldsOutOfTheErrorRate(t *testing.T) {
+	isolateTelemetryEnv(t)
+	cfg, workDir := telemetryFixture(t, "")
+	path := telemetry.ProjectPath(workDir)
+	now := time.Now()
+	n := 0
+	mk := func(cmd, sub string, exit int, class string) telemetry.Event {
+		n++
+		return telemetry.Event{V: 1, TS: now.Add(time.Duration(n-100) * time.Second).UTC().Format(time.RFC3339Nano), Cmd: cmd, Sub: sub, Exit: exit, ErrClass: class, Caller: "agent", PPID: 9, ArgsHash: fmt.Sprint(n)}
+	}
+	writeFixtureEvents(t, path,
+		mk("queue", "next", 1, telemetry.ErrHold),
+		mk("autostart", "next", 0, ""),
+		mk("queue", "next", 1, telemetry.ErrHold),
+		mk("queue", "next", 1, telemetry.ErrHold),
+		mk("queue", "next", 1, telemetry.ErrValidation),
+		mk("queue", "next", 0, ""),
+	)
+	g := []string{"--config", cfg, "--project", "alpha"}
+	out, err := invoke(t, append(g, "--json", "telemetry", "report", "--since", "all")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r telemetry.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	var qn *telemetry.CommandStat
+	for i := range r.Commands {
+		if r.Commands[i].Command == "queue next" {
+			qn = &r.Commands[i]
+		}
+	}
+	if qn == nil || qn.Calls != 5 || qn.Failures != 1 || qn.Holds != 3 || qn.ErrorPct != 20 {
+		t.Fatalf("queue next = %+v, want 5 calls, 1 failure (20%%), 3 held", qn)
+	}
+	if r.Summary.Failures != 1 || r.Summary.Holds != 3 {
+		t.Errorf("summary = %+v, want 1 failure and 3 holds", r.Summary)
+	}
+	for _, e := range r.Errors {
+		if e.Class == telemetry.ErrHold {
+			t.Errorf("a hold is listed as an error: %+v", e)
+		}
+	}
+	for _, s := range r.RetrySequences {
+		if strings.Contains(s.Failed, telemetry.ErrHold) {
+			t.Errorf("a hold starts a retry sequence: %+v", s)
+		}
+	}
+
+	out, err = invoke(t, append(g, "telemetry", "report", "--since", "all")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`queue next +5 calls +20\.0% err +p50 \d+ms  3 held`).MatchString(out) {
+		t.Errorf("text report doesn't show queue next without its holds:\n%s", out)
+	}
+	assertContains(t, out, "3 held)")
+}
+
 // The viewer's own report call must not be recorded, yet the report must
 // still say telemetry is enabled (SkipEnv is not an opt-out).
 func TestTelemetrySkipEnvSkipsRecordingButStaysEnabled(t *testing.T) {
@@ -513,7 +578,7 @@ func TestParseSince(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	cases := map[string]time.Time{
 		"all": {},
-		"30d": now.Add(-30 * 24 * time.Hour),
+		"30d": time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
 		"12h": now.Add(-12 * time.Hour),
 	}
 	for in, want := range cases {
@@ -527,6 +592,27 @@ func TestParseSince(t *testing.T) {
 	}
 	if _, err := parseSince("soon", now); err == nil {
 		t.Error("expected error")
+	}
+}
+
+// TestParseSinceCountsCalendarDays: --since 7d on the day after the 25-hour
+// day starts at midnight of the date 7 days back, not an hour into it.
+func TestParseSinceCountsCalendarDays(t *testing.T) {
+	warsaw, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		t.Skip("no tz data:", err)
+	}
+	now := time.Date(2026, 10, 26, 0, 30, 0, 0, warsaw)
+	got, err := parseSince("7d", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 10, 19, 0, 0, 0, 0, warsaw); !got.Equal(want) {
+		t.Fatalf("parseSince(7d) = %v, want %v", got, want)
+	}
+	edge := time.Date(2026, 10, 19, 0, 30, 0, 0, warsaw)
+	if edge.Before(got) {
+		t.Fatalf("a record dated exactly 7 days back (%v) falls before the window start %v", edge, got)
 	}
 }
 

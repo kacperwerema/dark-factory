@@ -274,6 +274,9 @@ func classifyError(inv *invocation, err error) (class, unknown string) {
 	// reported.
 	var codeErr *exitCodeError
 	if errors.As(err, &codeErr) {
+		if codeErr.Hold {
+			return telemetry.ErrHold, ""
+		}
 		return telemetry.ErrValidation, ""
 	}
 	// A removed flag (e.g. --wait) is still an unknown flag; the token keeps

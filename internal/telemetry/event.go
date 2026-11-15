@@ -94,7 +94,11 @@ const (
 	ErrInvalidTransition = "invalid_transition"
 	ErrValidation        = "validation"
 	ErrPanic             = "panic"
-	ErrOther             = "other"
+	// ErrHold is a non-zero exit that is the expected answer, not a
+	// failure (queue next --start: nothing to start, or a hold). Reports
+	// count it apart and leave it out of the error rate.
+	ErrHold  = "hold"
+	ErrOther = "other"
 )
 
 // HashArgs returns a short, stable fingerprint of the raw args so identical

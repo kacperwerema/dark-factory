@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
 	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -101,10 +102,10 @@ func buildPatchRow(proj *tracker.Project, wf *tracker.WorkflowConfig, changelog 
 		tip := gitTip(root, branch)
 		c := ReleaseCheck{Key: "build", Text: "go build and go vet pass on " + branch + "'s tip"}
 		if tip != "" && sameSha(tip, releaseBuiltTip(root, branch)) {
-			c.OK, c.Meta = true, ci.Short(tip)
+			c.OK, c.Meta = true, gitdir.ShortSHA(tip)
 		} else {
 			c.Meta = "not run"
-			c.Detail = "not run on " + ci.Short(tip) + ": issue-cli release cut " + cut + " runs them first (so does release pick)"
+			c.Detail = "not run on " + gitdir.ShortSHA(tip) + ": issue-cli release cut " + cut + " runs them first (so does release pick)"
 		}
 		ms.Checks = append(ms.Checks, c)
 	}

@@ -80,7 +80,7 @@ type GraphData struct {
 }
 
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -257,7 +257,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request, proj *track
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -322,7 +322,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, proj *track
 
 	totalIssues := 0
 	for _, issue := range issues {
-		if !showDone && issue.Status == "done" {
+		if !showDone && proj.IssueDone(issue) {
 			continue
 		}
 		if systemFilter != "" && !strings.EqualFold(issue.System, systemFilter) {
@@ -355,7 +355,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request, proj *track
 
 	var nodes []*GraphStatusNode
 	for _, name := range statusOrder {
-		if !showDone && name == "done" {
+		if !showDone && wf.IsLastStatus(name) {
 			continue
 		}
 		if sn, ok := nodeMap[name]; ok {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -27,7 +29,11 @@ it, and only an approved output is published.
              [--issue <slug>] [--department <name>] [--job <name>] [--note "..."]
       --file copies the file onto the shelf (<issues>/.outputs/files/, up to
       25 MB); --path links a file in the repo; --url an http(s) link. The
-      department is the issue's, else --department, else Product.
+      department is the issue's, else --department, else Product. When the
+      issue already has a file output of that title, it hints output revise.
+      --kind video --file <.mp4|.webm> (up to 200 MB) plays in the shelf's
+      reader and on the Station; with ffmpeg on PATH a poster (the frame at
+      1 s) is written next to it.
   output review <id> approve|reject --quote "<the owner's words>" [--how "..."]
       The owner's stamp, recorded by the owner or the lead; never a worker.
   output publish <id> [--url <where it went out>]
@@ -35,7 +41,11 @@ it, and only an approved output is published.
   output use <id> --by <department|issue>
       Another department (or one of its issues) uses the output: drawn as
       an output line between the two rooms on the company page.
-  output show <id>
+  output show <id> [--text]
+      One output: its row, the file's absolute path on this machine, the
+      review and uses. --text prints a markdown output's newest version
+      instead (a report's follow-ups, a brief); any other output refuses,
+      naming its path or link.
   output revise <id> --file <new version> [--note "..."]
       A new version of a file output (v2, v3…): copied onto the shelf next
       to the earlier ones, back in review. The reader shows what changed.
@@ -48,11 +58,12 @@ it, and only an approved output is published.
       comments and resolves, from the page.
 
 <id> is the full id (o-20261030-a1b2) or its last part (a1b2). Kinds with
-an icon: post, design, site, page, report, invoice; any word works.
+an icon: post, design, site, page, report, invoice, video; any word works.
 
 Examples:
   issue-cli output add --issue seo/acme-weekly --title "Acme: FAQ refresh" --kind page --url https://acme.example/faq
   issue-cli output add --department marketing --job weekly-pass --title "Hero banner" --kind design --file out/hero.png
+  issue-cli output add --issue video/explainer --title "Draft: What is Dark Factory" --kind video --file out/final.mp4
   issue-cli output review a1b2 approve --quote "ok, ship it"
   issue-cli output publish a1b2 --url https://acme.example/faq
   issue-cli output use a1b2 --by sales
@@ -112,9 +123,9 @@ func runOutput(ctx *Context, args []string) error {
 func runOutputAdd(ctx *Context, args []string) error {
 	fs := newFlagSet("output add", ctx)
 	title := fs.String("title", "", "what the output is (required)")
-	kind := fs.String("kind", "", "post, design, site, page, report, invoice or any word (required)")
+	kind := fs.String("kind", "", "post, design, site, page, report, invoice, video or any word (required)")
 	link := fs.String("url", "", "an http(s) link to the output")
-	file := fs.String("file", "", "a file to copy onto the shelf (up to 25 MB)")
+	file := fs.String("file", "", "a file to copy onto the shelf (up to 25 MB; a .mp4 or .webm video up to 200 MB)")
 	path := fs.String("path", "", "a file in the repo, relative to the project root")
 	slug := fs.String("issue", "", "the issue that made it")
 	dept := fs.String("department", "", "the department, when there is no --issue (default Product)")
@@ -145,20 +156,35 @@ func runOutputAdd(ctx *Context, args []string) error {
 		return err
 	}
 	in.Department = outputKey(name)
+	list, _ := outputs.Load(p)
+	earlier := outputs.SameTitle(list, in.Issue, in.Title)
 	o, err := outputs.Add(p, in, ctx.now())
 	if err != nil {
 		return err
 	}
 	if ctx.JSONOutput {
+		printSameTitle(ctx.Stderr, earlier, o) // stdout stays one JSON object
 		return writeJSON(ctx.Stdout, o)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ On %s's shelf: %s (%s)\n", o.Name, o.ID, o.Title)
 	printOutput(ctx.Stdout, o, "  ")
+	printVideo(ctx.Stdout, p, o)
+	printSameTitle(ctx.Stdout, earlier, o)
 	fmt.Fprintf(ctx.Stdout, "Shelf: %s\n", shelfURL(p, o.Department))
 	fmt.Fprintf(ctx.Stdout, "It waits for the owner's review. Once approved: issue-cli output publish %s --url <where it went out>\n", shortID(o.ID))
 	fmt.Fprintf(ctx.Stdout, "When another department uses it: issue-cli output use %s --by <department|issue>\n", shortID(o.ID))
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", outputs.LogPath(p))
 	return nil
+}
+
+// printSameTitle says what to do when add made a second output of something
+// the issue already has on the shelf; earlier is nil when it didn't.
+func printSameTitle(w io.Writer, earlier, added *outputs.Output) {
+	if earlier == nil {
+		return
+	}
+	fmt.Fprintf(w, "Hint: %s on this issue has the same title (now two outputs, %s is the new one). For a new version of it, keeping its history and review: issue-cli output revise %s --file <file>\n",
+		shortID(earlier.ID), shortID(added.ID), shortID(earlier.ID))
 }
 
 // outputDepartment is the department an output is recorded under: the
@@ -215,7 +241,7 @@ func runOutputReview(ctx *Context, args []string) error {
 	}
 	p := ctx.Project
 	issues, _ := tracker.LoadIssues(p.IssueDir)
-	me := whoAmI(p, issues)
+	me := guardWho(ctx, issues, "output review")
 	if me.Role == tracker.RoleWorker {
 		return fmt.Errorf("workers never review outputs: the owner approves or rejects on the shelf (%s), or tells the CEO", shelfURL(p, ""))
 	}
@@ -302,23 +328,35 @@ func runOutputUse(ctx *Context, args []string) error {
 }
 
 func runOutputShow(ctx *Context, args []string) error {
-	pos, err := parsePositionals(ctx, "output show", args, 1)
-	if err != nil {
+	fs := newFlagSet("output show", ctx)
+	text := fs.Bool("text", false, "print a markdown output's newest version")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
-	if len(pos) != 1 {
-		return &usageError{msg: "usage: issue-cli output show <id>"}
+	if fs.NArg() != 1 {
+		return &usageError{msg: "usage: issue-cli output show <id> [--text]"}
 	}
 	list, _ := outputs.Load(ctx.Project)
-	o, err := outputs.Find(list, pos[0])
+	o, err := outputs.Find(list, fs.Arg(0))
 	if err != nil {
 		return err
+	}
+	path := outputs.LocalPath(ctx.Project, o)
+	if *text {
+		return printOutputText(ctx, o, path)
 	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, o)
 	}
 	fmt.Fprintf(ctx.Stdout, "== %s ==\n", o.Title)
 	printOutput(ctx.Stdout, o, "")
+	if path != "" {
+		missing := ""
+		if _, err := os.Stat(path); err != nil {
+			missing = " (missing)"
+		}
+		fmt.Fprintf(ctx.Stdout, "File: %s%s\n", path, missing)
+	}
 	if o.Note != "" {
 		fmt.Fprintf(ctx.Stdout, "Note: %s\n", o.Note)
 	}
@@ -335,6 +373,27 @@ func runOutputShow(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	fmt.Fprintf(ctx.Stdout, "Shelf: %s\n", shelfURL(ctx.Project, o.Department))
+	return nil
+}
+
+// printOutputText is output show --text: the markdown itself, or a refusal
+// naming where the output is.
+func printOutputText(ctx *Context, o *outputs.Output, path string) error {
+	where := path
+	if where == "" {
+		where = o.Where()
+	}
+	if !o.IsMarkdown() || path == "" {
+		return fmt.Errorf("output %s is not markdown (%s): --text prints only a .md output; open it there", shortID(o.ID), where)
+	}
+	body, ok := outputs.ReadMarkdown(ctx.Project, o)
+	if !ok {
+		return fmt.Errorf("output %s: cannot read %s", shortID(o.ID), where)
+	}
+	fmt.Fprint(ctx.Stdout, body)
+	if !strings.HasSuffix(body, "\n") {
+		fmt.Fprintln(ctx.Stdout)
+	}
 	return nil
 }
 
@@ -447,6 +506,26 @@ func printOutput(w io.Writer, o *outputs.Output, indent string) {
 		parts = append(parts, "used by "+strings.Join(who, ", "))
 	}
 	fmt.Fprintf(w, "%s    %s\n", indent, strings.Join(parts, " · "))
+}
+
+// printVideo is a video shelf file's lines after add or revise: its size
+// and type, the poster or why there is none, and the reader that plays it.
+func printVideo(w io.Writer, p *tracker.Project, o *outputs.Output) {
+	if o.File == "" || !o.IsVideo() {
+		return
+	}
+	size := ""
+	if st, err := os.Stat(filepath.Join(outputs.FilesDir(p), filepath.FromSlash(o.File))); err == nil {
+		size = fmt.Sprintf("%.1f MB, ", float64(st.Size())/(1<<20))
+	}
+	fmt.Fprintf(w, "  video   %s (%s%s, up to %d MB)\n", o.Where(), size, outputs.VideoType(o.File), outputs.MaxVideoBytes>>20)
+	switch {
+	case o.Poster != "":
+		fmt.Fprintf(w, "  poster  %s (frame at 1 s, ffmpeg)\n", filepath.ToSlash(filepath.Join(".outputs", "files", o.Poster)))
+	case o.PosterErr != nil:
+		fmt.Fprintf(w, "  poster  none: %v (the shelf shows 🎬; the player shows the video's first frame)\n", o.PosterErr)
+	}
+	fmt.Fprintf(w, "Plays at: %s\n", readerURL(p, o))
 }
 
 // shortID is the id's last part (a1b2), what the commands accept.

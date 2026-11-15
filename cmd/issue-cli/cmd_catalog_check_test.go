@@ -66,9 +66,10 @@ func TestCatalogCheckOnABranch(t *testing.T) {
 		t.Fatalf("stale entry passed:\n%s", stdout.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"✗ catalog: this branch changes internal/health/score.go", "entry health-tuning is v0.53.0; the next release is v0.54.0", "issue-cli workflow catalog-bump health-tuning (sets version: v0.54.0", "Catalog: n/a health-tuning <why>"} {
+	for _, want := range []string{"✗ catalog: this branch changes internal/health/score.go", "entry health-tuning is v0.53.0; the next release is v0.54.0", "issue-cli workflow catalog-bump health-tuning (sets version: v0.54.0", "Catalog: n/a health-tuning <why>  (it counts only once committed"} {
 		assertContains(t, out, want)
 	}
+	assertContains(t, err.Error(), "counts only once committed")
 
 	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "note\n\nCatalog: n/a health-tuning only a constant")
 	ctx, stdout, _ = newTestContext(proj, false)
@@ -270,4 +271,29 @@ func TestCatalogCheckOnABranchBehindMain(t *testing.T) {
 	if len(rep.Entries) != 0 || len(rep.Templates) != 0 || len(rep.BadTrailers) != 0 {
 		t.Errorf("findings on a branch with no commits of its own: %+v", rep)
 	}
+}
+
+// A commit that only moves an entry's source file, content unchanged,
+// passes with no Catalog: line; a move that also edits it still asks.
+func TestCatalogCheckPassesAPureRename(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	proj := &tracker.Project{Name: "t", IssueDir: dir}
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/rename")
+	catalogRepoGit(t, dir, "mv", "internal/health/score.go", "internal/health/scoring.go")
+	catalogRepoGit(t, dir, "commit", "-q", "-m", "refactor: rename score.go")
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err != nil {
+		t.Fatalf("pure rename failed: %v\n%s", err, stdout.String())
+	}
+	assertContains(t, stdout.String(), "catalog-check ok: this branch changes no catalog feature's sources")
+
+	writeCatalogFile(t, dir, "internal/health/scoring.go", "package health\n\nconst z = 3\n")
+	catalogRepoGit(t, dir, "commit", "-q", "-am", "edit after the move")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runCatalogCheck(ctx, nil); err == nil {
+		t.Fatalf("rename with an edit passed:\n%s", stdout.String())
+	}
+	assertContains(t, stdout.String(), "✗ catalog health-tuning: needs a bump or an n/a")
 }

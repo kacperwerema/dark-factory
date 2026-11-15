@@ -7,13 +7,14 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 var leadCommand = &Command{
 	Name:      "lead",
-	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom (sub: spawn|whoami|list|message; alias: ceo)",
+	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom, flush it at night (sub: spawn|whoami|list|message|flush; alias: ceo)",
 	LongHelp: `The CEO supervises workers; it is what was called the project lead.
 There is one CEO per project (tmux lead-<project>, in the project
 checkout); every worker and department reports to it, epic children
@@ -40,6 +41,12 @@ Subcommands:
       the command refuses and names the address to use with your own
       SendMessage tool (ListAgents lists them). Workers can't message; they
       post question: comments instead.
+  flush pack|note|summary|close --run <slug>
+      The nightly lead-flush job's steps (brief: builtin:lead-flush),
+      run by that job's worker on its own run: read the day, write the
+      handoff note (80 lines at most) and the chat summary (30), then
+      close the lead. The next lead spawn's first prompt carries the note,
+      the summary and the pins. See issue-cli lead flush --help.
 
 Examples:
   issue-cli lead spawn
@@ -47,7 +54,7 @@ Examples:
   issue-cli lead whoami
   issue-cli lead message ui/workbench-redesign "please rebase on main"`,
 	Run:         runLead,
-	Subcommands: []string{"spawn", "whoami", "list", "message"},
+	Subcommands: []string{"spawn", "whoami", "list", "message", "flush"},
 }
 
 func init() {
@@ -57,7 +64,7 @@ func init() {
 
 func runLead(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"")
+		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"\n  issue-cli lead flush pack|note|summary|close --run <slug>")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -69,8 +76,10 @@ func runLead(ctx *Context, args []string) error {
 		return runLeadList(ctx, rest)
 	case "message":
 		return runLeadMessage(ctx, rest)
+	case "flush":
+		return runLeadFlush(ctx, rest)
 	default:
-		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, whoami, list, message", sub)
+		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, whoami, list, message, flush", sub)
 	}
 }
 
@@ -98,8 +107,9 @@ func runLeadSpawn(ctx *Context, args []string) error {
 		return fmt.Errorf("cannot load issues: %w", err)
 	}
 	if me := whoAmI(proj, issues); me.Role == tracker.RoleWorker {
-		return fmt.Errorf("workers can't spawn the CEO (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; the CEO relays it:\n  %s", valueOr(me.Name, "a worker"), me.Signal,
-			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))))
+		guardNever(ctx, "lead spawn")
+		return fmt.Errorf("workers can't spawn the CEO (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; the CEO relays it:\n  %s%s", valueOr(me.Name, "a worker"), me.Signal,
+			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))), leadLinkHint(proj, me.Slug))
 	}
 
 	role := "CEO"
@@ -137,6 +147,7 @@ func runLeadSpawn(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ %s %s %s\n", verb, role, resp.Session)
 	printSteps(ctx, resp.Steps)
+	fmt.Fprintln(ctx.Stdout, tracker.InjectProject(proj, briefing.LeadMemoriesLine(proj)))
 	if resp.AttachCmd != "" {
 		fmt.Fprintf(ctx.Stdout, "\nInside tmux:  %s\nFrom a shell: %s\n", resp.SwitchCmd, resp.AttachCmd)
 		if agentrun.LeadHeadless(proj) && !*headlessFlag && os.Getenv("TMUX") != "" {
@@ -207,6 +218,8 @@ type whoamiJSON struct {
 	AutoStart   string   `json:"autostart,omitempty"`
 	Queue       string   `json:"queue,omitempty"`
 	Jobs        string   `json:"jobs,omitempty"`
+	// Sandbox is the sandbox pass's verdict on this config (sandbox_pass.go).
+	Sandbox *sandboxVerdict `json:"sandbox,omitempty"`
 }
 
 func runLeadWhoami(ctx *Context, args []string) error {
@@ -274,10 +287,20 @@ func runLeadWhoami(ctx *Context, args []string) error {
 		out.MayTick = "as the human, anything; an agent started by hand should be spawned instead"
 	}
 
+	if v := sandboxCheck(ctx); v.Marked {
+		out.Sandbox = &v
+	}
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, out)
 	}
 	w := ctx.Stdout
+	if out.Sandbox != nil {
+		if out.Sandbox.Pass {
+			fmt.Fprintf(w, "Sandbox: %s: owner-only commands pass here, except those that start agents\n", out.Sandbox.Why)
+		} else {
+			fmt.Fprintf(w, "Sandbox: not a marked sandbox: %s\n", out.Sandbox.Why)
+		}
+	}
 	fmt.Fprintf(w, "Role: %s", out.Role)
 	if out.Session != "" {
 		fmt.Fprintf(w, " (%s)", out.Session)
@@ -405,14 +428,14 @@ func leadList(proj *tracker.Project, issues []*tracker.Issue, live map[string]bo
 			row.Group, row.Depth = g.Name, len(proj.Ancestors(d.Name))
 		}
 		for _, issue := range issues {
-			if issue.Status != "done" && proj.DepartmentOf(issue) == d.Name {
+			if !proj.IssueDone(issue) && proj.DepartmentOf(issue) == d.Name {
 				row.Open++
 			}
 		}
 		out.Departments = append(out.Departments, row)
 	}
 	for _, issue := range issues {
-		if issue.Status == "done" || !tracker.IsEpic(issue, issues) {
+		if proj.IssueDone(issue) || !tracker.IsEpic(issue, issues) {
 			continue
 		}
 		row := epicRow{Slug: issue.Slug, Title: issue.Title, Status: issue.Status}
@@ -495,6 +518,7 @@ func runLeadMessage(ctx *Context, args []string) error {
 	}
 	me := whoAmI(proj, issues)
 	if me.Role == tracker.RoleWorker {
+		guardNever(ctx, "lead message")
 		slug := valueOr(me.Slug, "<slug>")
 		return fmt.Errorf("workers can't message sessions. Ask the CEO on your issue trail instead:\n  %s", tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", slug)))
 	}

@@ -12,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 func envMap(env []string) map[string]string {
@@ -21,6 +24,18 @@ func envMap(env []string) map[string]string {
 		m[k] = v
 	}
 	return m
+}
+
+// TestScenarioEnvTurnsOffTheMachineReading: a scenario viewer reads tmux
+// afresh, whatever the caller's environment says, so a step sees the sessions
+// its setup just made.
+func TestScenarioEnvTurnsOffTheMachineReading(t *testing.T) {
+	s := &Scenario{Root: "/tmp/pt-x", Base: "http://127.0.0.1:1234", bins: &Binaries{Dir: "/tmp/bin"}}
+	for _, base := range [][]string{{"PATH=/usr/bin"}, {"PATH=/usr/bin", recent.OffEnv + "=0"}} {
+		if got := envMap(scenarioEnv(base, s))[recent.OffEnv]; got != "1" {
+			t.Errorf("base %q: %s = %q, want 1", base, recent.OffEnv, got)
+		}
+	}
 }
 
 // TestScenarioEnvIsolated: a scenario process never sees the caller's tmux
@@ -301,5 +316,120 @@ func TestWaitHTTPBudgetHoldsOnAHangingBoard(t *testing.T) {
 	defer ok.Close()
 	if err := waitHTTP(ok.URL, boardReadyBudget); err != nil {
 		t.Fatalf("an answering board: %v", err)
+	}
+}
+
+// rootOnlyScenario is what stopRecord rebuilds from a serve record: a marked
+// Root and nothing else. Its tmux is a stand-in that records what it was
+// called with, and $TMUX points at a server it must never reach.
+func rootOnlyScenario(t *testing.T) (s *Scenario, record func() string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = &Scenario{Root: root}
+	if err := os.MkdirAll(s.TmuxDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.TmuxDir(), markerName), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	rec := filepath.Join(bin, "record")
+	// The record sits beside the stand-in, so its body is the same every run.
+	standin.Write(t, filepath.Join(bin, "tmux"), "{ echo \"args=$*\"; echo \"cwd=$(pwd -P)\"; env; } > \"${0%/*}/record\"\n")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMUX", "/tmp/tmux-shared/default,1,0")
+	t.Setenv("TMUX_PANE", "%7")
+	t.Setenv("HOME", "/home/someone")
+	return s, func() string {
+		t.Helper()
+		data, err := os.ReadFile(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+}
+
+// checkPrivateTmuxCall: the stand-in ran with the scenario's private socket
+// and no way to reach the shared server.
+func checkPrivateTmuxCall(t *testing.T, s *Scenario, rec string) {
+	t.Helper()
+	if want := "args=-S " + s.TmuxSocket() + " "; !strings.Contains(rec, want) {
+		t.Errorf("tmux did not name the private socket: no %q in its record", want)
+	}
+	for _, kv := range []string{"TMUX=", "TMUX_PANE="} {
+		if strings.Contains("\n"+rec, "\n"+kv) {
+			t.Errorf("tmux inherited %s", kv)
+		}
+	}
+	if want := "\nTMUX_TMPDIR=" + s.TmuxDir() + "\n"; !strings.Contains(rec, want) {
+		t.Errorf("tmux has no %q", want)
+	}
+	if want := "\nHOME=" + filepath.Join(s.Root, "home") + "\n"; !strings.Contains(rec, want) {
+		t.Errorf("tmux has no %q", want)
+	}
+}
+
+// TestRootOnlyScenarioCommandIsIsolated: a Scenario rebuilt from only a Root
+// never ran Start, so nothing set its env; its commands still get the
+// scenario's environment and run under the Root, not in the caller's folder.
+func TestRootOnlyScenarioCommandIsIsolated(t *testing.T) {
+	s, _ := rootOnlyScenario(t)
+	cmd := s.command("true")
+	if cmd.Env == nil {
+		t.Fatal("cmd.Env is nil: the process inherits the caller's environment")
+	}
+	got := envMap(cmd.Env)
+	for _, k := range []string{"TMUX", "TMUX_PANE"} {
+		if v, ok := got[k]; ok {
+			t.Errorf("%s=%s reached the command", k, v)
+		}
+	}
+	if got["TMUX_TMPDIR"] != s.TmuxDir() {
+		t.Errorf("TMUX_TMPDIR=%q, want %q", got["TMUX_TMPDIR"], s.TmuxDir())
+	}
+	if cmd.Dir != s.Root {
+		t.Errorf("cmd.Dir=%q, want the Root %q", cmd.Dir, s.Root)
+	}
+}
+
+// TestRootOnlyScenarioTmuxStaysPrivate walks the two ways a Root-only
+// Scenario talks to tmux: Tmux, and the kill-server in Stop.
+func TestRootOnlyScenarioTmuxStaysPrivate(t *testing.T) {
+	s, record := rootOnlyScenario(t)
+	if _, code, err := s.Tmux(context.Background(), "has-session"); err != nil || code != 0 {
+		t.Fatalf("Tmux: code %d, %v", code, err)
+	}
+	rec := record()
+	checkPrivateTmuxCall(t, s, rec)
+	if want := "\ncwd=" + s.Root + "\n"; !strings.Contains(rec, want) {
+		t.Errorf("tmux ran outside the Root: no %q in its record", want)
+	}
+
+	s.Stop(true)
+	rec = record()
+	if !strings.Contains(rec, "kill-server") {
+		t.Fatal("Stop did not kill the private server")
+	}
+	checkPrivateTmuxCall(t, s, rec)
+}
+
+func TestWriteExcludeKeepsWhatIsThere(t *testing.T) {
+	proj := t.TempDir()
+	if err := writeExclude(proj, "workflows/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeExclude(proj, ".worktrees/"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(proj, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "workflows/\n.worktrees/\n" {
+		t.Errorf("exclude = %q", raw)
 	}
 }

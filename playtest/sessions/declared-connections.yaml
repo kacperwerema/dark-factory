@@ -9,7 +9,7 @@ session_checks:
   console: no_errors
 
 steps:
-  - id: TP4
+  - id: AC3
     title: The company page draws six roads and signs the one off the declared routes
     proves: [AC3]
     setup:
@@ -27,9 +27,9 @@ steps:
       - count: { pattern: "company.connections.sign", equals: 1 }
     targets: [company.connections, company.connections.lines]
 
-  - id: TP5
+  - id: TP2
     title: The connections page says why each mismatch is marked and keeps the legend
-    from: TP4
+    from: AC3
     proves: [AC3]
     setup:
       - open: /p/acme/connections
@@ -44,7 +44,7 @@ steps:
 
   - id: AC4
     title: Owner check - the map with declared roads reads right
-    from: TP4
+    from: AC3
     proves: [AC4]
     targets: [company.connections.lines, company.room.group]
     do: >-

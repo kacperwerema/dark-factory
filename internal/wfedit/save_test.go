@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -50,7 +51,7 @@ func gateOff(t *testing.T, path string) *Preview {
 		t.Fatal(err)
 	}
 	in := st.In[0]
-	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}})
+	pv, err := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{in.Index: SetGate(in.Actions, in.To, false)}}, lintCheck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestSaveRefusals(t *testing.T) {
 	t.Run("errors", func(t *testing.T) {
 		_, path := repo(t, "workflow.yaml")
 		st, _ := Open(path, "in progress")
-		pv, _ := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{st.Out[0].Index: {{Type: "nope"}}}})
+		pv, _ := Apply(path, "in progress", st.Hash, Change{Edges: map[int][]tracker.WorkflowAction{st.Out[0].Index: {{Type: "nope"}}}}, lintCheck)
 		if _, err := Save(pv, "why"); err == nil || !strings.Contains(err.Error(), "nothing was written") {
 			t.Errorf("err = %v", err)
 		}
@@ -142,4 +143,50 @@ func TestSaveRefusals(t *testing.T) {
 			t.Error("file not restored after the failed commit")
 		}
 	})
+}
+
+func TestWriteNeverRunsGit(t *testing.T) {
+	top, _ := repo(t, "workflow.yaml")
+	run(t, top, "config", "maintenance.auto", "false")
+	run(t, top, "config", "gc.auto", "0")
+	raw, _ := os.ReadFile("testdata/workflow.yaml")
+	path := filepath.Join(top, "workflows", "marketing.yaml")
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	head := run(t, top, "rev-parse", "HEAD")
+	if gitfile.Tracked(path) {
+		t.Fatal("an untracked file reads as tracked")
+	}
+	if !gitfile.Tracked(filepath.Join(top, "workflow.yaml")) {
+		t.Fatal("a committed file reads as untracked")
+	}
+
+	pv := gateOff(t, path)
+	if err := Write(pv); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != string(pv.New) {
+		t.Error("the file does not hold the new text")
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600 kept", info.Mode().Perm())
+	}
+	if run(t, top, "rev-parse", "HEAD") != head {
+		t.Error("Write made a commit")
+	}
+	if st := run(t, top, "status", "--porcelain"); st != "?? workflows/" {
+		t.Errorf("git status after Write: %q", st)
+	}
+
+	// The same preview again: the file moved since, so it is stale.
+	if err := Write(pv); !errors.Is(err, ErrStale) {
+		t.Errorf("second write: %v, want ErrStale", err)
+	}
+	// A preview with errors writes nothing.
+	bad := &Preview{File: path, Station: "in progress", Errors: []string{"broken"}}
+	if err := Write(bad); err == nil || !strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("a preview with errors: %v", err)
+	}
 }

@@ -57,6 +57,7 @@ func TestBuildKeepsOnlyVocabularyNames(t *testing.T) {
 		ev("data", sentinel, nil, 1, telemetry.ErrUnknownSubcommand), // kept as "data", sub dropped
 		ev(sentinel, "", nil, 1, telemetry.ErrUnknownCommand),        // dropped
 		ev("transition", "", nil, 1, sentinel),                       // class → other
+		ev("transition", "", nil, 1, telemetry.ErrHold),              // counted, not a failure
 		{V: 1, TS: "2026-10-29T23:59:59Z", Cmd: "transition"},        // other day
 	}
 	meta := Meta{Install: strings.Repeat("ab", 16), Ver: sentinel, OS: sentinel, Arch: "arm64",
@@ -87,7 +88,7 @@ func TestBuildKeepsOnlyVocabularyNames(t *testing.T) {
 		t.Fatalf("commands %v, want transition, data, data add", got)
 	}
 	tr := got["transition"]
-	if tr.Calls != 3 || tr.Fails != 2 || tr.Errors["validation"] != 1 || tr.Errors["other"] != 1 {
+	if tr.Calls != 4 || tr.Fails != 2 || tr.Errors["validation"] != 1 || tr.Errors["other"] != 1 || tr.Errors["hold"] != 1 {
 		t.Errorf("transition = %+v", tr)
 	}
 	if tr.Flags["to"] != 2 || tr.Flags["project"] != 1 || len(tr.Flags) != 3 {

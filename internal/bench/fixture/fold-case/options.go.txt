@@ -1,0 +1,29 @@
+package tally
+
+import "strings"
+
+// Options change how a text is split into words.
+type Options struct {
+	// Fold lowercases every word, so "Go" and "go" are one word.
+	Fold bool
+}
+
+// WordsWith is Words with options.
+func WordsWith(text string, opt Options) []string {
+	words := Words(text)
+	if opt.Fold {
+		for i, w := range words {
+			words[i] = strings.ToLower(w)
+		}
+	}
+	return words
+}
+
+// CountWith is Count with options.
+func CountWith(text string, opt Options) map[string]int {
+	out := map[string]int{}
+	for _, w := range WordsWith(text, opt) {
+		out[w]++
+	}
+	return out
+}

@@ -134,6 +134,9 @@ type CrewRow struct {
 	Note        string
 	Live        bool
 	Paused      bool
+	// Exited: only a shell is left in the session. Stop still clears it; a
+	// nudge would run as a command.
+	Exited bool
 	// ChatURL is a live lead's chat; StartURL starts a lead that is not
 	// running, StartWhat names it.
 	ChatURL, StartURL, StartWhat string
@@ -146,9 +149,10 @@ type CrewRow struct {
 // Chip is the row's state as a pill.
 func (c CrewRow) Chip() WbChip { return WbChip{Tone: c.Tone, Text: c.State} }
 
-// CanStop and CanNudge: a live worker that mem-guard has not paused.
+// CanStop: a live worker that mem-guard has not paused. CanNudge: one with
+// an agent left to read it.
 func (c CrewRow) CanStop() bool  { return c.Kind == "worker" && c.Live && !c.Paused }
-func (c CrewRow) CanNudge() bool { return c.CanStop() }
+func (c CrewRow) CanNudge() bool { return c.CanStop() && !c.Exited }
 
 // CanTail is any live session.
 func (c CrewRow) CanTail() bool { return c.Live }
@@ -220,21 +224,23 @@ func (s *Server) buildCrewAll(now time.Time) CrewAllData {
 	snap := crewSnapshot()
 	d := CrewAllData{Checked: now.UnixMilli(), Machine: crewMachine()}
 	d.Projects = make([]CrewProject, len(s.projects))
-	waiting := make([]int, len(s.projects))
 	var wg sync.WaitGroup
+	total := 0
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		total = s.needsYouEverywhere()
+	}()
 	for i := range s.projects {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			p := &s.projects[i]
 			d.Projects[i] = s.crewProject(p, snap, now)
-			waiting[i] = len(waitingOnOwner(p, openIssuesOf(p)))
 		}(i)
 	}
 	wg.Wait()
-	total := 0
-	for i, p := range d.Projects {
-		total += waiting[i]
+	for _, p := range d.Projects {
 		for _, row := range append(append([]CrewRow(nil), p.Leads...), p.Workers...) {
 			if row.Paused {
 				d.Machine.Paused++
@@ -260,11 +266,20 @@ func crewMachine() CrewMachine {
 	m.Load, m.LoadTone = "load unknown", "idle"
 	if cpu.Found {
 		m.Load, m.LoadTone = fmt.Sprintf("load %s on %d cores", autostart.FormatLoad(cpu.Avg1), cpu.Cores), "green"
-		if cpu.Avg1 >= float64(cpu.Cores) {
+		if autostart.LoadHold(cpu, 0) != "" {
 			m.LoadTone = "sand"
 		}
 	}
 	return m
+}
+
+// markExited marks the workers whose session is only a shell. Both Crew pages
+// call it over one snapshot: the agents model itself is built for pages that
+// never ask.
+func markExited(p *tracker.Project, workers []AgentNode, snap *agentrun.Snapshot) {
+	for i := range workers {
+		workers[i].Exited = snap.BareShell(p, workers[i].Name)
+	}
 }
 
 // crewProject is one project's card from its agents model.
@@ -302,11 +317,15 @@ func (s *Server) crewProject(p *tracker.Project, snap *agentrun.Snapshot, now ti
 		c.Leads = append(c.Leads, lead(dl, dl.Department+" lead", dl.Department))
 	}
 	var workers []CrewRow
+	markExited(p, m.Workers, snap)
 	for _, n := range m.Workers {
 		card := crewCard(n, "worker", prefix, now)
 		r := CrewRow{Name: n.Name, Kind: "worker", Live: true, Prefix: prefix, State: card.State, Tone: card.Tone, Note: card.LastCall}
 		if n.Issue != nil {
 			r.Title, r.IssueURL = n.Issue.Title, n.Issue.URL
+		}
+		if n.Exited {
+			r.Exited, r.Note = true, "dispatch it again: that replaces the session"
 		}
 		if snap.Paused(p, n.Name) {
 			r.Paused, r.State, r.Tone, r.Note = true, "paused by mem-guard", "paused", "resumes by itself when memory falls"
@@ -494,8 +513,13 @@ func (s *Server) handleCrewAction(w http.ResponseWriter, r *http.Request, proj *
 			crewResult(w, r, proj, action, body.Session, http.StatusNotFound, "no live worker called "+body.Session+" in "+proj.Name)
 			return
 		}
-		if crewSnapshot().Paused(proj, node.Name) {
+		snap := crewSnapshot()
+		if snap.Paused(proj, node.Name) {
 			crewResult(w, r, proj, action, node.Name, http.StatusConflict, node.Name+" is paused by mem-guard: it resumes when memory falls; try again then")
+			return
+		}
+		if action == "nudge" && snap.BareShell(proj, node.Name) {
+			crewResult(w, r, proj, action, node.Name, http.StatusConflict, node.Name+" is only a shell: its agent exited, so nothing was pasted; dispatch it again")
 			return
 		}
 		if action == "stop" {

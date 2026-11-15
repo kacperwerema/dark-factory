@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // The agent opinion: an agent reviews the project on demand (issue-cli
@@ -159,7 +161,7 @@ func WriteOpinion(root string, o *Opinion) (string, error) {
 
 // SaveOpinion rewrites an opinion file (a recommendation filed or dismissed).
 func SaveOpinion(path string, o *Opinion) error {
-	return writeJSONFile(path, o)
+	return jsonfile.Write(path, o, 0o600)
 }
 
 var (

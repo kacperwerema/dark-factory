@@ -65,6 +65,18 @@ func stubStart(t *testing.T) *[]string {
 	return &started
 }
 
+// stubDeadLaunch makes every start what agentrun.Start answers for an agent
+// that exited at once.
+func stubDeadLaunch(t *testing.T) {
+	t.Helper()
+	orig := startAgent
+	startAgent = func(_ *tracker.Project, spec agentrun.Spec) agentrun.Response {
+		return agentrun.Response{Status: "error", Session: spec.Session, Steps: []agentrun.Step{
+			{Name: "Agent running", Status: "error", Detail: "claude exited right after the launch; the session was removed"}}}
+	}
+	t.Cleanup(func() { startAgent = orig })
+}
+
 func autostartOnFor(t *testing.T, proj *tracker.Project, extra ...string) {
 	t.Helper()
 	ctx, _, _ := newTestContext(proj, false)

@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-15",
+  "job": "sales/weekly-funnel",
+  "metrics": [
+    {
+      "id": "visits",
+      "value": 410
+    },
+    {
+      "id": "signups",
+      "value": 12.5
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+# The partners catalog: outside tools a department can use for one of its
+# slots, read by `issue-cli department partners` and named by `department
+# add` for a template's partner_slots:. Listing a row turns nothing on: a
+# tool becomes a connector (or a partner: block) only when the owner adds
+# it. See docs/departments.md#the-partners-catalog.
+#
+# This file ships in the public repository: public facts only. No prices
+# (money is in words), no keys, no private project names, no owner notes.
+#
+# One row per tool:
+#   id, name      the tool
+#   slot          analytics | email | seo | social | video | support
+#   shape         tool (a connector) | studio (a partner: block) | service
+#   licence       the SPDX id, with words when one id doesn't cover it
+#   licence_url   the LICENSE file that was read
+#   licence_read  the date it was read (YYYY-MM-DD); read it again before
+#                 relying on a row, licences change
+#   upstream      the repository
+#   exception     AGPL rows only: the decision ref recording the owner's
+#                 exception for this tool, or "none: <why>" (the licence
+#                 rule: AGPL only as an exception the owner records per tool)
+#   memory        what it needs on the machine, in words ("unmeasured" when
+#                 no spike measured it)
+#   runs          always (must stay up to receive something) | per run
+#   money         whether it costs money, in words, never a price
+#   default       the slot's pick, at most one per slot
+#   note          one line more
+#   marks         paths only the tool's own checkout has (a trailing / is a
+#                 folder); TestTrackedFilesHoldNoPartnerFile fails on a
+#                 tracked path carrying one: a partner is never vendored.
+#                 Required on an AGPL row
+partners:
+  - id: umami
+    name: Umami
+    slot: analytics
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/umami-software/umami/blob/master/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/umami-software/umami
+    memory: "Node and Postgres; about half a gigabyte to one, unmeasured"
+    runs: always
+    money: "free self-hosted; its hosted cloud is paid"
+    default: true
+    note: "Cookieless web analytics with a REST API; Marketing and Sales carry it as a commented connector (umami)"
+    marks:
+      - "rollup.tracker.config.js"
+      - "tsconfig.tracker.json"
+  - id: medama
+    name: Medama
+    slot: analytics
+    shape: tool
+    licence: "Apache-2.0 (core, dashboard) and MIT (tracker)"
+    licence_url: https://github.com/medama-io/medama/blob/main/README.md
+    licence_read: "2026-11-08"
+    upstream: https://github.com/medama-io/medama
+    memory: "a single binary, light; unmeasured"
+    runs: always
+    money: "free self-hosted"
+    note: "Cookieless analytics; the lighter fallback"
+  - id: sendportal
+    name: SendPortal
+    slot: email
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/mettle/sendportal/blob/master/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/mettle/sendportal
+    memory: "Laravel and a MySQL or Postgres database; unmeasured"
+    runs: always
+    money: "free itself; mail goes out through a provider you sign up with, which charges per mail past its free tier"
+    default: true
+    note: "Newsletters and waitlist mail over a REST API; double opt-in unverified"
+  - id: listmonk
+    name: Listmonk
+    slot: email
+    shape: tool
+    licence: AGPL-3.0
+    licence_url: https://github.com/knadh/listmonk/blob/master/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/knadh/listmonk
+    exception: "none: a fallback candidate only; choosing it needs the owner's recorded exception first"
+    memory: "Go and Postgres, light; unmeasured"
+    runs: always
+    money: "free itself; mail goes out through a provider you sign up with, which charges per mail past its free tier"
+    note: "Newsletters with double opt-in"
+    marks:
+      - "listmonk-simple.service"
+      - "listmonk@.service"
+      - "cmd/campaign_analytics.go"
+  - id: openseo
+    name: OpenSEO
+    slot: seo
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/every-app/open-seo/blob/main/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/every-app/open-seo
+    memory: "about one gigabyte running and one on disk, measured in its spike"
+    runs: per run
+    money: "free for site audits, Search Console and GA4; keyword and rank data need a paid DataForSEO key"
+    default: true
+    note: "Read over MCP; Marketing carries it as a commented connector (openseo), the rankings source for seo-pass"
+    marks:
+      - "everyapp.config.ts"
+      - "vite-plugin-every-app.ts"
+  - id: postiz
+    name: Postiz
+    slot: social
+    shape: tool
+    licence: AGPL-3.0
+    licence_url: https://github.com/gitroomhq/postiz-app/blob/main/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/gitroomhq/postiz-app
+    exception: factory/open-source-partners-integrate-outside-tools-openmontage-openseo-postiz-instead-of-building-them-in-house#D-4
+    memory: "about 2.4 GB at idle across its containers and about 10 GB of images, measured in its spike"
+    runs: per run
+    money: "free self-hosted; some networks charge for posting through their API"
+    default: true
+    note: "Schedules and publishes to many networks, with an API and an MCP server; Marketing carries it as a commented connector (social), started per run and stopped after; leave its own AI off"
+    marks:
+      - "libraries/nestjs-libraries/"
+      - "libraries/react-shared-libraries/"
+  - id: mixpost
+    name: Mixpost Lite
+    slot: social
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/inovector/mixpost/blob/main/LICENSE.md
+    licence_read: "2026-11-08"
+    upstream: https://github.com/inovector/mixpost
+    memory: "Laravel, MySQL and Redis; unmeasured"
+    runs: always
+    money: "Lite is free; the Pro edition is a paid licence"
+    note: "Lite covers a few networks; the swap candidate if Postiz's size hurts"
+  - id: openmontage
+    name: OpenMontage
+    slot: video
+    shape: studio
+    licence: AGPL-3.0
+    licence_url: https://github.com/calesthio/OpenMontage/blob/main/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/calesthio/openmontage
+    exception: factory/video-department-openmontage-as-a-video-producer-department-template-workflow-connector-videos-on-the-shelf#D-3
+    memory: "heavy: local models, one at a time, under mem-guard"
+    runs: per run
+    money: "free with local models; paid model APIs only if you add their keys"
+    default: true
+    note: "The Video template's studio partner (department add video prints its install steps)"
+    marks:
+      - "AGENT_GUIDE.md"
+      - "remotion-composer/"
+      - "skills/pipelines/"
+      - ".agents/skills/"
+      - "backlot/"
+      - "schemas/checkpoints/"
+      - "tools/base_tool.py"
+      - "tools/tool_registry.py"
+      - "lib/env_loader.py"
+  - id: chatwoot
+    name: Chatwoot
+    slot: support
+    shape: tool
+    licence: "MIT outside enterprise/ (proprietary there)"
+    licence_url: https://github.com/chatwoot/chatwoot/blob/develop/LICENSE
+    licence_read: "2026-11-08"
+    upstream: https://github.com/chatwoot/chatwoot
+    memory: "Rails, Postgres, Redis and Sidekiq; about 4 GB, unmeasured, so a server rather than this machine"
+    runs: always
+    money: "free self-hosted core; the server it runs on is yours to pay for"
+    default: true
+    note: "Support inbox and website widget with a REST API; never turn on enterprise/"
+    marks:
+      - "VERSION_CWCTL"
+      - "tailwind.superadmin.config.js"

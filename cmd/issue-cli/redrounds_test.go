@@ -350,3 +350,65 @@ func TestCapQuestionOnARemovedCheckDoesNotHold(t *testing.T) {
 		t.Fatalf("the question should stay open: %+v", qs)
 	}
 }
+
+// The dry run lists the red-round hold the real transition refuses on: an
+// open cap question on a check the transition runs, and a streak at the cap
+// transition would turn into one. A question on a check the transition no
+// longer runs holds neither.
+func TestDryRunListsRedRoundHold(t *testing.T) {
+	proj := makeRedRoundsProject(t, 0)
+	path := filepath.Join(proj.IssueDir, "loop.md")
+	if err := os.WriteFile(filepath.Join(proj.IssueDir, "green"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dryRun := func() (string, error) {
+		ctx, out, _ := newTestContext(proj, false)
+		err := runTransition(ctx, []string{"loop", "--to", "testing", "--dry-run"})
+		return out.String(), err
+	}
+
+	// A question on a removed check: ready, like the real transition.
+	removed := redrounds.QuestionText(redrounds.Streak{Check: redrounds.CritiqueCheck("in progress", "testing"), Rounds: 4}, 4)
+	if err := tracker.AddCommentBy(path, 0, removed, "cli", "agent-loop"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := dryRun(); err != nil || !strings.Contains(out, "Ready") {
+		t.Fatalf("dry run held on a removed check: %v\n%s", err, out)
+	}
+
+	// Four red rounds of the gate this transition runs, no question yet:
+	// the real transition would post one and refuse.
+	check := "gate:command_succeeds:echo run >> runs.log; test -f green"
+	head := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 4; i++ {
+		if err := tracker.AppendRoundResults(path, tracker.RoundResult{Check: check, Red: true, Why: "test -f green failed", Failures: []string{"same"}, Head: fmt.Sprintf("h%d", i), At: head.Add(time.Duration(i) * time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := redrounds.Load(path, "loop", "", proj.IssueDir, 4)
+	if err != nil || len(state.NeedQuestion()) != 1 || state.NeedQuestion()[0].Check != check {
+		t.Fatalf("setup: want %s at the cap, got %+v (%v)", check, state, err)
+	}
+	out, err := dryRun()
+	if err == nil || !strings.Contains(out, check) || !strings.Contains(out, "red 4 of 4") {
+		t.Fatalf("dry run should list the cap the transition would raise: %v\n%s", err, out)
+	}
+	if qs := capQuestions(t, proj); len(qs) != 1 {
+		t.Fatalf("dry run posted a question: %+v", qs)
+	}
+
+	// The real transition raises it and refuses; the dry run then names
+	// the open question with its comment. (The dry run's preview runs the
+	// gate's command; the held transition does not.)
+	before := runCount(t, proj)
+	if _, _, err := runYOLOTransition(t, proj, time.Now(), "loop", "--to", "testing"); err == nil || !strings.Contains(err.Error(), check) {
+		t.Fatalf("transition should refuse on the cap: %v", err)
+	}
+	if n := runCount(t, proj) - before; n != 0 {
+		t.Fatalf("held gate ran %d times", n)
+	}
+	out, err = dryRun()
+	if err == nil || !strings.Contains(out, check) || !strings.Contains(out, "comment #") {
+		t.Fatalf("dry run should list the open question: %v\n%s", err, out)
+	}
+}

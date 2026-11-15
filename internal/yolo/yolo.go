@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 )
 
 // DefaultCIRedMinutes is the CI valve: YOLO turns itself off when the
@@ -85,24 +86,7 @@ func Save(root, project string, st *State) error {
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(Dir(root), project+".*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), Path(root, project))
+	return jsonfile.Write(Path(root, project), st, 0o600)
 }
 
 // Check is whether YOLO is on right now and, when a written-on state no

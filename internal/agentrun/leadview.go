@@ -125,13 +125,13 @@ func leadViewStep(proj *tracker.Project, name string, steps *[]Step) bool {
 // findLeadView returns the index of the window in session tagged as the tab
 // for the lead called name.
 func findLeadView(session, name string) (string, bool) {
-	out, err := exec.Command("tmux", "list-windows", "-t", "="+session, "-F", "#{window_index}\t#{"+leadViewOption+"}").Output()
+	out, err := exec.Command("tmux", "list-windows", "-t", "="+session, "-F", Format("window_index", leadViewOption)).Output()
 	if err != nil {
 		return "", false
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if index, tag, ok := strings.Cut(strings.TrimSpace(line), "\t"); ok && tag == name {
-			return index, true
+		if f := SplitFields(line, 2); len(f) == 2 && f[1] == name {
+			return f[0], true
 		}
 	}
 	return "", false

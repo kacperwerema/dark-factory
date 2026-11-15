@@ -63,6 +63,49 @@ func TestCheckDepartments(t *testing.T) {
 	}
 }
 
+// A goal reading a job's metrics file (<issues>/.goals/<dept>/<job>.json):
+// a path naming no job of the department is a finding; a missing file names
+// the job that writes it; an escape out of the issues folder is refused; a
+// written one is clean.
+func TestCheckDepartmentsJobFile(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	p := env.Project
+	p.Departments = []tracker.Department{{Name: "Sales",
+		Jobs: []tracker.Job{{ID: "weekly-funnel", Every: "week"}},
+		Goals: []tracker.Goal{
+			{ID: "visits", Source: "file:<issues>/.goals/sales/weekly-funnel.json#visits"},
+			{ID: "signups", Source: "file:<issues>/.goals/sales/weekly-funnel.json#signups"},
+			{ID: "paid", Source: "file:<issues>/.goals/sales/stripe-daily.json#paid"},
+			{ID: "evil", Source: "file:<issues>/../secret.json#x"},
+		}}}
+	var got []string
+	for _, f := range checkDepartments(env) {
+		got = append(got, f.Message)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{
+		"goal paid: <issues>/.goals/sales/stripe-daily.json names no job sales/stripe-daily",
+		"goals visits, signups: source file " + filepath.Join(p.IssueDir, ".goals", "sales", "weekly-funnel.json") + " does not exist (job sales/weekly-funnel writes it on its first run: issue-cli goal write sales/weekly-funnel <id>=<value>...)",
+		"goal evil: <issues>/../secret.json climbs out of the issues folder",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing finding %q in:\n%s", want, all)
+		}
+	}
+	file := filepath.Join(p.IssueDir, ".goals", "sales", "weekly-funnel.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(`{"date":"2026-10-26","metrics":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range checkDepartments(env) {
+		if strings.Contains(f.Message, "weekly-funnel.json") {
+			t.Errorf("a written job file is flagged: %s", f.Message)
+		}
+	}
+}
+
 func TestCheckDepartmentsNothingConfigured(t *testing.T) {
 	if f := checkDepartments(lintProject(t, minimalWorkflow, nil)); len(f) != 0 {
 		t.Errorf("findings without departments: %v", f)
@@ -155,7 +198,7 @@ func TestCheckDepartmentsJobs(t *testing.T) {
 		"projects.yaml (Marketing): job gone: brief jobs/gone.md does not exist",
 		"projects.yaml (Marketing): a job has no id:",
 		`projects.yaml (Marketing): job typed: type "seo-pass": the workflow defines no types`,
-		"projects.yaml (Marketing): job nobuiltin: brief builtin:no-such-brief is not a bundled brief (bundled: builtin:memory-consolidate, builtin:nightly-improve)",
+		"projects.yaml (Marketing): job nobuiltin: brief builtin:no-such-brief is not a bundled brief (bundled: builtin:decision-drift, builtin:growth-scout, builtin:lead-flush, builtin:memory-consolidate, builtin:nightly-improve, builtin:retro-sweep)",
 		`seo/old-run: open run of job "marketing/old", which projects.yaml no longer has`,
 	} {
 		if !strings.Contains(all, want) {
@@ -172,7 +215,7 @@ func TestCheckDepartmentsConnectors(t *testing.T) {
 	env.Project.Company = &tracker.Company{Connectors: []tracker.Connector{{Name: "bank", Kind: "tool"}}}
 	env.Project.Product = &tracker.Department{Name: "Product", Connectors: []tracker.Connector{{Name: "gh", Kind: "tool"}}}
 	env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: []tracker.Connector{
-		{Name: "gsc", Kind: "mcp", Command: "gsc-mcp", Secrets: map[string]string{"GSC_TOKEN": "keychain:acme-gsc"}},
+		{Name: "gsc", Kind: "mcp", Command: "gsc-mcp", Secrets: map[string]string{"GSC_TOKEN": "keychain:acme-gsc"}, Optional: []string{"GSC_TOKEN", "GSC_QUOTA"}},
 		{Name: "gsc", Kind: "tool"},
 		{Name: "Search Console", Kind: "api"},
 		{Name: "wp", Kind: "mcp", Secrets: map[string]string{"WP_PASSWORD": "pasted-value-1234", "WP_USER": "vault:x"}},
@@ -188,11 +231,12 @@ func TestCheckDepartmentsConnectors(t *testing.T) {
 		"projects.yaml (Product): connectors: on the Product entry are ignored",
 		`projects.yaml (Marketing): connector "gsc" appears twice`,
 		`connector name "Search Console" is not lower-case letters, digits and -`,
-		`connector Search Console: kind "api" is not mcp or tool`,
-		"connector wp: an mcp connector needs command:",
+		`connector Search Console: kind "api" is not mcp, tool or rest`,
+		"connector wp: an mcp connector needs command: or url:",
 		"connector wp: secret WP_PASSWORD: not env:<VAR> or keychain:<service>: it looks like a secret value",
 		"connector wp: secret WP_USER: not env:<VAR> or keychain:<service>",
 		"a connector has no name:",
+		"connector gsc: optional GSC_QUOTA is not one of its secrets:",
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing finding %q in:\n%s", want, all)
@@ -201,8 +245,126 @@ func TestCheckDepartmentsConnectors(t *testing.T) {
 	if strings.Contains(all, "pasted-value-1234") {
 		t.Errorf("a finding quotes the raw value:\n%s", all)
 	}
-	if len(got) != 9 {
-		t.Errorf("got %d findings, want 9:\n%s", len(got), all)
+	if len(got) != 10 {
+		t.Errorf("got %d findings, want 10:\n%s", len(got), all)
+	}
+}
+
+func TestCheckDepartmentsHTTPConnectors(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: []tracker.Connector{
+		{Name: "ok", Kind: "mcp", URL: "https://mcp.example.com/mcp", Headers: map[string]string{"Authorization": "Bearer keychain:acme-seo"}},
+		{Name: "local", Kind: "mcp", URL: "http://localhost:3011/mcp"},
+		{Name: "lan", Kind: "mcp", URL: "http://192.168.1.4/mcp"},
+		{Name: "both", Kind: "mcp", Command: "x", URL: "https://a.example/mcp"},
+		{Name: "tool", Kind: "tool", URL: "https://a.example/mcp"},
+		{Name: "env", Kind: "mcp", URL: "https://a.example/mcp", Secrets: map[string]string{"K": "env:K"}, Headers: map[string]string{"X-Key": "Bearer pasted-value-5678"}},
+		{Name: "stdio", Kind: "mcp", Command: "x", Headers: map[string]string{"X-Key": "env:K"}},
+	}}}
+	var got []string
+	for _, f := range checkDepartments(env) {
+		got = append(got, f.Message)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{
+		"connector lan: url: http is allowed only on this machine",
+		"connector both: give command: or url:, not both",
+		"connector tool: url: is only for kind: mcp or rest",
+		"connector env: secrets: are unused with url:",
+		"connector env: header X-Key: not env:<VAR> or keychain:<service>: it looks like a secret value",
+		"connector stdio: headers: are only for a connector with url:",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing finding %q in:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "pasted-value-5678") || strings.Contains(all, "connector ok") || strings.Contains(all, "connector local") {
+		t.Errorf("unexpected finding:\n%s", all)
+	}
+	if len(got) != 6 {
+		t.Errorf("got %d findings, want 6:\n%s", len(got), all)
+	}
+}
+
+func TestCheckDepartmentsRestConnectors(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: []tracker.Connector{
+		{Name: "ok", Kind: "rest", URL: "http://127.0.0.1:4007/api", Get: []string{"/public/v1/analytics/post/*", "/public/v1/posts"},
+			Headers: map[string]string{"Authorization": "keychain:postiz"}},
+		{Name: "nourl", Kind: "rest", Get: []string{"/a"}},
+		{Name: "cmd", Kind: "rest", URL: "http://127.0.0.1:1/api", Command: "curl", Get: []string{"/a"}},
+		{Name: "noget", Kind: "rest", URL: "http://127.0.0.1:1/api"},
+		{Name: "bad", Kind: "rest", URL: "http://127.0.0.1:1/api", Get: []string{"a/b", "/a/../b", "//evil/x", "/a?x=1", "/[", "/ok", "/ok"}},
+		{Name: "tool", Kind: "tool", Command: "curl", Get: []string{"/a"}},
+		{Name: "extras", Kind: "rest", URL: "http://127.0.0.1:1/api", Get: []string{"/a"}, DenyTools: []string{"x"},
+			NeedsApprovedOutput: true, ReadTools: []string{"x"}, At: map[string]tracker.ConnectorAt{"backlog": {Allow: []string{"x"}}}},
+	}}}
+	var got []string
+	for _, f := range checkDepartments(env) {
+		got = append(got, f.Message)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{
+		"connector nourl: a rest connector needs url:",
+		"connector cmd: a rest connector runs no command:",
+		"connector noget: a rest connector needs get:",
+		`connector bad: get: "a/b" must start with /`,
+		`connector bad: get: "/a/../b" must be a clean path`,
+		`connector bad: get: "//evil/x" must be a path, not //host`,
+		`connector bad: get: "/a?x=1" is a path only`,
+		`connector bad: get: "/[" is not a valid pattern`,
+		"connector bad: get: /ok appears twice",
+		"connector tool: get: is only for kind: rest",
+		"connector extras: deny_tools: does nothing on a kind: rest connector",
+		"connector extras: read_tools: does nothing on a rest connector",
+		"connector extras: at: does nothing on a rest connector",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing finding %q in:\n%s", want, all)
+		}
+	}
+	if strings.Contains(all, "connector ok") {
+		t.Errorf("the clean rest connector has findings:\n%s", all)
+	}
+}
+
+// A get: whose first segment is a wildcard warns, with a fix naming the
+// first segment; one deeper down (Postiz's per-channel entry) does not.
+func TestCheckDepartmentsRestWidePatterns(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: []tracker.Connector{
+		{Name: "analytics", Kind: "rest", URL: "http://127.0.0.1:4007/api", Get: []string{"/public/v1/analytics/post/*", "/public/v1/analytics/*", "/public/v1/posts", "/public/v1/integrations"}},
+		{Name: "wide", Kind: "rest", URL: "http://127.0.0.1:1/api", Get: []string{"/*", "/*/status", "/ok/*"}},
+		{Name: "tool", Kind: "tool", Command: "x"},
+	}}}
+	byMsg := map[string]string{}
+	for _, f := range checkDepartments(env) {
+		byMsg[f.Message] = f.Fix
+	}
+	for g, fix := range map[string]string{"/*": "get: /<resource>/*", "/*/status": "get: /<resource>/status"} {
+		msg := "connector wide: get: " + g + " opens every route at the API's first level, including any that changes state on GET"
+		got, ok := byMsg[msg]
+		if !ok {
+			t.Errorf("no warning %q in %v", msg, byMsg)
+		} else if !strings.Contains(got, fix) {
+			t.Errorf("%s: fix %q doesn't name %q", g, got, fix)
+		}
+	}
+	for msg := range byMsg {
+		if strings.Contains(msg, "connector analytics") || strings.Contains(msg, "/ok/*") {
+			t.Errorf("narrow pattern warned: %s", msg)
+		}
+	}
+}
+
+// docs/departments.md's get row names the wide-pattern warning.
+func TestDocsNameTheWideRestPatternWarning(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "departments.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "whose first segment is a wildcard") {
+		t.Error("docs/departments.md#connectors doesn't say lint warns on a get: whose first segment is a wildcard")
 	}
 }
 
@@ -240,6 +402,10 @@ func TestCheckDepartmentsFileGates(t *testing.T) {
 	// market.md is the market-size type's own publish → done gate: no warning.
 	if strings.Contains(got, "market.md") {
 		t.Errorf("market size gates nothing before channel work, got:\n%s", got)
+	}
+	// So is keywords.md for keyword-research: briefs read it, never wait for it.
+	if strings.Contains(got, "keywords.md") {
+		t.Errorf("keyword research gates nothing before channel work, got:\n%s", got)
 	}
 
 	dir := filepath.Join(root, "departments", "growth-team")
@@ -313,5 +479,282 @@ func TestCheckDepartmentsBudget(t *testing.T) {
 	}
 	if len(got) != 2 || !strings.Contains(got[0], "(company): budget: period") || !strings.Contains(got[1], "(Marketing): budget: is not a mapping") || !strings.Contains(got[1], "{usd: 50, period: week}") {
 		t.Errorf("budget findings:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// The OpenSEO connector from the spike report (shelf output 2262) as the
+// owner would add it: lint names its sending and spending tools until they
+// are denied or the connector is sends: true; deny_tools: mistakes too.
+func TestCheckDepartmentsConnectorDenyTools(t *testing.T) {
+	openseo := func() tracker.Connector {
+		return tracker.Connector{Name: "openseo", Kind: "mcp", Command: "npx",
+			Args:     []string{"-y", "mcp-remote@0.1.0", "http://localhost:3011/mcp", "--transport", "http-only", "--allow-http", "--header", "Authorization: Bearer ${OPENSEO_API_KEY}"},
+			Secrets:  map[string]string{"OPENSEO_API_KEY": "keychain:openseo-api-key"},
+			Optional: []string{"OPENSEO_API_KEY"},
+			Check:    "curl -fsS http://localhost:3011/api/health"}
+	}
+	run := func(cs ...tracker.Connector) string {
+		env := lintProject(t, minimalWorkflow, nil)
+		env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: cs}}
+		var got []string
+		for _, f := range checkDepartments(env) {
+			got = append(got, f.Where+": "+f.Message)
+		}
+		return strings.Join(got, "\n")
+	}
+
+	plain := openseo()
+	if got, want := run(plain), "projects.yaml (Marketing): connector openseo: tools that send or spend are on: submit_indexnow_urls, set_report_sharing, set_ai_visibility_schedule; add them to deny_tools:"; !strings.Contains(got, want) {
+		t.Errorf("missing %q in:\n%s", want, got)
+	}
+
+	part := openseo()
+	part.DenyTools = []string{"submit_indexnow_urls"}
+	if got := run(part); !strings.Contains(got, "are on: set_report_sharing, set_ai_visibility_schedule;") || strings.Contains(got, "on: submit_indexnow_urls") {
+		t.Errorf("partly denied:\n%s", got)
+	}
+
+	denied := openseo()
+	denied.DenyTools = []string{"submit_indexnow_urls", "set_report_sharing", "set_ai_visibility_schedule"}
+	sends := openseo()
+	sends.Sends = true
+	unknown := openseo()
+	unknown.Name, unknown.Args = "gsc", []string{"-y", "@example/gsc-mcp"}
+	if got := run(denied, sends, unknown); strings.Contains(got, "send or spend") {
+		t.Errorf("denied, sends: true or unknown still warned:\n%s", got)
+	}
+
+	// Matched by its args when the owner names it differently.
+	renamed := openseo()
+	renamed.Name, renamed.Args = "seo", []string{"-y", "openseo-mcp"}
+	if got := run(renamed); !strings.Contains(got, "connector seo: tools that send or spend are on") {
+		t.Errorf("renamed:\n%s", got)
+	}
+
+	// A remote (url:) connector the owner named "seo-data": matched by its url.
+	remote := tracker.Connector{Name: "seo-data", Kind: "mcp", URL: "https://mcp.openseo.so/mcp"}
+	if got := run(remote); !strings.Contains(got, "connector seo-data: tools that send or spend are on") {
+		t.Errorf("remote:\n%s", got)
+	}
+
+	bad := openseo()
+	bad.DenyTools = []string{"submit_indexnow_urls", "set_report_sharing", "set_ai_visibility_schedule", "rm -rf", "set_report_sharing"}
+	tool := tracker.Connector{Name: "wp", Kind: "tool", Command: "wp", DenyTools: []string{"post"}}
+	got := run(bad, tool)
+	for _, want := range []string{
+		`connector openseo: deny_tools: "rm -rf" is not a tool name`,
+		"connector openseo: deny_tools: set_report_sharing appears twice",
+		"connector wp: deny_tools: does nothing on a kind: tool connector",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// A system named after a department doesn't put the issue in it: the
+// competitor scan was filed as system: Marketing and walked Product's
+// workflow, with Marketing's systems: listing only SEO.
+func TestCheckDepartmentsUnfiledIssue(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, map[string]string{
+		"Marketing/scan.md":   "---\ntitle: scan\nstatus: idea\nsystem: Marketing\ncreated: 2026-10-01\n---\n",
+		"Marketing/filed.md":  "---\ntitle: filed\nstatus: idea\nsystem: Marketing\ndepartment: Marketing\ncreated: 2026-10-01\n---\n",
+		"Marketing/closed.md": "---\ntitle: closed\nstatus: done\nsystem: Marketing\ncreated: 2026-10-01\n---\n",
+		"SEO/page.md":         "---\ntitle: page\nstatus: idea\nsystem: SEO\ncreated: 2026-10-01\n---\n",
+		"Sales/listed.md":     "---\ntitle: listed\nstatus: idea\nsystem: Sales\ncreated: 2026-10-01\n---\n",
+		"CLI/tool.md":         "---\ntitle: tool\nstatus: idea\nsystem: CLI\ncreated: 2026-10-01\n---\n",
+		"Product/own.md":      "---\ntitle: own\nstatus: idea\nsystem: Product\ncreated: 2026-10-01\n---\n",
+	})
+	env.Project.Departments = []tracker.Department{
+		{Name: "Marketing", Systems: []string{"SEO", "Sales"}},
+		{Name: "Sales"},
+	}
+	env.Project.Product = &tracker.Department{Name: tracker.ProductName}
+	var hits []Finding
+	for _, f := range checkDepartments(env) {
+		if strings.Contains(f.Message, "names a department") {
+			hits = append(hits, f)
+		}
+	}
+	if len(hits) != 1 || hits[0].Where != "marketing/scan" {
+		t.Fatalf("want only marketing/scan flagged (not filed, closed, listed, Product's own): %+v", hits)
+	}
+	if want := "issue-cli set-meta marketing/scan --key department --value Marketing"; !strings.Contains(hits[0].Fix, want) {
+		t.Errorf("fix %q does not name %q", hits[0].Fix, want)
+	}
+}
+
+// A growth-scout job needs its runs to be reports: lint warns, with the fix,
+// when the department's workflow has no report type, though the job sets no
+// type: (factory/growth-scout-…, AC3).
+func TestLintGrowthScoutNeedsReportType(t *testing.T) {
+	typed := minimalWorkflow + "default_type: piece\ntypes:\n  piece:\n    path: [idea, done]\n"
+	for _, tc := range []struct {
+		name, workflow string
+		want           bool
+	}{
+		{"no types", minimalWorkflow, true},
+		{"no report type", typed, true},
+		{"report type", typed + "  report:\n    path: [idea, done]\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := lintProject(t, tc.workflow, nil)
+			env.Project.Departments = []tracker.Department{{Name: "Marketing", Jobs: []tracker.Job{
+				{ID: "growth-scout", Every: "month", Brief: "builtin:growth-scout"},
+			}}}
+			var all []string
+			for _, f := range checkDepartments(env) {
+				all = append(all, f.Where+": "+f.Message+" | "+f.Fix)
+			}
+			got := strings.Join(all, "\n")
+			found := strings.Contains(got, "job growth-scout: builtin:growth-scout runs are type report: the workflow has no report type") &&
+				strings.Contains(got, "add the type to the Marketing workflow's types:")
+			if found != tc.want || (!tc.want && got != "") {
+				t.Errorf("findings:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestConnectorPerRunFindings(t *testing.T) {
+	got := connectorFindings(tracker.Department{Connectors: []tracker.Connector{
+		{Name: "heavy", Kind: tracker.ConnectorTool, PerRun: &tracker.PerRun{Start: "up", Timeout: -1}},
+		{Name: "fine", Kind: tracker.ConnectorTool, PerRun: &tracker.PerRun{Start: "up", Ready: "probe", Stop: "down", Tool: "analytics.v2"}},
+		{Name: "shared", Kind: tracker.ConnectorTool, PerRun: &tracker.PerRun{Start: "up", Ready: "probe", Stop: "down", Tool: "../Analytics"}},
+	}})
+	want := []string{
+		"connector heavy: per_run: needs ready:, stop:: connector exec refuses it until then",
+		"connector heavy: per_run: timeout: is seconds, above 0",
+		"connector shared: per_run: tool: must be a short id ([a-z0-9._-], starting with a letter or digit, up to 64): connector exec refuses it until then",
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("findings = %q", got)
+	}
+}
+
+// needs_approved_output: on a command: mcp server holds the whole server,
+// and read_tools: does nothing without the field or url:, or with a name
+// that isn't a tool's.
+func TestLintApprovedOutputConnector(t *testing.T) {
+	run := func(cs ...tracker.Connector) string {
+		env := lintProject(t, minimalWorkflow, nil)
+		env.Project.Departments = []tracker.Department{{Name: "Marketing", Connectors: cs}}
+		var got []string
+		for _, f := range checkDepartments(env) {
+			got = append(got, f.Message)
+		}
+		return strings.Join(got, "\n")
+	}
+	good := tracker.Connector{Name: "postiz", Kind: "mcp", URL: "https://postiz.example.com/mcp", Sends: true, NeedsApprovedOutput: true, ReadTools: []string{"list_integrations"}}
+	tool := tracker.Connector{Name: "wp", Kind: "tool", Command: "wp", NeedsApprovedOutput: true}
+	if got := run(good, tool); strings.Contains(got, "needs_approved_output") || strings.Contains(got, "read_tools") {
+		t.Errorf("a url: server with read_tools: and a held tool warned:\n%s", got)
+	}
+	stdio := tracker.Connector{Name: "poster", Kind: "mcp", Command: "poster-mcp", NeedsApprovedOutput: true, ReadTools: []string{"list"}}
+	got := run(stdio)
+	for _, want := range []string{
+		"connector poster: needs_approved_output: on a command: mcp server holds the whole server",
+		"connector poster: read_tools: does nothing without url:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	loose := tracker.Connector{Name: "seo", Kind: "mcp", URL: "https://seo.example.com/mcp", ReadTools: []string{"look", "bad name", "look"}}
+	got = run(loose)
+	for _, want := range []string{
+		"connector seo: read_tools: does nothing without needs_approved_output: true",
+		`connector seo: read_tools: "bad name" is not a tool name`,
+		"connector seo: read_tools: look appears twice",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// TestLintConnectorAtNamesItsWorkflowStatuses: an at: status is checked
+// against the department's own workflow file (not Product's): one it
+// doesn't have warns, naming its statuses; at: without url:, an entry that
+// limits nothing and names that aren't tool names warn too.
+func TestLintConnectorAtNamesItsWorkflowStatuses(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	wf := filepath.Join(env.Project.Root(), "marketing.yaml")
+	if err := os.WriteFile(wf, []byte("statuses:\n  - name: draft\n  - name: publish\n  - name: measure\n  - name: done\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lint := func(cs ...tracker.Connector) string {
+		env.Project.Departments = []tracker.Department{{Name: "Marketing", Workflow: wf, Connectors: cs}}
+		var got []string
+		for _, f := range checkDepartments(env) {
+			got = append(got, f.Message)
+		}
+		return strings.Join(got, "\n")
+	}
+	good := tracker.Connector{Name: "postiz", Kind: "mcp", URL: "https://postiz.example.com/mcp", Sends: true, At: map[string]tracker.ConnectorAt{
+		"draft":   {Allow: []string{"list_integrations", "create_post"}, DenyArgs: map[string]map[string][]string{"create_post": {"type": {"now"}}}},
+		"publish": {Allow: []string{"create_post"}},
+	}}
+	if got := lint(good); strings.Contains(got, "at:") {
+		t.Errorf("a good at: block warned:\n%s", got)
+	}
+	bad := tracker.Connector{Name: "postiz", Kind: "mcp", URL: "https://postiz.example.com/mcp", At: map[string]tracker.ConnectorAt{
+		"idea":    {Allow: []string{"create_post"}},
+		"publish": {},
+		"measure": {Allow: []string{"bad name", "stats"}, DenyArgs: map[string]map[string][]string{"create_post": {"type": {"now"}}}},
+	}}
+	stdio := tracker.Connector{Name: "poster", Kind: "mcp", Command: "poster-mcp", At: map[string]tracker.ConnectorAt{"draft": {Allow: []string{"list"}}}}
+	got := lint(bad, stdio)
+	for _, want := range []string{
+		"connector postiz: at: idea is not a status of Marketing's workflow (draft, publish, measure, done): that entry never applies",
+		"connector postiz: at: publish has neither allow: nor deny_args:",
+		`connector postiz: at: measure: allow: "bad name" is not a tool name`,
+		"connector postiz: at: measure: deny_args: create_post is not in allow:",
+		"connector poster: at: does nothing without url:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "at: draft is not a status") {
+		t.Errorf("a status of the department's file warned:\n%s", got)
+	}
+}
+
+// TestLintDenyArgsPath (AC3): a deny_args: argument written as a path is
+// checked for its syntax; names, well-formed paths and a plain key with
+// other characters pass, a malformed path warns naming the key and that
+// the bridge refuses the tool until it is fixed.
+func TestLintDenyArgsPath(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	wf := filepath.Join(env.Project.Root(), "marketing.yaml")
+	if err := os.WriteFile(wf, []byte("statuses:\n  - name: publish\n  - name: done\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lint := func(args map[string][]string) string {
+		c := tracker.Connector{Name: "social", Kind: "mcp", URL: "http://127.0.0.1:4007/api/mcp", Sends: true, At: map[string]tracker.ConnectorAt{
+			"publish": {Allow: []string{"schedule"}, DenyArgs: map[string]map[string][]string{"schedule": args}},
+		}}
+		env.Project.Departments = []tracker.Department{{Name: "Marketing", Workflow: wf, Connectors: []tracker.Connector{c}}}
+		var got []string
+		for _, f := range checkDepartments(env) {
+			got = append(got, f.Message)
+		}
+		return strings.Join(got, "\n")
+	}
+	if got := lint(map[string][]string{"type": {"now"}, "socialPost[].type": {"now"}, "a.b[][].c-d": {"x"}, "my key": {"x"}}); strings.Contains(got, "deny_args") {
+		t.Errorf("good keys warned:\n%s", got)
+	}
+	got := lint(map[string][]string{"socialPost[.type": {"now"}, "a..b": {"x"}, "[]": {"x"}, "a[0].b": {"x"}})
+	for _, want := range []string{
+		`connector social: at: publish: deny_args: schedule: "socialPost[.type" is not an argument path (name, name.sub, name[].sub`,
+		`deny_args: schedule: "a..b" is not an argument path`,
+		`deny_args: schedule: "[]" is not an argument path`,
+		`deny_args: schedule: "a[0].b" is not an argument path`,
+		"until it is fixed the bridge refuses every call of schedule",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }

@@ -209,7 +209,20 @@ func TestReleaseCutAndPublishAPatch(t *testing.T) {
 	if err := runRelease(ctx, []string{"pick", "ui/p"}); err != nil {
 		t.Fatal(err)
 	}
+	// Publish's changelog move on main ("v0.54.0 is published") is skipped
+	// by name: the branch already has that heading.
+	os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte("# Changelog\n\n## Unreleased\n\n- fix P\n"), 0o644)
+	gitIn(t, root, "add", "CHANGELOG.md")
+	gitIn(t, root, "commit", "-q", "-m", "docs(changelog): fix P")
+	os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte("# Changelog\n\n## Unreleased\n\n## v0.54.0 — 2026-11-02\n\n- fix P\n"), 0o644)
+	gitIn(t, root, "commit", "-q", "-am", "docs(changelog): v0.54.0 is published")
+	moved := gitOut(t, root, "rev-parse", "--short=7", "HEAD")
 	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"pick", moved}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "✓ Skipped publish's changelog move on main ("+moved+"): release/v0.54 already has that version heading\nNothing to pick.")
+	ctx, stdout, _ = newTestContext(proj, false)
 	if err := runRelease(ctx, []string{"cut", "v0.54.1"}); err != nil {
 		t.Fatal(err)
 	}

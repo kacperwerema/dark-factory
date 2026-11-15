@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -60,6 +61,9 @@ type Link struct {
 	// Stale: a playtest link from a run whose step id is no longer in the
 	// session file (renumbered or removed since); it proves nothing.
 	Stale bool `json:"stale,omitempty"`
+	// Lead: a lead link, proven only by the lead's run of its command
+	// (lead.go).
+	Lead bool `json:"lead,omitempty"`
 }
 
 // Check is a link's check result.
@@ -126,6 +130,11 @@ type Report struct {
 	TestsAt       time.Time `json:"tests_at,omitzero"`
 	LastChange    time.Time `json:"last_change,omitzero"`
 	LastChangeSHA string    `json:"last_change_sha,omitempty"`
+	// TestsMatch is the branch commit the newest tests: comment's named
+	// commit matched when the comment is older than LastChange: the same
+	// commit or one above it, or one with its patch (amended or rebased
+	// after the run). The report then counts as after the last change.
+	TestsMatch string `json:"tests_match,omitempty"`
 	// judgement maps each playtest judgement step id (upper case) to its
 	// session, for JudgementHint.
 	judgement map[string]string
@@ -146,6 +155,16 @@ func (r Report) Unproven() []Criterion {
 // the project checkout; the issue's worktree is root/.worktrees/<slug>.
 // It never fails: a source it can't read is listed in Missing.
 func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Report {
+	return CollectWith(nil, root, issue, comments)
+}
+
+// CollectWith is Collect reading the files many issues share through cache
+// (nil reads them from disk): a page with several issues, or one that reads
+// the same sources again for its own tabs, passes one per request. Nothing
+// it reads outlives the request: a report is never kept, because it rests on
+// comments, sidecars, playtest runs and other issues' stats that no head
+// or mtime of the issue's own would show changing.
+func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comments []tracker.Comment) Report {
 	if root == "" {
 		root, _ = os.Getwd()
 	}
@@ -161,12 +180,13 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 
 	stats, _ := tracker.LoadStats(issue.FilePath)
 	r.Ref, r.RefName = timeline.GitRef(root, issue.Slug, stats.Transitions)
-	c := &checker{root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
+	c := &checker{cache: cache, root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
 	c.goModule = IsGoModule(worktree) || IsGoModule(root)
 	if r.Ref == "" {
 		r.Missing = append(r.Missing, "work/"+issue.Slug+": no branch, recorded branch head or merge sha; test and commit links can't be checked")
 	}
-	c.reportAt, c.hasReport = lastTestsComment(comments)
+	var reportText string
+	c.reportAt, reportText, c.hasReport = lastTestsComment(comments)
 
 	add := func(id string, l Link) {
 		i, ok := byID[strings.ToUpper(id)]
@@ -182,8 +202,15 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 	if err != nil {
 		r.Missing = append(r.Missing, "git log on "+r.RefName+": "+err.Error())
 	}
+	c.commits = commits
 	if lc, ok := lastChange(commits); ok {
 		c.lastChange, r.LastChange, r.LastChangeSHA = lc.at, lc.at, lc.sha
+		c.lastChangeSHA = lc.sha
+		if c.hasReport && c.reportAt.Before(lc.at) {
+			if m, ok := testedLastChange(root, reportText, commits, lc); ok {
+				c.reportMatch, r.TestsMatch = true, m
+			}
+		}
 	}
 	if c.hasReport {
 		r.TestsAt = c.reportAt
@@ -193,20 +220,20 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 			ids, tests := splitTrailer(value, prefix)
 			for _, id := range ids {
 				if len(tests) == 0 {
-					add(id, Link{Kind: tracker.ProofCommit, Ref: cm.sha, Source: SourceTrailer, From: timeline.ShortSHA(cm.sha)})
+					add(id, Link{Kind: tracker.ProofCommit, Ref: cm.sha, Source: SourceTrailer, From: gitdir.ShortSHA(cm.sha)})
 				}
 				for _, t := range tests {
-					add(id, Link{Kind: tracker.ProofTest, Ref: t, Source: SourceTrailer, From: timeline.ShortSHA(cm.sha)})
+					add(id, Link{Kind: tracker.ProofTest, Ref: t, Source: SourceTrailer, From: gitdir.ShortSHA(cm.sha)})
 				}
 			}
 		}
 	}
 
 	// proves: on playtest steps.
-	runs, problems := timeline.LoadPlaytestRuns(nil, issue.Slug, root, worktree)
+	runs, problems := timeline.LoadPlaytestRuns(cache, issue.Slug, root, worktree)
 	r.Missing = append(r.Missing, problems...)
 	c.steps = latestSteps(runs)
-	current := currentSessionSteps(root, issue)
+	current := currentSessionSteps(cache, root, issue)
 	for _, d := range declaredSteps(runs) {
 		l := Link{Kind: tracker.ProofStep, Ref: d.step, Source: SourcePlaytest, From: d.session}
 		if ids, ok := current[d.session]; ok && !ids[strings.ToUpper(d.step)] {
@@ -220,6 +247,7 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 	if err != nil {
 		r.Missing = append(r.Missing, "data sidecar: "+err.Error())
 	}
+	c.leadRuns = store.LeadRuns
 	ids := make([]string, 0, len(store.Proofs))
 	for id := range store.Proofs {
 		ids = append(ids, id)
@@ -227,7 +255,7 @@ func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Repo
 	sort.Strings(ids)
 	for _, id := range ids {
 		for _, pl := range store.Proofs[id] {
-			l := Link{Kind: pl.Kind, Ref: pl.Ref, Source: SourceProve}
+			l := Link{Kind: pl.Kind, Ref: pl.Ref, Source: SourceProve, Lead: pl.Kind == tracker.ProofLead}
 			if i, ok := byID[strings.ToUpper(id)]; ok && pl.Criterion != "" && strings.TrimSpace(pl.Criterion) != strings.TrimSpace(criteria[i].Text) {
 				l.Changed = true
 			}
@@ -350,9 +378,10 @@ func NonCode(file string) bool {
 	return strings.EqualFold(path.Ext(file), ".md") || strings.HasPrefix(strings.ToUpper(path.Base(file)), "CHANGELOG")
 }
 
-// lastTestsComment is the time of the newest tests: comment.
-func lastTestsComment(comments []tracker.Comment) (time.Time, bool) {
+// lastTestsComment is the time and text of the newest tests: comment.
+func lastTestsComment(comments []tracker.Comment) (time.Time, string, bool) {
 	var last time.Time
+	var text string
 	found := false
 	for _, c := range comments {
 		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.Text)), "tests:") {
@@ -363,10 +392,10 @@ func lastTestsComment(comments []tracker.Comment) (time.Time, bool) {
 			continue
 		}
 		if !found || at.After(last) {
-			last, found = at, true
+			last, text, found = at, c.Text, true
 		}
 	}
-	return last, found
+	return last, text, found
 }
 
 type stepVerdict struct {
@@ -426,9 +455,9 @@ func stepIDHint(issue *tracker.Issue, steps map[string]string, criterion string,
 // session file (the issue's worktree first, then the checkout) to its step
 // ids in upper case. A session without a file (archived, or another
 // project's runner) is not in the map: its runs' ids can't be checked.
-func currentSessionSteps(root string, issue *tracker.Issue) map[string]map[string]bool {
+func currentSessionSteps(cache *timeline.Cache, root string, issue *tracker.Issue) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
-	for _, s := range tracker.IssuePlaytestSessions(root, issue.Slug) {
+	for _, s := range cache.PlaytestSessions(root, issue.Slug) {
 		ids := map[string]bool{}
 		for _, st := range s.Steps {
 			ids[strings.ToUpper(strings.TrimSpace(st.ID))] = true

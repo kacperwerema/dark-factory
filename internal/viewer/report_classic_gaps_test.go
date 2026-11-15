@@ -40,7 +40,7 @@ func TestReportBuildersFromTheClassicPage(t *testing.T) {
 	m := &StatusModel{Prefix: "/p/x", AsOf: now,
 		Active:   []ActiveRow{{Issue: a, Agent: "working", Gate: "testing", Age: Age{Text: "9d", Level: "stale", Since: now.Add(-9 * 24 * time.Hour)}}},
 		InDesign: []AgentChip{{Issue: d, State: "at gate"}},
-		NotReady: 1, Waiting: []WaitingItem{{Kind: "gate", Issue: a}},
+		NotReady: 1, Waiting: []WaitingItem{{Kind: "gate", Issue: a}}, NeedsYou: []WbQueueCard{{Kind: "gate"}},
 		Versions:         []Progress{{Label: "0.1", Done: 1, Total: 2}, {Label: "0.2"}, {Label: "0.3"}, {Label: "0.4"}, {Label: "0.5", Total: 1}},
 		VersionsProgress: Progress{Done: 1, Total: 3},
 		Milestone: &MilestoneView{Version: "0.1", Cut: "v0.1.0",

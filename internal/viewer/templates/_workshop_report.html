@@ -365,7 +365,7 @@ release flow reads the same on both pages.
     {{if .DoneToday}}
     <div class="wb-rel-list" data-testid="status.queue.done">
         <div class="wb-rsub">Done today</div>
-        {{range .DoneToday}}<span class="wb-rel-meta">{{.ID}}. [x] {{with .SHA}}<code class="wb-code">{{.}}</code> {{end}}{{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</span>
+        {{range .DoneToday}}<span class="wb-rel-meta">{{.ID}}. [x] {{with .SHA}}<code class="wb-code">{{.}}</code> {{end}}{{if .NotOnMain}}<span data-testid="status.queue.not_on_main">done (not on main)</span> {{end}}{{if .URL}}<a href="{{.URL}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</span>
         {{end}}
     </div>
     {{end}}
@@ -373,6 +373,7 @@ release flow reads the same on both pages.
         <div class="wb-rsub">Now</div>
         <code class="wb-code" data-testid="status.queue.verdict">{{.Verdict}}</code>
         <span class="wb-rel-meta">The CEO starts it at a check-in ({{.Cmd}}); nothing here starts a worker.</span>
+        {{if .LeadWaits}}<span class="wb-rel-meta" data-testid="status.queue.lead_waits">{{.LeadWaits}} {{if eq .LeadWaits 1}}criterion waits{{else}}criteria wait{{end}} on the lead's command ({{.LeadCmd}} lists them)</span>{{end}}
     </div>
     {{end}}
 </section>
@@ -446,6 +447,15 @@ release flow reads the same on both pages.
         {{with .Stop}}<span class="wb-chip wb-chip--you" data-testid="report.bench.stop">{{.}}</span>{{end}}
         {{with .Delta}}<span class="wb-chip {{if eq $r.Tone "red"}}wb-chip--you{{else if eq $r.Tone "green"}}wb-chip--green{{else}}wb-chip--idle{{end}}" data-testid="report.bench.delta">{{.}}</span>{{end}}
         <span class="wb-rel-meta">Next run from your shell: <code class="wb-code">{{.Cmd}}</code></span>
+        {{with .Agents}}
+        <div class="wb-rsub">By agent · run {{.RunID}}, mean per task</div>
+        <table class="wb-table wb-table--stack wb-bench-agents" data-testid="report.bench.agents">
+            <thead><tr><th scope="col">Type</th><th scope="col">Agent</th><th scope="col">Pass</th><th scope="col">Time · tokens · cost</th></tr></thead>
+            <tbody>{{range .Rows}}<tr data-testid="report.bench.agent.{{tid .Type}}.{{tid .Agent}}"><th scope="row">{{.Type}}</th><td data-label="Agent">{{.Agent}}</td><td data-label="Pass">{{.PassText}}</td><td data-label="Time · tokens · cost">{{.WallText}} · {{.TokensText}} · {{.CostText}}{{with .NotScored}} · {{.}} not scored{{end}}</td></tr>{{end}}</tbody>
+        </table>
+        {{range .Routing}}<span class="wb-chip wb-bench-route {{if eq .Tone "red"}}wb-chip--you{{else if eq .Tone "green"}}wb-chip--green{{else}}wb-chip--idle{{end}}" data-testid="report.bench.routing">{{.Text}}</span>{{end}}
+        {{with .Prices}}<span class="wb-rel-meta" data-testid="report.bench.prices">{{.}}</span>{{end}}
+        {{end}}
         {{end}}
     </div>
     {{end}}

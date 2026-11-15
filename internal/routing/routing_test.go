@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -204,5 +205,188 @@ func TestMarkRecordsARestOnceAndTheOwnerCanClearIt(t *testing.T) {
 	st, _ = Load(dir)
 	if got := StateWords("codex", st, false, now); got != "resting until 14:32 (set by the owner)" {
 		t.Errorf("owner's rest: %q", got)
+	}
+}
+
+// The lines as the CLIs print them: a real pane footer, Claude's other form
+// and Codex's warning (see usage.go for each one's source).
+func TestFindUsageReadsTheWeeklyLineOfEachCLI(t *testing.T) {
+	footer := "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt\n  You've used 92% of your weekly limit · resets Nov 5 at 8am (Europe/Warsaw) …\n"
+	u, ok := FindUsage("", footer, now)
+	want := time.Date(2026, 11, 5, 8, 0, 0, 0, warsaw)
+	if !ok || u.Agent != "claude" || u.Percent != 92 || !u.Until.Equal(want) || !u.KnownReset {
+		t.Fatalf("footer: %+v ok=%v, want claude 92%% until %v", u, ok, want)
+	}
+	u, ok = FindUsage("", "Over 98% of your weekly limit used · resets 5pm (Europe/Warsaw)", now)
+	if !ok || u.Percent != 98 || u.Agent != "claude" {
+		t.Fatalf("over form: %+v ok=%v", u, ok)
+	}
+	u, ok = FindUsage("", "⚠ Heads up, you have less than 5% of your weekly limit left. Run /status for a breakdown.", now)
+	if !ok || u.Agent != "codex" || u.Percent != 95 || u.KnownReset || !u.Until.Equal(now.Add(UnknownRest)) {
+		t.Fatalf("codex: %+v ok=%v", u, ok)
+	}
+	if u, ok := FindUsage("codex", footer, now); ok {
+		t.Errorf("a claude line read as codex: %+v", u)
+	}
+}
+
+func TestFindUsageLeavesOutWhatIsNotTheWeekNow(t *testing.T) {
+	cases := map[string]string{
+		"session limit": "You've used 99% of your session limit · resets 5pm (Europe/Warsaw)",
+		"model limit":   "You've used 99% of your Opus limit · resets 5pm (Europe/Warsaw)",
+		"codex 5h":      "Heads up, you have less than 5% of your 5h limit left. Run /status for a breakdown.",
+		"a diff":        "+ You've used 98% of your weekly limit · resets 5pm (Europe/Warsaw)",
+		"a quote":       `  {"claude", "You've used 98% of your weekly limit · resets 5pm"},`,
+		"prose":         "the line says You've used 98% of your weekly limit · resets 5pm",
+		"past reset":    "You've used 99% of your weekly limit · resets Oct 29 at 8am (Europe/Warsaw)",
+		"scrolled away": "You've used 98% of your weekly limit · resets 5pm (Europe/Warsaw)\n" + strings.Repeat("output\n", scanTail),
+	}
+	for name, pane := range cases {
+		t.Run(name, func(t *testing.T) {
+			if u, ok := FindUsage("", pane, now); ok {
+				t.Errorf("read %+v from %q", u, pane)
+			}
+		})
+	}
+}
+
+// A real weekly limit names its date with "at", and a stale date stays in
+// the past instead of becoming next year's.
+func TestClaudeResetDates(t *testing.T) {
+	l, ok := FindLimit("", "You've hit your weekly limit · resets Nov 5 at 8am (Europe/Warsaw)", now)
+	if !ok || !l.KnownReset || !l.Until.Equal(time.Date(2026, 11, 5, 8, 0, 0, 0, warsaw)) {
+		t.Errorf("at form: %+v", l)
+	}
+	l, _ = FindLimit("", "You've hit your weekly limit · resets Oct 29 at 8am (Europe/Warsaw)", now)
+	if l.Until.After(now) {
+		t.Errorf("a stale date became %v", l.Until)
+	}
+	dec := time.Date(2026, 12, 30, 12, 0, 0, 0, warsaw)
+	l, _ = FindLimit("", "You've hit your weekly limit · resets Jan 2 at 8am (Europe/Warsaw)", dec)
+	if !l.Until.Equal(time.Date(2027, 1, 2, 8, 0, 0, 0, warsaw)) {
+		t.Errorf("over new year: %v", l.Until)
+	}
+}
+
+func usageAt(pct int, until time.Time) Usage {
+	return Usage{Agent: "claude", Percent: pct, Until: until, KnownReset: true, Line: fmt.Sprintf("You've used %d%%", pct)}
+}
+
+func TestSeeUsageRestsAtTheStopPointAndKeepsTheWeeksHighest(t *testing.T) {
+	dir := t.TempDir()
+	reset := now.Add(72 * time.Hour)
+	if rested, err := SeeUsage(dir, usageAt(97, reset), 98, "p", "agent-a", now); rested || err != nil {
+		t.Fatalf("97 of 98: rested=%v err=%v", rested, err)
+	}
+	st, _ := Load(dir)
+	if _, ok := st.Resting("claude", now); ok {
+		t.Fatal("under the stop point and resting")
+	}
+	if u, ok := st.UsageOf("claude", now); !ok || u.Percent != 97 || u.Session != "agent-a" {
+		t.Fatalf("reading = %+v", u)
+	}
+	if rested, _ := SeeUsage(dir, usageAt(98, reset), 98, "p", "agent-b", now); !rested {
+		t.Fatal("98 of 98 did not rest")
+	}
+	SeeUsage(dir, usageAt(92, reset), 98, "p", "agent-old", now)
+	st, _ = Load(dir)
+	r, ok := st.Resting("claude", now)
+	if !ok || !r.Until.Equal(reset) || r.By != "stop" || r.Percent != 98 || r.StopAt != 98 || r.Session != "agent-b" {
+		t.Fatalf("rest = %+v ok=%v", r, ok)
+	}
+	if u, _ := st.UsageOf("claude", now); u.Percent != 98 {
+		t.Errorf("a lower pane undid the week's percent: %+v", u)
+	}
+	if _, ok := st.UsageOf("claude", reset); ok {
+		t.Error("the reading outlived its reset")
+	}
+	if _, ok := st.Resting("claude", reset); ok {
+		t.Error("the rest outlived its reset")
+	}
+}
+
+func TestStopPointHundredNeverRests(t *testing.T) {
+	dir := t.TempDir()
+	if rested, _ := SeeUsage(dir, usageAt(99, now.Add(time.Hour)), 100, "p", "s", now); rested {
+		t.Error("stop_at 100 rested at 99, the most Claude prints")
+	}
+}
+
+func TestClearHoldsUntilAHigherPercentShows(t *testing.T) {
+	dir := t.TempDir()
+	reset := now.Add(72 * time.Hour)
+	SeeUsage(dir, usageAt(98, reset), 98, "p", "agent-a", now)
+	if found, err := Clear(dir, "claude", now); !found || err != nil {
+		t.Fatalf("clear: %v %v", found, err)
+	}
+	for _, session := range []string{"agent-a", "agent-b"} {
+		if rested, _ := SeeUsage(dir, usageAt(98, reset), 98, "p", session, now.Add(time.Minute)); rested {
+			t.Fatalf("the cleared percent rested again from %s", session)
+		}
+	}
+	if rested, _ := SeeUsage(dir, usageAt(99, reset), 98, "p", "agent-a", now.Add(time.Minute)); !rested {
+		t.Fatal("a higher percent did not rest")
+	}
+}
+
+// A line with no reset ends after UnknownRest even while it stays on the pane.
+func TestAReadingWithNoResetEndsWhileItsLineStaysOnThePane(t *testing.T) {
+	dir := t.TempDir()
+	u, _ := FindUsage("", "Heads up, you have less than 5% of your weekly limit left.", now)
+	if rested, _ := SeeUsage(dir, u, 90, "p", "agent-a", now); !rested {
+		t.Fatal("codex at 95 of 90 did not rest")
+	}
+	later := now.Add(UnknownRest + time.Minute)
+	u, _ = FindUsage("", "Heads up, you have less than 5% of your weekly limit left.", later)
+	if rested, _ := SeeUsage(dir, u, 90, "p", "agent-a", later); rested {
+		t.Fatal("the same line started another rest")
+	}
+	st, _ := Load(dir)
+	if _, ok := st.UsageOf("codex", later); ok {
+		t.Error("the reading did not end")
+	}
+}
+
+func TestAgentAtItsStopPointFallsBackAndBothHoldWithTheReason(t *testing.T) {
+	old := Installed
+	Installed = func(string) bool { return true }
+	t.Cleanup(func() { Installed = old })
+	dir := t.TempDir()
+	cfg := &tracker.RoutingConfig{Default: "claude", Fallback: []string{"claude", "codex"}, Rules: []tracker.RoutingRule{{Type: "feature", Agent: "claude"}}}
+	subj := Subject{Type: "feature"}
+	reset := time.Date(2026, 11, 5, 8, 0, 0, 0, warsaw)
+	SeeUsage(dir, usageAt(98, reset), cfg.StopPoint("claude"), "p", "agent-a", now)
+	st, _ := Load(dir)
+	c := Pick(cfg, subj, "", st, now)
+	if c.Agent != "codex" || !c.Fallback || c.Hold != "" || !strings.Contains(c.Why, "at its stop point 98%") {
+		t.Fatalf("one at its stop point: %+v", c)
+	}
+	if c := Pick(cfg, subj, "claude", st, now); c.Agent != "claude" || c.Warning == "" {
+		t.Errorf("--agent claude: %+v", c)
+	}
+	SeeUsage(dir, Usage{Agent: "codex", Percent: 97, Until: reset, KnownReset: true, Line: "x"}, 96, "p", "agent-b", now)
+	st, _ = Load(dir)
+	c = Pick(cfg, subj, "", st, now)
+	want := "every agent to try is resting (claude until Thu 08:00 at its stop point 98%, codex until Thu 08:00 at its stop point 96%)"
+	if c.Hold != want {
+		t.Fatalf("hold = %q, want %q", c.Hold, want)
+	}
+}
+
+func TestStateWordsCarryThePercent(t *testing.T) {
+	dir := t.TempDir()
+	reset := now.Add(72 * time.Hour)
+	if got := StateWords("claude", &State{}, true, now); got != "working" {
+		t.Errorf("no reading: %q", got)
+	}
+	SeeUsage(dir, usageAt(92, reset), 98, "p", "agent-a", now)
+	st, _ := Load(dir)
+	if got, want := StateWords("claude", st, true, now), "working · 92% of the weekly limit"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	SeeUsage(dir, usageAt(98, reset), 98, "p", "agent-b", now)
+	st, _ = Load(dir)
+	if got := StateWords("claude", st, true, now); !strings.Contains(got, "used 98%, stop point 98%, seen in agent-b") {
+		t.Errorf("at the stop point: %q", got)
 	}
 }

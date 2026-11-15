@@ -4,12 +4,12 @@
 <body class="wb">
 <div class="wb-app">
 {{template "wb/header" .Header}}
-<main class="wb-odoc" data-testid="odoc.page" data-output="{{.Row.ID}}" data-comment-url="{{.CommentURL}}" data-resolve-url="{{.ResolveURL}}">
-{{template "wb/odoc-toc" .Toc}}
+<main class="wb-odoc{{if .Video}} wb-odoc--video{{end}}" data-testid="odoc.page" data-output="{{.Row.ID}}" data-comment-url="{{.CommentURL}}" data-resolve-url="{{.ResolveURL}}">
+{{if not .Video}}{{template "wb/odoc-toc" .Toc}}{{end}}
 <article class="wb-odoc-reader" data-testid="odoc.reader">
     {{template "wb/odoc-head" .}}
     {{template "wb/odoc-bar" .}}
-    {{if .Diff}}{{template "wb/odoc-diff" .Diff}}{{else}}{{template "wb/odoc-sheet" .}}{{end}}
+    {{if .Video}}{{template "wb/odoc-video" .}}{{else if .Diff}}{{template "wb/odoc-diff" .Diff}}{{else}}{{template "wb/odoc-sheet" .}}{{end}}
 </article>
 {{template "wb/odoc-margin" .}}
 <button type="button" class="wb-odoc-pop" data-odoc-pop hidden data-testid="odoc.pop">💬 Comment on this passage</button>

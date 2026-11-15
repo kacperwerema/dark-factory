@@ -105,6 +105,37 @@ func TestUncheckBoxesUpperCaseX(t *testing.T) {
 	}
 }
 
+// Unticking withdraws the box's N/A; a later tick must not inherit it.
+func TestUncheckBoxesWithdrawsTheNA(t *testing.T) {
+	cases := map[string]string{
+		"  - [x] ux-test passed (N/A: no page changes)":                    "  - [ ] ux-test passed",
+		"- [X] Tests pass (n/a: the repro is an automated test (TestFoo))": "- [ ] Tests pass",
+		"- [x] Bug gone (owner) (N/A: no page changes)":                    "- [ ] Bug gone (owner)",
+		"- [x] Manual check — N/A: runner-internal, covered by TestRunner": "- [ ] Manual check",
+		"- [x] Session passed (or N/A: no playtest session, with reason)":  "- [ ] Session passed (or N/A: no playtest session, with reason)",
+		"- [x] Forms are listed in the N/A: section":                       "- [ ] Forms are listed in the N/A: section",
+		"- [x] Plain box (with parens)":                                    "- [ ] Plain box (with parens)",
+	}
+	for in, want := range cases {
+		body, unticked, _, err := UncheckBoxes("## Testing\n"+in, []string{"T1"})
+		if err != nil || len(unticked) != 1 {
+			t.Fatalf("UncheckBoxes(%q): unticked %v, err %v", in, unticked, err)
+		}
+		if got := strings.TrimPrefix(body, "## Testing\n"); got != want {
+			t.Errorf("UncheckBoxes(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A box already open is reported, not rewritten: the command changed nothing.
+func TestUncheckBoxesLeavesAnOpenBoxAlone(t *testing.T) {
+	in := "## Testing\n- [ ] Open (N/A: still reads the same)"
+	body, _, already, err := UncheckBoxes(in, []string{"T1"})
+	if err != nil || body != in || len(already) != 1 {
+		t.Fatalf("body = %q, already = %v, err = %v", body, already, err)
+	}
+}
+
 func TestAppendSectionSkipsStartersInTheAuthorsSection(t *testing.T) {
 	wf := &WorkflowConfig{
 		Statuses: []WorkflowStatus{{Name: "idea"}, {Name: "in design"}, {Name: "backlog"}},

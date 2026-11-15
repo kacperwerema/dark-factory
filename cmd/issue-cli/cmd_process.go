@@ -19,8 +19,11 @@ var processCommand = &Command{
 
 Topics:
   (none)         Show high-level overview
-  workflow       Status lifecycle (--type <name> for one type of work)
-  transitions    Transition rules (--system <name>, --type <name> or <issue-slug>)
+  workflow       Status lifecycle (--type <name> for one type of work,
+                 --department <name> for a department's file, --file <path>
+                 for a candidate file before it replaces the live one)
+  transitions    Transition rules (--system <name>, --type <name>, <issue-slug>,
+                 --department <name> or --file <path>)
   format         Issue file format
   testing        Test plan convention
   playtest       Manual checks as runnable sessions (playtest web | game: examples)
@@ -51,7 +54,11 @@ func runProcess(ctx *Context, args []string) error {
 	fs.String("system", "", "system overlay (transitions)")
 	fs.String("workflow", "", "alias for --system (transitions)")
 	fs.String("department", "", "department with its own workflow file (workflow, transitions)")
+	fs.String("file", "", "a candidate workflow file, read only (workflow, transitions)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	if err := refuseWorkflowPath(fs.Lookup("workflow").Value.String()); err != nil {
 		return err
 	}
 	topic, topicName := "", ""
@@ -146,22 +153,36 @@ func normalizeTopic(topic string) string {
 }
 
 func runProcessWorkflow(ctx *Context, args []string) error {
-	if ctx.Project == nil {
-		return fmt.Errorf("process workflow needs a project — pass --project <slug> or run from a project root")
-	}
 	fs := newFlagSet("process workflow", ctx)
 	typeArg := fs.String("type", "", "show the lifecycle of one type of work")
 	deptArg := fs.String("department", "", "show the lifecycle of a department with its own workflow file")
+	fileArg := fs.String("file", "", "show a candidate workflow file, read only, before it replaces the live one")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
-	dept, err := departmentFlag(ctx.Project, *deptArg)
-	if err != nil {
-		return err
-	}
-	base, err := ctx.Project.WorkflowFor(dept)
-	if err != nil {
-		return err
+	var (
+		base      *tracker.WorkflowConfig
+		dept      string
+		candidate string
+		err       error
+	)
+	switch {
+	case strings.TrimSpace(*fileArg) != "":
+		if strings.TrimSpace(*deptArg) != "" {
+			return fmt.Errorf("--file and --department name two different files: --file shows the candidate as written, --department the department's live file; pass one")
+		}
+		if base, candidate, err = candidateWorkflow(*fileArg); err != nil {
+			return err
+		}
+	case ctx.Project == nil:
+		return fmt.Errorf("process workflow needs a project — pass --project <slug> or run from a project root (or --file <path> to read one workflow file)")
+	default:
+		if dept, err = departmentFlag(ctx.Project, *deptArg); err != nil {
+			return err
+		}
+		if base, err = ctx.Project.WorkflowFor(dept); err != nil {
+			return err
+		}
 	}
 	wf := base
 	typeFlag := strings.TrimSpace(*typeArg)
@@ -177,8 +198,12 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 	} else {
 		fmt.Fprintln(ctx.Stdout, "== Status Lifecycle ==")
 	}
-	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, base))
-	printWorkflowDepartments(ctx.Stdout, ctx.Project, dept, "process workflow")
+	if candidate != "" {
+		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", candidateLabel(candidate))
+	} else {
+		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(ctx.Project, base))
+		printWorkflowDepartments(ctx.Stdout, ctx.Project, dept, "process workflow")
+	}
 	statusOrder := wf.GetStatusOrder()
 	statusDescs := wf.GetStatusDescriptions()
 	for i, s := range statusOrder {
@@ -192,6 +217,12 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 		if st := wf.GetStatus(s); st != nil && st.Optional {
 			name = s + " (optional)"
 		}
+		if role := wf.RoleOf(s); role != "" {
+			desc = strings.TrimSpace(desc + " [role: " + role + "]")
+		}
+		if wf.IsFreshStatus(s) {
+			desc = strings.TrimSpace(fmt.Sprintf("%s [session: fresh, briefing budget %d tokens]", desc, wf.BriefingBudgetFor(s)))
+		}
 		if desc != "" {
 			fmt.Fprintf(ctx.Stdout, "%-24s  %s\n", name, desc)
 		} else {
@@ -202,8 +233,23 @@ func runProcessWorkflow(ctx *Context, args []string) error {
 		printTypesBlock(ctx.Stdout, base)
 	}
 	printEvalsLine(ctx.Stdout, base)
+	printFreshLine(ctx.Stdout, wf)
+	if candidate != "" {
+		printCandidateLint(ctx.Stdout, candidate, ctx.Project, "process workflow")
+		return nil
+	}
 	printLintBlock(ctx.Stdout, base, staleRecordWarning(ctx.Project))
 	return nil
+}
+
+// printFreshLine says what session: fresh means, when a status has it.
+func printFreshLine(w io.Writer, wf *tracker.WorkflowConfig) {
+	for _, s := range wf.Statuses {
+		if wf.IsFreshStatus(s.Name) {
+			fmt.Fprintln(w, "\nsession: fresh: entering that status, the worker writes HANDOFF.md and ends its turn; the lead's issue-cli dispatch <slug> --fresh starts a new session in the same worktree on a briefing of paths only (docs/workflow.md#fresh-session-per-stage).")
+			return
+		}
+	}
 }
 
 // checkTypeFlag rejects --type in a project without types, or an unknown name.
@@ -300,11 +346,8 @@ func runProcessSystems(ctx *Context) error {
 }
 
 func runProcessTransitions(ctx *Context, args []string) error {
-	if ctx.Project == nil {
-		return fmt.Errorf("process transitions needs a project — pass --project <slug> or run from a project root")
-	}
 	proj := ctx.Project
-	wf := proj.LoadWorkflow()
+	var wf *tracker.WorkflowConfig
 
 	var (
 		system       string
@@ -318,15 +361,31 @@ func runProcessTransitions(ctx *Context, args []string) error {
 	workflowArg := fs.String("workflow", "", "alias for --system")
 	typeArg := fs.String("type", "", "scope the rules to a type of work")
 	deptArg := fs.String("department", "", "the rules of a department with its own workflow file")
+	fileArg := fs.String("file", "", "the rules of a candidate workflow file, read only, before it replaces the live one")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
-	dept, err := departmentFlag(proj, *deptArg)
-	if err != nil {
+	if err := refuseWorkflowPath(*workflowArg); err != nil {
 		return err
 	}
 	if fs.NArg() > 1 {
 		return unexpectedArgError(fs, fs.Arg(1))
+	}
+	candidate := strings.TrimSpace(*fileArg)
+	switch {
+	case candidate != "" && strings.TrimSpace(*deptArg) != "":
+		return fmt.Errorf("--file and --department name two different files: --file shows the candidate as written, --department the department's live file; pass one")
+	case candidate != "" && fs.NArg() == 1:
+		return fmt.Errorf("--file and an issue slug name two different files: --file shows the candidate as written, the slug its department's live file; pass --type/--system with --file instead")
+	case candidate == "" && proj == nil:
+		return fmt.Errorf("process transitions needs a project — pass --project <slug> or run from a project root (or --file <path> to read one workflow file)")
+	}
+	var dept string
+	var err error
+	if candidate == "" {
+		if dept, err = departmentFlag(proj, *deptArg); err != nil {
+			return err
+		}
 	}
 	systemFlag := *systemArg
 	if systemFlag == "" {
@@ -355,7 +414,11 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		systemSource = fmt.Sprintf("--system %s", systemFlag)
 	}
 
-	if wf, err = proj.WorkflowFor(dept); err != nil {
+	if candidate != "" {
+		if wf, candidate, err = candidateWorkflow(candidate); err != nil {
+			return err
+		}
+	} else if wf, err = proj.WorkflowFor(dept); err != nil {
 		return err
 	}
 	if typeFlag != "" {
@@ -391,8 +454,12 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		header = fmt.Sprintf("== Transition Rules — system %q ==", system)
 	}
 	fmt.Fprintln(ctx.Stdout, header)
-	fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(proj, wf))
-	if !hasIssueRef {
+	if candidate != "" {
+		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", candidateLabel(candidate))
+	} else {
+		fmt.Fprintf(ctx.Stdout, "Workflow file: %s\n", issueWorkflowFileLabel(proj, wf))
+	}
+	if !hasIssueRef && candidate == "" {
 		printWorkflowDepartments(ctx.Stdout, proj, dept, "process transitions")
 	}
 	if wf.HasTypes() && scoped.ActiveType == "" {
@@ -459,6 +526,10 @@ func runProcessTransitions(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, "This is the project's default workflow. Per-system overlays are configured for:")
 		fmt.Fprintf(ctx.Stdout, "  %s\n", strings.Join(names, ", "))
 		fmt.Fprintln(ctx.Stdout, "Run 'issue-cli process transitions --system <name>' or 'issue-cli process transitions <issue-slug>' to see the rules for a specific workflow.")
+	}
+	if candidate != "" {
+		printCandidateLint(ctx.Stdout, candidate, proj, "process transitions")
+		return nil
 	}
 	// The Product hall draws this workflow; point the owner at a station.
 	if dept == "" && len(statusOrder) > 0 {

@@ -45,6 +45,17 @@ type Comparison struct {
 	// NotMapped its files no workflow reads; empty without --branch.
 	Branch    string   `json:"branch,omitempty"`
 	NotMapped []string `json:"not_mapped,omitempty"`
+	// ByAgent is the table by agent and type when the runs hold two agents
+	// between them; Routing what it says of the project's routing: rules,
+	// set by the caller, which knows the project (CheckRouting).
+	ByAgent *AgentTable    `json:"by_agent,omitempty"`
+	Routing []RoutingCheck `json:"routing,omitempty"`
+	// Stages is the runs by stage (CompareByStage), from the tasks' traces;
+	// empty when no task is traced in both.
+	Stages []StageDelta `json:"stages,omitempty"`
+	// StageScores is each stage's score in both runs (CompareStageScores);
+	// empty when no task has stage records in both.
+	StageScores []StageScoreDelta `json:"stage_scores,omitempty"`
 }
 
 // Regressed reports whether B is worse than A: a task that passed in A fails
@@ -75,38 +86,39 @@ func Compare(a, b *Run) Comparison {
 	}
 	byTask := map[string]TaskRecord{}
 	for _, t := range a.Tasks {
-		byTask[t.Task] = t
+		byTask[t.Key()] = t
 	}
 	seen := map[string]bool{}
 	for _, tb := range b.Tasks {
-		ta, ok := byTask[tb.Task]
+		key := tb.Key()
+		ta, ok := byTask[key]
 		if !ok {
 			c.Comparable = false
-			warn("%s is only in %s", tb.Task, b.ID)
+			warn("%s is only in %s", key, b.ID)
 			continue
 		}
-		seen[tb.Task] = true
-		d := TaskDelta{Task: tb.Task, A: ta.Outcome, B: tb.Outcome, JudgeA: ta.Judge, JudgeB: tb.Judge,
+		seen[key] = true
+		d := TaskDelta{Task: key, A: ta.Outcome, B: tb.Outcome, JudgeA: ta.Judge, JudgeB: tb.Judge,
 			TokensDelta: tb.Usage.Tokens() - ta.Usage.Tokens(), USDDelta: tb.Usage.USD - ta.Usage.USD,
 			WallDelta: tb.WallSec - ta.WallSec}
 		c.Tasks = append(c.Tasks, d)
 		switch {
 		case ta.Outcome == OutcomePass && tb.Outcome != OutcomePass && tb.Outcome != OutcomeBroken:
-			c.Regressions = append(c.Regressions, tb.Task)
+			c.Regressions = append(c.Regressions, key)
 		case ta.Outcome != OutcomePass && tb.Outcome == OutcomePass:
-			c.Improved = append(c.Improved, tb.Task)
+			c.Improved = append(c.Improved, key)
 		}
 		if ta.Usage.Model != "" && tb.Usage.Model != "" && ta.Usage.Model != tb.Usage.Model {
-			warn("%s: model %s in %s, %s in %s", tb.Task, ta.Usage.Model, a.ID, tb.Usage.Model, b.ID)
+			warn("%s: model %s in %s, %s in %s", key, ta.Usage.Model, a.ID, tb.Usage.Model, b.ID)
 		}
 		if ta.Usage.ToolVersion != "" && tb.Usage.ToolVersion != "" && ta.Usage.ToolVersion != tb.Usage.ToolVersion {
-			warn("%s: Claude Code %s in %s, %s in %s", tb.Task, ta.Usage.ToolVersion, a.ID, tb.Usage.ToolVersion, b.ID)
+			warn("%s: Claude Code %s in %s, %s in %s", key, ta.Usage.ToolVersion, a.ID, tb.Usage.ToolVersion, b.ID)
 		}
 	}
 	for _, ta := range a.Tasks {
-		if !seen[ta.Task] {
+		if !seen[ta.Key()] {
 			c.Comparable = false
-			warn("%s is only in %s", ta.Task, a.ID)
+			warn("%s is only in %s", ta.Key(), a.ID)
 		}
 	}
 	if a.Holdout.Total != b.Holdout.Total {
@@ -131,6 +143,9 @@ func Compare(a, b *Run) Comparison {
 	c.USDDelta = b.SpentUSD - a.SpentUSD
 	c.WallDelta = b.Summary.WallSec - a.Summary.WallSec
 	c.Workflows = CompareByWorkflow(a, b)
+	c.ByAgent = ByAgent(a, b)
+	c.Stages = CompareByStage(a, b)
+	c.StageScores = CompareStageScores(a, b)
 	return c
 }
 

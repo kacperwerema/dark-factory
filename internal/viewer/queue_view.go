@@ -8,6 +8,8 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/proof"
 	"github.com/kacperwerema/dark-factory/internal/queue"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
@@ -24,14 +26,15 @@ const queueCardRows = 5
 
 // QueueRow is one item on the card.
 type QueueRow struct {
-	ID      int
-	Label   string
-	URL     string // the issue page; "" for an idea
-	Idea    bool
-	Started bool
-	Hold    string
-	Blocked bool
-	SHA     string // done items
+	ID        int
+	Label     string
+	URL       string // the issue page; "" for an idea
+	Idea      bool
+	Started   bool
+	Hold      string
+	Blocked   bool
+	SHA       string // done items
+	NotOnMain bool   // done with its work branch not on main: no SHA
 }
 
 // QueueView is what the Report and status.md show of the queue.
@@ -49,6 +52,10 @@ type QueueView struct {
 	// Paused is the owner's pause from the Crew page; PauseLine says it.
 	Paused    bool
 	PauseLine string
+	// LeadWaits counts the criteria waiting on the lead's command (lead
+	// proof links with no passing run); queue next lists them.
+	LeadWaits int
+	LeadCmd   string
 }
 
 // queueView reads the project's queue; nil when it has none.
@@ -91,12 +98,17 @@ func queueView(proj *tracker.Project, issues []*tracker.Issue, prefix string, no
 	}
 	v.More = v.Active - len(v.Next)
 	for _, it := range q.DoneOn(now) {
-		r := QueueRow{ID: it.ID, Label: it.Label(), SHA: tracker.ShortSHA(it.DoneSHA)}
+		r := QueueRow{ID: it.ID, Label: it.Label(), SHA: gitdir.ShortSHA(it.DoneSHA), NotOnMain: it.DoneSHA == "" && it.Note == queue.NotOnMain}
 		if it.Slug != "" {
 			r.URL = prefix + "/issue/" + it.Slug
 		}
 		v.DoneToday = append(v.DoneToday, r)
 	}
+	closed := tracker.ClosedIssueFunc(proj)
+	for _, issue := range issues {
+		v.LeadWaits += len(proof.IssueLeadWaits(issue, closed))
+	}
+	v.LeadCmd = tracker.InjectProject(proj, "issue-cli queue next")
 	v.Empty = v.Active == 0
 	if verdict.Start && verdict.Item != nil {
 		v.Verdict = fmt.Sprintf("start %s (item %d)", verdict.Item.Slug, verdict.Item.ID)
@@ -119,6 +131,9 @@ func queueStatusLine(v *QueueView) string {
 		parts = append(parts, "next "+v.Next[0].Label)
 	} else {
 		parts = append(parts, "only \"think up more\" left")
+	}
+	if v.LeadWaits > 0 {
+		parts = append(parts, fmt.Sprintf("%d waiting on the lead", v.LeadWaits))
 	}
 	return "Queue: " + strings.Join(parts, " · ") + " · now: " + v.Verdict + " (" + v.Cmd + ")"
 }

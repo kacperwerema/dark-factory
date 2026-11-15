@@ -259,3 +259,31 @@ func writeDeptFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A system named after a department warns: the issue is still Product's.
+func TestCreateWarnsOnASystemNamingADepartment(t *testing.T) {
+	proj := makeDepartmentProject(t)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCreate(ctx, []string{"--title", "Keyword scan", "--system", "Marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	assertContains(t, s, "⚠ System Marketing names a department, but this issue is Product's")
+	assertContains(t, s, "issue-cli set-meta marketing/keyword-scan --key department --value Marketing")
+
+	// Every way of being in the department, and a plain system, stays quiet.
+	for _, args := range [][]string{
+		{"--title", "Filed", "--system", "Marketing", "--department", "Marketing", "--status", "brief"},
+		{"--title", "Listed", "--system", "SEO", "--status", "brief"},
+		{"--title", "Plain", "--system", "CLI"},
+		{"--title", "No system"},
+	} {
+		out.Reset()
+		if err := runCreate(ctx, args); err != nil {
+			t.Fatalf("create %v: %v", args, err)
+		}
+		if strings.Contains(out.String(), "⚠") {
+			t.Errorf("create %v warned:\n%s", args, out)
+		}
+	}
+}

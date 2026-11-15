@@ -6,7 +6,7 @@
 // in the issue's data sidecar (tracker.DataStore.Experiment): the
 // hypothesis, the retros it came from, the target metric, the two benchmark
 // runs and the verdict. The verdict is advice; adopting the change is the
-// owner's, even in YOLO (cmd/issue-cli yolo_gate.go).
+// owner's, even in YOLO (internal/yolo/eligible.go).
 package experiment
 
 import (

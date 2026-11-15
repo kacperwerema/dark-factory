@@ -1,0 +1,25 @@
+session: buttons-lead-chat
+issue: ui/fewer-buttons-one-primary-action-per-page-and-card-the-rest-under-more-the-rule-written-down-and-guarded
+title: "The CEO chat shows Attach, Send, Interrupt and More; More unfolds the rest at every width"
+scenario: leads
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied, one_primary]
+  console: no_errors
+
+steps:
+  - id: TP7
+    title: The CEO chat shows 6 actions; More unfolds Send now, Mode, Show details, To background, Stop session and the key pad, and Less folds them again
+    proves: [AC1, AC2, AC3]
+    setup:
+      - open: /p/{project}/lead
+    act:
+      - check: { buttons: { max: 6 } }
+      - check: { visible: [lead_chat.send, lead_chat.key.escape, lead_chat.keys_more] }
+      - check: { hidden: [lead_chat.send_now, lead_chat.mode_switch, lead_chat.key.ctrl_c, lead_chat.key.expand, lead_chat.key.up] }
+      - click: lead_chat.keys_more
+      - check: { visible: [lead_chat.send_now, lead_chat.mode_switch, lead_chat.key.send_now, lead_chat.key.ctrl_c, lead_chat.key.expand, lead_chat.key.background, lead_chat.key.up, lead_chat.key.enter, lead_chat.key.1] }
+      - click: lead_chat.keys_more
+    checks:
+      - hidden: [lead_chat.send_now, lead_chat.key.ctrl_c]

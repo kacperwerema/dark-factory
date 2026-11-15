@@ -1,7 +1,8 @@
 # Department connectors: Marketing (system SEO) has three. wordpress's
 # secret is env:HOME, which every shell sets, so it reads "set" with no real
 # credential and its check passes; search-console's is an env var nobody
-# sets, so it reads "missing"; analytics has no secret and no check. No real
+# sets, so it reads "missing"; analytics has no check and one optional
+# secret nobody sets, so it reads "not set (optional)" and isn't missing. No real
 # credential is ever needed (factory/department-connectors#D-6).
 title: Marketing with three connectors, one secret missing
 project:
@@ -31,5 +32,8 @@ project:
           - name: analytics
             kind: tool
             command: /bin/echo
+            secrets:
+              GA_KEY: env:PLAYTEST_GA_KEY_NEVER_SET
+            optional: [GA_KEY]
 issues: tracker
 workflow: workflow.yaml

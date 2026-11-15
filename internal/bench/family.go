@@ -65,6 +65,10 @@ func Metrics(r *Run) []health.Metric {
 	if r.Setup.Label != "" {
 		l["setup"] = r.Setup.Label
 	}
+	if r.Setup.Label == "" && len(r.Setup.Agents()) > 1 {
+		// The pass rate of a run on two agents is over both.
+		l["setup"] = r.Setup.Agent
+	}
 	s := r.Summary
 	out := []health.Metric{
 		{Name: "bench.pass_rate", Labels: l, Value: s.PassRate, Unit: health.UnitShare, Help: "Benchmark tasks passed, share of scored tasks (holdout apart)"},

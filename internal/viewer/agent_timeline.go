@@ -334,7 +334,7 @@ func EnrichTimelineWithWorkflow(events []TimelineEvent, wf *tracker.WorkflowConf
 		return events
 	}
 	prev := initialStatus
-	ruleDocs := ruleDescriptions(wf)
+	ruleDocs := ruleDescriptions()
 	for i := range events {
 		switch events[i].Kind {
 		case "transition":
@@ -381,12 +381,12 @@ func EnrichTimelineWithWorkflow(events []TimelineEvent, wf *tracker.WorkflowConf
 }
 
 // findStartTransition returns the workflow transition that `issue-cli start`
-// canonically runs. It prefers a transition targeting "in progress" and
+// canonically runs. It prefers a transition into the work status and
 // falls back to the first transition whose action set includes a
 // `set_fields: assignee` (the claim pattern).
 func findStartTransition(wf *tracker.WorkflowConfig) *tracker.WorkflowTransition {
 	for i := range wf.Transitions {
-		if wf.Transitions[i].To == "in progress" {
+		if wf.HasRole(wf.Transitions[i].To, tracker.StatusRoleWork) {
 			return &wf.Transitions[i]
 		}
 	}
@@ -455,10 +455,11 @@ func matchTransition(wf *tracker.WorkflowConfig, from, to string) *tracker.Workf
 // ruleDescriptions returns a lookup from validation rule name (the part
 // before the first colon) to its human description, sourced from the
 // drift-guarded `tracker.WorkflowValidationRules` registry.
-func ruleDescriptions(wf *tracker.WorkflowConfig) map[string]string {
+func ruleDescriptions() map[string]string {
 	m := make(map[string]string, len(tracker.WorkflowValidationRules))
 	for _, r := range tracker.WorkflowValidationRules {
-		m[r.Name] = r.Description
+		name, _ := tracker.SplitRule(r.Name)
+		m[name] = r.Description
 	}
 	return m
 }
@@ -475,7 +476,7 @@ func actionToTimeline(a tracker.WorkflowAction, ruleDocs map[string]string) Time
 	ta := TimelineAction{Type: a.Type}
 	switch a.Type {
 	case "validate":
-		name, arg := splitRule(a.Rule)
+		name, arg := tracker.SplitRule(a.Rule)
 		ta.Label = "validate: " + a.Rule
 		if desc := ruleDocs[name]; desc != "" {
 			if arg != "" {
@@ -503,11 +504,4 @@ func actionToTimeline(a tracker.WorkflowAction, ruleDocs map[string]string) Time
 		ta.Label = a.Type
 	}
 	return ta
-}
-
-func splitRule(rule string) (name, arg string) {
-	if i := strings.Index(rule, ":"); i >= 0 {
-		return strings.TrimSpace(rule[:i]), strings.TrimSpace(rule[i+1:])
-	}
-	return strings.TrimSpace(rule), ""
 }

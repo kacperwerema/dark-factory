@@ -101,7 +101,7 @@ func ownerChecksEpics(issues []*tracker.Issue, prefix, on string) []OwnerChecksE
 // ownerCheckIssue reads one issue's proof and returns its open owner boxes
 // with their shots; ok is false when nothing waits for the owner.
 func ownerCheckIssue(proj *tracker.Project, prefix string, issue *tracker.Issue) (OwnerChecksIssue, bool) {
-	comments, _ := tracker.LoadComments(issue.FilePath)
+	comments := issue.Comments()
 	r := evidenceReport(proj, issue, comments)
 	waiting := r.OwnerWaiting()
 	if len(waiting) == 0 {
@@ -180,7 +180,7 @@ func (s *Server) buildOwnerChecks(p *tracker.Project, prefix, epic string, now t
 	d.Header.Crumbs[2] = WbCrumb{Label: "Owner checks", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 
-	issues, _ := tracker.LoadIssues(p.IssueDir)
+	issues, _ := p.LoadIssues()
 	epic = strings.TrimSpace(epic)
 	d.Epics = ownerChecksEpics(issues, prefix, epic)
 	if epic == "" {

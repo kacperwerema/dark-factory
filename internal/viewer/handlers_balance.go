@@ -90,7 +90,7 @@ func (d *BalanceData) StateClass(state string) string {
 }
 
 func (s *Server) handleBalance(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -187,7 +187,7 @@ func (s *Server) renderBalance(w http.ResponseWriter, data *BalanceData) {
 }
 
 func loadIssueCommentsQuiet(issue *tracker.Issue) []tracker.Comment {
-	comments, _ := tracker.LoadComments(issue.FilePath)
+	comments := issue.Comments()
 	return comments
 }
 

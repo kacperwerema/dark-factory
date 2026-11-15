@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -27,7 +28,7 @@ func checkOwnerMarker(env *Env) []Finding {
 			out = append(out, Finding{
 				Where:   issue.Slug + " " + it.ID,
 				Message: fmt.Sprintf("%s reads like the owner's check but has no (owner) marker: the criteria_proven gate counts it as the agent's", it.ID),
-				Fix:     fmt.Sprintf(`issue-cli check-edit %s %s --text %q`, issue.Slug, it.ID, text+" (owner)"),
+				Fix:     fmt.Sprintf(`issue-cli check-edit %s %s --text %s`, issue.Slug, it.ID, shell.Quote(text+" (owner)")),
 			})
 		}
 	}

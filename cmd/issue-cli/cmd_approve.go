@@ -65,11 +65,11 @@ func runApprove(ctx *Context, args []string) error {
 	if wf != nil && wf.GetStatus(to) == nil {
 		return fmt.Errorf("unknown status %q; statuses: %s", to, strings.Join(wf.GetStatusOrder(), ", "))
 	}
-	if strings.ReplaceAll(to, " ", "-") == "human-testing" {
+	if wf.IsOwnerTestApproval(to) {
 		return fmt.Errorf("Human Testing is approved by the human in the issue viewer, never by an agent")
 	}
 
-	me := whoAmI(proj, issues)
+	me := guardWho(ctx, issues, "approve")
 	if me.Role == tracker.RoleWorker {
 		route := tracker.LeadFor(proj, issue, issues, sessionLive(proj))
 		return fmt.Errorf("workers never tick gates. Ask the CEO (%s, %s) on your issue trail:\n  %s", route.Lead, liveWord(route.Live),

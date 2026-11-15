@@ -153,7 +153,7 @@ type WbCommandCard struct {
 }
 
 func (s *Server) handleDecisionsWb(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
-	issues, err := tracker.LoadIssues(proj.IssueDir)
+	issues, err := proj.LoadIssues()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -227,11 +227,11 @@ func (f decisionsFilter) url(prefix string) string {
 	return prefix + "/decisions"
 }
 
-func (f decisionsFilter) match(e *tracker.DecisionEntry) bool {
+func (f decisionsFilter) match(e *tracker.DecisionEntry, now time.Time) bool {
 	if f.System != "" && !strings.EqualFold(e.Issue.System, f.System) {
 		return false
 	}
-	if !matchesDecisionStateFilter(e, f.State) {
+	if !matchesDecisionStateFilter(e, f.State, now) {
 		return false
 	}
 	switch f.Who {
@@ -341,7 +341,7 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 	var dayKey string
 	threadOf := map[string]int{}
 	for _, e := range entries {
-		if !f.match(e) {
+		if !f.match(e, now) {
 			continue
 		}
 		key := e.Date.Format("2006-01-02")
@@ -365,7 +365,7 @@ func buildDecisionsWb(entries []*tracker.DecisionEntry, prefix string, f decisio
 			ti = len(day.Threads) - 1
 			threadOf[e.Slug] = ti
 		}
-		day.Threads[ti].Rows = append(day.Threads[ti].Rows, decisionsRow(e, prefix))
+		day.Threads[ti].Rows = append(day.Threads[ti].Rows, decisionsRow(e, prefix, now))
 	}
 	d.NoMatch = len(entries) > 0 && len(d.Days) == 0
 
@@ -422,7 +422,7 @@ func knownDecisionState(st string) bool {
 }
 
 // decisionsRow is one entry as a row of the log.
-func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
+func decisionsRow(e *tracker.DecisionEntry, prefix string, now time.Time) WbDecisionRow {
 	row := WbDecisionRow{ID: e.ID, Ref: e.Ref, Text: boldOnly(e.Text), Quote: e.Quote, Also: e.AlsoConsidered, Slug: e.Slug}
 	row.By, row.ByTone = decisionsBy(e.How)
 	row.YOLO = yoloDecision(e.How)
@@ -471,11 +471,11 @@ func decisionsRow(e *tracker.DecisionEntry, prefix string) WbDecisionRow {
 	if sc := e.ScopeOrDefault(); sc != tracker.ScopeIssue {
 		row.Scope = sc
 	}
-	if e.State == tracker.DecisionActive && !e.Hard && !tracker.NeedsOwnerWords(e.Decision) {
+	if e.ActiveOn(now) && !e.Hard && !tracker.NeedsOwnerWords(e.Decision) {
 		row.MakeHardURL = decisionConfirmURL(prefix, e.Slug, e.ID)
 	}
 	// Only a decision still in force asks for the owner's words.
-	if tracker.NeedsOwnerWords(e.Decision) && e.ReplacedBy == nil {
+	if e.ActiveOn(now) && tracker.NeedsOwnerWords(e.Decision) {
 		row.Confirm = &WbConfirm{
 			ConfirmURL:   decisionConfirmURL(prefix, e.Slug, e.ID),
 			Provisional:  e.Quote != "",

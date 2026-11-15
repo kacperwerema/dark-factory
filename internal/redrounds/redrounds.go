@@ -1,5 +1,5 @@
 // Package redrounds counts fix rounds per check on an issue and turns a
-// check still red after the cap (workflow.yaml max_red_rounds, 4 by default)
+// check still red after the cap (workflow.yaml max_red_rounds)
 // into a question for the owner. Results come from the issue's stats sidecar
 // (rounds:, written by issue-cli transition and `rounds --cannot-fix`), from
 // local CI runs that name the issue and from its critique runs (FromCritique);
@@ -239,11 +239,11 @@ func CritiqueCheck(from, to string) string { return tracker.CritiqueCheckKey(fro
 // finding that comes back makes the next held run count; a clear run is green, an overridden one green from the override.
 // A failed run (non-zero exit, timeout, usage limit) and a run holding
 // only on output problems (no Coverage line) are the critic's fault, not
-// the work's, and are not rounds.
+// the work's, and are not rounds. A run by hand has no gate, so no check.
 func FromCritique(runs []*critique.Run, slug string) []Result {
 	var out []Result
 	for _, run := range runs {
-		if run.Slug != slug {
+		if run.Slug != slug || run.ByHand() {
 			continue
 		}
 		check := CritiqueCheck(run.From, run.To)

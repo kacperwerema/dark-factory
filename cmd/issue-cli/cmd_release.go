@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
 	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -123,7 +124,7 @@ func runReleaseSetup(ctx *Context, args []string) error {
 		fmt.Fprintf(out, "✓ %d release candidate tags stay local\n", res.SkippedRC)
 	}
 	if res.Base != "" {
-		fmt.Fprintf(out, "✓ %s/%s is at %s: the first snapshot goes on top of it\n", cfg.Remote(), cfg.Branch(), shortSha(res.Base))
+		fmt.Fprintf(out, "✓ %s/%s is at %s: the first snapshot goes on top of it\n", cfg.Remote(), cfg.Branch(), gitdir.ShortSHA(res.Base))
 	}
 	if err := installPrivacyHook(ctx, root); err != nil {
 		return err
@@ -348,6 +349,9 @@ func runReleasePick(ctx *Context, args []string) error {
 	for _, a := range res.Already {
 		fmt.Fprintf(ctx.Stdout, "✓ %s is already on %s\n", a, branch)
 	}
+	if len(res.Skipped) > 0 {
+		fmt.Fprintf(ctx.Stdout, "✓ Skipped publish's changelog move on main (%s): %s already has that version heading\n", strings.Join(res.Skipped, " "), branch)
+	}
 	if len(res.Picked) == 0 {
 		fmt.Fprintln(ctx.Stdout, "Nothing to pick.")
 		return nil
@@ -432,9 +436,9 @@ func runReleasePublish(ctx *Context, args []string) error {
 		printPublishDryRun(ctx, cut, wf.Privacy, res, waits)
 		return nil
 	}
-	fmt.Fprintf(out, "✓ Published %s: one commit %s on %s/%s", cut, shortSha(res.Snapshot), wf.Privacy.Remote(), wf.Privacy.Branch())
+	fmt.Fprintf(out, "✓ Published %s: one commit %s on %s/%s", cut, gitdir.ShortSHA(res.Snapshot), wf.Privacy.Remote(), wf.Privacy.Branch())
 	if res.Parent != "" {
-		fmt.Fprintf(out, " (on top of %s)", shortSha(res.Parent))
+		fmt.Fprintf(out, " (on top of %s)", gitdir.ShortSHA(res.Parent))
 	}
 	if res.Signed {
 		fmt.Fprint(out, ", signed with user.signingkey")
@@ -460,9 +464,9 @@ func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, re
 	case res.Parent == "":
 		fmt.Fprintf(out, "Parent: none (%s/%s is empty): %s is its first commit\n", remote, branch, cut)
 	case res.IsBase:
-		fmt.Fprintf(out, "Parent: %s, %s/%s's tip, the old history recorded at setup: %s goes on top of it\n", shortSha(res.Parent), remote, branch, cut)
+		fmt.Fprintf(out, "Parent: %s, %s/%s's tip, the old history recorded at setup: %s goes on top of it\n", gitdir.ShortSHA(res.Parent), remote, branch, cut)
 	default:
-		fmt.Fprintf(out, "Parent: %s, the last release snapshot on %s/%s\n", shortSha(res.Parent), remote, branch)
+		fmt.Fprintf(out, "Parent: %s, the last release snapshot on %s/%s\n", gitdir.ShortSHA(res.Parent), remote, branch)
 	}
 	fmt.Fprintf(out, "\nThe one public commit's message:\n")
 	for _, l := range strings.Split(strings.TrimRight(res.Message, "\n"), "\n") {
@@ -496,11 +500,4 @@ func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, re
 			}
 		}
 	}
-}
-
-func shortSha(s string) string {
-	if len(s) > 7 {
-		return s[:7]
-	}
-	return s
 }

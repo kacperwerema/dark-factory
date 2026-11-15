@@ -1,0 +1,32 @@
+package tally
+
+import "sort"
+
+// WordCount is a word and how many times it appears.
+type WordCount struct {
+	Word  string
+	Count int
+}
+
+// TopWords is the n most frequent words of text, most frequent first; words
+// with the same count are in alphabetical order. n of 0 or less is none, and
+// n over the number of words is all of them.
+func TopWords(text string, n int) []WordCount {
+	if n <= 0 {
+		return nil
+	}
+	var out []WordCount
+	for w, c := range Count(text) {
+		out = append(out, WordCount{Word: w, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Word < out[j].Word
+	})
+	if n < len(out) {
+		out = out[:n]
+	}
+	return out
+}

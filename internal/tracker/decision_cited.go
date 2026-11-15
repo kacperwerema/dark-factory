@@ -152,37 +152,130 @@ func createdBefore(issue *Issue, since string) bool {
 	return created < since
 }
 
-// naLineRe is an n/a line in ## Design: "n/a <ref>: <why>", as a list item
-// or a plain line. The reason may be empty; the rule refuses that.
-var naLineRe = regexp.MustCompile(`^(?:[-*+]\s+)?(?:\*\*)?n/a(?:\*\*)?\s+` + "`?" + `(#?[a-z0-9][a-z0-9/-]*#D-\d+)` + "`?" + `\s*(?::\s*(.*))?$`)
+// naRefPat is one ref on an n/a line: a full ref, or after the first a bare
+// #D-n that takes the slug of the ref before it; either may sit in backticks.
+const naRefPat = "`?" + `(?:#?[a-z0-9][a-z0-9/-]*)?#D-\d+` + "`?"
+
+// naLineRe is an n/a line in ## Design: "n/a <ref>[, <ref>…]: <why>", as a
+// list item or a plain line. The reason may be empty; the rule refuses that.
+var naLineRe = regexp.MustCompile(`^(?:[-*+]\s+)?(?:\*\*)?n/a(?:\*\*)?\s+(` + naRefPat + `(?:\s*,\s*` + naRefPat + `)*)\s*(?::\s*(.*))?$`)
+
+// naStartRe is any line that starts as an n/a line: one naLineRe doesn't
+// parse is a format problem, never a citation.
+var naStartRe = regexp.MustCompile(`^(?:[-*+]\s+)?(?:\*\*)?n/a(?:\*\*)?(?:[\s:]|$)`)
+
+// naRefRe picks the refs out of naLineRe's ref list.
+var naRefRe = regexp.MustCompile(`(#?[a-z0-9][a-z0-9/-]*)?#D-(\d+)`)
+
+// designRefs is what ## Design says about decisions: refs it cites (outside
+// n/a lines), refs its n/a lines set aside (ref → reason, "" when none was
+// given), and refs on lines that start with n/a but don't parse (ref → line).
+type designRefs struct {
+	cited map[string]bool
+	na    map[string]string
+	badNA map[string]string
+}
 
 // designCitations reads ## Design: the refs it cites (outside n/a lines),
 // and its n/a lines, ref → reason ("" when none was given).
 func designCitations(body string, known map[string]bool) (cited map[string]bool, na map[string]string) {
-	cited, na = map[string]bool{}, map[string]string{}
+	d := readDesignCitations(body, known)
+	return d.cited, d.na
+}
+
+// readDesignCitations reads ## Design into designRefs.
+func readDesignCitations(body string, known map[string]bool) designRefs {
+	d := designRefs{cited: map[string]bool{}, na: map[string]string{}, badNA: map[string]string{}}
 	text, ok := SectionText(body, decisionCitedSection)
 	if !ok {
-		return cited, na
+		return d
 	}
 	var rest []string
 	for _, line := range strings.Split(text, "\n") {
-		m := naLineRe.FindStringSubmatch(strings.TrimSpace(line))
+		trimmed := strings.TrimSpace(line)
+		m := naLineRe.FindStringSubmatch(trimmed)
 		if m == nil {
-			rest = append(rest, line)
+			if !naStartRe.MatchString(trimmed) {
+				rest = append(rest, line)
+				continue
+			}
+			for _, ref := range append(citedRefs(trimmed, known), shorthandRefs(trimmed, known)...) {
+				if _, seen := d.badNA[ref]; !seen {
+					d.badNA[ref] = trimmed
+				}
+			}
 			continue
 		}
-		slug, num, _ := strings.Cut(strings.TrimPrefix(m[1], "#"), "#D-")
-		if s := resolveRefSlug(slug, known); s != "" {
-			ref := s + "#D-" + num
-			if _, seen := na[ref]; !seen || na[ref] == "" {
-				na[ref] = strings.TrimSpace(m[2])
+		why := strings.TrimSpace(m[2])
+		slug := ""
+		for _, r := range naRefRe.FindAllStringSubmatch(m[1], -1) {
+			if r[1] != "" {
+				slug = resolveRefSlug(strings.TrimPrefix(r[1], "#"), known)
+			}
+			if slug == "" {
+				continue
+			}
+			ref := slug + "#D-" + r[2]
+			if _, seen := d.na[ref]; !seen || d.na[ref] == "" {
+				d.na[ref] = why
 			}
 		}
 	}
-	for _, ref := range citedRefs(strings.Join(rest, "\n"), known) {
-		cited[ref] = true
+	kept := strings.Join(rest, "\n")
+	for _, ref := range append(citedRefs(kept, known), shorthandRefs(kept, known)...) {
+		d.cited[ref] = true
 	}
-	return cited, na
+	return d
+}
+
+// shorthandRe is a bare #D-n; shorthandRefs drops the ones that are the end
+// of a full ref or of a word.
+var shorthandRe = regexp.MustCompile(`#D-(\d+)\b`)
+
+// shorthandRefs resolves the bare #D-n refs in text: each takes the slug of
+// a full ref on its own line, the nearest one before it, else the first
+// after it. A bare ref on a line with no full ref of a known issue names
+// nothing. Only ## Design reads these: anywhere else a bare #D-n may be the
+// issue's own decision.
+func shorthandRefs(text string, known map[string]bool) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range refLines(text) {
+		full := decisionRefRe.FindAllStringSubmatchIndex(line, -1)
+		for _, m := range shorthandRe.FindAllStringSubmatchIndex(line, -1) {
+			if m[0] > 0 && isWordByte(line[m[0]-1]) {
+				continue
+			}
+			slug := ""
+			for _, f := range full {
+				s := resolveRefSlug(line[f[2]:f[3]], known)
+				if s == "" {
+					continue
+				}
+				if f[0] > m[0] {
+					if slug == "" {
+						slug = s
+					}
+					break
+				}
+				slug = s
+			}
+			if slug == "" {
+				continue
+			}
+			ref := slug + "#D-" + line[m[2]:m[3]]
+			if !seen[ref] {
+				seen[ref] = true
+				out = append(out, ref)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isWordByte(c byte) bool {
+	return c == '-' || c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // bodyWithoutDecisions is body with its level-2 ## Decisions sections cut:
@@ -221,10 +314,12 @@ func oneLineCut(s string, n int) string {
 }
 
 // UncitedDecision is a hard decision in force that ## Design doesn't name,
-// or names on an n/a line without a reason (BareNA).
+// names on an n/a line without a reason (BareNA), or on a line that starts
+// with n/a but doesn't parse (BadNA: that line).
 type UncitedDecision struct {
 	Entry  InForceEntry
 	BareNA bool
+	BadNA  string
 }
 
 // UncitedDecisions is what decisions_cited holds the issue on at status:
@@ -234,17 +329,21 @@ func UncitedDecisions(x *DecisionIndex, issue *Issue, status string, o InForceOp
 	if x == nil || issue == nil {
 		return nil
 	}
-	cited, na := designCitations(issue.BodyRaw, x.known)
+	d := readDesignCitations(issue.BodyRaw, x.known)
 	var out []UncitedDecision
 	for _, f := range InForce(x, issue, status, o) {
-		if !f.Entry.Hard || f.Why == "own" || cited[f.Entry.Ref] {
+		if !f.Entry.Hard || f.Why == "own" || d.cited[f.Entry.Ref] {
 			continue
 		}
-		why, isNA := na[f.Entry.Ref]
+		why, isNA := d.na[f.Entry.Ref]
 		if isNA && why != "" {
 			continue
 		}
-		out = append(out, UncitedDecision{Entry: f, BareNA: isNA})
+		u := UncitedDecision{Entry: f, BareNA: isNA}
+		if !isNA {
+			u.BadNA = d.badNA[f.Entry.Ref]
+		}
+		out = append(out, u)
 	}
 	return out
 }
@@ -301,6 +400,9 @@ func (w *WorkflowConfig) checkDecisionsCited(arg string, issue *Issue) error {
 		if m.BareNA {
 			why = "n/a without a reason in ## Design"
 		}
+		if m.BadNA != "" {
+			why = "n/a line in ## Design doesn't parse"
+		}
 		holds = append(holds, DecisionHold{Rule: DecisionsCitedRule, Ref: m.Entry.Entry.Ref, Why: why})
 	}
 	if w.holdDecisions(holds) {
@@ -322,6 +424,9 @@ func uncitedError(slug string, missing []UncitedDecision) error {
 		fmt.Fprintf(&b, "  %s (%s): %s\n", e.Ref, m.Entry.Why, oneLineCut(e.Text, decisionTextCut))
 		if m.BareNA {
 			fmt.Fprintf(&b, "    its n/a line has no reason: write \"n/a %s: <why it doesn't apply here>\"\n", e.Ref)
+		}
+		if m.BadNA != "" {
+			fmt.Fprintf(&b, "    its n/a line doesn't parse: %q; write \"n/a <ref>[, <ref>…]: <why>\"\n", m.BadNA)
 		}
 	}
 	ref := missing[0].Entry.Entry.Ref
@@ -422,21 +527,20 @@ func ParseYOLOHoldComment(text string) (h DecisionHold, from string, ok bool) {
 	return DecisionHold{Rule: m[1], Ref: m[2], Why: m[4]}, m[3], true
 }
 
-// knownRuleNames is every validate rule name WorkflowValidationRules lists.
-func knownRuleNames() map[string]bool {
-	out := map[string]bool{}
-	for _, r := range WorkflowValidationRules {
-		name, _, _ := strings.Cut(r.Name, ":")
-		out[strings.TrimSpace(name)] = true
-	}
-	return out
+// unknownRuleWarning is in lintRules' unknown-rule message.
+const unknownRuleWarning = ": unknown validate rule "
+
+// UnknownRuleWarning reports whether msg, one of WorkflowConfig.Lint's
+// warnings, is the unknown-rule one: issue-cli health lint's schema check
+// says the same with the file's line, so its workflow check skips it.
+func UnknownRuleWarning(msg string) bool {
+	return strings.Contains(msg, unknownRuleWarning)
 }
 
 // lintRules warns on a validate action whose rule this build doesn't know,
 // and on a bad "since" date on a rule that takes one, in the base
 // transitions, system overlays and types.
 func (w *WorkflowConfig) lintRules() []string {
-	known := knownRuleNames()
 	var out []string
 	seen := map[string]bool{}
 	check := func(where string, ts []WorkflowTransition) {
@@ -445,13 +549,12 @@ func (w *WorkflowConfig) lintRules() []string {
 				if a.Type != "validate" || strings.TrimSpace(a.Rule) == "" {
 					continue
 				}
-				name, arg, _ := strings.Cut(a.Rule, ":")
-				name = strings.TrimSpace(name)
+				name, arg := SplitRule(a.Rule)
 				var msg string
 				switch {
-				case !known[name] && !isStructuredRule(name):
-					msg = fmt.Sprintf("%s%s → %s: unknown validate rule %q: the transition refuses with it (rules: issue-cli process schema)", where, t.From, t.To, name)
-				case name == DecisionsCitedRule || name == CitationsCurrentRule || name == DecisionUnchallengedRule || name == DecisionsRespectedRule || name == criteriaProvenRule:
+				case !KnownRule(name):
+					msg = fmt.Sprintf("%s%s → %s"+unknownRuleWarning+"%q: the transition refuses with it (rules: issue-cli process schema)", where, t.From, t.To, name)
+				case ruleTakesSince(name):
 					if _, err := parseRuleSince(name, arg); err != nil {
 						msg = fmt.Sprintf("%s%s → %s: %v", where, t.From, t.To, err)
 					}

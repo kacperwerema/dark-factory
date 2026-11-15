@@ -15,7 +15,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/kacperwerema/dark-factory/internal/lint"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -59,11 +58,30 @@ type Preview struct {
 // nothing blocks it.
 func (p *Preview) OK() bool { return p != nil && len(p.Errors) == 0 && !bytes.Equal(p.Old, p.New) }
 
+// Finding is one finding of the check Apply runs over the file before and
+// after the edit (lint's, field for field: lint.Finding converts to it).
+type Finding struct {
+	Check   string
+	Where   string
+	Message string
+	Fix     string
+}
+
+// Check lints one workflow file's bytes. The caller passes lint's
+// (lint.EditCheck), so nothing below lint imports it. It leaves out what
+// Apply names itself per action (an unknown validate rule). An error means
+// the bytes don't parse.
+type Check func(path string, raw []byte, now time.Time) ([]Finding, error)
+
 // Apply makes ch on station in path, as read at hash, without writing.
-// Problems with the change itself land in Preview.Errors; an error is
-// returned when the file can't be read or edited at all (ErrStale among
-// them).
-func Apply(path, station, hash string, ch Change) (*Preview, error) {
+// check lints the file before and after: a schema finding the edit adds
+// blocks it, the others are warnings. Problems with the change itself land
+// in Preview.Errors; an error is returned when the file can't be read or
+// edited at all (ErrStale among them).
+func Apply(path, station, hash string, ch Change, check Check) (*Preview, error) {
+	if check == nil {
+		return nil, errors.New("wfedit: Apply needs a check (lint.EditCheck)")
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -146,7 +164,7 @@ func Apply(path, station, hash string, ch Change) (*Preview, error) {
 	pv := &Preview{File: path, Station: station, Hash: f.hash, Old: raw, Summary: strings.Join(summary, ", "), Gates: gates}
 	pv.New = []byte(f.apply(edits))
 	pv.Diff = unifiedDiff(filepath.Base(path), string(pv.Old), string(pv.New))
-	pv.check(f, st, ch)
+	pv.check(f, st, ch, check)
 	return pv, nil
 }
 
@@ -398,7 +416,7 @@ func (f *file) apply(edits []splice) string {
 // check fills Errors and Warnings: the new text must parse, add no schema
 // finding, keep every new or changed action well formed and decode to exactly the old
 // workflow with ch applied (so a splice slip never reaches the file).
-func (p *Preview) check(f *file, st *Station, ch Change) {
+func (p *Preview) check(f *file, st *Station, ch Change, lintFile Check) {
 	var oldCfg, newCfg tracker.WorkflowConfig
 	if err := yaml.Unmarshal(p.New, &newCfg); err != nil {
 		p.Errors = append(p.Errors, "the edited file does not parse: "+err.Error())
@@ -452,8 +470,9 @@ func (p *Preview) check(f *file, st *Station, ch Change) {
 		p.Errors = append(p.Errors, "the edited file does not read back as the change (a bug in the editor): nothing was written; edit "+p.File+" by hand")
 	}
 
-	before, _ := lint.File(p.File, p.Old, time.Now())
-	after, err := lint.File(p.File, p.New, time.Now())
+	now := time.Now()
+	before, _ := lintFile(p.File, p.Old, now)
+	after, err := lintFile(p.File, p.New, now)
 	if err != nil {
 		p.Errors = append(p.Errors, "the edited file does not parse: "+err.Error())
 		return
@@ -463,9 +482,6 @@ func (p *Preview) check(f *file, st *Station, ch Change) {
 		had[fd.Check+"\x00"+fd.Message] = true
 	}
 	for _, fd := range after {
-		if lint.UnknownRule(fd) {
-			continue // actionProblem names it, per action
-		}
 		msg := fd.Where + ": " + fd.Message
 		if fd.Fix != "" {
 			msg += " (" + fd.Fix + ")"
@@ -507,8 +523,8 @@ func actionProblem(a tracker.WorkflowAction, statuses map[string]bool) string {
 		if strings.TrimSpace(a.Rule) == "" {
 			return "validate needs a rule"
 		}
-		name, _, _ := strings.Cut(a.Rule, ":")
-		if !knownRule(strings.TrimSpace(name)) {
+		if !tracker.KnownRule(a.Rule) {
+			name, _ := tracker.SplitRule(a.Rule)
 			return fmt.Sprintf("unknown validation rule %q (rules: issue-cli process schema)", name)
 		}
 	case "require_human_approval":
@@ -529,14 +545,4 @@ func actionProblem(a tracker.WorkflowAction, statuses map[string]bool) string {
 		}
 	}
 	return ""
-}
-
-func knownRule(name string) bool {
-	for _, r := range tracker.WorkflowValidationRules {
-		n, _, _ := strings.Cut(r.Name, ":")
-		if n == name {
-			return true
-		}
-	}
-	return false
 }

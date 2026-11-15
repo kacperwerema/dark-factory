@@ -1,0 +1,52 @@
+session: connect-socials
+issue: factory/connect-socials-from-the-factory-an-owner-only-page-to-set-up-postiz-and-connect-each-network-with-the-fields-it-needs-keys-into-the-keychain
+title: Connect socials - the tool, each network with what it needs, states read back, at desktop and phone width
+scenario: socials
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: AC5
+    title: The page shows the tool, each network's state and what it needs, linked from the room
+    proves: [AC5]
+    setup:
+      - open: /p/acme/company?classic=1
+      - click: company.room.connectors
+    act:
+      - check: { visible: [company.room.connectors.socials, company.room.connectors.expired] }
+      - check: { text_contains: { target: company.room.connectors.expired, text: "x" } }
+      - open: /p/acme/socials/marketing
+    checks:
+      - visible: [socials.page, socials.setup, socials.setup.exists, socials.key.missing, socials.networks, socials.checked, socials.check, socials.network.linkedin, socials.network.bluesky, socials.more]
+      - text_contains: { target: socials.network.linkedin.state, text: "connected" }
+      - text_contains: { target: socials.network.x.state, text: "expired" }
+      - text_contains: { target: socials.network.pinterest.state, text: "not connected" }
+      - text_contains: { target: socials.checked, text: "checked" }
+      - absent: socials.hold
+      - http:
+          path: /p/acme/needs-you
+          status: 200
+          body_contains: "sign in again to x"
+
+  - id: AC6
+    title: Connect one real network from the page, end to end
+    setup:
+      - open: /p/acme/socials/marketing
+    checks:
+      - visible: [socials.networks]
+    targets:
+      - { id: socials.networks, note: the networks card }
+    do: |
+      On your own board (not this scenario), open Marketing's room → Connectors → Connect socials.
+      1. Step 1: give Postiz's address and compose file, read the projects.yaml diff, paste the key, Save.
+      2. Pick one network. For Bluesky: an app password and Connect. For an OAuth network: make its
+         developer app with the redirect URI shown, save its values, then Connect and sign in.
+      3. Press "I signed in: check". Then narrow the window to phone width and look again.
+    expect: |
+      The network reads "connected" after the check, the flash says the check ran, and
+      `docker ps` shows no Postiz container afterwards. At phone width every row and form
+      fits without sideways scrolling.
+    why: Only you hold the accounts and the keys; the tests use a stand-in Postiz.

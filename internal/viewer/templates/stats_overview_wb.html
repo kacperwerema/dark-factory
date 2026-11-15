@@ -6,7 +6,7 @@
 {{template "wb/header" .Header}}
 <section class="wb-ground wb-hhead">
     <div class="wb-hhead-text">
-        <h1 class="wb-h1 wb-h1--xl">Stats, all projects</h1>
+        <h1 class="wb-h1 wb-h1--xl" data-testid="wb.title">Stats, all projects</h1>
         <div class="wb-hhead-sub">each project's latest health snapshot, the last {{.Days}} days as a sparkline{{with .Privacy}} · <span data-testid="stats.overview.privacy">work files: {{.}}</span>{{end}}</div>
         <div class="wb-hhead-sub"><a href="{{.ClassicURL}}" data-testid="stats.classic">Classic view</a></div>
     </div>

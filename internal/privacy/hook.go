@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -169,11 +170,11 @@ func PrePush(root string, cfg *tracker.PrivacyConfig, remote, url string, refs [
 		for _, c := range commits {
 			if toPublic && !IsSnapshot(root, c) {
 				subj, _ := git(root, "log", "-1", "--format=%s", c)
-				return fmt.Errorf("privacy guard: %s gets release snapshots only, and %s (%q) is a dev commit. Development goes to origin; publish a release with issue-cli release publish <version>", remote, short(c), subj)
+				return fmt.Errorf("privacy guard: %s gets release snapshots only, and %s (%q) is a dev commit. Development goes to origin; publish a release with issue-cli release publish <version>", remote, gitdir.ShortSHA(c), subj)
 			}
 			if cfg.Code == tracker.CodePublic {
 				if q := quotedIn(root, c, quotes); q != "" {
-					return fmt.Errorf("privacy guard: %s's message quotes a decision (%q), and this repo is public (privacy.code: public). Reword it without the quote (git commit --amend, or rebase -i for older ones) and push again", short(c), clip(q, 60))
+					return fmt.Errorf("privacy guard: %s's message quotes a decision (%q), and this repo is public (privacy.code: public). Reword it without the quote (git commit --amend, or rebase -i for older ones) and push again", gitdir.ShortSHA(c), clip(q, 60))
 				}
 			}
 			if cfg.Tracker() {
@@ -182,7 +183,7 @@ func PrePush(root string, cfg *tracker.PrivacyConfig, remote, url string, refs [
 					return fmt.Errorf("privacy guard: %w", err)
 				}
 				if added := lines(out); len(added) > 0 {
-					return fmt.Errorf("privacy guard: %s adds work files to the code repo (%s); they belong in the private tracker (privacy.work_files: tracker). Remove them from that commit (git rm --cached) and push again", short(c), firstFew(added, 3))
+					return fmt.Errorf("privacy guard: %s adds work files to the code repo (%s); they belong in the private tracker (privacy.work_files: tracker). Remove them from that commit (git rm --cached) and push again", gitdir.ShortSHA(c), firstFew(added, 3))
 				}
 			}
 		}
@@ -213,7 +214,7 @@ func quotedIn(root, c string, quotes []string) string {
 func DecisionQuotes(issues []*tracker.Issue) []string {
 	var out []string
 	for _, is := range issues {
-		for _, d := range tracker.ParseDecisions(is.Slug, is.BodyRaw) {
+		for _, d := range is.Decisions() {
 			if q := strings.TrimSpace(unquote(d.Quote)); len(q) >= minQuote {
 				out = append(out, q)
 			}

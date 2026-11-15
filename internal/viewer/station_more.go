@@ -357,7 +357,7 @@ var tagRe = regexp.MustCompile(`<[^>]+>`)
 // (<!-- data -->) stays on the classic page: its rows need the classic
 // page's controls, so the station shows a line that links there.
 func stationBodyParts(issue *tracker.Issue, prefix, root string, slugMap map[string]string, fold []foldSection, classic string) []WbBodyPart {
-	body := issue.BodyHTML
+	body := issue.BodyHTML()
 	store, _ := tracker.LoadData(issue.FilePath)
 	note := `<p class="wb-note">The data table` + func() string {
 		if n := len(store.Entries); n > 0 {

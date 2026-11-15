@@ -104,3 +104,44 @@ func TestWithLockRuns(t *testing.T) {
 		t.Fatalf("ran=%v err=%v", ran, err)
 	}
 }
+
+func TestQuotedErrors(t *testing.T) {
+	got := QuotedErrors("It doesn't work: `unknown validation rule \"x\"`, then 'cannot read the file here' and \"issue-cli check foo D3\" and `--to` and `unknown validation rule \"x\"`.")
+	want := []string{"unknown validation rule \"x\"", "cannot read the file here"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("QuotedErrors = %q, want %q", got, want)
+	}
+}
+
+func TestSearchTerms(t *testing.T) {
+	got := SearchTerms("unknown validation rule \"decision_unchallenged\"")
+	if len(got) != 2 || got[1] != "unknown validation rule" {
+		t.Fatalf("SearchTerms = %q", got)
+	}
+	if got := SearchTerms("short: x"); len(got) != 1 {
+		t.Fatalf("SearchTerms(short) = %q", got)
+	}
+}
+
+func TestBuildRef(t *testing.T) {
+	for v, want := range map[string]string{
+		"":                         "",
+		"dev":                      "",
+		"(devel)":                  "",
+		"v0.60.1":                  "v0.60.1",
+		"v0.60.0-3-gb290f80-dirty": "v0.60.0-3-gb290f80",
+		"v0.59.0-rc.1.0.20261031120000-0123456789ab+dirty": "0123456789ab",
+		"a b": "",
+	} {
+		if got := BuildRef(v); got != want {
+			t.Errorf("BuildRef(%q) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestReportSection(t *testing.T) {
+	body := "## Report\n\nfirst `a b c d`\n\n## Idea\n`x y z w`\n"
+	if got := ReportSection(body); strings.Contains(got, "x y z") || !strings.Contains(got, "a b c d") {
+		t.Fatalf("ReportSection = %q", got)
+	}
+}

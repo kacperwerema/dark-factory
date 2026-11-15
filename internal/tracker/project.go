@@ -12,6 +12,10 @@ import (
 )
 
 type Project struct {
+	// board is the load a request shares (ShareBoardLoad); nil reads the
+	// board on every LoadIssues.
+	board *boardMemo
+
 	Name string `yaml:"name"`
 	Slug string `yaml:"slug"`
 	// Kind is a few words on what the project is ("aplikacja PWA", "gra
@@ -175,9 +179,8 @@ func (p *Project) attachRuntime(wf *WorkflowConfig) {
 	wf.ProjectRoot = p.Root()
 	wf.RepoRoot = p.TelemetryRoot()
 	if wf.LookupIssue == nil && p.IssueDir != "" {
-		dir := p.IssueDir
 		wf.LookupIssue = func(slug string) *Issue {
-			issues, err := LoadIssues(dir)
+			issues, err := p.LoadIssues()
 			if err != nil {
 				return nil
 			}
@@ -190,20 +193,21 @@ func (p *Project) attachRuntime(wf *WorkflowConfig) {
 		}
 	}
 	if wf.ChildrenOf == nil && p.IssueDir != "" {
-		dir := p.IssueDir
 		wf.ChildrenOf = func(slug string) []*Issue {
-			issues, err := LoadIssues(dir)
+			issues, err := p.LoadIssues()
 			if err != nil {
 				return nil
 			}
 			return EpicChildren(issues, slug)
 		}
 	}
+	if wf.ClosedIssue == nil {
+		wf.ClosedIssue = p.IssueClosed
+	}
 	if wf.DecisionsInForce == nil && p.IssueDir != "" {
-		dir := p.IssueDir
 		wf.DecisionsInForce = func() (*DecisionIndex, InForceOptions) {
 			opts := ProjectInForceOptions(p, time.Now())
-			issues, err := LoadIssues(dir)
+			issues, err := p.LoadIssues()
 			if err != nil {
 				return nil, opts
 			}
@@ -387,6 +391,9 @@ type Department struct {
 	// Connectors are the outside tools only this department's agents may
 	// use (connector.go, docs/departments.md#connectors).
 	Connectors []Connector `yaml:"connectors"`
+	// Partner is the outside program the department hands its work to,
+	// read through an adapter (partner.go, docs/departments.md#partners).
+	Partner *Partner `yaml:"partner"`
 	// Jobs are the department's recurring jobs (internal/jobs reads them).
 	Jobs []Job `yaml:"jobs"`
 	// Parent is the group (another department's name or key) this

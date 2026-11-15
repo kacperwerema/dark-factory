@@ -287,9 +287,10 @@ No rows when no version has issues. It knows only the present, so `issue-cli hea
 
 ### The tests family
 
-It runs no tests. It reads two sources:
+It runs no tests. It reads three sources:
 
-- **Local CI:** the newest run at or before the snapshot that wrote results for each kind, from `ci.run[].results` ([Local CI: Test results](workflow.md#test-results-results)).
+- **Local CI:** the newest run at or before the snapshot that wrote results for each kind, from `ci.run[].results` ([Local CI: Test results](workflow.md#test-results-results)). `internal/ci` plugs the reader in from its own `init()` (`health.SetTestResults`), so `internal/health` imports no package that plugs into it.
+- **ux-test runs:** every `results.yaml` under the main checkout's `.playtest/runs` (an issue's own runs move there at done) and local CI's `.worktrees/.ci/.playtest/runs`, started in the 14 calendar days up to the snapshot. A step that failed and passed on one build (the run's `build:`, the short commit plus `+<hash>` for a dirty tree) is flaky: nothing changed between the two runs. Steps that were cached, skipped or pending didn't run and don't count; owner playtest (judge) runs and runs with no build don't either. `internal/ci` plugs this in too (`health.SetE2ERuns`, read by `playtestruns.Flaky`). `.ci/results`' e2e files are made from the same runs, so they are not read again.
 - **Sessions:** the playtest session files at the commit (`health.e2e_sessions`).
 
 Without results there are no rows for that kind, not zeros. `issue-cli health` then says how to add them. When `e2e_sessions` (configured or the default `playtest/sessions/*.yaml`) matches no file, the family warns "health.e2e_sessions (…) matched no file, so no e2e session rows" instead of writing nothing silently.
@@ -310,10 +311,11 @@ Without results there are no rows for that kind, not zeros. `issue-cli health` t
 | `tests.e2e.coverage` | none | issues done in 90 days whose system has a session / issues done with a system (`share`) |
 | `tests.e2e.uncovered` | `system` | issues done in 90 days in a system without a session |
 
-The rows below come with `workflow/health-check-speed-…` (the playtest telemetry). Until then the score leaves out the components that read them:
+| `tests.e2e.flaky_share` | `window`: 14d | ux-test steps that failed and passed on one build / steps run (`share`) |
+| `tests.e2e.flaky_steps`, `tests.e2e.steps_run`, `tests.e2e.runs` | `window`: 14d | the flaky steps, the distinct steps that passed or failed, and the ux-test runs behind the share |
+| `tests.e2e.flaky` | `step`: `<session>/<step>` | each flaky step (at most 10), so `issue-cli health --family tests` names them |
 
-- `tests.e2e.estimated_seconds`
-- `tests.e2e.flaky_share{window=14d}`
+With no ux-test run in the window there are no flaky rows, so the score's `flaky` component says "no data" with what fills it (`make ux-test`, or local CI's slow tier), never 0%. No family writes `tests.e2e.estimated_seconds` yet: `e2e_wait` reads only a CI run under 14 days old.
 
 A project whose test classes share one namespace (Kestrel) gets a coarse area split.
 
@@ -337,7 +339,7 @@ It reads the git objects at the snapshot's commit, in the same single pass the c
 How functions are read:
 
 - **Go** with `go/parser`, which is exact.
-- **Brace languages** (C#, JS/TS, Java, Kotlin, C/C++, Rust, Swift, PHP, shell, shaders) with a scanner. It skips comments, strings and char literals and counts a block whose header has a name and a parameter list, without a control keyword, an assignment or a lambda. Constructors and local functions count; lambdas and initializers don't.
+- **Brace languages** (C#, JS/TS, Java, Kotlin, C/C++, Rust, Swift, PHP, shell, shaders) with a scanner. It skips comments, strings and char literals (in shell only `#` at a word start is a comment: `//`, `/*` and `*/` are text, as in `${x//a/b}` or a `*/dir/*` glob) and counts a block whose header has a name and a parameter list, without a control keyword, an assignment or a lambda. Constructors and local functions count; lambdas and initializers don't.
 - **Python and GDScript** by indentation after `def` / `func`.
 - **Languages without functions** (CSS, HTML, SQL, templates) are not measured.
 
@@ -345,7 +347,7 @@ On Kestrel the family takes about a second and finds 5,600 C# methods.
 
 ### The storage family
 
-How much disk the project takes, by area: one walk of the main checkout, sizes from `lstat` (symlinks are not followed), within the family timeout. It only knows the present, so `issue-cli health backfill` leaves it out and the Stats page's **Disk use** card draws its line from the second daily snapshot on. The card lists the newest snapshot's areas with a bar each.
+How much disk the project takes, by area: one walk of the main checkout by a pool of 8 readers (a 13 GB checkout in about 4 s; a cancelled run stops it), sizes from `lstat` (symlinks are not followed), within the family timeout. It only knows the present, so `issue-cli health backfill` leaves it out and the Stats page's **Disk use** card draws its line from the second daily snapshot on. The card lists the newest snapshot's areas with a bar each.
 
 | Metric | Labels | Value |
 |:--|:--|:--|
@@ -373,13 +375,25 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `sections`: gates on sections no template writes the way the gate needs.
   - `untracked`: a department's files git does not track (its role prompt, workflow file, job briefs, anything under `departments/<key>/`), as `department add` leaves them; the fix is the `git add … && git commit … --` for exactly those files. Ignored files aren't flagged; a project outside git gets none ([Departments](departments.md#templates)).
   - `paths`: a `workbench.systems` `paths:` glob that matches no file in the repository, or leaves it.
+  - `contexts`: the [code map](#code-map): a Go package no context lists, an import up a layer that `leaks:` doesn't list (with its file:line), a leak that no longer happens, a context name or key used twice, a package two contexts claim, a `layer:` naming no layer, a `packages:` entry matching no package.
   - `owner-only`: a step that spends or publishes behind a gate YOLO may pass: a path entering `publish` / `launch` / `send` without an `owner_only` gate, a department with a `sends: true` connector whose workflow has none, `owner_only` on a non-approval action ([YOLO Mode](Workflow/yolo.md#gates-yolo-never-passes)).
   - `owner-marker`: an open acceptance criterion on an open issue that reads like the owner's check ("the owner confirms it reads well") but has no `(owner)` marker, so `criteria_proven` counts it as the agent's. The fix is `issue-cli check-edit <slug> <id> --text "… (owner)"`.
-  - `criteria`: an open acceptance criterion on an open issue that names nothing that could fail it: no test (a `TestName`, "tests", a fixture), no command (a span in backticks, `issue-cli`, "exits 1") and no playtest step ("playtest", "step", a shot, `(visual)`, a guided check script). The message quotes a vague word it leans on ("works", "is clear", "looks good"). Owner boxes (`(owner)`), ticked, N/A and template boxes and closed issues are skipped. It also warns about an issue past design whose `## Must not` still holds only the template's placeholder. The fix is `issue-cli check-edit <slug> <id> --text "… (test: TestName)"`, or `(owner)` when only the owner can judge it. `issue-cli transition` prints the same warnings when an issue leaves design (an edge that validates `criteria_checkboxes:`); they never refuse the move ([Proof Links](Workflow/proof.md#criteria-a-command-can-fail)).
+  - `show-footer`: an issue section holding `issue-cli show`'s own output: `== Checklist (n/m) ==`, the tick hints, `== Decisions in force ==`, `== Test Plan ==`, `== Comments (n) ==`, `== Shared files ==`, whole lines from the first column outside fenced code, so a quote in a code span, blockquote, indented block or fence doesn't warn. A section rebuilt from `show` runs on past the last heading and pastes stale boxes and comments in; no gate notices. Closed issues count too, since the paste can land minutes before the close. The finding names the issue and section; the fix is `issue-cli replace <slug> --section "<name>" --body-file <the section without them>`, read from the issue file.
+  - `criteria`: an open acceptance criterion on an open issue that names nothing that could fail it: no test (a `TestName`, "tests", a fixture), no command (a span in backticks, `issue-cli`, "exits 1") and no playtest step ("playtest", "step", a shot, `(visual)`, a guided check script). The message quotes a vague word it leans on ("works", "is clear", "looks good"). Owner boxes (`(owner)`), ticked, N/A and template boxes and closed issues are skipped. It also warns about an issue past design whose `## Must not` still holds only the template's placeholder. And about each `## Must not` item past design that ends with neither `→ ACn` (the criterion that fails when it is broken; the box must exist) nor `→ none: <why>`. The fix is `issue-cli check-edit <slug> <id> --text "… (test: TestName)"`, or `(owner)` when only the owner can judge it. `issue-cli transition` prints the same warnings when an issue leaves design (an edge that validates `criteria_checkboxes:`); they never refuse the move ([Proof Links](Workflow/proof.md#criteria-a-command-can-fail)).
   - `na-boxes`: a ticked box on an open issue whose N/A reason is out of form (empty, a `<placeholder>` left, a named form without its test or session, under three words), or an N/A on the owner's box (`## Human Testing`, `(owner)`). The forms: `issue-cli check --help` ([N/A boxes](CLI/overview.md#na-boxes-check---na)).
-  - `reports`: an issue past a `has_output` gate (the `report` type's `in progress → human-testing`) whose output is gone from the shelf: never added (a hand edit), its file deleted, or rejected and not replaced. Fix: `issue-cli output add --issue <slug> --kind report --file <file>`. See [Types of Work](Workflow/types.md#the-report-type).
-
-  - `testids`: a playtest session step (`playtest/sessions/*.yaml`) whose selector names a data-testid that `internal/testids` doesn't list: a target field, a `targets:` entry, or `data-testid="…"` in a string such as an `http` check's `contains:`. The step would fail only in Chrome. It runs only on a repository that has `internal/testids` (this engine), and names the session file, line and step id.
+  - `types`: an open `docs`-type issue whose `## Wanted` or open acceptance criterion names a test (a `TestName`, "a test", "go test"), a package (`internal/…`, `pkg/…`, "Go package") or a `.go` path: the docs path has no Test Plan, so that work would ship unchecked. `cmd/…` alone, the word "tests" and a ticked or N/A box stay quiet: READMEs quote install lines, and a criterion may name a check that already runs. The fix is `issue-cli set-type <slug> tweak` at the first status, later the owner's Type on the issue page, or a rewording.
+  - `reports`: an issue past a `has_output` gate (the `report` type's `in progress → human-testing`) whose output is gone from the shelf: never added (a hand edit), its file deleted, or rejected and not replaced. Fix: `issue-cli output add --issue <slug> --kind report --file <file>`. It also warns on a done report whose markdown output has a list under a Follow-ups heading while nothing quotes the report: no other issue is its child or names its slug, output id or `output <short id>` in the body, and no queue item but its own names one. It warns once per issue, naming the newest output, and leaves out the owner's items: one ending `(owner)`, or under a sub-heading or lead-in line naming the owner. Fix: `issue-cli queue add --idea "<the follow-up> (from <slug>)"`, or file an issue that names the report. See [Types of Work](Workflow/types.md#the-report-type).
+  - `departments`: `projects.yaml`'s `company:` and `departments:` ([Departments](departments.md)): a role prompt file that doesn't exist, `rolls_up:` naming no goal above, bad goal fields, `connections:` routes, outputs shelf lines it skipped, files gone and outputs waiting for review, and an open issue whose `system:` names a department it isn't in.
+  - `department`: a department's own workflow file (`departments: workflow:`) that doesn't load, a project-wide key such as `ci:` in it, or an issue whose status that file lacks.
+  - `roles`: status `role:` keys ([status roles](Workflow/overview.md#status-roles-role)): an unknown role, one role on two statuses or on a closing status, a file filling some roles but not all (how a renamed status looks).
+  - `rules`: the machine's `rules.md` and a project's `rules:` ([Rules](workflow.md#rules)): a line that reaches nobody, a repeated key or id, a layer over the briefing's cap, a project rule with no text, `narrows:` naming no machine rule, or a project rule contradicting a machine one without `narrows:`.
+  - `routing`: `routing:` rules that pick the agent CLI ([Agent Dispatch](agent-dispatch.md)): an agent not installed or not a command name, an unknown type, status or department, a rule after a catch-all, a fallback that repeats or leaves out the default.
+  - `memory`: `memory: embedder:` settings search can't use ([Shared Memory](memory.md)): both or neither of `url` and `command`, a URL that leaves this machine, no model, a bad timeout or `min_similarity`; and memories whose `--at` names a status no workflow has.
+  - `evals`: `evals:` entries the [factory benchmark](benchmark.md) can't use: no or a repeated id, an unknown score, a pass outside 0-1, a type the file doesn't define.
+  - `critique`: the [fresh critic](Workflow/critique.md)'s settings: a `critique:` timeout that doesn't parse, an agent with no read-only command, a `critique:` block no edge uses, a critique gate out of the first status.
+  - `decisions`: a D-n line's attribute group the decision ledger can't use ([Decision ledger](workflow.md#decision-ledger)): a trailing `{…}` that names a decision key (scope, hard, at, paths, expires, ended) but doesn't parse, so the line silently reads as scope issue, soft (legacy text such as `{from: marketing, to: product, via: hq}` names no key and stays quiet), or a scope naming a system no issue or `workbench.systems` has, a department not in `projects.yaml`, a type no workflow defines; `hard` without the owner's words (`NeedsOwnerWords`: no quote, or a provisional or YOLO mark); a `paths:` glob that matches no file of the repository; an `at:` status in none of the project's workflow files. Replaced decisions are skipped. Each finding names the ref and the `decide` command that fixes it (the owner's, for a hard one). It reads the board, so it runs once.
+  - `shas`: a commit ref (7 to 40 lowercase hex, with a letter and a digit) in a done issue's `## Implementation` that the main branch (`ci.branch`, else the main checkout's) does not reach: most often the SHA from before an amend or a rebase, while the commit that landed has another. The fix is the landed SHA (`git log --oneline main --grep '<slug>'`). A ref git doesn't know is left alone (another repository's commit, an attachment's hash), and so is a short ref that names several objects. One `git cat-file --batch-check` and one `git rev-list --stdin` call per run, whatever the number of issues; outside git, nothing.
+  - `testids`: a playtest session step (`playtest/sessions/*.yaml`) whose selector names a data-testid that `internal/testids` doesn't list: a target field, a `targets:` entry, or `data-testid="…"` in a string such as an `http` check's `contains:`. The step would fail only in Chrome. It runs only on a repository that has `internal/testids` (this engine), and names the session file, line and step id. The list is read from that repository's `internal/testids/*.go` on disk (the string literals appended to `IDs`, `FixtureIDs` or `StubIDs`), not from the ids built into the running issue-cli, so a build older than the tree doesn't call a new id unknown; a folder that lists none falls back to the built-in list.
   [CLI: health](CLI/overview.md#health) has each rule.
 - **When it runs:** in every snapshot: the one `issue-cli ci run` takes after each run, and the viewer's daily one. It reads the present files, so backfill leaves it out. The Health view also runs lint live: its **Lint** section lists every warning with its fix (50, then the command for the rest). The Status page's Health card shows the snapshot's count (`3 lint warnings`), linking to it.
 
@@ -509,7 +523,8 @@ The decision ledger counted (`internal/decisionstats`, `Measure`): the same numb
 | `decisions.in_force` | none | not replaced, deferred or expired |
 | `decisions.in_force_by_scope` | `scope` (`issue`, `type`, `system`, `department`, `project`) | in force by scope kind |
 | `decisions.hard`, `decisions.soft` | none | in force, by strength |
-| `decisions.provisional` | none | in force with no owner's words on the line yet |
+| `decisions.provisional` | none | in force and marked YOLO or provisional, not confirmed: what `decisions --state provisional` lists |
+| `decisions.no_quote` | none | in force, unmarked, with no quote; with `decisions.provisional`, all in force that wait for the owner's words |
 | `decisions.challenges_open` | none | refs challenged and not resolved |
 | `decisions.holds` | none | `held` events in the last 30 days |
 | `decisions.injected` | none | `injected` events (briefings that carried the block) in the last 30 days |
@@ -517,7 +532,7 @@ The decision ledger counted (`internal/decisionstats`, `Measure`): the same numb
 
 ### Adding a family
 
-A family is a Go function registered from `init()` in a package both binaries import (the server and `issue-cli`), so every snapshot includes it, whoever takes it:
+A family is a Go function registered from `init()` in a package both binaries import (the server and `issue-cli`), so every snapshot includes it, whoever takes it. `internal/health` is the registry: it imports none of the packages that register into it (the code map's Health registry context sits on the core layer, below every domain context), so a family lives in the package that owns its data, and what health itself needs from such a package is plugged in the same way (`health.SetTestResults` from `internal/ci`):
 
 ```go
 func init() { health.Register("workflow", workflowFamily) }
@@ -534,6 +549,79 @@ func workflowFamily(ctx context.Context, env health.Env) ([]health.Metric, error
 - **Backfill:** with `env.Backfill` set, `Now` is a past day and `Commit` where the branch stood then (`""` before the first commit). A family that can only measure the present returns `health.ErrNoPast`, and the day's snapshot leaves it out instead of recording an error.
 - **Context:** honour `ctx`, because it is cancelled at the family timeout.
 - **Docs:** document each name and its labels in a subsection here.
+
+## Code map
+
+The code map is a second grouping of a repository, beside `workbench.systems`. Systems group *issues* (and give a system page its files through `paths:`). Contexts group *Go packages*, and they sit on layers, so the engine can tell which way an import points and what a change reaches through reverse imports. It lives in `internal/codemap` and is read by `issue-cli codemap`, `issue-cli affected`, the Station's Affected block, the critic's brief, `/p/<project>/codemap` and the lint check `contexts`.
+
+```yaml
+workbench:
+  codemap_exclude:              # folders the map leaves out (fixture trees holding Go files)
+    - playtest/scenarios/**
+  layers:                       # bottom first: an import may point down a layer or stay in its own
+    - {name: kernel, shared: true}
+    - {name: core, shared: true}
+    - {name: domain}
+    - {name: checks}
+    - {name: surfaces}
+  contexts:                     # a list: file order breaks ties, and a repeated name is linted
+    - name: "Board & workflow core"
+      key: core                 # short id for --json, ?files= and leaks; default: the name lowercased with dashes
+      layer: core
+      summary: "Issues, workflow.yaml, transitions, the feature catalog."
+      paths: [workflow.yaml, workflows/]   # non-Go files that belong here
+      leaks:                    # known upward imports, "<from dir> -> <to dir>"
+        - internal/tracker -> internal/memory
+      packages:
+        - internal/tracker/...  # dir/... takes every package under it
+        - internal/wfedit
+```
+
+- **Packages.** `packages:` are package directories relative to the repository root. An exact directory beats a `dir/...` entry, and a longer `dir/...` beats a shorter one (here `internal/telemetry` is in the kernel and `internal/telemetry/share` in Measurement). If two contexts claim a package equally, the first in the file owns it and lint warns. A package no context claims shows as **unmapped**.
+- **Imports.** They are read from the source with `go/parser` (imports only). There is no `go list` and no toolchain. Every non-test `.go` file counts except those under `testdata/`, `vendor/`, dot or underscore folders, a nested module or `codemap_exclude:`, and files with a `//go:build ignore` line. Build tags are not evaluated, so the map is a superset of every platform's graph. Only imports of the repository's own module count.
+- **Layers.** An import is *upward* when the imported package's context sits on a higher layer than the importer's. `leaks:` on the importer's context lists the known ones. Lint warns on any other one, with the file and line, and on a leak that no longer happens. A `shared:` layer is one every layer uses (the kernel, the core): a surface file importing only shared contexts works in none of them.
+- **Surface files.** Files of packages on the top layer (here `internal/viewer` and `cmd/issue-cli`) each get the non-shared contexts they import, so `postmortem_queue.go` reads as Knowledge & learning.
+- **Cache.** The viewer and `issue-cli` keep the project's map per main head and workflow.yaml stat (`codemap.ForProject`). Pages pay for one tree walk per main commit (`TestCodemapParsesOncePerHead`).
+- **No Go.** A repository without `go.mod` gets a map of `paths:` only: `affected` maps files by globs and says it has no import graph.
+
+### A change's footprint
+
+`issue-cli affected <slug>` (or `--files <list>`, or `--files -` for stdin) maps changed files like this:
+
+- A changed non-test `.go` file changes its package.
+- The packages importing it, directly or not, are **reached**.
+- The change **works in** three kinds of context:
+  - the changed packages' own
+  - the contexts each changed surface file imports
+  - the contexts a changed non-Go file's `paths:` match
+- It **reaches** the reached packages' other contexts.
+- **Rebuild** lists the `main` packages changed or reached.
+- **Watch** lists the changed packages that import up a layer.
+- Test files and `testdata/` reach nothing.
+- A `.go` file in a folder that is no package on the map's tree is a *new package*. It maps by its folder.
+
+With `<slug>` the files are the work branch's changes since it left main (`tracker.BranchChanges`, the diff `decisions_respected` reads). The map is main's, so an import the branch adds counts once it merges. `--root .` reads a worktree's own tree and workflow.yaml.
+
+The Station shows this footprint as its **Affected** block at a status with role `verify` or `owner-test` (testing and human-testing). The block shows:
+- pills for the contexts the change works in, then the ones it reaches
+- the binaries to rebuild
+- a Watch pill when a changed package imports up a layer
+- the packages by context, folded
+- a link to the map with the files lit
+
+`transition` into such a status prints one `Footprint:` line. The [fresh critic](Workflow/critique.md)'s brief lists the same lines under "Footprint (from the code map, not the author)".
+
+### The page
+
+`/p/<project>/codemap` (sidebar: Code map, shown when `contexts:` is set) draws:
+- one lane per layer, top first
+- a box per context, with its package chips: bold over 3k lines, a wavy red underline when the package imports up a layer
+- the imports between contexts as a matrix, with upward cells in red
+- the upward imports and the unmapped packages
+
+Clicking a chip paints what the package depends on in teal and what reaches it in orange, and fills the Selection panel. `?files=a,b` paints a footprint as `affected` computes it, on the server.
+
+The engine's own map (this repository's workflow.yaml) is the first hand-drawn map's: 12 contexts over 5 layers, with its three upward imports listed as leaks (the briefings in `tracker`). `lint` registers its own health family and the station editor gets lint's check as a function (`wfedit.Apply`'s `check`), so nothing below `lint` imports it.
 
 ## Project pages (`status_page`, `pages`)
 

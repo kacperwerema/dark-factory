@@ -201,6 +201,45 @@ func TestMemoryScopesAcrossProjectsAndDepartments(t *testing.T) {
 	}
 }
 
+// A private project can't reach a machine memory by id either: what it
+// writes there would reach every project's briefing.
+func TestMachineMemoryRefusedFromPrivateByID(t *testing.T) {
+	memoryAs(t, "")
+	pub := goalsProject(t)
+	ctxA, _ := goalsCtx(t, pub, false)
+	if err := runMemory(ctxA, []string{"add", "--scope", "machine", "every project cuts release candidates as rc tags"}); err != nil {
+		t.Fatal(err)
+	}
+	set, err := memory.MachineStore().Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := set.All()[0].ID
+
+	priv := goalsProject(t)
+	wf := filepath.Join(priv.WorkDir, "workflow.yaml")
+	mustWrite(t, wf, "privacy:\n  work_files: tracker\n")
+	priv.WorkflowFile = wf
+	ctxP, _ := goalsCtx(t, priv, false)
+	secret := "the private client roster cuts rc tags"
+	for _, args := range [][]string{
+		{"add", "--updates", id, secret},
+		{"add", "--supersedes", id, secret},
+		{"edit", id, "--text", secret},
+	} {
+		if err := runMemory(ctxP, args); err == nil || !strings.Contains(err.Error(), "keeps its work private") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	set, err = memory.MachineStore().Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := set.All(); len(got) != 1 || strings.Contains(got[0].Text, "roster") {
+		t.Errorf("the machine store took a private project's words: %+v", got)
+	}
+}
+
 // memoryAsKeep switches the session without a fresh machine store.
 func memoryAsKeep(t *testing.T, who string) {
 	t.Helper()
@@ -433,4 +472,79 @@ func TestMemoryEntitiesRespectScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, out.String(), "#canonical")
+}
+
+// A worker reads no lead-scope memory and can't pin one; a department lead
+// and the CEO read it (the epic's D-5).
+func TestLeadScopeStaysOutOfAWorkersView(t *testing.T) {
+	memoryAs(t, "")
+	proj := goalsProject(t)
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runMemory(ctx, []string{"add", "--scope", "lead", "the factory holds new starts at the stop point"}); err != nil {
+		t.Fatal(err)
+	}
+	m := onlyMemory(t, proj)
+	if m.Scope != memory.ScopeLead {
+		t.Fatalf("stored %+v", m)
+	}
+	assertContains(t, out.String(), "Every lead's brief lists it, and no worker reads it")
+
+	memoryAs(t, "worker:seo-pass")
+	ctx, out = goalsCtx(t, proj, false)
+	for _, args := range [][]string{{"search", "stop", "point"}, {"list"}, {"list", "--all"}, {"list", "--scope", "lead"}} {
+		out.Reset()
+		if err := runMemory(ctx, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.Contains(out.String(), "holds new starts") {
+			t.Errorf("worker %v read it:\n%s", args, out.String())
+		}
+	}
+	if err := runMemory(ctx, []string{"show", m.ID}); err == nil || !strings.Contains(err.Error(), "scope lead, which you can't read") {
+		t.Errorf("worker show = %v", err)
+	}
+	if err := runMemory(ctx, []string{"pin", m.ID}); err == nil || !strings.Contains(err.Error(), "only leads and the owner") {
+		t.Errorf("worker pin = %v", err)
+	}
+	out.Reset()
+	printStartMemories(out, ctx, &tracker.Issue{Slug: "seo-pass", Title: "the stop point", System: "SEO"})
+	if strings.Contains(out.String(), "holds new starts") {
+		t.Errorf("start printed it:\n%s", out.String())
+	}
+
+	for _, who := range []string{"lead:marketing", "ceo"} {
+		memoryAs(t, who)
+		ctx, out = goalsCtx(t, proj, false)
+		if err := runMemory(ctx, []string{"list", "--scope", "lead"}); err != nil {
+			t.Fatal(err)
+		}
+		assertContains(t, out.String(), "holds new starts")
+	}
+	if err := runMemory(ctx, []string{"pin", m.ID}); err != nil {
+		t.Fatalf("the CEO pins it: %v", err)
+	}
+}
+
+// A lead-scope memory is in the project's log, a private project's too, and
+// a secret in one is refused like any other.
+func TestLeadScopeStaysInTheProjectAndRefusesSecrets(t *testing.T) {
+	memoryAs(t, "")
+	proj := goalsProject(t)
+	ctx, _ := goalsCtx(t, proj, false)
+	if err := runMemory(ctx, []string{"add", "--scope", "lead", "ghp_0123456789abcdefghijABCDEFGHIJ012345 opens the release"}); err == nil || !strings.Contains(err.Error(), "secret") {
+		t.Fatalf("a secret = %v", err)
+	}
+	if err := runMemory(ctx, []string{"add", "--scope", "lead", "read the newest handoff note first"}); err != nil {
+		t.Fatal(err)
+	}
+	if m := onlyMemory(t, proj); !strings.HasPrefix(m.ID, "m-") {
+		t.Fatalf("not in the project's log: %+v", m)
+	}
+	set, err := memory.MachineStore().Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(set.All()); n != 0 {
+		t.Fatalf("%d memories in the machine's log", n)
+	}
 }

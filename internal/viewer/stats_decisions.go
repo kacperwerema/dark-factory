@@ -97,7 +97,7 @@ func buildDecisionsCard(in decisionsCardIn) WbStatsDecisions {
 		{Key: "in_force", Label: "In force", Value: fmt.Sprint(c.InForce), Note: "not replaced, deferred or expired", URL: decisionsURL + "?state=active"},
 		{Key: "hard", Label: "Hard", Value: fmt.Sprint(c.Hard), Note: "the owner's words; gates check them"},
 		{Key: "soft", Label: "Soft", Value: fmt.Sprint(c.Soft), Note: "briefed, not enforced"},
-		{Key: "provisional", Label: "Provisional", Value: fmt.Sprint(c.Provisional), Note: "in force with no owner's words on the line yet", URL: decisionsURL + "?state=active"},
+		{Key: "provisional", Label: "Provisional", Value: fmt.Sprint(c.Provisional), Note: provisionalNote(c.NoQuote), URL: decisionsURL + "?state=" + tracker.DecisionProvisional},
 		challenges,
 	}
 	for _, s := range decisionstats.Scopes {
@@ -132,6 +132,16 @@ func buildDecisionsCard(in decisionsCardIn) WbStatsDecisions {
 		card.Briefings.Empty = &WbEmpty{Text: "No briefing carried the decisions block in this range: a briefing logs one only when a decision is in force for it."}
 	}
 	return card
+}
+
+// provisionalNote is the Provisional tile's note: what it counts, and the
+// decisions it leaves out that also wait for the owner's words.
+func provisionalNote(noQuote int) string {
+	note := "marked YOLO or provisional, not confirmed"
+	if noQuote > 0 {
+		note += fmt.Sprintf("; %d more with no quote", noQuote)
+	}
+	return note
 }
 
 // decisionSeries is the Decisions in force trend: hard, soft, provisional
