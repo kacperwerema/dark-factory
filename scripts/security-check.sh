@@ -86,9 +86,11 @@ env -u TMUX -u ISSUE_CLI_LOG HOME="$sb" XDG_STATE_HOME="$sb/state" XDG_CONFIG_HO
 	>"$sb/viewer.log" 2>&1 &
 pid=$!
 i=0
+# Up to 60 s: a freshly built binary's first exec can wait on macOS's
+# check for over 10 s on a loaded machine (local CI 14dae29).
 until curl -s -o /dev/null "$base/"; do
 	i=$((i + 1))
-	if [ $i -gt 50 ]; then echo "security-check: viewer did not start" >&2; cat "$sb/viewer.log" >&2; exit 1; fi
+	if [ $i -gt 300 ]; then echo "security-check: viewer did not start in 60 s" >&2; cat "$sb/viewer.log" >&2; exit 1; fi
 	sleep 0.2
 done
 

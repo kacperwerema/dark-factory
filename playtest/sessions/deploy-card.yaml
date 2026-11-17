@@ -1,0 +1,40 @@
+session: deploy-card
+issue: factory/a-project-can-name-its-deploy-steps-in-workflow-yaml-and-issue-cli-deploy-runs-them-with-checks-and-records-the-result
+title: Report - the Last deploy card, empty and after a red deploy
+scenario: deploy
+
+# cli: calls pass --project: issue-cli run in the scenario folder otherwise
+# names the project after the folder. The deploy runs only local shell
+# commands (the scenario's workflow.yaml).
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Before any deploy the card says so and names the dry run
+    proves: [AC7]
+    setup:
+      - open: /p/{project}/status
+    checks:
+      - visible: [report.page, report.deploy, report.deploy.empty]
+      - text_contains: { target: report.deploy.empty, text: "deploy --dry-run" }
+      - cli: { args: [--project, "{project}", deploy, --dry-run], contains: "3. landing" }
+
+  - id: TP5
+    title: A red deploy shows each step, why app stopped, and the command to go on
+    proves: [AC7]
+    setup:
+      - cli: { args: [--project, "{project}", deploy], exit: 1, contains: "deploy stopped at app" }
+      - open: /p/{project}/status
+    checks:
+      - visible: [report.deploy, report.deploy.state, report.deploy.when, report.deploy.why, report.deploy.resume]
+      - text_equals: { target: report.deploy.state, text: red }
+      - text_equals: { target: report.deploy.step.backup.state, text: green }
+      - text_equals: { target: report.deploy.step.app.state, text: red }
+      - text_equals: { target: report.deploy.step.landing.state, text: not run }
+      - text_contains: { target: report.deploy.why, text: "run exit 1" }
+      - text_contains: { target: report.deploy.resume, text: "deploy --from app" }
+      - cli: { args: [--project, "{project}", deploy, --last], contains: "red at app" }

@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 )
 
 // DispatchPrompt is the briefing an agent dispatch would send for an issue,
@@ -33,7 +36,8 @@ type DispatchPrompt struct {
 
 // CIPromptSection is the "## Local CI" part of a worker's briefing: where
 // the integration branch stands now, and that CI runs after the merge
-// without the agent. Empty without a ci: block.
+// without the agent, naming the project's own CI command (ProjectTestsFor).
+// Empty without a ci: block.
 func CIPromptSection(workDir string, wf *WorkflowConfig) string {
 	if CIStatusLine == nil {
 		return ""
@@ -42,8 +46,12 @@ func CIPromptSection(workDir string, wf *WorkflowConfig) string {
 	if line == "" {
 		return ""
 	}
+	fails := "your project's tests fail"
+	if ci := ProjectTestsFor(workDir, wf).CI; ci != "" {
+		fails = "`" + ci + "` or a test fails"
+	}
 	return "\n\n## Local CI\n\n" + line + "\n" +
-		"- When `make validate` or a test fails on your branch, compare with this line (`issue-cli ci status`): a failure main already has is not yours to fix. If it has no issue, file it (`issue-cli create`); if it has one, name it in your `tests:` comment.\n" +
+		"- When " + fails + " on your branch, compare with this line (`issue-cli ci status`): a failure main already has is not yours to fix. If it has no issue, file it (`issue-cli create`); if it has one, name it in your `tests:` comment.\n" +
 		"- After you fast-forward main, local CI tests it by itself. Never wait for it: close your issue and stop. If it goes red on your merge, the lead may re-open your issue.\n"
 }
 
@@ -193,23 +201,65 @@ func BuildAgentPromptYOLO(proj *Project, issue *Issue, wf *WorkflowConfig, workt
 	return prompt
 }
 
+// EvidenceRule is the worktree briefing's line on stills: a worktree has no
+// issues/ tree, so issue-cli evidence add puts them where the Evidence tab
+// reads them.
+const EvidenceRule = "Stills you take for the issue outside a playtest run go in with `issue-cli evidence add <file> [--step <id>]`: it copies them into the primary checkout's issues/_evidence/ folder, which the issue's Evidence tab shows. Don't write into the primary checkout by hand or keep captures in the worktree."
+
 // WorktreePromptSection is the "## Worktree" part of a worker's briefing:
-// where it works and what it leaves alone; "" when it runs in no worktree.
+// where it works and what it leaves alone. A worker dispatch makes no
+// worktree for (no worktree: true) gets BranchPromptSection instead.
 func WorktreePromptSection(proj *Project, issue *Issue, worktreePath, worktreeBranch string) string {
 	if worktreePath == "" {
-		return ""
+		return BranchPromptSection(proj, issue)
 	}
 	return fmt.Sprintf(`
 
 ## Worktree
 
-You are already in an isolated git worktree at %s on branch %s.
-- Do your code work and make commits here on %s. Do not switch this checkout to another branch.
+You are already in an isolated git worktree, your working directory, on branch %s.
+- Do your code work and make commits here, on that branch. Do not switch this checkout to another branch.
 - Issue management is NOT code work. The issues/ tree is excluded from this worktree on purpose — it lives on the primary checkout (master). Run every issue-cli command exactly as written: --project already points it at the primary checkout, so it manages the issue on master regardless of your worktree branch. Do not cd into the primary checkout, and do not try to create or edit issue files inside this worktree.
-%s- Leave the worktree in place after the issue ships: do not remove it, and nobody has to clean it up.
+- %s
+%s- Leave the worktree in place after the issue ships: do not remove it yourself. The engine removes it once its branch is on main and its session has closed (the branch stays).
 - %s
 - %s
-`, worktreePath, worktreeBranch, worktreeBranch, WorktreePathLines(proj, issue), SandboxViewerRule, WorkerGuardRule)
+`, worktreeBranch, EvidenceRule, WorktreePathLines(proj, issue), SandboxViewerRule, WorkerGuardRule)
+}
+
+// BranchPromptSection is the "## Branch" part of the briefing in a git
+// project whose workflow has no worktree: true: dispatch makes no worktree,
+// so the worker makes one, and the section names the branch and folder
+// prove, check-script and the commit hint look for first. "" without a git
+// checkout, or for a slug git can't name a branch after.
+func BranchPromptSection(proj *Project, issue *Issue) string {
+	if proj == nil || issue == nil || !BranchSafe(issue.Slug) {
+		return ""
+	}
+	root := proj.Root()
+	if gitdir.Common(root) == "" {
+		return ""
+	}
+	slug := issue.Slug
+	return InjectProject(proj, fmt.Sprintf(`
+
+## Branch
+
+This project's workflow has no worktree: true, so dispatch made no worktree. Before your first code change, make the issue's own: it makes %s on %s from main, runs the project's worktree_setup there (node_modules and the like) and prints the path last:
+  issue-cli worktree add %s
+- Then cd into that path and work there: docs and code under %s are main's, not your branch's.
+- prove, check-script and the commit-message hint look for %s first, then a worktree whose branch ends in the slug or whose HANDOFF.md names it.
+- Already on another branch? Name it once: issue-cli set-meta %s --key branch --value <your-branch>
+`, shell.Quote(filepath.Join(".worktrees", slug)), shell.Quote("work/"+slug), shell.Quote(slug), shell.Quote(root), "work/"+slug, shell.Quote(slug)))
+}
+
+// BranchSafe reports whether git can name a branch work/<slug>: no space,
+// no "..", no character git refuses in a ref.
+func BranchSafe(slug string) bool {
+	if strings.TrimSpace(slug) == "" || strings.Contains(slug, "..") || strings.HasSuffix(slug, "/") || strings.HasSuffix(slug, ".lock") {
+		return false
+	}
+	return !strings.ContainsAny(slug, " ~^:?*[\\\t\n")
 }
 
 // The Worktree section's two rules for a worker trying things out; the docs
@@ -378,7 +428,7 @@ func injectLine(slug, line string) string {
 			i = end
 			continue
 		}
-		if !strings.HasPrefix(line[i:], cli) {
+		if !strings.HasPrefix(line[i:], cli) || !commandAt(line, i) {
 			b.WriteByte(line[i])
 			i++
 			continue
@@ -386,11 +436,56 @@ func injectLine(slug, line string) string {
 		i += len(cli)
 		inCmd = true
 		b.WriteString(cli)
-		if !strings.HasPrefix(line[i:], "--project") {
+		if !namesProject(line[i:]) {
 			b.WriteString("--project " + slug + " ")
 		}
 	}
 	return b.String()
+}
+
+// commandAt reports whether the "issue-cli" at line[i] stands where a
+// command does: at the start of a word, or as "./issue-cli", the worker's
+// own build. Glued to a word character, '.', '-', '_' or '/' it is part of
+// a name or a path (cmd/issue-cli, ./cmd/issue-cli, my-issue-cli) and is
+// left as written.
+func commandAt(line string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	if strings.HasSuffix(line[:i], "./") && (i == 2 || !pathByte(line[i-3])) {
+		return true
+	}
+	return !pathByte(line[i-1])
+}
+
+// pathByte reports whether c can be part of a name or path word.
+func pathByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.IndexByte("._-/", c) >= 0
+}
+
+// namesProject reports whether the global flags at the start of rest (what
+// follows "issue-cli ") already name --project. It walks them the way
+// splitGlobalAndCommand does: --config and --project take a value, --json
+// and --debug none, and the first other word is the command.
+func namesProject(rest string) bool {
+	words := strings.Fields(rest)
+	for i := 0; i < len(words); i++ {
+		w := strings.Trim(words[i], "`")
+		switch {
+		case w == "--project" || strings.HasPrefix(w, "--project="):
+			return true
+		case w == "--config":
+			i++
+		case strings.HasPrefix(w, "--config="), w == "--json", w == "--debug":
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // quotedAt returns the index just past the quoted string opening at line[i],

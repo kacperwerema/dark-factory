@@ -208,3 +208,29 @@ func TestUnderLoadScriptReadsTheSameLine(t *testing.T) {
 		t.Error("under-load.sh must read `mem-guard used`, never parse status")
 	}
 }
+
+// A non-interactive sh starts a background job with SIGINT ignored, and a
+// child can't trap a signal ignored on entry: under-load.sh hands its command
+// SIGINT at its default, so a test of Ctrl-C passes under it as it does alone.
+// The test binary's own SIGINT may be ignored too, so the probe is started
+// with it ignored on purpose.
+func TestUnderLoadCommandSeesSigintAtTheDefault(t *testing.T) {
+	perl, err := exec.LookPath("perl")
+	if err != nil {
+		t.Skip("no perl")
+	}
+	script := filepath.Join(repoRoot(t), "scripts", "under-load.sh")
+	probe := `print defined $SIG{INT} ? $SIG{INT} : "DEFAULT"`
+	cmd := exec.Command(perl, "-e", `$SIG{INT} = "IGNORE"; exec @ARGV`,
+		script, "-c", "0", "-m", "0", "--", perl, "-e", probe)
+	out, err := cmd.Output()
+	if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 3 {
+		t.Skip("mem-guard check is blocked")
+	}
+	if err != nil {
+		t.Fatalf("under-load.sh: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "DEFAULT" {
+		t.Errorf("the command's SIGINT = %q, want DEFAULT", got)
+	}
+}

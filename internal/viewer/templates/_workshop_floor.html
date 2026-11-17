@@ -70,8 +70,9 @@ fit is in the inspector. The classic company page is at ?classic=1.
 {{/* The floor at 640px and below: the plan and its legend hide and this
 list shows (hidden above). A name opens its inspector in the rail, as a
 tile's head does. */}}
-{{define "wb/fl-list"}}<ul class="wb-fl-list" aria-label="Rooms" data-testid="floor.list">{{range .}}
-    <li class="wb-fl-lrow" style="--lrow:{{.Color}};--depth:{{.Depth}}" data-box="{{.Box}}" data-testid="floor.list.row"><a class="wb-fl-lname" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.list.name"><span class="wb-fl-lhead"><b>{{.Title}}</b>{{if .Live}} <span class="wb-fl-llive">● live</span>{{end}}{{if .YOLO}} <span class="wb-fl-yolo-pill">YOLO · {{.YOLO}}</span>{{end}}</span><span class="wb-fl-lcounts" data-testid="floor.list.counts"><b>{{.Open}}</b> open{{if .ToReview}} · <span class="wb-fl-you-text">{{.ToReview}} to review</span>{{end}}{{with .Note}} · {{.}}{{end}}</span></a>{{if .ActionURL}}<a class="wb-fl-lgo" href="{{.ActionURL}}" data-testid="floor.list.go">{{.Action}}</a>{{end}}</li>{{end}}
+{{define "wb/fl-list"}}<ul class="wb-fl-list" aria-label="Rooms" data-testid="floor.list">{{range .}}{{if .URL}}
+    <li class="wb-fl-lrow wb-fl-lrow--new"><a class="wb-fl-lname" href="{{.URL}}" data-testid="floor.list.new_dept"><span class="wb-fl-lhead"><b>+ {{.Title}}</b></span><span class="wb-fl-lcounts">{{.Note}}</span></a></li>{{else}}
+    <li class="wb-fl-lrow" style="--lrow:{{.Color}};--depth:{{.Depth}}" data-box="{{.Box}}" data-testid="floor.list.row"><a class="wb-fl-lname" href="#room-{{.Box}}" data-pick="{{.Box}}" data-testid="floor.list.name"><span class="wb-fl-lhead"><b>{{.Title}}</b>{{if .Live}} <span class="wb-fl-llive">● live</span>{{end}}{{if .YOLO}} <span class="wb-fl-yolo-pill">YOLO · {{.YOLO}}</span>{{end}}</span><span class="wb-fl-lcounts" data-testid="floor.list.counts"><b>{{.Open}}</b> open{{if .ToReview}} · <span class="wb-fl-you-text">{{.ToReview}} to review</span>{{end}}{{with .Note}} · {{.}}{{end}}</span></a>{{if .ActionURL}}<a class="wb-fl-lgo" href="{{.ActionURL}}" data-testid="floor.list.go">{{.Action}}</a>{{end}}</li>{{end}}{{end}}
 </ul>{{end}}
 
 {{define "wb/fl-num"}}<div class="wb-fl-num{{with .Tone}} wb-fl-num--{{.}}{{end}}"{{with .Title}} title="{{.}}"{{end}}><div class="wb-fl-num-v">{{.Value}}</div><div class="wb-fl-num-l">{{.Label}}</div></div>{{end}}
@@ -173,15 +174,7 @@ tile's head does. */}}
 </div>
 {{end}}{{else if eq .Kind "new"}}{{with .NewDept}}
 <div class="wb-fl-plot" style="left:{{$.X}}px;top:{{$.Y}}px;width:{{$.W}}px;height:{{$.H}}px" data-tile="new" data-x="{{$.X}}" data-y="{{$.Y}}" data-w="{{$.W}}" data-h="{{$.H}}" data-testid="floor.new_dept">
-    {{if and .FormURL .Templates}}<details class="wb-fl-plot-form" data-testid="company.new_dept">
-        <summary class="wb-fl-plot-face" data-testid="tile.{{.Tile.TestID}}"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{len .Templates}} template{{if ne (len .Templates) 1}}s{{end}} left</span></summary>
-        <form class="wb-fl-plot-pop" method="get" action="{{.FormURL}}" data-testid="company.new_dept.form">
-            {{range .Templates}}<label class="wb-newdept-choice" data-testid="company.new_dept.template.{{tid .Key}}"><input type="radio" name="template" value="{{.Key}}"{{if .Checked}} checked{{end}}><span><b>{{.Name}}</b> <span class="wb-newdept-meta">{{.Description}}</span></span></label>{{end}}
-            {{with .Groups}}<label class="wb-newdept-name">Under which group? <select name="parent" data-testid="company.new_dept.parent"><option value="">None: straight under HQ</option>{{range .}}<option value="{{.Key}}">{{.Name}}</option>{{end}}</select></label>{{end}}
-            <button type="submit" class="wb-fl-ink" data-testid="company.new_dept.preview">Preview →</button>
-            <span class="wb-newtile-note">Nothing is written until you press Add on the next page.</span>
-        </form>
-    </details>{{else}}<div class="wb-fl-plot-face" data-testid="tile.{{.Tile.TestID}}" title="{{.Tile.Note}}"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{if .Tile.Sub}}{{.Tile.Sub}}{{end}}</span></div>{{end}}
+    {{if and .FormURL .Templates}}<a class="wb-fl-plot-face" href="{{.FormURL}}" data-testid="tile.{{.Tile.TestID}}" title="Add a department from a template: you pick one and preview it before anything is written"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{len .Templates}} template{{if ne (len .Templates) 1}}s{{end}} left</span></a>{{else}}<div class="wb-fl-plot-face" data-testid="tile.{{.Tile.TestID}}" title="{{.Tile.Note}}"><span class="wb-fl-plus">+</span><b>{{.Tile.Title}}</b><span>{{if .Tile.Sub}}{{.Tile.Sub}}{{end}}</span></div>{{end}}
 </div>
 {{end}}{{end}}
 {{end}}

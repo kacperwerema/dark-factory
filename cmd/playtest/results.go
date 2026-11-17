@@ -166,6 +166,9 @@ var volatile = []struct {
 }{
 	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?`), "<time>"},
 	{regexp.MustCompile(`/pt-\d+\b`), "/pt-<n>"},
+	// A record named by its start in compact form (a deploy's
+	// .deploys/20261116-111253.json).
+	{regexp.MustCompile(`\b\d{8}-\d{6}(-\d+)?\b`), "<stamp>"},
 	// The scenario's board runs on a free port, and links name it.
 	{regexp.MustCompile(`127\.0\.0\.1:\d+`), "127.0.0.1:<port>"},
 	// Relative ages ("main green at bb47fba (3s ago)") move with a slow first run.

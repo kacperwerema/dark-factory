@@ -33,6 +33,8 @@ type Item struct {
 	// place on disk.
 	File, Path string
 	Since      time.Time
+	// Fix is what fixes it, once Fixes.Split has looked.
+	Fix Fix
 }
 
 // Group is the items of one place that say the same thing, or (Alone) the
@@ -50,6 +52,9 @@ type PlaceGroups struct {
 	Groups []Group
 }
 
+// Two file or skill actions join only when they edit the same file: the
+// same words about CLAUDE.md and about docs/workflow.md are two lessons.
+//
 // SameThreshold is the word overlap (memory's words, Jaccard, over the
 // action's title, Differently and Text) from which two actions of different
 // issues read as one. On the live queue of 2026-11-05 (299 actions) 0.3
@@ -79,6 +84,27 @@ func GroupItems(items []Item) []PlaceGroups {
 	return out
 }
 
+// Key is an item's handle across pages: "<file>#<id>".
+func (it Item) Key() string { return it.File + "#" + it.ID }
+
+// GroupKeys names each item's group by its Key: the copies of one group
+// share their newest copy's key, and an alone item has its own.
+func GroupKeys(items []Item) map[string]string {
+	out := map[string]string{}
+	for _, pg := range GroupItems(items) {
+		for _, g := range pg.Groups {
+			for _, it := range g.Items {
+				if g.Alone {
+					out[it.Key()] = it.Key()
+				} else {
+					out[it.Key()] = g.Items[0].Key()
+				}
+			}
+		}
+	}
+	return out
+}
+
 func sameGroups(place string, items []Item) []Group {
 	words := make([]map[string]bool, len(items))
 	for i, it := range items {
@@ -100,7 +126,7 @@ func sameGroups(place string, items []Item) []Group {
 	}
 	for i := range items {
 		for j := 0; j < i; j++ {
-			if items[i].Issue != items[j].Issue && overlap(words[i], words[j]) >= SameThreshold {
+			if items[i].Issue != items[j].Issue && items[i].Target() == items[j].Target() && overlap(words[i], words[j]) >= SameThreshold {
 				parent[find(i)] = find(j)
 			}
 		}

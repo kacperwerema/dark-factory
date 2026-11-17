@@ -67,7 +67,7 @@ func TestBuildDispatchPrompt_BuildBehindMain(t *testing.T) {
 		"The installed issue-cli (v0.1.0) is 2 commits behind main",
 		"`go build -o ./issue-cli ./cmd/issue-cli`",
 		"`./issue-cli --project dark-factory <command>`",
-		"`./issue-cli --project dark-factory check-script <slug> --yes` runs your guided check scripts with $ISSUE_CLI",
+		"`./issue-cli --project dark-factory check-script --yes` runs your guided check scripts with $ISSUE_CLI",
 		"never make install",
 	} {
 		if !strings.Contains(p, want) {

@@ -149,10 +149,11 @@ func salesJob(t *testing.T, p *tracker.Project) *jobs.Ref {
 func TestWriteMetricsAtomic(t *testing.T) {
 	p := salesProject(t)
 	r := salesJob(t, p)
-	path, err := WriteMetrics(p, r, "2026-10-26", []Metric{{ID: "visits", Value: 410}, {ID: "signups", Value: 12}})
-	if err != nil || path != jobFilePath(p) {
-		t.Fatalf("WriteMetrics = %q, %v", path, err)
+	w, err := WriteMetrics(p, r, Write{Date: "2026-10-26", Today: "2026-10-26", Metrics: []Metric{{ID: "visits", Value: 410}, {ID: "signups", Value: 12}}})
+	if err != nil || w.Path != jobFilePath(p) {
+		t.Fatalf("WriteMetrics = %+v, %v", w, err)
 	}
+	path := w.Path
 	g := Resolve(p, now).Goal("sales/visits")
 	if g.Value == nil || *g.Value != 410 || g.Date != "2026-10-26" {
 		t.Fatalf("read back: %+v", g)
@@ -161,7 +162,7 @@ func TestWriteMetricsAtomic(t *testing.T) {
 	// A write that fails leaves the old file whole and no temp file
 	// (jsonfile's TestWrite covers a failed rename).
 	before, _ := os.ReadFile(path)
-	if _, err := WriteMetrics(p, r, "2026-10-27", []Metric{{ID: "visits", Value: math.NaN()}}); err == nil || !strings.Contains(err.Error(), "NaN") {
+	if _, err := WriteMetrics(p, r, Write{Date: "2026-10-27", Today: "2026-10-27", Metrics: []Metric{{ID: "visits", Value: math.NaN()}}}); err == nil || !strings.Contains(err.Error(), "NaN") {
 		t.Fatalf("failed write: err %v", err)
 	}
 	after, _ := os.ReadFile(path)
@@ -174,7 +175,7 @@ func TestWriteMetricsAtomic(t *testing.T) {
 	}
 
 	// The file is replaced whole: a metric not read this run is gone.
-	if _, err := WriteMetrics(p, r, "2026-10-27", []Metric{{ID: "visits", Value: 2}}); err != nil {
+	if _, err := WriteMetrics(p, r, Write{Date: "2026-10-27", Today: "2026-10-27", Metrics: []Metric{{ID: "visits", Value: 2}}}); err != nil {
 		t.Fatal(err)
 	}
 	if s := Resolve(p, now).Goal("sales/signups"); s.Value != nil || !strings.Contains(s.Err, `no metric "signups"`) {
@@ -195,7 +196,7 @@ func TestWriteMetricsRefuses(t *testing.T) {
 		"twice":    {"2026-10-26", []Metric{{ID: "visits", Value: 1}, {ID: "visits", Value: 2}}, "appears twice"},
 		"no id":    {"2026-10-26", []Metric{{Value: 1}}, "no id"},
 	} {
-		if _, err := WriteMetrics(p, r, c.date, c.ms); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := WriteMetrics(p, r, Write{Date: c.date, Today: "2026-10-26", Metrics: c.ms}); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err %v, want %q", name, err, c.want)
 		}
 	}

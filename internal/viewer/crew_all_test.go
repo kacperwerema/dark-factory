@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -72,7 +73,7 @@ func crewQuiet(t *testing.T) string {
 	t.Setenv("XDG_STATE_HOME", state)
 	mem, load := autostart.ReadMemory, autostart.ReadLoad
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 41, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4.2, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4.2, Avg5: 4.2, Cores: 14} }
 	t.Cleanup(func() { autostart.ReadMemory, autostart.ReadLoad = mem, load })
 	stubAgentsGit(t)
 	return state
@@ -141,7 +142,7 @@ func TestCrewAllListsTwoProjects(t *testing.T) {
 	html := rec.Body.String()
 	assertContains(t, html,
 		`data-testid="crew_all.page"`,
-		`memory 41% · can start`, `load 4.2 on 14 cores`,
+		`memory 41% · can start`, `load 4.2/4.2 on 14 cores`,
 		`data-testid="crew_all.project.agents"`, `data-testid="crew_all.project.beta"`,
 		`data-testid="crew_all.row.agent-ui-child"`, `waiting on you at the testing gate`,
 		`data-testid="crew_all.row.agent-ui-asker"`, `asked a question`,
@@ -391,6 +392,40 @@ func TestCrewAllTail(t *testing.T) {
 	}
 	if rec := ownerDo(srv, "GET", "/p/agents/crew/tail?session=agent-nope", "", nil, c); rec.Code != http.StatusNotFound {
 		t.Errorf("tail of an unknown session = %d, want 404", rec.Code)
+	}
+}
+
+// The tail reads the pane with escapes: Claude Code's dimmed suggestion in
+// an idle worker's input box shows as a suggestion, not as an answer left
+// typed (a project lead's 2026-11-13 22:47 tick read three that way).
+func TestCrewTailMarksAGreyedSuggestion(t *testing.T) {
+	tmux := crewTmux(t)
+	crewQuiet(t)
+	a, _ := crewProjects(t)
+	screen := `printf '%s\n' 'waiting on the owner' '────────────────────'; printf '❯ \033[7mG\033[27m\033[2mo with option 3\033[22m\n'; printf '%s\n' '────────────────────'; sleep 600`
+	if out, err := tmux("new-session", "-d", "-s", "agent-ui-child", "-c", a.WorkDir, screen); err != nil {
+		t.Fatal(err, out)
+	}
+	srv := crewServer(t, a)
+	c := pairOwner(t, srv)
+	var body struct {
+		Lines []string `json:"lines"`
+	}
+	want := "❯ (" + agentrun.SuggestionNote + "Go with option 3)"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec := ownerDo(srv, "GET", "/p/agents/crew/tail?session=agent-ui-child", "", nil, c)
+		if rec.Code != 200 {
+			t.Fatalf("tail = %d %s", rec.Code, rec.Body)
+		}
+		json.Unmarshal(rec.Body.Bytes(), &body)
+		if slices.Contains(body.Lines, want) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tail never marked the suggestion %q: %q", want, body.Lines)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

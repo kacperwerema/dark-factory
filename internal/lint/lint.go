@@ -1,7 +1,10 @@
 // Package lint checks a project's workflow.yaml and its board for problems
 // the engine would otherwise meet silently: undated issues, unknown keys,
 // an old template stamp, placeholders nothing fills, gates on sections no
-// template writes. Every finding is a warning. issue-cli health lint prints
+// template writes. Every finding is a warning, except one marked History:
+// a record of something the project removed on purpose (a decision scoped
+// to, or an output of, a department projects.yaml no longer has), which
+// the report lists apart and no count includes. issue-cli health lint prints
 // them, the health family lint records their count (the lint score
 // component) and /health lists them live. See docs/workbench-files.md,
 // "The lint family".
@@ -29,6 +32,13 @@ type Finding struct {
 	// Fix is the command to run or the edit to make; empty when the
 	// message says it.
 	Fix string `json:"fix,omitempty"`
+	// History marks a record of something removed on purpose: Run puts it
+	// in Report.History, not Findings, and counts no warning for it.
+	History bool `json:"-"`
+	// Note marks a line worth reading that is no fault of the config: a
+	// new project with no goals yet (goal-without-work). Run puts it in
+	// Report.Notes and counts no warning, so a fresh project stays clean.
+	Note bool `json:"-"`
 }
 
 // Check is one named check.
@@ -47,7 +57,7 @@ var checks = []Check{
 	{"template", "the template: stamp against the template bundled in this issue-cli", checkTemplate},
 	{"placeholders", "{{name}} placeholders the field never fills, so the agent sees them as written", checkPlaceholders},
 	{"sections", "checkbox and test-plan gates on sections no template writes the way the gate needs", checkSections},
-	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields; connections: routes; outputs shelf lines, gone files, outputs waiting for review; open issues whose system: names a department they aren't in", checkDepartments},
+	{"departments", "projects.yaml company:/departments: problems: missing prompt files, unknown rolls_up:, bad goal fields; connections: routes; outputs shelf lines, gone files, outputs waiting for review; open issues whose system: names a department they aren't in; a mission or goals still the template's sample", checkDepartments},
 	{"untracked", "department files (role prompt, workflow file, job briefs, departments/<key>/) git does not track, so they can be lost or slip into an unrelated commit", checkUntracked},
 	{"paths", "workbench.systems paths: globs that match no file in the repository or leave it", checkPaths},
 	{"contexts", "the code map (workbench.contexts): a Go package no context lists, an import up a layer that leaks: doesn't list, a leak that no longer happens, a context name used twice, a package in two contexts, a layer: or packages: entry naming nothing", checkContexts},
@@ -57,23 +67,28 @@ var checks = []Check{
 	{"na-boxes", "ticked N/A boxes on open issues whose reason is not in a named form (issue-cli check --help), or that sit on the owner's box", checkNABoxes},
 	{"owner-marker", "open acceptance criteria that read like the owner's check (\"the owner confirms …\") without the (owner) marker", checkOwnerMarker},
 	{"show-footer", "issue sections holding issue-cli show's own output (== Checklist ==, the tick hints, == Comments ==), pasted when a section is rebuilt from show; quotes in code spans and fences don't count", checkShowFooter},
-	{"criteria", "open acceptance criteria no test, command or playtest step could fail (\"it works\", \"is clear\"), and a ## Must not left as the template's placeholder; owner boxes are exempt", checkCriteria},
+	{"criteria", "open acceptance criteria no test, command or playtest step could fail (\"it works\", \"is clear\"), and a ## Must not left as the template's placeholder; owner boxes and types whose path skips testing (report, docs, chore) are exempt from the test ask", checkCriteria},
 	{"types", "open docs-type issues whose ## Wanted or open acceptance criteria name a test, a package or a .go path: work the docs path has no Test Plan for", checkTypes},
 	{"reports", "issues past a has_output gate (the report type) whose output is gone from the shelf: never added, file deleted, or rejected and not replaced; done reports whose Follow-ups no issue or queue item quotes", checkReports},
 	{"routing", "routing: rules that pick the agent CLI (claude, codex): agents not installed or not command names, unknown types, statuses or departments, rules after a catch-all, a fallback that repeats or leaves out the default", checkRouting},
-	{"memory", "memory: embedder: settings search can't use: both or neither of url and command, a URL that leaves this machine (hosted is the owner's gate), no model, a bad timeout or min_similarity; memories whose --at names a status no workflow has", checkMemory},
+	{"workers", "workers: settings a worker launch can't use: setup: other than lean or full, an mcp: item with no server or a server the owner's Claude Code config does not define, a type the file does not define, a plugin that is not name@marketplace", checkWorkers},
+	{"memory", "memory: embedder: settings search can't use: both or neither of url and command, a URL that leaves this machine (hosted is the owner's gate), no model, a bad timeout or min_similarity; memories whose --at names a status no workflow has; a cluster of 3+ memories retelling one fact; a pitfall or howto that names a step with no --at", checkMemory},
 	{"evals", "evals: entries the factory benchmark can't use: no or repeated id, unknown score, pass outside 0-1, a type the file doesn't define", checkEvals},
 	{"department", "department workflow files (projects.yaml departments: workflow:) that don't load, project-wide keys in them, issues whose status their department's file lacks", checkDepartment},
 	{"critique", "the fresh critic's settings: a critique: timeout that doesn't parse, an agent with no read-only command, a critique: block no edge uses, a critique gate out of the first status", checkCritique},
+	{"hints", "validate actions whose hint: the rule never shows (criteria_*, approved_for, decisions_*, critique, has_output and other rules that keep their own fix text)", checkHints},
 	{"decisions", "D-n attribute groups the decision ledger can't use: a {…} naming a decision key that doesn't parse or a scope naming no system, department or type; hard without the owner's words; paths: matching no file; at: naming no status", checkDecisions},
 	{"testids", "playtest session steps (playtest/sessions) whose selector names a data-testid internal/testids does not list, so the step fails only in Chrome", checkTestIDs},
 	{"shas", "commit refs in a done issue's ## Implementation that main does not reach (the SHA from before an amend or rebase)", checkSHAs},
+	{"goal-without-work", "goals in projects.yaml (HQ, Product, departments) and open epics with no open issue, active queue item or job behind them; a project with no goals at all, once", checkGoalWithoutWork},
+	{"roadmap-behind", "docs/roadmap.md's version table stopping before the running milestone (the highest version: an open issue carries): names each milestone it lacks", checkRoadmapBehind},
+	{"worktrees", "a workflow with no worktree: true whose open issues have worktrees under .worktrees/ all the same, made by hand (worktree: true would make work/<slug> for them)", checkWorktrees},
 }
 
 // boardChecks read the board or the repository, not only a workflow file:
 // they run once. The other checks run on Product's file and again on each
 // department's own (workbench: is project-wide, so paths runs on Product's).
-var boardChecks = map[string]bool{"rules": true, "undated": true, "na-boxes": true, "owner-marker": true, "show-footer": true, "criteria": true, "types": true, "reports": true, "department": true, "departments": true, "untracked": true, "paths": true, "contexts": true, "testids": true, "decisions": true, "shas": true}
+var boardChecks = map[string]bool{"rules": true, "undated": true, "na-boxes": true, "owner-marker": true, "show-footer": true, "criteria": true, "types": true, "reports": true, "department": true, "departments": true, "untracked": true, "paths": true, "contexts": true, "testids": true, "decisions": true, "shas": true, "worktrees": true, "goal-without-work": true, "roadmap-behind": true}
 
 // Checks lists every check in run order.
 func Checks() []Check { return append([]Check(nil), checks...) }
@@ -123,6 +138,11 @@ type Report struct {
 	Checks   []string  `json:"checks"`
 	Findings []Finding `json:"findings"`
 	Warnings int       `json:"warnings"`
+	// History is the info lines: records of what the project removed on
+	// purpose (Finding.History). They lower no score.
+	History []Finding `json:"history,omitempty"`
+	// Notes are info lines that lower no score (Finding.Note).
+	Notes []Finding `json:"notes,omitempty"`
 }
 
 // Run runs the named checks (every check when names is empty).
@@ -149,6 +169,14 @@ func Run(env *Env, names ...string) (*Report, error) {
 		for _, e := range envs {
 			for _, f := range c.Run(e) {
 				f.Check = c.Name
+				if f.History {
+					rep.History = append(rep.History, f)
+					continue
+				}
+				if f.Note {
+					rep.Notes = append(rep.Notes, f)
+					continue
+				}
 				rep.Findings = append(rep.Findings, f)
 				rep.Warnings++
 			}

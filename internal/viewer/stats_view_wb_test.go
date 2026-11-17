@@ -55,7 +55,7 @@ func TestStatsWbPageRenders(t *testing.T) {
 		`data-testid="stats.chart.time"`, `data-testid="stats.chart.group"`, `data-testid="stats.chart.weekly"`, "wb-chart--wide",
 		`data-testid="stats.drilldown"`, `/issue/fix-it?tab=timeline`, `data-testid="stats.table.time"`, "<summary>Table</summary>",
 		`data-testid="stats.cost"`, `data-testid="stats.table_card.dispatch"`, `data-testid="stats.table_card.static"`, `data-testid="stats.table_card.recorded"`,
-		`data-testid="stats.cli"`, `data-testid="stats.tables"`, `data-testid="stats.fold.time"`, `data-testid="stats.table_card.approvals"`,
+		`data-testid="stats.cli"`, `data-testid="stats.tables"`, `data-testid="stats.fold.time"`, `data-testid="stats.table_card.approvals"`, `data-testid="stats.table_card.models"`,
 		// Moved from the classic page: the way to every project's stats, the
 		// remembered-options note, the time split rules.
 		`href="/stats" data-testid="stats.all"`, `data-testid="stats.saved"`, `data-testid="stats.time_rules"`, "less than 15 min apart",

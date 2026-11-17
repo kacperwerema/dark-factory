@@ -19,6 +19,14 @@ var transitionCommand = &Command{
 	LongHelp: `Transition an issue to a new status. Use --field key=value for declarative
 field answers required by the workflow.
 
+--check <ids> ticks those boxes first, with check's rules and refusals (an
+unknown id refuses the call: nothing is ticked, nothing moves; an owner box
+or a criterion its proof ticks among other ids is left open with a line and
+the rest tick; when nothing ticked, nothing moves), then moves the issue. Several ids follow
+one --check (or comma-separated). With --dry-run it previews the move as if
+they were ticked and writes nothing. A transition refused only for open
+boxes the agent may tick ends with that one call, ids filled in.
+
 --dry-run lists every unmet requirement (checkboxes, comments, fields, human
 approval) with the command that fixes each, and changes nothing. Exit 0 when
 the transition would succeed, 1 otherwise.
@@ -33,10 +41,11 @@ the transition then.
 
 Examples:
   issue-cli transition <slug> --to "testing"
+  issue-cli transition <slug> --to "testing" --check Im1 Im2 TP1
   issue-cli transition <slug> --to "backlog" --dry-run
   issue-cli transition <slug> --to "waiting-for-team-input" --field waiting="design review"`,
 	Run:        runTransition,
-	ExtraFlags: []string{"field"},
+	ExtraFlags: []string{"check", "field"},
 }
 
 func init() {
@@ -49,30 +58,36 @@ type transitionChecklistItem struct {
 	ID      string `json:"id,omitempty"`
 	Text    string `json:"text"`
 	Checked bool   `json:"checked"`
+	// Owner is why the box is the owner's (check refuses an agent), or
+	// empty: the same test the tick guard uses.
+	Owner string `json:"owner,omitempty"`
 }
 
 type transitionOutput struct {
-	From                 string                    `json:"from"`
-	To                   string                    `json:"to"`
-	Status               string                    `json:"status"`
-	StatusOptional       bool                      `json:"status_optional,omitempty"`
-	Done                 bool                      `json:"done,omitempty"`
-	Slug                 string                    `json:"slug"`
-	File                 string                    `json:"file"`
-	SideEffects          []string                  `json:"side_effects"`
-	Checklist            []transitionChecklistItem `json:"checklist"`
-	BodyChanged          bool                      `json:"body_changed"`
-	CommentsChanged      bool                      `json:"comments_changed"`
-	Type                 string                    `json:"type,omitempty"`
-	TypePath             string                    `json:"type_path,omitempty"`
-	NextStatus           string                    `json:"next_status,omitempty"`
-	NextStatusOptional   bool                      `json:"next_status_optional,omitempty"`
-	OptionalNextStatuses []string                  `json:"optional_next_statuses,omitempty"`
-	NextRequires         []string                  `json:"next_requires,omitempty"`
-	NextSideEffects      []string                  `json:"next_side_effects,omitempty"`
-	NextCommand          string                    `json:"next_command,omitempty"`
-	NextCommandNote      string                    `json:"next_command_note,omitempty"`
-	Guidance             []string                  `json:"guidance,omitempty"`
+	From           string                    `json:"from"`
+	To             string                    `json:"to"`
+	Status         string                    `json:"status"`
+	StatusOptional bool                      `json:"status_optional,omitempty"`
+	Done           bool                      `json:"done,omitempty"`
+	Slug           string                    `json:"slug"`
+	File           string                    `json:"file"`
+	SideEffects    []string                  `json:"side_effects"`
+	Checklist      []transitionChecklistItem `json:"checklist"`
+	// OwnerChecks is the Owner checks page, set when an open box is the
+	// owner's.
+	OwnerChecks          string   `json:"owner_checks,omitempty"`
+	BodyChanged          bool     `json:"body_changed"`
+	CommentsChanged      bool     `json:"comments_changed"`
+	Type                 string   `json:"type,omitempty"`
+	TypePath             string   `json:"type_path,omitempty"`
+	NextStatus           string   `json:"next_status,omitempty"`
+	NextStatusOptional   bool     `json:"next_status_optional,omitempty"`
+	OptionalNextStatuses []string `json:"optional_next_statuses,omitempty"`
+	NextRequires         []string `json:"next_requires,omitempty"`
+	NextSideEffects      []string `json:"next_side_effects,omitempty"`
+	NextCommand          string   `json:"next_command,omitempty"`
+	NextCommandNote      string   `json:"next_command_note,omitempty"`
+	Guidance             []string `json:"guidance,omitempty"`
 	// YOLORule replaces the guidance's ask and stop sentences while YOLO is on.
 	YOLORule string `json:"yolo_rule,omitempty"`
 	// LeadComments are the lead: comments posted since the previous move.
@@ -80,7 +95,7 @@ type transitionOutput struct {
 }
 
 func runTransition(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "transition")
+	slug, rest, err := issueSlug(ctx, args, "transition")
 	if err != nil {
 		return err
 	}
@@ -92,6 +107,10 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	rest = stripFieldFlags(rest)
+	checkIDs, rest, _, err := parseCheckFlag(rest)
+	if err != nil {
+		return err
+	}
 
 	fs := newFlagSet("transition", ctx)
 	toFlag := fs.String("to", "", "destination status")
@@ -145,8 +164,32 @@ func runTransition(ctx *Context, args []string) error {
 	wf.DeferDecisionHolds = wf.DeferOwnerProof // the same rule: YOLO on, no experiment
 	wf.KeepOwnAssignee = isOwnWorker(ctx, issues, issue)
 
+	note := ctx.Stdout // check's lines and the --check note: stderr under --json
+	if ctx.JSONOutput {
+		note = ctx.Stderr
+	}
 	if *dryRun {
+		if len(checkIDs) > 0 {
+			if issue, err = probeTicked(ctx, issue, checkIDs); err != nil {
+				return err
+			}
+			printWarnings(note, checkSectionNote(wf, issue.BodyRaw, issue.Status, to, checkIDs))
+		}
 		return runTransitionDryRun(ctx, wf, issue, issues, slug, to, fields, leads)
+	}
+	ticked := false
+	if len(checkIDs) > 0 {
+		if err := wf.CheckTransitionOrder(issue.Status, to); err != nil {
+			return fmt.Errorf("failed to transition: %w\n\nNothing was ticked", err)
+		}
+		if err := tickForTransition(ctx, issue, checkIDs); err != nil {
+			return err
+		}
+		if issue, issues, err = findIssueOrErr(ctx, slug); err != nil {
+			return err
+		}
+		ticked = true
+		printWarnings(note, checkSectionNote(wf, issue.BodyRaw, issue.Status, to, checkIDs))
 	}
 	// A real attempt logs each ledger hold its rules found (refused or
 	// passed under YOLO) as a held event, whatever the outcome.
@@ -173,17 +216,27 @@ func runTransition(ctx *Context, args []string) error {
 	from, result, err := wf.ApplyTransitionToFileWithFields(issue.FilePath, to, fields)
 	err = rounds.finish(err)
 	if err != nil {
-		if b := blockedRefusal(gate, "failed to transition", err); b != nil {
-			return b
+		if ticked {
+			err = fmt.Errorf("%w\n\nThe --check boxes stay ticked; the issue stays at %s", err, issue.Status)
 		}
-		return yoloRefusal(ctx.Stderr, gate, issue.Status, to, ctx.now(), fmt.Errorf("failed to transition: %w", err))
+		if b := blockedRefusal(gate, "failed to transition", err); b != nil {
+			return withOneCallLine(ctx, wf, slug, to, fields, b)
+		}
+		return withOneCallLine(ctx, wf, slug, to, fields, yoloRefusal(ctx.Stderr, gate, issue.Status, to, ctx.now(), fmt.Errorf("failed to transition: %w", err)))
 	}
 
+	var noRemote string
+	if isShipStatus(wf, to) {
+		noRemote = tickNoRemoteShipping(ctx, issue)
+	}
 	issue, _, err = findIssueOrErr(ctx, slug)
 	if err != nil {
 		return err
 	}
-	out := buildTransitionOutput(wf, issue, from, to, result)
+	out := buildTransitionOutput(ctx, wf, issue, from, to, result)
+	if noRemote != "" {
+		out.SideEffects = append(out.SideEffects, noRemote)
+	}
 	out.LeadComments = leads
 	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
 	out.Guidance, out.YOLORule = yoloGuidance(ctx, wf, issue.Slug, out.Guidance)
@@ -233,6 +286,7 @@ func runTransition(ctx *Context, args []string) error {
 	queueMarkShipped(ctx, endOut, wf, issue.Slug, to)
 	postmortemAtTransition(ctx, endOut, wf, issue, to)
 	closeFinishedWorker(ctx, endOut, issue)
+	removeShippedWorktree(ctx, endOut, issue)
 	if wf.IsLastStatus(to) && !ctx.JSONOutput {
 		printCIAfterDone(ctx, wf)
 		printMemoryReflection(ctx.Stdout, ctx, issue)
@@ -336,6 +390,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 	} else {
 		fmt.Fprintf(ctx.Stdout, "== Dry run: %s → %s ==\n", from, to)
 		printProblemReport(ctx.Stdout, problems)
+		printOneCallLine(ctx.Stdout, oneCallLine(ctx, wf, issue, to, fields))
 		printWarnings(ctx.Stdout, out.Warnings)
 		if yoloNote != "" {
 			fmt.Fprintln(ctx.Stdout, yoloNote)
@@ -364,7 +419,7 @@ func stripFieldFlags(args []string) []string {
 	return out
 }
 
-func buildTransitionOutput(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string, result tracker.TransitionResult) transitionOutput {
+func buildTransitionOutput(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to string, result tracker.TransitionResult) transitionOutput {
 	next, nextOptional, optionals := defaultNextStep(wf, issue.Status)
 
 	guidance := []string{}
@@ -372,6 +427,9 @@ func buildTransitionOutput(wf *tracker.WorkflowConfig, issue *tracker.Issue, fro
 		guidance = append(guidance, prompt)
 	}
 	guidance = append(guidance, result.InjectedPrompts...)
+	if line := criteriaGuidance(wf, issue, issue.Status); line != "" {
+		guidance = append(guidance, line)
+	}
 
 	statusOptional := false
 	if s := wf.GetStatus(issue.Status); s != nil {
@@ -381,8 +439,15 @@ func buildTransitionOutput(wf *tracker.WorkflowConfig, issue *tracker.Issue, fro
 	var nextCommand, nextNote string
 	if next != "" {
 		guidance = append(guidance, wf.EntryPrompts(issue.Status, next)...)
-		nextRequires, nextSideEffects = nextTransitionContract(wf, issue.Status, next)
+		nextRequires, nextSideEffects = issueTransitionContract(wf, issue, issue.Status, next)
 		nextCommand, nextNote = nextStepCommand(wf, issue.Slug, issue.Status, next)
+	}
+	checklist := collectChecklist(issue.BodyRaw, boxOwners(ctx, issue))
+	ownerChecks := ""
+	for _, it := range checklist {
+		if it.Owner != "" && !it.Checked {
+			ownerChecks = ownerChecksURL(ctx.Project, issue)
+		}
 	}
 	return transitionOutput{
 		From:                 from,
@@ -393,7 +458,8 @@ func buildTransitionOutput(wf *tracker.WorkflowConfig, issue *tracker.Issue, fro
 		Slug:                 issue.Slug,
 		File:                 issue.FilePath,
 		SideEffects:          transitionSideEffects(result),
-		Checklist:            collectChecklist(issue.BodyRaw),
+		Checklist:            checklist,
+		OwnerChecks:          ownerChecks,
 		BodyChanged:          result.BodyChanged,
 		CommentsChanged:      false,
 		Type:                 wf.ActiveType,
@@ -509,16 +575,22 @@ func missingBoxes(n int) string {
 	return fmt.Sprintf("%d missing boxes", n)
 }
 
-func collectChecklist(body string) []transitionChecklistItem {
+// collectChecklist is body's boxes for a transition's output; owner (when
+// not nil) says why a box is the owner's (boxOwners).
+func collectChecklist(body string, owner func(tracker.CheckboxItem) string) []transitionChecklistItem {
 	var items []transitionChecklistItem
 	for _, it := range tracker.ListCheckboxes(body) {
-		items = append(items, transitionChecklistItem{
+		item := transitionChecklistItem{
 			Section: it.Section,
 			Index:   it.Index,
 			ID:      it.ID,
 			Text:    it.Text,
 			Checked: it.Checked,
-		})
+		}
+		if owner != nil {
+			item.Owner = owner(it)
+		}
+		items = append(items, item)
 	}
 	return items
 }
@@ -574,12 +646,19 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 			if item.Checked {
 				mark = "x"
 			}
-			if item.ID != "" {
-				fmt.Fprintf(w, "  %s [%s] %s\n", item.ID, mark, tracker.StripCheckboxID(item.ID, item.Text))
-				hint = hint || !item.Checked
-			} else {
-				fmt.Fprintf(w, "  %d. [%s] %s\n", item.Index, mark, item.Text)
+			prefix := ""
+			if item.Owner != "" {
+				prefix = ownerMark
 			}
+			if item.ID != "" {
+				fmt.Fprintf(w, "  %s [%s] %s%s\n", item.ID, mark, prefix, tracker.StripCheckboxID(item.ID, item.Text))
+				hint = hint || (!item.Checked && item.Owner == "")
+			} else {
+				fmt.Fprintf(w, "  %d. [%s] %s%s\n", item.Index, mark, prefix, item.Text)
+			}
+		}
+		if output.OwnerChecks != "" {
+			fmt.Fprintln(w, ownerFooter(output.OwnerChecks))
 		}
 		if hint {
 			fmt.Fprintf(w, "Tick done boxes by id, several at once: issue-cli check %s <id> [<id>...]\n", slug)
@@ -613,6 +692,9 @@ func printWorkflowNextStepsFromData(w io.Writer, output transitionOutput) {
 			cmd = fmt.Sprintf("issue-cli transition %s --to %s", slug, shell.Quote(nextStatus))
 		}
 		fmt.Fprintf(w, "  %s%s\n", cmd, suffix)
+		if strings.HasPrefix(cmd, "issue-cli transition ") && hasOpenBox(checklist) {
+			fmt.Fprintln(w, "  (add --check <id> [<id>...] to tick the last boxes and move in one call)")
+		}
 		if output.NextCommandNote != "" {
 			fmt.Fprintf(w, "  %s\n", output.NextCommandNote)
 		}

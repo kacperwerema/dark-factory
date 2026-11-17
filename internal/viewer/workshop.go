@@ -247,6 +247,13 @@ type WbQueueCard struct {
 	// PartnerStage (Kind partner): Approve or Send back, a D-n each.
 	PartnerURL   string `json:"partner_url,omitempty"`
 	PartnerStage string `json:"partner_stage,omitempty"`
+	// An owner step's row (Kind step, owner_steps_view.go): the exact
+	// Body to paste, its Due day, Overdue once that day has passed, and
+	// StepURL where Done posts.
+	Body    string `json:"body,omitempty"`
+	Due     string `json:"due,omitempty"`
+	Overdue bool   `json:"overdue,omitempty"`
+	StepURL string `json:"step_url,omitempty"`
 }
 
 // wbCountChips are the agent counts as chips: N waiting on you, N working,

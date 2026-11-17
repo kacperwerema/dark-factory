@@ -11,18 +11,22 @@ import (
 // tests family from here: health imports no package that plugs into it
 // (docs/workbench-files.md, "The tests family").
 func init() {
-	health.SetTestResults(healthTestRun)
+	health.SetTestResults(healthTestRuns)
 	health.SetE2ERuns(healthE2ERuns)
 }
 
-// healthTestRun is the newest run at or before now that wrote results of
-// kind, with its per-test list.
-func healthTestRun(root, kind string, now time.Time) (health.TestRun, bool) {
-	run, sum, ok := LatestResults(root, kind, now)
-	if !ok {
-		return health.TestRun{}, false
+// healthTestRuns are the newest n runs at or before now that wrote results
+// of kind, newest first; the newest carries its per-test list.
+func healthTestRuns(root, kind string, now time.Time, n int) []health.TestRun {
+	runs, sums := RecentResults(root, kind, now, n)
+	out := make([]health.TestRun, len(runs))
+	for i, r := range runs {
+		out[i] = health.TestRun{Finished: r.Finished, Summary: sums[i]}
 	}
-	return health.TestRun{Finished: run.Finished, Summary: sum, Tests: ReadTests(root, sum)}, true
+	if len(out) > 0 {
+		out[0].Tests = ReadTests(root, sums[0])
+	}
+	return out
 }
 
 // healthE2ERuns reads the ux-test runs of the main checkout (an issue's own

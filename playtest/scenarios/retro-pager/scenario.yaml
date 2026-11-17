@@ -1,0 +1,13 @@
+# The Retro page over many retros, none committed: generate: kind: retro
+# writes 67 open retros (Pager 01 … Pager 67, an hour apart from
+# 2026-09-01 12:00 UTC, so Pager 67 is the newest) and 33 processed ones
+# (Done 01 … Done 33), for the show-all view's pager (30 per page).
+title: 67 retros to sort and 33 processed, generated
+project:
+  name: Retro Desk
+  slug: rd
+issues: tracker
+workflow: workflow.yaml
+generate:
+  - { kind: retro, count: 67, dir: UI, title: "Pager %02d", status: done, created: "2026-09-01", extra: "ReviewStatus: open" }
+  - { kind: retro, count: 33, dir: UI, title: "Done %02d", status: done, created: "2026-08-01", extra: "ReviewStatus: processed" }

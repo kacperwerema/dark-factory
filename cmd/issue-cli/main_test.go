@@ -54,7 +54,7 @@ func TestCollectChecklist(t *testing.T) {
 		"  - [X] nested done",
 	}, "\n")
 
-	got := collectChecklist(body)
+	got := collectChecklist(body, nil)
 	if len(got) != 3 {
 		t.Fatalf("collectChecklist len = %d, want 3", len(got))
 	}

@@ -103,10 +103,13 @@ func inOwnPane(proj *tracker.Project, name string) bool {
 	return session == name
 }
 
-// sweepFinished lists what agents sweep closes; a var so tests need no tmux.
+// sweepFinished lists what agents sweep and the lead tick close, the idle
+// sessions of issues whose work waits on the owner on the shelf among them
+// (agentrun.ShelvedReports); a var so tests need no tmux.
 var sweepFinished = func(proj *tracker.Project, issues []*tracker.Issue, keep map[string]bool) []agentrun.Finished {
 	return agentrun.FinishedSessions(proj, projectRoot(proj), agentrun.SweepInput{
 		Issues: issues, Closed: tracker.ClosedIssueFunc(proj), KeepNames: keep, Snap: agentrun.TakeSnapshot(),
+		Shelved: agentrun.ShelvedReports(proj, issues),
 	})
 }
 

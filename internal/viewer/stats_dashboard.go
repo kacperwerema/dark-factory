@@ -255,7 +255,7 @@ type DrillIssue struct {
 // missing instead of linking one (TestNoDeadIssueRefsInScore).
 const (
 	checksNeed  = "No health family records local CI's durations or green rate yet."
-	contextNeed = "No health family measures the briefing's static context yet."
+	contextNeed = "No gauge reads the context family yet: its floor is the Context floor trend (issue-cli spend --context)."
 )
 
 // drillLimit is how many issues a drill-down lists before "N more".

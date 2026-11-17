@@ -1,0 +1,70 @@
+id: competitor-scan
+version: v0.63.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [brand-foundation]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/role.md", "cmd/issue-cli/templates/departments/marketing/jobs/weekly-seo-pass.md"]
+title: "Competitor scan into competitors.md (research mode, web search only)"
+what: |
+  A `competitor-scan` type (system SEO; research → competitors → owner review →
+  publish → done). research reads brand.md and icp.md (research → competitors
+  refuses without them, with the foundation's create command) and keywords.md
+  where it exists, builds the ICP's queries by intent and runs them through web
+  search only: no `openseo` call, no paid data, no log-in. competitors writes
+  ## Competitors (Direct and Adjacent with URL, licence or "check", segment and
+  source; each query with what ranks and whether the project appears; the topic
+  gap; method and limits; the proposed file) and puts the report on the shelf
+  (`has_output: report`). owner review → publish is `owner_only` and waits for
+  the newest shelf version (`outputs_approved: report`); publish writes
+  departments/<key>/competitors.md (## Direct, ## Adjacent, ## Queries, ## Baseline)
+  and publish → done checks it with `file_exists`. Nothing leaves the machine.
+  The seo-pass brief and the weekly SEO job read its queries and competitors
+  where it exists and say "No competitors.md yet" with the create command where
+  it doesn't; social research already reads it. An eval `competitor-scan` scores
+  its runs, and lint names a missing competitors.md once a scan has run to owner
+  review.
+why: |
+  The social research and the SEO briefs need to know who competes and which
+  queries matter, but nothing settled that list: a one-off report proposes it and
+  stops. The scan settles it with the owner once, with a dated baseline later
+  passes compare against.
+where: "status competitors (and board.columns) after shortlist; the competitor-scan type with its edges; the competitor-scan eval; a competitors.md line in the seo-pass brief prompt and the weekly SEO job's brief"
+snippet: |
+  statuses:
+    - name: "competitors"
+      description: "Who competes, what ranks, the topic gap, and a proposed competitors.md"
+  types:
+    competitor-scan:
+      description: "Competitor scan, research mode: who competes, what ranks for the ICP's queries, the topic gap, settled with the owner into competitors.md (system SEO)"
+      path: [research, competitors, owner review, publish, done]
+      transitions:
+        - from: "research"
+          to: "competitors"
+          actions:
+            - type: "validate"
+              rule: "section_min_links"
+              section: "Research"
+              min: 5
+            - type: "validate"
+              rule: "file_exists"
+              path: "departments/{{department}}/icp.md"
+        - from: "competitors"
+          to: "owner review"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Competitors"
+            - type: "validate"
+              rule: "has_output: report"
+        - from: "publish"
+          to: "done"
+          actions:
+            - type: "validate"
+              rule: "file_exists"
+              path: "departments/{{department}}/competitors.md"
+  # The full prompts and edges are in the bundled marketing template
+  # (docs/departments.md, "Competitor scan").
+question: "Should Marketing scan who competes and what ranks for your ICP's searches (web search only, no paid data) and settle the list with you in competitors.md? Which product should the first scan cover?"
+detect:
+  - path: statuses[].name
+    equals: competitors

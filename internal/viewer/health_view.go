@@ -303,7 +303,7 @@ func healthComponents(s *health.Snapshot, cfg *tracker.HealthConfig) ([]HealthCo
 		if !ok {
 			continue
 		}
-		hc := HealthComponent{Name: c.Name, Help: c.Help, Weight: weight, Missing: c.Missing,
+		hc := HealthComponent{Name: c.Name, Help: c.Help, Weight: weight, Missing: s.MissingFor(c),
 			Range: health.FormatValue(c.Unit, c.Good) + " → " + health.FormatValue(c.Unit, c.Bad)}
 		if sub, has := s.Value("score.component", l); has {
 			v, _ := s.Value("score.component.value", l)
@@ -425,7 +425,7 @@ func healthLists(s *health.Snapshot) []HealthList {
 	secs := func(v float64) string { return fmt.Sprintf("%.1f s", v) }
 	add("Hotspots", "big files changed in 5+ commits in 30 days, by lines × commits", "shape.hotspot", "path", func(v float64) string { return chart.Format(chart.Count, v) })
 	add("Longest functions", "code, not tests", "shape.long_func.lines", "func", lines)
-	add("Slowest tests", "from the newest CI run with results", "tests.slowest.seconds", "test", secs)
+	add("Slowest tests", slowestSub(s), "tests.slowest.seconds", "test", secs)
 	add("Slowest parts", "a package, test class or session: the wall clock's critical path", "tests.part.seconds", "part", secs)
 	add("Systems without a playtest", "issues done in 90 days", "tests.e2e.uncovered", "system", func(v float64) string { return chart.Format(chart.Count, v) + " done" })
 	return out

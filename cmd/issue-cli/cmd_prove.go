@@ -33,7 +33,8 @@ Most links need no prove call: declare them where you write the proof.
 prove is the fallback, and the only way to record a measured value:
 
   issue-cli prove <slug> <AC-id> --test <TestName>      repeatable, like every link flag
-  issue-cli prove <slug> <AC-id> --step <TP3>           a playtest session step id
+  issue-cli prove <slug> <AC-id> --step <TP3>           a step of one of the issue's own playtest
+                                                        sessions (another issue's is refused)
   issue-cli prove <slug> <AC-id> --commit <sha>
   issue-cli prove <slug> <AC-id> --value "690 vs 380 (1.82×)"
   issue-cli prove <slug> <AC-id> --shot <path>          only without a playtest runner,
@@ -43,7 +44,9 @@ prove is the fallback, and the only way to record a measured value:
                                                         lead; stop, no question: comment needed
   issue-cli prove <slug> --lead-run [<AC-id>…]          the lead: run those commands, record each run
   issue-cli prove <slug> <AC-id> --clear                removes this criterion's prove links
-  issue-cli prove <slug> [--list] [--json]              every criterion, its links and checks
+  issue-cli prove <slug> [--list] [--json]              every criterion, its links and checks; with no
+                                                        ## Acceptance Criteria on a path that never asks
+                                                        for one: "no acceptance criteria: nothing to prove"
   issue-cli prove <slug> --run [--json]                 run the tests the test links name and
                                                         post the tests: comment when all pass
 
@@ -67,11 +70,13 @@ on the issue's own slug; env names that change how a program runs (PATH,
 HOME, LD_*, GIT_*, …) are refused.
 
 The order for a test: commit it with its Proves: trailer, then run
-prove <slug> --run after the last code commit. --run (Go projects) runs
-go test -run for the named tests in the issue's worktree (after mem-guard
-check, when installed) and posts "tests: prove --run at <sha>: …" only
-when every named test passed; it refuses uncommitted code. Elsewhere, run
-the tests and post the tests: comment yourself.
+prove <slug> --run after the last code commit. --run runs go test -run
+for the named tests in the issue's worktree (after mem-guard check, when
+installed); without a go.mod it runs the project's default-tier ci:
+commands there, and each name has to be in a tracked test file. It posts
+"tests: prove --run at <sha>: …" only when every named test passed; it
+refuses uncommitted code. With neither, run the tests and post the tests:
+comment yourself.
 
 A criterion is proven when one of its links passes. prove, prove --list and
 the transition that checks proof (criteria_proven) tick the proven boxes;
@@ -97,7 +102,7 @@ type proveOutput struct {
 }
 
 func runProve(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "prove")
+	slug, rest, err := issueSlug(ctx, args, "prove")
 	if err != nil {
 		return err
 	}
@@ -134,6 +139,9 @@ func runProve(ctx *Context, args []string) error {
 		verb := "replace"
 		if !tracker.HasSection(issue.BodyRaw, tracker.CriteriaSection) {
 			verb = "append"
+			if fs.NArg() == 0 && !*runFlag && !*leadRunFlag && !*clearFlag && len(links) == 0 {
+				return proveNoCriteria(ctx, issue)
+			}
 		}
 		return fmt.Errorf("%s has no checkboxes under ## %s — write each criterion as a checkbox first:\n  issue-cli %s %s --section %s --body \"- [ ] ...\"", issue.Slug, tracker.CriteriaSection, verb, issue.Slug, shell.Quote(tracker.CriteriaSection))
 	}
@@ -201,11 +209,16 @@ func criteriaIDs(items []tracker.CheckboxItem) string {
 // data sidecar, refusing links that can't be right.
 func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem, links []tracker.ProofLink, clear bool) error {
 	root := projectRoot(ctx.Project)
+	stats, _ := tracker.LoadStats(issue.FilePath)
+	worktree := proof.FindIssueRef(root, issue, stats.Transitions).Worktree
 	for i, l := range links {
 		switch l.Kind {
 		case tracker.ProofStep:
 			if !tracker.IsCheckboxRefShaped(l.Ref) {
 				return fmt.Errorf("--step %q is not a step id: use the session step's id (a checkbox id such as TP3)", l.Ref)
+			}
+			if err := stepInOwnSession(root, worktree, issue.Slug, it.ID, l.Ref); err != nil {
+				return err
 			}
 		case tracker.ProofCommit:
 			full, err := proof.ResolveCommit(root, l.Ref)
@@ -224,7 +237,7 @@ func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem,
 			if !tracker.IsVisualCriterion(it.Text) {
 				return fmt.Errorf("--shot is refused: %s is not marked visual. Only a criterion ending in \"(visual)\" takes a screenshot:\n  issue-cli check-edit %s %s --text %s", it.ID, issue.Slug, it.ID, shell.Quote(it.Text+" (visual)"))
 			}
-			if !proof.InsideCheckout(root, issue.Slug, l.Ref) {
+			if !proof.InsideCheckout(root, worktree, l.Ref) {
 				return fmt.Errorf("--shot %s: the file must be in the issue's worktree or the project checkout", l.Ref)
 			}
 		}
@@ -272,6 +285,47 @@ func saveProofLinks(ctx *Context, issue *tracker.Issue, it tracker.CheckboxItem,
 		store.Proofs = nil
 	}
 	return tracker.SaveData(issue.FilePath, store)
+}
+
+// stepInOwnSession refuses a step id that only another issue's sessions
+// have: proof reads the runs of the issue's own sessions only, so such a
+// link would stay "not run". An id in no session file yet is let through:
+// the session may be written later.
+func stepInOwnSession(root, worktree, slug, criterion, step string) error {
+	id := strings.ToUpper(strings.TrimSpace(step))
+	has := func(s tracker.PlaytestSessionFile) bool {
+		for _, st := range s.Steps {
+			if strings.ToUpper(strings.TrimSpace(st.ID)) == id {
+				return true
+			}
+		}
+		return false
+	}
+	for _, s := range tracker.IssuePlaytestSessions(root, slug) {
+		if has(s) {
+			return nil
+		}
+	}
+	var where []string
+	seen := map[string]bool{}
+	for _, dir := range []string{worktree, root} {
+		for _, s := range tracker.PlaytestSessionFiles(dir) {
+			if seen[s.Session] || strings.TrimSpace(s.Issue) == slug || !has(s) {
+				continue
+			}
+			seen[s.Session] = true
+			issue := strings.TrimSpace(s.Issue)
+			if issue == "" {
+				issue = "none"
+			}
+			where = append(where, "session "+s.Session+" (issue "+issue+")")
+		}
+	}
+	if len(where) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--step %s is a step of %s, not of a session of %s: a step link resolves from the issue's own sessions only, so it would stay \"not run\".\nProve it with a step of this issue's own session (proves: [%s] on that step), or record the other session's result as a value:\n  issue-cli prove %s %s --value %s",
+		id, strings.Join(where, ", "), slug, strings.ToUpper(criterion), slug, criterion, shell.Quote(id+" passed in "+strings.TrimPrefix(where[0], "session ")))
 }
 
 func printProof(ctx *Context, issue *tracker.Issue, run *proof.TestRun) error {

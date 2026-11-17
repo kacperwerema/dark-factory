@@ -13,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/leadchat"
 	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/ownerstep"
 	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -186,6 +187,17 @@ func (f flush) pack(run *tracker.Issue) error {
 	fmt.Fprintln(w, "\n== The state ==")
 	for _, c := range []string{"issue-cli status", "issue-cli queue list", "issue-cli ci status", "issue-cli memory list --pinned", "issue-cli memory list --scope lead", "issue-cli decisions --lead ceo"} {
 		fmt.Fprintln(w, "  "+tracker.InjectProject(f.proj, c))
+	}
+	fmt.Fprintln(w, "\n== Open owner steps (copy each into ## Waiting on the owner) ==")
+	if steps, err := ownerstep.LoadOpen(f.proj.IssueDir, f.ctx.now()); err != nil {
+		fmt.Fprintln(w, "Unreadable: "+err.Error())
+	} else if len(steps) == 0 {
+		fmt.Fprintln(w, "None open.")
+	} else {
+		for _, l := range ownerstep.Lines(steps, f.ctx.now()) {
+			fmt.Fprintln(w, "- step "+l)
+		}
+		fmt.Fprintln(w, "Their exact text: "+tracker.InjectProject(f.proj, "issue-cli owner-step list"))
 	}
 	source, lines := f.chat()
 	fmt.Fprintf(w, "\n== Lead chat, last %d hours (%s, %d lines) ==\n", int(flushChatSince.Hours()), source, len(lines))

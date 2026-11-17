@@ -1,5 +1,5 @@
 id: playtest-sessions
-version: v0.36.0
+version: v0.63.0
 category: conventions
 propose: true
 templates: [development]

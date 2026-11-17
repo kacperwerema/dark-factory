@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/chart"
+	"github.com/kacperwerema/dark-factory/internal/diskuse"
 	"github.com/kacperwerema/dark-factory/internal/health"
 	"github.com/kacperwerema/dark-factory/internal/lint"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -606,7 +607,7 @@ func healthLook(s *health.Snapshot, prefix string) WbHealthLook {
 		func(r health.Row) string { return r.Labels["path"] }, inBoth, count)
 	add("Longest functions", "code, not tests", long,
 		func(r health.Row) string { return r.Labels["path"] + " · " + r.Labels["func"] }, inBoth, lines)
-	add("Slowest tests", "from the newest CI run with results", sortedRows(s, "tests.slowest.seconds"),
+	add("Slowest tests", slowestSub(s), sortedRows(s, "tests.slowest.seconds"),
 		func(r health.Row) string { return r.Labels["test"] }, nil, secs)
 	add("Slowest parts", "a package, test class or session: the wall clock's critical path", sortedRows(s, "tests.part.seconds"),
 		func(r health.Row) string {
@@ -617,6 +618,9 @@ func healthLook(s *health.Snapshot, prefix string) WbHealthLook {
 		}, nil, secs)
 	add("Systems without a playtest", "issues done in 90 days", sortedRows(s, "tests.e2e.uncovered"),
 		func(r health.Row) string { return r.Labels["system"] }, nil, func(v float64) string { return chart.Format(chart.Count, v) + " done" })
+	if d, ok := diskLookList(s); ok {
+		l.Lists = append(l.Lists, d)
+	}
 	if len(l.Lists) == 0 {
 		l.Empty = "The latest measurement has no hotspots, functions or test timings to rank."
 	}
@@ -766,4 +770,55 @@ func locChart(snaps []*health.Snapshot, from, to time.Time) ChartCard {
 	}
 	c.SVG, c.Table = l.SVG(), l.Table()
 	return c
+}
+
+// diskLookList is "Disk outside the checkout": the storage family's
+// machine readings (Go's build cache, the agent transcripts) beside the
+// checkout's total, with the volume's use and the owner's trim command.
+// ok is false until a snapshot has the cache.
+func diskLookList(s *health.Snapshot) (WbLookList, bool) {
+	cache, ok := s.Value("storage.gocache_mb", nil)
+	if !ok {
+		return WbLookList{}, false
+	}
+	type row struct {
+		label string
+		mb    float64
+	}
+	rows := []row{{"Go build cache (all worktrees)", cache}}
+	if v, ok := s.Value("storage.gocache_new_mb", nil); ok {
+		rows = append(rows, row{"Go build cache: created in the last 24 h", v})
+	}
+	if v, ok := s.Value("storage.transcripts_mb", nil); ok {
+		rows = append(rows, row{"agent transcripts", v})
+	}
+	if v, ok := s.Value("storage.total_mb", nil); ok {
+		rows = append(rows, row{"the checkout", v})
+	}
+	top := 0.0
+	for _, r := range rows {
+		top = math.Max(top, r.mb)
+	}
+	sub := "trim the cache while no worker is running: " + diskuse.Command
+	if v, ok := s.Value("storage.volume_used_pct", nil); ok {
+		sub = fmt.Sprintf("the data volume %.0f%% used · %s", v, sub)
+	}
+	l := WbLookList{Title: "Disk outside the checkout", Sub: sub}
+	for _, r := range rows {
+		pct := 100
+		if top > 0 {
+			pct = int(math.Max(3, math.Round(r.mb/top*100)))
+		}
+		l.Rows = append(l.Rows, WbLookRow{Label: r.label, Value: fmtSize(r.mb), Pct: pct})
+	}
+	return l, true
+}
+
+// slowestSub is the Slowest tests card's subtitle: it says when the unit
+// run was under load, since its times are then inflated.
+func slowestSub(s *health.Snapshot) string {
+	if note := s.RunLoad("unit"); note != "" {
+		return "from the newest CI run with results · " + note
+	}
+	return "from the newest CI run with results"
 }

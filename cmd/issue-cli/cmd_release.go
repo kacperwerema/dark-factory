@@ -18,7 +18,7 @@ import (
 
 var releaseCommand = &Command{
 	Name:      "release",
-	ShortHelp: "Cut, soak and publish a release on its branch (sub: setup|cut|pick|publish)",
+	ShortHelp: "Cut, soak and publish a release on its branch (sub: setup|cut|pick|check|publish)",
 	LongHelp: `A release is cut as a branch, soaks there as release candidates, and is
 published from it (docs/roadmap.md, Cutting a release). With privacy.code:
 snapshots the development history stays in a private dev repo (origin) and the
@@ -45,6 +45,13 @@ Subcommands:
       Then go build and go vet run there. Fixes land on main first; nothing is
       fixed on the branch itself. A pick after the newest candidate needs the
       next one.
+  check <version>
+      Validates the candidate that ships: runs local CI's commands (ci.run's
+      default tier, else make validate) in the release worktree on its
+      committed tree, and records the commit that passed. The card's
+      "validated" check reads that record (the candidate tag's commit or the
+      branch tip); a failure clears it. Refused while mem-guard check is
+      blocked. Run it after each cut.
   publish <version> [--first] [--dry-run]
       Only on the owner's ok on a soaked candidate, from the release worktree.
       Names the changelog heading on the branch, pushes the branch tip's tree as
@@ -61,9 +68,12 @@ Subcommands:
 
 cut and publish read the viewer's Waiting for release card and refuse unless it
 says the same (ready to cut; soaking). A patch's publish reads the card's patch
-row; its cut reads no card.`,
+row; its cut reads no card. Once the release branch exists, publish reads the
+candidate, not main's head: the candidate validated (release check) and local
+CI not red on main (a known break still stops it); main's newest head need not
+be tested.`,
 	Run:         runRelease,
-	Subcommands: []string{"setup", "cut", "pick", "publish"},
+	Subcommands: []string{"setup", "cut", "pick", "check", "publish"},
 }
 
 func init() {
@@ -72,7 +82,7 @@ func init() {
 
 func runRelease(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return &usageError{msg: "release requires a subcommand\n\nUsage:\n  issue-cli release setup --dev <url>\n  issue-cli release cut <version>\n  issue-cli release pick [--release <version>] <slug|sha>...\n  issue-cli release publish <version> [--first] [--dry-run]"}
+		return &usageError{msg: "release requires a subcommand\n\nUsage:\n  issue-cli release setup --dev <url>\n  issue-cli release cut <version>\n  issue-cli release pick [--release <version>] <slug|sha>...\n  issue-cli release check <version>\n  issue-cli release publish <version> [--first] [--dry-run]"}
 	}
 	if ctx.Project == nil {
 		return fmt.Errorf("release needs a project — pass --project <slug> or run from a project root")
@@ -86,8 +96,10 @@ func runRelease(ctx *Context, args []string) error {
 		return runReleasePick(ctx, args[1:])
 	case "publish":
 		return runReleasePublish(ctx, args[1:])
+	case "check":
+		return runReleaseCheck(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown release subcommand %q (setup, cut, pick, publish)", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown release subcommand %q (setup, cut, pick, check, publish)", args[0])}
 }
 
 const snapshotsNotChosen = `privacy.code is not snapshots in workflow.yaml: the owner has not chosen private development.
@@ -266,10 +278,11 @@ func runReleaseCut(ctx *Context, args []string) error {
 		fmt.Fprintf(out, "✓ Pushed %s to origin (the dev repo)\n", res.Branch)
 	}
 	fmt.Fprintf(out, `Next:
+  - Validate the candidate (publish reads it): issue-cli release check %s runs local CI's commands in the release worktree and records it with %s.
   - Install the candidate from the release worktree: cd %s && make install, then restart what runs it.
   - Tell the leads of the projects that run it; their issue-cli report-bug files join %s.
   - Fixes land on main as usual; pick them onto the branch: issue-cli release pick <slug>. Each pick needs the next candidate (issue-cli release cut %s).
-`, res.Worktree, card.Version, cut)
+`, cut, res.Tag, res.Worktree, card.Version, cut)
 	return nil
 }
 
@@ -295,10 +308,11 @@ func runReleaseCutPatch(ctx *Context, cut string) error {
 		fmt.Fprintf(out, "✓ Pushed %s to origin (the dev repo)\n", res.Branch)
 	}
 	fmt.Fprintf(out, `Next:
+  - Validate the candidate (publish reads it): issue-cli release check %s runs local CI's commands in the release worktree and records it with %s.
   - Install the candidate from the release worktree: cd %s && make install, then restart what runs it.
   - Waiting for release shows the patch candidate and its checks; publish only on the owner's ok: cd %s && issue-cli release publish %s.
   - More fixes: issue-cli release pick <slug|sha>, then cut the next candidate (issue-cli release cut %s).
-`, res.Worktree, res.Worktree, cut, cut)
+`, cut, res.Tag, res.Worktree, res.Worktree, cut, cut)
 	return nil
 }
 
@@ -433,7 +447,7 @@ func runReleasePublish(ctx *Context, args []string) error {
 	}
 	out := ctx.Stdout
 	if *dryRun {
-		printPublishDryRun(ctx, cut, wf.Privacy, res, waits)
+		printPublishDryRun(ctx, cut, wf.Privacy, res, card, waits)
 		return nil
 	}
 	fmt.Fprintf(out, "✓ Published %s: one commit %s on %s/%s", cut, gitdir.ShortSHA(res.Snapshot), wf.Privacy.Remote(), wf.Privacy.Branch())
@@ -456,7 +470,7 @@ func runReleasePublish(ctx *Context, args []string) error {
 
 // printPublishDryRun says what release publish would put on the public
 // repo, and what still stands in the way of the real run.
-func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, res privacy.PublishResult, waits []string) {
+func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, res privacy.PublishResult, card *releaseCard, waits []string) {
 	out := ctx.Stdout
 	remote, branch := cfg.Remote(), cfg.Branch()
 	fmt.Fprintf(out, "Dry run: nothing was committed, tagged or pushed.\n\n")
@@ -479,6 +493,20 @@ func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, re
 	for _, l := range strings.Split(res.DiffStat, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			fmt.Fprintf(out, "  %s\n", l)
+		}
+	}
+	if card != nil && len(card.Checks) > 0 {
+		fmt.Fprintf(out, "\nThe checks it reads (Waiting for release):\n")
+		for _, ch := range card.Checks {
+			mark := "✓"
+			if !ch.OK {
+				mark = "✗"
+			}
+			fmt.Fprintf(out, "  %s %s", mark, ch.Text)
+			if !ch.OK && ch.Detail != "" {
+				fmt.Fprintf(out, ": %s", ch.Detail)
+			}
+			fmt.Fprintln(out)
 		}
 	}
 	rb := milestone.ReleaseBranch(cut)

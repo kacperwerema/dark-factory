@@ -133,6 +133,7 @@ func TestVideoDepartmentLintClean(t *testing.T) {
 	var missing int
 	for _, f := range rep.Findings {
 		switch {
+		case isTemplateSample(f), isGoalWithoutWork(f):
 		case strings.Contains(f.Where, wf) || strings.Contains(f.Message, "video.yaml"):
 			t.Errorf("finding in the video workflow: %+v", f)
 		case f.Check == "departments" && strings.Contains(f.Message, "partner OpenMontage: path "+studio+" is not a folder"):

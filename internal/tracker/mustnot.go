@@ -9,7 +9,7 @@ import "strings"
 const MustNotSection = "Must not"
 
 // MustNotPlaceholder is the bullet the template writes: what to put there.
-const MustNotPlaceholder = "<what this change must not do; name a test or a command in backticks when one can catch it>"
+const MustNotPlaceholder = "<what this change must not do; a test or command in backticks when one can catch it> → AC<n>, or → none: <why>"
 
 // MustNot returns the issue's ## Must not lines, each without its bullet,
 // leaving out the template's placeholder and blank lines. It is empty when

@@ -111,9 +111,11 @@ func TestAStopPointInALivePaneRestsThatSubscriptionAndTheWorkerKeepsRunning(t *t
 	if _, ok := Subscriptions().UsageOf("claude", now); ok {
 		t.Fatal("a codex pane's quote was read as claude's usage")
 	}
-	tmuxRun(t, "kill-session", "-t", "agent-quote")
-
+	// The next session starts before this one goes: killing the server's
+	// only session makes it exit, and a new-session sent while it shuts
+	// down fails with "server exited unexpectedly".
 	tmuxRun(t, "new-session", "-d", "-s", "agent-work", "-c", dir, "-e", msg, start("claude"))
+	tmuxRun(t, "kill-session", "-t", "agent-quote")
 	waitPane(t, "agent-work", "weekly limit")
 	if found := ScanLimits(proj, dir, now); len(found) != 0 {
 		t.Fatalf("a stop point reported as a limit: %+v", found)

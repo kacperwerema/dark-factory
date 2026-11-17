@@ -38,6 +38,13 @@ type IssueStat struct {
 	Backward   int
 	Failures   []GateFailure
 	Dispatches int
+	// Model is the worker's model (tracker.WorkerModel; "" never
+	// dispatched), RedRounds its red rounds. Tokens are its sessions'
+	// transcript tokens when TokensKnown (WithTokens), never a guessed 0.
+	Model       string
+	RedRounds   int
+	Tokens      int64
+	TokensKnown bool
 }
 
 // StatusTime is one status's time in one issue.
@@ -122,8 +129,119 @@ type Report struct {
 	Statuses  []StatusRow
 	Approvals []ApprovalRow
 	Failures  []FailureRow
+	// Models is one row per type and model the workers ran on, for the
+	// issues whose worker was dispatched.
+	Models []ModelRow
 
 	wf *tracker.WorkflowConfig
+}
+
+// ModelRow is one type of work on one model: how many issues, how many went
+// back (a backward transition, the type table's Backward), their red rounds
+// and the tokens of the ones whose transcripts were read.
+type ModelRow struct {
+	Type, Model string
+	N           int
+	Reopened    int
+	RedRounds   int
+	RedP50      float64
+	// Tokens is the p50 over TokensKnown issues; none known is "unknown".
+	Tokens      float64
+	TokensKnown int
+}
+
+// ReopenRate is the share of the row's issues that went back.
+func (m ModelRow) ReopenRate() float64 {
+	if m.N == 0 {
+		return 0
+	}
+	return float64(m.Reopened) / float64(m.N)
+}
+
+// HasModels reports whether any row ran on a named model, so a page can
+// leave the table out until routing names one.
+func (r Report) HasModels() bool {
+	for _, m := range r.Models {
+		if m.Model != tracker.ModelUnnamed {
+			return true
+		}
+	}
+	return false
+}
+
+// WithTokens is the report with each issue's tokens from bySlug, counted
+// since since (internal/spend's window), summarized again. An issue missing
+// from it, or whose work started before since (its count would be part of
+// it), stays unknown.
+func (r Report) WithTokens(bySlug map[string]int64, since time.Time) Report {
+	out := r
+	out.Issues = append([]IssueStat(nil), r.Issues...)
+	for i := range out.Issues {
+		s := out.Issues[i]
+		if s.DoneAt.Add(-s.Cycle).Before(since) {
+			continue
+		}
+		if t, ok := bySlug[s.Slug]; ok {
+			out.Issues[i].Tokens, out.Issues[i].TokensKnown = t, true
+		}
+	}
+	out.Types, out.Statuses, out.Approvals, out.Failures, out.Models = nil, nil, nil, nil, nil
+	out.summarize(r.wf)
+	return out
+}
+
+// modelRows groups issues by type and model, types in order, then models
+// by name; an issue never dispatched has no model and no row.
+func modelRows(issues []IssueStat, types []string) []ModelRow {
+	type key struct{ typ, model string }
+	rows := map[key]*ModelRow{}
+	reds := map[key][]float64{}
+	toks := map[key][]float64{}
+	var keys []key
+	for _, s := range issues {
+		if s.Model == "" {
+			continue
+		}
+		for _, typ := range []string{All, s.Type} {
+			k := key{typ, s.Model}
+			row := rows[k]
+			if row == nil {
+				row = &ModelRow{Type: typ, Model: s.Model}
+				rows[k] = row
+				keys = append(keys, k)
+			}
+			row.N++
+			if s.Backward > 0 {
+				row.Reopened++
+			}
+			row.RedRounds += s.RedRounds
+			reds[k] = append(reds[k], float64(s.RedRounds))
+			if s.TokensKnown {
+				row.TokensKnown++
+				toks[k] = append(toks[k], float64(s.Tokens))
+			}
+		}
+	}
+	rank := map[string]int{}
+	for i, t := range types {
+		rank[t] = i
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].typ != keys[j].typ {
+			return rank[keys[i].typ] < rank[keys[j].typ]
+		}
+		return keys[i].model < keys[j].model
+	})
+	out := make([]ModelRow, 0, len(keys))
+	for _, k := range keys {
+		row := rows[k]
+		row.RedP50 = percentile(reds[k], 0.5)
+		if len(toks[k]) > 0 {
+			row.Tokens = percentile(toks[k], 0.5)
+		}
+		out = append(out, *row)
+	}
+	return out
 }
 
 // Filter is the report over the issues done in [from, to] only, summarized
@@ -200,6 +318,7 @@ func issueStat(issue *tracker.Issue, src Sources, r Result, wf *tracker.Workflow
 		Statuses: map[string]StatusTime{},
 		Working:  r.Working, Rework: r.Rework,
 		Waits: r.Waits, Loops: len(r.Loops), Dispatches: len(src.Dispatches),
+		Model: src.Model, RedRounds: src.RedRounds,
 	}
 	if s.Type == "" {
 		s.Type = NoType
@@ -271,6 +390,7 @@ func (rep *Report) summarize(wf *tracker.WorkflowConfig) {
 		return out
 	}
 
+	rep.Models = modelRows(rep.Issues, types)
 	statuses := statusOrder(wf, rep.Issues)
 	for _, typ := range types {
 		group := of(typ)

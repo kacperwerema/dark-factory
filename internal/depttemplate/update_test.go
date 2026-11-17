@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kacperwerema/dark-factory/cmd/issue-cli/templates"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
@@ -439,10 +440,7 @@ func TestUntrackedAndCommit(t *testing.T) {
 	// A commit a hook refuses leaves nothing staged for the next commit.
 	mustWriteFile(t, filepath.Join(root, "departments", "y", "role.md"), "y\n")
 	hook := filepath.Join(root, ".git", "hooks", "pre-commit")
-	mustWriteFile(t, hook, "#!/bin/sh\nexit 1\n")
-	if err := os.Chmod(hook, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, hook, "exit 1\n")
 	if _, err := CommitFiles(root, []string{"departments/y/role.md"}, "chore(departments): add Y"); err == nil {
 		t.Fatal("the hook should refuse the commit")
 	}

@@ -58,6 +58,9 @@ type DeptNewData struct {
 	// Error is why the department can't be added as asked; Plan is then nil.
 	Error string
 	Plan  *DeptNewPlan
+	// Pick is the template choice, when the page is asked for no template
+	// (the floor's New department links here); Plan is then nil.
+	Pick *WbNewDeptTile
 }
 
 // DeptNewPlan is a depttemplate.Plan as the page shows it.
@@ -176,6 +179,15 @@ func (s *Server) buildDeptNew(p *tracker.Project, prefix, key, parent string) De
 		Template: key, Parent: strings.TrimSpace(parent)}
 	d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "New department", Current: true}
+	if strings.TrimSpace(key) == "" {
+		tile := newDeptTile(p, prefix)
+		if tile.FormURL == "" || len(tile.Templates) == 0 {
+			d.Error = tile.Tile.Sub + ". " + tile.Tile.Note
+			return d
+		}
+		d.Pick = &tile
+		return d
+	}
 	t, plan, err := planDepartment(p, key, parent)
 	if t != nil {
 		d.TemplateName = t.Name

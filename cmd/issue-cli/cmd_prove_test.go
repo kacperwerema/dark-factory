@@ -82,7 +82,7 @@ func TestProveStoresLinksListsAndTicks(t *testing.T) {
 	out := stdout.String()
 	assertContains(t, out, "AC1 [x] proven  The count shows on the card")
 	assertContains(t, out, `✓ value "690 vs 380" (prove) — reported`)
-	assertContains(t, out, "✗ test TestCount (prove) — not checked: no work branch")
+	assertContains(t, out, "✗ test TestCount (prove) — not checked: no branch found")
 	assertContains(t, out, "AC2 [ ] UNPROVEN  The card glows (visual)")
 	assertContains(t, out, "Prove each UNPROVEN criterion with any of (shown for AC2):")
 	assertContains(t, out, "?tab=evidence\n")
@@ -261,8 +261,10 @@ func TestProveHintWhenCriteriaMissing(t *testing.T) {
 			if err := os.WriteFile(issuePath, []byte(front+c.body), 0644); err != nil {
 				t.Fatal(err)
 			}
+			// A link call needs a criterion; a bare prove with no section says
+			// there is nothing to prove (TestProveListWithNoCriteriaSaysNothingToProve).
 			ctx, _, _ := newTestContext(proj, false)
-			err = runProve(ctx, []string{"cli/sample"})
+			err = runProve(ctx, []string{"cli/sample", "AC1", "--test", "TestCount"})
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("prove: got %v, want hint %q", err, c.want)
 			}
@@ -403,4 +405,41 @@ func TestProveListJudgementOnlyQuiet(t *testing.T) {
 		t.Fatalf("a warning with only the judgement step proving AC1:\n%s", stdout.String())
 	}
 	assertContains(t, stdout.String(), "owner check (playtest judgement step TP4)")
+}
+
+// A step link resolves from the issue's own sessions only: a step id found
+// only in another issue's session is refused, naming that session and issue;
+// one in the issue's own session, or in no session yet, is saved.
+func TestProveStepFromAnotherIssuesSessionRefuses(t *testing.T) {
+	proj, issuePath, _ := makeProofFixture(t, "2026-10-23")
+	sessions := filepath.Join(proj.Root(), "playtest", "sessions")
+	if err := os.MkdirAll(sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(sessions, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("other.yaml", "session: other\nissue: cli/other\nsteps:\n  - id: TP1\n    expect: x\n  - id: TP2\n    expect: y\n")
+	write("mine.yaml", "session: mine\nissue: cli/sample\nsteps:\n  - id: TP2\n    expect: z\n")
+
+	ctx, _, _ := newTestContext(proj, false)
+	err := runProve(ctx, []string{"cli/sample", "AC1", "--step", "TP1"})
+	if err == nil {
+		t.Fatal("prove --step TP1 from another issue's session: saved, want a refusal")
+	}
+	for _, want := range []string{"TP1", "session other", "issue cli/other", "own sessions only", "--value"} {
+		assertContains(t, err.Error(), want)
+	}
+	if store, _ := tracker.LoadData(issuePath); len(store.Proofs["AC1"]) != 0 {
+		t.Fatalf("refused link saved: %+v", store.Proofs)
+	}
+
+	for _, step := range []string{"TP2", "TP9"} {
+		ctx, _, _ = newTestContext(proj, false)
+		if err := runProve(ctx, []string{"cli/sample", "AC1", "--step", step}); err != nil {
+			t.Errorf("prove --step %s: %v", step, err)
+		}
+	}
 }

@@ -35,14 +35,14 @@ func TestSidecarBytesUnchanged(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	job, err := WriteMetrics(p, salesJob(t, p), "2026-11-15", []Metric{{ID: "visits", Value: 410}, {ID: "signups", Value: 12.5}})
+	jw, err := WriteMetrics(p, salesJob(t, p), Write{Date: "2026-11-15", Today: "2026-11-15", Metrics: []Metric{{ID: "visits", Value: 410}, {ID: "signups", Value: 12.5}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for golden, path := range map[string]string{
 		"stats.json": tracker.StatsSidecarPath(issue),
 		"data.json":  tracker.SidecarPath(issue),
-		"job.json":   job,
+		"job.json":   jw.Path,
 	} {
 		got, err := os.ReadFile(path)
 		if err != nil {

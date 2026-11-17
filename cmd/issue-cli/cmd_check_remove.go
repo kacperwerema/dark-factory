@@ -14,7 +14,8 @@ var checkRemoveCommand = &Command{
 becomes a hidden line ("<!-- removed AC6: <text> -->") that keeps its slot,
 so every other box keeps its id: after removing AC6, AC7 is still AC7, and
 the Proves: trailers that name it still prove it. A removed id is never
-reused. Several ids in one call are all-or-nothing.
+reused (issue-cli check-add appends a box with the next id). Several ids
+in one call are all-or-nothing.
 
 Examples:
   issue-cli check-remove <slug> AC6
@@ -34,7 +35,7 @@ func init() {
 }
 
 func runCheckRemove(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "check-remove")
+	slug, rest, err := issueSlug(ctx, args, "check-remove")
 	if err != nil {
 		return err
 	}

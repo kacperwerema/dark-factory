@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // fakeFfmpeg puts a stand-in ffmpeg first on PATH: it writes "jpg" to its
@@ -15,10 +17,7 @@ func fakeFfmpeg(t *testing.T) (log string) {
 	t.Helper()
 	dir := t.TempDir()
 	log = filepath.Join(dir, "args.log")
-	script := "#!/bin/sh\necho \"$*\" >> " + log + "\nfor a; do last=$a; done\nprintf jpg > \"$last\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "ffmpeg"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, filepath.Join(dir, "ffmpeg"), "echo \"$*\" >> \"${0%/*}/args.log\"\nfor a; do last=$a; done\nprintf jpg > \"$last\"\n")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/bin:/usr/bin")
 	return log
 }

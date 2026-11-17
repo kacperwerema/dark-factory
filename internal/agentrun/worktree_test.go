@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -96,5 +97,36 @@ func TestWorktreeBaseOnlyWhenTheDispatchCutsTheBranch(t *testing.T) {
 	}
 	if _, _, ok := WorktreeBase(repo, tracker.WorktreeSpec{Path: wt.Path, Branch: "work/api/y"}); ok {
 		t.Error("existing worktree: recorded a base")
+	}
+}
+
+// A worktree_setup: that links node_modules to the main checkout's and then
+// runs npm ci would empty the main checkout's folder: dispatch refuses it
+// before it runs, with the fix, and the folder keeps its files.
+func TestWorktreeSetupRefusesNpmCiThroughSymlinkedNodeModules(t *testing.T) {
+	repo := gitRepo(t)
+	shared := filepath.Join(repo, "node_modules", "left-pad")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shared, "index.js"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	orig := RunWorktreeSetup
+	RunWorktreeSetup = func(string, string) ([]byte, error) { ran = true; return nil, nil }
+	t.Cleanup(func() { RunWorktreeSetup = orig })
+	setup := "ln -s " + filepath.Join(repo, "node_modules") + " node_modules && npm ci"
+	wf := &tracker.WorkflowConfig{WorktreeSetup: setup}
+	_, steps, ok := EnsureWorktree(repo, tracker.WorktreeSpec{Path: filepath.Join(t.TempDir(), "wt"), Branch: "work/x"}, wf)
+	if ok || ran {
+		t.Fatalf("EnsureWorktree ok=%v, setup ran=%v; want it refused before running (steps %+v)", ok, ran, steps)
+	}
+	last := steps[len(steps)-1]
+	if last.Status != "error" || !strings.Contains(last.Detail, "remove the link first: rm ") {
+		t.Fatalf("last step = %+v, want the refusal with its fix", last)
+	}
+	if _, err := os.Stat(filepath.Join(shared, "index.js")); err != nil {
+		t.Fatalf("the main checkout's node_modules lost its files: %v", err)
 	}
 }

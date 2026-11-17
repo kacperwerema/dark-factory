@@ -77,6 +77,9 @@ func checkRouting(env *Env) []Finding {
 	catchAll := -1
 	for i, r := range cfg.Rules {
 		name := fmt.Sprintf("routing rule %d (%s)", i+1, r.Describe())
+		if m := strings.TrimSpace(r.Model); m != "" && !strings.EqualFold(m, tracker.ModelDefault) && !routing.ValidModel(m) {
+			add(fmt.Sprintf("%s: model %q is not a model name, so the start runs without --model", name, m), "model: claude-sonnet-5-5 (a name your agent CLI takes), or default for the project's own")
+		}
 		if strings.TrimSpace(r.Agent) == "" {
 			add(name+" has no agent:", "agent: claude | codex")
 		} else {

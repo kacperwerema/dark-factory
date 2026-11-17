@@ -45,6 +45,9 @@ type AddOptions struct {
 	// Targets are further memories a supersede invalidates (a merge of
 	// near-duplicates: one new fact replaces them all).
 	Targets []string
+	// Yes lets ModeUpdates replace a text it shares under UpdateThreshold
+	// of its words with (refused with UnrelatedUpdateError otherwise).
+	Yes bool
 }
 
 // targets is Target then Targets, without repeats or blanks.
@@ -79,9 +82,33 @@ func (e *SimilarError) Error() string {
 		fmt.Fprintf(&b, "  %s (%s, %.0f%% the same words): %s\n", h.ID, h.Kind, h.Score*100, h.Text)
 	}
 	id := e.Similar[0].ID
-	fmt.Fprintf(&b, "  --updates %s     the same fact, better worded: replace its text (history kept)\n", id)
-	fmt.Fprintf(&b, "  --supersedes %s  it is no longer true: yours replaces it (it stays in history, invalid)\n", id)
-	b.WriteString("  --new             a different fact after all: add it alongside")
+	fmt.Fprintf(&b, "  --updates %s     the same fact, better worded: replaces its whole text (history kept)\n", id)
+	fmt.Fprintf(&b, "  --supersedes %s  the same subject, no longer true: yours replaces it (it stays in history, invalid)\n", id)
+	fmt.Fprintf(&b, "  --new             a different fact: add it alongside (not --updates, which would overwrite %s)", id)
+	return b.String()
+}
+
+// UpdateThreshold is the word overlap (Jaccard) under which --updates is
+// refused: the new text is not the same fact reworded.
+const UpdateThreshold = 1.0 / 3
+
+// UnrelatedUpdateError is an --updates refused because the new text shares
+// under UpdateThreshold of its words with the one it would replace.
+type UnrelatedUpdateError struct {
+	Old   Memory
+	Text  string
+	Score float64
+}
+
+func (e *UnrelatedUpdateError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "--updates %s replaces its whole text, and yours shares only %.0f%% of its words (under a third), so nothing was written.\n", e.Old.ID, e.Score*100)
+	fmt.Fprintf(&b, "  %s now: %s\n", e.Old.ID, e.Old.Text)
+	fmt.Fprintf(&b, "  yours:   %s\n", e.Text)
+	b.WriteString("Run add again with one of:\n")
+	fmt.Fprintf(&b, "  --new             a different fact: add it alongside, %s stays as it is\n", e.Old.ID)
+	fmt.Fprintf(&b, "  --supersedes %s  %s is no longer true: yours replaces it (it stays in history, invalid)\n", e.Old.ID, e.Old.ID)
+	fmt.Fprintf(&b, "  --updates %s --yes  the same fact after all: replace its text (history kept)", e.Old.ID)
 	return b.String()
 }
 
@@ -187,6 +214,9 @@ func (s Store) Add(d Draft, opt AddOptions, now time.Time) (AddResult, error) {
 			m := set.Get(opt.Target)
 			if m == nil {
 				return fmt.Errorf("%w %q", ErrNotFound, opt.Target)
+			}
+			if sim := Similarity(m.Text, d.Text); !opt.Yes && sim < UpdateThreshold && Hash(m.Text) != Hash(d.Text) {
+				return &UnrelatedUpdateError{Old: *m, Text: d.Text, Score: sim}
 			}
 			evs := []Event{{Op: OpUpdate, ID: m.ID, At: at, By: d.Author, Old: m.Text, Text: d.Text}}
 			if d.At != "" {

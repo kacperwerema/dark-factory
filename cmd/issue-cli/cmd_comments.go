@@ -44,7 +44,7 @@ type commentRow struct {
 }
 
 func runComments(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "comments")
+	slug, rest, err := issueSlug(ctx, args, "comments")
 	if err != nil {
 		return err
 	}

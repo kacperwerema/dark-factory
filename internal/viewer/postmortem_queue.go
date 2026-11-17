@@ -14,21 +14,26 @@ import (
 )
 
 // The post-mortem queue: /p/<project>/postmortems lists every open action
-// across post-mortems by place, with the ones that say the same thing
-// together. POST …/postmortems/mark refuses the ticked rows or marks them
-// overtaken by a commit on main, and POST …/postmortems/undo reopens a
-// recent mark, from the owner's browser only. Nothing is applied here:
-// Agree stays on each post-mortem's page, which is the only place that
-// makes a commit, a memory or an experiment.
+// across post-mortems by place, the ones that say the same thing as one row
+// of copies, and the ones fixed already apart (they need no answer). POST
+// …/postmortems/mark agrees, refuses or marks overtaken the ticked rows,
+// and POST …/postmortems/undo reopens a recent mark, from the owner's
+// browser only. Agree applies once per group: the newest copy is applied as
+// the post-mortem page's round would apply it, and the other copies are
+// ticked as copies of it, so a group makes one memory, commit or experiment.
 
 // PostmortemsData is the queue page.
 type PostmortemsData struct {
 	Header                  WbHeader
 	Title, MarkURL, UndoURL string
 	// Count is the open actions, Posts the post-mortems they come from,
-	// Joined how many of them are in a group of Groups.
-	Count, Posts, Joined, Groups int
-	Places                       []PostmortemsPlace
+	// Joined how many of them are in a group of Groups, Rows how many
+	// answers cover them all (a group is one).
+	Count, Posts, Joined, Groups, Rows int
+	Places                             []PostmortemsPlace
+	// Fixed are the actions that need no answer: a linked issue done, a
+	// linked commit on main, or a memory that says it already.
+	Fixed []PostmortemsRow
 	// Marked is what Undo can reopen, newest mark first; MarkedDays its
 	// window.
 	Marked     []PostmortemsRow
@@ -37,7 +42,7 @@ type PostmortemsData struct {
 
 // PostmortemsPlace is one place's card.
 type PostmortemsPlace struct {
-	Place, Warn   string
+	Place         string
 	Count, Groups int
 	Alone         int
 	Rows          []PostmortemsGroup
@@ -49,24 +54,66 @@ type PostmortemsGroup struct {
 	Key, Title string
 	Count      int
 	Alone      bool
-	// Ticked is how many rows start ticked: all but the newest copy, and
-	// none in the rest.
+	// From is every post-mortem a group of copies comes from.
+	From []PostmortemsFrom
+	// Ticked is how many rows start ticked: every copy, so one answer
+	// covers the group, and none in the rest.
 	Ticked int
 	Rows   []PostmortemsRow
+}
+
+// PostmortemsFrom is one post-mortem a group's copy comes from.
+type PostmortemsFrom struct {
+	Issue, URL string
 }
 
 // PostmortemsRow is one action.
 type PostmortemsRow struct {
 	ID, Title, File, Issue, Place, URL string
-	Ticked, Kept                       bool
+	Ticked                             bool
 	// Mark is a marked row's line as the retro has it; Overtaken which kind.
 	Mark      string
 	Overtaken bool
+	// Fix is a linked fix as words: "fixed by <slug>", "known as m-…", or
+	// "fix underway: <slug> (<status>)" on a row that still waits.
+	Fix string
 }
 
-// workflowCopiesWarn is the workflow card's band: apply.go files one
-// experiment per agreed action.
-const workflowCopiesWarn = "Each agreed copy files its own experiment: agree one, refuse the rest."
+// postmortemFixes is what tells, on p's board, that an action is fixed.
+func postmortemFixes(p *tracker.Project, now time.Time) *postmortem.Fixes {
+	root := projectRoot(p)
+	f := &postmortem.Fixes{Repo: root, Memories: postmortem.MemoriesFor(p.IssueDir, now)}
+	f.MainOf = func() string {
+		name, _ := tracker.MainBranch(root)
+		return name
+	}
+	var by map[string]*tracker.Issue
+	f.IssueState = func(slug string) (string, bool, bool) {
+		if by == nil {
+			by = map[string]*tracker.Issue{}
+			issues, _ := p.LoadIssues()
+			for _, is := range issues {
+				by[is.Slug] = is
+			}
+		}
+		is := by[slug]
+		if is == nil {
+			return "", false, false
+		}
+		return is.Status, p.IssueDone(is), true
+	}
+	return f
+}
+
+// openPostmortems is the queue's actions that still wait, and the ones
+// fixed already.
+func openPostmortems(p *tracker.Project, now time.Time) (open, fixed []postmortem.Item) {
+	return postmortemFixes(p, now).Split(postmortem.Queue(postmortemRetros(p)))
+}
+
+func pmRow(it postmortem.Item, prefix string) PostmortemsRow {
+	return PostmortemsRow{ID: it.ID, Title: it.Title, File: it.File, Issue: it.Issue, Place: it.PlaceString(), URL: prefix + "/postmortem/" + it.Issue, Fix: it.Fix.Words()}
+}
 
 func (s *Server) buildPostmortems(p *tracker.Project, prefix string, now time.Time) PostmortemsData {
 	color := s.projectColor(p)
@@ -76,36 +123,39 @@ func (s *Server) buildPostmortems(p *tracker.Project, prefix string, now time.Ti
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Post-mortem actions", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
-	items := postmortem.Queue(postmortemRetros(p))
+	items, fixed := openPostmortems(p, now)
 	d.Count = len(items)
 	files := map[string]bool{}
 	for _, it := range items {
 		files[it.File] = true
 	}
 	d.Posts = len(files)
+	for _, it := range fixed {
+		d.Fixed = append(d.Fixed, pmRow(it, prefix))
+	}
 	for _, pg := range postmortem.GroupItems(items) {
 		place := PostmortemsPlace{Place: pg.Place, Count: pg.Count}
-		if pg.Place == postmortem.PlaceWorkflow {
-			place.Warn = workflowCopiesWarn
-		}
 		for i, g := range pg.Groups {
 			group := PostmortemsGroup{Key: fmt.Sprintf("%s-%d", pg.Place, i), Title: g.Items[0].Title, Count: len(g.Items), Alone: g.Alone}
-			for j, it := range g.Items {
-				row := PostmortemsRow{ID: it.ID, Title: it.Title, File: it.File, Issue: it.Issue, Place: it.PlaceString(), URL: prefix + "/postmortem/" + it.Issue}
-				if !g.Alone {
-					row.Ticked, row.Kept = j > 0, j == 0
-				}
+			for _, it := range g.Items {
+				row := pmRow(it, prefix)
+				row.Ticked = !g.Alone
 				if row.Ticked {
 					group.Ticked++
+				}
+				if !g.Alone {
+					group.From = append(group.From, PostmortemsFrom{Issue: it.Issue, URL: row.URL})
 				}
 				group.Rows = append(group.Rows, row)
 			}
 			if g.Alone {
 				place.Alone = len(g.Items)
+				d.Rows += len(g.Items)
 			} else {
 				place.Groups++
 				d.Groups++
 				d.Joined += len(g.Items)
+				d.Rows++
 			}
 			place.Rows = append(place.Rows, group)
 		}
@@ -133,11 +183,14 @@ type postmortemMark struct {
 	Err  string `json:"error,omitempty"`
 }
 
-// handlePostmortemsMark refuses rows or marks them overtaken: {act:
-// "refuse"|"overtaken", items: [{file, id}], note, sha}. Each row is
-// answered on its own. A file is looked up in the queue, never used as a
-// path, so a row that isn't open (decided on another page, or made up) is
-// that row's error.
+// handlePostmortemsMark agrees, refuses or marks overtaken the posted rows:
+// {act: "agree"|"refuse"|"overtaken", items: [{file, id}], note, sha}.
+// Refuse and Overtaken answer each row on its own with the same note.
+// Agree applies once per group of copies among the rows (the newest one
+// posted) and ticks the other copies as copies of it; an alone row is a
+// group of one. A file is looked up in the queue, never used as a path, so
+// a row that isn't open (decided on another page, fixed already, or made
+// up) is that row's error.
 func (s *Server) handlePostmortemsMark(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	if !s.fromOwner(r) {
 		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": postmortemRefused})
@@ -155,7 +208,7 @@ func (s *Server) handlePostmortemsMark(w http.ResponseWriter, r *http.Request, p
 	}
 	sha := ""
 	switch body.Act {
-	case "refuse":
+	case "refuse", "agree":
 	case "overtaken":
 		root := projectRoot(proj)
 		mainBranch, err := tracker.MainBranch(root)
@@ -167,25 +220,30 @@ func (s *Server) handlePostmortemsMark(w http.ResponseWriter, r *http.Request, p
 			return
 		}
 	default:
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "act is refuse or overtaken"})
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "act is agree, refuse or overtaken"})
 		return
 	}
-	open := map[string]postmortem.Item{}
-	for _, it := range postmortem.Queue(postmortemRetros(proj)) {
-		open[it.File+"#"+it.ID] = it
-	}
 	now := time.Now()
+	queue, _ := openPostmortems(proj, now)
+	open := map[string]postmortem.Item{}
+	for _, it := range queue {
+		open[it.Key()] = it
+	}
+	groupOf := postmortem.GroupKeys(queue)
 	done := map[string][]string{} // issue: the ids it answered
 	retros := map[string]string{}
 	failed := 0
-	outs := make([]postmortemMark, 0, len(body.Items))
-	for _, m := range body.Items {
+	outs := make([]postmortemMark, len(body.Items))
+	firsts := map[string]*pmAgreed{}
+	for i, m := range body.Items {
 		out := postmortemMark{File: m.File, ID: m.ID}
 		it, ok := open[m.File+"#"+strings.ToUpper(strings.TrimSpace(m.ID))]
 		var err error
 		switch {
 		case !ok:
 			err = fmt.Errorf("%s is not open any more: reload", m.ID)
+		case body.Act == "agree":
+			out.Line, err = s.agreeQueued(proj, it, firsts, groupOf[it.Key()], body.Note, now)
 		case body.Act == "overtaken":
 			out.Line, err = postmortem.Overtake(it.Path, it.ID, sha, tracker.OwnerAuthor, body.Note, now)
 		default:
@@ -198,17 +256,24 @@ func (s *Server) handlePostmortemsMark(w http.ResponseWriter, r *http.Request, p
 			done[it.Issue] = append(done[it.Issue], it.ID)
 			retros[it.Issue] = retroRef(proj, it.Path)
 		}
-		outs = append(outs, out)
+		outs[i] = out
 	}
 	what := "refused"
-	if sha != "" {
+	switch {
+	case sha != "":
 		what = "overtaken by " + sha
+	case body.Act == "agree":
+		what = "agreed"
 	}
 	res := map[string]any{"ok": failed == 0, "outcomes": outs}
 	s.postmortemTrail(proj, done, retros, what, res)
 	log.Printf("postmortem: the owner marked %d action(s) %s, %d failed", len(body.Items)-failed, what, failed)
 	writeJSONStatus(w, http.StatusOK, res)
 }
+
+// pmAgreed is a group's first agreed copy on one post: its key and what it
+// made, or why it failed.
+type pmAgreed struct{ key, made, err string }
 
 // handlePostmortemsUndo reopens marked rows: {items: [{file, id}]}. Each row
 // is answered on its own, and a file is looked up in postmortem.Marked,
@@ -257,6 +322,29 @@ func (s *Server) handlePostmortemsUndo(w http.ResponseWriter, r *http.Request, p
 	s.postmortemTrail(proj, done, retros, "reopened", res)
 	log.Printf("postmortem: the owner reopened %d action(s), %d failed", len(body.Items)-failed, failed)
 	writeJSONStatus(w, http.StatusOK, res)
+}
+
+// agreeQueued agrees it, one of group's copies: the first one of a post is
+// applied (postmortem.AgreeOne), and each later one is ticked as a copy of
+// it, applying nothing. When the first failed, so does every copy.
+func (s *Server) agreeQueued(proj *tracker.Project, it postmortem.Item, firsts map[string]*pmAgreed, group, note string, now time.Time) (string, error) {
+	if first := firsts[group]; first != nil {
+		if first.err != "" {
+			return "", fmt.Errorf("not agreed: its copy %s failed (%s)", first.key, first.err)
+		}
+		return postmortem.AgreeAs(it.Path, it.ID, first.key, first.made, tracker.OwnerAuthor, note, now)
+	}
+	issue := s.findIssueBySlug(proj, it.Issue)
+	if issue == nil {
+		issue = &tracker.Issue{Slug: it.Issue, Title: it.IssueTitle} // the retro outlived its issue
+	}
+	made, line, err := postmortem.AgreeOne(postmortemEnv(proj, issue, it.Path, now), it.ID, note)
+	first := &pmAgreed{key: it.Key(), made: made}
+	if err != nil {
+		first.err = err.Error()
+	}
+	firsts[group] = first
+	return line, err
 }
 
 // postmortemTrail gives each issue one line for what the actions page did

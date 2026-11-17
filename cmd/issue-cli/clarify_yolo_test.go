@@ -122,7 +122,7 @@ func TestTemplateAndBriefingDescribeTheClarifyRound(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		tracker.YOLOOn = func(string, string) bool { return on }
 		p := briefing.BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
-		for _, want := range []string{"Questions for the owner go only in the design's clarify round", "issue-cli --project proj clarify <slug>", "a question: comment is for a blocker only"} {
+		for _, want := range []string{"Questions for the owner go only in the design's clarify round", "issue-cli --project proj clarify", "a question: comment is for a blocker only"} {
 			if !strings.Contains(p, want) {
 				t.Errorf("YOLO %v: briefing lacks %q", on, want)
 			}

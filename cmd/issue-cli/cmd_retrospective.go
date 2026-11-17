@@ -23,7 +23,7 @@ func init() {
 }
 
 func runRetrospective(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "retrospective")
+	slug, rest, err := issueSlug(ctx, args, "retrospective")
 	if err != nil {
 		return err
 	}

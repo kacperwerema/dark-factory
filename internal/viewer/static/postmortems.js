@@ -1,4 +1,5 @@
-// The post-mortem queue: each group's buttons act on its ticked rows. The
+// The post-mortem queue: each group's buttons act on its ticked rows (a
+// group of copies starts with every copy ticked: one answer covers it). The
 // first click asks, the second posts {act, items: [{file, id}], note, sha}
 // to …/postmortems/mark, or {items} to …/postmortems/undo for Marked lately's
 // Undo. Only the owner's browser passes (the server refuses curl and
@@ -8,8 +9,8 @@
     'use strict';
     var root = document.querySelector('[data-pmq-root]');
     if (!root) { return; }
-    var words = { refuse: 'Refuse', overtaken: 'Overtaken', undo: 'Undo' };
-    var doneWords = { refuse: 'Refuse', overtaken: 'Overtaken', undo: 'Reopened' };
+    var words = { agree: 'Agree', refuse: 'Refuse', overtaken: 'Overtaken', undo: 'Undo' };
+    var doneWords = { agree: 'Applied', refuse: 'Refuse', overtaken: 'Overtaken', undo: 'Reopened' };
     function ticked(group) {
         return Array.prototype.filter.call(group.querySelectorAll('[data-pmq-row]'), function (row) {
             var box = row.querySelector('[data-pmq-tick]');
@@ -71,11 +72,6 @@
     root.addEventListener('click', function (ev) {
         var group = ev.target.closest('[data-pmq-group]');
         if (!group) { return; }
-        if (ev.target.closest('[data-pmq-all]')) {
-            group.querySelectorAll('[data-pmq-tick]').forEach(function (b) { if (!b.disabled) { b.checked = true; } });
-            refresh(group);
-            return;
-        }
         var btn = ev.target.closest('[data-pmq-act]');
         if (!btn || btn.disabled) { return; }
         if (btn.dataset.armed) { post(group, btn); return; }
@@ -84,7 +80,14 @@
         btn.textContent = 'Confirm: ' + words[btn.dataset.pmqAct].toLowerCase() + ' ' + ticked(group).length;
     });
     root.addEventListener('change', function (ev) {
-        if (ev.target.matches('[data-pmq-tick]')) { refresh(ev.target.closest('[data-pmq-group]')); }
+        var group = ev.target.closest('[data-pmq-group]');
+        if (!group) { return; }
+        if (ev.target.matches('[data-pmq-all]')) {
+            group.querySelectorAll('[data-pmq-tick]').forEach(function (b) { if (!b.disabled) { b.checked = ev.target.checked; } });
+            refresh(group);
+            return;
+        }
+        if (ev.target.matches('[data-pmq-tick]')) { refresh(group); }
     });
     root.addEventListener('input', function (ev) {
         if (ev.target.matches('[data-pmq-note], [data-pmq-sha]')) { refresh(ev.target.closest('[data-pmq-group]')); }

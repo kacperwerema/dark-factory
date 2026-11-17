@@ -90,6 +90,12 @@ ci:
       failures: '--- FAIL: (\S+)'
       results:
         - {kind: unit, format: go-test-json, file: unit.json}
+    # make validate takes unchanged packages from go test's cache
+    # (scripts/test-cache.txt); the slow tier runs the suite fresh, so a test
+    # that fails only on a later day can't sit behind a cached pass.
+    - cmd: make test TEST_CACHE=0 CI_RESULTS_DIR=
+      tier: slow
+      failures: '--- FAIL: (\S+)'
     - cmd: make ux-test ALL=1
       tier: slow
       failures: '(?m)^FAIL (\S+/\S+)'
@@ -277,6 +283,7 @@ workbench:
         - tools/clilog-scrub
         - tools/doc-numbers
         - tools/playtest-guides
+        - tools/test-shards
     - name: "Cross-context checks"
       key: checker
       layer: checks
@@ -294,6 +301,7 @@ workbench:
         - internal/briefing
         - internal/connectors
         - internal/connectors/connectortest
+        - internal/leaks
         - internal/socials
         - internal/jobs
         - internal/queue
@@ -301,31 +309,36 @@ workbench:
     - name: "Quality gates & CI"
       key: quality
       layer: domain
-      summary: "Proof, the critic, red rounds, guided checks, local CI, playtest runs, the timeline proof reads."
+      summary: "Proof, the critic, red rounds, guided checks, local CI, a project's deploy steps, playtest runs, the timeline proof reads, the spec-flow counts."
       packages:
         - internal/checks
         - internal/ci
         - internal/clibug
         - internal/critique
+        - internal/deploy
         - internal/playtestruns
         - internal/proof
         - internal/redrounds
+        - internal/ship
+        - internal/specflow
         - internal/timeline
     - name: "Owner governance"
       key: governance
       layer: domain
-      summary: "YOLO windows, experiments, standing rules, decision stats."
+      summary: "YOLO windows, experiments, standing rules, decision stats, the owner's hand steps."
       packages:
         - internal/decisionstats
         - internal/experiment
+        - internal/ownerstep
         - internal/rules
         - internal/yolo
     - name: "Knowledge & learning"
       key: knowledge
       layer: domain
-      summary: "Shared memory, retros, post-mortems, the lead's chat."
+      summary: "Shared memory, retros, post-mortems, the lead's chat and state file."
       packages:
         - internal/leadchat
+        - internal/leadstate
         - internal/memory
         - internal/postmortem
         - internal/retro
@@ -338,6 +351,7 @@ workbench:
         - internal/deptfamily
         - internal/depttemplate
         - internal/goals
+        - internal/goalwork
         - internal/outputs
         - internal/partner
         - internal/projectinit
@@ -396,21 +410,29 @@ workbench:
         - internal/buildversion
         - internal/chart
         - internal/clilog
+        - internal/diskuse
         - internal/doclinks
+        - internal/docref
+        - internal/fseventsd
         - internal/gitdir
         - internal/gitfile
         - internal/gitmain
         - internal/guidesync
         - internal/jsonfile
         - internal/liveboard
+        - internal/loadavg
         - internal/memguard
         - internal/period
+        - internal/procs
         - internal/recent
+        - internal/restrace
         - internal/shell
         - internal/standin
         - internal/telemetry
+        - internal/testbin
         - internal/testids
         - internal/testresults
+        - internal/testshard
         - internal/tmuxguard
         - internal/tokens
         - internal/viewerstate
@@ -463,6 +485,7 @@ statuses:
     description: "Actively being implemented"
     prompt: |
       Implement the accepted design and keep the issue body, implementation checklist, and test plan accurate as work progresses.
+      An acceptance-criterion box ticks with `issue-cli prove`, never `issue-cli check`: `check` refuses a criterion, and the `criteria_proven` gate wants each one linked to a passing test, step or commit (`issue-cli prove <slug> --list` shows what is missing).
       Record implementation notes and planned verification steps in the issue body; checkboxes mark completion but do not replace written content.
       Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. Then, after the last code commit, post the test results: `issue-cli prove <slug> --run` runs the named tests and posts the `tests:` comment (or run them and post `issue-cli comment <slug> --text "tests: ..."`); a test trailer reads UNPROVEN until then, and a later code commit stales it. `issue-cli prove <slug> --list` shows what is proven.
       Run `issue-cli workflow catalog-check` in your worktree now, on the staged change before the first commit, and after each change to code a catalog entry lists as sources:, not first at the end of `make validate`: it checks uncommitted changes too, and each entry it names needs a version bump, or its id in one `Catalog: n/a <id>[,<id>...] <why>` line in the commit message (entry ids first); a change it names no entry for, or that only moves files unchanged, needs no Catalog: line (leave it out). It also checks the catalog itself (each entry file's category and sources, each bundled template's `features:` record in catalog order) and prints each fix; after a template change run `issue-cli workflow scan --template <name>`.
@@ -475,7 +498,7 @@ statuses:
       Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in its page's file under internal/testids/.
       Run `make playtest-check`, single `make ux-test ISSUE=<slug>` runs while fixing, and `make ux-test ISSUE=<slug> REPEAT=2` once, as the final run before handing over. The runner builds the scenario: never point a session at the real projects.yaml, issues tree, user state or tmux server.
       A manual check a session can't drive (CLI commands, API routes, tmux, a terminal-only flow) comes as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib` (sandbox_project, private_tmux, clean_shell with a stand-in claude, --touches-real for anything in the owner's real session), name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself. Its sandbox never touches the real projects.yaml, issues tree, user state or tmux server.
-      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done. A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
+      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done; in a repo with no git remote the move into shipping ticks the push and PR boxes itself with `no git remote` (by hand: `--na "no git remote"`). A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     role: "owner-test"
     description: "Manual verification by humans"
@@ -495,13 +518,14 @@ statuses:
       1. Add your user-facing change summary under `## Unreleased` at the top of `cmd/issue-cli/CHANGELOG.md` (create the heading if a release just took it). Do not add a version heading or bump the version: the lead cuts releases per milestone (docs/roadmap.md). Never create or push tags.
       Commit messages are conventional commits (the commit hook rejects anything else, `wip:` and git's default merge message included): `docs(changelog): <what>`, `chore(checks): remove scripts/checks/<name>.sh`, `chore(merge): main into <slug>`.
       2. Commit on your branch (`docs(changelog): …` for step 1). Then remove your scripts/checks/<name>.sh in its own commit (`chore(checks): …`): check scripts stay on the issue branch and never reach main.
+      Steps 3-4 in one command: `issue-cli ship` merges main, runs `make validate`, fast-forwards the main checkout and, when main moved meanwhile, merges again, re-checks and fast-forwards again; its last line is `ship: LANDED <sha>` (exit 0), `ship: NOT LANDED (<reason>)` (exit 1) or `ship: LANDED <sha>, check after landing FAIL (<steps>)` (exit 3: fix forward at once). Read that line, never `$?` of a pipe. `issue-cli ship --dry-run` shows the plan. The steps below are what it runs.
       3. `git merge main -m "chore(merge): main into <slug>"` (the local branch, not origin/main), resolve any conflicts, and run `make validate`. Keep both sides' entries under `## Unreleased` when the CHANGELOG conflicts. The merge's subject naming the slug is how the branch references the issue; without a merge, put a `Refs: <slug>` line in your last code commit's message before you run the tests, so nothing is amended after its tests: comment.
       Before step 4, run `issue-cli transition <slug> --to done --dry-run`: its "references the issue" line must pass (commits_reference_issue). If it fails, add the commit it shows; never reword an older commit, since Proves: trailers pin their shas.
       After merging main, check that your CHANGELOG entry still sits under `## Unreleased` and appears once: the file merges with `merge=union` (.gitattributes), so a release that renamed Unreleased can leave it under the new version heading without a conflict (`TestChangelogBranchEntriesUnreleased` in `make validate` fails then).
       4. Fast-forward the main checkout (the first path in `git worktree list`) to your branch: `git -C <main checkout> merge --ff-only <your branch>`. If it refuses because main moved, repeat step 3. If it refuses because the main checkout has uncommitted changes in files you touch, stop and tell the lead. Never force anything and never `git push`.
       After the fast-forward, local CI tests main by itself (`issue-cli ci status`). Never wait for it: if it goes red on your merge, the lead may re-open your issue.
       Before closing, post a `risk:` comment (`issue-cli comment <slug> --text "risk: ..."`) for anything to watch after the ship, or "risk: none".
-      Once your commit is on local main and the Shipping boxes are ticked, move the issue to `done` yourself (`issue-cli transition <slug> --to "done"`); it needs no human approval. Polishing the GitHub release description is the human's responsibility. Leave the worktree as it is: nobody has to remove it.
+      Once your commit is on local main and the Shipping boxes are ticked, move the issue to `done` yourself (`issue-cli transition <slug> --to "done"`); it needs no human approval. Polishing the GitHub release description is the human's responsibility. Leave the worktree in place: do not remove it yourself. The engine removes it once your branch is on main and your session has closed (the branch stays).
   - name: "done"
     description: "Completed"
   - name: "parked"
@@ -541,7 +565,7 @@ transitions:
       - type: "append_section"
         title: "Must not"
         body: |
-          - <what this change must not do; name a test or a command in backticks when one can catch it>
+          - <what this change must not do; a test or command in backticks when one can catch it> → AC<n>, or → none: <why>
   - from: "in design"
     to: "backlog"
     actions:
@@ -1016,7 +1040,7 @@ types:
     statuses:
       - name: "in progress"
         prompt: |
-          Chore: work through the brief's steps in order, nothing more. There is no branch to ship and no commit to make. A step that fails or holds is named in a `progress:` comment; the run still closes. If it turns out to need code or the owner's review, say so in a `question:` comment and stop.
+          Chore: work through the brief's steps in order, nothing more. There is no branch to ship and no commit to make. A step that fails or holds is named in a `progress:` comment; the run still closes. If it turns out to need code or the owner's review, say so in a `question:` comment and close the run with the steps done; under YOLO that is the whole rule: no dialog, no waiting.
     transitions:
       - from: "idea"
         to: "in progress"
@@ -1161,6 +1185,17 @@ privacy:
   public_branch: main
   decided: "2026-10-24, owner in lead chat (the decisions and their words are in the private tracker)"
 
+# What a Claude Code worker starts with (docs/agent-dispatch.md "Worker
+# setup"): only these MCP servers, plugins, skills and tools, plus its
+# department's connectors; leads keep the owner's whole setup. No skill and
+# no Artifact tool: Go-and-markdown work uses none of them. UI workers get the two
+# browser servers they used so far; the playtest runner drives Chrome
+# through make (chromedp), not MCP.
+workers:
+  mcp:
+    - {server: chrome-devtools, systems: [UI], labels: [ui]}
+    - {server: playwright, systems: [UI], labels: [ui]}
+
 # Which agent CLI starts each worker, lead and job run (docs/agent-dispatch.md
 # "Routing between Claude and Codex"). Owner, 2026-11-04: "Yes, I want to have
 # both options available." Smaller, well-specified work goes to Codex; design,
@@ -1176,5 +1211,5 @@ routing:
     - {type: epic, agent: claude}
     - {type: tweak, agent: claude}  # codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run
     - {type: bugfix, agent: claude}  # codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run
-    - {type: docs, agent: claude}  # codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run
-    - {type: report, agent: claude}  # codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run
+    - {type: docs, agent: claude, model: claude-sonnet-5-5}  # owner 2026-11-15: docs and reports on Sonnet (the built-in default; written out here). codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run
+    - {type: report, agent: claude, model: claude-sonnet-5-5}  # owner 2026-11-15: docs and reports on Sonnet (the built-in default; written out here). codex paused 2026-11-05: its sandbox asks to approve every issue-cli and git call outside the worktree; the owner decides how codex may run

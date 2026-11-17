@@ -288,6 +288,20 @@
             form.hidden = !form.hidden;
             rb.setAttribute('aria-expanded', String(!form.hidden));
             if (!form.hidden) { form.querySelector('[data-ny-reply-text]').focus(); }
+        } else if (t.closest('[data-ny-step]')) {
+            // An owner step: one tap says it is done (…/owner-steps/<id>/done,
+            // owner-only); a repeating one says when it opens again.
+            var sb = t.closest('[data-ny-step]');
+            var srow = rowOf(sb);
+            sb.disabled = true;
+            say(srow, 'Marking done…', true);
+            postJSON(sb.dataset.nyStep, {}).then(function (res) {
+                say(srow, 'Done ✓' + (res.reopens ? ' It opens again on ' + res.reopens + '.' : ''), true);
+                srow.classList.add('wb-ny-row--done');
+            }).catch(function (err) {
+                say(srow, 'Not marked done: ' + err.message, false);
+                sb.disabled = false;
+            });
         } else if (t.closest('[data-ny-agree]')) {
             agree(t.closest('[data-ny-agree]'));
         } else if (t.closest('[data-ny-cancel]')) {

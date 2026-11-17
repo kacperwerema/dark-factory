@@ -40,8 +40,8 @@ func TestDispatchPrompt_PrintsServerPromptVerbatim(t *testing.T) {
 	if stdout.String() != want {
 		t.Fatalf("output differs from the server's prompt\ngot:  %q\nwant: %q", stdout.String(), want)
 	}
-	if !strings.Contains(want, "Implement it.") || !strings.Contains(want, filepath.Join(proj.WorkDir, ".worktrees", "cli/sample")) {
-		t.Fatalf("prompt missing status guidance or worktree path: %q", want)
+	if !strings.Contains(want, "Implement it.") || !strings.Contains(want, "isolated git worktree, your working directory, on branch work/cli/sample.") {
+		t.Fatalf("prompt missing status guidance or worktree branch: %q", want)
 	}
 	if _, err := os.Stat(filepath.Join(proj.WorkDir, ".worktrees")); !os.IsNotExist(err) {
 		t.Fatalf("dispatch-prompt created a worktree dir (err=%v)", err)

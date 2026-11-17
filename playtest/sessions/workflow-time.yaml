@@ -21,7 +21,10 @@ steps:
       # the Time tables fold (open when ?days= is set), one table card each.
       - visible: [stats.time, stats.fold.time, stats.table_card.types, stats.table_card.approvals]
       - visible: [stats.table_card.status-all, stats.table_card.status-none]
-      - count: { pattern: stats.table_card.*, within: stats.fold.time, equals: 5 }
+      # At least 6: By type, By model (a8a01e94), Per status · all types and
+      # · none, Approval waits, Gate failures. A lower bound: a new table
+      # adds a card; the visible checks above pin the ones this step reads.
+      - count: { pattern: stats.table_card.*, within: stats.fold.time, min: 6 }
       - text_contains: { target: stats.fold.time, text: "done in the last 3650 days" }
       - text_contains: { target: stats.done, text: "2 issues done" }
       - text_contains: { target: stats.fold.time, text: "No CLI calls, so status time only: ui/timeline-without-logs" }

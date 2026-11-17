@@ -62,7 +62,11 @@ var guardVerbs = map[string]guardRule{
 	"decision challenge for": sandboxPasses,
 	"approve":                sandboxPasses,
 	// Owner boxes and decisions.
-	"tick owner boxes":          sandboxPasses,
+	"tick owner boxes": sandboxPasses,
+	// Provisional (factory/a-dated-owner-step-…#D-4, assumed under YOLO):
+	// ticking or dropping an owner step passes as ticking an owner box does.
+	"owner-step done":           sandboxPasses,
+	"owner-step drop":           sandboxPasses,
 	"change owner boxes":        sandboxPasses,
 	"edit owner boxes":          sandboxPasses,
 	"change a hard decision":    sandboxPasses,
@@ -91,10 +95,23 @@ var guardVerbs = map[string]guardRule{
 	"lead spawn":         neverInSandbox,
 	"lead message":       neverInSandbox,
 	"queue next --start": neverInSandbox,
-	"health review":      neverInSandbox,
-	"postmortem start":   neverInSandbox,
-	"experiment queue":   neverInSandbox,
-	"bench run":          neverInSandbox,
+	"lead tick":          neverInSandbox,
+	// Provisional (factory/a-project-can-name-its-deploy-steps-…, decided
+	// in its design): a deploy goes out of the machine.
+	"deploy": neverInSandbox,
+	// Provisional (factory/a-lead-waits-in-the-shell-…, question asked): the
+	// strictest rule until the owner says whether a sandbox may run a probe.
+	"lead watch": neverInSandbox,
+	// Provisional (factory/lead-context-is-kept-as-…, clarify assumed): the
+	// strictest rule until the owner says whether a sandbox may keep or
+	// rotate a lead's state.
+	"lead state":       neverInSandbox,
+	"lead rotate":      neverInSandbox,
+	"worktrees prune":  neverInSandbox,
+	"health review":    neverInSandbox,
+	"postmortem start": neverInSandbox,
+	"experiment queue": neverInSandbox,
+	"bench run":        neverInSandbox,
 	// prove --lead-run runs a lead link's command; refused until the owner
 	// says otherwise (it arrived after the design, D-3: asked on the issue).
 	"prove --lead-run": neverInSandbox,

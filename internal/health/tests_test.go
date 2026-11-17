@@ -15,9 +15,11 @@ import (
 // from init() (internal/ci/health.go, tested there).
 func fakeResults(t *testing.T, runs map[string]TestRun) {
 	t.Helper()
-	SetTestResults(func(root, kind string, now time.Time) (TestRun, bool) {
-		r, ok := runs[kind]
-		return r, ok
+	SetTestResults(func(root, kind string, now time.Time, n int) []TestRun {
+		if r, ok := runs[kind]; ok {
+			return []TestRun{r}
+		}
+		return nil
 	})
 	t.Cleanup(func() { SetTestResults(nil) })
 }

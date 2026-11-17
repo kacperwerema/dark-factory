@@ -1,9 +1,11 @@
 package health
 
 import (
+	"fmt"
 	"math"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/period"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -47,8 +49,8 @@ type Component struct {
 // DefaultComponents is the score with its defaults, in display order.
 func DefaultComponents() []Component {
 	return []Component{
-		{Name: "unit_wait", Help: "Unit suite wall time", Good: 60, Bad: 240, Weight: 20, Unit: UnitSeconds,
-			Missing: "no unit results from local CI (ci.run results:)", measure: row("tests.wall_seconds", "kind", "unit")},
+		{Name: "unit_wait", Help: "Unit suite wall time, best of the last 5 CI runs", Good: 60, Bad: 240, Weight: 20, Unit: UnitSeconds,
+			Missing: "no unit results from local CI (ci.run results:)", measure: unitWait},
 		{Name: "unit_cost_trend", Help: "Mean time per unit test vs 30 days ago", Good: 0.10, Bad: 1.00, Weight: 10, Unit: "change",
 			Missing: "needs unit results from 30 days ago", measure: change("tests.per_test_ms", "kind", "unit", "stat", "mean")},
 		{Name: "e2e_wait", Help: "E2E suite wall time (CI run under 14 days old, else the estimate)", Good: 600, Bad: 2400, Weight: 10, Unit: UnitSeconds,
@@ -150,10 +152,82 @@ func deriveInto(env Env, snap *Snapshot) {
 	if len(rows) == 0 {
 		return
 	}
+	rows = append(rows, trendWaits(env, snap, rows)...)
 	for _, m := range rows {
 		snap.Metrics = append(snap.Metrics, Row{ID: RowID(m.Name, m.Labels), Metric: m.Name, Labels: m.Labels, Value: m.Value, Name: m.Help, Group: ScoreFamily, Band: band(m.Unit)})
 	}
 	snap.Families[ScoreFamily] = FamilyResult{Metrics: len(rows), Hint: "components and opinion: /health"}
+}
+
+// WaitsMetric is the row a component without data writes when only time
+// will give it some: its value is the calendar days left, its name (help)
+// the sentence the Health views show instead of the component's Missing.
+const WaitsMetric = "score.component.waits_days"
+
+// unitTrendRow is the row unit_cost_trend compares against the past.
+var unitTrendRow = map[string]string{"kind": "unit", "stat": "mean"}
+
+// trendWaits says when unit_cost_trend will have data: TrendDays after the
+// oldest snapshot on disk (or this one) with unit results. Nothing when it
+// has data already, when no snapshot has unit results, or when that day has
+// come (the gap is then elsewhere: Missing says it).
+func trendWaits(env Env, snap *Snapshot, rows []Metric) []Metric {
+	const comp = "unit_cost_trend"
+	for _, m := range rows {
+		if m.Name == "score.component.value" && m.Labels["component"] == comp {
+			return nil
+		}
+	}
+	oldest, ok := oldestWith(env.Root, "tests.per_test_ms", unitTrendRow)
+	if !ok {
+		if _, has := snap.Value("tests.per_test_ms", unitTrendRow); !has {
+			return nil
+		}
+		oldest = env.Now
+	}
+	from := oldest.AddDate(0, 0, TrendDays)
+	days := calendarDays(env.Now, from)
+	if days <= 0 {
+		return nil
+	}
+	why := fmt.Sprintf("needs unit results from %d days ago: the oldest snapshot with them is from %s, so it has data from %s (%d days)",
+		TrendDays, period.DayKey(oldest.Local()), period.DayKey(from.Local()), days)
+	return []Metric{{Name: WaitsMetric, Labels: map[string]string{"component": comp}, Value: float64(days), Unit: UnitCount, Help: why}}
+}
+
+// oldestWith is the time of the oldest readable snapshot that has the row.
+func oldestWith(root, metric string, labels map[string]string) (time.Time, bool) {
+	for _, st := range list(root) {
+		if s := readCached(st.path); s != nil {
+			if _, ok := s.Value(metric, labels); ok {
+				return st.at, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+// calendarDays is how many local calendar days to's date is after from's.
+func calendarDays(from, to time.Time) int {
+	a, b := period.DayStart(from.Local()), period.DayStart(to.Local())
+	n := 0
+	for a.Before(b) {
+		a = a.AddDate(0, 0, 1)
+		n++
+	}
+	return n
+}
+
+// MissingFor is why c has no data in s: the waits row's sentence when only
+// time will give it data, else c.Missing.
+func (s *Snapshot) MissingFor(c Component) string {
+	id := RowID(WaitsMetric, map[string]string{"component": c.Name})
+	for _, r := range s.Metrics {
+		if r.ID == id && r.Name != "" {
+			return r.Name
+		}
+	}
+	return c.Missing
 }
 
 func band(unit string) *Band {
@@ -196,6 +270,16 @@ func pairs(kv []string) map[string]string {
 		m[kv[i]] = kv[i+1]
 	}
 	return m
+}
+
+// unitWait is the best unit wall of the recent CI runs
+// (tests.wall_seconds_best); a snapshot taken before that row existed
+// falls back to its one run's wall.
+func unitWait(cur, _ *Snapshot) (float64, bool) {
+	if v, ok := cur.Value("tests.wall_seconds_best", map[string]string{"kind": "unit", "window": bestWindow}); ok {
+		return v, true
+	}
+	return cur.Value("tests.wall_seconds", map[string]string{"kind": "unit"})
 }
 
 // e2eWait is the e2e wall from a CI run at most 14 days old, else the

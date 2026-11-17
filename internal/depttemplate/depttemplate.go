@@ -470,6 +470,9 @@ type Plan struct {
 	// aren't in the project yet: "Sales (issue-cli department add
 	// sales-b2c --parent gtm)".
 	Optional []OptionalChild `json:"optional,omitempty"`
+	// Samples is what the entry keeps of the template's samples: "mission"
+	// and "goals", for the owner to set (department update --mission/--goal).
+	Samples []string `json:"samples,omitempty"`
 }
 
 // OptionalChild is a department that can join a group later.
@@ -485,6 +488,12 @@ type Options struct {
 	// PartnerPath is where the user installs the template's partner (""
 	// for the template's default).
 	PartnerPath string
+	// Mission and Goals are the project's own, for the template's
+	// department (not a group's children): "" and nil keep the template's
+	// samples, marked (SampleMarker). Given goals are the entry's goals,
+	// in their order.
+	Mission string
+	Goals   []tracker.Goal
 }
 
 // NewPlan plans installing t into proj under t's own name. It refuses HQ,
@@ -534,7 +543,17 @@ func NewPlanWith(proj *tracker.Project, t *Template, opts Options) (*Plan, error
 		}
 		parent = tracker.DepartmentKey(g.Name)
 	}
-	p, err := newPlan(proj, t, parent, opts.PartnerPath)
+	if strings.ContainsAny(opts.Mission, "\n\r") {
+		return nil, fmt.Errorf("--mission: one line of text")
+	}
+	seenGoal := map[string]bool{}
+	for _, g := range opts.Goals {
+		if seenGoal[strings.ToLower(g.ID)] {
+			return nil, fmt.Errorf("--goal %s is given twice", g.ID)
+		}
+		seenGoal[strings.ToLower(g.ID)] = true
+	}
+	p, err := newPlan(proj, t, parent, opts.PartnerPath, strings.TrimSpace(opts.Mission), opts.Goals)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +588,7 @@ func NewPlanWith(proj *tracker.Project, t *Template, opts Options) (*Plan, error
 			}
 			continue
 		}
-		cp, err := newPlan(proj, ct, p.Key, "")
+		cp, err := newPlan(proj, ct, p.Key, "", "", nil)
 		if err != nil {
 			return nil, fmt.Errorf("child %s: %w", c, err)
 		}
@@ -609,7 +628,7 @@ func groupNames(proj *tracker.Project) string {
 	return strings.Join(out, ", ")
 }
 
-func newPlan(proj *tracker.Project, t *Template, parent, partnerPath string) (*Plan, error) {
+func newPlan(proj *tracker.Project, t *Template, parent, partnerPath, mission string, own []tracker.Goal) (*Plan, error) {
 	name := t.Name
 	key := tracker.DepartmentKey(name)
 	switch {
@@ -677,7 +696,13 @@ func newPlan(proj *tracker.Project, t *Template, parent, partnerPath string) (*P
 	} else if strings.TrimSpace(partnerPath) != "" {
 		return nil, fmt.Errorf("template %s has no partner: --partner-path is only for a template with one", t.Key)
 	}
-	entry, err := renderEntry(t, name, parent, workflowRel, promptRel, briefs, pt, p.Root)
+	if mission == "" && t.Mission != "" {
+		p.Samples = append(p.Samples, "mission")
+	}
+	if own == nil && len(t.Goals) > 0 {
+		p.Samples = append(p.Samples, "goals")
+	}
+	entry, err := renderEntry(t, name, parent, workflowRel, promptRel, briefs, pt, p.Root, mission, own)
 	if err != nil {
 		return nil, err
 	}
@@ -852,9 +877,19 @@ type entryGoal struct {
 // renderEntry is the department's departments: item, starting "- name:",
 // indented by two spaces per level. briefs are the jobs' installed brief
 // paths, by job id.
-func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[string]string, pt *tracker.Partner, root string) (string, error) {
-	e := entry{Name: name, Parent: parent, Color: t.Color, Role: t.Role, Mission: t.Mission, Systems: t.Systems, Prompt: prompt, Workflow: workflow}
-	for _, g := range t.Goals {
+// mission and own are the project's own mission and goals ("" and nil:
+// the template's, marked as samples).
+func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[string]string, pt *tracker.Partner, root, mission string, own []tracker.Goal) (string, error) {
+	sampleMission, sampleGoals := mission == "", own == nil
+	if sampleMission {
+		mission = t.Mission
+	}
+	gs := own
+	if sampleGoals {
+		gs = t.Goals
+	}
+	e := entry{Name: name, Parent: parent, Color: t.Color, Role: t.Role, Mission: mission, Systems: t.Systems, Prompt: prompt, Workflow: workflow}
+	for _, g := range gs {
 		e.Goals = append(e.Goals, entryGoal{ID: g.ID, Name: g.Name, Target: g.Target, Unit: g.Unit, Period: g.Period, Direction: g.Direction, Source: g.Source, RollsUp: g.RollsUp})
 	}
 	for _, j := range t.Jobs {
@@ -882,7 +917,7 @@ func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[
 	if err := enc.Close(); err != nil {
 		return "", err
 	}
-	return withExamples(b.String(), t.ExamplesText), nil
+	return withExamples(markSamples(b.String(), sampleMission && mission != "", sampleGoals), t.ExamplesText), nil
 }
 
 // withExamples writes examples into the rendered entry, every line

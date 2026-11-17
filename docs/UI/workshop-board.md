@@ -278,6 +278,7 @@ longer defined. Add the row when you add the component.
 | `wb/room-factory` | Product, the software factory (L1) | `WbRoomFactory` |
 | `wb/new-tile` | a dashed "+" tile still to build | `WbNewTile` |
 | `wb/new-dept-tile` | the "+" tile that adds a department from a template | `WbNewDeptTile` |
+| `wb/new-dept-form` | the template choice (radios, group, Preview): the classic tile and the picker page | `WbNewDeptTile` |
 | `wb/queue-row` | a compact "waiting on you" row | `WbQueueCard` |
 | `wb/radio` | what the CEO and agents said | `[]WbMessage` |
 | `wb/message-box` | the box to message the CEO | `WbMessageBox` |
@@ -306,9 +307,10 @@ longer defined. Add the row when you add the component.
 | `wb/ceo-conv` | the conversation (turns, working line) | `CEOLive` |
 | `wb/turn-you` | the owner's message | `CEOTurn` |
 | `wb/turn-ceo` | the CEO's paragraphs and folded tools | `CEOTurn` |
-| `wb/ceo-working` | the CEO at work, with Interrupt | `*CEOWorking` |
+| `wb/ceo-working` | the CEO at work, with Interrupt, or waiting on a permission prompt | `*CEOWorking` |
 | `wb/ceo-terminal` | the raw pane | `CEOLive` |
-| `wb/choice-card` | a menu the CEO waits on | `*CEOPrompt` |
+| `wb/choice-card` | a menu the CEO waits on (a permission prompt in the conversation, others above the box) | `*CEOPrompt` |
+| `wb/ceo-blocked` | a tool call the permission layer refused | `CEOBlocked` |
 | `wb/ask-history` | an AskUserQuestion in the conversation | `*CEOQuestion` |
 | `wb/ask-card` | the question widget on the pane, to answer | `CEOLive (.Pane.Ask)` |
 | `wb/composer` | the message box | `CEOComposer` |
@@ -377,6 +379,7 @@ longer defined. Add the row when you add the component.
 |---|---|---|
 | `wb/dept-new-files` | the files adding a department writes or keeps | `DeptNewPlan` |
 | `wb/dept-new-plan` | the preview of adding a department, with its groups' children | `DeptNewData` |
+| `wb/dept-new-pick` | the picker page: the template choice when no template is asked (the floor's New department links here) | `DeptNewData` |
 | `wb/dept-new-refused` | why a department can't be added, and the way back | `DeptNewData` |
 
 ### templates/_workshop_docs.html
@@ -555,6 +558,7 @@ longer defined. Add the row when you add the component.
 | `wb/check-mark` | a met / not-met mark | `bool` |
 | `wb/release` | Waiting for release: milestone, checks, release candidate, next steps, open issues, ## Unreleased, unpushed commits | `*StatusModel` |
 | `wb/ci` | Local CI: state, last runs, what failed | `*StatusModel` |
+| `wb/deploy` | Last deploy: when, who, each step's state and time, why the red one stopped, the command to go on (`issue-cli deploy --from`); an empty state naming the dry run | `*WbDeploy` |
 | `wb/behind` | the installed build behind main (engine project only): `installed <describe> · main is N commits ahead`, the changelog entries since, the install command | `*StatusModel` |
 | `wb/active-list` | Working on: each issue in flight with its status, age and agent; agents on issues not started | `WbActiveList` |
 | `wb/active-row` | one issue in flight | `WbActiveRow` |

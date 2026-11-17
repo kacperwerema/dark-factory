@@ -16,7 +16,9 @@ const retroUsage = `Usage:
   issue-cli retro archive --until <time> [--since <date>] [--json]`
 
 // retroWhoFiles is the sweep's one rule on filing, printed with the list.
-const retroWhoFiles = "A sweep lists its proposals in its report and files nothing; the lead files them."
+// docs/CLI/overview.md and docs/patterns/lead-session.md quote it word for
+// word (TestSweepFilingRuleIsWordedOnceInDocs).
+const retroWhoFiles = "A sweep files issues when its brief asks for them; otherwise it lists its proposals in its report and the lead files them."
 
 var retroCommand = &Command{
 	Name:      "retro",

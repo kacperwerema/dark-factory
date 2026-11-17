@@ -191,7 +191,17 @@ func readDesignCitations(body string, known map[string]bool) designRefs {
 		return d
 	}
 	var rest []string
+	var lines []string
 	for _, line := range strings.Split(text, "\n") {
+		line = refListLine(line)
+		trimmed := strings.TrimSpace(line)
+		if !naStartRe.MatchString(trimmed) {
+			lines = append(lines, line)
+			continue
+		}
+		lines = append(lines, naSentences(trimmed)...)
+	}
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		m := naLineRe.FindStringSubmatch(trimmed)
 		if m == nil {
@@ -226,6 +236,45 @@ func readDesignCitations(body string, known map[string]bool) designRefs {
 		d.cited[ref] = true
 	}
 	return d
+}
+
+// refListTailRe is one more ref in a comma list: "D-6" after "#D-5," (the
+// backticks a ref may sit in kept), with no # of its own.
+var refListTailRe = regexp.MustCompile("(D-\\d+`?\\s*,\\s*`?)D-(\\d+)\\b")
+
+// refListLine is line with each bare D-n in a comma list after a ref
+// written as #D-n, so "<slug>#D-5,D-6,D-7" reads as "<slug>#D-5,#D-6,#D-7"
+// and shorthandRefs gives each the full ref's slug.
+func refListLine(line string) string {
+	if !strings.Contains(line, "#D-") || !strings.Contains(line, ",") {
+		return line
+	}
+	for {
+		next := refListTailRe.ReplaceAllString(line, "${1}#D-${2}")
+		if next == line {
+			return line
+		}
+		line = next
+	}
+}
+
+// naNextRe is where a second n/a sentence starts on a line: after a "." or
+// ";" that ends the one before it.
+var naNextRe = regexp.MustCompile(`[.;]\s+(?:\*\*)?n/a(?:\*\*)?\s`)
+
+// naSentences splits a line that starts with n/a into its n/a sentences,
+// so "n/a a#D-5: x. n/a a#D-6: y." sets each ref aside with its own reason.
+// Each sentence loses its closing "." or ";", so "n/a <ref>." is a bare n/a.
+func naSentences(line string) []string {
+	var out []string
+	for {
+		loc := naNextRe.FindStringIndex(line)
+		if loc == nil {
+			return append(out, strings.TrimRight(line, ". "))
+		}
+		out = append(out, strings.TrimSpace(line[:loc[0]]))
+		line = strings.TrimSpace(line[loc[0]+1:])
+	}
 }
 
 // shorthandRe is a bare #D-n; shorthandRefs drops the ones that are the end
@@ -411,6 +460,11 @@ func (w *WorkflowConfig) checkDecisionsCited(arg string, issue *Issue) error {
 	return uncitedError(issue.Slug, missing)
 }
 
+// citedFormsHint lists the forms of ## Design that cite a decision.
+const citedFormsHint = "Forms that count, each on one line:\n" +
+	"  <slug>#D-5 · <slug>#D-5,D-6 · <slug>#D-5, #D-6 (a list takes the slug of the full ref before it)\n" +
+	"  n/a <ref>: <why>. n/a <ref>[, <ref>…]: <why>. (each n/a sentence sets its own refs aside)\n"
+
 func uncitedError(slug string, missing []UncitedDecision) error {
 	var b strings.Builder
 	noun := "decisions"
@@ -430,6 +484,7 @@ func uncitedError(slug string, missing []UncitedDecision) error {
 		}
 	}
 	ref := missing[0].Entry.Entry.Ref
+	b.WriteString(citedFormsHint)
 	fmt.Fprintf(&b, "Cite each in ## Design, saying how the design follows it:\n  issue-cli append %s --section Design --body \"Follows %s: …\"\n", slug, ref)
 	fmt.Fprintf(&b, "or say why it doesn't apply here:\n  issue-cli append %s --section Design --body \"n/a %s: <why>\"\n", slug, ref)
 	fmt.Fprintf(&b, DecisionChallengeHint, slug, ref)

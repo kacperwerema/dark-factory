@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tmuxguard"
 )
 
@@ -88,16 +89,18 @@ func guardedRun() {
 
 // actsReal is a CLI as measured from Claude Code 2.1.318 and Codex 0.163.0:
 // a write into its home at start, before any sign-in, and for codex an
-// app-server daemon out of that home, which outlives the pane. It records
-// the home it used.
+// app-server daemon, which outlives the pane. The daemon is this test
+// binary asleep (GUARD_SELF, TMUXGUARD_TEST_SLEEP): like codex
+// app-server-daemon, nothing on its command line names the home, only
+// CODEX_HOME in its environment does (and macOS shows no environment for
+// Apple's /bin/sh). It records the home it used.
 func actsReal(homeVar, fallback string) string {
 	return `#!/bin/sh
 home=${` + homeVar + `:-$HOME/` + fallback + `}
 mkdir -p "$home"
 : > "$home/installation_id"
 if [ "` + homeVar + `" = CODEX_HOME ]; then
-  printf 'while :; do sleep 1; done\n' > "$home/daemon.sh"
-  nohup /bin/sh "$home/daemon.sh" </dev/null >/dev/null 2>&1 &
+  TMUXGUARD_TEST_SLEEP=1 nohup "$GUARD_SELF" </dev/null >/dev/null 2>&1 &
   echo $! > "$GUARD_OUT/daemon"
 fi
 printf %s "$home" > "$GUARD_OUT/seen.tmp"
@@ -137,15 +140,14 @@ func runGuarded(t *testing.T, agent, way string, env ...string) guardRun {
 			t.Fatal(err)
 		}
 	}
-	write := func(path, body string, mode os.FileMode) {
-		if err := os.WriteFile(path, []byte(body), mode); err != nil {
-			t.Fatal(err)
-		}
+	// Same bodies in every run: internal/standin keeps each once, checked
+	// once per machine, so no run waits on macOS's first-exec check.
+	standin.Write(t, filepath.Join(real, "claude"), actsReal("CLAUDE_CONFIG_DIR", ".claude"))
+	standin.Write(t, filepath.Join(real, "codex"), actsReal("CODEX_HOME", ".codex"))
+	standin.Write(t, filepath.Join(standins, agent), standIn)
+	if err := os.WriteFile(filepath.Join(home, ".profile"), []byte("PATH="+real+":$PATH; export PATH\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	write(filepath.Join(real, "claude"), actsReal("CLAUDE_CONFIG_DIR", ".claude"), 0o755)
-	write(filepath.Join(real, "codex"), actsReal("CODEX_HOME", ".codex"), 0o755)
-	write(filepath.Join(standins, agent), standIn, 0o755)
-	write(filepath.Join(home, ".profile"), "PATH="+real+":$PATH; export PATH\n", 0o644)
 	t.Cleanup(func() {
 		if b, err := os.ReadFile(filepath.Join(out, "daemon")); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
@@ -162,7 +164,7 @@ func runGuarded(t *testing.T, agent, way string, env ...string) guardRun {
 		}
 	}
 	cmd.Env = append(cmd.Env, guardRunVar+"=1", "GUARD_AGENT="+agent, "GUARD_WAY="+way, "GUARD_REAL="+real,
-		"GUARD_STANDINS="+standins, "GUARD_OUT="+out, "HOME="+home, "SHELL=/bin/sh", "ENV=")
+		"GUARD_STANDINS="+standins, "GUARD_OUT="+out, "GUARD_SELF="+os.Args[0], "HOME="+home, "SHELL=/bin/sh", "ENV=")
 	cmd.Env = append(cmd.Env, env...)
 	stderr, err := cmd.CombinedOutput()
 	var exit *exec.ExitError
@@ -243,6 +245,9 @@ func TestRealCLIRunsNeedTheirSwitch(t *testing.T) {
 	if _, err := os.Stat(login); err != nil {
 		t.Fatalf("the real codex never reached its home: %v", err)
 	}
+	// A real-CLI run handed a home in a temp folder (here t.TempDir) leaves
+	// no daemon behind either.
+	waitDaemonGone(t, r.out)
 
 	r = runGuarded(t, "claude", viaLoginShell, "CHECK_REAL_CODEX=1")
 	if !r.failed || !strings.Contains(r.stderr, "reached the real claude") {

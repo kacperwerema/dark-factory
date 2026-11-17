@@ -307,3 +307,153 @@ func TestPickSkipsPublishsChangelogMove(t *testing.T) {
 		t.Errorf("picking the move by sha = %+v, %v", again, err)
 	}
 }
+
+// The v0.62.1 sequence: the changelog merges with merge=union (so a pick
+// never conflicts on it), the release is published with its ## Unreleased
+// renamed ## v0.54.0, and main lands a commit written before publish moved
+// the released lines (its line goes above "- feature A" under
+// ## Unreleased) plus one written after (in main's fresh ## Unreleased).
+// Picking both puts their lines in one ## Unreleased on top, and the
+// released section stays as at its tag. "tight" is the real changelog's
+// layout (no blank line under ## Unreleased), where git's union merge
+// wrote "## v0.62.0 — …" then a second "## Unreleased".
+func TestPickUnderUnionMergeKeepsTheReleasedSection(t *testing.T) {
+	for _, layout := range []struct{ name, gap string }{{"blank", "\n\n"}, {"tight", "\n"}} {
+		t.Run(layout.name, func(t *testing.T) {
+			r, cut := unionReleaseRepo(t, layout.gap)
+			addLine := func(line string) {
+				data, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md"))
+				s := string(data)
+				h := "## Unreleased" + layout.gap
+				if !strings.Contains(s, h) {
+					h = "## Unreleased\n\n"
+				}
+				write(t, filepath.Join(r.root, "CHANGELOG.md"), strings.Replace(s, h, h+line+"\n", 1))
+			}
+			// A work branch from main before publish: its line goes on
+			// top of the lines v0.54.0 is about to release.
+			run(t, r.root, "git", "checkout", "-q", "-b", "work/ui/early", "main")
+			write(t, filepath.Join(r.root, "early.go"), "package main // early\n")
+			addLine("- fix early")
+			run(t, r.root, "git", "add", ".")
+			run(t, r.root, "git", "commit", "-q", "-m", "fix: early\n\nRefs: ui/early")
+			run(t, r.root, "git", "checkout", "-q", "main")
+			day := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+			if _, err := Publish(PublishInput{Root: r.root, Worktree: cut, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", Now: day}); err != nil {
+				t.Fatal(err)
+			}
+			run(t, r.root, "git", "merge", "-q", "--no-ff", "work/ui/early", "-m", "chore(merge): land ui/early")
+			run(t, r.root, "git", "branch", "-q", "-D", "work/ui/early")
+			write(t, filepath.Join(r.root, "late.go"), "package main // late\n")
+			addLine("- fix late")
+			run(t, r.root, "git", "add", ".")
+			run(t, r.root, "git", "commit", "-q", "-m", "fix: late\n\nRefs: ui/late")
+			mainLog, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md"))
+			if !strings.Contains(string(mainLog), "## v0.54.0 — 2026-11-15") || !strings.Contains(string(mainLog), "- fix late") {
+				t.Fatalf("setup: main changelog:\n%s", mainLog)
+			}
+			tagged := run(t, r.root, "git", "show", "v0.54.0:CHANGELOG.md")
+
+			res, err := Pick(r.root, "v0.54.1", []string{"ui/early", "ui/late"}, PickOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.Picked) != 2 || !res.Changelog {
+				t.Errorf("pick = %+v, want both commits, the changelog rewritten", res)
+			}
+			data, _ := os.ReadFile(filepath.Join(cut, "CHANGELOG.md"))
+			branchLog := strings.TrimSpace(string(data))
+			want := strings.TrimSpace(strings.Replace(tagged, "# Changelog\n\n", "# Changelog\n\n## Unreleased\n\n- fix late\n- fix early\n\n", 1))
+			if branchLog != want {
+				t.Errorf("branch changelog =\n%s\nwant\n%s", branchLog, want)
+			}
+			if st := run(t, cut, "git", "status", "--porcelain"); st != "" {
+				t.Errorf("worktree left dirty: %q", st)
+			}
+		})
+	}
+}
+
+// unionReleaseRepo is a release repo whose changelog merges with
+// merge=union, its ## Unreleased lines gap below the heading, and
+// release/v0.54 cut from it (with snapshots set up, so it can publish).
+func unionReleaseRepo(t *testing.T, gap string) (releaseRepo, string) {
+	t.Helper()
+	r := newReleaseRepo(t)
+	write(t, filepath.Join(r.root, ".gitattributes"), "CHANGELOG.md merge=union\n")
+	write(t, filepath.Join(r.root, "CHANGELOG.md"), "# Changelog\n\n## Unreleased"+gap+"- feature A\n\n## v0.53.0 — 2026-10-23\n\n- old\n")
+	r.commitMain(t, "", "", "", "chore: union-merge the changelog")
+	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	cut, err := Cut(r.root, "v0.54.0", "main", r.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r, cut.Worktree
+}
+
+// A picked commit whose changelog line the branch already has (a fix
+// applied by hand, then picked) commits nothing: it is reported as
+// already on the branch, and the line is not written twice.
+func TestPickWritesNoLineTheBranchAlreadyHas(t *testing.T) {
+	r, wt := pickRepo(t)
+	write(t, filepath.Join(wt, "CHANGELOG.md"), strings.Replace(string(readFile(t, filepath.Join(wt, "CHANGELOG.md"))), "## Unreleased\n\n", "## Unreleased\n\n- fix B\n", 1))
+	run(t, wt, "git", "commit", "-q", "-am", "docs(changelog): fix B by hand")
+	path := filepath.Join(r.root, "CHANGELOG.md")
+	write(t, path, strings.Replace(string(readFile(t, path)), "## Unreleased\n\n", "## Unreleased\n\n- fix B\n", 1))
+	run(t, r.root, "git", "commit", "-q", "-m", "docs(changelog): fix B", "--", "CHANGELOG.md")
+	fix := run(t, r.root, "git", "rev-parse", "HEAD")
+
+	res, err := Pick(r.root, "v0.54.0", []string{fix}, PickOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Picked) != 0 || len(res.Already) != 1 {
+		t.Errorf("pick = %+v, want the commit reported as already there", res)
+	}
+	if got := strings.Join(unreleasedLines(t, wt), "|"); got != "- fix B|- feature A" {
+		t.Errorf("branch Unreleased = %q", got)
+	}
+}
+
+// A branch whose changelog is already wrong (the stray ## Unreleased the
+// v0.62.1 pick left under ## v0.54.0) fails the check after the next pick:
+// the branch goes back where it was and the error names the lines.
+func TestPickRefusesABranchWithAStrayUnreleased(t *testing.T) {
+	r, cut := unionReleaseRepo(t, "\n\n")
+	day := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+	if _, err := Publish(PublishInput{Root: r.root, Worktree: cut, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", Now: day}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cut, "CHANGELOG.md")
+	write(t, path, strings.Replace(string(readFile(t, path)), "## v0.54.0 — 2026-11-15\n", "## v0.54.0 — 2026-11-15\n## Unreleased\n- stray\n", 1))
+	run(t, cut, "git", "commit", "-q", "-am", "docs(changelog): a stray heading")
+	before := run(t, cut, "git", "rev-parse", "HEAD")
+	fix := r.commitMain(t, "fix.go", "package main // fix\n", "- fix P", "fix: P")
+
+	_, err := Pick(r.root, "v0.54.1", []string{fix}, PickOptions{})
+	if err == nil {
+		t.Fatal("pick onto a branch with a stray ## Unreleased passed")
+	}
+	for _, want := range []string{"2 ## Unreleased headings (lines 3, 8)", `## v0.54.0 — 2026-11-15 changed from its release: dropped "- feature A"`, "nothing picked"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	if now := run(t, cut, "git", "rev-parse", "HEAD"); now != before {
+		t.Errorf("branch moved to %s, want %s", now, before)
+	}
+	if st := run(t, cut, "git", "status", "--porcelain"); st != "" {
+		t.Errorf("worktree left dirty: %q", st)
+	}
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

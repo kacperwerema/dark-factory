@@ -75,21 +75,27 @@ var goalCommand = &Command{
       <dept> is hq, product or the department's name in lower case;
       issue-cli goals lists every key.
 
-  goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]
+  goal write <dept>/<job> <id>=<value>... [--merge] [--date YYYY-MM-DD]
       What a recurring job's run does with the numbers it read from a
       connector (or the owner): replace the job's metrics file
-      <issues>/.goals/<dept>/<job>.json, in the metric run format, dated
-      today (or --date). It is written atomically, whole: a metric the run
-      didn't read is left out, never estimated. The department's goals read
-      it with source: file:<issues>/.goals/<dept>/<job>.json#<id>; a file a
-      whole run older than the job's schedule shows "no value since <date>".
-      See docs/departments.md, "Goals a job fills from a connector".
+      <issues>/.goals/<dept>/<job>.json, in the metric run format, each
+      metric dated today (or --date). It is written atomically, whole: a
+      metric the run didn't read is left out, never estimated. --merge
+      sets only the named metrics and keeps the file's others with their
+      own dates, so two scripts of one run can each write their own ids.
+      The file's "written" field is the day goal write ran (not --date),
+      for a gate that checks the file is from this run. The department's
+      goals read it with source: file:<issues>/.goals/<dept>/<job>.json#<id>;
+      a metric a whole run older than the job's schedule shows "no value
+      since <date>". See docs/departments.md, "Goals a job fills from a
+      connector".
 
 Examples:
   issue-cli goal set marketing/pages 38
   issue-cli goal set hq/clients 12 --note "two signed this week"
   issue-cli goal set hq/revenue 4200 --date 2026-09-30
-  issue-cli goal write sales/weekly-funnel visits=512 signups=31`,
+  issue-cli goal write sales/weekly-funnel visits=512 signups=31
+  issue-cli goal write marketing/weekly-seo-pass history_pages=14 --merge`,
 	Run:         runGoal,
 	Subcommands: []string{"set", "write"},
 }
@@ -113,7 +119,13 @@ var departmentCommand = &Command{
                                 the group and its departments, and moves one
                                 you already have under it. It ends with the
                                 files git does not track yet and the commit
-                                to make; --commit commits exactly those
+                                to make; --commit commits exactly those.
+                                --mission "…" and --goal
+                                "<id>=<name>/<target>/<period>" (repeatable)
+                                set this project's own; without them the
+                                template's samples are written marked
+                                "# sample: replace", and the last line says
+                                how to set them
   department update <name>      bring an installed department up to its
                                 template's newer text: a file (role.md, a
                                 job's brief) or a role, mission or goal
@@ -125,7 +137,13 @@ var departmentCommand = &Command{
                                 edited file (role.template.md) to compare.
                                 The workflow file is replaced only from a
                                 text that differs in wording alone; its
-                                features move with workflow upgrade
+                                features move with workflow upgrade.
+                                --mission "…", --goal
+                                "<id>=<name>/<target>/<period>" and
+                                --drop-goal <id> (repeatable) set the
+                                project's own mission and goals instead,
+                                on any department: only those lines of
+                                projects.yaml change
   department remove <name>      take the entry out of projects.yaml (its
                                 files stay); refused while it has open
                                 issues, or departments under it (a group)
@@ -163,6 +181,8 @@ Examples:
   issue-cli department add marketing
   issue-cli department add marketing --commit
   issue-cli department update marketing --dry-run
+  issue-cli department add legal --mission "No launch ships with a legal gap" --goal "open-findings=Open findings/0/month"
+  issue-cli department update marketing --mission "Acme's shop found on Google" --goal "visits=Visits/200/week" --drop-goal pages
   issue-cli department remove marketing
   issue-cli department show marketing
   issue-cli department show hq --json
@@ -292,7 +312,7 @@ func runGoal(ctx *Context, args []string) error {
 		return runGoalWrite(ctx, args[1:])
 	}
 	if len(args) == 0 || args[0] != "set" {
-		return &usageError{msg: "usage: issue-cli goal set <dept>/<id> <value> [--note \"...\"] [--date YYYY-MM-DD]\n       issue-cli goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]"}
+		return &usageError{msg: "usage: issue-cli goal set <dept>/<id> <value> [--note \"...\"] [--date YYYY-MM-DD]\n       issue-cli goal write <dept>/<job> <id>=<value>... [--merge] [--date YYYY-MM-DD]"}
 	}
 	fs := newFlagSet("goal set", ctx)
 	note := fs.String("note", "", "what the value is about")
@@ -323,7 +343,8 @@ func runGoal(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("value %q is not a number", raw)
 	}
-	day := ctx.now().Format("2006-01-02")
+	today := ctx.now().Format("2006-01-02")
+	day := today
 	if *date != "" {
 		if _, err := time.Parse("2006-01-02", *date); err != nil {
 			return fmt.Errorf("--date %q: want YYYY-MM-DD", *date)
@@ -349,7 +370,13 @@ type goalWriteResult struct {
 	Path    string         `json:"path"`
 	Source  string         `json:"source"`
 	Date    string         `json:"date"`
+	Written string         `json:"written"`
+	Merged  bool           `json:"merged"`
 	Metrics []goals.Metric `json:"metrics"`
+	// Kept are the metrics a --merge kept from the file, with their own
+	// dates; Dropped the ids a whole write left out that the old file had.
+	Kept    []goals.Metric `json:"kept,omitempty"`
+	Dropped []string       `json:"dropped,omitempty"`
 	// Readers is, per metric id, the goal keys reading it; Unread the ids
 	// no goal reads.
 	Readers map[string][]string `json:"readers"`
@@ -358,9 +385,10 @@ type goalWriteResult struct {
 
 // runGoalWrite is goal write: replace a job's metrics file.
 func runGoalWrite(ctx *Context, args []string) error {
-	const usage = "usage: issue-cli goal write <dept>/<job> <id>=<value>... [--date YYYY-MM-DD]"
+	const usage = "usage: issue-cli goal write <dept>/<job> <id>=<value>... [--merge] [--date YYYY-MM-DD]"
 	fs := newFlagSet("goal write", ctx)
 	date := fs.String("date", "", "the day the numbers are for (YYYY-MM-DD; default today)")
+	merge := fs.Bool("merge", false, "set only these metrics and keep the file's others with their own dates")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -383,19 +411,24 @@ func runGoalWrite(ctx *Context, args []string) error {
 		}
 		metrics = append(metrics, goals.Metric{ID: strings.TrimSpace(id), Value: v})
 	}
-	day := ctx.now().Format("2006-01-02")
+	today := ctx.now().Format("2006-01-02")
+	day := today
 	if *date != "" {
 		if _, err := time.Parse("2006-01-02", *date); err != nil {
 			return fmt.Errorf("--date %q: want YYYY-MM-DD", *date)
 		}
 		day = *date
 	}
-	path, err := goals.WriteMetrics(ctx.Project, r, day, metrics)
+	for i := range metrics {
+		metrics[i].Date = day
+	}
+	w, err := goals.WriteMetrics(ctx.Project, r, goals.Write{Date: day, Today: today, Metrics: metrics, Merge: *merge})
 	if err != nil {
 		return err
 	}
+	path := w.Path
 	src := goals.JobFileSource(r.Department, r.Job.ID)
-	res := goalWriteResult{Job: r.Key, Path: path, Source: src, Date: day, Metrics: metrics, Readers: map[string][]string{}}
+	res := goalWriteResult{Job: r.Key, Path: path, Source: src, Date: day, Written: today, Merged: *merge, Metrics: metrics, Kept: w.Kept, Dropped: w.Dropped, Readers: map[string][]string{}}
 	rep := goals.Resolve(ctx.Project, ctx.now())
 	for _, o := range rep.Owners() {
 		for _, g := range o.Goals {
@@ -423,6 +456,16 @@ func runGoalWrite(ctx *Context, args []string) error {
 			readers = "read by " + strings.Join(ks, ", ")
 		}
 		fmt.Fprintf(ctx.Stdout, "  %s = %s · %s\n", m.ID, strconv.FormatFloat(m.Value, 'f', -1, 64), readers)
+	}
+	if len(res.Kept) > 0 {
+		kept := make([]string, len(res.Kept))
+		for i, m := range res.Kept {
+			kept[i] = fmt.Sprintf("%s (%s)", m.ID, m.Date)
+		}
+		fmt.Fprintf(ctx.Stdout, "  kept: %s\n", strings.Join(kept, ", "))
+	}
+	if len(res.Dropped) > 0 {
+		fmt.Fprintf(ctx.Stdout, "  dropped: %s (the file is replaced whole; goal write --merge keeps the metrics it doesn't name)\n", strings.Join(res.Dropped, ", "))
 	}
 	if len(res.Unread) > 0 {
 		fmt.Fprintf(ctx.Stdout, "⚠ no goal reads %s: a goal reads one with source: \"file:%s#<id>\" (projects.yaml)\n", strings.Join(res.Unread, ", "), src)

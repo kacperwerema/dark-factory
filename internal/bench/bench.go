@@ -194,6 +194,27 @@ const DefaultWorker = "claude -p --output-format json --permission-mode bypassPe
 // Its usage comes from the session's rollout file (ReadCodexSessions).
 const DefaultCodexWorker = `codex exec --sandbox workspace-write --skip-git-repo-check --add-dir "$BENCH_SANDBOX" --add-dir "$BENCH_GOCACHE" -`
 
+// WithModel is worker with --model model after its command (and after
+// codex's exec), so the CLI starts on that model; worker as it is when
+// model is "". The caller checks model is a plain name (routing.ValidModel).
+func WithModel(worker, model string) string {
+	if model = strings.TrimSpace(model); model == "" {
+		return worker
+	}
+	rest := strings.TrimLeft(worker, " \t")
+	cut := strings.IndexAny(rest, " \t")
+	if cut < 0 {
+		return rest + " --model " + model
+	}
+	head, tail := rest[:cut], rest[cut:]
+	if WorkerAgent(head) == AgentCodex {
+		if t := strings.TrimLeft(tail, " \t"); strings.HasPrefix(t, "exec ") || t == "exec" {
+			head, tail = head+" exec", strings.TrimPrefix(t, "exec")
+		}
+	}
+	return head + " --model " + model + tail
+}
+
 // WorkerFor is the worker command for agent: workers: names it, else
 // worker: when that runs this agent, else the agent's default.
 func (b *Benchmark) WorkerFor(agent string) (string, error) {

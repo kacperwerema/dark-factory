@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: development@v0.61.0
+template: development@v0.63.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -36,10 +36,10 @@ features:
     - design-overlap-discoverability@v0.36.0
     - guided-check-scripts@v0.54.0
     - lead-handoff-prompts@v0.36.0
-    - must-not-section@v0.61.0
-    - playtest-sessions@v0.36.0
+    - must-not-section@v0.63.0
+    - playtest-sessions@v0.63.0
     - sandbox-manual-tests@v0.36.0
-    - testing-na-forms@v0.60.0
+    - testing-na-forms@v0.63.0
     - testing-unrelated-failures@v0.36.0
 
 board:
@@ -101,6 +101,7 @@ statuses:
     description: "Actively being implemented"
     prompt: |
       Implement the accepted design and keep the issue body, implementation checklist, and test plan accurate as work progresses.
+      An acceptance-criterion box ticks with `issue-cli prove`, never `issue-cli check`: `check` refuses a criterion, and the `criteria_proven` gate wants each one linked to a passing test, step or commit (`issue-cli prove <slug> --list` shows what is missing).
       Record implementation notes and planned verification steps in the issue body; checkboxes mark completion but do not replace written content.
       Declare each acceptance criterion's proof where you write it: `proves: [AC2]` on the playtest step that shows it, a `Proves: AC2 <TestName>` trailer on the commit that adds or changes the test, or `Proves: AC2` on the commit that is the change. Then, after the last code commit, post the test results: `issue-cli prove <slug> --run` runs the named tests and posts the `tests:` comment (or run them and post `issue-cli comment <slug> --text "tests: ..."`); a test trailer reads UNPROVEN until then, and a later code commit stales it. `issue-cli prove <slug> --list` shows what is proven.
   - name: "testing"
@@ -113,7 +114,7 @@ statuses:
       Describe it under `### Manual` in the Test Plan: where the script lives, the exact commands the human runs, what to look at, the expected result for each step, and how to clean up.
       If the project has a playtest system (see `issue-cli process playtest`), write the manual checks as a playtest session (step id = checkbox id) and pass its machine run (ux-test) before handing over, so the human only judges what a machine can't.
       Manual checks that aren't playtest sessions (commands, API routes, scripts, tmux) come as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib`, name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself.
-      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done. A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
+      A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done; in a repo with no git remote the move into shipping ticks the push and PR boxes itself with `no git remote` (by hand: `--na "no git remote"`). A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     role: "owner-test"
     description: "Manual verification by humans"
@@ -130,9 +131,9 @@ statuses:
   - name: "shipping"
     description: "Committing and pushing changes"
     prompt: |
-      Commit the changes with a message referencing the issue, push the commit to the remote, and note a PR link if one is opened.
+      Commit the changes with a message referencing the issue, push the commit to the remote if the repo has a remote, and note a PR link if one is opened (with no remote, the push and PR boxes come ticked `N/A: no git remote`).
       Remove the issue's scripts/checks/<name>.sh in a last commit before the merge: check scripts stay on the issue branch.
-      Tell the human in chat that this needs `done` approval in the issue viewer once the commit is pushed; only humans close issues.
+      Tell the human in chat that this needs `done` approval in the issue viewer once the commit is in (pushed, if the repo has a remote); only humans close issues.
       Before closing, post a `risk:` comment (`issue-cli comment <slug> --text "risk: ..."`) for anything to watch after the ship, or "risk: none".
   - name: "done"
     description: "Completed"
@@ -166,7 +167,7 @@ transitions:
       - type: "append_section"
         title: "Must not"
         body: |
-          - <what this change must not do; name a test or a command in backticks when one can catch it>
+          - <what this change must not do; a test or command in backticks when one can catch it> → AC<n>, or → none: <why>
   - from: "in design"
     to: "backlog"
     actions:
@@ -415,7 +416,7 @@ types:
     statuses:
       - name: "in progress"
         prompt: |
-          Chore: work through the brief's steps in order, nothing more. There is no branch to ship and no commit to make. A step that fails or holds is named in a `progress:` comment; the run still closes. If it turns out to need code or the owner's review, say so in a `question:` comment and stop.
+          Chore: work through the brief's steps in order, nothing more. There is no branch to ship and no commit to make. A step that fails or holds is named in a `progress:` comment; the run still closes. If it turns out to need code or the owner's review, say so in a `question:` comment and close the run with the steps done; under YOLO that is the whole rule: no dialog, no waiting.
     transitions:
       - from: "idea"
         to: "in progress"

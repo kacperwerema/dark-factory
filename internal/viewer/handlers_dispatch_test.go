@@ -146,8 +146,7 @@ func TestBuildAgentPrompt_AppendsWorktreeBlockWhenSet(t *testing.T) {
 	prompt := buildAgentPrompt(nil, issue, &tracker.WorkflowConfig{}, "/work/proj/.worktrees/fix-foo", "work/fix-foo")
 	for _, want := range []string{
 		"## Worktree",
-		"/work/proj/.worktrees/fix-foo",
-		"work/fix-foo",
+		"your working directory, on branch work/fix-foo.",
 		"Leave the worktree in place",
 		"primary checkout (master)",
 		"refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox",
@@ -171,8 +170,7 @@ func TestBuildAgentPrompt_TeachesCheckByID(t *testing.T) {
 	issue := &tracker.Issue{Slug: "fix-foo", Title: "T", Status: "in progress", BodyRaw: "body"}
 	prompt := buildAgentPrompt(nil, issue, &tracker.WorkflowConfig{}, "", "")
 	for _, want := range []string{
-		"issue-cli check fix-foo <id> [<id>...]\n",
-		"issue-cli check fix-foo <id> [<id>...]   # mark checkboxes done by id",
+		"issue-cli check fix-foo <id> [<id>...] ticks boxes without moving (checklist lists ids)",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("expected prompt to contain %q\n%s", want, prompt)

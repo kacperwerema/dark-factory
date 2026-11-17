@@ -53,7 +53,9 @@ func TestDispatchPromptCarriesScopedDecisions(t *testing.T) {
 	dp := BuildDispatchPrompt(proj, issue, nil, filepath.Dir(dir), nil)
 	sec := dp.Prompt[strings.Index(dp.Prompt, "## Decisions in force"):]
 	sec = sec[:strings.Index(sec, "## Memory")]
-	for _, want := range []string{"ops/rules#D-1 · soft · project · Project rule", "ops/rules#D-2 · soft · system:Workflow · Workflow rule"} {
+	// Soft ones that aren't the issue's own are one count line in the
+	// worker briefing; DecisionRefs still names both.
+	for _, want := range []string{"- 2 soft ones: issue-cli --project acme decisions --in-force \"$ISSUE_VIEWER_ISSUE_SLUG\""} {
 		if !strings.Contains(sec, want) {
 			t.Errorf("briefing lacks %q:\n%s", want, sec)
 		}

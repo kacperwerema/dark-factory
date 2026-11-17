@@ -76,7 +76,7 @@ func TestBuildDispatchPromptYOLO(t *testing.T) {
 
 	tracker.YOLOOn = func(workDir, project string) bool { return false }
 	off := BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
-	if !strings.HasPrefix(off, tracker.BuildAgentPrompt(proj, issue, wf, "", "")) || !strings.Contains(off, "At a human-approval gate, tell the user in chat") {
+	if !strings.HasPrefix(off, tracker.ShortenOwnSlug(tracker.BuildAgentPrompt(proj, issue, wf, "", ""), issue.Slug)) || !strings.Contains(off, "At a human-approval gate, tell the user in chat") {
 		t.Fatalf("YOLO off changed the prompt:\n%s", off)
 	}
 
@@ -87,15 +87,16 @@ func TestBuildDispatchPromptYOLO(t *testing.T) {
 			t.Errorf("YOLO prompt still says %q", gone)
 		}
 	}
-	for _, want := range []string{"YOLO is on: gates pass without the owner", "This is a handoff state.\nYOLO rule: ", "issue-cli --project proj decide api/fix --provisional", "YOLO passes the approval this status waits for", tracker.YOLOOwnerOnly(wf)} {
+	for _, want := range []string{"YOLO is on: gates pass without the owner", "This is a handoff state.\nYOLO rule: ", "issue-cli --project proj decide --provisional", "YOLO passes the approval this status waits for", tracker.YOLOOwnerOnly(wf)} {
 		if !strings.Contains(on, want) {
 			t.Errorf("YOLO prompt lacks %q", want)
 		}
 	}
 }
 
-// The briefing's ask line (step 4) names the issue's slug, YOLO on or off,
-// as the YOLO rule does, never a literal <slug>.
+// The briefing's ask line (step 4) leaves the slug out, YOLO on or off, as
+// the YOLO rule does (the worker's issue-cli takes it from
+// ISSUE_VIEWER_ISSUE_SLUG), and never keeps a literal <slug>.
 func TestBriefingAskLineFillsInTheSlug(t *testing.T) {
 	old := tracker.YOLOOn
 	t.Cleanup(func() { tracker.YOLOOn = old })
@@ -105,7 +106,7 @@ func TestBriefingAskLineFillsInTheSlug(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		tracker.YOLOOn = func(string, string) bool { return on }
 		prompt := BuildDispatchPrompt(proj, issue, wf, "/w", nil).Prompt
-		start := strings.Index(prompt, "\n4. If you are unsure")
+		start := strings.Index(prompt, "\n4. ")
 		end := strings.Index(prompt, "\n5. ")
 		if start < 0 || end < start {
 			t.Fatalf("YOLO %v: no ask line in:\n%s", on, prompt)
@@ -114,7 +115,7 @@ func TestBriefingAskLineFillsInTheSlug(t *testing.T) {
 		if strings.Contains(ask, "<slug>") {
 			t.Errorf("YOLO %v: ask line keeps <slug>:\n%s", on, ask)
 		}
-		for _, want := range []string{"issue-cli --project proj decide api/fix ", "issue-cli --project proj clarify api/fix)"} {
+		for _, want := range []string{"issue-cli --project proj decide --", "the design's clarify round"} {
 			if !strings.Contains(ask, want) {
 				t.Errorf("YOLO %v: ask line lacks %q:\n%s", on, want, ask)
 			}

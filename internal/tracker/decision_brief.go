@@ -184,16 +184,87 @@ func LeadDecisionBlock(proj *Project, department string, wf *WorkflowConfig, tod
 }
 
 // DecisionsPromptSection is the "## Decisions in force" part of a worker's
-// briefing, at the issue's status.
+// briefing, at the issue's status. It prints every hard decision in force
+// and the soft ones that are the issue's own (recorded on it, on an issue
+// above it, or cited by it) in full; every other soft one is in one count
+// line, since one command re-lists them. Lines are grouped under the issue
+// that records them ("this issue" for its own), so a long slug is printed
+// once; a hard line has no tag, a soft one says (soft). Lines carry neither
+// the scope nor the owner's quote: issue-cli decisions --in-force has both.
 func DecisionsPromptSection(b DecisionBlock, slug string) string {
+	if b.Empty() {
+		return "\n\n## Decisions in force\n\n" + b.Lines(InForceCommand(slug), "this issue")[0] + "\n"
+	}
+	var (
+		order  []string
+		groups = map[string][]string{}
+		soft   int
+	)
+	for _, it := range append(append([]InForceEntry{}, b.Shown...), b.Folded...) {
+		if it.Entry == nil {
+			continue
+		}
+		if !it.Entry.Hard && !IssueOwnDecision(it) {
+			soft++
+			continue
+		}
+		src, id := splitDecisionRef(it.Entry.Ref)
+		if _, ok := groups[src]; !ok {
+			order = append(order, src)
+		}
+		mark := ""
+		if !it.Entry.Hard {
+			mark = " (soft)"
+		}
+		groups[src] = append(groups[src], fmt.Sprintf("  - %s%s · %s", id, mark, cutRunes(oneLine(it.Entry.Text), decisionBriefingTextRunes)))
+	}
 	var s strings.Builder
 	s.WriteString("\n\n## Decisions in force\n\n")
-	s.WriteString("The owner's decisions that reach this issue (hard first; a hard one is a rule, cite its ref when your work touches it):\n")
-	for _, l := range b.Lines(InForceCommand(slug), "this issue") {
-		s.WriteString(l + "\n")
+	s.WriteString("The owner's decisions for this issue, by the issue recording them (cite <issue>#D-n). Each is a rule unless marked soft: never work against one.\n")
+	for _, src := range order {
+		if src == slug {
+			s.WriteString("- this issue\n")
+		} else {
+			s.WriteString("- " + src + "\n")
+		}
+		for _, l := range groups[src] {
+			s.WriteString(l + "\n")
+		}
 	}
+	if soft > 0 {
+		fmt.Fprintf(&s, "- %s: %s\n", softCount(soft), InForceCommand(slug))
+	}
+	s.WriteString(DecisionBriefingChallengeLine + "\n")
 	return s.String()
 }
+
+// decisionBriefingTextRunes cuts a decision's text in the worker briefing.
+const decisionBriefingTextRunes = 76
+
+// IssueOwnDecision reports whether it reaches the issue through the issue
+// itself: recorded on it, on an issue above it (parent:), or cited by it.
+func IssueOwnDecision(it InForceEntry) bool {
+	return it.Why == "own" || it.Why == "cites" || strings.HasPrefix(it.Why, "parent ")
+}
+
+// splitDecisionRef splits <slug>#D-n into the slug and D-n.
+func splitDecisionRef(ref string) (string, string) {
+	if i := strings.LastIndex(ref, "#"); i >= 0 {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, ""
+}
+
+// softCount is the briefing's count of the soft decisions it leaves out.
+func softCount(n int) string {
+	if n == 1 {
+		return "1 soft one"
+	}
+	return fmt.Sprintf("%d soft ones", n)
+}
+
+// DecisionBriefingChallengeLine is the worker briefing's DecisionChallengeLine.
+const DecisionBriefingChallengeLine = "Disagree? issue-cli decision challenge <ref> --why \"…\" (your issue waits)."
 
 // DecisionsLeadLines is the lead brief's decisions item: the project's (and
 // for a department lead its department's) decisions in force.

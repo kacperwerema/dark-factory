@@ -13,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/postmortem"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/retro"
 	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -23,11 +24,12 @@ const postmortemUsage = `Usage:
   issue-cli postmortem brief <slug>
   issue-cli postmortem write <slug> --file <path>
   issue-cli postmortem show <slug> [--json]
-  issue-cli postmortem list [--json]`
+  issue-cli postmortem list [--grouped] [--json]
+  issue-cli postmortem fixed <retro file>#A<n> --by <slug|sha> [--copies]`
 
 var postmortemCommand = &Command{
 	Name:      "postmortem",
-	ShortHelp: "Post-mortem at close: a fresh agent's retro whose actions the owner agrees to in one round (sub: start|brief|write|show|list)",
+	ShortHelp: "Post-mortem at close: a fresh agent's retro whose actions the owner agrees to in one round (sub: start|brief|write|show|list|fixed)",
 	LongHelp: `The post-mortem (docs/workflow.md, Post-mortem): when an issue reaches the
 workflow's postmortem: at: status (done), a fresh agent that did none of its
 work reads the run from paths only and writes a retro with Steps, Worked,
@@ -46,13 +48,20 @@ from the retro.
                              saved, when an action fails the test or names
                              no place
   show <slug>                the newest post-mortem's actions and outcomes
-  list                       every post-mortem and how many actions wait; the
-                             owner refuses them across post-mortems, or marks
-                             them overtaken, on /p/<project>/postmortems
+  list                       every post-mortem and how many actions wait
+  list --grouped             the owner's queue (/p/<project>/postmortems) as
+                             the page has it: one row per group of copies
+                             (one answer covers them), the alone ones, the
+                             fixed ones, and how many answers are left
+  fixed <file>#A<n> --by <slug|sha>
+                             link an action to the issue or the commit on
+                             main that fixes it: once the issue is done (or
+                             at once for a commit) it needs no answer.
+                             --copies links every copy of its group too
 
 ` + postmortemUsage,
 	Run:         runPostmortem,
-	Subcommands: []string{"start", "brief", "write", "show", "list"},
+	Subcommands: []string{"start", "brief", "write", "show", "list", "fixed"},
 }
 
 func init() {
@@ -78,6 +87,8 @@ func runPostmortem(ctx *Context, args []string) error {
 		return runPostmortemShow(ctx, args[1:])
 	case "list":
 		return runPostmortemList(ctx, args[1:])
+	case "fixed":
+		return runPostmortemFixed(ctx, args[1:])
 	}
 	return &usageError{msg: fmt.Sprintf("unknown postmortem subcommand %q\n\n%s", args[0], postmortemUsage)}
 }
@@ -424,6 +435,7 @@ func closeOwnPostmortemSession(proj *tracker.Project, slug string) bool {
 	if err := cmd.Start(); err != nil {
 		return false
 	}
+	restrace.Start(restrace.KindChild, cmd.Process.Pid, "", "post-mortem session close (detached)")
 	go func() { _ = cmd.Wait() }()
 	return true
 }
@@ -445,10 +457,18 @@ func loadPostmortems(ctx *Context, slug string) ([]postmortemView, error) {
 	if err != nil {
 		return nil, err
 	}
+	issues, _ := ctx.Project.LoadIssues()
+	fixes := postmortemFixes(ctx.Project, issues, ctx.now())
 	var out []postmortemView
 	for _, e := range postmortem.Of(entries, slug) {
 		acts := postmortem.Actions(e.Body)
-		out = append(out, postmortemView{Issue: e.IssueSlug, File: e.FilePath, Pending: len(postmortem.Pending(acts)), Actions: acts})
+		pending := 0
+		for _, a := range postmortem.Pending(acts) {
+			if !fixes.Of(a).Done {
+				pending++ // a fixed action waits on nobody
+			}
+		}
+		out = append(out, postmortemView{Issue: e.IssueSlug, File: e.FilePath, Pending: pending, Actions: acts})
 	}
 	return out, nil
 }
@@ -462,7 +482,7 @@ func runPostmortemShow(ctx *Context, args []string) error {
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
 	}
-	issue, _, err := findIssueOrErr(ctx, slug)
+	issue, issues, err := findIssueOrErr(ctx, slug)
 	if err != nil {
 		return err
 	}
@@ -478,6 +498,7 @@ func runPostmortemShow(ctx *Context, args []string) error {
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, v)
 	}
+	fixes := postmortemFixes(ctx.Project, issues, ctx.now())
 	fmt.Fprintf(ctx.Stdout, "== Post-mortem of %s ==\nfile: %s\n", issue.Slug, v.File)
 	for _, a := range v.Actions {
 		state := "waits for the owner"
@@ -493,6 +514,9 @@ func runPostmortemShow(ctx *Context, args []string) error {
 		for _, line := range a.Reopened {
 			fmt.Fprintf(ctx.Stdout, "      reopened: %s\n", line)
 		}
+		if f := fixes.Of(a); f.By != "" && !a.Decided() {
+			fmt.Fprintf(ctx.Stdout, "      %s\n", f.Words())
+		}
 	}
 	if v.Pending > 0 {
 		fmt.Fprintf(ctx.Stdout, "The owner agrees or refuses them in one round: %s\n", postmortemURL(ctx.Project, issue.Slug))
@@ -502,8 +526,12 @@ func runPostmortemShow(ctx *Context, args []string) error {
 
 func runPostmortemList(ctx *Context, args []string) error {
 	fs := newFlagSet("postmortem list", ctx)
+	grouped := fs.Bool("grouped", false, "the owner's queue: one row per group of copies, and the fixed ones")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
+	}
+	if *grouped {
+		return runPostmortemListGrouped(ctx)
 	}
 	views, err := loadPostmortems(ctx, "")
 	if err != nil {
@@ -525,7 +553,8 @@ func runPostmortemList(ctx *Context, args []string) error {
 		waiting += v.Pending
 	}
 	if waiting > 0 {
-		fmt.Fprintf(ctx.Stdout, "The owner sees them together, and refuses or marks them overtaken, on %s/p/%s/postmortems\n", viewerBaseURL(ctx.Project), ctx.Project.Slug)
+		fmt.Fprintf(ctx.Stdout, "The owner answers them together, one answer per group of copies, on %s/p/%s/postmortems\n", viewerBaseURL(ctx.Project), ctx.Project.Slug)
+		fmt.Fprintln(ctx.Stdout, "The same rows, and the ones fixed already: "+tracker.InjectProject(ctx.Project, "issue-cli postmortem list --grouped"))
 	}
 	return nil
 }

@@ -147,12 +147,45 @@ func resolveFromConfig(configPath, projectSlug string) (*tracker.Project, []trac
 		return nil, projects, fmt.Errorf("no projects configured in %s", configPath)
 	}
 	if len(projects) > 1 {
+		// A worktree (or subfolder) of one configured project's checkout
+		// picks that project: its git common dir is the project's.
+		if matches := projectsInCheckout(projects, ""); len(matches) == 1 {
+			for i := range projects {
+				if projects[i].Slug == matches[0].Slug {
+					return &projects[i], projects, nil
+				}
+			}
+		}
 		// Fail loud: silent fallback to projects[0] is the bug this code
-		// solves. Return projects[0] as the conventional default in the
-		// listing so the bot can re-run with the right --project.
-		return nil, projects, fmt.Errorf("%w\n%s", errAmbiguousProject, formatProjectList(projects, projects[0].Slug))
+		// solves. projects.yaml has no default project, so none is marked.
+		return nil, projects, fmt.Errorf("%w\n%s", errAmbiguousProject, formatProjectList(projects, ""))
 	}
 	return &projects[0], projects, nil
+}
+
+// projectsInCheckout returns the configured projects whose root folder is in
+// the same git repository as dir ("" for the cwd): the same git common dir,
+// so a linked worktree of a project's checkout matches that project. Nothing
+// matches outside git.
+func projectsInCheckout(projects []tracker.Project, dir string) []tracker.Project {
+	_, common, ok := gitCheckout(dir)
+	if !ok {
+		return nil
+	}
+	var out []tracker.Project
+	for i := range projects {
+		if projects[i].WorkDir == "" && projects[i].IssueDir == "" {
+			continue
+		}
+		root := projects[i].Root()
+		if info, err := os.Stat(root); root == "" || err != nil || !info.IsDir() {
+			continue
+		}
+		if _, c, ok := gitCheckout(root); ok && c == common {
+			out = append(out, projects[i])
+		}
+	}
+	return out
 }
 
 // formatProjectList renders a fixed-format enumeration of configured project
@@ -337,10 +370,13 @@ func writeJSON(w io.Writer, v interface{}) error {
 // printCheckboxes lists every checkbox grouped by its "## " section, each line
 // prefixed with the box's id ("D3") so callers know what to pass to `check`.
 // Boxes before any section heading show their index instead. Boxes inside
-// fenced code blocks are skipped.
-func printCheckboxes(w io.Writer, body string) {
+// fenced code blocks are skipped. owner, when not nil, says why a box is the
+// owner's (boxOwners): such a box reads "HT1 [ ] (owner's) …". It reports
+// whether an open box was marked.
+func printCheckboxes(w io.Writer, body string, owner func(tracker.CheckboxItem) string) bool {
 	const noSection = "\x00"
 	lastSection := noSection
+	marked := false
 	for _, it := range tracker.ListCheckboxes(body) {
 		if it.Section != lastSection {
 			lastSection = it.Section
@@ -354,22 +390,54 @@ func printCheckboxes(w io.Writer, body string) {
 		if it.Checked {
 			mark = "x"
 		}
+		prefix := ""
+		if owner != nil && owner(it) != "" {
+			prefix = ownerMark
+			marked = marked || !it.Checked
+		}
 		if it.ID != "" {
-			fmt.Fprintf(w, "  %s [%s] %s\n", it.ID, mark, it.Label())
+			fmt.Fprintf(w, "  %s [%s] %s%s\n", it.ID, mark, prefix, it.Label())
 		} else {
-			fmt.Fprintf(w, "  %d. [%s] %s\n", it.Index, mark, it.Text)
+			fmt.Fprintf(w, "  %d. [%s] %s%s\n", it.Index, mark, prefix, it.Text)
 		}
 	}
+	return marked
+}
+
+// ownerMark is what a box listing puts before an owner box's text.
+const ownerMark = "(owner's) "
+
+// ownerFooter is the line under a box listing that marked an open owner
+// box: what the marker means and where the owner ticks it.
+func ownerFooter(url string) string {
+	return "(owner's) boxes wait for the owner: check refuses them; they tick them on the Owner checks page: " + url
+}
+
+// boxOwners is the owner-box test for issue's boxes, the one the tick
+// guard uses (ownerReport's OwnerBoxWhy): why a box is the owner's, or "".
+func boxOwners(ctx *Context, issue *tracker.Issue) func(tracker.CheckboxItem) string {
+	return ownerReport(ctx, issue).OwnerBoxWhy
+}
+
+// printIssueCheckboxes is printCheckboxes for one of issue's bodies with
+// its owner boxes marked, and the footer when an open one was. It returns
+// the owner test it used, for printTickHint.
+func printIssueCheckboxes(ctx *Context, w io.Writer, issue *tracker.Issue, body string) func(tracker.CheckboxItem) string {
+	owner := boxOwners(ctx, issue)
+	if printCheckboxes(w, body, owner) {
+		fmt.Fprintln(w, ownerFooter(ownerChecksURL(ctx.Project, issue)))
+	}
+	return owner
 }
 
 // printTickHint tells the reader how to tick boxes by id when any box with an
-// id is still open. Printed under checklist listings so agents discover the
+// id is still open that isn't the owner's (owner, when not nil). Printed under checklist listings so agents discover the
 // id form where they first see the boxes.
-func printTickHint(w io.Writer, slug, body string) {
+func printTickHint(w io.Writer, slug, body string, owner func(tracker.CheckboxItem) string) {
 	for _, it := range tracker.ListCheckboxes(body) {
-		if !it.Checked && it.ID != "" {
+		if !it.Checked && it.ID != "" && (owner == nil || owner(it) == "") {
 			fmt.Fprintf(w, "Tick done boxes by id, several at once: issue-cli check %s <id> [<id>...]\n", slug)
-			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\" (untick: issue-cli uncheck %s <id>; drop, other ids stay: issue-cli check-remove %s <id>)\n", slug, slug, slug)
+			fmt.Fprintf(w, "Box text wrong? issue-cli check-edit %s <id> --text \"...\" (untick: issue-cli uncheck %s <id>; drop, other ids stay: issue-cli check-remove %s <id>; add one: issue-cli check-add %s --section \"<name>\" --text \"...\")\n", slug, slug, slug, slug)
 			return
 		}
 	}

@@ -120,3 +120,34 @@ func TestUpdateRoundTripAndConcurrency(t *testing.T) {
 		t.Fatalf("corrupt file: %v", err)
 	}
 }
+
+func TestBlockMerged(t *testing.T) {
+	q := &Queue{NextID: 1}
+	q.Add(Item{Slug: "a"}, Where{}, t0)
+	q.Add(Item{Slug: "b"}, Where{}, t0)
+	if err := q.BlockOn("b", "x/y", true); err != nil {
+		t.Fatal(err)
+	}
+	q.BlockOn("b", "X/Y", true)
+	q.BlockOn("b", "1", true)
+	it := q.Find("b")
+	if len(it.BlockedOn) != 2 || len(it.BlockedOnMerged) != 2 || !it.MergedOnly("x/y") || !it.MergedOnly("#1") {
+		t.Fatalf("item = %+v", it)
+	}
+	if q.BlockerSlug("#1") != "a" || q.BlockerSlug("x/y") != "x/y" || q.BlockerSlug("#9") != "" {
+		t.Fatal("BlockerSlug")
+	}
+	q.Block("b", "x/y")
+	if it.MergedOnly("x/y") || !it.MergedOnly("#1") {
+		t.Fatalf("plain block kept the mark: %+v", it)
+	}
+	q.Unblock("b", "1")
+	if it.MergedOnly("#1") || len(it.BlockedOn) != 1 {
+		t.Fatalf("unblock: %+v", it)
+	}
+	q.BlockOn("b", "1", true)
+	q.Unblock("b", "")
+	if it.BlockedOn != nil || it.BlockedOnMerged != nil {
+		t.Fatalf("unblock all: %+v", it)
+	}
+}

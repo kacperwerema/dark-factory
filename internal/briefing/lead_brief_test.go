@@ -94,7 +94,7 @@ func TestLeadBrief_AutoStartLineOnlyWhenOn(t *testing.T) {
 		t.Fatalf("brief without auto-start mentions it:\n%s", off)
 	}
 	on := LeadBrief(&tracker.WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir(), AutoStart: &AutoStartBrief{Words: "start one under 50%", Below: 50, MaxWorkers: 3}})
-	for _, w := range []string{`Auto-start is on for this project (the owner's words: "start one under 50%")`, "issue-cli --project proj autostart next", "dispatch --autostart", "memory is at or above 50%, the 1-minute load is at or above the core count, 3 workers are live, or another project just started one"} {
+	for _, w := range []string{`Auto-start is on for this project (the owner's words: "start one under 50%")`, "issue-cli --project proj autostart next", "dispatch --autostart", "memory is at or above 50%, the 1- and 5-minute load are both at or above the core count, 3 workers are live, another project just started one, or it is another project's turn"} {
 		if !strings.Contains(on, w) {
 			t.Errorf("brief missing %q:\n%s", w, on)
 		}

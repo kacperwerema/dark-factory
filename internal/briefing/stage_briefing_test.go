@@ -85,7 +85,7 @@ func TestStageBriefingIsPathsOnly(t *testing.T) {
 		filepath.Join("/w", ".worktrees", "api/fix", tracker.HandoffFile),
 		"Your output is this stage's artifact: ## Implementation, ## Test Plan",
 		"The gate out checks it (into testing):",
-		"issue-cli --project proj transition api/fix --to testing --dry-run",
+		"issue-cli --project proj transition --to testing --dry-run",
 		"## Worktree",
 		"## Your lead",
 		"Briefing: ",

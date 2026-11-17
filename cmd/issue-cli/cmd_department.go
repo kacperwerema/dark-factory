@@ -1,12 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/depttemplate"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -135,23 +137,34 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	dry := fs.Bool("dry-run", false, "print the plan, change nothing")
 	commit := fs.Bool("commit", false, "commit the files the add wrote (only those) in the project's git repository")
 	partnerPath := fs.String("partner-path", "", "where you install the template's partner program (default: the template's); recorded, never created")
+	mission := fs.String("mission", "", "this project's mission for the department (default: the template's sample, marked)")
+	var goalFlags multiFlag
+	fs.Var(&goalFlags, "goal", "a goal of this project's, <id>=<name>/<target>/<period> (repeatable; given, they are the department's goals)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli department add <template> [--parent <group>] [--partner-path <dir>] [--commit] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
+		return &usageError{msg: "usage: issue-cli department add <template> [--mission \"…\"] [--goal \"<id>=<name>/<target>/<period>\"]... [--parent <group>] [--partner-path <dir>] [--commit] [--dry-run]\nTemplates: " + strings.Join(depttemplate.Keys(), ", ")}
 	}
 	proj := ctx.Project
 	tmpl, err := depttemplate.Load(fs.Arg(0))
 	if err != nil {
 		return fmt.Errorf("%v; templates: %s (issue-cli department list)", err, strings.Join(depttemplate.Keys(), ", "))
 	}
+	var own []tracker.Goal
+	for _, f := range goalFlags {
+		g, err := depttemplate.ParseGoal(f, tmpl)
+		if err != nil {
+			return err
+		}
+		own = append(own, g)
+	}
 	if !*dry {
 		if err := refuseWorker(ctx, "department add", "add departments"); err != nil {
 			return err
 		}
 	}
-	plan, err := depttemplate.NewPlanWith(proj, tmpl, depttemplate.Options{Parent: *parent, PartnerPath: *partnerPath})
+	plan, err := depttemplate.NewPlanWith(proj, tmpl, depttemplate.Options{Parent: *parent, PartnerPath: *partnerPath, Mission: *mission, Goals: own})
 	if err != nil {
 		return err
 	}
@@ -208,7 +221,14 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 		if *partnerPath != "" {
 			args += " --partner-path " + *partnerPath
 		}
+		if *mission != "" {
+			args += " --mission " + shell.Quote(*mission)
+		}
+		for _, g := range own {
+			args += " --goal " + shell.Quote(depttemplate.GoalFlag(g))
+		}
 		fmt.Fprintf(w, "Apply: %s\n", tracker.InjectProject(proj, "issue-cli department add "+args))
+		printSamples(w, plan, proj, true)
 		return nil
 	}
 	fmt.Fprintln(w, "Next:")
@@ -254,7 +274,38 @@ func runDepartmentAdd(ctx *Context, args []string) error {
 	if depttemplate.ConfigUncommitted(plan.Root, plan.Config) {
 		fmt.Fprintf(w, "%s is in this repository and has uncommitted changes, the new department entry among them: commit it too (--commit leaves projects.yaml to you)\n", plan.Config)
 	}
+	printSamples(w, plan, proj, false)
 	return nil
+}
+
+// printSamples ends department add with how to set the project's own
+// mission and goals, for each department the add wrote with the
+// template's samples (marked # sample: replace in projects.yaml).
+func printSamples(w io.Writer, plan *depttemplate.Plan, proj *tracker.Project, dry bool) {
+	var cmds []string
+	for _, p := range append([]*depttemplate.Plan{plan}, plan.Children...) {
+		if len(p.Samples) == 0 {
+			continue
+		}
+		cmd := "issue-cli department update " + p.Key
+		for _, s := range p.Samples {
+			switch s {
+			case "mission":
+				cmd += ` --mission "…"`
+			case "goals":
+				cmd += ` --goal "<id>=<name>/<target>/<period>"`
+			}
+		}
+		cmds = append(cmds, tracker.InjectProject(proj, cmd))
+	}
+	if len(cmds) == 0 {
+		return
+	}
+	lead := "Set this project's own mission and goals (now the template's samples, marked # sample: replace): "
+	if dry {
+		lead = "The entry would carry the template's sample mission and goals: pass --mission and --goal, or set them after: "
+	}
+	fmt.Fprintln(w, lead+strings.Join(cmds, " ; "))
 }
 
 // printHandoffs prints the handoffs a template's departments usually have,
@@ -474,11 +525,15 @@ func runDepartmentUpdate(ctx *Context, args []string) error {
 	fs := newFlagSet("department update", ctx)
 	dry := fs.Bool("dry-run", false, "say what would change, change nothing")
 	side := fs.Bool("side", false, "write the template's text next to each file you edited (<name>.template.md), to compare")
+	mission := fs.String("mission", "", "set the department's mission in projects.yaml (only that line changes)")
+	var goalFlags, dropFlags multiFlag
+	fs.Var(&goalFlags, "goal", "set or add a goal, <id>=<name>/<target>/<period> (repeatable)")
+	fs.Var(&dropFlags, "drop-goal", "remove the goal with this id (repeatable)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli department update <name> [--dry-run] [--side]"}
+		return &usageError{msg: "usage: issue-cli department update <name> [--dry-run] [--side]\n       issue-cli department update <name> [--mission \"…\"] [--goal \"<id>=<name>/<target>/<period>\"]... [--drop-goal <id>]... [--dry-run]"}
 	}
 	proj := ctx.Project
 	d := proj.DepartmentByKey(fs.Arg(0))
@@ -490,6 +545,29 @@ func runDepartmentUpdate(ctx *Context, args []string) error {
 		if got := t.InstalledAs(proj); got != nil && got.Name == d.Name {
 			tmpl = t
 		}
+	}
+	missionSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "mission" {
+			missionSet = true
+		}
+	})
+	if missionSet || len(goalFlags) > 0 || len(dropFlags) > 0 {
+		if *side {
+			return &usageError{msg: "--side compares template files; it does not go with --mission, --goal or --drop-goal"}
+		}
+		own := depttemplate.Own{Drop: dropFlags}
+		if missionSet {
+			own.Mission = mission
+		}
+		for _, f := range goalFlags {
+			g, err := depttemplate.ParseGoal(f, tmpl)
+			if err != nil {
+				return err
+			}
+			own.Goals = append(own.Goals, g)
+		}
+		return runDepartmentSetOwn(ctx, d, tmpl, own, *dry)
 	}
 	if tmpl == nil {
 		return fmt.Errorf("%s was not added from a bundled template: there is no newer text for it", d.Name)
@@ -567,6 +645,59 @@ func runDepartmentUpdate(ctx *Context, args []string) error {
 		}
 		if len(files) > 0 {
 			fmt.Fprintf(w, "Commit the new text: %s\n", depttemplate.CommitCommand(proj.Root(), files, "chore(departments): "+d.Name+" to the template's new text"))
+		}
+	}
+	return nil
+}
+
+// runDepartmentSetOwn is department update --mission/--goal/--drop-goal:
+// the project's own mission and goals, spliced into projects.yaml as text.
+func runDepartmentSetOwn(ctx *Context, d *tracker.Department, tmpl *depttemplate.Template, own depttemplate.Own, dry bool) error {
+	proj := ctx.Project
+	key := tracker.DepartmentKey(d.Name)
+	if proj.ConfigPath == "" {
+		return fmt.Errorf("this project has no projects.yaml entry; run with --project <name> and a projects config")
+	}
+	if !dry {
+		if err := refuseWorker(ctx, "department update", "update departments"); err != nil {
+			return err
+		}
+		if err := depttemplate.SetOwn(proj.ConfigPath, proj.Slug, d.Name, tmpl, own); err != nil {
+			return err
+		}
+	}
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, map[string]any{"department": d.Name, "config": proj.ConfigPath, "set": own, "dry_run": dry})
+	}
+	w := ctx.Stdout
+	if dry {
+		fmt.Fprintf(w, "Dry run: department update %s (nothing changed)\n", key)
+	} else {
+		fmt.Fprintf(w, "✓ Updated %s's own mission and goals in %s\n", d.Name, proj.ConfigPath)
+	}
+	would := map[bool]string{true: "would set", false: "set"}[dry]
+	if own.Mission != nil {
+		fmt.Fprintf(w, "  mission: %s %q\n", would, *own.Mission)
+	}
+	for _, g := range own.Goals {
+		fmt.Fprintf(w, "  goal %s: %s %s\n", g.ID, would, depttemplate.GoalFlag(g))
+	}
+	for _, id := range own.Drop {
+		fmt.Fprintf(w, "  goal %s: %s\n", id, map[bool]string{true: "would remove", false: "removed"}[dry])
+	}
+	if dry {
+		return nil
+	}
+	if p, err := tracker.LoadProjects(proj.ConfigPath); err == nil {
+		for i := range p {
+			if p[i].Slug != proj.Slug {
+				continue
+			}
+			for _, s := range depttemplate.SampleFields(&p[i]) {
+				if s.Key == key {
+					fmt.Fprintf(w, "Still the %s template's sample: %s\n", s.Template.Key, tracker.InjectProject(proj, s.UpdateCommand()))
+				}
+			}
 		}
 	}
 	return nil

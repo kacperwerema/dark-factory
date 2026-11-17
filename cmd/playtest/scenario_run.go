@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,7 +40,7 @@ func (s *Scenario) Env() []string {
 // dispatched agent.
 var isolatedVars = []string{
 	"TMUX", "TMUX_PANE", "TMUX_TMPDIR", "HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME",
-	"XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_URL",
+	"XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "ISSUE_VIEWER_CONFIG", "ISSUE_VIEWER_PROJECT", "ISSUE_VIEWER_URL",
 	"ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_SERVER_PWD", "ISSUE_CLI_LOG", "AGENT_NAME",
 	"AI_AGENT", "CLAUDECODE", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
 	"CLAUDE_CONFIG_DIR",
@@ -72,6 +73,7 @@ func scenarioEnv(base []string, s *Scenario) []string {
 		"TMUX_TMPDIR="+s.TmuxDir(),
 		"ISSUE_VIEWER_CONFIG="+s.ConfigPath(),
 		recent.OffEnv+"=1",
+		viewerstate.MachineOffEnv+"=1",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=playtest", "GIT_AUTHOR_EMAIL=playtest@example.invalid",
 		"GIT_COMMITTER_NAME=playtest", "GIT_COMMITTER_EMAIL=playtest@example.invalid",
@@ -156,6 +158,10 @@ func (s *Scenario) Expand(v string) string {
 // Stop kills the board and the private tmux server, then removes the temp
 // dir unless keep is set.
 func (s *Scenario) Stop(keep bool) {
+	if s.forgetStop != nil {
+		s.forgetStop()
+		s.forgetStop = nil
+	}
 	if s.board != nil && s.board.Process != nil {
 		_ = syscall.Kill(-s.board.Process.Pid, syscall.SIGKILL)
 		_ = s.board.Wait()

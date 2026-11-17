@@ -79,7 +79,7 @@ func TestEvalsLintNamesTheBasicMistakes(t *testing.T) {
 func TestBundledTemplatesDeclareEvalsTheCheckAccepts(t *testing.T) {
 	for name, want := range map[string][]string{
 		"development": {"code", "report", "docs"},
-		"marketing":   {"foundation", "keyword-research", "report", "piece", "seo-pass", "seo-baseline", "social"},
+		"marketing":   {"foundation", "keyword-research", "competitor-scan", "report", "piece", "seo-pass", "seo-baseline", "social"},
 		"content":     {"content"},
 	} {
 		raw, err := workflowupgrade.ReadTemplate(name)

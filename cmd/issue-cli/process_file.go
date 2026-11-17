@@ -61,7 +61,7 @@ func printCandidateLint(w io.Writer, abs string, p *tracker.Project, cmd string)
 			}
 		}
 	}
-	fmt.Fprintln(w, "Nothing was written. The board's checks (issues on these statuses, project-wide keys) run on the live file after the swap: issue-cli health lint --check department,departments,schema")
+	fmt.Fprintln(w, "Nothing was written. The board's checks (issues on these statuses, jobs, project-wide keys) before the merge, as only what the candidate changes: issue-cli health lint --workflow "+abs+" [--projects <candidate projects.yaml>] (Product's file); a department's file runs them on the live file after the swap: issue-cli health lint --check department,departments,schema")
 	if p != nil {
 		live := []string{"issue-cli " + cmd}
 		for _, d := range p.WorkflowDepartments() {

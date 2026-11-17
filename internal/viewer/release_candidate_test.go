@@ -287,6 +287,7 @@ func TestReleaseCandidateOnTheBranchPublishesFromTheWorktree(t *testing.T) {
 	proj := readyRCProject(t, rcBlock+"privacy:\n  code: snapshots\n  decided: x\n")
 	stubCandidates(t, map[string]time.Time{"v0.53.0-rc.1": time.Now().Add(-50 * time.Hour)}, 0)
 	stubReleaseBranch(t, nil)
+	stubValidated(t, "8a847f5000", "8a847f5000")
 	page, md := getStatusBoth(t, proj)
 	wantAll(t, "page", page,
 		`data-testid="status.release_wait.check.picked" data-ok="true"`,
@@ -317,6 +318,7 @@ func TestReleaseJSONIsTheCardsMilestone(t *testing.T) {
 	proj := readyRCProject(t, rcBlock+"privacy:\n  code: snapshots\n  decided: x\n")
 	stubCandidates(t, map[string]time.Time{"v0.53.0-rc.1": time.Now().Add(-50 * time.Hour)}, 0)
 	stubReleaseBranch(t, nil)
+	stubValidated(t, "8a847f5000", "8a847f5000")
 	withMockTmuxSessions(t, nil)
 	stubAgentsGit(t)
 	ts := newTestServer(t, []tracker.Project{proj})
@@ -326,4 +328,27 @@ func TestReleaseJSONIsTheCardsMilestone(t *testing.T) {
 		t.Fatalf("status %d: %s", resp.StatusCode, body)
 	}
 	wantAll(t, "release.json", body, `"cut":"v0.53.0"`, `"soaking":true`, `"candidate":"v0.53.0-rc.1"`, `"branch":"release/v0.53"`, `"key":"picked"`, `"ok":true`)
+}
+
+// Once the minor release has its branch, main's untested head doesn't hold
+// the publish either: the candidate's validation does.
+func TestReleaseCandidateOnTheBranchReadsTheCandidateNotMainsHead(t *testing.T) {
+	proj := readyRCProject(t, rcBlock+"privacy:\n  code: snapshots\n  decided: x\n")
+	stubBranchState(t, &BranchState{Branch: "main", Head: "96abff0000", HeadAt: time.Now()})
+	stubCandidates(t, map[string]time.Time{"v0.53.0-rc.1": time.Now().Add(-50 * time.Hour)}, 0)
+	stubReleaseBranch(t, nil)
+
+	stubValidated(t, "", "8a847f5000")
+	page, md := getStatusBoth(t, proj)
+	wantAll(t, "page", page,
+		`data-testid="status.release_wait.check.ci" data-ok="true"`,
+		`Local CI not red on main`,
+		`data-testid="status.release_wait.check.validated" data-ok="false"`,
+	)
+	wantNone(t, "page", page, `status.release_wait.publish`)
+	wantAll(t, "status.md", md, "v0.53.0 not ready: not validated: issue-cli release check v0.53.0")
+
+	stubValidated(t, "8a847f5000", "8a847f5000")
+	page, _ = getStatusBoth(t, proj)
+	wantAll(t, "page", page, `data-testid="status.release_wait.check.validated" data-ok="true"`, `data-testid="status.release_wait.publish"`)
 }

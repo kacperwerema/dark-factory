@@ -1,0 +1,39 @@
+session: retro-pager
+issue: factory/playtest-scenarios-can-generate-retros-and-a-release-branch-with-rc-tags
+title: The Retro page pages 67 generated retros, newest first
+scenario: retro-pager
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Show all pages the 67 generated retros to sort 30 at a time, Pager 67 first; Older goes to 31–60 and the last page holds 61–67
+    proves: [AC3]
+    setup:
+      - open: "/p/{project}/retros?all=1"
+    act:
+      - wait_for: retro.list.to_sort
+      # The To sort list comes first, so its range and Older link are the
+      # first on the page; Processed has its own (1–30 of 33).
+      - check: { text_contains: { target: retro.list.range, text: "1–30 of 67" } }
+      - click: retro.list.older
+      - wait_for: { visible: retro.list.newer }
+    checks:
+      - text_contains: { target: retro.list.range, text: "31–60 of 67" }
+      - http: { path: "/p/{project}/retros?all=1", contains: "Pager 67" }
+      - http: { path: "/p/{project}/retros?all=1", contains: "1–30 of 33" }
+      - http: { path: "/p/{project}/retros?all=1&to_sort_page=3", contains: "61–67 of 67" }
+      - http: { path: "/p/{project}/retros?all=1&to_sort_page=3", contains: "Pager 01" }
+    targets:
+      - { id: retro.list.to_sort, note: the To sort list }
+    do: |
+      1. Open Retro and show all.
+      2. Press Older under To sort, then Older again.
+    expect: |
+      To sort counts 67 and pages them 30 at a time, newest (Pager 67)
+      first; Processed pages its 33 on its own. Nothing was committed per
+      retro: the scenario generates them.
+    why: ux-test checks the ranges; only you can say the pager reads well at this volume.

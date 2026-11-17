@@ -9,6 +9,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -46,7 +47,7 @@ func makeAutostartProject(t *testing.T) *tracker.Project {
 	agentrun.HasSession = func(string) bool { return false }
 	agentrun.ListSessions = func() []agentrun.Session { return nil }
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
 	t.Cleanup(func() {
 		agentrun.HasSession, agentrun.ListSessions, autostart.ReadMemory, autostart.ReadLoad = origHas, origList, origMem, origLoad
 	})
@@ -100,6 +101,9 @@ func TestAutostart_OffByDefault(t *testing.T) {
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "hold: auto-start is off") || len(*started) != 0 {
 		t.Fatalf("dispatch --autostart while off: %v (exit %d), started %v", err, exitOf(err), *started)
 	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("an auto-start hold is classed %q, want %q", class, telemetry.ErrHold)
+	}
 }
 
 func TestAutostart_OnStoresWordsAndWorkersAreRefused(t *testing.T) {
@@ -143,7 +147,7 @@ func TestAutostart_NextPicksTheFirstReadyIssue(t *testing.T) {
 	if err := runAutostart(ctx, []string{"next"}); err != nil {
 		t.Fatal(err)
 	}
-	want := "start high (memory 31% < 50%, load 4.0 < 14 on 14 cores, 0/2 workers)\n  issue-cli --project proj dispatch high --autostart\n"
+	want := "start high (memory 31% < 50%, load 4.0/4.0 on 14 cores (max 14), 0/2 workers)\n  issue-cli --project proj dispatch high --autostart\n"
 	if stdout.String() != want {
 		t.Fatalf("next =\n%s\nwant\n%s", stdout.String(), want)
 	}
@@ -173,13 +177,13 @@ func TestAutostart_NextPicksTheFirstReadyIssue(t *testing.T) {
 		t.Errorf("memory: %q", got)
 	}
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 20, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 16, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 16, Avg5: 16, Cores: 14} }
 	ctx, stdout, _ = newTestContext(proj, false)
 	runAutostart(ctx, []string{"next"})
-	if got := strings.TrimSpace(stdout.String()); got != "hold: load 16.0 on 14 cores (max 14)" {
+	if got := strings.TrimSpace(stdout.String()); got != "hold: load 16.0/16.0 on 14 cores (max 14)" {
 		t.Errorf("load: %q", got)
 	}
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
 	agentrun.ListSessions = func() []agentrun.Session {
 		return []agentrun.Session{{Name: "agent-high"}, {Name: "agent-low"}, {Name: "lead-proj"}}
 	}
@@ -209,7 +213,7 @@ func TestDispatchAutostart_QuotesTheStoredWordsAndSharesTheBudget(t *testing.T) 
 	}
 	comments, _ := tracker.LoadComments(loadLeadIssue(t, proj, "high").FilePath)
 	last := comments[len(comments)-1].Text
-	for _, w := range []string{`dispatch: "` + autostartWords + `"`, "auto-start, turned on by lead-proj in the lead chat", "memory 31% < 50%, load 4.0 < 14 on 14 cores, 0/2 workers", "— recorded by lead-proj"} {
+	for _, w := range []string{`dispatch: "` + autostartWords + `"`, "auto-start, turned on by lead-proj in the lead chat", "memory 31% < 50%, load 4.0/4.0 on 14 cores (max 14), 0/2 workers", "— recorded by lead-proj"} {
 		if !strings.Contains(last, w) {
 			t.Errorf("comment %q missing %q", last, w)
 		}
@@ -223,6 +227,9 @@ func TestDispatchAutostart_QuotesTheStoredWordsAndSharesTheBudget(t *testing.T) 
 	err := runDispatch(ctx, []string{"high", "--autostart"})
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "hold: proj started high 1m ago (gap 5m)") || len(*started) != 1 {
 		t.Fatalf("second project within the gap: %v, started %v", err, *started)
+	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("the machine gap is classed %q, want %q", class, telemetry.ErrHold)
 	}
 
 	// An issue outside the next order is never auto-started.
@@ -271,7 +278,7 @@ func TestAutostart_MaxLoad(t *testing.T) {
 	}
 	ctx, stdout, _ = newTestContext(proj, false)
 	runAutostart(ctx, []string{"next"})
-	if got := strings.TrimSpace(stdout.String()); got != "hold: load 4.0 on 14 cores (max 3.5)" {
+	if got := strings.TrimSpace(stdout.String()); got != "hold: load 4.0/4.0 on 14 cores (max 3.5)" {
 		t.Errorf("next = %q", got)
 	}
 	ctx, stdout, _ = newTestContext(proj, false)
@@ -282,5 +289,166 @@ func TestAutostart_MaxLoad(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runAutostart(ctx, []string{"on", "--quote", "x", "--max-load", "-1"}); err == nil {
 		t.Error("negative --max-load accepted")
+	}
+}
+
+// Two projects on one machine: the heavier one's waiting ask holds the
+// lighter one's start with the turn's words; once it stops asking, the
+// lighter one starts.
+func TestAutostart_TurnBetweenProjects(t *testing.T) {
+	proj := makeAutostartProject(t)
+	started := stubStart(t)
+	now := time.Date(2026, 11, 15, 14, 0, 0, 0, time.Local)
+	autostartOnFor(t, proj)
+	atlas := makeAutostartProjectAt(t, "atlas")
+	atlas.StartWeight = 3
+	autostartOnFor(t, atlas)
+
+	ctx, stdout, _ := newTestContext(atlas, false)
+	ctx.Now = func() time.Time { return now }
+	if err := runAutostart(ctx, []string{"next"}); err != nil || !strings.HasPrefix(stdout.String(), "start high") {
+		t.Fatalf("atlas next: %v %q", err, stdout.String())
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time { return now.Add(time.Minute) }
+	err := runDispatch(ctx, []string{"high", "--autostart"})
+	if exitOf(err) != 1 || !strings.Contains(err.Error(), "hold: atlas' turn (weight 3; proj next in 2 starts)") || len(*started) != 0 {
+		t.Fatalf("proj during atlas' turn: %v, started %v", err, *started)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time { return now.Add(time.Minute) }
+	runAutostart(ctx, []string{"status"})
+	if !strings.Contains(stdout.String(), "share of the start gap (24h, by start_weight:): atlas ×3 0 starts · proj ×1 0 starts") {
+		t.Errorf("status lacks the share:\n%s", stdout.String())
+	}
+
+	ctx, _, _ = newTestContext(atlas, false)
+	ctx.Now = func() time.Time { return now.Add(2 * time.Minute) }
+	if err := runDispatch(ctx, []string{"high", "--autostart"}); err != nil || len(*started) != 1 {
+		t.Fatalf("atlas' start: %v, started %v", err, *started)
+	}
+	share, _ := autostart.LoadShare(autostart.SharedDir())
+	if len(share.Starts) != 1 || share.Starts[0].Project != "atlas" || share.Credit["atlas"] >= 0 {
+		t.Fatalf("share after atlas' start = %+v", share)
+	}
+
+	// atlas stops asking: 2 gaps on, proj starts.
+	ctx, _, _ = newTestContext(proj, false)
+	ctx.Now = func() time.Time { return now.Add(13 * time.Minute) }
+	if err := runDispatch(ctx, []string{"high", "--autostart"}); err != nil || len(*started) != 2 {
+		t.Fatalf("proj after atlas went quiet: %v, started %v", err, *started)
+	}
+}
+
+func TestAutostartWeightCommand(t *testing.T) {
+	proj := makeAutostartProject(t)
+	cfg := filepath.Join(proj.WorkDir, "projects.yaml")
+	orig := "projects:\n  - name: Proj\n    slug: proj\n    issues: ./issues # board\n"
+	if err := os.WriteFile(cfg, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.ConfigPath = cfg
+	for _, args := range [][]string{{"weight"}, {"weight", "0", "--quote", "x"}, {"weight", "two", "--quote", "x"}, {"weight", "3"}} {
+		ctx, _, _ := newTestContext(proj, false)
+		if err := runAutostart(ctx, args); exitOf(err) != 2 {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"weight", "3", "--quote", "this one comes first"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != orig+"    start_weight: 3\n" {
+		t.Errorf("projects.yaml =\n%s", got)
+	}
+	if !strings.Contains(stdout.String(), "✓ start_weight: 3 for proj (was 1)") || !strings.Contains(stdout.String(), `"this one comes first" (set by lead-proj)`) {
+		t.Errorf("weight = %q", stdout.String())
+	}
+
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "")
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "high")
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"weight", "5", "--quote", "x"}); err == nil || !strings.Contains(err.Error(), "workers never") {
+		t.Errorf("worker: %v", err)
+	}
+	if got, _ := os.ReadFile(cfg); string(got) != orig+"    start_weight: 3\n" {
+		t.Errorf("a worker changed projects.yaml:\n%s", got)
+	}
+}
+
+// A lead running with --project set to another project signs the record
+// with its own name: lead-dark-factory setting atlas' weight is "set by
+// lead-dark-factory", not lead-atlas (the 2026-11-15 record). Auto-start's
+// on and pause carry the same name; the target's own lead keeps its name.
+func TestAutostartRecordsNameTheCallingLeadNotTheTargets(t *testing.T) {
+	proj := makeAutostartProjectAt(t, "atlas")
+	cfg := filepath.Join(proj.WorkDir, "projects.yaml")
+	if err := os.WriteFile(cfg, []byte("projects:\n  - name: Atlas\n    slug: atlas\n    issues: ./issues\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj.ConfigPath = cfg
+	t.Setenv("ISSUE_VIEWER_PROJECT", "dark-factory")
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"weight", "3", "--quote", "atlas comes first"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := stdout.String(); !strings.Contains(out, `"atlas comes first" (set by lead-dark-factory)`) || strings.Contains(out, "lead-atlas") {
+		t.Errorf("weight from lead-dark-factory = %q", out)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"on", "--quote", "start atlas work"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := autostart.Load(yoloRoot(proj), "atlas"); st == nil || st.By != "lead-dark-factory" {
+		t.Errorf("on: state = %+v, want By lead-dark-factory", st)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"pause"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "paused by lead-dark-factory") {
+		t.Errorf("pause = %q", stdout.String())
+	}
+
+	// atlas' own lead still signs as lead-atlas.
+	t.Setenv("ISSUE_VIEWER_PROJECT", "atlas")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runAutostart(ctx, []string{"weight", "2", "--quote", "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "(set by lead-atlas)") {
+		t.Errorf("weight from lead-atlas = %q", stdout.String())
+	}
+}
+
+// A lead with no ISSUE_VIEWER_PROJECT (spawned before it was exported)
+// signs with its tmux session name; a department lead of another project
+// keeps its project's prefix.
+func TestWhoAmIKeepsTheCallersOwnLeadName(t *testing.T) {
+	proj := &tracker.Project{Slug: "atlas", Departments: []tracker.Department{{Name: "Marketing"}}}
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
+	t.Setenv("ISSUE_VIEWER_PROJECT", "")
+	orig := currentTmuxNames
+	t.Cleanup(func() { currentTmuxNames = orig })
+
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "project")
+	currentTmuxNames = func() (string, string) { return "lead-dark-factory", "" }
+	if me := whoAmI(proj, nil); me.Role != tracker.RoleProjectLead || me.Name != "lead-dark-factory" {
+		t.Errorf("tmux lead-dark-factory: %+v", me)
+	}
+	currentTmuxNames = func() (string, string) { return "", "" }
+	if me := whoAmI(proj, nil); me.Name != "lead-atlas" {
+		t.Errorf("no session name: %+v, want lead-atlas", me)
+	}
+
+	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "department:marketing")
+	t.Setenv("ISSUE_VIEWER_PROJECT", "dark-factory")
+	if me := whoAmI(proj, nil); me.Role != tracker.RoleDepartmentLead || me.Name != "lead-dark-factory-marketing" {
+		t.Errorf("department lead of dark-factory: %+v", me)
+	}
+	t.Setenv("ISSUE_VIEWER_PROJECT", "atlas")
+	if me := whoAmI(proj, nil); me.Name != "lead-atlas-marketing" {
+		t.Errorf("atlas' own department lead: %+v", me)
 	}
 }

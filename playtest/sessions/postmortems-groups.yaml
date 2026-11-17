@@ -1,0 +1,49 @@
+session: postmortems-groups
+issue: workflow/post-mortem-review-keeps-up-identical-actions-across-post-mortems-are-one-row-with-one-owner-answer-and-actions-already-fixed-on-main-need-none
+title: Copies of one action are one row with one answer, and a fixed action needs none
+scenario: postmortems-fixed
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP1
+    title: The three workflow copies are one row naming their three post-mortems, every copy ticked
+    proves: [AC1]
+    setup:
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.count, text: "5" }
+      - text_contains: { target: postmortems.group.workflow-0.count, text: "3 say the same" }
+      - text_contains: { target: postmortems.group.workflow-0.from, text: "ui/cart, ui/till, ui/shelf" }
+      - text_contains: { target: postmortems.agree.workflow-0, text: "Agree 3" }
+      - text_contains: { target: postmortems.rows, text: "3 answers cover all 5" }
+
+  - id: TP2
+    title: An action whose linked issue is done shows as fixed and is not a row to answer
+    proves: [AC3]
+    setup:
+      - open: /p/{project}/postmortems
+    checks:
+      - text_contains: { target: postmortems.fixed.count, text: "1 need no answer" }
+      - text_contains: { target: postmortems.fixed.link, text: "fixed already 1" }
+      - absent: [postmortems.row.ui/till.a1]
+
+  - id: TP3
+    title: One Agree on the group takes a second click and ticks every copy with the owner's words
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/postmortems
+    act:
+      - type: { target: postmortems.note.workflow-0, text: "one gate for all" }
+      - click: postmortems.agree.workflow-0
+      - check: { text_contains: { target: postmortems.agree.workflow-0, text: "Confirm: agree 3" } }
+      - click: postmortems.agree.workflow-0
+      - wait_for: { absent: postmortems.place.workflow, ms: 8000 }
+    checks:
+      - text_contains: { target: postmortems.count, text: "2" }
+      - issue: { slug: ui/cart, comment_contains: "A2 agreed on the actions page" }
+      - issue: { slug: ui/till, comment_contains: "A2 agreed on the actions page" }
+      - issue: { slug: ui/shelf, comment_contains: "A2 agreed on the actions page" }

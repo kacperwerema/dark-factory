@@ -106,6 +106,23 @@ func Queue(dir string) []Item {
 	return out
 }
 
+// WaitingOf is WaitingIn over items (Queue's, perhaps with the fixed ones
+// taken out): one Waiting per post-mortem, in items' order.
+func WaitingOf(items []Item) []Waiting {
+	var out []Waiting
+	at := map[string]int{}
+	for _, it := range items {
+		i, ok := at[it.Path]
+		if !ok {
+			i = len(out)
+			at[it.Path] = i
+			out = append(out, Waiting{Issue: it.Issue, Title: it.IssueTitle, File: it.Path, Since: it.Since})
+		}
+		out[i].Pending++
+	}
+	return out
+}
+
 // retroFile is one post-mortem file read from disk.
 type retroFile struct {
 	path, body string
@@ -141,6 +158,26 @@ func newestFiles(dir string) []retroFile {
 		}
 		seen[meta["Issue"]] = true
 		out = append(out, retroFile{path: path, body: body, meta: meta})
+	}
+	return out
+}
+
+// Record is one issue's newest post-mortem as read from disk.
+type Record struct {
+	Issue, Title, Path string
+	// Date is the post-mortem's Date: line; zero when it doesn't parse.
+	Date    time.Time
+	Actions []Action
+}
+
+// Newest is the newest post-mortem of each issue under dir, archive/
+// included, newest first: the files WaitingIn and Queue read
+// (*-postmortem-*.md only), with every action, decided or not.
+func Newest(dir string) []Record {
+	var out []Record
+	for _, f := range newestFiles(dir) {
+		w := f.waiting(0)
+		out = append(out, Record{Issue: w.Issue, Title: w.Title, Path: f.path, Date: w.Since, Actions: Actions(f.body)})
 	}
 	return out
 }

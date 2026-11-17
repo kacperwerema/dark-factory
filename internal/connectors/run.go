@@ -17,6 +17,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/jsonfile"
 	"github.com/kacperwerema/dark-factory/internal/memguard"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
@@ -302,6 +303,7 @@ func Hold(ctx context.Context, p *tracker.Project, dept string, c *tracker.Conne
 		return nil, fmt.Errorf("connector %s did not start (%s); its stop: ran", addr, why)
 	}
 	_ = AppendRun(p, RunRecord{Connector: addr, Date: now().UTC(), Event: RunStarted, MS: time.Since(began).Milliseconds()})
+	restrace.Start(restrace.PerRunKind(c.PerRun.Start), 0, addr, c.PerRun.Start)
 	return l, nil
 }
 
@@ -351,6 +353,7 @@ func stopTool(p *tracker.Project, addr string, c *tracker.Connector, dir string,
 	if record {
 		_ = AppendRun(p, RunRecord{Connector: addr, Date: now().UTC(), Event: RunStopped, MS: time.Since(began).Milliseconds()})
 	}
+	restrace.Stop(restrace.PerRunKind(c.PerRun.Start), 0, addr)
 	return writeState(dir, runState{})
 }
 

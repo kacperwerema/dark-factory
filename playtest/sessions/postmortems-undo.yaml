@@ -16,10 +16,10 @@ steps:
     act:
       - click: postmortems.refuse.workflow-0
       - click: postmortems.refuse.workflow-0
-      - wait_for: { visible: postmortems.row.ui/till.a2.msg, ms: 8000 }
+      - wait_for: { visible: postmortems.marked, ms: 8000 }
       - open: /p/{project}/postmortems
     checks:
-      - text_contains: { target: postmortems.count, text: "4" }
+      - text_contains: { target: postmortems.count, text: "3" }
       - visible: [postmortems.marked, postmortems.marked.row.ui/till.a2, postmortems.marked.row.ui/shelf.a2]
       - text_contains: { target: postmortems.marked.row.ui/till.a2.mark, text: "Refused: " }
       - text_contains: { target: postmortems.undo, text: "Undo 0" }
@@ -32,7 +32,7 @@ steps:
     act:
       - click: postmortems.refuse.workflow-0
       - click: postmortems.refuse.workflow-0
-      - wait_for: { visible: postmortems.row.ui/till.a2.msg, ms: 8000 }
+      - wait_for: { visible: postmortems.marked, ms: 8000 }
       - open: /p/{project}/postmortems
       - click: postmortems.marked.row.ui/till.a2.tick
       - check: { text_contains: { target: postmortems.undo, text: "Undo 1" } }
@@ -42,7 +42,8 @@ steps:
       - wait_for: { visible: postmortems.marked.row.ui/till.a2.msg, ms: 8000 }
       - open: /p/{project}/postmortems
     checks:
-      - text_contains: { target: postmortems.count, text: "5" }
-      - visible: [postmortems.row.ui/till.a2, postmortems.marked.row.ui/shelf.a2]
+      - text_contains: { target: postmortems.count, text: "4" }
+      - text_contains: { target: postmortems.group.workflow-0, text: "1 alone" }
+      - visible: [postmortems.marked.row.ui/shelf.a2]
       - absent: [postmortems.marked.row.ui/till.a2]
       - issue: { slug: ui/till, comment_contains: "A2 reopened on the actions page" }

@@ -1,6 +1,7 @@
 package briefing
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ func TestBuildDispatchPrompt(t *testing.T) {
 	if dp.Session != "work:agent-api-fix" || dp.Slug != "api/fix" || dp.Status != "in progress" {
 		t.Fatalf("got %+v", dp)
 	}
-	if !strings.HasPrefix(dp.Prompt, tracker.BuildAgentPrompt(proj, issue, wf, dp.Worktree, dp.Branch)) {
+	if !strings.HasPrefix(dp.Prompt, tracker.ShortenOwnSlug(tracker.BuildAgentPrompt(proj, issue, wf, dp.Worktree, dp.Branch), issue.Slug)) {
 		t.Fatal("Prompt does not start with BuildAgentPrompt for the resolved worktree")
 	}
 	if dp.Lead != "lead-proj" || !strings.Contains(dp.Prompt, "## Your lead\n\nYou report to the project lead lead-proj (not running).") {
@@ -35,12 +36,12 @@ func TestBuildDispatchPrompt(t *testing.T) {
 		t.Fatalf("prompt missing --project injection or worktree section")
 	}
 	// One task, then stop: the worker never picks the next issue.
-	if !strings.Contains(dp.Prompt, "This issue is your one task. When it reaches its last status, or a gate that waits on the human, stop there: do not run issue-cli --project proj next, do not start, claim or move another issue, and do not start other agents.") {
+	if !strings.Contains(dp.Prompt, "This issue is your one task: at its last status, or a gate that waits on the human, stop. Don't run next, start, claim or move another issue, or start other agents.") {
 		t.Fatalf("prompt missing the one-task rule: %q", dp.Prompt)
 	}
 	// The one exception: closing duplicates of its own issue, said as issue-cli close says it.
-	if !strings.Contains(dp.Prompt, tracker.CloseRule+"\n  issue-cli --project proj close <duplicate> --duplicate-of api/fix") ||
-		!strings.Contains(dp.Prompt, "unless your lead asks you to file a child issue of yours") {
+	if !strings.Contains(dp.Prompt, tracker.CloseRule+" (issue-cli --project proj close <dup> --duplicate-of \"$ISSUE_VIEWER_ISSUE_SLUG\")") ||
+		!strings.Contains(dp.Prompt, "except a child issue your lead asks for") {
 		t.Fatalf("prompt missing the close rule: %q", dp.Prompt)
 	}
 
@@ -126,5 +127,44 @@ func TestBuildDispatchPrompt_BriefIssuePathsAbsolute(t *testing.T) {
 	abs := filepath.Join(proj.IssueDir, "Factory", "a.md")
 	if got := tracker.AbsIssuePaths(proj, "see "+abs); got != "see "+abs {
 		t.Errorf("absolute path rewritten: %q", got)
+	}
+}
+
+// A project without worktree: true gets no worktree from dispatch, so its
+// briefing names issue-cli worktree add, which makes the branch and folder
+// prove and check-script look for and runs the project's setup (workers
+// there made their own by hand, under other names and with no node_modules). A
+// worktree: true project and a folder outside git get no such section.
+func TestBriefingNamesWorktreeAdd(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	proj := &tracker.Project{Slug: "proj", WorkDir: root}
+	issue := &tracker.Issue{Slug: "api/fix", Title: "Fix", Status: "in progress", BodyRaw: "Body text."}
+
+	prompt := BuildDispatchPrompt(proj, issue, &tracker.WorkflowConfig{}, root, nil).Prompt
+	for _, want := range []string{
+		"## Branch",
+		"issue-cli --project proj worktree add api/fix",
+		"it makes .worktrees/api/fix on work/api/fix from main, runs the project's worktree_setup",
+		"prove, check-script and the commit-message hint look for work/api/fix first",
+		"issue-cli --project proj set-meta api/fix --key branch --value <your-branch>",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "git worktree add") {
+		t.Errorf("the Branch section still names the raw git worktree add (no setup):\n%s", prompt)
+	}
+
+	enabled := true
+	if p := BuildDispatchPrompt(proj, issue, &tracker.WorkflowConfig{Worktree: &enabled}, root, nil).Prompt; strings.Contains(p, "## Branch") {
+		t.Errorf("worktree: true briefing has a ## Branch section:\n%s", p)
+	}
+	outside := &tracker.Project{Slug: "proj", WorkDir: t.TempDir()}
+	if p := BuildDispatchPrompt(outside, issue, &tracker.WorkflowConfig{}, outside.WorkDir, nil).Prompt; strings.Contains(p, "## Branch") {
+		t.Errorf("a folder outside git got a ## Branch section:\n%s", p)
 	}
 }

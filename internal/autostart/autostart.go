@@ -41,8 +41,8 @@ type State struct {
 	Below       int       `json:"below"`
 	MaxWorkers  int       `json:"max_workers"`
 	GapMinutes  int       `json:"gap_minutes"`
-	// MaxLoad is the 1-minute load average a start must be under; 0 is
-	// the machine's core count.
+	// MaxLoad is the load limit: a start holds while both the 1- and the
+	// 5-minute average are at or over it; 0 is the machine's core count.
 	MaxLoad float64 `json:"max_load,omitempty"`
 	// Ended / EndReason are set when the window closed.
 	Ended     time.Time `json:"ended,omitempty"`

@@ -341,7 +341,18 @@ func TestYOLOHeaderLine(t *testing.T) {
 		t.Fatal("YOLO line while off")
 	}
 	yoloOn(t, proj, now, time.Hour)
+	// No status runs guided checks: the line doesn't send the worker to them.
+	if out := show(); !strings.Contains(out, "YOLO: on until ") || strings.Contains(out, "check-script") {
+		t.Fatalf("show lacks the YOLO line, or names check-script on a workflow without them:\n%s", out)
+	}
+	wf := strings.Replace(yoloTestWorkflow, `  - name: "human-testing"
+`, `  - name: "human-testing"
+    prompt: "The owner runs issue-cli check-script <slug>."
+`, 1)
+	if err := os.WriteFile(proj.WorkflowFile, []byte(wf), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if out := show(); !strings.Contains(out, "YOLO: on until ") || !strings.Contains(out, "issue-cli --project proj check-script <slug> --yes") {
-		t.Fatalf("show lacks the YOLO line:\n%s", out)
+		t.Fatalf("show lacks the YOLO line's guided checks:\n%s", out)
 	}
 }

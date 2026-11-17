@@ -15,3 +15,8 @@ One-off helpers, not part of the binaries.
   Run by `go generate ./cmd/issue-cli/...`.
 - `doc-numbers/` — writes docs/numbers.md from the constants (internal/docnumbers).
   Run by `go generate ./internal/docnumbers/...`.
+- `test-shards/` — make test's runner: splits each named package's tests
+  into N go test processes by recorded time (internal/testshard) beside one
+  go test for the rest, and keeps a package's plan while its tests stay the
+  same. `go run ./tools/test-shards -shard ./cmd/issue-cli=3 -shard ./internal/viewer=3 -- ./... -count=1`
+  ([docs/code-structure.md](../docs/code-structure.md)).

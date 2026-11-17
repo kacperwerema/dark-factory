@@ -61,5 +61,9 @@ func init() {
 		"stats.decisions.*",
 		"stats.decisions.scopes",
 		"stats.decisions.scope.*",
+		// The Spec flow section (stats_specflow.go); its cards are
+		// stats.table_card.specflow-*.
+		"stats.specflow",
+		"stats.specflow.err",
 	)
 }

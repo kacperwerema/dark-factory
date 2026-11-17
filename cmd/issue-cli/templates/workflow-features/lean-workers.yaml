@@ -1,0 +1,34 @@
+id: lean-workers
+version: v0.63.0
+category: dispatch
+propose: true
+sources: ["internal/tracker/workers_config.go", "internal/agentrun/worker_setup.go", "internal/connectors/owner.go", "internal/lint/workers.go"]
+title: "Workers start with only the MCP servers, plugins, skills and tools their issue needs"
+what: |
+  An issue's Claude Code worker starts with `--strict-mcp-config`: its department's
+  connectors plus the servers `workers: mcp:` names for its system, type or label,
+  copied from your own Claude Code config. Every plugin and skill you have on (personal,
+  project, bundled with Claude Code, or synced from claude.ai as anthropic-skills:<name>)
+  is turned off for that session (`--settings` with `enabledPlugins`, `skillOverrides`
+  and `disableBundledSkills`) unless `workers: plugins:` or `skills:` keeps it for the
+  issue's system, type or label; the Artifact tool is off unless `tools:` keeps it, and
+  claude.ai connectors are off. Your own Claude Code files are never changed. Leads and codex
+  workers keep your whole setup; `setup: full` keeps it for workers too.
+why: |
+  Every tool name, server instruction and skill description sits in a worker's first
+  turn and is read again on every turn; a worker that never opens a browser pays for
+  two browser servers all the same.
+where: "workers: at the top level of the workflow file (a department's own file sets its own workers)"
+question: "Which of your MCP servers, plugins, skills or tools do this project's workers need, and for which systems or types?"
+snippet: |
+  workers:
+    mcp:
+      - {server: chrome-devtools, systems: [UI], labels: [ui]}
+    # plugins: [frontend-design@claude-plugins-official]
+    # skills:
+    #   - stageshow
+    #   - {skill: "anthropic-skills:pdf", types: [report]}
+    # tools: [Artifact]
+    # setup: full            # the owner's whole setup, as before
+detect:
+  - path: workers

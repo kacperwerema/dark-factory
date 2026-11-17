@@ -1,0 +1,42 @@
+session: floor-new-department
+issue: ui/new-department-on-the-company-floor-opens-adding-a-department
+title: New department on the floor (and the phone list) opens adding a department
+scenario: new-department
+
+session_checks:
+  viewports: [1440x900]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP3
+    title: The floor's New department plot opens the template picker; Preview shows the plan
+    proves: [AC1, AC3]
+    setup:
+      - open: /p/acme/company
+    act:
+      - click: tile.new_department
+      - wait_for: { visible: dept_new.page }
+    checks:
+      - url: { matches: "^/p/acme/departments/new$" }
+      - visible: dept_new.pick
+      - visible: company.new_dept.form
+      - visible: company.new_dept.template.marketing
+    targets: [dept_new.pick, company.new_dept.form]
+
+  - id: TP4
+    title: Picking Marketing and pressing Preview shows its plan, then Add puts the room on the floor
+    from: TP3
+    proves: [AC1, AC3]
+    act:
+      - click: company.new_dept.template.marketing
+      - click: company.new_dept.preview
+      - wait_for: { visible: dept_new.plan }
+      - check: { url: { matches: "^/p/acme/departments/new\\?template=marketing$" } }
+      - check: { text_contains: { target: dept_new.add, text: "Add Marketing" } }
+      - click: dept_new.add
+      - wait_for: { visible: company.added }
+    checks:
+      - text_contains: { target: company.added, text: "Added Marketing:" }
+      - text_contains: { target: floor.tile.dept, text: "Marketing" }
+    targets: [company.added, floor.tile.dept]

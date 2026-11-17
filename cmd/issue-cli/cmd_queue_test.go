@@ -127,7 +127,7 @@ func TestQueueNextStart_QuoteRuleAndMarks(t *testing.T) {
 
 	// low has no owner's words and auto-start is off: high starts.
 	out := mustQ(t, proj, "next")
-	assertContains(t, out, "start high (item 2; memory 31% < 50%, load 4.0 < 14 on 14 cores, 0 workers, no worker cap)")
+	assertContains(t, out, "start high (item 2; memory 31% < 50%, load 4.0/4.0 on 14 cores (max 14), 0 workers, no worker cap)")
 	assertContains(t, out, "1. low: no owner's words")
 	out = mustQ(t, proj, "next", "--start")
 	if len(*started) != 1 || (*started)[0] != "high" {
@@ -223,8 +223,8 @@ func TestQueueNextStart_MachineChecks(t *testing.T) {
 		{"no mem-guard", func() { autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{} } }, "mem-guard not found"},
 		{"CPU load", func() {
 			autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
-			autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 15, Cores: 14} }
-		}, "load 15.0 on 14 cores (max 14)"},
+			autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 15, Avg5: 15, Cores: 14} }
+		}, "load 15.0/15.0 on 14 cores (max 14)"},
 	}
 	for _, c := range cases {
 		c.setup()
@@ -233,7 +233,12 @@ func TestQueueNextStart_MachineChecks(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
+
+	// One make validate pushes the 1-minute average over the cores for a
+	// minute or two; with the 5-minute one under, the load doesn't hold.
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 16.5, Avg5: 9.2, Cores: 14} }
+	assertContains(t, mustQ(t, proj, "next"), "start high (item 1; memory 31% < 50%, load 16.5/9.2 on 14 cores (max 14)")
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
 
 	// The queue's own limits: a cap of 1 with one live worker holds.
 	mustQ(t, proj, "limits", "--below", "40", "--max-workers", "1")
@@ -342,10 +347,10 @@ func TestQueue_ShipSHAFallsBackToMain(t *testing.T) {
 	queueGit(t, root, "add", "a.txt")
 	queueGit(t, root, "commit", "-q", "-m", "base")
 	head := queueGit(t, root, "rev-parse", "HEAD")
-	if got, _ := queueShipSHA(root, "no/branch", ""); got != head {
+	if got, _ := queueShipSHA(root, "no/branch", "", ""); got != head {
 		t.Fatalf("no work branch: %q, want main %q", got, head)
 	}
-	if got, _ := queueShipSHA(t.TempDir(), "x", ""); got != "" {
+	if got, _ := queueShipSHA(t.TempDir(), "x", "", ""); got != "" {
 		t.Fatalf("not a repo: %q", got)
 	}
 }
@@ -360,7 +365,7 @@ func TestQueueLine_InWhoami(t *testing.T) {
 	if err := runLeadWhoami(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, stdout.String(), "Queue: 1 active, next high. At each check-in: issue-cli --project proj queue next --start")
+	assertContains(t, stdout.String(), "Queue: 1 active, next high. At each check-in: issue-cli --project proj lead tick (it runs queue next --start)")
 }
 
 // queueShipRepo is a repo on main with work/<slug> one commit ahead.
@@ -390,7 +395,7 @@ func TestQueueShipSHANotOnMain(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "")
 	root := filepath.Dir(proj.IssueDir)
 	base, _ := queueShipRepo(t, root, "main", "cli/sample")
-	if sha, note := queueShipSHA(root, "cli/sample", ""); sha != "" || note != queue.NotOnMain {
+	if sha, note := queueShipSHA(root, "cli/sample", "", ""); sha != "" || note != queue.NotOnMain {
 		t.Fatalf("queueShipSHA = %q, %q; want no sha and %q (main is %s)", sha, note, queue.NotOnMain, base)
 	}
 
@@ -414,12 +419,12 @@ func TestQueueShipSHAUsesTheProjectsMainBranch(t *testing.T) {
 	queueGit(t, root, "checkout", "-q", "-b", "develop")
 	queueGit(t, root, "merge", "-q", "--ff-only", "work/cli/sample")
 	queueGit(t, root, "checkout", "-q", "trunk")
-	if sha, note := queueShipSHA(root, "cli/sample", "develop"); sha != tip || note != "" {
+	if sha, note := queueShipSHA(root, "cli/sample", "develop", ""); sha != tip || note != "" {
 		t.Fatalf("merged into ci.branch develop: %q, %q; want the tip %s", sha, note, tip)
 	}
-	// Without ci.branch the main checkout's branch (trunk) decides: the
-	// work isn't on it, whatever main holds.
-	if sha, note := queueShipSHA(root, "cli/sample", ""); sha != "" || note != queue.NotOnMain {
+	// Without ci.branch main decides (gitmain.PickBranch: origin's HEAD,
+	// main, master, then the checkout's branch): the work isn't on it.
+	if sha, note := queueShipSHA(root, "cli/sample", "", ""); sha != "" || note != queue.NotOnMain {
 		t.Fatalf("not on trunk: %q, %q", sha, note)
 	}
 }
@@ -530,5 +535,94 @@ func TestQueueDoneKeepsAStoredSHA(t *testing.T) {
 	q, _ := queue.Load(proj.IssueDir)
 	if it := q.Find("1"); it.DoneSHA != "abc1234def" {
 		t.Fatalf("item = %+v, want the stored sha kept", it)
+	}
+}
+
+// queueMergedProject is the autostart project with a shipping status, base
+// in shipping and work/base one commit ahead of main.
+func queueMergedProject(t *testing.T) (proj *tracker.Project, root, base, tip string) {
+	t.Helper()
+	proj = makeAutostartProject(t)
+	root = filepath.Dir(proj.IssueDir)
+	os.WriteFile(proj.WorkflowFile, []byte("statuses:\n  - name: \"backlog\"\n  - name: \"in progress\"\n  - name: \"shipping\"\n  - name: \"done\"\n"), 0o644)
+	issue := loadLeadIssue(t, proj, "base")
+	data, _ := os.ReadFile(issue.FilePath)
+	os.WriteFile(issue.FilePath, []byte(strings.Replace(string(data), `status: "in progress"`, `status: "shipping"`, 1)), 0o644)
+	base, tip = queueShipRepo(t, root, "main", "base")
+	return proj, root, base, tip
+}
+
+// A --merged blocker in shipping holds the item while its branch is ahead
+// of main and lets it start once main has it; a plain blocker still waits
+// for the last status and points at --merged.
+func TestQueueMergedBlocker(t *testing.T) {
+	proj, root, _, tip := queueMergedProject(t)
+	started := stubStart(t)
+	out := mustQ(t, proj, "add", "high", "--quote", queueWords, "--blocked-on", "base", "--merged")
+	assertContains(t, out, "✓ Queued item 1: high")
+	mustQ(t, proj, "add", "low", "--quote", queueWords, "--blocked-on", "base")
+
+	out = mustQ(t, proj, "list")
+	assertContains(t, out, "1. [ ] high · waits for base on main")
+	assertContains(t, out, "2. [ ] low · blocked on base\n")
+	if _, err := runQ(t, proj, "next", "--start"); err == nil || len(*started) != 0 {
+		t.Fatalf("unmerged blocker started %v: %v", *started, err)
+	}
+
+	queueGit(t, root, "merge", "-q", "--ff-only", "work/base")
+	out = mustQ(t, proj, "list")
+	assertContains(t, out, "1. [ ] high · cleared: base on main at "+tip[:7]+" · ready")
+	assertContains(t, out, "2. [ ] low · blocked on base (its work is on main at "+tip[:7]+": issue-cli --project proj queue block 2 --on base --merged to start on that)")
+	mustQ(t, proj, "next", "--start")
+	if len(*started) != 1 || (*started)[0] != "high" {
+		t.Fatalf("started = %v, want high", *started)
+	}
+
+	// The branch takes a docs commit after its merge: the recorded head
+	// keeps the blocker cleared.
+	issue := loadLeadIssue(t, proj, "base")
+	if err := tracker.AppendTransitionStat(issue.FilePath, tracker.TransitionStat{From: "in progress", To: "shipping", TS: time.Now(), BranchHead: tip}); err != nil {
+		t.Fatal(err)
+	}
+	queueGit(t, root, "checkout", "-q", "work/base")
+	os.WriteFile(filepath.Join(root, "d.txt"), []byte("d"), 0o644)
+	queueGit(t, root, "add", "d.txt")
+	queueGit(t, root, "commit", "-q", "-m", "docs: later")
+	queueGit(t, root, "checkout", "-q", "main")
+	mustQ(t, proj, "block", "2", "--on", "base", "--merged")
+	out = mustQ(t, proj, "list")
+	assertContains(t, out, "2. [ ] low · cleared: base on main at "+tip[:7])
+
+	// Blocking again without --merged waits for the last status again.
+	mustQ(t, proj, "block", "2", "--on", "base")
+	out = mustQ(t, proj, "list")
+	assertContains(t, out, "2. [ ] low · blocked on base (its work is on main")
+	q, _ := queue.Load(proj.IssueDir)
+	if it := q.Find("2"); len(it.BlockedOnMerged) != 0 || len(it.BlockedOn) != 1 {
+		t.Fatalf("item 2 = %+v", it)
+	}
+}
+
+// A work branch cut with no commits of its own is on main trivially: it
+// must not clear a --merged blocker. The recorded merge sha clears it.
+func TestQueueMergedBlockerNeedsWorkOfItsOwn(t *testing.T) {
+	proj, root, base, _ := queueMergedProject(t)
+	queueGit(t, root, "branch", "-f", "work/base", "main")
+	issue := loadLeadIssue(t, proj, "base")
+	if err := tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: "s", BaseBranch: "main", BaseSHA: base}); err != nil {
+		t.Fatal(err)
+	}
+	mustQ(t, proj, "add", "high", "--quote", queueWords, "--blocked-on", "base", "--merged")
+	out := mustQ(t, proj, "list")
+	assertContains(t, out, "1. [ ] high · waits for base on main")
+
+	if err := tracker.AppendTransitionStat(issue.FilePath, tracker.TransitionStat{From: "shipping", To: "done", TS: time.Now(), MergeSHA: "abcdef1234567890"}); err != nil {
+		t.Fatal(err)
+	}
+	out = mustQ(t, proj, "list")
+	assertContains(t, out, "1. [ ] high · cleared: base on main at abcdef1")
+
+	if _, err := runQ(t, proj, "add", "low", "--merged"); exitOf(err) != 2 {
+		t.Fatalf("--merged without --blocked-on: %v", err)
 	}
 }

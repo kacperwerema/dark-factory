@@ -14,6 +14,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -134,6 +135,9 @@ func runCIStatus(ctx *Context, args []string) error {
 		if alive {
 			out["running"] = lock
 		}
+		if s := ci.SlowestStepLine(runs); s != "" {
+			out["slowest_step"] = s
+		}
 		return writeJSON(ctx.Stdout, out)
 	}
 	fmt.Fprintln(ctx.Stdout, line)
@@ -146,6 +150,9 @@ func runCIStatus(ctx *Context, args []string) error {
 		if _, ok := st.Tier(*tierFlag); !ok {
 			fmt.Fprintf(ctx.Stdout, "tier %s: no run yet — issue-cli ci run --tier %s\n", *tierFlag, *tierFlag)
 		}
+	}
+	if s := ci.SlowestStepLine(runs); s != "" {
+		fmt.Fprintln(ctx.Stdout, s)
 	}
 	if st.IsRed() {
 		if len(st.Merged) > 0 {
@@ -418,6 +425,7 @@ func startBackgroundCI(root string, argv []string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
+	restrace.Start(restrace.KindChild, cmd.Process.Pid, "", "ci runner (detached)")
 	_ = cmd.Process.Release()
 	return "the background (no tmux), log " + logPath, nil
 }

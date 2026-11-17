@@ -1,0 +1,24 @@
+session: context-floor
+issue: cli/spend-context-shows-each-sessions-context-floor-and-per-turn-size-and-stats-tracks-the-floor
+title: Context floor trend on Stats - the worker floor per day, desktop and phone
+scenario: context-floor
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The Context floor trend draws the floor and turn medians per day and fits at desktop and 390px
+    proves: [AC2]
+    setup:
+      - open: /p/{project}/stats?range=all
+    act:
+      - wait_for: stats.chart.context
+    checks:
+      - visible: stats.chart.context
+      - text_contains: { target: stats.chart.context, text: "Context floor" }
+      - text_contains: { target: stats.chart.context, text: "floor p50" }
+      - text_contains: { target: stats.chart.context, text: "issue-cli spend --context" }
+    targets: [stats.chart.context]

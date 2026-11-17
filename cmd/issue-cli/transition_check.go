@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -16,10 +17,19 @@ type exitCodeError struct {
 	Code int
 	Msg  string
 	// Hold marks a refusal that is the expected answer, not a failure:
-	// queue next --start found nothing to start or a hold stopped it. The
+	// queue next --start found nothing to start, or a hold stopped it,
+	// dispatch --autostart or job run (not due, waiting for the owner). The
 	// exit code stays (the lead's tick reads it); telemetry classes it
 	// ErrHold instead of ErrValidation.
 	Hold bool
+	// Clears marks a hold that goes away by itself (the machine, the gap,
+	// the worker cap, another project's turn, a resting subscription, a
+	// start in progress elsewhere): the lead's watch says nothing of it.
+	Clears bool
+	// HoldKind is which rule held it (autostart's kinds), for code that
+	// acts on a hold: the lead tick frees sessions on a memory one. ""
+	// when the hold isn't the machine's or the budget's.
+	HoldKind autostart.HoldKind
 }
 
 func (e *exitCodeError) Error() string { return e.Msg }
@@ -96,6 +106,8 @@ type transitionProblem struct {
 	Requirement string   `json:"requirement"`
 	Message     string   `json:"message,omitempty"`
 	Fix         []string `json:"fix,omitempty"`
+	// boxes are the open box ids a checkbox gate waits on (oneCallLine).
+	boxes []string
 }
 
 // collectTransitionProblems evaluates every requirement of from → to against
@@ -150,6 +162,7 @@ func collectTransitionProblems(ctx *Context, wf *tracker.WorkflowConfig, issue *
 				// A hint: is the fix, in the message already.
 				p.Fix = checkboxFixes(slug, issue.BodyRaw, step.Action.Rule)
 			}
+			p.boxes = openCheckboxIDs(issue.BodyRaw, step.Action.Rule)
 			p.Requirement += proofRunHint(ctx, slug, step.Action.Rule, step.Message)
 		}
 		problems = append(problems, p)

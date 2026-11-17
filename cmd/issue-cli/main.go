@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/clilog"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 
@@ -111,6 +112,7 @@ func (l *callLog) write(inv *invocation, runErr error, panicked bool) {
 	}
 	if inv != nil && inv.ctx != nil {
 		rec.Sandbox, rec.SandboxRefused = inv.ctx.sandboxPassed, inv.ctx.sandboxRefused
+		rec.Red = inv.ctx.red
 	}
 
 	// A read-only call on a project the caller isn't working in leaves no
@@ -157,6 +159,9 @@ func resolveAgentClilog(args []string) string {
 	slug := stripped[1]
 	if strings.HasPrefix(slug, "-") {
 		return ""
+	}
+	if c := lookupCommand(stripped[0]); c != nil && slices.Contains(c.Subcommands, slug) {
+		return "" // queue next, lead tick: a subcommand, not an issue (and no walk of every issue file)
 	}
 	configPath := findConfig(extractCLIFlag(args, "--config")).Path
 	if configPath == "" {
@@ -364,7 +369,7 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	configFlag := global.String("config", "", "path to projects.yaml")
 	projectSlug := global.String("project", "", "select project (default: first in config)")
 	jsonOut := global.Bool("json", false, "output as JSON")
-	debug := global.Bool("debug", false, "print which config was used and why (stderr)")
+	debug := global.Bool("debug", false, "print which config was used and why (stderr), and trace outside resources (DF_TRACE=resources)")
 
 	rest, err := splitGlobalAndCommand(args)
 	if err != nil {
@@ -375,6 +380,12 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	if err := global.Parse(rest.global); err != nil {
 		inv.phase = phaseSplit
 		return err
+	}
+	restrace.SetOwner("issue-cli " + rest.command)
+	if *debug {
+		// --debug also traces outside resources (internal/restrace), here
+		// and in every child, as DF_TRACE=resources does.
+		restrace.SetDebug(true)
 	}
 	cfgSrc := findConfig(*configFlag)
 	configPath := &cfgSrc.Path
@@ -424,7 +435,7 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	// always surface the error — the project-agnostic bypass is only for
 	// discovery without --project.
 	inv.cmd = cmd
-	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "project" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "bench" && len(rest.args) > 0 && rest.args[0] == "fixture") || (rest.command == "check-script" && checkScriptLibOnly(rest.args))
+	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "project" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || rest.command == "doctor" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "bench" && len(rest.args) > 0 && (rest.args[0] == "fixture" || rest.args[0] == "smoke")) || (rest.command == "check-script" && checkScriptLibOnly(rest.args))
 	if errors.Is(projErr, errNoConfig) {
 		projErr = cfgSrc.notFound()
 	}
@@ -455,6 +466,8 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	printSiblingAsks(ctx, rest.command)
 	// A lead sees each new decision challenge once (cmd_decision.go).
 	printLeadChallenges(ctx, rest.command)
+	// A lead whose background tick is gone hears so (lead_tick_missing.go).
+	printLeadTickMissing(ctx, rest.command, rest.args)
 	if errors.Is(err, flag.ErrHelp) {
 		// FlagSet already wrote usage to ctx.Stderr; suppress the duplicate
 		// error message in main()'s error path.

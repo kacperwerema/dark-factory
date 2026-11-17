@@ -200,7 +200,7 @@ func TestShippingGuidanceNamesTheMainCheckoutBranch(t *testing.T) {
 	}
 	for _, want := range []string{
 		"== Shipping ==\nMain checkout: " + root + " on main\n",
-		"Ships into main: fast-forward it in the main checkout.",
+		"Ships into main: fast-forward it in the main checkout (issue-cli ship merges, checks and fast-forwards).",
 		"Ships after beta (in progress)\n⚠ beta is not done: fast-forward only after it ships, or ask the lead.",
 	} {
 		assertContains(t, out.String(), want)

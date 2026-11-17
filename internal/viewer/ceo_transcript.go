@@ -248,6 +248,7 @@ func (t CEOTranscript) clone() CEOTranscript {
 	turns := make([]CEOTurn, len(t.Turns))
 	for i, turn := range t.Turns {
 		turn.Text = append([]string(nil), turn.Text...)
+		turn.Blocked = append([]CEOBlocked(nil), turn.Blocked...)
 		if len(turn.Asks) > 0 {
 			asks := make([]*CEOQuestion, len(turn.Asks))
 			for j, q := range turn.Asks {
@@ -286,6 +287,16 @@ type transcriptBlock struct {
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
 	ToolUseID string          `json:"tool_use_id"`
+	// Content and IsError are a tool_result's: a refused call's result
+	// says who refused it and why (blockedOf).
+	Content json.RawMessage `json:"content"`
+	IsError bool            `json:"is_error"`
+}
+
+// transcriptCall is where a tool call sits, for its result to find it.
+type transcriptCall struct {
+	turn          int
+	tool, command string
 }
 
 // parseTranscript reads transcript lines into turns, keeping the last
@@ -293,6 +304,7 @@ type transcriptBlock struct {
 func parseTranscript(r io.Reader, cut bool, maxTurns int) CEOTranscript {
 	out := CEOTranscript{Turns: []CEOTurn{}, Older: cut}
 	asks := map[string]*CEOQuestion{}
+	calls := map[string]transcriptCall{}
 	// lastMsg is the message id of the CEO's newest bubble, so blocks of
 	// one message (written as one record each) join one bubble.
 	lastMsg := ""
@@ -323,6 +335,12 @@ func parseTranscript(r io.Reader, cut bool, maxTurns int) CEOTranscript {
 					if q := asks[b.ToolUseID]; q != nil {
 						q.Answered = true
 						fillAnswers(q, rec.ToolUseResult)
+					}
+					if c, ok := calls[b.ToolUseID]; ok && b.IsError {
+						_, result := transcriptContent(b.Content)
+						if bl := blockedOf(c.tool, c.command, result); bl != nil {
+							out.Turns[c.turn].Blocked = append(out.Turns[c.turn].Blocked, *bl)
+						}
 					}
 				}
 			}
@@ -361,6 +379,9 @@ func parseTranscript(r io.Reader, cut bool, maxTurns int) CEOTranscript {
 					}
 					cur.Tools = append(cur.Tools, b.Name)
 					cur.Calls = append(cur.Calls, CEOToolCall{Name: b.Name, Label: toolLabel(b.Input)})
+					if b.ID != "" {
+						calls[b.ID] = transcriptCall{turn: len(out.Turns) - 1, tool: b.Name, command: toolCommand(b.Input)}
+					}
 					lastMsg = ""
 				}
 			}
@@ -450,6 +471,20 @@ func fillAnswers(q *CEOQuestion, raw json.RawMessage) {
 	for i := range q.Questions {
 		q.Questions[i].Answer = res.Answers[q.Questions[i].Question]
 	}
+}
+
+// toolCommand is what a tool call acts on, for a refused call: its
+// command, file, URL or, failing those, its label.
+func toolCommand(raw json.RawMessage) string {
+	var in map[string]any
+	if json.Unmarshal(raw, &in) == nil {
+		for _, k := range []string{"command", "file_path", "path", "url"} {
+			if s, ok := in[k].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		}
+	}
+	return toolLabel(raw)
 }
 
 // toolLabel is a tool call's short label: the first of its description,

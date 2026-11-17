@@ -69,6 +69,14 @@ passed n/m.
       history the benchmark reads: <dir>/repo and <dir>/tracker, the same
       SHAs on every machine. Prints the projects.yaml entry (--config adds
       it). Adds no task: the owner picks with bench task add.
+  bench smoke [--setup <engine ref>] [--engine <dir>] [--keep] [--json]
+      Proves the harness before a real run: the fixture's three tasks in a
+      throwaway benchmark, run with this issue-cli (or the --setup build), a
+      stand-in worker that applies each known solution, and a stand-in judge
+      and scorer. No model, no tokens. One line per check (fixture, run,
+      stages, trace, usage, calls, isolation, report, control), then
+      bench smoke: PASS or FAIL (<check>), exit 1. A PASS is kept in
+      <bench>/smoke.json; bench run names it.
   bench run <benchmark> [--agents claude,codex] [--setup <engine ref>] [--engine <dir>]
             [--workflow <file>] [--label <name>] [--resume <run>] [--keep]
             [--quote "<owner's words>"]
@@ -106,6 +114,7 @@ passed n/m.
 
 Examples:
   issue-cli bench candidates
+  issue-cli bench smoke
   issue-cli bench task add factory-v1 cli/prove-list-attaches-proves-trailers --check "go vet ./..."
   issue-cli bench budget factory-v1 --tokens 250000000 --usd 40 --wall 6h --task-wall 45m
   issue-cli bench run factory-v1 --label baseline
@@ -114,7 +123,7 @@ Examples:
   issue-cli bench run factory-v1 --setup work/factory/new-prompts --label new-prompts
   issue-cli bench compare factory-v1/20261030-120000 factory-v1/latest`,
 	Run:         runBench,
-	Subcommands: []string{"candidates", "task", "holdout", "budget", "show", "run", "report", "compare", "nightly", "fixture"},
+	Subcommands: []string{"candidates", "task", "holdout", "budget", "show", "run", "report", "compare", "nightly", "fixture", "smoke"},
 }
 
 func init() {
@@ -159,8 +168,10 @@ func runBench(ctx *Context, args []string) error {
 		return runBenchNightly(ctx, args[1:])
 	case "fixture":
 		return runBenchFixture(ctx, args[1:])
+	case "smoke":
+		return runBenchSmoke(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown bench command %q: candidates, task, holdout, budget, show, run, report, compare, nightly or fixture", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown bench command %q: candidates, task, holdout, budget, show, run, report, compare, nightly, fixture or smoke", args[0])}
 }
 
 // agentSession names the agent session issue-cli runs in ("" for the owner's
@@ -222,10 +233,10 @@ func runBenchList(ctx *Context) error {
 		return writeJSON(ctx.Stdout, rows)
 	}
 	if len(names) == 0 {
-		fmt.Fprintf(ctx.Stdout, "No benchmark yet (%s).\n\nNext:\n  issue-cli bench candidates               done issues that make good golden tasks\n  issue-cli bench task add <name> <slug>   the owner adds one (creates the benchmark)\n", bench.Dir())
+		fmt.Fprintf(ctx.Stdout, "No benchmark yet (%s).\n%s\n\nNext:\n  issue-cli bench candidates               done issues that make good golden tasks\n  issue-cli bench task add <name> <slug>   the owner adds one (creates the benchmark)\n  issue-cli bench smoke                    proves the harness first (stand-ins, no tokens)\n", bench.Dir(), bench.SmokeLine(Version))
 		return nil
 	}
-	fmt.Fprintf(ctx.Stdout, "== Benchmarks (%s) ==\n", bench.Dir())
+	fmt.Fprintf(ctx.Stdout, "== Benchmarks (%s) ==\n%s\n", bench.Dir(), bench.SmokeLine(Version))
 	for _, n := range names {
 		b, err := bench.Load(n)
 		if err != nil {

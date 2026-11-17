@@ -192,3 +192,58 @@ func TestStatsNoAggregateYetBuildsOnce(t *testing.T) {
 		t.Errorf("%d builds, want 1", n)
 	}
 }
+
+// pageWithHeaders is one stats request, how long it took and its Refresh
+// header.
+func (s *statsCacheServer) pageWithHeaders(t *testing.T, query string) (body, refresh string, took time.Duration) {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/p/test-project/stats"+query, nil)
+	req.Host = "127.0.0.1:8080"
+	rec := httptest.NewRecorder()
+	start := time.Now()
+	s.Routes().ServeHTTP(rec, req)
+	took = time.Since(start)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stats page = %d", rec.Code)
+	}
+	return rec.Body.String(), rec.Header().Get("Refresh"), took
+}
+
+// A visit before the first build lands (a fresh viewer, the warm-up still
+// running: 21–27 s on the dark-factory board) answers at once, says the
+// numbers are being built and reloads until they are in; then the page is
+// the full one with no reload.
+func TestStatsColdRequestDoesNotWait(t *testing.T) {
+	for _, tc := range []struct{ name, query string }{{"workshop", ""}, {"classic", "?classic=1"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStatsCacheServer(t)
+			release := s.holdBuilds()
+			defer func() {
+				if s.gate.Load() != nil {
+					release()
+				}
+			}()
+			for range 2 {
+				body, refresh, took := s.pageWithHeaders(t, tc.query)
+				if took >= time.Second {
+					t.Errorf("a cold request took %v, want under 1 s", took)
+				}
+				if !strings.Contains(body, `data-testid="stats.updating"`) || !strings.Contains(body, "Building these numbers") {
+					t.Error("a cold request must say the numbers are being built")
+				}
+				if refresh != statsBuildingRefresh {
+					t.Errorf("Refresh = %q, want %q so the page fills in by itself", refresh, statsBuildingRefresh)
+				}
+			}
+			release()
+			s.finishBackground(t)
+			if n := s.builds.Load(); n != 1 {
+				t.Errorf("%d builds, want one shared by the cold requests", n)
+			}
+			body, refresh, _ := s.pageWithHeaders(t, tc.query)
+			if refresh != "" || strings.Contains(body, `data-testid="stats.updating"`) {
+				t.Errorf("still building after the build landed (Refresh %q)", refresh)
+			}
+		})
+	}
+}

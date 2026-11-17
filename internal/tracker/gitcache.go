@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/kacperwerema/dark-factory/internal/gitdir"
 )
 
 // The cache of git calls whose arguments name commits by sha. Their output
@@ -79,12 +81,43 @@ func GitCachedIn(root, stdin string, args ...string) (string, error) {
 	return gitCachedIn(root, stdin, args...)
 }
 
+// gitInflight is the cached calls running now: a branch scan runs them side
+// by side, and a call already running is waited for, not run again.
+var gitInflight = struct {
+	sync.Mutex
+	m map[string]*gitCall
+}{m: map[string]*gitCall{}}
+
+type gitCall struct {
+	done chan struct{}
+	out  string
+	err  error
+}
+
 func gitCachedIn(root, stdin string, args ...string) (string, error) {
 	key := gitCacheKey(args)
 	if stdin != "" {
 		key += fmt.Sprintf("\x00%x", sha256.Sum256([]byte(stdin)))
 	}
 	memKey := root + "\x00" + key
+	gitInflight.Lock()
+	if c, ok := gitInflight.m[memKey]; ok {
+		gitInflight.Unlock()
+		<-c.done
+		return c.out, c.err
+	}
+	c := &gitCall{done: make(chan struct{})}
+	gitInflight.m[memKey] = c
+	gitInflight.Unlock()
+	c.out, c.err = gitCachedKey(root, stdin, key, memKey, args)
+	gitInflight.Lock()
+	delete(gitInflight.m, memKey)
+	gitInflight.Unlock()
+	close(c.done)
+	return c.out, c.err
+}
+
+func gitCachedKey(root, stdin, key, memKey string, args []string) (string, error) {
 	gitCache.Lock()
 	ans, ok := gitCache.m[memKey]
 	gitCache.Unlock()
@@ -198,7 +231,11 @@ func gitDiskFor(root string) *gitDisk {
 	if ok {
 		return d
 	}
-	if dir, err := runGit(root, "rev-parse", "--git-common-dir"); err == nil {
+	// The files name the shared git dir of a checkout's top folder; git is
+	// asked only for anything else (a subdirectory).
+	if dir := gitdir.Common(root); dir != "" {
+		d = loadGitDisk(filepath.Join(dir, gitCacheFile))
+	} else if dir, err := runGit(root, "rev-parse", "--git-common-dir"); err == nil {
 		dir = strings.TrimSpace(dir)
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(root, dir)

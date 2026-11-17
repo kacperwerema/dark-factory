@@ -135,11 +135,25 @@ So a result doesn't rest on this repo alone, `issue-cli bench fixture init <dir>
 - `<dir>/tracker`: the bundled development workflow and each task's issue committed at every status it passed, with its stats sidecar (dispatch, branch head, merge commit).
 - The tasks: **feature** `TopWords(text, n)` (ties in alphabetical order, a README line), **tweak** `Lines` counts a last line without a newline (a CHANGELOG line; a tweak has no design status, so its design is `missing`), **feature** `Options.Fold` for `WordsWith` / `CountWith` (a README line). Each one's hidden tests fail on its base and pass on its branch (`bench candidates --replay` says `solvable`).
 
-The projects.yaml entry (`Tally fixture`, slug `bench-fixture`) is printed; `--config` adds it to that file as text (created when missing, refused when it already has `bench-fixture`). A non-empty `<dir>` is refused. The command runs without a project and writes nothing in the benchmark folder: then `issue-cli --project bench-fixture bench candidates`, and the owner's `bench task add`; after `--config <file>` both printed commands carry `--config <file>` (its absolute path, shell-quoted), so they run as printed. The fixture's files are `internal/bench/fixture/`, each with a `.txt` suffix the write drops.
+`bench smoke` runs these three tasks end to end with stand-ins ([Smoke before a run](#smoke-before-a-run)). The projects.yaml entry (`Tally fixture`, slug `bench-fixture`) is printed; `--config` adds it to that file as text (created when missing, refused when it already has `bench-fixture`). A non-empty `<dir>` is refused. The command runs without a project and writes nothing in the benchmark folder: then `issue-cli --project bench-fixture bench candidates`, and the owner's `bench task add`; after `--config <file>` both printed commands carry `--config <file>` (its absolute path, shell-quoted), so they run as printed. The fixture's files are `internal/bench/fixture/`, each with a `.txt` suffix the write drops.
+
+## Smoke before a run
+
+A real run costs hours and tokens; a broken harness found after it is the costliest miss. `issue-cli bench smoke [--setup <ref>] [--engine <dir>] [--keep] [--json]` proves the harness on this machine first, in about ten seconds, with no model:
+
+1. The [fixture project](#the-fixture-project) in a temp folder, each of its three tasks made as `bench task add` makes it (base and merged checked, stage references, a docs rubric line), in a throwaway benchmark in the smoke's own bench folder.
+2. `bench run`'s code (`bench.Execute`) with the issue-cli under test: this one, or the `--setup` build as `bench run --setup` builds it. The worker is a stand-in sh script: it checks the prompt names its issue, calls `issue-cli start` and `issue-cli append --section Design` in the sandbox, copies the task's known solution (the fixture's files for it, without its tests) over the work tree and prints a Claude Code result with fixed usage. The judge and the scorer are stand-ins too: they pass everything.
+3. A control: the tweak task again with a worker that changes nothing.
+
+Then one line per check: **fixture** (three tasks with stage references), **run** (every task `pass`, every hidden test green; a task the stand-in could not solve quotes the stand-in's error), **stages** (design by the judge and rubric, code by the hidden tests, docs by the rubric; the tweak's design says `no reference`), **trace** (each task's spans start at its start status), **usage** (4200 tokens per task, model `stand-in`, read from the worker's result), **calls** (the stand-in's issue-cli calls reached the sandbox's clilog), **isolation** (nothing written outside the sandboxes, the fixture repo unchanged), **report** (`bench report` renders the run with its `stages:` lines), **control** (the do-nothing worker's task comes back `fail`: scoring that passes undone work makes the smoke red). The last line is `bench smoke: PASS (3 tasks, <s>s)` or `bench smoke: FAIL (<check>, …)` with exit 1.
+
+The temp folder is removed (`--keep` leaves it and prints it). The owner's bench folder gets only `smoke.json`, the last PASS: its issue-cli version, setup ref and time. `bench run` prints `smoke: PASS <date> on <version>` under its estimate, or `smoke: none for this issue-cli (<version>): issue-cli bench smoke …`; `bench` prints the same line. Nothing refuses a run without one. The smoke calls no model, so anyone may run it, an agent session included, without `--quote`.
 
 ## A run
 
 `issue-cli --project <p> bench run <benchmark> [--agents claude,codex] [--label <name>] [--setup <engine ref>] [--engine <dir>] [--workflow <file>] [--resume <run>] [--keep]`, one task at a time ([Both agents](#both-agents) for `--agents`):
+
+Before the first run on a new issue-cli or setup, `bench smoke` proves the harness ([Smoke before a run](#smoke-before-a-run)); the run's start lines say whether it has.
 
 1. `mem-guard check`; while it says BLOCKED the task waits (up to 30 minutes, then the run stops as `paused`). Without mem-guard on PATH there is a warning and no wait.
 2. **The sandbox** under `$TMPDIR/awe-bench/<run>/<n>/`: a `git clone --shared` of the project with its remote removed, checked out detached at base, hidden files deleted; a scratch tracker holding only the snapshot and the workflow under test; its own `projects.yaml` (`terminal: none`), `XDG_STATE_HOME` and YOLO on in the clone's `.yolo/`, so gates pass by themselves. When the workflow uses worktrees, the issue's worktree is made as dispatch would.
@@ -206,6 +220,21 @@ The thresholds are `bench compare`'s. It only reports: the owner changes `routin
 
 **What the numbers don't say.** Tokens are as each CLI counts them, so read them with the pass rate. The first run of Codex's default worker on a real task is the owner's to start; the tests run stand-ins.
 
+## Another model
+
+A routing rule can run a type of work on a cheaper model ([The model per type of work](agent-dispatch.md#the-model-per-type-of-work)). Before you switch one, run the same golden tasks on that model and put the run beside one on the project's own:
+
+```
+issue-cli bench run factory-v1 --label opus                               # the worker's own model
+issue-cli bench run factory-v1 --model claude-sonnet-5-5 --label sonnet
+issue-cli bench compare factory-v1/<opus run> factory-v1/<sonnet run>
+```
+
+- **The run.** `--model <name>` adds `--model <name>` right after the worker's command (after `codex exec` for Codex), on the default worker, `worker:`, `--worker` or a one-agent `--agents`. `run.json` records it as `setup.model`, the run line and `bench report` name it, and `--resume` keeps it. A name that isn't a plain model name is refused, and so is `--model` with two agents (a model name is one CLI's): run each agent on its own.
+- **The table.** In both runs' tables a run on a model shows its agent as `claude · claude-sonnet-5-5`, so `bench compare <a> <b>` puts the two side by side by type under `By agent and model`, with pass rate, time, tokens and cost as for [Both agents](#both-agents). `bench run --model` ends with that compare command, filled in with the newest earlier run on another model.
+- **The routing line.** A type whose rule (or the docs and report default) names the model in the table is checked on that row: `Routing: type docs (… on claude-sonnet-5-5) supported`.
+- **Then.** The owner switches the type with a rule (`{type: tweak, agent: claude, model: claude-sonnet-5-5}`), and `issue-cli stats --by-model` follows the real issues on it ([Workflow Stats](workflow-stats.md#by-model)).
+
 ## Evals
 
 Each workflow file says how the benchmark scores a run of each of its types, so a workflow change gets a verdict for each workflow: net positive, net negative or no change, with the time and cost beside the score.
@@ -239,7 +268,7 @@ evals:
 
 `score:` is `tests` (the default), `output` (the run's newest output on the shelf) or `diff` (the worker's diff against the task's base, for a change in files with no hidden tests, such as docs). `output` and `diff` are graded by the rubric and assertions; for `diff`, `{{reference}}` is the known good diff (base → merged commit), and both are cut to 60 kB like the judge's.
 
-The development template has `code`, `report` and `docs` (a diff eval); the marketing template has `foundation` (foundation, market-size), `keyword-research`, `report`, `piece`, `seo-pass` and `seo-baseline`; the content template has `content`, with no `types:` (the file has none, so it covers every issue). Catalog entry: `workflow-evals`.
+The development template has `code`, `report` and `docs` (a diff eval); the marketing template has `foundation` (foundation, market-size), `keyword-research`, `competitor-scan`, `report`, `piece`, `seo-pass` and `seo-baseline`; the content template has `content`, with no `types:` (the file has none, so it covers every issue). Catalog entry: `workflow-evals`.
 
 A department's golden task is a done issue whose output the **owner** approved on the shelf. `issue-cli bench task add <benchmark> <slug> [--output <id>] [--base <sha>] [--start <status>] [--snapshot <file>]` (owner only) copies the approved file as the task's reference (`{{reference}}` in a rubric line) and runs the task on the department's own workflow file. An output in review, rejected or link-only is refused.
 
@@ -264,7 +293,7 @@ Every finding is a warning.
 
 Only inside `bench run`, which the owner starts: from their own shell, or by an agent with `--quote "<the owner's words>"` (and `experiment run` and `bench nightly`, which call it the same way; a night runs on the owner's standing start for the nightly-improve job). The engine has no timer of its own, no other command calls a model, and nothing is adopted by itself.
 
-1. **Before**, `bench run` prints an estimate: the task count × the newest finished run's mean time and cost per task, or "no previous run". The budget caps stay as above.
+1. **Before**, `bench run` prints an estimate: the task count × the newest finished run's mean time and cost per task, or "no previous run" (`bench.ForecastRun`, which `experiment run`'s cost preview scales by the runs it starts: [Experiments](workflow-stats.md#experiments)). The budget caps stay as above.
 2. **Each task** runs in its own sandbox (below). The worker works the issue. Then a `tests` eval runs the hidden tests and checks, an `output` eval runs promptfoo on the newest output the run put on the sandbox's shelf, and a `diff` eval runs it on the worker's diff. No output, or no diff, is a **fail**.
 3. **promptfoo** (MIT, local, pinned 0.124.1, `npx --yes promptfoo@0.124.1`; `scorer:` in the benchmark replaces it) gets a config whose "model" is its `echo` provider over the output (or diff) text, with `reference.txt` and `brief.md` as vars. Each rubric line becomes an `llm-rubric` assertion graded by the benchmark's `grader:` command: the prompt on stdin, `{reason, pass, score}` JSON out, for example `claude -p --model claude-haiku-5-5`. Without a grader, rubric lines are left out and listed in the record's `eval_skipped`. An eval with nothing it can grade stops the task as `error` before the worker starts. **pass** = score ≥ `pass` and checks green.
 4. **Time and cost**: every task records the worker's wall time plus scoring time (`score_wall_sec`), and tokens and cost for the worker and grader. Cost is priced exactly as the rooms' spend prices it: `prices.yaml`, then the benchmark files' `prices:`, and a key prices every model it is a prefix of. A result naming several models keeps its cost unknown unless the worker reports one. `bench report` shows them per task.
@@ -360,7 +389,7 @@ Its standing start is off until the owner turns it on with their words: `issue-c
 1. **Who.** The owner's shell; an agent with `--quote`; or `--run <slug>`: a run of a job whose brief is `builtin:nightly-improve` and whose standing start is on, whose words become the runs' quote. A worker passes only its own run. Without the standing start: `✗ Not run: product/nightly-improve has no standing start …` (exit 1).
 2. **Which benchmark.** The one named, else the only one with a task in the project, else the one whose file says `nightly: true`.
 3. **One night per date.** A second call the same local date is refused (exit 1) naming the run; a held night may be tried again.
-4. **The machine.** Memory under 50% (mem-guard's reading) and the 1-minute load under the core count (or `max_load` while the project's auto-start is on), else the night is recorded **held** with the reason and nothing runs. During the run each task also waits while memory is 50% or more (the run pauses after 30 minutes, as with mem-guard's BLOCKED).
+4. **The machine.** Memory under 50% (mem-guard's reading) and the 1- and 5-minute load not both at or over the core count (or `max_load` while the project's auto-start is on), else the night is recorded **held** with the reason and nothing runs. During the run each task also waits while memory is 50% or more (the run pauses after 30 minutes, as with mem-guard's BLOCKED).
 5. **Baseline.** `bench run <b> --setup <main's head> --label nightly:<date>@<sha>`, the same code as `bench run`, within the benchmark's `budget:`.
 6. **One experiment.** When the baseline finished (`stop: done`), the oldest experiment the owner queued (`experiment queue`, [Workflow Stats](workflow-stats.md#experiments)) gets `experiment run`'s guard and one candidate run, judged against tonight's baseline and recorded as `experiment run` records it (block, `experiment:` comment, `## Experiment result`). Its queue entry is marked with the night's date, so it never runs twice. A baseline that stopped (budget, paused) or a machine over the line leaves it queued for the next night; a guard problem ends its entry with a comment. Nothing here adopts, parks or reverts.
 7. **The night.** One line in `<bench>/runs/<benchmark>/nights.jsonl`: date, main's sha, the run, its stop, pass rate (as `summary.pass_rate`, holdout apart), passed/scored, the **median time and median tokens per scored task** (tokens over the tasks whose usage was read), the holdout as n/m, the experiment and its verdict, the job run. The morning report, `nights/<date>.md`, has the three numbers against the night before and the last 7 nights, the experiment, and `bench report` / `bench compare` for the runs.

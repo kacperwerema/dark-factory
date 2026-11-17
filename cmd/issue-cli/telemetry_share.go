@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/telemetry/share"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -333,6 +334,7 @@ func maybeAutoSend() {
 	cmd.Env = append(os.Environ(), telemetry.SkipEnv+"=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if cmd.Start() == nil {
+		restrace.Start(restrace.KindChild, cmd.Process.Pid, "", "telemetry send (detached)")
 		_ = cmd.Process.Release()
 	}
 }

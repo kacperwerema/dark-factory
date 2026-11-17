@@ -64,7 +64,7 @@ type clarifyOutput struct {
 }
 
 func runClarify(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "clarify")
+	slug, rest, err := issueSlug(ctx, args, "clarify")
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,7 @@ func init() {
 		// retros to sort, the selected one's findings and their bins.
 		"retro.page",
 		"retro.classic",
+		"retro.classic.pager",
 		"retro.presort",
 		"retro.presort.agent.*",
 		"retro.presort.run",
@@ -13,6 +14,10 @@ func init() {
 		"retro.counts",
 		"retro.list.*",
 		"retro.list.more",
+		// The show-all view's pager under each list.
+		"retro.list.range",
+		"retro.list.newer",
+		"retro.list.older",
 		"retro.item",
 		"retro.head",
 		"retro.state",

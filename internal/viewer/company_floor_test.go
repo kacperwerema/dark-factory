@@ -175,12 +175,29 @@ func hooks(page string) map[string]bool {
 	return out
 }
 
+// sameNewDept takes the classic tile's template form off classic when the
+// floor links to the same page: the floor's plot is a link to the picker
+// (GET …/departments/new), not the form a clipped <details> hid.
+func sameNewDept(t *testing.T, classic map[string]bool, floorPage string) {
+	t.Helper()
+	for h := range classic {
+		if p, ok := strings.CutPrefix(h, "action="); ok && strings.HasSuffix(p, "/departments/new") {
+			if !strings.Contains(floorPage, `href="`+p+`" data-testid="tile.new_department"`) {
+				t.Errorf("the classic page has the template form at %s, the floor's plot doesn't link there", p)
+			}
+			delete(classic, h)
+		}
+	}
+}
+
 func TestCompanyFloorKeepsClassicActions(t *testing.T) {
 	for _, sc := range []string{"company-floor", "connectors", "nested-groups", "department-group"} {
 		t.Run(sc, func(t *testing.T) {
 			url, _, done := floorServer(t, sc)
 			defer done()
-			classic, floor := hooks(pageGet(t, url+"/p/acme/company?classic=1")), hooks(pageGet(t, url+"/p/acme/company"))
+			classicPage, floorPage := pageGet(t, url+"/p/acme/company?classic=1"), pageGet(t, url+"/p/acme/company")
+			classic, floor := hooks(classicPage), hooks(floorPage)
+			sameNewDept(t, classic, floorPage)
 			for h := range classic {
 				if !floor[h] {
 					t.Errorf("the classic page has %s, the floor doesn't", h)
@@ -194,7 +211,9 @@ func TestCompanyFloorKeepsClassicActions(t *testing.T) {
 	if code, out := postJSON(t, url+"/p/shop/yolo/on", `{"until":"4h","words":"go"}`); code != 200 {
 		t.Fatalf("yolo on: %d %v", code, out)
 	}
-	classic, floor := hooks(pageGet(t, url+"/p/shop/company?classic=1")), hooks(pageGet(t, url+"/p/shop/company"))
+	classicPage, floorPage := pageGet(t, url+"/p/shop/company?classic=1"), pageGet(t, url+"/p/shop/company")
+	classic, floor := hooks(classicPage), hooks(floorPage)
+	sameNewDept(t, classic, floorPage)
 	// data-yolo="band" is the switch's own hook (it points at the band);
 	// on the floor the strip stands in for both.
 	delete(classic, "data-yolo=band")

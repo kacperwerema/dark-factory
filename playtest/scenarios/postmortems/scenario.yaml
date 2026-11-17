@@ -2,8 +2,8 @@
 # post-mortem:
 # - ui/cart, ui/till: two workflow copies of one gate, plus a memory each
 # - ui/shelf (archived under retros/archive/): the third copy
-# Expected: 6 actions, the 3 workflow ones in one group (the newest, ui/cart's
-# A2, unticked), 3 memories alone.
+# Expected: 6 actions, the 3 workflow ones in one group (every copy ticked:
+# one answer covers them), 3 memories alone.
 title: Post-mortem actions - the owner's round across post-mortems
 project:
   name: Post-mortem Demo

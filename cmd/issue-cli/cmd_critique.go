@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/critique"
 	"github.com/kacperwerema/dark-factory/internal/redrounds"
@@ -68,7 +69,7 @@ func init() {
 }
 
 func runCritique(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "critique")
+	slug, rest, err := issueSlug(ctx, args, "critique")
 	if err != nil {
 		return err
 	}
@@ -143,10 +144,7 @@ func runCritique(ctx *Context, args []string) error {
 	to, gated := wf.CritiqueEdge(issue.Status)
 
 	root := projectRoot(ctx.Project)
-	dir := filepath.Join(root, ".worktrees", slug)
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-		dir = root
-	}
+	dir := critiqueDir(ctx, root, issue, wf, !*briefOnly)
 	in, head := critiqueInput(root, dir, ctx.Project, issue, issues, to, ctx.now())
 	if *briefOnly {
 		fmt.Fprint(ctx.Stdout, critique.Brief(in))
@@ -170,7 +168,7 @@ func runCritique(ctx *Context, args []string) error {
 		return fmt.Errorf("mem-guard says no new agent now (%s); nothing started — run issue-cli critique %s again when memory is lower", mem.Note, slug)
 	}
 	if cpu := autostart.ReadLoad(); autostart.LoadHold(cpu, 0) != "" {
-		return fmt.Errorf("load %s on %d cores: the machine is busy; nothing started — run issue-cli critique %s again when the load is under %d", autostart.FormatLoad(cpu.Avg1), cpu.Cores, slug, cpu.Cores)
+		return fmt.Errorf("%s: the machine is busy; nothing started — run issue-cli critique %s again when the load is under %d", autostart.LoadHold(cpu, 0), slug, cpu.Cores)
 	}
 
 	pick := critiqueAgent(ctx.Project, wf, issue, *agentFlag, ctx.Now())
@@ -204,9 +202,14 @@ func runCritique(ctx *Context, args []string) error {
 	}
 	brief := critique.Brief(in)
 	env := []string{"CRITIQUE_SLUG=" + slug, "CRITIQUE_FROM=" + issue.Status, "CRITIQUE_TO=" + to, "CRITIQUE_PATHS=" + strings.Join(in.Paths(), "\n")}
+	// took is the critics' wall time, both runs when one falls back: real
+	// time, not the context's clock, which a test may pin.
+	var took time.Duration
 	runCritic := func(agent, why string, argv []string) (string, error) {
 		edge := (&critique.Run{From: issue.Status, To: to}).Edge()
 		fmt.Fprintf(ctx.Stdout, "Critic: %s (%s), read-only in %s, %s; up to %s…\n", agent, why, dir, edge, timeout)
+		start := time.Now()
+		defer func() { took += time.Since(start) }()
 		return critique.Exec(context.Background(), dir, command, argv, brief, env, timeout)
 	}
 	out, runErr := runCritic(pick.Agent, pick.Why, argv)
@@ -243,7 +246,7 @@ func runCritique(ctx *Context, args []string) error {
 		}
 	}
 
-	run := &critique.Run{Slug: slug, From: issue.Status, To: to, At: ctx.Now(), Agent: pick.Agent, Worker: pick.Worker, Why: pick.Why, SameAgent: pick.Same, Head: head, Report: critique.Parse(out), Fallback: fallback}
+	run := &critique.Run{Slug: slug, From: issue.Status, To: to, At: ctx.Now(), Agent: pick.Agent, Worker: pick.Worker, Why: pick.Why, SameAgent: pick.Same, Head: head, Report: critique.Parse(out), Fallback: fallback, TookMS: max(took.Milliseconds(), 1)}
 	if command != "" {
 		run.Agent = "" // nobody knows which CLI the command runs
 	}
@@ -584,4 +587,33 @@ func critiqueDecisions(proj *tracker.Project, issue *tracker.Issue, issues []*tr
 		out = append(out, critique.DecisionRef{Ref: f.Entry.Ref, Hard: f.Entry.Hard, Scope: f.Entry.ScopeOrDefault(), File: f.Entry.Issue.FilePath})
 	}
 	return out
+}
+
+// critiqueDir is where the critic reads the work: the issue's worktree,
+// recreated from its work branch when it was removed (after a ship, by
+// worktrees prune), else the project checkout when the issue has no
+// branch yet. create false (--brief, which only reads) never recreates.
+func critiqueDir(ctx *Context, root string, issue *tracker.Issue, wf *tracker.WorkflowConfig, create bool) string {
+	dir := filepath.Join(root, ".worktrees", issue.Slug)
+	if dirExists(dir) || !create {
+		if !dirExists(dir) {
+			return root
+		}
+		return dir
+	}
+	wt := tracker.IssueWorktree(root, issue, wf)
+	if wt.Path == "" || exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+wt.Branch).Run() != nil {
+		return root
+	}
+	got, steps, ok := agentrun.EnsureWorktree(root, wt, wf)
+	if !ok {
+		for _, st := range steps {
+			if st.Status == "error" {
+				fmt.Fprintf(ctx.Stderr, "warning: recreating %s: %s: %s\n", wt.Path, st.Name, firstLineOf(st.Detail))
+			}
+		}
+		return root
+	}
+	fmt.Fprintf(ctx.Stderr, "Recreated the worktree %s on %s for the critic.\n", got, wt.Branch)
+	return got
 }

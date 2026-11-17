@@ -1,0 +1,12 @@
+# The Context floor trend on the Stats page. Three fixture snapshots
+# (2026-11-01, 02, 03 at 23:59) carry the context family: the worker
+# floor p50 is 82k, then 60k after a briefing change, then 61k; the turn
+# p50 beside it 118k, 90k, 95k. Steps open ?range=all so the fixed dates
+# stay in range.
+title: Context floor on the Stats page
+project:
+  name: Floor Demo
+  slug: floor
+issues: tracker
+workflow: workflow.yaml
+root: files

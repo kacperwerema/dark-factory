@@ -17,7 +17,7 @@ func TestPlaywrightChromePicksTheNewest(t *testing.T) {
 	}
 	for _, n := range []string{"999", "1248", "1100"} {
 		os.MkdirAll(filepath.Dir(bin(n)), 0o755)
-		os.WriteFile(bin(n), nil, 0o755)
+		os.WriteFile(bin(n), nil, 0o755) // not a stand-in: an empty file PlaywrightChrome only stats, never runs
 	}
 	if got := PlaywrightChrome(home); got != bin("1248") {
 		t.Fatalf("got %q, want chromium-1248", got)

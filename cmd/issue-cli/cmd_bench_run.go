@@ -19,6 +19,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/routing"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/health"
@@ -44,11 +45,12 @@ func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 	quote := fs.String("quote", "", "the owner's words asking for this run (required in an agent session)")
 	workerFlag := fs.String("worker", "", "the worker command for this run instead of the benchmark's worker: (e.g. a codex exec command), to compare agents")
 	agentsFlag := fs.String("agents", "", "run every task on each of these agent CLIs, e.g. claude,codex (workers: in the benchmark file names their commands)")
+	modelFlag := fs.String("model", "", "start every worker on this model (--model), e.g. claude-sonnet-5-5; compare with a run without it: bench compare <runA> <runB>")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return &usageError{msg: "usage: issue-cli bench run <benchmark> [--setup <ref>] [--workflow <file>] [--label <name>] [--worker <cmd> | --agents claude,codex] [--resume <run>]"}
+		return &usageError{msg: "usage: issue-cli bench run <benchmark> [--setup <ref>] [--workflow <file>] [--label <name>] [--worker <cmd> | --agents claude,codex] [--model <name>] [--resume <run>]"}
 	}
 	who := agentSession(ctx)
 	q := strings.TrimSpace(normalizeEscapedText(*quote))
@@ -67,6 +69,10 @@ func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 		b.Worker = w
 	}
 	agents, err := benchAgents(b, *agentsFlag, *workerFlag, *resume)
+	if err != nil {
+		return err
+	}
+	model, err := benchModel(b, agents, *modelFlag, *resume)
 	if err != nil {
 		return err
 	}
@@ -103,19 +109,21 @@ func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 		Setup:    bench.Setup{Ref: ref, SHA: sha, IssueCLI: cli, IssueCLIVersion: cliVersion(cli), Workflow: strings.Join(workflows, ","), Label: *label, Agent: bench.WorkerAgent(orDefault(b.Worker, bench.DefaultWorker))},
 		Workflow: workflow, Workflows: byBox, Resume: *resume, StartedBy: startedBy, Quote: q,
 	}
+	opt.Setup.Model = model
 	jobs := len(b.Tasks)
 	switch len(agents) {
 	case 0:
-		fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks, budget %s\n", b.Name, len(b.Tasks), budgetLine(b, jobs))
+		fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks%s, budget %s\n", b.Name, len(b.Tasks), modelWords(model), budgetLine(b, jobs))
 	case 1:
 		opt.Setup.Agent = agents[0]
-		fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks on %s, budget %s\n", b.Name, len(b.Tasks), agents[0], budgetLine(b, jobs))
+		fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks on %s%s, budget %s\n", b.Name, len(b.Tasks), agents[0], modelWords(model), budgetLine(b, jobs))
 	default:
 		jobs *= len(agents)
 		opt.Setup.Agent, opt.Agents = strings.Join(agents, ","), agents
 		fmt.Fprintf(ctx.Stderr, "bench run %s: %d tasks on %s (%d in all), budget %s\n", b.Name, len(b.Tasks), opt.Setup.Agent, jobs, budgetLine(b, jobs))
 	}
 	fmt.Fprintf(ctx.Stderr, "estimate: %s\n", bench.Estimate(b, max(len(agents), 1)))
+	fmt.Fprintln(ctx.Stderr, bench.SmokeLine(smokeVersion(opt.Setup.IssueCLIVersion)))
 	// One model, one cost: the prices the rooms' spend reads, the benchmark
 	// files' included.
 	b.Prices = spend.LoadPrices()
@@ -135,6 +143,12 @@ func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 	fmt.Fprintf(ctx.Stdout, "\nNext:\n  issue-cli bench report %s/%s\n", run.Benchmark, run.ID)
 	if len(run.Setup.Agents()) > 1 {
 		fmt.Fprintf(ctx.Stdout, "  issue-cli bench compare %s/%s   by agent and type, and the routing: rules\n", run.Benchmark, run.ID)
+	} else if run.Setup.Model != "" {
+		other := "<a run without --model>"
+		if base := previousRunOnOtherModel(run); base != nil {
+			other = base.Benchmark + "/" + base.ID
+		}
+		fmt.Fprintf(ctx.Stdout, "  issue-cli bench compare %s %s/%s   by model and type, side by side\n", other, run.Benchmark, run.ID)
 	} else if prev != nil {
 		fmt.Fprintf(ctx.Stdout, "  issue-cli bench compare %s/%s %s/%s\n", prev.Benchmark, prev.ID, run.Benchmark, run.ID)
 	}
@@ -142,6 +156,61 @@ func runBenchRunWith(ctx *Context, args []string, memBelow int) error {
 		fmt.Fprintf(ctx.Stdout, "  issue-cli bench run %s --resume %s   continue it\n", run.Benchmark, run.ID)
 	}
 	return nil
+}
+
+// benchModel reads --model for a run of b on agents: a plain model name,
+// for one agent only (a model name is one CLI's). It sets b's worker to
+// start on it. A resumed run keeps its own model.
+func benchModel(b *bench.Benchmark, agents []string, flag, resume string) (string, error) {
+	model := strings.TrimSpace(flag)
+	if resume != "" {
+		if model != "" {
+			return "", &usageError{msg: "bench run: a resumed run keeps its model: drop --model"}
+		}
+		prev, err := bench.LoadRun(b.Name, resume)
+		if err != nil {
+			return "", fmt.Errorf("resume %s: %w", resume, err)
+		}
+		model = prev.Setup.Model
+	}
+	if model == "" {
+		return "", nil
+	}
+	if !routing.ValidModel(model) {
+		return "", &usageError{msg: fmt.Sprintf("bench run: --model %q is not a model name (e.g. claude-sonnet-5-5)", model)}
+	}
+	if len(agents) > 1 {
+		return "", &usageError{msg: "bench run: --model names one CLI's model: run each agent on its own (--agents claude --model ...), then bench compare the runs"}
+	}
+	worker := strings.TrimSpace(b.Worker)
+	if worker == "" {
+		worker = bench.DefaultWorker
+	}
+	b.Worker = bench.WithModel(worker, model)
+	return model, nil
+}
+
+// modelWords is " on model <m>" for a run on a chosen model.
+func modelWords(model string) string {
+	if model == "" {
+		return ""
+	}
+	return " on model " + model
+}
+
+// previousRunOnOtherModel is the newest earlier run of run's benchmark on
+// another model (or the CLI's own), the one to put beside it; nil if none.
+func previousRunOnOtherModel(run *bench.Run) *bench.Run {
+	var prev *bench.Run
+	for _, r := range bench.Runs(run.Benchmark) {
+		if r.ID == run.ID {
+			break
+		}
+		if r.Finished() && r.Setup.Model != run.Setup.Model {
+			prev = r
+		}
+	}
+	return prev
 }
 
 // benchAgents reads --agents for a run of b. One agent becomes b's worker for
@@ -369,6 +438,9 @@ func printRun(w io.Writer, r *bench.Run) {
 	}
 	if r.Setup.Agent != "" {
 		setup += ", agent " + r.Setup.Agent
+	}
+	if r.Setup.Model != "" {
+		setup += ", model " + r.Setup.Model
 	}
 	if r.Setup.Label != "" {
 		setup = r.Setup.Label + " (" + setup + ")"

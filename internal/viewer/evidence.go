@@ -71,6 +71,12 @@ type EvidenceTab struct {
 	ShotsBy    string
 	ShotsEmpty string
 	Other      []evOther
+	// Stills are the images issue-cli evidence add saved in the issue's
+	// <issues>/_evidence/<slug>/ folder, Files the other files there (a
+	// profile, a text capture); StillsDir is that folder.
+	Stills    []evStill
+	Files     []evStill
+	StillsDir string
 
 	Criteria []evCriterion
 	Strays   []evStray
@@ -109,6 +115,12 @@ type evView struct {
 	Failed, On       bool
 	// Narrow is a phone-sized screen, shown at its own width.
 	Narrow bool
+}
+
+type evStill struct {
+	Name, Step, Src string
+	// Size is a file's size for the Files card (ceoSizeText).
+	Size string
 }
 
 type evOther struct {
@@ -188,6 +200,10 @@ type evidenceIn struct {
 	// RunPlaytest is where ▶ Run playtest posts ("" hides it); PlaytestCommand
 	// is what it runs.
 	RunPlaytest, PlaytestCommand string
+	// Stills is the issue's evidence folder (tracker.ListEvidence), StillsDir
+	// the folder.
+	Stills    []tracker.EvidenceFile
+	StillsDir string
 	// Exists reports whether a shot file is on disk (os.Stat when nil).
 	Exists func(string) bool
 }
@@ -226,6 +242,11 @@ func buildEvidence(in evidenceIn) *EvidenceTab {
 		t.ShotsEmpty = "No playtest run for this issue in its worktree or the project checkout."
 	case len(t.Shots) == 0:
 		t.ShotsEmpty = "No step proves a criterion yet; the latest run's steps are listed below."
+	}
+	t.Stills, t.Files = evidenceStills(in)
+	t.StillsDir = in.StillsDir
+	if rel, err := filepath.Rel(in.Root, in.StillsDir); err == nil && !strings.HasPrefix(rel, "..") && in.StillsDir != "" {
+		t.StillsDir = filepath.ToSlash(rel) + "/"
 	}
 	t.Steps, t.Judged, t.Words = evidenceSteps(in)
 	t.Verdict = evidenceVerdict(in, t)
@@ -619,6 +640,37 @@ func shotURL(in evidenceIn, dir, name string, exists func(string) bool) string {
 	return ""
 }
 
+// evidenceStills are the issue's saved stills, then its other evidence
+// files (by extension: tracker.LooksLikeImageName), with their /files/
+// URLs; a file outside the project root gets no Src (the route serves none
+// there).
+func evidenceStills(in evidenceIn) (stills, files []evStill) {
+	for _, f := range in.Stills {
+		s := evStill{Name: f.Name, Step: f.Step}
+		if rel, err := filepath.Rel(in.Root, f.Path); err == nil && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+			s.Src = in.Prefix + "/files/" + (&url.URL{Path: filepath.ToSlash(rel)}).EscapedPath()
+		}
+		if tracker.LooksLikeImageName(f.Name) {
+			stills = append(stills, s)
+			continue
+		}
+		s.Size = ceoSizeText(f.Size)
+		files = append(files, s)
+	}
+	return stills, files
+}
+
+// loadStills reads an issue's evidence folder for the tab, by absolute path
+// so its files compare with the absolute project root.
+func loadStills(proj *tracker.Project, slug string) ([]tracker.EvidenceFile, string) {
+	dir := proj.IssueDir
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	stills, _ := tracker.ListEvidence(dir, slug)
+	return stills, tracker.EvidenceDir(dir, slug)
+}
+
 func failLine(vp timeline.PlaytestViewport) string {
 	for _, c := range vp.Checks {
 		if !c.Pass {
@@ -891,7 +943,10 @@ func loadEvidenceTab(cache *timeline.Cache, proj *tracker.Project, prefix string
 	// A run that can't be read is in report.Missing (proof.Collect).
 	runs, _ := timeline.LoadPlaytestRuns(cache, issue.Slug, root, worktree)
 	run := playtestRunURL(prefix+"/issue/"+issue.Slug, ownerAttention(proj, issue), wf)
+	stills, stillsDir := loadStills(proj, issue.Slug)
 	return buildEvidence(evidenceIn{
+		Stills:          stills,
+		StillsDir:       stillsDir,
 		RunPlaytest:     run,
 		PlaytestCommand: wf.PlaytestCommandFor(issue.Slug),
 		Prefix:          prefix,

@@ -69,6 +69,13 @@ func TestCommitMsgProblems(t *testing.T) {
 // and commits msg through git: the hook git runs, not a call of ours.
 func commitThroughHook(t *testing.T, msg string) (string, error) {
 	t.Helper()
+	return commitFilesThroughHook(t, msg, nil)
+}
+
+// commitFilesThroughHook is commitThroughHook with files (path → content)
+// written into the repo and staged beside the catalog.
+func commitFilesThroughHook(t *testing.T, msg string, extra map[string]string) (string, error) {
+	t.Helper()
 	repo := t.TempDir()
 	git := func(args ...string) (string, error) {
 		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
@@ -121,6 +128,15 @@ func commitThroughHook(t *testing.T, msg string) (string, error) {
 	standin.Write(t, filepath.Join(bin, "issue-cli"), "ISSUE_CLI_TEST_AS_CLI=1 exec \"$ISSUE_CLI_TEST_SELF\" \"$@\"\n")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
+	for rel, body := range extra {
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if out, err := git("add", "-A"); err != nil {
 		t.Fatal(out)
 	}
@@ -315,6 +331,7 @@ func TestCommitMsgHintsRefsUntilACommitHasIt(t *testing.T) {
 	requireCommitReference(t, proj)
 	dir := filepath.Dir(proj.WorkflowFile)
 	onWorkBranch(t, dir)
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "") // a session not dispatched for it: the note
 	hint := func(msg string) string {
 		t.Helper()
 		ctx, _, stderr := newTestContext(proj, false)

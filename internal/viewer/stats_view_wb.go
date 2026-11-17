@@ -11,6 +11,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/chart"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -56,6 +57,7 @@ type StatsWbPage struct {
 	CLI        []WbTable
 	TimeFolds  []WbFold
 	Decisions  WbStatsDecisions
+	SpecFlow   WbStatsSpecFlow
 }
 
 // WbSegLinks is a row of options as links (range, group by), the one on
@@ -112,6 +114,8 @@ type WbTable struct {
 	Rows            [][]WbCell
 	RowHead         bool
 	Empty           *WbEmpty
+	// Wide spans the card over the whole grid row.
+	Wide bool
 }
 
 // WbTH is a column head; Num right-aligns the column.
@@ -236,6 +240,7 @@ func buildStatsWb(in statsWbIn) StatsWbPage {
 	p.CLISub, p.CLINotes, p.CLI = cliTables(data, in.Slug)
 	p.TimeFolds = timeFolds(data)
 	p.Decisions = data.Decisions
+	p.SpecFlow = data.SpecFlow
 	return p
 }
 
@@ -449,6 +454,31 @@ func cliTables(data StatsData, slug string) (string, []WbEmpty, []WbTable) {
 
 // timeFolds are the time tables behind the bars, folded: per type, per
 // status (one table per type), approval waits and gate failures.
+// modelTable is the By model table: each type on each model its workers
+// ran on (the sidecar's dispatches). Until a routing rule or default names
+// a model every row reads "default", so it says how to get a comparison.
+func modelTable(rep timeline.Report) WbTable {
+	t := WbTable{Key: "models", Title: "By model", Sub: "The model each issue's worker ran on (routing: rules model:, docs/agent-dispatch.md). Reopened: went back a status. Tokens: worker transcripts of the last 4 weeks.",
+		Head: []WbTH{{Text: "Type"}, {Text: "Model"}, {Text: "Issues", Num: true}, {Text: "Reopened", Num: true}, {Text: "Red rounds sum / p50", Num: true}, {Text: "Tokens p50", Num: true}}}
+	if !rep.HasModels() {
+		t.Empty = &WbEmpty{Text: "No done issue in this range ran on a named model yet: every worker started on the project's own. A routing rule's model: (docs and reports start on claude-sonnet-5-5 by default) fills this table as those issues finish."}
+		return t
+	}
+	for _, m := range rep.Models {
+		tok := "unknown"
+		if m.TokensKnown > 0 {
+			tok = tokens.Format(int64(m.Tokens))
+			if m.TokensKnown < m.N {
+				tok += fmt.Sprintf(" (%d of %d read)", m.TokensKnown, m.N)
+			}
+		}
+		t.Rows = append(t.Rows, []WbCell{{Text: m.Type}, {Text: m.Model}, {Text: strconv.Itoa(m.N), Num: true},
+			{Text: fmt.Sprintf("%d (%.0f%%)", m.Reopened, m.ReopenRate()*100), Num: true},
+			{Text: fmt.Sprintf("%d / %.0f", m.RedRounds, m.RedP50), Num: true}, {Text: tok, Num: true}})
+	}
+	return t
+}
+
 func timeFolds(data StatsData) []WbFold {
 	rep := data.Time
 	f := WbFold{Key: "time", Title: fmt.Sprintf("Time tables · issues done in the last %d days", data.Days()), Open: data.TablesOpen}
@@ -474,7 +504,7 @@ func timeFolds(data StatsData) []WbFold {
 		types.Rows = append(types.Rows, []WbCell{{Text: t.Type}, num(t.N), p(t.Cycle), num(t.Loops), num(t.Backward),
 			{Text: fmt.Sprintf("%.0f%%", t.ReworkShare*100), Num: true}, {Text: fmt.Sprintf("%.0f / %.0f", t.Dispatches[0], t.Dispatches[1]), Num: true}})
 	}
-	f.Tables = append(f.Tables, types)
+	f.Tables = append(f.Tables, types, modelTable(rep))
 	for _, g := range timeGroups(rep) {
 		name := g.Type
 		if name == timeline.All {

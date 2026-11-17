@@ -1,5 +1,5 @@
 id: critique-gate
-version: v0.61.0
+version: v0.63.0
 category: gates
 propose: true
 sources: ["internal/critique/**", "internal/tracker/critique.go", "cmd/issue-cli/cmd_critique.go", "internal/lint/critique.go"]
@@ -18,7 +18,9 @@ what: |
   an "after critic run N" note: the critic reads the design, not its history. mem-guard
   and the CPU load are checked first; the run sits in the issue's worktree, so its tokens
   count for the issue in spend. From a status with no gate out of it the run is by hand:
-  recorded and commented, it holds nothing and counts no red round.
+  recorded and commented, it holds nothing and counts no red round. Each run records how
+  long the critic took (`took_ms`); `issue-cli stats --spec-flow` and the Stats page count
+  the runs and how each held gate was cleared.
 why: |
   The worker that wrote the work also judges it, so its blind spots reach the owner, and
   under YOLO nobody else reads it before the after-the-fact review.

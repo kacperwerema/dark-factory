@@ -1,5 +1,5 @@
 id: testing-na-forms
-version: v0.60.0
+version: v0.63.0
 category: conventions
 propose: true
 templates: [development]
@@ -12,7 +12,9 @@ what: |
   "covered by playtest session <name>", "cli flow covered by <TestName>",
   "page state a scenario can't build (<what>), shown by <evidence>", or a
   reason in 3 words or more. Shipping boxes take no N/A: they are ticked
-  plainly. The CLI refuses a reason out of form and any N/A on the owner's
+  plainly, except in a repo with no git remote, where the move into shipping
+  ticks the push and PR boxes itself with "N/A: no git remote" (and
+  `check --na "no git remote"` takes them by hand). The CLI refuses a reason out of form and any N/A on the owner's
   boxes with "✗ not ticked:" and a non-zero exit; lint check na-boxes warns
   on ticked ones.
 why: |

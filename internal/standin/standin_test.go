@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,10 +38,11 @@ func inode(t *testing.T, path string) uint64 {
 }
 
 // Two tests writing the same body get the same file (one first-exec check);
-// a different body gets its own; each runs its body, and the warm run ran
-// nothing of it.
+// a different body gets its own; each runs its body. It uses the machine's
+// cache, as every other test does, so its bodies are checked once per
+// machine, not once per run: it passes with them cached or not. The cold
+// path (made, warmed, renamed in) is TestACachedFileThatDiffersIsMadeAgain's.
 func TestOneCachedFilePerDistinctBody(t *testing.T) {
-	cache := privateCache(t)
 	dir := t.TempDir()
 	log := filepath.Join(dir, "ran")
 	t.Setenv("RAN_LOG", log)
@@ -58,9 +60,10 @@ func TestOneCachedFilePerDistinctBody(t *testing.T) {
 	if inode(t, a) == inode(t, c) {
 		t.Error("two bodies share a file")
 	}
-	entries, _ := os.ReadDir(cache)
-	if len(entries) != 2 {
-		t.Errorf("cache holds %d entries, want 2", len(entries))
+	for path, body := range map[string]string{a: body, c: body + "exit 3\n"} {
+		if inode(t, path) != inode(t, cachePath(Script(body))) {
+			t.Errorf("%s is no link to its body's cached file", filepath.Base(path))
+		}
 	}
 	if out, err := exec.Command(a, "one").CombinedOutput(); err != nil {
 		t.Fatalf("run a: %v %s", err, out)
@@ -73,34 +76,56 @@ func TestOneCachedFilePerDistinctBody(t *testing.T) {
 		t.Errorf("ran %q", got)
 	}
 	// A link is read-only: writing through it would change every copy.
+	// not a stand-in: checks that writing through a link fails
 	if err := os.WriteFile(a, []byte("#!/bin/sh\n"), 0o755); err == nil {
 		t.Error("wrote through a cached stand-in")
 	}
 }
 
-// A cached file that no longer holds its body (changed by hand) is made
-// again, and the stand-in still runs the body asked for.
+// The cold path, in a cache of its own: a cached file that no longer holds
+// its body (changed by hand) is made again, warmed without running the
+// body, renamed into place and linked in; the stand-in runs the body asked
+// for. The spoiled file is written straight into the cache and never run,
+// so the test pays macOS's first-exec check once, for the remade file.
 func TestACachedFileThatDiffersIsMadeAgain(t *testing.T) {
 	cache := privateCache(t)
 	dir := t.TempDir()
-	Write(t, filepath.Join(dir, "a"), "echo one\n")
+	log := filepath.Join(dir, "ran")
+	t.Setenv("RAN_LOG", log)
+	body := "echo one >> \"$RAN_LOG\"\n"
+	spoiled := cachePath(Script(body))
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(spoiled, []byte(Header+"echo two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := filepath.Join(dir, "b")
+	Write(t, b, body)
+	if _, err := os.Stat(log); err == nil {
+		t.Fatal("the warm run ran the body")
+	}
+	if got, _ := os.ReadFile(spoiled); string(got) != Script(body) {
+		t.Errorf("the cache still holds %q", got)
+	}
+	if inode(t, b) != inode(t, spoiled) {
+		t.Error("b is no link to the remade cached file")
+	}
 	entries, _ := os.ReadDir(cache)
 	if len(entries) != 1 {
-		t.Fatalf("cache: %v", entries)
+		t.Errorf("cache holds %v, want the one file (no temp file left)", entries)
 	}
-	p := filepath.Join(cache, entries[0].Name())
-	os.Chmod(p, 0o755)
-	os.WriteFile(p, []byte(Header+"echo two\n"), 0o755)
-	Write(t, filepath.Join(dir, "b"), "echo one\n")
-	if out, _ := exec.Command(filepath.Join(dir, "b")).Output(); string(out) != "one\n" {
-		t.Errorf("b printed %q", out)
+	if out, err := exec.Command(b).CombinedOutput(); err != nil {
+		t.Fatalf("run b: %v %s", err, out)
+	}
+	if got, _ := os.ReadFile(log); string(got) != "one\n" {
+		t.Errorf("ran %q", got)
 	}
 }
 
 // A body with its own "#!" line keeps that interpreter, the warm no-op
-// right below it, and runs as written.
+// right below it, and runs as written. The machine's cache, as above.
 func TestABodysOwnShebangIsKept(t *testing.T) {
-	privateCache(t)
 	dir := t.TempDir()
 	log := filepath.Join(dir, "ran")
 	t.Setenv("RAN_LOG", log)
@@ -135,37 +160,42 @@ func TestNoCacheStillWrites(t *testing.T) {
 	}
 }
 
-// adopted are the test files that write their stand-ins through Write:
-// a package's folder (every _test.go in it) or one file.
-var adopted = []string{
-	"../agentrun",
-	"../memguard",
-	"../viewer",
-	"../checks",
-	"../bench",
-	"../tracker",
-	"../proof",
-	"../../cmd/issue-cli",
-	"../../cmd/playtest",
+// testFiles are every _test.go in the module: the guard below holds them
+// all, so a new package's test is on it from its first commit. Dot folders
+// (.git, .worktrees) and testdata are skipped; testdata is never compiled.
+func testFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if path != root && (strings.HasPrefix(name, ".") || name == "testdata" || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
 }
 
-// Every executable an adopted test writes goes through Write, so it pays
-// macOS's first-exec check once per distinct script, never inside a timed
-// wait. A new package moves onto the helper by joining adopted. A mode that
-// is no stand-in (a folder made read-only) says so in a comment on its line
-// or the line above: "not a stand-in: <why>".
+// Every executable a test in any package writes goes through Write, so it
+// pays macOS's first-exec check once per distinct script, never inside a
+// timed wait. A mode that is no stand-in (a folder made read-only) says so
+// in a comment on its line or the line above: "not a stand-in: <why>".
 func TestAdoptedTestsWriteStandInsThroughTheHelper(t *testing.T) {
-	var files []string
-	for _, a := range adopted {
-		if strings.HasSuffix(a, ".go") {
-			files = append(files, a)
-			continue
-		}
-		m, err := filepath.Glob(filepath.Join(a, "*_test.go"))
-		if err != nil || len(m) == 0 {
-			t.Fatalf("%s: no test files (%v)", a, err)
-		}
-		files = append(files, m...)
+	files := testFiles(t, "../..")
+	if len(files) < 50 {
+		t.Fatalf("found only %d test files under the module root", len(files))
 	}
 	fset := token.NewFileSet()
 	for _, name := range files {

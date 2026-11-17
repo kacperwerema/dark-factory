@@ -192,16 +192,19 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 		fmt.Fprintf(out, "\n$ %s\n", c.Cmd)
 		offset, _ := logFile.Seek(0, io.SeekCurrent)
 		start := time.Now()
+		loadDone := loadAround(c)
 		exit, timedOut, startErr := runCommand(ctx, dir, c.Cmd, opts.Config.NiceLevel(), resultsDir, out)
-		collectResults(root, run, c, resultsDir, out)
+		collectResults(root, run, c, resultsDir, loadDone(), out)
 		res := CommandResult{Cmd: c.Cmd, Tier: c.TierName(), Exit: exit, DurationMS: time.Since(start).Milliseconds(), TimedOut: timedOut}
+		output := readFrom(logPath, offset)
+		res.Steps = ParseSteps(output)
 		if startErr != nil {
 			run.Commands = append(run.Commands, res)
 			fmt.Fprintf(out, "CI can't run %q: %v\n", c.Cmd, startErr)
 			return finishError(opts, run, fmt.Errorf("%s: %w", c.Cmd, startErr))
 		}
 		if exit != 0 || timedOut {
-			res.Failures = c.FailureNames(readFrom(logPath, offset), maxFailures)
+			res.Failures = c.FailureNames(output, maxFailures)
 			run.Commands = append(run.Commands, res)
 			run.State, run.Failed, run.Failures = Red, c.Cmd, res.Failures
 			if timedOut {
@@ -231,8 +234,13 @@ func finishError(opts Options, run *Run, err error) *Run {
 // runCommand runs one command under sh in its own session: its own process
 // group, so a timeout kills everything it started, and no controlling
 // terminal, so a command that wants one (an interactive shell) does not stop
-// on the runner's tty. startErr means it could not start.
+// on the runner's tty. startErr means it could not start, or was refused
+// before it started (CheckNodeModules: it would delete node_modules
+// through a symlink).
 func runCommand(ctx context.Context, dir, command string, nice int, resultsDir string, out io.Writer) (exit int, timedOut bool, startErr error) {
+	if err := CheckNodeModules(dir, command); err != nil {
+		return -1, false, err
+	}
 	args := []string{"sh", "-c", command}
 	if nice > 0 {
 		if p, err := exec.LookPath("nice"); err == nil {
@@ -362,4 +370,12 @@ func tail(path string, n int) []string {
 		lines = lines[len(lines)-n:]
 	}
 	return lines
+}
+
+// RunCommand runs one command the way a CI run does (sh -c in its own
+// process group, at nice, with the CI environment and $CI_RESULTS_DIR when
+// resultsDir is set) and writes its output to out. prove --run runs a
+// project's ci: commands in an issue's worktree with it.
+func RunCommand(ctx context.Context, dir, command string, nice int, resultsDir string, out io.Writer) (exit int, timedOut bool, startErr error) {
+	return runCommand(ctx, dir, command, nice, resultsDir, out)
 }

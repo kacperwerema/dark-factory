@@ -122,3 +122,22 @@ func TestRoutingCodexValues(t *testing.T) {
 		}
 	}
 }
+
+func TestRoutingLintReadsRuleModels(t *testing.T) {
+	ok := routingBase + `routing:
+  rules:
+    - {type: docs, agent: claude, model: claude-sonnet-5-5}
+    - {type: feature, agent: claude, model: default}
+`
+	if got := routingFindings(t, ok); len(got) != 0 {
+		t.Fatalf("findings = %q", got)
+	}
+	bad := routingBase + `routing:
+  rules:
+    - {type: docs, agent: claude, model: "sonnet $(id)"}
+`
+	got := strings.Join(routingFindings(t, bad), "\n")
+	if !strings.Contains(got, `model "sonnet $(id)" is not a model name`) {
+		t.Fatalf("findings = %s", got)
+	}
+}

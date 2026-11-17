@@ -63,10 +63,24 @@ type CheckEntry struct {
 	ID      string   `json:"id"`
 	Version string   `json:"version"`
 	Files   []string `json:"files"`
+	// Matches says, for each file in Files, which of the entry's sources:
+	// it matched, so an unrelated match is visible.
+	Matches []SourceMatch `json:"matches"`
+	// Feature is true when a match is a narrow one (a file.go#Symbol
+	// source or a bundled template's detect: region): the entry's own code
+	// changed, so the change looks like one projects adopt (a bump) rather
+	// than a refactor (an n/a).
+	Feature bool `json:"feature,omitempty"`
 	// State is "bumped" (version newer than the last release), "n/a" (a
 	// Catalog: n/a trailer names it) or "stale".
 	State string `json:"state"`
 	Why   string `json:"why,omitempty"`
+}
+
+// SourceMatch is one changed file and the sources: pattern it matched.
+type SourceMatch struct {
+	File   string `json:"file"`
+	Source string `json:"source"`
 }
 
 // CheckTemplate is a bundled template the branch changes.
@@ -149,15 +163,22 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 
 	for _, e := range entries {
 		var files []string
+		var matches []SourceMatch
+		feature := false
 		for _, f := range b.Changed {
-			if !Exempt(f) && c.sourceChanged(e, f) {
+			if Exempt(f) {
+				continue
+			}
+			if src, narrow, ok := c.sourceChanged(e, f); ok {
 				files = append(files, f)
+				matches = append(matches, SourceMatch{File: f, Source: src})
+				feature = feature || narrow
 			}
 		}
 		if len(files) == 0 {
 			continue
 		}
-		ce := CheckEntry{ID: e.ID, Version: e.Version, Files: files, State: "stale"}
+		ce := CheckEntry{ID: e.ID, Version: e.Version, Files: files, Matches: matches, Feature: feature, State: "stale"}
 		switch why, marked := na[e.ID]; {
 		case newer(e.Version):
 			ce.State = "bumped"
@@ -312,8 +333,10 @@ type checker struct {
 // sources and the change is the entry's own (attribute.go): for a
 // `file.go#Symbol` source the symbol's code (narrowed to the entry's rule
 // cases) differs; for a bundled template the parts its detect: sees
-// differ; for a TextSources file more than its text changed.
-func (c *checker) sourceChanged(e Entry, f string) bool {
+// differ; for a TextSources file more than its text changed. source is
+// the sources: value that matched; narrow says it was a symbol or a
+// template's detect: region, not a whole file or folder.
+func (c *checker) sourceChanged(e Entry, f string) (source string, narrow, ok bool) {
 	b := c.b
 	for _, s := range e.Sources {
 		if s == PromptSource {
@@ -333,20 +356,20 @@ func (c *checker) sourceChanged(e Entry, f string) bool {
 				consts = c.packageConsts(path.Dir(f))
 			}
 			if ruleSymbolSource(before, sym, rules, consts) != ruleSymbolSource(after, sym, rules, consts) {
-				return true
+				return s, true, true
 			}
 		case isTemplate(f):
 			was, okB := detectRegion(before, e.Detect)
 			is, okA := detectRegion(after, e.Detect)
 			if !okB || !okA || was != is {
-				return true
+				return s, len(e.Detect) > 0 && okB && okA, true
 			}
 		case TextSource(f) && textOnlyChange(before, after):
 		default:
-			return true
+			return s, false, true
 		}
 	}
-	return false
+	return "", false, false
 }
 
 // MatchSource reports whether the repo-relative slash path p matches a

@@ -116,7 +116,7 @@ func assertMarketingLintClean(t *testing.T, proj *tracker.Project, state string)
 		t.Fatal(err)
 	}
 	for _, f := range rep.Findings {
-		if isUnwrittenVisitsFile(f) || isSocialExceptionMissing(f) {
+		if isUnwrittenVisitsFile(f) || isSocialExceptionMissing(f) || isTemplateSample(f) || isGoalWithoutWork(f) {
 			continue
 		}
 		if s := strings.ToLower(f.Where + " " + f.Message); strings.Contains(s, "marketing") || strings.Contains(s, "connector") || strings.Contains(s, "openseo") {
@@ -125,9 +125,20 @@ func assertMarketingLintClean(t *testing.T, proj *tracker.Project, state string)
 	}
 }
 
+// isGoalWithoutWork is a goal of the freshly added department with no
+// work on the board yet: coverage, not the department's config, which is
+// what these tests check (lint goal-without-work, TestLintGoalWithoutWork).
+func isGoalWithoutWork(f lint.Finding) bool { return f.Check == "goal-without-work" }
+
 // isUnwrittenVisitsFile is lint's one expected word on a fresh Marketing:
 // its visits goal's metrics file isn't written until the weekly SEO pass
 // first runs (TestMarketingVisitsGoalReadsTheJobFile).
+// isTemplateSample is lint's word on a department add left on the
+// template's sample mission and goals (TestDepartmentSamplesEveryTemplate).
+func isTemplateSample(f lint.Finding) bool {
+	return f.Check == "departments" && strings.Contains(f.Message, "template's sample")
+}
+
 func isUnwrittenVisitsFile(f lint.Finding) bool {
 	return f.Check == "departments" && strings.HasPrefix(f.Message, "goal visits: source file ") &&
 		strings.Contains(f.Message, filepath.Join(".goals", "marketing", "weekly-seo-pass.json")+" does not exist (job marketing/weekly-seo-pass writes it on its first run")

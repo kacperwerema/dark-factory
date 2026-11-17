@@ -197,6 +197,8 @@ func (s Schedule) Missed(last string, now time.Time) int {
 func (s Schedule) Label() string {
 	at := fmt.Sprintf("%02d:%02d", s.Hour, s.Minute)
 	switch s.Every {
+	case everyRefill:
+		return "at the queue's refill line"
 	case "week":
 		return fmt.Sprintf("every %s %s", s.Weekday.String()[:3], at)
 	case "month":

@@ -3,6 +3,7 @@ package routing
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -50,6 +51,64 @@ type Choice struct {
 	Hold string
 	// Warning is set when an explicit agent is resting: the start goes on.
 	Warning string
+	// Model is the model the start runs on (--model), picked for Agent by
+	// ModelFor; "" means the project's own (agent_models, else the CLI's).
+	// ModelWhy says which rule or default chose it.
+	Model    string
+	ModelWhy string
+}
+
+// DefaultModels are the models a worker starts on when no rule names one,
+// by agent and type of work: docs and reports don't need the project's
+// biggest model (owner, 2026-11-15). A rule's model: default turns one off.
+var DefaultModels = map[string]map[string]string{
+	"claude": {"docs": "claude-sonnet-5-5", "report": "claude-sonnet-5-5"},
+}
+
+// modelName is what a --model value may be: safe in a shell command
+// unquoted, as agentrun's launch passes it.
+var modelName = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]-]+$`)
+
+// ValidModel reports whether m may be passed as --model.
+func ValidModel(m string) bool { return modelName.MatchString(m) }
+
+// ModelFor is the model a start of s on agent runs on, and why. The first
+// rule that matches s and names agent decides: its model:, or ModelDefault
+// for the project's own (""). When that rule names no model, or none
+// matches, a worker of a type in DefaultModels[agent] gets that model; leads
+// never do. "" with why "" is the project's own model, unchanged.
+func ModelFor(cfg *tracker.RoutingConfig, s Subject, agent string) (model, why string) {
+	agent = strings.TrimSpace(agent)
+	if cfg != nil {
+		for _, r := range cfg.Rules {
+			if !strings.EqualFold(strings.TrimSpace(r.Agent), agent) || !Match(r, s) {
+				continue
+			}
+			m := strings.TrimSpace(r.Model)
+			if strings.EqualFold(m, tracker.ModelDefault) {
+				return "", "model: default for " + r.Describe()
+			}
+			if m != "" {
+				return m, "model for " + r.Describe()
+			}
+			break // first match wins: a later rule's model doesn't reach it
+		}
+	}
+	if s.Lead {
+		return "", ""
+	}
+	if m := DefaultModels[agent][strings.ToLower(strings.TrimSpace(s.Type))]; m != "" {
+		return m, "default for " + s.Type
+	}
+	return "", ""
+}
+
+// Pick is the agent the next start for s runs (pickAgent), with the model
+// ModelFor gives that agent.
+func Pick(cfg *tracker.RoutingConfig, s Subject, explicit string, st *State, now time.Time) Choice {
+	c := pickAgent(cfg, s, explicit, st, now)
+	c.Model, c.ModelWhy = ModelFor(cfg, s, c.Agent)
+	return c
 }
 
 // Installed reports whether agent's command is on PATH. A var so tests
@@ -96,12 +155,12 @@ func Route(cfg *tracker.RoutingConfig, s Subject) (agent, why string) {
 	return a, "default → " + a
 }
 
-// Pick is the agent the next start for s runs. explicit (an --agent flag, an
+// pickAgent is the agent the next start for s runs. explicit (an --agent flag, an
 // action's agent:) is the owner's choice and wins; when its subscription is
 // resting the choice carries a Warning and still starts. Otherwise the routed
 // agent, and when it is resting the first agent of fallback: that is neither
 // resting nor missing from PATH; Hold when there is none.
-func Pick(cfg *tracker.RoutingConfig, s Subject, explicit string, st *State, now time.Time) Choice {
+func pickAgent(cfg *tracker.RoutingConfig, s Subject, explicit string, st *State, now time.Time) Choice {
 	if explicit = strings.TrimSpace(explicit); explicit != "" {
 		c := Choice{Agent: explicit, Why: "--agent " + explicit}
 		if r, ok := st.Resting(explicit, now); ok {

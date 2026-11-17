@@ -36,30 +36,37 @@ type BehindRow struct {
 // gitResolveCommit is the commit rev names, "" when git can't resolve it.
 // A var so tests don't run git.
 var gitResolveCommit = func(root, rev string) string {
-	out, err := exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", rev+"^{commit}").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return refsKept(root, []string{"tip", rev}, func() string {
+		out, err := exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", rev+"^{commit}").Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	})
 }
 
 // gitCountAhead counts the commits on branch that from lacks.
 var gitCountAhead = func(root, from, branch string) (int, bool) {
-	out, err := exec.Command("git", "-C", root, "rev-list", "--count", from+".."+branch).Output()
-	if err != nil {
-		return 0, false
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	return n, err == nil
+	c := refsKept(root, []string{"ahead", from, branch}, func() refsCount {
+		out, err := exec.Command("git", "-C", root, "rev-list", "--count", from+".."+branch).Output()
+		if err != nil {
+			return refsCount{}
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		return refsCount{n, err == nil}
+	})
+	return c.n, c.ok
 }
 
 // gitShowFile is path at rev, "" when it is not there.
 var gitShowFile = func(root, rev, path string) string {
-	out, err := exec.Command("git", "-C", root, "show", rev+":"+path).Output()
-	if err != nil {
-		return ""
-	}
-	return string(out)
+	return refsKept(root, []string{"show", rev, path}, func() string {
+		out, err := exec.Command("git", "-C", root, "show", rev+":"+path).Output()
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	})
 }
 
 // buildRev turns a build version into something git resolves: "-dirty"

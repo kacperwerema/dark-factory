@@ -1,0 +1,42 @@
+session: owner-steps
+issue: factory/a-dated-owner-step-an-agent-records-a-hand-step-with-a-due-date-and-the-exact-text-and-waiting-on-you-shows-it-until-the-owner-ticks-it
+title: Owner steps on Needs you - the due line, red when overdue, the exact text, Done; desktop and phone
+scenario: owner-steps
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: Your steps lists the two open steps with their due lines and exact text, the overdue one red and first; the ticked one is gone
+    proves: [AC1, AC4]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - wait_for: needs_you.step.done
+    checks:
+      - visible: [needs_you.step.body, needs_you.step.done]
+      - text_contains: { target: needs_you.section, text: "Your steps" }
+      - text_contains: { target: needs_you.row, text: "overdue: was due 2026-01-05" }
+      - text_contains: { target: needs_you.section, text: "due 2099-01-01" }
+      - text_contains: { target: needs_you.section, text: "https://example.test/articles/one" }
+      - text_contains: { target: needs_you.section, text: "for factory/launch" }
+      - text_contains: { target: needs_you.row, text: "repeats 7d after each tick" }
+      - count: { pattern: needs_you.step.done, equals: 2 }
+    targets: [needs_you.row]
+
+  - id: TP5
+    title: Done on the repeating step says when it opens again, and the CLI lists it as waiting to reopen
+    proves: [AC2, AC3]
+    setup:
+      - open: /p/{project}/needs-you
+    act:
+      - wait_for: needs_you.step.done
+      - click: needs_you.step.done
+      - wait_for: { text_contains: { target: needs_you.row.msg, text: "Done ✓" }, ms: 8000 }
+    checks:
+      - text_contains: { target: needs_you.row.msg, text: "It opens again on" }
+      - cli: { args: [--project, "{project}", owner-step, list, --all], contains: "st-0a0a0a · waiting to reopen" }
+    targets: [needs_you.row]

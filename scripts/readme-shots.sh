@@ -82,8 +82,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for _ in $(seq 50); do
-	curl -fs -o /dev/null "$base/" && break
+# Up to 60 s: a freshly built binary's first exec can wait on macOS's
+# check for over 10 s on a loaded machine.
+i=0
+until curl -fs -o /dev/null "$base/"; do
+	i=$((i + 1))
+	if [ $i -gt 300 ]; then echo "readme-shots: viewer did not start in 60 s" >&2; cat "$stage/viewer.log" >&2; exit 1; fi
 	sleep 0.2
 done
 

@@ -62,6 +62,10 @@ type Project struct {
 	// LeadWindow pins that tab to a window index; nil takes the next free one.
 	LeadWindow *int   `yaml:"lead_window"`
 	Repo       string `yaml:"repo"`
+	// StartWeight is the project's share of the machine's start gap
+	// against other waiting projects (internal/autostart share.go): 3 and
+	// 1 give 3 of every 4 starts and 1. The owner's; unset or < 1 is 1.
+	StartWeight int `yaml:"start_weight"`
 	// SupportsGitHub enables GitHub integration for this project: the /github
 	// sync tab and auto-closing the remote issue when an issue is marked done.
 	// Defaults to false — the GitHub tab is hidden and auto-close is skipped.
@@ -534,4 +538,12 @@ func (p *Project) DepartmentOf(issue *Issue) string {
 		}
 	}
 	return ""
+}
+
+// Weight is StartWeight, 1 when unset or below 1.
+func (p *Project) Weight() int {
+	if p == nil || p.StartWeight < 1 {
+		return 1
+	}
+	return p.StartWeight
 }

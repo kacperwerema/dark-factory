@@ -28,8 +28,9 @@ Most links need no command: the agent declares them where it writes the proof.
 - **Trailers** are `Proves:` lines in the commit message, one or more, in any paragraph after the subject (one
   in its own paragraph before `Co-Authored-By` counts too):
   `Proves: AC1, AC3 TestA TestB` links AC1 and AC3 to both tests. Words shaped like a criterion id (the section's
-  prefix plus a number) are ids, and the rest are test names, so a test name with spaces (an `it()` title) goes
-  through `prove --test` instead. Test names only: no `<slug>#AC2` (the commit is on the issue's branch), no
+  prefix plus a number) are ids, and the rest are test names. A test name with spaces (a JS/TS `it()` or
+  `describe()` title) goes in double or single quotes and is read whole: `Proves: AC3 "lista: id i z (ryba)"`;
+  `prove --test "<title>"` takes it whole too. Test names only: no `<slug>#AC2` (the commit is on the issue's branch), no
   package path (`internal/memory`: prove finds each test's package itself), no flags or prose.
   - **Playtest steps never prove through a trailer.** A step proves through `proves: [AC1]` on the step in its
     session file (or `issue-cli prove <slug> AC1 --step TP4`). A step id in a trailer (`Proves: AC1 TP4`,
@@ -43,7 +44,8 @@ Most links need no command: the agent declares them where it writes the proof.
   - Criteria ids stay put when a criterion goes: `issue-cli check-remove <slug> AC6` keeps AC6's slot, so AC7's
     trailers still prove AC7. AC6's links become strays.
   - Only the work branch's own first-parent commits count. While the branch is live they are read as
-    `main..work/<slug>`, so commits merged in from main never count.
+    `main..<branch>`, so commits merged in from main never count. Which branch that is: see
+    [Finding the issue's branch](#finding-the-issues-branch).
   - After the merge they are read from the recorded branch head, back to the issue's first dispatch.
   - A commit another issue's branch held first is not this issue's: some other issue recorded a branch head
     (`branch_head` in its stats sidecar) containing it before this issue recorded one. That leaves out the
@@ -59,12 +61,41 @@ Most links need no command: the agent declares them where it writes the proof.
 - **`issue-cli prove`** is the fallback, and the only way to record a value. Its links are stored in the issue's
   data sidecar under `proofs` (see [Per-issue Data Store](../data-store.md)).
 
+## Finding the issue's branch
+
+prove, `prove --run`, the `commits_reference_issue` rule, check-script and the commit-msg hook's `Refs:` hint all
+find the issue's branch and worktree the same way (`checks.IssueBranch`, `proof.FindIssueRef`):
+
+1. the branch its `branch:` frontmatter field names, when that branch exists
+   (`issue-cli set-meta <slug> --key branch --value <name>`);
+2. `work/<slug>`, when it exists. A project with `worktree: true` always stops here;
+3. the recorded branch head or merge sha of a branch since deleted (the stats sidecar);
+4. the one linked worktree whose branch ends in the slug (`<anything>/<slug>`, or its last segment is the slug's
+   last segment: `work/ocena-jakosci` for `testy/ocena-jakosci`), else the one whose `HANDOFF.md` names the slug as
+   a whole word. Two or more matches at one step are ambiguous: none is used, and the message lists them.
+
+The worktree is `git worktree list`'s entry for the found branch, whatever its folder is called, else
+`.worktrees/<slug>`. Steps 1 and 4 are for projects without `worktree: true`, whose workers make their own worktree;
+their briefing names `work/<slug>` in `.worktrees/<slug>` (a `## Branch` section,
+[Agent Dispatch](../agent-dispatch.md#per-issue-worktrees)).
+
+When nothing matches, the report and the rule say what was tried and how to fix it, instead of
+"not checked: no work branch":
+
+```text
+no branch for testy/ocena: looked for a branch: field (unset), work/testy/ocena (no such branch), a worktree whose
+branch ends in ocena or whose HANDOFF.md names testy/ocena (none of 3). Fix: git branch -m <your-branch>
+work/testy/ocena, or issue-cli set-meta testy/ocena --key branch --value <your-branch>
+```
+
+A test or commit link then reads `not checked: no branch found`, with that text as its fix.
+
 ## What the engine checks
 
 | Link | Passes when | Otherwise |
 |:--|:--|:--|
-| test | the name is a whole word in a test file on the branch (`git grep -w` at the branch head; paths such as `_test.`, `test_`, `.test.`, `.spec.`, `tests/`, `*Tests.cs`), **and** a `tests:` comment is newer than the branch's last code commit (see below) | not found · stale (code changed since the last tests: comment) · no tests: report |
-| step | the step's latest verdict (pass or fail, any mode) is pass | failed · not run |
+| test | the name (one word, or a quoted title as one phrase) is a whole word in a test file on the branch (`git grep -w` at the branch head, each name looked up on its own; paths such as `_test.`, `test_`, `.test.`, `.spec.`, `tests/`, `*Tests.cs`, or a `.rs` file with a test attribute such as `#[test]` or `#[cfg(test)]`, where Rust keeps its unit tests inline), **and** a `tests:` comment is newer than the branch's last code commit (see below) | not found · stale (code changed since the last tests: comment) · no tests: report |
+| step | the step's latest verdict (pass or fail, any mode) is pass, in a run of one of the issue's own sessions (`issue:` names the issue) | failed · not run |
 | commit | a trailer's commit; or, for `prove --commit`, the sha is reachable from the work branch or its merge, or a branch commit has its patch (amended or rebased) | not found |
 | value | always; shown as "reported" | — |
 | shot | the file exists in the worktree or the project checkout | missing |
@@ -77,7 +108,7 @@ A criterion is **proven** when one of its links passes. Any kind counts on its o
 - merges of main into the branch;
 - non-code commits, where every file is under `docs/`, `playtest/sessions/`, `scripts/checks/`, `issues/`, `retros/` or `sessions/`, a Markdown file (`*.md`), or a `CHANGELOG` in any folder (`ui/evidence-tab-proof-shots-and-criteria` D-6, widened by `cli/prove-run-runs-the-trailers-tests-and-posts-the-tests-comment` D-3). The docs commit an agent makes in the documentation status, a playtest session or a guided check script added after the tests would otherwise make every test link read stale. Other non-Go files still count: templates, static assets, testdata and YAML read through `go:embed` change what a test sees.
 
-**An amended commit keeps its report.** Amending or rebasing a commit gives it a new sha and a new commit time, so a `tests:` comment posted before it would read stale by time alone. When the newest `tests:` comment names a commit (`prove --run at <sha>`, or any sha-shaped word in it), the report still holds if the last code commit is that commit or under it, or if a branch commit from the last code commit on has the named commit's `git patch-id --stable`: a message-only amend matches, an amend that changes code doesn't. The test link then reads "reported for the last change", and the Evidence tab counts the tests as after it. A `prove --commit` link to a sha no longer on the branch is found the same way. Simplest still: without a merge of main, put the `Refs: <slug>` line in the last code commit before running the tests, so nothing is amended afterwards.
+**An amended commit keeps its report.** Amending or rebasing a commit gives it a new sha and a new commit time, so a `tests:` comment posted before it would read stale by time alone. When the newest `tests:` comment names a commit (`prove --run at <sha>`, or any sha-shaped word in it), the report still holds if the last code commit is that commit or under it, or if a branch commit from the last code commit on has the named commit's `git patch-id --stable`: a message-only amend matches, an amend that changes code doesn't. The test link then reads "reported for the last change", and the Evidence tab counts the tests as after it. A `prove --commit` link to a sha no longer on the branch is found the same way. Simplest still: without a merge of main, put the `Refs: <slug>` line in the last code commit before running the tests, so nothing is amended afterwards. In a dispatched worker's session the commit-msg hook adds that line to the branch's first commit itself.
 
 **Posting the report: `prove --run`.** In a Go project, `issue-cli prove <slug> --run` writes the `tests:` comment for
 you. It takes every test link of the issue (trailers and `prove --test`), finds the package of each in the issue's
@@ -90,11 +121,20 @@ on every criterion it is linked to, a newer commit's trailer (or a `prove --test
 test renamed or removed later (an owner decision changed the design) can't be taken out of a pinned commit. It prints
 as `– <name> — superseded by <newer> (trailer on <sha>)`, is skipped, and the comment ends with `; N superseded:
 <names>`; `prove` lists that link as `superseded by …`. A missing name in the newest trailer still blocks (a typo).
+**Without a `go.mod`** (a Node or TypeScript project, say), `prove --run` runs the project's own tests instead: the
+default-tier `ci: run:` commands from its `workflow.yaml`, in order, in the issue's worktree, the way local CI runs
+them (`sh -c`, the `ci:` nice level and timeout, `CI=true`). A suite has no per-test filter, so each linked name only
+has to be in a tracked test file as a whole word (the test check's own lookup, shown as `✓ <name> (<file>)`); when
+every command exits 0 the comment is posted with the command, `npm ci && npm test` say, and when one fails every name
+fails with the output's tail and nothing is posted. A name in no test file is not found and blocks, green suite or
+not. The worktree is the issue branch's own, wherever `git worktree list` has it; `.worktrees/<slug>` is only the
+fallback.
 It refuses, with the manual `issue-cli comment <slug> --text "tests: ..."` as the way out, when the issue has
-no test links, no worktree, or no `go.mod`; it refuses uncommitted code in the worktree (commit first: that commit
+no test links, no worktree, or neither a `go.mod` nor a `ci:` command; it refuses uncommitted code in the worktree (commit first: that commit
 would stale the report anyway) and runs `mem-guard check` first when `mem-guard` is on PATH. `--json` adds a `run`
-object (`command`, `head`, `packages`, `results` with each name's `outcome` and output tail, `posted`). The "no tests:
-report" and "stale" hints under a test link name `prove --run` in a Go project. So the order is: the test commit with
+object (`command`, `head`, `packages`, `results` with each name's `outcome` and output tail, `posted`, and `suite: true`
+for a `ci:` run). The "no tests: report" and "stale" hints under a test link name `prove --run` in a Go project or
+one with a `ci:` command. So the order is: the test commit with
 its `Proves:` trailer, any further code commits, then `prove --run`.
 
 **Limits of the test check** (D-6): the engine checks that the test exists and that the report is newer than the
@@ -164,7 +204,7 @@ worker needs it. Source: workflow/a-proof-that-waits-on-the-leads-act-shows-as-w
 
 ```bash
 issue-cli prove <slug> <AC-id> --test <TestName>       # every link flag is repeatable
-issue-cli prove <slug> <AC-id> --step <TP3>            # a playtest session step id
+issue-cli prove <slug> <AC-id> --step <TP3>            # a step of one of the issue's own sessions
 issue-cli prove <slug> <AC-id> --commit <sha>          # stored as the full sha; refused when unknown
 issue-cli prove <slug> <AC-id> --value "690 vs 380"
 issue-cli prove <slug> <AC-id> --shot <path>           # see above
@@ -174,6 +214,13 @@ issue-cli prove <slug> --run [--json]                  # run the test links' tes
 issue-cli prove <slug> <AC-id> --lead "<command>"      # a command only the lead can run; see above
 issue-cli prove <slug> --lead-run [<AC-id>…]           # the lead: run them, record each run
 ```
+
+A step link resolves from the issue's own sessions only: proof reads the runs
+of the sessions whose `issue:` is the issue, never another issue's runs. So
+`prove --step` refuses a step id that only another issue's session has, naming
+that session and its issue: put `proves:` on a step of the issue's own
+session, or record the other session's result with `--value`. A step id no
+session has yet is saved (the session may be written later).
 
 The list shows each criterion as `proven` or `UNPROVEN`, and under it each link with where it came from and its
 check result (with a `→` fix line when it fails).
@@ -278,6 +325,11 @@ An agent is what the worker guard sees: a dispatched worker or lead, or any Clau
 In the viewer, it is a request without the browser's same-origin headers. Workers never untick an owner box an
 agent ticked either; the owner unticks or keeps it.
 
+`check` by several ids from an agent ticks the agent's boxes and leaves each owner box open with a
+`✗ Not ticked, the owner's` line (so does `transition --check`); it fails only when it ticked nothing. Box
+listings (`checklist`, `show`, `start`, a transition's checklist) mark each owner box `(owner's)` from the same
+`OwnerBoxWhy`, so an agent sees the box is the owner's before it tries.
+
 While the gate covers an issue, `issue-cli check <slug> AC2` (by id, text, index or `--section … --all`) is
 refused, with a pointer to `prove --list`. Ticking a box in the web UI from the owner's browser stays allowed, because the owner decides.
 `issue-cli checklist` adds a line with the count ("2/3 proven").
@@ -294,7 +346,14 @@ Two validation rules:
     `transition --dry-run` shows it next to the other unmet requirements.
   - Issues `created` before the date are exempt, so issues in flight when a project adopts the feature keep working.
     So are issues without criteria checkboxes (bugfix, tweak). Both pass with no message; `prove --list` says
-    when the gate doesn't cover an issue. An issue without `created:` counts as new (covered). Every way of
+    when the gate doesn't cover an issue. On an issue with no `## Acceptance Criteria` section, `prove --list`
+    prints `no acceptance criteria: nothing to prove` and exits 0, unless the issue's path asks for criteria
+    (`criteria_checkboxes` or `section_has_checkboxes` on that section): then it names that transition and the
+    `issue-cli append` that adds one. The `Requires:` list under `start` and `transition` leaves the gate out
+    while it would pass the issue anyway.
+  - Entering the first work status of its path, an issue without criteria hears in the entry guidance where its
+    path asks for them, or that they are optional and each one written needs a proof link at the gate, so the
+    section is written before the code. An issue without `created:` counts as new (covered). Every way of
     creating an issue writes the date, `issue-cli health lint` flags an undated one, and the Evidence tab's label
     follows the same rule (`ProofRequired`).
   - With no argument (`rule: "criteria_proven"`, as in the bundled template), it covers every issue.

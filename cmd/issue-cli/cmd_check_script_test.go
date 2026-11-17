@@ -85,6 +85,55 @@ func TestCheckScriptNoScriptsSaysHowToStartOne(t *testing.T) {
 	assertContains(t, ce.Msg, "issue-cli check-script cli/lead-tab --new <name>")
 }
 
+// checkScriptReportWorkflow uses guided checks at testing; its report type
+// skips testing, so a report runs none.
+const checkScriptReportWorkflow = `statuses:
+  - name: "idea"
+  - name: "testing"
+    prompt: "Before handing over: issue-cli check-script <slug> --yes"
+  - name: "human-testing"
+  - name: "done"
+types:
+  report:
+    path: [idea, human-testing, done]
+`
+
+func TestCheckScriptOnAReportSaysNoneNeeded(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, checkScriptReportWorkflow)
+	path := filepath.Join(dir, "issues", "CLI", "lead-tab.md")
+	data, _ := os.ReadFile(path)
+	os.WriteFile(path, []byte(strings.Replace(string(data), "system: \"CLI\"\n", "system: \"CLI\"\ntype: \"report\"\n", 1)), 0o644)
+
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--yes"}); err != nil {
+		t.Fatalf("--yes on a report: %v", err)
+	}
+	assertContains(t, out.String(), "✓ No check scripts needed for cli/lead-tab: its type report (idea → human-testing → done) has no status that runs guided checks. Nothing to run.")
+	if strings.Contains(out.String(), "--new") {
+		t.Fatalf("a report is told how to write a script:\n%s", out)
+	}
+
+	ctx, _, _ = newTestContext(proj, false)
+	err := runCheckScript(ctx, []string{checkSlug, "--list"})
+	var ce *exitCodeError
+	if !errors.As(err, &ce) || ce.Code != 1 {
+		t.Fatalf("--list: err = %v, want exit 1 (none listed)", err)
+	}
+	assertContains(t, ce.Msg, "no check scripts for cli/lead-tab: none needed, its type report")
+}
+
+// An issue whose path runs guided checks still hears how to start one.
+func TestCheckScriptOnAPathWithChecksStillSaysHowToStartOne(t *testing.T) {
+	proj, _ := makeCheckScriptFixture(t, checkScriptReportWorkflow)
+	ctx, _, _ := newTestContext(proj, false)
+	err := runCheckScript(ctx, []string{checkSlug, "--yes"})
+	var ce *exitCodeError
+	if !errors.As(err, &ce) || ce.Code != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	assertContains(t, ce.Msg, "issue-cli check-script cli/lead-tab --new <name>")
+}
+
 func TestCheckScriptNewWritesOneStepPerUntickedManualBox(t *testing.T) {
 	proj, dir := makeCheckScriptFixture(t, "")
 	ctx, out, _ := newTestContext(proj, false)
@@ -824,4 +873,41 @@ func TestCheckScriptNamesEveryWorktreeWhenSeveralHoldTheIssuesScripts(t *testing
 	assertContains(t, err.Error(), one)
 	assertContains(t, err.Error(), two)
 	assertContains(t, err.Error(), "from inside")
+}
+
+// A project's workers may branch as they like: --new writes into the worktree
+// whose HANDOFF.md names the issue, before any script there could say so.
+func TestCheckScriptNewFindsTheWorktreeByItsHandoff(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	wt := worktreeOn(t, dir, "work/short-name")
+	if err := os.WriteFile(filepath.Join(wt, "HANDOFF.md"), []byte("# HANDOFF: "+checkSlug+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCheckScript(ctx, []string{checkSlug, "--new", "lead-tab"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "✓ Wrote "+filepath.Join(wt, "scripts", "checks", "lead-tab.sh"))
+}
+
+// With no branch found, the refusal says what the lookup tried and the two
+// fixes, rename the branch or name it in the branch: field.
+func TestCheckScriptNoScriptsNamesTheBranchItLookedFor(t *testing.T) {
+	proj, dir := makeCheckScriptFixture(t, "")
+	worktreeOn(t, dir, "work/unrelated")
+	t.Chdir(dir)
+	ctx, _, _ := newTestContext(proj, false)
+	err := runCheckScript(ctx, []string{checkSlug})
+	var ce *exitCodeError
+	if !errors.As(err, &ce) || ce.Code != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	for _, want := range []string{
+		"no check scripts for cli/lead-tab",
+		"no branch for cli/lead-tab: looked for a branch: field (unset), work/cli/lead-tab (no such branch)",
+		"git branch -m <your-branch> work/cli/lead-tab, or issue-cli set-meta cli/lead-tab --key branch --value <your-branch>",
+	} {
+		assertContains(t, ce.Msg, want)
+	}
 }

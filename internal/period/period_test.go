@@ -145,6 +145,7 @@ var notADateWindow = map[string]string{
 	"internal/tracker/health.go: time.Duration(days) * 24 * time.Hour":  "ShrinkShotsAfter: how long after done shots stay full size, a retention span",
 	"internal/viewer/stats_dashboard.go: time.Duration(d)*24*time.Hour": "statsOpts.window: how much the aggregate loads (the range plus timeline.Window of slack), not the days the page shows",
 	"internal/bench/fixture.go: time.Duration(i+1)*24*time.Hour":        "the fixture tasks' dates, a day apart from a fixed start",
+	"internal/procs/procs.go: time.Duration(days)*24*time.Hour":         "ParseEtime: ps's elapsed time (dd-hh:mm:ss), a duration the kernel counts in seconds",
 }
 
 // dayWindow matches a span of days written in hours: 7×24h, 168h, or

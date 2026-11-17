@@ -106,3 +106,53 @@ func TestDepartmentShowSpendLine(t *testing.T) {
 	}
 	assertContains(t, out.String(), `"spend": {`)
 }
+
+func TestSpendContextPrintsBoxesAndTopSessions(t *testing.T) {
+	proj := goalsProject(t)
+	spendFixture(t, proj)
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runSpend(ctx, []string{"--context"}); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	assertContains(t, s, "Context per turn since 2026-10-22 (7 days; Claude Code transcripts on this machine, main sessions only)")
+	assertContains(t, s, "Workers: 1 session · 1 turn · floor 1.5M · turn median 1.5M, max 1.5M · 0 compactions · floor share 100% of 1.5M read")
+	assertContains(t, s, "== Marketing ==\n  1 session · 1 turn · floor 1.5M")
+	assertContains(t, s, "== HQ · incl. product, marketing ==\n  2 sessions · 2 turns · floor 2k")
+	assertContains(t, s, "Unattributed (yours): 1 session · 1 turn · floor 30")
+	assertContains(t, s, "Top 5 sessions by context read:")
+	assertContains(t, s, "  seo-pass  1 turn · floor 1.5M · turn median 1.5M, max 1.5M · 0 compactions · 1.5M read")
+	assertContains(t, s, "  lead-acme  1 turn · floor 2k")
+	assertContains(t, s, "  yours  1 turn · floor 30")
+
+	// One box lists its own top sessions; --days narrows the window.
+	out.Reset()
+	if err := runSpend(ctx, []string{"--context", "marketing", "--days", "1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "since 2026-10-28 (1 days")
+	assertContains(t, out.String(), "  seo-pass  1 turn")
+	if strings.Contains(out.String(), "== HQ") {
+		t.Error("one box only")
+	}
+	if err := runSpend(ctx, []string{"--days", "3"}); err == nil || !strings.Contains(err.Error(), "--days goes with --context") {
+		t.Errorf("--days alone: err = %v", err)
+	}
+	if err := runSpend(ctx, []string{"--context", "--days", "0"}); err == nil {
+		t.Error("--days 0 accepted")
+	}
+
+	// Plain spend names --context.
+	out.Reset()
+	if err := runSpend(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Context floor and turn size, per box and session: issue-cli spend --context")
+
+	ctx, out = goalsCtx(t, proj, true)
+	if err := runSpend(ctx, []string{"--context"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), `"floor_share": 1`)
+	assertContains(t, out.String(), `"floor_tokens": 1500000`)
+}

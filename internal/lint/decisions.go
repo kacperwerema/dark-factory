@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/outputs"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -41,6 +42,10 @@ func checkDecisions(env *Env) []Finding {
 			out = append(out, Finding{Where: d.Ref,
 				Message: fmt.Sprintf("unknown scope key or value: its trailing {…} names a decision key but is read as text (%v), so the decision reaches only its own issue, soft", err),
 				Fix:     fmt.Sprintf("issue-cli decide %s --replaces %s --text \"…\" with --scope/--hard/--at/--paths/--expires (keys: %s)", d.Slug, d.ID, tracker.DecisionKeyList())})
+		} else if name, ok := k.removedDepartment(d.DecisionAttrs); ok {
+			out = append(out, Finding{Where: d.Ref, History: true,
+				Message: fmt.Sprintf("scope %s names department %q, which projects.yaml no longer has; the board still holds its work, so the decision is kept as its record", d.Scope, name),
+				Fix:     "nothing to do; add the department back under departments: to bring the decision back in force there"})
 		} else if msg := k.unknownScope(d.DecisionAttrs); msg != "" {
 			out = append(out, Finding{Where: d.Ref, Message: "unknown scope key or value: " + msg,
 				Fix: fmt.Sprintf("issue-cli decide %s --amend %s --scope <scope>", d.Slug, d.ID)})
@@ -78,6 +83,9 @@ type decisionKnown struct {
 	systems, types, statuses map[string]bool
 	statusOrder              []string
 	env                      *Env
+	// seen is every department key the board still shows work of (an
+	// issue's department: field, an output on the shelf), set on first use.
+	seen map[string]bool
 }
 
 func (env *Env) decisionKnown() decisionKnown {
@@ -112,6 +120,39 @@ func (env *Env) decisionKnown() decisionKnown {
 		}
 	}
 	return k
+}
+
+// removedDepartment reports whether a's scope names a department
+// projects.yaml no longer has but the board still shows work of: removed on
+// purpose, so the decision is history. A name the board never saw (a typo)
+// is not, and unknownScope warns on it.
+func (k *decisionKnown) removedDepartment(a tracker.DecisionAttrs) (string, bool) {
+	kind, name := a.ScopeKind()
+	if kind != tracker.ScopeDepartment || tracker.DepartmentKey(name) == "product" || k.env.Project.DepartmentByKey(name) != nil {
+		return "", false
+	}
+	if k.seen == nil {
+		k.seen = k.env.departmentsSeen()
+	}
+	return name, k.seen[tracker.DepartmentKey(name)]
+}
+
+// departmentsSeen is every department key the board shows work of: an
+// issue's department: field and each output's department.
+func (env *Env) departmentsSeen() map[string]bool {
+	seen := map[string]bool{}
+	for _, i := range env.Issues {
+		if d := strings.TrimSpace(i.Field("department")); d != "" {
+			seen[tracker.DepartmentKey(d)] = true
+		}
+	}
+	list, _ := outputs.Load(env.Project)
+	for _, o := range list {
+		if o.Department != "" {
+			seen[tracker.DepartmentKey(o.Department)] = true
+		}
+	}
+	return seen
 }
 
 // unknownScope says what a scope names that the project lacks, or "".

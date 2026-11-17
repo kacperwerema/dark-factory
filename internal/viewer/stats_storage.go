@@ -41,8 +41,11 @@ func storageCard(d *Dashboard, daily []*health.Snapshot, latest *health.Snapshot
 	c.Sub = "The project checkout on disk on " + newest.Time().Format("2 Jan")
 	if n, ok := newest.Value("storage.worktrees", nil); ok {
 		c.Sub += " · " + plural(int(n), "worktree", "worktrees")
+		if mbs, ok := newest.Value("storage.worktrees_mb", nil); ok {
+			c.Sub += " (" + fmtMB(mbs) + ")"
+		}
 	}
-	c.Sub += ". Tidy playtest shots: issue-cli playtest prune --all"
+	c.Sub += ". Tidy playtest shots: issue-cli playtest prune --all; merged worktrees: issue-cli worktrees prune"
 	largest := 0.0
 	vals := make([]float64, len(health.StorageAreas))
 	has := make([]bool, len(health.StorageAreas))

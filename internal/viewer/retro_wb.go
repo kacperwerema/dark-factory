@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -105,6 +106,11 @@ type WbRetroList struct {
 	More    int
 	MoreURL string
 	Empty   string
+	// The show-all view (?all=1) pages the list, retroPageSize at a time:
+	// Range is "31–60 of 535", NewerURL and OlderURL the pages either side
+	// (empty on the first and the last).
+	Range              string
+	NewerURL, OlderURL string
 }
 
 // WbRetroItem is one retro in a list.
@@ -184,6 +190,9 @@ type WbRetroPattern struct {
 
 const (
 	retroListMax = 8
+	// retroPageSize is how many retros a list shows per page in the
+	// show-all view.
+	retroPageSize = 30
 	// retroPatternMin is how many other issues' retros must mention a term
 	// before it is called a pattern.
 	retroPatternMin = 3
@@ -326,7 +335,7 @@ func retroPattern(sel *RetroEntry, all []*RetroEntry, stop map[string]bool, link
 			if r == sel || r.IssueSlug == sel.IssueSlug {
 				continue
 			}
-			if strings.Contains(strings.ToLower(retro.SectionsText(r.BodyRaw)), lt) {
+			if strings.Contains(r.lowerSections(), lt) {
 				key := r.IssueSlug
 				if key == "" {
 					key = r.FileName
@@ -345,14 +354,17 @@ func retroPattern(sel *RetroEntry, all []*RetroEntry, stop map[string]bool, link
 }
 
 type retroWbIn struct {
-	Proj       *tracker.Project
-	Prefix     string
-	Header     WbHeader
-	Retros     []*RetroEntry
-	Bugs       []*ToolBugReportView
-	CEO        WbMessageBox
-	Selected   string
-	All        bool
+	Proj     *tracker.Project
+	Prefix   string
+	Header   WbHeader
+	Retros   []*RetroEntry
+	Bugs     []*ToolBugReportView
+	CEO      WbMessageBox
+	Selected string
+	All      bool
+	// Pages are the show-all view's page of each list (to_sort_page,
+	// processed_page; 1-based, clamped), keyed by the list's Key.
+	Pages      map[string]string
 	Presort    WbRetroPresort
 	StatusStop []string
 	// View is "bugs" for the Bugs view; BugStatus its filter (open by
@@ -365,12 +377,42 @@ type retroWbIn struct {
 func buildRetroWb(in retroWbIn) *RetroWbPage {
 	prefix := in.Prefix
 	base := prefix + "/retros"
-	link := func(r *RetroEntry) string {
-		q := url.Values{"retro": {r.FileName}}
-		if in.All {
-			q.Set("all", "1")
+	// pageOf is a list's page in the show-all view, clamped to 1..pages.
+	pageOf := func(key string, n int) int {
+		last := max(1, (n+retroPageSize-1)/retroPageSize)
+		p, err := strconv.Atoi(in.Pages[key])
+		if err != nil || p < 1 {
+			return 1
 		}
-		return base + "?" + q.Encode()
+		return min(p, last)
+	}
+	// query is the show-all view's state: all=1 and each list's page, with
+	// the page of key set to page (0 leaves them as they are).
+	query := func(retroFile, key string, page int) url.Values {
+		q := url.Values{}
+		if retroFile != "" {
+			q.Set("retro", retroFile)
+		}
+		if !in.All && page == 0 {
+			return q
+		}
+		q.Set("all", "1")
+		for k, v := range in.Pages {
+			if v != "" && v != "1" {
+				q.Set(k+"_page", v)
+			}
+		}
+		if key != "" {
+			if page > 1 {
+				q.Set(key+"_page", strconv.Itoa(page))
+			} else {
+				q.Del(key + "_page")
+			}
+		}
+		return q
+	}
+	link := func(r *RetroEntry) string {
+		return base + "?" + query(r.FileName, "", 0).Encode()
 	}
 	p := &RetroWbPage{Header: in.Header, Project: in.Proj.Name, Prefix: prefix, ClassicURL: base + "?classic=1", Presort: in.Presort}
 
@@ -425,14 +467,29 @@ func buildRetroWb(in retroWbIn) *RetroWbPage {
 	list := func(key, title string, rs []*RetroEntry, empty string) WbRetroList {
 		l := WbRetroList{Key: key, Title: title, Count: len(rs), Empty: empty}
 		shown := rs
-		if !in.All && len(shown) > retroListMax {
+		selFile := ""
+		if sel != nil {
+			selFile = sel.FileName
+		}
+		switch {
+		case !in.All && len(shown) > retroListMax:
 			shown = shown[:retroListMax]
 			l.More = len(rs) - retroListMax
-			q := url.Values{"all": {"1"}}
-			if sel != nil {
-				q.Set("retro", sel.FileName)
+			l.MoreURL = base + "?" + url.Values{"all": {"1"}, "retro": {selFile}}.Encode()
+			if selFile == "" {
+				l.MoreURL = base + "?all=1"
 			}
-			l.MoreURL = base + "?" + q.Encode()
+		case in.All && len(rs) > retroPageSize:
+			page := pageOf(key, len(rs))
+			from, to := (page-1)*retroPageSize, min(page*retroPageSize, len(rs))
+			shown = rs[from:to]
+			l.Range = fmt.Sprintf("%d–%d of %d", from+1, to, len(rs))
+			if page > 1 {
+				l.NewerURL = base + "?" + query(selFile, key, page-1).Encode()
+			}
+			if to < len(rs) {
+				l.OlderURL = base + "?" + query(selFile, key, page+1).Encode()
+			}
 		}
 		for _, r := range shown {
 			l.Items = append(l.Items, WbRetroItem{Title: retroTitle(r), System: r.System, Date: retroTime(r).Format("2 Jan"),
@@ -585,7 +642,7 @@ func (s *Server) handleRetroWb(w http.ResponseWriter, r *http.Request, proj *tra
 	sort.Strings(statuses)
 	q := r.URL.Query()
 	page := buildRetroWb(retroWbIn{Proj: proj, Prefix: prefix, Header: h, Retros: retros, Bugs: bugs, CEO: company.Message,
-		Selected: q.Get("retro"), All: q.Get("all") != "", StatusStop: statuses, View: q.Get("view"), BugStatus: q.Get("bug_status"),
+		Selected: q.Get("retro"), All: q.Get("all") != "", Pages: map[string]string{"to_sort": q.Get("to_sort_page"), "processed": q.Get("processed_page")}, StatusStop: statuses, View: q.Get("view"), BugStatus: q.Get("bug_status"),
 		Presort: WbRetroPresort{URL: prefix + "/retros/review", Session: session, Live: agentSessionLive(proj, session),
 			AttachCmd: agentAttachCmd(proj, session), Agents: []string{"claude", "codex"}}})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -189,7 +189,7 @@ func TestOutputsList(t *testing.T) {
 		t.Error("output with no subcommand")
 	}
 	ctx, _ = goalsCtx(t, proj, false)
-	if err := runOutput(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "add, review, publish, use, show, revise, comments or reply") {
+	if err := runOutput(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "add, list, review, publish, use, show, revise, comments or reply") {
 		t.Errorf("unknown subcommand: %v", err)
 	}
 }
@@ -432,5 +432,76 @@ func TestOutputShowText(t *testing.T) {
 		if out.Len() != 0 {
 			t.Errorf("%s: refused --text printed %q", c.o.Title, out)
 		}
+	}
+}
+
+// output list is outputs: the same rows and filters, --department as the
+// positional; output --help names it.
+func TestOutputListIsOutputs(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	addOutput(t, proj, "--issue", "seo-pass", "--title", "Acme FAQ", "--kind", "page", "--url", "https://acme.example/faq")
+	addOutput(t, proj, "--title", "Report", "--kind", "report", "--path", "docs/report.md", "--job", "weekly")
+	for _, c := range [][]string{nil, {"marketing"}, {"--department", "marketing"}, {"--issue", "seo-pass"}, {"--state", "review"}} {
+		ctx, want := goalsCtx(t, proj, false)
+		if err := runOutputs(ctx, c); err != nil {
+			t.Fatalf("outputs %v: %v", c, err)
+		}
+		ctx, got := goalsCtx(t, proj, false)
+		if err := runOutput(ctx, append([]string{"list"}, c...)); err != nil {
+			t.Fatalf("output list %v: %v", c, err)
+		}
+		if got.String() != want.String() || got.Len() == 0 {
+			t.Errorf("output list %v =\n%s\nwant\n%s", c, got, want)
+		}
+	}
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"list", "--department", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Report") || !strings.Contains(out.String(), "Acme FAQ") {
+		t.Errorf("--department marketing:\n%s", out)
+	}
+	ctx, _ = goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"list", "product", "--department", "marketing"}); err == nil {
+		t.Error("two departments: no refusal")
+	}
+	assertContains(t, outputCommand.LongHelp, "output list")
+	assertContains(t, outputCommand.ShortHelp, "list")
+	if err := runOutput(ctx, []string{"nope"}); err == nil || !strings.Contains(err.Error(), "list") {
+		t.Errorf("unknown subcommand error = %v, want it to name list", err)
+	}
+}
+
+// output add --path from a worker finds a file that is only on the issue's
+// branch in its worktree, and records the branch.
+func TestOutputAddPathReadsTheIssuesWorktree(t *testing.T) {
+	asLead(t)
+	proj := outputsProject(t)
+	root := proj.WorkDir
+	git(t, root, "init", "-q", "-b", "main")
+	git(t, root, "add", "-A")
+	git(t, root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+	tree := filepath.Join(root, ".worktrees", "seo-pass")
+	git(t, root, "worktree", "add", "-q", "-b", "work/seo-pass", tree)
+	mustWrite(t, filepath.Join(tree, "docs", "branch.md"), "# only on the branch\n")
+
+	o := addOutput(t, proj, "--issue", "seo-pass", "--title", "Branch report", "--kind", "report", "--path", "docs/branch.md")
+	if o.Path != "docs/branch.md" || o.Branch != "work/seo-pass" || o.Worktree == "" || o.Missing {
+		t.Errorf("branch output = %+v", o)
+	}
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runOutput(ctx, []string{"show", shortID(o.ID)}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "(branch work/seo-pass)")
+	assertContains(t, out.String(), filepath.Join(".worktrees", "seo-pass", "docs", "branch.md"))
+	if strings.Contains(out.String(), "(missing)") {
+		t.Errorf("show says missing:\n%s", out)
+	}
+	// On main: as today, no branch.
+	o = addOutput(t, proj, "--issue", "seo-pass", "--title", "Main report", "--kind", "report", "--path", "docs/report.md")
+	if o.Branch != "" || o.Worktree != "" {
+		t.Errorf("main output = %+v", o)
 	}
 }

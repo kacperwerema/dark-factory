@@ -75,9 +75,8 @@ func Script(body string) string {
 // cache is the cached, warmed copy of script, made if it is missing or
 // differs from script.
 func cache(script string) (string, error) {
-	sum := sha256.Sum256([]byte(script))
 	dir := Dir()
-	path := filepath.Join(dir, hex.EncodeToString(sum[:]))
+	path := cachePath(script)
 	if b, err := os.ReadFile(path); err == nil && string(b) == script {
 		return path, nil
 	}
@@ -104,6 +103,12 @@ func cache(script string) (string, error) {
 		return "", err
 	}
 	return path, os.Rename(tmp.Name(), path)
+}
+
+// cachePath is where the cache keeps script: Dir, then its sha256.
+func cachePath(script string) string {
+	sum := sha256.Sum256([]byte(script))
+	return filepath.Join(Dir(), hex.EncodeToString(sum[:]))
 }
 
 func warm(path string) error {

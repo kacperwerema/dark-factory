@@ -48,8 +48,30 @@ type Run struct {
 	// Fallback says the first agent hit its usage limit and the critic
 	// ran again on another ("codex hit its usage limit (…); ran on claude").
 	Fallback string `json:"fallback,omitempty"`
+	// TookMS is how long the critic ran, in milliseconds (both runs when a
+	// usage limit fell back to another agent); 0 for runs recorded before
+	// it was kept, which show "—" (Took).
+	TookMS int64 `json:"took_ms,omitempty"`
 	// Override: the owner let the gate pass past this run's blocks.
 	Override *Override `json:"override,omitempty"`
+}
+
+// Took is how long the critic ran, rounded to the second, and whether it
+// was recorded at all.
+func (r *Run) Took() (time.Duration, bool) {
+	if r == nil || r.TookMS <= 0 {
+		return 0, false
+	}
+	return (time.Duration(r.TookMS) * time.Millisecond).Round(time.Second), true
+}
+
+// TookText is Took in words: "3m12s", or "—" when it wasn't recorded.
+func (r *Run) TookText() string {
+	d, ok := r.Took()
+	if !ok {
+		return "—"
+	}
+	return d.String()
 }
 
 // Override is the owner's word that a run's blocks don't hold the gate.

@@ -81,7 +81,10 @@ func setupWorkbenchProject(t *testing.T, now time.Time) workbenchFixture {
 	}
 	designDone := "## Design\n- [x] Approach documented"
 	f := workbenchFixture{
-		proj:  tracker.Project{Name: "Workbench Project", Slug: "wb", IssueDir: issueDir, WorkflowFile: wfPath},
+		// WorkDir keeps the .agent-logs writeClilog makes in the temp folder: in
+		// the package folder they changed what tests walking the tree read, and
+		// go test's cache reran those every time.
+		proj:  tracker.Project{Name: "Workbench Project", Slug: "wb", IssueDir: issueDir, WorkflowFile: wfPath, WorkDir: root},
 		paths: map[string]string{},
 	}
 	f.paths["ready"] = writeWorkbenchIssue(t, issueDir, "ready", "in design", "assignee: \"agent-ready\"\n", designDone)

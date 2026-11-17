@@ -252,3 +252,58 @@ func TestMarkUsedFoldsIntoUses(t *testing.T) {
 		t.Errorf("bad lines: %+v", bad)
 	}
 }
+
+// A --path missing on the root checkout but in the issue's worktree is read
+// there and records the branch; once the root has it, the root wins.
+func TestAddPathFromTheIssuesWorktree(t *testing.T) {
+	p := project(t)
+	tree := filepath.Join(p.WorkDir, ".worktrees", "seo", "acme")
+	writeFile(t, filepath.Join(tree, "docs/new.md"), "# on the branch")
+	writeFile(t, filepath.Join(p.WorkDir, "docs/old.md"), "# on main")
+	writeFile(t, filepath.Join(tree, "docs/old.md"), "# on main")
+	in := AddInput{Department: "marketing", Title: "New", Kind: "report", Issue: "seo/acme", Worktree: tree, Branch: "work/seo/acme"}
+
+	in.Path = "docs/new.md"
+	o, err := Add(p, in, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Path != "docs/new.md" || o.Branch != "work/seo/acme" || o.Worktree != tree || o.Missing {
+		t.Errorf("branch file = %+v", o)
+	}
+	if got := LocalPath(p, o); got != filepath.Join(tree, "docs", "new.md") {
+		t.Errorf("LocalPath = %q, want the worktree's", got)
+	}
+	if body, ok := ReadMarkdown(p, o); !ok || !strings.Contains(body, "on the branch") {
+		t.Errorf("ReadMarkdown = %q, %v", body, ok)
+	}
+	// An absolute path into the worktree is the worktree's too.
+	in.Path, in.Title = filepath.Join(tree, "docs", "new.md"), "New abs"
+	if o, err := Add(p, in, now); err != nil || o.Path != "docs/new.md" || o.Branch == "" {
+		t.Errorf("absolute = %+v, %v", o, err)
+	}
+	// On the root checkout: as before, no branch.
+	in.Path, in.Title = "docs/old.md", "Old"
+	if o, err := Add(p, in, now); err != nil || o.Path != "docs/old.md" || o.Branch != "" || o.Worktree != "" {
+		t.Errorf("main file = %+v, %v", o, err)
+	}
+	// Neither: the refusal names both places.
+	in.Path = "docs/none.md"
+	if _, err := Add(p, in, now); err == nil || !strings.Contains(err.Error(), "worktree") {
+		t.Errorf("missing everywhere: %v", err)
+	}
+	// After the merge the root has it: read from the root.
+	writeFile(t, filepath.Join(p.WorkDir, "docs/new.md"), "# merged")
+	list, _ := Load(p)
+	got, _ := Find(list, o.ID)
+	if PathFile(p, got) != filepath.Join(p.WorkDir, "docs", "new.md") {
+		t.Errorf("after merge PathFile = %q", PathFile(p, got))
+	}
+	// The worktree removed before the merge: the root path, missing.
+	os.RemoveAll(filepath.Join(p.WorkDir, "docs", "new.md"))
+	os.RemoveAll(tree)
+	list, _ = Load(p)
+	if got, _ := Find(list, o.ID); !got.Missing {
+		t.Errorf("gone everywhere, not missing: %+v", got)
+	}
+}

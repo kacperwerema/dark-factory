@@ -56,6 +56,8 @@ type QueueView struct {
 	// proof links with no passing run); queue next lists them.
 	LeadWaits int
 	LeadCmd   string
+	// Share is the turn between projects (shareLine).
+	Share string
 }
 
 // queueView reads the project's queue; nil when it has none.
@@ -75,11 +77,13 @@ func queueView(proj *tracker.Project, issues []*tracker.Issue, prefix string, no
 	root := ciRootFor(proj)
 	auto, _ := autostart.Load(root, proj.Slug)
 	last, _ := autostart.LastStart(autostart.SharedDir())
+	share, _ := autostart.LoadShare(autostart.SharedDir())
 	_, yoloOn, _ := yolo.Active(root, proj.Slug, now)
 	verdict := agentrun.QueueEvaluate(agentrun.QueueInput{
 		Proj: proj, Issues: issues, Queue: q, Auto: auto, YOLO: yoloOn,
-		CIHold: agentrun.QueueCIHold(proj, root), Last: last, WorkRoot: projectRoot(proj), Now: now,
+		CIHold: agentrun.QueueCIHold(proj, root), Last: last, Share: share, WorkRoot: projectRoot(proj), Now: now,
 	})
+	v.Share = shareLine(proj, share, now)
 	row := func(it agentrun.QueueItem) QueueRow {
 		r := QueueRow{ID: it.ID, Label: it.Label(), Idea: it.Slug == "", Started: it.State == queue.Started, Hold: it.Hold, Blocked: it.Blocked}
 		if it.Slug != "" {

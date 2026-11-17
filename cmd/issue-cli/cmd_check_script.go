@@ -84,13 +84,17 @@ func runCheckScript(ctx *Context, args []string) error {
 		_, err := ctx.Stdout.Write(checks.Lib)
 		return err
 	}
-	if fs.NArg() == 0 {
+	if fs.NArg() == 0 && ownSlugEnv() == "" {
 		return &usageError{msg: "check-script requires <slug>\n\nExample:\n  issue-cli check-script <slug>\n  issue-cli check-script --lib"}
 	}
 	if fs.NArg() > 2 {
 		return unexpectedArgError(fs, fs.Arg(2))
 	}
 	slug := fs.Arg(0)
+	if slug == "" {
+		slug = ownSlugEnv()
+		noteOwnSlug(ctx, slug)
+	}
 	issue, _, err := findIssueOrErr(ctx, slug)
 	if err != nil {
 		return err
@@ -137,11 +141,19 @@ func runCheckScript(ctx *Context, args []string) error {
 		}
 		return listCheckScripts(ctx, issue, root, found)
 	}
+	if len(found) == 0 {
+		// A report has no branch either: say none are needed before the
+		// missing worktree.
+		if why := checkScriptsNotNeeded(ctx.Project, issue); why != "" {
+			fmt.Fprintf(ctx.Stdout, "✓ No check scripts needed for %s: %s. Nothing to run.\n", issue.Slug, why)
+			return nil
+		}
+	}
 	if rootErr != nil {
 		return rootErr
 	}
 	if len(found) == 0 {
-		return noCheckScripts(issue, root, fs.Arg(1))
+		return noCheckScripts(ctx.Project, issue, root, fs.Arg(1))
 	}
 	if len(removed) > 0 {
 		var keep []checks.Removed
@@ -243,8 +255,11 @@ func checkScriptRoot(proj *tracker.Project, issue *tracker.Issue) (string, error
 }
 
 // issueCheckout is where the issue's work happens and --new writes: its
-// worktree, else the git worktree on its branch (work/<slug>, kept even when
-// the workflow declares none), else, when the workflow has no worktrees, the
+// worktree, else the git worktree on its branch (its branch: field or
+// work/<slug>, kept even when the workflow declares none), else the one
+// worktree holding its scripts, else (unless the main checkout holds them)
+// a worktree whose branch ends in the slug or whose HANDOFF.md names it
+// (checks.IssueBranch), else, when the workflow has no worktrees, the
 // worktree of the project it runs from (a slug with a space has no work/
 // branch), else the project folder.
 func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) {
@@ -253,8 +268,9 @@ func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) 
 	if enabled && pathExists(path) {
 		return path, nil
 	}
-	if wt := checks.IssueWorktree(projectRoot(proj), issue.Slug); wt != "" {
-		return wt, nil
+	b := checks.IssueBranch(projectRoot(proj), issue)
+	if (b.How == checks.HowField || b.How == checks.HowWork) && b.Worktree != "" {
+		return b.Worktree, nil
 	}
 	if trees := checks.ScriptWorktrees(projectRoot(proj), issue.Slug); len(trees) == 1 {
 		return trees[0], nil
@@ -265,6 +281,11 @@ func issueCheckout(proj *tracker.Project, issue *tracker.Issue) (string, error) 
 			}
 		}
 		return "", &severalWorktreesError{slug: issue.Slug, trees: trees}
+	}
+	// A worktree found by its branch name or HANDOFF.md, unless the main
+	// checkout holds the issue's scripts (merged, or worked on there).
+	if b.Worktree != "" && !checks.ScriptsInMain(projectRoot(proj), issue.Slug) {
+		return b.Worktree, nil
 	}
 	if !enabled {
 		if cwd, err := workingDir(); err == nil {
@@ -298,12 +319,58 @@ func filterScripts(found []checks.Script, name string) []checks.Script {
 	return nil
 }
 
-func noCheckScripts(issue *tracker.Issue, root, name string) error {
+func noCheckScripts(proj *tracker.Project, issue *tracker.Issue, root, name string) error {
 	what := "no check scripts"
 	if name != "" {
 		what = "no check script " + name
 	}
-	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s, nor removed from it in git history\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), issue.Slug, shell.Quote(issue.Slug))}
+	if why := checkScriptsNotNeeded(proj, issue); why != "" {
+		return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s: none needed, %s", what, issue.Slug, why)}
+	}
+	return &exitCodeError{Code: 1, Msg: fmt.Sprintf("%s for %s under %s, nor removed from it in git history%s\n\nA script is scripts/checks/<name>.sh with a \"# issue: %s\" line near the top.\nStart one: issue-cli check-script %s --new <name>", what, issue.Slug, filepath.Join(root, checks.Dir), noBranchNote(proj, issue, root), issue.Slug, shell.Quote(issue.Slug))}
+}
+
+// checkScriptsNotNeeded is why the issue needs no guided check scripts
+// when the project's workflow uses them but the issue's own path (its type:
+// a report, an epic) has no status that runs them; "" otherwise.
+func checkScriptsNotNeeded(proj *tracker.Project, issue *tracker.Issue) string {
+	if proj == nil || issue == nil || !usesCheckScripts(proj.LoadWorkflow()) {
+		return ""
+	}
+	wf := proj.LoadWorkflowForIssue(issue)
+	if wf.LoadErr != nil || usesCheckScripts(wf) {
+		return ""
+	}
+	path := make([]string, 0, len(wf.Statuses))
+	for _, s := range wf.Statuses {
+		path = append(path, s.Name)
+	}
+	who := "its path"
+	if wf.ActiveType != "" {
+		who = "its type " + wf.ActiveType
+	}
+	return fmt.Sprintf("%s (%s) has no status that runs guided checks", who, strings.Join(path, " → "))
+}
+
+// noBranchNote is why check-script looked in the project folder: no branch
+// found for the issue (what the lookup tried, and the fix), or a branch with
+// no worktree. "" when root is a worktree, or the workflow makes worktrees
+// (its own refusal names the path).
+func noBranchNote(proj *tracker.Project, issue *tracker.Issue, root string) string {
+	if proj == nil || root != projectRoot(proj) {
+		return ""
+	}
+	if _, _, enabled := tracker.ResolveWorktree(projectRoot(proj), issue.Slug, proj.LoadWorkflowForIssue(issue)); enabled {
+		return ""
+	}
+	b := checks.IssueBranch(projectRoot(proj), issue)
+	switch {
+	case !b.Found():
+		return "\n\n" + b.Miss()
+	case b.Worktree == "":
+		return fmt.Sprintf("\n\n%s (found by its %s) has no worktree: git worktree add %s %s", b.Name, b.How, shell.Quote(filepath.Join(projectRoot(proj), ".worktrees", issue.Slug)), shell.Quote(b.Name))
+	}
+	return ""
 }
 
 type checkScriptEntry struct {
@@ -331,7 +398,7 @@ func listCheckScripts(ctx *Context, issue *tracker.Issue, root string, found []c
 		if root == "" {
 			return &exitCodeError{Code: 1, Msg: "no check scripts for " + issue.Slug + " (no worktree)"}
 		}
-		return noCheckScripts(issue, root, "")
+		return noCheckScripts(ctx.Project, issue, root, "")
 	}
 	for _, s := range found {
 		run := "no owner run yet"

@@ -17,18 +17,20 @@ var YOLOOn func(workDir, project string) bool
 // Human Testing approval is in neither: YOLO passes it like any gate (D-1 of
 // cli/under-yolo-transition-human-testing-documentation-dry-run-says-ready-the).
 const (
-	yoloSpends           = "spends money or publishes outside the machine"
-	YOLOOwnerAdopts      = "the owner adopts experiments"
-	yoloExperiments      = "experiments"
-	yoloReleasePublish   = "release publish"
-	yoloOptionalGate     = "a gate into an optional status"
-	yoloDesignFirst      = "the design gate of an issue labelled " + DesignFirstLabel
-	YOLOSpendsOwnerOnly  = "the step " + yoloSpends + " (owner_only in the workflow)"
-	YOLONeverOwnerOnly   = "owner_only: " + yoloSpends
-	YOLONeverExperiment  = "every gate of an issue labelled experiment: " + YOLOOwnerAdopts
-	YOLONeverRelease     = yoloReleasePublish + ": external releases wait for the owner"
-	YOLONeverOptional    = yoloOptionalGate + ": a side step the owner chooses"
-	YOLONeverDesignFirst = yoloDesignFirst + ": the owner looks at the design before the build"
+	yoloSpends             = "spends money or publishes outside the machine"
+	YOLOOwnerAdopts        = "the owner adopts experiments"
+	yoloExperiments        = "experiments"
+	yoloReleasePublish     = "release publish"
+	yoloOptionalGate       = "a gate into an optional status"
+	yoloDesignFirst        = "the design gate of an issue labelled " + DesignFirstLabel
+	yoloOwnerBoxFirst      = "the gates up to the build while an (owner) box due before the build is open"
+	YOLOSpendsOwnerOnly    = "the step " + yoloSpends + " (owner_only in the workflow)"
+	YOLONeverOwnerOnly     = "owner_only: " + yoloSpends
+	YOLONeverExperiment    = "every gate of an issue labelled experiment: " + YOLOOwnerAdopts
+	YOLONeverRelease       = yoloReleasePublish + ": external releases wait for the owner"
+	YOLONeverOptional      = yoloOptionalGate + ": a side step the owner chooses"
+	YOLONeverDesignFirst   = yoloDesignFirst + ": the owner looks at the design before the build"
+	YOLONeverOwnerBoxFirst = yoloOwnerBoxFirst + ": the owner ticks it first (tracker.OwnerBoxesBeforeBuild)"
 )
 
 // DesignFirstLabel marks an issue whose design the owner sees before the
@@ -53,7 +55,7 @@ func IsDesignFirst(labels []string) bool {
 // the list reads the same on every one today.
 func YOLOOwnerOnly(wf *WorkflowConfig) string {
 	return yoloExperiments + ", " + yoloReleasePublish + ", " + yoloOptionalGate +
-		", " + yoloDesignFirst + ", product-policy rules, and anything that " + yoloSpends + " (owner_only gates)"
+		", " + yoloDesignFirst + ", " + yoloOwnerBoxFirst + ", product-policy rules, and anything that " + yoloSpends + " (owner_only gates)"
 }
 
 // YOLORulePointer is what show and transition print while YOLO is on, in

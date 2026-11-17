@@ -13,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/diskuse"
+	"github.com/kacperwerema/dark-factory/internal/fseventsd"
 	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/retro"
 	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
@@ -38,6 +41,40 @@ func TestScenarioEnvTurnsOffTheMachineReading(t *testing.T) {
 	}
 }
 
+// TestScenarioViewerDoesNotReadTheHostsDisk: a scenario board's viewer is a
+// real binary, so diskuse's test-binary switch doesn't hold there; at 86%
+// used the host's volume put a Disk row in every session's Needs you count
+// (17 slow-tier steps red at 44ba9f6, 2026-11-17). The scenario's env turns
+// the machine readings off, so on a host over the line a viewer started
+// with it reads no volume and has no verdict, and fseventsd reads nothing.
+func TestScenarioViewerDoesNotReadTheHostsDisk(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir()) // no readings file: only the volume counts
+	read := 0
+	oldVol, oldLive := diskuse.VolumeOf, diskuse.Live
+	t.Cleanup(func() { diskuse.VolumeOf, diskuse.Live = oldVol, oldLive })
+	diskuse.VolumeOf = func(string) diskuse.Volume {
+		read++
+		return diskuse.Volume{UsedPct: 86, FreeGB: 159, OK: true}
+	}
+	// The host itself, outside a scenario: over the line.
+	diskuse.Live = diskuse.LiveIn(false, func(string) string { return "" })
+	if v := diskuse.Current(time.Now()); !v.Over {
+		t.Fatalf("host at 86%%: verdict %+v, want over (the stub is not read)", v)
+	}
+	s := &Scenario{Root: "/tmp/pt-x", Base: "http://127.0.0.1:1234", bins: &Binaries{Dir: "/tmp/bin"}}
+	env := envMap(scenarioEnv([]string{"PATH=/usr/bin"}, s))
+	getenv := func(k string) string { return env[k] }
+	read = 0
+	diskuse.Live = diskuse.LiveIn(false, getenv)
+	if v := diskuse.Current(time.Now()); v.Over || read != 0 {
+		t.Errorf("scenario viewer on a host at 86%%: verdict %+v after %d volume reads, want no reading", v, read)
+	}
+	t.Setenv("ISSUE_VIEWER_NO_MACHINE", env["ISSUE_VIEWER_NO_MACHINE"])
+	if _, err := fseventsd.Read(time.Now()); err != fseventsd.ErrNone {
+		t.Errorf("scenario viewer: fseventsd.Read = %v, want ErrNone (the host's fseventsd is not the board's)", err)
+	}
+}
+
 // TestScenarioEnvIsolated: a scenario process never sees the caller's tmux
 // server, config, HOME or agent identity.
 func TestScenarioEnvIsolated(t *testing.T) {
@@ -49,6 +86,7 @@ func TestScenarioEnvIsolated(t *testing.T) {
 		"XDG_STATE_HOME=/home/someone/.local/state",
 		"ISSUE_VIEWER_CONFIG=/home/someone/Work/projects.yaml",
 		"ISSUE_VIEWER_ISSUE_SLUG=real/issue",
+		"ISSUE_VIEWER_PROJECT=real-project", // a worker's own project named a scenario lead (radio-comments TP4)
 		"ISSUE_VIEWER_URL=http://localhost:8080",
 		"CLAUDECODE=1",
 		"AGENT_NAME=agent-real",
@@ -57,7 +95,7 @@ func TestScenarioEnvIsolated(t *testing.T) {
 	}
 	s := &Scenario{Root: "/tmp/pt-x", Base: "http://127.0.0.1:1234", bins: &Binaries{Dir: "/tmp/bin"}}
 	m := envMap(scenarioEnv(base, s))
-	for _, k := range []string{"TMUX", "TMUX_PANE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_URL", "CLAUDECODE", "AGENT_NAME"} {
+	for _, k := range []string{"TMUX", "TMUX_PANE", "ISSUE_VIEWER_ISSUE_SLUG", "ISSUE_VIEWER_PROJECT", "ISSUE_VIEWER_URL", "CLAUDECODE", "AGENT_NAME"} {
 		if _, ok := m[k]; ok {
 			t.Errorf("%s leaked into the scenario env", k)
 		}
@@ -431,5 +469,116 @@ func TestWriteExcludeKeepsWhatIsThere(t *testing.T) {
 	}
 	if string(raw) != "workflows/\n.worktrees/\n" {
 		t.Errorf("exclude = %q", raw)
+	}
+}
+
+// TestGenerateRetros: a kind: retro entry writes count retros into retros/
+// as issue-cli retrospective does, each an hour after the last in its Date
+// line and mtime alike, so retro.Load lists them newest (highest) first in
+// the same order every run. Issue entries are left to generateIssues.
+func TestGenerateRetros(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "retros")
+	gens := []ScenarioGenerate{
+		{Kind: "retro", Count: 35, Dir: "UI", Title: "Pager %02d", Status: "done", Created: "2026-09-01", Extra: "ReviewStatus: open"},
+		{Count: 2, Title: "An issue %d", Status: "idea"},
+	}
+	if err := generateRetros(dir, gens, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := retro.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 35 {
+		t.Fatalf("%d retros, want 35 (the issue entry writes none here)", len(entries))
+	}
+	first, last := entries[0], entries[34]
+	if first.IssueTitle != "Pager 35" || last.IssueTitle != "Pager 01" {
+		t.Errorf("order: first %q, last %q; want Pager 35 then … Pager 01", first.IssueTitle, last.IssueTitle)
+	}
+	if first.IssueSlug != "ui/pager-35" || first.System != "UI" || first.Status != "done" || first.ReviewStatus != "open" {
+		t.Errorf("header: %+v", first)
+	}
+	want := time.Date(2026, 9, 1, 12+34, 0, 0, 0, time.UTC)
+	if !first.Time().Equal(want) || !first.ModTime.Equal(want) {
+		t.Errorf("Pager 35 dated %v (mtime %v), want %v for both", first.Time(), first.ModTime, want)
+	}
+	if secs := retro.Sections(first.Body); len(secs) == 0 {
+		t.Errorf("default body has no labelled section: %q", first.Body)
+	}
+	if err := generateRetros(t.TempDir(), []ScenarioGenerate{{Kind: "retro", Count: 1, Title: "R %d", Status: "done", Created: "soon"}}, time.Now()); err == nil {
+		t.Error("created: soon was accepted; want an error naming the forms")
+	}
+}
+
+// TestLoadScenarioSpec_RejectsUnknownKind: a generate kind other than issue
+// or retro fails the spec, naming both.
+func TestLoadScenarioSpec_RejectsUnknownKind(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "scenario.yaml"), []byte("generate:\n  - kind: bug\n    count: 5\n    status: open\n    title: Bug %d\n"), 0o644)
+	_, err := LoadScenarioSpec(dir)
+	if err == nil || !strings.Contains(err.Error(), "generate[0]") || !strings.Contains(err.Error(), "issue") || !strings.Contains(err.Error(), "retro") {
+		t.Errorf("err = %v, want a generate[0] error naming issue and retro", err)
+	}
+}
+
+// TestBranchTags: a branch's tags: are made after its commits, on the branch
+// tip by default, so a release branch's candidate tag sits on a commit main
+// lacks; the history's shas are the same on a second build.
+func TestBranchTags(t *testing.T) {
+	src := t.TempDir()
+	for _, d := range []string{"fix", "patch"} {
+		os.MkdirAll(filepath.Join(src, d), 0o755)
+		os.WriteFile(filepath.Join(src, d, d+".txt"), []byte(d), 0o644)
+	}
+	spec := &ScenarioSpec{Branches: []ScenarioBranch{{
+		Name: "release/v1.5", Worktree: true,
+		Commits: []ScenarioCommit{{Files: "fix", Message: "Fix"}, {Files: "patch", Message: "Patch"}},
+		Tags:    []ScenarioTag{{Name: "v1.5.0-rc.1", Ref: "release/v1.5~1"}, {Name: "v1.5.0-rc.2"}},
+	}}}
+	build := func() map[string]string {
+		root := t.TempDir()
+		s := &Scenario{Spec: spec, Root: root, Proj: filepath.Join(root, "proj")}
+		os.MkdirAll(s.Proj, 0o755)
+		os.WriteFile(filepath.Join(s.Proj, "README"), []byte("x"), 0o644)
+		for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "-A"}, {"commit", "-q", "-m", "first"}} {
+			cmd := s.command("git", args...)
+			cmd.Env = append(cmd.Env, s.nextCommitDate()...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v: %s", args, err, out)
+			}
+		}
+		if err := s.buildHistory(src); err != nil {
+			t.Fatal(err)
+		}
+		rev := func(args ...string) string {
+			out, err := s.command("git", args...).Output()
+			if err != nil {
+				t.Fatalf("git %v: %v", args, err)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		if _, err := os.Stat(filepath.Join(s.Proj, ".worktrees", "release-v1.5")); err != nil {
+			t.Errorf("no release worktree: %v", err)
+		}
+		if err := s.command("git", "merge-base", "--is-ancestor", "v1.5.0-rc.1", "main").Run(); err == nil {
+			t.Error("v1.5.0-rc.1 is on main; want it on a commit only the release branch has")
+		}
+		if got := rev("log", "-1", "--format=%s", "v1.5.0-rc.1"); got != "Fix" {
+			t.Errorf("rc.1 tags %q, want Fix", got)
+		}
+		return map[string]string{
+			"rc1": rev("rev-parse", "v1.5.0-rc.1^{}"), "rc2": rev("rev-parse", "v1.5.0-rc.2^{}"),
+			"tip": rev("rev-parse", "release/v1.5"), "tag2": rev("rev-parse", "v1.5.0-rc.2"),
+		}
+	}
+	a, b := build(), build()
+	if a["rc2"] != a["tip"] {
+		t.Errorf("rc.2 on %s, want the branch tip %s", a["rc2"], a["tip"])
+	}
+	for k := range a {
+		if a[k] != b[k] {
+			t.Errorf("%s: %s then %s; want the same sha on every build", k, a[k], b[k])
+		}
 	}
 }

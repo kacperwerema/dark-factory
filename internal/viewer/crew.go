@@ -65,6 +65,10 @@ type WbCrewColumn struct {
 	Children []WbCrewColumn
 }
 
+// crewSessionClosed is a stopped card's note when the lead tick closed its
+// idle session because its output waits on the owner's review.
+const crewSessionClosed = "session closed: its output waits on your review on the shelf"
+
 // WbCrewCard is one agent: the CEO, a lead, a worker, a stopped job or a
 // session not bound to an issue. URL selects it (?agent=).
 type WbCrewCard struct {
@@ -328,6 +332,10 @@ func crewCard(n AgentNode, kind, prefix string, now time.Time) WbCrewCard {
 		}
 		if n.RetroNotSwept {
 			c.Notes = append(c.Notes, "retro not swept")
+		}
+		if n.Closed != "" {
+			// The whole comment is in agents.json and on the issue.
+			c.Notes = append(c.Notes, crewSessionClosed)
 		}
 		if n.Issue != nil {
 			c.Command = "issue-cli dispatch " + n.Issue.Slug

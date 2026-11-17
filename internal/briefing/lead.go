@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -89,7 +90,8 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 			b.WriteString("- Takeover: when a worker stops at its usage limit, issue-cli queue next, autostart next and agents print a dispatch <slug> --takeover command. Run it at the check-in: the other agent takes the branch over on the issue's own words, whether auto-start is on or not. It runs once per issue; a limit after that is the human's.\n")
 		}
 	}
-	b.WriteString("- Queue: issue-cli queue keeps the project's ordered plan (add <slug> or --idea, move, block, list). At each check-in run issue-cli queue next --start: it starts the first startable item and marks it, and holds by itself while " + autostart.HoldSentence(append(autostart.HoldClauses(autostart.Limits{}), autostart.CIRedClause)) + "; shipped items are marked done with their SHA. Queue an item with the human's words (--quote); without them it starts only while auto-start is on. When only \"think up more\" is left, refill it.\n")
+	b.WriteString(LeadTickLine)
+	b.WriteString("- Queue: issue-cli queue keeps the project's ordered plan (add <slug> or --idea, move, block, list). Each tick runs issue-cli queue next --start: it starts the first startable item and marks it, and holds by itself while " + autostart.HoldSentence(append(autostart.HoldClauses(autostart.Limits{}), autostart.CIRedClause)) + "; shipped items are marked done with their SHA. Queue an item with the human's words (--quote); without them it starts only while auto-start is on. When only \"think up more\" is left, refill it.\n")
 	n := 0
 	if proj != nil {
 		for _, d := range proj.Departments {
@@ -131,6 +133,12 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 	b.WriteString("\n- issue-cli lead whoami shows this role again; issue-cli lead list shows the lead and its epics.\n")
 	// The note is the last lead's own words: added after InjectProject,
 	// which is for the commands above.
+	b.WriteString(LeadStateLine)
+	// A fresh session after a rotate starts from the state file; otherwise
+	// the newest note and its chat summary.
+	if h := leadstate.HandoverSection(lead, tracker.InjectProject(proj, "issue-cli lead history <words>"), now); h != "" {
+		return tracker.InjectProject(proj, b.String()) + h
+	}
 	return tracker.InjectProject(proj, b.String()) + tracker.LeadHandoffSection(notesDir, lead)
 }
 
@@ -144,3 +152,12 @@ const snapshotsBrief = "- Private development (privacy.code: snapshots): origin 
 
 // trackerBrief is the lead's line for privacy.work_files: tracker.
 const trackerBrief = "- Private tracker (privacy.work_files: tracker): issues, sessions and retros live in a private tracker repo; the viewer syncs it every 10 minutes. Before a handoff run issue-cli tracker sync; never add work files to the code repo (the pre-push guard refuses them).\n"
+
+// LeadStateLine is every lead's line for its state file, rotate and history
+// (docs/patterns/lead-session.md#the-state-file).
+const LeadStateLine = "- State: issue-cli lead state is your compact state file (workers, queue head, the owner's open asks, today's decisions and memories, your watches, tomorrow); the tick rewrites it. Write down what you'd need after a restart there, not in a long chat: issue-cli lead state note \"<text>\" [--tomorrow], an owner's request with issue-cli lead state ask --quote \"<their words>\" (done <n> when it is). When the tick says rotate, issue-cli lead rotate writes the handoff note and a digest of this chat and starts a fresh session of you that reads the state first; end your turn then. Look old context up with issue-cli lead history <words> instead of carrying it.\n"
+
+// LeadTickLine is the lead brief's tick line: the one command the lead's
+// 5-minute check-in is, and how to keep it running without waking for
+// nothing.
+const LeadTickLine = "- Waiting: you wait in one way only, a background shell that exits on news (Bash run_in_background), started again each time it exits: issue-cli lead tick --watch --exit-on-news (add --observe [--department <d>] when you don't start work: it starts and closes nothing), and for any other probe issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']. Never a /loop cron, a ScheduleWakeup poll or a Monitor (it expires every 30 minutes): each wakes your whole context, news or not. Measured 2026-11-15: timed lead loops cost 476k-960k tokens per wake (a 20-minute tick 32.4M a day), 38% of the day's usage. When the tick says lead context <n>k: rotate, run issue-cli lead rotate and end your turn.\n- Tick: your 5-minute check-in is issue-cli lead tick. Each tick runs queue next --start (a due job on its standing start first), closes finished worker sessions whose branch is on main, and prints a line only when you have to act: a done issue's branch to land, local CI red, a start held for a new reason, the queue at 5 open items or fewer, the owner's comment, a takeover or a stalled worker. It says a thing once; a quiet tick prints nothing, so don't run the check-in by hand. Under --exit-on-news a plain start or a closed session doesn't wake you: it is printed above the next news.\n"

@@ -145,13 +145,16 @@ func yoloEndPhrase(st *yolo.State, now time.Time) string {
 
 // yoloHeaderLine is the "YOLO:" line start, show and context print while
 // YOLO is on; "" when off.
-func yoloHeaderLine(proj *tracker.Project, now time.Time) string {
+func yoloHeaderLine(proj *tracker.Project, issue *tracker.Issue, now time.Time) string {
 	st, on, err := yolo.Active(yoloRoot(proj), proj.Slug, now)
 	if err != nil || !on {
 		return ""
 	}
-	return fmt.Sprintf("YOLO: on %s (gates pass without the owner and are reviewed after the fact; at human-testing run the guided checks yourself: %s)",
-		yoloEndPhrase(st, now), tracker.InjectProject(proj, "issue-cli check-script <slug> --yes"))
+	checks := ""
+	if wf := proj.LoadWorkflowForIssue(issue); wf.LoadErr == nil && usesCheckScripts(wf) {
+		checks = "; at human-testing run the guided checks yourself: " + tracker.InjectProject(proj, "issue-cli check-script <slug> --yes")
+	}
+	return fmt.Sprintf("YOLO: on %s (gates pass without the owner and are reviewed after the fact%s)", yoloEndPhrase(st, now), checks)
 }
 
 // yoloGuidance is prompts with the ask-the-human and stop-for-approval

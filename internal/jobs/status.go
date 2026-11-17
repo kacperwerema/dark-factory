@@ -17,20 +17,38 @@ const (
 	VerdictError = "error" // the schedule does not parse
 )
 
-// Limits are an unattended start's budget: auto-start's defaults.
+// Limits are an unattended start's budget: the project's own (auto-start's
+// window, else the queue's limits) or auto-start's defaults. BelowFrom and
+// WorkersFrom say where each came from ("auto-start default", "acme queue
+// limit"); a hold names it.
 type Limits struct {
-	Below      int
-	MaxWorkers int
-	Gap        time.Duration
-	MaxLoad    float64 // the owner's max_load; 0: the core count
+	Below       int
+	MaxWorkers  int // 0: no worker cap (a queue with none; memory is the limit)
+	Gap         time.Duration
+	MaxLoad     float64 // the owner's max_load; 0: the core count
+	BelowFrom   string
+	WorkersFrom string
 }
+
+// LimitDefault is where DefaultLimits' lines come from, in a hold.
+const LimitDefault = "auto-start default"
 
 // DefaultLimits are auto-start's defaults (memory under 50%, 2 workers,
 // one start per 5 minutes across the machine).
 var DefaultLimits = Limits{
-	Below:      autostart.DefaultBelow,
-	MaxWorkers: autostart.DefaultMaxWorkers,
-	Gap:        autostart.DefaultGapMinutes * time.Minute,
+	Below:       autostart.DefaultBelow,
+	MaxWorkers:  autostart.DefaultMaxWorkers,
+	Gap:         autostart.DefaultGapMinutes * time.Minute,
+	BelowFrom:   LimitDefault,
+	WorkersFrom: LimitDefault,
+}
+
+// from is " (src)", or "" when src is.
+func from(src string) string {
+	if src == "" {
+		return ""
+	}
+	return " (" + src + ")"
 }
 
 // Input is everything one evaluation reads besides the jobs and issues.
@@ -73,7 +91,10 @@ type Status struct {
 	Auto       *Auto  `json:"auto,omitempty"`
 	Verdict    string `json:"verdict"`
 	Reason     string `json:"reason,omitempty"`
-	Memory     int    `json:"memory,omitempty"`
+	// HoldKind is which machine rule holds it (autostart's kinds), ""
+	// for the job's own holds (its last run open, the owner).
+	HoldKind autostart.HoldKind `json:"hold_kind,omitempty"`
+	Memory   int                `json:"memory,omitempty"`
 }
 
 // Evaluate is every job's status, in projects.yaml order.
@@ -109,36 +130,39 @@ func Evaluate1(p *tracker.Project, r *Ref, runs []Run, in Input) Status {
 	}
 	s.Due = true
 	s.Missed = sch.Missed(s.LastPeriod, in.Now)
-	s.Verdict, s.Reason, s.Memory = decide(r, s, in)
+	s.Verdict, s.Reason, s.HoldKind, s.Memory = decide(r, s, in)
 	return s
 }
 
 // decide is a due job's verdict: held by its open last run, waiting for the
 // owner without a standing start, else auto-start's budget.
-func decide(r *Ref, s Status, in Input) (verdict, reason string, memory int) {
+func decide(r *Ref, s Status, in Input) (verdict, reason string, kind autostart.HoldKind, memory int) {
 	if s.LastOpen && !r.Job.Overlap {
-		return VerdictHold, fmt.Sprintf("last run %s (%s) is still in %s", s.LastSlug, s.LastPeriod, s.LastStatus), 0
+		return VerdictHold, fmt.Sprintf("last run %s (%s) is still in %s", s.LastSlug, s.LastPeriod, s.LastStatus), "", 0
 	}
 	if s.Auto == nil {
-		return VerdictOwner, "no standing start: the owner starts it", 0
+		return VerdictOwner, "no standing start: the owner starts it", "", 0
 	}
 	if in.SkipBudget {
-		return VerdictStart, "", 0
+		return VerdictStart, "", "", 0
 	}
 	m, lim := in.Memory, in.Limits
-	if why := autostart.MachineHold(m, in.CPU, lim.Below, lim.MaxLoad); why != "" {
-		return VerdictHold, why, m.Used
+	if h := autostart.MachineHoldOf(m, in.CPU, lim.Below, lim.MaxLoad); h.Text != "" {
+		if h.Kind == autostart.HoldMemory {
+			h.Text += from(lim.BelowFrom) // the project's line, not mem-guard's
+		}
+		return VerdictHold, h.Text, h.Kind, m.Used
 	}
-	if in.Workers >= lim.MaxWorkers {
-		return VerdictHold, fmt.Sprintf("%d/%d workers live", in.Workers, lim.MaxWorkers), m.Used
+	if lim.MaxWorkers > 0 && in.Workers >= lim.MaxWorkers {
+		return VerdictHold, fmt.Sprintf("%d/%d workers live%s", in.Workers, lim.MaxWorkers, from(lim.WorkersFrom)), autostart.HoldWorkers, m.Used
 	}
 	if l := in.Last; l != nil {
 		if ago := in.Now.Sub(l.At); ago < lim.Gap {
 			return VerdictHold, fmt.Sprintf("%s started %s %d min ago (one start per %d min on this machine)",
-				l.Project, l.Slug, int(ago.Minutes()), int(lim.Gap.Minutes())), m.Used
+				l.Project, l.Slug, int(ago.Minutes()), int(lim.Gap.Minutes())), autostart.HoldGap, m.Used
 		}
 	}
-	return VerdictStart, "", m.Used
+	return VerdictStart, "", "", m.Used
 }
 
 // Tokens is a run issue's token estimate: each transition's actual count

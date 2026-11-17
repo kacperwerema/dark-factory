@@ -6,7 +6,12 @@ import (
 	"testing"
 )
 
-func load(avg float64, cores int) CPU { return CPU{Found: true, Avg1: avg, Cores: cores} }
+// load is a reading whose 1- and 5-minute averages are both avg.
+func load(avg float64, cores int) CPU { return CPU{Found: true, Avg1: avg, Avg5: avg, Cores: cores} }
+
+func load2(avg1, avg5 float64, cores int) CPU {
+	return CPU{Found: true, Avg1: avg1, Avg5: avg5, Cores: cores}
+}
 
 func TestDecide_HoldsWhileLoadIsAtOrOverTheLimit(t *testing.T) {
 	ready := []Candidate{{Slug: "a/one"}}
@@ -19,10 +24,14 @@ func TestDecide_HoldsWhileLoadIsAtOrOverTheLimit(t *testing.T) {
 		start bool
 		want  string
 	}{
-		{"over the cores", onState(), load(16, 14), false, "load 16.0 on 14 cores (max 14)"},
-		{"at the cores", onState(), load(14, 14), false, "load 14.0 on 14 cores (max 14)"},
+		{"over the cores", onState(), load(16, 14), false, "load 16.0/16.0 on 14 cores (max 14)"},
+		{"at the cores", onState(), load(14, 14), false, "load 14.0/14.0 on 14 cores (max 14)"},
 		{"under the cores", onState(), load(4.28, 14), true, ""},
-		{"over max_load", custom, load(11, 14), false, "load 11.0 on 14 cores (max 10.5)"},
+		{"1-minute over, 5-minute under (one make validate)", onState(), load2(16.5, 9.2, 14), true, ""},
+		{"5-minute over, 1-minute under (the spike is over)", onState(), load2(9.2, 15, 14), true, ""},
+		{"both over", onState(), load2(16.5, 14.2, 14), false, "load 16.5/14.2 on 14 cores (max 14)"},
+		{"over max_load", custom, load(11, 14), false, "load 11.0/11.0 on 14 cores (max 10.5)"},
+		{"1-minute over max_load only", custom, load2(11, 10, 14), true, ""},
 		{"under max_load", custom, load(10.4, 14), true, ""},
 		{"no reading", onState(), CPU{Cores: 14}, true, ""},
 	}
@@ -46,37 +55,11 @@ func TestDecide_LoadComesAfterMemory(t *testing.T) {
 
 func TestVerdict_LoadPart(t *testing.T) {
 	v := Decide(Input{State: onState(), Memory: okMemory(20), CPU: load(4.28, 14), Now: t0, Candidates: []Candidate{{Slug: "a/one"}}})
-	if got := v.LoadPart(); got != "load 4.3 < 14 on 14 cores" {
+	if got := v.LoadPart(); got != "load 4.3/4.3 on 14 cores (max 14)" {
 		t.Errorf("LoadPart = %q", got)
 	}
 	if got := (Verdict{}).LoadPart(); got != "load unknown" {
 		t.Errorf("LoadPart without a reading = %q", got)
-	}
-}
-
-func TestParseSysctlLoadavg_macOS(t *testing.T) {
-	for in, want := range map[string]float64{"{ 4.28 5.00 7.63 }\n": 4.28, "{ 16.02 12.10 9.00 }": 16.02, "0.10 0.20 0.30": 0.10} {
-		got, err := parseSysctlLoadavg(in)
-		if err != nil || got != want {
-			t.Errorf("parseSysctlLoadavg(%q) = %v, %v; want %v", in, got, err, want)
-		}
-	}
-	for _, bad := range []string{"", "{ }", "{ x 1 2 }", "{ -1 0 0 }"} {
-		if _, err := parseSysctlLoadavg(bad); err == nil {
-			t.Errorf("parseSysctlLoadavg(%q): want an error", bad)
-		}
-	}
-}
-
-func TestParseProcLoadavg_Linux(t *testing.T) {
-	got, err := parseProcLoadavg("0.52 0.58 0.59 1/389 12345\n")
-	if err != nil || got != 0.52 {
-		t.Errorf("parseProcLoadavg = %v, %v; want 0.52", got, err)
-	}
-	for _, bad := range []string{"", "\n", "abc 1 2 1/2 3"} {
-		if _, err := parseProcLoadavg(bad); err == nil {
-			t.Errorf("parseProcLoadavg(%q): want an error", bad)
-		}
 	}
 }
 
@@ -101,7 +84,7 @@ func TestLoadLimitAndLine(t *testing.T) {
 	if st.LoadLimit(8) != 6 {
 		t.Errorf("max_load limit = %v", st.LoadLimit(8))
 	}
-	if got := LoadLine(load(3.14, 8), 6); got != "load 3.1 on 8 cores (max 6)" {
+	if got := LoadLine(load2(3.14, 5.06, 8), 6); got != "load 3.1/5.1 on 8 cores (max 6)" {
 		t.Errorf("LoadLine = %q", got)
 	}
 	if got := LoadLine(CPU{}, 6); got != "load unknown" {
@@ -124,11 +107,12 @@ func TestMachineHold(t *testing.T) {
 		{"check refuses, a note", Memory{Found: true, Used: 10, Note: "BLOCKED"}, load(1, 14), 0, "mem-guard says no: BLOCKED"},
 		{"check refuses, no note", Memory{Found: true, Used: 10}, load(1, 14), 0, "mem-guard says no"},
 		{"memory at the line", Memory{Found: true, Used: 50, CanStart: true}, load(1, 14), 0, "memory 50% ≥ 50%"},
-		{"load at the cores", ok, load(14, 14), 0, "load 14.0 on 14 cores (max 14)"},
-		{"load at max_load", ok, load(10.5, 14), 10.5, "load 10.5 on 14 cores (max 10.5)"},
+		{"load at the cores", ok, load(14, 14), 0, "load 14.0/14.0 on 14 cores (max 14)"},
+		{"1-minute at the cores, 5-minute a step under", ok, load2(14, 13.9, 14), 0, ""},
+		{"load at max_load", ok, load(10.5, 14), 10.5, "load 10.5/10.5 on 14 cores (max 10.5)"},
 		{"max_load over the cores", ok, load(15, 14), 20, ""},
 		{"no load reading", ok, CPU{Cores: 14}, 0, ""},
-		{"no cores known", ok, CPU{Found: true, Avg1: 3}, 0, ""},
+		{"no cores known", ok, CPU{Found: true, Avg1: 3, Avg5: 3}, 0, ""},
 	}
 	for _, c := range cases {
 		if got := MachineHold(c.mem, c.cpu, DefaultBelow, c.maxLoad); got != c.want {
@@ -171,11 +155,11 @@ func TestHoldClausesCoverEveryRule(t *testing.T) {
 		}
 	}
 	got := HoldSentence(HoldClauses(Limits{Below: 50, MaxWorkers: 3, MaxLoad: 10.5}))
-	if want := "memory is at or above 50%, the 1-minute load is at or above 10.5, 3 workers are live, or another project just started one"; got != want {
+	if want := "memory is at or above 50%, the 1- and 5-minute load are both at or above 10.5, 3 workers are live, another project just started one, or it is another project's turn"; got != want {
 		t.Errorf("sentence = %q", got)
 	}
 	got = HoldSentence(append(HoldClauses(Limits{}), CIRedClause))
-	if want := "memory is at or above its limit, the 1-minute load is at or above the core count, the worker cap is reached, another project just started one, or local CI is red on main"; got != want {
+	if want := "memory is at or above its limit, the 1- and 5-minute load are both at or above the core count, the worker cap is reached, another project just started one, it is another project's turn, or local CI is red on main"; got != want {
 		t.Errorf("queue sentence = %q", got)
 	}
 	if got := HoldSentence([]string{"one"}); got != "one" {

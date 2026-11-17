@@ -57,3 +57,38 @@ func AddProject(configPath, slug, item string, check func(*tracker.Project) erro
 	}
 	return writeChecked(path, out, check, slug)
 }
+
+// SetProjectScalar sets the one-line scalar key of project slug's entry to
+// value (YAML text, such as "3"), as text: an existing key's value is
+// replaced on its line (a comment after it kept), a missing key goes on a
+// line of its own after the entry's last line. check reads the result back
+// before it replaces the file; every other byte stays.
+func SetProjectScalar(configPath, slug, key, value string, check func(*tracker.Project) error) error {
+	path, raw, proj, err := readProject(configPath, slug)
+	if err != nil {
+		return err
+	}
+	lines := splitLines(raw)
+	if n := len(lines); n > 0 && !strings.HasSuffix(lines[n-1], "\n") {
+		lines[n-1] += "\n"
+	}
+	k, v := mapValue(proj, key)
+	var out []byte
+	switch {
+	case k == nil:
+		first := proj.Content[0]
+		out = insertAfter(lines, lastLine(proj), strings.Repeat(" ", first.Column-1)+key+": "+value+"\n")
+	case v.Kind != yaml.ScalarNode || v.Line != k.Line || v.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0:
+		return fmt.Errorf("%s: project %s's %s is written in a way this can't change: edit it by hand to %s", path, slug, key, value)
+	default:
+		line := lines[v.Line-1]
+		rest := strings.TrimRight(line[v.Column-1:], "\r\n")
+		tail := ""
+		if i := strings.Index(rest, " #"); i >= 0 {
+			tail = strings.TrimRight(rest[i:], " ")
+		}
+		lines[v.Line-1] = line[:v.Column-1] + value + tail + "\n"
+		out = []byte(strings.Join(lines, ""))
+	}
+	return writeChecked(path, out, check, slug)
+}

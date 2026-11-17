@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -68,7 +69,11 @@ func NewestHandoffNote(dir, lead string) string {
 	if err != nil {
 		return ""
 	}
-	var own, legacy []string
+	type note struct {
+		name, day string
+		mod       time.Time
+	}
+	var own, legacy []note
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || len(name) < 11 || !strings.HasSuffix(name, ".md") {
@@ -77,11 +82,16 @@ func NewestHandoffNote(dir, lead string) string {
 		if _, err := time.Parse("2006-01-02", name[:10]); err != nil {
 			continue
 		}
-		switch name[10:] {
-		case "-" + lead + ".md":
-			own = append(own, name)
-		case "-lead-session.md":
-			legacy = append(legacy, name)
+		n := note{name: name, day: name[:10]}
+		if info, err := e.Info(); err == nil {
+			n.mod = info.ModTime()
+		}
+		rest, ok := strings.CutPrefix(name[10:], "-"+lead)
+		switch {
+		case ok && (rest == ".md" || rotatedNoteRe.MatchString(rest)):
+			own = append(own, n)
+		case name[10:] == "-lead-session.md":
+			legacy = append(legacy, n)
 		}
 	}
 	pick := own
@@ -91,9 +101,23 @@ func NewestHandoffNote(dir, lead string) string {
 	if len(pick) == 0 {
 		return ""
 	}
-	sort.Strings(pick)
-	return filepath.Join(dir, pick[len(pick)-1])
+	// By day, then within a day by when it was written: a rotate's
+	// <date>-<lead>.<HHMM>.md may come before or after the nightly flush's.
+	sort.Slice(pick, func(i, j int) bool {
+		if pick[i].day != pick[j].day {
+			return pick[i].day < pick[j].day
+		}
+		if !pick[i].mod.Equal(pick[j].mod) {
+			return pick[i].mod.Before(pick[j].mod)
+		}
+		return pick[i].name < pick[j].name
+	})
+	return filepath.Join(dir, pick[len(pick)-1].name)
 }
+
+// rotatedNoteRe is the rest of a rotate's second note of a day after the
+// lead's name: .<HHMM>.md or .<HHMM>-<n>.md.
+var rotatedNoteRe = regexp.MustCompile(`^\.\d{4}(-\d+)?\.md$`)
 
 // JobsBrief is a lead's rule for the n recurring jobs in its scope; "" with
 // none. ceo: the CEO, who ticks the jobs of departments without a live lead.

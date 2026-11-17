@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -68,9 +69,11 @@ func TestReleasePatchCandidateSoaks(t *testing.T) {
 	proj := readyRCProject(t, rcBlock+"privacy:\n  code: snapshots\n  decided: x\n")
 	stubCandidates(t, map[string]time.Time{"v0.52.1-rc.1": time.Now().Add(-3 * time.Hour)}, 0)
 	stubPatch(t, proj, "# Changelog\n\n## v0.52.1 — 2026-10-31\n\n- fix\n\n## v0.52.0\n", "8a847f5000")
+	stubValidated(t, "8a847f5000", "8a847f5000")
 	page, md := getReportBoth(t, proj)
 	wantAll(t, "page", page,
 		`data-testid="status.release_wait.patch.state">v0.52.1-rc.1 soaking</span>`,
+		`data-testid="status.release_wait.patch.check.validated" data-ok="true"`,
 		`data-testid="status.release_wait.patch.check.ci" data-ok="true"`,
 		`data-testid="status.release_wait.patch.check.changelog" data-ok="true"`,
 		`data-testid="status.release_wait.patch.check.build" data-ok="true"`,
@@ -101,4 +104,77 @@ func TestReleasePatchCandidateNotReady(t *testing.T) {
 		`issue-cli release cut v0.52.1 runs them first`,
 	)
 	wantAll(t, "status.md", md, "- Patch v0.52.1 on release/v0.52: not ready: nothing under ## Unreleased")
+}
+
+// stubValidated makes release check's record validated and every ref
+// (the candidate tag, the branch tip) resolve to at.
+func stubValidated(t *testing.T, validated, at string) {
+	t.Helper()
+	origV, origTip := releaseValidatedTip, gitTip
+	releaseValidatedTip = func(string, string) string { return validated }
+	gitTip = func(string, string) string { return at }
+	t.Cleanup(func() { releaseValidatedTip, gitTip = origV, origTip })
+}
+
+// patchOnBusyMain is a soaked patch candidate whose every other check is
+// met, with local CI in state st and main's head 96abff0 (never tested).
+func patchOnBusyMain(t *testing.T, st *ci.State, validated string) tracker.Project {
+	t.Helper()
+	proj := readyRCProject(t, rcBlock+"privacy:\n  code: snapshots\n  decided: x\n")
+	if err := ci.WriteState(ciRootFor(&proj), st); err != nil {
+		t.Fatal(err)
+	}
+	stubBranchState(t, &BranchState{Branch: "main", Upstream: "origin/main", Head: "96abff0000", HeadAt: time.Now()})
+	stubCandidates(t, map[string]time.Time{"v0.52.1-rc.1": time.Now().Add(-3 * time.Hour)}, 0)
+	stubPatch(t, proj, "# Changelog\n\n## v0.52.1 — 2026-10-31\n\n- fix\n\n## v0.52.0\n", "8a847f5000")
+	stubValidated(t, validated, "8a847f5000")
+	return proj
+}
+
+// The repro: workers land on main every few minutes, so main's head is
+// never one local CI has tested. A patch ships the release branch, so it
+// soaks (and publish reads it as soaking) once the candidate is validated
+// and main is not red.
+func TestPatchRowAllowsUntestedMainHead(t *testing.T) {
+	proj := patchOnBusyMain(t, &ci.State{Branch: "main", State: ci.Green, GreenSha: "6788873000", GreenAt: time.Now()}, "8a847f5000")
+	page, _ := getReportBoth(t, proj)
+	wantAll(t, "page", page,
+		`data-testid="status.release_wait.patch.state">v0.52.1-rc.1 soaking</span>`,
+		`data-testid="status.release_wait.patch.check.ci" data-ok="true"`,
+		`Local CI not red on main`,
+		`data-testid="status.release_wait.patch.check.validated" data-ok="true"`,
+	)
+	// The 0.53 milestone has no release branch yet: its row still reads
+	// main's head (it would cut from there); only the patch row changed.
+}
+
+// A known break on main still stops the patch, with the reason.
+func TestPatchRowRefusesWhileMainIsRed(t *testing.T) {
+	proj := patchOnBusyMain(t, &ci.State{Branch: "main", State: ci.Red, RedSince: "25526c7000", Failed: "make validate", Updated: time.Now()}, "8a847f5000")
+	page, md := getReportBoth(t, proj)
+	wantAll(t, "page", page,
+		`data-testid="status.release_wait.patch.state">not ready</span>`,
+		`data-testid="status.release_wait.patch.check.ci" data-ok="false"`,
+	)
+	wantAll(t, "status.md", md, "- Patch v0.52.1 on release/v0.52: not ready: main red since 25526c7: make validate")
+}
+
+// A candidate nobody validated (or one validated at an older commit) is
+// not soaking: publish refuses and names release check.
+func TestPatchRowRefusesAnUnvalidatedCandidate(t *testing.T) {
+	green := &ci.State{Branch: "main", State: ci.Green, GreenSha: "96abff0000", GreenAt: time.Now()}
+	for name, tc := range map[string]struct{ validated, detail string }{
+		"never": {"", "not validated: issue-cli release check v0.52.1 runs local CI"},
+		"stale": {"1111111000", "validated at 1111111, not at v0.52.1-rc.1: issue-cli release check v0.52.1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			proj := patchOnBusyMain(t, green, tc.validated)
+			page, md := getReportBoth(t, proj)
+			wantAll(t, "page", page,
+				`data-testid="status.release_wait.patch.state">not ready</span>`,
+				`data-testid="status.release_wait.patch.check.validated" data-ok="false"`,
+			)
+			wantAll(t, "status.md", md, "- Patch v0.52.1 on release/v0.52: not ready: "+tc.detail)
+		})
+	}
 }

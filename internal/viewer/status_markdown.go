@@ -36,7 +36,11 @@ func statusMarkdown(m *StatusModel) string {
 		if a.Load != "" {
 			load = " · " + a.Load
 		}
-		fmt.Fprintf(&b, "Auto-start: %s below %d%% memory, cap %d (owner: %q)%s · now: %s\n", state, a.Below, a.Cap, a.Words, load, a.Verdict)
+		share := ""
+		if a.Share != "" {
+			share = " · " + a.Share
+		}
+		fmt.Fprintf(&b, "Auto-start: %s below %d%% memory, cap %d (owner: %q)%s · now: %s%s\n", state, a.Below, a.Cap, a.Words, load, a.Verdict, share)
 	}
 	if line := queueStatusLine(m.Queue); line != "" {
 		b.WriteString(line + "\n")
@@ -47,8 +51,14 @@ func statusMarkdown(m *StatusModel) string {
 	if m.Nightly != "" {
 		b.WriteString(m.Nightly + "\n")
 	}
+	if m.Deploy != "" {
+		b.WriteString(m.Deploy + "\n")
+	}
 	if m.Agents != "" {
 		b.WriteString(m.Agents + "\n")
+	}
+	if m.Machine != "" {
+		b.WriteString(m.Machine + "\n")
 	}
 	if m.Push != "" {
 		b.WriteString(m.Push + "\n")

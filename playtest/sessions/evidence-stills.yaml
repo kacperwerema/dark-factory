@@ -1,0 +1,24 @@
+session: evidence-stills
+issue: cli/issue-cli-evidence-add-puts-a-still-where-the-evidence-tab-reads-it-from-a-worktree
+title: The Evidence tab shows the stills issue-cli evidence add saved, each with its step
+scenario: evidence-tab
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: A still saved under the issue's _evidence folder shows in the Stills card with its step
+    proves: [AC4]
+    setup:
+      - open: /p/{project}/issue/ui/evidence-short?tab=evidence
+      - wait_for: evidence.tab
+    checks:
+      - visible: [evidence.stills, evidence.still.0]
+      - text_contains: { target: evidence.stills, text: "Stills · 1" }
+      - text_contains: { target: evidence.still.0, text: "EV7" }
+      - text_contains: { target: evidence.still.0, text: "EV7-after.png" }
+      - count: { pattern: evidence.still.*, equals: 1 }
+

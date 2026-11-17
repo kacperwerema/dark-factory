@@ -6,6 +6,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -13,9 +14,11 @@ import (
 // (done, parked, a side exit), and an idle Claude Code session still holds a
 // few hundred MB with its MCP servers. The transition into a closed status
 // closes the issue's sessions (issue-cli), and the sweep below closes what
-// is left: a worker session whose issue is closed, or whose pane is only a
-// shell. Only agent-<slug> and limited-<slug> sessions are ever closed: never
-// a lead, a post-mortem agent or anything the launcher did not name.
+// is left: a worker session whose issue is closed, whose pane is only a
+// shell, or (the lead's sweep) whose issue's report waits on the owner's
+// review with its output on the shelf (shelved.go). Only agent-<slug> and
+// limited-<slug> sessions are ever closed: never a lead, a post-mortem agent
+// or anything the launcher did not name.
 
 // WorkerSessions names the sessions an issue's worker can live in: its
 // agent-<slug> and, after a takeover, the limited-<slug> it left.
@@ -46,6 +49,10 @@ type Finished struct {
 	// Dead: the pane is only a shell (its agent exited), whatever its
 	// issue's status.
 	Dead bool `json:"dead,omitempty"`
+	// Shelved is the output (OutputLabel) of an open issue whose work is
+	// on the shelf, waiting on the owner's review: its idle session closes
+	// so it holds no worker slot (SweepInput.Shelved).
+	Shelved string `json:"shelved,omitempty"`
 }
 
 // SweepInput is what FinishedSessions reads besides the project.
@@ -59,11 +66,16 @@ type SweepInput struct {
 	KeepNames map[string]bool
 	// Snap is the panes and process table read once (TakeSnapshot).
 	Snap *Snapshot
+	// Shelved are the open issues whose work is on the shelf, by worker
+	// session name (ShelvedReports); their idle sessions close too. nil
+	// closes none (the viewer's sweep keeps every open issue's session).
+	Shelved map[string]ShelvedReport
 }
 
 // FinishedSessions lists proj's live worker sessions (root scopes standalone
-// sessions, as ForProject) that may be closed: their issue is closed, or
-// their pane is only a shell (the agent exited). It leaves alone a session
+// sessions, as ForProject) that may be closed: their issue is closed, their
+// pane is only a shell (the agent exited), or their issue is in
+// in.Shelved (its report waits on the owner). It leaves alone a session
 // paused by mem-guard (state T: it means to resume it), one whose agent is
 // in a turn, one a person is attached to (standalone mode) and any name in
 // KeepNames. It only reads.
@@ -87,9 +99,15 @@ func FinishedSessions(proj *tracker.Project, root string, in SweepInput) []Finis
 			f.Slug, f.Why = issue.Slug, fmt.Sprintf("%s is %s", issue.Slug, issue.Status)
 		} else if anyOpen(byName[name], in.Closed) {
 			if !in.Snap.BareShell(proj, name) {
-				continue
+				r, ok := in.Shelved[name]
+				if !ok {
+					continue
+				}
+				f.Slug, f.Shelved = r.Slug, OutputLabel(r.Output)
+				f.Why = fmt.Sprintf("%s waits on the owner's review at %s; its output %s is on the shelf", r.Slug, r.Status, f.Shelved)
+			} else {
+				f.Slug, f.Why, f.Dead = byName[name][0].Slug, "only a shell: its agent exited", true
 			}
-			f.Slug, f.Why, f.Dead = byName[name][0].Slug, "only a shell: its agent exited", true
 		} else if in.Snap.BareShell(proj, name) {
 			f.Why, f.Dead = "only a shell: its agent exited, and no issue names it", true
 		} else {
@@ -183,6 +201,7 @@ func defaultCloseWhenIdle(proj *tracker.Project, name string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	restrace.Start(restrace.KindChild, cmd.Process.Pid, "", "close "+Target(proj, name)+" when idle (detached)")
 	go func() { _ = cmd.Wait() }()
 	return nil
 }

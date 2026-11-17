@@ -293,6 +293,8 @@ It runs no tests. It reads three sources:
 - **ux-test runs:** every `results.yaml` under the main checkout's `.playtest/runs` (an issue's own runs move there at done) and local CI's `.worktrees/.ci/.playtest/runs`, started in the 14 calendar days up to the snapshot. A step that failed and passed on one build (the run's `build:`, the short commit plus `+<hash>` for a dirty tree) is flaky: nothing changed between the two runs. Steps that were cached, skipped or pending didn't run and don't count; owner playtest (judge) runs and runs with no build don't either. `internal/ci` plugs this in too (`health.SetE2ERuns`, read by `playtestruns.Flaky`). `.ci/results`' e2e files are made from the same runs, so they are not read again.
 - **Sessions:** the playtest session files at the commit (`health.e2e_sessions`).
 
+**Load.** Local CI reads the load average before and after each command that has `results:` entries and keeps the higher one with the core count on the run's summary (`load`, `cores` in `.ci/runs/<sha>.json`). The CI log's `results:` line says `…, 294.0 s wall, load 16.4 on 14 cores (unit.json)`. A run above its cores marks its slowest tests: the rows' names, the Health view's Slowest tests subtitle and the review pack's slowest-tests line all say so, since those tests may not be slow on their own. The reader is `internal/loadavg`, the same one auto-start holds starts on.
+
 Without results there are no rows for that kind, not zeros. `issue-cli health` then says how to add them. When `e2e_sessions` (configured or the default `playtest/sessions/*.yaml`) matches no file, the family warns "health.e2e_sessions (…) matched no file, so no e2e session rows" instead of writing nothing silently.
 
 | Metric | Labels | Value |
@@ -300,13 +302,16 @@ Without results there are no rows for that kind, not zeros. `issue-cli health` t
 | `tests.count` | `kind`: unit, e2e; `result`: all, pass, fail, skip | top-level tests in that run (e2e: playtest steps) |
 | `tests.subtests` | `kind` | subtests (Go `t.Run`) |
 | `tests.wall_seconds` | `kind` | the suite's own wall time (first to last event, or the file's start and finish), not the command's |
+| `tests.wall_seconds_best` | `kind`, `window`: 5runs | the lowest wall of the last 5 CI runs with results of that kind (`unit_wait` scores it) |
+| `tests.wall_runs` | `kind` | how many runs the best wall was taken from (at most 5) |
+| `tests.load`, `tests.cores` | `kind` | the machine's 1-minute load average around the run (the higher of the readings just before and just after the command with `results:`) and its cores; no rows without a reading |
 | `tests.sum_seconds` | `kind` | per-test time summed; more than the wall when tests run in parallel |
 | `tests.per_test_ms` | `kind`, `stat`: mean, p50, p90 | per-test runtime, ms |
 | `tests.run_age_days` | `kind` | how old the CI run is |
 | `tests.part.seconds` | `kind`, `part` | the 10 slowest parts (Go package, test class, playtest session): the wall clock's critical path |
 | `tests.slow` | `kind` | tests over 1 s (unit) or steps over 30 s (e2e) |
 | `tests.count_by_area` | `kind`, `area` | tests per area: the package's top folder (Go), the namespace segment after the test assembly's root (TRX), the class's first segment (JUnit) |
-| `tests.slowest.seconds` | `kind`, `test` | the 10 slowest tests (`<package>.<Test>` for Go) |
+| `tests.slowest.seconds` | `kind`, `test` | the 10 slowest tests (`<package>.<Test>` for Go); when the run's load was above its cores, each row's name says "run under load 15.2 on 14 cores: times inflated" (the id stays the same) |
 | `tests.e2e.sessions`, `tests.e2e.steps` | `system` (and `all`) | playtest sessions and steps in the tree, by their issue's system |
 | `tests.e2e.coverage` | none | issues done in 90 days whose system has a session / issues done with a system (`share`) |
 | `tests.e2e.uncovered` | `system` | issues done in 90 days in a system without a session |
@@ -353,8 +358,9 @@ How much disk the project takes, by area: one walk of the main checkout by a poo
 |:--|:--|:--|
 | `storage.total_mb` | none | the checkout, everything included (MB, 2^20 bytes) |
 | `storage.git_mb` | none | `.git/` |
-| `storage.worktrees_mb` | none | `.worktrees/`, without the worktrees' `.playtest/` |
-| `storage.worktrees` | none | worktrees under `.worktrees/` (count) |
+| `storage.worktrees_mb` | none | `.worktrees/`, without the worktrees' `.playtest/` and without `.worktrees/.ci` |
+| `storage.worktrees` | none | worktrees under `.worktrees/` (count, `.ci` left out) |
+| `storage.ci_worktree_mb` | none | local CI's worktree `.worktrees/.ci`, the checkout its runs test (its `.playtest/` included) |
 | `storage.playtest_mb` | none | playtest runs and shots: `.playtest/` in the checkout and in every worktree |
 | `storage.agent_logs_mb` | none | `.agent-logs/` (clilogs, dispatch prompts) |
 | `storage.ci_mb` | none | local CI's `.ci/`: run records and logs, kept red logs (`.ci/red/`), test results |
@@ -362,9 +368,37 @@ How much disk the project takes, by area: one walk of the main checkout by a poo
 
 On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
 
+Beside the checkout it counts what the factory fills elsewhere on the machine (`internal/diskuse`): Go's build cache and the agent transcripts. Every worktree is a different path and a build keys its cache entries by directory, so each worktree's builds and tests write their own copy; Go trims only entries unused for 5 days. On 2026-11-16 the cache held 159 GB while the checkout's total said 4.3 GB.
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `storage.gocache_mb` | none | Go's build cache: `$GOCACHE`, else the user cache dir's `go-build` (`~/Library/Caches/go-build` on a Mac). None with `GOCACHE=off` or no folder |
+| `storage.gocache_new_mb` | none | cache files created in the 24 hours before the reading, by birth time: what the day wrote before the trim. macOS only (Linux's `stat` has no birth time) |
+| `storage.transcripts_mb` | none | the agent transcripts: Claude Code's `projects/` (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and Codex's `sessions/` (`$CODEX_HOME`, else `~/.codex`) |
+| `storage.volume_used_pct` | none | the cache's volume, used / (used + available) as `df` counts it (percent) |
+
+They are the machine's, not the project's, and stay out of `storage.total_mb`. The cache is about a million files (a walk takes 20 s on a busy Mac, as long as the family timeout), so the reading is kept in `$XDG_STATE_HOME/ai-workflow-engine/machine/disk.json` (the last 14) and reused for an hour. A snapshot refreshes it first when it is an hour old, before the families and outside their timeout (that snapshot takes about 20 s longer), and the running viewer's health tick refreshes it in the background. A family that still finds none under an hour old walks with half its time left, then uses the newest reading under 3 days old, with a warning. The net growth a day is the change of `storage.gocache_mb` between two daily snapshots.
+
+**Needs you** lists one row, once across projects, while the cache is over 100 GB (the newest reading, if under 3 days old) or the volume is over 85% used (read live with `statfs`; the page never walks). The row names the owner's fix, `go clean -cache`, run in a terminal while no worker is running: a build or test running then fails. Nothing here runs it. A playtest scenario's board reads none of this (`ISSUE_VIEWER_NO_MACHINE=1`), so its counts don't follow the host's disk. The Health page's **Where to look** lists the cache, the day's new entries, the transcripts and the checkout under **Disk outside the checkout**.
+
+### The machine family
+
+What the Mac's own daemons cost, for now `fseventsd`, macOS's file-event daemon (`internal/fseventsd`). Every Claude Code and Codex session watches its worktree through it, and its cost grows with the paths its clients have registered, not with the event rate: on 2026-11-15, after 16 days, it ran at ~100% CPU with a 13.2 GB physical footprint, which mem-guard counted as used memory, so worker starts were held. Restarting it brought it to 3 MB.
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `machine.fseventsd_cpu` | none | `ps` %CPU (percent; past 100 on several cores) |
+| `machine.fseventsd_footprint_mb` | none | the physical footprint, `top`'s MEM column (MB; `ps` RSS when `top` gives none) |
+
+No root is needed. The running viewer records a reading every 10 minutes (the health watcher's tick) in `$XDG_STATE_HOME/ai-workflow-engine/machine/fseventsd.json`, the last 6; the daily snapshot uses the newest reading from the last half hour, else takes one. Without fseventsd (Linux) there is no metric and no error, and backfill leaves the family out.
+
+**When it runs away:** a footprint over 2 GB on the newest reading, or CPU over 50% on two readings of the same daemon 9 to 30 minutes apart. Then Needs you gets one row (kind `machine`, listed and counted once across projects, like unsent bug reports, and not pushed) with its size, its share of memory and CPU, and `issue-cli status` (status.md) a `Machine:` line. Both name the owner's fix, `sudo killall fseventsd` (launchd starts it again at once). Nothing in the factory runs it. Readings older than half an hour (the viewer was down) say nothing.
+
 ### The lint family
 
-`issue-cli health lint`'s checks over workflow.yaml and the board (`internal/lint`), counted. Every finding is a warning: lint lowers the score, it never fails a run.
+`issue-cli health lint`'s checks over workflow.yaml and the board (`internal/lint`), counted. Every finding is a warning: lint lowers the score, it never fails a run. The exception is history: a decision scoped to a department `projects.yaml` no longer has, when the board still holds that department's work (an output, an issue's `department:`), and outputs of such a department. They are records of a department removed on purpose, so the report lists them as info lines and leaves them out of the count. A department the board never saw is a typo and still warns.
+
+`issue-cli health lint --workflow <file> [--projects <file>]` runs the same checks on a candidate workflow file or projects.yaml before the merge that makes it live and prints only the warnings it adds (`+`) or removes (`-`) against the live files; it records nothing, so the family counts the live files only ([CLI: health lint --workflow](CLI/overview.md#health)).
 
 - **The checks:**
   - `undated`: issues without `created:`.
@@ -379,7 +413,7 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `owner-only`: a step that spends or publishes behind a gate YOLO may pass: a path entering `publish` / `launch` / `send` without an `owner_only` gate, a department with a `sends: true` connector whose workflow has none, `owner_only` on a non-approval action ([YOLO Mode](Workflow/yolo.md#gates-yolo-never-passes)).
   - `owner-marker`: an open acceptance criterion on an open issue that reads like the owner's check ("the owner confirms it reads well") but has no `(owner)` marker, so `criteria_proven` counts it as the agent's. The fix is `issue-cli check-edit <slug> <id> --text "… (owner)"`.
   - `show-footer`: an issue section holding `issue-cli show`'s own output: `== Checklist (n/m) ==`, the tick hints, `== Decisions in force ==`, `== Test Plan ==`, `== Comments (n) ==`, `== Shared files ==`, whole lines from the first column outside fenced code, so a quote in a code span, blockquote, indented block or fence doesn't warn. A section rebuilt from `show` runs on past the last heading and pastes stale boxes and comments in; no gate notices. Closed issues count too, since the paste can land minutes before the close. The finding names the issue and section; the fix is `issue-cli replace <slug> --section "<name>" --body-file <the section without them>`, read from the issue file.
-  - `criteria`: an open acceptance criterion on an open issue that names nothing that could fail it: no test (a `TestName`, "tests", a fixture), no command (a span in backticks, `issue-cli`, "exits 1") and no playtest step ("playtest", "step", a shot, `(visual)`, a guided check script). The message quotes a vague word it leans on ("works", "is clear", "looks good"). Owner boxes (`(owner)`), ticked, N/A and template boxes and closed issues are skipped. It also warns about an issue past design whose `## Must not` still holds only the template's placeholder. And about each `## Must not` item past design that ends with neither `→ ACn` (the criterion that fails when it is broken; the box must exist) nor `→ none: <why>`. The fix is `issue-cli check-edit <slug> <id> --text "… (test: TestName)"`, or `(owner)` when only the owner can judge it. `issue-cli transition` prints the same warnings when an issue leaves design (an edge that validates `criteria_checkboxes:`); they never refuse the move ([Proof Links](Workflow/proof.md#criteria-a-command-can-fail)).
+  - `criteria`: an open acceptance criterion on an open issue that names nothing that could fail it: no test (a `TestName`, "tests", a fixture), no command (a span in backticks, `issue-cli`, "exits 1") and no playtest step ("playtest", "step", a shot, `(visual)`, a guided check script). The message quotes a vague word it leans on ("works", "is clear", "looks good"). Owner boxes (`(owner)`), ticked, N/A and template boxes and closed issues are skipped. So is every box on an issue whose type has a `path:` without the testing (verify-role) status, such as report, docs and chore: nothing runs a test there, and a report's boxes are met by the report on the shelf and its follow-ups, which the `reports` check reads. Its Must not findings still apply. It also warns about an issue past design whose `## Must not` still holds only the template's placeholder. And about each `## Must not` item past design that ends with neither `→ ACn` (the criterion that fails when it is broken; the box must exist) nor `→ none: <why>`. The fix is `issue-cli check-edit <slug> <id> --text "… (test: TestName)"`, or `(owner)` when only the owner can judge it. `issue-cli transition` prints the same warnings when an issue leaves design (an edge that validates `criteria_checkboxes:`); they never refuse the move ([Proof Links](Workflow/proof.md#criteria-a-command-can-fail)).
   - `na-boxes`: a ticked box on an open issue whose N/A reason is out of form (empty, a `<placeholder>` left, a named form without its test or session, under three words), or an N/A on the owner's box (`## Human Testing`, `(owner)`). The forms: `issue-cli check --help` ([N/A boxes](CLI/overview.md#na-boxes-check---na)).
   - `types`: an open `docs`-type issue whose `## Wanted` or open acceptance criterion names a test (a `TestName`, "a test", "go test"), a package (`internal/…`, `pkg/…`, "Go package") or a `.go` path: the docs path has no Test Plan, so that work would ship unchecked. `cmd/…` alone, the word "tests" and a ticked or N/A box stay quiet: READMEs quote install lines, and a criterion may name a check that already runs. The fix is `issue-cli set-type <slug> tweak` at the first status, later the owner's Type on the issue page, or a rewording.
   - `reports`: an issue past a `has_output` gate (the `report` type's `in progress → human-testing`) whose output is gone from the shelf: never added (a hand edit), its file deleted, or rejected and not replaced. Fix: `issue-cli output add --issue <slug> --kind report --file <file>`. It also warns on a done report whose markdown output has a list under a Follow-ups heading while nothing quotes the report: no other issue is its child or names its slug, output id or `output <short id>` in the body, and no queue item but its own names one. It warns once per issue, naming the newest output, and leaves out the owner's items: one ending `(owner)`, or under a sub-heading or lead-in line naming the owner. Fix: `issue-cli queue add --idea "<the follow-up> (from <slug>)"`, or file an issue that names the report. See [Types of Work](Workflow/types.md#the-report-type).
@@ -388,11 +422,16 @@ On this repo (45 worktrees, 3.2 GB) the walk takes about a quarter of a second.
   - `roles`: status `role:` keys ([status roles](Workflow/overview.md#status-roles-role)): an unknown role, one role on two statuses or on a closing status, a file filling some roles but not all (how a renamed status looks).
   - `rules`: the machine's `rules.md` and a project's `rules:` ([Rules](workflow.md#rules)): a line that reaches nobody, a repeated key or id, a layer over the briefing's cap, a project rule with no text, `narrows:` naming no machine rule, or a project rule contradicting a machine one without `narrows:`.
   - `routing`: `routing:` rules that pick the agent CLI ([Agent Dispatch](agent-dispatch.md)): an agent not installed or not a command name, an unknown type, status or department, a rule after a catch-all, a fallback that repeats or leaves out the default.
-  - `memory`: `memory: embedder:` settings search can't use ([Shared Memory](memory.md)): both or neither of `url` and `command`, a URL that leaves this machine, no model, a bad timeout or `min_similarity`; and memories whose `--at` names a status no workflow has.
+  - `workers`: `workers:` settings a worker launch can't use ([Agent Dispatch](agent-dispatch.md#worker-setup)): a `setup:` other than `lean` or `full`, an `mcp:` item with no server or naming a server the owner's Claude Code config does not define, a type the file does not define, a plugin that is not `name@marketplace`.
+  - `memory`: `memory: embedder:` settings search can't use ([Shared Memory](memory.md)): both or neither of `url` and `command`, a URL that leaves this machine, no model, a bad timeout or `min_similarity`; memories whose `--at` names a status no workflow has; a cluster of 3 or more memories in one scope that retell one fact (each linked pair shares 45% or more of the shorter one's words), named by id with `memory edit` and `memory forget` as the merge; and a project pitfall or howto with no `--at` whose text names a step (in design, in progress, "at shipping"), with the `memory edit <id> --at` to set.
   - `evals`: `evals:` entries the [factory benchmark](benchmark.md) can't use: no or a repeated id, an unknown score, a pass outside 0-1, a type the file doesn't define.
   - `critique`: the [fresh critic](Workflow/critique.md)'s settings: a `critique:` timeout that doesn't parse, an agent with no read-only command, a `critique:` block no edge uses, a critique gate out of the first status.
+  - `hints`: a validate action whose `hint:` its rule never shows. The structured rules and the legacy checkbox, assignee, test-plan, comment-prefix, `has_output` and `outputs_approved` rules put the hint in place of their fix (`tracker.RuleShowsHint`); `criteria_*`, `approved_for`, `decisions_*`, `critique`, `commits_reference` and `handoff_answered` keep their own text, so a hint there is never read. The finding names the edge and the rule.
   - `decisions`: a D-n line's attribute group the decision ledger can't use ([Decision ledger](workflow.md#decision-ledger)): a trailing `{…}` that names a decision key (scope, hard, at, paths, expires, ended) but doesn't parse, so the line silently reads as scope issue, soft (legacy text such as `{from: marketing, to: product, via: hq}` names no key and stays quiet), or a scope naming a system no issue or `workbench.systems` has, a department not in `projects.yaml`, a type no workflow defines; `hard` without the owner's words (`NeedsOwnerWords`: no quote, or a provisional or YOLO mark); a `paths:` glob that matches no file of the repository; an `at:` status in none of the project's workflow files. Replaced decisions are skipped. Each finding names the ref and the `decide` command that fixes it (the owner's, for a hard one). It reads the board, so it runs once.
-  - `shas`: a commit ref (7 to 40 lowercase hex, with a letter and a digit) in a done issue's `## Implementation` that the main branch (`ci.branch`, else the main checkout's) does not reach: most often the SHA from before an amend or a rebase, while the commit that landed has another. The fix is the landed SHA (`git log --oneline main --grep '<slug>'`). A ref git doesn't know is left alone (another repository's commit, an attachment's hash), and so is a short ref that names several objects. One `git cat-file --batch-check` and one `git rev-list --stdin` call per run, whatever the number of issues; outside git, nothing.
+  - `shas`: a commit ref (7 to 40 lowercase hex, with a letter and a digit) in a done issue's `## Implementation` that the main branch (`ci.branch`, else the main checkout's) does not reach: most often the SHA from before an amend or a rebase, while the commit that landed has another. The fix is the landed SHA (`git log --oneline main --grep '<slug>'`); `issue-cli health lint --check shas --fix` makes the swap where it is mechanical: of the commits on main whose message names the issue's slug, exactly one has the stale commit's subject. It rewrites only that ref's whole words in `## Implementation`, one write per issue under the issue lock, prints each swap, and lists each ref it kept with why (no such commit, with the one main commit of that subject as a hint when there is one; or several). An issue that quotes another issue's stale SHA keeps it, since its slug finds nothing. A ref git doesn't know is left alone (another repository's commit, an attachment's hash), and so is a short ref that names several objects. One `git cat-file --batch-check` and one `git rev-list --stdin` call per run, whatever the number of issues; outside git, nothing.
+  - `goal-without-work`: each goal in `projects.yaml` (HQ's, Product's, every department's) and each open epic with nothing behind it: no open, unparked issue whose `goal:` names it, no active queue item whose `goal:` (or whose issue's) names it, no job filling it (a `source:` that is the job's metrics file), and for an HQ or group goal no covered goal rolling up into it; an epic needs an open child or an active queue item for it or a child. The finding names the goal (`hq/clients (Paying clients)`) or the epic and the command that adds work (`issue-cli create --title "…" --goal <key>`, `queue add --idea "…" --goal <key>`, `create --parent <epic>`). A project with no goals at all gets one note instead (no warning, so a new project starts clean), fixed by the owner's `department update hq --goal …`. The queue's out-of-work line names the same goals ([Work behind a goal](departments.md#work-behind-a-goal)).
+  - `roadmap-behind`: `docs/roadmap.md`'s version table (rows whose first cell starts with a version, `| **0.60** … |`) stopping before the running milestone, the highest `version:` an open issue carries (a patch, `0.60.1`, counts as `0.60`). One warning naming every milestone of that major between the table's highest row and the running one that the table lacks, so a far `1.0` row doesn't hide a missing `0.61`. The fix is a docs issue that adds the rows. A project with no `docs/roadmap.md` (or `docs:` folder), no versioned open issue, or no row of the running major is quiet. It reads the board, so it runs once.
+  - `worktrees`: a workflow with no `worktree: true` whose open issues have worktrees under `.worktrees/` all the same, made by hand: one warning naming how many and two of them, with the fix `worktree: true` (dispatch then makes `.worktrees/<slug>` on `work/<slug>`). A warning only: a project may keep making its own. The issue's worktree is found the way prove and check-script find it ([Proof Links](Workflow/proof.md#finding-the-issues-branch)).
   - `testids`: a playtest session step (`playtest/sessions/*.yaml`) whose selector names a data-testid that `internal/testids` doesn't list: a target field, a `targets:` entry, or `data-testid="…"` in a string such as an `http` check's `contains:`. The step would fail only in Chrome. It runs only on a repository that has `internal/testids` (this engine), and names the session file, line and step id. The list is read from that repository's `internal/testids/*.go` on disk (the string literals appended to `IDs`, `FixtureIDs` or `StubIDs`), not from the ids built into the running issue-cli, so a build older than the tree doesn't call a new id unknown; a folder that lists none falls back to the built-in list.
   [CLI: health](CLI/overview.md#health) has each rule.
 - **When it runs:** in every snapshot: the one `issue-cli ci run` takes after each run, and the viewer's daily one. It reads the present files, so backfill leaves it out. The Health view also runs lint live: its **Lint** section lists every warning with its fix (50, then the command for the rest). The Status page's Health card shows the snapshot's count (`3 lint warnings`), linking to it.
@@ -408,7 +447,7 @@ After the families ran, every snapshot gets the derived health score. It isn't a
 
 | Component | Measured value | good → bad | Weight |
 |:--|:--|:--|--:|
-| `unit_wait` | `tests.wall_seconds{kind=unit}` | 60 s → 240 s | 20 |
+| `unit_wait` | `tests.wall_seconds_best{kind=unit,window=5runs}`: the best unit wall of the last 5 CI runs (a snapshot without that row: `tests.wall_seconds{kind=unit}`) | 60 s → 240 s | 20 |
 | `unit_cost_trend` | `tests.per_test_ms{kind=unit,stat=mean}` change vs 30 days ago | +10% → +100% | 10 |
 | `e2e_wait` | e2e wall (CI run under 14 days old, else `tests.e2e.estimated_seconds`) | 10 min → 40 min | 10 |
 | `e2e_coverage` | `tests.e2e.coverage` | 90% → 50% | 10 |
@@ -420,7 +459,9 @@ After the families ran, every snapshot gets the derived health score. It isn't a
 | `lint` | `lint.warnings` (issue-cli health lint) | 0 → 20 | 10 |
 | `departments` | `departments.on_track` ([the departments family](#the-departments-family)); optional | 90% → 50% | 10 |
 
+- **Why `unit_wait` takes the best of 5 runs:** local CI runs while workers run `make validate`, so one run's wall measures the machine's load as much as the suite. On 16 Nov 2026 the same tests took 3.3 min one evening and 4.9 min at load 9–16 that night, a 25-point drop. The fastest recent run is the suite's cost on the quietest machine it saw, and a real slowdown lifts every run, so it still shows within 5 runs. CPU seconds (`tests.sum_seconds`) are no way out: each test's own time stretches under load too (6.65 s alone, 38.67 s in that run). The Health view's wall-time chart still plots each run's own wall.
 - **Missing data:** a component without data is left out and the weights are renormalised over the rest.
+- **e2e_wait** reads the newest local CI run with `e2e` results, the slow tier's (`issue-cli ci run --tier slow`, nightly). `.ci/runs` keeps the newest 50 runs of each tier, so a day of merges never prunes that run.
 - **Optional components** (`departments`) without data are left out entirely: no weight row and not in the coverage, so a project without departments scores exactly as before.
 - **The total** is written only when at least half the weight has data. Below that the Health view says what is missing.
 - **No data at all:** no score rows, not a zero.
@@ -432,6 +473,7 @@ After the families ran, every snapshot gets the derived health score. It isn't a
 | `score.component` | `component` | each sub-score, 0–100 |
 | `score.component.value` | `component` | the measured value behind it |
 | `score.component.weight` | `component` | its weight; present for every enabled component, so one without a sub-score has no data |
+| `score.component.waits_days` | `component` | calendar days until a component only time can give data has some; its name is the sentence the Health views show instead of the plain reason. Only `unit_cost_trend` writes it: 30 days after the oldest snapshot on disk with `tests.per_test_ms{kind=unit,stat=mean}` |
 
 On 23 Oct 2026 issue-viewer scored 86–87 from 6 of 9 components. The `lint` component (24 Oct) makes ten.
 
@@ -529,6 +571,17 @@ The decision ledger counted (`internal/decisionstats`, `Measure`): the same numb
 | `decisions.holds` | none | `held` events in the last 30 days |
 | `decisions.injected` | none | `injected` events (briefings that carried the block) in the last 30 days |
 | `decisions.injected_by_briefing` | `briefing` | the same by briefing kind |
+
+### The context family
+
+The fixed floor of the worker sessions (`internal/spend`, `ContextMetrics`): of the sessions in an issue's worktree whose first turn is on the snapshot's calendar day, up to its time, the median first-turn context (input + cache read + cache write: CLAUDE.md, the briefing, tools). Read from Claude Code's transcripts as [`spend --context`](departments.md#context-per-turn-spend---context) reads them, numbers only; transcripts are dated, so backfill draws the past days. Not a score component. Stats draws "Context floor" (floor p50 beside turn p50), so a change to CLAUDE.md, a briefing or the launch config shows up the next day.
+
+| Metric | Labels | Value |
+|:--|:--|:--|
+| `context.floor.sessions` | `role=worker` | worker sessions started that day with a floor (not resumed); always written, 0 is a real count |
+| `context.floor.p50` | `role=worker` | their median first-turn context, tokens |
+| `context.turn.p50` | `role=worker` | median context per turn of the worker sessions started that day, tokens |
+| `context.floor.share` | `role=worker` | floor × turns over the context they read |
 
 ### Adding a family
 

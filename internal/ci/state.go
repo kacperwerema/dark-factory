@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +29,7 @@ const (
 	Error = "error"
 )
 
-// keepRuns is how many run records .ci/runs keeps.
+// keepRuns is how many run records of each tier .ci/runs keeps.
 const keepRuns = 50
 
 // CommandResult is one command of a run.
@@ -38,6 +40,56 @@ type CommandResult struct {
 	DurationMS int64    `json:"duration_ms"`
 	TimedOut   bool     `json:"timed_out,omitempty"`
 	Failures   []string `json:"failures,omitempty"`
+	// Steps are the command's own steps with their wall time, from the
+	// `validate: <step> <seconds>s` lines make validate prints (ParseSteps).
+	Steps []Step `json:"steps,omitempty"`
+}
+
+// Step is one step of a command and how long it took.
+type Step struct {
+	Name       string `json:"name"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// stepLine is the line make validate prints when a step ends. `total` is the
+// whole run, not a step.
+var stepLine = regexp.MustCompile(`(?m)^validate: (\S+) (\d+(?:\.\d+)?)s\r?$`)
+
+// ParseSteps reads a command's output for the steps it timed, in the order
+// they ended. A step printed twice keeps its last time.
+func ParseSteps(output string) []Step {
+	var steps []Step
+	at := map[string]int{}
+	for _, m := range stepLine.FindAllStringSubmatch(output, -1) {
+		if m[1] == "total" {
+			continue
+		}
+		secs, err := strconv.ParseFloat(m[2], 64)
+		if err != nil {
+			continue
+		}
+		s := Step{Name: m[1], DurationMS: int64(secs * 1000)}
+		if i, ok := at[s.Name]; ok {
+			steps[i] = s
+			continue
+		}
+		at[s.Name] = len(steps)
+		steps = append(steps, s)
+	}
+	return steps
+}
+
+// SlowestStep is the run's longest step across its commands; ok is false
+// when no command timed its steps.
+func (r Run) SlowestStep() (step Step, ok bool) {
+	for _, c := range r.Commands {
+		for _, s := range c.Steps {
+			if !ok || s.DurationMS > step.DurationMS {
+				step, ok = s, true
+			}
+		}
+	}
+	return step, ok
 }
 
 // Merged is one branch (or a commit made straight on the branch) that landed
@@ -221,13 +273,20 @@ func RecentRuns(root string, n int) []Run {
 	return runs
 }
 
-// prune keeps the newest keepRuns records and their logs.
+// prune keeps the newest keepRuns records of each tier and their logs. Per
+// tier, so the default tier's runs (one per merge) never push out the slow
+// tier's nightly run: its e2e results are what health's e2e_wait reads.
 func prune(root string) {
-	runs := RecentRuns(root, 0)
-	if len(runs) <= keepRuns {
-		return
-	}
-	for _, r := range runs[keepRuns:] {
+	seen := map[string]int{}
+	for _, r := range RecentRuns(root, 0) {
+		tier := r.Tier
+		if tier == "" {
+			tier = defaultTier
+		}
+		seen[tier]++
+		if seen[tier] <= keepRuns {
+			continue
+		}
 		stem := filepath.Join(RunsDir(root), runName(r.Sha, r.Tier))
 		os.Remove(stem + ".json")
 		os.Remove(stem + ".log")

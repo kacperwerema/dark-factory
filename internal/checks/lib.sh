@@ -171,7 +171,8 @@
 #                       named), its pid in $var, killed on exit
 #   free_port [var]     a free local TCP port in $var (default PORT)
 #   wait_for_url <url> [seconds]
-#                       true once <url> answers (default 10 s)
+#                       true once <url> answers (default 60 s: a freshly
+#                       built viewer can take over 10 s to start on a loaded Mac)
 #
 # Shared stand-ins (each needs sandbox_project, the box private_tmux)
 #   stand_in_viewer     a stand-in viewer: python3's http.server on a free port
@@ -575,6 +576,14 @@ _ck_tmp_base() {
 	echo "$base"
 }
 
+# _ck_stop_homes <dir>: stop every process whose CODEX_HOME or
+# CLAUDE_CONFIG_DIR (or command line) is inside <dir>, at any parent. Only
+# issue-cli can read another process's environment (ps no longer shows it
+# on macOS): doctor leaks --under does the matching.
+_ck_stop_homes() {
+	"$CHECKS_ISSUE_CLI" doctor leaks --under "$1" --stop --quiet
+}
+
 # _ck_sandbox_state points XDG_STATE_HOME and XDG_CONFIG_HOME into <dir>, so
 # a viewer or issue-cli the script starts never reads or writes the shared
 # viewer.json and projects.yaml. Ticking the real issue gets the caller's back
@@ -602,6 +611,10 @@ sandbox_dir() {
 		echo "sandbox_dir: could not resolve the sandbox path" >&2
 		exit 2
 	}
+	# Run before the rm above (cleanups go newest first): a real CLI a step
+	# started with its home in here, and the daemon it detached (codex
+	# app-server-daemon), outlive the script otherwise.
+	on_exit _ck_stop_homes "$_ck_sd_path"
 	[ -n "${_ck_state_isolated:-}" ] || _ck_sandbox_state "$_ck_sd_path"
 	printf -v "$_ck_sd_var" '%s' "$_ck_sd_path"
 }
@@ -978,7 +991,7 @@ free_port() {
 }
 
 wait_for_url() {
-	local url=${1:?wait_for_url needs a url} tries=$((${2:-10} * 5))
+	local url=${1:?wait_for_url needs a url} tries=$((${2:-60} * 5))
 	while [ "$tries" -gt 0 ]; do
 		curl -s -o /dev/null --max-time 1 "$url" && return 0
 		sleep 0.2

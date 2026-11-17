@@ -43,7 +43,7 @@ func TestDecisionKeysHaveOneSource(t *testing.T) {
 		read func(string) []string
 	}{
 		{"docs/issue-format.md", func(s string) []string { return firstGroup(group, s) }},
-		{"CLAUDE.md", func(s string) []string { return firstGroup(group, s) }},
+		{"docs/doc-map.md", func(s string) []string { return firstGroup(group, s) }},
 		{"docs/workflow.md", func(s string) []string {
 			var keys []string
 			for _, m := range regexp.MustCompile("(?m)^- \\*\\*[A-Z][a-z]+\\*\\* \\(`([a-z]+):?`\\):").FindAllStringSubmatch(ledgerSection(s), -1) {

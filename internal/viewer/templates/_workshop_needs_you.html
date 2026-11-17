@@ -45,7 +45,7 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
 {{end}}
 
 {{define "wb/ny-row"}}
-<div class="wb-ny-row wb-ny-row--{{.Tone}}" data-testid="needs_you.row" data-kind="{{.Kind}}" data-slug="{{.Slug}}"{{if .Ready}} data-from="{{.From}}" data-status="{{.Target}}"{{end}}>
+<div class="wb-ny-row wb-ny-row--{{.Tone}}" data-testid="needs_you.row" data-kind="{{.Kind}}" data-slug="{{.Slug}}"{{if .StepURL}} id="{{.Slug}}" data-due="{{.Due}}"{{if .Overdue}} data-overdue="1"{{end}}{{end}}{{if .Ready}} data-from="{{.From}}" data-status="{{.Target}}"{{end}}>
     {{if .Ready}}<label class="wb-ny-pick" data-testid="needs_you.pick_area"><input type="checkbox" data-ny-pick aria-label="Select {{.Slug}}" data-testid="needs_you.pick"></label>{{else}}<span class="wb-ny-pick"></span>{{end}}
     <div class="wb-ny-main">
         <div class="wb-card-meta"><span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span><span class="wb-age">{{.Age}}</span></div>
@@ -54,6 +54,7 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
         {{with .Partner}}<div class="wb-ny-also" data-testid="needs_you.partner">{{.}}{{with $.PartnerNote}} · {{.}}{{end}}{{with $.LiveURL}} · <a href="{{.}}" target="_blank" rel="noopener" data-testid="needs_you.partner.live">live view</a>{{end}}</div>{{end}}
         {{with .Decision}}<blockquote class="wb-ny-q wb-ny-q--decision" data-testid="needs_you.challenge.decision">{{$.ResolveRef}}: {{.}}</blockquote>{{end}}
         {{with .Question}}<blockquote class="wb-ny-q" data-testid="needs_you.question">{{.}}</blockquote>{{end}}
+        {{with .Body}}<pre class="wb-ny-step-body" data-testid="needs_you.step.body">{{.}}</pre>{{end}}
         {{if .Also}}<div class="wb-ny-also" data-testid="needs_you.challenge.also">Also on it, not held: {{range $i, $a := .Also}}{{if $i}} · {{end}}{{$a}}{{end}}</div>{{end}}
         {{if .Clarify}}<div class="wb-ny-clarify" data-clarify-url="{{.ClarifyURL}}">{{range .Clarify}}
             <fieldset class="wb-ny-cq" data-testid="needs_you.clarify" data-qid="{{.ID}}" data-qtext="{{.Text}}">
@@ -91,13 +92,14 @@ data-ny-* hooks). /needs-you and /p/<project>/needs-you render the same ones.
         {{if .Ready}}<button type="button" class="wb-btn wb-btn--you" data-ny-one data-testid="needs_you.approve">Approve</button>{{end}}
         {{if .RunURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-run="{{.RunURL}}" data-testid="needs_you.run">{{.RunLabel}}</button>{{end}}
         {{if .ReplyURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-reply aria-expanded="false" data-testid="needs_you.reply">Reply</button>{{end}}
+        {{if .StepURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-step="{{.StepURL}}" data-testid="needs_you.step.done">Done</button>{{end}}
         {{if .ResolveURL}}<button type="button" class="wb-btn wb-btn--you" data-ny-resolve aria-expanded="false" data-testid="needs_you.challenge.open">Keep it</button>{{end}}
         {{/* One primary per row (docs/UI/workshop-board.md "One primary action"): with a
              primary button above and Chat too, Open and Chat go under the row's ⋯. */}}
-        {{if and (or .Ready .RunURL .ReplyURL .ResolveURL) .ChatURL}}<details class="wb-menu" data-testid="needs_you.row.menu"><summary class="wb-btn wb-menu-btn" aria-label="More for {{.Slug}}">⋯</summary>
+        {{if and (or .Ready .RunURL .ReplyURL .ResolveURL .StepURL) .ChatURL}}<details class="wb-menu" data-testid="needs_you.row.menu"><summary class="wb-btn wb-menu-btn" aria-label="More for {{.Slug}}">⋯</summary>
             <div class="wb-menu-list" role="menu"><a href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a><a href="{{.ChatURL}}" data-testid="needs_you.chat">Chat</a></div>
         </details>{{else}}
-        <a class="wb-btn{{if or .Ready .RunURL .ReplyURL .Clarify .ResolveURL .ExpiryURL .PartnerURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
+        <a class="wb-btn{{if or .Ready .RunURL .ReplyURL .Clarify .ResolveURL .ExpiryURL .PartnerURL .StepURL}} wb-btn--quiet{{else}} wb-btn--you{{end}}" href="{{.URL}}" data-testid="needs_you.open">{{.CTA}}</a>
         {{with .ChatURL}}<a class="wb-btn wb-btn--quiet" href="{{.}}" data-testid="needs_you.chat">Chat</a>{{end}}{{end}}
     </div>
 </div>

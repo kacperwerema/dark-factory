@@ -3,11 +3,12 @@ package proof
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 // ProvesForm is the form of a Proves: line the proof check reads.
-const ProvesForm = "Proves: AC1[, AC2] [TestName ...]"
+const ProvesForm = `Proves: AC1[, AC2] [TestName | "it() title" ...]`
 
 var (
 	// testWord is a test name the proof check can run: a Go identifier, a
@@ -29,10 +30,13 @@ func CheckProves(value, prefix string) []string {
 	if prefix == "" {
 		prefix = "AC"
 	}
-	ids, words := splitTrailer(value, prefix)
+	ids, _ := splitTrailer(value, prefix)
 	var out []string
-	for _, w := range words {
-		if p := provesWordProblem(w, prefix); p != "" {
+	for _, w := range trailerWords(value) {
+		if w.quoted || slices.Contains(ids, strings.ToUpper(w.text)) {
+			continue // a quoted title is one test name, whatever it holds
+		}
+		if p := provesWordProblem(w.text, prefix); p != "" {
 			out = append(out, p)
 		}
 	}
@@ -65,7 +69,7 @@ func provesWordProblem(w, prefix string) string {
 	case boxID.MatchString(w):
 		return fmt.Sprintf("%q is a box or playtest step id, read as a test name: %s", w, stepHint(strings.ToUpper(w)))
 	case !testWord.MatchString(w):
-		return fmt.Sprintf("%q is not a test name (a Go test function such as TestX): the form is %s", w, ProvesForm)
+		return fmt.Sprintf("%q is not a test name (a Go test function such as TestX; a JS/TS it() or describe() title with spaces goes in quotes, whole: \"lista: id (ryba)\"): the form is %s", w, ProvesForm)
 	}
 	return ""
 }

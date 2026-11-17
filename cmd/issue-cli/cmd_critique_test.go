@@ -53,7 +53,7 @@ func critiqueProject(t *testing.T) (proj *tracker.Project, slug, issuePath, crit
 	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", slug)
 	oldMem, oldLoad := autostart.ReadMemory, autostart.ReadLoad
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 40, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 1, Cores: 8} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 1, Avg5: 1, Cores: 8} }
 	// No real agent ever starts from a test: every agent reads as missing,
 	// so only the stand-in command can run.
 	oldInstalled := routing.Installed
@@ -824,5 +824,34 @@ func TestCritiqueDocMatchesTheWorkflow(t *testing.T) {
 	}
 	if n := strings.Count(sentence, "→"); n != len(gated) {
 		t.Errorf("the doc's line names %d edges, workflow.yaml gates %d: %s", n, len(gated), line)
+	}
+}
+
+// A new run records how long the critic took, and its comment says so; a
+// run recorded before took_ms was kept reads "—", never 0.
+func TestCritiqueRecordsTook(t *testing.T) {
+	proj, slug, issuePath, criticOut := critiqueProject(t)
+	mustWrite(t, criticOut, "note issues/Factory/critic.md:1 — fine\nCoverage: read 1 of 1 files\n")
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCritique(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := critique.Load(proj.IssueDir, slug)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs: %v, %d", err, len(runs))
+	}
+	if runs[0].TookMS <= 0 {
+		t.Fatalf("took_ms = %d, want > 0", runs[0].TookMS)
+	}
+	want := "; took " + runs[0].TookText()
+	assertContains(t, out.String(), want)
+	assertContains(t, readFile(t, issuePath), want)
+
+	old := &critique.Run{Slug: slug, From: "in design", To: "backlog"}
+	if old.TookText() != "—" || strings.Contains(critique.CommentText(old), "took") {
+		t.Fatalf("an old run: %q, %q", old.TookText(), critique.CommentText(old))
+	}
+	if _, ok := old.Took(); ok {
+		t.Fatal("an old run reads as timed")
 	}
 }

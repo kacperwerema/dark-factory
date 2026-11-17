@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/diskuse"
 	"github.com/kacperwerema/dark-factory/internal/health"
 	"github.com/kacperwerema/dark-factory/internal/playtestruns"
 	"github.com/kacperwerema/dark-factory/internal/privacy"
@@ -15,7 +16,9 @@ import (
 
 // The daily health snapshot: the server looks every HealthCheckInterval and
 // takes one for each project (once per repository) that has none from
-// today. issue-cli ci run takes the others, after each run.
+// today. issue-cli ci run takes the others, after each run. Each tick also
+// records the machine's fseventsd reading (machine_view.go) and refreshes
+// the disk reading in the background, at most hourly (disk_view.go).
 
 const HealthCheckInterval = 10 * time.Minute
 
@@ -25,7 +28,10 @@ func (s *Server) watchHealth(stop <-chan struct{}) {
 	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 	for {
-		healthDaily(s.projects, time.Now(), lastErr)
+		now := time.Now()
+		recordMachine(now, lastErr)
+		diskuse.RefreshInBackground(now, log.Printf)
+		healthDaily(s.projects, now, lastErr)
 		select {
 		case <-stop:
 			return

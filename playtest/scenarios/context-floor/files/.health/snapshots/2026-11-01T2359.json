@@ -1,0 +1,66 @@
+{
+  "run": {
+    "date": "2026-11-01T23:59",
+    "project": "floor",
+    "branch": "main",
+    "commit": "0000000",
+    "trigger": "daily",
+    "duration_ms": 5
+  },
+  "families": {
+    "context": {
+      "ms": 1,
+      "metrics": 4
+    }
+  },
+  "metrics": [
+    {
+      "id": "context.floor.sessions{role=worker}",
+      "metric": "context.floor.sessions",
+      "labels": {
+        "role": "worker"
+      },
+      "value": 6,
+      "group": "context",
+      "band": {
+        "unit": "count"
+      }
+    },
+    {
+      "id": "context.floor.p50{role=worker}",
+      "metric": "context.floor.p50",
+      "labels": {
+        "role": "worker"
+      },
+      "value": 82000,
+      "group": "context",
+      "band": {
+        "unit": "tokens"
+      }
+    },
+    {
+      "id": "context.turn.p50{role=worker}",
+      "metric": "context.turn.p50",
+      "labels": {
+        "role": "worker"
+      },
+      "value": 118000,
+      "group": "context",
+      "band": {
+        "unit": "tokens"
+      }
+    },
+    {
+      "id": "context.floor.share{role=worker}",
+      "metric": "context.floor.share",
+      "labels": {
+        "role": "worker"
+      },
+      "value": 0.5,
+      "group": "context",
+      "band": {
+        "unit": "share"
+      }
+    }
+  ]
+}

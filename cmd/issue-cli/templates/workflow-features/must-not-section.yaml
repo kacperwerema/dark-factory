@@ -1,5 +1,5 @@
 id: must-not-section
-version: v0.61.0
+version: v0.63.0
 category: conventions
 propose: true
 templates: [development]
@@ -15,7 +15,9 @@ what: |
   criteria no test, command or playtest step could fail; the same criteria warnings print
   when the issue leaves design. Since v0.61.0 each item ends with the criterion that fails
   when it is broken, `→ AC2`, or `→ none: <why>`; lint warns about an item with neither or
-  naming a box the issue doesn't have, and the in-design prompt says so.
+  naming a box the issue doesn't have, and the in-design prompt says so. Since v0.63.0 the
+  placeholder shows the link, and `issue-cli replace`/`append` print the warning as they
+  write the section, not first at the move.
 why: |
   Acceptance criteria say what the change does; nothing said what it must leave alone, so
   a reviewer had only the agent's word that nothing else moved. A short list written at
@@ -30,7 +32,7 @@ snippet: |
         - type: "append_section"
           title: "Must not"
           body: |
-            - <what this change must not do; name a test or a command in backticks when one can catch it>
+            - <what this change must not do; a test or command in backticks when one can catch it> → AC<n>, or → none: <why>
 detect:
   - path: transitions[].actions[].title
     contains: "Must not"

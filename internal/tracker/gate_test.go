@@ -42,3 +42,45 @@ transitions:
 		t.Errorf("NextGate = %q, %q", next, gate)
 	}
 }
+
+// An owner box the move into the status appended (Human Testing's HT1, a
+// box marked "(owner)") is not the worker's work: an issue whose next gate
+// waits only on the owner (and that box) waits on the owner. On 15.11, in another project:
+// a human-testing issue with HT1 unticked and an open yolo-owner-check was
+// on no Needs you list and in no "Waiting on you".
+func TestWaitingOnGateIgnoresOwnerBoxes(t *testing.T) {
+	var wf WorkflowConfig
+	if err := yaml.Unmarshal([]byte(`statuses:
+  - name: "testing"
+  - name: "human-testing"
+  - name: "documentation"
+transitions:
+  - from: "testing"
+    to: "human-testing"
+    actions:
+      - type: "append_section"
+        title: "Human Testing"
+        body: "- [ ] Human verification complete if required"
+      - type: "append_section"
+        title: "Manual"
+        body: "- [ ] (owner) Manual repro\n- [ ] Logs attached"
+  - from: "human-testing"
+    to: "documentation"
+    actions:
+      - type: "require_human_approval"
+        status: "documentation"
+`), &wf); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"only owner boxes open", "## Human Testing\n- [ ] Human verification complete if required\n\n## Manual\n- [ ] (owner) Manual repro\n- [x] Logs attached", "documentation"},
+		{"a worker box still open", "## Human Testing\n- [ ] Human verification complete if required\n\n## Manual\n- [ ] (owner) Manual repro\n- [ ] Logs attached", ""},
+	} {
+		issue := &Issue{Status: "human-testing", BodyRaw: tc.body}
+		if got := WaitingOnGate(&wf, issue, nil); got != tc.want {
+			t.Errorf("%s: WaitingOnGate = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

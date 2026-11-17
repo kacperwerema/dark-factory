@@ -2,12 +2,16 @@ package main
 
 import (
 	"fmt"
+	"github.com/kacperwerema/dark-factory/internal/goalwork"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/connections"
+	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 var createCommand = &Command{
@@ -28,6 +32,16 @@ raw, as append does, so backticks and $ survive the shell.
 an epic on the board (type epic, or already another issue's parent) is
 refused.
 
+--goal <key> writes goal: (the projects.yaml goal it serves: hq/clients,
+marketing/pages, or a bare id only one owner has); an unknown key is
+refused with the keys the project has. The goal-without-work lint check
+and the queue's out-of-work line name goals no open issue serves.
+
+In a dark-factory checkout (the workflow catalog is there), a name from the
+private-names list in the title or slug leaves the slug, pinned with slug:,
+and create warns: a slug goes into the branch and every Refs: line, which
+make leak-check scans. The title keeps the name.
+
 When workflow.yaml defines types of work, --type picks the issue's path
 (default: default_type); the issue starts at that type's first status.
 
@@ -41,6 +55,7 @@ asking off those routes is refused with the routes it has.
 Example:
   issue-cli create --title "Fix heat overflow" --system Combat --status idea
   issue-cli create --title "Bigger play cards" --system UI --type tweak
+  issue-cli create --title "Ten client case studies" --goal hq/clients
   issue-cli create --title "Board: card colours" --system UI --parent ui/board-redesign
   issue-cli create --title "Engine: brand fields" --system Factory --requested-by marketing
   issue-cli create --department marketing --title "Spring menu post" --body "## Brief\n\nWhat and why."`,
@@ -63,6 +78,7 @@ func runCreate(ctx *Context, args []string) error {
 	bodyFlag := fs.String("body", "", "the issue's first text, above the status template")
 	bodyFileFlag := fs.String("body-file", "", "read the body from a file (or - for stdin); avoids shell mangling")
 	parentFlag := fs.String("parent", "", parentFlagHelp)
+	goalFlag := fs.String("goal", "", "the goal it serves (a projects.yaml goal key: hq/clients); writes goal:")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -84,6 +100,13 @@ func runCreate(ctx *Context, args []string) error {
 			return fmt.Errorf("create: %w", err)
 		}
 		extra = append(extra, [2]string{"parent", parent})
+	}
+	if flagWasSet(fs, "goal") {
+		key, err := goalwork.Check(ctx.Project, *goalFlag, ctx.now())
+		if err != nil {
+			return fmt.Errorf("create: %w", err)
+		}
+		extra = append(extra, [2]string{goalwork.Field, key})
 	}
 	_, err = writeNewIssue(ctx, newIssueSpec{
 		Title: *titleFlag, System: *systemFlag, Status: *statusFlag, Priority: *priorityFlag,
@@ -197,6 +220,7 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	}
 
 	slug := tracker.Slugify(title)
+	slug, private := privateFreeSlug(proj, slug, title)
 	filename := filepath.Join(dir, slug+".md")
 	if _, err := os.Stat(filename); err == nil {
 		return nil, fmt.Errorf("issue already exists: %s\nUse 'update' to modify existing issues.", filename)
@@ -205,6 +229,9 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	var content strings.Builder
 	content.WriteString("---\n")
 	content.WriteString(fmt.Sprintf("title: \"%s\"\n", strings.ReplaceAll(title, "\"", "\\\"")))
+	if len(private) > 0 {
+		content.WriteString(fmt.Sprintf("slug: \"%s\"\n", slug))
+	}
 	content.WriteString(fmt.Sprintf("status: \"%s\"\n", status))
 	content.WriteString(tracker.CreatedLine(ctx.now()))
 	if system != "" {
@@ -253,6 +280,9 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	fmt.Fprintf(ctx.Stdout, "✓ Created: %s\n", filename)
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", filename)
 	fmt.Fprintf(ctx.Stdout, "  Slug: %s\n", display)
+	if len(private) > 0 {
+		fmt.Fprintf(ctx.Stdout, "  ⚠ The title names a private project (line %s of the private-names list): the slug leaves it out, so the branch and every Refs: line stay clean for make leak-check. The title keeps it; the slug is pinned with slug:.\n", joinInts(private))
+	}
 	if base.File != "" {
 		fmt.Fprintf(ctx.Stdout, "  Department: %s (workflow %s: %s)\n", base.Department, base.File, base.StatusNames())
 	}
@@ -278,6 +308,30 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 		fmt.Fprintln(ctx.Stdout, "✓ Template checkboxes added to issue body")
 	}
 	return &newIssue{File: filename, Slug: display, Department: dept, RequestedBy: requestedBy}, nil
+}
+
+// privateFreeSlug drops the owner's private names (privacy.PrivateNames)
+// from a new issue's slug where the leak scan runs: a checkout with the
+// workflow catalog, as the commit-msg hook's warning decides. A sweep or
+// report named after another project would otherwise carry its name into
+// the branch and every Refs: line (report 7ab1 item 8). Elsewhere a
+// project names itself all the time, and the slug stays. private are the
+// list's lines that hit; none means slug is unchanged.
+func privateFreeSlug(proj *tracker.Project, slug, title string) (string, []int) {
+	entries, err := os.ReadDir(filepath.Join(proj.Root(), filepath.FromSlash(workflowupgrade.CatalogPath)))
+	if err != nil || len(entries) == 0 {
+		return slug, nil
+	}
+	names, _ := privacy.PrivateNames()
+	return privacy.CleanSlug(slug, title, names)
+}
+
+func joinInts(ns []int) string {
+	parts := make([]string, len(ns))
+	for i, n := range ns {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // otherTypesNote tells the agent which other types exist and how to switch,

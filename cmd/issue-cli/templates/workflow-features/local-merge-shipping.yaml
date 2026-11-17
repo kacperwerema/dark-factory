@@ -1,5 +1,5 @@
 id: local-merge-shipping
-version: v0.54.0
+version: v0.63.0
 category: conventions
 propose: true
 templates: [development]
@@ -8,7 +8,8 @@ title: "Ship by local merge"
 what: |
   The shipping prompt and checklist ship without a remote: merge local main into the
   branch, run the project's checks, fast-forward the main checkout to the branch
-  (`git -C <main checkout> merge --ff-only <branch>`) and never push. The change goes
+  (`git -C <main checkout> merge --ff-only <branch>`) and never push. `issue-cli ship`
+  runs that loop in one command and ends with one verdict line and a matching exit code. The change goes
   under `## Unreleased` in the changelog; releases are cut per milestone and pushed by
   the lead when you ask. The bundled template keeps push: this is opt-in.
 why: |
@@ -24,6 +25,7 @@ snippet: |
         2. Commit on your branch.
         3. `git merge main` (the local branch), resolve conflicts, run the checks.
         4. Fast-forward the main checkout to your branch: `git -C <main checkout> merge --ff-only <your branch>`. If main moved, repeat step 3. Never push.
+        `issue-cli ship` runs steps 3-4 in one command (merge, check, fast-forward, re-merge when main moved); read its last line, `ship: LANDED <sha>` or `ship: NOT LANDED (<reason>)`, never `$?` of a pipe.
         5. Comment `shipped: <sha> fast-forwarded into main`.
 question: "Should agents ship by fast-forwarding local main, never pushing, with releases per milestone?"
 detect:

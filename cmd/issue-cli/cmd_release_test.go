@@ -159,7 +159,7 @@ func TestReleasePublishDryRunShowsThePublicCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(prev) })
-	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.54","cut":"v0.54.0","rc":true,"soaking":false,"candidate":"v0.54.0-rc.1","checks":[{"key":"soaked","text":"Soaked a day","detail":"2h so far","ok":false}]}}`)
+	proj.ViewerURL = releaseViewer(t, `{"milestone":{"version":"0.54","cut":"v0.54.0","rc":true,"soaking":false,"candidate":"v0.54.0-rc.1","checks":[{"key":"ci","text":"Local CI not red on main","ok":true},{"key":"validated","text":"Candidate v0.54.0-rc.1 validated in the release worktree","detail":"not validated: issue-cli release check v0.54.0","ok":false},{"key":"soaked","text":"Soaked a day","detail":"2h so far","ok":false}]}}`)
 	before := gitOut(t, root, "ls-remote", public)
 
 	ctx, stdout, _ := newTestContext(proj, false)
@@ -171,6 +171,7 @@ func TestReleasePublishDryRunShowsThePublicCommit(t *testing.T) {
 	assertContains(t, out, "the old history recorded at setup: v0.54.0 goes on top of it")
 	assertContains(t, out, "  | v0.54.0\n  | \n  | - feature A\n")
 	assertContains(t, out, "CHANGELOG.md's ## Unreleased renamed to ## v0.54.0")
+	assertContains(t, out, "The checks it reads (Waiting for release):\n  ✓ Local CI not red on main\n  ✗ Candidate v0.54.0-rc.1 validated in the release worktree: not validated: issue-cli release check v0.54.0\n")
 	assertContains(t, out, "The real run would refuse now:")
 	assertContains(t, out, "2h so far")
 	if after := gitOut(t, root, "ls-remote", public); after != before {

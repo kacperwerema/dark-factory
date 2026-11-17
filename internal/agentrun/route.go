@@ -92,7 +92,13 @@ func RouteIssue(proj *tracker.Project, issue *tracker.Issue, root, explicit stri
 
 // RouteStep is the launch report's line for a choice.
 func RouteStep(c routing.Choice) Step {
-	s := Step{Name: "Agent: " + c.Agent + " (" + c.Why + ")", Status: "ok"}
+	name := "Agent: " + c.Agent + " (" + c.Why + ")"
+	if c.Model != "" {
+		name = "Agent: " + c.Agent + " · " + c.Model + " (" + c.Why + "; " + c.ModelWhy + ")"
+	} else if c.ModelWhy != "" {
+		name = "Agent: " + c.Agent + " (" + c.Why + "; " + c.ModelWhy + ")"
+	}
+	s := Step{Name: name, Status: "ok"}
 	switch {
 	case c.Hold != "":
 		s.Status, s.Detail = "warning", c.Hold+"; starting "+c.Agent+" anyway, as asked (auto-start holds instead). A wrong rest: issue-cli agents clear <agent>"

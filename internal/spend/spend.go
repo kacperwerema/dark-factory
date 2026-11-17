@@ -9,6 +9,7 @@ package spend
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -154,6 +155,19 @@ type Report struct {
 	Subscriptions []Subscription `json:"subscriptions"`
 }
 
+// IssueTokens is the tokens each issue's sessions spent since r.Since, by
+// slug: every issue some transcript was counted for, not only each box's
+// top ones. An issue with no transcript read is missing, never 0.
+func (r *Report) IssueTokens() map[string]int64 {
+	out := map[string]int64{}
+	for _, b := range r.Boxes {
+		for slug, is := range b.ownTop {
+			out[slug] += is.Tokens()
+		}
+	}
+	return out
+}
+
 // Find is the box with key or name (any case), or nil.
 func (r *Report) Find(key string) *Box {
 	k := tracker.DepartmentKey(key)
@@ -226,47 +240,18 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Option
 
 	// The boxes, and who owns what.
 	boxes := map[string]*Box{}
-	add := func(key, name, parent string, budget *tracker.Budget) {
-		b := &Box{Key: key, Name: name, Parent: parent, own: emptyWeeks(starts), ownTop: map[string]*IssueSpend{}}
-		if budget != nil {
-			bs := BudgetState{Budget: *budget}
+	at := attributionOf(p, issues)
+	for _, d := range at.boxes {
+		b := &Box{Key: d.key, Name: d.name, Parent: d.parent, own: emptyWeeks(starts), ownTop: map[string]*IssueSpend{}}
+		if d.budget != nil {
+			bs := BudgetState{Budget: *d.budget}
 			b.Budget = &bs
 		}
-		boxes[key] = b
+		boxes[d.key] = b
 		rep.Boxes = append(rep.Boxes, b)
 	}
-	add(HQ, "HQ", "", nil)
-	if p.Company != nil {
-		boxes[HQ].Budget = budgetOf(p.Company.Budget)
-	}
-	add(Product, tracker.ProductName, "", nil)
-	if p.Product != nil {
-		boxes[Product].Budget = budgetOf(p.Product.Budget)
-	}
-	for _, d := range p.Departments {
-		parent := ""
-		if g := p.GroupOf(d.Name); g != nil {
-			parent = tracker.DepartmentKey(g.Name)
-		}
-		add(tracker.DepartmentKey(d.Name), d.Name, parent, d.Budget)
-	}
-	boxOf := func(issue *tracker.Issue) string {
-		if d := p.DepartmentOf(issue); d != "" {
-			return tracker.DepartmentKey(d)
-		}
-		return Product
-	}
-	names := map[string]owner{tracker.LeadSessionName(p): {box: HQ}}
-	for _, d := range p.Departments {
-		names[tracker.DepartmentLeadName(p, d.Name)] = owner{box: tracker.DepartmentKey(d.Name)}
-	}
-	for _, issue := range issues {
-		o := owner{box: boxOf(issue), issue: issue}
-		names[tracker.AgentSessionName(issue.Slug)] = o
-		if short := "agent-" + filepath.Base(issue.Slug); names[short].box == "" {
-			names[short] = o
-		}
-	}
+	boxOf := at.boxOf
+	names := at.names
 
 	unpriced := map[string]bool{}
 	count := func(o owner, recs []record) {
@@ -355,16 +340,8 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Option
 	codex := Subscription{Agent: "codex"}
 	codex.Weeks, codex.Read = codexWeeks(opt.CodexDir, root, starts, since, now)
 	rep.Subscriptions = []Subscription{claude, codex}
-	rollUp(p, rep, boxes, starts)
+	rollUp(rep, boxes, starts)
 	return rep
-}
-
-// budgetOf is a copy of b as a BudgetState, or nil.
-func budgetOf(b *tracker.Budget) *BudgetState {
-	if b == nil {
-		return nil
-	}
-	return &BudgetState{Budget: *b}
 }
 
 // owner is who a session's spend goes to: a box, and the issue when a
@@ -372,6 +349,86 @@ func budgetOf(b *tracker.Budget) *BudgetState {
 type owner struct {
 	box   string
 	issue *tracker.Issue
+}
+
+// boxDef is one box of a project: key, name, group and budget.
+type boxDef struct {
+	key, name, parent string
+	budget            *tracker.Budget
+}
+
+// attribution is a project's boxes (HQ, Product, the departments in
+// projects.yaml order), the box each issue's spend goes to, and the owner
+// of each agent name a session in the project folder can run under. spend
+// and spend --context both read it, so they never disagree.
+type attribution struct {
+	boxes []boxDef
+	boxOf func(*tracker.Issue) string
+	names map[string]owner
+}
+
+func attributionOf(p *tracker.Project, issues []*tracker.Issue) attribution {
+	var at attribution
+	var hq, prod *tracker.Budget
+	if p.Company != nil {
+		hq = p.Company.Budget
+	}
+	if p.Product != nil {
+		prod = p.Product.Budget
+	}
+	at.boxes = append(at.boxes, boxDef{key: HQ, name: "HQ", budget: hq}, boxDef{key: Product, name: tracker.ProductName, budget: prod})
+	for _, d := range p.Departments {
+		parent := ""
+		if g := p.GroupOf(d.Name); g != nil {
+			parent = tracker.DepartmentKey(g.Name)
+		}
+		at.boxes = append(at.boxes, boxDef{key: tracker.DepartmentKey(d.Name), name: d.Name, parent: parent, budget: d.Budget})
+	}
+	at.boxOf = func(issue *tracker.Issue) string {
+		if d := p.DepartmentOf(issue); d != "" {
+			return tracker.DepartmentKey(d)
+		}
+		return Product
+	}
+	at.names = map[string]owner{tracker.LeadSessionName(p): {box: HQ}}
+	for _, d := range p.Departments {
+		at.names[tracker.DepartmentLeadName(p, d.Name)] = owner{box: tracker.DepartmentKey(d.Name)}
+	}
+	for _, issue := range issues {
+		o := owner{box: at.boxOf(issue), issue: issue}
+		at.names[tracker.AgentSessionName(issue.Slug)] = o
+		if short := "agent-" + filepath.Base(issue.Slug); at.names[short].box == "" {
+			at.names[short] = o
+		}
+	}
+	return at
+}
+
+// members are, per box key, the boxes whose spend is in it: itself, every
+// department under a group (nested groups count up the chain), and every
+// box for HQ. rolled are the keys rolled into each box, in order.
+func members(defs []boxDef) (members, rolled map[string][]string) {
+	members, rolled = map[string][]string{}, map[string][]string{}
+	parent := map[string]string{}
+	for _, d := range defs {
+		members[d.key] = []string{d.key}
+		parent[d.key] = d.parent
+	}
+	for _, d := range defs {
+		// Every group up the chain counts d (nested groups,
+		// factory/nested-groups-…#D-1); parent is set only for a good
+		// chain, and the walk is bounded anyway.
+		for up, n := d.parent, 0; up != "" && members[up] != nil && n <= len(defs); n++ {
+			members[up] = append(members[up], d.key)
+			rolled[up] = append(rolled[up], d.key)
+			up = parent[up]
+		}
+		if d.key != HQ {
+			members[HQ] = append(members[HQ], d.key)
+			rolled[HQ] = append(rolled[HQ], d.key)
+		}
+	}
+	return members, rolled
 }
 
 func emptyWeeks(starts []time.Time) []Week {
@@ -394,29 +451,18 @@ func weekIndex(starts []time.Time, at time.Time) int {
 
 // rollUp fills each box's Weeks, Month and Top: its own, plus every
 // department's under it for a group, plus every box's for HQ; then its budget.
-func rollUp(p *tracker.Project, rep *Report, boxes map[string]*Box, starts []time.Time) {
-	members := map[string][]*Box{}
+func rollUp(rep *Report, boxes map[string]*Box, starts []time.Time) {
+	var defs []boxDef
 	for _, b := range rep.Boxes {
-		members[b.Key] = []*Box{b}
+		defs = append(defs, boxDef{key: b.Key, parent: b.Parent})
 	}
-	for _, b := range rep.Boxes {
-		// Every group up the chain counts b (nested groups,
-		// factory/nested-groups-…#D-1); Parent is set only for a good
-		// chain, and the walk is bounded anyway.
-		for up, n := b.Parent, 0; up != "" && boxes[up] != nil && n <= len(rep.Boxes); n++ {
-			members[up] = append(members[up], b)
-			boxes[up].RolledFrom = append(boxes[up].RolledFrom, b.Key)
-			up = boxes[up].Parent
-		}
-		if b.Key != HQ {
-			members[HQ] = append(members[HQ], b)
-			boxes[HQ].RolledFrom = append(boxes[HQ].RolledFrom, b.Key)
-		}
-	}
+	keys, rolled := members(defs)
 	for _, b := range rep.Boxes {
 		b.Weeks = emptyWeeks(starts)
+		b.RolledFrom = rolled[b.Key]
 		top := map[string]*IssueSpend{}
-		for _, m := range members[b.Key] {
+		for _, k := range keys[b.Key] {
+			m := boxes[k]
 			for i := range m.own {
 				b.Weeks[i].Add(m.own[i].Tally)
 			}
@@ -553,6 +599,9 @@ type fileRead struct {
 	mod   time.Time
 	recs  []record
 	agent string
+	// compactions are when the session's context was compacted
+	// (compact_boundary records).
+	compactions []time.Time
 }
 
 var (
@@ -576,7 +625,7 @@ func readFile(path string, st os.FileInfo) *fileRead {
 		fr.recs = append(fr.recs, record{id: m.ID, at: m.Timestamp, model: m.Model,
 			in: m.Input, out: m.Output, cacheRead: m.CacheRead, cacheWrite: m.CacheWrite})
 	})
-	fr.agent = AgentName(path)
+	fr.agent, fr.compactions = scanMeta(path)
 	cacheMu.Lock()
 	cache[path] = fr
 	cacheMu.Unlock()
@@ -594,24 +643,49 @@ var nameRe = regexp.MustCompile(`"(?:agentName|customTitle)"\s*:\s*"([^"\\]+)"`)
 // AgentName is the name a transcript file's session runs under: its last
 // name record, or "".
 func AgentName(path string) string {
+	name, _ := scanMeta(path)
+	return name
+}
+
+// compactRecordRe is a compaction record; like a name record, only a whole
+// record matches.
+var compactRecordRe = regexp.MustCompile(`"type"\s*:\s*"system"\s*,\s*"subtype"\s*:\s*"compact_boundary"`)
+
+// scanMeta is a transcript file's session name (its last name record, or
+// "") and the times of its compactions. Numbers and names only: no message
+// text is kept.
+func scanMeta(path string) (name string, compactions []time.Time) {
 	f, err := os.Open(path)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	defer f.Close()
-	name := ""
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
 		line := sc.Bytes()
-		if len(line) > 4096 || !bytes.Contains(line, []byte(`"type"`)) || !nameRecordRe.Match(line) {
+		if !bytes.Contains(line, []byte(`"type"`)) {
+			continue
+		}
+		if bytes.Contains(line, []byte("compact_boundary")) && compactRecordRe.Match(line) {
+			var rec struct {
+				Type, Subtype, Timestamp string
+			}
+			if json.Unmarshal(line, &rec) == nil && rec.Type == "system" && rec.Subtype == "compact_boundary" {
+				if at, err := time.Parse(time.RFC3339Nano, rec.Timestamp); err == nil {
+					compactions = append(compactions, at)
+				}
+			}
+			continue
+		}
+		if len(line) > 4096 || !nameRecordRe.Match(line) {
 			continue
 		}
 		if m := nameRe.FindSubmatch(line); m != nil {
 			name = string(m[1])
 		}
 	}
-	return name
+	return name, compactions
 }
 
 // ResetCache drops the cached reads (tests).

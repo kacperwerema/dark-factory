@@ -217,7 +217,7 @@ Titles, comment and append bodies, retrospective text, `set-meta` values, `--fie
 
 ### Error classes
 
-`unknown_command`, `unknown_subcommand`, `unknown_topic`, `unknown_flag` (including a removed flag such as `--wait`), `flag_parse`, `usage` (missing positional or required flag), `project_resolution`, `approval_missing`, `issue_not_found`, `invalid_transition` (target status not reachable), `validation` (a workflow rule, a missing field answer, or `--dry-run` reporting unmet requirements), `hold` (a non-zero exit that is the expected answer, not a failure: `queue next --start` found nothing ready or a hold stopped it; it still exits 1 for the lead's tick), `panic`, `other`. Events recorded before v0.49.0 may also hold `wait_timeout` (exit 3, from the removed `--wait`).
+`unknown_command`, `unknown_subcommand`, `unknown_topic`, `unknown_flag` (including a removed flag such as `--wait`), `flag_parse`, `usage` (missing positional or required flag), `project_resolution`, `approval_missing`, `issue_not_found`, `invalid_transition` (target status not reachable), `validation` (a workflow rule, a missing field answer, or `--dry-run` reporting unmet requirements), `hold` (a non-zero exit that is the expected answer, not a failure: `queue next --start` found nothing ready, or a hold stopped `queue next --start`, `dispatch --autostart` or `job run` (a job not due or waiting for the owner included); it still exits 1 for the lead's tick), `panic`, `other`. Events recorded before v0.49.0 may also hold `wait_timeout` (exit 3, from the removed `--wait`).
 
 ## `issue-cli telemetry report`
 

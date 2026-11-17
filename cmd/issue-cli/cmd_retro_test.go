@@ -176,3 +176,48 @@ func TestRetroSweepBriefSaysTheLeadFiles(t *testing.T) {
 		}
 	}
 }
+
+// Sweep briefs may ask the worker to file issues: the closing line of
+// retro list says the brief decides, not that a sweep never files.
+func TestRetroListClosingLineMatchesSweepBriefs(t *testing.T) {
+	proj, _, _ := makeSimpleProject(t, "backlog")
+	retroFile(t, proj, "20261101-090000-r1.md", "", "2026-11-01T09:00:00Z", "Base workflow: fine")
+	out, err := runRetroAt(t, proj, "2026-11-01T12:00:00Z", false, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if last != retroWhoFiles {
+		t.Fatalf("retro list closes with %q, want %q", last, retroWhoFiles)
+	}
+	for _, want := range []string{"files issues when its brief asks for them", "lists its proposals in its report", "the lead files them"} {
+		if !strings.Contains(last, want) {
+			t.Errorf("closing line misses %q: %q", want, last)
+		}
+	}
+	if strings.Contains(last, "files nothing") {
+		t.Errorf("closing line still says a sweep files nothing: %q", last)
+	}
+}
+
+// The two docs that state the sweep's filing rule quote the CLI's line
+// word for word, and neither keeps the old "files nothing" rule for every
+// sweep.
+func TestSweepFilingRuleIsWordedOnceInDocs(t *testing.T) {
+	for _, doc := range []string{"docs/CLI/overview.md", "docs/patterns/lead-session.md"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if n := strings.Count(text, retroWhoFiles); n != 1 {
+			t.Errorf("%s states the sweep filing rule %d time(s), want once: %q", doc, n, retroWhoFiles)
+		}
+		for _, old := range []string{"A sweep lists its proposals in its report and files nothing", "proposes one issue per cause in its report and files nothing"} {
+			if strings.Contains(text, old) {
+				t.Errorf("%s keeps the old rule %q", doc, old)
+			}
+		}
+	}
+}

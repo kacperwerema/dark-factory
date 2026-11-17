@@ -86,8 +86,9 @@
         var meta = esc(stateLabel[n.state] || n.state);
         if (n.gate) meta += ' · ' + esc(n.gate);
         if (n.retro_not_swept) meta += ' · retro not swept';
+        if (n.closed) meta += ' · session closed: waits on your review';
         var html = '<div class="agent-row">'
-            + '<button type="button" class="' + cls + '" data-name="' + esc(n.name) + '" title="' + esc(n.name) + '" data-testid="agents.node.' + tid(n.name) + '">'
+            + '<button type="button" class="' + cls + '" data-name="' + esc(n.name) + '" title="' + esc(n.closed || n.name) + '" data-testid="agents.node.' + tid(n.name) + '">'
             + '<span class="agent-dot"></span><span class="agent-name">' + esc(shortName(n.name, 32)) + '</span>'
             + '<span class="agent-state" data-testid="agents.node.' + tid(n.name) + '.state">' + meta + '</span></button>';
         if (opts.issues && n.issue) {

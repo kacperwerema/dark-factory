@@ -47,8 +47,9 @@ func markBody(act, file string, ids ...string) string {
 	return string(b)
 }
 
-// AC2: the page lists every open action of every post-mortem, archive
-// included, by place, with copies together and all but the newest ticked.
+// The page lists every open action of every post-mortem, archive included,
+// by place; copies are one row naming every post-mortem, with a count,
+// and every copy starts ticked: one answer covers the group (AC1).
 func TestPostmortemsPageGroupsByPlaceAndCopy(t *testing.T) {
 	proj, url, _ := postmortemSandbox(t)
 	root := proj.Root()
@@ -70,16 +71,25 @@ func TestPostmortemsPageGroupsByPlaceAndCopy(t *testing.T) {
 		`data-testid="postmortems.count">8</span>`, `every open action of 2 post-mortems`,
 		`data-testid="postmortems.place.file"`, `data-testid="postmortems.place.workflow"`,
 		`data-testid="postmortems.joined">8 in 4 groups`,
+		`data-testid="postmortems.rows">4 answers cover all 8`,
 		`data-testid="postmortems.row.till.a1"`, `data-testid="postmortems.row.cart.a1"`,
-		`data-testid="postmortems.warn">Each agreed copy files its own experiment`,
+		`data-testid="postmortems.group.file-0.count">2 say the same`,
+		`data-testid="postmortems.agree.file-0">Agree 2`,
+		`data-testid="postmortems.refuse.file-0">Refuse 2`,
 		`data-mark-url="/p/acme/postmortems/mark"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
 	}
-	if n := strings.Count(body, `data-testid="postmortems.kept"`); n != 4 {
-		t.Errorf("%d rows kept, want the newest of each of 4 groups", n)
+	if n := strings.Count(body, `data-pmq-tick checked`); n != 8 {
+		t.Errorf("%d rows ticked, want every copy of the 4 groups", n)
+	}
+	for _, key := range []string{"memory-0", "file-0", "file-1", "workflow-0"} {
+		from := `data-testid="postmortems.group.` + key + `.from">from <a href="/p/acme/postmortem/till">till</a>, <a href="/p/acme/postmortem/cart">cart</a>`
+		if !strings.Contains(body, from) {
+			t.Errorf("group %s doesn't name both post-mortems (%s)", key, from)
+		}
 	}
 	if strings.Contains(body, "/decide") {
 		t.Error("the queue page offers the round's Agree")
@@ -248,7 +258,7 @@ func TestPostmortemsMarkRefusesAFileOutsideTheQueue(t *testing.T) {
 
 func TestPostmortemsMarkRefusesABadBody(t *testing.T) {
 	_, url, path := postmortemSandbox(t)
-	for _, b := range []string{`{`, `{"act":"refuse"}`, markBody("agree", filepath.Base(path), "A1")} {
+	for _, b := range []string{`{`, `{"act":"refuse"}`, markBody("apply", filepath.Base(path), "A1")} {
 		if code, out := postMark(t, url, b, nil); code != http.StatusBadRequest {
 			t.Errorf("%s: %d %v", b, code, out)
 		}

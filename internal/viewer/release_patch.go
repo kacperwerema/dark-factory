@@ -18,19 +18,23 @@ import (
 // A patch release (vX.Y.Z, Z > 0) is cut on the existing release/vX.Y
 // branch with `issue-cli release cut vX.Y.Z`, outside the milestone flow:
 // its fixes are picked from main. The Waiting for release card shows its
-// newest candidate (ReleaseWait.Patch) with its own checks: local CI green
-// on main's head, a changelog heading or Unreleased entries on the branch,
-// go build and go vet passed on the branch tip (recorded by release pick and
-// cut), and nothing picked after the candidate.
+// newest candidate (ReleaseWait.Patch) with its own checks: local CI not red
+// on main (main's newest head need not be tested: the patch ships the
+// branch), a changelog heading or Unreleased entries on the branch, go build
+// and go vet passed on the branch tip (recorded by release pick and cut),
+// nothing picked after the candidate, and the candidate validated in the
+// release worktree (issue-cli release check).
 
 // gitPatchCut is the newest patch release with a candidate tag and no
 // release tag yet ("v0.58.1"), "" for none. A var so tests don't run git.
 var gitPatchCut = func(root string) string {
-	out, err := exec.Command("git", "-C", root, "tag", "-l", "v*").Output()
-	if err != nil {
-		return ""
-	}
-	return newestPatchCut(strings.Fields(string(out)))
+	return refsKept(root, []string{"patch-cut"}, func() string {
+		out, err := exec.Command("git", "-C", root, "tag", "-l", "v*").Output()
+		if err != nil {
+			return ""
+		}
+		return newestPatchCut(strings.Fields(string(out)))
+	})
 }
 
 // newestPatchCut picks, from tag names, the highest patch release that has
@@ -55,25 +59,37 @@ func newestPatchCut(tags []string) string {
 
 // gitBranchFile is path's contents at branch. A var so tests don't run git.
 var gitBranchFile = func(root, branch, path string) string {
-	out, err := exec.Command("git", "-C", root, "show", branch+":"+path).Output()
-	if err != nil {
-		return ""
-	}
-	return string(out)
+	return refsKept(root, []string{"show", branch, path}, func() string {
+		out, err := exec.Command("git", "-C", root, "show", branch+":"+path).Output()
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	})
 }
 
 // gitTip is ref's commit, "" when git fails. A var so tests don't run git.
 var gitTip = func(root, ref string) string {
-	out, err := exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", ref+"^{commit}").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return refsKept(root, []string{"tip", ref}, func() string {
+		out, err := exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", ref+"^{commit}").Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	})
 }
 
 // releaseBuiltTip is the branch tip release pick or cut last built and
-// vetted. A var so tests don't run git.
-var releaseBuiltTip = privacy.BuiltTip
+// vetted (the repo's git config). A var so tests don't run git.
+var releaseBuiltTip = func(root, branch string) string {
+	return refsKept(root, []string{"built", branch}, func() string { return privacy.BuiltTip(root, branch) })
+}
+
+// releaseValidatedTip is the branch commit release check last validated
+// (the repo's git config). A var so tests don't run git.
+var releaseValidatedTip = func(root, branch string) string {
+	return refsKept(root, []string{"validated", branch}, func() string { return privacy.ValidatedTip(root, branch) })
+}
 
 // buildPatchRow is the patch candidate's row; nil without one. st and on
 // are local CI's state; mainBranch and mainHead the branch CI tests.
@@ -93,7 +109,7 @@ func buildPatchRow(proj *tracker.Project, wf *tracker.WorkflowConfig, changelog 
 		if mainBranch == "" {
 			mainBranch = "main"
 		}
-		ms.Checks = append(ms.Checks, ciCheck(st, mainBranch, mainHead))
+		ms.Checks = append(ms.Checks, ciNotRedCheck(st, mainBranch))
 	}
 	if changelog != "" {
 		ms.Checks = append(ms.Checks, patchChangelogCheck(gitBranchFile(root, branch, changelog), cut, branch))

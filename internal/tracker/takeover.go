@@ -76,7 +76,13 @@ func TakenOver(comments []Comment) bool {
 // HandoffPromptSection is the worker briefing's part on HANDOFF.md. Every
 // issue keeps one: the other agent takes the branch over from it at a usage
 // limit (routing:), and a fresh session reads it at a session: fresh status.
+// A type that builds nothing (BuildsNothing: a report, a chore) has no
+// worktree to keep it in, so its handoff goes in progress: comments.
 func HandoffPromptSection(wf *WorkflowConfig) string {
+	if wf.BuildsNothing() {
+		return "\n\n## Handoff\n\n" +
+			"This type of work builds nothing, so there is no worktree to keep " + HandoffFile + " in. Post a `progress:` comment on the issue at each step instead: what's done, the next step, open questions. Three short lists are enough. " + handoffWhyTrail(wf) + "\n"
+	}
 	return "\n\n## Handoff\n\n" +
 		"Keep " + HandoffFile + " current at the root of your worktree, at each step: what's done, the next step, open questions. Three short lists are enough, and it is never committed. " + handoffWhy(wf) + "\n"
 }
@@ -89,8 +95,19 @@ func handoffWhy(wf *WorkflowConfig) string {
 	return "The next session on this issue starts from it: a fresh session at a new stage, or the worker that resumes after a restart."
 }
 
+// handoffWhyTrail is who reads the progress: comments after the worker.
+func handoffWhyTrail(wf *WorkflowConfig) string {
+	if wf != nil && wf.Routing != nil {
+		return "When you hit your usage limit you can't write any more: the other agent takes your work over from the issue trail, and a fresh session at a new stage starts from it."
+	}
+	return "The next session on this issue starts from the issue trail: a fresh session at a new stage, or the worker that resumes after a restart."
+}
+
 // HandoffReminder is transition's line to a worker.
 func HandoffReminder(wf *WorkflowConfig) string {
+	if wf.BuildsNothing() {
+		return "Post a progress: comment: what's done, the next step, open questions."
+	}
 	return "Update " + HandoffFile + " at your worktree's root: what's done, the next step, open questions."
 }
 

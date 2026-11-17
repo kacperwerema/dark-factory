@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // concepts is the stub embedder's model: each word maps to one meaning,
@@ -240,10 +242,7 @@ func TestHTTPEmbedderSpeaksOllamaEmbed(t *testing.T) {
 func TestCommandEmbedder(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "embed.sh")
-	body := "#!/bin/sh\ncat > req.json\nprintf '{\"embeddings\":[[1,0],[0,1]]}'\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	standin.Write(t, script, "cat > req.json\nprintf '{\"embeddings\":[[1,0],[0,1]]}'\n")
 	c := CommandEmbedder{Argv: []string{script}, Dir: dir, Model: "m", Timeout: time.Minute}
 	vecs, err := c.Embed(context.Background(), []string{"x", "y"})
 	if err != nil || len(vecs) != 2 {

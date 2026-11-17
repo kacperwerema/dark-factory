@@ -52,6 +52,7 @@ var ownerRoutes = []struct{ method, path, body string }{
 	{"POST", "/p/test-project/decisions/some-issue/D-1/renew", `{"expires":"2099-01-01"}`},
 	{"POST", "/p/test-project/decisions/some-issue/D-1/let-go", `{}`},
 	{"POST", "/p/test-project/decisions/challenge/resolve", `{"ref":"some-issue#D-1"}`},
+	{"POST", "/p/test-project/owner-steps/st-abcdef/done", `{}`},
 	{"POST", "/p/test-project/hall/station/backlog/edit/preview", `{}`},
 	{"POST", "/p/test-project/hall/station/backlog/edit/save", `{}`},
 	{"POST", "/p/test-project/health/recommendation/r1/file", `{}`},

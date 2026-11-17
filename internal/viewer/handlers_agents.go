@@ -70,6 +70,10 @@ type AgentNode struct {
 	// Stalled says how the agent stalled ("stalled at Codex's trust
 	// dialog", agentrun.ScanStalls); the agent is left as it is.
 	Stalled string `json:"stalled,omitempty"`
+	// Closed is why a stopped worker's session was closed: the lead
+	// tick's session: closed comment, while no dispatch came after it
+	// (its report waits on the owner on the shelf).
+	Closed string `json:"closed,omitempty"`
 }
 
 // SubscriptionView is one agent CLI's subscription on this machine.
@@ -275,6 +279,9 @@ func (s *Server) buildAgentsModel(proj *tracker.Project, prefix string) (*Agents
 			n.RetroNotSwept = unswept[strings.ToLower(issue.Slug)]
 			if gate := pendingGate(wf, issue); gate != "" {
 				n.Gate = gate
+			}
+			if c := tracker.SessionClosedSinceDispatch(issue.Comments()); c != nil {
+				n.Closed = strings.Join(strings.Fields(c.Text), " ")
 			}
 			model.Unfinished = append(model.Unfinished, n)
 		}

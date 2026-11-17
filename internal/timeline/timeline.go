@@ -31,12 +31,16 @@ const (
 type Sources struct {
 	Transitions []tracker.TransitionStat
 	Dispatches  []time.Time
-	MergeSHA    string
-	Calls       []Call
-	Commits     []Commit
-	Runs        []PlaytestRun
-	Missing     []Missing
-	Read        []string
+	// Model is the worker's model over its launches (tracker.WorkerModel)
+	// and RedRounds the red rounds its sidecar holds (RedRoundCount).
+	Model     string
+	RedRounds int
+	MergeSHA  string
+	Calls     []Call
+	Commits   []Commit
+	Runs      []PlaytestRun
+	Missing   []Missing
+	Read      []string
 }
 
 // Missing is a source that could not be read.

@@ -260,3 +260,107 @@ func TestLintKnowsDecisionRules(t *testing.T) {
 		}
 	}
 }
+
+// listFixture is a board whose project rules hold hard D-5, D-6 and D-7 in
+// orchard/list; design is the issue under test's ## Design text.
+func listFixture(design string) (*WorkflowConfig, *Issue) {
+	rules := &Issue{Slug: "orchard/list", Status: "done", BodyRaw: "## Decisions\n\n" +
+		`- **D-5** · 2026-10-05 · chat: Five, "five" {scope: project; hard}` + "\n" +
+		`- **D-6** · 2026-10-06 · chat: Six, "six" {scope: project; hard}` + "\n" +
+		`- **D-7** · 2026-10-07 · chat: Seven, "seven" {scope: project; hard}` + "\n"}
+	other := &Issue{Slug: "orchard/other", Status: "done", BodyRaw: "## Decisions\n\n" +
+		`- **D-1** · 2026-10-08 · chat: One, "one" {scope: project; hard}` + "\n"}
+	issue := &Issue{Slug: "orchard/child", Status: "in design", Created: "2026-10-31",
+		BodyRaw: "## Idea\n\nSomething.\n\n## Design\n\n" + design + "\n"}
+	x := BuildDecisionIndex([]*Issue{rules, other, issue}, nil)
+	wf := &WorkflowConfig{
+		Statuses: []WorkflowStatus{{Name: "in design"}, {Name: "backlog"}},
+		Transitions: []WorkflowTransition{{From: "in design", To: "backlog", Actions: []WorkflowAction{
+			{Type: "validate", Rule: DecisionsCitedRule},
+		}}},
+		DecisionsInForce: func() (*DecisionIndex, InForceOptions) {
+			return x, InForceOptions{Today: time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local)}
+		},
+	}
+	return wf, issue
+}
+
+func listCited(t *testing.T, design string) error {
+	t.Helper()
+	wf, issue := listFixture(design)
+	return wf.ValidateTransition(issue, "in design", "backlog", nil)
+}
+
+// TestDecisionsCitedReadsACommaListAfterOneFullRef is AC1: a comma list
+// after one full ref cites each ref in it, with or without each #.
+func TestDecisionsCitedReadsACommaListAfterOneFullRef(t *testing.T) {
+	for _, design := range []string{
+		"Follows orchard/list#D-5,D-6,D-7 and orchard/other#D-1.",
+		"Follows orchard/list#D-5, D-6, D-7 and orchard/other#D-1.",
+		"Follows orchard/list#D-5, #D-6, #D-7 and orchard/other#D-1.",
+		"Follows `orchard/list#D-5`,`D-6`, D-7 and orchard/other#D-1.",
+		"n/a orchard/list#D-5,D-6,D-7: nothing here merges\nFollows orchard/other#D-1.",
+		"- n/a orchard/list#D-5, #D-6, D-7: nothing here merges\nFollows orchard/other#D-1.",
+	} {
+		if err := listCited(t, design); err != nil {
+			t.Errorf("%q held:\n%v", design, err)
+		}
+	}
+	// A bare D-n with no full ref before it on the line names nothing.
+	err := listCited(t, "Follows orchard/list#D-5.\nAlso D-6, D-7 and orchard/other#D-1.")
+	if err == nil || !strings.Contains(err.Error(), "orchard/list#D-6") || !strings.Contains(err.Error(), "orchard/list#D-7") {
+		t.Fatalf("bare D-n off a list counted: %v", err)
+	}
+}
+
+// TestDecisionsCitedReadsSeveralNaSentencesOnOneLine is AC2: each n/a
+// sentence on a line sets its own refs aside with its own reason.
+func TestDecisionsCitedReadsSeveralNaSentencesOnOneLine(t *testing.T) {
+	for _, design := range []string{
+		"n/a orchard/list#D-5: no merge. n/a orchard/list#D-6: no store. n/a orchard/list#D-7: no freeze. n/a orchard/other#D-1: one only.",
+		"- n/a `orchard/list#D-5`: no merge; n/a `orchard/list#D-6`, #D-7: none. n/a orchard/other#D-1: one only.",
+		"Follows orchard/other#D-1.\nn/a orchard/list#D-5: no merge. n/a orchard/list#D-6,D-7: nothing stored.",
+	} {
+		if err := listCited(t, design); err != nil {
+			t.Errorf("%q held:\n%v", design, err)
+		}
+	}
+	// The reason stays with its own sentence: a bare second n/a still holds.
+	err := listCited(t, "Follows orchard/other#D-1, orchard/list#D-6, #D-7.\nn/a orchard/list#D-5: no merge. n/a orchard/list#D-6")
+	if err != nil {
+		t.Fatalf("a cited ref held for a bare n/a beside it:\n%v", err)
+	}
+	err = listCited(t, "Follows orchard/other#D-1, orchard/list#D-7.\nn/a orchard/list#D-5: no merge. n/a orchard/list#D-6.")
+	if err == nil || !strings.Contains(err.Error(), "orchard/list#D-6") || !strings.Contains(err.Error(), "its n/a line has no reason") {
+		t.Fatalf("a bare second n/a took the first one's reason: %v", err)
+	}
+	if strings.Contains(err.Error(), "orchard/list#D-5 (") {
+		t.Fatalf("the first n/a sentence did not count:\n%v", err)
+	}
+}
+
+// TestDecisionsCitedHoldNamesTheForms is AC3: a ref named in no form still
+// holds, and the refusal lists the forms that count.
+func TestDecisionsCitedHoldNamesTheForms(t *testing.T) {
+	err := listCited(t, "Follows orchard/list#D-5,D-6 and orchard/other#D-1.")
+	if err == nil {
+		t.Fatal("an uncited D-7 passed")
+	}
+	for _, want := range []string{
+		"1 hard decision in force is not cited",
+		"orchard/list#D-7 (project)",
+		"Forms that count",
+		"<slug>#D-5,D-6",
+		"<slug>#D-5, #D-6",
+		"n/a <ref>: <why>. n/a <ref>",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal lacks %q:\n%v", want, err)
+		}
+	}
+	for _, not := range []string{"orchard/list#D-5 (", "orchard/list#D-6 ("} {
+		if strings.Contains(err.Error(), not) {
+			t.Errorf("refusal names a cited ref %q:\n%v", not, err)
+		}
+	}
+}

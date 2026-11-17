@@ -166,11 +166,27 @@ type ScoringConfig struct {
 type LeadsConfig struct {
 	// ProjectAddendum is added after the brief; the default stays one source.
 	ProjectAddendum string `yaml:"project_addendum,omitempty" desc:"What this project adds to the project lead's built-in brief"`
+	// GreenBranchMinutes is how long a branch at its issue's merge status
+	// may wait unmerged before the lead tick names it; 0 is
+	// DefaultGreenBranchMinutes.
+	GreenBranchMinutes int `yaml:"green_branch_minutes,omitempty" desc:"Minutes a branch at its issue's merge status (shipping) may wait unmerged before the lead tick names it (default 30)"`
 	// Project replaces the built-in brief, which then drifts; lint warns.
 	Project string `yaml:"project,omitempty" desc:"Replaces the project lead's built-in brief; lint warns, use project_addendum"`
 	// Epic is obsolete: still parsed so old configs load, ignored, and
 	// reported by Lint.
 	Epic string `yaml:"epic,omitempty" desc:"Obsolete and ignored (one lead per project); lint warns when set"`
+}
+
+// DefaultGreenBranchMinutes is leads.green_branch_minutes when unset.
+const DefaultGreenBranchMinutes = 30
+
+// GreenBranchWait is leads.green_branch_minutes as a duration, the
+// default when unset or not positive.
+func (l LeadsConfig) GreenBranchWait() time.Duration {
+	if l.GreenBranchMinutes > 0 {
+		return time.Duration(l.GreenBranchMinutes) * time.Minute
+	}
+	return DefaultGreenBranchMinutes * time.Minute
 }
 
 // FeatureRecord is the per-project feature state next to the template stamp.
@@ -224,6 +240,9 @@ type WorkflowConfig struct {
 	// gives the default when unset. Project-wide like CI.
 	MaxRedRounds int       `yaml:"max_red_rounds,omitempty" desc:"Fix rounds a check ({{red-rounds-what-counts}}) may stay red before it becomes a question for the owner and is not re-run; {{default-max-red-rounds}} when unset (issue-cli rounds <slug>)"`
 	CI           *CIConfig `yaml:"ci,omitempty" desc:"Optional local CI: commands run on the integration branch after every move, results in .ci/ (see docs/workflow.md, Local CI)"`
+	// Deploy is the project's own deploy, walked in order by issue-cli
+	// deploy (docs/workflow.md, Deploy). Project-wide like CI.
+	Deploy []DeployStep `yaml:"deploy,omitempty" desc:"Optional deploy steps issue-cli deploy runs in order, stopping at the first red one: name, run, needs (main-green, no-live-workers, owner-ok), probe, timeout; records under the issues dir's .deploys/ (see docs/workflow.md, Deploy)"`
 	// Health tunes the project health snapshots. Project-wide like CI; nil
 	// means snapshots with the defaults.
 	Health *HealthConfig `yaml:"health,omitempty" desc:"Optional health snapshot settings: big-file limit, test and exclude globs (see docs/workbench-files.md, Health snapshots)"`
@@ -257,6 +276,11 @@ type WorkflowConfig struct {
 	// (docs/workflow.md, Rules). Project-wide: a department's file takes
 	// them from Product's.
 	Rules []ProjectRule `yaml:"rules,omitempty" desc:"This project's standing rules, added to the machine's rules.md in every briefing: text, optional id, narrows: a machine rule's key (see docs/workflow.md, Rules)"`
+
+	// Workers is what an issue's Claude Code worker starts with: the lean
+	// setup (only named MCP servers, plugins and skills) or the owner's
+	// full one (docs/agent-dispatch.md "Worker setup"). nil means lean.
+	Workers *WorkersConfig `yaml:"workers,omitempty" desc:"What a Claude Code worker starts with: setup (lean default | full), mcp (servers from the owner's config by issue system/type/label), plugins and skills kept on (see docs/agent-dispatch.md, Worker setup)"`
 
 	// Memory configures the agents' shared memory: an optional local
 	// embedder for search (docs/memory.md). nil means BM25 only.
@@ -339,6 +363,10 @@ type WorkflowConfig struct {
 	// transition posts each as a yolo-hold: comment.
 	DeferDecisionHolds bool             `yaml:"-" json:"-"`
 	decisionState      *decisionRuntime `yaml:"-" json:"-"`
+	// SkipCommandRules makes command_succeeds pass without running its
+	// command: a preview that only asks what else is open (issue-cli's
+	// one-call line) must not run a gate command again or count its round.
+	SkipCommandRules bool `yaml:"-" json:"-"`
 
 	// Set by ForType/ForIssue on a scoped config. ActiveType is the resolved
 	// type ("" when the project has no types); typePath is the set of statuses

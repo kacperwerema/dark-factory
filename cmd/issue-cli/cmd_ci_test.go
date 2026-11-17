@@ -460,3 +460,24 @@ func TestCIStatusShowsTierLines(t *testing.T) {
 		t.Errorf("--tier slow printed %d tier lines:\n%s", n, stdout.String())
 	}
 }
+
+// ci status names the slowest step of the newest run, from the step times
+// make validate prints, in text and in --json.
+func TestCIStatusShowsTheSlowestStep(t *testing.T) {
+	proj, _ := makeCIFixture(t, "ci:\n  nice: 0\n  run:\n    - cmd: \"echo 'validate: vet 3s'; echo 'validate: test 9s'; echo 'validate: PASS'\"\n")
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runCI(ctx, []string{"run"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCI(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), ": test 9s (echo ")
+	ctx, stdout, _ = newTestContext(proj, true)
+	if err := runCI(ctx, []string{"status"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), `"slowest_step": "Slowest step at `)
+	assertContains(t, stdout.String(), `"duration_ms": 9000`)
+}

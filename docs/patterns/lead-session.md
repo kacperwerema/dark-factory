@@ -99,7 +99,9 @@ A lead still reads everything without interrupting anyone:
 | Issue | `issue-cli context <slug>` | Status, checklists, comments |
 | Branch | `git worktree list`, `git log --oneline main..<branch>` | Code written so far, overlaps between branches |
 | Logs | `.agent-logs/<session>/` | Every `issue-cli` call, the full transcript |
-| Screen | `tmux capture-pane -p -t <session> \| tail -40` | What the agent is doing or waiting on |
+| Screen | `tmux capture-pane -p -e -t <session> \| tail -40` | What the agent is doing or waiting on |
+
+Read the screen with `-e`. In an idle Claude Code pane the input box can show a dimmed suggestion (`❯ ` then text in `ESC[2m`). A plain `capture-pane -p` prints it like typed text. It is Claude Code's guess at your next message, never an answer the owner left unsent: on 2026-11-13 a lead read three of them that way. The owner's answers are comments on the issue trail; a worker reads them on its next `issue-cli` call, and a fresh session in its briefing (`## The owner's words on this issue`). The Crew page's **Tail** marks a suggestion as `(greyed suggestion, not typed: …)`.
 
 A lead started by hand (plain `claude` in the project root) still works, but the tool can't see it: `lead whoami` reports it as unmanaged and tells it to run `issue-cli lead spawn`.
 
@@ -125,11 +127,154 @@ These checks read the environment and the session name. They are guardrails for 
 
 ### Check-ins and stand-ups
 
-While workers run, the lead checks in when you ask (no timer or loop prompts it; see [A human starts the work](../agent-dispatch.md#a-human-starts-the-work)) and reports only what changed: questions waiting, a gate reached, red tests, an idle agent, two branches touching the same files. On request it gives a **stand-up**: one line per dispatched issue with status, last progress and blockers, then the approvals waiting for you.
+While workers run, the lead checks in when you ask and on its own tick ([The tick](#the-tick); the tool itself runs nothing on a timer, see [A human starts the work](../agent-dispatch.md#a-human-starts-the-work)) and reports only what changed: questions waiting, a gate reached, red tests, an idle agent, two branches touching the same files. On request it gives a **stand-up**: one line per dispatched issue with status, last progress and blockers, then the approvals waiting for you.
+
+### The tick
+
+The project runs while the lead keeps its tick going: nothing in the tool runs on a timer, so the queue, auto-start and due jobs move only when the lead checks in. That check-in is one command:
+
+```bash
+issue-cli lead tick                                  # one tick
+issue-cli lead tick --watch [--every 5m]             # tick every 5 minutes, for a Monitor
+issue-cli lead tick --watch --exit-on-news           # exit at the first news, for a background shell
+issue-cli lead tick --watch --exit-on-news --verbose # exit on a start or a close too
+```
+
+Each tick does what the lead used to script by hand:
+
+- runs `queue next --start`: a due job on its standing start first, then the first startable queue item, under auto-start's machine-wide lock and every hold it keeps (mem-guard, the load, the worker cap, the start gap, local CI red, the owner's words);
+- looks for issues at their last status whose `work/<slug>` branch has commits not on main (one `git for-each-ref --no-merged` call);
+- closes finished worker sessions as `agents sweep` does, except those whose branch is not on main yet: the lead lands it first; the idle session of a report waiting on the owner's review with its output on the shelf closes too, with a held `closed:` line and a `session: closed` comment on the issue ([A report waiting on your review](../agent-dispatch.md#a-report-waiting-on-your-review));
+- on a memory hold, closes the idle worker sessions the hold names (`could free:`: the issue is done, landed or not, or waits on the owner's gate or an open `question:`; no issue-cli call for 15 minutes, not in a turn, not paused by mem-guard), says `freed under the memory hold: closed agent-x (done), …` in one line and runs `queue next --start` once more;
+- reads local CI's state, the criteria waiting on the lead (`prove --lead`), stalled agents and takeovers;
+- once a day (its first tick of the local day), runs `issue-cli doctor leaks` and says what the factory left running in one `leaks:` line (`leaks: 3 things left running (2 chrome, 1 agent-home); see issue-cli doctor leaks, stop with --stop`); it stops nothing ([Troubleshooting](../getting-started.md#troubleshooting));
+- once a day, on the engine's own repository, when the running issue-cli is more than 10 commits behind main, says so in one `note:` line with up to 5 shipped fixes it lacks (non-merge `fix:`/`fix(…)` commits touching `cmd/issue-cli/` or `internal/` outside `internal/viewer/`) and the install command (`note: the installed issue-cli (v0.62.0-rc.1-174-g27afdabb) is 37 commits behind main; 6 shipped fixes wait on an install: fix(lead): …; …; install: cd ~/Repo/ai-workflow-engine && GOBIN=~/.local/bin make install`); it runs nothing: installing is the lead's or the owner's call;
+- counts the queue's open items and reads the owner's comments since the last tick.
+
+It prints a line only when the lead has to act, each with its prefix: `start:` (it started something), `land:` (a done issue's branch to land), `merge:` (an issue at its merge status, shipping, whose branch has waited unmerged for `leads.green_branch_minutes`, default 30: said once an hour while it waits, with the `git -C <main checkout> merge …` command that lands it; the merge stays the lead's), `ci:` (main red, or CI can't run), `hold:` (a start held for a reason not said before), `queue:` (5 open items or fewer, or none: think up more), `owner:` (the owner's comment), `⚠` (waits on you, a stalled agent, a takeover), `leaks:` (the daily doctor leaks found something), `tick error:` (a step that failed). A thing is said once and said again only after it went away and came back; a hold's numbers don't count (`memory 62% ≥ 60%` and `63%` are one hold), and the gap after a start and an empty queue's hold say nothing by themselves. Under `--watch` a hold that clears by itself says nothing: memory or the load over its line, the worker cap, the start gap, another project's turn, a resting subscription, another lead's start in progress. The lead has nothing to do for those. Once starts have been held for an hour with no start in between, the watch says it once: `hold: nothing started for 1h (since 09:00), now: <the hold>`. A hold the lead can act on is said at once, as before: local CI red, the queue empty or at its refill line, auto-start off or paused, the queue paused, nothing ready to start. A tick without `--watch` still says every new hold, so a check-in by hand says why nothing started. A quiet tick prints nothing. What it said is kept in `$XDG_STATE_HOME/ai-workflow-engine/lead-tick/<project>.json`.
+
+Every line a Monitor prints wakes the lead for a whole turn, and a Monitor expires every 30 minutes, which wakes it too. Measured on 2026-11-15 before this command: 125 wakes in an 11-hour night with no owner, 105 of them a status line that said nothing new and 20 Monitor expiries. So the lead runs `--watch --exit-on-news` in a background shell (Claude Code's Bash `run_in_background`): the shell exits at the first tick with news the lead must act on ([What counts as news](#what-counts-as-news)), which wakes the lead once; the lead acts and starts it again. Workers can't run it.
+
+#### What counts as news
+
+With `--exit-on-news` the watch exits only on a line the lead must act on:
+
+- `ci:` local CI red on main, or CI that can't run;
+- `land:` an issue at its last status whose branch is not on main;
+- `merge:` an issue at its merge status (shipping) whose branch has waited unmerged for 30 minutes (`leads.green_branch_minutes`), again each hour it still waits;
+- `queue:` the queue at its refill point (5 open items or fewer, or none; with none it adds `look first at:` and the goals and epics nothing serves, [Work behind a goal](../departments.md#work-behind-a-goal)). With YOLO and auto-start both on (not paused), the tick also files a retro sweep and queues it itself, with no quote, so it starts on auto-start's words: `queued sweep product/queue-sweep-<date> as item N (YOLO and auto-start on; …)`. The run uses `builtin:retro-sweep`, as a run of the project's own job on that brief when it has one, else of the implicit `product/queue-sweep`, typed report when the workflow has that type. It queues at most one a day, and none while an earlier one is still open (then the line says `sweep <slug> is still open`). The sweep files nothing: you file its proposals when its `report:` lands;
+- `⚠` a stalled worker, a takeover, a criterion that waits on the lead; `start:` a start that failed (an error, not a hold); `freed under the memory hold: … not closed …` a session that wouldn't close;
+- `hold:` a hold the lead can act on, or starts held for 1h or more;
+- `leaks:` a `doctor leaks` finding;
+- `lead context <n>k:` the context-rotate nudge;
+- `owner:` the owner's comment, `worktree:` a done issue's tree that stays dirty, `tick error:` a step that failed.
+
+A plain start (`start: ✓ Started queue item 7: …`, a due job's `✓ Dispatched`), sessions closed under a memory hold (`freed under the memory hold: closed …`), the daily `worktrees: removed …` and the daily install-lag `note:` are no news: the lead has nothing to do about them. The watch holds them and prints them, one line each in the order they happened, above the next news when it exits. In one evening of 2026-11-15 plain starts woke the DF lead's whole context four times for nothing. `--verbose` exits on them as before.
+
+Under `--observe` the same split holds: `job:`, `comment:`, `shelf:`, `shelf comment:`, `leaks:` and the context nudge are news; a `status:` move is news only when someone must act on it, said in brackets after it: the issue is ready for a gate's approval and waits on nothing else (`(waits on the in progress gate)`: the owner's, or the lead's to pass under YOLO), it is at the owner's own testing (`(the owner's to test)`), or it was parked (`(parked)`). Any other status move and `ended:` (a worker session gone) are held for the next news.
+
+Each tick also reads the lead's own Claude Code transcript (the newest one named `lead-<project>`, or the department lead's under `--observe`): when its last turn read more than 300k tokens of context, it says once a local day `lead context 412k: rotate (lead-<project>): issue-cli lead rotate (docs/patterns/lead-session.md#rotate)`. The lead runs it and ends its turn ([Rotate](#rotate)). A Codex lead has no transcript and gets no line. Every tick, `--observe` too, also re-renders the lead's [state file](#the-state-file).
+
+### Waiting
+
+A lead waits in exactly one way: a **background shell that exits on news**. Start it with Bash `run_in_background`, and start it again each time it exits:
+
+```bash
+issue-cli lead tick --watch --exit-on-news                           # the CEO
+issue-cli lead tick --watch --exit-on-news --observe [--department <d>]   # a lead that doesn't start work
+issue-cli lead watch --run '<probe>' [--every 10m] [--until-change | --until '<regex>']   # anything else
+```
+
+Never wait on a timer. A `/loop` cron, a `ScheduleWakeup` poll and a Monitor (which expires every 30 minutes) wake the whole session each time they fire, news or not, and every wake re-reads the lead's whole context. The owner's `/usage` for the 24 hours to 2026-11-15, weighted at Opus prices (input 1, cache read 0.1, cache write 2, output 5): lead sessions took 38% of all usage (another project's 28%, DF's 10%), workers 57%. Most of it was timed wakes of a session holding 0.5–1 M tokens:
+
+| Loop | Runs a day | Tokens | Per run |
+| --- | --- | --- | --- |
+| A marketing department lead's "Marketing lead tick", every 20 min | 68 | 32.4 M | 476 k |
+| "Overnight watchdog" | 45 | 23.7 M | 526 k |
+| "Lead check-in (hourly queue tick)" | 12 | ≈11.5 M | 960 k |
+| "D-5 image probe", every 30 min (a shell script; the LLM only read its output) | 23 | 10.4 M | ≈452 k |
+| Dynamic "Check whether plan/…" wakeups | | | 2.2 M |
+
+A shell that runs a probe costs no tokens; only the one wake when it exits does.
+
+**A tick that is gone is said on the lead's next call.** A session that ends (a crash, a watchdog's resume) takes its background shells with it, and a resume, unlike a [rotate](#rotate), brings no `Restart these watches` list. Each `lead tick --watch` records itself in the lead's store (`lead/<lead>.json` beside the [state file](#the-state-file)), and when it exits on its own, when. After any issue-cli call by a lead (the tick's own runs, `lead watch`, `rotate`, `flush` and `spawn` aside, and never under `--json`), stderr says `lead tick: no background tick is running (…)` with the command to start again with Bash `run_in_background` (the last tick's own, else the role's), when: the recorded tick's process is gone (said at once: the session that ran it ended), or the last tick exited on news more than 10 minutes ago and none started since (`leadstate.TickGrace`), or no tick ever ran. issue-cli can't start the tick for the lead: only a background shell of the lead's own session wakes it.
+
+**`--observe`** is the tick of a lead that doesn't start work, such as a department lead that dispatches only on the owner's words. It is read-only: it never runs `queue next --start`, never closes a session, runs no prune and no `doctor leaks`. It says, each once, for its scope (`--department <d>`, else the caller's own department when it is a department lead, else the whole project; a group covers its members): `job:` a due job not yet running, with its `job run` command; `status:` an issue that moved (`status: seo/blog in design → backlog`); `comment:` a new comment on one of its issues by anyone but itself; `shelf:` a new output and `shelf comment:` a new message on one; `ended:` a worker session of its issues that was live at the last tick and is gone. With `--exit-on-news` a plain status move and `ended:` wait for the next news ([What counts as news](#what-counts-as-news)). Its first tick takes the baseline and says only due jobs. It keeps its own state (`lead-tick/<project>.observe-<dept|all>.json`), apart from the CEO's tick.
+
+**`lead watch`** runs a probe in the shell every `--every` (default 10m, at least 10s) with `/bin/sh -c` in the project root. It compares stdout and stderr together with the exit code (`exit 3` on a failure), so a probe that starts failing is a change too. `--until-change` (the default) exits at the first run whose output differs from the first run's; `--until '<regex>'` exits at the first run that matches, the first included. Quiet runs print nothing; on exit it prints one line and the output (40 lines at most):
+
+```
+watch: output changed after 40m (5 runs): ls out/d5 | wc -l
+4
+```
+
+The D-5 image probe, which ran every 30 minutes as a cron that woke the lead to read a script's output, is one background shell:
+
+```bash
+issue-cli lead watch --every 10m --until 'ready|failed' \
+  --run 'scripts/d5-image-status.sh'      # prints "pending", then "ready: 4 images" or "failed: …"
+```
+
+A probe whose output carries a clock (a timestamp, an age) changes every run: filter it out in the command, or use `--until`. Workers can't run `lead watch`: a worker never polls, it stops and says what it waits on.
+
+### The state file
+
+A lead's conversation grows all day, and every wake re-reads it: 476k to 960k tokens a wake on 2026-11-15. What the lead needs to act on fits in a few kilobytes, so it keeps that apart from the chat, in one file per lead:
+
+```bash
+issue-cli lead state                                   # render and print it
+issue-cli lead state note "landed x; CI flaky on TestY" [--tomorrow]
+issue-cli lead state ask --quote "<the owner's words>"   # an owner request, open until done
+issue-cli lead state done <n>
+```
+
+The file is `$XDG_STATE_HOME/ai-workflow-engine/lead/<lead>.md` (`lead-<project>.md`, a department lead's `lead-<project>-<dept>.md`), 16 KB at most (about 4k tokens). It is rendered, never edited: the tick rewrites it on every run from the board and from the lead's own notes in `<lead>.json` beside it.
+
+| Section | From |
+| --- | --- |
+| Workers | the live `agent-*` sessions in the lead's scope, each with its issue's status and its last `progress:` line |
+| Queue | the open items with the owner's quote, how many are open and the refill line |
+| Owner asks | `lead state ask --quote`, in the owner's words, open until `lead state done <n>`; then `issue-cli status` for the gates and questions |
+| Today | the decision refs (`<issue>#D-n`) and lead memory ids recorded today, as links with a few words, never copies |
+| Watches | each background shell the lead waits on: `lead tick --watch` and `lead watch` register their pid and command while they run |
+| Tomorrow | `lead state note --tomorrow` |
+| Notes | `lead state note`; a note from an earlier local day folds into that day's `sessions/<day>-<lead>.summary.md` under `## Lead notes` |
+
+Each list is capped and ends with a `+N more:` line naming the command that shows the rest; past the cap the oldest notes go first. A note that looks like a secret is refused, since the file goes into the next session's first prompt. Workers are refused: their notes go in HANDOFF.md and on their issue.
+
+### Rotate
+
+When the tick says `lead context <n>k: rotate`, the lead runs `issue-cli lead rotate` and ends its turn. Rotate:
+
+1. renders the state file;
+2. writes the handoff note from it into `sessions/` with the flush's six sections: `<date>-<lead>.md`, or `<date>-<lead>.<HHMM>.md` when the day's note is there (the nightly flush's or an earlier rotate's), so it never overwrites one; the Status page and the next spawn take the newest by day and then by when it was written;
+3. writes a digest of the old chat beside it, `….digest.md` ([History](#history));
+4. starts a detached `issue-cli lead rotate --finish`, in its own session so it outlives the lead's. It waits until the pane is out of its turn (checked every 5 s, 30 minutes at most; then it leaves the lead running and says so in `lead/<lead>.rotate.log`), closes the session and spawns the same lead under the same tmux name, as `lead spawn` (`--department` for a department lead).
+
+For two hours after a rotate, the spawned lead's first prompt carries, under `## Where the last lead left off`, the state file as it was, `## Restart these watches` with each background shell the old session ran (they die with it), and one line: look older context up with `issue-cli lead history <words>`. The note and the chat summary stay on disk instead of in the prompt. `--no-start` writes the note and digest and changes nothing else; a lead that isn't live gets the spawn command to run. Workers are refused.
+
+Measured on 2026-11-15, before rotate: the CEO's spawn prompt was 27.8 KB (about 7k tokens: the brief 18 KB, the note and the last day's chat 9.7 KB) and its first turn read about 50k tokens, so about 43k of a first turn is Claude Code's own (its system prompt, the tool schemas, the CLAUDE.md files). A rotated lead starts at that floor plus its brief and state file instead of the 0.5–1 M it had grown to.
+
+The nightly flush stays: it is a worker's richer note at the end of the day. Rotate is the daytime path and needs no worker run and no owner start.
+
+### History
+
+The old chat isn't lost, it is searched:
+
+```bash
+issue-cli lead history dispatch board          # every word must match
+issue-cli lead history "release" --days 60 --max 20
+```
+
+It reads the lead's digests in `sessions/` and its Claude Code transcripts still on disk from the last `--days` (30 by default; Claude Code deletes old transcripts, the digests stay). It searches what the owner and the lead said and the Bash commands the lead ran, never a tool's output, and prints only the matching lines, newest first: `2026-11-14 10:05 command: issue-cli dispatch board --quote "…"  [2026-11-14-lead-proj.digest.md]`.
+
+A digest keeps every owner message (2 KB each at most), the lead lines that decide or report something (decided, approved, dispatched, landed, a rule, a `D-n`, next), and the commands that changed something (`issue-cli` dispatch, approve, decide, transition, close, queue, memory add, job, release, comment; `git` merge, push, tag, revert, reset), the newest 400. A line that looks like a secret is left out. A Codex lead keeps no transcript: its digest says so.
 
 ### Local CI
 
 With a `ci:` block ([Workflow: Local CI](../workflow.md#local-ci)) nobody re-runs the checks on main by hand: the viewer starts a run after every merge. CI never messages the lead: it runs on a timer, and nothing on a timer prompts a session. Red reaches the Status page, `status.md`, the `ci-red` markers and the merged issues' `ci:` comments. The lead reads `issue-cli ci status` when you ask, at each check-in and before a push. When main is red it brings it to you and you decide together whether to revert, fix forward or dispatch a fix; CI never reverts. Before any push, and always before a release, the lead runs `issue-cli ci status`, and it never pushes a release while main is red. The lead brief says so when `ci:` is set.
+
+With a `deploy:` list ([Workflow: Deploy](../workflow.md#deploy)) the lead doesn't walk a project's deploy from its notes: `issue-cli deploy --dry-run` shows the steps and what would refuse each now, and `issue-cli deploy --quote "<your words>"` runs them, stopping at the first red step, with your words for the steps that need `owner-ok`. The record is the Report's Last deploy card; after a fix the lead goes on with `issue-cli deploy --from <step>`.
 
 With `workbench.release_candidates: true` (issue-viewer has it), a release goes through a release candidate first ([Roadmap: Cutting a release](../roadmap.md#cutting-a-release-candidate-soak-publish)). When the milestone is ready, the lead tags `<version>-rc.1` locally, installs it, restarts the viewer and tells the other projects' leads. Their bugs come in through `issue-cli report-bug` and join the release's milestone. Every merge after the candidate, bugfixes included, needs the next one. The lead never publishes (the `## <version>` heading and the push) without your explicit ok on a soaked candidate. The lead brief says so when the key is set, and the Waiting for release card names each step.
 
@@ -141,7 +286,7 @@ The lead recalls decisions; it never invents them. It answers a worker only from
 
 ### Retro sweeps
 
-A sweep worker reads what's new (`issue-cli retro list`), proposes one issue per cause in its report and files nothing. You file the proposals. The owner still decides each post-mortem action on its page, and an issue never applies one. The sweep ends with `issue-cli retro archive --until <time>`; see [`retro`](../CLI/overview.md#retro), and `brief: builtin:retro-sweep` for the steps.
+A sweep worker reads what's new (`issue-cli retro list`) and proposes one issue per cause. A sweep files issues when its brief asks for them; otherwise it lists its proposals in its report and the lead files them. The `builtin:retro-sweep` brief asks for none: you file its proposals. The owner still decides each post-mortem action on its page, and an issue never applies one. The sweep ends with `issue-cli retro archive --until <time>`; see [`retro`](../CLI/overview.md#retro), and `brief: builtin:retro-sweep` for the steps.
 
 ### Worker rules
 
@@ -172,7 +317,7 @@ The lead writes a handoff note before it exits: `sessions/YYYY-MM-DD-lead-<proje
 
 ### The nightly flush
 
-A lead session doesn't live for days. The `lead-flush` job ends it each night and the owner starts a fresh one in the morning. It is a recurring job on the Product entry of projects.yaml, with an `at:` after the day's work:
+A lead session doesn't live for days. During the day it [rotates](#rotate) when its tick says its context passed 300k tokens. The `lead-flush` job ends it each night and the owner starts a fresh one in the morning. It is a recurring job on the Product entry of projects.yaml, with an `at:` after the day's work:
 
 ```yaml
 departments:

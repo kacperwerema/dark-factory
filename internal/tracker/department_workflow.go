@@ -12,7 +12,7 @@ import (
 // ProjectWideKeys are the workflow.yaml keys only Product's file sets: a
 // department file takes them from it, and lint warns when one shows up in a
 // department file (factory/department-workflow-files#D-1).
-var ProjectWideKeys = []string{"workbench", "ci", "health", "privacy", "leads", "project_actions", "allow_shell", "max_red_rounds", "rules"}
+var ProjectWideKeys = []string{"workbench", "ci", "deploy", "health", "privacy", "leads", "project_actions", "allow_shell", "max_red_rounds", "rules"}
 
 // DepartmentNamed is the department called name (any case), or nil.
 func (p *Project) DepartmentNamed(name string) *Department {
@@ -91,6 +91,7 @@ func departmentWorkflow(own, product *WorkflowConfig) *WorkflowConfig {
 	wf := own.Clone()
 	wf.Workbench = product.Workbench
 	wf.CI = product.CI
+	wf.Deploy = product.Deploy
 	wf.Health = product.Health
 	wf.Privacy = product.Privacy
 	wf.Leads = product.Leads

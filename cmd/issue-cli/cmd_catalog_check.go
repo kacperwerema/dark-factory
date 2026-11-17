@@ -118,9 +118,27 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		printCatalogCheck(ctx.Stdout, rep)
 	}
 	if !rep.OK() {
+		ctx.red = catalogRedNames(rep)
 		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s, which counts only once committed), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
 	}
 	return nil
+}
+
+// catalogRedNames is what a red check names, for the clilog: each stale
+// entry's id and template/<name> for each stale bundled template.
+func catalogRedNames(rep *workflowupgrade.CheckReport) []string {
+	var out []string
+	for _, e := range rep.Entries {
+		if e.State == "stale" {
+			out = append(out, e.ID)
+		}
+	}
+	for _, t := range rep.Templates {
+		if t.State == "stale" {
+			out = append(out, "template/"+t.Name)
+		}
+	}
+	return out
 }
 
 var releaseBranch = regexp.MustCompile(`^release/(v\d+\.\d+)$`)
@@ -215,7 +233,7 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 			fmt.Fprintf(w, "✓ catalog %s: marked n/a: %s\n", e.ID, e.Why)
 		default:
 			staleEntries++
-			fmt.Fprintf(w, "✗ catalog %s: needs a bump or an n/a (changes %s)\n", e.ID, strings.Join(e.Files, ", "))
+			fmt.Fprintf(w, "✗ catalog %s: needs a bump or an n/a (changes %s)\n", e.ID, catalogMatches(e))
 		}
 	}
 	for _, t := range rep.Templates {
@@ -248,10 +266,13 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 		if e.State != "stale" {
 			continue
 		}
-		fmt.Fprintf(w, "✗ catalog: this branch changes %s\n", strings.Join(e.Files, ", "))
+		fmt.Fprintf(w, "✗ catalog: this branch changes %s\n", catalogMatches(e))
 		fmt.Fprintf(w, "    entry %s is %s; the next release is %s (last: %s in %s)\n", e.ID, e.Version, rep.NextRelease, rep.LastRelease, workflowupgrade.ChangelogPath)
+		if e.Feature {
+			fmt.Fprintln(w, "    looks like a feature change: the entry's own code (a symbol or detect: region it names) changed")
+		}
 		fmt.Fprintf(w, "    → if what projects adopt changed: issue-cli workflow catalog-bump %s (sets version: %s and the bundled template stamps with it), then update its what/snippet\n", e.ID, rep.NextRelease)
-		fmt.Fprintf(w, "    → if not (refactor, fix): add a commit trailer  Catalog: n/a %s <why>  (it counts only once committed: until then this check stays red)\n", e.ID)
+		fmt.Fprintf(w, "    → if not (refactor, fix): its id goes in the one n/a line at the end\n")
 	}
 	for _, t := range rep.Templates {
 		if t.State == "bumped" {
@@ -273,6 +294,66 @@ func printCatalogCheck(w io.Writer, rep *workflowupgrade.CheckReport) {
 		fmt.Fprintln(w, "    → reword the commit (git commit --amend when it is the last one), or drop the line")
 	}
 	fmt.Fprintf(w, "\ncatalog-check failed: %d of %d entries and %d of %d templates need a bump or an n/a; %d Catalog: lines mark nothing; %d catalog problems\n", staleEntries, len(rep.Entries), staleTemplates, len(rep.Templates), len(rep.BadTrailers), len(rep.Problems))
+	printCatalogFix(w, rep)
+}
+
+// catalogMatches is an entry's changed files, each with the sources:
+// pattern it matched, so a match that has nothing to do with the work
+// shows as such.
+func catalogMatches(e workflowupgrade.CheckEntry) string {
+	if len(e.Matches) == 0 {
+		return strings.Join(e.Files, ", ")
+	}
+	parts := make([]string, 0, len(e.Matches))
+	for _, m := range e.Matches {
+		if m.Source == "" || m.Source == m.File {
+			parts = append(parts, m.File)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s (matches %s)", m.File, m.Source))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// staleEntryIDs splits the red entries into those that look like a feature
+// change (Feature: a bump) and the rest (an n/a), each in catalog order.
+func staleEntryIDs(rep *workflowupgrade.CheckReport) (bump, na []string) {
+	for _, e := range rep.Entries {
+		if e.State != "stale" {
+			continue
+		}
+		if e.Feature {
+			bump = append(bump, e.ID)
+		} else {
+			na = append(na, e.ID)
+		}
+	}
+	return bump, na
+}
+
+// printCatalogFix ends a red check with what to paste: one catalog-bump
+// for the entries that look like a feature change and one Catalog: n/a
+// line naming every other red entry, so one commit turns them all green
+// instead of one entry per run.
+func printCatalogFix(w io.Writer, rep *workflowupgrade.CheckReport) {
+	bump, na := staleEntryIDs(rep)
+	if len(bump)+len(na) == 0 {
+		return
+	}
+	fmt.Fprintln(w)
+	if len(bump) > 0 {
+		fmt.Fprintf(w, "→ looks like a feature change: issue-cli workflow catalog-bump %s   (then update its what/snippet; a bumped entry needs no Catalog: line)\n", strings.Join(bump, ","))
+	}
+	switch {
+	case len(na) > 0 && len(bump) > 0:
+		fmt.Fprintln(w, "→ for the rest, paste this one line into a commit message (it counts only once committed: until then this check stays red; add a bumped id to it instead if that change is a refactor too):")
+	case len(na) > 0:
+		fmt.Fprintln(w, "→ if none of them changed what projects adopt (refactor, fix), paste this one line into a commit message (it counts only once committed: until then this check stays red):")
+	default:
+		fmt.Fprintln(w, "→ if it is a refactor or fix after all, paste this line into a commit message instead (it counts only once committed):")
+		na = bump
+	}
+	fmt.Fprintf(w, "    Catalog: n/a %s <why>\n", strings.Join(na, ","))
 }
 
 // catalogChangedFiles lists the files changed since mergeBase, in commits and

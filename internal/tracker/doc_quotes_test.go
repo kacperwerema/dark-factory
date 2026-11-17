@@ -25,9 +25,9 @@ func docQuotes() []docQuote {
 		{"docs/Workflow/yolo.md", "YOLORule", yoloRule},
 		{"docs/workflow.md", "RedRoundsWhatCounts", RedRoundsWhatCounts},
 		{"docs/Workflow/critique.md", "RedRoundsWhatCounts", RedRoundsWhatCounts},
-		{"CLAUDE.md", "RedRoundsWhatCounts", RedRoundsWhatCounts},
+		{"docs/doc-map.md", "RedRoundsWhatCounts", RedRoundsWhatCounts},
 		{"docs/workflow.md", "DefaultMaxRedRounds", capYAML + "   # top level, project-wide like ci:; " + capUnset},
-		{"CLAUDE.md", "DefaultMaxRedRounds", "`max_red_rounds:` (" + capUnset + ")"},
+		{"docs/doc-map.md", "DefaultMaxRedRounds", "`max_red_rounds:` (" + capUnset + ")"},
 		{"cmd/issue-cli/redrounds.go", "DefaultMaxRedRounds", "(workflow.yaml, " + capUnset + ")"},
 		{feature, "DefaultMaxRedRounds", "`max_red_rounds:` (" + capUnset + ")"},
 		{feature, "DefaultMaxRedRounds", fmt.Sprintf("(%d by default)", DefaultMaxRedRounds)},
@@ -79,9 +79,9 @@ func TestQuoteDriftNamesTheFileAndSource(t *testing.T) {
 	}
 }
 
-// TestShellNotesDocMatches: the bullets under Shell notes are ShellPromptSection's
+// TestShellNotesDocMatchesBriefing: the bullets under Shell notes are ShellPromptSection's
 // lines, all of them and nothing else.
-func TestShellNotesDocMatches(t *testing.T) {
+func TestShellNotesDocMatchesBriefing(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "getting-started.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestShellNotesDocMatches(t *testing.T) {
 			bullets = append(bullets, line)
 		}
 	}
-	want := ShellNotes(ShellFacts{Shell: "zsh", BSD: true, RTK: true})
+	want := ShellNotes(ShellFacts{Shell: "zsh", BSD: true, RTK: true}, ProjectTests{CI: "make validate", Go: true})
 	if !slices.Equal(bullets, want) {
 		t.Errorf("Shell notes bullets drifted from ShellNotes:\n got %q\nwant %q", bullets, want)
 	}

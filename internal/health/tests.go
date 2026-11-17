@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -31,10 +32,11 @@ type TestRun struct {
 	Tests    []testresults.Test
 }
 
-// TestResults finds the newest TestRun of kind at or before now under the
-// main checkout root. internal/ci sets it from init() (SetTestResults);
-// unset, the tests family has no CI rows and the review pack no test list.
-type TestResults func(root, kind string, now time.Time) (TestRun, bool)
+// TestResults finds the newest n TestRuns of kind at or before now under
+// the main checkout root, newest first; only the newest needs its Tests.
+// internal/ci sets it from init() (SetTestResults); unset, the tests family
+// has no CI rows and the review pack no test list.
+type TestResults func(root, kind string, now time.Time, n int) []TestRun
 
 var (
 	testResultsMu sync.Mutex
@@ -48,15 +50,28 @@ func SetTestResults(f TestResults) {
 	testResults = f
 }
 
-func latestTestRun(root, kind string, now time.Time) (TestRun, bool) {
+func recentTestRuns(root, kind string, now time.Time, n int) []TestRun {
 	testResultsMu.Lock()
 	f := testResults
 	testResultsMu.Unlock()
 	if f == nil {
+		return nil
+	}
+	return f(root, kind, now, n)
+}
+
+func latestTestRun(root, kind string, now time.Time) (TestRun, bool) {
+	runs := recentTestRuns(root, kind, now, 1)
+	if len(runs) == 0 {
 		return TestRun{}, false
 	}
-	return f(root, kind, now)
+	return runs[0], true
 }
+
+// BestOfRuns is how many recent CI runs the best wall time is taken from:
+// the fastest of them is the suite's cost on the quietest machine it saw,
+// while a real slowdown lifts every run and shows within BestOfRuns runs.
+const BestOfRuns = 5
 
 // E2ERuns is what the ux-test runs started in [from, to] under the main
 // checkout root say about flaky steps: how many runs, how many distinct steps
@@ -125,11 +140,13 @@ var slowFrom = map[string]float64{"unit": 1, "e2e": 30}
 func testsFamily(ctx context.Context, env Env) ([]Metric, error) {
 	var out []Metric
 	for _, kind := range TestKinds {
-		run, ok := latestTestRun(env.Root, kind, env.Now)
-		if !ok {
+		runs := recentTestRuns(env.Root, kind, env.Now, BestOfRuns)
+		if len(runs) == 0 {
 			continue
 		}
+		run := runs[0]
 		out = append(out, resultsMetrics(kind, run.Finished, run.Summary, run.Tests, env.Now)...)
+		out = append(out, bestWall(kind, runs)...)
 	}
 	out = append(out, flakyMetrics(env)...)
 	e2e, err := sessionMetrics(ctx, env)
@@ -154,6 +171,11 @@ func resultsMetrics(kind string, finished time.Time, s testresults.Summary, test
 		{Name: "tests.per_test_ms", Labels: with("stat", "p50"), Value: s.P50MS},
 		{Name: "tests.per_test_ms", Labels: with("stat", "p90"), Value: s.P90MS},
 		{Name: "tests.run_age_days", Labels: k, Value: math.Round(now.Sub(finished).Hours()/24*10) / 10, Help: "Age of the CI run the numbers come from, in days"},
+	}
+	if s.Cores > 0 {
+		out = append(out,
+			Metric{Name: "tests.load", Labels: k, Value: s.Load, Help: "The machine's 1-minute load average around the run (above tests.cores: times inflated)"},
+			Metric{Name: "tests.cores", Labels: k, Value: float64(s.Cores), Unit: UnitCount, Help: "The machine's cores when the run's load was read"})
 	}
 	for _, p := range s.Parts {
 		out = append(out, Metric{Name: "tests.part.seconds", Labels: with("part", p.Name), Value: p.Seconds, Unit: UnitSeconds, Help: "The slowest parts (package, test class, session): their own time"})
@@ -183,9 +205,55 @@ func resultsMetrics(kind string, finished time.Time, s testresults.Summary, test
 		if t.Part != "" && t.Part != "." && kind == "unit" {
 			name = t.Part + "." + t.Name
 		}
-		out = append(out, Metric{Name: "tests.slowest.seconds", Labels: with("test", name), Value: t.Seconds, Unit: UnitSeconds, Help: "The slowest tests"})
+		out = append(out, Metric{Name: "tests.slowest.seconds", Labels: with("test", name), Value: t.Seconds, Unit: UnitSeconds, Help: "The slowest tests" + LoadNote(s)})
 	}
 	return out
+}
+
+// bestWall is the lowest wall time of the recent runs (newest first) and
+// how many runs it was taken from: unit_wait scores it, so one run under a
+// loaded machine doesn't move the score.
+func bestWall(kind string, runs []TestRun) []Metric {
+	best := runs[0].Summary.WallS
+	for _, r := range runs[1:] {
+		if w := r.Summary.WallS; w > 0 && (best <= 0 || w < best) {
+			best = w
+		}
+	}
+	return []Metric{
+		{Name: "tests.wall_seconds_best", Labels: map[string]string{"kind": kind, "window": bestWindow}, Value: best, Unit: UnitSeconds, Help: "The lowest suite wall time of the last 5 CI runs with results (unit_wait scores it)"},
+		{Name: "tests.wall_runs", Labels: map[string]string{"kind": kind}, Value: float64(len(runs)), Unit: UnitCount, Help: "CI runs the best wall time was taken from (at most 5)"},
+	}
+}
+
+// bestWindow labels the best-wall row.
+const bestWindow = "5runs"
+
+// LoadNote is " (run under load 15.2 on 14 cores: times inflated)" when the
+// run's load average was above its core count, else "".
+func LoadNote(s testresults.Summary) string {
+	if !s.Loaded() {
+		return ""
+	}
+	return " (" + loadText(s.Load, s.Cores) + ")"
+}
+
+func loadText(load float64, cores int) string {
+	return fmt.Sprintf("run under load %.1f on %d cores: times inflated", load, cores)
+}
+
+// RunLoad is "run under load 15.2 on 14 cores: times inflated" when the
+// snapshot's run of kind had a load above its cores (tests.load,
+// tests.cores), else "": the Health view and the review pack put it beside
+// the slowest tests.
+func (s *Snapshot) RunLoad(kind string) string {
+	k := map[string]string{"kind": kind}
+	load, ok1 := s.Value("tests.load", k)
+	cores, ok2 := s.Value("tests.cores", k)
+	if !ok1 || !ok2 || cores <= 0 || load <= cores {
+		return ""
+	}
+	return loadText(load, int(cores))
 }
 
 // session is the part of a playtest session file the family reads.

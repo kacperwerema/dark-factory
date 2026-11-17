@@ -1,0 +1,116 @@
+# Which test packages `make test` may take from go test's cache
+# (tools/test-shards -cache-list; format: internal/testshard.CacheList).
+# go test's cache reruns a package when its code, an environment variable
+# it reads or a file it opens changes. A test whose answer comes from
+# somewhere else (a git command about this checkout, this machine's memory
+# or processes, the live board) would pass from the cache when it should
+# fail, so its package goes on a fresh line, with the reason, and runs with
+# -count=1 every time. A test that copies its inputs with os.ReadFile, and
+# runs git only in its own temp repo, can be cached.
+#
+#   cached ./internal/x
+#   fresh ./internal/y <why it must always run>
+#   fresh-test ./internal/z TestName <why>   one test of a cached package
+#
+# A fresh-test test also runs on its own with -count=1 beside the cached
+# run, so its package can stay cached. Every test package is listed once,
+# every fresh-test names a test that exists
+# (TestEveryTestPackageIsInTheCacheList, tools/test-shards). A test that
+# reads the live board (liveboard.Dir) skips in the cached run when a
+# fresh-test line names it and fails there when none does. make test
+# TEST_CACHE=0 runs everything with -count=1; local CI's slow tier does.
+
+cached ./cmd/issue-cli
+cached ./cmd/playtest
+cached ./internal/agentrun
+cached ./internal/autostart
+cached ./internal/bench
+cached ./internal/briefing
+cached ./internal/buildversion
+cached ./internal/chart
+cached ./internal/checks
+cached ./internal/ci
+cached ./internal/clibug
+cached ./internal/clilog
+cached ./internal/codemap
+cached ./internal/connections
+cached ./internal/connectors
+cached ./internal/critique
+cached ./internal/deptfamily
+cached ./internal/depttemplate
+cached ./internal/diskuse
+fresh ./internal/doclinks lists the checkout's markdown through git ls-files
+cached ./internal/docnumbers
+cached ./internal/docref
+cached ./internal/experiment
+cached ./internal/fseventsd
+cached ./internal/gitdir
+cached ./internal/gitmain
+cached ./internal/goals
+cached ./internal/goalwork
+cached ./internal/guidesync
+cached ./internal/health
+cached ./internal/issuetrace
+cached ./internal/jobs
+cached ./internal/jsonfile
+cached ./internal/leadchat
+cached ./internal/leadstate
+cached ./internal/leaks
+cached ./internal/lint
+cached ./internal/liveboard
+fresh ./internal/loadavg reads this machine's load average (sysctl), which the cache can't see
+fresh ./internal/memguard reads this machine's memory use (vm_stat, mem-guard)
+cached ./internal/memory
+cached ./internal/milestone
+cached ./internal/outputs
+cached ./internal/ownerstep
+fresh ./internal/partner reads the checkout's tracked files and blob ids through git ls-files
+cached ./internal/period
+cached ./internal/playtestruns
+cached ./internal/postmortem
+fresh ./internal/privacy the leak scans list the checkout's tracked files through git ls-files; the release tests run scripts/ through sh
+fresh ./internal/procs reads this machine's process table (ps)
+cached ./internal/projectinit
+cached ./internal/proof
+cached ./internal/push
+cached ./internal/queue
+cached ./internal/recent
+cached ./internal/redrounds
+cached ./internal/restrace
+cached ./internal/retro
+cached ./internal/routing
+cached ./internal/rules
+cached ./internal/shell
+cached ./internal/ship
+cached ./internal/specflow
+cached ./internal/socials
+cached ./internal/spend
+cached ./internal/standin
+cached ./internal/telemetry
+cached ./internal/telemetry/share
+cached ./internal/testbin
+cached ./internal/testids
+cached ./internal/testresults
+cached ./internal/testshard
+cached ./internal/timeline
+cached ./internal/tmuxguard
+cached ./internal/tokens
+cached ./internal/trace
+cached ./internal/tracker
+cached ./internal/tracker/validations
+cached ./internal/viewer
+cached ./internal/viewerstate
+cached ./internal/webpush
+cached ./internal/weekplan
+cached ./internal/wfedit
+fresh ./internal/workflowupgrade lists the checkout's files through git ls-files
+cached ./internal/yolo
+cached ./tools/test-shards
+
+fresh-test ./internal/tracker TestSettledRulesTableMatchesDoc reads the live board
+fresh-test ./internal/tracker TestSettledRulesScoped reads the live board
+fresh-test ./internal/tracker TestSettledRulesForAFactoryIssue reads the live board
+fresh-test ./internal/viewer TestNoDeadIssueRefsInScore reads the live board
+fresh-test ./cmd/issue-cli TestChangelogBranchEntriesUnreleased compares with the merge base git names
+fresh-test ./internal/viewer TestCompanyFloorNoMockupCommitted lists the checkout's files through git ls-files
+fresh-test ./internal/viewer TestProfileOutputsNotTracked lists the checkout's files through git ls-files

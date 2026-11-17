@@ -98,7 +98,7 @@ func TestNightlySlot(t *testing.T) {
 // TestNightlyRunNamesTheRedSessionAndStep runs this repo's own nightly tier
 // (workflow.yaml ci.nightly) with its failures: regex, the ux-test command
 // replaced by a stand-in printing what `make ux-test ALL=1` prints for a
-// failed step: the tier's run and state record the failure as
+// failed step (the tier's other commands by true): the tier's run and state record the failure as
 // <session>/<step>, and its log is kept like a red CI run's.
 func TestNightlyRunNamesTheRedSessionAndStep(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
@@ -118,6 +118,12 @@ func TestNightlyRunNamesTheRedSessionAndStep(t *testing.T) {
 		case tracker.CIDefaultTier:
 			c.Run = append(c.Run, cmd("true"))
 		case tier:
+			if !strings.Contains(rc.Cmd, "ux-test") {
+				// The tier's other commands (make test TEST_CACHE=0) pass.
+				rc.Cmd, rc.Results = "true", nil
+				c.Run = append(c.Run, rc)
+				continue
+			}
 			uxTest = rc.Cmd
 			rc.Results = nil
 			rc.Cmd = `echo '== ux-test updates (ui/updates) ==';` +

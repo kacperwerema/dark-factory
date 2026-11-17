@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -23,8 +22,9 @@ func Reference(root string, issue *tracker.Issue) (sha, refName string, err erro
 		root, _ = os.Getwd()
 	}
 	stats, _ := tracker.LoadStats(issue.FilePath)
-	ref, refName := timeline.GitRef(root, issue.Slug, stats.Transitions)
-	c := &checker{root: root, ref: ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath)}
+	found := FindIssueRef(root, issue, stats.Transitions)
+	ref, refName := found.Ref, found.Name
+	c := &checker{root: root, ref: ref, miss: found.Miss, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath)}
 	commits, err := c.branchCommits(stats)
 	if err != nil {
 		return "", refName, err
@@ -63,9 +63,13 @@ func MessageReferences(msg, slug string) bool {
 // references the issue, else what to commit. The fixes add a commit and
 // never reword one, since Proves: trailers pin the shas they sit on.
 func ReferenceError(root string, issue *tracker.Issue) error {
+	if root == "" {
+		root, _ = os.Getwd()
+	}
 	sha, refName, err := Reference(root, issue)
 	if refName == "" {
-		return fmt.Errorf("no branch work/%s, recorded branch head or merge sha: can't find the commits that should reference the issue", issue.Slug)
+		stats, _ := tracker.LoadStats(issue.FilePath)
+		return fmt.Errorf("%s; no recorded branch head or merge sha either: can't find the commits that should reference the issue", FindIssueRef(root, issue, stats.Transitions).Miss)
 	}
 	if err != nil {
 		return fmt.Errorf("git log on %s: %v", refName, err)

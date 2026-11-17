@@ -193,6 +193,7 @@ write from its worktree. The `report` type in the bundled `development` template
   `<issues>/.outputs/files/`, with the work files (the private tracker too), from any folder. The issue's page lists it
   under Outputs with a link to the file, and the owner approves or rejects it on the shelf (`output review` is never a
   worker's).
+- Once the report is on the shelf and the issue waits on the owner, its worker holds no worker slot, and the lead's tick closes its idle session; a re-dispatch resumes it ([A report waiting on your review](../agent-dispatch.md#a-report-waiting-on-your-review)).
 - `has_output` failing prints the `output add` command; `show`, `start` and `transition` print the shelf hint for an
   issue whose path gates on it. Lint check `reports` warns on an issue past the gate whose report is gone (never added,
   file deleted, or rejected and not replaced), and on a done report whose Follow-ups list no issue or queue item quotes:

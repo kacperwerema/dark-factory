@@ -121,7 +121,7 @@ func printShippingBlock(ctx *Context, issue *tracker.Issue, issues []*tracker.Is
 		case !known && st.Branch != "main" && st.Branch != "master":
 			fmt.Fprintf(w, "⚠ The main checkout has %s checked out, not main. Stop and ask the lead which branch this issue ships into before fast-forwarding.\n", st.Label())
 		default:
-			fmt.Fprintf(w, "Ships into %s: fast-forward it in the main checkout.\n", st.Label())
+			fmt.Fprintf(w, "Ships into %s: fast-forward it in the main checkout (issue-cli ship merges, checks and fast-forwards).\n", st.Label())
 		}
 	}
 	for _, d := range deps {

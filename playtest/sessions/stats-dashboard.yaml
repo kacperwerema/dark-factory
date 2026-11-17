@@ -24,18 +24,27 @@ steps:
     checks:
       - visible: [stats.options, stats.range, stats.group, stats.tables]
       - selected: stats.range.all
+      # Exactly 5: the gauge row is fixed (waiting on you, milestone, big
+      # files, CI green rate, static context tokens; stats_dashboard.go).
       - count: { pattern: stats.gauge, equals: 5 }
-      # 9 trend charts (Decisions in force among them) and Disk use.
-      - count: { pattern: stats.chart.*, equals: 10 }
+      # At least 11 charts: 9 trends from the fixture snapshots (Decisions in
+      # force among them), Context floor and Disk use from the board's own
+      # start snapshot (the context family since 7a1d3e2b). A lower bound:
+      # a new trend adds a chart; the testids below pin the ones that matter.
+      - count: { pattern: stats.chart.*, min: 11 }
+      - visible: [stats.chart.context, stats.chart.storage]
       - text_contains: { target: stats.chart.decisions, text: "Decisions in force" }
-      - count: { pattern: stats.pending, equals: 3 }
+      # Exactly 2 pending: the two charts of the checks family (CI and make
+      # validate duration, ux-test duration), which neither the fixtures nor
+      # the start snapshot have. Every other family's card is drawn.
+      - count: { pattern: stats.pending, equals: 2 }
       - absent: stats.backfill_hint
       - text_contains: { target: stats.chart.cycle, text: "Cycle time p50, by type" }
       - text_contains: { target: stats.snapshots, text: "6 backfilled" }
       - text_equals: { target: stats.done, text: "2 issues done" }
       - hidden: stats.time
       - below: [stats.options, stats.tables]
-    expect: Five gauge cards in a row (waiting on you with its limit tick, the current milestone, big files, and two dashed "No data yet" cards naming the issues that bring them), then the trend lines over the six snapshot days (cycle time, waiting on you with the 25% limit line, agent time per issue, rework, lines of code), three dashed cards for families that don't exist yet, the stacked bars of where the time goes, the issues done per week, and the old tables folded at the bottom. Colours follow the theme; nothing is cut off at phone width.
+    expect: Five gauge cards in a row (waiting on you with its limit tick, the current milestone, big files, and two dashed "No data yet" cards naming the issues that bring them), then the trend lines over the six snapshot days (cycle time, waiting on you with the 25% limit line, agent time per issue, rework, lines of code), the context floor and disk use, two dashed cards for the checks family that no snapshot has yet, the stacked bars of where the time goes, the issues done per week, and the old tables folded at the bottom. Colours follow the theme; nothing is cut off at phone width.
     do: Scroll the page top to bottom, hover a few points and bars to read their tooltips, then switch the theme (sidebar) to light and to Dracula.
     why: One page shows how the project is doing now and over time, without opening each issue.
 
@@ -114,6 +123,7 @@ steps:
       - open: /stats?classic=1
       - wait_for: stats.overview
     checks:
+      # Exactly 1: the scenario serves one project.
       - count: { pattern: stats.overview.row, equals: 1 }
       - text_contains: { target: stats.overview, text: "Stats Demo" }
       - text_contains: { target: stats.overview, text: "Lines of code" }

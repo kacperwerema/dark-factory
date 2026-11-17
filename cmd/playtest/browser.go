@@ -18,6 +18,8 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/kacperwerema/dark-factory/internal/playtestruns"
+	"github.com/kacperwerema/dark-factory/internal/procs"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 )
 
 //go:embed assets/checks.js
@@ -65,20 +67,38 @@ type Browser struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	visible bool
+	// profile is Chrome's own profile folder, removed at Close; pid is
+	// Chrome's process.
+	profile string
+	pid     int
+	once    sync.Once
+	forget  func()
 	// last is the visible window's newest page: the next session opens a
 	// tab of its own, because the overlay bridge can't be added twice.
 	last *Page
 }
 
 // NewBrowser starts Chrome: headless for ux-test, a visible window for the
-// owner's playtest.
+// owner's playtest. Chrome gets a profile of its own,
+// $TMPDIR/dark-factory-playtest-<runner pid>-*, removed at Close; the
+// first browser of a run first reaps what killed runners left (stop.go).
 func NewBrowser(visible bool, w, h int) (*Browser, error) {
 	path, err := ChromePath()
 	if err != nil {
 		return nil, err
 	}
+	reapOnce.Do(func() {
+		for _, line := range reapOrphanChromes() {
+			fmt.Fprintln(os.Stderr, "playtest: stopped a left-over", line)
+		}
+	})
+	profile, err := os.MkdirTemp("", fmt.Sprintf("%s%d-", procs.PlaytestProfilePrefix, os.Getpid()))
+	if err != nil {
+		return nil, fmt.Errorf("chrome profile: %v", err)
+	}
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(path),
+		chromedp.UserDataDir(profile),
 		chromedp.WindowSize(w, h),
 		chromedp.Flag("hide-scrollbars", true),
 	)
@@ -87,16 +107,37 @@ func NewBrowser(visible bool, w, h int) (*Browser, error) {
 	}
 	alloc, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	ctx, cancelCtx := chromedp.NewContext(alloc)
-	b := &Browser{ctx: ctx, visible: visible, cancel: func() { cancelCtx(); cancelAlloc() }}
+	b := &Browser{ctx: ctx, visible: visible, profile: profile, cancel: func() { cancelCtx(); cancelAlloc() }}
+	b.forget = atStop(b.Close)
 	if err := chromedp.Do(ctx); err != nil {
-		b.cancel()
+		b.Close()
 		return nil, fmt.Errorf("start chrome (%s): %v", path, err)
 	}
+	if c := chromedp.FromContext(ctx); c != nil && c.Browser != nil {
+		if p := c.Browser.Process(); p != nil {
+			b.pid = p.Pid
+		}
+	}
+	mode := "headless"
+	if visible {
+		mode = "visible"
+	}
+	restrace.Start(restrace.KindChrome, b.pid, profile, mode)
 	return b, nil
 }
 
-// Close stops the browser.
-func (b *Browser) Close() { b.cancel() }
+// Close stops the browser, waits for it to exit and removes its profile.
+// Safe to call twice (a signal's stop hook and the caller's defer).
+func (b *Browser) Close() {
+	b.once.Do(func() {
+		b.cancel()
+		removeProfile(b.profile)
+		restrace.Stop(restrace.KindChrome, b.pid, b.profile)
+		if b.forget != nil {
+			b.forget()
+		}
+	})
+}
 
 // Page is one tab the runner drives.
 type Page struct {

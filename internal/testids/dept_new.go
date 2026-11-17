@@ -6,6 +6,7 @@ func init() {
 		"dept_new.page",
 		"dept_new.back",
 		"dept_new.plan",
+		"dept_new.pick",
 		"dept_new.file.*",
 		"dept_new.entry",
 		"dept_new.install",

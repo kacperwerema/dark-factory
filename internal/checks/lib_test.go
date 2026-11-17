@@ -422,30 +422,56 @@ func TestLibStandInCheckFailsWhenItNeverRan(t *testing.T) {
 	contains(t, r.out, "✗ the stand-in claude ran, not the real one")
 }
 
-// stand_in keeps each distinct script once in the cache, run once there as
-// a no-op, and links it in: two runs with two sandboxes share one file, the
-// warm run records no call, and the records still land in the run's own
-// $CHECKS_STAND_IN_DIR.
+// stand_in keeps each distinct script once in the cache and links it in:
+// two runs with two sandboxes share one file, a link to the machine's cache
+// (libEnv's, internal/standin's), and the records still land in the run's
+// own $CHECKS_STAND_IN_DIR. On the machine's cache the scripts are checked
+// once per machine, so the run passes with them cached or not; the cold
+// path is TestLibStandInColdPathWarmsWithoutRunningTheBody's.
 func TestLibStandInLinksOneCachedFilePerScript(t *testing.T) {
-	cache := filepath.Join(t.TempDir(), "cache")
 	script := `stand_in claude 'echo "hi $1"'
 "$CHECKS_STAND_IN_DIR/bin/claude" one
 echo "CALLS=$(wc -l < "$CHECKS_STAND_IN_DIR/claude.calls" | tr -d ' ')"
-echo "INO=$(ls -i "$CHECKS_STAND_IN_DIR/bin/claude" | awk '{print $1}')"
+ino=$(ls -i "$CHECKS_STAND_IN_DIR/bin/claude" | awk '{print $1}')
+echo "CACHED=$(ls -i "$CHECKS_STAND_IN_CACHE" | awk -v i="$ino" '$1 == i {print $2}')"
+echo "INO=$ino"
 `
 	var inodes []string
 	for i := 0; i < 2; i++ {
-		r := runMachine(t, script, "CHECKS_STAND_IN_CACHE="+cache)
+		r := runMachine(t, script)
 		contains(t, r.out, "hi one", "CALLS=1")
+		if strings.Contains(r.out, "CACHED=\n") {
+			t.Errorf("the stand-in is no link to a file in the cache:\n%s", r.out)
+		}
 		_, ino, _ := strings.Cut(r.out, "INO=")
 		inodes = append(inodes, strings.TrimSpace(ino))
 	}
 	if inodes[0] == "" || inodes[0] != inodes[1] {
 		t.Errorf("two runs, two files: %q", inodes)
 	}
-	entries, _ := os.ReadDir(cache)
-	if len(entries) != 2 { // the stand-in and clean_shell's shell
-		t.Errorf("cache holds %d entries, want 2", len(entries))
+}
+
+// The cold path, in a cache of its own: a script the cache lacks is written
+// aside, run once with STANDIN_WARM (which runs none of its body), renamed
+// into place and linked in. One script, so the test pays macOS's first-exec
+// check once.
+func TestLibStandInColdPathWarmsWithoutRunningTheBody(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "cache")
+	r := runMachine(t, `export RAN_LOG=$PWD/ran
+s='#!/bin/sh
+[ -n "${STANDIN_WARM:-}" ] && exit 0
+echo ran >> "$RAN_LOG"
+'
+_ck_put_stand_in "$PWD/x" "$s"
+[ -e "$RAN_LOG" ] && echo WARM-RAN-THE-BODY
+./x
+echo "RAN=$(cat "$RAN_LOG")"
+echo "ENTRIES=$(ls -A "$CHECKS_STAND_IN_CACHE" | wc -l | tr -d ' ')"
+[ "$(ls -i x | awk '{print $1}')" = "$(ls -i "$CHECKS_STAND_IN_CACHE" | awk '{print $1}')" ] && echo LINKED
+`, "CHECKS_STAND_IN_CACHE="+cache)
+	contains(t, r.out, "RAN=ran\n", "ENTRIES=1\n", "LINKED")
+	if strings.Contains(r.out, "WARM-RAN-THE-BODY") {
+		t.Errorf("the warm run ran the body:\n%s", r.out)
 	}
 }
 

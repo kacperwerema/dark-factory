@@ -610,3 +610,48 @@ func TestLeadsGridAndEmpty(t *testing.T) {
 		t.Error("leads.html should render wb/ceo-grid")
 	}
 }
+
+// The CEO chat draws the YOLO band (and its phone line) while a window is
+// open, like every other single-project Workshop page. With YOLO off and
+// nothing to review the page carries nothing of YOLO; with passes waiting it
+// shows the after-the-fact count, as the other pages do, and no band.
+func TestCEOChatYOLOBand(t *testing.T) {
+	stubLeadChat(t, true)
+	plain := newTestServer(t, []tracker.Project{setupAgentsProject(t)})
+	defer plain.Close()
+	never := []string{`data-testid="yolo.band"`, `data-testid="yolo.band.line"`, `data-testid="yolo.switch"`, `data-testid="yolo.dialog"`}
+	nothing := pageGet(t, plain.URL+"/p/agents/lead")
+	for _, s := range append(never, `data-yolo-prefix=`, `data-testid="yolo.count"`, `workshop-yolo.js`) {
+		if strings.Contains(nothing, s) {
+			t.Errorf("YOLO never on: page carries %q", s)
+		}
+	}
+
+	proj := setupYOLOProject(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	off := pageGet(t, ts.URL+"/p/yp/lead")
+	assertContains(t, off, `data-testid="yolo.count"`, `1 issue to review after the fact`, `href="/p/yp/yolo/review"`)
+	for _, s := range never {
+		if strings.Contains(off, s) {
+			t.Errorf("YOLO off: page carries %q", s)
+		}
+	}
+
+	if code, out := postJSON(t, ts.URL+"/p/yp/yolo/on", `{"until":"4h","words":"go yolo"}`); code != 200 {
+		t.Fatalf("on: %d %v", code, out)
+	}
+	for _, path := range []string{"/lead"} {
+		code, html := getBody(t, ts.URL+"/p/yp"+path)
+		if code != 200 {
+			t.Errorf("%s: status %d", path, code)
+			continue
+		}
+		assertContains(t, html, `data-testid="lead_chat.page"`, `data-testid="yolo.band"`, `data-testid="yolo.band.line"`,
+			`Gates pass without you · since `, `turns off at `, `data-testid="yolo.band.extend"`, `data-testid="yolo.band.off"`,
+			`data-yolo-prefix="/p/yp"`, `<script src="/static/workshop-yolo.js" defer></script>`)
+		if strings.Contains(html, `data-testid="yolo.dialog"`) {
+			t.Errorf("%s: the turn-on dialog is drawn outside the company", path)
+		}
+	}
+}

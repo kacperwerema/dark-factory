@@ -139,7 +139,7 @@ func NewOutputTask(ctx context.Context, p *tracker.Project, issue *tracker.Issue
 	}
 	src := filepath.Join(outputs.FilesDir(p), filepath.FromSlash(o.File))
 	if o.File == "" {
-		src = filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+		src = outputs.PathFile(p, o)
 	}
 	ref, err := os.ReadFile(src)
 	if err != nil {

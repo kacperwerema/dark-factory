@@ -403,6 +403,9 @@ type metricFile struct {
 	Metrics []struct {
 		ID    string          `json:"id"`
 		Value json.RawMessage `json:"value"`
+		// Date is the metric's own day (a job file goal write merged):
+		// it wins over the file's.
+		Date string `json:"date"`
 	} `json:"metrics"`
 }
 
@@ -448,6 +451,9 @@ func readFile(p *tracker.Project, spec string) (float64, string, error) {
 		var v float64
 		if err := json.Unmarshal(m.Value, &v); err != nil {
 			return 0, "", fmt.Errorf("%s: metric %q is not a number (%s)", path, id, string(m.Value))
+		}
+		if d := strings.TrimSpace(m.Date); d != "" {
+			date = d
 		}
 		return v, date, nil
 	}

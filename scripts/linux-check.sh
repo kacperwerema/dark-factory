@@ -8,7 +8,8 @@
 # checkout is mounted, so the container can't change it. The history comes
 # along in a git bundle, as ci.yml's fetch-depth: 0 has it.
 #
-# The image (dark-factory-linux-check, about 1 GB) has apt tmux and shellcheck,
+# The image (dark-factory-linux-check, about 1 GB) has apt tmux, shellcheck and
+# curl (the socials connector's ready: step curls; ubuntu-latest has it),
 # Go through GOTOOLCHAIN and a non-root user, and is kept between runs so the
 # second run skips apt: docker rmi dark-factory-linux-check takes it away.
 #
@@ -18,7 +19,8 @@
 #
 # LINUX_CHECK_PKG and LINUX_CHECK_RUN (make linux-check PKG=./internal/x
 # RUN=TestY) run only `go test <pkg> -run <run> -count=1` in the container,
-# for debugging one test on Linux: a package alone runs all its tests, a run
+# for debugging one test on Linux: a package alone runs all its tests (PKG
+# may name several, space-separated: PKG="./internal/a ./internal/b"), a run
 # alone looks in ./... . Such a run says it was a subset, and its PASS is not
 # CI's.
 #
@@ -65,13 +67,19 @@ inside() {
 	say PASS
 }
 
-# One package or test, nothing else of CI's steps.
+# Some packages or one test, nothing else of CI's steps.
 subset() {
 	say "subset: only go test ${pkg:-./...}${run:+ -run $run}, not CI's full steps"
+	# PKG may name several packages, split on blanks; set -f keeps a
+	# pattern in a path from matching files.
+	set -f
+	# shellcheck disable=SC2086
+	set -- ${pkg:-./...}
+	set +f
 	if [ -n "$run" ]; then
-		run_step "go test" env PLAYTEST_CHROME=none go test "${pkg:-./...}" -run "$run" -count=1
+		run_step "go test" env PLAYTEST_CHROME=none go test "$@" -run "$run" -count=1
 	else
-		run_step "go test" env PLAYTEST_CHROME=none go test "$pkg" -count=1
+		run_step "go test" env PLAYTEST_CHROME=none go test "$@" -count=1
 	fi
 	say "that was a subset, not CI's full steps"
 	if [ -n "$red" ]; then
@@ -108,7 +116,7 @@ say "building $image if it changed (apt and Go, minutes the first time)"
 docker build --quiet -t "$image" - > /dev/null << EOF || exit 2
 FROM ubuntu:24.04
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates git golang-go make shellcheck tmux \
+ && apt-get install -y --no-install-recommends ca-certificates curl git golang-go make shellcheck tmux \
  && useradd -m ci
 USER ci
 ENV LANG=C.UTF-8 GOTOOLCHAIN=$go_version

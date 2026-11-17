@@ -266,3 +266,53 @@ func TestCEOChatWithoutTranscript(t *testing.T) {
 		t.Error("with no transcript the chat should read the pane and say so")
 	}
 }
+
+// trDenied is a tool result the permission layer refused, as Claude Code
+// 2.1 writes it (the text from this machine's transcripts, 2026-10-31).
+func trDenied(id, text string) string {
+	return trRecord(map[string]any{"parentUuid": "p", "type": "user", "toolUseResult": "Error: " + text,
+		"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": id, "is_error": true, "content": text}}}})
+}
+
+func TestParseTranscriptBlockedCalls(t *testing.T) {
+	classifier := "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Production Deploy]. If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. To allow this type of action in the future, the user can add a permission rule for Bash to their settings."
+	safety := "Permission for this command was denied by a built-in Claude Code safety check, not by the user. The check stops removals that can delete far more than intended. The command was NOT run; do not claim it succeeded. What was flagged: This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval."
+	lines := []string{
+		trOwner("Ship the landing page."),
+		trTool("m1", "t1", "Bash", map[string]any{"command": "npm run deploy -w @x/landing", "description": "Deploy the landing page"}),
+		trDenied("t1", classifier),
+		trTool("m2", "t2", "Bash", map[string]any{"command": "rm -rf $OUT/*"}),
+		trDenied("t2", safety),
+		trTool("m3", "t3", "Bash", map[string]any{"command": "false"}),
+		trRecord(map[string]any{"parentUuid": "p", "type": "user",
+			"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": "t3", "is_error": true, "content": "Exit code 1"}}}}),
+		trText("m4", "Both were blocked; the deploy needs your go."),
+	}
+	got := parseTranscript(strings.NewReader(strings.Join(lines, "\n")), false, 60)
+	if len(got.Turns) != 2 {
+		t.Fatalf("turns = %+v", got.Turns)
+	}
+	ceo := got.Turns[1]
+	want := []CEOBlocked{
+		{Tool: "Bash", Command: "npm run deploy -w @x/landing", By: "auto mode classifier", Reason: "Production Deploy"},
+		{Tool: "Bash", Command: "rm -rf $OUT/*", By: "safety check", Reason: "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval."},
+	}
+	if len(ceo.Blocked) != len(want) {
+		t.Fatalf("blocked = %+v", ceo.Blocked)
+	}
+	for i := range want {
+		if ceo.Blocked[i] != want[i] {
+			t.Errorf("blocked[%d] = %+v, want %+v", i, ceo.Blocked[i], want[i])
+		}
+	}
+	// The folded tools list is as before: the blocked calls stay in it.
+	if ceo.ToolSummary() != "used 3 tools: Bash ×3" || len(ceo.Calls) != 3 || ceo.Calls[0].Label != "Deploy the landing page" {
+		t.Errorf("tools = %q calls %+v", ceo.ToolSummary(), ceo.Calls)
+	}
+	// A cached read hands out copies.
+	c := got.clone()
+	c.Turns[1].Blocked[0].Reason = "changed"
+	if got.Turns[1].Blocked[0].Reason != "Production Deploy" {
+		t.Error("clone shares the blocked items")
+	}
+}

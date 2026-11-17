@@ -22,8 +22,9 @@ import (
 // such as the bugfix path's Manual repro box. Nothing gates on them; under
 // YOLO they wait in the same queue.
 
-// humanTestingSection is the section whose boxes are the owner's.
-const humanTestingSection = "Human Testing"
+// humanTestingSection is the section whose boxes are the owner's
+// (tracker.IsOwnerBox, the one rule).
+const humanTestingSection = tracker.HumanTestingSection
 
 // OwnerItem is a box only the owner can check, still waiting for them.
 type OwnerItem struct {

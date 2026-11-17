@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -14,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/experiment"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/retro"
+	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/tokens"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -49,8 +49,10 @@ Subcommands:
   run <slug> [--ref HEAD] [--benchmark <name>] [--dry-run]
       Guard (no protected path, only --change paths, contains main), then
       the baseline run (reused when one measured main's sha) and the
-      candidate run (bench run --setup <ref>), then record. --dry-run prints
-      the guard and the plan and runs nothing.
+      candidate run (bench run --setup <ref>), then record. The plan ends
+      with the cost: tokens, hours, USD (or prices.yaml unset) from the
+      benchmark's newest finished run. --dry-run prints the guard and the
+      plan and runs nothing.
   record <slug> --baseline <run> --candidate <run>
       Judge two finished benchmark runs and record the verdict: the block,
       an experiment: comment, and on promising an "Experiment result"
@@ -431,26 +433,7 @@ func runExperimentList(ctx *Context, args []string) error {
 // experimentBenchmark picks the benchmark: the flag, the block's, or the
 // only one in the owner's bench dir.
 func experimentBenchmark(flagVal string, b *experiment.Block, benchDir string) (string, error) {
-	if flagVal != "" {
-		return flagVal, nil
-	}
-	if b.Benchmark != "" {
-		return b.Benchmark, nil
-	}
-	entries, _ := os.ReadDir(benchDir)
-	var names []string
-	for _, e := range entries {
-		if n, ok := strings.CutSuffix(e.Name(), ".yaml"); ok && !e.IsDir() {
-			names = append(names, n)
-		}
-	}
-	if len(names) == 1 {
-		return names[0], nil
-	}
-	if len(names) == 0 {
-		return "", fmt.Errorf("no benchmark in %s yet: the owner sets one up (issue-cli bench)", benchDir)
-	}
-	return "", fmt.Errorf("several benchmarks (%s): pass --benchmark", strings.Join(names, ", "))
+	return experiment.PickBenchmark(flagVal, b, benchDir)
 }
 
 // experimentPlan is what run does, worked out before anything runs.
@@ -571,6 +554,11 @@ func runExperimentRun(ctx *Context, args []string) error {
 		fmt.Fprintf(w, "Baseline: bench run %s --setup %s (main)\n", p.Benchmark, gitdir.ShortSHA(p.MainSHA))
 	}
 	fmt.Fprintf(w, "Candidate: bench run %s --setup %s --label %s\n", p.Benchmark, gitdir.ShortSHA(p.RefSHA), label)
+	cost := spend.ExperimentCost(p.Benchmark, baselineID(p.Baseline), p.MainSHA)
+	fmt.Fprintf(w, "Cost: %s\n", cost.Line)
+	for _, d := range cost.Detail {
+		fmt.Fprintf(w, "  %s\n", d)
+	}
 	if *dry {
 		fmt.Fprintln(w, "(dry run — nothing was run)")
 		return nil
@@ -952,4 +940,12 @@ func runExperimentQueue(ctx *Context, args []string, on bool) error {
 	fmt.Fprintf(ctx.Stdout, "✓ %s is queued: the next night runs it once against main's baseline and records the verdict; adopting stays the owner's\n", issue.Slug)
 	fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli bench nightly --dry-run"))
 	return nil
+}
+
+// baselineID is the reused baseline run's id, "" when the baseline must run.
+func baselineID(r *experiment.Run) string {
+	if r == nil {
+		return ""
+	}
+	return r.ID
 }

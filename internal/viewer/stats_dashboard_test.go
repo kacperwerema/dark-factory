@@ -224,7 +224,7 @@ func TestDashboardDiskUseCard(t *testing.T) {
 	if !ok {
 		t.Fatal("no Disk use card")
 	}
-	if c.Big != "3.35 GB" || !strings.Contains(c.Sub, "96 worktrees") || !strings.Contains(c.Empty, "second daily snapshot") {
+	if c.Big != "3.35 GB" || !strings.Contains(c.Sub, "96 worktrees (1,880 MB)") || !strings.Contains(c.Sub, "issue-cli worktrees prune") || !strings.Contains(c.Empty, "second daily snapshot") {
 		t.Errorf("one snapshot: big %q sub %q empty %q", c.Big, c.Sub, c.Empty)
 	}
 	want := []AreaBar{{"worktrees", "1,880 MB", 100}, {"playtest shots", "1,336 MB", 71}, {".git", "37 MB", 2}, {".agent-logs", "21 MB", 1}, {"attachments", "0.4 MB", 1}}

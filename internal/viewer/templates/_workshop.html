@@ -384,6 +384,13 @@ their styles). Pages compose them; a new element is a new component here first.
         <span class="wb-newlot-title">{{.Tile.Title}}</span>
         {{with .Tile.Sub}}<span class="wb-newlot-sub">{{.}}</span>{{end}}
     </summary>
+    {{template "wb/new-dept-form" .}}
+</details>
+{{else}}{{template "wb/new-tile" .Tile}}{{end}}{{end}}
+
+{{/* The template choice: in the classic tile and on the picker page
+(GET …/departments/new with no template, the floor's plot links there). */}}
+{{define "wb/new-dept-form"}}
     <form class="wb-newlot-how wb-newdept-form" method="get" action="{{.FormURL}}" data-testid="company.new_dept.form">
         {{range .Templates}}<label class="wb-newdept-choice" data-testid="company.new_dept.template.{{tid .Key}}">
             <input type="radio" name="template" value="{{.Key}}"{{if .Checked}} checked{{end}}>
@@ -395,8 +402,7 @@ their styles). Pages compose them; a new element is a new component here first.
         <div><button type="submit" class="wb-btn wb-btn--ink" data-testid="company.new_dept.preview">Preview →</button></div>
         <span class="wb-newtile-note">Nothing is written until you press Add on the next page; a file you already have is never overwritten.</span>
     </form>
-</details>
-{{else}}{{template "wb/new-tile" .Tile}}{{end}}{{end}}
+{{end}}
 
 {{define "wb/queue-row"}}<a class="wb-qrow" href="{{.URL}}" data-testid="company.queue.row"><span class="wb-kind wb-kind--{{.Tone}}">{{.Label}}</span><span class="wb-qrow-slug">{{.Slug}}</span><span aria-hidden="true" class="wb-qrow-go">›</span></a>{{end}}
 

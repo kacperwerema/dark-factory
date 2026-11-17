@@ -128,16 +128,7 @@ func (s *Server) handlePostmortemDecide(w http.ResponseWriter, r *http.Request, 
 	}
 	now := time.Now()
 	ref := retroRef(proj, e.FilePath)
-	env := postmortem.Env{
-		Repo: projectRoot(proj), IssueDir: proj.IssueDir, Project: proj.Slug,
-		Issue: issue.Slug, System: issue.System,
-		RetroPath: e.FilePath, RetroRef: ref,
-		Owner: tracker.OwnerAuthor, Now: now, Statuses: proj.AllStatuses(),
-		NewExperiment: func(a postmortem.Action) (string, error) {
-			return postmortemExperiment(proj, issue, ref, a, now)
-		},
-	}
-	outs, err := postmortem.Decide(env, body.Answers)
+	outs, err := postmortem.Decide(postmortemEnv(proj, issue, e.FilePath, now), body.Answers)
 	switch {
 	case errors.Is(err, postmortem.ErrDecided):
 		writeJSONStatus(w, http.StatusConflict, map[string]string{"error": err.Error() + ". Reload to see the outcomes."})
@@ -170,6 +161,21 @@ func (s *Server) handlePostmortemDecide(w http.ResponseWriter, r *http.Request, 
 	}
 	log.Printf("postmortem: %s decided by the owner: %d applied, %d refused, %d failed", issue.Slug, applied, refused, failed)
 	writeJSONStatus(w, http.StatusOK, res)
+}
+
+// postmortemEnv is what an agreed action of issue's retro at path is
+// applied with: the round's and the queue's Agree alike.
+func postmortemEnv(proj *tracker.Project, issue *tracker.Issue, path string, now time.Time) postmortem.Env {
+	ref := retroRef(proj, path)
+	return postmortem.Env{
+		Repo: projectRoot(proj), IssueDir: proj.IssueDir, Project: proj.Slug,
+		Issue: issue.Slug, System: issue.System,
+		RetroPath: path, RetroRef: ref,
+		Owner: tracker.OwnerAuthor, Now: now, Statuses: proj.AllStatuses(),
+		NewExperiment: func(a postmortem.Action) (string, error) {
+			return postmortemExperiment(proj, issue, ref, a, now)
+		},
+	}
 }
 
 // postmortemExperiment files an agreed workflow action as an experiment
@@ -216,7 +222,8 @@ issue-cli experiment init <this slug> --hypothesis "..." --target <metric>:<up|d
 // post-mortem has actions the owner hasn't answered.
 func postmortemNeedsYou(p *tracker.Project, color, prefix string, now time.Time) []WbQueueCard {
 	var rows []WbQueueCard
-	for _, w := range postmortem.WaitingIn(postmortemRetros(p)) {
+	open, _ := openPostmortems(p, now)
+	for _, w := range postmortem.WaitingOf(open) {
 		since := w.Since
 		if since.IsZero() {
 			since = now

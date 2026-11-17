@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
@@ -66,7 +67,7 @@ func TestCatalogCheckOnABranch(t *testing.T) {
 		t.Fatalf("stale entry passed:\n%s", stdout.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"✗ catalog: this branch changes internal/health/score.go", "entry health-tuning is v0.53.0; the next release is v0.54.0", "issue-cli workflow catalog-bump health-tuning (sets version: v0.54.0", "Catalog: n/a health-tuning <why>  (it counts only once committed"} {
+	for _, want := range []string{"✗ catalog: this branch changes internal/health/score.go", "entry health-tuning is v0.53.0; the next release is v0.54.0", "issue-cli workflow catalog-bump health-tuning (sets version: v0.54.0", "\n    Catalog: n/a health-tuning <why>\n", "internal/health/score.go (matches internal/health/**)"} {
 		assertContains(t, out, want)
 	}
 	assertContains(t, err.Error(), "counts only once committed")
@@ -119,7 +120,7 @@ func TestCatalogCheckInAWorktreeBeforeTheFirstCommit(t *testing.T) {
 		t.Fatalf("uncommitted change passed:\n%s", stdout.String())
 	}
 	out := stdout.String()
-	if !strings.HasPrefix(out, "✗ catalog health-tuning: needs a bump or an n/a (changes internal/health/score.go)\n") {
+	if !strings.HasPrefix(out, "✗ catalog health-tuning: needs a bump or an n/a (changes internal/health/score.go (matches internal/health/**))\n") {
 		t.Errorf("output doesn't start with the summary line:\n%s", out)
 	}
 	assertContains(t, out, "catalog-check failed: 1 of 1 entries and 0 of 0 templates need a bump or an n/a; 0 Catalog: lines mark nothing")
@@ -296,4 +297,84 @@ func TestCatalogCheckPassesAPureRename(t *testing.T) {
 		t.Fatalf("rename with an edit passed:\n%s", stdout.String())
 	}
 	assertContains(t, stdout.String(), "✗ catalog health-tuning: needs a bump or an n/a")
+}
+
+// Several red entries end the output with one Catalog: n/a line naming
+// every refactor-looking entry and one catalog-bump for the entry whose own
+// symbol changed; each red entry names the source pattern it matched, and
+// the clilog's record names the red entries.
+func TestCatalogCheckEndsWithOneLineForEveryRedEntry(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	writeCatalogFile(t, dir, workflowupgrade.CatalogPath+"/alpha.yaml", "id: alpha\nversion: v0.53.0\ncategory: workbench\nsources: [\"internal/health/*.go\"]\n")
+	writeCatalogFile(t, dir, workflowupgrade.CatalogPath+"/beta.yaml", "id: beta\nversion: v0.53.0\ncategory: workbench\nsources: [\"internal/health/score.go#Score\"]\n")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nfunc Score() int { return 1 }\n")
+	catalogRepoGit(t, dir, "add", "-A")
+	catalogRepoGit(t, dir, "commit", "-q", "-m", "more entries")
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/many")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nfunc Score() int { return 2 }\n")
+
+	logPath := filepath.Join(realTempDir(t), "clilog.jsonl")
+	t.Setenv("ISSUE_CLI_LOG", logPath)
+	ctx, stdout, _ := newTestContext(&tracker.Project{Name: "t", IssueDir: dir}, false)
+	err := runCatalogCheck(ctx, nil)
+	if err == nil {
+		t.Fatalf("red entries passed:\n%s", stdout.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"✗ catalog alpha: needs a bump or an n/a (changes internal/health/score.go (matches internal/health/*.go))",
+		"✗ catalog beta: needs a bump or an n/a (changes internal/health/score.go (matches internal/health/score.go#Score))",
+		"✗ catalog health-tuning: needs a bump or an n/a (changes internal/health/score.go (matches internal/health/**))",
+		"→ looks like a feature change: issue-cli workflow catalog-bump beta ",
+	} {
+		assertContains(t, out, want)
+	}
+	if !strings.HasSuffix(out, "\n    Catalog: n/a alpha,health-tuning <why>\n") {
+		t.Errorf("output doesn't end with one n/a line for every refactor-looking entry:\n%s", out)
+	}
+	if n := strings.Count(out, "Catalog: n/a "); n != 1 {
+		t.Errorf("%d Catalog: n/a lines, want 1:\n%s", n, out)
+	}
+	if got := strings.Join(ctx.red, ","); got != "alpha,beta,health-tuning" {
+		t.Errorf("ctx.red = %q", got)
+	}
+
+	newCallLog([]string{"workflow", "catalog-check"}, time.Now()).write(&invocation{ctx: ctx}, err, false)
+	data, rerr := os.ReadFile(logPath)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	var rec struct {
+		Red []string `json:"red"`
+	}
+	if jerr := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &rec); jerr != nil {
+		t.Fatalf("%v: %s", jerr, data)
+	}
+	if strings.Join(rec.Red, ",") != "alpha,beta,health-tuning" {
+		t.Errorf("clilog red = %v (%s)", rec.Red, data)
+	}
+}
+
+// Every red entry a broad glob matched is in the one n/a line, with no
+// catalog-bump line.
+func TestCatalogCheckAllRefactorEntriesShareOneLine(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	writeCatalogFile(t, dir, workflowupgrade.CatalogPath+"/alpha.yaml", "id: alpha\nversion: v0.53.0\ncategory: workbench\nsources: [\"internal/health/*.go\"]\n")
+	catalogRepoGit(t, dir, "add", "-A")
+	catalogRepoGit(t, dir, "commit", "-q", "-m", "alpha")
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/two")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst two = 2\n")
+	ctx, stdout, _ := newTestContext(&tracker.Project{Name: "t", IssueDir: dir}, false)
+	if err := runCatalogCheck(ctx, nil); err == nil {
+		t.Fatalf("red entries passed:\n%s", stdout.String())
+	}
+	out := stdout.String()
+	if !strings.HasSuffix(out, "\n    Catalog: n/a alpha,health-tuning <why>\n") {
+		t.Errorf("output doesn't end with one n/a line naming both:\n%s", out)
+	}
+	if strings.Contains(out, "looks like a feature change") {
+		t.Errorf("a glob match reads as a feature change:\n%s", out)
+	}
 }

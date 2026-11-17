@@ -364,6 +364,8 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.handleDecisionsWb(w, r, proj, prefix)
 		}
+	case strings.HasPrefix(rest, "owner-steps/") && r.Method == http.MethodPost:
+		s.handleOwnerStepDone(w, r, proj, rest)
 	case rest == "decisions/challenge/resolve" && r.Method == http.MethodPost:
 		s.handleChallengeResolve(w, r, proj)
 	case strings.HasPrefix(rest, "decisions/") && strings.HasSuffix(rest, "/confirm") && r.Method == http.MethodPost:

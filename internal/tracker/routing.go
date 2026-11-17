@@ -25,7 +25,7 @@ type RoutingConfig struct {
 	// StopAt is the percent of each agent's weekly limit at which it rests.
 	StopAt map[string]int `yaml:"stop_at,omitempty" desc:"Percent of an agent's weekly limit at which it rests like one at its limit, per agent (default 98, 100 is off); read from Product's workflow.yaml"`
 	// Rules are tried in order; the first that matches picks the agent.
-	Rules []RoutingRule `yaml:"rules,omitempty" desc:"First match wins: type, label, status, department, lead → agent"`
+	Rules []RoutingRule `yaml:"rules,omitempty" desc:"First match wins: type, label, status, department, lead → agent, and model (a --model name, or default for the project's own; docs and report start on claude-sonnet-5-5 unless a rule says model: default)"`
 	// Codex is how a Codex start may run; nil leaves Codex's own defaults.
 	Codex *CodexSandbox `yaml:"codex,omitempty" desc:"Codex's sandbox for a start: writable (issues, git) and approval (ask, auto-review, never); unset keeps Codex's own defaults (see docs/agent-dispatch.md, Codex's sandbox)"`
 }
@@ -67,7 +67,16 @@ type RoutingRule struct {
 	// Lead matches leads (true) or everything but leads (false).
 	Lead  *bool  `yaml:"lead,omitempty"`
 	Agent string `yaml:"agent"`
+	// Model is the model a start this rule matches runs on, passed as
+	// --model to Agent: a name, or ModelDefault for the project's own model
+	// (agent_models, else the CLI's). "" leaves the built-in default
+	// (routing.DefaultModels) in force.
+	Model string `yaml:"model,omitempty"`
 }
+
+// ModelDefault on a rule's model: hands the start back to the project's own
+// model, switching the built-in default off for what the rule matches.
+const ModelDefault = "default"
 
 // CatchAll reports whether the rule names no match key.
 func (r RoutingRule) CatchAll() bool {

@@ -122,13 +122,16 @@ var gitBranchState = func(root, branch string) (BranchState, bool) {
 	if gitdir.Outside(root) {
 		return BranchState{}, false
 	}
-	out, err := exec.Command("git", "-C", root, "for-each-ref",
-		"--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(objectname)%00%(committerdate:unix)",
-		"refs/heads").Output()
-	if err != nil {
+	out, ok := refsKept(root, []string{"branch-state"}, func() refsOutput {
+		out, err := exec.Command("git", "-C", root, "for-each-ref",
+			"--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00%(upstream:track)%00%(objectname)%00%(committerdate:unix)",
+			"refs/heads").Output()
+		return refsOutput{string(out), err == nil}
+	}).get()
+	if !ok {
 		return BranchState{}, false
 	}
-	return parseBranchState(string(out), branch)
+	return parseBranchState(out, branch)
 }
 
 // parseBranchState picks branch's row of gitBranchState's output, or the
@@ -195,12 +198,20 @@ func buildReleaseWait(proj *tracker.Project, wf *tracker.WorkflowConfig, cs *can
 			issuesCheck.Meta = fmt.Sprintf("%d open", len(ms.Open))
 		}
 		ms.Checks = append(ms.Checks, issuesCheck)
+		// With a release branch the candidate ships from it, not from
+		// main's head: main need only not be red (the validated check reads
+		// the candidate itself).
+		onBranch := wf.Workbench.ReleaseCandidates && gitHasBranch(projectRoot(proj), milestone.ReleaseBranch(ms.Cut))
 		if st, on := ciState(proj); on {
 			branch := bs.Branch
 			if branch == "" {
 				branch = "the branch"
 			}
-			ms.Checks = append(ms.Checks, ciCheck(st, branch, bs.Head))
+			if onBranch {
+				ms.Checks = append(ms.Checks, ciNotRedCheck(st, branch))
+			} else {
+				ms.Checks = append(ms.Checks, ciCheck(st, branch, bs.Head))
+			}
 		}
 		if changelog != "" {
 			c := ReleaseCheck{Key: "changelog", Text: "Entries under ## Unreleased", OK: len(entries) > 0}
@@ -215,7 +226,7 @@ func buildReleaseWait(proj *tracker.Project, wf *tracker.WorkflowConfig, cs *can
 			root := projectRoot(proj)
 			head := bs.Head
 			ms.Snapshots = wf.Privacy.Snapshots()
-			if b := milestone.ReleaseBranch(ms.Cut); gitHasBranch(root, b) {
+			if b := milestone.ReleaseBranch(ms.Cut); onBranch {
 				ms.Branch, head = b, b
 				ms.Worktree = filepath.Join(ciRootFor(proj), ".worktrees", milestone.ReleaseWorktreeName(ms.Cut))
 				ms.addPicked(root, items, cs)
@@ -338,6 +349,30 @@ func ciCheck(st *ci.State, branch, head string) ReleaseCheck {
 	case st.State == ci.Green:
 		c.Meta = "untested"
 		c.Detail = fmt.Sprintf("head %s not tested yet (green at %s)", gitdir.ShortSHA(head), gitdir.ShortSHA(st.GreenSha))
+	default:
+		c.Meta = "error"
+		c.Detail = "CI can't run: " + strings.SplitN(st.Error, "\n", 2)[0]
+	}
+	return c
+}
+
+// ciNotRedCheck passes unless local CI is red on branch (or has no
+// reading): a release cut on its own branch ships the candidate, which the
+// validated check reads, so main's newest head need not be tested; a known
+// break on main still stops it, so a fix nobody picked doesn't ship around it.
+func ciNotRedCheck(st *ci.State, branch string) ReleaseCheck {
+	c := ReleaseCheck{Key: "ci", Text: "Local CI not red on " + branch}
+	switch {
+	case st == nil || st.State == "":
+		c.Meta, c.Detail = "no run", "no CI run yet"
+	case st.State == ci.Red:
+		c.Meta = "red"
+		if st.Branch != "" {
+			branch = st.Branch
+		}
+		c.Detail = fmt.Sprintf("%s red since %s: %s", branch, gitdir.ShortSHA(st.RedSince), st.Failed)
+	case st.State == ci.Green:
+		c.OK, c.Meta = true, "green at "+gitdir.ShortSHA(st.GreenSha)
 	default:
 		c.Meta = "error"
 		c.Detail = "CI can't run: " + strings.SplitN(st.Error, "\n", 2)[0]

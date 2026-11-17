@@ -1,6 +1,7 @@
 package liveboard
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,6 +110,7 @@ func TestFindOverride(t *testing.T) {
 // TestDirSkipsWithoutABoard: Dir skips (never fails) where there is no
 // board, so the suite stays green on a fresh clone.
 func TestDirSkipsWithoutABoard(t *testing.T) {
+	t.Setenv(DeferEnv, "") // not make test's cached run
 	t.Setenv(Env, t.TempDir())
 	skipped := false
 	t.Run("inner", func(t *testing.T) {
@@ -117,5 +119,62 @@ func TestDirSkipsWithoutABoard(t *testing.T) {
 	})
 	if !skipped {
 		t.Error("Dir did not skip on an empty board")
+	}
+}
+
+// stopTB records the Skipf or Fatalf that ends a call to Dir.
+type stopTB struct {
+	testing.TB
+	name, skipped, failed string
+}
+
+type stopped struct{}
+
+func (s *stopTB) Helper()      {}
+func (s *stopTB) Name() string { return s.name }
+func (s *stopTB) Skipf(format string, args ...any) {
+	s.skipped = fmt.Sprintf(format, args...)
+	panic(stopped{})
+}
+func (s *stopTB) Fatalf(format string, args ...any) {
+	s.failed = fmt.Sprintf(format, args...)
+	panic(stopped{})
+}
+
+func dirStops(tb *stopTB) {
+	defer func() {
+		if r := recover(); r != nil && r != (stopped{}) {
+			panic(r)
+		}
+	}()
+	Dir(tb)
+}
+
+// In make test's cached run (DeferEnv names the cache list) Dir skips a
+// test a fresh-test line names, a subtest by its top-level test, and fails
+// one no line names: its board would be cached with the package.
+func TestDirInTheCachedRunLeavesTheBoardToTheFreshRun(t *testing.T) {
+	list := filepath.Join(t.TempDir(), "test-cache.txt")
+	write(t, list, "cached ./internal/liveboard\nfresh-test ./internal/liveboard TestReadsTheBoard reads the live board\n")
+	t.Setenv(DeferEnv, list)
+	t.Setenv(Env, t.TempDir())
+
+	listed := &stopTB{TB: t, name: "TestReadsTheBoard/sub"}
+	dirStops(listed)
+	if listed.failed != "" || !strings.Contains(listed.skipped, "runs in make test's fresh run") {
+		t.Errorf("a listed test: skipped %q, failed %q", listed.skipped, listed.failed)
+	}
+	other := &stopTB{TB: t, name: "TestAlsoReadsIt"}
+	dirStops(other)
+	if want := "add `fresh-test ./internal/liveboard TestAlsoReadsIt reads the live board` to " + list; !strings.Contains(other.failed, want) {
+		t.Errorf("an unlisted test: failed %q, want it to say %q", other.failed, want)
+	}
+
+	// Outside the cached run the board is read as before.
+	t.Setenv(DeferEnv, "")
+	plain := &stopTB{TB: t, name: "TestAlsoReadsIt"}
+	dirStops(plain)
+	if plain.failed != "" || !strings.HasPrefix(plain.skipped, "no live board") {
+		t.Errorf("without %s: skipped %q, failed %q", DeferEnv, plain.skipped, plain.failed)
 	}
 }

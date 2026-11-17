@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -152,7 +151,7 @@ func (r Report) Unproven() []Criterion {
 }
 
 // Collect reads every link for issue's criteria and checks each one. root is
-// the project checkout; the issue's worktree is root/.worktrees/<slug>.
+// the project checkout; the issue's branch and worktree are FindIssueRef's.
 // It never fails: a source it can't read is listed in Missing.
 func Collect(root string, issue *tracker.Issue, comments []tracker.Comment) Report {
 	return CollectWith(nil, root, issue, comments)
@@ -168,7 +167,9 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 	if root == "" {
 		root, _ = os.Getwd()
 	}
-	worktree := filepath.Join(root, ".worktrees", issue.Slug)
+	stats, _ := tracker.LoadStats(issue.FilePath)
+	at := FindIssueRef(root, issue, stats.Transitions)
+	worktree := at.Worktree
 	r := Report{Slug: issue.Slug}
 	criteria := tracker.Criteria(issue.BodyRaw)
 	byID := map[string]int{}
@@ -178,12 +179,11 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 	}
 	prefix := criteriaPrefix(criteria)
 
-	stats, _ := tracker.LoadStats(issue.FilePath)
-	r.Ref, r.RefName = timeline.GitRef(root, issue.Slug, stats.Transitions)
-	c := &checker{cache: cache, root: root, worktree: worktree, ref: r.Ref, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
+	r.Ref, r.RefName = at.Ref, at.Name
+	c := &checker{cache: cache, root: root, worktree: worktree, ref: r.Ref, miss: at.Miss, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
 	c.goModule = IsGoModule(worktree) || IsGoModule(root)
 	if r.Ref == "" {
-		r.Missing = append(r.Missing, "work/"+issue.Slug+": no branch, recorded branch head or merge sha; test and commit links can't be checked")
+		r.Missing = append(r.Missing, at.Miss+" (no recorded branch head or merge sha either: test and commit links can't be checked)")
 	}
 	var reportText string
 	c.reportAt, reportText, c.hasReport = lastTestsComment(comments)
@@ -317,16 +317,54 @@ var idShapeRe = regexp.MustCompile(`^([A-Za-z]+)\d+$`)
 
 // splitTrailer reads one Proves: value ("AC1, AC3 TestA TestB"): words
 // shaped like a criterion id (the criteria prefix plus a number) are ids,
-// the rest test names.
+// the rest test names. A quoted string ("…" or '…') is one test name, so a
+// JS/TS it() or describe() title with spaces, colons or parentheses links
+// whole.
 func splitTrailer(value, prefix string) (ids, tests []string) {
-	for _, w := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == ';' }) {
-		if m := idShapeRe.FindStringSubmatch(w); m != nil && strings.EqualFold(m[1], prefix) {
-			ids = append(ids, strings.ToUpper(w))
+	for _, w := range trailerWords(value) {
+		if m := idShapeRe.FindStringSubmatch(w.text); !w.quoted && m != nil && strings.EqualFold(m[1], prefix) {
+			ids = append(ids, strings.ToUpper(w.text))
 			continue
 		}
-		tests = append(tests, w)
+		tests = append(tests, w.text)
 	}
 	return ids, tests
+}
+
+// trailerWord is one word of a Proves: value; quoted: it was a quoted
+// string, read whole.
+type trailerWord struct {
+	text   string
+	quoted bool
+}
+
+// trailerWords splits a Proves: value on spaces, tabs, commas and
+// semicolons. A word that starts with " or ' runs to the matching quote
+// (an unclosed one to the end of the line); an empty quoted string is
+// dropped.
+func trailerWords(value string) []trailerWord {
+	var out []trailerWord
+	sep := func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == ';' }
+	for rest := value; ; {
+		rest = strings.TrimLeftFunc(rest, sep)
+		if rest == "" {
+			return out
+		}
+		if q := rest[0]; q == '"' || q == '\'' {
+			text, after, _ := strings.Cut(rest[1:], string(q))
+			if text = strings.TrimSpace(text); text != "" {
+				out = append(out, trailerWord{text: text, quoted: true})
+			}
+			rest = after
+			continue
+		}
+		end := strings.IndexFunc(rest, sep)
+		if end < 0 {
+			end = len(rest)
+		}
+		out = append(out, trailerWord{text: rest[:end]})
+		rest = rest[end:]
+	}
 }
 
 type commit struct {

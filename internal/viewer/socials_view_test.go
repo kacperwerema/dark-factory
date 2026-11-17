@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -116,6 +117,11 @@ func newSocialsRig(t *testing.T, withConnector bool) *socialsRig {
 	body := "projects:\n  # the sandbox\n  - name: Acme\n    issues: " + filepath.Join(root, "acme", "issues") + "\n    workdir: " + filepath.Join(root, "acme") + "\n    departments:\n      - name: Marketing\n        role: SEO and socials # mine\n"
 	os.WriteFile(g.config, []byte(body), 0o644)
 	if withConnector {
+		// The ready step curls the stand-in: without curl every probe
+		// fails and each held call waits out the tool's 120 s for a 503.
+		if _, err := exec.LookPath("curl"); err != nil {
+			t.Fatal("the socials connector's ready: step needs curl on PATH (make linux-check's image installs it)")
+		}
 		item, err := socialEntry(g.postiz.URL, g.compose, socials.OverridePath(socials.PostizTool))
 		if err != nil {
 			t.Fatal(err)

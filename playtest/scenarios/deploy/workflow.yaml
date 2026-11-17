@@ -1,0 +1,15 @@
+statuses:
+  - name: "idea"
+  - name: "in progress"
+  - name: "done"
+transitions:
+  - from: "in progress"
+    to: "done"
+deploy:
+  - name: backup
+    run: "true"
+  - name: app
+    run: test ! -f broken.txt
+  - name: landing
+    run: "true"
+    needs: owner-ok

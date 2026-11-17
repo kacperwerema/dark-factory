@@ -47,6 +47,9 @@ type Dispatch struct {
 	At      time.Time `json:"at"`
 	Session string    `json:"session"`
 	Agent   string    `json:"agent"`
+	// Model is the model passed with --model; "" when none was (the
+	// CLI's own default, or a record from before models were recorded).
+	Model string `json:"model,omitempty"`
 	// BaseBranch and BaseSHA are what the work branch was cut from, set only
 	// by the dispatch that created it (a redispatch reuses the branch).
 	BaseBranch string `json:"base_branch,omitempty"`
@@ -75,6 +78,61 @@ func WorkerAgent(store StatsStore, slug string) string {
 		}
 	}
 	return ""
+}
+
+// Model labels for WorkerModel.
+const (
+	// ModelUnnamed is a worker started without --model: the CLI's or the
+	// project's own default, or a record from before models were recorded.
+	ModelUnnamed = "default"
+	// ModelMixed is a worker whose launches ran on different models.
+	ModelMixed = "mixed"
+)
+
+// WorkerModel is the model issue slug's worker ran on, over its launches:
+// the one name they share, ModelMixed when they differ, ModelUnnamed when
+// none passed --model; "" when the worker was never dispatched.
+func WorkerModel(store StatsStore, slug string) string {
+	session := AgentSessionName(slug)
+	model, seen := "", false
+	for _, d := range store.Dispatches {
+		if d.Session != session {
+			continue
+		}
+		m := strings.TrimSpace(d.Model)
+		if m == "" {
+			m = ModelUnnamed
+		}
+		switch {
+		case !seen:
+			model, seen = m, true
+		case m != model:
+			return ModelMixed
+		}
+	}
+	return model
+}
+
+// RedRoundCount is how many red rounds the issue's recorded check results
+// hold: the reds of one check at one branch head are one round (a retry
+// without a commit is no fix round); a red with no head is its own.
+func RedRoundCount(rounds []RoundResult) int {
+	seen := map[string]bool{}
+	n := 0
+	for _, r := range rounds {
+		if !r.Red {
+			continue
+		}
+		if r.Head == "" {
+			n++
+			continue
+		}
+		if k := r.Check + "\x00" + r.Head; !seen[k] {
+			seen[k] = true
+			n++
+		}
+	}
+	return n
 }
 
 // StatsStore is the per-issue workflow-stats sidecar persisted as

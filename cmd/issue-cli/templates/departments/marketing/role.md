@@ -36,6 +36,10 @@ Read these before writing any brief. They sit next to this file:
 - `keywords.md`: the positioning line and the keyword clusters it rests
   on, each marked own, contest or leave (optional). A brief targets a
   cluster marked own or contest, never one marked leave.
+- `competitors.md`: who competes (Direct, Adjacent), the queries the
+  ICP types and the dated baseline of what ranks (optional). SEO and
+  social briefs read it; a new name is a proposal for the owner, never
+  an edit to the file.
 
 They come from the brand foundation, a `foundation` issue in research
 mode: `issue-cli create --department marketing --type foundation --title
@@ -48,6 +52,9 @@ and the positioning line: `issue-cli create --department marketing
 Free data first (Search Console, autocomplete, competitors' pages,
 forums); paid keyword data only through the `openseo` connector, once
 the owner turns it on.
+`competitor-scan` issues (system SEO) settle competitors.md the same
+way, from web search only: `issue-cli create --department marketing
+--type competitor-scan --system SEO --title "Competitor scan: <topic>"`.
 
 ## Goals
 

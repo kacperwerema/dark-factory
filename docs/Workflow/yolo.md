@@ -36,6 +36,7 @@ While YOLO is on, `issue-cli transition` (and `issue-cli start` on a backlog or 
 - the target status is not optional (diverting to `parked` still needs the owner);
 - the issue is not labelled `experiment`: an experiment's change is adopted by the owner, so every gate of it waits (the refusal and `transition --dry-run` say so; see [Experiments](../workflow-stats.md#experiments));
 - the issue is not labelled `design-first` while the gate leaves the status with the `design` [role](overview.md#status-roles-role) (`in design → backlog` in the bundled workflow): the owner looks at the design before the build, so that one gate waits and the issue is in Needs you; its later gates pass as usual, and on a path with no design status the label holds nothing;
+- no box marked `(owner)` that is due before the build is open, while the gate ends at or before the work status (`in design → backlog` and `backlog → in progress`, or `idea → in progress` on the bugfix path). A box is due before the build when its text says so ("A design sketch shown to the owner before building … (owner)", "before the build", "before implementation", "before any code") or it sits in the section of a status before the work status (`## Idea`, `## Design`), `tracker.OwnerBoxesBeforeBuild`. The refusal names each box and says to stop; the issue waits on the gate in Needs you, and once the owner ticks the box YOLO passes the gate. Every other `(owner)` box still waits in the after-the-fact queue (see [Owner checks](#owner-checks));
 - the gate is not `owner_only` (see [Gates YOLO never passes](#gates-yolo-never-passes));
 - nothing else is missing: every checkbox, proof, field and shell gate still applies.
 
@@ -78,6 +79,7 @@ The gates YOLO never passes, listed by `issue-cli yolo status` (`never_passes` i
 - a gate into an optional status: a side step the owner chooses. Listed when a path has one, such as an approval on the way into `parked`;
 - every gate of an issue labelled experiment: the owner adopts experiments;
 - the design gate of an issue labelled design-first: the owner looks at the design before the build;
+- the gates up to the build while an (owner) box due before the build is open: the owner ticks it first (tracker.OwnerBoxesBeforeBuild);
 - release publish: external releases wait for the owner. Listed while releases are locked (the default; `yolo on --allow-releases` unlocks them for the window, and the valves line says so).
 
 One rule decides a step: `yolo.Eligible`, which the transition asks. `yolo on` and the turn-on dialog list what passes by asking it for each step on each type's path (`yolo.Gates`), so a step that needs an approval is in that list or in this one, never both on one path.
@@ -101,7 +103,7 @@ The bundled `content` and `marketing` templates have `owner_only` on `owner revi
 - `start`, `show` and `context` print `YOLO: on until 08:00 (…)` next to the Lead line.
 - The briefing and `start` print the YOLO rule, one paragraph (`tracker.YOLORule`):
 
-  > YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself: the design's go in its ## Clarify round, each marked assumed (issue-cli clarify <slug> --assume); record any other answer you give yourself with issue-cli decide <slug> --provisional --text "..."; put what you can't answer in a question: comment and go on. Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: experiments, release publish, a gate into an optional status, the design gate of an issue labelled design-first, product-policy rules, and anything that spends money or publishes outside the machine (owner_only gates); for those post a question: comment and stop.
+  > YOLO rule: don't ask the owner and don't stop at gates. Answer open questions yourself: the design's go in its ## Clarify round, each marked assumed (issue-cli clarify <slug> --assume); record any other answer you give yourself with issue-cli decide <slug> --provisional --text "..."; put what you can't answer in a question: comment and go on. Gates pass and the owner reviews them after the fact. Still the owner's, even in YOLO: experiments, release publish, a gate into an optional status, the design gate of an issue labelled design-first, the gates up to the build while an (owner) box due before the build is open, product-policy rules, and anything that spends money or publishes outside the machine (owner_only gates); for those post a question: comment and stop.
 
   It reads the same on every path. The Human Testing approval is not in it: YOLO passes that gate too, so a worker doesn't stop at `human-testing`.
 
@@ -141,7 +143,8 @@ Every write is the owner's: `yolo/review`, `yolo/review/all`, `…/yolo-review` 
 
 A box only the owner can check (see [Proof Links](proof.md#owner-checks): a playtest judgement step, a guided
 check step the machine run left to the owner, a criterion marked `(owner)`) neither blocks YOLO nor passes
-silently:
+silently (one due before the build is the exception: it holds the gates up to the build, see
+[What passes, and what still waits](#what-passes-and-what-still-waits)):
 
 - `criteria_proven` at `testing → human-testing` doesn't count an unproven owner check; every other criterion
   still needs its proof.
@@ -187,7 +190,7 @@ A decision hold YOLO passes (`decisions_cited`, `citations_current`) doesn't sto
 - Every classic project page: a hazard line in the sidebar while on (until, passed, valves, Extend / Turn off now), and "N after the fact" with Agree / Back until the queue is empty.
 - The Workshop Board (yolo_wb.go, templates/_workshop_yolo.html):
   - L1, the company: the **YOLO** switch in the header opens the turn-on dialog (the gates from workflow.yaml, what still guards, until 08:00 / 4 hours / until turned off, the valves, your words). While on, the Product room's gates stand open and the room carries "YOLO · N"; the side panel lists "To review after YOLO". The switch lives only here.
-  - Every project screen (company, hall and its tabs, Report, the issue): the hazard band under the header while on ("Gates pass without you · since 22:10 · turns off at 08:00 · passed: N · CI guards · no releases") with Extend (until 08:00, 4 more hours, until turned off) and Turn off now; "N to review after the fact" in the header while the queue waits.
+  - Every project screen (company, hall and its tabs, Report, the issue, the CEO chat): the hazard band under the header while on ("Gates pass without you · since 22:10 · turns off at 08:00 · passed: N · CI guards · no releases") with Extend (until 08:00, 4 more hours, until turned off) and Turn off now; "N to review after the fact" in the header while the queue waits.
   - L0, the map: the lot in yellow-black stripes with "YOLO until 08:00", and "N after the fact" in place of the orange "!". The counter stays after YOLO ends until the queue is empty.
   - L2, the hall: gates drawn raised (barrier up) while on; a crate that passed a gate in YOLO carries the yellow YOLO marker to the end of the line, reviewed or not.
   - L3, the issue: "Passed in YOLO" above Your move, one form per unreviewed pass, with Agree and Back to <status>.

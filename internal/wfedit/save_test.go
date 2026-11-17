@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -133,7 +134,7 @@ func TestSaveRefusals(t *testing.T) {
 	t.Run("commit fails", func(t *testing.T) {
 		top, path := repo(t, "workflow.yaml")
 		hook := filepath.Join(top, ".git", "hooks", "pre-commit")
-		os.WriteFile(hook, []byte("#!/bin/sh\necho no >&2\nexit 1\n"), 0o755)
+		standin.Write(t, hook, "echo no >&2\nexit 1\n")
 		old, _ := os.ReadFile(path)
 		_, err := Save(gateOff(t, path), "why")
 		if err == nil || !strings.Contains(err.Error(), "is back as it was") {

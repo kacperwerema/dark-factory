@@ -14,7 +14,7 @@ import (
 
 var leadCommand = &Command{
 	Name:      "lead",
-	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom, flush it at night (sub: spawn|whoami|list|message|flush; alias: ceo)",
+	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom, flush it at night, tick, wait on a probe, keep its state, rotate it, search its history (sub: spawn|whoami|list|message|flush|tick|watch|state|rotate|history; alias: ceo)",
 	LongHelp: `The CEO supervises workers; it is what was called the project lead.
 There is one CEO per project (tmux lead-<project>, in the project
 checkout); every worker and department reports to it, epic children
@@ -47,14 +47,79 @@ Subcommands:
       handoff note (80 lines at most) and the chat summary (30), then
       close the lead. The next lead spawn's first prompt carries the note,
       the summary and the pins. See issue-cli lead flush --help.
+  tick [--watch] [--every 5m] [--exit-on-news [--verbose]] [--observe [--department <d>]]
+      The lead's check-in, done in one command: queue next --start (a
+      due job on its standing start first, every hold as there), done
+      issues whose work branch is not on main, local CI red, criteria
+      that wait on the lead, stalled agents and takeovers, the queue at
+      5 open items or fewer, the owner's comments since the last tick;
+      it closes finished worker sessions whose branch is on main and
+      removes their worktrees, closes the idle session of a report that
+      waits on the owner's review with its output on the shelf (a held
+      closed: line and a session: closed comment on the issue), and once a day runs worktrees prune (it
+      says how many went). It
+      prints a line only when the lead has to act, and says a thing once
+      until it goes away and comes back; a quiet tick prints nothing.
+      --watch ticks every --every (default 5m) for a Monitor;
+      --exit-on-news exits after the first tick with news the lead must
+      act on (red CI, a branch to land, the queue at its refill point, a
+      stalled or failed worker, a hold over 1h, a leaks finding, the
+      context nudge, the owner's comment), so a background shell wakes
+      the lead once per piece of news. A plain start and a closed session
+      are no news: they are held and printed above the next news, one
+      line each; --verbose exits on them too. This is
+      the lead's one way to wait: a /loop cron, a ScheduleWakeup poll or a
+      Monitor (which expires every 30 minutes) wakes the whole context
+      (0.5-1 M tokens) each time, news or not.
+      --observe is the read-only tick of a lead that doesn't start work
+      (a department lead): it never runs queue next --start and never
+      closes a session; it says due jobs, status moves, new shelf items
+      and comments, and workers' sessions ending, for --department <d>
+      (default: your own department, else the whole project). With
+      --exit-on-news a status move is news only when it waits on a gate,
+      on the owner's testing, or was parked; other moves and ended
+      sessions wait for the next news.
+      Each tick re-renders the lead's state file (lead state) and says
+      once a day when the lead's own context passed 300k tokens: rotate.
+      When no tick --watch runs (its process gone with a resumed
+      session, or none for 10 minutes after one exited on news), the
+      lead's next issue-cli call says so on stderr with the command to
+      start it again.
+  watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']
+      Run a probe (a job's check, an image download) in the shell every
+      --every and exit only when its output (with its exit code) differs
+      from the first run's, or matches --until. Quiet runs print nothing.
+      Run it as a background shell, like tick --watch --exit-on-news,
+      never under a timed wake. It is listed in the lead's state file
+      while it runs, so a rotate hands it over.
+  state [--path] | state note "<text>" [--tomorrow] | state ask --quote "<words>" | state done <n>
+      The lead's compact state file ($XDG_STATE_HOME/ai-workflow-engine/
+      lead/<lead>.md, 16 KB at most): live workers, the queue head, the
+      owner's open asks in their words, today's decision refs and lead
+      memory ids, the background shells it waits on, what to check
+      tomorrow and its notes. The tick rewrites it; notes from an earlier
+      day fold into that day's sessions/<date>-<lead>.summary.md.
+  rotate [--lead <name>]
+      Hand over to a fresh session when the context has grown: writes the
+      handoff note from the state file and a digest of the old transcript
+      into sessions/, then (after the current turn ends) closes the
+      session and starts the same lead again under the same tmux name,
+      its first prompt carrying the state file and the watches to restart.
+  history <words> [--days 30] [--max 40] [--lead <name>]
+      Search the lead's digests and its transcripts still on disk (what
+      was said and the commands run, never tool output): every word must
+      match. Prints only the matching lines.
 
 Examples:
   issue-cli lead spawn
   issue-cli lead spawn --department marketing
   issue-cli lead whoami
+  issue-cli lead tick --watch --exit-on-news
+  issue-cli lead tick --watch --exit-on-news --observe --department marketing
+  issue-cli lead watch --run 'ls out/images | wc -l' --every 10m
   issue-cli lead message ui/workbench-redesign "please rebase on main"`,
 	Run:         runLead,
-	Subcommands: []string{"spawn", "whoami", "list", "message", "flush"},
+	Subcommands: []string{"spawn", "whoami", "list", "message", "flush", "tick", "watch", "state", "rotate", "history"},
 }
 
 func init() {
@@ -64,7 +129,7 @@ func init() {
 
 func runLead(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"\n  issue-cli lead flush pack|note|summary|close --run <slug>")
+		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"\n  issue-cli lead flush pack|note|summary|close --run <slug>\n  issue-cli lead tick [--watch] [--every 5m] [--exit-on-news [--verbose]] [--observe [--department <d>]]\n  issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']\n  issue-cli lead state [note \"<text>\" | ask --quote \"<words>\" | done <n>]\n  issue-cli lead rotate\n  issue-cli lead history <words>")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -78,8 +143,18 @@ func runLead(ctx *Context, args []string) error {
 		return runLeadMessage(ctx, rest)
 	case "flush":
 		return runLeadFlush(ctx, rest)
+	case "tick":
+		return runLeadTick(ctx, rest)
+	case "watch":
+		return runLeadWatch(ctx, rest)
+	case "state":
+		return runLeadState(ctx, rest)
+	case "rotate":
+		return runLeadRotate(ctx, rest)
+	case "history":
+		return runLeadHistory(ctx, rest)
 	default:
-		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, whoami, list, message, flush", sub)
+		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, whoami, list, message, flush, tick, watch, state, rotate, history", sub)
 	}
 }
 
@@ -623,7 +698,7 @@ func printLeadLines(ctx *Context, issue *tracker.Issue) {
 		return
 	}
 	fmt.Fprintln(ctx.Stdout, leadHeaderLine(ctx.Project, issue, issues))
-	if line := yoloHeaderLine(ctx.Project, ctx.now()); line != "" {
+	if line := yoloHeaderLine(ctx.Project, issue, ctx.now()); line != "" {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 	if line := experimentHeaderLine(ctx.Project, issue); line != "" {

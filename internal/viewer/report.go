@@ -60,7 +60,9 @@ type ReportData struct {
 	Bench *WbBench
 	// Nightly is the "Factory last night" card; nil without a benchmark.
 	Nightly *WbNightly
-	Unlock  WbUnlock
+	// Deploy is the Last deploy card; nil without deploy: steps.
+	Deploy *WbDeploy
+	Unlock WbUnlock
 	// Active is Working on: each issue in flight and its agent.
 	Active WbActiveList
 	// Released is Recently released.
@@ -394,6 +396,7 @@ func buildReport(p *tracker.Project, color string, m *StatusModel, issues []*tra
 	d.Health = reportHealth(m, p, prefix)
 	d.Bench = reportBench(p, m.AsOf)
 	d.Nightly = reportNightly(p, prefix)
+	d.Deploy = reportDeploy(p, p.LoadWorkflow(), m.AsOf)
 	d.Unlock = reportUnlock(m, p, issues, prefix)
 	d.Unlock = unlockBench(d.Unlock, d.Bench != nil)
 	d.Status = m

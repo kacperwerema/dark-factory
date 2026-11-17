@@ -1,0 +1,38 @@
+session: ceo-chat-permission
+issue: ui/the-ceo-chats-conversation-shows-a-command-waiting-on-a-permission-prompt-or-blocked-as-risky-as-it-happens
+title: The CEO chat's Conversation shows a permission prompt and a blocked command as they happen
+scenario: leads
+
+# The lead is faked on the scenario's private tmux server: sh prints a
+# Claude Code screen with a call the auto mode classifier refused and a
+# permission prompt open for the next one (the shapes of real captures in
+# internal/viewer/testdata/ceo-pane), then cat echoes what the page presses.
+# No real agent starts.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: A blocked command and an open permission prompt show in the Conversation, the working line says it waits on the prompt, and a choice presses its digit
+    proves: [AC1, AC2, AC3]
+    setup:
+      - tmux: [new-session, -d, -s, lead-crew, sh, -c, "printf '%s\\n' '> Ship the landing page.' '' '⏺ Bash(npm run deploy -w @x/landing)' '  ⎿  Waiting…' '  ⎿  Error: Permission for this action was denied by the Claude Code auto mode' '     classifier. Reason: [Production Deploy]. If you have other tasks that do not' '     depend on this action, continue working on those.' '' '⏺ Bash(touch made-by-agent)' '' '──────────────────────────────' ' Bash command' ' Make a file' '╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌' ' touch made-by-agent' '╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌' ' Do you want to proceed?' ' ❯ 1. Yes' '   2. No' '' ' Esc to cancel · Tab to amend'; exec cat"]
+      - open: /p/{project}/lead
+    act:
+      - check: { inside: { target: lead_chat.prompt, within: lead_chat.conversation } }
+      - click: lead_chat.prompt.choice.1
+    checks:
+      - text_contains: { target: lead_chat.prompt.tool, text: "permission · Bash" }
+      - text_equals: { target: lead_chat.prompt.command, text: "touch made-by-agent" }
+      - count: { pattern: lead_chat.prompt.choice.#, equals: 2 }
+      - text_contains: { target: lead_chat.working, text: "Waiting on a permission prompt: Bash · touch made-by-agent" }
+      - text_contains: { target: lead_chat.blocked, text: "refused by the auto mode classifier" }
+      - text_contains: { target: lead_chat.blocked, text: "npm run deploy -w @x/landing" }
+      - text_equals: { target: lead_chat.blocked.reason, text: "Why: Production Deploy" }
+      - text_contains: { target: lead_chat.status, text: "Pressed 2 in" }
+    do: Open the page and read the end of the Conversation.
+    expect: The blocked deploy reads as a red "blocked" item under the CEO's turn with its command and reason; below it the working line says the CEO waits on a permission prompt, and the permission card with the command and its two choices sits at the end of the Conversation, not above the message box.
+    why: A command the permission layer stops, or one waiting on a prompt, is what the owner was missing while the page said only "working".

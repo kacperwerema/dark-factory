@@ -25,6 +25,8 @@ templates/report.html composes them.
                    release candidate, next steps, open
                    issues, ## Unreleased, unpushed commits
   wb/ci            Local CI: state, last runs, what failed   data: *StatusModel
+  wb/deploy        Last deploy: when, who, each step, the    data: *WbDeploy
+                   red one and the command to go on
   wb/behind        the installed build behind main: count,   data: *StatusModel
                    new changelog entries, install command
   wb/active-list   Working on: issues in flight, their age   data: WbActiveList
@@ -361,6 +363,7 @@ release flow reads the same on both pages.
         {{end}}
         {{if .More}}<span class="wb-rel-meta" data-testid="status.queue.more">+{{.More}} more (issue-cli queue list)</span>{{end}}
         <span class="wb-rel-meta" data-testid="status.queue.refill">∞ {{.Refill}}</span>
+        {{with .Share}}<span class="wb-rel-meta" data-testid="status.queue.share">{{.}}</span>{{end}}
     </div>
     {{if .DoneToday}}
     <div class="wb-rel-list" data-testid="status.queue.done">
@@ -396,6 +399,7 @@ release flow reads the same on both pages.
         {{with .Load}}<span class="wb-rel-meta" data-testid="status.autostart.load">CPU: {{.}}</span>{{end}}
         {{if .Paused}}{{with .PauseReason}}<span class="wb-rel-meta">{{.}}</span>{{end}}{{end}}
         {{with .Last}}<span class="wb-rel-meta" data-testid="status.autostart.last">Last start on this machine: {{.}}</span>{{end}}
+        {{with .Share}}<span class="wb-rel-meta" data-testid="status.autostart.share">{{.}}</span>{{end}}
         <span class="wb-rel-meta">The CEO starts it at a check-in (issue-cli autostart next); nothing here starts a worker.</span>
     </div>
     <div class="wb-rel-list">
@@ -428,6 +432,29 @@ release flow reads the same on both pages.
         <span class="wb-rel-meta">{{with .RunURL}}<a class="wb-rlink" href="{{.}}" data-testid="report.nightly.run">the night's run issue</a> · {{end}}{{with .RunCmd}}<code class="wb-code">{{.}}</code>{{end}}</span>
         {{end}}
     </div>
+    {{end}}
+</section>
+{{end}}{{end}}
+
+{{define "wb/deploy"}}{{with .}}
+<section class="wb-rcard" id="deploy" aria-labelledby="deploy-h" data-testid="report.deploy">
+    <div class="wb-rcard-head"><h2 class="wb-rcard-h" id="deploy-h">Last deploy</h2>{{if not .Empty}}<span class="wb-chip wb-chip--{{.Tone}}" data-testid="report.deploy.state">{{.State}}</span>{{end}}</div>
+    <div class="wb-muted wb-small">The project's deploy: steps from workflow.yaml, run in order by issue-cli deploy.</div>
+    {{if .Empty}}
+    <div class="wb-empty" data-testid="report.deploy.empty">No deploy recorded yet. The lead sees the plan with <code class="wb-code">{{.Cmd}}</code></div>
+    {{else}}
+    <div class="wb-rsub" data-testid="report.deploy.when">{{.When}}{{with .By}} · by {{.}}{{end}} · {{.Took}}{{with .Scope}} · {{.}}{{end}}</div>
+    <div class="wb-rel-list">
+    {{range .Steps}}
+        <div class="wb-night-num" data-testid="report.deploy.step.{{.Name}}">
+            <span class="wb-rel-title">{{.N}}. {{.Name}}</span>
+            <span class="wb-chip wb-chip--{{.Tone}}" data-testid="report.deploy.step.{{.Name}}.state">{{.State}}</span>
+            {{with .Took}}<span class="wb-rel-meta">{{.}}</span>{{end}}
+            {{with .Why}}<span class="wb-rel-meta" data-testid="report.deploy.why">{{.}}</span>{{end}}
+        </div>
+    {{end}}
+    </div>
+    {{with .Resume}}<div class="wb-rel-meta" data-testid="report.deploy.resume">After the fix, the lead goes on with <code class="wb-code">{{.}}</code></div>{{end}}
     {{end}}
 </section>
 {{end}}{{end}}

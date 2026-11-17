@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // placeholderUsers are the user names test inputs and docs may put in a home
@@ -139,14 +141,31 @@ func ScanLeaks(dir, rev string, names []string) ([]Leak, error) {
 			return nil, err
 		}
 		for _, l := range lines {
-			for i, n := range names {
-				if strings.TrimSpace(n) != "" && nameAt(l.text, strings.TrimSpace(n)) {
-					leaks = append(leaks, Leak{Path: l.path, Line: l.line, What: fmt.Sprintf("a private name (line %d of the private-names list)", i+1)})
-				}
+			for _, what := range nameLeaks(l.text, names) {
+				leaks = append(leaks, Leak{Path: l.path, Line: l.line, What: what})
 			}
 		}
 	}
 	return leaks, nil
+}
+
+// nameLeaks lists the private-name hits on one line, each naming the
+// list's line instead of the name.
+func nameLeaks(text string, names []string) []string {
+	var out []string
+	for i, n := range names {
+		if n = strings.TrimSpace(n); n != "" && nameAt(text, n) {
+			out = append(out, fmt.Sprintf("a private name (line %d of the private-names list)", i+1))
+		}
+	}
+	return out
+}
+
+// ScanText lists every hit the leak scan would report on one line of text:
+// the path patterns and the names. The commit-msg warning uses it, so it
+// and make leak-check can't disagree about a line.
+func ScanText(text string, names []string) []string {
+	return append(pathLeaks(text), nameLeaks(text, names)...)
 }
 
 type grepLine struct {
@@ -238,4 +257,31 @@ func leakError(where string, leaks []Leak) error {
 	}
 	b.WriteString("\nFix them on main, pick the commit, cut a new rc")
 	return errors.New(b.String())
+}
+
+// CleanSlug drops every name of the private-names list that title or slug
+// carries from slug, as whole hyphen-separated words: an issue's slug goes
+// into its branch and every Refs: line, where make leak-check would refuse
+// it only at validate. lines are the list's line numbers that hit (1-based),
+// so a warning can name them without echoing a name. A slug left with
+// nothing is "issue".
+func CleanSlug(slug, title string, names []string) (clean string, lines []int) {
+	clean = slug
+	for i, n := range names {
+		n = strings.TrimSpace(n)
+		ns := tracker.Slugify(n)
+		if n == "" || ns == "" || !(nameAt(title, n) || nameAt(clean, ns)) {
+			continue
+		}
+		lines = append(lines, i+1)
+		padded := "-" + clean + "-"
+		for strings.Contains(padded, "-"+ns+"-") {
+			padded = strings.Replace(padded, "-"+ns+"-", "-", 1)
+		}
+		clean = strings.Trim(padded, "-")
+	}
+	if clean == "" {
+		clean = "issue"
+	}
+	return clean, lines
 }

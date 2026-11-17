@@ -133,7 +133,14 @@ func printByAgent(ctx *Context, t *bench.AgentTable) {
 		return
 	}
 	w := ctx.Stdout
-	fmt.Fprintln(w, "\nBy agent (mean per task; the holdout stays in the overall n/m):")
+	by := "agent"
+	for _, a := range t.Agents {
+		if strings.Contains(a, " · ") {
+			by = "agent and model"
+			break
+		}
+	}
+	fmt.Fprintf(w, "\nBy %s (mean per task; the holdout stays in the overall n/m):\n", by)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "  type\tagent\tpass\ttime\ttokens\tcost\t")
 	for _, r := range t.Rows {

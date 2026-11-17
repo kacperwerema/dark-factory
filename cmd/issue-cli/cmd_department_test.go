@@ -101,7 +101,7 @@ func TestDepartmentAddInstallsMarketing(t *testing.T) {
 	assertContains(t, s, `create --department marketing --title "<first brief>"`)
 	assertContains(t, s, "Edit departments/marketing/role.md to say what this department should know, and each job's brief (departments/marketing/jobs/weekly-seo-pass.md).")
 	assertContains(t, s, "connectors marketing prints the config")
-	assertContains(t, s, "Types of work: piece (default), foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social. Pick one with issue-cli")
+	assertContains(t, s, "Types of work: piece (default), competitor-scan, foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social. Pick one with issue-cli")
 	after, _ := os.ReadFile(cfg)
 	if !strings.HasPrefix(string(after), string(before)) {
 		t.Fatalf("projects.yaml lines changed:\n%s", after)

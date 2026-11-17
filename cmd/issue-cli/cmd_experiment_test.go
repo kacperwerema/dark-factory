@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/experiment"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
@@ -291,10 +292,20 @@ func TestExperimentRunDryRunPlansWithoutRunning(t *testing.T) {
 	assertContains(t, out.String(), "Guard: ok")
 	assertContains(t, out.String(), "Baseline: bench run b1 --setup")
 	assertContains(t, out.String(), "(dry run — nothing was run)")
+	assertContains(t, out.String(), "Cost: no estimate: benchmark b1 is not set up")
 	if _, err := os.Stat(filepath.Join(root, "bench", "runs")); !os.IsNotExist(err) {
 		t.Fatalf("dry run wrote runs: %v", err)
 	}
-	// A finished run that measured main's sha is reused.
+	// A finished run that measured main's sha is reused, and the cost
+	// preview counts only the candidate's run.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	b1 := bench.New("b1")
+	for _, s := range []string{"t1", "t2", "t3", "t4"} {
+		b1.Tasks = append(b1.Tasks, bench.Task{Project: "proj", Slug: s})
+	}
+	if err := b1.Save(); err != nil {
+		t.Fatal(err)
+	}
 	sha, _ := experiment.SHA(".", "main")
 	writeBenchRun(t, root, sha, 2, 0.5)
 	out.Reset()
@@ -302,6 +313,8 @@ func TestExperimentRunDryRunPlansWithoutRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, out.String(), "Baseline: reuse run "+sha)
+	assertContains(t, out.String(), "Cost: ≈ tokens unknown, 0 min, USD unknown")
+	assertContains(t, out.String(), "1 run × 4 tasks: the candidate only, baseline run "+sha)
 }
 
 func TestExperimentRunWithoutMainRefuses(t *testing.T) {

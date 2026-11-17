@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -35,8 +36,20 @@ type PlaytestSessionFile struct {
 // written in design lives on the issue branch) and then the checkout. A
 // session found in the worktree hides the checkout's copy. Files that don't
 // parse are skipped. Sorted by session name.
+//
+// A file whose text doesn't hold any of the slugs can't name one in its
+// issue:, so it is skipped unparsed: each worktree holds a copy of every
+// session, and parsing them all to keep a few made each prove call slow.
 func IssuePlaytestSessions(root string, slugs ...string) []PlaytestSessionFile {
-	return IssuePlaytestSessionsIn(PlaytestSessionFiles, root, slugs...)
+	names := func(data []byte) bool {
+		for _, s := range slugs {
+			if s = strings.TrimSpace(s); s != "" && bytes.Contains(data, []byte(s)) {
+				return true
+			}
+		}
+		return false
+	}
+	return IssuePlaytestSessionsIn(func(dir string) []PlaytestSessionFile { return playtestSessionFilesIf(dir, names) }, root, slugs...)
 }
 
 // IssuePlaytestSessionsIn is IssuePlaytestSessions reading each folder
@@ -74,11 +87,17 @@ func IssuePlaytestSessionsIn(read func(dir string) []PlaytestSessionFile, root s
 // was last read isn't read again: every worktree holds a copy of them all,
 // and a page over several issues goes through several worktrees.
 func PlaytestSessionFiles(dir string) []PlaytestSessionFile {
+	return playtestSessionFilesIf(dir, nil)
+}
+
+// playtestSessionFilesIf is PlaytestSessionFiles leaving out, unparsed, each
+// file not yet parsed whose text keep refuses (nil keeps all).
+func playtestSessionFilesIf(dir string, keep func(data []byte) bool) []PlaytestSessionFile {
 	files, _ := filepath.Glob(filepath.Join(dir, "playtest", "sessions", "*.yaml"))
 	sort.Strings(files)
 	var out []PlaytestSessionFile
 	for _, f := range files {
-		if s, ok := readPlaytestSession(f); ok {
+		if s, ok := readPlaytestSession(f, keep); ok {
 			out = append(out, s)
 		}
 	}
@@ -99,7 +118,10 @@ var sessionCache = struct {
 	m map[string]parsedSession
 }{m: map[string]parsedSession{}}
 
-func readPlaytestSession(path string) (PlaytestSessionFile, bool) {
+// readPlaytestSession parses the session at path, once per size and mtime.
+// A file it has to read whose text keep refuses comes back not ok, and is
+// not remembered: another caller may want it.
+func readPlaytestSession(path string, keep func(data []byte) bool) (PlaytestSessionFile, bool) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return PlaytestSessionFile{}, false
@@ -111,7 +133,7 @@ func readPlaytestSession(path string) (PlaytestSessionFile, bool) {
 		return c.file, c.ok
 	}
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil || keep != nil && !keep(data) {
 		return PlaytestSessionFile{}, false
 	}
 	var s PlaytestSessionFile

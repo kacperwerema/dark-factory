@@ -20,6 +20,9 @@
 // environment past PATH survives, so each CLI's home points at an empty
 // folder here: it finds no login and stops at sign-in, and anything it writes
 // at start shows up in that folder, which fails the run (agentCLIs).
+//
+// The cleanup also removes the binaries internal/testbin built for the
+// binary's tests.
 package tmuxguard
 
 import (
@@ -31,6 +34,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/procs"
+	"github.com/kacperwerema/dark-factory/internal/testbin"
 )
 
 // Isolate drops TMUX and TMUX_PANE from this process's environment and
@@ -43,6 +49,9 @@ import (
 func Isolate() (cleanup func()) {
 	os.Unsetenv("TMUX")
 	os.Unsetenv("TMUX_PANE")
+	// A test never writes the owner's resource trace (internal/restrace);
+	// one that tests tracing sets DF_TRACE and XDG_STATE_HOME itself.
+	os.Unsetenv("DF_TRACE")
 	dropWorkerEnv()
 	quietGit()
 	SweepStale("/tmp", time.Now())
@@ -53,9 +62,10 @@ func Isolate() (cleanup func()) {
 		none := filepath.Join("/tmp", "tmg-none-"+strconv.Itoa(os.Getpid()))
 		os.Setenv("TMUX_TMPDIR", none)
 		guardAgentCLIs(none)
-		return func() {}
+		return testbin.Cleanup
 	}
 	os.Setenv("TMUX_TMPDIR", dir)
+	realHomes := realTempHomes()
 	guarded := guardAgentCLIs(dir)
 	return func() {
 		sock := Socket(dir)
@@ -65,10 +75,11 @@ func Isolate() (cleanup func()) {
 			_ = kill.Run()
 		}
 		reached := reachedAgentCLIs(guarded)
-		if len(reached) > 0 {
-			stopProcessesIn(dir)
-		}
+		// Every exit, reached or not: a CLI a test started (or a daemon it
+		// detached) outlives the pane and its tmux server.
+		procs.StopHomes(append([]string{dir}, realHomes...), 2*time.Second)
 		_ = os.RemoveAll(dir)
+		testbin.Cleanup()
 		if len(reached) > 0 {
 			fmt.Fprintf(os.Stderr, "tmuxguard: a test reached the real %s (no login, so nothing was spent). "+
 				"A stand-in in a pane needs PATH inside its start command (PATH=<bin>:$PATH; trap : INT; codex go): "+
@@ -125,22 +136,25 @@ func reachedAgentCLIs(guarded []guardedCLI) []string {
 	return reached
 }
 
-// stopProcessesIn stops what a real CLI left running from a guarded folder:
-// codex starts an app-server daemon out of its home, which outlives the pane
-// and its tmux server.
-func stopProcessesIn(dir string) {
-	out, err := exec.Command("ps", "-axo", "pid=,command=").Output()
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		pid, command, _ := strings.Cut(strings.TrimSpace(line), " ")
-		n, err := strconv.Atoi(pid)
-		if err != nil || n == os.Getpid() || !strings.Contains(command, dir) {
+// realTempHomes are the homes a real-CLI run (CHECK_REAL_CODEX) was
+// handed in a throwaway folder: CODEX_HOME=<scratchpad>/real/chome. The
+// CLI is let through to it, and what it starts there is stopped at exit
+// like the guarded homes: codex detaches an app-server daemon from its
+// home that nothing else stops (one lived 10 days on the owner's Mac). A
+// home outside a temp folder is the owner's own login and is never
+// touched. Run a real-CLI test alone: another test binary sharing that
+// home loses its CLI when this one exits.
+func realTempHomes() []string {
+	var homes []string
+	for _, cli := range agentCLIs {
+		if cli.realSwitch == "" || os.Getenv(cli.realSwitch) == "" {
 			continue
 		}
-		_ = syscall.Kill(n, syscall.SIGTERM)
+		if h := os.Getenv(cli.homeVar); procs.TempPlace(h) {
+			homes = append(homes, h)
+		}
 	}
+	return homes
 }
 
 // quietGitConfig is what every git a test binary starts reads, as if from
@@ -228,13 +242,18 @@ var staleFolders = []struct {
 	{prefix: "ckt-", marker: ".checks-private-tmux", age: 24 * time.Hour},
 }
 
-// SweepStale kills the tmux server of each stale folder under root (by its
-// -S socket, TMUX removed from the kill's environment; never the default
-// server) and removes the folder. Only folders this user owns, older than
-// their age, and carrying their marker when they have one. It returns the
-// folders it removed.
-func SweepStale(root string, now time.Time) []string {
-	var removed []string
+// Stale is a private tmux folder a killed test run left: its folder and,
+// when the server still answers there, its socket.
+type Stale struct {
+	Dir, Socket string
+	Age         time.Duration
+}
+
+// StaleFolders are the stale folders under root: only this user's, older
+// than their age, carrying their marker when they have one. It removes
+// nothing (issue-cli doctor leaks lists them; SweepStale removes them).
+func StaleFolders(root string, now time.Time) []Stale {
+	var out []Stale
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
@@ -257,14 +276,29 @@ func SweepStale(root string, now time.Time) []string {
 					continue
 				}
 			}
+			st := Stale{Dir: dir, Age: now.Sub(info.ModTime())}
 			if sock := Socket(dir); fileExists(sock) {
-				kill := exec.Command("tmux", "-S", sock, "kill-server")
-				kill.Env = EnvWithoutTMUX()
-				_ = kill.Run()
+				st.Socket = sock
 			}
-			if os.RemoveAll(dir) == nil {
-				removed = append(removed, dir)
-			}
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
+// SweepStale kills the tmux server of each stale folder under root (by its
+// -S socket, TMUX removed from the kill's environment; never the default
+// server) and removes the folder. It returns the folders it removed.
+func SweepStale(root string, now time.Time) []string {
+	var removed []string
+	for _, st := range StaleFolders(root, now) {
+		if st.Socket != "" {
+			kill := exec.Command("tmux", "-S", st.Socket, "kill-server")
+			kill.Env = EnvWithoutTMUX()
+			_ = kill.Run()
+		}
+		if os.RemoveAll(st.Dir) == nil {
+			removed = append(removed, st.Dir)
 		}
 	}
 	return removed

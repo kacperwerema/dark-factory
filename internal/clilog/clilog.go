@@ -36,6 +36,10 @@ type Record struct {
 	// there (cmd/issue-cli/sandbox_pass.go).
 	Sandbox        bool `json:"sandbox,omitempty"`
 	SandboxRefused bool `json:"sandbox_refused,omitempty"`
+	// Red names what a check found red, names only (catalog-check: the
+	// entry ids, and template/<name> for a bundled template), so a sweep
+	// can count which entries keep coming back.
+	Red []string `json:"red,omitempty"`
 }
 
 // Start is when the call started; zero when TS does not parse.

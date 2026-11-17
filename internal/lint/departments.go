@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/connectors"
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
@@ -29,7 +31,8 @@ import (
 // knows as AGPL with no exception: in force (licenceFindings); a partner's approval with no owner decision
 // on its issue (partnerApprovalFindings); a handoff_answered rule naming
 // no department (handoffGateFindings); an open issue whose system: names a
-// department it isn't in (unfiledFindings).
+// department it isn't in (unfiledFindings); a mission or goal still the
+// bundled template's sample (depttemplate.SampleFields).
 func checkDepartments(env *Env) []Finding {
 	p := env.Project
 	var out []Finding
@@ -181,7 +184,7 @@ func checkDepartments(env *Env) []Finding {
 		for _, f := range atFindings(p, d) {
 			add(d.Name, f.Message, f.Fix)
 		}
-		for _, f := range checkFileGates(p, d.Name) {
+		for _, f := range checkFileGates(p, d.Name, env.Issues) {
 			add(d.Name, f.Message, f.Fix)
 		}
 		for _, f := range partnerFindings(p, d) {
@@ -192,6 +195,19 @@ func checkDepartments(env *Env) []Finding {
 		}
 		out = append(out, partnerApprovalFindings(env, d)...)
 		out = append(out, subredditFindings(p, d)...)
+	}
+	for _, sm := range depttemplate.SampleFields(p) {
+		fix := tracker.InjectProject(p, sm.UpdateCommand())
+		if sm.Mission != "" {
+			add(sm.Name, fmt.Sprintf("mission is still the %s template's sample (%q): set this project's own", sm.Template.Key, sm.Mission), fix)
+		}
+		if n := len(sm.Goals); n > 0 {
+			what := "goal " + sm.Goals[0] + " is"
+			if n > 1 {
+				what = "goals " + strings.Join(sm.Goals, ", ") + " are"
+			}
+			add(sm.Name, fmt.Sprintf("%s still the %s template's sample (name, target and period as bundled): set this project's own, drop one with --drop-goal <id>, or keep one as it is by setting it to the same value", what, sm.Template.Key), fix)
+		}
 	}
 	for _, f := range connectionFindings(p) {
 		add("connections", f.Message, f.Fix)
@@ -266,11 +282,13 @@ func handoffGateFindings(p *tracker.Project) []Finding {
 // checkFileGates flags the files department dept's workflow gates on
 // (file_exists) that aren't there yet, so the owner hears that, say,
 // Marketing's channel briefs can't move to draft before the brand
-// foundation is written. Only the base transitions count: a type's own
-// edge checks a file that type's issues write themselves (the foundation's
-// publish → done). Paths that name the issue ({{slug}}, …) are skipped:
-// they differ per issue.
-func checkFileGates(p *tracker.Project, dept string) []Finding {
+// foundation is written. The base transitions always count. A type's own
+// edge checks a file that type's issues write themselves (keyword-research's
+// keywords.md, competitor-scan's competitors.md): it counts only once an
+// issue of that type in dept has run to its owner review (typeFileGates),
+// so a department that never ran one hears nothing. Paths that name the
+// issue ({{slug}}, …) are skipped: they differ per issue.
+func checkFileGates(p *tracker.Project, dept string, issues []*tracker.Issue) []Finding {
 	wf, err := p.WorkflowFor(dept)
 	if err != nil {
 		return nil // the department's workflow file has its own finding
@@ -279,22 +297,28 @@ func checkFileGates(p *tracker.Project, dept string) []Finding {
 	fill := func(s string) string { return strings.ReplaceAll(s, "{{department}}", key) }
 	var out []Finding
 	seen := map[string]bool{}
+	// missing is the department-relative path a's file_exists names, when
+	// it is a fixed path not seen yet and its file isn't written.
+	missing := func(a tracker.WorkflowAction) (string, bool) {
+		if a.Type != "validate" || a.Rule != "file_exists" {
+			return "", false
+		}
+		rel := fill(strings.TrimSpace(a.Path))
+		if rel == "" || strings.Contains(rel, "{{") || seen[rel] {
+			return "", false
+		}
+		seen[rel] = true
+		abs := filepath.Join(p.Root(), filepath.FromSlash(rel))
+		if rest, ok := strings.CutPrefix(rel, goals.IssuesPrefix); ok {
+			abs = filepath.Join(p.IssueDir, filepath.FromSlash(rest))
+		}
+		info, err := os.Stat(abs)
+		return rel, err != nil || !info.Mode().IsRegular() || info.Size() == 0
+	}
 	for _, tr := range wf.Transitions {
 		for _, a := range tr.Actions {
-			if a.Type != "validate" || a.Rule != "file_exists" {
-				continue
-			}
-			rel := fill(strings.TrimSpace(a.Path))
-			if rel == "" || strings.Contains(rel, "{{") || seen[rel] {
-				continue
-			}
-			seen[rel] = true
-			abs := filepath.Join(p.Root(), filepath.FromSlash(rel))
-			if rest, ok := strings.CutPrefix(rel, goals.IssuesPrefix); ok {
-				abs = filepath.Join(p.IssueDir, filepath.FromSlash(rest))
-			}
-			info, err := os.Stat(abs)
-			if err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			rel, gone := missing(a)
+			if !gone {
 				continue
 			}
 			fix := fill(strings.TrimSpace(a.Hint))
@@ -302,6 +326,92 @@ func checkFileGates(p *tracker.Project, dept string) []Finding {
 				fix = ""
 			}
 			out = append(out, Finding{Message: fmt.Sprintf("%s is not written yet: %s → %s refuses until it is (file_exists)", rel, tr.From, tr.To), Fix: fix})
+		}
+	}
+	for _, g := range typeFileGates(p, wf, dept, issues) {
+		for _, a := range g.edge.Actions {
+			rel, gone := missing(a)
+			if !gone {
+				continue
+			}
+			out = append(out, Finding{
+				Message: fmt.Sprintf("%s is not written yet: %s (%s) has run to %s, and its publish writes it once the owner approves (%s → %s, file_exists)", rel, g.issue.Slug, g.typ, g.issue.Status, g.edge.From, g.edge.To),
+				Fix:     fmt.Sprintf("the owner approves %s's newest shelf version and its publish (issue-cli outputs --issue %s); a revise: comment sends it back", g.issue.Slug, g.issue.Slug),
+			})
+		}
+	}
+	return out
+}
+
+// typeFileGate is one of a type's own edges, with the issue that has run
+// far enough on that type's path for the edge's files to count.
+type typeFileGate struct {
+	typ   string
+	issue *tracker.Issue
+	edge  tracker.WorkflowTransition
+}
+
+// typeFileGates are the edges of each type in wf whose files an issue of
+// dept has reached: the issue is on its type's path at or after the from
+// of the path's first human-approval edge (owner review, for the research
+// types). Types are walked in name order and issues in slug order, so the
+// first issue to reach a file names it.
+func typeFileGates(p *tracker.Project, wf *tracker.WorkflowConfig, dept string, issues []*tracker.Issue) []typeFileGate {
+	if !wf.HasTypes() {
+		return nil
+	}
+	var mine []*tracker.Issue
+	for _, is := range issues {
+		if is != nil && strings.EqualFold(p.DepartmentOf(is), dept) {
+			mine = append(mine, is)
+		}
+	}
+	sort.Slice(mine, func(i, j int) bool { return mine[i].Slug < mine[j].Slug })
+	var out []typeFileGate
+	for _, name := range wf.TypeNames() {
+		t := wf.Types[name]
+		var edges []tracker.WorkflowTransition
+		for _, tr := range t.Transitions {
+			for _, a := range tr.Actions {
+				if a.Type == "validate" && a.Rule == "file_exists" {
+					edges = append(edges, tr)
+					break
+				}
+			}
+		}
+		if len(edges) == 0 {
+			continue
+		}
+		scoped := wf.ForType(name)
+		review := -1
+		for _, s := range scoped.Statuses {
+			for _, tr := range scoped.Transitions {
+				if tr.From != s.Name {
+					continue
+				}
+				for _, a := range tr.Actions {
+					if a.Type == "require_human_approval" && review < 0 {
+						review = scoped.GetStatusIndex(s.Name)
+					}
+				}
+			}
+			if review >= 0 {
+				break
+			}
+		}
+		if review < 0 {
+			continue
+		}
+		for _, is := range mine {
+			if typ, _ := wf.ResolveType(is.Type); typ != name {
+				continue
+			}
+			if at := scoped.GetStatusIndex(is.Status); at < review {
+				continue // not on the path (-1), or not at owner review yet
+			}
+			for _, e := range edges {
+				out = append(out, typeFileGate{typ: name, issue: is, edge: e})
+			}
 		}
 	}
 	return out
@@ -617,7 +727,7 @@ func checkJobLog(env *Env) []Finding {
 	var out []Finding
 	for _, is := range env.Issues {
 		key := strings.ToLower(is.Field("job"))
-		if key == "" || known[key] || p.IssueClosed(is) {
+		if key == "" || known[key] || jobs.IsImplicit(key) || p.IssueClosed(is) {
 			continue
 		}
 		out = append(out, Finding{Where: is.Slug, Message: fmt.Sprintf("open run of job %q, which projects.yaml no longer has", is.Field("job")),
@@ -628,8 +738,9 @@ func checkJobLog(env *Env) []Finding {
 
 // checkOutputs flags the outputs shelf's problems: log lines Load (and
 // LoadComments) skip,
-// outputs of a department no longer configured, a file or path that is
-// gone, an output waiting for review longer than outputs.StaleReview.
+// outputs of a department no longer configured (history, not a warning:
+// the department was removed, its outputs stay as its record), a file or
+// path that is gone, an output waiting for review longer than outputs.StaleReview.
 func checkOutputs(env *Env) []Finding {
 	p := env.Project
 	list, bad := outputs.Load(p)
@@ -658,7 +769,7 @@ func checkOutputs(env *Env) []Finding {
 	}
 	for _, key := range slices.Sorted(maps.Keys(gone)) {
 		out = append(out, Finding{Where: where, Message: fmt.Sprintf("%d output(s) of department %q, which projects.yaml no longer has", gone[key], key),
-			Fix: "add the department back under departments:, or leave them as history"})
+			Fix: "nothing to do; add the department back under departments: to count them again", History: true})
 	}
 	return out
 }

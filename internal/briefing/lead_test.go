@@ -35,7 +35,7 @@ func TestBuildDispatchPrompt_ChildOfEpic(t *testing.T) {
 	}
 	for _, want := range []string{
 		"You report to the project lead lead-p (live). Your issue is part of epic ui/epic.",
-		"`issue-cli --project p comment ui/child \"question: ...\"`",
+		"`issue-cli --project p comment \"question: ...\"`",
 		"Don't message lead-p or any other agent (SendMessage) unless the human, in your chat, gives you permission or asks you to.",
 		"Your address is agent-ui-child",
 	} {

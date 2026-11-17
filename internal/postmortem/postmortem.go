@@ -71,6 +71,9 @@ type Action struct {
 	// Reopened is each undone mark, oldest first: the action's history.
 	// It doesn't decide anything: a reopened action is open.
 	Reopened []string `json:"reopened,omitempty"`
+	// Fixed links the action to the issue slug or commit sha that fixes
+	// it (Fixes reads it). It decides nothing on its own.
+	Fixed string `json:"fixed,omitempty"`
 	// Line is the 0-based line of the item in the body it was parsed from.
 	Line int `json:"-"`
 }
@@ -176,7 +179,7 @@ func Actions(body string) []Action {
 
 func knownField(k string) bool {
 	switch strings.ToLower(k) {
-	case "differently", "place", "text", "under", "at", "applied", "refused", "overtaken", "reopened":
+	case "differently", "place", "text", "under", "at", "applied", "refused", "overtaken", "reopened", "fixed":
 		return true
 	}
 	return false
@@ -206,6 +209,8 @@ func setField(a *Action, key, val string) {
 		a.Overtaken = val
 	case "reopened":
 		a.Reopened = append(a.Reopened, val)
+	case "fixed":
+		a.Fixed = val
 	}
 }
 

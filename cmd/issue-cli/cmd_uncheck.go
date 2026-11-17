@@ -38,7 +38,7 @@ func init() {
 }
 
 func runUncheck(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "uncheck")
+	slug, rest, err := issueSlug(ctx, args, "uncheck")
 	if err != nil {
 		return err
 	}
@@ -161,36 +161,71 @@ func ownerBoxesError(ctx *Context, issue *tracker.Issue, who, verb string, hit [
 // is refused; for the owner it passes everything. The proof report is
 // read once, on the first write that leaves a ticked box.
 func ownerTickGuard(ctx *Context, issue *tracker.Issue) func(before, after string) error {
-	who := guardAgent(ctx, "tick owner boxes")
-	if who == "" {
-		return func(string, string) error { return nil }
-	}
-	var report *boxReport
+	o := newOwnerTicks(ctx, issue)
 	return func(before, after string) error {
-		if _, a := tracker.CountCheckboxes(after); a == 0 {
-			return nil
+		if ticks := o.of(before, after); len(ticks) > 0 {
+			return o.refusal(ticks)
 		}
-		if report == nil {
-			// Always the full report: a playtest judgement step or a guided
-			// check's owner step is the owner's even when the workflow
-			// doesn't link criteria to proof.
-			comments, _ := tracker.LoadComments(issue.FilePath)
-			report = &boxReport{Report: proof.Collect(projectRoot(ctx.Project), issue, comments), ok: true}
-		}
-		ticks := report.OwnerTicks(before, after)
-		if len(ticks) == 0 {
-			return nil
-		}
-		hit := make([]string, 0, len(ticks))
-		for _, o := range ticks {
-			id := o.ID
-			if id == "" {
-				id = "(new box)"
-			}
-			hit = append(hit, ownerHitLine(report.Report, id, o.Text, o.Why))
-		}
-		return ownerTickRefusal{ownerBoxesError(ctx, issue, who, "tick", hit)}
+		return nil
 	}
+}
+
+// ownerTicks is ownerTickGuard's test on its own: which owner boxes a
+// write would tick, for an agent session (who); nothing for the owner.
+// check by ids asks it box by box, to tick the agent's and name the rest.
+type ownerTicks struct {
+	ctx    *Context
+	issue  *tracker.Issue
+	who    string
+	report *boxReport
+}
+
+func newOwnerTicks(ctx *Context, issue *tracker.Issue) *ownerTicks {
+	return &ownerTicks{ctx: ctx, issue: issue, who: guardAgent(ctx, "tick owner boxes")}
+}
+
+// of is the owner boxes a write from before to after would tick, when an
+// agent writes it.
+func (o *ownerTicks) of(before, after string) []proof.OwnerItem {
+	if o.who == "" {
+		return nil
+	}
+	if _, a := tracker.CountCheckboxes(after); a == 0 {
+		return nil
+	}
+	if o.report == nil {
+		o.report = &boxReport{Report: ownerReport(o.ctx, o.issue), ok: true}
+	}
+	return o.report.OwnerTicks(before, after)
+}
+
+// hitLine is one refused box, as the refusal lists it.
+func (o *ownerTicks) hitLine(t proof.OwnerItem) string {
+	id := t.ID
+	if id == "" {
+		id = "(new box)"
+	}
+	return ownerHitLine(o.report.Report, id, t.Text, t.Why)
+}
+
+// refusal is the error for a write that ticks ticks.
+func (o *ownerTicks) refusal(ticks []proof.OwnerItem) error {
+	hit := make([]string, 0, len(ticks))
+	for _, t := range ticks {
+		hit = append(hit, o.hitLine(t))
+	}
+	return ownerTickRefusal{ownerBoxesError(o.ctx, o.issue, o.who, "tick", hit)}
+}
+
+// ownerReport is the report behind the owner-box test that every tick
+// path and every box listing reads (proof.Report.OwnerBoxWhy): always the
+// full report, since a playtest judgement step or a guided check's owner
+// step is the owner's even when the workflow doesn't link criteria to
+// proof. The listing's "(owner's)" marker and the guard's refusal read the
+// same report, so they can't disagree.
+func ownerReport(ctx *Context, issue *tracker.Issue) proof.Report {
+	comments, _ := tracker.LoadComments(issue.FilePath)
+	return proof.Collect(projectRoot(ctx.Project), issue, comments)
 }
 
 // ownerTickRefusal is ownerTickGuard's refusal, passed through a body

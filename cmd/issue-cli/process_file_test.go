@@ -35,6 +35,7 @@ func TestProcessFileShowsACandidate(t *testing.T) {
 	assertContains(t, got, "research → brand → icp") // the foundation type's path: the candidate's, not the live content file's
 	assertContains(t, got, `unknown key "statuss"`)
 	assertContains(t, got, "Nothing was written")
+	assertContains(t, got, "issue-cli health lint --workflow "+cand+" [--projects <candidate projects.yaml>]")
 	assertContains(t, got, "--department Marketing (workflows/marketing.yaml)")
 	if strings.Contains(got, "Departments on their own workflow file") {
 		t.Errorf("a candidate is not Product's file:\n%s", got)

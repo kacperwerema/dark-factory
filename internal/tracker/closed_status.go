@@ -46,6 +46,19 @@ func (w *WorkflowConfig) IsLastStatus(status string) bool {
 	return end >= 0 && statusFold(w.Statuses[end].Name) == s
 }
 
+// MergeStatus is the status where a finished branch lands on main: the
+// last status before the end that isn't optional (shipping in the
+// development template). "" when the workflow has none.
+func (w *WorkflowConfig) MergeStatus() string {
+	end := w.endIndex()
+	for i := end - 1; i >= 0; i-- {
+		if !w.Statuses[i].Optional {
+			return w.Statuses[i].Name
+		}
+	}
+	return ""
+}
+
 // endIndex is where the lifecycle ends: done, else the last status that
 // isn't optional (optional ones after it are side exits), else the last.
 // -1 when there are no statuses.

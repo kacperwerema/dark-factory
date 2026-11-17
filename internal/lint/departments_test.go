@@ -155,6 +155,28 @@ func TestCheckOutputs(t *testing.T) {
 	}
 }
 
+// TestLintOutputsOfARemovedDepartmentAreHistory: outputs of a department
+// projects.yaml no longer has are the department's record: a history line
+// in the report, no warning, no score.
+func TestLintOutputsOfARemovedDepartmentAreHistory(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	env.Project.Departments = []tracker.Department{{Name: "Sales"}}
+	writeOutputs(t, env,
+		`{"op":"add","id":"o-1","date":"2026-10-01T00:00:00Z","department":"marketing","title":"Post","kind":"post","url":"https://a.example","state":"approved"}`,
+		`{"op":"add","id":"o-2","date":"2026-10-01T00:00:00Z","department":"marketing","title":"Page","kind":"post","url":"https://a.example/p","state":"approved"}`,
+	)
+	rep, err := Run(env, "departments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has(rep.Findings, "marketing") {
+		t.Errorf("outputs of a removed department warned: %+v", rep.Findings)
+	}
+	if len(rep.History) != 1 || !has(rep.History, `2 output(s) of department "marketing", which projects.yaml no longer has`) {
+		t.Errorf("want one history line for marketing's 2 outputs: %+v", rep.History)
+	}
+}
+
 func TestCheckDepartmentsJobs(t *testing.T) {
 	env := lintProject(t, minimalWorkflow, nil)
 	root := env.Project.Root()
@@ -419,6 +441,78 @@ func TestCheckDepartmentsFileGates(t *testing.T) {
 	}
 	if got := all(); strings.Contains(got, "not written yet") {
 		t.Errorf("with brand.md and icp.md written there is nothing to warn about, got:\n%s", got)
+	}
+}
+
+// A type's own file_exists (competitors.md, keywords.md) counts only once an
+// issue of that type in the department has run to its owner review: a
+// department that never ran a scan hears nothing, one waiting on the owner
+// hears what its publish will write.
+func TestFileGateWarnsForATypeOnlyPastOwnerReview(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	root := env.Project.Root()
+	wf, err := workflowupgrade.ReadTemplate("marketing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "workflows"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "workflows", "growth.yaml"), wf, 0644); err != nil {
+		t.Fatal(err)
+	}
+	env.Project.Departments = []tracker.Department{{Name: "Growth Team", Workflow: "workflows/growth.yaml", Systems: []string{"SEO"}}}
+	dir := filepath.Join(root, "departments", "growth-team")
+	write := func(name string) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# settled\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("brand.md")
+	write("icp.md")
+	scan := &tracker.Issue{Slug: "seo/competitor-scan-plumbing", Title: "Competitor scan: plumbing", Type: "competitor-scan", System: "SEO"}
+	other := &tracker.Issue{Slug: "elsewhere/competitor-scan", Type: "competitor-scan", Status: "owner review", System: "Product"}
+	env.Issues = []*tracker.Issue{scan, other}
+	all := func() string {
+		var got []string
+		for _, f := range checkDepartments(env) {
+			got = append(got, f.Where+": "+f.Message+" | "+f.Fix)
+		}
+		return strings.Join(got, "\n")
+	}
+
+	for _, status := range []string{"research", "competitors", "parked"} {
+		scan.Status = status
+		if got := all(); strings.Contains(got, "competitors.md") {
+			t.Errorf("a scan at %s hasn't reached the owner: no warning, got:\n%s", status, got)
+		}
+	}
+	for _, status := range []string{"owner review", "publish", "done"} {
+		scan.Status = status
+		got := all()
+		want := "projects.yaml (Growth Team): departments/growth-team/competitors.md is not written yet: seo/competitor-scan-plumbing (competitor-scan) has run to " + status
+		if !strings.Contains(got, want) || !strings.Contains(got, "issue-cli outputs --issue seo/competitor-scan-plumbing") {
+			t.Errorf("a scan at %s: want %q and the fix in:\n%s", status, want, got)
+		}
+		if strings.Contains(got, "elsewhere/") {
+			t.Errorf("an issue outside the department counts:\n%s", got)
+		}
+		if strings.Contains(got, "keywords.md") || strings.Contains(got, "market.md") {
+			t.Errorf("no keyword-research or market-size ran: no warning for their files, got:\n%s", got)
+		}
+	}
+	write("competitors.md")
+	if got := all(); strings.Contains(got, "not written yet") {
+		t.Errorf("with competitors.md written there is nothing to warn about, got:\n%s", got)
+	}
+
+	// The same rule holds for keyword-research's keywords.md.
+	env.Issues = []*tracker.Issue{{Slug: "seo/keywords", Type: "keyword-research", Status: "owner review", System: "SEO"}}
+	if got := all(); !strings.Contains(got, "departments/growth-team/keywords.md is not written yet: seo/keywords (keyword-research) has run to owner review") {
+		t.Errorf("keyword-research at owner review: want its keywords.md warning, got:\n%s", got)
 	}
 }
 

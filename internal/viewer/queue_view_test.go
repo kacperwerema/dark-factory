@@ -22,7 +22,7 @@ func TestQueueCard(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	orig, origLoad := autostart.ReadMemory, autostart.ReadLoad
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
 	t.Cleanup(func() { autostart.ReadMemory, autostart.ReadLoad = orig, origLoad })
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
@@ -58,6 +58,7 @@ func TestQueueCard(t *testing.T) {
 		`data-testid="status.queue.done"`, "becb563",
 		`data-testid="status.queue.not_on_main">done (not on main)</span> <a href="/p/yp/issue/unmerged">unmerged</a>`, "∞ Out of work: think up more",
 		`data-testid="status.queue.verdict">start shop (item 1)<`,
+		`data-testid="status.queue.share">start_weight: 1 · no other project waited for the gap in the last day<`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Queue card lacks %q", want)

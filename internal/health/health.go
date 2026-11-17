@@ -139,6 +139,26 @@ func Describe(name, hint string) {
 	hints[name] = hint
 }
 
+// prepares are the families' steps that run before a snapshot's families,
+// outside the family timeout (Prepare).
+var prepares = map[string]func(ctx context.Context, env Env){}
+
+// Prepare registers a step for family name that take runs before the
+// families, with no deadline of its own: a measurement too slow for the
+// family timeout that the family then reads (the storage family's walk of
+// Go's build cache, at most hourly). Not run on backfill.
+func Prepare(name string, fn func(ctx context.Context, env Env)) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	prepares[name] = fn
+}
+
+func prepareFor(name string) func(ctx context.Context, env Env) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	return prepares[name]
+}
+
 func hintFor(name string) string {
 	registryMu.Lock()
 	defer registryMu.Unlock()
@@ -312,6 +332,13 @@ func take(ctx context.Context, env Env, trigger string, fams []registered) (*Sna
 		snap.Run.Project = env.Project.Slug
 	}
 	help := map[string]string{}
+	if !env.Backfill {
+		for _, f := range fams {
+			if prep := prepareFor(f.name); prep != nil {
+				prep(ctx, env)
+			}
+		}
+	}
 	for _, f := range fams {
 		famStart := time.Now()
 		warned := &warnings{}

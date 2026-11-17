@@ -3,6 +3,7 @@ package health
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -137,5 +138,62 @@ func TestDeriveTrendsAndConfig(t *testing.T) {
 func TestDeriveNothingMeasured(t *testing.T) {
 	if got := Derive(&Snapshot{}, nil, DefaultComponents()); got != nil {
 		t.Errorf("no data must write no score rows: %v", got)
+	}
+}
+
+// unit_cost_trend compares against the snapshot 30 days back, so a project
+// whose unit results start today waits 30 days. The Health views say when,
+// from the oldest snapshot on disk with unit results, instead of only
+// "needs unit results from 30 days ago".
+func TestUnitCostTrendSaysWhenItWillHaveData(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 11, 16, 0, 42, 0, 0, time.Local)
+	unit := "tests.per_test_ms{kind=unit,stat=mean}"
+	old := snapOf(map[string]float64{"shape.big_lines.share": 0.1}) // before CI wrote unit results
+	if _, err := Write(root, old, now.AddDate(0, 0, -20)); err != nil {
+		t.Fatal(err)
+	}
+	first := snapOf(map[string]float64{unit: 12})
+	if _, err := Write(root, first, time.Date(2026, 11, 2, 9, 0, 0, 0, time.Local)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Write(root, snapOf(map[string]float64{unit: 13}), now.AddDate(0, 0, -3)); err != nil {
+		t.Fatal(err)
+	}
+
+	cur := snapOf(map[string]float64{unit: 14, "tests.wall_seconds{kind=unit}": 90})
+	cur.Families = map[string]FamilyResult{}
+	deriveInto(Env{Root: root, Now: now}, cur)
+
+	comp := DefaultComponents()[1]
+	if comp.Name != "unit_cost_trend" {
+		t.Fatalf("component 1 is %s", comp.Name)
+	}
+	if v, ok := cur.Value(WaitsMetric, map[string]string{"component": comp.Name}); !ok || v != 16 {
+		t.Errorf("%s = %v, %v; want 16 days (2 Nov + 30 = 2 Dec)", WaitsMetric, v, ok)
+	}
+	got := cur.MissingFor(comp)
+	if !strings.Contains(got, "oldest snapshot with them is from 2026-11-02") || !strings.Contains(got, "has data from 2026-12-02 (16 days)") {
+		t.Errorf("MissingFor = %q, want the oldest unit snapshot's date and the day data comes", got)
+	}
+	if other := cur.MissingFor(DefaultComponents()[2]); other != DefaultComponents()[2].Missing {
+		t.Errorf("e2e_wait's reason changed to %q", other)
+	}
+
+	// No snapshot has unit results, this one neither: nothing to promise.
+	empty := t.TempDir()
+	bare := snapOf(map[string]float64{"tests.wall_seconds{kind=unit}": 90})
+	bare.Families = map[string]FamilyResult{}
+	deriveInto(Env{Root: empty, Now: now}, bare)
+	if got := bare.MissingFor(comp); got != comp.Missing {
+		t.Errorf("without unit results anywhere MissingFor = %q, want the plain %q", got, comp.Missing)
+	}
+
+	// The first unit results are this snapshot's: data in 30 days.
+	fresh := snapOf(map[string]float64{unit: 14, "tests.wall_seconds{kind=unit}": 90})
+	fresh.Families = map[string]FamilyResult{}
+	deriveInto(Env{Root: empty, Now: now}, fresh)
+	if v, _ := fresh.Value(WaitsMetric, map[string]string{"component": comp.Name}); v != 30 {
+		t.Errorf("first unit results today: waits %v days, want 30", v)
 	}
 }

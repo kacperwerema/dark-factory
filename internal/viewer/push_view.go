@@ -155,11 +155,12 @@ func pushTitle(kind, thing string) string {
 }
 
 // pushSeenRows maps a project's Needs you rows to events. Unsent bug
-// reports belong to the machine and are not pushed.
+// reports and a runaway fseventsd belong to the machine and are not pushed
+// (machineWideKinds).
 func pushSeenRows(p *tracker.Project, rows []WbQueueCard) []push.Seen {
 	var out []push.Seen
 	for _, r := range rows {
-		if r.Kind == "bugs" {
+		if machineWideKinds[r.Kind] {
 			continue
 		}
 		thing := r.Title

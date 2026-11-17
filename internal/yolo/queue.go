@@ -322,7 +322,7 @@ func (g OwnerGate) Label() string {
 // OwnerGates lists the gates YOLO never passes in proj: each owner_only
 // approval on the paths of Product's workflow and of every department with
 // its own file, then the rules that hold everywhere (WorkflowNeverRules,
-// experiments' gates, a design-first issue's design gate, release publish unless the owner unlocked releases).
+// experiments' gates, a design-first issue's design gate, the gates up to the build while an (owner) box due before it is open, release publish unless the owner unlocked releases).
 func OwnerGates(proj *tracker.Project, v Valves) []OwnerGate {
 	wf := proj.LoadWorkflow()
 	out := WorkflowOwnerGates(wf, "")
@@ -340,7 +340,7 @@ func OwnerGates(proj *tracker.Project, v Valves) []OwnerGate {
 	for _, r := range rules {
 		out = append(out, OwnerGate{Why: r})
 	}
-	out = append(out, OwnerGate{Why: tracker.YOLONeverExperiment}, OwnerGate{Why: tracker.YOLONeverDesignFirst})
+	out = append(out, OwnerGate{Why: tracker.YOLONeverExperiment}, OwnerGate{Why: tracker.YOLONeverDesignFirst}, OwnerGate{Why: tracker.YOLONeverOwnerBoxFirst})
 	if !v.Releases { // unlocked: the valves line says so
 		out = append(out, OwnerGate{Why: tracker.YOLONeverRelease})
 	}

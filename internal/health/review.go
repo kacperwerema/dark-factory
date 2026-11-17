@@ -183,7 +183,7 @@ func EvidencePack(in ReviewInput) string {
 		}
 		sub, has := s.Value("score.component", l)
 		if !has {
-			w("| %s | no data: %s | – | %.0f |\n", c.Name, c.Missing, weight)
+			w("| %s | no data: %s | – | %.0f |\n", c.Name, s.MissingFor(c), weight)
 			continue
 		}
 		val, _ := s.Value("score.component.value", l)
@@ -204,6 +204,9 @@ func EvidencePack(in ReviewInput) string {
 		p90, _ := s.Value("tests.per_test_ms", map[string]string{"kind": kind, "stat": "p90"})
 		age, _ := s.Value("tests.run_age_days", k)
 		w("### %s\n\n- `tests.count{kind=%s,result=all}` = %.0f, `tests.wall_seconds{kind=%s}` = %.1f s, per test mean %.1f ms / p90 %.1f ms (run %.1f days old)\n", kind, kind, n, kind, wall, mean, p90, age)
+		if best, ok := s.Value("tests.wall_seconds_best", map[string]string{"kind": kind, "window": bestWindow}); ok && best < wall {
+			w("- `tests.wall_seconds_best{kind=%s,window=%s}` = %.1f s: the best of the last %d runs, what unit_wait scores\n", kind, bestWindow, best, BestOfRuns)
+		}
 		if past != nil {
 			pn, ok1 := past.Value("tests.count", map[string]string{"kind": kind, "result": "all"})
 			pw, ok2 := past.Value("tests.wall_seconds", k)
@@ -219,7 +222,11 @@ func EvidencePack(in ReviewInput) string {
 				}
 			}
 		}
-		w("- slowest tests:\n")
+		if note := s.RunLoad(kind); note != "" {
+			w("- slowest tests (%s, so they may not be slow alone):\n", note)
+		} else {
+			w("- slowest tests:\n")
+		}
 		for _, r := range s.Rows("tests.slowest.seconds") {
 			if r.Labels["kind"] == kind {
 				w("  - %s %.2f s\n", id(r), r.Value)

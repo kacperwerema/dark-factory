@@ -228,6 +228,7 @@ func TestYOLOOwnerTextsReadOneSource(t *testing.T) {
 		{tracker.YOLONeverOptional, "a gate into an optional status"},
 		{tracker.YOLONeverExperiment, "experiments"},
 		{tracker.YOLONeverDesignFirst, "the design gate of an issue labelled design-first"},
+		{tracker.YOLONeverOwnerBoxFirst, "an (owner) box due before the build"},
 		{tracker.YOLONeverRelease, "release publish"},
 	}
 	known := func(why string) bool {

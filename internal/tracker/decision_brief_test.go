@@ -159,3 +159,65 @@ func TestRecordInjected(t *testing.T) {
 		t.Errorf("event %+v", ev)
 	}
 }
+
+// The worker briefing's block: every hard decision in full (14, past the
+// cap), the soft ones that are the issue's own (on it, its parent, one it
+// cites) in full, every other soft one in one count line.
+func TestDecisionsPromptSectionHardInFullSoftAsACount(t *testing.T) {
+	b, _ := blockFor(t, map[string]string{
+		"Ops/rules.md":    issueFile("rules", "done", "Ops", nDecisions(14, 1, "{scope: project; hard}")+nDecisions(20, 15, "{scope: project}")+nDecisions(1, 35, "")),
+		"UI/epic.md":      issueFile("epic", "in progress", "UI", nDecisions(1, 1, "")),
+		"UI/work.md":      "---\ntitle: \"work\"\nstatus: \"in progress\"\nsystem: \"UI\"\nparent: \"ui/epic\"\n---\n\nBuilds on ops/rules#D-35.\n\n## Decisions\n\n" + nDecisions(1, 1, ""),
+		"UI/unrelated.md": issueFile("unrelated", "in progress", "UI", nDecisions(1, 1, "")),
+	}, "ui/work")
+	got := DecisionsPromptSection(b, "ui/work")
+	for i := 1; i <= 14; i++ {
+		if !strings.Contains(got, fmt.Sprintf("  - D-%d · Rule %d\n", i, i)) {
+			t.Errorf("hard D-%d not in full:\n%s", i, got)
+		}
+	}
+	for _, want := range []string{
+		"- ops/rules\n",
+		"  - D-35 (soft) · Rule 35",             // cited
+		"- ui/epic\n  - D-1 (soft) · Rule 1",    // parent
+		"- this issue\n  - D-1 (soft) · Rule 1", // own
+		"- 20 soft ones: issue-cli decisions --in-force ui/work\n",
+		DecisionBriefingChallengeLine,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("block lacks %q:\n%s", want, got)
+		}
+	}
+	for i := 15; i <= 34; i++ {
+		if strings.Contains(got, fmt.Sprintf("Rule %d\n", i)) {
+			t.Errorf("soft project D-%d printed:\n%s", i, got)
+		}
+	}
+	if strings.Contains(got, `"yes"`) || strings.Contains(got, "and ") && strings.Contains(got, " more:") {
+		t.Errorf("quote or the old count line in the block:\n%s", got)
+	}
+	if strings.Count(got, "- ops/rules\n") != 1 {
+		t.Errorf("source slug printed more than once:\n%s", got)
+	}
+}
+
+// One soft one left out says "1 soft one"; none left out, no count line.
+func TestDecisionsPromptSectionSoftCount(t *testing.T) {
+	b, _ := blockFor(t, map[string]string{
+		"Ops/rules.md": issueFile("rules", "done", "Ops", nDecisions(1, 1, "{scope: project}")),
+		"UI/work.md":   issueFile("work", "in progress", "UI", ""),
+	}, "ui/work")
+	if got := DecisionsPromptSection(b, "ui/work"); !strings.Contains(got, "- 1 soft one: issue-cli decisions --in-force ui/work\n") {
+		t.Errorf("one soft:\n%s", got)
+	}
+	b, _ = blockFor(t, map[string]string{
+		"Ops/rules.md": issueFile("rules", "done", "Ops", nDecisions(1, 1, "{scope: project; hard}")),
+		"UI/work.md":   issueFile("work", "in progress", "UI", ""),
+	}, "ui/work")
+	if got := DecisionsPromptSection(b, "ui/work"); strings.Contains(got, "soft one") || !strings.Contains(got, "  - D-1 · Rule 1") {
+		t.Errorf("hard only:\n%s", got)
+	}
+	if got := DecisionsPromptSection(DecisionBlock{}, "ui/work"); !strings.Contains(got, "No decisions in force for this issue: issue-cli decisions --in-force ui/work") {
+		t.Errorf("empty:\n%s", got)
+	}
+}

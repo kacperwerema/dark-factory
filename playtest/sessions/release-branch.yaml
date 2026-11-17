@@ -1,0 +1,38 @@
+session: release-branch
+issue: factory/playtest-scenarios-can-generate-retros-and-a-release-branch-with-rc-tags
+title: Status page - a release branch with rc tags on commits main lacks
+scenario: release-branch
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP5
+    title: The card ships 1.5 from release/v1.5 - rc.2 is the candidate, dark-map-style still to pick, the candidate not validated
+    proves: [AC4, AC5]
+    setup:
+      - open: /p/{project}/status
+    act:
+      - wait_for: status.release_wait
+    checks:
+      - visible: [status.release_wait.check.picked, status.release_wait.check.soaked, status.release_wait.check.validated, status.release_wait.candidate.fold]
+      - text_contains: { target: status.release_wait.check.picked, text: "Every done 1.5 fix is on release/v1.5" }
+      # The route export fix was picked (same patch); dark-map-style was not.
+      - text_contains: { target: status.release_wait.check.picked, text: "issue-cli release pick ui/dark-map-style" }
+      - text_contains: { target: status.release_wait.check.picked, text: "1 to pick" }
+      # rc.2 is the branch tip; rc.1 (the picked fix) is on no commit of main.
+      - text_contains: { target: status.release_wait.check.soaked, text: "Nothing picked onto release/v1.5 after v1.5.0-rc.2 but the changelog" }
+      - text_contains: { target: status.release_wait.check.soaked, text: "0 since" }
+      - text_contains: { target: status.release_wait.check.validated, text: "not validated: issue-cli release check v1.5.0" }
+      - text_contains: { target: status.release_wait.candidate.fold, text: v1.5.0-rc.2 }
+      - text_contains: { target: status.release_wait, text: "v1.5.0 not ready" }
+    do: |
+      Open Status and read the Waiting for release card.
+    expect: |
+      The card reads the release branch, not main: its checks name
+      release/v1.5, the newest candidate is rc.2, the one unpicked fix is
+      named with the command that picks it, and the candidate still needs
+      its release check.
+    why: ux-test checks the words; only you can say the card tells you what is left before a publish.

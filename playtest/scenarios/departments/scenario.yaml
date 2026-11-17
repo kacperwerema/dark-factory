@@ -19,7 +19,7 @@ project:
       - name: Marketing
         color: "#E2559B"
         role: SEO and content for the client roster
-        mission: "Every client site refreshed every week"
+        mission: "Every Acme client site refreshed every week"
         prompt: departments/marketing.md
         systems: [SEO]
         goals:

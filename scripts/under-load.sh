@@ -53,7 +53,10 @@ stop_hogs() {
 	[ -n "$hogs" ] && kill $hogs 2>/dev/null
 	hogs=""
 }
-trap 'stop_hogs; [ -n "$cmd_pid" ] && kill "$cmd_pid" 2>/dev/null; exit 130' INT TERM
+# A signal goes on to the command as itself (Ctrl-C reaches it from the
+# terminal too; a second INT is harmless).
+trap 'stop_hogs; [ -n "$cmd_pid" ] && kill -INT "$cmd_pid" 2>/dev/null; exit 130' INT
+trap 'stop_hogs; [ -n "$cmd_pid" ] && kill -TERM "$cmd_pid" 2>/dev/null; exit 143' TERM
 trap 'stop_hogs' EXIT
 
 i=0
@@ -68,7 +71,11 @@ if [ "$mem_mb" -gt 0 ]; then
 fi
 echo "under-load: $cpu busy loops, ${mem_mb} MB held, stop at ${max_pct}% (pids$hogs)" >&2
 
-"$@" &
+# A non-interactive sh starts a background job with SIGINT and SIGQUIT
+# ignored, and a child cannot trap a signal ignored on entry: perl puts them
+# back to the default before it execs the command, so the command sees
+# Ctrl-C as it would outside this script.
+perl -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec { $ARGV[0] } @ARGV or do { print STDERR "under-load: $ARGV[0]: $!\n"; exit 127 }' -- "$@" &
 cmd_pid=$!
 over=0
 while kill -0 "$cmd_pid" 2>/dev/null; do

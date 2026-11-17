@@ -28,8 +28,8 @@ func TestMachineHoldBoundaryThroughEveryCaller(t *testing.T) {
 	}{
 		{name: "under both", mem: below - 1, load: 13.9},
 		{name: "memory at the line", mem: below, load: 4, want: fmt.Sprintf("memory %d%% ≥ %d%%", below, below)},
-		{name: "load at the cores", mem: 31, load: 14, want: "load 14.0 on 14 cores (max 14)"},
-		{name: "load over the owner's max_load", mem: 31, load: 12, maxLoad: 10.5, want: "load 12.0 on 14 cores (max 10.5)"},
+		{name: "load at the cores", mem: 31, load: 14, want: "load 14.0/14.0 on 14 cores (max 14)"},
+		{name: "load over the owner's max_load", mem: 31, load: 12, maxLoad: 10.5, want: "load 12.0/12.0 on 14 cores (max 10.5)"},
 		{name: "load over the cores, under the owner's max_load", mem: 31, load: 15, maxLoad: 20},
 	}
 	for _, c := range cases {
@@ -89,7 +89,7 @@ func TestMachineHoldBoundaryThroughEveryCaller(t *testing.T) {
 func machineState(t *testing.T, mem int, load, maxLoad float64, root, slug string) {
 	t.Helper()
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: mem, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: load, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: load, Avg5: load, Cores: 14} }
 	st := autostart.State{Words: "start them", How: "test", By: "owner", MaxLoad: maxLoad}
 	if err := autostart.TurnOn(root, slug, st, time.Now()); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestDocsStateTheMachineLines(t *testing.T) {
 	states := []struct{ file, want string }{
 		{"docs/agent-dispatch.md", fmt.Sprintf("`mem-guard used` is at or above `--below` (default %d%%)", below)},
 		{"docs/agent-dispatch.md", fmt.Sprintf("memory under %d%% and **no worker cap** by default", below)},
-		{"docs/departments.md", fmt.Sprintf("memory is under %d%%;", below)},
+		{"docs/departments.md", fmt.Sprintf("when the lead set one, else %d%%;", below)},
 		{"docs/benchmark.md", fmt.Sprintf("Memory under %d%% (mem-guard's reading)", below)},
 		{"docs/benchmark.md", fmt.Sprintf("BLOCKED, or a reading of %d%% or more", quiet)},
 		{"docs/memory.md", fmt.Sprintf("At %d%% or more, when mem-guard isn't on PATH", quiet)},

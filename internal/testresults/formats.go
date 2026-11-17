@@ -23,7 +23,8 @@ type goEvent struct {
 
 // parseGoTest reads go test -json output. Top-level tests are Test events
 // without a slash; subtests are counted. A package is a part, its elapsed
-// time from the package's own pass/fail event. Areas are the package's top
+// time from the package's own pass/fail event (the longest, for a package
+// run in shards). Areas are the package's top
 // folder inside the module (".", cmd, internal).
 func parseGoTest(data []byte) (*Suite, error) {
 	s := &Suite{}
@@ -32,6 +33,7 @@ func parseGoTest(data []byte) (*Suite, error) {
 	pkgSeen := map[string]bool{}
 	type key struct{ pkg, test string }
 	done := map[key]Test{}
+	partAt := map[string]int{}
 	var order []key
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
@@ -64,7 +66,14 @@ func parseGoTest(data []byte) (*Suite, error) {
 		}
 		if e.Test == "" {
 			if e.Elapsed > 0 || outcome != Skip {
-				s.Parts = append(s.Parts, Part{Name: e.Package, Seconds: e.Elapsed})
+				if i, ok := partAt[e.Package]; ok {
+					// A package run in shards (tools/test-shards) ends once
+					// per shard: one part, as long as its longest shard.
+					s.Parts[i].Seconds = max(s.Parts[i].Seconds, e.Elapsed)
+				} else {
+					partAt[e.Package] = len(s.Parts)
+					s.Parts = append(s.Parts, Part{Name: e.Package, Seconds: e.Elapsed})
+				}
 			}
 			continue
 		}
@@ -73,8 +82,13 @@ func parseGoTest(data []byte) (*Suite, error) {
 			continue
 		}
 		k := key{e.Package, e.Test}
-		if _, ok := done[k]; !ok {
+		prev, ok := done[k]
+		if !ok {
 			order = append(order, k)
+		} else if outcome == Skip && prev.Outcome != Skip {
+			// A fresh-test (tools/test-shards) skips in the cached run and
+			// runs in the fresh one: the run's outcome is the fresh one.
+			continue
 		}
 		done[k] = Test{Name: e.Test, Part: e.Package, Seconds: e.Elapsed, Outcome: outcome}
 	}

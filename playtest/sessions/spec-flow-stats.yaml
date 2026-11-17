@@ -1,0 +1,27 @@
+session: spec-flow-stats
+issue: factory/issue-cli-stats-spec-flow-and-a-stats-page-section-critic-findings-held-or-overridden-clarify-answered-or-assumed-red-rounds-post-mortem-actions
+title: Spec flow on Stats - critique runs and how each held gate was cleared, empty cards naming their command, desktop and phone
+scenario: critique
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP4
+    title: The Spec flow section counts the critique runs and says what fills the empty cards, at desktop and 390px
+    proves: [AC5]
+    setup:
+      - open: /p/{project}/stats?range=all
+    act:
+      - wait_for: stats.specflow
+    checks:
+      - visible: [stats.specflow, stats.table_card.specflow-critique, stats.table_card.specflow-clarify, stats.table_card.specflow-redrounds, stats.table_card.specflow-postmortem]
+      - text_contains: { target: stats.table_card.specflow-critique, text: "4 runs (3 gated, 0 failed)" }
+      - text_contains: { target: stats.table_card.specflow-critique, text: "still holds" }
+      - text_contains: { target: stats.table_card.specflow-critique, text: "factory/held-by-the-critic" }
+      - text_contains: { target: stats.table_card.specflow-clarify, text: "issue-cli --project critique clarify <slug>" }
+      - text_contains: { target: stats.table_card.specflow-redrounds, text: "issue-cli --project critique rounds <slug>" }
+      - text_contains: { target: stats.table_card.specflow-postmortem, text: "issue-cli --project critique postmortem list" }
+    targets: [stats.specflow]

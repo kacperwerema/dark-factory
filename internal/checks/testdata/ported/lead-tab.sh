@@ -94,8 +94,8 @@ on_exit stop_viewer
 (cd "$proj" && clean_shell sh -c 'echo $$ > "$1"; exec issue-viewer -config "$2" -port "$3"' sh \
 	"$S/viewer.pid" "$S/projects.yaml" "$port") > "$S/viewer.log" 2>&1 &
 viewer_job=$!
-# Up to 30 s: a loaded Mac can take seconds to start a freshly built binary.
-wait_for_url "$url/p/sbx/" 30 || {
+# Up to 60 s: a loaded Mac can take over 10 s to start a freshly built binary.
+wait_for_url "$url/p/sbx/" 60 || {
 	echo "The viewer didn't start:"
 	cat "$S/viewer.log"
 	exit 1

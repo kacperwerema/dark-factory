@@ -241,7 +241,7 @@ func printMemoryReflection(w io.Writer, ctx *Context, issue *tracker.Issue) {
 	if len(hits) == 0 {
 		return
 	}
-	fmt.Fprintln(w, "Already remembered about this (update one instead with --updates <id>, or --supersedes <id> if it is no longer true):")
+	fmt.Fprintln(w, "Already remembered about this (the same fact better worded: --updates <id>; no longer true: --supersedes <id>; a different fact: add yours, --new if refused):")
 	for _, h := range hits {
 		fmt.Fprintf(w, "  %s (%s) %s\n", h.ID, h.Kind, h.Text)
 	}

@@ -142,3 +142,31 @@ func printStartOverlaps(ctx *Context, issue *tracker.Issue, issues []*tracker.Is
 	}
 	fmt.Fprintln(ctx.Stdout)
 }
+
+// printStartMainHolds says what main did to the tests the brief names since
+// the issue was created, with the go test that checks it. A dispatched
+// worker whose briefing already holds every line gets nothing; one more
+// commit since the dispatch prints the whole block again.
+func printStartMainHolds(ctx *Context, brief *dispatchBrief, issue *tracker.Issue) {
+	lines := dispatchMainHolds(projectRoot(ctx.Project), issue).Lines()
+	if len(lines) == 0 {
+		return
+	}
+	if brief != nil {
+		fresh := false
+		for _, l := range lines {
+			if !brief.has(l) {
+				fresh = true
+				break
+			}
+		}
+		if !fresh {
+			return
+		}
+	}
+	fmt.Fprintln(ctx.Stdout, "== Already on main? ==")
+	for _, line := range lines {
+		fmt.Fprintln(ctx.Stdout, line)
+	}
+	fmt.Fprintln(ctx.Stdout)
+}

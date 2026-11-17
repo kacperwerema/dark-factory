@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -119,6 +120,7 @@ func DepartmentLeadBrief(wf *tracker.WorkflowConfig, dept *tracker.Department, i
 		fmt.Fprintf(&b, "- Scope: only %s's issues. issue-cli dispatch and approve refuse anything else; Product's work and other departments go to the CEO %s.\n", dept.Name, ceo)
 	}
 	b.WriteString("- Authority: never Human Testing (the human approves it in the viewer); workers never tick.\n")
+	b.WriteString(DepartmentWaitLine(dept.Name))
 	reportTo := ceo
 	if group != nil {
 		reportTo = tracker.DepartmentLeadName(proj, group.Name) + " (or the CEO " + ceo + " while it is not running)"
@@ -137,7 +139,18 @@ func DepartmentLeadBrief(wf *tracker.WorkflowConfig, dept *tracker.Department, i
 	}
 	fmt.Fprintf(&b, "- Before you exit, or before the human takes a long break, write %s: what is live, what waits on whom, the decisions made, and a ## Next section.\n", filepath.Join(notesDir, tracker.HandoffNoteName(now, lead)))
 	b.WriteString("- issue-cli lead whoami shows this role again; issue-cli lead list shows the CEO and the department leads.\n")
+	b.WriteString(LeadStateLine)
+	if h := leadstate.HandoverSection(lead, tracker.InjectProject(proj, "issue-cli lead history <words>"), now); h != "" {
+		return tracker.InjectProject(proj, b.String()) + h
+	}
 	return tracker.InjectProject(proj, b.String())
+}
+
+// DepartmentWaitLine is a department lead's one way to wait: the read-only
+// tick of its own department in a background shell, and lead watch for a
+// probe; never a timed wake.
+func DepartmentWaitLine(dept string) string {
+	return "- Waiting: you wait in one way only, a background shell that exits on news (Bash run_in_background), started again each time it exits: issue-cli lead tick --watch --exit-on-news --observe --department " + tracker.DepartmentKey(dept) + " (read-only: it starts and closes nothing; it says your due jobs, your issues' status moves and comments, new shelf items and comments, and your workers' sessions ending; a plain status move or an ended session waits for the next news), and for any other probe issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']. Never a /loop cron, a ScheduleWakeup poll or a Monitor (it expires every 30 minutes): each wakes your whole context, news or not. Measured 2026-11-15: a 20-minute marketing lead tick cost 476k tokens per wake, 32.4M a day. When the tick says lead context <n>k: rotate, run issue-cli lead rotate and end your turn.\n"
 }
 
 func liveText(live bool) string {

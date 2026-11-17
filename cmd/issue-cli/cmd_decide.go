@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -120,6 +122,10 @@ active, deferred, replaced, or stale (replaced but still cited by open issues).
                    that reaches it (own, parent, cites, system, department,
                    type, project); hard first. Reads only.
   --status S       with --in-force: at status S (default the issue's own)
+  --touched <slug> the decisions_respected audit: the hard decisions whose
+                   paths: the issue's branch changes. Reads only.
+                   --in-force and --touched with no slug (or "") take the
+                   session's issue (ISSUE_VIEWER_ISSUE_SLUG).
   --lead ceo|<department>
                    the decisions in force for a lead: project scope for the
                    CEO, project and department:<key> for a department's
@@ -179,7 +185,7 @@ type decideOutput struct {
 }
 
 func runDecide(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "decide")
+	slug, rest, err := issueSlug(ctx, args, "decide")
 	if err != nil {
 		return err
 	}
@@ -486,6 +492,43 @@ type decisionRow struct {
 	WaitsOnOwner bool `json:"waits_on_owner,omitempty"`
 }
 
+// bareSlugFlags writes each of the named slug flags that has no value
+// (last, or followed by another flag or "--") as --name=, so the parse
+// doesn't take the next flag, or the "--" flagsFirst adds, as its slug.
+func bareSlugFlags(args []string, names ...string) []string {
+	out := slices.Clone(args)
+	for i, a := range out {
+		if a == "--" {
+			break
+		}
+		if !isFlagToken(a) || strings.Contains(a, "=") || !slices.Contains(names, strings.TrimLeft(a, "-")) {
+			continue
+		}
+		if i+1 == len(out) || out[i+1] == "--" || isFlagToken(out[i+1]) {
+			out[i] = "--" + strings.TrimLeft(a, "-") + "="
+		}
+	}
+	return out
+}
+
+// sessionSlugFlag fills a slug flag given with no value (or the empty one
+// "$ISSUE_VIEWER_ISSUE_SLUG" expands to outside a session) from the
+// session's issue; with no session it asks for the slug.
+func sessionSlugFlag(ctx *Context, fs *flag.FlagSet, name string, val *string) error {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	if !set || strings.TrimSpace(*val) != "" {
+		return nil
+	}
+	own := ownSlugEnv()
+	if own == "" {
+		return &usageError{msg: fmt.Sprintf("--%s: give the issue's slug: issue-cli decisions --%s <slug> (no session issue: %s is unset)", name, name, tracker.OwnSlugEnv)}
+	}
+	noteOwnSlug(ctx, own)
+	*val = own
+	return nil
+}
+
 func runDecisions(ctx *Context, args []string) error {
 	if len(args) > 0 && args[0] == "log" {
 		return runDecisionsLog(ctx, args[1:])
@@ -501,8 +544,16 @@ func runDecisions(ctx *Context, args []string) error {
 	statusFlag := fs.String("status", "", "with --in-force: at this status (default the issue's own)")
 	leadFlag := fs.String("lead", "", "ceo|<department>: the decisions in force for that lead")
 	touchedFlag := fs.String("touched", "", "<slug>: the hard decisions whose paths: the issue's branch changes (the decisions_respected audit)")
-	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+	if err := parseFlagsArgs(ctx, fs, bareSlugFlags(args, "in-force", "touched")); err != nil {
 		return err
+	}
+	for _, f := range []struct {
+		name string
+		val  *string
+	}{{"in-force", inForceFlag}, {"touched", touchedFlag}} {
+		if err := sessionSlugFlag(ctx, fs, f.name, f.val); err != nil {
+			return err
+		}
 	}
 	// decisions <slug> is --issue <slug>, the way decide <slug> names one.
 	switch fs.NArg() {

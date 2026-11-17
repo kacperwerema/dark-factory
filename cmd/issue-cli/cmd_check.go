@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/proof"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -45,9 +47,12 @@ The forms:
 ` + tracker.NAFormsHelp("  ") + `
 An agent never ticks an owner box (Human Testing, "(owner)", owner-only
 criteria, a playtest judgement step, a box a guided check left to the
-owner): check, and append/replace/update writing [x] into one, refuse it,
-and check --na can't skip it. Leave it for the owner; they tick it on the
-Owner checks page or in their own shell.
+owner; checklist shows it as "HT1 [ ] (owner's) …"): check, and
+append/replace/update writing [x] into one, refuse it, and check --na can't
+skip it. Among other ids it is left open with one "✗ Not ticked, the
+owner's" line and the rest are ticked; the call fails only when it ticked
+nothing. Leave it for the owner; they tick it on the Owner checks page or
+in their own shell.
 
 To change a box's text instead of ticking it: issue-cli check-edit <slug> <id> --text "..."
 To untick a box: issue-cli uncheck <slug> <id>
@@ -60,7 +65,7 @@ func init() {
 }
 
 func runCheck(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "check")
+	slug, rest, err := issueSlug(ctx, args, "check")
 	if err != nil {
 		return err
 	}
@@ -210,11 +215,14 @@ func splitCriteriaRefs(ctx *Context, issue *tracker.Issue, refs []string) (keep,
 }
 
 // checkByRefs ticks the boxes refs name. proofOnly are criteria the call
-// named but the proof gate ticks: each gets a line, and the call fails when
-// it ticked nothing else.
+// named but the proof gate ticks: each gets a line. For an agent, an owner
+// box among the ids is left open with a line of its own and the rest are
+// ticked. The call fails when it ticked nothing: with the owner-box
+// refusal when an owner box was named, else the criteria's.
 func checkByRefs(ctx *Context, issue *tracker.Issue, refs, proofOnly []string) error {
-	guard := ownerTickGuard(ctx, issue)
+	owners := newOwnerTicks(ctx, issue)
 	var ticked, already []tracker.CheckboxItem
+	var refused []proof.OwnerItem
 	var unknown []string
 	newBody, _, err := tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		items := tracker.ListCheckboxes(body)
@@ -234,14 +242,29 @@ func checkByRefs(ctx *Context, issue *tracker.Issue, refs, proofOnly []string) e
 				already = append(already, it)
 				continue
 			}
+			// The guard's own test, one box at a time: the owner's boxes
+			// stay open, the agent's tick.
+			if hit := owners.of(body, tracker.CheckLines(body, []int{it.Line})); len(hit) > 0 {
+				refused = append(refused, hit...)
+				continue
+			}
 			ticked = append(ticked, it)
 			lines = append(lines, it.Line)
 		}
-		if len(unknown) > 0 || len(lines) == 0 {
+		if len(unknown) > 0 {
+			return body, false, nil
+		}
+		if len(lines) == 0 {
+			if len(refused) > 0 {
+				return body, false, owners.refusal(refused)
+			}
 			return body, false, nil
 		}
 		next := tracker.CheckLines(body, lines)
-		return next, true, guard(body, next)
+		if hit := owners.of(body, next); len(hit) > 0 {
+			return body, false, owners.refusal(hit) // the backstop
+		}
+		return next, true, nil
 	})
 	if err != nil {
 		return writeErr("failed to update", err)
@@ -249,13 +272,19 @@ func checkByRefs(ctx *Context, issue *tracker.Issue, refs, proofOnly []string) e
 	if len(unknown) > 0 {
 		fmt.Fprintf(ctx.Stdout, "No checkbox with id %s — nothing was ticked.\n\n", strings.Join(unknown, ", "))
 		fmt.Fprintln(ctx.Stdout, "Checkboxes:")
-		printCheckboxes(ctx.Stdout, newBody)
+		printIssueCheckboxes(ctx, ctx.Stdout, issue, newBody)
 		return fmt.Errorf("unknown checkbox id(s): %s", strings.Join(unknown, ", "))
 	}
 	for i := range ticked {
 		ticked[i].Checked = true
 	}
 	printCheckResult(ctx.Stdout, issue, newBody, ticked, already)
+	for _, t := range refused {
+		fmt.Fprintf(ctx.Stdout, "✗ Not ticked, the owner's: %s\n", strings.TrimSpace(owners.hitLine(t)))
+	}
+	if len(refused) > 0 {
+		fmt.Fprintf(ctx.Stdout, "  The owner ticks it on the Owner checks page (under YOLO it waits in the review queue): %s\n", ownerChecksURL(ctx.Project, issue))
+	}
 	for _, id := range proofOnly {
 		fmt.Fprintf(ctx.Stdout, "✗ Not ticked: %s is ticked by its proof, not by hand (issue-cli prove %s --list)\n", id, issue.Slug)
 	}
@@ -273,7 +302,7 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 	it, st := tracker.ResolveCheckboxRef(tracker.ListCheckboxes(issue.BodyRaw), ref)
 	if st != tracker.RefFound {
 		fmt.Fprintf(ctx.Stdout, "No checkbox with id %s — nothing was ticked.\n\nCheckboxes:\n", ref)
-		printCheckboxes(ctx.Stdout, issue.BodyRaw)
+		printIssueCheckboxes(ctx, ctx.Stdout, issue, issue.BodyRaw)
 		return naRefusal("unknown checkbox id: %s", ref)
 	}
 	report := boxProofReport(ctx, issue)
@@ -288,9 +317,9 @@ func checkNA(ctx *Context, issue *tracker.Issue, ref, reason string) error {
 	if tracker.NANoForm(it.Section) && endsInOrNone(it.Label()) {
 		return checkOrNone(ctx, issue, it, reason)
 	}
-	if tracker.NANoForm(it.Section) {
-		return naRefusal("%s is a %s box: shipping steps have no N/A form. Tick it plainly when it's done (a box that says \"or none\" is ticked as it is):\n  %s",
-			it.ID, it.Section, tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli check %s %s", issue.Slug, it.ID)))
+	if tracker.NANoForm(it.Section) && !noRemoteNA(ctx, it, reason) {
+		return naRefusal("%s is a %s box: shipping steps have no N/A form. Tick it plainly when it's done (a box that says \"or none\" is ticked as it is). The one exception: a push or PR box in a repo with no git remote takes --na %s (the move into shipping ticks those itself):\n  %s",
+			it.ID, it.Section, shell.Quote(tracker.NANoGitRemote), tracker.InjectProject(ctx.Project, fmt.Sprintf("issue-cli check %s %s", issue.Slug, it.ID)))
 	}
 	if p := tracker.CheckNA(reason); p != "" {
 		return naRefusal("%s.\n\nWrite it in one of these forms:\n%s\n\nExample:\n  issue-cli check %s %s --na \"no page changes\"",
@@ -390,7 +419,7 @@ func checkSectionAll(ctx *Context, issue *tracker.Issue, section string) error {
 	if len(inSection) == 0 {
 		fmt.Fprintf(ctx.Stdout, "No checkboxes in section %q\n\n", section)
 		fmt.Fprintln(ctx.Stdout, "Checkboxes:")
-		printCheckboxes(ctx.Stdout, newBody)
+		printIssueCheckboxes(ctx, ctx.Stdout, issue, newBody)
 		return fmt.Errorf("no checkboxes in section %q", section)
 	}
 	name := inSection[0].Section
@@ -425,7 +454,7 @@ func checkByIndex(ctx *Context, issue *tracker.Issue, section string, index int)
 		}
 		fmt.Fprintf(ctx.Stdout, "No checkbox at index %d in %s\n\n", index, scope)
 		fmt.Fprintln(ctx.Stdout, "Checkboxes:")
-		printCheckboxes(ctx.Stdout, newBody)
+		printIssueCheckboxes(ctx, ctx.Stdout, issue, newBody)
 		return fmt.Errorf("no checkbox at index %d in %s", index, scope)
 	}
 	if already {

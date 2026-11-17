@@ -69,7 +69,7 @@ func TestArchiveKeepsLatestOwnRuns(t *testing.T) {
 	os.MkdirAll(aborted, 0o755)
 	bin := filepath.Join(wt, ".bin")
 	os.MkdirAll(bin, 0o755)
-	os.WriteFile(filepath.Join(bin, "issue-viewer"), make([]byte, 2048), 0o755)
+	os.WriteFile(filepath.Join(bin, "issue-viewer"), make([]byte, 2048), 0o755) // not a stand-in: a cache file Archive sizes and deletes, never runs
 
 	rep, err := Archive(root, slug)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestPruneOpenIssueDeletesOnlyOtherIssuesRuns(t *testing.T) {
 	other := writeRun(t, wt, "status-page", "20261023-120500.000-auto", "ui/status", 4, 4, "1440x900")
 	bin := filepath.Join(wt, ".bin")
 	os.MkdirAll(bin, 0o755)
-	os.WriteFile(filepath.Join(bin, "issue-cli"), make([]byte, 2048), 0o755)
+	os.WriteFile(filepath.Join(bin, "issue-cli"), make([]byte, 2048), 0o755) // not a stand-in: a cache file Prune keeps, never runs
 	defer func() {
 		if !exists(bin) {
 			t.Error("an open issue lost the runner's binary cache")

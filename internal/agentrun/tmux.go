@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -71,6 +72,11 @@ func hasManagedPrefix(name string) bool {
 func defaultHasSession(session string) bool {
 	if strings.TrimSpace(session) == "" {
 		return false
+	}
+	if readingsKept() {
+		if live, ok := keptHasSession(session); ok {
+			return live
+		}
 	}
 	return exec.Command("tmux", "has-session", "-t", session).Run() == nil
 }
@@ -233,10 +239,32 @@ func CreateTmux(proj *tracker.Project, name string, workDir string, env []string
 // KillTmux tears down what CreateTmux made. In shared mode only the agent's
 // window goes; the shared session stays.
 func KillTmux(proj *tracker.Project, name string) error {
+	target := Target(proj, name)
+	var err error
 	if SharedSession(proj) != "" {
-		return exec.Command("tmux", "kill-window", "-t", Target(proj, name)).Run()
+		err = exec.Command("tmux", "kill-window", "-t", target).Run()
+	} else {
+		err = exec.Command("tmux", "kill-session", "-t", target).Run()
 	}
-	return exec.Command("tmux", "kill-session", "-t", Target(proj, name)).Run()
+	if err == nil {
+		restrace.Stop(restrace.KindAgentCLI, 0, target)
+		restrace.Stop(restrace.KindTmuxSession, 0, target)
+	}
+	return err
+}
+
+// traceLaunch records a new agent home and the CLI in its pane
+// (internal/restrace); a no-op unless tracing is on.
+func traceLaunch(target, desc, agentType string) {
+	if !restrace.On() {
+		return
+	}
+	restrace.Start(restrace.KindTmuxSession, 0, target, desc)
+	pid := 0
+	if out, err := exec.Command("tmux", "display-message", "-p", "-t", target, "#{pane_pid}").Output(); err == nil {
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+	restrace.Start(restrace.KindAgentCLI, pid, target, agentType)
 }
 
 func defaultSessionAttached(session string) bool {
@@ -416,6 +444,17 @@ func BareName(listed string) string {
 }
 
 func defaultCapturePane(target string) (string, error) {
+	if !readingsKept() {
+		return capturePane(target)
+	}
+	r := keeping.panes.Get(target, func() paneRead {
+		text, err := capturePane(target)
+		return paneRead{text, err}
+	})
+	return r.text, r.err
+}
+
+func capturePane(target string) (string, error) {
 	out, err := exec.Command("tmux", "capture-pane", "-p", "-J", "-t", target).Output()
 	return string(out), err
 }

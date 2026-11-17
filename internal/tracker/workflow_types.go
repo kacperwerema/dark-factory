@@ -377,6 +377,26 @@ func (w *WorkflowConfig) RetypeStatus(issue *Issue, newType, pick string) (strin
 	return target, nil
 }
 
+// BuildsNothing reports whether the workflow's type of work builds and
+// commits nothing (a report, a chore, an epic): its path ships in its work
+// status or the owner's test, never a status of its own after them. An
+// untyped workflow, or a type on the full base path, builds.
+func (w *WorkflowConfig) BuildsNothing() bool {
+	if w == nil || w.ActiveType == "" || w.typePath == nil {
+		return false
+	}
+	ship := w.ShipStatus()
+	if ship == "" {
+		return false
+	}
+	for _, role := range []string{StatusRoleWork, StatusRoleOwnerTest} {
+		if r := w.RoleStatus(role); r != "" && strings.EqualFold(r, ship) {
+			return true
+		}
+	}
+	return false
+}
+
 // ShipStatus is the status an issue ships (merges) in: the last status on
 // its path before the first closed one, `shipping` on the development
 // template. "" when the path has no status before it.

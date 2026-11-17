@@ -229,6 +229,24 @@ func TestStatsPageFastOnABigProject(t *testing.T) {
 		return time.Since(start)
 	}
 	cold := get("stats?range=90d")
+	// A cold request answers Building while the first aggregate is built
+	// in the background (TestStatsColdRequestDoesNotWait); the warm runs
+	// below start once it has landed.
+	for deadline := time.Now().Add(60 * time.Second); ; {
+		resp, err := http.Get(ts.URL + "/p/big/stats?range=90d")
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.Header.Get("Refresh") == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first aggregate did not land in 60 s")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	best := time.Hour
 	for _, q := range []string{"range=30d", "range=7d&group=system", "range=90d&group=type&drill=status:human-testing", "range=30d&scale=share"} {
 		for i := 0; i < 2; i++ {

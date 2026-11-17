@@ -11,7 +11,7 @@ import (
 var checklistCommand = &Command{
 	Name:      "checklist",
 	ShortHelp: "Show checkbox status for an issue",
-	LongHelp:  "Print every `- [ ]` and `- [x]` line in the issue body, grouped by section, with each box's id\n(D3, AC2) and the overall checked-vs-total count. Pass the ids to 'issue-cli check <slug> <id>...'.",
+	LongHelp:  "Print every `- [ ]` and `- [x]` line in the issue body, grouped by section, with each box's id\n(D3, AC2) and the overall checked-vs-total count. Pass the ids to 'issue-cli check <slug> <id>...'.\nA box only the owner may tick reads \"HT1 [ ] (owner's) …\" (--json: \"owner\": why); check refuses it\nand ticks the other ids of the call.",
 	Run:       runChecklist,
 }
 
@@ -20,7 +20,7 @@ func init() {
 }
 
 func runChecklist(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "checklist")
+	slug, rest, err := issueSlug(ctx, args, "checklist")
 	if err != nil {
 		return err
 	}
@@ -37,15 +37,20 @@ func runChecklist(ctx *Context, args []string) error {
 
 	if ctx.JSONOutput {
 		items := tracker.ListCheckboxes(issue.BodyRaw)
+		owner := boxOwners(ctx, issue)
 		boxes := make([]map[string]interface{}, 0, len(items))
 		for _, it := range items {
-			boxes = append(boxes, map[string]interface{}{
+			box := map[string]interface{}{
 				"section": it.Section,
 				"index":   it.Index,
 				"id":      it.ID,
 				"text":    it.Text,
 				"checked": it.Checked,
-			})
+			}
+			if why := owner(it); why != "" {
+				box["owner"] = why // the owner's box: check refuses an agent
+			}
+			boxes = append(boxes, box)
 		}
 		return writeJSON(ctx.Stdout, map[string]interface{}{
 			"total": total, "checked": checked, "items": boxes,
@@ -53,8 +58,8 @@ func runChecklist(ctx *Context, args []string) error {
 	}
 
 	fmt.Fprintf(ctx.Stdout, "== Checklist (%d/%d) ==\n", checked, total)
-	printCheckboxes(ctx.Stdout, issue.BodyRaw)
-	printTickHint(ctx.Stdout, issue.Slug, issue.BodyRaw)
+	owner := printIssueCheckboxes(ctx, ctx.Stdout, issue, issue.BodyRaw)
+	printTickHint(ctx.Stdout, issue.Slug, issue.BodyRaw, owner)
 	printProofHint(ctx, issue)
 	return nil
 }

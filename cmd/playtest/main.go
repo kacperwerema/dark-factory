@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/liveboard"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -78,6 +79,12 @@ Contract and guides: issue-cli process playtest
 `
 
 func main() {
+	stopOnSignal()
+	owner := "playtest"
+	if len(os.Args) > 1 {
+		owner += " " + os.Args[1]
+	}
+	restrace.SetOwner(owner)
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 

@@ -3,6 +3,8 @@ package viewer
 import (
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func TestAutostartCard(t *testing.T) {
 	orig := autostart.ReadMemory
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
 	origLoad := autostart.ReadLoad
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4.28, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4.28, Avg5: 4.28, Cores: 14} }
 	t.Cleanup(func() { autostart.ReadMemory, autostart.ReadLoad = orig, origLoad })
 	ts := newTestServer(t, []tracker.Project{proj})
 	defer ts.Close()
@@ -43,7 +45,7 @@ func TestAutostartCard(t *testing.T) {
 	page = pageGet(t, ts.URL+"/p/yp/status")
 	for _, want := range []string{
 		`data-testid="status.autostart"`, "on below 50%", "“start a job under 50%”", "turned on by lead-yp in the lead chat",
-		"start shop (memory 31% &lt; 50%, load 4.3 &lt; 14 on 14 cores, 0/2 workers)", `data-testid="status.autostart.load"`, "CPU: load 4.3 on 14 cores (max 14)", "Last start on this machine: golf g/x", `data-testid="status.autostart.pause"`,
+		"start shop (memory 31% &lt; 50%, load 4.3/4.3 on 14 cores (max 14), 0/2 workers)", `data-testid="status.autostart.load"`, "CPU: load 4.3/4.3 on 14 cores (max 14)", "Last start on this machine: golf g/x", `data-testid="status.autostart.pause"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("Auto-start card lacks %q", want)
@@ -53,7 +55,7 @@ func TestAutostartCard(t *testing.T) {
 		t.Error("sidebar lacks the Auto-start line")
 	}
 	md := pageGet(t, ts.URL+"/p/yp/status.md")
-	if !strings.Contains(md, `Auto-start: on below 50% memory, cap 2 (owner: "start a job under 50%") · load 4.3 on 14 cores (max 14) · now: start shop`) {
+	if !strings.Contains(md, `Auto-start: on below 50% memory, cap 2 (owner: "start a job under 50%") · load 4.3/4.3 on 14 cores (max 14) · now: start shop`) {
 		t.Errorf("status.md lacks the Auto-start line:\n%s", md)
 	}
 
@@ -86,5 +88,59 @@ func TestAutostartCard(t *testing.T) {
 	}
 	if strings.Contains(pageGet(t, ts.URL+"/p/yp/status"), `data-testid="status.autostart"`) {
 		t.Error("Auto-start card drawn after off")
+	}
+}
+
+// The Auto-start and Queue cards and status.md's line show each project's
+// start_weight: and starts over the last day; the page only reads the
+// share, never records an ask.
+func TestAutostartCardShowsShare(t *testing.T) {
+	proj := setupYOLOProject(t)
+	proj.StartWeight = 3
+	withMockTmuxSessions(t, nil)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	orig, origLoad := autostart.ReadMemory, autostart.ReadLoad
+	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
+	t.Cleanup(func() { autostart.ReadMemory, autostart.ReadLoad = orig, origLoad })
+	now := time.Now()
+	if err := autostart.TurnOn(proj.WorkDir, proj.Slug, autostart.State{By: "lead-yp", How: "in the lead chat", Words: "start a job under 50%"}, now); err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+
+	page := pageGet(t, ts.URL+"/p/yp/status")
+	if !strings.Contains(page, "start_weight: 3 · no other project waited for the gap in the last day") {
+		t.Error("card lacks the weight alone")
+	}
+	if _, err := os.Stat(filepath.Join(autostart.SharedDir(), "share.json")); !os.IsNotExist(err) {
+		t.Fatalf("a page load wrote the share (%v)", err)
+	}
+
+	// dark-factory waits now (weight 1), and started twice today.
+	err := autostart.WithShare(autostart.SharedDir(), func(b *autostart.Budget) (*autostart.Start, error) {
+		v := autostart.Verdict{Waiting: true, Below: 50}
+		b.Decided("dark-factory", 1, v, now)
+		b.Started("dark-factory", "df/a", v, now.Add(-2*time.Hour))
+		b.Started("dark-factory", "df/b", v, now.Add(-time.Hour))
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(autostart.SharedDir(), "share.json"))
+	page = pageGet(t, ts.URL+"/p/yp/status")
+	want := "share of the start gap (24h, by start_weight:): yp ×3 0 starts · dark-factory ×1 2 starts"
+	if !strings.Contains(page, `data-testid="status.autostart.share"`) || !strings.Contains(page, want) {
+		t.Errorf("Auto-start card lacks %q", want)
+	}
+	md := pageGet(t, ts.URL+"/p/yp/status.md")
+	if !strings.Contains(md, "0/2 workers) · "+want) {
+		t.Errorf("status.md's Auto-start line lacks the share:\n%s", md)
+	}
+	after, _ := os.ReadFile(filepath.Join(autostart.SharedDir(), "share.json"))
+	if string(before) != string(after) {
+		t.Error("a page load changed the share")
 	}
 }

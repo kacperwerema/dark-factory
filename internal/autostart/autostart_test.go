@@ -19,26 +19,35 @@ func TestDecide_HoldsWithAReasonForEachRule(t *testing.T) {
 	ready := []Candidate{{Slug: "a/one"}}
 	paused := onState()
 	paused.Paused, paused.PauseReason = true, "golf plan till Friday"
+	// clears: the hold goes away by itself, so the lead's watch stays
+	// quiet on it; the others need someone to act.
+	turn := &Share{Asks: map[string]Ask{"atlas": {At: t0.Add(-time.Minute), Weight: 3, Waiting: true, Below: 50, GapMinutes: 5}}}
 	cases := []struct {
-		name string
-		in   Input
-		want string
+		name   string
+		in     Input
+		want   string
+		clears bool
 	}{
-		{"off", Input{State: &State{}}, "auto-start is off"},
-		{"nil state", Input{}, "auto-start is off"},
-		{"paused", Input{State: paused, Memory: okMemory(10), Candidates: ready}, "auto-start is paused (golf plan till Friday)"},
-		{"no mem-guard", Input{State: onState(), Candidates: ready}, "mem-guard not found"},
-		{"mem-guard says no", Input{State: onState(), Memory: Memory{Found: true, Used: 20, Note: "BLOCKED: memory used 80%"}, Candidates: ready}, "mem-guard says no: BLOCKED: memory used 80%"},
-		{"memory at below", Input{State: onState(), Memory: okMemory(50), Candidates: ready}, "memory 50% ≥ 50%"},
-		{"cap", Input{State: onState(), Memory: okMemory(20), Workers: 2, Candidates: ready}, "2 workers live (cap 2)"},
-		{"gap", Input{State: onState(), Memory: okMemory(20), Last: &Start{Project: "golf", Slug: "g/x", At: t0.Add(-40 * time.Second)}, Now: t0, Candidates: ready}, "golf started g/x 40s ago (gap 5m)"},
-		{"nothing ready", Input{State: onState(), Memory: okMemory(20), Now: t0, Candidates: []Candidate{{Slug: "a/one", Hold: "waiting on in progress"}}}, "nothing ready to start (first: a/one, waiting on in progress)"},
-		{"empty backlog", Input{State: onState(), Memory: okMemory(20), Now: t0}, "nothing ready to start"},
+		{"off", Input{State: &State{}}, "auto-start is off", false},
+		{"nil state", Input{}, "auto-start is off", false},
+		{"paused", Input{State: paused, Memory: okMemory(10), Candidates: ready}, "auto-start is paused (golf plan till Friday)", false},
+		{"no mem-guard", Input{State: onState(), Candidates: ready}, "mem-guard not found", false},
+		{"mem-guard says no", Input{State: onState(), Memory: Memory{Found: true, Used: 20, Note: "BLOCKED: memory used 80%"}, Candidates: ready}, "mem-guard says no: BLOCKED: memory used 80%", true},
+		{"memory at below", Input{State: onState(), Memory: okMemory(50), Candidates: ready}, "memory 50% ≥ 50%", true},
+		{"load", Input{State: onState(), Memory: okMemory(20), CPU: CPU{Found: true, Avg1: 15.5, Avg5: 14.5, Cores: 14}, Candidates: ready}, "load 15.5/14.5 on 14 cores (max 14)", true},
+		{"cap", Input{State: onState(), Memory: okMemory(20), Workers: 2, Candidates: ready}, "2 workers live (cap 2)", true},
+		{"gap", Input{State: onState(), Memory: okMemory(20), Last: &Start{Project: "golf", Slug: "g/x", At: t0.Add(-40 * time.Second)}, Now: t0, Candidates: ready}, "golf started g/x 40s ago (gap 5m)", true},
+		{"turn", Input{Project: "dark-factory", State: onState(), Memory: okMemory(20), Now: t0, Share: turn, Weight: 1, Candidates: ready}, "atlas' turn (weight 3; dark-factory next in", true},
+		{"nothing ready", Input{State: onState(), Memory: okMemory(20), Now: t0, Candidates: []Candidate{{Slug: "a/one", Hold: "waiting on in progress"}}}, "nothing ready to start (first: a/one, waiting on in progress)", false},
+		{"empty backlog", Input{State: onState(), Memory: okMemory(20), Now: t0}, "nothing ready to start", false},
 	}
 	for _, c := range cases {
 		v := Decide(c.in)
 		if v.Start || !strings.HasPrefix(v.Reason, c.want) {
 			t.Errorf("%s: got start=%v reason %q, want hold %q", c.name, v.Start, v.Reason, c.want)
+		}
+		if v.Clears != c.clears {
+			t.Errorf("%s: clears = %v, want %v", c.name, v.Clears, c.clears)
 		}
 	}
 }

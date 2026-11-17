@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -13,16 +15,27 @@ import (
 // Passes --no-checkout so the caller can configure sparse-checkout before the
 // working tree is populated; when sparse-checkout is skipped, a follow-up
 // checkout step materializes the full tree. A branch that already exists is
-// checked out as is; a new one is created from startPoint ("" = HEAD).
+// checked out as is; a new one is created from startPoint ("" = HEAD). A
+// record of a worktree whose folder is gone (removed after its issue
+// shipped, or by hand) is pruned first: git refuses to check the branch
+// out again while it stands.
 var RunGitWorktreeAdd = func(workdir, branch, wtPath, startPoint string) ([]byte, error) {
+	_ = PruneRecords(workdir)
+	var out []byte
+	var err error
 	if exec.Command("git", "-C", workdir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil {
-		return exec.Command("git", "-C", workdir, "worktree", "add", "--no-checkout", wtPath, branch).CombinedOutput()
+		out, err = exec.Command("git", "-C", workdir, "worktree", "add", "--no-checkout", wtPath, branch).CombinedOutput()
+	} else {
+		args := []string{"-C", workdir, "worktree", "add", "--no-checkout", "-b", branch, wtPath}
+		if startPoint != "" {
+			args = append(args, startPoint)
+		}
+		out, err = exec.Command("git", args...).CombinedOutput()
 	}
-	args := []string{"-C", workdir, "worktree", "add", "--no-checkout", "-b", branch, wtPath}
-	if startPoint != "" {
-		args = append(args, startPoint)
+	if err == nil {
+		restrace.Start(restrace.KindWorktree, 0, wtPath, branch)
 	}
-	return exec.Command("git", args...).CombinedOutput()
+	return out, err
 }
 
 // RunGitOutput runs git with args and returns its trimmed stdout. A seam so
@@ -147,6 +160,10 @@ func EnsureWorktree(workdir string, wt tracker.WorktreeSpec, wf *tracker.Workflo
 
 	if setup := wf.WorktreeSetupCmd(); setup != "" {
 		name := fmt.Sprintf("Worktree setup: %s", setup)
+		if err := ci.CheckNodeModules(wtPath, setup); err != nil {
+			steps = append(steps, Step{Name: name, Status: "error", Detail: err.Error()})
+			return workdir, steps, false
+		}
 		if out, err := RunWorktreeSetup(wtPath, setup); err != nil {
 			steps = append(steps, Step{Name: name, Status: "error", Detail: outputOrErr(out, err)})
 			return workdir, steps, false

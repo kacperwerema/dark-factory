@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/testbin"
 )
 
 // is_worker in the check library asks this issue-cli's lead whoami, the
@@ -23,10 +24,7 @@ func TestCheckLibIsWorkerAsksTheGuard(t *testing.T) {
 	// A real build: this test binary's init() drops a worker's identity
 	// (lead_test.go), so it can't stand in for issue-cli here.
 	dir := t.TempDir()
-	cli := filepath.Join(dir, "issue-cli")
-	if out, err := exec.Command("go", "build", "-o", cli, ".").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	cli := testbin.Path(t, "./cmd/issue-cli")
 	lib := filepath.Join(dir, "lib.sh")
 	if err := os.WriteFile(lib, checks.Lib, 0o644); err != nil {
 		t.Fatal(err)
@@ -79,10 +77,7 @@ func TestCheckScriptWorkerRunsOwnerOnlyStepsOnAMarkedSandbox(t *testing.T) {
 		t.Skip("no git")
 	}
 	dir := t.TempDir()
-	cli := filepath.Join(dir, "issue-cli")
-	if out, err := exec.Command("go", "build", "-o", cli, ".").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	cli := testbin.Path(t, "./cmd/issue-cli")
 	lib := filepath.Join(dir, "lib.sh")
 	if err := os.WriteFile(lib, checks.Lib, 0o644); err != nil {
 		t.Fatal(err)

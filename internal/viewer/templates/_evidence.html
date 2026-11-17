@@ -71,6 +71,51 @@ watch and stale text on the side. Data is DetailData; the model is .Evidence
                 </div>
             </section>
 
+            {{if .Stills}}
+            <section class="card tl-card" aria-labelledby="ev-stills-h" data-testid="evidence.stills">
+                <div class="tl-head">
+                    <h2 id="ev-stills-h">Stills · {{len .Stills}}</h2>
+                    <span class="tl-muted ev-small ev-mono">{{.StillsDir}}</span>
+                </div>
+                <div class="tl-body">
+                    <div class="ev-shots">
+                        {{range $i, $s := .Stills}}
+                        <figure class="ev-shot" data-testid="evidence.still.{{$i}}">
+                            {{if .Src}}<a href="{{.Src}}" target="_blank" rel="noopener" class="ev-shot-link" aria-label="Open the full still {{.Name}}"><img class="ev-shot-img" src="{{.Src}}" alt="Still {{.Name}}" loading="lazy"></a>{{else}}<div class="ev-shot-none">{{.Name}} is outside the project folder</div>{{end}}
+                            <div class="ev-tags">{{if .Step}}<span class="chip ev-mono">{{.Step}}</span>{{end}}</div>
+                            <figcaption class="ev-mono">{{.Name}}</figcaption>
+                        </figure>
+                        {{end}}
+                    </div>
+                    <p class="tl-note tl-muted">Saved by <code>issue-cli evidence add</code>; a click opens the full still.</p>
+                </div>
+            </section>
+            {{end}}
+
+            {{if .Files}}
+            <section class="card tl-card" aria-labelledby="ev-files-h" data-testid="evidence.files">
+                <div class="tl-head">
+                    <h2 id="ev-files-h">Files · {{len .Files}}</h2>
+                    <span class="tl-muted ev-small ev-mono">{{.StillsDir}}</span>
+                </div>
+                <div class="ev-table-wrap">
+                    <table class="ev-table">
+                        <thead><tr><th scope="col">File</th><th scope="col">Size</th><th scope="col">Link</th></tr></thead>
+                        <tbody>
+                            {{range $i, $f := .Files}}
+                            <tr data-testid="evidence.file.{{$i}}">
+                                <td>{{if .Step}}<span class="chip ev-mono">{{.Step}}</span> {{end}}<span class="ev-mono">{{.Name}}</span></td>
+                                <td class="ev-mono tl-muted">{{.Size}}</td>
+                                <td>{{if .Src}}<a href="{{.Src}}" target="_blank" rel="noopener" aria-label="Open {{.Name}}">Open</a>{{else}}<span class="tl-muted">outside the project folder</span>{{end}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="tl-note tl-muted ev-pad">Saved by <code>issue-cli evidence add</code>; a text file opens as text, anything else downloads.</p>
+            </section>
+            {{end}}
+
             <section class="card tl-card" aria-labelledby="ev-crit-h" data-testid="evidence.criteria">
                 <div class="tl-head">
                     <h2 id="ev-crit-h">{{if .Unlinked}}Criteria{{else}}Criteria → proof{{end}}</h2>

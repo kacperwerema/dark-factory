@@ -55,6 +55,9 @@ func (w *WorkflowConfig) ValidateTransition(issue *Issue, fromStatus, toStatus s
 // ValidateTransition and PreviewTransition so both report the same verdict.
 func (w *WorkflowConfig) checkValidateAction(action WorkflowAction, issue *Issue, comments []Comment) error {
 	if isStructuredRule(action.Rule) {
+		if w.SkipCommandRules && strings.TrimSpace(action.Rule) == "command_succeeds" {
+			return nil
+		}
 		return w.checkAction(action, issue, comments)
 	}
 	if name, _ := SplitRule(action.Rule); name == HandoffAnsweredRule {
@@ -70,6 +73,30 @@ func (w *WorkflowConfig) checkValidateAction(action WorkflowAction, issue *Issue
 		}
 	}
 	return err
+}
+
+// hintRules are the legacy rules whose failure is a ruleFailure, so an
+// action's hint: takes the place of their fix. The other legacy rules
+// (criteria_*, approved_for, decisions_*, critique, …) and
+// handoff_answered keep their own text and never show a hint.
+// TestRuleShowsHintMatchesCheckRule keeps this list in step with checkRule.
+var hintRules = map[string]bool{
+	"body_not_empty": true, "has_checkboxes": true, "section_has_checkboxes": true,
+	"has_assignee": true, "all_checkboxes_checked": true, "section_checkboxes_checked": true,
+	"has_test_plan": true, "has_comment_prefix": true,
+	hasOutputRule: true, outputsApprovedRule: true,
+}
+
+// RuleShowsHint reports whether a validate action on rule shows its hint:
+// when it fails: every structured rule does, and the legacy rules in
+// hintRules. An unknown rule counts as showing it (lint check schema
+// names that one). Lint check hints warns on a hint set on any other rule.
+func RuleShowsHint(rule string) bool {
+	name, _ := SplitRule(rule)
+	if isStructuredRule(name) || !KnownRule(name) {
+		return true
+	}
+	return hintRules[name]
 }
 
 // ruleFailure is a legacy rule's failure in two parts, what is wrong and how
@@ -94,6 +121,11 @@ func (f *ruleFailure) withFix(fix string) *ruleFailure {
 func failRule(problem, fix string) *ruleFailure {
 	return &ruleFailure{problem: problem, sep: " — ", fix: fix}
 }
+
+// RuleFailure is failRule for a rule checked outside the package (has_output
+// and outputs_approved, registered by internal/outputs): an action's hint:
+// replaces fix, the text after " — ".
+func RuleFailure(problem, fix string) error { return failRule(problem, fix) }
 
 // Validate is kept for compatibility with older call sites and tests.
 func (w *WorkflowConfig) Validate(issue *Issue, toStatus string, comments []Comment) error {
@@ -379,4 +411,11 @@ func (w *WorkflowConfig) ReadyForApproval(issue *Issue, fromStatus, toStatus str
 		}
 	}
 	return true
+}
+
+// CheckValidateAction runs one validate action against issue, as the
+// transition would (its hint: included), with no comments: for a preview
+// of a gate's content rules after an edit (issue-cli replace, append).
+func (w *WorkflowConfig) CheckValidateAction(action WorkflowAction, issue *Issue) error {
+	return w.checkValidateAction(action, issue, nil)
 }

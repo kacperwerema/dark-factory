@@ -30,18 +30,18 @@ func TestNewestHandoffNote(t *testing.T) {
 }
 
 func TestLeadsSurviveCloneAndSchema(t *testing.T) {
-	wf := &WorkflowConfig{Leads: LeadsConfig{Project: "P", ProjectAddendum: "A", Epic: "E"}}
+	wf := &WorkflowConfig{Leads: LeadsConfig{Project: "P", ProjectAddendum: "A", Epic: "E", GreenBranchMinutes: 45}}
 	if got := wf.Clone().Leads; got != wf.Leads {
 		t.Fatalf("Clone dropped leads: %+v", got)
 	}
 	var found bool
 	for _, sec := range WorkflowSchemaSections() {
-		if sec.Path == "leads" && len(sec.Fields) == 3 {
+		if sec.Path == "leads" && len(sec.Fields) == 4 {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("help schema has no leads section with project_addendum/project/epic")
+		t.Fatal("help schema has no leads section with project_addendum/project/epic/green_branch_minutes")
 	}
 }
 

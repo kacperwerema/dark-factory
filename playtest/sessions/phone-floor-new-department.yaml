@@ -1,0 +1,24 @@
+session: phone-floor-new-department
+issue: ui/new-department-on-the-company-floor-opens-adding-a-department
+title: "At phone width the floor's list ends with New department, which opens the template picker"
+scenario: new-department
+
+session_checks:
+  viewports: [390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP5
+    title: On the phone the list ends with New department, which opens the same picker
+    proves: [AC2, AC3]
+    setup:
+      - open: /p/acme/company
+    act:
+      - check: { size: { target: floor.list.new_dept, min_height: 44 } }
+      - click: floor.list.new_dept
+      - wait_for: { visible: dept_new.page }
+    checks:
+      - url: { matches: "^/p/acme/departments/new$" }
+      - visible: company.new_dept.form
+    targets: [dept_new.pick]

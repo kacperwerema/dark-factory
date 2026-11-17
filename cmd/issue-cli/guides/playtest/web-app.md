@@ -95,7 +95,14 @@ Each step at each viewport starts a fresh scenario:
   - `TMUX` is unset, and `TMUX_TMPDIR` is a private dir that also holds a
     marker. tmux calls refuse to run without the marker, and teardown's
     `kill-server` only runs when it is there.
-  - Agent variables (`CLAUDECODE`, `AGENT_NAME`, …) are dropped.
+  - Agent variables (`CLAUDECODE`, `AGENT_NAME`, …) and the caller's
+    `ISSUE_VIEWER_PROJECT` are dropped: a worker's own project would name a
+    scenario's leads.
+  - `ISSUE_VIEWER_NO_MACHINE=1` turns off the host's own readings: the disk
+    (`internal/diskuse`) and fseventsd. A scenario's Needs you count is the
+    fixture's whatever the host's volume says (at 86% used every session
+    counted a Disk row, 2026-11-17). A session that tests such a row pins
+    its own reading.
   - `ISSUE_VIEWER_READ_AFRESH=1` makes the viewer read tmux, mem-guard and
     the load on every request, so a step sees the sessions its `tmux:` setup
     just started. A viewer without it keeps each reading for 500 ms.
@@ -129,6 +136,28 @@ generate:
   `make playtest-check`.
 - **Example:** `playtest/scenarios/workboard-scale/` (~520 issues for the
   workboard).
+
+`kind: retro` writes retrospectives instead, into the project root's
+`retros/`, in the form `issue-cli retrospective` writes (for the Retro
+page's pager without a committed file per retro):
+
+```yaml
+generate:
+  - { kind: retro, count: 67, dir: UI, title: "Pager %02d", status: done, created: "2026-09-01", extra: "ReviewStatus: open" }
+```
+
+- `title` gives the Title line and the Issue slug (`ui/pager-01`); `dir`
+  is the System; `status` the Status line; `extra` raw header lines
+  (`ReviewStatus: processed`); `body` the labelled lines (default one
+  `Tooling/workflow friction:` line naming the number).
+- Retro 1 is dated `created` (a date or `-3d`; default 2026-10-01) at
+  12:00 UTC, each next one an hour later, in its Date line and mtime
+  alike: the order is the same every run and the highest number is the
+  newest.
+- `kind` is `issue` (the default) or `retro`; anything else fails
+  `make playtest-check`.
+- **Example:** `playtest/scenarios/retro-pager/` (67 to sort, 33
+  processed).
 
 ### Claude Code transcripts (spend)
 
@@ -176,6 +205,7 @@ branches:
 - **Worktrees** are excluded from the project's own commits.
 - **Upstream:** `upstream: <branch>` makes main track that branch (`git branch -u`), so views that compare main with its upstream have one. Create the branch with `from: main~N` to leave main N commits ahead. Example: `playtest/scenarios/release/`.
 - **Tags:** `tags: [{name: v1.5.0-rc.1, ref: main~1}]` makes annotated tags after the commits (`ref` defaults to main), dated like the commits. **Repo:** `project.repo:` goes into the scenario's projects.yaml; the engine's repo (`kacperwerema/dark-factory`) makes the board treat the project as the engine. Example: `playtest/scenarios/release-rc/` (a release candidate soaking).
+- **Tags on a branch:** a branch's own `tags:` (same shape) are made after its commits, `ref` defaulting to the branch tip, so a tag can sit on a commit main lacks: a release branch `release/v1.5` (worktree `.worktrees/release-v1.5`) with `{name: v1.5.0-rc.1, ref: release/v1.5~1}` and `{name: v1.5.0-rc.2}`. Top-level tags are still made before any branch. Example: `playtest/scenarios/release-branch/` (the release card reading the branch: picked fixes, rc.2, not validated).
 - **Example:** `playtest/scenarios/metrics/` (the Metrics view).
 
 ## The runner (cmd/playtest)

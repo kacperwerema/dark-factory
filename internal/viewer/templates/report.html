@@ -20,6 +20,7 @@
         </div>
         <div class="wb-report-side">
             {{with .Status}}{{template "wb/behind" .}}{{template "wb/queue" .}}{{template "wb/autostart" .}}{{template "wb/release" .}}{{template "wb/ci" .}}{{end}}
+            {{template "wb/deploy" .Deploy}}
             {{template "wb/released" .Released}}
             {{template "wb/health" .Health}}
             {{template "wb/nightly" .Nightly}}

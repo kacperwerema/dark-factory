@@ -40,7 +40,7 @@ func TestCreateSeoPassStartsAtItsBrief(t *testing.T) {
 	if err := runCreate(ctx, []string{"--department", "marketing", "--system", "SEO", "--title", "One post"}); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, out.String(), "Type: piece (default; also: foundation, keyword-research, market-size, report, seo-baseline, seo-pass")
+	assertContains(t, out.String(), "Type: piece (default; also: competitor-scan, foundation, keyword-research, market-size, report, seo-baseline, seo-pass")
 }
 
 // seoIssueAt writes an issue of type typ at status with every Published box

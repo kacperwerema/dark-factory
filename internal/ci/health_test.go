@@ -1,13 +1,17 @@
 package ci
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/health"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // storeRun writes a CI run record with results of kind, as Execute would;
@@ -44,18 +48,105 @@ func TestHealthTestRunIsTheNewestResultsUpToNow(t *testing.T) {
 	storeRun(t, root, "aaa", now.Add(-48*time.Hour), "unit", testresults.Summary{Tests: 3, Passed: 2, Failed: 1}, tests)
 	storeRun(t, root, "bbb", now.Add(time.Hour), "unit", testresults.Summary{Tests: 99}, nil) // after now: ignored
 
-	run, ok := healthTestRun(root, "unit", now)
-	if !ok {
-		t.Fatal("no run found")
+	runs := healthTestRuns(root, "unit", now, 5)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v, want aaa only", runs)
 	}
+	run := runs[0]
 	if run.Summary.Tests != 3 || run.Finished.Unix() != now.Add(-48*time.Hour).Unix() {
 		t.Errorf("run = %+v, want aaa's 3 tests finished 48 h ago", run)
 	}
 	if len(run.Tests) != 1 || run.Tests[0].Name != "TestA" {
 		t.Errorf("tests = %+v, want the kept list", run.Tests)
 	}
-	if _, ok := healthTestRun(root, "e2e", now); ok {
+	if got := healthTestRuns(root, "e2e", now, 5); len(got) != 0 {
 		t.Error("no e2e results were recorded")
+	}
+}
+
+// The best wall reads up to n runs, newest first, and only the newest
+// carries its per-test list.
+func TestHealthTestRunsAreTheNewestN(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	tests := []testresults.Test{{Name: "TestA", Seconds: 1, Outcome: "pass"}}
+	for i, wall := range []float64{200, 150, 300} { // i=0 newest
+		storeRun(t, root, string(rune('a'+i))+"00", now.Add(-time.Duration(i+1)*time.Hour), "unit", testresults.Summary{Tests: 1, WallS: wall}, tests)
+	}
+	runs := healthTestRuns(root, "unit", now, 2)
+	if len(runs) != 2 || runs[0].Summary.WallS != 200 || runs[1].Summary.WallS != 150 {
+		t.Fatalf("runs = %+v, want walls 200, 150", runs)
+	}
+	if len(runs[0].Tests) != 1 || runs[1].Tests != nil {
+		t.Errorf("only the newest run reads its test list: %d, %d", len(runs[0].Tests), len(runs[1].Tests))
+	}
+}
+
+// AC1: a CI run reads the load before and after the command that writes
+// results, keeps the higher with the cores on the summary, says it in the
+// results: line, and the snapshot taken from that run has tests.load and
+// tests.cores beside tests.wall_seconds.
+func TestSnapshotRecordsLoadWithUnitWall(t *testing.T) {
+	readings := []Load{{Avg: 9.2, Cores: 14}, {Avg: 16.4, Cores: 14}}
+	old := readLoad
+	readLoad = func() Load { r := readings[0]; readings = readings[1:]; return r }
+	t.Cleanup(func() { readLoad = old })
+
+	root := newRepo(t)
+	write := `printf '%s\n' '{"Time":"2026-10-23T10:00:00Z","Action":"pass","Package":"m","Test":"TestA","Elapsed":0.5}' '{"Time":"2026-10-23T10:00:02Z","Action":"pass","Package":"m","Elapsed":2}' > "$CI_RESULTS_DIR/unit.json"`
+	unit := tracker.CICommand{Cmd: write, Results: []tracker.CIResult{{Kind: "unit", Format: "go-test-json", File: "unit.json"}}}
+	var out strings.Builder
+	runs, _, err := Execute(Options{Root: root, Config: cfg(cmd("true"), unit), Out: &out})
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs=%d err=%v", len(runs), err)
+	}
+	if len(readings) != 0 {
+		t.Errorf("want exactly two readings (before and after the results command, none for a command without results), %d left", len(readings))
+	}
+	u := runs[0].Results["unit"]
+	if u.Load != 16.4 || u.Cores != 14 || !u.Loaded() {
+		t.Errorf("unit summary load = %v on %d, want the higher reading 16.4 on 14", u.Load, u.Cores)
+	}
+	if !strings.Contains(out.String(), "2.0 s wall, load 16.4 on 14 cores (unit.json)") {
+		t.Errorf("results line lacks the load: %q", out.String())
+	}
+
+	proj := &tracker.Project{Slug: "ci", WorkDir: root}
+	env, err := health.NewEnv(proj, root, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, err := health.Take(context.Background(), env, health.TriggerManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := map[string]string{"kind": "unit"}
+	for name, want := range map[string]float64{"tests.wall_seconds": 2, "tests.load": 16.4, "tests.cores": 14} {
+		if got, ok := snap.Value(name, k); !ok || got != want {
+			t.Errorf("%s{kind=unit} = %v (present %v), want %v", name, got, ok, want)
+		}
+	}
+}
+
+// Without a load reading (an OS with no reader) the summary has none and
+// the line says nothing about load.
+func TestNoLoadReadingRecordsNoLoad(t *testing.T) {
+	old := readLoad
+	readLoad = func() Load { return Load{} }
+	t.Cleanup(func() { readLoad = old })
+	root := newRepo(t)
+	write := `printf '%s\n' '{"Time":"2026-10-23T10:00:00Z","Action":"pass","Package":"m","Test":"TestA","Elapsed":0.5}' > "$CI_RESULTS_DIR/unit.json"`
+	unit := tracker.CICommand{Cmd: write, Results: []tracker.CIResult{{Kind: "unit", Format: "go-test-json", File: "unit.json"}}}
+	var out strings.Builder
+	runs, _, err := Execute(Options{Root: root, Config: cfg(unit), Out: &out})
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs=%d err=%v", len(runs), err)
+	}
+	if u := runs[0].Results["unit"]; u.Load != 0 || u.Cores != 0 || u.Loaded() {
+		t.Errorf("summary = %+v, want no load", u)
+	}
+	if strings.Contains(out.String(), "load") {
+		t.Errorf("results line names a load it never read: %q", out.String())
 	}
 }
 

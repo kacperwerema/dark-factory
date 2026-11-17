@@ -130,7 +130,9 @@ func TestNewDeptTileAddsAGroupThenNoMore(t *testing.T) {
 	assertContains(t, string(cfg), "- name: GTM", "- name: Marketing", "parent: gtm")
 
 	_, company = getBody(t, ts.URL+resp.Header.Get("Location"))
-	assertContains(t, company, "✓ Added GTM: "+strconv.Itoa(wrote)+" files written", `data-testid="floor.tile.group"`, `value="video"`)
+	assertContains(t, company, "✓ Added GTM: "+strconv.Itoa(wrote)+" files written", `data-testid="floor.tile.group"`, `3 templates left`)
+	_, pick := getBody(t, ts.URL+"/p/acme/departments/new")
+	assertContains(t, pick, `value="video"`)
 	// Sales (under GTM), Video and Legal are the templates left; with them added
 	// the tile offers none.
 	if resp := postAdd(t, ts.URL, url.Values{"template": {"sales-b2c"}, "parent": {"gtm"}}, sameOrigin); resp.StatusCode != http.StatusSeeOther {

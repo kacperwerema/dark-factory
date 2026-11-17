@@ -24,13 +24,14 @@ the issue under == Memories ==.
              [--scope project|lead|department|agent|machine] [--issue <slug>]
              [--commit <sha>] [--comment N] [--tag a,b] [--system S]
              [--expires YYYY-MM-DD] [--at <status>] [--links id,id]
-             [--suggest-pin] [--updates <id> | --supersedes <id>[,<id>] | --new]
+             [--suggest-pin] [--updates <id> [--yes] | --supersedes <id>[,<id>] | --new]
       Store a fact of at most 500 characters. The update step: the same
       fact again changes nothing; a near-duplicate is refused with the
       similar memories, and you decide: --updates <id> (better wording of
-      the same fact), --supersedes <id> (it is no longer true; yours
-      replaces it, the old one stays in history as invalid) or --new (a
-      different fact). The source is your own issue when you are a worker.
+      the same fact: it replaces the whole text, and a text sharing under
+      a third of its words is refused with the old text unless --yes),
+      --supersedes <id> (it is no longer true; yours replaces it, the old
+      one stays in history as invalid) or --new (a different fact). The source is your own issue when you are a worker.
       Scope: a department's agents write to their department by default,
       others to the project; agent is your own notebook; lead is for every
       lead and no worker but the lead flush's, which reads it and only a
@@ -259,17 +260,18 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	updates := fs.String("updates", "", "UPDATE: replace this memory's text (the same fact, better worded)")
 	supersedes := fs.String("supersedes", "", "SUPERSEDE: these memories (id or id,id) are no longer true or are merged; yours replaces them")
 	isNew := fs.Bool("new", false, "ADD even though similar memories exist")
+	yes := fs.Bool("yes", false, "with --updates: replace the text even when it shares under a third of its words with yours")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
-		return &usageError{msg: `usage: issue-cli memory add "<fact>" [--kind K] [--scope S] [--issue <slug>] [--commit <sha>] [--updates <id> | --supersedes <id> | --new]`}
+		return &usageError{msg: `usage: issue-cli memory add "<fact>" [--kind K] [--scope S] [--issue <slug>] [--commit <sha>] [--updates <id> [--yes] | --supersedes <id> | --new]`}
 	}
 	opt := memory.AddOptions{}
 	decisions := 0
 	if *updates != "" {
-		opt, decisions = memory.AddOptions{Mode: memory.ModeUpdates, Target: *updates}, decisions+1
+		opt, decisions = memory.AddOptions{Mode: memory.ModeUpdates, Target: *updates, Yes: *yes}, decisions+1
 	}
 	if *supersedes != "" {
 		ids := splitList(*supersedes)
@@ -283,6 +285,9 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	}
 	if decisions > 1 {
 		return &usageError{msg: "pick one of --updates, --supersedes and --new"}
+	}
+	if *yes && *updates == "" {
+		return &usageError{msg: "--yes goes with --updates <id>: it replaces a text that shares under a third of its words with yours"}
 	}
 
 	p := ctx.Project

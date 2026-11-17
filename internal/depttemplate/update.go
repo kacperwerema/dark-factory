@@ -49,6 +49,8 @@ var earlierTexts = map[string]earlier{
 				"4ef43daa736fa59d2950ae6f049a77e543402e482ebdf8f6b62f911b7ab074bb",
 				// Before the seo-baseline type.
 				"8e2b11d11db640c9f2b81919fe20bea06169c46a5571b7cf985e0ecfbc1695e0",
+				// Before competitors.md and the competitor-scan type.
+				"d6dc0c112dc11b462a4da0c81d68d431f46270c877056ab8781a35740f2e7391",
 			},
 			"jobs/weekly-seo-pass.md": {
 				"ceebb064382c0d1ce29bbf644c9e0abd0c384a5f5697119fb949f498dd192524",
@@ -57,6 +59,8 @@ var earlierTexts = map[string]earlier{
 				"c4d8b20e5d9cc91f948cdb95baa95f3de12de39730d39257aba3888f1b04bd0c",
 				// Before the measure step read the openseo connector.
 				"6bb7607d955440311d342db35eaadaa6613aff5fe48af9a44be6158988373622",
+				// Before the brief read competitors.md.
+				"33c575af72ad8462c27931e3d74f5e08f4a83cbc12bd6413b275a747b660424d",
 			},
 			// No workflow text: the report type is a catalog feature, not
 			// wording, and so were v0.61's gates (section_min_links,

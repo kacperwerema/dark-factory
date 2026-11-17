@@ -4,6 +4,8 @@ Weekly SEO pass over your site(s) for {{period}} (started {{date}}; previous run
 
 Write to the brand and the ICP in `departments/marketing/brand.md` and `icp.md`. The run can't leave its brief before they exist: the first time, open the brand foundation (`issue-cli create --department marketing --type foundation`).
 
+Read the competitors and queries in `departments/marketing/competitors.md`, where it exists: re-run a few of its `## Queries` that this pass's pages target, and say in the brief which `## Direct` competitor ranks for them now and whether the site appears (against `## Baseline`); a new name is a proposal in the brief, never an edit to the file. Where it doesn't exist, say so in the brief ("No competitors.md yet") and go on: `issue-cli create --department marketing --type competitor-scan --system SEO --title "Competitor scan: <topic>"` writes it after the owner's review.
+
 For each site:
 
 - Check the pages that changed or lost traffic since the previous run, and the local pages, FAQs and schema.

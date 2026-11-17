@@ -74,3 +74,19 @@ func TestReadingsKeepOnePerKey(t *testing.T) {
 		t.Fatalf("reads = %d, want a fresh read while off", n.Load())
 	}
 }
+
+func TestForgetReadsAgainWithinTheWindow(t *testing.T) {
+	Keep(time.Hour)
+	t.Cleanup(func() { Keep(0) })
+	n, read := counter()
+	var r Reading[int64]
+	r.Get(read)
+	r.Get(read)
+	Forget()
+	if got := r.Get(read); got != 2 || n.Load() != 2 {
+		t.Fatalf("after Forget: value %d, reads %d; want a second read", got, n.Load())
+	}
+	if Window() != time.Hour {
+		t.Fatalf("Window = %v, want what Keep set", Window())
+	}
+}

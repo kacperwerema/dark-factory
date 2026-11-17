@@ -23,7 +23,9 @@ Examples:
   cat note.md | issue-cli comment <slug> --body-file -
 
 Correct a comment you wrote (a typo in a tests: line):
+  issue-cli comment <slug> --amend --text "tests: 44 on the branch"
   issue-cli comment edit <slug> <id|last> --text "tests: 44 on the branch"
+--amend is comment edit <slug> last: it keeps the comment's number and date.
 Only your own latest comment on the issue, from a session that signs its
 comments (a lead or a worker). The owner's comments, other agents' comments
 and approval:, dispatch:, stage:, yolo-review: and yolo-owner-check: comments can't be
@@ -40,7 +42,7 @@ func runComment(ctx *Context, args []string) error {
 	if len(args) > 0 && args[0] == "edit" {
 		return runCommentEdit(ctx, args[1:])
 	}
-	slug, rest, err := requireSlug(args, "comment")
+	slug, rest, err := issueSlug(ctx, args, "comment")
 	if err != nil {
 		return err
 	}
@@ -48,6 +50,7 @@ func runComment(ctx *Context, args []string) error {
 	textFlag := fs.String("text", "", "comment text")
 	bodyFlag := fs.String("body", "", "alias for --text")
 	bodyFileFlag := fs.String("body-file", "", "read comment from file (or - for stdin); avoids shell mangling")
+	amendFlag := fs.Bool("amend", false, "replace the text of your own latest comment (comment edit <slug> last)")
 	if err := parseFlagsArgs(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -62,6 +65,9 @@ func runComment(ctx *Context, args []string) error {
 	text, err := resolveBodyInput(ctx, inline, inlineSet, *bodyFileFlag, flagWasSet(fs, "body-file"))
 	if err != nil {
 		return err
+	}
+	if *amendFlag {
+		return editComment(ctx, slug, "last", text)
 	}
 	if text == "" {
 		return fmt.Errorf("text is required\n\nExample:\n  issue-cli comment %s \"your comment here\"\n  issue-cli comment %s --text \"your comment here\"\n  issue-cli comment %s --body-file note.md", slug, slug, slug)
@@ -81,6 +87,9 @@ func runComment(ctx *Context, args []string) error {
 		fmt.Fprintf(ctx.Stdout, "✓ Comment added to %s (no author: no lead or worker session detected)\n", issue.Slug)
 	}
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", issue.FilePath)
+	if author != "" {
+		fmt.Fprintf(ctx.Stdout, "Wrong? issue-cli comment %s --amend --text \"...\" replaces it (the old text stays in its history).\n", issue.Slug)
+	}
 	if _, typed, isBalance := tracker.ParseBalanceComment(balancePrefix(ctx), text); isBalance && !typed {
 		fmt.Fprintf(ctx.Stdout, "Tip: issue-cli balance %s --metric <id> --state <state> --hypothesis \"...\" --change \"...\" --evidence \"...\" puts this on the Balance board as a typed note.\n", issue.Slug)
 	}
@@ -133,6 +142,12 @@ func runCommentEdit(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	return editComment(ctx, slug, ref, text)
+}
+
+// editComment is comment edit and comment --amend: ref is an id or last.
+func editComment(ctx *Context, slug, ref, text string) error {
+	usage := "\n\nExample:\n  issue-cli comment " + slug + " --amend --text \"tests: 44 on the branch\"\n  issue-cli comment edit " + slug + " last --text \"tests: 44 on the branch\""
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("the corrected text is required%s", usage)
 	}

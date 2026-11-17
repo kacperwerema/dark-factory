@@ -21,7 +21,7 @@ import (
 var needsYouEveryKind = []string{
 	"ci", "gate", "partner", "playtest", "checks", "question", "clarify",
 	"challenge", "decision", "outputs", "job", "connectors", "nightly",
-	"postmortem", "bugs",
+	"postmortem", "bugs", "machine", "step",
 }
 
 // everyKindProject is the Status fixture with one thing of every kind
@@ -54,6 +54,8 @@ func everyKindProject(t *testing.T) tracker.Project {
 	write("scripts/checks/judged.sh", "#!/usr/bin/env bash\n# issue: ui/judged\n")
 	write("issues/.outputs/outputs.jsonl", `{"op":"add","id":"o-post","date":"2026-10-28T10:00:00+01:00","department":"marketing","title":"Launch post","kind":"post","url":"https://example.test/p"}`+"\n")
 	write("departments/marketing/leads.md", "# Lead search\n\nSearch.\n")
+	// An owner step, due today (owner-step add).
+	write("issues/.owner-steps/log.jsonl", `{"op":"add","id":"st-0e0e0e","at":"2026-10-28T10:00:00+01:00","title":"Reinstall the phone build","body":"Xcode, Run","due":"`+now.Format("2006-01-02")+`"}`+"\n")
 	t.Setenv("EVERY_KIND_MISSING", "")
 	cfg := omPartner(t)
 	proj.Departments = []tracker.Department{
@@ -123,6 +125,7 @@ func TestNeedsYouEveryKindCountsEverywhere(t *testing.T) {
 	prev := unsentBugReports
 	unsentBugReports = func() int { return 2 }
 	t.Cleanup(func() { unsentBugReports = prev })
+	stubMachine(t, runawayFseventsd(time.Now()))
 	ts := newTestServer(t, []tracker.Project{proj, other})
 	defer ts.Close()
 
@@ -187,7 +190,7 @@ func TestNeedsYouEveryKindCountsEverywhere(t *testing.T) {
 		t.Errorf("lead.json has %d rows, the list %d", len(chat.Waiting), n)
 	}
 	classic := get("/p/status/status?classic=1")
-	for _, k := range []string{"partner", "clarify", "challenge", "decision", "outputs", "job", "connectors", "nightly", "postmortem"} {
+	for _, k := range []string{"partner", "clarify", "challenge", "decision", "outputs", "job", "connectors", "nightly", "postmortem", "machine", "step"} {
 		if !strings.Contains(classic, `data-testid="status.waiting.other.`+k+`.`) {
 			t.Errorf("classic Status does not list the %s row", k)
 		}
@@ -196,13 +199,14 @@ func TestNeedsYouEveryKindCountsEverywhere(t *testing.T) {
 		t.Error("Report says nothing waits")
 	}
 
-	// Across projects: the other project's rows, its bug reports row once.
+	// Across projects: the other project's rows, its bug reports and
+	// fseventsd rows once each.
 	var overRows NeedsYouJSON
 	_, body = getResp(t, ts.URL+"/p/other/needs-you.json")
 	if err := json.Unmarshal([]byte(body), &overRows); err != nil {
 		t.Fatal(err)
 	}
-	total := n + overRows.Count - 1
+	total := n + overRows.Count - 2
 	for _, path := range []string{"/", "/needs-you", "/updates", "/crew", "/leads"} {
 		wantCount(t, path, get(path), headerCount, total)
 	}

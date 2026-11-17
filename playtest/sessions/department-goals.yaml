@@ -25,8 +25,10 @@ steps:
       - text_contains: { target: company.hq.rollup, text: "Marketing · Pages refreshed" }
       - text_contains: { target: company.hq.rollup, text: "Marketing · Posts" }
       - text_contains: { target: company.hq.rollup, text: "400 EUR / 1000 EUR" }
+      # Exactly 2: the scenario has two goals with rolls_up: (Marketing's
+      # pages and posts, both into hq/clients).
       - count: { pattern: company.hq.rollup.child, equals: 2 }
-      - text_contains: { target: company.room.dept, text: "Every client site refreshed every week" }
+      - text_contains: { target: company.room.dept, text: "Every Acme client site refreshed every week" }
       - text_contains: { target: company.room.dept, text: "30 / 40" }
       - text_contains: { target: company.room.product, text: "Ship the engine" }
       - text_contains: { target: company.room.product, text: "10 / 5" }
@@ -65,5 +67,5 @@ steps:
       - cli: { args: [goals], contains: "↳ Marketing: Pages refreshed [marketing/pages]  30 / 40 · 75%" }
       - cli: { args: [goals], contains: "no value yet: issue-cli goal set marketing/posts <value>" }
       - cli: { args: [department, show, marketing], contains: "You are the Marketing lead." }
-      - cli: { args: [show, seo/weekly-seo-pass], contains: "Department: Marketing (Every client site refreshed every week) — role: departments/marketing.md · goals: issue-cli goals marketing" }
+      - cli: { args: [show, seo/weekly-seo-pass], contains: "Department: Marketing (Every Acme client site refreshed every week) — role: departments/marketing.md · goals: issue-cli goals marketing" }
       - cli: { args: [health, lint, --check, departments], contains: "✓ no warnings" }

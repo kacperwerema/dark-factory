@@ -18,6 +18,7 @@ import (
 	_ "github.com/kacperwerema/dark-factory/internal/proof" // registers the criteria_proven check for transition previews
 	"github.com/kacperwerema/dark-factory/internal/push"
 	"github.com/kacperwerema/dark-factory/internal/recent"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
@@ -71,6 +72,7 @@ func run(args []string) error {
 	port := fs.Int("port", 8080, "Port to listen on")
 	versionFlag := fs.Bool("version", false, "Print version and exit")
 	ownerCode := fs.String("owner-code", "auto", "Where the owner sign-in code is shown: dialog (macOS), terminal (this viewer's stderr), or auto (the dialog, else the terminal)")
+	debugFlag := fs.Bool("debug", false, "Trace every start and stop of an outside resource (Chrome, tmux, worktrees, agent CLIs, per_run tools) to the state dir's trace/resources.jsonl, as DF_TRACE=resources does")
 	recordViewer := fs.Bool("record-viewer", false, "Record this viewer in viewer.json even when it looks like a sandbox (default: a temp-folder config or another live viewer's record leaves the file alone)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -82,6 +84,13 @@ func run(args []string) error {
 	if *versionFlag {
 		fmt.Println("issue-viewer", Version)
 		return nil
+	}
+	restrace.SetOwner("issue-viewer")
+	if *debugFlag {
+		restrace.SetDebug(true)
+	}
+	if restrace.On() {
+		fmt.Println("Resource trace on:", restrace.Path())
 	}
 	tracker.BuildVersion = Version
 

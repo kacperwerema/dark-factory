@@ -13,6 +13,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("TMUXGUARD_TEST_SLEEP") != "" {
+		time.Sleep(2 * time.Minute) // the stand-in daemon, see actsReal
+		os.Exit(0)
+	}
 	if os.Getenv(guardRunVar) != "" {
 		guardedRun() // a run of its own, see agent_cli_test.go
 		return

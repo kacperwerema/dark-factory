@@ -286,6 +286,8 @@ func TestLinuxCheckSubset(t *testing.T) {
 		{"./internal/x", "TestY|TestZ", "go test ./internal/x -run TestY|TestZ -count=1 chrome=none\n"},
 		{"./internal/x", "", "go test ./internal/x -count=1 chrome=none\n"},
 		{"", "TestY", "go test ./... -run TestY -count=1 chrome=none\n"},
+		{"./internal/a ./internal/b", "", "go test ./internal/a ./internal/b -count=1 chrome=none\n"},
+		{" ./internal/a\t./internal/b ", "TestY", "go test ./internal/a ./internal/b -run TestY -count=1 chrome=none\n"},
 	} {
 		out, code, calls := inside(c.pkg, c.run)
 		if calls != c.want {
@@ -430,7 +432,7 @@ func TestMakeTestSaysShellcheckIsMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "Makefile"), makefile, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bin := linuxBin(t, "make", "sh", "git")
+	bin := linuxBin(t, "make", "sh", "git", "rm")
 	standIn(t, bin, "go", `exit 0`)
 	run := func() string {
 		t.Helper()

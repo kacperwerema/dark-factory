@@ -101,7 +101,7 @@
 {{define "wb/cell"}}{{if .URL}}<a href="{{.URL}}">{{.Text}}</a>{{else if .Code}}<code>{{.Text}}</code>{{else}}{{.Text}}{{end}}{{end}}
 
 {{define "wb/table-card"}}
-<section class="wb-tcard" data-testid="stats.table_card.{{.Key}}">
+<section class="wb-tcard{{if .Wide}} wb-tcard--wide{{end}}" data-testid="stats.table_card.{{.Key}}">
     <h3 class="wb-trend-head">{{.Title}}</h3>
     {{if .Sub}}<div class="wb-trend-need">{{.Sub}}</div>{{end}}
     {{if .Rows}}{{template "wb/data-table" .}}{{else}}{{template "wb/empty" .Empty}}{{end}}

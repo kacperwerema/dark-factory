@@ -51,6 +51,8 @@ func buildStageBriefing(in stageInput) (string, tracker.StageBriefing) {
 		{name: "worktree", text: tracker.WorktreePromptSection(proj, issue, in.worktree.Path, in.worktree.Branch)},
 		{name: "handoff", text: tracker.HandoffPromptSection(wf)},
 		{name: "lead", text: inject(tracker.LeadPromptSection(issue, in.route))},
+		{name: "owner-words", text: inject(tracker.OwnerWordsPromptSection(issue))},
+		{name: "resume", text: inject(tracker.ResumePromptSection(issue))},
 		{name: "rules", text: inject(RulesPromptSection(wf))},
 	}
 	if text := stageMemories(proj, issue); text != "" {
@@ -71,8 +73,9 @@ func buildStageBriefing(in stageInput) (string, tracker.StageBriefing) {
 	}
 	if !wf.HasRole(issue.Status, tracker.StatusRoleDesign) && !wf.HasRole(issue.Status, tracker.StatusRoleQueue) {
 		parts = append(parts,
-			stagePart{name: tracker.StagePartShell, text: tracker.ShellPromptSection(tracker.DetectShell()), folded: "\n## Shell on this machine\n\nSee docs/getting-started.md#shell-notes.\n"},
+			stagePart{name: tracker.StagePartShell, text: tracker.ShellPromptSection(tracker.DetectShell(), tracker.ProjectTestsFor(in.workDir, wf)), folded: "\n## Shell on this machine\n\nSee docs/getting-started.md#shell-notes.\n"},
 			stagePart{name: tracker.StagePartCI, text: inject(tracker.CIPromptSection(in.workDir, wf)), folded: inject("\n## Local CI\n\nissue-cli ci status: a failure main already has is not yours to fix.\n")},
+			mainHoldsPart(in),
 			stagePart{name: tracker.StagePartBuild, text: tracker.BuildPromptSection(proj, in.workDir, wf), folded: ""},
 			stagePart{name: tracker.StagePartRedRounds, text: "\n\n" + inject(tracker.RedRoundsPromptSection(issue.Slug, wf)), folded: inject("\n\n## Red checks\n\nissue-cli rounds " + issue.Slug + ": each red check against its cap; stop working on one the cap turned into a question.\n")},
 		)
@@ -87,7 +90,7 @@ func buildStageBriefing(in stageInput) (string, tracker.StageBriefing) {
 
 	info := tracker.StageBriefing{Budget: budget}
 	render := func() string {
-		body := joinStageParts(parts)
+		body := tracker.ShortenOwnSlug(joinStageParts(parts), issue.Slug)
 		return body + stageFooter(info, tokens.Estimate(body))
 	}
 	text := render()
@@ -109,6 +112,18 @@ func buildStageBriefing(in stageInput) (string, tracker.StageBriefing) {
 	}
 	info.Tokens = tokens.Estimate(text)
 	return text, info
+}
+
+// mainHoldsPart is the "## Already on main?" part: the commits main made to
+// the tests the brief names since the issue was created. It folds to the
+// summary line and the start that prints the rest.
+func mainHoldsPart(in stageInput) stagePart {
+	m := tracker.MainHolds(in.workDir, in.issue)
+	p := stagePart{name: tracker.StagePartMainHolds, text: tracker.MainHoldsPromptSection(m)}
+	if p.text != "" {
+		p.folded = tracker.InjectProject(in.proj, "\n\n## Already on main?\n\n"+m.Summary()+": issue-cli start prints the commits and the go test that checks them.\n")
+	}
+	return p
 }
 
 func joinStageParts(parts []stagePart) string {
@@ -205,6 +220,7 @@ func stageHowTo(slug string, wf *tracker.WorkflowConfig, yoloOn bool) string {
 	fmt.Fprintf(&b, "  issue-cli transition %s --to \"<next>\" [--dry-run]\n", slug)
 	b.WriteString(strings.ReplaceAll(gates["ask_rule"], "<slug>", slug) + "\n")
 	b.WriteString("Never modify issue .md files by hand; a bug in issue-cli goes to issue-cli report-bug \"...\".\n")
+	b.WriteString(tracker.ReadRule + "\n")
 	return b.String()
 }
 

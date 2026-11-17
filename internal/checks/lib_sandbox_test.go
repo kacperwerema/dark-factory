@@ -358,3 +358,25 @@ echo "REMOTE=$(git --git-dir="$SANDBOX_REMOTE" rev-list --count main)"
 		t.Fatalf("repo %q", repo)
 	}
 }
+
+// TestLibSandboxStopsItsHomesAtExit: a sandbox's exit asks issue-cli to
+// stop every process whose CLI home is inside it (doctor leaks --under,
+// which reads their environment), before the folder goes.
+func TestLibSandboxStopsItsHomesAtExit(t *testing.T) {
+	bash := needBash(t)
+	root := t.TempDir()
+	bin, calls := fakeIssueCLI(t, t.TempDir())
+	path := writeScript(t, root, "demo", "#!/usr/bin/env bash\n# issue: demo/thing\nsource \"$CHECKS_LIB\"\nsandbox_dir\necho \"SB=$SANDBOX\"\n")
+	cmd := exec.Command(bash, path)
+	cmd.Dir = root
+	cmd.Env = libEnv(t, root, bin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	sb := strings.TrimSpace(between(string(out), "SB=", "\n"))
+	data, _ := os.ReadFile(calls)
+	if want := "doctor leaks --under " + sb + " --stop --quiet"; !strings.Contains(string(data), want) {
+		t.Fatalf("no %q at exit; calls:\n%s", want, data)
+	}
+}

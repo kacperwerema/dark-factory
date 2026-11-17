@@ -16,11 +16,15 @@ The box keeps its tick state and position, so its id doesn't change.
 
 Examples:
   issue-cli check-edit <slug> D3 --text "Approach documented in ## Design"
+  issue-cli check-edit <slug> D3 "Approach documented in ## Design"
   issue-cli check-edit <slug> "Design#3" --text "..."
+
+The new text goes in --text or, quoted, as the word after the id.
 
 Don't start the text with the id: the CLI prints the id in front of the box
 already (a leading copy of it is dropped). To drop a box instead, keeping
-the other boxes' ids: issue-cli check-remove <slug> <id>. To change other
+the other boxes' ids: issue-cli check-remove <slug> <id>. To add one:
+issue-cli check-add <slug> --section <name> --text "...". To change other
 lines in a section, use: issue-cli replace <slug> --section <name> --line N --text "..."`,
 	Run: runCheckEdit,
 }
@@ -30,7 +34,7 @@ func init() {
 }
 
 func runCheckEdit(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "check-edit")
+	slug, rest, err := issueSlug(ctx, args, "check-edit")
 	if err != nil {
 		return err
 	}
@@ -40,13 +44,22 @@ func runCheckEdit(ctx *Context, args []string) error {
 		return err
 	}
 	example := fmt.Sprintf("\n\nExample:\n  issue-cli check-edit %s D3 --text \"new box text\"", slug)
-	if fs.NArg() != 1 {
+	switch {
+	case fs.NArg() == 0:
 		return &usageError{msg: "check-edit needs exactly one box id (see issue-cli checklist " + slug + ")" + example}
+	case fs.NArg() == 2 && *textFlag != "":
+		return &usageError{msg: "check-edit takes the text once: in --text or after the id, not both" + example}
+	case fs.NArg() > 2:
+		return &usageError{msg: "check-edit takes one box id and one text: quote the text" + example}
 	}
 	ref := fs.Arg(0)
-	text := strings.TrimSpace(normalizeEscapedText(*textFlag))
+	raw := *textFlag
+	if fs.NArg() == 2 {
+		raw = fs.Arg(1)
+	}
+	text := strings.TrimSpace(normalizeEscapedText(raw))
 	if text == "" {
-		return fmt.Errorf("check-edit requires --text%s", example)
+		return fmt.Errorf("check-edit requires the box's new text (--text, or after the id)%s", example)
 	}
 	if strings.Contains(text, "\n") {
 		return fmt.Errorf("a checkbox's text must be one line%s", example)

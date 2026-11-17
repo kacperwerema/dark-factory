@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/restrace"
 )
 
 // prepareWorktree puts the CI worktree on sha. It is created once and then
@@ -21,6 +22,7 @@ func prepareWorktree(root, sha string) (string, error) {
 		if _, err := gitWithin(worktreeTimeout, root, "worktree", "add", "--detach", path, sha); err != nil {
 			return "", err
 		}
+		restrace.Start(restrace.KindWorktree, 0, path, "ci")
 		return path, nil
 	}
 	if _, err := gitWithin(worktreeTimeout, path, "checkout", "--detach", "--force", sha); err != nil {
@@ -56,6 +58,7 @@ func ResetWorktree(root string) error {
 	if err := os.RemoveAll(path); err != nil {
 		return err
 	}
+	restrace.Stop(restrace.KindWorktree, 0, path)
 	_, err := git(root, "worktree", "prune")
 	return err
 }

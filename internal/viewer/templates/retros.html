@@ -255,7 +255,7 @@
 
         <div class="retros-summary">
             <div class="retro-summary-card">
-                <div class="retro-summary-value">{{len .Retros}}</div>
+                <div class="retro-summary-value">{{.Total}}</div>
                 <div class="retro-summary-label">Visible retrospectives</div>
             </div>
             <div class="retro-summary-card">
@@ -279,6 +279,7 @@
         <section class="retros-section">
             <h2>Retrospectives</h2>
             <p class="retros-section-intro">Project-scoped workflow feedback saved under the project <code>retros/</code> directory.</p>
+            {{if .Range}}<p class="retros-section-intro" data-testid="retro.classic.pager">{{.Range}}{{with .NewerURL}} · <a class="retro-link" href="{{.}}">← Newer</a>{{end}}{{with .OlderURL}} · <a class="retro-link" href="{{.}}">Older →</a>{{end}}</p>{{end}}
             {{if .Retros}}
             <div class="retro-list">
                 {{range .Retros}}

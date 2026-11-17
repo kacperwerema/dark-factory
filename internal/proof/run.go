@@ -48,6 +48,9 @@ type TestRun struct {
 	Packages []string    `json:"packages"`
 	Results  []RunResult `json:"results"`
 	Posted   bool        `json:"posted"`
+	// Suite: the run is the project's ci: commands (PlanSuiteRun), not go
+	// test; each result's Package is the test file that holds its name.
+	Suite bool `json:"suite,omitempty"`
 }
 
 // Passed reports whether every named test ran and passed, superseded ones
@@ -96,7 +99,18 @@ func (r TestRun) Comment() string {
 // RunSuperseded instead: a Proves: trailer pins its commit, and a test
 // renamed or removed later can't be taken out of it.
 func PlanReportRun(dir string, r Report) TestRun {
-	run := PlanGoRun(dir, TestNames(r))
+	return markSuperseded(PlanGoRun(dir, TestNames(r)), r)
+}
+
+// PlanSuiteReportRun is PlanSuiteRun over the test names r's links give,
+// with superseded names marked as PlanReportRun marks them.
+func PlanSuiteReportRun(dir string, r Report, command string) TestRun {
+	return markSuperseded(PlanSuiteRun(dir, TestNames(r), command), r)
+}
+
+// markSuperseded marks each name of run not found that a newer link of r
+// supersedes RunSuperseded.
+func markSuperseded(run TestRun, r Report) TestRun {
 	found := func(n string) bool {
 		for _, res := range run.Results {
 			if res.Name == n {
@@ -234,6 +248,67 @@ func PlanGoRun(dir string, names []string) TestRun {
 	}
 	run.Command = "go " + strings.Join(GoTestArgs(found, run.Packages), " ")
 	return run
+}
+
+// PlanSuiteRun plans a run of a project's own test command (its ci:
+// commands) where go test can't run: no per-test filter, the whole suite
+// runs. Each name is looked up as a whole word in the tracked test files of
+// the checkout at dir (testFiles, as the proof check finds a test link's
+// name); its Package is the first such file. Names in no test file come back
+// as not found. Packages lists the files, so a plan with none runs nothing.
+func PlanSuiteRun(dir string, names []string, command string) TestRun {
+	run := TestRun{Command: command, Packages: []string{}, Suite: true}
+	fileOf := map[string]string{}
+	if len(names) > 0 {
+		args := []string{"grep", "-w", "-F", "-o", "-I"}
+		for _, n := range names {
+			args = append(args, "-e", n)
+		}
+		out, _ := git(dir, append(args, "--")...)
+		files := &testFiles{grep: func(args ...string) (string, error) { return git(dir, args...) }}
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			for _, n := range names {
+				// <path>:<match>; a name may hold a colon itself.
+				if file, ok := strings.CutSuffix(line, ":"+n); ok && files.is(file) {
+					if _, seen := fileOf[n]; !seen {
+						fileOf[n] = file
+					}
+				}
+			}
+		}
+	}
+	for _, n := range names {
+		res := RunResult{Name: n, Outcome: RunNotFound}
+		if file, ok := fileOf[n]; ok {
+			res.Package, res.Outcome = file, RunNotRun
+			if !containsString(run.Packages, file) {
+				run.Packages = append(run.Packages, file)
+			}
+		}
+		run.Results = append(run.Results, res)
+	}
+	sort.Strings(run.Packages)
+	return run
+}
+
+// SuiteDone records the suite's outcome on each name that was to run: all
+// pass when it passed, else all fail, the first one keeping the tail of
+// output (the suite says which of its tests failed, not this run).
+func (r *TestRun) SuiteDone(passed bool, output []string) {
+	first := true
+	for i, res := range r.Results {
+		if res.Outcome != RunNotRun {
+			continue
+		}
+		if passed {
+			r.Results[i].Outcome = RunPass
+			continue
+		}
+		r.Results[i].Outcome = RunFail
+		if first {
+			r.Results[i].Output, first = tail(output), false
+		}
+	}
 }
 
 // GoTestArgs are the go test arguments that run the top-level tests in pkgs.

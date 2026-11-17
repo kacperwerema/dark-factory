@@ -98,7 +98,7 @@ func unquotedFollowUps(env *Env, list []*outputs.Output, slug, kind string) []Fi
 	return []Finding{{
 		Where:   slug,
 		Message: fmt.Sprintf("done, but %s lists %d follow-up(s)%s and no issue or queue item quotes the report", newest.ID, count, also),
-		Fix:     fmt.Sprintf(`issue-cli queue add --idea "<the follow-up> (from %s)", or file an issue that names %s, or mark the owner's items "(owner)"`, slug, slug),
+		Fix:     fmt.Sprintf(`issue-cli queue add --idea "<the follow-up> (from %s)", or file an issue that names %s, or mark the owner's items "(owner)" (one the owner does by hand, with exact text or a date: issue-cli owner-step add --title … --due <day> --body "…")`, slug, slug),
 	}}
 }
 

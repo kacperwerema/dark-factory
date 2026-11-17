@@ -16,19 +16,20 @@ import (
 // reason. Everything else a project can set must be detected by an entry's
 // probe or taught by an entry's snippet, so `workflow upgrade` can offer it.
 var nonFeatureKeys = map[string]string{
-	"template":                "the template stamp itself",
-	"features":                "the feature record itself",
-	"worktree_sparse_exclude": "tunes worktree (default issues/); not something to adopt on its own",
-	"leads.epic":              "obsolete and ignored; lint warns when set",
-	"ci.branch":               "local CI's integration branch; the default (main/master) fits every project so far",
-	"ci.nice":                 "local CI's process priority; a tuning knob, not a feature",
-	"health.off":              "turns snapshots off; the opposite of adopting a feature",
-	"health.timeout":          "per-family time limit; a tuning knob",
-	"health.exclude":          "codebase-count exclusions; a tuning knob",
-	"health.big_file_lines":   "a tuning knob for big files",
-	"health.long_func_lines":  "a tuning knob for long functions",
-	"health.score":            "per-component score overrides; a tuning knob",
-	"decisions":               "the decisions-in-force block's cap (brief_cap), a tuning knob with a default; the decision-ledger entry (factory/decisions-cited-in-design-…) may cover it",
+	"template":                   "the template stamp itself",
+	"features":                   "the feature record itself",
+	"worktree_sparse_exclude":    "tunes worktree (default issues/); not something to adopt on its own",
+	"leads.epic":                 "obsolete and ignored; lint warns when set",
+	"leads.green_branch_minutes": "how long the lead tick lets a shipping branch wait unmerged before its merge: line; a tuning knob with a default (30)",
+	"ci.branch":                  "local CI's integration branch; the default (main/master) fits every project so far",
+	"ci.nice":                    "local CI's process priority; a tuning knob, not a feature",
+	"health.off":                 "turns snapshots off; the opposite of adopting a feature",
+	"health.timeout":             "per-family time limit; a tuning knob",
+	"health.exclude":             "codebase-count exclusions; a tuning knob",
+	"health.big_file_lines":      "a tuning knob for big files",
+	"health.long_func_lines":     "a tuning knob for long functions",
+	"health.score":               "per-component score overrides; a tuning knob",
+	"decisions":                  "the decisions-in-force block's cap (brief_cap), a tuning knob with a default; the decision-ledger entry (factory/decisions-cited-in-design-…) may cover it",
 }
 
 // blocks are the project-wide config blocks whose sub-keys the guard walks.

@@ -49,6 +49,7 @@ templates/retro_wb.html composes them.
     <div class="wb-rlist-head"><span class="wb-rlist-title">{{.Title}}</span><span class="wb-rlist-count">{{.Count}}</span></div>
     {{range .Items}}{{template "wb/retro-item" .}}{{else}}{{with .Empty}}<p class="wb-empty">{{.}}</p>{{end}}{{end}}
     {{if .More}}<a class="wb-rlist-more" href="{{.MoreURL}}" data-testid="retro.list.more">+{{.More}} older</a>{{end}}
+    {{if .Range}}<div class="wb-rlist-pager"><span class="wb-rlist-count" data-testid="retro.list.range">{{.Range}}</span>{{with .NewerURL}}<a class="wb-rlist-more" href="{{.}}" data-testid="retro.list.newer">← Newer</a>{{end}}{{with .OlderURL}}<a class="wb-rlist-more" href="{{.}}" data-testid="retro.list.older">Older →</a>{{end}}</div>{{end}}
 </section>
 {{end}}
 

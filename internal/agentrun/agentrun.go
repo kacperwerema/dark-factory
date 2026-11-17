@@ -81,9 +81,18 @@ type Spec struct {
 	Briefing *tracker.Briefing
 }
 
-// validModelName limits --model values to characters that are safe in a
-// shell command unquoted.
-var validModelName = regexp.MustCompile(`^[A-Za-z0-9._:/\[\]-]+$`)
+// ValidModel reports whether m may be passed as --model: a plain model
+// name, never shell text.
+func ValidModel(m string) bool { return routing.ValidModel(m) }
+
+// StartModel is the model spec's start runs on: the route's when routing
+// picked one, else the project's (agent_models); "" passes no --model.
+func StartModel(proj *tracker.Project, spec Spec) string {
+	if spec.Route != nil && spec.Route.Agent == spec.AgentType && spec.Route.Model != "" {
+		return spec.Route.Model
+	}
+	return proj.AgentModel(spec.AgentType)
+}
 
 // validSessionName limits the -n value to characters that are safe in a shell
 // command unquoted; agent-<slug> and lead-<project> names always are.
@@ -103,12 +112,18 @@ func LaunchCommand(proj *tracker.Project, agentType, session, promptPath string)
 // LaunchCommandWith is LaunchCommand with extra flags before the prompt
 // (the department's MCP connectors, ConnectorFlags), each shell-quoted.
 func LaunchCommandWith(proj *tracker.Project, agentType, session, promptPath string, extra []string) string {
+	return LaunchCommandModel(proj, agentType, proj.AgentModel(agentType), session, promptPath, extra)
+}
+
+// LaunchCommandModel is LaunchCommandWith on model: --model model, or no
+// flag when model is "" or not a plain model name (ValidModel).
+func LaunchCommandModel(proj *tracker.Project, agentType, model, session, promptPath string, extra []string) string {
 	nameFlag := ""
 	if agentType == "claude" && validSessionName.MatchString(session) {
 		nameFlag = " -n " + session
 	}
 	modelFlag := ""
-	if m := proj.AgentModel(agentType); m != "" && validModelName.MatchString(m) {
+	if m := strings.TrimSpace(model); m != "" && ValidModel(m) {
 		modelFlag = " --model " + m
 	}
 	extraFlags := ""
@@ -177,6 +192,7 @@ func ProjectWorkDir(proj *tracker.Project) string {
 // "dispatched" means an agent is running: a launch that dies at once comes
 // back as an error with its session removed (reportDeadLaunch).
 func Start(proj *tracker.Project, spec Spec) Response {
+	EndReadings() // a dispatch watches its own session and pane change
 	session, prompt := spec.Session, spec.Prompt
 	// No agent named means the window would run an empty command: the
 	// shell says "permission denied" and an idle session is left behind.
@@ -321,8 +337,18 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// The prompt goes in as the agent's launch argument, never pasted: a
 	// paste sent before the agent's input is ready is silently dropped. Both
 	// agents start interactive, so a human stays in the loop.
-	extra := ConnectorFlags(proj, spec, sessionLogDir, env, &steps)
-	env = append(env, ConnectorEnv(proj, spec)...)
+	// A lean worker (workers: in workflow.yaml) gets only the MCP servers,
+	// plugins and skills its issue needs; leads, codex and setup: full get
+	// the owner's whole setup plus the department's connectors.
+	var extra []string
+	if LeanWorker(spec) {
+		ws := WorkerSetupFlags(proj, spec, workDir, sessionLogDir, env, &steps)
+		extra = ws.Flags
+		env = append(env, ws.Env...)
+	} else {
+		extra = ConnectorFlags(proj, spec, sessionLogDir, env, &steps)
+		env = append(env, ConnectorEnv(proj, spec)...)
+	}
 	if spec.AgentType == "codex" {
 		extra = append(CodexStartFlags(workDir), extra...)
 		sandbox := CodexSandboxFlags(codexSandbox(proj, spec.Workflow), projectIssueDir(proj), workDir)
@@ -331,17 +357,23 @@ func Start(proj *tracker.Project, spec Spec) Response {
 			steps = append(steps, Step{Name: "Codex sandbox (routing: codex:)", Status: "ok", Detail: strings.Join(sandbox, " ")})
 		}
 	}
+	model := StartModel(proj, spec)
+	if model != "" && !ValidModel(model) {
+		steps = append(steps, Step{Name: "Model", Status: "warning", Detail: fmt.Sprintf("%q is not a model name: started without --model (routing: rules model:, or agent_models)", model)})
+		model = ""
+	}
 	createName, createCmd := CreateTmux(proj, session, workDir, env,
-		AgentCommand(LaunchCommandWith(proj, spec.AgentType, session, promptPath, extra))...)
+		AgentCommand(LaunchCommandModel(proj, spec.AgentType, model, session, promptPath, extra))...)
 	if !RunStep(&steps, fmt.Sprintf("%s, running %s (interactive, prompt as argument)", createName, spec.AgentType), createCmd) {
 		response.Status = "error"
 		response.Steps = steps
 		return response
 	}
+	traceLaunch(target, createName, spec.AgentType)
 	// Recorded before the launch is known to hold: the worker reads it at
 	// its first call, and only this launch can name the base it cut.
 	if spec.IssueSlug != "" {
-		recordDispatch(proj, spec, base, &steps)
+		recordDispatch(proj, spec, model, base, &steps)
 	}
 
 	// In shared mode the window is already named after the session so it can be
@@ -411,14 +443,14 @@ func reportDeadLaunch(proj *tracker.Project, spec Spec, target string, response 
 // recordDispatch appends this launch to the issue's stats sidecar, with the
 // base its work branch was cut from when this launch cut it. A failure is a
 // warning step; it never fails the dispatch.
-func recordDispatch(proj *tracker.Project, spec Spec, base tracker.Dispatch, steps *[]Step) {
+func recordDispatch(proj *tracker.Project, spec Spec, model string, base tracker.Dispatch, steps *[]Step) {
 	if proj == nil || proj.IssueDir == "" {
 		return
 	}
 	issues, err := proj.LoadIssues()
 	if err == nil {
 		if issue := tracker.FindIssue(issues, spec.IssueSlug); issue != nil {
-			err = tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: spec.Session, Agent: spec.AgentType, BaseBranch: base.BaseBranch, BaseSHA: base.BaseSHA})
+			err = tracker.RecordDispatch(issue.FilePath, tracker.Dispatch{At: time.Now(), Session: spec.Session, Agent: spec.AgentType, Model: model, BaseBranch: base.BaseBranch, BaseSHA: base.BaseSHA})
 		}
 	}
 	if err != nil {

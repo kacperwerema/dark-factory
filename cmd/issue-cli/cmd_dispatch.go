@@ -214,6 +214,12 @@ func runDispatch(ctx *Context, args []string) error {
 // so tests need no tmux.
 var repromptWorker = agentrun.Reprompt
 
+// dispatchMainHolds is what main did to the brief's named tests since the
+// issue was created; dispatch says it to the lead and still starts the
+// worker (D-1 of factory/dispatch-says-already-holds-on-main-…). A var so
+// tests need no git history.
+var dispatchMainHolds = tracker.MainHolds
+
 // reportDispatch prints a dispatch or reprompt response: JSON, or the
 // outcome line, the steps and how to reach the session. A worker started or
 // re-prompted gets comment (the dispatch: line) on its issue. A failed launch
@@ -248,6 +254,11 @@ func reportDispatch(ctx *Context, issue *tracker.Issue, resp agentrun.Response, 
 	if commented {
 		fmt.Fprintf(ctx.Stdout, "  comment: %s\n", comment)
 	}
+	if resp.Status == "dispatched" {
+		if line := dispatchMainHolds(projectRoot(ctx.Project), issue).Summary(); line != "" {
+			fmt.Fprintf(ctx.Stdout, "  %s; the briefing says so\n", line)
+		}
+	}
 	printSteps(ctx, resp.Steps)
 	if resp.Status == "no-session" {
 		return fmt.Errorf("no live worker for %s; nothing was re-sent (see the step above)", issue.Slug)
@@ -278,13 +289,14 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 // a lead in another project ticking at the same minute holds.
 func dispatchAutostart(ctx *Context, issue *tracker.Issue, issues []*tracker.Issue, me Identity, agentType string) error {
 	proj := ctx.Project
-	err := autostart.WithBudget(autostart.SharedDir(), func(last *autostart.Start) (*autostart.Start, error) {
-		v, st, err := autostartVerdict(ctx, issues, last, issue.Slug)
+	err := autostart.WithShare(autostart.SharedDir(), func(b *autostart.Budget) (*autostart.Start, error) {
+		v, st, err := autostartVerdict(ctx, issues, b, issue.Slug)
 		if err != nil {
 			return nil, err
 		}
+		b.Decided(proj.Slug, proj.Weight(), v, ctx.now())
 		if !v.Start {
-			return nil, &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.", v.Reason)}
+			return nil, &exitCodeError{Code: 1, Hold: true, HoldKind: v.Kind, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.", v.Reason)}
 		}
 		now := ctx.now()
 		_, yoloOn, _ := yolo.Active(yoloRoot(proj), proj.Slug, now)
@@ -293,7 +305,7 @@ func dispatchAutostart(ctx *Context, issue *tracker.Issue, issues []*tracker.Iss
 			return nil, &exitCodeError{Code: exitWaitingOnGate, Msg: fmt.Sprintf("✗ Not auto-started: %s waits on the owner's approval for %q. Nothing was started.", issue.Slug, refused.Gate)}
 		}
 		if spec.Route != nil && spec.Route.Hold != "" {
-			return nil, &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.\nA wrong rest: %s", spec.Route.Hold, tracker.InjectProject(proj, "issue-cli agents clear <agent>"))}
+			return nil, &exitCodeError{Code: 1, Hold: true, Msg: fmt.Sprintf("✗ Not auto-started: hold: %s. Nothing was started.\nA wrong rest: %s", spec.Route.Hold, tracker.InjectProject(proj, "issue-cli agents clear <agent>"))}
 		}
 		comment := autostartComment(st, v, now)
 		if me.Name != "" {
@@ -307,10 +319,11 @@ func dispatchAutostart(ctx *Context, issue *tracker.Issue, issues []*tracker.Iss
 		if resp.Status != "dispatched" {
 			return nil, rerr
 		}
+		b.Started(proj.Slug, issue.Slug, v, now)
 		return &autostart.Start{Project: proj.Slug, Slug: issue.Slug, At: now, Memory: v.Memory, By: me.Name}, rerr
 	})
 	if errors.Is(err, autostart.ErrBusy) {
-		return &exitCodeError{Code: 1, Msg: "✗ Not auto-started: hold: " + err.Error() + ". Nothing was started."}
+		return &exitCodeError{Code: 1, Hold: true, Msg: "✗ Not auto-started: hold: " + err.Error() + ". Nothing was started."}
 	}
 	return err
 }

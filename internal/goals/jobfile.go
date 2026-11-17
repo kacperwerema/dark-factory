@@ -1,10 +1,14 @@
 package goals
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/jobs"
@@ -76,51 +80,163 @@ func JobOf(p *tracker.Project, path string) *jobs.Ref {
 	return r
 }
 
-// Metric is one value a job's run read.
+// Metric is one value a job's run read, with the day it is for.
 type Metric struct {
 	ID    string  `json:"id"`
 	Value float64 `json:"value"`
+	// Date is the day the value is for (YYYY-MM-DD): the write's day for
+	// the metrics it set, a kept metric's own day on a merge. A file
+	// written before metrics carried a date has none; the file's date
+	// stands in.
+	Date string `json:"date,omitempty"`
 }
 
 // jobFile is the metrics file a job writes, in the metric run format.
 type jobFile struct {
-	Date    string   `json:"date"`
+	Date string `json:"date"`
+	// Written is the day goal write wrote the file (the clock's day, not
+	// --date): the run stamp a gate compares with today.
+	Written string   `json:"written,omitempty"`
 	Job     string   `json:"job,omitempty"`
 	Metrics []Metric `json:"metrics"`
 }
 
-// WriteMetrics replaces job r's metrics file with metrics dated date
-// (YYYY-MM-DD) and returns its path. It writes a temporary file beside it,
-// syncs it and renames it into place, so a reader sees the old file or the
-// new one, never half of one. A metric the run didn't read is left out.
-func WriteMetrics(p *tracker.Project, r *jobs.Ref, date string, metrics []Metric) (string, error) {
-	if len(metrics) == 0 {
-		return "", fmt.Errorf("no metrics to write")
+// Write is one goal write: the metrics a run read, the day they are for,
+// the day it runs, and whether to keep the file's other metrics.
+type Write struct {
+	Date    string   // the day the numbers are for (YYYY-MM-DD)
+	Today   string   // the day the write runs (YYYY-MM-DD), the run stamp
+	Metrics []Metric // the metrics this write sets
+	Merge   bool     // keep the file's metrics this write doesn't name
+}
+
+// Written is what a write left in the job's file.
+type Written struct {
+	Path string
+	// Kept are the metrics a merge kept from the file, with their own
+	// dates; Dropped the ids a whole write left out that the old file had.
+	Kept    []Metric
+	Dropped []string
+}
+
+// lockWait is how long a write waits for another write of the same file.
+const lockWait = 10 * time.Second
+
+// WriteMetrics writes job r's metrics file: whole (w.Merge false: a
+// metric the run didn't read is left out) or merged (the file's other
+// metrics kept with their own dates). It holds a lock on the file's folder
+// while it reads
+// and writes, and writes a temporary file beside it, syncs it and renames
+// it into place, so a reader sees the old file or the new one, never half
+// of one. A merge into a file it can't read refuses rather than drop what
+// is there.
+func WriteMetrics(p *tracker.Project, r *jobs.Ref, w Write) (*Written, error) {
+	if len(w.Metrics) == 0 {
+		return nil, fmt.Errorf("no metrics to write")
 	}
-	if _, err := time.Parse("2006-01-02", date); err != nil {
-		return "", fmt.Errorf("date %q: want YYYY-MM-DD", date)
+	for _, d := range []string{w.Date, w.Today} {
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			return nil, fmt.Errorf("date %q: want YYYY-MM-DD", d)
+		}
 	}
 	seen := map[string]bool{}
-	for _, m := range metrics {
+	set := make([]Metric, 0, len(w.Metrics))
+	for _, m := range w.Metrics {
 		if strings.TrimSpace(m.ID) == "" {
-			return "", fmt.Errorf("a metric has no id")
+			return nil, fmt.Errorf("a metric has no id")
 		}
 		if seen[m.ID] {
-			return "", fmt.Errorf("metric %q appears twice", m.ID)
+			return nil, fmt.Errorf("metric %q appears twice", m.ID)
 		}
 		seen[m.ID] = true
+		m.Date = w.Date
+		set = append(set, m)
 	}
 	path, err := ResolvePath(p, JobFileSource(r.Department, r.Job.ID))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
+		return nil, err
 	}
-	if err := jsonfile.Write(path, jobFile{Date: date, Job: r.Key, Metrics: metrics}, 0o644); err != nil {
-		return "", fmt.Errorf("writing %s: %w", path, err)
+	unlock, err := lockDir(filepath.Dir(path), lockWait)
+	if err != nil {
+		return nil, err
 	}
-	return path, nil
+	defer unlock()
+	old, err := readJobFile(path)
+	if err != nil && w.Merge {
+		return nil, fmt.Errorf("%v: --merge keeps what the file holds, so it can't write over a file it can't read; rerun without --merge to replace it", err)
+	}
+	res := &Written{Path: path}
+	if old != nil {
+		for _, m := range old.Metrics {
+			if seen[m.ID] {
+				continue
+			}
+			if !w.Merge {
+				res.Dropped = append(res.Dropped, m.ID)
+				continue
+			}
+			if m.Date == "" {
+				m.Date = old.Date
+			}
+			res.Kept = append(res.Kept, m)
+		}
+	}
+	all := append(set, res.Kept...)
+	if err := jsonfile.Write(path, jobFile{Date: w.Date, Written: w.Today, Job: r.Key, Metrics: all}, 0o644); err != nil {
+		return nil, fmt.Errorf("writing %s: %w", path, err)
+	}
+	return res, nil
+}
+
+// readJobFile is the job file at path; nil, nil when there is none.
+func readJobFile(path string) (*jobFile, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %v", path, err)
+	}
+	var f jobFile
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return nil, fmt.Errorf("%s doesn't parse as a job's metrics file (%v)", path, err)
+	}
+	for _, m := range f.Metrics {
+		if strings.TrimSpace(m.ID) == "" {
+			return nil, fmt.Errorf("%s has a metric with no id", path)
+		}
+	}
+	return &f, nil
+}
+
+// lockDir takes an exclusive flock on folder dir, waiting up to timeout
+// for another holder. Locking the folder, not a lock file beside the job
+// file, leaves nothing behind in the issues folder for a tracker to commit.
+func lockDir(dir string, timeout time.Duration) (func(), error) {
+	path := dir
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, fmt.Errorf("locking %s: %v", path, err)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			f.Close()
+			return nil, fmt.Errorf("locking %s: another goal write holds it (%v)", path, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }
 
 // parseDay is a metrics file's date (a day or RFC3339) as its day in loc.

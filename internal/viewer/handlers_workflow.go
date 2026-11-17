@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,18 @@ type RetroEntry struct {
 	BodyRaw      string
 	ModTime      time.Time
 	ReviewStatus string
+	// sectionsLower is the lowercased text of the labelled lines, kept
+	// with the parse: the Retro page's pattern looks every term of the
+	// selected retro up in every other one.
+	sectionsLower string
+}
+
+// lowerSections is r's lowercased labelled-lines text (retro.SectionsText).
+func (r *RetroEntry) lowerSections() string {
+	if r.sectionsLower == "" {
+		r.sectionsLower = strings.ToLower(retro.SectionsText(r.BodyRaw))
+	}
+	return r.sectionsLower
 }
 
 type ToolBugReportView struct {
@@ -47,7 +60,17 @@ type RetrosData struct {
 	BugCounts   map[string]int
 	Prefix      string
 	ProjectName string
+	// Total is how many retros the filter keeps; Retros is one page of them
+	// (classicRetroPage), Range "51–100 of 535" when there are more pages,
+	// NewerURL and OlderURL the pages either side.
+	Total              int
+	Range              string
+	NewerURL, OlderURL string
 }
+
+// classicRetroPage is how many retros, each with its body, one page of the
+// classic retros page shows.
+const classicRetroPage = 50
 
 type statusUpdateResponse struct {
 	Status string `json:"status"`
@@ -91,17 +114,36 @@ func (s *Server) handleRetros(w http.ResponseWriter, r *http.Request, proj *trac
 		bugs = filterBugsByStatus(bugs, bugStatus)
 	}
 
+	data := RetrosData{Total: len(retros)}
+	if len(retros) > classicRetroPage {
+		last := (len(retros) + classicRetroPage - 1) / classicRetroPage
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil || page < 1 {
+			page = 1
+		}
+		page = min(page, last)
+		from, to := (page-1)*classicRetroPage, min(page*classicRetroPage, len(retros))
+		data.Range = fmt.Sprintf("%d–%d of %d", from+1, to, len(retros))
+		pageURL := func(n int) string {
+			q := r.URL.Query()
+			q.Set("page", strconv.Itoa(n))
+			return prefix + "/retros?" + q.Encode()
+		}
+		if page > 1 {
+			data.NewerURL = pageURL(page - 1)
+		}
+		if page < last {
+			data.OlderURL = pageURL(page + 1)
+		}
+		retros = retros[from:to]
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.tmpl.ExecuteTemplate(w, "retros.html", RetrosData{
-		Retros:      retros,
-		Bugs:        bugs,
-		RetroStatus: retroStatus,
-		BugStatus:   bugStatus,
-		RetroCounts: retroCounts,
-		BugCounts:   bugCounts,
-		Prefix:      prefix,
-		ProjectName: proj.Name,
-	}); err != nil {
+	data.Retros, data.Bugs = retros, bugs
+	data.RetroStatus, data.BugStatus = retroStatus, bugStatus
+	data.RetroCounts, data.BugCounts = retroCounts, bugCounts
+	data.Prefix, data.ProjectName = prefix, proj.Name
+	if err := s.tmpl.ExecuteTemplate(w, "retros.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -124,17 +166,18 @@ func parseRetroFile(path string, info os.FileInfo) (*RetroEntry, error) {
 		return nil, err
 	}
 	return &RetroEntry{
-		FileName:     info.Name(),
-		FilePath:     path,
-		IssueSlug:    meta["Issue"],
-		IssueTitle:   meta["Title"],
-		Status:       meta["Status"],
-		System:       meta["System"],
-		Date:         meta["Date"],
-		BodyHTML:     page.BodyHTML,
-		BodyRaw:      body,
-		ModTime:      info.ModTime(),
-		ReviewStatus: normalizeRetroReviewStatus(meta["ReviewStatus"]),
+		sectionsLower: strings.ToLower(retro.SectionsText(body)),
+		FileName:      info.Name(),
+		FilePath:      path,
+		IssueSlug:     meta["Issue"],
+		IssueTitle:    meta["Title"],
+		Status:        meta["Status"],
+		System:        meta["System"],
+		Date:          meta["Date"],
+		BodyHTML:      page.BodyHTML,
+		BodyRaw:       body,
+		ModTime:       info.ModTime(),
+		ReviewStatus:  normalizeRetroReviewStatus(meta["ReviewStatus"]),
 	}, nil
 }
 

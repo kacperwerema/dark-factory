@@ -32,6 +32,7 @@ var needsYouKinds = []struct {
 	{"test", "To test", []string{"playtest", "checks"}},
 	{"answer", "To answer", []string{"question", "clarify", "challenge", "decision"}},
 	{"outputs", "Outputs to review", []string{"outputs"}},
+	{"steps", "Your steps", []string{"step"}},
 	{"jobs", "Due jobs", []string{"job"}},
 	{"other", "Other", nil},
 }
@@ -113,7 +114,8 @@ type NeedsYouJSON struct {
 
 // needsYouRows is what waits on the owner in the project: CI red, ready
 // gates, playtests and check scripts to run, open questions, outputs to
-// review (one row per department), due jobs without a standing start,
+// review (one row per department), the owner's hand steps (owner-step),
+// due jobs without a standing start,
 // expired hard decisions to renew or let go and unsent bug reports; CI red
 // first, then the oldest.
 func needsYouRows(p *tracker.Project, color, prefix string, open []*tracker.Issue, now time.Time) []WbQueueCard {
@@ -151,11 +153,14 @@ func needsYouRowsWith(p *tracker.Project, color, prefix string, owner []WaitingI
 		})
 	}
 	rows = append(rows, connectorWaits(p, color, prefix, now)...)
+	rows = append(rows, ownerStepNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, jobNeedsYouRows(p, color, prefix, now)...)
 	rows = append(rows, nightlyNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, postmortemNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, challengeNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, decisionExpiryNeedsYou(p, color, prefix, now)...)
+	rows = append(rows, machineNeedsYou(p, color, prefix, now)...)
+	rows = append(rows, diskNeedsYou(p, color, prefix, now)...)
 	if n := unsentBugReports(); n > 0 {
 		rows = append(rows, WbQueueCard{
 			Kind: "bugs", Label: "Bug reports", Tone: "you",
@@ -181,8 +186,8 @@ func needsYouIssueRows(p *tracker.Project, issues []*tracker.Issue) int {
 }
 
 // needsYouTotal is the number across projects for each project's count: the
-// sum, with unsent bug reports once (appendNeedsYou). A count of -1 was not
-// taken in time and adds nothing.
+// sum, with the machine-wide rows (unsent bug reports, a runaway fseventsd,
+// a filling disk) once (appendNeedsYou). A count of -1 was not taken in time and adds nothing.
 func needsYouTotal(counts []int) int {
 	total, counted := 0, 0
 	for _, n := range counts {
@@ -191,8 +196,8 @@ func needsYouTotal(counts []int) int {
 			counted++
 		}
 	}
-	if counted > 1 && unsentBugReports() > 0 {
-		total -= counted - 1
+	if counted > 1 {
+		total -= (counted - 1) * machineWideRows(time.Now())
 	}
 	return total
 }
@@ -204,15 +209,21 @@ func (s *Server) needsYouEverywhere() int {
 }
 
 // appendNeedsYou adds a project's rows to a list across projects. Unsent bug
-// reports are this user's, not a project's: they are listed once.
+// reports, a runaway fseventsd and a filling disk are this machine's, not a project's: they
+// are listed once (machineWideKinds).
 func appendNeedsYou(all, rows []WbQueueCard) []WbQueueCard {
-	bugs := false
+	seen := map[string]bool{}
 	for _, r := range all {
-		bugs = bugs || r.Kind == "bugs"
+		if machineWideKinds[r.Kind] {
+			seen[r.Kind] = true
+		}
 	}
 	for _, r := range rows {
-		if r.Kind == "bugs" && bugs {
-			continue
+		if machineWideKinds[r.Kind] {
+			if seen[r.Kind] {
+				continue
+			}
+			seen[r.Kind] = true
 		}
 		all = append(all, r)
 	}

@@ -23,6 +23,13 @@ This page is generated: run `go generate ./internal/docnumbers/...` after changi
 | mem-guard resume | 70% | The watchdog resumes; optional work (a benchmark check, an embed) waits for this too | `memguard.ResumeAt` |
 | mem-guard hard limit | 85% | Memory use is never to exceed this | `memguard.HardLimit` |
 | Auto-start memory line | 50% | Auto-start, the queue and the nightly loop start only while memory used is under this | `autostart.DefaultBelow` |
+| Auto-start workers | 2 | Live workers per project auto-start allows when --max-workers is unset | `autostart.DefaultMaxWorkers` |
 | Auto-start gap | 5 min | Time between two auto-starts, across the machine | `autostart.DefaultGapMinutes` |
+| Start weight floor | 1 | The least start_weight: a project counts with in the turn between projects; unset or lower is this | `autostart.MinWeight` |
+| Turn drop-out | 2 gaps | A project whose last ask is older than this many of its gaps drops out of the turn and loses its credit | `autostart.StaleGaps` |
+| Start share window | 24 h | How far back the share line counts each project's starts | `autostart.ShareWindow` |
+| Queue refill line | 5 | At this many open queue items or fewer the lead's tick says the queue wants refilling | `leadstate.RefillLine` |
+| Long hold | 1 h | Starts held this long make the lead's tick say so under --watch, even when each hold clears by itself | `leadstate.HeldLong` |
+| Worktree idle | 3 h | A sweep removes a merged, clean worktree only when nothing in it changed for this long | `agentrun.PruneIdle` |
 | Health snapshot check | 10 min | How often the viewer looks for a project with no snapshot from today | `viewer.HealthCheckInterval` |
 | Tracker sync | 10 min | How often the viewer commits, pulls and pushes each private tracker | `viewer.TrackerSyncInterval` |

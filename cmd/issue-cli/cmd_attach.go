@@ -12,25 +12,35 @@ import (
 
 var attachCommand = &Command{
 	Name:      "attach",
-	ShortHelp: "Save screenshots as issue attachments and print their markdown links",
-	LongHelp: `Save images where the viewer's upload saves them (<issues>/attachments/,
-named by the hash of their bytes) and print one markdown image link per file.
+	ShortHelp: "Save screenshots or any file (a profile, a text capture) as issue attachments and print their markdown links",
+	LongHelp: `Save files where the viewer's upload saves images (<issues>/attachments/,
+named by the hash of their bytes) and print one markdown link per file.
 The links show on the issue's page in the viewer at once, with no viewer
 running and no curl.
 
-Only PNG, JPEG, GIF and WebP (sniffed from the bytes, not the name), at most
-10MB each. A file must be inside your worktree, the project or the temp
-folder (your scratchpad); copy anything else there first. One bad file
-refuses the whole call and saves nothing.
+An image (PNG, JPEG, GIF or WebP, sniffed from the bytes, not the name) is
+saved as <hash>.<ext> and printed as an image link, ![alt](url). Any other
+file (a CPU profile, pprof -top output, a log) keeps its name, cleaned to
+letters, digits, ".", "_" and "-", as <hash>/<name>, and is printed as a
+plain link, [name](url): the viewer shows a text file (UTF-8, no NUL byte)
+as text in the browser and serves anything else as a download, never as a
+page. A non-image named like one (fake.png) is refused. At most 10MB each.
+A file must be inside your worktree, the project or the temp folder (your
+scratchpad); copy anything else there first. One bad file refuses the
+whole call and saves nothing.
 
 With --section, the links are also appended into that section of the issue
 (as append --section does); stdout still carries only the links.
+
+Stills that belong to the issue's evidence (a step's before/after, kept by
+name and shown on its Evidence tab) go through issue-cli evidence add instead.
 
 Examples:
   issue-cli attach <slug> shot.png
   issue-cli attach <slug> before.png after.png --section "Test Plan"
   issue-cli attach <slug> board.png --alt "Board at 390px"
-  issue-cli attach <slug> shot.png --json`,
+  issue-cli attach <slug> cpu.pprof top.txt --section "Test Plan"
+  issue-cli attach <slug> shot.png --json   (each record has kind: image, text or file)`,
 	Run: runAttach,
 }
 
@@ -67,9 +77,11 @@ func gitTopOrSelf(dir string) string {
 	}
 }
 
-// attachment is one saved file, the --json record.
+// attachment is one saved file, the --json record. Kind is image, text or
+// file (tracker.AttachmentKind).
 type attachment struct {
 	File     string `json:"file"`
+	Kind     string `json:"kind"`
 	Name     string `json:"name"`
 	URL      string `json:"url"`
 	Markdown string `json:"markdown"`
@@ -88,7 +100,7 @@ func runAttach(ctx *Context, args []string) error {
 	}
 	files := fs.Args()
 	if len(files) == 0 {
-		return fmt.Errorf("attach requires at least one image file\n\nExample:\n  issue-cli attach %s shot.png", slug)
+		return fmt.Errorf("attach requires at least one file\n\nExample:\n  issue-cli attach %s shot.png", slug)
 	}
 
 	issue, _, err := findIssueOrErr(ctx, slug)
@@ -104,24 +116,37 @@ func runAttach(ctx *Context, args []string) error {
 		if err != nil {
 			return &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ %s: %v (nothing saved)", f, err)}
 		}
+		if err := attachableName(f, data); err != nil {
+			return &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ %s: %v (nothing saved)", f, err)}
+		}
 		datas[i] = data
 	}
 
 	var out []attachment
 	var lines []string
 	for i, f := range files {
-		name, err := tracker.SaveAttachment(ctx.Project.IssueDir, datas[i])
-		if err != nil {
-			return fmt.Errorf("attach %s: %w", f, err)
-		}
-		alt := *altFlag
-		if alt == "" {
-			base := filepath.Base(f)
-			alt = strings.TrimSuffix(base, filepath.Ext(base))
+		kind := tracker.AttachmentKind(datas[i])
+		var name, md string
+		if kind == "image" {
+			name, err = tracker.SaveAttachment(ctx.Project.IssueDir, datas[i])
+			if err != nil {
+				return fmt.Errorf("attach %s: %w", f, err)
+			}
+			alt := *altFlag
+			if alt == "" {
+				base := filepath.Base(f)
+				alt = strings.TrimSuffix(base, filepath.Ext(base))
+			}
+			md = tracker.AttachmentMarkdown(ctx.Project.Slug, name, alt)
+		} else {
+			name, err = tracker.SaveAttachmentFile(ctx.Project.IssueDir, f, datas[i])
+			if err != nil {
+				return fmt.Errorf("attach %s: %w", f, err)
+			}
+			md = tracker.AttachmentFileMarkdown(ctx.Project.Slug, name)
 		}
 		url := tracker.AttachmentURL(ctx.Project.Slug, name)
-		md := tracker.AttachmentMarkdown(ctx.Project.Slug, name, alt)
-		out = append(out, attachment{File: f, Name: name, URL: url, Markdown: md})
+		out = append(out, attachment{File: f, Kind: kind, Name: name, URL: url, Markdown: md})
 		lines = append(lines, md)
 	}
 
@@ -172,8 +197,8 @@ func resolvedRoots(roots []string) []string {
 }
 
 // readAttachable reads path when it resolves (symlinks followed) to a
-// regular file inside one of roots, at most tracker.MaxAttachmentBytes, and
-// sniffs as an image.
+// regular file inside one of roots, at most tracker.MaxAttachmentBytes. Any
+// type: the caller sorts images from other files (tracker.AttachmentKind).
 func readAttachable(path string, roots []string) ([]byte, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -207,10 +232,24 @@ func readAttachable(path string, roots []string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read: %w", err)
 	}
-	if _, ok := tracker.AttachmentExt(data); !ok {
-		return nil, fmt.Errorf("not an image: only PNG, JPEG, GIF or WebP (sniffed from the bytes, not the name)")
-	}
 	return data, nil
+}
+
+// attachableName refuses a file that is no image when its name can't be
+// kept: nothing left after cleaning, or an image extension on other bytes
+// (the viewer would serve it as an image).
+func attachableName(file string, data []byte) error {
+	if tracker.AttachmentKind(data) == "image" {
+		return nil
+	}
+	clean := tracker.CleanFileName(file)
+	if clean == "" {
+		return fmt.Errorf("a file name needs a letter or digit")
+	}
+	if tracker.LooksLikeImageName(clean) {
+		return fmt.Errorf("named like an image but the bytes are no PNG, JPEG, GIF or WebP; rename it (a .txt, .pprof) or attach the real image")
+	}
+	return nil
 }
 
 // relInside reports whether target lies inside root.

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,8 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/queue"
+	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -77,6 +81,9 @@ func TestJob_DueWaitsForTheOwnerWithoutAStandingStart(t *testing.T) {
 	_, err = runJobCmd(t, proj, "run", "marketing/weekly-seo-pass", "--scheduled")
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "has no standing start") || !strings.Contains(err.Error(), "job auto on marketing/weekly-seo-pass") || len(*started) != 0 {
 		t.Fatalf("scheduled without a standing start: %v, started %v", err, *started)
+	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("a run waiting for the owner is classed %q, want %q", class, telemetry.ErrHold)
 	}
 	if log := jobs.ReadLog(proj); len(log) != 1 || log[0].Op != jobs.OpDue || log[0].Run != "2026-W44" {
 		t.Fatalf("log = %+v", log)
@@ -164,6 +171,9 @@ func TestJob_StandingStartRunsUnattendedWithinTheBudget(t *testing.T) {
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "hold: memory 62% ≥ 50%") || len(*started) != 0 {
 		t.Fatalf("scheduled at 62%%: %v", err)
 	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("a job-run hold is classed %q, want %q", class, telemetry.ErrHold)
+	}
 
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
 	out, _ = runJobCmd(t, proj, "due")
@@ -210,6 +220,9 @@ func TestJob_ScheduledHoldsInsideTheMachineGap(t *testing.T) {
 	_, err := runJobCmd(t, proj, "run", "marketing/weekly-seo-pass", "--scheduled")
 	if exitOf(err) != 1 || !strings.Contains(err.Error(), "golf started golf/x 1 min ago") || len(*started) != 0 {
 		t.Fatalf("scheduled in the gap: %v", err)
+	}
+	if class, _ := classifyError(&invocation{}, err); class != telemetry.ErrHold {
+		t.Errorf("the machine gap is classed %q, want %q", class, telemetry.ErrHold)
 	}
 }
 
@@ -398,5 +411,151 @@ func TestJob_TickStartsADueStandingJob(t *testing.T) {
 	// Started: nothing is due any more, and the next tick says nothing.
 	if out, _ := tick(runAutostart, "next"); strings.Contains(out, "⚠ job") {
 		t.Fatalf("after the start:\n%s", out)
+	}
+}
+
+// A job's standing start follows the project's queue limits when the lead
+// set them (queue limits --below 75 --max-workers 5), and names where the
+// limit came from; without them it keeps auto-start's defaults.
+func TestJob_StandingStartUsesTheProjectsQueueLimits(t *testing.T) {
+	proj := makeJobProject(t)
+	started := stubStart(t)
+	if _, err := runJobCmd(t, proj, "auto", "on", "--all", "--quote", jobWords); err != nil {
+		t.Fatal(err)
+	}
+	setMem := func(used int) {
+		autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: used, CanStart: true} }
+	}
+
+	// No queue limits: auto-start's default, named as such.
+	setMem(55)
+	if out, _ := runJobCmd(t, proj, "due"); !strings.Contains(out, "hold: memory 55% ≥ 50% (auto-start default)") {
+		t.Fatalf("due without queue limits = %s", out)
+	}
+
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runQueue(ctx, []string{"limits", "--below", "75", "--max-workers", "5"}); err != nil {
+		t.Fatal(err)
+	}
+	// 80%: held on the queue's line.
+	setMem(80)
+	out, _ := runJobCmd(t, proj, "due")
+	if !strings.Contains(out, "hold: memory 80% ≥ 75% (proj queue limit)") {
+		t.Fatalf("due at 80%% = %s", out)
+	}
+	_, err := runJobCmd(t, proj, "run", "marketing/weekly-seo-pass", "--scheduled")
+	if exitOf(err) != 1 || !strings.Contains(err.Error(), "memory 80% ≥ 75% (proj queue limit)") || len(*started) != 0 {
+		t.Fatalf("scheduled at 80%%: %v", err)
+	}
+	// 55%: under the queue's 75%, so it starts.
+	setMem(55)
+	if out, _ := runJobCmd(t, proj, "due"); !strings.Contains(out, "start it now") {
+		t.Fatalf("due at 55%% = %s", out)
+	}
+	if out, err := runJobCmd(t, proj, "run", "marketing/weekly-seo-pass", "--scheduled"); err != nil || len(*started) != 1 {
+		t.Fatalf("scheduled at 55%%: %v %v\n%s", err, *started, out)
+	}
+}
+
+// The worker cap comes from the queue too, and the hold says so.
+func TestJobLimits_WorkerCapFromTheQueue(t *testing.T) {
+	proj := makeJobProject(t)
+	if got := jobLimits(proj); got.Below != 50 || got.MaxWorkers != 0 || got.BelowFrom != "auto-start default" || got.WorkersFrom != "proj queue default" {
+		t.Fatalf("no limits set = %+v, want queue next's: no worker cap", got)
+	}
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runQueue(ctx, []string{"limits", "--below", "65", "--max-workers", "5"}); err != nil {
+		t.Fatal(err)
+	}
+	got := jobLimits(proj)
+	if got.Below != 65 || got.MaxWorkers != 5 || got.BelowFrom != "proj queue limit" || got.WorkersFrom != "proj queue limit" {
+		t.Fatalf("queue limits = %+v", got)
+	}
+	// Auto-start on (not paused): its window's limits win, as in queue next.
+	if err := runAutostart(ctx, []string{"on", "--quote", "go", "--below", "70", "--max-workers", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	got = jobLimits(proj)
+	if got.Below != 70 || got.MaxWorkers != 3 || got.BelowFrom != "proj auto-start limit" || got.WorkersFrom != "proj auto-start limit" {
+		t.Fatalf("auto-start limits = %+v", got)
+	}
+}
+
+// A job's standing start and queue next read one window
+// (agentrun.StartLimits): the memory line, the worker cap and the gap agree
+// for auto-start on, paused and off, with the queue's limits set or unset.
+func TestJobLimitsMatchQueueEvaluate(t *testing.T) {
+	gapIn := regexp.MustCompile(`\(gap (\d+)m\)`)
+	for _, tc := range []struct {
+		name      string
+		auto      string // "", "on", "paused"
+		queue     bool   // queue limits --below 65 --max-workers 5
+		below     int
+		workers   int // 0: no cap
+		gap       int
+		workersBy string
+	}{
+		{"off, no queue limits", "", false, 50, 0, 5, "proj queue default"},
+		{"off, queue limits", "", true, 65, 5, 5, "proj queue limit"},
+		{"on --gap 10, no queue limits", "on", false, 70, 3, 10, "proj auto-start limit"},
+		{"on --gap 10, queue limits", "on", true, 70, 3, 10, "proj auto-start limit"},
+		{"paused, no queue limits", "paused", false, 50, 0, 5, "proj queue default"},
+		{"paused, queue limits", "paused", true, 65, 5, 5, "proj queue limit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proj := makeJobProject(t)
+			ctx, _, _ := newTestContext(proj, false)
+			if tc.queue {
+				if err := runQueue(ctx, []string{"limits", "--below", "65", "--max-workers", "5"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.auto != "" {
+				if err := runAutostart(ctx, []string{"on", "--quote", "go", "--below", "70", "--max-workers", "3", "--gap", "10"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.auto == "paused" {
+				if err := runAutostart(ctx, []string{"pause"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := queue.Update(proj.IssueDir, func(q *queue.Queue) error {
+				_, err := q.Add(queue.Item{Slug: "low", Quote: "go"}, queue.Where{}, time.Now())
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			lim := jobLimits(proj)
+			if lim.Below != tc.below || lim.MaxWorkers != tc.workers || lim.Gap != time.Duration(tc.gap)*time.Minute || lim.WorkersFrom != tc.workersBy {
+				t.Fatalf("jobLimits = %+v, want below %d, workers %d (%s), gap %dm", lim, tc.below, tc.workers, tc.workersBy, tc.gap)
+			}
+
+			// queue next one minute after a start: held on the gap, which
+			// it names, with the line and cap it decided under.
+			q, err := queue.Load(proj.IssueDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			auto, err := autostart.Load(yoloRoot(proj), proj.Slug)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			v := agentrun.QueueEvaluate(agentrun.QueueInput{Proj: proj, Queue: q, Auto: auto, Now: now,
+				Last: &autostart.Start{Project: "other", Slug: "x", At: now.Add(-time.Minute)}}).Verdict
+			m := gapIn.FindStringSubmatch(v.Reason)
+			if m == nil {
+				t.Fatalf("queue next = %+v, want a gap hold", v)
+			}
+			cap := v.Cap
+			if cap >= agentrun.QueueNoCap {
+				cap = 0
+			}
+			if v.Below != lim.Below || cap != lim.MaxWorkers || m[1] != strconv.Itoa(int(lim.Gap.Minutes())) {
+				t.Fatalf("queue next decided under below %d, cap %d, gap %sm; a job under %+v", v.Below, v.Cap, m[1], lim)
+			}
+		})
 	}
 }

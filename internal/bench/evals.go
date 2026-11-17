@@ -445,24 +445,11 @@ func union(a, b map[string]bool) []string {
 // run's mean per task (worker and scoring time, tokens, cost) times b's
 // task count × agents; "no previous run" when there is none.
 func Estimate(b *Benchmark, agents int) string {
-	runs := Runs(b.Name)
-	for i := len(runs) - 1; i >= 0; i-- {
-		r := runs[i]
-		if !r.Finished() || len(r.Tasks) == 0 {
-			continue
-		}
-		var wall, usd float64
-		var spent int64
-		for _, t := range r.Tasks {
-			wall += t.WallSec + t.ScoreWallSec
-			usd += t.Usage.USD
-			spent += t.Usage.Tokens()
-		}
-		n := float64(len(r.Tasks))
-		k := float64(len(b.Tasks) * max(agents, 1))
-		return fmt.Sprintf("about %s, %s tokens, $%.2f for %d tasks (run %s's mean per task: %s, $%.2f)",
-			(time.Duration(wall/n*k) * time.Second).Round(time.Minute), tokens.Format(int64(float64(spent)/n*k)), usd/n*k, int(k), r.ID,
-			(time.Duration(wall/n) * time.Second).Round(time.Second), usd/n)
+	f, ok := ForecastRun(b, agents, b.Prices)
+	if !ok {
+		return "no previous run, so no estimate yet"
 	}
-	return "no previous run, so no estimate yet"
+	return fmt.Sprintf("about %s, %s tokens, $%.2f for %d tasks (run %s's mean per task: %s, $%.2f)",
+		f.Wall.Round(time.Minute), tokens.Format(f.Tokens), f.USD, f.Tasks, f.Run,
+		f.PerTaskWall.Round(time.Second), f.PerTaskUSD)
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -47,13 +48,15 @@ func (s *standIn) memGuardSays(blocked bool) {
 	s.t.Helper()
 	bin := s.path("bin")
 	os.MkdirAll(bin, 0755)
-	body := "#!/bin/sh\necho call >> " + s.path("guard") + "\necho 'ok: memory used 50% (< 75%)'\n"
+	// The call log is dir/guard, beside bin/: read from $0, so the body is
+	// the same in every test and standin.Write warms it once.
+	body := "echo call >> \"${0%/*}/../guard\"\necho 'ok: memory used 50% (< 75%)'\n"
 	if blocked {
-		body = "#!/bin/sh\necho call >> " + s.path("guard") + "\necho 'BLOCKED: memory used 80% (>= 75%)'\nexit 1\n"
+		body = "echo call >> \"${0%/*}/../guard\"\necho 'BLOCKED: memory used 80% (>= 75%)'\nexit 1\n"
 	}
-	if err := os.WriteFile(filepath.Join(bin, "mem-guard"), []byte(body), 0755); err != nil {
-		s.t.Fatal(err)
-	}
+	guard := filepath.Join(bin, "mem-guard")
+	os.Remove(guard)
+	standin.Write(s.t, guard, body)
 	s.t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 }
 

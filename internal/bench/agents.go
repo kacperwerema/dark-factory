@@ -123,10 +123,10 @@ func (t *AgentTable) Row(agent, typ string) (AgentRow, bool) {
 // else the run's; "" in a run from before agents were recorded.
 func recordAgent(r *Run, t TaskRecord) string {
 	if t.Agent != "" {
-		return t.Agent
+		return r.Setup.AgentLabel(t.Agent)
 	}
 	if a := r.Setup.Agents(); len(a) == 1 {
-		return a[0]
+		return r.Setup.AgentLabel(a[0])
 	}
 	return ""
 }
@@ -279,6 +279,13 @@ func CheckRouting(cfg *tracker.RoutingConfig, t *AgentTable) []RoutingCheck {
 			}
 		}
 		agent, rule := routing.Route(cfg, s)
+		// A run on the routed model is the routed one; runs without models
+		// compare agents as before.
+		if m, _ := routing.ModelFor(cfg, s, agent); m != "" {
+			if l := agent + " · " + m; slices.Contains(t.Agents, l) {
+				agent, rule = l, rule+" on "+m
+			}
+		}
 		if typ != "untyped" && !strings.HasPrefix(rule, "type ") {
 			rule = "type " + typ + " (" + rule + ")"
 		}

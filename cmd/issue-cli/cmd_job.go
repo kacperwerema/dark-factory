@@ -11,6 +11,8 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/queue"
+	"github.com/kacperwerema/dark-factory/internal/recent"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -132,8 +134,7 @@ func jobInput(ctx *Context, last *autostart.Start) (jobs.Input, error) {
 	if last == nil {
 		last, _ = autostart.LastStart(autostart.SharedDir())
 	}
-	limits := jobs.DefaultLimits
-	limits.MaxLoad = autostart.MaxLoadOf(yoloRoot(proj), proj.Slug)
+	limits := jobLimits(proj)
 	return jobs.Input{
 		State:   st,
 		Memory:  autostart.ReadMemory(),
@@ -143,6 +144,44 @@ func jobInput(ctx *Context, last *autostart.Start) (jobs.Input, error) {
 		Limits:  limits,
 		Now:     ctx.now(),
 	}, nil
+}
+
+// jobLimits is the budget a job's standing start runs under: the window
+// queue next decides with (agentrun.StartLimits), so a job and queue next
+// can't disagree on the line, the worker cap or the gap. mem-guard's own
+// block applies whatever the line.
+func jobLimits(proj *tracker.Project) jobs.Limits {
+	auto, err := autostart.Load(yoloRoot(proj), proj.Slug)
+	if err != nil {
+		auto = &autostart.State{}
+	}
+	q, err := queue.Load(proj.IssueDir)
+	if err != nil {
+		return jobs.DefaultLimits // an unreadable queue: auto-start's defaults, never no cap
+	}
+	w := agentrun.StartLimits(proj.Slug, q, auto)
+	lim := jobs.Limits{
+		Below:       w.State.Below,
+		MaxWorkers:  w.State.MaxWorkers,
+		Gap:         w.State.Gap(),
+		MaxLoad:     w.State.MaxLoad,
+		BelowFrom:   w.BelowFrom,
+		WorkersFrom: w.WorkersFrom,
+	}
+	if lim.MaxWorkers >= agentrun.QueueNoCap {
+		lim.MaxWorkers = 0 // no worker cap
+	}
+	return lim
+}
+
+// limitsLine is the limits in force with their sources, e.g. the queue's
+// line and cap, each followed by "(acme queue limit)".
+func limitsLine(l jobs.Limits) string {
+	workers := "no worker cap"
+	if l.MaxWorkers > 0 {
+		workers = fmt.Sprintf("at most %d workers", l.MaxWorkers)
+	}
+	return fmt.Sprintf("memory under %d%% (%s) · %s (%s)", l.Below, l.BelowFrom, workers, l.WorkersFrom)
 }
 
 // jobsInScope keeps the jobs this session ticks: a department lead its own
@@ -578,6 +617,7 @@ func startDueJob(ctx *Context, me Identity, issues []*tracker.Issue, agent strin
 func startScheduledRun(ctx *Context, r *jobs.Ref, issues []*tracker.Issue, rs agentrun.RunStart, dryRun bool) error {
 	proj := ctx.Project
 	decideNow := func(last *autostart.Start) (jobs.Status, error) {
+		recent.Forget() // decide on what the machine is now, under the lock
 		in, err := jobInput(ctx, last)
 		if err != nil {
 			return jobs.Status{}, err
@@ -590,12 +630,12 @@ func startScheduledRun(ctx *Context, r *jobs.Ref, issues []*tracker.Issue, rs ag
 		}
 		switch {
 		case !s.Due:
-			return &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not started: %s is not due (last run %s, next %s). Nothing was started.", r.Key, valueOr(s.LastPeriod, "none"), whenLabel(s.Next, ctx.now()))}
+			return &exitCodeError{Code: 1, Hold: true, Msg: fmt.Sprintf("✗ Not started: %s is not due (last run %s, next %s). Nothing was started.", r.Key, valueOr(s.LastPeriod, "none"), whenLabel(s.Next, ctx.now()))}
 		case s.Verdict == jobs.VerdictOwner:
-			return &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not started: %s has no standing start, so its run waits for the owner (Needs you: %s). Nothing was started.\n\nThe owner may turn one on:\n  %s",
+			return &exitCodeError{Code: 1, Hold: true, Msg: fmt.Sprintf("✗ Not started: %s has no standing start, so its run waits for the owner (Needs you: %s). Nothing was started.\n\nThe owner may turn one on:\n  %s",
 				r.Key, needsYouURL(proj), tracker.InjectProject(proj, fmt.Sprintf("issue-cli job auto on %s --quote \"<owner's words>\"", r.Key)))}
 		}
-		return &exitCodeError{Code: 1, Msg: fmt.Sprintf("✗ Not started: hold: %s. Nothing was started.", s.Reason)}
+		return &exitCodeError{Code: 1, Hold: true, HoldKind: s.HoldKind, Msg: fmt.Sprintf("✗ Not started: hold: %s. Nothing was started.", s.Reason)}
 	}
 	if dryRun {
 		s, err := decideNow(nil)
@@ -626,7 +666,7 @@ func startScheduledRun(ctx *Context, r *jobs.Ref, issues []*tracker.Issue, rs ag
 		return &autostart.Start{Project: proj.Slug, Slug: res.Issue.Slug, At: ctx.now(), Memory: s.Memory, By: rs.By}, err
 	})
 	if errors.Is(err, autostart.ErrBusy) {
-		return &exitCodeError{Code: 1, Msg: "✗ Not started: hold: " + err.Error() + ". Nothing was started."}
+		return &exitCodeError{Code: 1, Hold: true, Msg: "✗ Not started: hold: " + err.Error() + ". Nothing was started."}
 	}
 	return err
 }
@@ -773,8 +813,9 @@ func runJobAuto(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Standing start on for %s: a due run may start without the owner naming it\n", label)
 	fmt.Fprintf(ctx.Stdout, "  owner's words: %q (%s)\n", quote, how)
-	fmt.Fprintf(ctx.Stdout, "  limits: memory under %d%% · at most %d workers · one start per %d min across all projects (auto-start's)\n",
-		jobs.DefaultLimits.Below, jobs.DefaultLimits.MaxWorkers, int(jobs.DefaultLimits.Gap.Minutes()))
+	lim := jobLimits(proj)
+	fmt.Fprintf(ctx.Stdout, "  limits now: %s · one start per %d min across all projects; mem-guard's block always applies\n",
+		limitsLine(lim), int(lim.Gap.Minutes()))
 	fmt.Fprintln(ctx.Stdout, "  at each check-in: "+tracker.InjectProject(proj, "issue-cli job due"))
 	return nil
 }

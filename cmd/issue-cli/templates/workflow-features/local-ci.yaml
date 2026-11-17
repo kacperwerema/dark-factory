@@ -1,5 +1,5 @@
 id: local-ci
-version: v0.60.0
+version: v0.63.0
 category: automation
 propose: true
 sources: ["internal/ci/**", "internal/tracker/ci.go", "internal/viewer/ci_watch.go", "internal/viewer/ci_view.go", "cmd/issue-cli/cmd_ci.go"]
@@ -14,7 +14,8 @@ what: |
   (`on_red: file_issue` also files a bug). Commands can have a `tier` (`slow` runs
   only on request) and a `failures` regex that names the failing tests. `nightly:`
   runs one tier once a night (after `at`, when mem-guard allows), with its own
-  `timeout`.
+  `timeout`. A command that prints `validate: <step> <seconds>s` lines keeps them
+  as its steps in the run record, and `ci status` names the slowest.
 why: |
   Agents merge into main many times a day. Without CI nobody notices a red main
   until the next agent trips over it, and then nobody knows which merge broke it.

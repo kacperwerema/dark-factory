@@ -1,0 +1,9 @@
+# Owner steps on Needs you. Two open steps: st-0a0a0a repeats every 7d and
+# was due 2026-01-05 (overdue, red, first); st-0b0b0b is due 2099-01-01 and
+# is on Factory/launch. st-0c0c0c was ticked and doesn't repeat (no row).
+title: Owner steps on Needs you
+project:
+  name: Steps Demo
+  slug: steps
+issues: tracker
+workflow: workflow.yaml

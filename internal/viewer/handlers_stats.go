@@ -70,6 +70,8 @@ type StatsData struct {
 	// Decisions is the Decisions card (stats_decisions.go), Workshop Board
 	// only.
 	Decisions WbStatsDecisions
+	// SpecFlow is the Spec flow section (Workshop page only).
+	SpecFlow WbStatsSpecFlow
 }
 
 // timeGroup is one type of work's row and its status rows on /stats.
@@ -180,6 +182,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 	}
 	agg := s.stats.aggregate(proj, wf, issues, opts.window(), now, s.statsBG("stats refresh "+proj.Slug))
 	wide := agg.Rep
+	if agg.Building {
+		// No numbers yet: the browser reloads until the build lands.
+		w.Header().Set("Refresh", statsBuildingRefresh)
+	}
 	dash := buildDashboard(dashIn{
 		Proj: proj, Base: prefix + "/stats", Prefix: prefix, WF: wf, Issues: issues, Opts: opts, Now: now,
 		Wide: wide, AggMS: agg.MS, Updating: statsUpdatingNote(agg, opts.window()), Snaps: health.Range(ciRootFor(proj), time.Time{}, now),
@@ -207,6 +213,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, proj *track
 	}
 	if !opts.Classic {
 		data.Decisions = loadDecisionsCard(proj, prefix, statsRangeLabel(opts), dash.From, dash.To, now)
+		data.SpecFlow = loadSpecFlow(proj, prefix, statsRangeLabel(opts), issues, dash.From, dash.To)
 		s.renderStatsWb(w, proj, <-header, data)
 		return
 	}

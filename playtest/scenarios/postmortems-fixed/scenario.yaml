@@ -1,0 +1,10 @@
+# The postmortems scenario, with ui/till's A1 linked to its fix (Fixed:
+# ui/cart, which is done): 5 actions wait, the 3 workflow copies as one row
+# with every copy ticked, 2 memories alone, and 1 fixed already.
+title: Post-mortem actions - copies as one row, fixed ones apart
+project:
+  name: Post-mortem Demo
+  slug: pmq
+issues: tracker
+workflow: workflow.yaml
+root: files

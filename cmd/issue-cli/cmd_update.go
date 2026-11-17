@@ -43,7 +43,7 @@ func init() {
 }
 
 func runUpdate(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "update")
+	slug, rest, err := issueSlug(ctx, args, "update")
 	if err != nil {
 		return err
 	}

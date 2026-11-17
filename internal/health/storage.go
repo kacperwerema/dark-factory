@@ -2,22 +2,35 @@ package health
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/diskuse"
 )
 
 // The storage family: how many MB the project takes on disk, by area, so
 // the Stats page shows the growth of worktrees and playtest shots. One walk
 // of the main checkout by a bounded pool of readers, sizes from Lstat
 // (symlinks are not followed). It only knows the present: backfill leaves
-// it out. See docs/workbench-files.md,
-// "The storage family".
+// it out. Beside the checkout it counts what the factory fills elsewhere
+// on the machine: Go's build cache and the agent transcripts
+// (internal/diskuse; one walk an hour, shared by every project). See
+// docs/workbench-files.md, "The storage family".
 func init() {
 	Register("storage", storageFamily)
-	Describe("storage", "card: /stats (Disk use); tidy shots: issue-cli playtest prune")
+	// The cache walk takes as long as the family timeout on a busy Mac: a
+	// snapshot refreshes the reading first, at most hourly, without one.
+	Prepare("storage", func(ctx context.Context, env Env) { _, _ = diskReading(ctx, env.Now) })
+	Describe("storage", "card: /stats (Disk use), /health (Disk outside the checkout); tidy shots: issue-cli playtest prune; a big Go cache or a full volume is a Needs you row: "+diskuse.Command)
 }
+
+// diskReading is where the family gets the machine's reading: a var for
+// tests.
+var diskReading = diskuse.Recent
 
 // UnitMB is a size in megabytes (2^20 bytes).
 const UnitMB = "MB"
@@ -30,12 +43,13 @@ var StorageAreas = []struct{ Metric, Label string }{
 	{"storage.git_mb", ".git"},
 	{"storage.agent_logs_mb", ".agent-logs"},
 	{"storage.ci_mb", "local CI (.ci)"},
+	{"storage.ci_worktree_mb", "local CI worktree (.worktrees/.ci)"},
 	{"storage.attachments_mb", "attachments"},
 }
 
 type storageSizes struct {
-	total, git, worktrees, playtest, agentLogs, ci, attachments int64
-	worktreeCount                                               int
+	total, git, worktrees, playtest, agentLogs, ci, ciWorktree, attachments int64
+	worktreeCount                                                           int
 }
 
 func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
@@ -53,16 +67,78 @@ func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
 		return nil, err
 	}
 	mb := func(b int64) float64 { return float64(int64(float64(b)/(1<<20)*10+0.5)) / 10 }
-	return []Metric{
+	out := []Metric{
 		{Name: "storage.total_mb", Value: mb(s.total), Unit: UnitMB, Help: "The project checkout on disk, everything included"},
 		{Name: "storage.git_mb", Value: mb(s.git), Unit: UnitMB, Help: "The .git folder"},
-		{Name: "storage.worktrees_mb", Value: mb(s.worktrees), Unit: UnitMB, Help: "Worktrees under .worktrees/, without their playtest runs"},
-		{Name: "storage.worktrees", Value: float64(s.worktreeCount), Unit: UnitCount, Help: "Worktrees under .worktrees/"},
+		{Name: "storage.worktrees_mb", Value: mb(s.worktrees), Unit: UnitMB, Help: "Worktrees under .worktrees/, without their playtest runs and without local CI's .worktrees/.ci"},
+		{Name: "storage.worktrees", Value: float64(s.worktreeCount), Unit: UnitCount, Help: "Worktrees under .worktrees/, local CI's .ci left out"},
+		{Name: "storage.ci_worktree_mb", Value: mb(s.ciWorktree), Unit: UnitMB, Help: "Local CI's worktree .worktrees/.ci (the checkout its runs test)"},
 		{Name: "storage.playtest_mb", Value: mb(s.playtest), Unit: UnitMB, Help: "Playtest runs and shots: .playtest/ in the checkout and in every worktree"},
 		{Name: "storage.agent_logs_mb", Value: mb(s.agentLogs), Unit: UnitMB, Help: "The .agent-logs folder (clilogs, dispatch prompts)"},
 		{Name: "storage.ci_mb", Value: mb(s.ci), Unit: UnitMB, Help: "Local CI's .ci folder: run records, logs, kept red logs, test results"},
 		{Name: "storage.attachments_mb", Value: mb(s.attachments), Unit: UnitMB, Help: "Issue attachments (mockups and their screenshots)"},
-	}, nil
+	}
+	now := env.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if d, ok := machineDisk(ctx, now); ok {
+		out = append(out, diskMetrics(d)...)
+	}
+	return out, nil
+}
+
+// machineDisk is the machine's reading for this snapshot: one under an
+// hour old from the readings file (the snapshot's Prepare step and the
+// viewer's hourly background walk write it), else a walk given half the
+// family's time left (the cache is a million files: 20 s on a busy Mac),
+// else the newest older reading, with a warning.
+func machineDisk(ctx context.Context, now time.Time) (diskuse.Reading, bool) {
+	if r, ok := diskuse.Newest(now); ok && now.Sub(r.At) < diskuse.FreshFor {
+		return r, true
+	}
+	walkCtx := ctx
+	if dl, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		walkCtx, cancel = context.WithTimeout(ctx, time.Until(dl)/2)
+		defer cancel()
+	}
+	r, err := diskReading(walkCtx, now)
+	if err == nil {
+		return r, true
+	}
+	if errors.Is(err, diskuse.ErrOff) {
+		return diskuse.Reading{}, false
+	}
+	if old, ok := diskuse.Newest(now); ok && now.Sub(old.At) < diskuse.StaleAfter {
+		Warn(ctx, "outside the checkout: the walk of the Go build cache stopped (%v); the reading is from %s", err, old.At.Format("2 Jan 15:04"))
+		return old, true
+	}
+	Warn(ctx, "outside the checkout: the walk of the Go build cache stopped (%v); the viewer's hourly walk records it", err)
+	return diskuse.Reading{}, false
+}
+
+// diskMetrics are the machine's reading as metrics: what is missing on this
+// machine is left out, never 0.
+func diskMetrics(d diskuse.Reading) []Metric {
+	var out []Metric
+	if d.HasGoCache {
+		out = append(out, Metric{Name: "storage.gocache_mb", Value: d.GoCacheMB, Unit: UnitMB,
+			Help: "Go's build cache (" + d.GoCacheDir + "), outside the checkout and shared by every worktree; over 100 GB puts a row in Needs you: " + diskuse.Command + " with no worker running"})
+		if d.HasNew {
+			out = append(out, Metric{Name: "storage.gocache_new_mb", Value: d.GoCacheNewMB, Unit: UnitMB,
+				Help: "Go build cache files created in the 24 hours before the reading (birth time; before Go's 5-day trim)"})
+		}
+	}
+	if d.HasTranscripts {
+		out = append(out, Metric{Name: "storage.transcripts_mb", Value: d.TranscriptsMB, Unit: UnitMB,
+			Help: "Agent transcripts: Claude Code's projects and Codex's sessions folders"})
+	}
+	if d.Volume.OK {
+		out = append(out, Metric{Name: "storage.volume_used_pct", Value: float64(int64(d.Volume.UsedPct*10+0.5)) / 10, Unit: UnitPercent,
+			Help: "The data volume's use, as df counts it; over 85% puts a row in Needs you"})
+	}
+	return out
 }
 
 // storageWorkers bounds the walk's pool. The walk waits on lstat and
@@ -70,6 +146,10 @@ func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
 // took it from 23 s to about 4 s, and more were slower (the kernel's
 // locks), so 8 it is.
 var storageWorkers = 8
+
+// ciWorktreeRel is local CI's worktree, relative to the checkout: it has
+// its own area (storage.ci_worktree_mb), so it doesn't pass for issue trees.
+const ciWorktreeRel = ".worktrees/.ci"
 
 // measureStorage walks root once and sorts every file's size into its area.
 // attachments is the issues' attachments folder; when it is outside root it
@@ -83,13 +163,16 @@ func measureStorage(ctx context.Context, root, attachments string) (storageSizes
 		attachRel = filepath.ToSlash(rel)
 	}
 	s, err := walkSizes(ctx, root, storageWorkers, func(s *storageSizes, rel, name string, size int64) {
-		if strings.HasPrefix(rel, ".worktrees/") && name == ".git" {
+		ciTree := strings.HasPrefix(rel, ciWorktreeRel+"/")
+		if strings.HasPrefix(rel, ".worktrees/") && name == ".git" && !ciTree {
 			s.worktreeCount++ // a worktree's .git file
 		}
 		s.total += size
 		switch first, _, _ := strings.Cut(rel, "/"); {
 		case first == ".git":
 			s.git += size
+		case ciTree:
+			s.ciWorktree += size
 		case first == ".worktrees":
 			if strings.Contains(rel, "/.playtest/") {
 				s.playtest += size
@@ -198,6 +281,7 @@ func (s *storageSizes) add(o storageSizes) {
 	s.playtest += o.playtest
 	s.agentLogs += o.agentLogs
 	s.ci += o.ci
+	s.ciWorktree += o.ciWorktree
 	s.attachments += o.attachments
 	s.worktreeCount += o.worktreeCount
 }

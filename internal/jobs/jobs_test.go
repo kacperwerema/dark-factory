@@ -232,7 +232,7 @@ func TestRunTakesTheJobsType(t *testing.T) {
 	p.Departments[0].Jobs[0].Type = "ppc"
 	r, _ := Find(p, "marketing/weekly-seo-pass")
 	_, err = PlanRun(p, r, nil, "2026-W46", false)
-	if err == nil || !strings.Contains(err.Error(), `type "ppc" is not in the workflow (types: piece, foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social)`) {
+	if err == nil || !strings.Contains(err.Error(), `type "ppc" is not in the workflow (types: piece, competitor-scan, foundation, keyword-research, market-size, report, seo-baseline, seo-pass, social)`) {
 		t.Fatalf("unknown type: %v", err)
 	}
 }
@@ -440,5 +440,39 @@ func TestGroupWeekPlanRunStartsAtGather(t *testing.T) {
 	}
 	if strings.Contains(text, "{{") {
 		t.Errorf("unfilled placeholder:\n%s", text)
+	}
+}
+
+// A hold names the limit it used and where it came from; a queue with no
+// worker cap holds on memory only.
+func TestHoldNamesTheLimitsSource(t *testing.T) {
+	p := project(t)
+	auto := &State{Auto: map[string]Auto{AllJobs: {Words: "for now all", By: "lead-acme"}}}
+	queueLim := Limits{Below: 75, MaxWorkers: 5, Gap: DefaultLimits.Gap, BelowFrom: "acme queue limit", WorkersFrom: "acme queue limit"}
+	mem := func(used int) autostart.Memory { return autostart.Memory{Found: true, Used: used, CanStart: true} }
+	cases := []struct {
+		in   Input
+		want string // "" = start
+	}{
+		{Input{State: auto, Memory: mem(51)}, "memory 51% ≥ 50% (auto-start default)"},
+		{Input{State: auto, Memory: lowMemory(), Workers: 2}, "2/2 workers live (auto-start default)"},
+		{Input{State: auto, Memory: mem(55), Limits: queueLim}, ""},
+		{Input{State: auto, Memory: mem(80), Limits: queueLim}, "memory 80% ≥ 75% (acme queue limit)"},
+		{Input{State: auto, Memory: mem(55), Workers: 5, Limits: queueLim}, "5/5 workers live (acme queue limit)"},
+		{Input{State: auto, Memory: mem(55), Workers: 9, Limits: Limits{Below: 75, Gap: DefaultLimits.Gap, BelowFrom: "q"}}, ""},
+		// mem-guard's own block names no project limit.
+		{Input{State: auto, Memory: autostart.Memory{Found: true, Used: 76, Note: "BLOCKED"}, Limits: queueLim}, "mem-guard says no: BLOCKED"},
+	}
+	for _, c := range cases {
+		s := evaluate(t, p, c.in)
+		if c.want == "" {
+			if s.Verdict != VerdictStart {
+				t.Errorf("%+v: want start, got %s %q", c.in.Limits, s.Verdict, s.Reason)
+			}
+			continue
+		}
+		if s.Verdict != VerdictHold || s.Reason != c.want {
+			t.Errorf("want hold %q, got %s %q", c.want, s.Verdict, s.Reason)
+		}
 	}
 }

@@ -36,6 +36,11 @@ func TestDiffIgnoresPathsAndTimes(t *testing.T) {
 	if d := Diff(a, b); d != "" {
 		t.Errorf("one body cut at different points after masking differs:\n%s", d)
 	}
+	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli deploy", Pass: true, Actual: `record: /tmp/pt-1/proj/issues/.deploys/20261116-111253.json`}}
+	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli deploy", Pass: true, Actual: `record: /tmp/pt-2/proj/issues/.deploys/20261116-111256-2.json`}}
+	if d := Diff(a, b); d != "" {
+		t.Errorf("runs that only differ in a compact start stamp differ:\n%s", d)
+	}
 	a.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli dispatch", Pass: true, Actual: `A human approves at: http://127.0.0.1:36755/p/crew/issue/x`}}
 	b.Steps[0].Viewports[0].Checks = []CheckResult{{Check: "cli dispatch", Pass: true, Actual: `A human approves at: http://127.0.0.1:45875/p/crew/issue/x`}}
 	if d := Diff(a, b); d != "" {

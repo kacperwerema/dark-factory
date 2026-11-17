@@ -33,20 +33,36 @@ func WaitingOnGate(wf *WorkflowConfig, issue *Issue, comments []Comment) string 
 // statusBoxesOpen reports whether a section the move into the issue's
 // status appended (Implementation on entering in progress) still has an
 // open box: that is the worker's work, so a gate after it is not yet the
-// owner's even when the gate's own rules don't check those boxes.
+// owner's even when the gate's own rules don't check those boxes. A box
+// only the owner may tick (IsOwnerBox: Human Testing's HT1, one marked
+// "(owner)") is no worker's work: it waits on the owner like the gate.
 func statusBoxesOpen(wf *WorkflowConfig, issue *Issue) bool {
 	order := wf.GetStatusOrder()
 	idx := wf.GetStatusIndex(issue.Status)
 	if idx <= 0 || idx >= len(order) {
 		return false
 	}
+	appended := map[string]bool{}
 	for _, a := range wf.transitionActions(order[idx-1], issue.Status) {
-		if a.Type != "append_section" || strings.TrimSpace(a.Title) == "" {
-			continue
+		if a.Type == "append_section" && strings.TrimSpace(a.Title) != "" {
+			appended[strings.ToLower(strings.TrimSpace(a.Title))] = true
 		}
-		if total, checked := CountCheckboxesInSection(issue.BodyRaw, a.Title); checked < total {
+	}
+	for _, it := range ListCheckboxes(issue.BodyRaw) {
+		if !it.Checked && appended[strings.ToLower(strings.TrimSpace(it.Section))] && !IsOwnerBox(it) {
 			return true
 		}
 	}
 	return false
+}
+
+// HumanTestingSection is the section whose boxes are the owner's.
+const HumanTestingSection = "Human Testing"
+
+// IsOwnerBox reports whether only the owner may tick the box by its place
+// and text alone: a Human Testing box, or one marked "(owner)"
+// (IsOwnerMarked). proof.OwnerBoxWhy adds the owner's boxes a proof report
+// knows (owner-only criteria, guided-check and playtest judgement steps).
+func IsOwnerBox(it CheckboxItem) bool {
+	return strings.EqualFold(strings.TrimSpace(it.Section), HumanTestingSection) || IsOwnerMarked(it.Label())
 }

@@ -368,3 +368,63 @@ func (w *WorkflowConfig) HasOutputRule() (to, kind string, ok bool) {
 	}
 	return "", "", false
 }
+
+// CriteriaGate is a transition of a workflow that checks an issue's
+// acceptance criteria.
+type CriteriaGate struct {
+	From, To string
+}
+
+// CriteriaRequiredAt returns the first transition of the workflow (in its
+// statuses' order) that requires ## Acceptance Criteria checkboxes
+// (criteria_checkboxes or section_has_checkboxes on that section). The
+// proof gate (criteria_proven) doesn't count: it passes an issue without
+// criteria. Call it on a workflow resolved for the issue (ForIssue), so the
+// transitions are the issue's path.
+func (w *WorkflowConfig) CriteriaRequiredAt() (CriteriaGate, bool) {
+	return w.firstGate(func(name, arg string) bool {
+		return (name == "criteria_checkboxes" || name == "section_has_checkboxes") && strings.EqualFold(strings.TrimSpace(arg), CriteriaSection)
+	})
+}
+
+// ProofGateAt returns the first transition of the workflow that runs the
+// proof gate (criteria_proven).
+func (w *WorkflowConfig) ProofGateAt() (CriteriaGate, bool) {
+	return w.firstGate(func(name, _ string) bool { return name == criteriaProvenRule })
+}
+
+func (w *WorkflowConfig) firstGate(match func(name, arg string) bool) (CriteriaGate, bool) {
+	if w == nil {
+		return CriteriaGate{}, false
+	}
+	order := map[string]int{}
+	for i, s := range w.Statuses {
+		order[s.Name] = i
+	}
+	best, found := CriteriaGate{}, false
+	bestAt := 0
+	for _, t := range w.Transitions {
+		for _, a := range t.Actions {
+			if a.Type != "validate" {
+				continue
+			}
+			if name, arg := SplitRule(a.Rule); !match(name, arg) {
+				continue
+			}
+			at, ok := order[t.To]
+			if !ok {
+				at = len(w.Statuses)
+			}
+			if !found || at < bestAt {
+				best, bestAt, found = CriteriaGate{From: t.From, To: t.To}, at, true
+			}
+		}
+	}
+	return best, found
+}
+
+// IsProofRule reports whether rule is the proof gate (criteria_proven).
+func IsProofRule(rule string) bool {
+	name, _ := SplitRule(rule)
+	return name == criteriaProvenRule
+}

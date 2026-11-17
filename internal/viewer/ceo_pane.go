@@ -37,6 +37,10 @@ type CEOTurn struct {
 	// Files are the chat files the owner's message sent, taken out of its
 	// text (withTurnAttachments).
 	Files []CEOFile `json:"files,omitempty"`
+	// Blocked are the CEO's tool calls that Claude Code's permission layer
+	// refused (the auto mode classifier, a built-in safety check), each with
+	// the command and the stated reason (ceo_blocked.go).
+	Blocked []CEOBlocked `json:"blocked,omitempty"`
 }
 
 // ToolSummary is the folded line for the turn's tool calls: "used 3 tools:
@@ -61,9 +65,11 @@ func (t CEOTurn) ToolSummary() string {
 	return "used " + plural(len(t.Tools), "tool", "tools") + ": " + strings.Join(names, ", ")
 }
 
-// CEOWorking is the spinner line while the CEO works.
+// CEOWorking is the spinner line while the CEO works, or, with Permission
+// set, the line saying it waits on a permission prompt.
 type CEOWorking struct {
-	Text string `json:"text"`
+	Text       string `json:"text"`
+	Permission bool   `json:"permission,omitempty"`
 }
 
 // CEOPrompt is a numbered menu the CEO waits on: a permission or a choice.
@@ -74,6 +80,15 @@ type CEOPrompt struct {
 	// question.
 	Detail  []string    `json:"detail,omitempty"`
 	Choices []CEOChoice `json:"choices"`
+	// Permission says the menu is Claude Code's permission prompt for a
+	// tool call ("Do you want to proceed?"): the Conversation shows it as
+	// its own item. Tool is the tool ("Bash", "Create file"), Command the
+	// command or file it asks about, Note the box's other lines (the
+	// call's description).
+	Permission bool     `json:"permission,omitempty"`
+	Tool       string   `json:"tool,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Note       []string `json:"note,omitempty"`
 }
 
 // CEOChoice is one menu option; Key is the digit that picks it.
@@ -153,6 +168,10 @@ func parseCEOPane(pane string) CEOPane {
 			break
 		}
 	}
+	if p := out.Prompt; p != nil && p.Permission {
+		// Not working: the CEO waits on the owner's answer.
+		out.Working = &CEOWorking{Text: permissionWaiting(p), Permission: true}
+	}
 	out.Turns, out.Older = paneTurnsOf(strings.Join(conv, "\n"))
 	return out
 }
@@ -185,12 +204,20 @@ func paneMenu(lines []string, tail int) (*CEOPrompt, int) {
 		return nil, 0
 	}
 	first := last
-	for first > tail && paneChoice.MatchString(boxText(lines[first-1])) {
+	for first > tail && (paneChoice.MatchString(boxText(lines[first-1])) || choiceWrap(lines[first-1])) {
 		first--
+	}
+	for first < last && !paneChoice.MatchString(boxText(lines[first])) {
+		first++
 	}
 	var choices []CEOChoice
 	for i := first; i <= last; i++ {
 		m := paneChoice.FindStringSubmatch(boxText(lines[i]))
+		if m == nil {
+			// A long option the TUI wrapped onto the next line.
+			choices[len(choices)-1].Text += " " + boxText(lines[i])
+			continue
+		}
 		if m[2] != strconv.Itoa(len(choices)+1) {
 			return nil, 0
 		}
@@ -228,7 +255,20 @@ func paneMenu(lines []string, tail int) (*CEOPrompt, int) {
 	if len(above) > 0 {
 		p.Title, p.Detail = above[0], above[1:]
 	}
+	permissionOf(p, lines[start:q])
 	return p, start
+}
+
+// choiceWrap reports whether line is a menu option's text wrapped onto the
+// next line: indented past the option's number ("      session
+// (shift+tab)").
+func choiceWrap(line string) bool {
+	t := strings.TrimLeft(strings.TrimSpace(strings.TrimRight(line, " ")), "│┃|")
+	if strings.TrimSpace(t) == "" || isRule(line) {
+		return false
+	}
+	raw := strings.TrimLeft(line, "│┃|")
+	return len(raw)-len(strings.TrimLeft(raw, " ")) >= 5
 }
 
 // paneTurnsOf splits the conversation part of a pane into turns. Lines
@@ -252,6 +292,9 @@ func paneTurnsOf(pane string) ([]CEOTurn, bool) {
 			cur := ceoTurn(&turns)
 			if m := toolCall.FindString(text); m != "" {
 				cur.Tools = append(cur.Tools, strings.TrimSuffix(m, "("))
+				if b := paneBlocked(text); b != nil {
+					cur.Blocked = append(cur.Blocked, *b)
+				}
 			} else if text != "" {
 				cur.Text = append(cur.Text, text)
 			}

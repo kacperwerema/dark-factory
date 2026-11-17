@@ -1,0 +1,32 @@
+session: ceo-chat-yolo
+issue: ui/the-ceo-chat-page-shows-the-yolo-band-while-yolo-is-on
+title: The CEO chat draws the YOLO band while YOLO is on, and nothing of it while YOLO is off with no review waiting
+scenario: yolo
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: "The CEO chat with YOLO off has no band; after turning YOLO on it draws the band (one line on a phone) like the other pages"
+    setup:
+      - open: /p/{project}/lead
+    act:
+      - check: { absent: [yolo.band, yolo.band.line, yolo.switch, yolo.dialog] }
+      - check: { visible: lead_chat.page }
+      - post: { path: "/p/{project}/yolo/on", json: { until: "4h", words: "go" }, status: 200 }
+      - open: /p/{project}/lead
+      - wait_for: lead_chat.page
+    checks:
+      - visible: yolo.band
+      - text_contains: { target: yolo.band, text: "YOLO" }
+      - visible: lead_chat.page
+      - absent: yolo.dialog
+    do: |
+      1. With YOLO off, open the CEO chat (HQ · CEO) from the company page: no striped band under the header.
+      2. Turn YOLO on from the company page's switch and open the CEO chat again.
+    expect: |
+      The striped YOLO band sits under the header, as on the hall or the Needs you page, with Extend and Turn off now; on a phone it is one line that opens them. The conversation and the message box still fit below it.
+    why: The owner talking to the CEO should see that gates are passing without them.

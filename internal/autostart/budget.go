@@ -60,6 +60,33 @@ var ErrBusy = errors.New("another auto-start is starting a worker right now")
 // When fn returns a start, it becomes the last one. Two projects calling at
 // once run one after the other, so the second sees the first's start.
 func WithBudget(dir string, fn func(last *Start) (*Start, error)) error {
+	return WithShare(dir, func(b *Budget) (*Start, error) { return fn(b.Last) })
+}
+
+// Budget is what a start reads and writes under the lock: the last start
+// and the share between projects.
+type Budget struct {
+	Last  *Start
+	Share *Share
+	dirty bool
+}
+
+// Decided records project's ask (weight: its start_weight:) from v;
+// WithShare saves it.
+func (b *Budget) Decided(project string, weight int, v Verdict, now time.Time) {
+	b.Share.Note(project, weight, v, now)
+	b.dirty = true
+}
+
+// Started moves the share for a start v allowed (call Decided first).
+func (b *Budget) Started(project, slug string, v Verdict, now time.Time) {
+	b.Share.Started(project, slug, v.Contenders, now)
+	b.dirty = true
+}
+
+// WithShare is WithBudget with the share: fn records its ask and start on
+// b, saved when fn returns.
+func WithShare(dir string, fn func(b *Budget) (*Start, error)) error {
 	if dir == "" {
 		return errors.New("no state directory for the auto-start budget (HOME unset)")
 	}
@@ -90,9 +117,18 @@ func WithBudget(dir string, fn func(last *Start) (*Start, error)) error {
 	if err != nil {
 		return err
 	}
-	started, err := fn(last)
+	// A share that doesn't parse starts over: the turn is a fairness aid,
+	// never a reason to hold every start.
+	share, _ := LoadShare(dir)
+	b := &Budget{Last: last, Share: share}
+	started, err := fn(b)
 	if started != nil {
 		if werr := jsonfile.Write(lastPath(dir), started, 0o600); werr != nil && err == nil {
+			err = werr
+		}
+	}
+	if b.dirty {
+		if werr := jsonfile.Write(sharePath(dir), b.Share, 0o600); werr != nil && err == nil {
 			err = werr
 		}
 	}

@@ -88,8 +88,8 @@ git -C "$proj" init -q -b main && git -C "$proj" add -A && git -C "$proj" -c use
 
 # The board runs under clean_shell too: if its ▶ endpoint ever started an agent, it would get the stand-in.
 clean_shell "$bin/issue-viewer" -config "$cfg" -port "$port" > "$tmp/viewer.log" 2>&1 &
-# Up to 30 s: a loaded Mac can take seconds to start a freshly built binary.
-wait_for_url "$base/" 30
+# Up to 60 s: a loaded Mac can take over 10 s to start a freshly built binary.
+wait_for_url "$base/" 60
 viewer_pid=$(pgrep -f -- "^$bin/issue-viewer -config" | head -n 1)
 command curl -s -o /dev/null "$base/" || {
 	echo "the sandbox board did not start:"

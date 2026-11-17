@@ -73,14 +73,12 @@ func relWithinRoot(root, target string) (string, bool) {
 }
 
 // handleProjectFile serves an image from the project root for
-// <prefix>/files/<path>. It rejects non-image extensions and any path that
-// escapes the root, including via symlinks.
+// <prefix>/files/<path>, and any other file only inside the issues
+// folder's _evidence/ (issue-cli evidence add), through serveUntrustedFile.
+// It rejects any path that escapes the root, including via symlinks.
 func (s *Server) handleProjectFile(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string) {
 	relPath := strings.TrimPrefix(r.URL.Path, prefix+"/files/")
-	if !projectImageExts[strings.ToLower(filepath.Ext(relPath))] {
-		http.NotFound(w, r)
-		return
-	}
+	image := projectImageExts[strings.ToLower(filepath.Ext(relPath))]
 
 	root, err := filepath.Abs(projectRoot(proj))
 	if err != nil {
@@ -105,9 +103,33 @@ func (s *Server) handleProjectFile(w http.ResponseWriter, r *http.Request, proj 
 		http.NotFound(w, r)
 		return
 	}
+	if !image {
+		if !insideEvidence(proj, target) {
+			http.NotFound(w, r)
+			return
+		}
+		serveUntrustedFile(w, r, target, filepath.Base(target))
+		return
+	}
 
 	// SVGs opened directly would otherwise run embedded scripts on our origin.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, target)
+}
+
+// insideEvidence reports whether target (symlinks resolved) is a file in
+// the project's <issues>/_evidence/ folder: the one place /files/ serves a
+// file that is no image from.
+func insideEvidence(proj *tracker.Project, target string) bool {
+	dir, err := filepath.Abs(filepath.Join(proj.IssueDir, "_evidence"))
+	if err != nil {
+		return false
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	_, ok := relWithinRoot(dir, target)
+	return ok && target != dir
 }

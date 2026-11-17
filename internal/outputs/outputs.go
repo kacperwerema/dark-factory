@@ -76,6 +76,10 @@ type Event struct {
 	URL        string `json:"url,omitempty"`
 	File       string `json:"file,omitempty"`
 	Path       string `json:"path,omitempty"`
+	// Branch and Worktree: a --path file found in the issue's worktree,
+	// not on the project root's checkout (an unmerged branch).
+	Branch   string `json:"branch,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
 	// Poster is a video file's poster under FilesDir (add and revise).
 	Poster string `json:"poster,omitempty"`
 	Issue  string `json:"issue,omitempty"`
@@ -102,6 +106,11 @@ type Output struct {
 	URL  string `json:"url,omitempty"`
 	File string `json:"file,omitempty"`
 	Path string `json:"path,omitempty"`
+	// Branch is the branch a Path came from when output add found it in
+	// the issue's worktree, not on the root checkout; Worktree that folder.
+	// PathFile reads the root first, so the file is found after the merge.
+	Branch   string `json:"branch,omitempty"`
+	Worktree string `json:"worktree,omitempty"`
 	// Poster is the newest video file's poster under FilesDir ("" for none).
 	Poster string    `json:"poster,omitempty"`
 	Issue  string    `json:"issue,omitempty"`
@@ -346,7 +355,7 @@ func apply(byID map[string]*Output, e Event) error {
 		}
 		byID[e.ID] = &Output{
 			ID: e.ID, Department: e.Department, Title: e.Title, Kind: e.Kind,
-			URL: e.URL, File: e.File, Path: e.Path, Poster: e.Poster, Issue: e.Issue, Job: e.Job, Note: e.Note,
+			URL: e.URL, File: e.File, Path: e.Path, Branch: e.Branch, Worktree: e.Worktree, Poster: e.Poster, Issue: e.Issue, Job: e.Job, Note: e.Note,
 			By: e.By, Added: when, State: StateReview,
 		}
 		if e.File != "" {
@@ -428,9 +437,34 @@ func localPath(p *tracker.Project, o *Output) string {
 	case o.File != "":
 		return filepath.Join(FilesDir(p), filepath.FromSlash(o.File))
 	case o.Path != "":
-		return filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+		return PathFile(p, o)
 	}
 	return ""
+}
+
+// PathFile is where a --path output's file is on this machine: under the
+// project root, else, for one recorded from an unmerged branch, in that
+// worktree while it is still there. "" for an output with no Path.
+func PathFile(p *tracker.Project, o *Output) string {
+	if o.Path == "" {
+		return ""
+	}
+	at := filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+	if o.Worktree == "" {
+		return at
+	}
+	if _, err := os.Stat(at); err == nil {
+		return at
+	}
+	if wt := filepath.Join(o.Worktree, filepath.FromSlash(o.Path)); fileExists(wt) {
+		return wt
+	}
+	return at
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // Find is the output with id, or the one whose id ends with it (the short
@@ -482,11 +516,14 @@ func NewID(list []*Output, now time.Time) string {
 }
 
 // AddInput is what output add records. Exactly one of URL, File (a local
-// file to copy) and Path (from the project root) is set.
+// file to copy) and Path (from the project root) is set. Worktree and
+// Branch are the issue's worktree and its branch, when it has one: a Path
+// that is not on the root checkout is looked for there.
 type AddInput struct {
 	Department, Title, Kind string
 	URL, File, Path         string
 	Issue, Job, Note, By    string
+	Worktree, Branch        string
 }
 
 // Add checks the input, copies a file onto the shelf and records the
@@ -529,11 +566,14 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 		}
 		e.URL = strings.TrimSpace(in.URL)
 	case in.Path != "":
-		rel, err := repoPath(p, in.Path)
+		rel, fromTree, err := repoPath(p, in.Path, in.Worktree)
 		if err != nil {
 			return nil, err
 		}
 		e.Path = rel
+		if fromTree {
+			e.Branch, e.Worktree = in.Branch, in.Worktree
+		}
 	default:
 		rel, err := copyFile(p, in.Department, id, in.File)
 		if err != nil {
@@ -563,20 +603,60 @@ func CheckURL(raw string) error {
 }
 
 // repoPath is path relative to the project root; it must exist inside it.
-func repoPath(p *tracker.Project, path string) (string, error) {
+// When it doesn't exist there but does in worktree (the issue's checkout,
+// "" for none), it is relative to the worktree and fromTree is true: a
+// file on a branch not merged yet. An absolute path inside the worktree
+// counts as the worktree's.
+func repoPath(p *tracker.Project, path, worktree string) (rel string, fromTree bool, err error) {
 	root := p.Root()
+	if worktree != "" && resolvedDir(worktree) != resolvedDir(root) {
+		if r, ok := inTree(worktree, path); ok && fileExists(filepath.Join(worktree, r)) {
+			if !filepath.IsAbs(path) && fileExists(filepath.Join(root, r)) {
+				return filepath.ToSlash(r), false, nil // on the root checkout: as before
+			}
+			return filepath.ToSlash(r), true, nil
+		}
+	}
+	r, ok := inTree(root, path)
+	if !ok {
+		return "", false, fmt.Errorf("--path %q is outside the project (%s); use --file to copy it onto the shelf", path, root)
+	}
+	if _, err := os.Stat(filepath.Join(root, r)); err != nil {
+		if worktree != "" {
+			return "", false, fmt.Errorf("--path %q: not in the project (%s) nor in the issue's worktree (%s)", path, root, worktree)
+		}
+		return "", false, fmt.Errorf("--path %q: %v", path, err)
+	}
+	return filepath.ToSlash(r), false, nil
+}
+
+// inTree is path relative to dir (a relative path is dir's already);
+// false when it leaves dir.
+func inTree(dir, path string) (string, bool) {
 	abs := path
 	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(root, path)
+		abs = filepath.Join(dir, path)
 	}
-	rel, err := filepath.Rel(root, filepath.Clean(abs))
+	abs = filepath.Clean(abs)
+	rel, err := filepath.Rel(dir, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("--path %q is outside the project (%s); use --file to copy it onto the shelf", path, root)
+		// macOS: /var is /private/var; compare the resolved folders too.
+		if rdir, rabs := resolvedDir(dir), resolvedDir(filepath.Dir(abs)); rdir != dir || rabs != filepath.Dir(abs) {
+			rel, err = filepath.Rel(rdir, filepath.Join(rabs, filepath.Base(abs)))
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return rel, true
+			}
+		}
+		return "", false
 	}
-	if _, err := os.Stat(abs); err != nil {
-		return "", fmt.Errorf("--path %q: %v", path, err)
+	return rel, true
+}
+
+func resolvedDir(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
 	}
-	return filepath.ToSlash(rel), nil
+	return dir
 }
 
 // copyFile copies src to FilesDir/<dept>/<id>-<name> and returns that path

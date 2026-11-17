@@ -50,6 +50,15 @@ func ScriptWorktrees(root, slug string) []string {
 	return slices.Clone(h.trees[slug])
 }
 
+// ScriptsInMain reports whether the main checkout of the repository at root
+// holds a script for slug.
+func ScriptsInMain(root, slug string) bool {
+	if root == "" || slug == "" {
+		return false
+	}
+	return scriptHomesOf(root).main[slug]
+}
+
 // scriptHomes is which slugs the scripts of a repository name: in its main
 // checkout, and per slug the linked worktrees (resolved, sorted) holding one.
 type scriptHomes struct {
@@ -101,33 +110,34 @@ func WorktreeFor(root, slug string) string {
 	return ""
 }
 
-// MergedInto names the main branch (main, else master) of the repository at
-// root when the worktree wt is a stale copy of it: its HEAD is already on
+// MergedInto names the main branch (tracker.MainBranch) of the repository
+// at root when the worktree wt is a stale copy of it: its HEAD is already on
 // that branch and it holds no uncommitted change. "" otherwise, also for a
 // fresh worktree with a new script not yet committed: that one is in use.
 func MergedInto(root, wt string) string {
 	if root == "" || wt == "" || resolved(root) == resolved(wt) {
 		return ""
 	}
-	for _, main := range []string{"main", "master"} {
-		mainSha := tracker.BranchHead(root, main)
-		if mainSha == "" {
-			continue
-		}
-		head := worktreeHead(root, wt)
-		if head == "" {
-			return ""
-		}
-		if _, err := tracker.GitCached(root, "merge-base", "--is-ancestor", head, mainSha); err != nil {
-			return ""
-		}
-		out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
-		if err != nil || strings.TrimSpace(string(out)) != "" {
-			return ""
-		}
-		return main
+	main, err := tracker.MainBranch(root)
+	if err != nil {
+		return ""
 	}
-	return ""
+	mainSha := tracker.BranchHead(root, main)
+	if mainSha == "" {
+		return ""
+	}
+	head := worktreeHead(root, wt)
+	if head == "" {
+		return ""
+	}
+	if _, err := tracker.GitCached(root, "merge-base", "--is-ancestor", head, mainSha); err != nil {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "" {
+		return ""
+	}
+	return main
 }
 
 // worktreeHead is the commit the worktree wt has checked out, from the

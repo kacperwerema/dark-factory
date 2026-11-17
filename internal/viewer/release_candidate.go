@@ -109,27 +109,29 @@ type rcTag struct {
 
 // gitRCTags lists cut's local candidate tags. A var so tests don't run git.
 var gitRCTags = func(root, cut string) []rcTag {
-	if gitdir.Outside(root) {
-		return nil
-	}
-	out, err := exec.Command("git", "-C", root, "for-each-ref",
-		"--format=%(refname:short)%00%(creatordate:unix)", "refs/tags/"+cut+"-rc.*").Output()
-	if err != nil {
-		return nil
-	}
-	var tags []rcTag
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Split(line, "\x00")
-		if len(f) != 2 {
-			continue
+	return refsKept(root, []string{"rc-tags", cut}, func() []rcTag {
+		if gitdir.Outside(root) {
+			return nil
 		}
-		t := rcTag{Name: f[0]}
-		if unix, err := strconv.ParseInt(f[1], 10, 64); err == nil {
-			t.At = time.Unix(unix, 0)
+		out, err := exec.Command("git", "-C", root, "for-each-ref",
+			"--format=%(refname:short)%00%(creatordate:unix)", "refs/tags/"+cut+"-rc.*").Output()
+		if err != nil {
+			return nil
 		}
-		tags = append(tags, t)
-	}
-	return tags
+		var tags []rcTag
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			f := strings.Split(line, "\x00")
+			if len(f) != 2 {
+				continue
+			}
+			t := rcTag{Name: f[0]}
+			if unix, err := strconv.ParseInt(f[1], 10, 64); err == nil {
+				t.At = time.Unix(unix, 0)
+			}
+			tags = append(tags, t)
+		}
+		return tags
+	})
 }
 
 // gitCommitsSince counts the commits from tag to head that touch a file
@@ -138,22 +140,33 @@ var gitCommitsSince = func(root, tag, head, changelog string) (int, bool) {
 	if head == "" {
 		head = "HEAD"
 	}
-	args := []string{"-C", root, "rev-list", "--count", tag + ".." + head, "--", "."}
-	if changelog != "" {
-		args = append(args, ":(exclude)"+changelog)
-	}
-	out, err := exec.Command("git", args...).Output()
-	if err != nil {
-		return 0, false
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	return n, err == nil
+	c := refsKept(root, []string{"since", tag, head, changelog}, func() refsCount {
+		args := []string{"-C", root, "rev-list", "--count", tag + ".." + head, "--", "."}
+		if changelog != "" {
+			args = append(args, ":(exclude)"+changelog)
+		}
+		out, err := exec.Command("git", args...).Output()
+		if err != nil {
+			return refsCount{}
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		return refsCount{n, err == nil}
+	})
+	return c.n, c.ok
+}
+
+// refsCount is a kept count and whether git could give it.
+type refsCount struct {
+	n  int
+	ok bool
 }
 
 // gitHasBranch reports whether root has the local branch. A var so tests
 // don't run git.
 var gitHasBranch = func(root, branch string) bool {
-	return exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", "refs/heads/"+branch).Run() == nil
+	return refsKept(root, []string{"has-branch", branch}, func() bool {
+		return exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", "refs/heads/"+branch).Run() == nil
+	})
 }
 
 // gitUnpicked is, for each slug whose work/<slug> branch has commits the
@@ -161,34 +174,36 @@ var gitHasBranch = func(root, branch string) bool {
 // git call lists the work branches not merged into the release branch; only
 // those are checked with git cherry. A var so tests don't run git.
 var gitUnpicked = func(root, branch string, slugs []string) map[string]int {
-	out, err := exec.Command("git", "-C", root, "branch", "--format=%(refname:short)", "--no-merged", branch, "--list", "work/*").Output()
-	if err != nil {
-		return nil
-	}
-	want := map[string]bool{}
-	for _, s := range slugs {
-		want["work/"+s] = true
-	}
-	res := map[string]int{}
-	for _, b := range strings.Fields(string(out)) {
-		if !want[b] {
-			continue
-		}
-		cherry, err := exec.Command("git", "-C", root, "cherry", branch, b).Output()
+	return refsKept(root, append([]string{"unpicked", branch}, slugs...), func() map[string]int {
+		out, err := exec.Command("git", "-C", root, "branch", "--format=%(refname:short)", "--no-merged", branch, "--list", "work/*").Output()
 		if err != nil {
-			continue
+			return nil
 		}
-		n := 0
-		for _, l := range strings.Split(string(cherry), "\n") {
-			if strings.HasPrefix(l, "+ ") {
-				n++
+		want := map[string]bool{}
+		for _, s := range slugs {
+			want["work/"+s] = true
+		}
+		res := map[string]int{}
+		for _, b := range strings.Fields(string(out)) {
+			if !want[b] {
+				continue
+			}
+			cherry, err := exec.Command("git", "-C", root, "cherry", branch, b).Output()
+			if err != nil {
+				continue
+			}
+			n := 0
+			for _, l := range strings.Split(string(cherry), "\n") {
+				if strings.HasPrefix(l, "+ ") {
+					n++
+				}
+			}
+			if n > 0 {
+				res[strings.TrimPrefix(b, "work/")] = n
 			}
 		}
-		if n > 0 {
-			res[strings.TrimPrefix(b, "work/")] = n
-		}
-	}
-	return res
+		return res
+	})
 }
 
 // addPicked adds the Fixes picked check: every done issue of the milestone
@@ -267,7 +282,31 @@ func (ms *MilestoneRow) addCandidate(root, head, changelog string) {
 		}
 	}
 	ms.Checks = append(ms.Checks, check)
+	if ms.Branch != "" {
+		ms.Checks = append(ms.Checks, validatedCheck(root, ms.Branch, ms.Cut, c.Tag))
+	}
 	ms.finishRC()
+}
+
+// validatedCheck passes when release check validated the candidate: the
+// commit it recorded is the candidate tag's or the branch tip's (a
+// changelog-only commit after the tag needs no new check). It is what a
+// publish reads instead of main's head.
+func validatedCheck(root, branch, cut, tag string) ReleaseCheck {
+	c := ReleaseCheck{Key: "validated", Text: "Candidate " + tag + " validated in the release worktree"}
+	done := releaseValidatedTip(root, branch)
+	tagAt, tip := gitTip(root, tag), gitTip(root, branch)
+	switch {
+	case done != "" && (sameSha(done, tagAt) || sameSha(done, tip)):
+		c.OK, c.Meta = true, gitdir.ShortSHA(done)
+	case done != "":
+		c.Meta = "stale"
+		c.Detail = fmt.Sprintf("validated at %s, not at %s: issue-cli release check %s", gitdir.ShortSHA(done), tag, cut)
+	default:
+		c.Meta = "not run"
+		c.Detail = "not validated: issue-cli release check " + cut + " runs local CI's commands in the release worktree and records it"
+	}
+	return c
 }
 
 // finishRC settles what the lead does next: cut a candidate (CutNext) or,
@@ -277,7 +316,8 @@ func (ms *MilestoneRow) finishRC() {
 	others := true
 	for _, c := range ms.Checks {
 		ms.Ready = ms.Ready && c.OK
-		if c.Key != "soaked" {
+		// The candidate's own checks wait for it: they never hold its cut.
+		if c.Key != "soaked" && c.Key != "validated" {
 			others = others && c.OK
 		}
 	}

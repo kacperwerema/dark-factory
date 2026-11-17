@@ -12,7 +12,7 @@ func lintCheck(path string, raw []byte, now time.Time) ([]Finding, error) {
 	fs, err := lint.EditCheck(path, raw, now)
 	out := make([]Finding, len(fs))
 	for i, f := range fs {
-		out[i] = Finding(f)
+		out[i] = Finding{Check: f.Check, Where: f.Where, Message: f.Message, Fix: f.Fix}
 	}
 	return out, err
 }

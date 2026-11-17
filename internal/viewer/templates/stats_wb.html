@@ -44,6 +44,15 @@
         {{template "wb/decisions-card" .Decisions}}
     </section>
 
+    <section class="wb-hsec" aria-labelledby="stats-specflow-h" data-testid="stats.specflow">
+        <div class="wb-hsec-head">
+            <h2 id="stats-specflow-h" class="wb-h2">Spec flow</h2>
+            <span class="wb-hsec-sub">{{.SpecFlow.Sub}} · <span class="wb-mono-inline">issue-cli stats --spec-flow</span></span>
+        </div>
+        {{with .SpecFlow.Err}}<p class="wb-small wb-muted" data-testid="stats.specflow.err">{{.}}</p>{{end}}
+        <div class="wb-tgrid">{{range .SpecFlow.Tables}}{{template "wb/table-card" .}}{{end}}</div>
+    </section>
+
     <section class="wb-hsec" aria-labelledby="stats-time-h" data-testid="stats.time">
         <div class="wb-hsec-head">
             <h2 id="stats-time-h" class="wb-h2">Where the time goes · {{.RangeLabel}}</h2>

@@ -20,7 +20,7 @@ func TestPromptDeliveryMarker(t *testing.T) {
 	}
 }
 
-// The Workflow review block's retrospective command must name the issue's
+// The How to work section's retrospective command must name the issue's
 // slug: `retrospective <System>` fuzzy-matches some other issue of that
 // system and files the retro there.
 func TestBuildAgentPrompt_RetrospectiveNamesSlugNotSystem(t *testing.T) {
@@ -32,9 +32,6 @@ func TestBuildAgentPrompt_RetrospectiveNamesSlugNotSystem(t *testing.T) {
 	}
 	if strings.Contains(prompt, "retrospective Campaign") {
 		t.Fatalf("retrospective command names the system:\n\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "system-specific instructions that should be added for Campaign\n") {
-		t.Fatalf("missing-instructions line does not name the system:\n\n%s", prompt)
 	}
 }
 
@@ -94,6 +91,10 @@ func TestInjectProjectLeavesQuotedCommandsAlone(t *testing.T) {
 		{"a quote ends with its line", "\"open\nissue-cli show x", "\"open\nissue-cli --project p show x"},
 		{"already named", "issue-cli --project q show x", "issue-cli --project q show x"},
 		{"already named with =", "issue-cli --project=q show x", "issue-cli --project=q show x"},
+		{"named after --config", "issue-cli --config X --project Y show s", "issue-cli --config X --project Y show s"},
+		{"named after --json and --config=", "issue-cli --json --config=X --project=Y show s", "issue-cli --json --config=X --project=Y show s"},
+		{"--config without --project", "issue-cli --config X show s", "issue-cli --project p --config X show s"},
+		{"--project after the command is its own flag", "issue-cli show s --project Y", "issue-cli --project p show s --project Y"},
 		{"twice", InjectProject(proj, "issue-cli show x"), "issue-cli --project p show x"},
 		{"the bare word", "the issue-cli binary", "the issue-cli --project p binary"},
 		{"no trailing space", "use issue-cli.", "use issue-cli."},
@@ -106,6 +107,33 @@ func TestInjectProjectLeavesQuotedCommandsAlone(t *testing.T) {
 	for _, p := range []*Project{nil, {}} {
 		if got := InjectProject(p, "issue-cli show x"); got != "issue-cli show x" {
 			t.Errorf("no project slug: %q", got)
+		}
+	}
+}
+
+// An issue-cli glued to a path or a name is no command: a brief naming
+// cmd/issue-cli read back as "cmd/issue-cli --project p" (2 retros,
+// 2026-11-15). The worker's own ./issue-cli build is still a command.
+func TestInjectLineSkipsPathsEndingInIssueCli(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"a package path", "touches cmd/issue-cli and more", "touches cmd/issue-cli and more"},
+		{"a relative package path", "go test ./cmd/issue-cli -run X", "go test ./cmd/issue-cli -run X"},
+		{"a module path", "github.com/o/r/cmd/issue-cli is the CLI", "github.com/o/r/cmd/issue-cli is the CLI"},
+		{"in backticks", "`cmd/issue-cli` holds it", "`cmd/issue-cli` holds it"},
+		{"a hyphenated name", "the my-issue-cli tool", "the my-issue-cli tool"},
+		{"a word character", "xissue-cli show", "xissue-cli show"},
+		{"a dotted name", "the .issue-cli file", "the .issue-cli file"},
+		{"an underscore", "a_issue-cli show", "a_issue-cli show"},
+		{"the worker's build", "run ./issue-cli show x", "run ./issue-cli --project p show x"},
+		{"the build at line start", "./issue-cli show x", "./issue-cli --project p show x"},
+		{"the build in backticks", "`./issue-cli show x`", "`./issue-cli --project p show x`"},
+		{"a path then a command", "in cmd/issue-cli run issue-cli show x", "in cmd/issue-cli run issue-cli --project p show x"},
+		{"after a paren", "(issue-cli show x)", "(issue-cli --project p show x)"},
+		{"a path starts no command", "cmd/issue-cli 'issue-cli show x'", "cmd/issue-cli 'issue-cli --project p show x'"},
+	}
+	for _, c := range cases {
+		if got := injectLine("p", c.in); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}
 }
@@ -177,15 +205,22 @@ func TestBriefingCarriesTheRedOnMainRule(t *testing.T) {
 			t.Errorf("Local CI section lacks %q:\n%s", want, section)
 		}
 	}
+	if !strings.Contains(section, "When your project's tests fail on your branch") || strings.Contains(section, "make validate") {
+		t.Errorf("no ci: command: the section should fall back to the project's tests:\n%s", section)
+	}
+	npm := CIPromptSection(t.TempDir(), &WorkflowConfig{CI: &CIConfig{Run: []CICommand{{Cmd: "npm test"}}}})
+	if !strings.Contains(npm, "When `npm test` or a test fails on your branch") || strings.Contains(npm, "make validate") {
+		t.Errorf("ci: npm test: the section should name it:\n%s", npm)
+	}
 
 	prompt := BuildAgentPrompt(nil, &Issue{Slug: "s", Title: "t"}, nil, "", "")
 	line := ""
 	for _, l := range strings.Split(prompt, "\n") {
-		if strings.Contains(l, "Creating or deleting issues") {
+		if strings.Contains(l, "creating or deleting issues") {
 			line = l
 		}
 	}
-	for _, want := range []string{"ask first", "you file a failure main already has and no issue names"} {
+	for _, want := range []string{"Ask the user first", "a failure main already has that no issue names"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the ask-first line lacks %q: %q", want, line)
 		}
@@ -203,8 +238,8 @@ func TestBriefingSaysABriefIsAHypothesis(t *testing.T) {
 	for _, want := range []string{
 		"A brief's cause, cache key, fix or quoted form is a proposal",
 		"measure it on the unchanged code or read the parser first",
-		`record a D-n (issue-cli --project proj decide api/fix --provisional --text "...")`,
-		`retitle it (issue-cli --project proj update api/fix --title "...")`,
+		"record a D-n (step 4) or retitle (update --title)",
+		`issue-cli --project proj decide api/fix --provisional --text "..."`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("briefing lacks %q:\n\n%s", want, prompt)

@@ -55,7 +55,7 @@ func GateError(list []*Output, slug, kind string) error {
 	case len(gone) > 0:
 		msg += fmt.Sprintf(" (%s: its file is gone)", strings.Join(gone, ", "))
 	}
-	return fmt.Errorf("%s — put %s there:\n\n  %s", msg, what, add)
+	return tracker.RuleFailure(msg, fmt.Sprintf("put %s there:\n\n  %s", what, add))
 }
 
 // ApprovedError is the outputs_approved check: nil when the shelf has an
@@ -85,11 +85,11 @@ func ApprovedError(list []*Output, slug, kind string) error {
 	}
 	switch {
 	case len(inReview) > 0:
-		return fmt.Errorf("%s still in review on the shelf for %s — the owner approves the newest version first (the shelf page's Approve, or issue-cli output review <id> approve --quote \"<the owner's words>\")", strings.Join(inReview, ", "), slug)
+		return tracker.RuleFailure(fmt.Sprintf("%s still in review on the shelf for %s", strings.Join(inReview, ", "), slug), "the owner approves the newest version first (the shelf page's Approve, or issue-cli output review <id> approve --quote \"<the owner's words>\")")
 	case !found:
 		return GateError(list, slug, kind)
 	case !approved:
-		return fmt.Errorf("no approved %s on the shelf for %s: every one is rejected — add a new one that answers the review (issue-cli output add --issue %s ...)", what, slug, slug)
+		return tracker.RuleFailure(fmt.Sprintf("no approved %s on the shelf for %s: every one is rejected", what, slug), fmt.Sprintf("add a new one that answers the review (issue-cli output add --issue %s ...)", slug))
 	}
 	return nil
 }

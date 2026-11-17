@@ -20,11 +20,12 @@ const (
 	StagePartCI        = "ci"
 	StagePartBuild     = "build"
 	StagePartRedRounds = "red-rounds"
+	StagePartMainHolds = "main-holds"
 )
 
 // StageFoldOrder is the order parts fold in when the briefing is over its
 // budget: the first is the cheapest to fetch again.
-var StageFoldOrder = []string{StagePartMemories, StagePartDecisions, StagePartShell, StagePartCI, StagePartBuild, StagePartRedRounds}
+var StageFoldOrder = []string{StagePartMemories, StagePartDecisions, StagePartShell, StagePartCI, StagePartMainHolds, StagePartBuild, StagePartRedRounds}
 
 // StageBriefing is the size of a stage briefing against its budget, for the
 // dispatch-prompt JSON and the trace's briefing record.

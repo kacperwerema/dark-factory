@@ -201,14 +201,16 @@ func TestDeptAddInstallsAndTheRoomShows(t *testing.T) {
 		`id="room-marketing" data-room="marketing" data-title="Marketing" data-testid="floor.inspector.marketing"`,
 		// A template installs once: Legal, Sales, Video and GTM are left.
 		`4 templates left`,
-		`<input type="radio" name="template" value="legal" checked>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("company page after Add missing %q", want)
 		}
 	}
-	if strings.Contains(body, `data-testid="company.new_dept.template.marketing"`) {
-		t.Error("Marketing is added, the tile still offers it")
+	// The floor's plot links to the picker, which offers what is left.
+	_, pick := getBody(t, ts.URL+"/p/acme/departments/new")
+	assertContains(t, pick, `<input type="radio" name="template" value="legal" checked>`)
+	if strings.Contains(pick, `data-testid="company.new_dept.template.marketing"`) {
+		t.Error("Marketing is added, the picker still offers it")
 	}
 }
 
@@ -343,5 +345,41 @@ func TestDeptPreviewShowsHandoffsToDeclare(t *testing.T) {
 	code, body = getBody(t, ts.URL+"/p/acme/departments/new?template=marketing")
 	if code != http.StatusOK || strings.Contains(body, `data-testid="dept_new.handoffs"`) {
 		t.Errorf("a template without handoffs shows none (status %d)", code)
+	}
+}
+
+// The floor's New department plot is a link to the picker page, not a
+// <details> whose form the overflow-hidden plot clips (the owner's click
+// did nothing); the phone list has the same link; the picker page, with no
+// template asked, offers every template left and previews on submit.
+func TestFloorNewDeptLinksToThePickerPage(t *testing.T) {
+	_, proj := deptSandbox(t)
+	ts := newTestServer(t, []tracker.Project{proj})
+	defer ts.Close()
+	code, floor := getBody(t, ts.URL+"/p/acme/company")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	assertContains(t, floor,
+		`<a class="wb-fl-plot-face" href="/p/acme/departments/new" data-testid="tile.new_department"`,
+		`href="/p/acme/departments/new" data-testid="floor.list.new_dept"`)
+	if strings.Contains(floor, `wb-fl-plot-pop`) {
+		t.Error("the floor still renders the plot's clipped popover form")
+	}
+	code, pick := getBody(t, ts.URL+"/p/acme/departments/new")
+	if code != http.StatusOK {
+		t.Fatalf("picker status %d", code)
+	}
+	assertContains(t, pick,
+		`data-testid="dept_new.page"`,
+		`data-testid="dept_new.pick"`,
+		`action="/p/acme/departments/new" data-testid="company.new_dept.form"`,
+		`<input type="radio" name="template" value="legal" checked>`,
+		`data-testid="company.new_dept.template.marketing"`,
+		`data-testid="company.new_dept.preview"`)
+	for _, gone := range []string{`data-testid="dept_new.error"`} {
+		if strings.Contains(pick, gone) {
+			t.Errorf("the picker page shows a refusal: %q", gone)
+		}
 	}
 }

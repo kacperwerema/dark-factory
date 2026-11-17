@@ -135,3 +135,35 @@ func (s *State) branchOr(branch string) string {
 	}
 	return branch
 }
+
+// SlowestStepLine names the slowest timed step of the newest default-tier
+// run among runs (newest first), so a slow step shows in ci status:
+//
+//	Slowest step at abc1234: test 244s (make validate 400s)
+//
+// "" when that run timed no steps.
+func SlowestStepLine(runs []Run) string {
+	for _, r := range runs {
+		if r.Tier != "" && r.Tier != defaultTier {
+			continue
+		}
+		step, ok := r.SlowestStep()
+		if !ok {
+			return ""
+		}
+		line := fmt.Sprintf("Slowest step at %s: %s %s", gitdir.ShortSHA(r.Sha), step.Name, seconds(step.DurationMS))
+		for _, c := range r.Commands {
+			for _, s := range c.Steps {
+				if s == step {
+					return line + fmt.Sprintf(" (%s %s)", c.Cmd, seconds(c.DurationMS))
+				}
+			}
+		}
+		return line
+	}
+	return ""
+}
+
+func seconds(ms int64) string {
+	return fmt.Sprintf("%ds", (ms+500)/1000)
+}

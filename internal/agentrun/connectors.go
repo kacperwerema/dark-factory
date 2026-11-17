@@ -54,34 +54,11 @@ func ConnectorEnv(proj *tracker.Project, spec Spec) []string {
 // session's environment; its ISSUE_VIEWER_* and ISSUE_CLI_LOG entries are
 // passed on to the servers. nil for Product, the CEO, or no connectors.
 func ConnectorFlags(proj *tracker.Project, spec Spec, sessionLogDir string, env []string, steps *[]Step) []string {
-	dept := SpecDepartment(proj, spec)
-	if dept == "" {
-		return nil
-	}
-	pass := map[string]string{}
-	for _, kv := range env {
-		k, v, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "ISSUE_VIEWER_") || k == "ISSUE_CLI_LOG" {
-			pass[k] = v
-		}
-	}
-	servers := connectors.Servers(proj, dept, pass)
+	dept, servers := connectorServers(proj, spec, env)
 	if len(servers) == 0 {
 		return nil
 	}
-	var names []string
-	for _, s := range servers {
-		name := s.Name
-		if n := len(s.DenyTools); n == 1 {
-			name += " (1 tool off)"
-		} else if n > 1 {
-			name += fmt.Sprintf(" (%d tools off)", n)
-		}
-		if s.StartSeconds > 0 {
-			name += " (starts per run)"
-		}
-		names = append(names, name)
-	}
+	names := connectorNames(servers)
 	switch spec.AgentType {
 	case "claude":
 		path := filepath.Join(sessionLogDir, "mcp.json")
@@ -102,4 +79,41 @@ func ConnectorFlags(proj *tracker.Project, spec Spec, sessionLogDir string, env 
 		return connectors.CodexFlags(servers)
 	}
 	return nil
+}
+
+// connectorServers are spec's department and its MCP connectors, each
+// passed the session env's ISSUE_VIEWER_* and ISSUE_CLI_LOG entries; no
+// servers for Product, the CEO, or no connectors.
+func connectorServers(proj *tracker.Project, spec Spec, env []string) (string, []connectors.Server) {
+	dept := SpecDepartment(proj, spec)
+	if dept == "" {
+		return "", nil
+	}
+	pass := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(k, "ISSUE_VIEWER_") || k == "ISSUE_CLI_LOG" {
+			pass[k] = v
+		}
+	}
+	return dept, connectors.Servers(proj, dept, pass)
+}
+
+// connectorNames are servers' names for a launch step, each marked with
+// its tools turned off and a per_run: start.
+func connectorNames(servers []connectors.Server) []string {
+	var names []string
+	for _, s := range servers {
+		name := s.Name
+		if n := len(s.DenyTools); n == 1 {
+			name += " (1 tool off)"
+		} else if n > 1 {
+			name += fmt.Sprintf(" (%d tools off)", n)
+		}
+		if s.StartSeconds > 0 {
+			name += " (starts per run)"
+		}
+		names = append(names, name)
+	}
+	return names
 }

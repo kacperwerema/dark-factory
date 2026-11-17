@@ -1,0 +1,10 @@
+# Deploy: the workflow names three deploy: steps; app fails while
+# broken.txt is in the checkout, so a deploy goes red at app. Nothing
+# leaves the machine: the steps are local shell commands.
+title: Deploy - the Report's Last deploy card
+project:
+  name: Orbit
+  slug: orbit
+issues: tracker
+workflow: workflow.yaml
+root: files

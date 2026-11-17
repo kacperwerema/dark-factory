@@ -32,6 +32,7 @@ func init() {
 		"floor.list",
 		"floor.list.row",
 		"floor.list.name",
+		"floor.list.new_dept",
 		"floor.list.counts",
 		"floor.list.go",
 		"floor.lod.detail",

@@ -308,7 +308,7 @@ func TestCodemapParsesOncePerHead(t *testing.T) {
 
 // TestEngineMapHasNoNewUpwardImport: the engine's own workflow.yaml maps
 // every package and lists every upward import as a known leak. make
-// codemap-check runs it as a cheap step of make validate, before the suite.
+// codemap-check runs it as a cheap step of make validate, beside the suite.
 func TestEngineMapHasNoNewUpwardImport(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {

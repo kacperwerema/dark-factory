@@ -21,6 +21,23 @@ func TestCheckEditKeepsTickAndID(t *testing.T) {
 	assertContains(t, string(data), "- [ ] first task\n- [x] second task, reworded\n")
 }
 
+// The text can follow the id, as check's and comment's do, with the slug
+// given or left out for the worker's own issue.
+func TestCheckEditTakesTheTextAfterTheID(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "in progress")
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCheckEdit(ctx, []string{slug, "D1", "first task, positional"}); err != nil {
+		t.Fatalf("runCheckEdit: %v", err)
+	}
+	assertContains(t, stdout.String(), "now: first task, positional")
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", slug)
+	if err := runCheckEdit(ctx, []string{"D2", "second task, own slug"}); err != nil {
+		t.Fatalf("runCheckEdit without the slug: %v", err)
+	}
+	data, _ := os.ReadFile(issuePath)
+	assertContains(t, string(data), "- [ ] first task, positional\n- [ ] second task, own slug\n")
+}
+
 func TestCheckEditErrors(t *testing.T) {
 	proj, slug, issuePath := makeSimpleProject(t, "in progress")
 	before, _ := os.ReadFile(issuePath)
@@ -30,9 +47,10 @@ func TestCheckEditErrors(t *testing.T) {
 		want string
 	}{
 		{[]string{slug, "D9", "--text", "x"}, "ids in this issue: D1 D2"},
-		{[]string{slug, "D1"}, "requires --text"},
+		{[]string{slug, "D1"}, "requires the box's new text (--text, or after the id)"},
 		{[]string{slug, "--text", "x"}, "exactly one box id"},
-		{[]string{slug, "D1", "D2", "--text", "x"}, "exactly one box id"},
+		{[]string{slug, "D1", "D2", "--text", "x"}, "in --text or after the id, not both"},
+		{[]string{slug, "D1", "two", "words"}, "quote the text"},
 		{[]string{slug, "D1", "--text", `two\nlines`}, "one line"},
 	} {
 		err := runCheckEdit(ctx, c.args)
@@ -114,4 +132,44 @@ func TestReplaceWarnsWhenItDropsASubheading(t *testing.T) {
 	if strings.Contains(stdout.String(), "has_test_plan") {
 		t.Errorf("a Design replace got the Test Plan note:\n%s", stdout)
 	}
+}
+
+func TestReplaceWarnsWhenItDropsCheckboxes(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "in progress")
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCheck(ctx, []string{slug, "D2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Keeping every box (reworded prose around them, ticks kept) is quiet.
+	stdout.Reset()
+	keep := "New approach.\n\n- [ ] first task\n- [x] second task"
+	if err := runReplace(ctx, []string{slug, "--section", "Design", "--body", keep}); err != nil {
+		t.Fatalf("replace keeping the boxes: %v", err)
+	}
+	if strings.Contains(stdout.String(), "⚠") {
+		t.Errorf("a replace that keeps every box warned:\n%s", stdout)
+	}
+
+	// Prose only: both template boxes are gone, and the warning names
+	// each one by its old id, with the way to put it back.
+	stdout.Reset()
+	if err := runReplace(ctx, []string{slug, "--section", "## Design", "--body", "Just prose now."}); err != nil {
+		t.Fatalf("replace dropping the boxes: %v", err)
+	}
+	out := stdout.String()
+	assertContains(t, out, "⚠ the new body drops 2 boxes the old section had; D1 D2 no longer name them:\n")
+	assertContains(t, out, "  D1 [ ] first task\n  D2 [x] second task\n")
+	assertContains(t, out, "  put one back: issue-cli check-add "+slug+" --section Design --text '<text>'")
+	data, _ := os.ReadFile(issuePath)
+	assertContains(t, string(data), "## Design\nJust prose now.")
+}
+
+func TestReplaceWarnsWhenItDropsOneCheckbox(t *testing.T) {
+	proj, slug, _ := makeSimpleProject(t, "in progress")
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runReplace(ctx, []string{slug, "--section", "Design", "--body", "- [ ] second task\n- [ ] a new one"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "⚠ the new body drops 1 box the old section had; D1 no longer names it:\n  D1 [ ] first task\n")
 }

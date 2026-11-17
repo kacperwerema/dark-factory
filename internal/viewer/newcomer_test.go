@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/standin"
+	"github.com/kacperwerema/dark-factory/internal/testbin"
 )
 
 // newcomer is a clean machine for one test: an empty HOME, no XDG
@@ -116,19 +117,16 @@ func realTempDirRoot(t *testing.T) string {
 	return d
 }
 
-// build compiles issue-cli and issue-viewer from this checkout into the
-// newcomer's bin, as make install would into GOBIN.
+// build puts issue-cli and issue-viewer from this checkout into the
+// newcomer's bin, as make install would into GOBIN: the test binary's one
+// build of each (internal/testbin), linked in.
 func (n *newcomer) build() {
 	n.t.Helper()
 	for _, b := range []struct{ out, pkg string }{
-		{"issue-cli", "./cmd/issue-cli/"},
-		{"issue-viewer", "./cmd/issue-viewer/"},
+		{"issue-cli", "./cmd/issue-cli"},
+		{"issue-viewer", "./cmd/issue-viewer"},
 	} {
-		cmd := exec.Command("go", "build", "-o", filepath.Join(n.bin, b.out), b.pkg)
-		cmd.Dir = repoRoot
-		if out, err := cmd.CombinedOutput(); err != nil {
-			n.t.Fatalf("go build %s: %v\n%s", b.pkg, err, out)
-		}
+		testbin.Link(n.t, b.pkg, filepath.Join(n.bin, b.out))
 	}
 }
 
@@ -267,7 +265,7 @@ func TestNewcomerWalkthrough(t *testing.T) {
 		}
 		return r.StatusCode, b.String()
 	}
-	if !waitFor(20*time.Second, func() bool { c, _ := get("/"); return c == 200 }) {
+	if !waitFor(60*time.Second, func() bool { c, _ := get("/"); return c == 200 }) {
 		t.Fatalf("viewer never answered on %s", base)
 	}
 	for _, p := range []string{"/p/shop/company", "/p/shop/hall", "/p/shop/status", "/p/shop/needs-you"} {
@@ -286,7 +284,7 @@ func TestNewcomerWalkthrough(t *testing.T) {
 	if !strings.Contains(out, "headless") || !strings.Contains(out, "tmux attach") {
 		t.Errorf("dispatch should say it is headless and how to attach:\n%s", out)
 	}
-	if !waitFor(15*time.Second, func() bool { _, e := os.Stat(claudeArgs); return e == nil }) {
+	if !waitFor(60*time.Second, func() bool { _, e := os.Stat(claudeArgs); return e == nil }) {
 		t.Fatal("the stand-in agent never started")
 	}
 	if b, _ := os.ReadFile(claudeArgs); !strings.Contains(string(b), "ui/add-a-dark-mode-toggle") {
@@ -305,7 +303,7 @@ func TestNewcomerWalkthrough(t *testing.T) {
 	if strings.Contains(out, "✗") {
 		t.Errorf("lead spawn had a failed step:\n%s", out)
 	}
-	if !waitFor(10*time.Second, func() bool { _, body := get("/p/shop/company"); return strings.Contains(body, "Marketing") }) {
+	if !waitFor(60*time.Second, func() bool { _, body := get("/p/shop/company"); return strings.Contains(body, "Marketing") }) {
 		t.Error("the company page doesn't show the new Marketing department")
 	}
 

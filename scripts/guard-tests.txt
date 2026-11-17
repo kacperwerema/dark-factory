@@ -1,0 +1,34 @@
+# The repo-wide guard tests `make guard-check` runs on its own (beside the suite in make validate):
+# tests that read the whole repo (a docs table that must list every command,
+# every lint check in the docs, doc numbers that agree, every guard that
+# consults the sandbox pass) and so fail on any branch that adds a command, a
+# rule or a doc number without the matching line. make test runs them too;
+# make validate skips them in its test step (GUARD_SKIP), so they run once.
+# One line per test: <package> <TestName>. TestGuardCheckListsEveryGuardTest
+# (internal/viewer) fails when a TestEvery*, Test*ListedInDocs or
+# TestDocNumbers* test is missing here, or a listed test doesn't exist.
+./cmd/issue-cli TestCommandsTableListsEveryCommand
+./cmd/issue-cli TestEveryCommandHasAccess
+./cmd/issue-cli TestEveryCommandHelpNeedsNoProject
+./cmd/issue-cli TestEveryCommandRejectsUnknownFlags
+./cmd/issue-cli TestEveryHelpHintNamesRealFlags
+./cmd/issue-cli TestEveryWorkerGuardConsultsTheSandboxPass
+./cmd/issue-cli TestPlaytestGuidesInSync
+./internal/agentrun TestEveryPaneSenderIsListed
+./internal/docnumbers TestDocNumbersCopiesAgree
+./internal/docnumbers TestDocNumbersInSync
+./internal/lint TestLintChecksListedInDocs
+./internal/memguard TestEveryCallerGoesThroughThePackage
+./internal/testbin TestEveryGoBuildInATestGoesThroughTestbin
+./internal/tracker TestCloneCopiesEveryField
+./internal/tracker TestEveryRuleHasASummary
+./internal/tracker TestEveryRuleIsInTheDocs
+./internal/tracker TestSettledRulesTableMatchesDoc
+./internal/viewer TestEveryRouteIsInTheSecurityInventory
+./internal/viewer TestEveryTestBinaryDropsTMUX
+./internal/viewer TestGuardCheckListsEveryGuardTest
+./internal/viewer TestOwnerRoutesListedInSecurityDoc
+./internal/workflowupgrade TestEveryEntryDetectsItsOwnSnippet
+./internal/workflowupgrade TestEveryEntryHasSourcesThatExist
+./internal/workflowupgrade TestEveryWorkflowFeatureHasACatalogEntry
+./tools/test-shards TestEveryTestPackageIsInTheCacheList

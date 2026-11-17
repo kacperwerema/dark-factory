@@ -77,7 +77,7 @@ func TestReferenceBySubjectOrRefsLine(t *testing.T) {
 func TestReferenceErrorWithoutABranch(t *testing.T) {
 	f := newFixture(t, "TestFoo")
 	gitAt(t, f.root, t0, "branch", "-D", "work/"+f.issue.Slug)
-	if err := ReferenceError(f.root, f.issue); err == nil || !strings.Contains(err.Error(), "no branch work/"+f.issue.Slug) {
+	if err := ReferenceError(f.root, f.issue); err == nil || !strings.Contains(err.Error(), "no branch for "+f.issue.Slug) {
 		t.Errorf("ReferenceError = %v, want the missing branch named", err)
 	}
 }

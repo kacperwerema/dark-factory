@@ -1,7 +1,6 @@
 package agentrun
 
 import (
-	"os/exec"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
@@ -49,14 +48,14 @@ func AutostartBrief(proj *tracker.Project, root string) *briefing.AutoStartBrief
 	return &briefing.AutoStartBrief{Words: st.Words, Below: st.Below, MaxWorkers: st.MaxWorkers, MaxLoad: st.MaxLoad, Paused: st.Paused}
 }
 
-// MainBranch names the repository's main branch: main, else master, else "".
+// MainBranch names the repository's main branch (tracker.MainBranch's
+// order), "" when git can't say.
 func MainBranch(workdir string) string {
-	for _, candidate := range []string{"main", "master"} {
-		if exec.Command("git", "-C", workdir, "rev-parse", "--verify", "--quiet", "refs/heads/"+candidate).Run() == nil {
-			return candidate
-		}
+	name, err := tracker.MainBranch(workdir)
+	if err != nil || name == "HEAD" {
+		return ""
 	}
-	return ""
+	return name
 }
 
 // DepartmentLeadSpec builds the launch spec for department dept's lead,

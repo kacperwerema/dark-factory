@@ -204,10 +204,15 @@ type StatusModel struct {
 	Jobs string
 	// Nightly is the Last night: line (nightlyStatusLine); "" without nights.
 	Nightly string
+	// Deploy is the Last deploy: line (deployMarkdownLine); "" without deploy:.
+	Deploy string
 	// Push is the Push: line (devices, mute, quiet hours, removed devices); "" when nothing subscribed.
 	Push string
 	// Agents is the agent CLIs' subscriptions line (agentsStatusLine).
 	Agents string
+	// Machine is the Machine: line while fseventsd runs away
+	// (machineStatusLine); "" otherwise.
+	Machine string
 	// HQReport is the HQ report's text (/hq/report.md); "" without
 	// departments.
 	HQReport string
@@ -285,27 +290,29 @@ func (m *StatusModel) WaitingOf(kind string) []WaitingItem {
 
 // gitTags lists the newest n tags as releases. A var so tests don't run git.
 var gitTags = func(root string, n int) []Release {
-	if gitdir.Outside(root) {
-		return nil
-	}
-	out, err := exec.Command("git", "-C", root, "for-each-ref", "--sort=-creatordate", fmt.Sprintf("--count=%d", n),
-		"--format=%(refname:short)\t%(creatordate:short)\t%(contents:subject)", "refs/tags").Output()
-	if err != nil {
-		return nil
-	}
-	var rels []Release
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 2 || parts[0] == "" {
-			continue
+	return refsKept(root, []string{"tags", fmt.Sprint(n)}, func() []Release {
+		if gitdir.Outside(root) {
+			return nil
 		}
-		r := Release{Version: parts[0], Date: parts[1]}
-		if len(parts) == 3 && parts[2] != parts[0] {
-			r.Summary = parts[2]
+		out, err := exec.Command("git", "-C", root, "for-each-ref", "--sort=-creatordate", fmt.Sprintf("--count=%d", n),
+			"--format=%(refname:short)\t%(creatordate:short)\t%(contents:subject)", "refs/tags").Output()
+		if err != nil {
+			return nil
 		}
-		rels = append(rels, r)
-	}
-	return rels
+		var rels []Release
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			parts := strings.SplitN(line, "\t", 3)
+			if len(parts) < 2 || parts[0] == "" {
+				continue
+			}
+			r := Release{Version: parts[0], Date: parts[1]}
+			if len(parts) == 3 && parts[2] != parts[0] {
+				r.Summary = parts[2]
+			}
+			rels = append(rels, r)
+		}
+		return rels
+	})
 }
 
 // buildStatus assembles the Status page. agents may be nil (no tmux): every
@@ -420,6 +427,7 @@ func buildStatus(proj *tracker.Project, issues []*tracker.Issue, agents *AgentsM
 	m.UnsentBugReports = unsentBugReports()
 	_, _, m.Shelf = companyShelf(proj, m.Prefix, now)
 	m.NeedsYou = needsYouRowsWith(proj, "", m.Prefix, m.Waiting, now)
+	m.Machine = machineStatusLine(now)
 	root := projectRoot(proj)
 	m.Next = leadNextSteps(root, tracker.LeadSessionName(proj), now)
 	text, changelog := readChangelog(root, wf.Workbench.Changelog)

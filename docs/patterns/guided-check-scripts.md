@@ -158,7 +158,7 @@ API reference.
   `open` on macOS), `keep <file> [name]` (copies it to
   `.agent-logs/checks/<name>/files/`, sets `$kept`). In `expect` and
   `eventually`, `$?` is the exit code of the command before them:
-  `wait_for_url "$url" 30; expect '[ $? = 0 ]' "the viewer answers"`.
+  `wait_for_url "$url" 60; expect '[ $? = 0 ]' "the viewer answers"`.
   `step_active` is true while the step runs (not skipped);
   `step_end` closes it early.
 
@@ -195,7 +195,10 @@ These come from the first scripts' mistakes:
   print. The first `sandbox_dir` points `XDG_STATE_HOME` and
   `XDG_CONFIG_HOME` at its `state/` and `config/`: a viewer or issue-cli the
   script starts never reads or writes the shared `viewer.json` or
-  `projects.yaml`. Later ones leave them where they are.
+  `projects.yaml`. Later ones leave them where they are. Before the folder
+  goes, every process whose `CODEX_HOME` or `CLAUDE_CONFIG_DIR` (or command
+  line) is inside it is stopped (`issue-cli doctor leaks --under <dir>
+  --stop`): a real CLI a step started there, and the daemon it detached.
 - `sandbox_project <name> [template]`: a throwaway project (git repo,
   `issue-cli init`, its own projects.yaml). `XDG_STATE_HOME`,
   `XDG_CONFIG_HOME` and `ISSUE_VIEWER_CONFIG` point into it. Ticking the
@@ -229,7 +232,8 @@ These come from the first scripts' mistakes:
   (`expect_stand_in_got claude "<text>"`), so a re-sent prompt never lands in
   a shell.
 - `background <var> [clean_shell] <cmd…>` (a sandbox viewer, a server: its
-  pid in `$var`, killed on exit), `free_port [var]`, `wait_for_url <url>`.
+  pid in `$var`, killed on exit), `free_port [var]`, `wait_for_url <url> [seconds]` (default 60 s: a
+  freshly built viewer can take over 10 s to start on a loaded Mac).
 - `sandbox_project` also takes `--workflow <file>` (a copy instead of `init`)
   and `--name <display name>`; its config is headless (`terminal: "none"`).
   The project's own settings can be appended to `$SANDBOX_CONFIG` indented
@@ -389,16 +393,22 @@ is versioned with issue-cli, so a branch's script runs with the library of
 the issue-cli that runs it.
 
 The issue's checkout is its worktree (`worktree:` in workflow.yaml); when the
-workflow declares none, it is the git worktree checked out on `work/<slug>`,
-whatever its folder is called. Without one, a project whose workers branch
-as they like (`<system>/<short>` in `.worktrees/<short>`) is
-covered by the scripts themselves: while the main checkout holds no script
-for the slug, the one linked worktree whose `scripts/checks/*.sh` names it is
-the checkout. Two or more such worktrees: check-script runs from the one you
-are in, else names them all and stops. With none of these (a slug with a
-space, such as `level design/…`, can't have a `work/` branch) it is the
-worktree of the project check-script runs from, and only from the main
-checkout the project folder.
+workflow declares none, it is the git worktree checked out on the branch its
+`branch:` field names or on `work/<slug>`, whatever its folder is called.
+Without one, a project whose workers branch as they like
+(`<system>/<short>` in `.worktrees/<short>`) is covered by the scripts
+themselves: while the main checkout holds no script for the slug, the one
+linked worktree whose `scripts/checks/*.sh` names it is the checkout. Two or
+more such worktrees: check-script runs from the one you are in, else names
+them all and stops. Before a script exists (`--new`), and while the main
+checkout holds none, the one worktree whose branch ends in the slug or whose
+`HANDOFF.md` names it is the checkout
+([Finding the issue's branch](../Workflow/proof.md#finding-the-issues-branch)).
+With none of these (a slug with a space, such as `level design/…`, can't
+have a `work/` branch) it is the worktree of the project check-script runs
+from, and only from the main checkout the project folder. There, "no check
+scripts" also says what the lookup tried and the fix: rename the branch to
+`work/<slug>`, or `issue-cli set-meta <slug> --key branch --value <name>`.
 `--new` writes there, and `--list`, `--yes`, the owner's run and ▶ Run checks
 look there, except once the branch is merged: a worktree whose HEAD is
 already on main and that holds no uncommitted change is older than main, so

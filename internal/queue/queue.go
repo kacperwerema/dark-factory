@@ -47,20 +47,28 @@ const NotOnMain = "not on main"
 
 // Item is one entry of the queue.
 type Item struct {
-	ID        int       `json:"id"`
-	Slug      string    `json:"slug,omitempty"`
-	Idea      string    `json:"idea,omitempty"`
-	Quote     string    `json:"quote,omitempty"`
-	How       string    `json:"how,omitempty"`
-	BlockedOn []string  `json:"blocked_on,omitempty"`
-	State     string    `json:"state"`
-	Note      string    `json:"note,omitempty"`
-	AddedBy   string    `json:"added_by,omitempty"`
-	AddedAt   time.Time `json:"added_at"`
-	StartedAt time.Time `json:"started_at,omitempty"`
-	StartedBy string    `json:"started_by,omitempty"`
-	DoneAt    time.Time `json:"done_at,omitempty"`
-	DoneSHA   string    `json:"done_sha,omitempty"`
+	ID   int    `json:"id"`
+	Slug string `json:"slug,omitempty"`
+	Idea string `json:"idea,omitempty"`
+	// Goal is the goal key an idea serves (queue add --goal); an item for
+	// an issue serves the issue's goal: field.
+	Goal      string   `json:"goal,omitempty"`
+	Quote     string   `json:"quote,omitempty"`
+	How       string   `json:"how,omitempty"`
+	BlockedOn []string `json:"blocked_on,omitempty"`
+	// BlockedOnMerged is the part of BlockedOn that clears once the
+	// blocker's work is on main, not at its last status (queue block
+	// --merged). Every entry is also in BlockedOn, so a reader that knows
+	// only BlockedOn still sees the item as blocked.
+	BlockedOnMerged []string  `json:"blocked_on_merged,omitempty"`
+	State           string    `json:"state"`
+	Note            string    `json:"note,omitempty"`
+	AddedBy         string    `json:"added_by,omitempty"`
+	AddedAt         time.Time `json:"added_at"`
+	StartedAt       time.Time `json:"started_at,omitempty"`
+	StartedBy       string    `json:"started_by,omitempty"`
+	DoneAt          time.Time `json:"done_at,omitempty"`
+	DoneSHA         string    `json:"done_sha,omitempty"`
 }
 
 // Label is the item's slug, or its idea.
@@ -332,7 +340,35 @@ func (q *Queue) Move(ref string, where Where) error {
 }
 
 // Block adds on (an item number or an issue slug) to the item's blockers.
-func (q *Queue) Block(ref, on string) error {
+// It waits for on's last status; blocking again this way drops a
+// --merged mark.
+func (q *Queue) Block(ref, on string) error { return q.BlockOn(ref, on, false) }
+
+// MergedOnly reports whether blocker b clears once its work is on main.
+func (it *Item) MergedOnly(b string) bool { return containsFold(it.BlockedOnMerged, b) }
+
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func removeFold(list []string, s string) []string {
+	var kept []string
+	for _, x := range list {
+		if !strings.EqualFold(x, s) {
+			kept = append(kept, x)
+		}
+	}
+	return kept
+}
+
+// BlockOn is Block; merged makes the blocker clear once its work is on
+// main instead of at its last status (queue block --merged).
+func (q *Queue) BlockOn(ref, on string, merged bool) error {
 	it := q.Find(ref)
 	if it == nil {
 		return fmt.Errorf("no queue item %s", ref)
@@ -352,12 +388,13 @@ func (q *Queue) Block(ref, on string) error {
 	} else if strings.EqualFold(on, it.Slug) {
 		return errors.New("an item can't be blocked on itself")
 	}
-	for _, b := range it.BlockedOn {
-		if strings.EqualFold(b, on) {
-			return nil
-		}
+	if !containsFold(it.BlockedOn, on) {
+		it.BlockedOn = append(it.BlockedOn, on)
 	}
-	it.BlockedOn = append(it.BlockedOn, on)
+	it.BlockedOnMerged = removeFold(it.BlockedOnMerged, on)
+	if merged {
+		it.BlockedOnMerged = append(it.BlockedOnMerged, on)
+	}
 	return nil
 }
 
@@ -368,7 +405,7 @@ func (q *Queue) Unblock(ref, on string) error {
 		return fmt.Errorf("no queue item %s", ref)
 	}
 	if on == "" {
-		it.BlockedOn = nil
+		it.BlockedOn, it.BlockedOnMerged = nil, nil
 		return nil
 	}
 	on = strings.TrimSpace(on)
@@ -388,6 +425,7 @@ func (q *Queue) Unblock(ref, on string) error {
 		return fmt.Errorf("item %d isn't blocked on %s", it.ID, on)
 	}
 	it.BlockedOn = kept
+	it.BlockedOnMerged = removeFold(it.BlockedOnMerged, on)
 	return nil
 }
 
@@ -437,6 +475,18 @@ func (q *Queue) DoneOn(now time.Time) []Item {
 		}
 	}
 	return out
+}
+
+// BlockerSlug is the issue slug blocker b stands for: b itself, or the
+// slug of item #N ("" for an idea item or a missing one).
+func (q *Queue) BlockerSlug(b string) string {
+	if !strings.HasPrefix(b, "#") {
+		return b
+	}
+	if it := q.Find(b); it != nil {
+		return it.Slug
+	}
+	return ""
 }
 
 // BlockerDone reports whether blocker b of the queue is done: an item

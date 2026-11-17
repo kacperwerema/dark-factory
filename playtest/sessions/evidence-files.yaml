@@ -1,0 +1,25 @@
+session: evidence-files
+issue: cli/attach-and-evidence-add-take-any-file-text-pprof-not-only-images
+title: The Evidence tab lists a text or profile file issue-cli evidence add saved, beside the stills
+scenario: evidence-tab
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: A text file in the issue's _evidence folder shows as a row in the Files card with its step, size and link; the still stays in Stills
+    proves: [AC5]
+    setup:
+      - open: /p/{project}/issue/ui/evidence-short?tab=evidence
+      - wait_for: evidence.tab
+    checks:
+      - visible: [evidence.files, evidence.file.0, evidence.stills]
+      - text_contains: { target: evidence.files, text: "Files · 1" }
+      - text_contains: { target: evidence.file.0, text: "EV8" }
+      - text_contains: { target: evidence.file.0, text: "EV8-cpu-top.txt" }
+      - text_contains: { target: evidence.file.0, text: "Open" }
+      - count: { pattern: evidence.file.*, equals: 1 }
+      - count: { pattern: evidence.still.*, equals: 1 }

@@ -100,7 +100,17 @@ type Summary struct {
 	// List is the per-test list file, relative to the project root.
 	List  string `json:"list,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Load is the machine's 1-minute load average around the run (the
+	// higher of the readings just before and just after its command) and
+	// Cores its core count; both 0 without a reading. Local CI sets them:
+	// a run under load has inflated times (docs/workbench-files.md, "The
+	// tests family").
+	Load  float64 `json:"load,omitempty"`
+	Cores int     `json:"cores,omitempty"`
 }
+
+// Loaded reports whether the run's load average was above its core count.
+func (s Summary) Loaded() bool { return s.Cores > 0 && s.Load > float64(s.Cores) }
 
 // TopParts caps Summary.Parts.
 const TopParts = 10

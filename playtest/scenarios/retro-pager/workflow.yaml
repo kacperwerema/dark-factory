@@ -1,0 +1,13 @@
+statuses:
+  - name: "backlog"
+    description: "Ready to start"
+  - name: "in progress"
+    description: "Being built"
+  - name: "done"
+    description: "Finished"
+
+transitions:
+  - from: "backlog"
+    to: "in progress"
+  - from: "in progress"
+    to: "done"

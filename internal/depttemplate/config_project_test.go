@@ -1,6 +1,7 @@
 package depttemplate
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,5 +63,49 @@ func TestAddProjectRefusesAndLeavesTheFile(t *testing.T) {
 				t.Errorf("file changed: %q", got)
 			}
 		})
+	}
+}
+
+// SetProjectScalar changes or adds one line of one project; every other
+// byte, comments included, stays.
+func TestSetProjectScalarKeepsTheRest(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "issues"), 0o755)
+	cfg := filepath.Join(dir, "projects.yaml")
+	orig := "# the owner's file\nprojects:\n  - name: \"Atlas\"\n    slug: \"atlas\"   # first\n    issues: ./issues\n    departments:\n      - name: Marketing\n\n  - name: DF\n    slug: dark-factory\n    issues: ./issues\n    start_weight: 2 # was 2\n"
+	os.WriteFile(cfg, []byte(orig), 0o644)
+	check := func(n int) func(*tracker.Project) error {
+		return func(p *tracker.Project) error {
+			if p.StartWeight != n {
+				return fmt.Errorf("weight %d", p.StartWeight)
+			}
+			return nil
+		}
+	}
+	if err := SetProjectScalar(cfg, "atlas", "start_weight", "3", check(3)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(cfg)
+	want := strings.Replace(orig, "      - name: Marketing\n", "      - name: Marketing\n    start_weight: 3\n", 1)
+	if string(got) != want {
+		t.Fatalf("added:\n%s\nwant:\n%s", got, want)
+	}
+	if err := SetProjectScalar(cfg, "dark-factory", "start_weight", "1", check(1)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = os.ReadFile(cfg)
+	want = strings.Replace(want, "start_weight: 2 # was 2\n", "start_weight: 1 # was 2\n", 1)
+	if string(got) != want {
+		t.Fatalf("replaced:\n%s\nwant:\n%s", got, want)
+	}
+	// A check that fails leaves the file as it was.
+	if err := SetProjectScalar(cfg, "atlas", "start_weight", "5", check(4)); err == nil {
+		t.Fatal("a failed read-back wrote the file")
+	}
+	if again, _ := os.ReadFile(cfg); string(again) != want {
+		t.Fatal("a refused write changed the file")
+	}
+	if err := SetProjectScalar(cfg, "nope", "start_weight", "5", check(5)); err == nil {
+		t.Fatal("an unknown project was written")
 	}
 }

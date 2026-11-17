@@ -18,10 +18,12 @@ import (
 // the newest tests: report and each playtest step's latest verdict.
 type checker struct {
 	root, worktree, ref, slug string
-	cache                     *timeline.Cache
-	issuesDir, statsPath      string
-	lastChange                time.Time
-	lastChangeSHA             string
+	// miss is FindIssueRef's message when no branch was found.
+	miss                 string
+	cache                *timeline.Cache
+	issuesDir, statsPath string
+	lastChange           time.Time
+	lastChangeSHA        string
 	// leadRuns are the sidecar's lead runs, for lead links.
 	leadRuns  []tracker.LeadRun
 	reportAt  time.Time
@@ -34,8 +36,11 @@ type checker struct {
 	commits []commit
 	steps   map[string]stepVerdict
 	tests   map[string]Check
-	// goModule: prove --run can run the tests (the project has a go.mod).
+	// goModule: prove --run can run the tests with go test (the project
+	// has a go.mod); without one it runs the project's ci: commands.
 	goModule bool
+	// ciCommand caches hasCICommand(root), read on the first fix hint.
+	ciCommand *bool
 }
 
 // branchCommits lists the work branch's own first-parent commits, newest
@@ -130,8 +135,9 @@ func LogRange(root, ref string, stats tracker.StatsStore) []string {
 	return []string{"--since=" + strconv.FormatInt(since.Unix(), 10), ref}
 }
 
-// IsTestPath reports whether path holds tests in the usual layouts, the
-// files a test link's name is looked up in.
+// IsTestPath reports whether path holds tests in the usual layouts. A test
+// link's name is looked up in those files and in Rust sources with a test
+// attribute (testFiles).
 func IsTestPath(path string) bool { return testPathRe.MatchString(path) }
 
 // issueStart is when work on the issue began: its first dispatch, else its
@@ -180,18 +186,25 @@ func (c *checker) findTests(names []string) {
 	if c.ref == "" || len(todo) == 0 {
 		return
 	}
-	args := []string{"grep", "-w", "-F", "-o", "-I"}
+	// Whole lines, not -o: -o prints only the longest match on a line, so
+	// a name inside a longer one's line (lista beside the it() title that
+	// starts with it) was never printed. -z ends the path with a NUL, since
+	// a path or a title may hold a colon.
+	args := []string{"grep", "-z", "-w", "-F", "-I"}
 	for _, n := range todo {
 		args = append(args, "-e", n)
 	}
 	out, _ := tracker.GitCached(c.root, append(args, c.ref, "--")...)
 	hit := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		// <ref>:<path>:<match>; the match is one of the names, which may
-		// hold a colon itself ("D-8: …", an it() title).
-		rest := strings.TrimPrefix(line, c.ref+":")
+	files := &testFiles{ref: c.ref, grep: func(args ...string) (string, error) { return tracker.GitCached(c.root, args...) }}
+	for _, line := range strings.Split(out, "\n") {
+		// <ref>:<path>\0<line>
+		path, text, ok := strings.Cut(strings.TrimPrefix(line, c.ref+":"), "\x00")
+		if !ok || !files.is(path) {
+			continue
+		}
 		for _, n := range todo {
-			if path, ok := strings.CutSuffix(rest, ":"+n); ok && testPathRe.MatchString(path) {
+			if !hit[n] && hasWholeWord(text, n) {
 				hit[n] = true
 			}
 		}
@@ -200,8 +213,29 @@ func (c *checker) findTests(names []string) {
 		if hit[n] {
 			c.tests[n] = Check{OK: true}
 		} else {
-			c.tests[n] = Check{State: "not found", Fix: "no test file on the branch has " + n + " as a whole word: check the name"}
+			c.tests[n] = Check{State: "not found", Fix: "no test file on the branch has " + n + " as a whole word: check the name (a JS/TS it() title goes whole, in quotes in a Proves: line)"}
 		}
+	}
+}
+
+// hasWholeWord reports whether name occurs in line the way git grep -w
+// matches it: the bytes either side of an occurrence are not ASCII letters,
+// digits or _, so a title with spaces, colons or letters outside ASCII
+// matches as one phrase.
+func hasWholeWord(line, name string) bool {
+	word := func(b byte) bool {
+		return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+	}
+	for from := 0; ; {
+		i := strings.Index(line[from:], name)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(name)
+		if (start == 0 || !word(line[start-1])) && (end == len(line) || !word(line[end])) {
+			return true
+		}
+		from = start + 1
 	}
 }
 
@@ -214,9 +248,15 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
+// noBranch is a test or commit link's state when the issue has no branch:
+// what the lookup tried and the fix.
+func (c *checker) noBranch() Check {
+	return Check{State: "not checked: no branch found", Fix: c.miss}
+}
+
 func (c *checker) checkTest(name string) Check {
 	if c.ref == "" {
-		return Check{State: "not checked: no work branch"}
+		return c.noBranch()
 	}
 	c.findTests([]string{name})
 	found := c.tests[name]
@@ -238,7 +278,7 @@ func (c *checker) checkTest(name string) Check {
 // testsFix says how to post the tests: report: prove --run in a Go project,
 // else by hand ("<manual>: issue-cli comment …").
 func (c *checker) testsFix(manual string) string {
-	if c.goModule {
+	if c.goModule || c.hasCI() {
 		return fmt.Sprintf("issue-cli prove %s --run (runs the named tests and posts the tests: comment); or %s: issue-cli comment %s --text \"tests: ...\"", c.slug, manual, c.slug)
 	}
 	return fmt.Sprintf("%s: issue-cli comment %s --text \"tests: ...\"", manual, c.slug)
@@ -252,7 +292,7 @@ func (c *checker) checkStep(id string, nameSession bool) Check {
 	}
 	switch {
 	case !ok:
-		return Check{State: "not run", Fix: "run the playtest session that has step " + id + " (ux-test, or the owner's playtest for a judgement step)"}
+		return Check{State: "not run", Fix: "run the playtest session of " + c.slug + " that has step " + id + " (ux-test, or the owner's playtest for a judgement step)"}
 	case v.status == "fail":
 		return Check{State: "failed" + in, Fix: "fix it and run the session again"}
 	}
@@ -264,7 +304,7 @@ func (c *checker) checkCommit(l Link) Check {
 		return Check{OK: true, State: "found"}
 	}
 	if c.ref == "" {
-		return Check{State: "not checked: no work branch"}
+		return c.noBranch()
 	}
 	full, err := ResolveCommit(c.root, l.Ref)
 	if err != nil {
@@ -297,10 +337,9 @@ func shotCandidates(root, worktree, path string) []string {
 	return []string{filepath.Join(worktree, path), filepath.Join(root, path)}
 }
 
-// InsideCheckout reports whether a --shot path resolves under the worktree
-// or the project checkout.
-func InsideCheckout(root, slug, path string) bool {
-	worktree := filepath.Join(root, ".worktrees", slug)
+// InsideCheckout reports whether a --shot path resolves under the issue's
+// worktree (FindIssueRef) or the project checkout.
+func InsideCheckout(root, worktree, path string) bool {
 	for _, p := range shotCandidates(root, worktree, path) {
 		abs, err := filepath.Abs(p)
 		if err != nil {
@@ -446,4 +485,20 @@ func ResolveCommit(root, sha string) (string, error) {
 		return "", fmt.Errorf("no commit %s in %s", sha, root)
 	}
 	return full, nil
+}
+
+func (c *checker) hasCI() bool {
+	if c.ciCommand == nil {
+		v := hasCICommand(c.root)
+		c.ciCommand = &v
+	}
+	return *c.ciCommand
+}
+
+// hasCICommand reports whether the project's workflow.yaml at root has a
+// default-tier ci: command, which prove --run runs where there is no go.mod.
+// Read only for a fix hint, so a page of reports doesn't parse it.
+func hasCICommand(root string) bool {
+	wf, err := tracker.LoadWorkflow(filepath.Join(root, "workflow.yaml"))
+	return err == nil && wf != nil && len(wf.CI.Commands("")) > 0
 }

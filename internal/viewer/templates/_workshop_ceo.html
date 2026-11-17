@@ -9,7 +9,9 @@ static/ceo-chat.js).
   wb/turn-ceo         the CEO's paragraphs and folded tools            data: CEOTurn
   wb/ceo-working      the CEO at work, with Interrupt                  data: *CEOWorking
   wb/ceo-terminal     the raw pane                                     data: CEOLive
-  wb/choice-card      a menu the CEO waits on                          data: *CEOPrompt
+  wb/choice-card      a menu the CEO waits on (a permission prompt     data: *CEOPrompt
+                      is drawn in the conversation, others above the box)
+  wb/ceo-blocked      a tool call the permission layer refused          data: CEOBlocked
   wb/ask-history      an AskUserQuestion in the conversation           data: *CEOQuestion
   wb/ask-card         the question widget on the pane, to answer       data: CEOLive (.Pane.Ask)
   wb/composer         the message box                                  data: CEOComposer
@@ -59,6 +61,7 @@ static/ceo-chat.js).
 {{if .Pane.Older}}<div class="wb-ceo-older" data-testid="lead_chat.older">{{if eq .Source "transcript"}}Older turns are in the terminal and tmux.{{else}}Older turns scrolled out of the capture: they are in tmux.{{end}}</div>{{end}}
 {{range .Pane.Turns}}{{if eq .From "you"}}{{template "wb/turn-you" .}}{{else}}{{template "wb/turn-ceo" .}}{{end}}{{else}}<div class="wb-empty" data-testid="lead_chat.empty">Nothing said yet: the conversation shows up here once you or the CEO write.</div>{{end}}
 {{with .Pane.Working}}{{template "wb/ceo-working" .}}{{end}}
+{{with .Pane.Prompt}}{{if .Permission}}{{template "wb/choice-card" .}}{{end}}{{end}}
 {{end}}
 {{end}}
 
@@ -82,16 +85,25 @@ static/ceo-chat.js).
         {{range .Text}}<p class="wb-turn-p">{{.}}</p>{{end}}
         {{range .Bubbles}}<div class="wb-turn-p wb-turn-md" data-testid="lead_chat.bubble">{{.HTML}}</div>{{end}}
         {{range .Asks}}{{template "wb/ask-history" .}}{{end}}
+        {{range .Blocked}}{{template "wb/ceo-blocked" .}}{{end}}
         {{with .ToolSummary}}{{if $.Calls}}<details class="wb-turn-tools" data-testid="lead_chat.tools"><summary>{{.}}</summary><ul>{{range $.Calls}}<li><b>{{.Name}}</b>{{with .Label}} · {{.}}{{end}}</li>{{end}}</ul></details>{{else}}<div class="wb-turn-tools" data-testid="lead_chat.tools">{{.}}</div>{{end}}{{end}}
     </div>
 </div>
 {{end}}
 
+{{define "wb/ceo-blocked"}}
+<div class="wb-blocked" data-testid="lead_chat.blocked">
+    <div class="wb-blocked-head"><span class="wb-chip wb-chip--red">blocked</span> <b>{{.Tool}}</b> <span class="wb-muted">refused by the {{.By}}</span></div>
+    {{with .Command}}<code class="wb-choice-cmd">{{.}}</code>{{end}}
+    {{with .Reason}}<div class="wb-blocked-why" data-testid="lead_chat.blocked.reason">Why: {{.}}</div>{{end}}
+</div>
+{{end}}
+
 {{define "wb/ceo-working"}}
-<div class="wb-turn wb-turn--working" data-testid="lead_chat.working">
-    <div class="wb-turn-av wb-turn-av--ceo wb-bob" aria-hidden="true"></div>
+<div class="wb-turn wb-turn--working{{if .Permission}} wb-turn--perm{{end}}" data-testid="lead_chat.working">
+    <div class="wb-turn-av wb-turn-av--ceo{{if not .Permission}} wb-bob{{end}}" aria-hidden="true"></div>
     <div class="wb-working">
-        <span class="wb-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        {{if .Permission}}<span class="wb-choice-bang wb-ping" aria-hidden="true">!</span>{{else}}<span class="wb-dots" aria-hidden="true"><span></span><span></span><span></span></span>{{end}}
         <span>{{.Text}}</span>
         <button type="button" class="wb-btn wb-btn--outline wb-btn--sm" data-key="Escape" data-testid="lead_chat.interrupt">Interrupt (Esc)</button>
     </div>
@@ -105,10 +117,11 @@ static/ceo-chat.js).
     <div class="wb-choice-head">
         <span class="wb-choice-bang wb-ping">!</span>
         <span id="wb-choice-q" class="wb-choice-title">CEO waits on your choice</span>
-        {{with .Title}}<span class="wb-chip wb-chip--plain">{{.}}</span>{{end}}
+        {{if .Permission}}<span class="wb-chip wb-chip--you" data-testid="lead_chat.prompt.tool">permission · {{.Tool}}</span>{{else}}{{with .Title}}<span class="wb-chip wb-chip--plain">{{.}}</span>{{end}}{{end}}
         <span class="wb-choice-hint">in the terminal: keys 1–{{len .Choices}}, Esc cancels</span>
     </div>
-    {{with .Detail}}<code class="wb-choice-cmd">{{range $i, $l := .}}{{if $i}}<br>{{end}}{{$l}}{{end}}</code>{{end}}
+    {{if .Permission}}{{with .Command}}<code class="wb-choice-cmd" data-testid="lead_chat.prompt.command">{{range $i, $l := .}}{{if $i}}<br>{{end}}{{$l}}{{end}}</code>{{end}}{{range .Note}}<div class="wb-choice-note">{{.}}</div>{{end}}
+    {{else}}{{with .Detail}}<code class="wb-choice-cmd">{{range $i, $l := .}}{{if $i}}<br>{{end}}{{$l}}{{end}}</code>{{end}}{{end}}
     <div class="wb-choice-q">{{.Question}}</div>
     <div class="wb-choice-opts">
         {{range $i, $c := .Choices}}<button type="button" class="wb-choice-opt{{if .Selected}} wb-choice-opt--on{{end}}" data-key="{{.Key}}" data-testid="lead_chat.prompt.choice.{{$i}}"><span class="wb-choice-key">{{.Key}}</span><span>{{.Text}}</span></button>{{end}}
@@ -224,7 +237,7 @@ static/ceo-chat.js).
 </div>
 {{end}}
 
-{{define "wb/ceo-prompts"}}{{if .Pane.Ask}}{{template "wb/ask-card" .}}{{end}}{{with .Pane.Prompt}}{{template "wb/choice-card" .}}{{end}}{{end}}
+{{define "wb/ceo-prompts"}}{{if .Pane.Ask}}{{template "wb/ask-card" .}}{{end}}{{with .Pane.Prompt}}{{if not .Permission}}{{template "wb/choice-card" .}}{{end}}{{end}}{{end}}
 
 {{define "wb/ceo-grid"}}
 <div class="wb-leads-grid" data-testid="leads.grid">

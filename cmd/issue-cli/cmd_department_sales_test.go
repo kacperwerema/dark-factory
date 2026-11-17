@@ -278,7 +278,7 @@ func TestSalesB2CDepartmentLintClean(t *testing.T) {
 		funnel := 0
 		for _, f := range rep.Findings {
 			switch {
-			case isUnwrittenVisitsFile(f):
+			case isUnwrittenVisitsFile(f), isTemplateSample(f):
 			case strings.Contains(f.Where, "sales.yaml") || strings.Contains(f.Message, "sales.yaml"):
 				t.Errorf("charging=%v: finding in the sales workflow: %+v", charging, f)
 			case f.Check == "departments" && strings.Contains(f.Message, "goals visits, signups, testers, retention: source file "+filepath.Join(proj.IssueDir, ".goals", "sales", "weekly-funnel.json")+" does not exist (job sales/weekly-funnel writes it on its first run"):

@@ -10,6 +10,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/chart"
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/spend"
 
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -287,6 +288,11 @@ func trends(in dashIn, d *Dashboard, daily []*health.Snapshot, latest *health.Sn
 		out = append(out, finish(c, l, decisionstats.Family))
 	}
 
+	// Context floor, once a snapshot has the context family (internal/spend).
+	if c, ok := contextCard(d, daily, base, finish); ok {
+		out = append(out, c)
+	}
+
 	// Disk use, once a snapshot has the storage family.
 	if c, ok := storageCard(d, daily, latest); ok {
 		out = append(out, c)
@@ -324,7 +330,7 @@ func pendingCards(snaps []*health.Snapshot) []PendingCard {
 	for _, p := range []PendingCard{
 		{Title: "CI and make validate duration", Family: "checks", Need: checksNeed},
 		{Title: "ux-test duration", Family: "checks", Need: checksNeed + " Flaky steps are on the Health page (the tests family)."},
-		{Title: "Tokens per issue", Family: "context", Need: contextNeed},
+		{Title: "Context floor", Family: spend.ContextFamily, Need: "Take a snapshot, or draw the past days from the transcripts: issue-cli health backfill."},
 		{Title: "Disk use", Family: "storage", Need: "Take a snapshot: issue-cli health snapshot."},
 	} {
 		if !has[p.Family] {
@@ -332,4 +338,35 @@ func pendingCards(snaps []*health.Snapshot) []PendingCard {
 		}
 	}
 	return out
+}
+
+// contextCard is the Context floor trend: per day, the median first-turn
+// context of the worker sessions that started that day, beside their median
+// turn. ok is false until a daily snapshot has the context family.
+func contextCard(d *Dashboard, daily []*health.Snapshot, base func(id, title, sub string) (ChartCard, chart.Line), finish func(ChartCard, chart.Line, string) ChartCard) (ChartCard, bool) {
+	has := false
+	for _, s := range daily {
+		has = has || hasFamily(s, spend.ContextFamily)
+	}
+	if !has {
+		return ChartCard{}, false
+	}
+	c, l := base("context", "Context floor", "Median first-turn tokens of the worker sessions started each day (CLAUDE.md, the briefing, tools), beside their median turn: issue-cli spend --context")
+	l.Unit = chart.Count
+	role := map[string]string{"role": "worker"}
+	floor := chart.Series{Name: "floor p50", Class: "s-feature"}
+	turn := chart.Series{Name: "turn p50", Class: "s-all", Faint: true}
+	for _, s := range daily {
+		n, _ := s.Value("context.floor.sessions", role)
+		note := plural(int(n), "session", "sessions")
+		if v, ok := s.Value("context.floor.p50", role); ok {
+			floor.Points = append(floor.Points, chart.Point{At: s.Time(), Value: v, Note: note})
+		}
+		if v, ok := s.Value("context.turn.p50", role); ok {
+			turn.Points = append(turn.Points, chart.Point{At: s.Time(), Value: v, Note: note})
+		}
+	}
+	l.Series = []chart.Series{floor, turn}
+	c.Legend = []LegendItem{{Name: floor.Name, Class: floor.Class}, {Name: turn.Name, Class: turn.Class}}
+	return finish(c, l, spend.ContextFamily), true
 }

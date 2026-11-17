@@ -51,7 +51,7 @@ func TestCheckMixedIdsTicksPlainRefusesCriteria(t *testing.T) {
 	assertContains(t, read2(), "- [ ] Sketch it\n")
 }
 
-func TestCheckMixedIdsOwnerBoxesStillRefuseAll(t *testing.T) {
+func TestCheckMixedIdsOwnerBoxAndCriterionEachGetALine(t *testing.T) {
 	issuePath, newCtx, read := mixedProofFixture(t)
 	data := read() + "\n## Human Testing\n- [ ] Owner looked at it\n"
 	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
@@ -59,13 +59,14 @@ func TestCheckMixedIdsOwnerBoxesStillRefuseAll(t *testing.T) {
 	}
 	asWorker(t)
 	ctx := newCtx()
-	err := runCheck(ctx, []string{"cli/sample", "D1", "HT1", "AC1"})
-	if err == nil {
-		t.Fatal("a worker ticking an owner box among mixed ids: want a refusal")
+	if err := runCheck(ctx, []string{"cli/sample", "D1", "HT1", "AC1"}); err != nil {
+		t.Fatalf("D1 ticked, so no error: %v", err)
 	}
-	assertContains(t, err.Error(), "these boxes are the owner's")
-	assertContains(t, err.Error(), "HT1 Owner looked at it")
-	if got := read(); got != data {
-		t.Fatalf("a refused call changed the file:\n%s", got)
-	}
+	out := ctx.Stdout.(interface{ String() string }).String()
+	assertContains(t, out, "✓ Checked: D1")
+	assertContains(t, out, "✗ Not ticked, the owner's: HT1 Owner looked at it (a Human Testing box)")
+	assertContains(t, out, "✗ Not ticked: AC1 is ticked by its proof")
+	body := read()
+	assertContains(t, body, "- [x] Sketch it\n")
+	assertContains(t, body, "- [ ] Owner looked at it\n")
 }

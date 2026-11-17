@@ -265,7 +265,7 @@ func crewMachine() CrewMachine {
 	cpu := autostart.ReadLoad()
 	m.Load, m.LoadTone = "load unknown", "idle"
 	if cpu.Found {
-		m.Load, m.LoadTone = fmt.Sprintf("load %s on %d cores", autostart.FormatLoad(cpu.Avg1), cpu.Cores), "green"
+		m.Load, m.LoadTone = fmt.Sprintf("load %s on %d cores", cpu.Avgs(), cpu.Cores), "green"
 		if autostart.LoadHold(cpu, 0) != "" {
 			m.LoadTone = "sand"
 		}
@@ -533,11 +533,14 @@ func (s *Server) handleCrewAction(w http.ResponseWriter, r *http.Request, proj *
 			http.Error(w, "no live agent called "+body.Session+" in "+proj.Name, http.StatusNotFound)
 			return
 		}
-		out, err := agentrun.CapturePane(agentrun.Target(proj, node.Name))
+		// Read with escapes, so a dimmed prompt suggestion in the input box
+		// shows as one, not as an answer left typed (agentrun.MarkSuggestion).
+		styled, err := agentrun.CapturePaneStyled(agentrun.Target(proj, node.Name))
 		if err != nil {
 			http.Error(w, "could not read the pane: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		out := agentrun.MarkSuggestion(styled)
 		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 		if len(lines) > crewTailLines {
 			lines = lines[len(lines)-crewTailLines:]

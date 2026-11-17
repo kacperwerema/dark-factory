@@ -135,7 +135,7 @@ func outputFile(p *tracker.Project, o *outputs.Output, file string) string {
 	if file != "" {
 		return filepath.Join(outputs.FilesDir(p), filepath.FromSlash(file))
 	}
-	return filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+	return outputs.PathFile(p, o)
 }
 
 func readOutputText(path string) ([]byte, error) {

@@ -3,6 +3,8 @@ package outputs
 import (
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func TestApprovedError(t *testing.T) {
@@ -35,6 +37,28 @@ func TestApprovedError(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
+		}
+	}
+}
+
+// TestShelfGatesShowTheHint: has_output and outputs_approved put an action's
+// hint: in place of their fix, as the bundled department templates expect
+// (lint check hints).
+func TestShelfGatesShowTheHint(t *testing.T) {
+	for _, rule := range []string{"has_output: report", "outputs_approved"} {
+		wf := &tracker.WorkflowConfig{
+			Statuses: []tracker.WorkflowStatus{{Name: "draft"}, {Name: "review"}},
+			Transitions: []tracker.WorkflowTransition{{From: "draft", To: "review", Actions: []tracker.WorkflowAction{
+				{Type: "validate", Rule: rule, Hint: "shelve it for {{slug}}"},
+			}}},
+			IssuesRoot: t.TempDir(), ProjectRoot: t.TempDir(),
+		}
+		err := wf.ValidateTransition(&tracker.Issue{Slug: "m/f"}, "draft", "review", nil)
+		if err == nil || !strings.Contains(err.Error(), "shelve it for m/f") || !strings.Contains(err.Error(), "on the shelf for m/f") {
+			t.Errorf("%s: err = %v, want the problem and the hint", rule, err)
+		}
+		if !tracker.RuleShowsHint(rule) {
+			t.Errorf("RuleShowsHint(%q) = false", rule)
 		}
 	}
 }

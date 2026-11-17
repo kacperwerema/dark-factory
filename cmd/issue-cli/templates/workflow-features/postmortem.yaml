@@ -1,8 +1,8 @@
 id: postmortem
-version: v0.61.0
+version: v0.63.0
 category: automation
 propose: true
-sources: ["internal/tracker/postmortem_config.go", "internal/postmortem/postmortem.go", "internal/postmortem/brief.go", "internal/postmortem/apply.go", "cmd/issue-cli/cmd_postmortem.go", "internal/viewer/postmortem_view.go"]
+sources: ["internal/tracker/postmortem_config.go", "internal/postmortem/postmortem.go", "internal/postmortem/brief.go", "internal/postmortem/apply.go", "internal/postmortem/queue.go", "internal/postmortem/fixed.go", "cmd/issue-cli/cmd_postmortem.go", "cmd/issue-cli/cmd_postmortem_queue.go", "internal/viewer/postmortem_view.go", "internal/viewer/postmortem_queue.go"]
 title: "Post-mortem at close: lessons the owner agrees to, applied to one place each"
 what: |
   `postmortem:` starts a fresh agent when an issue reaches `at:` (default: the last
@@ -14,7 +14,11 @@ what: |
   workflow (an experiment proposal) or none <doc ref>; the parser refuses the rest.
   The owner agrees or refuses all of them in one round on /p/<project>/postmortem/<slug>
   (owner's browser only); agreed ones become a memory, a one-file commit or an
-  experiment proposal, linked from the retro. `start: ask` (the default) only prints
+  experiment proposal, linked from the retro. Across post-mortems,
+  /p/<project>/postmortems shows copies of one lesson as one row that one Agree or
+  Refuse answers (applied once), and leaves out an action linked to its fix
+  (`issue-cli postmortem fixed <file>#A<n> --by <slug|sha>`) once that issue is done
+  or that commit is on main. `start: ask` (the default) only prints
   `issue-cli postmortem start <slug> --quote "…"`; `start: auto` starts the agent itself,
   and `auto_types: [feature, epic]` narrows that to the listed types (the rest print the
   start command). An epic's brief lists its children's files, branches and retros.

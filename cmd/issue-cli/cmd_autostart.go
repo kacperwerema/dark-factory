@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/depttemplate"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/yolo"
 )
@@ -44,12 +46,27 @@ Subcommands:
   off [--reason "..."]
       Turn auto-start off; the window is logged.
   next
-      Read-only verdict: start <slug> with its dispatch command, or hold
-      with the reason. Exit 0 either way.
+      The verdict: start <slug> with its dispatch command, or hold with
+      the reason. Exit 0 either way. It starts nothing; it records this
+      project's ask for the turn between projects (below).
+  weight <n> --quote "<owner's words>"
+      Set the project's start_weight: in projects.yaml (a whole number,
+      at least 1; unset is 1). Only the owner or the lead with the owner's
+      words; never a worker.
+
+The turn between projects: when the gap opens and more than one project
+is waiting (a ready item held only by the gap, the machine's memory or
+load, or the turn), the starts go by start_weight:, a weighted round
+robin: weights 3 and 1 give 3 of every 4 starts and 1, and no waiting
+project waits more than (sum of the weights) starts. A project whose last
+ask is older than 2 gaps, or that its own limits hold, drops out and keeps
+no saved-up turns. A hold names whose turn it is: "hold: atlas' turn
+(weight 3; dark-factory next in 2 starts)". status shows each project's
+weight and starts over the last day.
 
 See docs/agent-dispatch.md, "Auto-start".`,
 	Run:         runAutostart,
-	Subcommands: []string{"status", "on", "pause", "resume", "off", "next"},
+	Subcommands: []string{"status", "on", "pause", "resume", "off", "next", "weight"},
 }
 
 func init() {
@@ -76,8 +93,10 @@ func runAutostart(ctx *Context, args []string) error {
 		return runAutostartOff(ctx, args[1:])
 	case "next":
 		return runAutostartNext(ctx, args[1:])
+	case "weight":
+		return runAutostartWeight(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown autostart subcommand %q (status, on, pause, resume, off, next)", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown autostart subcommand %q (status, on, pause, resume, off, next, weight)", args[0])}
 }
 
 // autostartNotWorker refuses a worker: auto-start is the owner's switch,
@@ -94,16 +113,40 @@ func autostartNotWorker(ctx *Context, what string) (who string, err error) {
 	return valueOr(me.Name, "owner"), nil
 }
 
-// autostartVerdict decides for the project now. last is read from the
-// shared budget (nil reads it here); only limits the pick to one slug.
-func autostartVerdict(ctx *Context, issues []*tracker.Issue, last *autostart.Start, only string) (autostart.Verdict, *autostart.State, error) {
+// autostartVerdict decides for the project now. b is the shared budget
+// read under its lock (nil reads it here, without the lock, to look only);
+// only limits the pick to one slug.
+func autostartVerdict(ctx *Context, issues []*tracker.Issue, b *autostart.Budget, only string) (autostart.Verdict, *autostart.State, error) {
 	proj := ctx.Project
 	now := ctx.now()
-	if last == nil {
-		last, _ = autostart.LastStart(autostart.SharedDir())
-	}
+	b = budgetOrRead(b)
 	_, yoloOn, _ := yolo.Active(yoloRoot(proj), proj.Slug, now)
-	return agentrun.AutostartEvaluate(proj, issues, yoloRoot(proj), projectRoot(proj), yoloOn, last, only, now)
+	return agentrun.AutostartEvaluate(proj, issues, yoloRoot(proj), projectRoot(proj), yoloOn, b.Last, b.Share, only, now)
+}
+
+// budgetOrRead is b, or the shared budget read without the lock.
+func budgetOrRead(b *autostart.Budget) *autostart.Budget {
+	if b != nil {
+		return b
+	}
+	dir := autostart.SharedDir()
+	last, _ := autostart.LastStart(dir)
+	share, _ := autostart.LoadShare(dir)
+	return &autostart.Budget{Last: last, Share: share}
+}
+
+// askBudget runs decide under the shared budget's lock so this tick's ask
+// is recorded for the turn between projects (decide calls b.Decided).
+// When the lock can't be had, it decides on a plain read and records
+// nothing: a tick never fails for the share.
+func askBudget(decide func(b *autostart.Budget) error) error {
+	err := autostart.WithShare(autostart.SharedDir(), func(b *autostart.Budget) (*autostart.Start, error) {
+		return nil, decide(b)
+	})
+	if errors.Is(err, autostart.ErrBusy) || (err != nil && strings.HasPrefix(err.Error(), "no state directory")) {
+		return decide(budgetOrRead(nil))
+	}
+	return err
 }
 
 // autostartLine is the one-line "Auto-start:" summary status, start and
@@ -131,6 +174,8 @@ type autostartStatusJSON struct {
 	State   *autostart.State  `json:"state"`
 	Last    *autostart.Start  `json:"last,omitempty"`
 	Verdict autostart.Verdict `json:"verdict"`
+	// Share is every project's weight and starts over the last day.
+	Share []autostart.ShareRow `json:"share"`
 }
 
 func runAutostartStatus(ctx *Context, args []string) error {
@@ -142,13 +187,15 @@ func runAutostartStatus(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	last, _ := autostart.LastStart(autostart.SharedDir())
-	v, st, err := autostartVerdict(ctx, issues, last, "")
+	b := budgetOrRead(nil)
+	last := b.Last
+	v, st, err := autostartVerdict(ctx, issues, b, "")
 	if err != nil {
 		return err
 	}
+	share := b.Share.Rows(ctx.Project.Slug, ctx.Project.Weight(), ctx.now())
 	if ctx.JSONOutput {
-		return writeJSON(ctx.Stdout, autostartStatusJSON{State: st, Last: last, Verdict: v})
+		return writeJSON(ctx.Stdout, autostartStatusJSON{State: st, Last: last, Verdict: v, Share: share})
 	}
 	w := ctx.Stdout
 	switch {
@@ -173,6 +220,7 @@ func runAutostartStatus(ctx *Context, args []string) error {
 	if last != nil {
 		fmt.Fprintf(w, "  last start on this machine: %s %s at %s (memory %d%%)\n", last.Project, last.Slug, last.At.Format("Mon 15:04"), last.Memory)
 	}
+	fmt.Fprintln(w, "  "+shareWords(ctx.Project, share))
 	fmt.Fprintln(w, "  now: "+verdictLine(v))
 	return nil
 }
@@ -193,7 +241,7 @@ func runAutostartOn(ctx *Context, args []string) error {
 	below := fs.Int("below", autostart.DefaultBelow, "start only while memory used is under this %")
 	maxWorkers := fs.Int("max-workers", autostart.DefaultMaxWorkers, "at most this many live workers in the project")
 	gap := fs.Int("gap", autostart.DefaultGapMinutes, "minutes between two starts, across all projects")
-	maxLoad := fs.Float64("max-load", 0, "start only while the 1-minute load average is under this (default: the core count)")
+	maxLoad := fs.Float64("max-load", 0, "hold starts while both the 1- and the 5-minute load average are at or over this (default: the core count)")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -301,7 +349,15 @@ func runAutostartNext(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	v, _, err := autostartVerdict(ctx, issues, nil, "")
+	var v autostart.Verdict
+	err = askBudget(func(b *autostart.Budget) error {
+		var err error
+		v, _, err = autostartVerdict(ctx, issues, b, "")
+		if err == nil {
+			b.Decided(ctx.Project.Slug, ctx.Project.Weight(), v, ctx.now())
+		}
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -316,6 +372,64 @@ func runAutostartNext(ctx *Context, args []string) error {
 		fmt.Fprintln(ctx.Stdout, "  "+tracker.InjectProject(ctx.Project, "issue-cli dispatch "+v.Slug+" --autostart"))
 	}
 	return nil
+}
+
+// runAutostartWeight sets start_weight: in projects.yaml on the owner's
+// words: one line spliced in as text, the rest of the file byte for byte.
+func runAutostartWeight(ctx *Context, args []string) error {
+	fs := newFlagSet("autostart weight", ctx)
+	quoteFlag := fs.String("quote", "", "the owner's words setting the weight (required)")
+	usage := "autostart weight <n> --quote \"<owner's words>\": n is a whole number, at least 1 (unset is 1)\n\nExample:\n  " +
+		tracker.InjectProject(ctx.Project, `issue-cli autostart weight 3 --quote "this project comes first when work is started"`)
+	arg := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		arg, args = args[0], args[1:]
+	}
+	if err := parseFlags(ctx, fs, args); err != nil {
+		return err
+	}
+	if arg == "" {
+		return &usageError{msg: usage}
+	}
+	n, err := strconv.Atoi(arg)
+	if err != nil || n < autostart.MinWeight {
+		return &usageError{msg: usage}
+	}
+	quote := strings.TrimSpace(normalizeEscapedText(*quoteFlag))
+	if quote == "" {
+		return &usageError{msg: "autostart weight needs --quote: the owner's words\n\n" + usage}
+	}
+	by, err := autostartNotWorker(ctx, "set the start weight")
+	if err != nil {
+		return err
+	}
+	proj := ctx.Project
+	if proj.ConfigPath == "" {
+		return fmt.Errorf("%s has no projects.yaml entry to write start_weight: into: run with --project from the config the viewer serves", proj.Slug)
+	}
+	was := proj.Weight()
+	if err := depttemplate.SetProjectScalar(proj.ConfigPath, proj.Slug, "start_weight", strconv.Itoa(n), func(p *tracker.Project) error {
+		if p.StartWeight != n {
+			return fmt.Errorf("start_weight reads %d in the result, not %d", p.StartWeight, n)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ start_weight: %d for %s (was %d) in %s\n", n, proj.Slug, was, proj.ConfigPath)
+	fmt.Fprintf(ctx.Stdout, "  owner's words: %q (set by %s)\n", quote, by)
+	fmt.Fprintln(ctx.Stdout, "  it counts from this project's next ask; the viewer shows it after its next restart")
+	return nil
+}
+
+// shareWords is the status line on the turn between projects: "share
+// (24h): atlas ×3 6 starts · dark-factory ×1 2 starts", or this project's
+// weight alone and how to change it.
+func shareWords(proj *tracker.Project, rows []autostart.ShareRow) string {
+	if line := autostart.ShareLine(rows); line != "" {
+		return autostart.ShareLinePrefix() + line
+	}
+	return fmt.Sprintf("start_weight: %d (no other project waited in the last day); the owner changes it: %s", proj.Weight(), tracker.InjectProject(proj, `issue-cli autostart weight <n> --quote "<owner's words>"`))
 }
 
 // autostartComment is the dispatch: line of an auto-started worker: the

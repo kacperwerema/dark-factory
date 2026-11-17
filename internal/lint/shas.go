@@ -36,17 +36,57 @@ func shaRefs(text string) []string {
 	return out
 }
 
+// staleSHA is one ref in a done issue's ## Implementation that main does
+// not reach.
+type staleSHA struct {
+	Slug string
+	Ref  string // as the issue writes it
+	Full string // the commit it names
+}
+
+// shaScan is what staleSHAs found: the repository, main's name and each
+// stale ref, by issue in board order.
+type shaScan struct {
+	Root, Branch string
+	Issues       map[string]*tracker.Issue
+	Slugs        []string
+	Stale        map[string][]staleSHA
+}
+
 // checkSHAs flags a commit ref in a done issue's ## Implementation that is
 // not on main: most often the SHA from before an amend or a rebase, while
-// the commit that landed has another. A ref git doesn't know is left alone:
-// it is most often a commit in another repository (a department's project)
-// or another hash (an attachment's name). One cat-file --batch-check call resolves every ref on the
-// board and one rev-list call finds those main doesn't reach, whatever the
-// number of issues. Outside git, or with no main branch, there is nothing
-// to check.
+// the commit that landed has another. health lint --check shas --fix swaps
+// the ones it can pick mechanically (FixSHAs).
 func checkSHAs(env *Env) []Finding {
+	scan := staleSHAs(env)
+	if scan == nil {
+		return nil
+	}
+	var findings []Finding
+	for _, s := range scan.Slugs {
+		var bad []string
+		for _, st := range scan.Stale[s] {
+			bad = append(bad, st.Ref)
+		}
+		findings = append(findings, Finding{
+			Where:   s,
+			Message: fmt.Sprintf("## Implementation names %s, not on %s: a commit from before an amend or rebase, so the issue points at code that never landed", strings.Join(bad, ", "), scan.Branch),
+			Fix:     fmt.Sprintf("issue-cli health lint --check shas --fix swaps each one with a single landed commit of the same subject; by hand: replace it with the landed SHA (git log --oneline %s --grep %s) in ## Implementation", scan.Branch, shell.Quote(s)),
+		})
+	}
+	return findings
+}
+
+// staleSHAs finds the stale refs. A ref git doesn't know is left alone:
+// it is most often a commit in another repository (a department's project)
+// or another hash (an attachment's name). One cat-file --batch-check call
+// resolves every ref on the board and one rev-list call finds those main
+// doesn't reach, whatever the number of issues. Outside git, with no main
+// branch or with nothing stale, it is nil.
+func staleSHAs(env *Env) *shaScan {
 	refs := map[string][]string{} // ref → slugs naming it
 	var slugs []string
+	byslug := map[string]*tracker.Issue{}
 	closed := tracker.ClosedIssueFunc(env.Project)
 	for _, issue := range env.Issues {
 		if tracker.IsParkedStatus(issue.Status) || !closed(issue) {
@@ -61,6 +101,7 @@ func checkSHAs(env *Env) []Finding {
 			continue
 		}
 		slugs = append(slugs, issue.Slug)
+		byslug[issue.Slug] = issue
 		for _, r := range found {
 			refs[r] = append(refs[r], issue.Slug)
 		}
@@ -130,26 +171,22 @@ func checkSHAs(env *Env) []Finding {
 		}
 	}
 
-	bySlug := map[string][]string{}
+	scan := &shaScan{Root: root, Branch: branch, Issues: byslug, Stale: map[string][]staleSHA{}}
 	for _, r := range names {
 		if full[r] == "" || !offMain[full[r]] {
 			continue
 		}
 		for _, s := range refs[r] {
-			bySlug[s] = append(bySlug[s], r)
+			scan.Stale[s] = append(scan.Stale[s], staleSHA{Slug: s, Ref: r, Full: full[r]})
 		}
 	}
-	var findings []Finding
 	for _, s := range slugs {
-		bad := bySlug[s]
-		if len(bad) == 0 {
-			continue
+		if len(scan.Stale[s]) > 0 {
+			scan.Slugs = append(scan.Slugs, s)
 		}
-		findings = append(findings, Finding{
-			Where:   s,
-			Message: fmt.Sprintf("## Implementation names %s, not on %s: a commit from before an amend or rebase, so the issue points at code that never landed", strings.Join(bad, ", "), branch),
-			Fix:     fmt.Sprintf("replace it with the landed SHA (git log --oneline %s --grep %s) in ## Implementation", branch, shell.Quote(s)),
-		})
 	}
-	return findings
+	if len(scan.Slugs) == 0 {
+		return nil
+	}
+	return scan
 }

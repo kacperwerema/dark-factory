@@ -30,6 +30,7 @@ var NAForms = []NAForm{
 	{"covered by playtest session <name>", "the guided-check box when a playtest session drives the manual check"},
 	{"cli flow covered by <TestName>", "a CLI-only change whose flow a go test walks: no page, no check script"},
 	{"page state a scenario can't build (<what>), shown by <evidence>", "a page change a scenario board can't reach (git state, live agents): say what, and what shows it instead"},
+	{NANoGitRemote, "a repo with no git remote: Shipping's push and PR boxes (the move into shipping ticks them itself)"},
 	{"<why, in a few words>", "anything else"},
 }
 
@@ -60,7 +61,8 @@ const NAMinWords = 3
 
 // NANoFormSections are sections whose boxes have no N/A form: they are
 // the shipping steps, ticked plainly when done (a box that says "or none"
-// is ticked as it is).
+// is ticked as it is). The one exception is NANoGitRemote on a push or PR
+// box (IsRemoteStepBox) when the project's repo has no remote.
 var NANoFormSections = []string{"Shipping"}
 
 // NANoForm reports whether a box in section takes no N/A.

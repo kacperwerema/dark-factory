@@ -390,11 +390,11 @@ func TestIntrospectFlagsEveryCommandWithoutSideEffects(t *testing.T) {
 		}
 	}
 	for key, want := range map[string]string{
-		"transition":       "dry-run,field,to",
+		"transition":       "check,dry-run,field,to",
 		"process":          "department,file,system,type,workflow",
 		"data add":         "description,status,tier",
 		"telemetry report": "global,since,top",
-		"comment":          "body,body-file,text",
+		"comment":          "amend,body,body-file,text",
 	} {
 		if flagsOf[key] != want {
 			t.Errorf("flags for %q: got %q want %q", key, flagsOf[key], want)
@@ -493,6 +493,8 @@ func TestTelemetryReportLeavesHoldsOutOfTheErrorRate(t *testing.T) {
 		mk("queue", "next", 1, telemetry.ErrHold),
 		mk("queue", "next", 1, telemetry.ErrValidation),
 		mk("queue", "next", 0, ""),
+		mk("dispatch", "", 1, telemetry.ErrHold),
+		mk("job", "run", 1, telemetry.ErrHold),
 	)
 	g := []string{"--config", cfg, "--project", "alpha"}
 	out, err := invoke(t, append(g, "--json", "telemetry", "report", "--since", "all")...)
@@ -512,8 +514,13 @@ func TestTelemetryReportLeavesHoldsOutOfTheErrorRate(t *testing.T) {
 	if qn == nil || qn.Calls != 5 || qn.Failures != 1 || qn.Holds != 3 || qn.ErrorPct != 20 {
 		t.Fatalf("queue next = %+v, want 5 calls, 1 failure (20%%), 3 held", qn)
 	}
-	if r.Summary.Failures != 1 || r.Summary.Holds != 3 {
-		t.Errorf("summary = %+v, want 1 failure and 3 holds", r.Summary)
+	if r.Summary.Failures != 1 || r.Summary.Holds != 5 {
+		t.Errorf("summary = %+v, want 1 failure and 5 holds", r.Summary)
+	}
+	for _, c := range r.Commands {
+		if (c.Command == "dispatch" || c.Command == "job run") && (c.Failures != 0 || c.Holds != 1) {
+			t.Errorf("%s = %+v, want 0 failures and 1 held", c.Command, c)
+		}
 	}
 	for _, e := range r.Errors {
 		if e.Class == telemetry.ErrHold {
@@ -533,7 +540,7 @@ func TestTelemetryReportLeavesHoldsOutOfTheErrorRate(t *testing.T) {
 	if !regexp.MustCompile(`queue next +5 calls +20\.0% err +p50 \d+ms  3 held`).MatchString(out) {
 		t.Errorf("text report doesn't show queue next without its holds:\n%s", out)
 	}
-	assertContains(t, out, "3 held)")
+	assertContains(t, out, "5 held)")
 }
 
 // The viewer's own report call must not be recorded, yet the report must

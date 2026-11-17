@@ -1,5 +1,5 @@
 id: agent-routing
-version: v0.61.0
+version: v0.63.0
 category: dispatch
 propose: true
 sources: ["internal/tracker/routing.go", "internal/routing/**", "internal/agentrun/route.go", "internal/lint/routing.go"]
@@ -15,12 +15,19 @@ what: |
   limit (default 98), read from the usage line its CLI prints. A running worker is left
   alone and shown on the Crew page. `--agent`
   still wins. No keys, accounts or logins: only which installed CLI starts next.
+  A rule can also name the model its starts run on (`model: claude-sonnet-5-5`, passed as
+  `--model`); `model: default` keeps the project's own. With no rule naming one, Claude
+  workers on `docs` and `report` issues start on `claude-sonnet-5-5` and every other type
+  keeps the project's model. The launch report names the model, the stats sidecar records
+  it, `issue-cli stats --by-model` and the Stats page compare types by model, and
+  `issue-cli bench run --model` tries one on the golden tasks first.
   An optional `codex:` block says how a Codex start may run: `writable:` adds the issue
   folder or the git dirs to its sandbox, `approval:` picks who answers its requests
   (`ask`, `auto-review`, `never`). Unset, a start is unchanged.
 why: |
   With two subscriptions, docs and reports can go to one and design to the other, and a
-  usage limit on one no longer stalls every new start until someone notices.
+  usage limit on one no longer stalls every new start until someone notices. A cheaper
+  model for the work that doesn't need the biggest one cuts what each issue costs.
 where: "routing: at the top level of the workflow file (a department's own file routes its own work)"
 question: "Do you have both Claude Code and Codex logged in on this machine? Should starts be routed between them by kind of work, with a fallback when one hits its limit?"
 snippet: |
@@ -29,6 +36,8 @@ snippet: |
     fallback: [claude, codex]
     rules:
       - {type: docs, agent: codex}
+      - {type: tweak, agent: claude, model: claude-sonnet-5-5}
+      - {type: report, agent: claude, model: default}   # keep the project's model for reports
       - {label: design, agent: claude}
       - {lead: true, agent: claude}
     # codex:                    # how a Codex start may run; each option's risk: docs/agent-dispatch.md

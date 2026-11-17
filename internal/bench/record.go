@@ -155,6 +155,19 @@ type Setup struct {
 	// so runs of the same tasks on two agents can be compared (routing). A
 	// run on several (bench run --agents) names them with commas.
 	Agent string `json:"agent,omitempty"`
+	// Model is the model the run's workers were started on (bench run
+	// --model); "" is the worker command's own (its CLI's default).
+	Model string `json:"model,omitempty"`
+}
+
+// AgentLabel is how a run on agent shows in the by-agent tables: "claude",
+// or "claude · claude-sonnet-5-5" for a run on a chosen model, so two runs
+// of the same agent on two models sit side by side.
+func (s Setup) AgentLabel(agent string) string {
+	if s.Model == "" || agent == "" {
+		return agent
+	}
+	return agent + " · " + s.Model
 }
 
 // Agents are the run's agents, in order; none in a run from before Agent.

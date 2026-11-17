@@ -107,7 +107,12 @@ type ScenarioMessage struct {
 // system. Created pins their mtime like a fixture's created:; "-3d" is three
 // days before the run, for views that look at the last few days. Extra is
 // raw frontmatter added to each, Body their body.
+//
+// Kind "retro" writes retrospectives instead (generateRetros): Count files
+// in the project root's retros/, as issue-cli retrospective writes them.
 type ScenarioGenerate struct {
+	// Kind is "issue" (the default) or "retro".
+	Kind    string `yaml:"kind"`
 	Count   int    `yaml:"count"`
 	Dir     string `yaml:"dir"`
 	Title   string `yaml:"title"`
@@ -133,12 +138,15 @@ type ScenarioTag struct {
 
 // ScenarioBranch is a branch the scenario creates: with Worktree it gets a
 // worktree under .worktrees/ (the name's slashes become dashes), then its
-// Commits, then Uncommitted overlaid and left uncommitted (worktree only).
+// Commits, then its Tags (Ref defaults to the branch: a release branch's
+// candidate tags on commits main lacks), then Uncommitted overlaid and left
+// uncommitted (worktree only).
 type ScenarioBranch struct {
 	Name        string           `yaml:"name"`
 	From        string           `yaml:"from"`
 	Worktree    bool             `yaml:"worktree"`
 	Commits     []ScenarioCommit `yaml:"commits"`
+	Tags        []ScenarioTag    `yaml:"tags"`
 	Uncommitted string           `yaml:"uncommitted"`
 }
 
@@ -173,6 +181,9 @@ func LoadScenarioSpec(dir string) (*ScenarioSpec, error) {
 		return nil, fmt.Errorf("%s: extra_config: telemetry_data and telemetry_data: both set; keep one", filepath.Join(dir, "scenario.yaml"))
 	}
 	for i, g := range s.Generate {
+		if g.Kind != "" && g.Kind != "issue" && g.Kind != "retro" {
+			return nil, fmt.Errorf("%s: generate[%d]: kind %q: want issue (the default) or retro", filepath.Join(dir, "scenario.yaml"), i, g.Kind)
+		}
 		if g.Count <= 0 || g.Status == "" || strings.Count(g.Title, "%") != 1 {
 			return nil, fmt.Errorf("%s: generate[%d] needs count > 0, a status and a title with one %%d", filepath.Join(dir, "scenario.yaml"), i)
 		}
@@ -184,6 +195,9 @@ func LoadScenarioSpec(dir string) (*ScenarioSpec, error) {
 // issues/), before their times are pinned.
 func generateIssues(dir string, gens []ScenarioGenerate) error {
 	for _, g := range gens {
+		if g.Kind == "retro" {
+			continue
+		}
 		for i := 1; i <= g.Count; i++ {
 			title := fmt.Sprintf(g.Title, i)
 			var b strings.Builder
@@ -203,6 +217,64 @@ func generateIssues(dir string, gens []ScenarioGenerate) error {
 				return err
 			}
 			if err := os.WriteFile(p, []byte(b.String()), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// retroEpoch is a generated retro's first date when its entry has no
+// created:.
+var retroEpoch = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+// generateRetros writes the spec's kind: retro entries into dir (the
+// project's retros/). Retro i of an entry is dated i-1 hours after created:
+// (12:00 UTC that day), in its Date line and its mtime alike, so the
+// newest-first order is the same on every run and the highest number is the
+// newest. Its Issue line is <dir>/<the title's slug>, System the dir.
+func generateRetros(dir string, gens []ScenarioGenerate, now time.Time) error {
+	for _, g := range gens {
+		if g.Kind != "retro" {
+			continue
+		}
+		start := retroEpoch
+		if g.Created != "" {
+			d, err := time.Parse("2006-01-02", createdDate(g.Created, now))
+			if err != nil {
+				return fmt.Errorf("retro created %q: want YYYY-MM-DD or -Nd", g.Created)
+			}
+			start = d.Add(12 * time.Hour)
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		for i := 1; i <= g.Count; i++ {
+			title := fmt.Sprintf(g.Title, i)
+			at := start.Add(time.Duration(i-1) * time.Hour)
+			slug := generatedName(title)
+			if g.Dir != "" {
+				slug = strings.ToLower(g.Dir) + "/" + slug
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "# Workflow Retrospective\n\nIssue: %s\nTitle: %s\nStatus: %s\n", slug, title, g.Status)
+			if g.Dir != "" {
+				fmt.Fprintf(&b, "System: %s\n", g.Dir)
+			}
+			fmt.Fprintf(&b, "Date: %s\n", at.Format(time.RFC3339))
+			if extra := strings.TrimRight(g.Extra, "\n"); extra != "" {
+				b.WriteString(extra + "\n")
+			}
+			body := strings.TrimSpace(g.Body)
+			if body == "" {
+				body = fmt.Sprintf("Tooling/workflow friction: generated retro %d.", i)
+			}
+			b.WriteString("\n" + body + "\n")
+			p := filepath.Join(dir, at.Format("20060102-150405")+"-"+strings.ReplaceAll(slug, "/", "-")+".md")
+			if err := os.WriteFile(p, []byte(b.String()), 0o644); err != nil {
+				return err
+			}
+			if err := os.Chtimes(p, at, at); err != nil {
 				return err
 			}
 		}
@@ -323,11 +395,13 @@ type Scenario struct {
 	// held it and Port is a different, free one; 0 otherwise.
 	PortTaken int
 
-	bins    *Binaries
-	board   *exec.Cmd
-	commits int // scenario commits made so far (pins their dates)
-	log     io.Writer
-	env     []string
+	bins  *Binaries
+	board *exec.Cmd
+	// forgetStop drops the signal stop hook (stop.go) once Stop has run.
+	forgetStop func()
+	commits    int // scenario commits made so far (pins their dates)
+	log        io.Writer
+	env        []string
 	// OwnerSession is the owner's sign-in cookie on this board (the runner
 	// signs in with the code its own board prints): the browser pages and
 	// post: steps carry it, as the owner's browser would.
@@ -415,6 +489,9 @@ func StartScenarioWith(scenarioDir, name string, bins *Binaries, log io.Writer, 
 			return fail(fmt.Errorf("scenario %s: root: %v", name, err))
 		}
 	}
+	if err := generateRetros(filepath.Join(s.Proj, "retros"), spec.Generate, time.Now()); err != nil {
+		return fail(fmt.Errorf("scenario %s: generate: %v", name, err))
+	}
 	// terminal: none keeps dispatch and lead spawns headless: otherwise the
 	// board falls back to `i3-msg exec alacritty`, which opens a window on the
 	// owner's desktop attached to the real tmux server.
@@ -479,6 +556,11 @@ func StartScenarioWith(scenarioDir, name string, bins *Binaries, log io.Writer, 
 	s.board.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := s.board.Start(); err != nil {
 		return fail(fmt.Errorf("start board: %v", err))
+	}
+	if !o.Detached {
+		// A runner stopped by a signal takes its board and tmux server
+		// along; make serve's detached board outlives it on purpose.
+		s.forgetStop = atStop(func() { s.Stop(false) })
 	}
 	if err := waitHTTP(s.Base+"/", boardReadyBudget); err != nil {
 		if o.Detached {
@@ -644,6 +726,15 @@ func (s *Scenario) buildHistory(src string) error {
 		}
 		for _, c := range b.Commits {
 			if err := commit(dir, c); err != nil {
+				return err
+			}
+		}
+		for _, t := range b.Tags {
+			ref := t.Ref
+			if ref == "" {
+				ref = b.Name
+			}
+			if err := gitIn(s.Proj, "tag", "-a", t.Name, "-m", t.Name, ref); err != nil {
 				return err
 			}
 		}

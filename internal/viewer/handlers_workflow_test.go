@@ -274,11 +274,9 @@ func TestBuildAgentPrompt_IncludesCurrentStatusGuidanceAndRetrospectiveTrigger(t
 		"## Current status guidance",
 		"Build relevant automated coverage before handoff.",
 		"issue-cli retrospective combat/fix-heat --body",
-		"retros/ in the project",
 		"Subsystem workflow for Combat:",
 		"Missing system-specific instructions:",
 		"issue-cli report-bug",
-		"cli-bug issue on the Dark Factory board",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("expected prompt to contain %q\n\n%s", want, prompt)
@@ -308,7 +306,6 @@ func TestBuildAgentPrompt_InjectsProjectFlagForMultiProjectDispatch(t *testing.T
 
 	for _, want := range []string{
 		"issue-cli --project cli process workflow",
-		"issue-cli --project cli show cli/some-bug",
 		"issue-cli --project cli check cli/some-bug",
 		"issue-cli --project cli transition cli/some-bug",
 		"issue-cli --project cli start cli/some-bug",

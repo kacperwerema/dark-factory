@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -195,5 +196,39 @@ func TestClaudeMdListsTheValidateSteps(t *testing.T) {
 			continue
 		}
 		at += i
+	}
+}
+
+// claudeMdCap is CLAUDE.md's size cap in bytes. The file goes into every
+// session's first turn and so into every turn after it: per-file detail
+// lives in docs/code-structure.md, a doc's detail in docs/doc-map.md.
+const claudeMdCap = 20 * 1024
+
+// claudeMdTooBig says what is wrong with a CLAUDE.md of size bytes, or "".
+func claudeMdTooBig(size int) string {
+	if size <= claudeMdCap {
+		return ""
+	}
+	return fmt.Sprintf("CLAUDE.md is %d bytes, over its %d-byte cap (20 KB) by %d: move per-file detail to docs/code-structure.md, a doc's detail into that doc and docs/doc-map.md, and keep one line in CLAUDE.md that links there", size, claudeMdCap, size-claudeMdCap)
+}
+
+// CLAUDE.md stays under 20 KB, and the refusal names the size and where the
+// text goes.
+func TestClaudeMdStaysSmall(t *testing.T) {
+	doc, err := os.ReadFile(repoPath("CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg := claudeMdTooBig(len(doc)); msg != "" {
+		t.Error(msg)
+	}
+	msg := claudeMdTooBig(claudeMdCap + 1)
+	for _, want := range []string{"20481 bytes", "by 1", "docs/code-structure.md", "docs/doc-map.md"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("an oversized CLAUDE.md's message doesn't say %q: %s", want, msg)
+		}
+	}
+	if claudeMdTooBig(claudeMdCap) != "" {
+		t.Error("a CLAUDE.md of exactly the cap is refused")
 	}
 }

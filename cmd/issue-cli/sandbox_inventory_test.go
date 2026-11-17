@@ -23,6 +23,7 @@ var notGuards = map[string]string{
 	"commentAuthor":        "signs comments",
 	"isOwnWorker":          "keeps a worker's own assignee on its transition",
 	"guardWho":             "the pass",
+	"runOwnerStepAdd":      "anyone adds an owner step; the worker only picks the default issue",
 	"guardAgent":           "the pass",
 	"dueStandingJobs":      "lists the jobs a tick may start, for none to a worker; the start goes through startScheduledRun under queue next --start, whose worker refusal is queueStart's",
 	"runBenchShow":         "hides holdout tasks from agents in a listing; nothing is changed",
@@ -37,6 +38,7 @@ var notGuards = map[string]string{
 	"runLeadWhoami":        "reports the identity",
 	"memoryCaller":         "picks what memories a caller sees",
 	"checkRoute":           "declared routes between departments, the same for any worker; not an owner-only command",
+	"leadTickQueueSweep":   "lead tick's queue-low sweep: does nothing for a worker (refuses nothing); the tick's start keeps queueStart's worker refusal",
 }
 
 // guardHelpers ask the sandbox pass themselves.

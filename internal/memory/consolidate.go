@@ -115,10 +115,65 @@ func promotable(m Memory, now time.Time) bool {
 	return err == nil && now.Sub(c) >= PromoteDays*24*time.Hour
 }
 
+// Paraphrase thresholds of NearDuplicates (health lint's memory check).
+const (
+	// ParaphraseOverlap is the share of the shorter memory's words the
+	// other must hold. Paraphrases of one fact measured 0.45-0.66 here while
+	// their Jaccard stayed under 0.41, below SimilarThreshold.
+	ParaphraseOverlap = 0.45
+	// ParaphraseMinWords: a memory with fewer distinct words is never
+	// linked, so a short one inside a long one isn't a duplicate.
+	ParaphraseMinWords = 6
+	// MinClusterSize is the smallest near-duplicate group lint names: a
+	// pair can be two sides of one subject, three is one fact retold.
+	MinClusterSize = 3
+)
+
+// NearDuplicates is the groups of MinClusterSize or more active memories
+// of one scope linked by paraphrase (each linked pair shares at least
+// ParaphraseOverlap of the shorter one's words), biggest first. The
+// Similarity of each is its highest pair overlap. Unlike the pack's
+// clusters (Jaccard, the update step's line) it catches a fact written
+// again in other words.
+func NearDuplicates(mems []Memory, now time.Time) []Cluster {
+	var active []Memory
+	for _, m := range mems {
+		if m.InvalidAt == "" && !m.Expired(now) {
+			active = append(active, m)
+		}
+	}
+	sort.SliceStable(active, func(i, j int) bool { return active[i].Created < active[j].Created })
+	all := clusterBy(active, overlap)
+	var out []Cluster
+	for _, c := range all {
+		if len(c.Members) >= MinClusterSize {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // clusters joins active memories of one scope whose words overlap at
 // least SimilarThreshold (the update step's near-duplicate line), biggest
 // cluster first.
 func clusters(active []Memory) ([]Cluster, int) {
+	out := clusterBy(active, func(a, b []int32) float64 {
+		if sim := jaccard(a, b); sim >= SimilarThreshold {
+			return sim
+		}
+		return 0
+	})
+	more := 0
+	if len(out) > MaxClusters {
+		more = len(out) - MaxClusters
+		out = out[:MaxClusters]
+	}
+	return out, more
+}
+
+// clusterBy joins active memories of one scope that link (a score above
+// 0), biggest cluster first; Similarity is the highest link in a cluster.
+func clusterBy(active []Memory, link func(a, b []int32) float64) []Cluster {
 	byScope := map[string][]int{}
 	var scopes []string
 	for i, m := range active {
@@ -145,7 +200,7 @@ func clusters(active []Memory) ([]Cluster, int) {
 		for a := 0; a < len(idx); a++ {
 			for b := a + 1; b < len(idx); b++ {
 				i, j := idx[a], idx[b]
-				if jaccard(sets[i], sets[j]) < SimilarThreshold {
+				if link(sets[i], sets[j]) <= 0 {
 					continue
 				}
 				if ri, rj := find(i), find(j); ri != rj {
@@ -173,7 +228,7 @@ func clusters(active []Memory) ([]Cluster, int) {
 		for a, i := range g {
 			c.Members = append(c.Members, active[i])
 			for _, j := range g[a+1:] {
-				if sim := jaccard(sets[i], sets[j]); sim > c.Similarity {
+				if sim := link(sets[i], sets[j]); sim > c.Similarity {
 					c.Similarity = sim
 				}
 			}
@@ -186,12 +241,37 @@ func clusters(active []Memory) ([]Cluster, int) {
 		}
 		return out[i].Similarity > out[j].Similarity
 	})
-	more := 0
-	if len(out) > MaxClusters {
-		more = len(out) - MaxClusters
-		out = out[:MaxClusters]
+	return out
+}
+
+// overlap is the share of the shorter sorted word-id set found in the
+// other, or 0 when it is under ParaphraseOverlap or either set has fewer
+// than ParaphraseMinWords words.
+func overlap(a, b []int32) float64 {
+	lo := len(a)
+	if len(b) < lo {
+		lo = len(b)
 	}
-	return out, more
+	if lo < ParaphraseMinWords {
+		return 0
+	}
+	inter, i, j := 0, 0, 0
+	for i < len(a) && j < len(b) {
+		switch {
+		case a[i] == b[j]:
+			inter++
+			i++
+			j++
+		case a[i] < b[j]:
+			i++
+		default:
+			j++
+		}
+	}
+	if sim := float64(inter) / float64(lo); sim >= ParaphraseOverlap {
+		return sim
+	}
+	return 0
 }
 
 // wordIDs is each memory's distinct words as sorted ids, so a pair's

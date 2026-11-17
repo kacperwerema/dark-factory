@@ -55,7 +55,7 @@ type traceOutput struct {
 }
 
 func runTrace(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "trace")
+	slug, rest, err := issueSlug(ctx, args, "trace")
 	if err != nil {
 		return err
 	}

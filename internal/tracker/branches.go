@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/gitmain"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -146,16 +148,19 @@ func OpenBranchesErr(root, mainBranch string, issues []*Issue) ([]OpenBranch, er
 			mainSha = strings.TrimSpace(sha)
 		}
 	}
-	for i := range out {
+	// Each branch's base, and below each pair's, is its own git call: on a
+	// cold cache (main moved, a branch committed) one show ran 70 of them,
+	// one after another (cli/issue-cli-show-takes-under-a-second-on-this-board).
+	eachParallel(len(out), func(i int) {
 		b := &out[i]
 		b.Base = mainBranch
-		var err error
-		if b.MergeBase, err = gitCached(root, "merge-base", mainSha, b.Head); err != nil {
-			continue // unrelated history: leave MergeBase empty
+		mb, err := gitCached(root, "merge-base", mainSha, b.Head)
+		if err != nil {
+			return // unrelated history: leave MergeBase empty
 		}
-		b.MergeBase = strings.TrimSpace(b.MergeBase)
+		b.MergeBase = strings.TrimSpace(mb)
 		b.Ahead = countCommits(root, b.MergeBase, b.Head)
-	}
+	})
 	restack(root, out)
 	if err := fillShared(root, out); err != nil {
 		return out, err
@@ -173,64 +178,102 @@ func OpenBranchesErr(root, mainBranch string, issues []*Issue) ([]OpenBranch, er
 // from that branch's head, past their base) onto that branch, so it is
 // compared with what it was forked from rather than with main. The nearest
 // such branch wins.
+//
+// Every pair is checked side by side and the moves applied after: a move
+// changes none of what another pair's check reads (heads, names, and
+// whether a branch has a base and commits on it).
 func restack(root string, branches []OpenBranch) {
-	for i := range branches {
-		b := &branches[i]
-		if b.Ahead == 0 || b.MergeBase == "" {
+	movable := func(b OpenBranch) bool { return b.Ahead > 0 && b.MergeBase != "" }
+	type pair struct{ i, j, dist int } // dist -1: o's head is not an ancestor of b's
+	var pairs []pair
+	for i, b := range branches {
+		if !movable(b) {
 			continue // nothing on it to move: no branch can be nearer than 0
 		}
-		best, bestDist := -1, b.Ahead
-		for j := range branches {
-			o := branches[j]
-			if i == j || o.Head == b.Head || o.Ahead == 0 || o.MergeBase == "" {
-				continue
-			}
-			mb, err := gitCached(root, "merge-base", o.Head, b.Head)
-			if err != nil || strings.TrimSpace(mb) != o.Head {
-				continue // o's head is not an ancestor of b's
-			}
-			if d := countCommits(root, o.Head, b.Head); d < bestDist {
-				best, bestDist = j, d
+		for j, o := range branches {
+			if i != j && o.Head != b.Head && movable(o) {
+				pairs = append(pairs, pair{i: i, j: j, dist: -1})
 			}
 		}
-		if best >= 0 {
-			b.Base, b.MergeBase, b.Ahead = branches[best].Name, branches[best].Head, bestDist
+	}
+	eachParallel(len(pairs), func(k int) {
+		p := &pairs[k]
+		b, o := branches[p.i], branches[p.j]
+		mb, err := gitCached(root, "merge-base", o.Head, b.Head)
+		if err != nil || strings.TrimSpace(mb) != o.Head {
+			return // o's head is not an ancestor of b's
+		}
+		p.dist = countCommits(root, o.Head, b.Head)
+	})
+	// The nearest wins, the first in branch order on a tie, as before.
+	best := make([]int, len(branches))
+	bestDist := make([]int, len(branches))
+	for i, b := range branches {
+		best[i], bestDist[i] = -1, b.Ahead
+	}
+	for _, p := range pairs {
+		if p.dist >= 0 && p.dist < bestDist[p.i] {
+			best[p.i], bestDist[p.i] = p.j, p.dist
+		}
+	}
+	for i := range branches {
+		if j := best[i]; j >= 0 {
+			b := &branches[i]
+			b.Base, b.MergeBase, b.Ahead = branches[j].Name, branches[j].Head, bestDist[i]
 		}
 	}
 }
 
 // fillShared sets SharesWith for every pair of branches on the same base
 // whose common ancestor is past that base.
+// The pairs are counted side by side and recorded in order.
 func fillShared(root string, branches []OpenBranch) error {
+	type pair struct {
+		i, j, n int
+		err     error
+	}
+	var pairs []pair
 	for i := range branches {
 		for j := i + 1; j < len(branches); j++ {
-			a, b := &branches[i], &branches[j]
+			a, b := branches[i], branches[j]
 			if a.MergeBase == "" || b.MergeBase == "" || a.Base != b.Base || a.Ahead == 0 || b.Ahead == 0 {
 				continue
 			}
-			mb, err := gitCached(root, "merge-base", a.Head, b.Head)
-			if err != nil {
-				if errors.Is(err, ErrGitTimeout) {
-					return err
-				}
-				continue
-			}
-			mb = strings.TrimSpace(mb)
-			n := countCommits(root, a.MergeBase, mb)
-			if m := countCommits(root, b.MergeBase, mb); m < n {
-				n = m
-			}
-			if n <= 0 {
-				continue
-			}
-			if a.SharesWith == nil {
-				a.SharesWith = map[string]int{}
-			}
-			if b.SharesWith == nil {
-				b.SharesWith = map[string]int{}
-			}
-			a.SharesWith[b.Name], b.SharesWith[a.Name] = n, n
+			pairs = append(pairs, pair{i: i, j: j})
 		}
+	}
+	eachParallel(len(pairs), func(k int) {
+		p := &pairs[k]
+		a, b := branches[p.i], branches[p.j]
+		mb, err := gitCached(root, "merge-base", a.Head, b.Head)
+		if err != nil {
+			p.err = err
+			return
+		}
+		mb = strings.TrimSpace(mb)
+		p.n = countCommits(root, a.MergeBase, mb)
+		if m := countCommits(root, b.MergeBase, mb); m < p.n {
+			p.n = m
+		}
+	})
+	for _, p := range pairs {
+		if p.err != nil {
+			if errors.Is(p.err, ErrGitTimeout) {
+				return p.err
+			}
+			continue
+		}
+		if p.n <= 0 {
+			continue
+		}
+		a, b := &branches[p.i], &branches[p.j]
+		if a.SharesWith == nil {
+			a.SharesWith = map[string]int{}
+		}
+		if b.SharesWith == nil {
+			b.SharesWith = map[string]int{}
+		}
+		a.SharesWith[b.Name], b.SharesWith[a.Name] = p.n, p.n
 	}
 	return nil
 }
@@ -259,13 +302,17 @@ func ChangedOnBranches(root string, branches []OpenBranch, path string) []Branch
 func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 	byPath := map[string][]BranchChange{}
 	own := make([]map[string][2]int, len(branches))
+	read := make([]bool, len(branches))
+	eachParallel(len(branches), func(i int) {
+		if stats, err := branchNumstat(root, branches[i]); err == nil {
+			own[i], read[i] = stats, true
+		}
+	})
 	for i, b := range branches {
-		stats, err := branchNumstat(root, b)
-		if err != nil {
+		if !read[i] {
 			continue
 		}
-		own[i] = stats
-		for path, st := range stats {
+		for path, st := range own[i] {
 			byPath[path] = append(byPath[path], BranchChange{Branch: b.Name, Worktree: b.Worktree, IssueSlug: b.IssueSlug, Added: st[0], Removed: st[1]})
 		}
 	}
@@ -274,9 +321,11 @@ func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 	// it after the fork point. sharedOnly[branch][path] = touched only through
 	// shared commits, with every branch it shares commits with.
 	sharedOnly := map[string]map[string]bool{}
-	for i, a := range branches {
+	sos := make([]map[string]bool, len(branches))
+	eachParallel(len(branches), func(i int) {
+		a := branches[i]
 		if len(a.SharesWith) == 0 || own[i] == nil {
-			continue
+			return
 		}
 		mine := map[string]bool{}
 		owner := false
@@ -298,7 +347,7 @@ func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 			}
 		}
 		if owner {
-			continue
+			return
 		}
 		so := map[string]bool{}
 		for p := range own[i] {
@@ -306,7 +355,12 @@ func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 				so[p] = true
 			}
 		}
-		sharedOnly[a.Name] = so
+		sos[i] = so
+	})
+	for i, so := range sos {
+		if so != nil {
+			sharedOnly[branches[i].Name] = so
+		}
 	}
 
 	// A branch other open branches are stacked on is not in
@@ -353,17 +407,18 @@ func HotFiles(root string, branches []OpenBranch, hideShared bool) []HotFile {
 	return out
 }
 
-// MainBranch is the repo's main branch: origin's HEAD, else main or master,
-// else the main checkout's branch.
+// MainBranch is the repo's main branch, by gitmain.PickBranch's order:
+// origin's HEAD, else main or master, else the main checkout's branch. It
+// reads the cached refs; gitmain.Branch is the same order with ci.branch
+// first (TestMainBranchResolvedOnce).
 func MainBranch(root string) (string, error) {
 	refs, err := gitRefs(root)
 	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{refs.originHead, "main", "master"} {
-		if refs.heads[name] != "" {
-			return name, nil
-		}
+	has := func(name string) bool { return refs.heads[name] != "" }
+	if name := gitmain.PickBranch(refs.originHead, has, ""); name != "" {
+		return name, nil
 	}
 	head, err := runGit(root, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
@@ -440,6 +495,31 @@ func ownsShared(a OpenBranch, branches []OpenBranch, other string) bool {
 		}
 	}
 	return true
+}
+
+// gitParallel bounds the git calls a branch scan runs side by side.
+const gitParallel = 8
+
+// eachParallel calls f for every index below n, at most gitParallel at a
+// time, and returns when all are done. f writes only its own index's slot.
+func eachParallel(n int, f func(i int)) {
+	if n < 2 {
+		for i := 0; i < n; i++ {
+			f(i)
+		}
+		return
+	}
+	sem := make(chan struct{}, gitParallel)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer func() { <-sem; wg.Done() }()
+			f(i)
+		}(i)
+	}
+	wg.Wait()
 }
 
 func headOf(branches []OpenBranch, name string) string {

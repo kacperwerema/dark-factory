@@ -19,7 +19,7 @@ func init() {
 }
 
 func runShow(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "context")
+	slug, rest, err := issueSlug(ctx, args, "context")
 	if err != nil {
 		return err
 	}
@@ -96,8 +96,8 @@ func runShow(ctx *Context, args []string) error {
 	total, checked := tracker.CountCheckboxes(issue.BodyRaw)
 	if total > 0 {
 		fmt.Fprintf(ctx.Stdout, "== Checklist (%d/%d) ==\n", checked, total)
-		printCheckboxes(ctx.Stdout, issue.BodyRaw)
-		printTickHint(ctx.Stdout, issue.Slug, issue.BodyRaw)
+		owner := printIssueCheckboxes(ctx, ctx.Stdout, issue, issue.BodyRaw)
+		printTickHint(ctx.Stdout, issue.Slug, issue.BodyRaw, owner)
 		fmt.Fprintln(ctx.Stdout)
 	}
 

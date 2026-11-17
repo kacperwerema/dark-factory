@@ -1,0 +1,33 @@
+id: deploy-steps
+version: v0.63.0
+category: automation
+propose: true
+sources: ["internal/deploy/**", "internal/tracker/deploy.go", "internal/viewer/deploy_view.go", "cmd/issue-cli/cmd_deploy.go"]
+unlocks:
+  - text: "Report: the Last deploy card"
+    url: /status
+title: "Deploy steps walked in order, with checks and a record"
+what: |
+  `deploy:` names the project's own deploy as ordered steps (`name`, `run`, optional
+  `needs:` main-green | no-live-workers | owner-ok, `probe:`, `timeout:`).
+  `issue-cli deploy --dry-run` prints the plan and what would refuse each step now;
+  `issue-cli deploy` runs them, stops at the first red or refused step, and records
+  each step's result and time under the issues dir's .deploys/. The Report shows the
+  newest run; `--from <step>` goes on after a fix.
+why: |
+  A deploy walked from the lead's notes loses a step or a probe sooner or later, and
+  leaves no record of what ran. One list, the same checks every time, and the owner's
+  words on the steps that publish.
+where: "top-level deploy: (name, run, needs, probe, timeout); docs/workflow.md, Deploy"
+snippet: |
+  deploy:
+    - name: backup
+      run: ./scripts/backup-db.sh
+      needs: no-live-workers
+    - name: app
+      run: ./install.sh
+      needs: [main-green, owner-ok]
+      probe: curl -fsS https://example.com/health
+question: "Which steps does a deploy of this project walk, in what order, which may only run with main green or no workers live, and which publish (and so need your words)?"
+detect:
+  - path: deploy

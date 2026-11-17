@@ -183,9 +183,9 @@ func TestNightly_HeldByMemoryLoadAndBudget(t *testing.T) {
 		t.Fatalf("memory 50%%: calls %v\n%s", *calls, out)
 	}
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 31, CanStart: true} }
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 20, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 20, Avg5: 20, Cores: 14} }
 	out, err = runNightly(t, proj, jobNow, "--quote", "tonight")
-	if err != nil || len(*calls) != 0 || !strings.Contains(out, "held: load 20.0 on 14 cores (max 14)") {
+	if err != nil || len(*calls) != 0 || !strings.Contains(out, "held: load 20.0/20.0 on 14 cores (max 14)") {
 		t.Fatalf("load: %v calls %v\n%s", err, *calls, out)
 	}
 	nights := bench.LoadNights("b1")
@@ -194,7 +194,7 @@ func TestNightly_HeldByMemoryLoadAndBudget(t *testing.T) {
 	}
 
 	// Budget: the baseline stops, the queued experiment waits.
-	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Cores: 14} }
+	autostart.ReadLoad = func() autostart.CPU { return autostart.CPU{Found: true, Avg1: 4, Avg5: 4, Cores: 14} }
 	queueExperiment(t, proj)
 	out, err = runNightly(t, proj, jobNow, "--quote", "tonight")
 	if err != nil {

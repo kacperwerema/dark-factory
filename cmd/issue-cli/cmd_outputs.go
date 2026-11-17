@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/checks"
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
@@ -19,7 +20,7 @@ const outputAddUsage = `usage: issue-cli output add --title "..." --kind <kind> 
 
 var outputCommand = &Command{
 	Name:      "output",
-	ShortHelp: "Record what a department made, and its review (output add|review|publish|show|revise|comments|reply)",
+	ShortHelp: "Record what a department made, and its review (output add|list|review|publish|show|revise|comments|reply)",
 	LongHelp: `Put an output on the department's shelf: a post, design, page, site,
 report or invoice an issue or a job made. It goes into
 <issues>/.outputs/outputs.jsonl in review; the owner approves or rejects
@@ -28,12 +29,17 @@ it, and only an approved output is published.
   output add --title "..." --kind <kind> (--url <link> | --file <file> | --path <repo path>)
              [--issue <slug>] [--department <name>] [--job <name>] [--note "..."]
       --file copies the file onto the shelf (<issues>/.outputs/files/, up to
-      25 MB); --path links a file in the repo; --url an http(s) link. The
+      25 MB); --path links a file in the repo; --url an http(s) link. A
+      --path that is not on the project's checkout but is in the issue's
+      worktree (a branch not merged yet) is read there, and the output
+      records the branch; once merged it is read from the checkout. The
       department is the issue's, else --department, else Product. When the
       issue already has a file output of that title, it hints output revise.
       --kind video --file <.mp4|.webm> (up to 200 MB) plays in the shelf's
       reader and on the Station; with ffmpeg on PATH a poster (the frame at
       1 s) is written next to it.
+  output list [<department>] [--department <name>] [--issue <slug>] [--state <state>]
+      The shelf, as issue-cli outputs prints it (same rows, same filters).
   output review <id> approve|reject --quote "<the owner's words>" [--how "..."]
       The owner's stamp, recorded by the owner or the lead; never a worker.
   output publish <id> [--url <where it went out>]
@@ -71,7 +77,7 @@ Examples:
   issue-cli output revise ab00 --file brand.md --note "answers the owner's comments"
   issue-cli output reply ab00 c-1a2b --text "v2 makes B the line"`,
 	Run:         runOutput,
-	Subcommands: []string{"add", "review", "publish", "use", "show", "revise", "comments", "reply"},
+	Subcommands: []string{"add", "list", "review", "publish", "use", "show", "revise", "comments", "reply"},
 }
 
 var outputsCommand = &Command{
@@ -81,7 +87,8 @@ var outputsCommand = &Command{
 kind, title, where it is, the issue or job, who, when and its state
 (review, approved, rejected, published).
 
-Pass a department (marketing, product) to list only its shelf.
+Pass a department (marketing, product), or --department, to list only
+its shelf. issue-cli output list is the same command.
 
 Examples:
   issue-cli outputs
@@ -97,11 +104,13 @@ func init() {
 
 func runOutput(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return &usageError{msg: "usage: issue-cli output add|review|publish|use|show|revise|comments|reply ... (issue-cli help output)"}
+		return &usageError{msg: "usage: issue-cli output add|list|review|publish|use|show|revise|comments|reply ... (issue-cli help output)"}
 	}
 	switch args[0] {
 	case "add":
 		return runOutputAdd(ctx, args[1:])
+	case "list":
+		return runOutputs(ctx, args[1:])
 	case "review":
 		return runOutputReview(ctx, args[1:])
 	case "publish":
@@ -117,7 +126,7 @@ func runOutput(ctx *Context, args []string) error {
 	case "reply":
 		return runOutputReply(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown output command %q: add, review, publish, use, show, revise, comments or reply", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown output command %q: add, list, review, publish, use, show, revise, comments or reply", args[0])}
 }
 
 func runOutputAdd(ctx *Context, args []string) error {
@@ -127,7 +136,7 @@ func runOutputAdd(ctx *Context, args []string) error {
 	link := fs.String("url", "", "an http(s) link to the output")
 	file := fs.String("file", "", "a file to copy onto the shelf (up to 25 MB; a .mp4 or .webm video up to 200 MB)")
 	path := fs.String("path", "", "a file in the repo, relative to the project root")
-	slug := fs.String("issue", "", "the issue that made it")
+	slug := fs.String("issue", "", "the issue that made it (default: ISSUE_VIEWER_ISSUE_SLUG, unless --department or --job)")
 	dept := fs.String("department", "", "the department, when there is no --issue (default Product)")
 	job := fs.String("job", "", "the job that made it, when there is no issue")
 	note := fs.String("note", "", "a line about it")
@@ -144,12 +153,26 @@ func runOutputAdd(ctx *Context, args []string) error {
 		Job: *job, Note: normalizeEscapedText(*note), By: whoAmI(p, issues).sender(),
 	}
 	var issue *tracker.Issue
+	if *slug == "" && *dept == "" && *job == "" {
+		// A dispatched worker's output is its issue's by default.
+		if own := ownSlugEnv(); own != "" {
+			*slug = own
+			noteOwnSlug(ctx, own)
+		}
+	}
 	if *slug != "" {
 		var err error
 		if issue, _, err = findIssueOrErr(ctx, *slug); err != nil {
 			return err
 		}
 		in.Issue = issue.Slug
+		if *path != "" {
+			// A worker's file may be on its branch only: add looks there
+			// when the project's checkout lacks it.
+			if b := checks.IssueBranch(p.Root(), issue); b.Worktree != "" {
+				in.Worktree, in.Branch = b.Worktree, b.Name
+			}
+		}
 	}
 	name, err := outputDepartment(p, issue, *dept)
 	if err != nil {
@@ -401,19 +424,27 @@ func runOutputs(ctx *Context, args []string) error {
 	fs := newFlagSet("outputs", ctx)
 	state := fs.String("state", "", "only outputs in this state: review, approved, rejected, published")
 	slug := fs.String("issue", "", "only the outputs this issue made")
+	deptFlag := fs.String("department", "", "only this department's shelf (as the positional argument)")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() > 1 {
 		return unexpectedArgError(fs, fs.Arg(1))
 	}
+	dept := strings.TrimSpace(*deptFlag)
+	if fs.NArg() == 1 {
+		if dept != "" && !strings.EqualFold(dept, fs.Arg(0)) {
+			return fmt.Errorf("department %q and --department %q: give one", fs.Arg(0), dept)
+		}
+		dept = fs.Arg(0)
+	}
 	p := ctx.Project
 	f := outputs.Filter{State: strings.ToLower(strings.TrimSpace(*state))}
 	if f.State != "" && !slices.Contains(outputs.States, f.State) {
 		return fmt.Errorf("--state %q: one of %s", *state, strings.Join(outputs.States, ", "))
 	}
-	if fs.NArg() == 1 {
-		name, err := departmentFlag(p, fs.Arg(0))
+	if dept != "" {
+		name, err := departmentFlag(p, dept)
 		if err != nil {
 			return err
 		}
@@ -479,6 +510,9 @@ func printOutput(w io.Writer, o *outputs.Output, indent string) {
 	}
 	fmt.Fprintf(w, "%s%s %s%s [%s] %s · %s\n", indent, o.Icon(), shortID(o.ID), ver, o.State, o.Kind, o.Title)
 	where := o.Where()
+	if o.Branch != "" {
+		where += " (branch " + o.Branch + ")"
+	}
 	if o.Missing {
 		where += " (missing)"
 	}

@@ -159,6 +159,9 @@ type FloorListRow struct {
 	// Note is the row's extra word: Product's workers, a due job.
 	Note              string
 	Action, ActionURL string
+	// URL makes the row a link away from the floor instead of a room:
+	// the last row, New department, to the template picker.
+	URL string
 }
 
 // FloorRoad is a road as a polyline in plan pixels.
@@ -756,6 +759,10 @@ func floorList(c *CompanyData, ins []FloorInspector, links []FloorLink) []FloorL
 			}
 		}
 		out = append(out, row)
+	}
+	// The plot's link, as on the plan: the phone hides the plan.
+	if n := c.NewDept; n.FormURL != "" && len(n.Templates) > 0 {
+		out = append(out, FloorListRow{Box: "new", Title: n.Tile.Title, URL: n.FormURL, Note: n.Tile.Sub})
 	}
 	return out
 }

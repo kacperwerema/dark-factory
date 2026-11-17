@@ -63,6 +63,9 @@ func CommentText(r *Run) string {
 	rep := r.Report
 	fmt.Fprintf(&b, "critique: %s, %s (%s) — %d blocks, %d should, %d note", r.Edge(), r.Verdict(), valueOr(r.Agent, "critic"),
 		rep.Count(Blocks), rep.Count(Should), rep.Count(Note))
+	if _, ok := r.Took(); ok {
+		fmt.Fprintf(&b, "; took %s", r.TookText())
+	}
 	if r.Fallback != "" {
 		fmt.Fprintf(&b, "; %s", r.Fallback)
 	}

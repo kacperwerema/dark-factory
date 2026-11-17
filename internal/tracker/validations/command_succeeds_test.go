@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 func TestCommandSucceeds_DisabledByDefault(t *testing.T) {
@@ -60,9 +62,9 @@ func TestCommandSucceeds_StubBinary(t *testing.T) {
 	}
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "fakebin")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\nif [ \"$1\" = \"--ok\" ]; then exit 0; fi\necho boom >&2\nexit 7\n"), 0o755); err != nil {
-		t.Fatalf("write stub: %v", err)
-	}
+	// Through the warmed helper: a fresh executable can take macOS over
+	// 10 s to clear its first-exec check, the command's whole timeout.
+	standin.Write(t, stub, "#!/bin/sh\nif [ \"$1\" = \"--ok\" ]; then exit 0; fi\necho boom >&2\nexit 7\n")
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 
 	if err := CommandSucceeds(Action{Rule: "command_succeeds", Command: "fakebin --ok"}, sampleIssue(), Config{AllowShell: true}); err != nil {

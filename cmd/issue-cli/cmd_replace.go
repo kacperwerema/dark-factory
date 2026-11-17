@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -20,8 +21,10 @@ Whole section:
 
 --body-file <path> (or - for stdin) reads the new content as raw bytes, as
 append does, which avoids shell mangling of backticks and parentheses.
-A new body that lacks a ### heading the old section had is still written,
-with a warning naming each dropped heading.
+A new body that lacks a ### heading or a checkbox the old section had is
+still written, with a warning naming each dropped heading, and each dropped
+box by its old id and text with the check-add line that puts one back
+(a later transition --check <id> would name a box that is gone).
 
 One line, by number or by a regexp that matches exactly one line:
   issue-cli replace <slug> --section "Design" --line 3 --text "new line"
@@ -41,7 +44,7 @@ func init() {
 }
 
 func runReplace(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "replace")
+	slug, rest, err := issueSlug(ctx, args, "replace")
 	if err != nil {
 		return err
 	}
@@ -86,14 +89,20 @@ func runReplace(ctx *Context, args []string) error {
 
 	guard := ownerTickGuard(ctx, issue)
 	var dropped []string
+	var droppedBoxes []tracker.CheckboxItem
 	var testPlanShort bool
+	var before, after string
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		old, _ := tracker.SectionText(body, section)
 		next, ok, err := tracker.ReplaceIssueBodySection(body, section, text, force)
+		before, after = body, next
 		if err == nil && ok {
 			err = guard(body, next)
 		}
 		dropped = droppedSubheadings(old, text)
+		if err == nil && ok {
+			droppedBoxes = droppedCheckboxes(body, next, section)
+		}
 		if strings.EqualFold(strings.TrimSpace(strings.TrimLeft(section, "# ")), "Test Plan") {
 			auto, manual := tracker.HasTestPlan(next)
 			testPlanShort = !auto || !manual
@@ -110,7 +119,62 @@ func runReplace(ctx *Context, args []string) error {
 			fmt.Fprintln(ctx.Stdout, "  has_test_plan needs `### Automated` and `### Manual` under ## Test Plan: put them back before the next transition")
 		}
 	}
+	printDroppedBoxes(ctx, issue.Slug, section, droppedBoxes)
+	printDesignEditPreview(ctx.Stdout, ctx, issue, before, after)
 	return nil
+}
+
+// droppedCheckboxes lists each box of section in before that the section in
+// after no longer holds, in before's order. Boxes match by text (whitespace
+// and case folded), each new box standing in for one old one, so a reworded
+// box counts as dropped and a re-ticked or moved one doesn't.
+func droppedCheckboxes(before, after, section string) []tracker.CheckboxItem {
+	name := strings.TrimSpace(strings.TrimLeft(section, "# "))
+	key := func(text string) string { return strings.ToLower(strings.Join(strings.Fields(text), " ")) }
+	have := map[string]int{}
+	for _, it := range tracker.ListCheckboxes(after) {
+		if strings.EqualFold(it.Section, name) {
+			have[key(it.Text)]++
+		}
+	}
+	var dropped []tracker.CheckboxItem
+	for _, it := range tracker.ListCheckboxes(before) {
+		if !strings.EqualFold(it.Section, name) {
+			continue
+		}
+		if k := key(it.Text); have[k] > 0 {
+			have[k]--
+		} else {
+			dropped = append(dropped, it)
+		}
+	}
+	return dropped
+}
+
+// printDroppedBoxes warns about the boxes a replace dropped: each by its old
+// id, and the check-add line that puts one back.
+func printDroppedBoxes(ctx *Context, slug, section string, boxes []tracker.CheckboxItem) {
+	if len(boxes) == 0 {
+		return
+	}
+	ids := make([]string, len(boxes))
+	for i, b := range boxes {
+		ids[i] = b.ID
+	}
+	noun, verb := "boxes", "name them"
+	if len(boxes) == 1 {
+		noun, verb = "box", "names it"
+	}
+	fmt.Fprintf(ctx.Stdout, "⚠ the new body drops %d %s the old section had; %s no longer %s:\n", len(boxes), noun, strings.Join(ids, " "), verb)
+	for _, b := range boxes {
+		tick := " "
+		if b.Checked {
+			tick = "x"
+		}
+		fmt.Fprintf(ctx.Stdout, "  %s [%s] %s\n", b.ID, tick, b.Label())
+	}
+	name := strings.TrimSpace(strings.TrimLeft(section, "# "))
+	fmt.Fprintf(ctx.Stdout, "  put one back: issue-cli check-add %s --section %s --text '<text>'\n", shell.Quote(slug), shell.Quote(name))
 }
 
 // droppedSubheadings lists each "### " heading of old that new lacks, in
@@ -164,14 +228,14 @@ func replaceLine(ctx *Context, slug, section, text string, line int, match strin
 	if err != nil {
 		return err
 	}
-	var old string
+	var old, before, after string
 	guard := ownerTickGuard(ctx, issue)
 	_, _, err = tracker.UpdateIssueBody(issue.FilePath, func(body string) (string, bool, error) {
 		next, was, err := tracker.ReplaceSectionLine(body, section, line, re, text)
 		if err != nil {
 			return body, false, err
 		}
-		old = was
+		old, before, after = was, body, next
 		return next, next != body, guard(body, next)
 	})
 	if err != nil {
@@ -180,5 +244,6 @@ func replaceLine(ctx *Context, slug, section, text string, line int, match strin
 	fmt.Fprintf(ctx.Stdout, "✓ Replaced a line of section %q in %s\n", section, issue.Slug)
 	fmt.Fprintf(ctx.Stdout, "  was: %s\n", old)
 	fmt.Fprintf(ctx.Stdout, "  now: %s\n", text)
+	printDesignEditPreview(ctx.Stdout, ctx, issue, before, after)
 	return nil
 }

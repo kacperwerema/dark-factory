@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/spend"
@@ -35,10 +37,24 @@ projects.yaml) is shown only: it never blocks or pauses anything.
 
 Pass hq, product or a department to print only that box.
 
+--context prints where the tokens come from instead: every turn re-reads
+the whole context (input + cache read + cache write of one API call), so
+a session costs its context × turns. Per box and for the top sessions of
+the last --days calendar days (default 7): sessions, turns, the floor
+(the first turn's context: CLAUDE.md, the briefing, tools and skills,
+before any work; the median over the box's sessions), median and max
+context per turn, compactions, and the floor's share (floor × turns over
+the context read). A resumed session has no floor of its own. Only a
+session's main transcript is read (not its subagents'), and Claude Code's
+only: Codex is not covered. The Stats page's Context floor trend is the
+worker sessions' floor per day (the context health family).
+
 Examples:
   issue-cli spend
   issue-cli spend marketing
-  issue-cli spend --json`,
+  issue-cli spend --json
+  issue-cli spend --context
+  issue-cli spend --context --days 1 product`,
 	Run: runSpend,
 }
 
@@ -50,10 +66,31 @@ var loadSpend = func(ctx *Context) *spend.Report {
 	return spend.Load(ctx.Project, issues, ctx.now(), spend.Options{})
 }
 
+// loadContext is the project's context numbers over days; a seam for tests.
+var loadContext = func(ctx *Context, days int) *spend.ContextReport {
+	issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
+	return spend.LoadContext(ctx.Project, issues, ctx.now(), days, spend.Options{})
+}
+
 func runSpend(ctx *Context, args []string) error {
-	pos, err := parsePositionals(ctx, "spend", args, 1)
-	if err != nil {
+	fs := newFlagSet("spend", ctx)
+	withContext := fs.Bool("context", false, "where the tokens come from: the context floor and per-turn size, per box and top session")
+	days := fs.Int("days", spend.ContextDays, "with --context: calendar days back, today included")
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
+	}
+	if fs.NArg() > 1 {
+		return unexpectedArgError(fs, fs.Arg(1))
+	}
+	pos := fs.Args()
+	if *withContext {
+		if *days < 1 {
+			return fmt.Errorf("--days must be 1 or more, got %d", *days)
+		}
+		return runSpendContext(ctx, pos, *days)
+	}
+	if daysSet(fs) {
+		return fmt.Errorf("--days goes with --context: issue-cli spend --context --days %d", *days)
 	}
 	rep := loadSpend(ctx)
 	boxes := rep.Boxes
@@ -90,7 +127,109 @@ func runSpend(ctx *Context, args []string) error {
 		printSubscriptions(w, rep)
 	}
 	printPricesHint(w, rep)
+	fmt.Fprintln(w, "\nContext floor and turn size, per box and session: issue-cli spend --context")
 	return nil
+}
+
+func daysSet(fs interface{ Visit(func(*flag.Flag)) }) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == "days" })
+	return set
+}
+
+// runSpendContext prints spend --context: the whole project, or one box.
+func runSpendContext(ctx *Context, pos []string, days int) error {
+	rep := loadContext(ctx, days)
+	boxes := rep.Boxes
+	if len(pos) == 1 {
+		b := rep.Find(pos[0])
+		if b == nil {
+			var keys []string
+			for _, b := range rep.Boxes {
+				keys = append(keys, b.Key)
+			}
+			return fmt.Errorf("no box %q (boxes: %s)", pos[0], strings.Join(keys, ", "))
+		}
+		boxes = []*spend.ContextBox{b}
+	}
+	if ctx.JSONOutput {
+		if len(pos) == 1 {
+			return writeJSON(ctx.Stdout, boxes[0])
+		}
+		return writeJSON(ctx.Stdout, rep)
+	}
+	w := ctx.Stdout
+	fmt.Fprintf(w, "Context per turn since %s (%d days; Claude Code transcripts on this machine, main sessions only)\n", rep.Since.Format("2006-01-02"), rep.Days)
+	fmt.Fprintln(w, "A turn re-reads its whole context; the floor is the first turn's (CLAUDE.md, briefing, tools), median over sessions.")
+	if rep.All.Sessions == 0 {
+		fmt.Fprintf(w, "No session of this project in the last %d days.\n", rep.Days)
+		return nil
+	}
+	if len(pos) == 0 {
+		fmt.Fprintf(w, "\nAll:     %s\n", contextLine(rep.All))
+		fmt.Fprintf(w, "Workers: %s\n", contextLine(rep.Workers))
+	}
+	for _, b := range boxes {
+		head := "== " + b.Name
+		if b.Parent != "" {
+			head += " (in group " + b.Parent + ")"
+		}
+		if len(b.RolledFrom) > 0 {
+			head += " · incl. " + strings.Join(b.RolledFrom, ", ")
+		}
+		fmt.Fprintln(w, "\n"+head+" ==")
+		if b.Sessions == 0 {
+			fmt.Fprintln(w, "  no sessions")
+			continue
+		}
+		fmt.Fprintf(w, "  %s\n", contextLine(b.ContextStats))
+		if len(b.Top) > 0 && len(pos) == 1 {
+			printTopSessions(w, b.Top)
+		}
+	}
+	if len(pos) == 0 {
+		if u := rep.Unattributed; u.Sessions > 0 {
+			fmt.Fprintf(w, "\nUnattributed (yours): %s\n", contextLine(u))
+		}
+		fmt.Fprintf(w, "\nTop %d sessions by context read:\n", spend.TopSessions)
+		printTopSessions(w, rep.Top)
+	}
+	return nil
+}
+
+// contextLine is one ContextStats as a line.
+func contextLine(st spend.ContextStats) string {
+	line := fmt.Sprintf("%s · %s · floor %s · turn median %s, max %s · %s",
+		countOf(st.Sessions, "session", "sessions"), countOf(st.Turns, "turn", "turns"), tokens.Format(st.Floor), tokens.Format(st.Median), tokens.Format(st.Max), countOf(st.Compactions, "compaction", "compactions"))
+	if st.Floored > 0 {
+		line += fmt.Sprintf(" · floor share %d%% of %s read", int(st.FloorShare*100+0.5), tokens.Format(st.Context))
+	} else {
+		line += " · " + tokens.Format(st.Context) + " read"
+	}
+	if st.Resumed > 0 {
+		line += " · " + strconv.Itoa(st.Resumed) + " resumed"
+	}
+	return line
+}
+
+func printTopSessions(w io.Writer, top []spend.ContextSession) {
+	for _, s := range top {
+		who := s.Issue
+		switch {
+		case who == "" && s.Agent != "":
+			who = s.Agent
+		case who == "":
+			who = "yours"
+		}
+		floor := tokens.Format(s.Floor)
+		if s.Resumed {
+			floor = "resumed"
+		} else if s.Floor == 0 {
+			floor = "before window"
+		}
+		fmt.Fprintf(w, "    %s  %s  %s · floor %s · turn median %s, max %s · %s · %s read\n",
+			s.Start.Local().Format("2006-01-02 15:04"), who, countOf(s.Turns, "turn", "turns"), floor, tokens.Format(s.Median), tokens.Format(s.Max), countOf(s.Compactions, "compaction", "compactions"), tokens.Format(s.Context))
+	}
 }
 
 // printSubscriptions is the split by agent CLI: this week and the weeks

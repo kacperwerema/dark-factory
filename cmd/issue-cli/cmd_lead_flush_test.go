@@ -10,7 +10,9 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/memory"
+	"github.com/kacperwerema/dark-factory/internal/ownerstep"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -387,5 +389,62 @@ func TestLeadFlushReadsTheLeadScopeAndChangesNone(t *testing.T) {
 	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", tracker.LeadScopeProject)
 	if err := runMemory(ctx, []string{"edit", m.ID, "--text", "hold new starts at the stop point (98%)"}); err != nil {
 		t.Fatalf("the lead edits it: %v", err)
+	}
+}
+
+// Proves: AC6 — the open owner steps reach the next lead: lead flush pack
+// prints each with its id, due line and title and the command for their
+// text, and the rotate's handoff note lists them under ## Waiting on the
+// owner; a ticked step is in neither.
+func TestOwnerStepInHandoffNote(t *testing.T) {
+	proj, _ := makeFlushProject(t, "> ")
+	now := time.Date(2026, 10, 30, 0, 5, 0, 0, time.Local)
+	add := func(id, title, due string, repeat int) {
+		t.Helper()
+		ev := ownerstep.Event{Op: ownerstep.OpAdd, ID: id, At: now.AddDate(0, 0, -3).Format(time.RFC3339), Title: title, Body: "exact text", Due: due, Repeat: repeat}
+		if err := ownerstep.Append(proj.IssueDir, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("st-111111", "Reinstall the phone build", "2026-10-29", 7)
+	add("st-222222", "Request indexing", "2026-11-02", 0)
+	add("st-333333", "Already done", "2026-10-30", 0)
+	if err := ownerstep.Append(proj.IssueDir, ownerstep.Event{Op: ownerstep.OpDone, ID: "st-333333", At: now.Format(time.RFC3339), By: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runFlush(t, proj, "pack", "--run", flushRunSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"== Open owner steps",
+		"- step st-111111 · overdue: was due 2026-10-29 (1 day ago) · repeats 7d: Reinstall the phone build",
+		"- step st-222222 · due 2026-11-02: Request indexing",
+		"owner-step list",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack: no %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "st-333333") {
+		t.Errorf("pack lists a ticked step:\n%s", out)
+	}
+
+	steps, err := ownerstep.LoadOpen(proj.IssueDir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := leadstate.View{Lead: "lead-x", At: now, OwnerSteps: ownerstep.Lines(steps, now), Commands: leadstate.Commands{OwnerSteps: "issue-cli owner-step list"}}
+	note := leadstate.HandoffNote(v, leadstate.Store{}, "issue-cli lead state")
+	waiting := note[strings.Index(note, "## Waiting on the owner"):]
+	waiting = waiting[:strings.Index(waiting, "## Rules in force")]
+	for _, want := range []string{"- step st-111111 · overdue", "- step st-222222 · due 2026-11-02: Request indexing", "- the steps' exact text: issue-cli owner-step list"} {
+		if !strings.Contains(waiting, want) {
+			t.Errorf("note: no %q in\n%s", want, waiting)
+		}
+	}
+	if err := tracker.CheckHandoffNote(note); err != nil {
+		t.Errorf("the note with steps fails its own check: %v", err)
 	}
 }

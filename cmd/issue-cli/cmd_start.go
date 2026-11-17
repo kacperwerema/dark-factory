@@ -29,9 +29,17 @@ When the approval is missing, tell the human what to approve, then stop and
 end your turn. The viewer's approve button nudges your session to resume;
 re-run start then.
 
+In the session a dispatch started for the issue (ISSUE_VIEWER_ISSUE_SLUG
+names it and its dispatch-prompt.txt is there), start leaves out what that
+briefing already holds: the status guidance, the decisions and memories it
+carried, the open branches. It prints the claim, the checklist, Next and
+what came since: new comments, new decisions, memories the briefing lacks.
+--full prints everything, as start does anywhere else.
+
 Examples:
   issue-cli start <slug>
-  issue-cli start <slug> --assignee my-bot`,
+  issue-cli start <slug> --assignee my-bot
+  issue-cli start <slug> --full`,
 	Run: runStart,
 }
 
@@ -40,12 +48,13 @@ func init() {
 }
 
 func runStart(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "start")
+	slug, rest, err := issueSlug(ctx, args, "start")
 	if err != nil {
 		return err
 	}
 	fs := newFlagSet("start", ctx)
 	assigneeFlag := fs.String("assignee", "", "assignee name (default: derived from slug or AGENT_NAME)")
+	fullFlag := fs.Bool("full", false, "print everything, also what the dispatch briefing already holds")
 	if err := rejectRemovedWaitFlags(rest); err != nil {
 		return err
 	}
@@ -78,6 +87,10 @@ func runStart(ctx *Context, args []string) error {
 		return yoloRefusal(ctx.Stderr, gate, issue.Status, gate.To, ctx.now(), err)
 	}
 	issue = started.Issue
+	var brief *dispatchBrief
+	if !*fullFlag {
+		brief = loadDispatchBrief(ctx.Project, issue)
+	}
 	// Start's output is a briefing: its size goes in the stats sidecar.
 	counted := &countingWriter{w: ctx.Stdout}
 	stdout := ctx.Stdout
@@ -98,7 +111,7 @@ func runStart(ctx *Context, args []string) error {
 	}
 	printRedRoundsLine(ctx.Stdout, ctx, wf, issue)
 	printStartDeps(ctx.Stdout, shipDeps(ctx, issue, issues))
-	if line := ci.AgentLine(projectRoot(ctx.Project), wf); line != "" {
+	if line := ci.AgentLine(projectRoot(ctx.Project), wf); line != "" && !brief.hasCILine(line) {
 		fmt.Fprintln(ctx.Stdout, line)
 	}
 
@@ -138,13 +151,25 @@ func runStart(ctx *Context, args []string) error {
 
 	fmt.Fprintf(ctx.Stdout, "file: %s\n\n", issue.FilePath)
 
-	printWorkflowNextSteps(ctx, wf, issue, issues)
+	printWorkflowNextSteps(ctx, wf, issue, issues, brief)
 	printCheckScriptHint(ctx.Stdout, ctx.Project, wf, issue)
-	printStartOverlaps(ctx, issue, issues)
-	refs := printStartDecisions(ctx, issue, issues, started.ToStatus, wf)
-	mems := printStartMemories(ctx.Stdout, ctx, issue)
-	printStartRules(ctx)
-	printStartWorkflowReminder(ctx.Stdout, wf)
+	var refs, mems []string
+	if brief != nil {
+		printBriefOverlaps(ctx, brief, issue, issues)
+		printStartMainHolds(ctx, brief, issue)
+		printBriefComments(ctx.Stdout, brief, issue)
+		refs = printBriefDecisions(ctx, brief, issue, issues, started.ToStatus, wf)
+		mems = printBriefMemories(ctx.Stdout, ctx, brief, issue)
+		fmt.Fprintln(ctx.Stdout)
+		fmt.Fprintln(ctx.Stdout, tracker.InjectProject(ctx.Project, briefFootnote))
+	} else {
+		printStartOverlaps(ctx, issue, issues)
+		printStartMainHolds(ctx, nil, issue)
+		refs = printStartDecisions(ctx, issue, issues, started.ToStatus, wf)
+		mems = printStartMemories(ctx.Stdout, ctx, issue)
+		printStartRules(ctx)
+		printStartWorkflowReminder(ctx.Stdout, wf)
+	}
 	b := tracker.Briefing{At: ctx.now(), Kind: tracker.BriefingStart, Status: started.ToStatus, Session: assignee,
 		Bytes: counted.n, Tokens: tokens.EstimateBytes(counted.n), Memories: mems, Decisions: refs}
 	if err := tracker.RecordBriefing(issue.FilePath, b); err != nil {
@@ -215,13 +240,18 @@ func printStartWorkflowReminder(w io.Writer, wf *tracker.WorkflowConfig) {
 	fmt.Fprintln(w, "Run 'issue-cli process workflow' or 'issue-cli process transitions' for details.")
 }
 
-func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue) {
+// printWorkflowNextSteps prints the checklist, the status guidance and
+// Next. With a dispatch brief, guidance the brief already holds is left
+// out, and so is the tick hint (the brief's step 3 names check by id).
+func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, issues []*tracker.Issue, brief *dispatchBrief) {
 	w := ctx.Stdout
 	total, checked := tracker.CountCheckboxes(issue.BodyRaw)
 	if total > 0 {
 		fmt.Fprintf(w, "== Checklist (%d/%d) ==\n", checked, total)
-		printCheckboxes(w, issue.BodyRaw)
-		printTickHint(w, issue.Slug, issue.BodyRaw)
+		owner := printIssueCheckboxes(ctx, w, issue, issue.BodyRaw)
+		if brief == nil {
+			printTickHint(w, issue.Slug, issue.BodyRaw, owner)
+		}
 		fmt.Fprintln(w)
 	}
 
@@ -230,6 +260,12 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 		prompts = append(prompts, prompt)
 	}
 	prompts, rule := yoloGuidance(ctx, wf, issue.Slug, prompts)
+	if brief != nil {
+		prompts = brief.lacking(prompts)
+		if brief.has(rule) {
+			rule = ""
+		}
+	}
 	if len(prompts) > 0 || rule != "" {
 		fmt.Fprintln(w, "== Current Status Guidance ==")
 		for _, prompt := range prompts {
@@ -267,7 +303,7 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 		if note != "" {
 			fmt.Fprintf(w, "  %s\n", note)
 		}
-		requires, sideEffects := nextTransitionContract(wf, issue.Status, next)
+		requires, sideEffects := issueTransitionContract(wf, issue, issue.Status, next)
 		renderNextTransitionContract(w, requires, sideEffects)
 		if len(optionals) > 0 {
 			fmt.Fprintln(w)
@@ -276,7 +312,14 @@ func printWorkflowNextSteps(ctx *Context, wf *tracker.WorkflowConfig, issue *tra
 				fmt.Fprintf(w, "  issue-cli transition %s --to %s\n", issue.Slug, shell.Quote(opt))
 			}
 		}
-		prompts, _ := yoloGuidance(ctx, wf, issue.Slug, wf.EntryPrompts(issue.Status, next))
+		entry := wf.EntryPrompts(issue.Status, next)
+		if line := criteriaGuidance(wf, issue, next); line != "" {
+			entry = append(entry, line)
+		}
+		prompts, _ := yoloGuidance(ctx, wf, issue.Slug, entry)
+		if brief != nil {
+			prompts = brief.lacking(prompts)
+		}
 		if len(prompts) > 0 {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "== Entry Guidance ==")

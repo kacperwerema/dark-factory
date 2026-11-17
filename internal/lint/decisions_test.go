@@ -3,7 +3,10 @@ package lint
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/outputs"
 )
 
 // decisionIssue is an issue of system Core whose ## Decisions holds lines.
@@ -93,5 +96,58 @@ func TestLintDecisionsLegacyBraceQuiet(t *testing.T) {
 	})
 	if got := run(t, env, "decisions"); len(got) != 0 {
 		t.Errorf("legacy brace text reported: %+v", got)
+	}
+}
+
+// writeOutputs puts lines on the project's outputs shelf.
+func writeOutputs(t *testing.T, env *Env, lines ...string) {
+	t.Helper()
+	path := outputs.LogPath(env.Project)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLintDecisionScopeOfARemovedDepartmentIsHistory: a decision scoped to
+// a department projects.yaml no longer has, whose work the board still
+// holds (an output, an issue's department: field), is an info line in the
+// report's history, not a warning.
+func TestLintDecisionScopeOfARemovedDepartmentIsHistory(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, map[string]string{
+		"Core/a.md": decisionIssue("A",
+			"- **D-1** · 2026-10-02 · chat: One {scope: department:marketing}",
+			"- **D-2** · 2026-10-02 · chat: Two {scope: department:sales}",
+		),
+		"Core/old.md": "---\ntitle: \"Old\"\nstatus: done\nsystem: Core\ndepartment: Sales\ncreated: \"2026-10-01\"\n---\n\nBody.\n",
+	})
+	writeOutputs(t, env, `{"op":"add","id":"o-1","date":"2026-10-01T00:00:00Z","department":"marketing","title":"Post","kind":"post","url":"https://a.example"}`)
+	rep, err := Run(env, "decisions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 || rep.Warnings != 0 {
+		t.Errorf("removed departments' decisions warned: %+v", rep.Findings)
+	}
+	if len(rep.History) != 2 || !has(rep.History, "core/a#D-1", `"marketing"`, "no longer has") || !has(rep.History, "core/a#D-2", `"sales"`) {
+		t.Errorf("want D-1 and D-2 as history: %+v", rep.History)
+	}
+}
+
+// TestLintDecisionScopeTypoStillWarns: a department the board never saw
+// (no output, no issue of it) is a typo, and still warns.
+func TestLintDecisionScopeTypoStillWarns(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, map[string]string{
+		"Core/a.md": decisionIssue("A", "- **D-1** · 2026-10-02 · chat: One {scope: department:markting}"),
+	})
+	writeOutputs(t, env, `{"op":"add","id":"o-1","date":"2026-10-01T00:00:00Z","department":"marketing","title":"Post","kind":"post","url":"https://a.example"}`)
+	rep, err := Run(env, "decisions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Warnings != 1 || !has(rep.Findings, "core/a#D-1", "unknown scope key or value", `"markting"`) || len(rep.History) != 0 {
+		t.Errorf("typo: want one warning, no history: findings %+v history %+v", rep.Findings, rep.History)
 	}
 }

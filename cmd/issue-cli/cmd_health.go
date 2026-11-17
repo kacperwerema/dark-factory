@@ -34,13 +34,26 @@ Usage:
       end of that day: the codebase at the branch's commit then, the workflow
       over the issues done by then. The stats page's trend charts draw from
       them. The milestone family only knows the present and is left out.
-  issue-cli health lint [--check a,b] [--list] [--all]
+  issue-cli health lint [--check a,b] [--list] [--all] [--check shas --fix]
       Check workflow.yaml and the board: unknown keys (with "did you mean"),
       deprecated keys, the template stamp against the bundled template,
       {{name}} placeholders a field never fills, gates on sections no
       template writes, issues without created:. Each finding is a warning
       with its fix; the lint score component counts them and /health lists
       them live. Exits 0 (2 on bad usage); --json prints the findings.
+      --check shas --fix swaps each stale ## Implementation SHA for the one
+      commit on main that names the issue's slug and has the same subject,
+      prints each swap and the refs it kept with why (one write per issue).
+  issue-cli health lint --workflow <file> [--projects <file>] [--check a,b]
+      Lint a candidate before the merge that makes it live: the same checks
+      on that workflow.yaml (Product's) and/or the project's entry in that
+      projects.yaml (jobs, goals, departments), against the same issues.
+      Prints only what the candidate changes: "+" each warning it adds,
+      "-" each it removes against the live files (matched on check and
+      message, so a moved line is no change). A file in a worktree lints
+      with that checkout as the project root, so a job brief the branch
+      adds counts as there. Either flag works alone; --json prints
+      {added, removed, live_warnings, candidate_warnings}.
   issue-cli health review [--spawn] | record <file> | file <R#> | dismiss <R#> | show
       The agent opinion: a review of the snapshot, the code, the tests and
       recent retros, with a 0–100 score and evidence-backed recommendations.
@@ -389,7 +402,7 @@ func printScores(w io.Writer, s *health.Snapshot) {
 		}
 		sub, has := s.Value("score.component", l)
 		if !has {
-			fmt.Fprintf(w, "  %-16s no data: %s (weight %.0f)\n", c.Name, c.Missing, weight)
+			fmt.Fprintf(w, "  %-16s no data: %s (weight %.0f)\n", c.Name, s.MissingFor(c), weight)
 			continue
 		}
 		v, _ := s.Value("score.component.value", l)

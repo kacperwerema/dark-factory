@@ -376,7 +376,7 @@ func editCheck(path string, raw []byte, now time.Time) ([]wfedit.Finding, error)
 	fs, err := lint.EditCheck(path, raw, now)
 	out := make([]wfedit.Finding, len(fs))
 	for i, f := range fs {
-		out[i] = wfedit.Finding(f)
+		out[i] = wfedit.Finding{Check: f.Check, Where: f.Where, Message: f.Message, Fix: f.Fix}
 	}
 	return out, err
 }

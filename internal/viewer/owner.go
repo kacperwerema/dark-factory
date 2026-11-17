@@ -262,6 +262,9 @@ func ownerOnlyRoute(method, rest string) bool {
 		return true
 	case strings.HasPrefix(rest, "postmortem/"), rest == "postmortems/mark", rest == "postmortems/undo":
 		return true
+	// An owner step's Done says the owner did it (owner_steps_view.go).
+	case strings.HasPrefix(rest, "owner-steps/"):
+		return true
 	// Connect socials writes Keychain and projects.yaml and starts the
 	// social tool (socials_view.go).
 	case strings.HasPrefix(rest, "socials/"):
@@ -296,6 +299,8 @@ func refuseNonOwner(w http.ResponseWriter, r *http.Request, rest string) {
 		msg += "; " + memoryRefused
 	case strings.HasPrefix(rest, "postmortem/"), rest == "postmortems/mark", rest == "postmortems/undo":
 		msg += "; " + postmortemRefused
+	case strings.HasPrefix(rest, "owner-steps/"):
+		msg += "; " + ownerStepRefused
 	default:
 		msg += "; an agent asks on its issue trail: issue-cli comment <slug> \"question: …\""
 	}

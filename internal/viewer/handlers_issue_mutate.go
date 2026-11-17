@@ -779,18 +779,31 @@ func (s *Server) handleCreateIssue(w http.ResponseWriter, r *http.Request, proj 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "slug": slug})
 }
 
-// handleAttachment serves one upload: a hash-named image, a regular file
-// (no symlinks, no listing, no dot-files), nosniff and a CSP that runs
-// nothing even when opened directly.
+// handleAttachment serves one attachment: a hash-named image, or a file
+// attachment (<hash>/<name>, issue-cli attach) through serveUntrustedFile.
+// Only a regular file (no symlinks, no listing, no dot-files), nosniff and
+// a CSP that runs nothing even when opened directly.
 func handleAttachment(w http.ResponseWriter, r *http.Request, proj *tracker.Project, name string) {
-	if !tracker.AttachmentNamePattern.MatchString(name) {
+	isFile := tracker.AttachmentFilePattern.MatchString(name)
+	if !isFile && !tracker.AttachmentNamePattern.MatchString(name) {
 		http.NotFound(w, r)
 		return
 	}
-	path := filepath.Join(tracker.AttachmentsDir(proj.IssueDir), name)
+	path := filepath.Join(tracker.AttachmentsDir(proj.IssueDir), filepath.FromSlash(name))
+	if isFile {
+		// The hash folder must be a real folder too, not a link out.
+		if d, err := os.Lstat(filepath.Dir(path)); err != nil || !d.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		http.NotFound(w, r)
+		return
+	}
+	if isFile {
+		serveUntrustedFile(w, r, path, info.Name())
 		return
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")

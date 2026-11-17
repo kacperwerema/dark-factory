@@ -92,10 +92,10 @@ type Identity struct {
 func whoAmI(proj *tracker.Project, issues []*tracker.Issue) Identity {
 	scope := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_LEAD_SCOPE"))
 	if scope == tracker.LeadScopeProject {
-		return projectLeadIdentity(proj, "ISSUE_VIEWER_LEAD_SCOPE")
+		return ownSessionName(projectLeadIdentity(proj, "ISSUE_VIEWER_LEAD_SCOPE"), proj, "")
 	}
 	if key, ok := strings.CutPrefix(scope, tracker.LeadScopeDepartmentPrefix); ok {
-		return departmentLeadIdentity(proj, key, "ISSUE_VIEWER_LEAD_SCOPE")
+		return ownSessionName(departmentLeadIdentity(proj, key, "ISSUE_VIEWER_LEAD_SCOPE"), proj, key)
 	}
 	if slug := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_ISSUE_SLUG")); slug != "" {
 		return Identity{Role: tracker.RoleWorker, Name: tracker.AgentSessionName(slug), Slug: slug, Signal: "ISSUE_VIEWER_ISSUE_SLUG"}
@@ -141,6 +141,34 @@ func commentAuthor(proj *tracker.Project, issue *tracker.Issue) string {
 		return strings.TrimSpace(issue.Assignee)
 	}
 	return ""
+}
+
+// ownSessionName keeps a spawned lead's own name when it runs with
+// --project set to another project: lead-dark-factory running
+// `--project atlas autostart weight` is lead-dark-factory, not lead-atlas.
+// The role stays; only the name a record signs with changes. The lead's own
+// project is the ISSUE_VIEWER_PROJECT its spawn exported; with none, a
+// lead-… tmux session name that isn't proj's lead is used as it is.
+func ownSessionName(id Identity, proj *tracker.Project, deptKey string) Identity {
+	home := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_PROJECT"))
+	if home != "" {
+		if proj != nil && strings.EqualFold(home, proj.Slug) {
+			return id
+		}
+		own := &tracker.Project{Slug: home}
+		if deptKey == "" {
+			id.Name = tracker.LeadSessionName(own)
+		} else {
+			id.Name = tracker.DepartmentLeadName(own, id.Department)
+		}
+		id.Signal += " (ISSUE_VIEWER_PROJECT " + home + ")"
+		return id
+	}
+	if session, _ := currentTmuxNames(); strings.HasPrefix(session, "lead-") && session != id.Name {
+		id.Name = session
+		id.Signal += " (tmux name " + session + ")"
+	}
+	return id
 }
 
 func projectLeadIdentity(proj *tracker.Project, signal string) Identity {

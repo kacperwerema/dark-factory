@@ -31,6 +31,13 @@
 </div>
 {{end}}
 
+{{define "wb/dept-new-pick"}}
+<div class="wb-part-panel wb-deptnew-panel" data-testid="dept_new.pick">
+    <h2 class="wb-h2">Pick a template <span class="wb-muted">{{.Pick.Tile.Sub}}</span></h2>
+    {{template "wb/new-dept-form" .Pick}}
+</div>
+{{end}}
+
 {{define "wb/dept-new-refused"}}
 <div class="wb-part-panel wb-part-panel--red wb-deptnew-panel">
     <p class="wb-flash wb-flash--err" role="alert" data-testid="dept_new.error">{{.Error}}</p>

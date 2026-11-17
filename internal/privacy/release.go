@@ -205,8 +205,9 @@ type PickResult struct {
 	// they put released lines under a released heading, which the release
 	// branch already has (isChangelogMove).
 	Skipped []string
-	// Changelog is set when a pick's changelog conflict was resolved by
-	// keeping the branch's ## Unreleased plus the picked commit's own lines.
+	// Changelog is set when a pick's changelog was rewritten to the
+	// branch's changelog plus the picked commit's own new lines, where
+	// git's merge of it (a conflict, or a union merge) had more.
 	Changelog bool
 	// Built is set when go build and go vet ran in the release worktree (it
 	// has a go.mod); BuildFailed is their output when they failed.
@@ -225,8 +226,11 @@ func (r PickResult) BuildHint() string {
 // deleted at close) the commits on main whose Refs: trailer names the
 // slug, oldest first, merges skipped. Commits apply one by one; a conflict
 // puts the branch back where it was and names the commit and files, except
-// one only in the changelog, which keeps the branch's ## Unreleased plus
-// the commit's own lines. With a go.mod in the worktree, go build and go
+// one only in the changelog. A commit that touches the changelog leaves
+// the branch's changelog as it was plus the commit's new lines at the top
+// of ## Unreleased (conflict or not: the changelog may merge with
+// merge=union), and after each pick checkPickedChangelog must pass or the
+// branch goes back where it was. With a go.mod in the worktree, go build and go
 // vet run after the pick (PickResult.BuildFailed).
 func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error) {
 	var res PickResult
@@ -295,18 +299,56 @@ func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error
 	if err != nil {
 		return res, err
 	}
+	// done records sha's pick (empty: its lines were all on the branch
+	// already, so nothing was committed) and checks the changelog; a red
+	// check puts the branch back at start.
+	done := func(sha string, empty bool) error {
+		if empty {
+			res.Already = append(res.Already, gitdir.ShortSHA(sha))
+		} else {
+			res.Picked = append(res.Picked, gitdir.ShortSHA(sha))
+		}
+		if err := checkPickedChangelog(root, wt, changelog, cut, start); err != nil {
+			git(wt, "reset", "-q", "--hard", start)
+			return fmt.Errorf("after picking %s, %v: nothing picked, %s is as it was", gitdir.ShortSHA(sha), err, branch)
+		}
+		return nil
+	}
 	for _, sha := range shas {
 		if isChangelogMove(root, sha, changelog) {
 			res.Skipped = append(res.Skipped, gitdir.ShortSHA(sha))
 			continue
 		}
+		// The changelog may merge with merge=union (.gitattributes), so
+		// git's own result for it is never trusted: a pick that touches it
+		// gets the branch's changelog plus the commit's new lines in the
+		// top ## Unreleased (pickedChangelog), conflict or not.
+		ours, oursErr := git(wt, "show", "HEAD:"+changelog)
+		want, rewrite := "", false
+		if oursErr == nil && touches(root, sha, changelog) {
+			want, rewrite = pickedChangelog(ours+"\n", addedEntries(root, sha, changelog))
+		}
 		if _, err := git(wt, "-c", "commit.gpgsign=false", "cherry-pick", "-x", sha); err != nil {
 			out, _ := git(wt, "diff", "--name-only", "--diff-filter=U")
 			conflicted := lines(out)
-			if len(conflicted) == 1 && conflicted[0] == changelog {
-				if rerr := resolveChangelogPick(wt, changelog, sha); rerr == nil {
+			if len(conflicted) == 0 && fileExistsAt(gitPath(wt, "CHERRY_PICK_HEAD")) {
+				// Git stops on a pick that is now empty: all it does is
+				// on the branch already.
+				if _, derr := git(wt, "diff", "--cached", "--quiet", "HEAD"); derr == nil {
+					if _, serr := git(wt, "cherry-pick", "--skip"); serr == nil {
+						if err := done(sha, true); err != nil {
+							return PickResult{Already: res.Already}, err
+						}
+						continue
+					}
+				}
+			}
+			if len(conflicted) == 1 && conflicted[0] == changelog && rewrite {
+				if empty, rerr := settleChangelog(wt, changelog, want, true); rerr == nil {
 					res.Changelog = true
-					res.Picked = append(res.Picked, gitdir.ShortSHA(sha))
+					if err := done(sha, empty); err != nil {
+						return PickResult{Already: res.Already}, err
+					}
 					continue
 				}
 			}
@@ -319,7 +361,21 @@ func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error
 			}
 			return PickResult{Already: res.Already}, fmt.Errorf("%s %q conflicts with %s %s: nothing picked, %s is as it was. Pick the commits it builds on first, or apply it by hand in %s", gitdir.ShortSHA(sha), subj, branch, why, branch, wt)
 		}
-		res.Picked = append(res.Picked, gitdir.ShortSHA(sha))
+		empty := false
+		if rewrite {
+			now, _ := git(wt, "show", "HEAD:"+changelog)
+			if now+"\n" != want {
+				var serr error
+				if empty, serr = settleChangelog(wt, changelog, want, false); serr != nil {
+					git(wt, "reset", "-q", "--hard", start)
+					return PickResult{Already: res.Already}, fmt.Errorf("after picking %s, writing %s failed: %v: nothing picked, %s is as it was", gitdir.ShortSHA(sha), changelog, serr, branch)
+				}
+				res.Changelog = true
+			}
+		}
+		if err := done(sha, empty); err != nil {
+			return PickResult{Already: res.Already}, err
+		}
 	}
 	res.Built, res.BuildFailed = CheckBuild(root, cut)
 	return res, nil
@@ -352,6 +408,29 @@ func CheckBuild(root, cut string) (ran bool, failed string) {
 // BuiltTip is the release branch tip CheckBuild last passed; "" for none.
 func BuiltTip(root, branch string) string {
 	tip, _ := git(root, "config", "--get", builtKey(branch))
+	return tip
+}
+
+// validatedKey is the git config key holding the release branch commit
+// that last passed local CI's commands in the release worktree (issue-cli
+// release check): the card's validated check, which a publish reads.
+func validatedKey(branch string) string { return "issue-cli-release." + branch + ".validated" }
+
+// RecordValidated records sha as branch's validated commit.
+func RecordValidated(root, branch, sha string) error {
+	_, err := git(root, "config", validatedKey(branch), sha)
+	return err
+}
+
+// ClearValidated forgets branch's validated commit (a check failed).
+func ClearValidated(root, branch string) {
+	git(root, "config", "--unset", validatedKey(branch))
+}
+
+// ValidatedTip is the commit release check last validated on branch; ""
+// for none.
+func ValidatedTip(root, branch string) string {
+	tip, _ := git(root, "config", "--get", validatedKey(branch))
 	return tip
 }
 
@@ -461,28 +540,187 @@ func addedEntries(dir, sha, changelog string) []string {
 	return out
 }
 
-// resolveChangelogPick ends a cherry-pick stopped on a changelog conflict:
-// the branch's changelog with the commit's own ## Unreleased lines put at
-// the top of the section, nothing else from the commit's side.
-func resolveChangelogPick(wt, changelog, sha string) error {
-	ours, err := git(wt, "show", "HEAD:"+changelog)
+// gitPath is the path of name in dir's git dir (a worktree has its own).
+func gitPath(dir, name string) string {
+	p, err := git(dir, "rev-parse", "--git-path", name)
 	if err != nil {
-		return err
+		return filepath.Join(dir, ".git", name)
 	}
-	text, ok := insertUnreleased(ours+"\n", addedEntries(wt, sha, changelog))
-	if !ok {
-		return fmt.Errorf("no ## Unreleased in the branch's %s", changelog)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
 	}
-	if err := os.WriteFile(filepath.Join(wt, changelog), []byte(text), 0o644); err != nil {
-		return err
+	return p
+}
+
+// touches is whether sha changes file.
+func touches(dir, sha, file string) bool {
+	out, err := git(dir, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha, "--", file)
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
+// pickedChangelog is the branch's changelog text with the picked commit's
+// new ## Unreleased lines put at the top of its ## Unreleased (opened on
+// top when there is none), leaving out every line the changelog already
+// has anywhere. ok is false when text has no ## heading to place them by.
+func pickedChangelog(text string, entries []string) (string, bool) {
+	have := map[string]bool{}
+	for _, l := range strings.Split(text, "\n") {
+		have[strings.TrimSpace(l)] = true
+	}
+	var fresh []string
+	for _, e := range entries {
+		if k := strings.TrimSpace(e); !have[k] {
+			have[k] = true
+			fresh = append(fresh, e)
+		}
+	}
+	if len(fresh) == 0 {
+		return text, true
+	}
+	// Only the top ## Unreleased takes lines: one under a released heading
+	// (a stray a union merge left) does not count, so open one on top.
+	heads := regexp.MustCompile(`(?m)^## .*$`).FindStringIndex(text)
+	if heads != nil && !unreleasedRe.MatchString(text[heads[0]:heads[1]]) {
+		return text[:heads[0]] + "## Unreleased\n\n" + strings.Join(fresh, "\n") + "\n\n" + text[heads[0]:], true
+	}
+	return insertUnreleased(text, fresh)
+}
+
+// settleChangelog writes want as the changelog of the pick just made (or,
+// with inProgress, the cherry-pick stopped on a conflict) and commits it,
+// keeping the pick's message. empty is set when the pick changes nothing
+// after that (its lines were all there and it touched nothing else): it
+// is dropped and the branch stays where it was.
+func settleChangelog(wt, changelog, want string, inProgress bool) (empty bool, err error) {
+	if err := os.WriteFile(filepath.Join(wt, changelog), []byte(want), 0o644); err != nil {
+		return false, err
 	}
 	if _, err := git(wt, "add", "--", changelog); err != nil {
-		return err
+		return false, err
 	}
-	if _, err := git(wt, "-c", "commit.gpgsign=false", "-c", "core.editor=true", "cherry-pick", "--continue"); err != nil {
-		return err
+	if inProgress {
+		if _, err := git(wt, "diff", "--cached", "--quiet", "HEAD"); err == nil {
+			_, err := git(wt, "cherry-pick", "--skip")
+			return true, err
+		}
+		_, err := git(wt, "-c", "commit.gpgsign=false", "-c", "core.editor=true", "cherry-pick", "--continue")
+		return false, err
 	}
-	return nil
+	if _, err := git(wt, "diff", "--cached", "--quiet", "HEAD^"); err == nil {
+		_, err := git(wt, "reset", "-q", "--hard", "HEAD^")
+		return true, err
+	}
+	_, err = git(wt, "-c", "commit.gpgsign=false", "commit", "-q", "--amend", "--no-edit")
+	return false, err
+}
+
+// checkPickedChangelog checks the release worktree's changelog after a
+// pick: at most one ## Unreleased and, if there, the first ## heading;
+// each of the branch's own releases (cut's vX.Y.*) the same as at its
+// tag, every other released section as at start (the tip before the
+// pick: older sections were edited on main after their tags). The error
+// names the lines that differ.
+func checkPickedChangelog(root, wt, changelog, cut, start string) error {
+	own := strings.TrimPrefix(milestone.ReleaseBranch(cut), "release/") + "." // "v0.62."
+	data, err := os.ReadFile(filepath.Join(wt, changelog))
+	if err != nil {
+		return nil
+	}
+	text := string(data)
+	var probs []string
+	heads := regexp.MustCompile(`(?m)^## .*$`).FindAllStringIndex(text, -1)
+	unrel := unreleasedRe.FindAllStringIndex(text, -1)
+	if len(unrel) > 1 {
+		probs = append(probs, fmt.Sprintf("%d ## Unreleased headings (lines %s)", len(unrel), lineNumbers(text, unrel)))
+	}
+	if len(unrel) > 0 && len(heads) > 0 && unrel[0][0] != heads[0][0] {
+		probs = append(probs, fmt.Sprintf("## Unreleased at line %s is not the first ## heading (%s)", lineNumbers(text, unrel[:1]), strings.TrimSpace(text[heads[0][0]:heads[0][1]])))
+	}
+	before, _ := git(wt, "show", start+":"+changelog)
+	for _, h := range releasedHeadingRe.FindAllString(text, -1) {
+		h = strings.TrimSpace(h)
+		version := strings.Trim(strings.Fields(strings.TrimPrefix(h, "##"))[0], "[]")
+		ref := before
+		if !strings.HasPrefix(version, "v") {
+			version = "v" + version
+		}
+		if strings.HasPrefix(version, own) {
+			if tagged, err := git(root, "show", version+":"+changelog); err == nil && strings.Contains(tagged, h) {
+				ref = tagged
+			}
+		}
+		is := func(x string) bool { return strings.TrimSpace(x) == h }
+		ws, we, wok := section(ref, is)
+		gs, ge, _ := section(text, is)
+		if !wok {
+			continue
+		}
+		if d := lineDiff(strings.TrimSpace(ref[ws:we]), strings.TrimSpace(text[gs:ge])); d != "" {
+			probs = append(probs, fmt.Sprintf("%s changed from its release: %s", h, d))
+		}
+	}
+	if len(probs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the %s check failed: %s", changelog, strings.Join(probs, "; "))
+}
+
+// lineNumbers is the 1-based line numbers of locs in text, comma-separated.
+func lineNumbers(text string, locs [][]int) string {
+	var ns []string
+	for _, l := range locs {
+		ns = append(ns, fmt.Sprint(strings.Count(text[:l[0]], "\n")+1))
+	}
+	return strings.Join(ns, ", ")
+}
+
+// lineDiff names the lines got adds to want and those it drops ("" when
+// they have the same lines in the same order), each cut to 80 characters.
+func lineDiff(want, got string) string {
+	if want == got {
+		return ""
+	}
+	count := func(s string) map[string]int {
+		m := map[string]int{}
+		for _, l := range strings.Split(s, "\n") {
+			m[l]++
+		}
+		return m
+	}
+	w, g := count(want), count(got)
+	var added, dropped []string
+	for _, l := range strings.Split(got, "\n") {
+		if w[l] > 0 {
+			w[l]--
+		} else if strings.TrimSpace(l) != "" {
+			added = append(added, quoteLine(l))
+		}
+	}
+	for _, l := range strings.Split(want, "\n") {
+		if g[l] > 0 {
+			g[l]--
+		} else if strings.TrimSpace(l) != "" {
+			dropped = append(dropped, quoteLine(l))
+		}
+	}
+	var parts []string
+	if len(added) > 0 {
+		parts = append(parts, "added "+strings.Join(added, ", "))
+	}
+	if len(dropped) > 0 {
+		parts = append(parts, "dropped "+strings.Join(dropped, ", "))
+	}
+	if len(parts) == 0 {
+		return "the same lines in another order"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func quoteLine(l string) string {
+	if r := []rune(l); len(r) > 80 {
+		l = string(r[:80]) + "…"
+	}
+	return fmt.Sprintf("%q", l)
 }
 
 // insertUnreleased puts entries at the top of text's ## Unreleased

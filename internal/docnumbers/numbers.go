@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/memguard"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -27,7 +29,7 @@ const Page = "docs/numbers.md"
 type Number struct {
 	Name    string
 	Value   int
-	Unit    string // "min", " days", "%", or "" for a count
+	Unit    string // "min", "h", "days", "%", or "" for a count
 	Source  string // the constant, as code names it
 	Meaning string
 	// Copies are the sentences that quote the number elsewhere, as regular
@@ -48,6 +50,7 @@ func (n Number) Text() string {
 }
 
 func minutes(d time.Duration) int { return int(d / time.Minute) }
+func hours(d time.Duration) int   { return int(d / time.Hour) }
 func days(d time.Duration) int    { return int(d / (24 * time.Hour)) }
 
 // Numbers is the table, in the order the page shows it.
@@ -131,8 +134,67 @@ func Numbers() []Number {
 			},
 		},
 		{
+			Name: "Auto-start workers", Value: autostart.DefaultMaxWorkers, Source: "autostart.DefaultMaxWorkers",
+			Meaning: "Live workers per project auto-start allows when --max-workers is unset",
+			Copies: []string{
+				`\[--max-workers (\d+)\]\s+\[--gap`,
+				`memory under \d+%, (\d+) workers`,
+			},
+		},
+		{
 			Name: "Auto-start gap", Value: autostart.DefaultGapMinutes, Unit: "min", Source: "autostart.DefaultGapMinutes",
 			Meaning: "Time between two auto-starts, across the machine",
+			Copies: []string{
+				`\[--gap (\d+)\]`,
+				`gap \(default (\d+) min\)`,
+				`one start (?:every|per) (\d+) minutes`,
+				`else (\d+) minutes\. This is the same lock`,
+			},
+		},
+		{
+			Name: "Start weight floor", Value: autostart.MinWeight, Source: "autostart.MinWeight",
+			Meaning: "The least start_weight: a project counts with in the turn between projects; unset or lower is this",
+			Copies: []string{
+				`whole number,\s+at least (\d+)`,
+				`unset is (\d+)`,
+				`, and (\d+) when unset\.`,
+			},
+		},
+		{
+			Name: "Turn drop-out", Value: autostart.StaleGaps, Unit: "gaps", Source: "autostart.StaleGaps",
+			Meaning: "A project whose last ask is older than this many of its gaps drops out of the turn and loses its credit",
+			Copies: []string{
+				`older than (\d+) gaps`,
+				`stops asking for (\d+) gaps`,
+				`less than (\d+) of its gaps old`,
+			},
+		},
+		{
+			Name: "Start share window", Value: hours(autostart.ShareWindow), Unit: "h", Source: "autostart.ShareWindow",
+			Meaning: "How far back the share line counts each project's starts",
+			Copies:  []string{`share of the start gap \((\d+)h`},
+		},
+		{
+			Name: "Queue refill line", Value: leadstate.RefillLine, Source: "leadstate.RefillLine",
+			Meaning: "At this many open queue items or fewer the lead's tick says the queue wants refilling",
+			Copies:  []string{`(\d+) open items or fewer`},
+		},
+		{
+			Name: "Long hold", Value: hours(leadstate.HeldLong), Unit: "h", Source: "leadstate.HeldLong",
+			Meaning: "Starts held this long make the lead's tick say so under --watch, even when each hold clears by itself",
+			Copies: []string{
+				`nothing started for (\d+)h`,
+				`a hold over (\d+)h`,
+				`held for (\d+)h or more`,
+			},
+		},
+		{
+			Name: "Worktree idle", Value: hours(agentrun.PruneIdle), Unit: "h", Source: "agentrun.PruneIdle",
+			Meaning: "A sweep removes a merged, clean worktree only when nothing in it changed for this long",
+			Copies: []string{
+				`changed in the last (\d+) hours`,
+				`clean and idle \((\d+) h\)`,
+			},
 		},
 		{
 			Name: "Health snapshot check", Value: minutes(viewer.HealthCheckInterval), Unit: "min", Source: "viewer.HealthCheckInterval",

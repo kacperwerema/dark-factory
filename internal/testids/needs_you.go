@@ -17,6 +17,8 @@ func init() {
 		"needs_you.pick",
 		"needs_you.pick_area",
 		"needs_you.row.msg",
+		"needs_you.step.body",
+		"needs_you.step.done",
 		"needs_you.approve",
 		"needs_you.run",
 		"needs_you.open",

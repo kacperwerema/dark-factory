@@ -302,6 +302,9 @@ func (r *Runner) Playtest(b *Browser, s *Session, auto *Results) (*Results, stri
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	defer signal.Stop(sig)
+	// A first Ctrl-C is this loop's: stopOnSignal gives it time to save.
+	graceful.Add(1)
+	defer graceful.Add(-1)
 	alive := time.NewTicker(time.Second)
 	defer alive.Stop()
 	for {

@@ -48,20 +48,22 @@ func checkCriteria(env *Env) []Finding {
 }
 
 // Criteria is one issue's criteria findings, for the workflow it walks:
-// open acceptance criteria no test, command or playtest step could fail,
-// a ## Must not still holding only its placeholder once the issue is
-// past the edge that wrote it, and acceptance boxes kept outside
-// ## Acceptance Criteria on a path with a criteria gate. issue-cli transition prints them as
-// warnings when the issue leaves design.
+// open acceptance criteria no test, command or playtest step could fail
+// (not asked of a type whose path skips testing: skipsVerify), a
+// ## Must not still holding only its placeholder once the issue is past
+// the edge that wrote it, and acceptance boxes kept outside
+// ## Acceptance Criteria on a path with a criteria gate. issue-cli
+// transition prints them as warnings when the issue leaves design.
 func Criteria(issue *tracker.Issue, wf *tracker.WorkflowConfig) []Finding {
 	var out []Finding
 	template := map[string]bool{}
 	if wf != nil {
 		template = wf.SectionBoxes(tracker.CriteriaSection)
 	}
+	asksTest := !skipsVerify(wf)
 	for _, it := range tracker.Criteria(issue.BodyRaw) {
 		text := strings.TrimSpace(it.Label())
-		if it.Checked || it.ID == "" || text == "" || template[strings.TrimSpace(it.Text)] ||
+		if !asksTest || it.Checked || it.ID == "" || text == "" || template[strings.TrimSpace(it.Text)] ||
 			tracker.IsOwnerMarked(it.Text) || Falsifiable(it.Text) {
 			continue
 		}
@@ -88,6 +90,19 @@ func Criteria(issue *tracker.Issue, wf *tracker.WorkflowConfig) []Finding {
 	}
 	out = append(out, mustNotUnpaired(issue, wf)...)
 	return out
+}
+
+// skipsVerify reports whether wf is scoped to a type whose path: leaves
+// out the status holding the verify role (report, docs, chore in the
+// development template). Nothing runs a test on such a path: a report's
+// criteria are met by the report on the shelf and its follow-ups, which
+// the reports check reads, so asking each box for a test can't be
+// followed. A workflow without types keeps the per-box finding.
+func skipsVerify(wf *tracker.WorkflowConfig) bool {
+	if wf == nil || wf.ActiveType == "" || len(wf.Types[wf.ActiveType].Path) == 0 {
+		return false
+	}
+	return wf.RoleStatus(tracker.StatusRoleVerify) == ""
 }
 
 // mustNotPair is a Must not item's tail: "→ AC2" (or "->"), several ids

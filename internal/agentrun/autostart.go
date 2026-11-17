@@ -57,7 +57,7 @@ func AutostartCandidates(proj *tracker.Project, issues []*tracker.Issue, yoloOn 
 }
 
 func candidateHold(proj *tracker.Project, issue *tracker.Issue, bySlug map[string]*tracker.Issue, yoloOn bool) string {
-	if IsLive(proj, tracker.AgentSessionName(issue.Slug)) {
+	if liveNow(proj, tracker.AgentSessionName(issue.Slug)) {
 		return "worker live"
 	}
 	for _, dep := range tracker.DependsOn(issue) {
@@ -80,10 +80,27 @@ func candidateHold(proj *tracker.Project, issue *tracker.Issue, bySlug map[strin
 
 // LiveWorkers counts the project's live worker sessions (agent-*), without the
 // lead. root is the project checkout ForProject scopes standalone sessions to.
+// A session whose issue's work is on the shelf, waiting on the owner's review
+// (ShelvedReports), doesn't count: it holds no slot while the owner reads.
 func LiveWorkers(proj *tracker.Project, root string) int {
-	n := 0
+	var names []string
 	for _, s := range ForProject(proj, root, ListSessions()) {
-		if strings.HasPrefix(BareName(s.Name), "agent-") {
+		if name := BareName(s.Name); strings.HasPrefix(name, "agent-") {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return 0
+	}
+	var shelved map[string]ShelvedReport
+	if proj != nil && proj.IssueDir != "" {
+		if issues, err := proj.LoadIssues(); err == nil {
+			shelved = ShelvedReports(proj, issues)
+		}
+	}
+	n := 0
+	for _, name := range names {
+		if _, ok := shelved[name]; !ok {
 			n++
 		}
 	}
@@ -92,15 +109,16 @@ func LiveWorkers(proj *tracker.Project, root string) int {
 
 // AutostartEvaluate reads what Decide needs for proj and decides: the state under
 // stateRoot (the main checkout), mem-guard, the live workers under workRoot
-// and the next order. last is the machine-wide last start (read under the
-// lock when starting). only, when set, limits the pick to that issue, so
+// and the next order. last is the machine-wide last start and share the
+// turn between projects (both read under the lock when starting; a nil
+// share takes no turn). only, when set, limits the pick to that issue, so
 // dispatch --autostart can't start something the next order wouldn't.
-func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot, workRoot string, yoloOn bool, last *autostart.Start, only string, now time.Time) (autostart.Verdict, *autostart.State, error) {
+func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot, workRoot string, yoloOn bool, last *autostart.Start, share *autostart.Share, only string, now time.Time) (autostart.Verdict, *autostart.State, error) {
 	st, err := autostart.Load(stateRoot, proj.Slug)
 	if err != nil {
 		return autostart.Verdict{}, nil, err
 	}
-	in := autostart.Input{Project: proj.Slug, State: st, Last: last, Now: now}
+	in := autostart.Input{Project: proj.Slug, State: st, Last: last, Now: now, Share: share, Weight: proj.Weight()}
 	if st.On && !st.Paused {
 		ScanLimits(proj, workRoot, now)
 		in.Memory = autostart.ReadMemory()

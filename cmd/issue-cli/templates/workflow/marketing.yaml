@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: marketing@v0.61.0
+template: marketing@v0.63.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -10,6 +10,7 @@ template: marketing@v0.61.0
 features:
   installed:
     - brand-foundation@v0.61.0
+    - competitor-scan@v0.63.0
     - keyword-research@v0.61.0
     - measure-after-publish@v0.58.0
     - report-type@v0.61.0
@@ -48,6 +49,9 @@ features:
 # SOM) runs the same way, later or again, and gates nothing, and so does
 # `keyword-research`: the words the ICP searches with, clustered by intent,
 # and a positioning line, settled into departments/<key>/keywords.md.
+# `competitor-scan` (system SEO) settles who competes, the queries and what
+# ranks for them into departments/<key>/competitors.md, web search only;
+# the SEO and social briefs read it where it exists.
 # Once per site, `seo-baseline` lays the SEO groundwork (technical basics,
 # a waitlist, pre-rendered pages, measurement) with the owner's account,
 # DNS and CDN steps as their boxes: docs/seo-baseline.md.
@@ -64,6 +68,7 @@ board:
     - icp
     - market size
     - shortlist
+    - competitors
     - brief
     - draft
     - owner review
@@ -109,6 +114,18 @@ statuses:
       Under ## Keywords, one entry per cluster: the words the ICP uses (each with where you saw it), the intent (informational, commercial, transactional or navigational), a difficulty guess (low, medium or high, and who ranks today), our fit (own, contest or leave, and why) and the sources. A volume or a difficulty with no source is "no value yet" or your guess, said as such.
       Under ## Positioning: one proposed positioning statement, the clusters it rests on, and what it leaves to others. Then list what the owner has to settle. You propose; the owner decides.
       Put the draft on the shelf: `issue-cli output add --issue <slug> --title "Keywords and positioning: <topic>" --kind report --file <draft>`. Then move to owner review.
+  - name: "competitors"
+    description: "Who competes, what ranks, the topic gap, and a proposed competitors.md"
+    prompt: |
+      Read departments/<department>/brand.md, icp.md and keywords.md first, where they exist: the competitors are the ones the ICP would pick instead of us.
+      From ## Research, write under ## Competitors:
+      - ### Direct (a member of an ICP segment would pick one of these instead of us) and ### Adjacent (another way to solve the same problem): one row each with a short key, the name, the URL, the licence or pricing (or "check" when no source you read confirmed it), the ICP segment and what to watch for (Direct) or why it matters (Adjacent), each with its source.
+      - ### Queries: every query you ran, by intent (informational, comparison, transactional), its segment, and what ranks for it (the result domains and their page types: vendor blog, directory, list post, repo, forum). Say whether the project appears in each result set.
+      - ### Topic gap: the topics ranked by how many of the queries they come up in, the page types competitors use that the project lacks, and a few suggested pieces, each with the query it targets. A frequency is not demand: say so.
+      - ### Method and limits: how the searches ran, and what a web-search scan can't know (search volumes, keyword difficulty, real SERP features, backlinks).
+      - ### Proposed competitors.md: the file as publish would write it (see the publish step), for the owner to approve.
+      Brand rule: name competitors here and in internal notes; never knock them by name in copy.
+      Put the report on the shelf: `issue-cli output add --issue <slug> --title "Competitor scan: <topic>" --kind report --file <report.md>`. Then move to owner review.
   - name: "brief"
     description: "What to make, for whom, where it goes"
     prompt: |
@@ -291,6 +308,14 @@ evals:
       - "Clusters are in the ICP's own words, each with its intent and the sources it came from"
       - "Each cluster has a difficulty guess and our fit (own, contest or leave) with the reason"
       - "One positioning statement that rests on named clusters; nothing was bought, published or spent"
+  - id: competitor-scan
+    description: "A competitor list, query set and topic gap the owner could settle as they are"
+    types: [competitor-scan]
+    score: output
+    rubric:
+      - "Direct and adjacent competitors each have a URL, a licence or pricing (or \"check\") and a source"
+      - "Every query names its intent and what ranks for it; the topic gap is ranked from those queries, and the limits of web search are stated"
+      - "Nothing was bought, published or spent: web search and public pages only"
   - id: report
     description: "A report on the shelf the owner could act on as it is"
     types: [report]
@@ -534,6 +559,103 @@ types:
             rule: "file_exists"
             path: "departments/{{department}}/keywords.md"
 
+  # Competitor scan (system SEO), research mode: who competes, the queries
+  # the ICP types and what ranks for them, the topic gap, and a proposed
+  # departments/<key>/competitors.md that publish writes after the owner's
+  # yes. Web search and public pages only: no paid data, nothing goes out.
+  # It gates nothing: the seo-pass and social briefs read competitors.md
+  # where it exists. A re-scan is a new issue of this type.
+  competitor-scan:
+    description: "Competitor scan, research mode: who competes, what ranks for the ICP's queries, the topic gap, settled with the owner into competitors.md (system SEO)"
+    path: [research, competitors, owner review, publish, done]
+    statuses:
+      - name: "research"
+        prompt: |
+          Research mode. The issue names the topic: the business or product whose competitors to scan. If it doesn't, ask the owner what to scan, then end your turn.
+          Read departments/<department>/brand.md and icp.md first (the move to competitors needs them), and keywords.md where it exists. Build the query set from the ICP's search terms and the keyword clusters: informational, comparison ("<competitor> alternative", "<a> vs <b>") and transactional queries, each with its ICP segment.
+          Web search only: run each query through your own web search tool and read public pages (competitors' sites, repos, directories, list posts, reviews). No paid data: no `openseo` call, no keyword-volume or rank API, no log-in to read anything, no scraping of a site that forbids it. Per query, record the result domains and the page type of each.
+          Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. Close the browser when done.
+          List each source under ## Research with its link and one line on what it shows: at least 5 distinct links, which the move to competitors counts. Then move to competitors.
+      - name: "owner review"
+        prompt: |
+          Nothing is settled yet. Say in chat what the owner reviews (## Competitors and the shelf report), what they have to settle (a name to add or drop, Direct or Adjacent, a query to keep), and that it needs `publish` approval in the issue viewer. Then end your turn. Don't wait or poll: the lead (or the owner) resumes you once it is approved.
+          If the owner asks for changes, they leave a `revise:` comment: go back to competitors.
+          If the owner only answers the open questions (an `answer:` comment, a comment on the shelf report, or in chat), revise in place without moving: update ## Competitors, put the new version on the shelf (`issue-cli output revise <id> --file <report.md> --note "answers the owner's questions"`), and say in chat that the newest version waits for their approval.
+      - name: "publish"
+        prompt: |
+          Write exactly what the owner approved: the proposed competitors.md from the newest shelf version, with the owner's answers applied, to departments/<department>/competitors.md (a re-scan replaces the file).
+          Format: markdown. A first line `# Competitors: <topic>`, then `Settled <YYYY-MM-DD> from <slug>, shelf <output id> v<N>.`, a `Refresh:` line (the weekly SEO pass re-checks a few queries; a full re-scan is a new competitor-scan issue) and a `Rule:` line (name them here and in internal notes; never knock them by name in copy). Then:
+          - ## Direct: a table `Key | Name | URL | Licence | Segment | Watch for`.
+          - ## Adjacent: a table `Key | Name | URL | Why`.
+          - ## Queries: one per line in a fenced block, `intent | segment | query | target piece (or —)`.
+          - ## Baseline (<YYYY-MM-DD>): where the project appeared in the result sets (or that it appeared in none).
+          Don't change brand.md, icp.md or keywords.md, and publish nothing outside the machine.
+          Mark the shelf report published (`issue-cli output publish <id>`; no --url: competitors.md is the published copy, and the shelf needs the version the owner approved), then move to done.
+    transitions:
+      - from: "research"
+        to: "competitors"
+        actions:
+          - type: "validate"
+            rule: "section_min_links"
+            section: "Research"
+            min: 5
+            hint: "list at least 5 sources under ## Research, each with its link and one line on what it shows: issue-cli append {{slug}} --section Research --body \"- <link>: ...\""
+          # Read first: the queries come from the ICP's words.
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/brand.md"
+            hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/icp.md"
+            hint: "the brand foundation comes first: issue-cli create --department {{department}} --type foundation --title \"Brand foundation: <topic>\""
+          - type: "append_section"
+            title: "Competitors"
+            body: |
+              - [ ] Direct and Adjacent: key, name, URL, licence or pricing (or "check"), segment, watch for or why, each with its source
+              - [ ] Queries by intent and segment, each with what ranks and whether the project appears
+              - [ ] Topic gap ranked from the queries; Method and limits stated
+              - [ ] Proposed competitors.md (Direct, Adjacent, Queries, Baseline) in the report
+              - [ ] Report on the shelf (issue-cli output add --issue <slug> --kind report ...)
+      - from: "competitors"
+        to: "owner review"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Competitors"
+          - type: "validate"
+            rule: "has_output: report"
+            hint: "put the report on the shelf: issue-cli output add --issue {{slug}} --kind report --title \"Competitor scan: <topic>\" --file <report.md>"
+      - from: "owner review"
+        to: "competitors"
+        actions:
+          - type: "validate"
+            rule: "has_comment_prefix: revise:"
+      - from: "owner review"
+        to: "publish"
+        replace: true
+        actions:
+          - type: "validate"
+            rule: "outputs_approved: report"
+            hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+          # owner_only although publish writes only a local file: every SEO
+          # and social brief reads the list, so it is the owner's call.
+          - type: "require_human_approval"
+            status: "publish"
+            owner_only: true # settled with the owner: briefs read its competitors and queries, so not even YOLO passes it
+          - type: "append_section"
+            title: "Published"
+            body: |
+              - [ ] departments/<department>/competitors.md holds the approved text
+              - [ ] Shelf report marked published (issue-cli output publish <id>)
+      - from: "publish"
+        to: "done"
+        actions:
+          - type: "validate"
+            rule: "section_checkboxes_checked: Published"
+          - type: "validate"
+            rule: "file_exists"
+            path: "departments/{{department}}/competitors.md"
+
   # Research or report only: one report on the shelf for the owner's review,
   # nothing settled into a doc and nothing goes out. The growth scout's runs
   # (brief: builtin:growth-scout) are this type by themselves.
@@ -596,6 +718,7 @@ types:
       - name: "brief"
         prompt: |
           Read the department's brand and ICP first (departments/<department>/brand.md and icp.md); the brief can't move to draft without them. Read keywords.md there too, where it exists: a page targets a cluster marked own or contest, never one marked leave.
+          Read competitors.md there too, where it exists: take the ## Queries the pass's pages target, re-run a few through web search, and say in the brief which ## Direct competitor ranks for them now and whether the project appears (against ## Baseline). A new name goes in the brief as a proposal for the owner, never into competitors.md. Where it doesn't exist, say so in the brief ("No competitors.md yet: issue-cli create --department <department> --type competitor-scan --system SEO --title \"Competitor scan: <topic>\"") and go on: it gates nothing.
           Write the pass's brief: which sites and pages it covers (the department's role file has the roster), why each one (changed, lost traffic, out of date, due a post) and what counts as done.
           Ask the owner about anything the roster can't tell you, then move to draft.
           A site too big for one pass gets its own issue: `issue-cli create --department <department> --type seo-pass --system SEO --title "<site>: SEO pass"`.

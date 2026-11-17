@@ -12,6 +12,8 @@ func TestUnknownCommandNamesTheCommandThatDoesTheJob(t *testing.T) {
 	cases := []struct{ typed, want string }{
 		// The hint table: words that name a command called otherwise.
 		{"body", "unknown command: body\n\nDid you mean: issue-cli show — Full context dump for an issue (alias: show)\n\nRun: issue-cli help"},
+		{"add-check", "unknown command: add-check\n\nDid you mean: issue-cli check-add — " + checkAddCommand.ShortHelp + "\n\nRun: issue-cli help"},
+		{"checklist-add", "unknown command: checklist-add\n\nDid you mean: issue-cli check-add — " + checkAddCommand.ShortHelp + "\n\nRun: issue-cli help"},
 		{"list-comments", "unknown command: list-comments\n\nDid you mean: issue-cli comments — " + commentsCommand.ShortHelp + "\n\nRun: issue-cli help"},
 		// A typo, within two edits.
 		{"transiton", "unknown command: transiton\n\nDid you mean: issue-cli transition — " + commandRegistry["transition"].ShortHelp + "\n\nRun: issue-cli help"},

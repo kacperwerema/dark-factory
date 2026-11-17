@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func TestAgentsCantTickTheOwnersBoxes(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"check ids", func() error { return runCheck(ctx, []string{slug, "D1", "HT1"}) }, "HT1 Owner looked at it (a Human Testing box)"},
+		{"check ids", func() error { return runCheck(ctx, []string{slug, "HT1", "N1"}) }, "HT1 Owner looked at it (a Human Testing box)"},
 		{"check (owner) id", func() error { return runCheck(ctx, []string{slug, "N1"}) }, `N1 Glows on hover (owner) (marked "(owner)")`},
 		{"check --all", func() error { return runCheck(ctx, []string{slug, "--section", "Human Testing", "--all"}) }, "HT1 Owner looked at it"},
 		{"check --index", func() error { return runCheck(ctx, []string{slug, "--section", "Notes", "--index", "1"}) }, "N1 Glows on hover (owner)"},
@@ -124,4 +125,120 @@ func TestCheckOnAJudgementStepBoxSaysDropDoExpectAndRerun(t *testing.T) {
 	}
 	assertContains(t, err.Error(), "TP1 The page looks right (playtest judgement step TP1)")
 	assertContains(t, err.Error(), "TP1 is a judgement step (do:/expect: in looks); drop them if the step is automated, then re-run make ux-test")
+}
+
+// A worker naming the owner's box among its own: its boxes tick, the
+// owner's stays open with one line, and the call exits 0. Only a call that
+// ticked nothing fails.
+func TestCheckMixedIdsTickTheAgentsBoxesAndNameTheOwners(t *testing.T) {
+	proj, slug, issuePath := ownerBoxesProject(t)
+	asWorker(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runCheck(ctx, []string{slug, "HT1", "N2", "N1"}); err != nil {
+		t.Fatalf("check HT1 N2 N1: N2 ticked, so no error: %v\n%s", err, stdout)
+	}
+	out := stdout.String()
+	body := readFile(t, issuePath)
+	assertContains(t, body, "- [x] Logged\n")
+	assertContains(t, body, "- [ ] Owner looked at it\n")
+	assertContains(t, body, "- [ ] Glows on hover (owner)\n")
+	assertContains(t, out, "✓ Checked: N2 [Notes #2] Logged")
+	assertContains(t, out, "✗ Not ticked, the owner's: HT1 Owner looked at it (a Human Testing box)")
+	assertContains(t, out, `✗ Not ticked, the owner's: N1 Glows on hover (owner) (marked "(owner)")`)
+	assertContains(t, out, "/owner-checks?epic=")
+
+	// Again: N2 is done now, so the call ticks nothing and fails with the
+	// owner-box refusal; nothing changes.
+	before := readFile(t, issuePath)
+	ctx, stdout, _ = newTestContext(proj, false)
+	err := runCheck(ctx, []string{slug, "N2", "HT1"})
+	if err == nil {
+		t.Fatalf("check N2 (done) HT1: nothing ticked, want a refusal\n%s", stdout)
+	}
+	assertContains(t, err.Error(), "these boxes are the owner's; agent-calc-other can't tick them, and nothing changed:\n  HT1 Owner looked at it")
+	if got := readFile(t, issuePath); got != before {
+		t.Fatalf("a refused call changed the file:\n%s", got)
+	}
+}
+
+// An unknown id among them still ticks nothing, owner box or not.
+func TestCheckMixedIdsUnknownTicksNothing(t *testing.T) {
+	proj, slug, issuePath := ownerBoxesProject(t)
+	asWorker(t)
+	before := readFile(t, issuePath)
+	ctx, stdout, _ := newTestContext(proj, false)
+	err := runCheck(ctx, []string{slug, "N2", "HT1", "N9"})
+	if err == nil {
+		t.Fatalf("an unknown id: want an error\n%s", stdout)
+	}
+	assertContains(t, err.Error(), "unknown checkbox id(s): N9")
+	if got := readFile(t, issuePath); got != before {
+		t.Fatalf("an unknown id changed the file:\n%s", got)
+	}
+}
+
+// The listing's "(owner's)" marker and the guard agree box by box: an open
+// box is marked exactly when a worker's check of it alone is refused.
+func TestOwnerMarkerMatchesTheGuard(t *testing.T) {
+	proj, slug, issuePath := ownerBoxesProject(t)
+	asWorker(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runChecklist(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	listing := stdout.String()
+	assertContains(t, listing, "HT1 [ ] (owner's) Owner looked at it\n")
+	assertContains(t, listing, "N1 [ ] (owner's) Glows on hover (owner)\n")
+	assertContains(t, listing, "N2 [ ] Logged\n")
+	assertContains(t, listing, "(owner's) boxes wait for the owner: check refuses them; they tick them on the Owner checks page: ")
+	assertContains(t, listing, "Tick done boxes by id") // N2 is open
+
+	// Only the owner's boxes open: no hint to tick by id.
+	data := readFile(t, issuePath)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runCheck(ctx, []string{slug, "D1", "D2", "N2"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runChecklist(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	assertNotContains(t, stdout.String(), "Tick done boxes by id")
+	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, stdout, _ = newTestContext(proj, true)
+	if err := runChecklist(ctx, []string{slug}); err != nil {
+		t.Fatal(err)
+	}
+	var js struct {
+		Items []struct {
+			ID      string `json:"id"`
+			Checked bool   `json:"checked"`
+			Owner   string `json:"owner"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &js); err != nil {
+		t.Fatalf("checklist --json: %v\n%s", err, stdout)
+	}
+	data = readFile(t, issuePath)
+	for _, it := range js.Items {
+		if it.Checked || it.ID == "" {
+			continue
+		}
+		marked := strings.Contains(listing, it.ID+" [ ] (owner's) ")
+		if marked != (it.Owner != "") {
+			t.Errorf("%s: text marker %v, json owner %q", it.ID, marked, it.Owner)
+		}
+		ctx, _, _ := newTestContext(proj, false)
+		err := runCheck(ctx, []string{slug, it.ID})
+		refused := err != nil && strings.Contains(err.Error(), "these boxes are the owner's")
+		if refused != marked {
+			t.Errorf("%s: marked %v, but the guard refused %v (%v)", it.ID, marked, refused, err)
+		}
+		if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

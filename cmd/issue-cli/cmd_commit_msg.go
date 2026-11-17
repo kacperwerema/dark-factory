@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/checks"
 	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/proof"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -26,9 +27,15 @@ it with the fix when a line marks or links nothing:
   Proves: AC1[, AC2] [TestName ...]     test names only: no <slug>#AC1, no
                                         package path, no playtest step (steps
                                         prove through proves: in their session)
+In a dark-factory checkout it also warns, never refuses, when a staged line
+or the message holds what make leak-check refuses (a name from the
+private-names list, a real home or scratchpad path): file:line and the
+stand-in to use.
 On a work/<slug> branch whose workflow runs commits_reference_issue, an
 accepted message gets a note with the Refs: <slug> line until one commit on
-the branch references the issue.
+the branch references the issue. In a session dispatched for that issue
+(ISSUE_VIEWER_ISSUE_SLUG) the hook adds the line to the message itself
+instead, and says so; a merge commit is left as it is.
 --install writes the repository's commit-msg hook (core.hooksPath, else the
 common .git/hooks every worktree shares); an existing hook is kept as
 commit-msg.local and runs first.`
@@ -96,10 +103,14 @@ func runCommitMsg(ctx *Context, args []string) error {
 	slug, noCriteria := "<slug>", false
 	var issue *tracker.Issue
 	var proj *tracker.Project
+	branch := ""
 	if rootErr == nil {
-		if issue, proj = commitMsgIssue(ctx, root); issue != nil {
+		if issue, proj, branch = commitMsgIssue(ctx, root); issue != nil {
 			slug, noCriteria = issue.Slug, len(tracker.Criteria(issue.BodyRaw)) == 0
 		}
+	}
+	if known != nil {
+		warnStagedLeaks(ctx.Stderr, root, msg)
 	}
 	problems := commitMsgProblems(msg, known, noCriteria, slug)
 	if len(problems) == 0 {
@@ -107,12 +118,37 @@ func runCommitMsg(ctx *Context, args []string) error {
 			fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
 		}
 		if issue != nil && needsRefsLine(root, proj, issue, msg) {
-			fmt.Fprintf(ctx.Stderr, "note: %s\n", refsHint(issue.Slug))
+			if addRefsLine(root, fs.Arg(0), issue.Slug) {
+				fmt.Fprintf(ctx.Stderr, "note: added %s: %s to the message: no commit on %s referenced the issue yet, and the ship's commits_reference_issue wants one\n", proof.RefsKey, issue.Slug, branch)
+			} else {
+				fmt.Fprintf(ctx.Stderr, "note: %s\n", refsHint(branch, issue.Slug))
+			}
 		}
 		return nil
 	}
 	printCommitMsgProblems(ctx.Stderr, problems)
 	return &exitCodeError{Code: 1}
+}
+
+// warnStagedLeaks prints what make leak-check would refuse in the lines
+// this commit adds and in its message, with the stand-in to use. It only
+// warns: the commit goes through whatever it finds, and a git failure or a
+// merge in progress (the other side's lines) stays quiet. It runs in a
+// dark-factory checkout only (the caller has its catalog), where the leak
+// scan runs: a private project's own repo names itself all the time.
+func warnStagedLeaks(w io.Writer, root, msg string) {
+	if privacy.Merging(root) {
+		return
+	}
+	names, _ := privacy.PrivateNames()
+	leaks, err := privacy.ScanStaged(root, names)
+	if err != nil {
+		return
+	}
+	leaks = append(leaks, privacy.ScanMessage(msg, "commit message", names)...)
+	if warn := privacy.LeakWarning(leaks); warn != "" {
+		fmt.Fprintln(w, warn)
+	}
 }
 
 // needsRefsLine reports whether the ship would still want a commit that
@@ -131,25 +167,58 @@ func needsRefsLine(root string, proj *tracker.Project, issue *tracker.Issue, msg
 	return err == nil && sha == ""
 }
 
-// refsHint gives the line to add. Amending is safe here: the commit was
-// made a moment ago, so no Proves: link pins its sha yet.
-func refsHint(slug string) string {
-	return fmt.Sprintf("no commit on work/%s references the issue yet. Add this line to the message (git commit --amend now, or your next commit) and the ship needs no empty commit:\n    %s: %s", slug, proof.RefsKey, slug)
+// addRefsLine writes the Refs: <slug> trailer into the message file
+// itself when the session was dispatched for this very issue
+// (ISSUE_VIEWER_ISSUE_SLUG) and no merge is under way: the worker then
+// never amends a commit whose sha a tests: comment may already name.
+// git interpret-trailers places it: in the trailer block, above comment
+// lines and the scissors line. Any failure reports false, and the caller
+// falls back to the note: the commit is never blocked.
+func addRefsLine(root, file, slug string) bool {
+	session := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_ISSUE_SLUG"))
+	if session == "" || !strings.EqualFold(session, slug) {
+		return false
+	}
+	if _, err := catalogGit(root, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return false
+	}
+	abs, err := filepath.Abs(file) // git -C root would read a relative path from root
+	if err != nil {
+		return false
+	}
+	_, err = catalogGit(root, "interpret-trailers", "--in-place", "--if-exists", "addIfDifferent", "--trailer", proof.RefsKey+": "+slug, abs)
+	return err == nil
 }
 
-// commitMsgIssue is the issue whose work/<slug> branch is checked out at
-// root and its project, nil when the branch isn't one or no configured
-// project has it.
-func commitMsgIssue(ctx *Context, root string) (*tracker.Issue, *tracker.Project) {
+// refsHint gives the line to add. Amending is safe here: the commit was
+// made a moment ago, so no Proves: link pins its sha yet.
+func refsHint(branch, slug string) string {
+	return fmt.Sprintf("no commit on %s references the issue yet. Add this line to the message (git commit --amend now, or your next commit) and the ship needs no empty commit:\n    %s: %s", branch, proof.RefsKey, slug)
+}
+
+// commitMsgIssue is the issue whose branch is checked out at root, its
+// project and the branch; nil when no configured project has an issue on
+// it. The branch is the issue's when it is work/<slug>, else (a project
+// without worktree: true lets workers branch as they like) when it is the
+// one issue's branch: field, the one issue whose slug it ends in
+// (checks.BranchNamesSlug), or the one slug root's HANDOFF.md names.
+func commitMsgIssue(ctx *Context, root string) (*tracker.Issue, *tracker.Project, string) {
 	branch, err := catalogGit(root, "rev-parse", "--abbrev-ref", "HEAD")
-	slug, ok := strings.CutPrefix(branch, "work/")
-	if err != nil || !ok || slug == "" {
-		return nil, nil
+	if err != nil || branch == "" || branch == "HEAD" {
+		return nil, nil, ""
+	}
+	if main, err := tracker.MainBranch(root); err == nil && main == branch {
+		return nil, nil, ""
 	}
 	projects := ctx.AllProjects
 	if ctx.Project != nil {
 		projects = append([]tracker.Project{*ctx.Project}, projects...)
 	}
+	type loaded struct {
+		p      *tracker.Project
+		issues []*tracker.Issue
+	}
+	var all []loaded
 	seen := map[string]bool{}
 	for i := range projects {
 		p := &projects[i]
@@ -161,11 +230,54 @@ func commitMsgIssue(ctx *Context, root string) (*tracker.Issue, *tracker.Project
 		if err != nil {
 			continue
 		}
-		if issue := tracker.FindIssue(issues, slug); issue != nil {
-			return issue, p
+		all = append(all, loaded{p, issues})
+	}
+	if slug, ok := strings.CutPrefix(branch, "work/"); ok && slug != "" {
+		for _, l := range all {
+			if issue := tracker.FindIssue(l.issues, slug); issue != nil {
+				return issue, l.p, branch
+			}
 		}
 	}
-	return nil, nil
+	// One rule at a time, each over every project: a match counts only
+	// when it is the only one.
+	rules := []func(*tracker.Issue) bool{
+		func(i *tracker.Issue) bool { return i.Field(checks.BranchField) == branch },
+		func(i *tracker.Issue) bool { return checks.BranchNamesSlug(branch, i.Slug) },
+	}
+	for _, match := range rules {
+		var hit *tracker.Issue
+		var hitProj *tracker.Project
+		n := 0
+		for _, l := range all {
+			for _, issue := range l.issues {
+				if match(issue) {
+					hit, hitProj = issue, l.p
+					n++
+				}
+			}
+		}
+		if n == 1 {
+			return hit, hitProj, branch
+		}
+		if n > 1 {
+			return nil, nil, ""
+		}
+	}
+	var slugs []string
+	for _, l := range all {
+		for _, issue := range l.issues {
+			slugs = append(slugs, issue.Slug)
+		}
+	}
+	if slug := checks.HandoffSlug(root, slugs); slug != "" {
+		for _, l := range all {
+			if issue := tracker.FindIssue(l.issues, slug); issue != nil {
+				return issue, l.p, branch
+			}
+		}
+	}
+	return nil, nil, ""
 }
 
 // CommitMsgNotes is what an accepted message's Proves: lines still leave

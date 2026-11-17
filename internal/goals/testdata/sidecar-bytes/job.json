@@ -1,14 +1,17 @@
 {
   "date": "2026-11-15",
+  "written": "2026-11-15",
   "job": "sales/weekly-funnel",
   "metrics": [
     {
       "id": "visits",
-      "value": 410
+      "value": 410,
+      "date": "2026-11-15"
     },
     {
       "id": "signups",
-      "value": 12.5
+      "value": 12.5,
+      "date": "2026-11-15"
     }
   ]
 }

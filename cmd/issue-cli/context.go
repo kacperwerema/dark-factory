@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -60,6 +61,10 @@ type Context struct {
 	sandbox        *sandboxVerdict
 	sandboxPassed  bool
 	sandboxRefused bool
+
+	// red names what a check found red, for the clilog record (Record.Red):
+	// catalog-check sets the ids of the entries and templates it asks about.
+	red []string
 }
 
 func (c *Context) now() time.Time {
@@ -139,9 +144,64 @@ func parseFlags(ctx *Context, fs *flag.FlagSet, args []string) error {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return unexpectedArgError(fs, fs.Arg(0))
+		err := unexpectedArgError(fs, fs.Arg(0))
+		if hint := quoteItHint(fs, args); hint != "" {
+			err.msg = fmt.Sprintf("unexpected argument %q for '%s'\n\n%s%s", fs.Arg(0), fs.Name(), hint, helpHint(fs))
+		}
+		return err
 	}
 	return nil
+}
+
+// quoteItHint names the quoted form when the first stray word follows a
+// string flag's value: `append <slug> --section Test Plan` meant
+// `--section "Test Plan"`. The words up to the next flag join the value.
+// Any other stray word gets no hint ("").
+func quoteItHint(fs *flag.FlagSet, args []string) string {
+	for i := 0; i+2 < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return ""
+		}
+		if !isFlagToken(a) {
+			return "" // an earlier word is the stray one
+		}
+		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		f := fs.Lookup(name)
+		if f == nil || hasValue || isBoolFlag(f) {
+			continue
+		}
+		value := args[i+1]
+		if g, ok := f.Value.(flag.Getter); !ok || !isString(g.Get()) {
+			i++
+			continue
+		}
+		parts := []string{value}
+		j := i + 2
+		for ; j < len(args) && args[j] != "--" && !isFlagToken(args[j]); j++ {
+			parts = append(parts, args[j])
+		}
+		if len(parts) > 1 {
+			return fmt.Sprintf("A value with a space needs quotes: %s %s", a, hintValue(strings.Join(parts, " ")))
+		}
+		i = j - 1
+	}
+	return ""
+}
+
+func isString(v any) bool {
+	_, ok := v.(string)
+	return ok
+}
+
+// hintValue writes the joined value for the hint: in double quotes, as the
+// owner would type it, when nothing in it means anything there to a shell;
+// else through shell.Quote.
+func hintValue(v string) string {
+	if strings.ContainsAny(v, "\"$`\\!") {
+		return shell.Quote(v)
+	}
+	return `"` + v + `"`
 }
 
 func unexpectedArgError(fs *flag.FlagSet, arg string) *usageError {

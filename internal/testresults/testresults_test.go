@@ -129,3 +129,47 @@ func TestSummaryStats(t *testing.T) {
 		t.Errorf("mean %v p50 %v p90 %v", sum.MeanMS, sum.P50MS, sum.P90MS)
 	}
 }
+
+// A package run in shards (tools/test-shards) ends once per shard: it is one
+// part, as long as its longest shard.
+func TestGoTestShardedPackageIsOnePart(t *testing.T) {
+	stream := `{"Action":"pass","Package":"example.com/m/cmd/tool","Test":"TestA","Elapsed":1}
+{"Action":"pass","Package":"example.com/m/cmd/tool","Elapsed":40}
+{"Action":"pass","Package":"example.com/m","Elapsed":5}
+{"Action":"pass","Package":"example.com/m/cmd/tool","Test":"TestB","Elapsed":2}
+{"Action":"pass","Package":"example.com/m/cmd/tool","Elapsed":55}
+{"Action":"pass","Package":"example.com/m/cmd/tool","Elapsed":31}
+`
+	s, err := Parse(FormatGoTestJSON, []byte(stream))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Parts) != 2 || s.Parts[0].Name != "cmd/tool" || s.Parts[0].Seconds != 55 || s.Parts[1].Name != "." {
+		t.Fatalf("parts = %+v, want cmd/tool 55 s and . once each", s.Parts)
+	}
+	if len(s.Tests) != 2 {
+		t.Fatalf("tests = %+v, want TestA and TestB", s.Tests)
+	}
+}
+
+// A fresh-test skips in make test's cached run and runs in the fresh one
+// beside it (tools/test-shards): whichever ends first, the run's outcome is
+// the one that ran.
+func TestGoTestFreshTestOutcomeBeatsItsCachedSkip(t *testing.T) {
+	for _, stream := range []string{
+		`{"Action":"skip","Package":"example.com/m/a","Test":"TestLive","Elapsed":0}
+{"Action":"fail","Package":"example.com/m/a","Test":"TestLive","Elapsed":2}
+`,
+		`{"Action":"fail","Package":"example.com/m/a","Test":"TestLive","Elapsed":2}
+{"Action":"skip","Package":"example.com/m/a","Test":"TestLive","Elapsed":0}
+`,
+	} {
+		s, err := Parse(FormatGoTestJSON, []byte(stream))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(s.Tests) != 1 || s.Tests[0].Outcome != Fail {
+			t.Errorf("tests = %+v, want TestLive failed once", s.Tests)
+		}
+	}
+}

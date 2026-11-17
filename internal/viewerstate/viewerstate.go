@@ -181,3 +181,15 @@ func Claim(config string, self int) (bool, string) {
 	}
 	return true, ""
 }
+
+// MachineOffEnv set to "1" keeps a process from reading this machine's own
+// state: the disk (internal/diskuse) and fseventsd (internal/fseventsd). A
+// playtest scenario sets it, so a scenario board's Needs you never counts a
+// row for the host (a volume over 85% used put a Disk row in every
+// session's count, 2026-11-17).
+const MachineOffEnv = "ISSUE_VIEWER_NO_MACHINE"
+
+// MachineOff reports whether getenv turns the machine readings off.
+func MachineOff(getenv func(string) string) bool {
+	return strings.TrimSpace(getenv(MachineOffEnv)) == "1"
+}

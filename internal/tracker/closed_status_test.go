@@ -87,6 +87,24 @@ func TestIsLastStatusIsTheEndNotASideExit(t *testing.T) {
 	}
 }
 
+// MergeStatus is the last non-optional status before the end.
+func TestMergeStatusIsTheStepBeforeTheEnd(t *testing.T) {
+	for _, c := range []struct {
+		w    *WorkflowConfig
+		want string
+	}{
+		{statuses("idea", "testing", "shipping", "done", "parked?"), "shipping"},
+		{statuses("idea", "shipping", "documentation?", "done"), "shipping"},
+		{statuses("brief", "review", "published", "parked?"), "review"},
+		{statuses("done"), ""},
+		{nil, ""},
+	} {
+		if got := c.w.MergeStatus(); got != c.want {
+			t.Errorf("%v: MergeStatus = %q, want %q", c.w.GetStatusOrder(), got, c.want)
+		}
+	}
+}
+
 // closedLiterals are the words a closed-status list was written with.
 var closedLiterals = map[string]bool{"done": true, "parked": true, "closed": true, "archived": true, "obsolete": true}
 

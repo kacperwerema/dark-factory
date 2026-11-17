@@ -78,9 +78,9 @@ None of these is needed. Each one adds something:
 
 #### Shell notes
 
-Agents' commands differ by shell and OS. A worker's briefing has a `## Shell on this machine` section with the notes that apply to yours, picked from `$SHELL`, the OS and whether `rtk` is on `PATH`:
+Agents' commands differ by shell and OS. A worker's briefing has a `## Shell on this machine` section with the notes that apply to yours, picked from `$SHELL`, the OS and whether `rtk` is on `PATH`. Its examples use the project's own commands: the default-tier `ci:` command from workflow.yaml (`npm test`, say) and Go advice only where the work dir has a `go.mod`; the Local CI section names the same command, or "your project's tests" without one. For this repo (zsh, macOS, rtk, `make validate`) the notes read:
 
-- zsh: `$VAR` holding a command doesn't word-split (use a shell function), `$B:h` is a modifier, and unquoted globs fail: quote them (`'*.go'`).
+- zsh: `$VAR` holding a command doesn't word-split (use a shell function), `$B:h` is a modifier, and unquoted globs fail: quote them (`'*.go'`). Also: a word starting with `=` is a command lookup (`echo =====` fails), so print separators with `printf '%s\n' '====='`; a loop over a list of commands needs a shell function, since `$t` stays one word; quote globs in a test command's arguments, or it fails or tests less than you think; put a heredoc in a file and run that instead of nesting heredocs; keep the working directory: use `git -C <dir>` or absolute paths, never `cd` in a compound command; write an `rm` target held in a variable as `"${VAR:?}"`.
 - rtk shortens some output (`git log`, `make validate`; `go test -v` loses its test names and `t.Log` lines): when output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>` (`rtk proxy go test -v …`). `make validate` loses its verdict line: run it in the background with `make validate > <log> 2>&1` and watch the log. A `validate: red so far: <step>` line means that step is red: stop and fix it instead of waiting for the suite. The verdict is the last `validate:` line, `validate: PASS` or `validate: FAIL (<step>, <step>)` (on red, make's own error line comes after it).
 - `rtk grep` is ripgrep, and a plain `grep` can be rewritten to it: `--include` fails and prints a false "0 matches". Use `-g '*.go'`.
 - Never pipe or chain a command whose exit code decides the next step: `make validate | tail` shows tail's exit code, and the next command runs on red.
@@ -126,6 +126,7 @@ make install      # both, into BINDIR (default: go install's folder)
 make validate     # go vet, tests and the issue-cli coverage gate
 make linux-check  # the public CI's steps in an ubuntu:24.04 container (needs docker)
 make linux-check PKG=./internal/x RUN=TestY  # only that go test, in the same container
+make linux-check PKG="./internal/a ./internal/b"  # several packages, space-separated
 ```
 
 `make install` writes to `BINDIR`: `$GOBIN`, else `$(go env GOPATH)/bin`, as `go install` would. Put that folder on your `PATH`, or install somewhere already on it: `make install BINDIR="$HOME/.local/bin"` (or `GOBIN="$HOME/.local/bin" make install`). Each binary is built to a temporary file in that folder and renamed over the old one, so a running agent never sees it missing or half written.
@@ -337,6 +338,31 @@ The viewer can push to your phone and browsers when something new waits on you, 
 What sends a push: every new row of Needs you (CI red, a ready gate, a playtest or checks to run, a `question:`, a clarify round, outputs to review, a due job, a post-mortem, a failing connector, the nightly pass rate), a live worker stuck at a menu, a worker whose agent exited and left only a shell in its session (each once an hour at most), and a subscription resting after its usage limit. Each event goes to each device once; it can send again only after it went away and came back.
 
 Where it lives: the VAPID keys, the devices and the settings are in `$XDG_STATE_HOME/ai-workflow-engine/push/` (files 0600), never in your projects or `projects.yaml`. Only the viewer that holds `viewer.json` for the config `push/` is bound to sends; a sandbox viewer with the shared state dir sends nothing. If you moved `projects.yaml`, `/push` shows **Use this viewer** to move the sender. `status.md` has a `Push:` line (devices, mutes, quiet hours, a device the push service removed).
+
+## Troubleshooting
+
+### The disk fills up: the Go build cache
+
+Each worktree is a different path, and Go keys its build cache by directory, so every worktree's builds and tests write their own entries into `go env GOCACHE` (`~/Library/Caches/go-build` on a Mac); Go trims only what went unused for 5 days. With many workers it grows to well over 100 GB. Needs you says so (the row "The disk is filling up") when the cache is over 100 GB or the data volume over 85% used, and the Health page lists the cache and the agent transcripts under **Disk outside the checkout** (docs/workbench-files.md, "The storage family"). The fix is yours, in a terminal while no worker is running, since a build or test running then fails:
+
+```bash
+go clean -cache
+```
+
+### Something keeps running after a run: DF_TRACE and doctor leaks
+
+A process the factory started and nothing stopped keeps its file watchers, and macOS's fseventsd keeps state for each (the Needs you row "fseventsd is running away" is the sign). The runs stop what they start on every way out: the playtest runner on SIGINT, SIGTERM and SIGHUP (its next start reaps what a SIGKILL left), every test binary and every check script's sandbox at exit (any process whose `CODEX_HOME` or `CLAUDE_CONFIG_DIR` is their temp home, a detached `codex app-server-daemon` included).
+
+To see what is still alive that should not be:
+
+```bash
+issue-cli doctor leaks          # pid, age and the stop command of each; stops nothing
+issue-cli doctor leaks --stop   # stop them
+```
+
+It needs no tracing: it matches the shapes leaks took on this machine (a playtest Chrome whose runner is gone, a process of a temp or scratchpad CLI home whose parent is gone, a killed test's tmux server under `/tmp`, a `per_run:` tool no run holds, a registered git worktree nothing uses outside `.worktrees/`: one a worker added in a temp or scratchpad folder, gone or untouched for an hour, or a Claude Code subagent's under `.claude/worktrees/` whose branch is on main, untouched for a day; its stop is `git worktree remove`, after `git worktree unlock` when locked, never forced). `issue-cli lead tick` runs it once a day and says when it finds something.
+
+To find where a leak comes from, turn the resource trace on: `DF_TRACE=resources` in the environment, or `--debug` on `issue-cli` and `-debug` on `issue-viewer` (both pass it to their children). Every start and stop of a Chrome, a tmux session, an agent CLI launch, a worktree, a `per_run:` tool (`container` when its `start:` runs docker or podman) and a detached child is then one JSONL line (kind, pid, owner issue or command, cwd, time) in `$XDG_STATE_HOME/ai-workflow-engine/trace/resources.jsonl`, rotated to `.1` at 10 MB. The viewer adds fseventsd's footprint every 10 minutes beside the count of traced resources still alive, so a growth can be matched to what was running. With the trace there, `doctor leaks` also lists what was started, never stopped and is still alive; those may be in use (a live worker), so `--stop` leaves them to you. Off (the default), nothing is opened or written.
 
 ## Docs pages
 

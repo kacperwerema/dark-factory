@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/jsonfile"
+	"github.com/kacperwerema/dark-factory/internal/loadavg"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -42,9 +44,10 @@ func prepareResultsDir(root, sha, tier string) (string, error) {
 // (red or green), into run.Results, and writes each kind's per-test list next
 // to them. A missing or broken file is recorded as the summary's error and
 // never changes the verdict.
-func collectResults(root string, run *Run, c tracker.CICommand, dir string, out io.Writer) {
+func collectResults(root string, run *Run, c tracker.CICommand, dir string, load Load, out io.Writer) {
 	for _, r := range c.Results {
 		sum := parseResult(root, dir, r)
+		sum.Load, sum.Cores = load.Avg, load.Cores
 		if run.Results == nil {
 			run.Results = map[string]testresults.Summary{}
 		}
@@ -53,8 +56,52 @@ func collectResults(root string, run *Run, c tracker.CICommand, dir string, out 
 			fmt.Fprintf(out, "results: %s %s: %s\n", r.Kind, r.File, sum.Error)
 			continue
 		}
-		fmt.Fprintf(out, "results: %s %d tests, %d failed, %.1f s wall (%s)\n", r.Kind, sum.Tests, sum.Failed, sum.WallS, r.File)
+		fmt.Fprintf(out, "results: %s %d tests, %d failed, %.1f s wall%s (%s)\n", r.Kind, sum.Tests, sum.Failed, sum.WallS, load.note(), r.File)
 	}
+}
+
+// Load is the 1-minute load average around a command (the higher of the
+// readings before and after it) and the core count. Cores is 0 without a
+// reading.
+type Load struct {
+	Avg   float64
+	Cores int
+}
+
+// readLoad takes one reading; a var so tests never depend on the
+// machine's real load.
+var readLoad = func() Load {
+	avg1, _, ok := loadavg.Read()
+	if !ok {
+		return Load{}
+	}
+	return Load{Avg: avg1, Cores: runtime.NumCPU()}
+}
+
+// loadAround reads the load before a command with results; finish reads
+// it again after and keeps the higher one. A command without results:
+// reads nothing.
+func loadAround(c tracker.CICommand) (finish func() Load) {
+	if len(c.Results) == 0 {
+		return func() Load { return Load{} }
+	}
+	before := readLoad()
+	return func() Load {
+		after := readLoad()
+		if before.Cores == 0 || (after.Cores > 0 && after.Avg > before.Avg) {
+			return after
+		}
+		return before
+	}
+}
+
+// note is ", load 15.2 on 14 cores" for the results: line ("" without a
+// reading).
+func (l Load) note() string {
+	if l.Cores == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", load %.1f on %d cores", l.Avg, l.Cores)
 }
 
 func parseResult(root, dir string, r tracker.CIResult) testresults.Summary {
@@ -81,15 +128,31 @@ func parseResult(root, dir string, r tracker.CIResult) testresults.Summary {
 // LatestResults is the newest run started at or before t (zero: any time)
 // with a readable summary for kind.
 func LatestResults(root, kind string, t time.Time) (*Run, testresults.Summary, bool) {
+	runs, sums := RecentResults(root, kind, t, 1)
+	if len(runs) == 0 {
+		return nil, testresults.Summary{}, false
+	}
+	return &runs[0], sums[0], true
+}
+
+// RecentResults are the newest n runs started at or before t (zero: any
+// time) with a readable summary for kind, newest first, with those
+// summaries.
+func RecentResults(root, kind string, t time.Time, n int) ([]Run, []testresults.Summary) {
+	var runs []Run
+	var sums []testresults.Summary
 	for _, r := range RecentRuns(root, 0) {
+		if len(runs) == n {
+			break
+		}
 		if !t.IsZero() && r.Started.After(t) {
 			continue
 		}
 		if s, ok := r.Results[kind]; ok && s.Error == "" {
-			return &r, s, true
+			runs, sums = append(runs, r), append(sums, s)
 		}
 	}
-	return nil, testresults.Summary{}, false
+	return runs, sums
 }
 
 // ReadTests reads a summary's per-test list; nil when it is gone.

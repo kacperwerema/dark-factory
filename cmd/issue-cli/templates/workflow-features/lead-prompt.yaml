@@ -1,5 +1,5 @@
 id: lead-prompt
-version: v0.61.0
+version: v0.63.0
 category: dispatch
 propose: true
 sources: ["internal/tracker/lead_brief.go", "internal/briefing/lead.go", "internal/tracker/lead.go", "cmd/issue-cli/cmd_lead.go"]
@@ -13,7 +13,14 @@ what: |
   only from recorded decisions, ask you when none covers it, dispatch only the issues
   you name (`issue-cli dispatch --quote`), tick gates only with your quote. An old
   `leads.project` still replaces the built-in brief; lint warns, because a replaced
-  brief misses every later change to it.
+  brief misses every later change to it. Since v0.63.0 every lead brief (the CEO's
+  and each department lead's) names one way to wait: a background
+  `issue-cli lead tick --watch --exit-on-news` (`--observe` for a lead that starts
+  no work) and `issue-cli lead watch` for a probe, never a timed wake. Every lead brief
+  also names its compact state file (`issue-cli lead state`, notes with `lead state
+  note`), `issue-cli lead rotate` when the tick says its context passed 300k, and
+  `issue-cli lead history <words>` to look old context up; a session started by a
+  rotate gets the state file as its first prompt's handoff.
 why: |
   The lead is the one session that sees every worker. An addendum tells it what you
   care about and what it may decide alone, and keeps the built-in brief current.

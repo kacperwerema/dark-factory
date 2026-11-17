@@ -2,9 +2,11 @@
 // the load) for a moment, so one page that asks several times, or several
 // projects' parts of a page at once, spawn one process.
 //
-// It is off until Keep is called: a short-lived issue-cli and a test always
-// read afresh. Only the viewer turns it on, and a scenario viewer doesn't
-// (OffEnv).
+// It is off until Keep is called: a test always reads afresh. The viewer
+// turns it on (a scenario viewer doesn't, OffEnv), and so does a short
+// issue-cli command that reads the machine several times in one run (queue
+// next, through agentrun.KeepReadings). Forget drops every kept reading at
+// once: a decision taken under the start lock reads afresh.
 package recent
 
 import (
@@ -18,16 +20,26 @@ import (
 // a reading kept from the page before would miss.
 const OffEnv = "ISSUE_VIEWER_READ_AFRESH"
 
-var window atomic.Int64
+var (
+	window atomic.Int64
+	epoch  atomic.Int64
+)
 
 // Keep sets how long every Reading in this process stands; 0 turns them off.
 func Keep(d time.Duration) { window.Store(int64(d)) }
+
+// Window is how long readings stand now (what Keep set last).
+func Window() time.Duration { return time.Duration(window.Load()) }
+
+// Forget drops every reading kept so far: the next Get reads afresh.
+func Forget() { epoch.Add(1) }
 
 // Reading is one value read from the machine. Callers that ask while a read
 // runs wait for it and share its answer.
 type Reading[T any] struct {
 	mu    sync.Mutex
 	at    time.Time
+	epoch int64
 	value T
 }
 
@@ -39,11 +51,12 @@ func (r *Reading[T]) Get(read func() T) T {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.at.IsZero() && time.Since(r.at) < keep {
+	now := epoch.Load()
+	if !r.at.IsZero() && r.epoch == now && time.Since(r.at) < keep {
 		return r.value
 	}
 	r.value = read()
-	r.at = time.Now()
+	r.at, r.epoch = time.Now(), now
 	return r.value
 }
 

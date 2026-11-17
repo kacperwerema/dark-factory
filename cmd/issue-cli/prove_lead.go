@@ -77,7 +77,8 @@ func runProveLead(ctx *Context, issue *tracker.Issue, criteria []tracker.Checkbo
 	if mem := autostart.ReadMemory(); mem.Found && !mem.CanStart {
 		return fmt.Errorf("mem-guard says no run now (%s); try again when memory is lower", mem.Note)
 	}
-	worktree := filepath.Join(root, ".worktrees", issue.Slug)
+	stats, _ := tracker.LoadStats(issue.FilePath)
+	worktree := proof.FindIssueRef(root, issue, stats.Transitions).Worktree
 	head := ""
 	if out, err := exec.Command("git", "-C", worktree, "rev-parse", "HEAD").Output(); err == nil {
 		head = strings.TrimSpace(string(out))

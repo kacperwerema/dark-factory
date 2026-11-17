@@ -243,7 +243,7 @@ type roundsJSONEntry struct {
 }
 
 func runRounds(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "rounds")
+	slug, rest, err := issueSlug(ctx, args, "rounds")
 	if err != nil {
 		return err
 	}

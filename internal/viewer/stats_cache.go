@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -22,8 +23,10 @@ import (
 // done issues changed (their fingerprint: on a busy board several times an
 // hour, so a warm-up alone goes stale) or the range asks for more than it
 // covers, the page gets the last one marked updating, and the new one is
-// built in the background. Only with none at all, before the warm-up lands,
-// does a request wait for the build. Older than statsAggregateTTL it is
+// built in the background. With none at all, before the warm-up lands, a
+// request starts the build in the background and waits for it at most
+// statsColdWait: a small project still gets its numbers on the first
+// visit, a big one gets the page marked Building at once. Older than statsAggregateTTL it is
 // refreshed in the background too, unmarked: clilogs move on without
 // touching an issue file. The CLI usage report never blocks: it is served
 // from the cache and refreshed in the background.
@@ -35,6 +38,12 @@ const (
 	// range plus the 30 days a trend point looks back, so it covers the
 	// default 30-day view too (TestWarmStatsCoversTheDefaultView).
 	statsWarmWindow = 120 * 24 * time.Hour
+	// statsColdWait is how long a request with no aggregate at all waits
+	// for the first build before it answers marked Building.
+	statsColdWait = 500 * time.Millisecond
+	// statsBuildingRefresh is the Refresh header's seconds on a Building
+	// page: the browser reloads it until the numbers are in.
+	statsBuildingRefresh = "3"
 )
 
 type statsAggregate struct {
@@ -60,6 +69,11 @@ type statsCache struct {
 	// buildMu serializes aggregate builds per project, so two requests on
 	// a cold cache build it once.
 	buildMu map[string]*sync.Mutex
+	// pending is the first background build per project, while it runs:
+	// closed when it returns, so cold requests share it.
+	pending map[string]chan struct{}
+	// coldWait is statsColdWait; tests set it to 0.
+	coldWait time.Duration
 	// compute builds the report; tests stand in for timeline.Aggregate.
 	compute func(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, now time.Time, window time.Duration) timeline.Report
 }
@@ -67,8 +81,16 @@ type statsCache struct {
 func newStatsCache() *statsCache {
 	return &statsCache{
 		agg: map[string]*statsAggregate{}, usage: map[string]*statsUsage{}, buildMu: map[string]*sync.Mutex{},
+		pending: map[string]chan struct{}{}, coldWait: statsColdWait,
 		compute: func(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, now time.Time, window time.Duration) timeline.Report {
-			return timeline.Aggregate(context.Background(), proj, wf, issues, now, window)
+			rep := timeline.Aggregate(context.Background(), proj, wf, issues, now, window)
+			// The By model table's tokens: worker transcripts, read in this
+			// background build only once some done issue has a model.
+			if rep.HasModels() {
+				sp := spend.Load(proj, issues, now, spend.Options{})
+				rep = rep.WithTokens(sp.IssueTokens(), sp.Since)
+			}
+			return rep
 		},
 	}
 }
@@ -80,6 +102,9 @@ type statsRead struct {
 	// Updating: Rep is the last aggregate, not one for this board and
 	// range; the new one is being built in the background.
 	Updating bool
+	// Building: there is no aggregate yet and the first one is being
+	// built in the background; Rep is empty.
+	Building bool
 	// Built is when Rep was built, Covers the window it covers. A request
 	// wider than Covers sees only that much until the rebuild lands.
 	Built  time.Time
@@ -112,7 +137,8 @@ func (c *statsCache) lockFor(slug string) *sync.Mutex {
 // aggregate is the project report over at least window and how long it took
 // to build. bg runs the background builds. With bg nil, or with no aggregate
 // yet, a miss builds inline; otherwise a miss answers with the last aggregate
-// marked Updating.
+// marked Updating. With none yet and bg set, the build runs in the background
+// and the request waits for it at most coldWait, then answers Building.
 func (c *statsCache) aggregate(proj *tracker.Project, wf *tracker.WorkflowConfig, issues []*tracker.Issue, window time.Duration, now time.Time, bg func(func())) statsRead {
 	fp := doneFingerprint(proj, issues)
 	c.mu.Lock()
@@ -127,6 +153,39 @@ func (c *statsCache) aggregate(proj *tracker.Project, wf *tracker.WorkflowConfig
 		}
 		c.mu.Unlock()
 		return read
+	}
+	if a == nil && bg != nil {
+		done, ok := c.pending[proj.Slug]
+		if !ok {
+			done = make(chan struct{})
+			c.pending[proj.Slug] = done
+			bg(func() {
+				defer func() {
+					c.mu.Lock()
+					delete(c.pending, proj.Slug)
+					c.mu.Unlock()
+					close(done)
+				}()
+				c.build(proj, wf, issues, fp, window, time.Now())
+			})
+		}
+		wait := c.coldWait
+		c.mu.Unlock()
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-done:
+			c.mu.Lock()
+			landed := c.agg[proj.Slug] != nil
+			c.mu.Unlock()
+			if landed {
+				return c.aggregate(proj, wf, issues, window, now, bg)
+			}
+			// Nothing landed: the next request starts another build.
+			return statsRead{Building: true, Built: now}
+		case <-timer.C:
+			return statsRead{Building: true, Built: now}
+		}
 	}
 	c.mu.Unlock()
 	if a != nil {
@@ -157,6 +216,9 @@ func (c *statsCache) build(proj *tracker.Project, wf *tracker.WorkflowConfig, is
 // statsUpdatingNote is the page's line for a read marked Updating: how old
 // the numbers are, and how far they reach when the range asks for more.
 func statsUpdatingNote(read statsRead, window time.Duration) string {
+	if read.Building {
+		return "Building these numbers for the first time since the viewer started; this page reloads by itself when they are ready"
+	}
 	if !read.Updating {
 		return ""
 	}

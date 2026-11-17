@@ -42,7 +42,7 @@ func newestDoc(p *tracker.Project, o *outputs.Output) (outputs.Doc, bool) {
 	case o.File != "":
 		path = filepath.Join(outputs.FilesDir(p), filepath.FromSlash(o.File))
 	case o.Path != "":
-		path = filepath.Join(p.Root(), filepath.FromSlash(o.Path))
+		path = outputs.PathFile(p, o)
 	default:
 		return outputs.Doc{}, false
 	}

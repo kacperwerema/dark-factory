@@ -21,9 +21,9 @@ issue-cli memory add "make shot URL= takes one screenshot; no playtest session n
 
 The three ways on:
 
-- `--updates <id>`: the same fact, better worded. Its text is replaced and history keeps the old one (UPDATE).
+- `--updates <id>`: the same fact, better worded. Its whole text is replaced and history keeps the old one (UPDATE). When yours shares under a third of its words with the old text (`memory.UpdateThreshold`), add prints the old text and refuses: that is a different fact, so `--new` or `--supersedes` fits. `--yes` replaces it anyway.
 - `--supersedes <id>[,<id>…]`: the old one is no longer true, or several near-duplicates merge into yours (every id is invalidated with yours and linked). Yours is added, linked to it, and the old one becomes invalid (superseded, still in history). This follows Graphiti: facts are invalidated, not deleted.
-- `--new`: a different fact after all (ADD).
+- `--new`: a different fact (ADD). The refusal names it for that case: `--updates` on a different fact overwrites the one it names.
 
 Other flags:
 
@@ -94,6 +94,7 @@ issue-cli memory list --at shipping              # every one tied there (search 
 - **The cap:** at most 3 memories and 600 characters per transition, strongest first ([decay ranking](#decay-ranking)). A memory is at most 500 characters, so that is one long one or two short ones. No setting changes it.
 - **No memory there, no lines.** Most transitions print nothing extra.
 - **One status per memory.** It is checked when written: a status none of the project's workflow files has is refused with the names, and stored as the workflow spells it. If a status is renamed later, `issue-cli health lint --check memory` names each memory left behind.
+- **A step memory with no `--at`.** `health lint --check memory` names a project pitfall or howto whose text names an open status as a step (a two-word or hyphenated name anywhere: in design, human-testing; a one-word name after at, in, before, after, during, while or when, or as the first word: "Shipping on a busy night") and has no `--at`, with `memory edit <id> --at "<status>"` as the fix. A status beside an arrow (`idea → in progress`) is a workflow edge and doesn't count.
 - **What it doesn't print:** a pinned memory (the briefing carries it), one no longer valid, and one the agent's scope can't read. A department's memory stays in its department whatever its status.
 - **`--json`** transition output has no block; it is for the agent reading the transition.
 - **Use:** shown memories count as used, so they stay strong.
@@ -206,6 +207,8 @@ It lists, for the memories you can see:
 | Expired | past `--expires` (already invalid) | true again: a fresh one with `--supersedes` |
 | Promote | project conventions, pitfalls and howtos used 5+ times and 30+ days old, not measured unhelpful | one issue for the owner listing them; CLAUDE.md is never edited by the engine or the job |
 | Unhelpful | valid, unpinned, measured unhelpful over 15+ traced stages ([Memory as a cache](#memory-as-a-cache)) | proposed to the owner for forgetting, in the same owner issue; the run never forgets one |
+
+The pack's line is the update step's (half the words shared), which a fact retold in other words stays under. `issue-cli health lint --check memory` looks with a looser one where every lead and the nightly sweep see it: 3 or more memories in one scope, each linked pair sharing 45% or more of the shorter one's distinct words (6 words or more each), are one warning naming every id (never their text), with the merge as its fix: `memory edit <first> --text "<the one fact>" [--at <status>]`, then `memory forget <id> --reason "merged into <first>"` for the others. Clusters chain: a memory with two subjects can pull a second subject's memories in, so merge what is one fact and reword the bridge (`memory.NearDuplicates`, internal/memory/consolidate.go).
 
 It writes nothing. The **`memory-consolidate` job** runs it on a calendar: its brief is bundled with the engine, so a department's `jobs:` names it without a file in the project ([Recurring jobs](departments.md#recurring-jobs)):
 

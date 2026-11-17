@@ -63,7 +63,7 @@ func TestLoadProjectOrErr_MultiProjectNoSlugIsAmbiguous(t *testing.T) {
 		t.Fatalf("expected 2 projects in list, got %d", len(all))
 	}
 	msg := err.Error()
-	for _, want := range []string{"alpha (default)", "beta", "Available projects:", "issue-cli --project <slug>"} {
+	for _, want := range []string{"alpha\n", "beta", "Available projects:", "issue-cli --project <slug>"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("error message missing %q\n%s", want, msg)
 		}
@@ -415,5 +415,63 @@ func TestRun_ExplicitConfigBeatsEnvVar(t *testing.T) {
 	}
 	if strings.Contains(out, "fromenv") {
 		t.Fatalf("env-var config should be ignored when --config is explicit, got:\n%s", out)
+	}
+}
+
+// TestLoadProjectOrErr_WorktreePicksItsProject: two projects, each its own
+// git repo; run without --project inside a linked worktree of the second
+// (no ./issues there), the second is picked. Outside both, the error lists
+// both projects and marks neither as the default.
+func TestLoadProjectOrErr_WorktreePicksItsProject(t *testing.T) {
+	base := realTempDir(t)
+	var cfg strings.Builder
+	cfg.WriteString("projects:\n")
+	for _, s := range []string{"alpha", "beta"} {
+		root := filepath.Join(base, s)
+		if err := os.MkdirAll(filepath.Join(root, "issues"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git(t, base, "init", "-q", root)
+		git(t, root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+		cfg.WriteString("  - name: " + s + "\n    slug: " + s + "\n    issues: " + filepath.Join(root, "issues") + "\n    workdir: " + root + "\n")
+	}
+	cfgPath := filepath.Join(base, "projects.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfg.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(base, "beta", ".worktrees", "feature")
+	git(t, filepath.Join(base, "beta"), "worktree", "add", "-q", "-b", "feature", wt)
+
+	withCwd(t, wt)
+	proj, all, err := loadProjectOrErr(cfgPath, "")
+	if err != nil {
+		t.Fatalf("in beta's worktree: %v", err)
+	}
+	if proj == nil || proj.Slug != "beta" || len(all) != 2 {
+		t.Fatalf("in beta's worktree: picked %+v of %d, want beta of 2", proj, len(all))
+	}
+
+	sub := filepath.Join(wt, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withCwd(t, sub)
+	if proj, _, err := loadProjectOrErr(cfgPath, ""); err != nil || proj.Slug != "beta" {
+		t.Fatalf("in a subfolder of beta's worktree: %+v %v", proj, err)
+	}
+
+	withCwd(t, base)
+	_, _, err = loadProjectOrErr(cfgPath, "")
+	if !errors.Is(err, errAmbiguousProject) {
+		t.Fatalf("outside both: want errAmbiguousProject, got %v", err)
+	}
+	msg := err.Error()
+	for _, want := range []string{"  alpha\n", "  beta\n", "Available projects:"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error missing %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "(default)") {
+		t.Fatalf("error calls a project the default; projects.yaml has none:\n%s", msg)
 	}
 }

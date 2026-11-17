@@ -36,6 +36,7 @@ func (s *Server) loadStatusWith(proj *tracker.Project, prefix string) (*StatusMo
 	m.Queue = queueView(proj, issues, prefix, m.AsOf)
 	m.Jobs = jobsStatusLine(viewerJobs(proj, issues, m.AsOf))
 	m.Nightly = nightlyStatusLine(proj)
+	m.Deploy = deployMarkdownLine(proj, proj.LoadWorkflow())
 	if agents != nil {
 		m.Agents = agentsStatusLine(agents.Subscriptions)
 	}

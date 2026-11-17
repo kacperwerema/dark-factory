@@ -386,7 +386,9 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 		root = abs
 	}
 	stats, _ := tracker.LoadStats(issue.FilePath)
+	stills, stillsDir := loadStills(p, issue.Slug)
 	ev := buildEvidence(evidenceIn{
+		Stills: stills, StillsDir: stillsDir,
 		Prefix: prefix, Slug: issue.Slug, Root: root, Status: issue.Status, Report: report,
 		Required: wf.ProofRequired(issue), PastDesign: pastDesign(wf, issue.Status),
 		Comments: src.Comments, Decisions: src.Decisions, Body: issue.BodyRaw, Transitions: stats.Transitions,
@@ -424,6 +426,9 @@ func (s *Server) buildStation(p *tracker.Project, prefix string, issue *tracker.
 	closed := tracker.ClosedIssueFunc(p)
 	d.Fields = WbFields{Title: "FIELDS", Edit: stationFieldEdit(wf, issue, issueURL),
 		Rows: stationFieldRows(wf, issue, prefix, detailLead(p, issue, issues).Route, tracker.IssueSharedFiles(projectRoot(p), issue, issues), now)}
+	if row := stationExperimentCost(p, issue); row != nil {
+		d.Fields.Rows = append(d.Fields.Rows, *row)
+	}
 
 	d.Brief = stationBrief(tab)
 	d.Approving = stationApproving(tab.Approving, d.Timeline.FullURL, now)

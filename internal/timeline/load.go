@@ -1,6 +1,7 @@
 package timeline
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -88,15 +89,22 @@ func (c *Cache) results(dir string) []playtestResultsFile {
 			return r
 		}
 	}
+	out := resultsIf(dir, nil)
+	if c != nil {
+		c.runs[dir] = out
+	}
+	return out
+}
+
+// resultsIf are the results.yaml files in dir's .playtest/runs, leaving out
+// unparsed each file not yet parsed whose text keep refuses (nil keeps all).
+func resultsIf(dir string, keep func(data []byte) bool) []playtestResultsFile {
 	var out []playtestResultsFile
 	files, _ := filepath.Glob(filepath.Join(dir, ".playtest", "runs", "*", "*", "results.yaml"))
 	for _, f := range files {
-		if r, ok := readResults(f); ok {
+		if r, ok := readResults(f, keep); ok {
 			out = append(out, r)
 		}
-	}
-	if c != nil {
-		c.runs[dir] = out
 	}
 	return out
 }
@@ -194,6 +202,8 @@ func Load(proj *tracker.Project, issue *tracker.Issue, cache *Cache) Sources {
 	for _, d := range stats.Dispatches {
 		src.Dispatches = append(src.Dispatches, d.At)
 	}
+	src.Model = tracker.WorkerModel(stats, issue.Slug)
+	src.RedRounds = tracker.RedRoundCount(stats.Rounds)
 	for i := len(src.Transitions) - 1; i >= 0; i-- {
 		if src.Transitions[i].MergeSHA != "" {
 			src.MergeSHA = src.Transitions[i].MergeSHA
@@ -550,7 +560,10 @@ type parsedResult struct {
 	ok   bool
 }
 
-func readResults(path string) (playtestResultsFile, bool) {
+// readResults parses the results.yaml at path, once per size and mtime. A
+// file it has to read whose text keep refuses comes back not ok, and is not
+// remembered: another caller may want it.
+func readResults(path string, keep func(data []byte) bool) (playtestResultsFile, bool) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return playtestResultsFile{}, false
@@ -567,6 +580,9 @@ func readResults(path string) (playtestResultsFile, bool) {
 	}
 	data, err := os.ReadFile(path)
 	ok := err == nil
+	if ok && keep != nil && !keep(data) {
+		return playtestResultsFile{}, false
+	}
 	if ok {
 		if err := yaml.Unmarshal(data, &raw); err != nil {
 			raw.bad = err.Error()
@@ -594,12 +610,25 @@ func readResults(path string) (playtestResultsFile, bool) {
 // A game's runner writes its own schema (started: without an offset, modes
 // ux-test / playtest, shots beside results.yaml); its runs read as ours.
 // The second result names each run for the issue that could not be read.
+//
+// Without a cache, a results.yaml whose text doesn't hold issueSlug can't be
+// the issue's (its issue: line names it) and is skipped unparsed: the
+// checkout holds every issue's runs, and parsing them all to keep a few made
+// each prove call slow. A cache reads them all, for the other issues it
+// serves.
 func LoadPlaytestRuns(cache *Cache, issueSlug string, dirs ...string) ([]PlaytestRun, []string) {
 	var runs []PlaytestRun
 	var problems []string
 	seen := map[string]bool{}
+	names := func(data []byte) bool { return bytes.Contains(data, []byte(issueSlug)) }
 	for _, d := range dirs {
-		for _, r := range cache.results(d) {
+		var files []playtestResultsFile
+		if cache == nil {
+			files = resultsIf(d, names)
+		} else {
+			files = cache.results(d)
+		}
+		for _, r := range files {
 			if r.Issue != issueSlug {
 				continue
 			}
