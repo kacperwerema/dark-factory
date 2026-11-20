@@ -88,6 +88,9 @@ type Price struct {
 	Out        float64 `yaml:"out" json:"out"`
 	CacheRead  float64 `yaml:"cache_read,omitempty" json:"cache_read,omitempty"`
 	CacheWrite float64 `yaml:"cache_write,omitempty" json:"cache_write,omitempty"`
+	// Confirmed marks a price the owner checked against the provider's
+	// list; issue-cli spend shows every other one as assumed.
+	Confirmed bool `yaml:"confirmed,omitempty" json:"confirmed,omitempty"`
 }
 
 // Task is one golden task.

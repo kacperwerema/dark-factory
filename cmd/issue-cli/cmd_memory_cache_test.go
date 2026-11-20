@@ -144,6 +144,7 @@ func TestMemoryShowUsefulness(t *testing.T) {
 	s = out.String()
 	assertContains(t, s, "Unhelpful: shown in 15+ traced stages")
 	assertContains(t, s, bad)
+	assertContains(t, s, "    stages: scored: in design 16\n")
 	assertContains(t, s, "propose forgetting to the owner, never forget them in this run")
 	after, _ := os.ReadFile(memory.ProjectPath(proj.IssueDir))
 	if !bytes.Equal(before, after) {
@@ -235,5 +236,18 @@ func TestMemoryDocsLayers(t *testing.T) {
 		if !strings.Contains(sec, want) {
 			t.Errorf("Memory as a cache does not say %q", want)
 		}
+	}
+}
+
+// Stages at a status with no room to lift are counted, not scored: the
+// line says so, so "not measured" isn't read as "never reached a stage".
+func TestUsefulnessLineNamesNoRoomStages(t *testing.T) {
+	line := usefulnessLine(memory.Usefulness{Injections: 20, NoRoom: 20})
+	assertContains(t, line, "not measured yet (0 of 8")
+	assertContains(t, line, "20 not scored (statuses that nearly always pass first try)")
+	mixed := usefulnessLine(memory.Usefulness{Injections: 20, NoRoom: 20, NoRoomAt: map[string]int{"testing": 2, "idea": 18}})
+	assertContains(t, mixed, "20 not scored (statuses that nearly always pass first try: idea 18, testing 2)")
+	if l := usefulnessLine(memory.Usefulness{Injections: 3, Score: memory.Score{Known: 3}}); strings.Contains(l, "not scored") {
+		t.Fatalf("no no-room stages: %s", l)
 	}
 }

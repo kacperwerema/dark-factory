@@ -90,3 +90,24 @@ func TestReleasedSkipsCandidateTags(t *testing.T) {
 		t.Fatalf("Released = %q, want v0.53.0", got)
 	}
 }
+
+func TestOnlyTheNewestPublishedReleaseIsSupported(t *testing.T) {
+	tags := []string{"v0.62.0", "v0.62.1-rc.1", "v0.63.0", "v0.63.1-rc.1", "v0.9.0", "nightly"}
+	if got := NewestPublished(tags); got != "v0.63.0" {
+		t.Fatalf("NewestPublished = %q, want v0.63.0", got)
+	}
+	if NewestPublished([]string{"v0.1.0-rc.1"}) != "" {
+		t.Error("a candidate tag counts as published")
+	}
+	for cut, want := range map[string]bool{"v0.62.1": true, "v0.62.0": true, "v0.63.0": false, "v0.63.1": false, "v0.64.0": false} {
+		if got := Unsupported(cut, "v0.63.0"); got != want {
+			t.Errorf("Unsupported(%s, v0.63.0) = %v, want %v", cut, got, want)
+		}
+	}
+	if Unsupported("v0.1.0", "") {
+		t.Error("nothing published yet refuses a cut")
+	}
+	if !OlderLine("v0.62.0", "v0.63.1") || OlderLine("v0.63.0", "v0.63.1") || OlderLine("v0.64.0", "v0.63.1") {
+		t.Error("OlderLine compares release branches, not patches")
+	}
+}

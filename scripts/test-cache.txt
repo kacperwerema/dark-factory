@@ -30,6 +30,7 @@ cached ./internal/buildversion
 cached ./internal/chart
 cached ./internal/checks
 cached ./internal/ci
+cached ./internal/clean
 cached ./internal/clibug
 cached ./internal/clilog
 cached ./internal/codemap
@@ -93,6 +94,7 @@ cached ./internal/testids
 cached ./internal/testresults
 cached ./internal/testshard
 cached ./internal/timeline
+cached ./internal/timing
 cached ./internal/tmuxguard
 cached ./internal/tokens
 cached ./internal/trace

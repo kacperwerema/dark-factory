@@ -91,7 +91,7 @@ issue-cli memory list --at shipping              # every one tied there (search 
   +2 more: issue-cli memory list --at "shipping"
 ```
 
-- **The cap:** at most 3 memories and 600 characters per transition, strongest first ([decay ranking](#decay-ranking)). A memory is at most 500 characters, so that is one long one or two short ones. No setting changes it.
+- **The cap:** at most 3 memories and 600 characters per transition, strongest first ([decay ranking](#decay-ranking)). A memory is at most 500 characters, so that is one long one or two short ones. No setting changes it. So keep a step memory short, and before tying one more to a status, sum what is there (`memory list --at <status>`): past the cap the weakest is cut, and a pitfall the step needs can go unseen (shipping once cut one of its two leak-check pitfalls this way). Merge near-duplicates with `--supersedes`.
 - **No memory there, no lines.** Most transitions print nothing extra.
 - **One status per memory.** It is checked when written: a status none of the project's workflow files has is refused with the names, and stored as the workflow spells it. If a status is renamed later, `issue-cli health lint --check memory` names each memory left behind.
 - **A step memory with no `--at`.** `health lint --check memory` names a project pitfall or howto whose text names an open status as a step (a two-word or hyphenated name anywhere: in design, human-testing; a one-word name after at, in, before, after, during, while or when, or as the first word: "Shipping on a busy night") and has no `--at`, with `memory edit <id> --at "<status>"` as the fix. A status beside an arrow (`idea → in progress`) is a workflow edge and doesn't count.
@@ -260,7 +260,8 @@ A note on one issue (what you tried, where you stopped, what this branch needs) 
 Every memory a stage is shown (start's `== Memories ==`, transition's memories `--at` the status, a stage briefing) is recorded as a `use` event with the **issue and status** of that stage. The issue's trace (`<issues>/.traces/<slug>.jsonl`, one span per status visit, [Traces](workflow-stats.md)) says whether the gate out of that visit passed **first try**. The join puts each use on the visit of its status that holds its time, once per memory per visit.
 
 - The **baseline** is the first-try rate of every traced visit at that status.
-- A memory's **usefulness** is the mean of (first try − baseline) over its last **20** injections with a known gate result, overall and per status. Above 0, the stages it reached did better than usual.
+- Only a status with **room to lift** is scored: its baseline is below 0.95 (1 − the 0.05 "helps" margin) and at least **3** of its visits failed first try. At a status that nearly always passes (`idea`, about 1.00) every memory's lift is 0 by construction, so its injections count as stages reached but not toward the window, the 8 and 15 thresholds or the per-status scores. `memory show` names them and where they were: `· 20 not scored (statuses that nearly always pass first try: idea 18, testing 2)`.
+- A memory's **usefulness** is the mean of (first try − baseline) over its last **20** scored injections with a known gate result, overall and per status. Above 0, the stages it reached did better than usual.
 - No score until **8** known injections ("not measured"). An open visit, or one with no gate result, is unknown, not a failure. Use events from before this change name no issue and are not scored.
 - **Helps**: measured with a lift above 0.05. **No help**: measured with a lift of 0 or below.
 
@@ -270,6 +271,7 @@ Every memory a stage is shown (start's `== Memories ==`, transition's memories `
 
 - A memory measured **no help** ranks lower: its strength is halved before the decay weighting ([Decay ranking](#decay-ranking)). It still shows when it is the best match.
 - No help over **15** or more known injections puts it on the consolidate pack's **Unhelpful** list. The consolidate run lists it for the owner in its owner issue and never forgets it. The owner forgets or keeps it.
+- The **status mix** shows beside every such score, so an empty one is visible before anyone forgets a memory: each Unhelpful entry has a `stages: scored: in progress 15 · not scored: idea 20` line (the scored statuses with their known injections, then the unscored ones with theirs; `scored: none` when nothing was), the memory page's red chip has it in its tooltip, and `memory list --json` has the unscored counts by status as `usefulness.no_room_at`.
 - A pinned memory is never ranked down, hidden or listed. A score never deletes, forgets or invalidates anything.
 
 ### What a stage gets

@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,4 +76,37 @@ func Exec(ctx context.Context, dir, command string, argv []string, brief string,
 		return out.String(), err
 	}
 	return out.String(), nil
+}
+
+// SessionPrefix starts a critic's Claude Code session name, so issue-cli
+// spend --kinds can tell a critic's tokens from its worker's: the critic
+// runs in the issue's worktree.
+const SessionPrefix = "critic-"
+
+// sessionUnsafe is what a session name never holds.
+var sessionUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// SessionName is the critic's session name for slug: critic-<slug's last
+// part>, letters, digits, - and _ only.
+func SessionName(slug string) string {
+	s := slug
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.Trim(sessionUnsafe.ReplaceAllString(s, "-"), "-")
+	if len(s) > 60 {
+		s = strings.TrimRight(s[:60], "-")
+	}
+	return SessionPrefix + s
+}
+
+// WithName is argv with -n name after the claude command (a headless
+// claude -p writes it as the transcript's agent-name record); any other
+// agent's argv stays as it is.
+func WithName(argv []string, name string) []string {
+	if len(argv) == 0 || name == "" || filepath.Base(argv[0]) != "claude" || slices.Contains(argv, "-n") {
+		return argv
+	}
+	out := append([]string{argv[0], "-n", name}, argv[1:]...)
+	return out
 }

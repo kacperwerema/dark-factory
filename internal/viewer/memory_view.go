@@ -89,6 +89,7 @@ func usefulnessChip(m memory.Memory, u memory.Usefulness) (text, chip, title str
 	case u.Helps():
 		return fmt.Sprintf("helps %+.2f · %d", u.Lift, u.Known), "wb-chip--green", title
 	case u.Unhelpful() && !m.Pinned:
+		title += "; stages " + u.Mix()
 		if u.ProposeForget() {
 			title += "; the next memory consolidate proposes forgetting it to you"
 		}
@@ -270,7 +271,7 @@ func (s *Server) buildMemory(p *tracker.Project, prefix string, q memoryQuery, n
 	lot, rows := s.buildLot(p, color, now)
 	d := MemoryData{Title: p.Name + " · Memory", AddCmd: `issue-cli memory add "<fact>" --kind fact|convention|pitfall|howto|who`,
 		ProjectPath: memory.ProjectPath(p.IssueDir), MachinePath: memory.MachinePath()}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
+	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Memory", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)

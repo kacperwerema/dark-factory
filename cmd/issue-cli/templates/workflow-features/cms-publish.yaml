@@ -1,0 +1,43 @@
+id: cms-publish
+version: v0.64.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [types-of-work]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml"]
+title: "piece and seo-pass publish to the site through the cms connector and record its URL"
+what: |
+  The `piece` type's brief names `site (cms)` as a place when the department has
+  the `cms` connector; its draft puts that piece on the shelf as the markdown file
+  that will go out. Brief and draft make no `cms` call. At publish, the approved
+  output's file (`issue-cli outputs --issue <slug> --state approved --json`) goes
+  out through `issue-cli connector exec <department>/cms -- sh
+  departments/<department>/cms-ghost.sh publish --file … --title … --kind post|page`,
+  and the URL it prints is the one `issue-cli output publish <id> --url` records,
+  with the link under ## Published. `seo-pass` publish does it per approved output:
+  an existing page is `get --slug` then `update --id`, a new post is `publish`. A
+  place the brief names other than the site uses that place's connector. With no
+  `cms` connector the step publishes nothing: it names the approved file and asks
+  the owner for the link (an `answer:` comment).
+why: |
+  Publish said "where the brief says" and named no tool, so an approved post had
+  nowhere to go and the shelf no real link. The cms connector puts it on the
+  site and answers with the URL.
+where: "types.piece.statuses (brief, draft, publish) and types.seo-pass.statuses (draft, publish) in the department's workflow file"
+snippet: |
+  types:
+    piece:
+      statuses:
+        - name: "publish"
+          prompt: |
+            Publish exactly what the owner approved, where the brief says. Find the approved output and its file: issue-cli outputs --issue <slug> --state approved --json.
+            The site, with the department's `cms` connector: issue-cli connector exec <department>/cms -- sh departments/<department>/cms-ghost.sh publish --file <the approved file> --title "<title>" --kind post|page; it prints {"id","status","url"}.
+            No `cms` connector: publish nothing; name the approved file and ask the owner for the link in an `answer:` comment.
+            issue-cli output publish <id> --url <url>, the link under ## Published, then done.
+  # The full prompts (piece brief, draft, publish; seo-pass draft, publish) are
+  # in the bundled marketing template (docs/departments.md, "Publishing to the
+  # site"). The cms connector itself is commented in connectors.example.yaml.
+question: "Should Marketing's piece and seo-pass publish steps put approved posts and pages on the site through the department's cms connector and record the URL it answers with?"
+detect:
+  - path: types.*.statuses[].prompt
+    contains: "/cms -- sh"

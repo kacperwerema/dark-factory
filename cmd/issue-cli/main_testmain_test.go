@@ -29,6 +29,11 @@ func TestMain(m *testing.M) {
 	// main: the clilog record and telemetry too (bench smoke's stand-in
 	// worker is checked by its clilog calls).
 	if os.Getenv("ISSUE_CLI_TEST_AS_MAIN") == "1" {
+		// lead_test.go's init drops the lead scope, in a child too: a
+		// child that runs as a lead names it here.
+		if scope := os.Getenv("ISSUE_CLI_TEST_LEAD_SCOPE"); scope != "" {
+			os.Setenv("ISSUE_VIEWER_LEAD_SCOPE", scope)
+		}
 		main()
 		os.Exit(0)
 	}

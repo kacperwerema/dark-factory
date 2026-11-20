@@ -141,7 +141,7 @@ func TestWorkerLaunchStrictMCP(t *testing.T) {
 	proj.Departments[0].Connectors[0].DenyTools = []string{"submit"}
 	dir = t.TempDir()
 	ws = WorkerSetupFlags(proj, Spec{IssueSlug: "page", AgentType: "claude", Workflow: wf}, proj.WorkDir, dir, env, new([]Step))
-	if !slices.Contains(ws.Flags, "--disallowedTools=mcp__gsc__submit") {
+	if !slices.Contains(ws.Flags, "--disallowedTools=mcp__gsc__submit,Workflow,SendFeedback,ReportFindings,ListAgents") {
 		t.Errorf("flags = %q", ws.Flags)
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "mcp.json"))

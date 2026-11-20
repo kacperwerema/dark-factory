@@ -186,6 +186,22 @@ func TestTickStatus(t *testing.T) {
 	if st := s.TickStatus(alive, now.Add(TickGrace)); !st.Missing || st.Ended.IsZero() || st.Command != tick {
 		t.Fatalf("past the grace: %+v", st)
 	}
+
+	// A tick a signal stopped did not end on news: missing at once, with
+	// the signal and its pid; a newer tick's start forgets it.
+	s.Register(Watch{PID: 11, Command: tick, Started: now})
+	s.Stopped(11, "SIGTERM", now.Add(-time.Minute))
+	if st := s.TickStatus(alive, now); !st.Missing || st.Signal != "SIGTERM" || st.PID != 11 || st.DeadPID != 0 || st.Command != tick {
+		t.Fatalf("stopped by a signal: %+v", st)
+	}
+	s.Stopped(12, "SIGTERM", now)
+	if s.Tick.PID != 11 {
+		t.Fatalf("a pid not among the watches changed the tick: %+v", s.Tick)
+	}
+	s.Register(Watch{PID: 1, Command: tick, Started: now})
+	if s.Tick.Signal != "" {
+		t.Fatalf("a new tick kept the old stop: %+v", s.Tick)
+	}
 }
 
 func TestIsTick(t *testing.T) {

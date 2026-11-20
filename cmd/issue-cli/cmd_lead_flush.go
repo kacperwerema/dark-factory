@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
@@ -12,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
 	"github.com/kacperwerema/dark-factory/internal/leadchat"
+	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/memory"
 	"github.com/kacperwerema/dark-factory/internal/ownerstep"
 	"github.com/kacperwerema/dark-factory/internal/spend"
@@ -21,7 +23,8 @@ import (
 const leadFlushUsage = `usage: issue-cli lead flush <step> --run <lead-flush run slug>
 
 The nightly lead-flush job's steps, run by that job's worker (brief:
-builtin:lead-flush). Nothing here starts, sends or decides anything.
+builtin:lead-flush). Nothing here sends or decides anything; close starts
+only the lead it closed, again.
 
   pack                 the previous note, the commands that show the state,
                        the last 24 hours of lead chat; reads only
@@ -31,10 +34,12 @@ builtin:lead-flush). Nothing here starts, sends or decides anything.
   summary --file <f>   write sessions/<date>-lead-<project>.summary.md: 30
                        lines at most; no secret
   close                close the lead's session, once both files exist and
-                       the lead isn't in the middle of a turn
+                       the lead isn't in the middle of a turn, stop its old
+                       tick and start the lead again under the same name
 
-<date> is the run's created day. The next lead spawn's first prompt carries
-the newest note, its summary and the memory pins.`
+<date> is the run's created day. The fresh lead's first prompt carries the
+newest note, its summary, the memory pins, its state file and the tick to
+start again.`
 
 // flushChatLines is how much of the pane a lead with no transcript gives
 // the pack; flushChatSince how far back the chat goes.
@@ -269,9 +274,104 @@ func (f flush) close() error {
 	if agentrun.PaneWorking(agentrun.Target(f.proj, f.lead), flushBusyLines) {
 		return fmt.Errorf("%s is in the middle of a turn: it stays open. Try again in ten minutes", f.lead)
 	}
+	ticks, err := f.handOver()
+	if err != nil {
+		return fmt.Errorf("%s stays open: %w", f.lead, err)
+	}
 	if err := closeLeadSession(f.proj, f.lead); err != nil {
 		return fmt.Errorf("closing %s: %w", f.lead, err)
 	}
-	fmt.Fprintf(f.ctx.Stdout, "✓ Closed %s. The next lead spawn starts from the note, the summary and the pins.\n", f.lead)
+	fmt.Fprintf(f.ctx.Stdout, "✓ Closed %s.\n", f.lead)
+	f.stopTicks(ticks)
+	// The lead comes back by itself: same name, its first prompt carries
+	// the note, the summary, the state file and the tick to restart.
+	if err := leadFlushSpawn(f.ctx); err != nil {
+		return fmt.Errorf("%s is closed but did not start again: %w. Start it from the owner's shell: %s", f.lead, err, tracker.InjectProject(f.proj, "issue-cli lead spawn"))
+	}
 	return nil
+}
+
+// leadFlushSpawn starts the lead close just closed; a var for the tests.
+var leadFlushSpawn = func(ctx *Context) error { return spawnLead(ctx, "", "", false) }
+
+// stopLeadTick ends an old tick's process; a var for the tests.
+var stopLeadTick = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+
+// leadTickProcess reports whether pid still runs a lead tick: a watch's pid
+// can be another process's by now. A var for the tests.
+var leadTickProcess = func(pid int) bool {
+	if !pidAlive(pid) {
+		return false
+	}
+	args, err := agentrun.PaneArgs(pid)
+	return err == nil && leadstate.IsTick(args)
+}
+
+// handOver records what the fresh lead's first prompt carries after the
+// close: the note and summary, the state file as it is now and the watches
+// to start again, the tick always among them. It returns the old ticks'
+// pids, which the close stops: a background shell can outlive its session,
+// and the fresh lead starts its own. Without a state dir there is nothing
+// to record.
+func (f flush) handOver() ([]int, error) {
+	if leadstate.Dir() == "" {
+		return nil, nil
+	}
+	issues, err := f.proj.LoadIssues()
+	if err != nil {
+		return nil, err
+	}
+	state, err := renderLeadState(f.ctx, f.lead, issues)
+	if err != nil {
+		return nil, err
+	}
+	store, err := leadstate.Load(f.lead)
+	if err != nil {
+		return nil, err
+	}
+	var ticks []int
+	watches := append([]leadstate.Watch(nil), store.Watches...)
+	hasTick := false
+	for _, w := range watches {
+		if leadstate.IsTick(w.Command) {
+			hasTick = true
+			ticks = append(ticks, w.PID)
+		}
+	}
+	if !hasTick {
+		cmd := "issue-cli lead tick --watch --exit-on-news"
+		if store.Tick != nil && store.Tick.Command != "" {
+			cmd = store.Tick.Command
+		}
+		watches = append([]leadstate.Watch{{Command: tracker.InjectProject(f.proj, cmd)}}, watches...)
+	}
+	now := f.ctx.now()
+	store.Handover = &leadstate.Handover{
+		At: now, By: leadstate.ByFlush,
+		Note:   filepath.Join(f.dir, tracker.HandoffNoteName(f.day, f.lead)),
+		Digest: filepath.Join(f.dir, tracker.HandoffSummaryName(f.day, f.lead)),
+		State:  state, Watches: watches, Since: now,
+	}
+	return ticks, store.Save(f.lead)
+}
+
+// stopTicks ends the old lead's ticks that still run and drops them from
+// its state, so the fresh lead's tick is the only one.
+func (f flush) stopTicks(pids []int) {
+	for _, pid := range pids {
+		if pid == os.Getpid() || !leadTickProcess(pid) {
+			continue
+		}
+		if err := stopLeadTick(pid); err != nil {
+			fmt.Fprintf(f.ctx.Stdout, "! The old tick (pid %d) still runs: %s\n", pid, err)
+			continue
+		}
+		fmt.Fprintf(f.ctx.Stdout, "✓ Stopped the old tick (pid %d)\n", pid)
+	}
+	if store, err := leadstate.Load(f.lead); err == nil && len(pids) > 0 {
+		for _, pid := range pids {
+			store.Unregister(pid)
+		}
+		_ = store.Save(f.lead)
+	}
 }

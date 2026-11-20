@@ -177,3 +177,31 @@ func treeFiles(t *testing.T, root string) []string {
 	}
 	return out
 }
+
+// TestDepartmentAddMarketingPrintsCmsUp: department add marketing names the
+// one command that stands the cms slot's default up (Ghost: cms up), says
+// it turns nothing on, and partners --slot cms shows it on the row; the
+// entry's cms connector stays a comment.
+func TestDepartmentAddMarketingPrintsCmsUp(t *testing.T) {
+	asLead(t)
+	proj, cfg := deptTemplateProject(t)
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"add", "marketing"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "Stand up Ghost (cms) once on this machine: issue-cli --project acme cms up (it writes no config: you turn the cms connector on in "+cfg+")")
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(l) == "- name: cms" {
+			t.Errorf("department add turned the cms connector on:\n%s", raw)
+		}
+	}
+	ctx, out = goalsCtx(t, proj, false)
+	if err := runDepartment(ctx, []string{"partners", "--slot", "cms"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "stand it up: issue-cli cms up")
+}

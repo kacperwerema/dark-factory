@@ -310,6 +310,13 @@ type WorkflowConfig struct {
 	// so a half-built tree never starts an agent.
 	WorktreeSetup string `yaml:"worktree_setup,omitempty" desc:"Shell command run inside a newly created worktree (e.g. 'make'). Runs on creation only; failure aborts dispatch."`
 
+	// WorktreeDeps is how a new worktree gets its dependencies: "shared"
+	// (the default, also "") links each node_modules the main checkout has
+	// while the worktree's lock file is the same as the main checkout's
+	// (agentrun.ShareDeps); "own" links nothing, so worktree_setup or the
+	// worker installs.
+	WorktreeDeps string `yaml:"worktree_deps,omitempty" desc:"shared (default): link the main checkout's node_modules into a new worktree while its lock file is the same; own: link nothing"`
+
 	// WorktreeSparseExclude lists path patterns to keep OUT of the worktree
 	// via git sparse-checkout. Agents dispatched into the worktree get
 	// confused when the issues/ tree is materialized there — the worktree
@@ -421,6 +428,15 @@ func (w *WorkflowConfig) WorktreeSetupCmd() string {
 		return ""
 	}
 	return strings.TrimSpace(w.WorktreeSetup)
+}
+
+// WorktreeDepsShared reports whether new worktrees link the main
+// checkout's node_modules (worktree_deps: shared, the default).
+func (w *WorkflowConfig) WorktreeDepsShared() bool {
+	if w == nil {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(w.WorktreeDeps)) != "own"
 }
 
 // WorktreeSparseExcludes returns the path patterns to exclude from the

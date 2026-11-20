@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -30,6 +31,9 @@ const (
 	ForgetMin = 15
 	// UnhelpfulFactor is what an unhelpful memory's strength is multiplied by.
 	UnhelpfulFactor = 0.5
+	// RoomMinFails: a status is scored only when this many of its visits
+	// failed their gate first try; fewer is no baseline to beat.
+	RoomMinFails = 3
 	// useSlack: a use event may be stamped a moment before its span's start
 	// (transition prints the memories as it writes the move).
 	useSlack = time.Minute
@@ -147,8 +151,53 @@ type Usefulness struct {
 	Score
 	// Injections is every injection joined to a stage, known or not.
 	Injections int `json:"injections"`
+	// NoRoom is how many of them were at a status with no room to lift
+	// (LiftRoom): not scored.
+	NoRoom int `json:"no_room,omitempty"`
+	// NoRoomAt is NoRoom by status (lower-cased).
+	NoRoomAt map[string]int `json:"no_room_at,omitempty"`
 	// ByStatus is the score at each status it reached.
 	ByStatus map[string]Score `json:"by_status,omitempty"`
+}
+
+// Mix is the status mix behind the score, so an empty one shows before
+// anyone acts on it: each scored status with its known injections, the
+// most first, then each status with no room to lift with its injections:
+// "scored: in progress 12, shipping 5 · not scored: idea 20".
+func (u Usefulness) Mix() string {
+	var scored []string
+	for _, st := range u.Statuses() {
+		scored = append(scored, fmt.Sprintf("%s %d", st, u.ByStatus[st].Known))
+	}
+	out := "scored: none"
+	if len(scored) > 0 {
+		out = "scored: " + strings.Join(scored, ", ")
+	}
+	if nr := u.NoRoomMix(); nr != "" {
+		out += " · not scored: " + nr
+	}
+	return out
+}
+
+// NoRoomMix is where the unscored injections were, the most first:
+// "idea 18, testing 2" ("" when none).
+func (u Usefulness) NoRoomMix() string {
+	var keys []string
+	for st := range u.NoRoomAt {
+		keys = append(keys, st)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := u.NoRoomAt[keys[i]], u.NoRoomAt[keys[j]]
+		if a != b {
+			return a > b
+		}
+		return keys[i] < keys[j]
+	})
+	var out []string
+	for _, st := range keys {
+		out = append(out, fmt.Sprintf("%s %d", st, u.NoRoomAt[st]))
+	}
+	return strings.Join(out, ", ")
 }
 
 // ProposeForget: unhelpful over at least ForgetMin known injections. The
@@ -232,6 +281,25 @@ func Baseline(outcomes []Outcome) map[string]float64 {
 	return out
 }
 
+// LiftRoom is, by status (lower-cased), whether a memory's lift can show
+// there: its baseline is below 1 − UsefulMargin (so a memory could measure
+// "helps") and at least RoomMinFails visits failed first try. At a status
+// where stages nearly always pass (idea), first try − baseline is about 0
+// for every memory, and scoring it would call them all "no help".
+func LiftRoom(outcomes []Outcome) map[string]bool {
+	fails := map[string]int{}
+	for _, o := range outcomes {
+		if o.FirstTry != nil && !*o.FirstTry {
+			fails[strings.ToLower(o.Status)]++
+		}
+	}
+	out := map[string]bool{}
+	for k, rate := range Baseline(outcomes) {
+		out[k] = rate < 1-UsefulMargin && fails[k] >= RoomMinFails
+	}
+	return out
+}
+
 // Injection is one memory reaching one stage: at most one per memory per
 // status visit.
 type Injection struct {
@@ -293,16 +361,32 @@ func Injections(events []Event, outcomes []Outcome) []Injection {
 }
 
 // ScoreAll is every memory's usefulness from the injections and the
-// baseline of all outcomes.
+// baseline of all outcomes. Injections at a status with no room to lift
+// (LiftRoom) count in Injections and NoRoom only: the window, the
+// thresholds and ByStatus see the rest.
 func ScoreAll(events []Event, outcomes []Outcome) Scores {
 	base := Baseline(outcomes)
+	room := LiftRoom(outcomes)
 	byID := map[string][]Injection{}
+	noRoom := map[string]int{}
+	noRoomAt := map[string]map[string]int{}
+	total := map[string]int{}
 	for _, in := range Injections(events, outcomes) {
+		total[in.ID]++
+		if !room[strings.ToLower(in.Status)] {
+			noRoom[in.ID]++
+			if noRoomAt[in.ID] == nil {
+				noRoomAt[in.ID] = map[string]int{}
+			}
+			noRoomAt[in.ID][strings.ToLower(in.Status)]++
+			continue
+		}
 		byID[in.ID] = append(byID[in.ID], in)
 	}
 	out := Scores{}
-	for id, ins := range byID {
-		u := Usefulness{Injections: len(ins), Score: window(ins, base, "")}
+	for id, n := range total {
+		ins := byID[id]
+		u := Usefulness{Injections: n, NoRoom: noRoom[id], NoRoomAt: noRoomAt[id], Score: window(ins, base, "")}
 		statuses := map[string]string{}
 		for _, in := range ins {
 			statuses[strings.ToLower(in.Status)] = in.Status

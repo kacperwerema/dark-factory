@@ -209,6 +209,7 @@ func runCIRun(ctx *Context, args []string) error {
 	tierFlag := fs.String("tier", "", "also run this tier's commands (e.g. slow)")
 	detachFlag := fs.Bool("detach", false, "start the run in tmux window ci-<project> and return")
 	untestedFlag := fs.Bool("if-untested", false, "skip a head that was already tested (used by the watchers)")
+	reinstallFlag := fs.Bool("reinstall", false, "run install steps (npm ci, pnpm install) even when the lock file is unchanged since the last green install")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -221,6 +222,13 @@ func runCIRun(ctx *Context, args []string) error {
 	if lock, alive := ci.ReadLock(root); alive {
 		fmt.Fprintf(ctx.Stdout, "already running at %s (pid %d); it tests the newest head when done\n", gitdir.ShortSHA(lock.Sha), lock.PID)
 		return nil
+	}
+	if *reinstallFlag {
+		n, err := ci.ForgetInstalls(root)
+		if err != nil {
+			return fmt.Errorf("ci run --reinstall: %w", err)
+		}
+		fmt.Fprintf(ctx.Stdout, "--reinstall: forgot %d install stamp(s); this run installs again\n", n)
 	}
 	if *detachFlag {
 		where, err := startDetachedCI(ctx, proj, root, *tierFlag, *untestedFlag)

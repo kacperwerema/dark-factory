@@ -114,3 +114,44 @@ func IsPatch(cut string) bool {
 	parts := strings.Split(Norm(cut), ".")
 	return len(parts) == 3 && parts[2] != "0" && parts[2] != ""
 }
+
+// releaseTagRe is a published release's tag: "v0.63.0", no pre-release.
+var releaseTagRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
+
+// NewestPublished is the highest published release among tag names
+// ("v0.63.0"); candidate and other tags are skipped. "" for none.
+func NewestPublished(tags []string) string {
+	best := ""
+	for _, t := range tags {
+		if !releaseTagRe.MatchString(t) {
+			continue
+		}
+		if best == "" || Compare(Norm(t), Norm(best)) > 0 {
+			best = t
+		}
+	}
+	return best
+}
+
+// OneSupported is the rule that only the newest published release is
+// supported: no candidate, cut or publish of an older version.
+const OneSupported = "one version is supported: the newest published release"
+
+// Unsupported reports whether cut is older than newest, the newest
+// published release (false when newest is "").
+func Unsupported(cut, newest string) bool {
+	return newest != "" && Compare(Norm(cut), Norm(newest)) < 0
+}
+
+// OlderLine reports whether cut's release branch (vX.Y) is older than
+// newest's: a pick onto it patches an unsupported version.
+func OlderLine(cut, newest string) bool {
+	if newest == "" {
+		return false
+	}
+	line := func(v string) string {
+		p := strings.Split(Norm(v), ".")
+		return p[0] + "." + p[1] + ".0"
+	}
+	return Compare(line(cut), line(newest)) < 0
+}

@@ -45,7 +45,9 @@ func printLeadTickMissing(ctx *Context, command string, args []string) {
 	why := "none has run"
 	switch {
 	case st.DeadPID != 0:
-		why = fmt.Sprintf("its process (pid %d) is gone: the session that ran it ended", st.DeadPID)
+		why = fmt.Sprintf("its process (pid %d) is gone without a word: killed, or the session that ran it ended", st.DeadPID)
+	case st.Signal != "":
+		why = fmt.Sprintf("the last one (pid %d) was stopped by %s at %s", st.PID, st.Signal, st.Ended.Local().Format("15:04"))
 	case !st.Ended.IsZero():
 		why = "the last one exited at " + st.Ended.Local().Format("15:04") + " and none started since"
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 // mergeCheckRepo is a TempDir git repo on main holding the repo's Makefile
@@ -138,7 +140,8 @@ func TestMergeCheckFindsConflictMarkers(t *testing.T) {
 }
 
 // The step is cheap: under a second on this repo. On a loaded machine it is
-// compared with a plain git grep timed in the same run.
+// compared with a plain git grep timed in the same run, best of several
+// rounds (timing.Check).
 func TestMergeCheckIsCheapOnThisRepo(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not installed")
@@ -153,13 +156,10 @@ func TestMergeCheckIsCheapOnThisRepo(t *testing.T) {
 		}
 		return time.Since(start)
 	}
-	took := timed("make", "--no-print-directory", "merge-check")
-	if took < time.Second {
-		return
-	}
-	plain := timed("git", "grep", "-n", "-I", "-E", "^no-such-line-anywhere$")
-	if took > 3*plain+500*time.Millisecond {
-		t.Errorf("make merge-check took %v (a plain git grep %v): want under 1s", took, plain)
+	step := func() time.Duration { return timed("make", "--no-print-directory", "merge-check") }
+	plain := func() time.Duration { return timed("git", "grep", "-n", "-I", "-E", "^no-such-line-anywhere$") }
+	if r := (timing.Check{Limit: time.Second, Ratio: 4}).Run(step, plain); r.Slow {
+		t.Errorf("make merge-check against a plain git grep: %v", r)
 	}
 }
 
@@ -201,18 +201,20 @@ func TestClaudeMdListsTheValidateSteps(t *testing.T) {
 
 // claudeMdCap is CLAUDE.md's size cap in bytes. The file goes into every
 // session's first turn and so into every turn after it: per-file detail
-// lives in docs/code-structure.md, a doc's detail in docs/doc-map.md.
-const claudeMdCap = 20 * 1024
+// lives in docs/code-structure.md, a doc's detail in docs/doc-map.md, the
+// test rules in docs/testing.md. Halved from 20 KB when the Validation
+// detail moved to docs/testing.md (2026-11-18, 19.4 KB to 4.7 KB).
+const claudeMdCap = 8 * 1024
 
 // claudeMdTooBig says what is wrong with a CLAUDE.md of size bytes, or "".
 func claudeMdTooBig(size int) string {
 	if size <= claudeMdCap {
 		return ""
 	}
-	return fmt.Sprintf("CLAUDE.md is %d bytes, over its %d-byte cap (20 KB) by %d: move per-file detail to docs/code-structure.md, a doc's detail into that doc and docs/doc-map.md, and keep one line in CLAUDE.md that links there", size, claudeMdCap, size-claudeMdCap)
+	return fmt.Sprintf("CLAUDE.md is %d bytes, over its %d-byte cap (8 KB) by %d: move per-file detail to docs/code-structure.md, a test rule to docs/testing.md, a doc's detail into that doc and docs/doc-map.md, and keep one line in CLAUDE.md that links there", size, claudeMdCap, size-claudeMdCap)
 }
 
-// CLAUDE.md stays under 20 KB, and the refusal names the size and where the
+// CLAUDE.md stays under 8 KB, and the refusal names the size and where the
 // text goes.
 func TestClaudeMdStaysSmall(t *testing.T) {
 	doc, err := os.ReadFile(repoPath("CLAUDE.md"))
@@ -223,7 +225,7 @@ func TestClaudeMdStaysSmall(t *testing.T) {
 		t.Error(msg)
 	}
 	msg := claudeMdTooBig(claudeMdCap + 1)
-	for _, want := range []string{"20481 bytes", "by 1", "docs/code-structure.md", "docs/doc-map.md"} {
+	for _, want := range []string{"8193 bytes", "by 1", "docs/code-structure.md", "docs/doc-map.md"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("an oversized CLAUDE.md's message doesn't say %q: %s", want, msg)
 		}

@@ -28,7 +28,11 @@ changed (a refactor, a fix), mark it on a branch commit instead:
   Catalog: n/a <id>[,<id>...] <why>
 The line counts in any paragraph of the message, merge commits included,
 and only once it is committed: a line in a message you haven't committed
-yet reads as missing here. One without an entry id, or naming an entry the catalog lacks, fails the
+yet reads as missing here. Before the commit, record it with
+issue-cli workflow catalog-na <id>[,<id>...] <why>: it counts while the
+change is uncommitted, and the commit-msg hook writes it into the commit.
+An entry the branch bumps needs no line; Catalog: <id> naming it is read
+too, and fails when the entry isn't bumped. One without an entry id, or naming an entry the catalog lacks, fails the
 check. Files the branch has only because it merged main aren't asked about.
 On a release/vX.Y branch only the commits after its newest vX.Y.Z or
 vX.Y.Z-rc.N tag are read: the tagged ones are published and were checked.
@@ -82,6 +86,10 @@ func runCatalogCheck(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	recorded, counted := catalogRecordedTrailer(root)
+	if counted {
+		trailers = append(trailers, recorded)
+	}
 	changelog, err := os.ReadFile(filepath.Join(root, workflowupgrade.ChangelogPath))
 	if err != nil {
 		return err
@@ -116,10 +124,11 @@ func runCatalogCheck(ctx *Context, args []string) error {
 		}
 	} else {
 		printCatalogCheck(ctx.Stdout, rep)
+		printCatalogRecorded(ctx.Stdout, recorded, counted)
 	}
 	if !rep.OK() {
 		ctx.red = catalogRedNames(rep)
-		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s, which counts only once committed), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
+		return fmt.Errorf("catalog-check: bump the entries above or mark them n/a (%s, which counts once committed, or before with issue-cli workflow catalog-na), and fix each catalog problem as it says", workflowupgrade.TrailerForm)
 	}
 	return nil
 }
@@ -195,6 +204,35 @@ func catalogTrailers(root, mergeBase string) ([]workflowupgrade.Trailer, error) 
 		}
 	}
 	return trailers, nil
+}
+
+// recordedCommit is the Commit of the Catalog: n/a line catalog-na
+// recorded for the next commit.
+const recordedCommit = "the next commit"
+
+// catalogRecordedTrailer is the line catalog-na recorded at root, and
+// whether it counts: only while the working tree has uncommitted changes
+// (the commit-msg hook writes it into the commit that takes them). With
+// everything committed it would vouch for a commit that never got it.
+func catalogRecordedTrailer(root string) (workflowupgrade.Trailer, bool) {
+	v := catalogRecordedNA(root)
+	if v == "" {
+		return workflowupgrade.Trailer{}, false
+	}
+	t := workflowupgrade.Trailer{Commit: recordedCommit, Value: v}
+	status, err := catalogGit(root, "status", "--porcelain")
+	return t, err == nil && status != ""
+}
+
+// printCatalogRecorded says where a line catalog-na recorded stands.
+func printCatalogRecorded(w io.Writer, t workflowupgrade.Trailer, counted bool) {
+	switch {
+	case t.Value == "":
+	case counted:
+		fmt.Fprintf(w, "note: Catalog: %s is recorded for the next commit (catalog-na): it counts while this change is uncommitted, and the commit-msg hook writes it into the commit\n", t.Value)
+	default:
+		fmt.Fprintf(w, "✗ Catalog: %s was recorded with catalog-na but no commit got it, and everything is committed: it counts for nothing. Paste it into a commit message (git commit --amend when the last commit is yours), then issue-cli workflow catalog-na --clear\n", t.Value)
+	}
 }
 
 // catalogOwnChanges drops the changed files whose content in the working
@@ -346,11 +384,11 @@ func printCatalogFix(w io.Writer, rep *workflowupgrade.CheckReport) {
 	}
 	switch {
 	case len(na) > 0 && len(bump) > 0:
-		fmt.Fprintln(w, "→ for the rest, paste this one line into a commit message (it counts only once committed: until then this check stays red; add a bumped id to it instead if that change is a refactor too):")
+		fmt.Fprintln(w, "→ for the rest, paste this one line into a commit message, or record it now (issue-cli workflow catalog-na <ids> <why>: the hook adds it to your next commit; add a bumped id to it instead if that change is a refactor too):")
 	case len(na) > 0:
-		fmt.Fprintln(w, "→ if none of them changed what projects adopt (refactor, fix), paste this one line into a commit message (it counts only once committed: until then this check stays red):")
+		fmt.Fprintln(w, "→ if none of them changed what projects adopt (refactor, fix), paste this one line into a commit message, or record it now (issue-cli workflow catalog-na <ids> <why>: it counts at once, and the hook adds it to your next commit):")
 	default:
-		fmt.Fprintln(w, "→ if it is a refactor or fix after all, paste this line into a commit message instead (it counts only once committed):")
+		fmt.Fprintln(w, "→ if it is a refactor or fix after all, paste this line into a commit message instead, or record it with issue-cli workflow catalog-na <ids> <why>:")
 		na = bump
 	}
 	fmt.Fprintf(w, "    Catalog: n/a %s <why>\n", strings.Join(na, ","))

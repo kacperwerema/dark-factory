@@ -268,7 +268,7 @@ Lists are always arrays, never `null`. `enabled: false` with a `disabled` reason
 
 New commands must call `parseFlags(ctx, fs, args)` (or `parseFlagsArgs` / `parsePositionals`, see [Adding a command](overview.md#adding-a-command)) instead of `fs.Parse`. Group commands declare `Subcommands` (and `SubAliases`), and anything parsed by hand goes in `ExtraFlags`. Otherwise the flags and subcommands don't show up in events or in the never-used report.
 
-Every command also needs an entry in `commandAccess` (`cmd/issue-cli/readonly.go`): `TestEveryCommandHasAccess` fails without one. A command with a read mode also needs a sample call in `readSamples`; `TestReadCommandsLeaveAnotherProjectUnchanged` runs each one on a sandbox git repo from another project's folder and fails if the repo's git status changes.
+Every command also needs an entry in `commandAccess` (`cmd/issue-cli/readonly.go`): `TestEveryCommandJoinsEveryRegistry` fails without one, naming every other list the command is missing from too. A command with a read mode also needs a sample call in `readSamples`; `TestReadCommandsLeaveAnotherProjectUnchanged` runs each one on a sandbox git repo from another project's folder and fails if the repo's git status changes.
 
 ## Key files
 

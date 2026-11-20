@@ -245,3 +245,114 @@ func TestTelemetryKnowsTransitionCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestRefusedTransitionListsEveryUnmetRequirement: the engine refuses on
+// the first unmet rule; the refusal still names the others with their box
+// ids, and the one-call line ticks every one of them, so the agent's next
+// call moves instead of meeting the second rule's refusal.
+func TestRefusedTransitionListsEveryUnmetRequirement(t *testing.T) {
+	dir := t.TempDir()
+	systemDir := filepath.Join(dir, "issues", "CLI")
+	if err := os.MkdirAll(systemDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflowPath := filepath.Join(dir, "workflow.yaml")
+	workflow := `statuses:
+  - name: "in progress"
+  - name: "testing"
+transitions:
+  - from: "in progress"
+    to: "testing"
+    actions:
+      - type: validate
+        rule: "section_checkboxes_checked: Implementation"
+      - type: validate
+        rule: "section_checkboxes_checked: Test Plan"
+`
+	if err := os.WriteFile(workflowPath, []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	issuePath := filepath.Join(systemDir, "sample.md")
+	issue := `---
+title: "sample"
+status: "in progress"
+system: "CLI"
+---
+
+## Implementation
+- [x] Plan written
+- [ ] Code changes complete
+
+## Test Plan
+- [ ] Unit tests
+`
+	if err := os.WriteFile(issuePath, []byte(issue), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj := &tracker.Project{Name: "test", Slug: "test", IssueDir: filepath.Join(dir, "issues"), WorkflowFile: workflowPath}
+	asWorkerOn(t, "cli/sample")
+
+	ctx, _, _ := newTestContext(proj, false)
+	err := runTransition(ctx, []string{"cli/sample", "--to", "testing"})
+	if err == nil {
+		t.Fatal("want a refusal: I2 and TP1 are open")
+	}
+	msg := err.Error()
+	assertContains(t, msg, `1 of 2 box still open in section "Implementation"`)
+	assertContains(t, msg, "Also unmet for this move (1 more):")
+	assertContains(t, msg, `1 of 1 box still open in section "Test Plan"`)
+	assertContains(t, msg, "TP1  Unit tests")
+	if strings.Count(msg, "Implementation\"") != 1 {
+		t.Fatalf("the first rule is named twice:\n%s", msg)
+	}
+	want := "issue-cli --project test transition cli/sample --to testing --check I2 TP1"
+	if got := lastLine(msg); got != want {
+		t.Fatalf("last line = %q, want %q\n%s", got, want, msg)
+	}
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "testing", "--check", "I2", "TP1"}); err != nil {
+		t.Fatalf("the printed call: %v\n%s", err, stdout)
+	}
+	if got := statusOf(t, issuePath); got != "testing" {
+		t.Fatalf("status = %q, want testing", got)
+	}
+}
+
+// AC4: a dry run, ready or not, ends with the hint to skip it next time;
+// a real transition and a refusal print no such line.
+func TestDryRunEndsWithTheSkipDryRunHint(t *testing.T) {
+	proj, _ := tickFixture(t)
+	asWorkerOn(t, "cli/sample")
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "testing", "--dry-run"}); err == nil {
+		t.Fatal("dry run: want not ready")
+	}
+	if got := lastLine(stdout.String()); got != dryRunHint {
+		t.Fatalf("not ready: last line = %q, want the hint\n%s", got, stdout)
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "testing", "--dry-run", "--check", "I2,I3"}); err != nil {
+		t.Fatalf("dry run --check: %v\n%s", err, stdout)
+	}
+	if got := lastLine(stdout.String()); got != dryRunHint {
+		t.Fatalf("ready: last line = %q, want the hint\n%s", got, stdout)
+	}
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	err := runTransition(ctx, []string{"cli/sample", "--to", "testing"})
+	if err == nil {
+		t.Fatal("want a refusal")
+	}
+	assertNotContains(t, stdout.String()+err.Error(), "Skip --dry-run")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runTransition(ctx, []string{"cli/sample", "--to", "testing", "--check", "I2", "I3"}); err != nil {
+		t.Fatalf("real transition: %v\n%s", err, stdout)
+	}
+	assertNotContains(t, stdout.String(), "Skip --dry-run")
+
+	jctx, jout, _ := newTestContext(proj, true)
+	_ = runTransition(jctx, []string{"cli/sample", "--to", "done", "--dry-run"})
+	assertNotContains(t, jout.String(), "Skip --dry-run")
+}

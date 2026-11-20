@@ -70,7 +70,8 @@ func TestCatalogCheckOnABranch(t *testing.T) {
 	for _, want := range []string{"✗ catalog: this branch changes internal/health/score.go", "entry health-tuning is v0.53.0; the next release is v0.54.0", "issue-cli workflow catalog-bump health-tuning (sets version: v0.54.0", "\n    Catalog: n/a health-tuning <why>\n", "internal/health/score.go (matches internal/health/**)"} {
 		assertContains(t, out, want)
 	}
-	assertContains(t, err.Error(), "counts only once committed")
+	assertContains(t, err.Error(), "counts once committed, or before with issue-cli workflow catalog-na")
+	assertContains(t, out, "or record it now (issue-cli workflow catalog-na <ids> <why>")
 
 	catalogRepoGit(t, dir, "commit", "-q", "--allow-empty", "-m", "note\n\nCatalog: n/a health-tuning only a constant")
 	ctx, stdout, _ = newTestContext(proj, false)
@@ -124,6 +125,71 @@ func TestCatalogCheckInAWorktreeBeforeTheFirstCommit(t *testing.T) {
 		t.Errorf("output doesn't start with the summary line:\n%s", out)
 	}
 	assertContains(t, out, "catalog-check failed: 1 of 1 entries and 0 of 0 templates need a bump or an n/a; 0 Catalog: lines mark nothing")
+}
+
+// catalog-na records the n/a line before the commit, in the worktree's own
+// git dir: catalog-check counts it while the change is uncommitted, and
+// says so; once everything is committed without it, it counts for nothing.
+func TestCatalogCheckReadsTheRecordedNALineBeforeTheCommit(t *testing.T) {
+	dir := catalogRepo(t)
+	wt := filepath.Join(realTempDir(t), "wt")
+	catalogRepoGit(t, dir, "worktree", "add", "-q", "-b", "work/n", wt)
+	chdir(t, wt)
+	writeCatalogFile(t, wt, "internal/health/score.go", "package health\n\nconst n = 5\n")
+	proj := &tracker.Project{Name: "t", IssueDir: dir}
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-na", "refactor", "only"}); err == nil || !strings.Contains(err.Error(), `no catalog entry "refactor"`) {
+		t.Fatalf("an unknown id recorded: %v\n%s", err, stdout.String())
+	}
+	if err := runWorkflow(ctx, []string{"catalog-na", "health-tuning"}); err == nil {
+		t.Fatal("an id without why recorded")
+	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-na", "health-tuning", "only", "a", "constant"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "✓ Recorded for the next commit: Catalog: n/a health-tuning only a constant")
+	assertContains(t, stdout.String(), "no commit-msg hook here")
+	if _, err := os.Stat(filepath.Join(dir, ".git", "worktrees", "wt", catalogNAFile)); err != nil {
+		t.Fatalf("not in the worktree's own git dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git", catalogNAFile)); err == nil {
+		t.Fatal("written to the common git dir: every worktree would read it")
+	}
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-check"}); err != nil {
+		t.Fatalf("the recorded line didn't count before the commit: %v\n%s", err, stdout.String())
+	}
+	assertContains(t, stdout.String(), "✓ catalog health-tuning: marked n/a: only a constant")
+	assertContains(t, stdout.String(), "note: Catalog: n/a health-tuning only a constant is recorded for the next commit")
+
+	// The main checkout has no record: its own uncommitted change is red.
+	chdir(t, dir)
+	catalogRepoGit(t, dir, "checkout", "-q", "-b", "work/other")
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst o = 6\n")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-check"}); err == nil {
+		t.Fatalf("another checkout read the worktree's record:\n%s", stdout.String())
+	}
+
+	// Committed without the line (no hook here): the record counts for nothing.
+	chdir(t, wt)
+	catalogRepoGit(t, wt, "commit", "-q", "-am", "change health")
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-check"}); err == nil {
+		t.Fatalf("a record no commit got passed:\n%s", stdout.String())
+	}
+	assertContains(t, stdout.String(), "✗ Catalog: n/a health-tuning only a constant was recorded with catalog-na but no commit got it")
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runWorkflow(ctx, []string{"catalog-na", "--clear"}); err != nil {
+		t.Fatal(err)
+	}
+	if catalogRecordedNA(wt) != "" {
+		t.Fatal("--clear left the record")
+	}
 }
 
 // A Catalog: line counts in a paragraph before Co-Authored-By and on a merge

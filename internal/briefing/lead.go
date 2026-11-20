@@ -134,9 +134,13 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 	// The note is the last lead's own words: added after InjectProject,
 	// which is for the commands above.
 	b.WriteString(LeadStateLine)
-	// A fresh session after a rotate starts from the state file; otherwise
-	// the newest note and its chat summary.
+	// A fresh session after a rotate starts from the state file; after a
+	// flush close from the note, its chat summary and the state file;
+	// otherwise the newest note and its chat summary.
 	if h := leadstate.HandoverSection(lead, tracker.InjectProject(proj, "issue-cli lead history <words>"), now); h != "" {
+		if leadstate.FreshHandover(lead, now).FromFlush() {
+			h = tracker.LeadHandoffSection(notesDir, lead) + h
+		}
 		return tracker.InjectProject(proj, b.String()) + h
 	}
 	return tracker.InjectProject(proj, b.String()) + tracker.LeadHandoffSection(notesDir, lead)

@@ -104,10 +104,11 @@ main), else the issue-cli running the scripts. Ticking always uses the latter.
 
 A machine run refuses a branch build (the implicit one, or `--cli` on the same
 file) older than the checkout's code, the newest commit under `cmd/` and
-`internal/` or the newest Go source or embedded file there (not a clilog or other
+`internal/` or the newest Go source (not a `_test.go`) or embedded file there (not a clilog or other
 file a run leaves), so a pass is never about old code. It names the change and prints
 the build command. A commit made after the build counts too: rebuild and run
-again. The owner's run from a terminal and a `--cli` path elsewhere are not
+again. Any other command run by such a build still runs, and ends with a
+one-line warning on stderr (docs/CLI/overview.md#flags---help-and-exit-codes). The owner's run from a terminal and a `--cli` path elsewhere are not
 compared.
 
 A script is short: a header, the library, then the steps.
@@ -359,8 +360,8 @@ Stand-ins that check scripts kept writing for themselves, now in the library:
   viewer with a temp-folder config leaves the shared `viewer.json` alone,
   so issue-cli outside the script can't find it. Never pass
   `-record-viewer` from a script.
-- A step a script can't take, the briefing's rule: The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml: it knows you by your environment, tmux name and worktree, not by the config. Walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment to get past it.
-- A viewer outside a script, the briefing's rule: A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
+- A step a script can't take, the briefing's rule: The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml (it knows you by environment, tmux name and worktree): walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment.
+- A viewer outside a script, the briefing's rule: A sandbox viewer you start by hand gets its own state dir (XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml): the shared viewer.json is the owner's viewer's, which every issue-cli follows. Never pass -record-viewer.
 - Read anything you need from the owner's real environment (their tmux
   session, `$TMUX`) before `private_tmux`, and only in an owner run.
 - `sandbox_dir` is removed on exit, with any screenshot in it: `show` or

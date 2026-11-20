@@ -73,3 +73,21 @@ func TestHowToWorkKeepsEveryCommandOnce(t *testing.T) {
 		}
 	}
 }
+
+// AC3: every briefing's Reading code and docs asks for a step's reads in
+// one turn.
+func TestBriefingAsksToBatchReads(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		prompt, _ := howToWork(t, on)
+		_, rest, ok := strings.Cut(prompt, "## Reading code and docs\n")
+		if !ok {
+			t.Fatalf("YOLO %v: no Reading code and docs", on)
+		}
+		section, _, _ := strings.Cut(rest, "\n## ")
+		for _, want := range []string{"Each turn re-reads the whole context", "in one turn", "several tool calls in one message"} {
+			if !strings.Contains(section, want) {
+				t.Errorf("YOLO %v: Reading code and docs lacks %q:\n%s", on, want, section)
+			}
+		}
+	}
+}

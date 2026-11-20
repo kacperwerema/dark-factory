@@ -260,19 +260,25 @@ func PlanSuiteRun(dir string, names []string, command string) TestRun {
 	run := TestRun{Command: command, Packages: []string{}, Suite: true}
 	fileOf := map[string]string{}
 	if len(names) > 0 {
-		args := []string{"grep", "-w", "-F", "-o", "-I"}
+		// Whole lines, not -o (as findTests): -o prints only the longest
+		// match on a line, so a name inside a longer one's line read not
+		// found. -z ends the path with a NUL: a path or a title may hold a
+		// colon.
+		args := []string{"grep", "-z", "-w", "-F", "-I"}
 		for _, n := range names {
 			args = append(args, "-e", n)
 		}
 		out, _ := git(dir, append(args, "--")...)
 		files := &testFiles{grep: func(args ...string) (string, error) { return git(dir, args...) }}
-		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		for _, line := range strings.Split(out, "\n") {
+			// <path>\0<line>
+			file, text, ok := strings.Cut(line, "\x00")
+			if !ok || !files.is(file) {
+				continue
+			}
 			for _, n := range names {
-				// <path>:<match>; a name may hold a colon itself.
-				if file, ok := strings.CutSuffix(line, ":"+n); ok && files.is(file) {
-					if _, seen := fileOf[n]; !seen {
-						fileOf[n] = file
-					}
+				if _, seen := fileOf[n]; !seen && hasWholeWord(text, n) {
+					fileOf[n] = file
 				}
 			}
 		}

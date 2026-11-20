@@ -38,16 +38,18 @@ var gitPatchCut = func(root string) string {
 }
 
 // newestPatchCut picks, from tag names, the highest patch release that has
-// a candidate and no release tag.
+// a candidate and no release tag. One version is supported: a patch older
+// than the newest published release is no candidate.
 func newestPatchCut(tags []string) string {
 	have := map[string]bool{}
 	for _, t := range tags {
 		have[t] = true
 	}
+	newest := milestone.NewestPublished(tags)
 	best := ""
 	for _, t := range tags {
 		rc, ok := milestone.ParseRC(t)
-		if !ok || !rc.Exact || !milestone.IsPatch(rc.Cut) || have[rc.Cut] {
+		if !ok || !rc.Exact || !milestone.IsPatch(rc.Cut) || have[rc.Cut] || milestone.Unsupported(rc.Cut, newest) {
 			continue
 		}
 		if best == "" || milestone.Compare(milestone.Norm(rc.Cut), milestone.Norm(best)) > 0 {

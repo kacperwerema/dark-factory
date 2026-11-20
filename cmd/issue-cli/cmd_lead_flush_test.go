@@ -32,7 +32,8 @@ func goodNote(lines int) string {
 
 // makeFlushProject is a project whose Product entry has the lead-flush job,
 // with today's run written and this process its worker. A stand-in lead is
-// live until close kills it; the pane reads pane.
+// live until close kills it, and close's start of it again is recorded as
+// "spawn <lead>" after the kill; the pane reads pane.
 func makeFlushProject(t *testing.T, pane string) (*tracker.Project, *[]string) {
 	t.Helper()
 	proj := makeJobProject(t)
@@ -57,7 +58,16 @@ func makeFlushProject(t *testing.T, pane string) (*tracker.Project, *[]string) {
 		delete(live, agentrun.Target(proj, name))
 		return nil
 	}
-	t.Cleanup(func() { agentrun.HasSession, agentrun.CapturePane, closeLeadSession = origHas, origPane, origKill })
+	origSpawn := leadFlushSpawn
+	leadFlushSpawn = func(ctx *Context) error {
+		lead := tracker.LeadSessionName(ctx.Project)
+		killed = append(killed, "spawn "+lead)
+		live[agentrun.Target(proj, lead)] = true
+		return nil
+	}
+	t.Cleanup(func() {
+		agentrun.HasSession, agentrun.CapturePane, closeLeadSession, leadFlushSpawn = origHas, origPane, origKill, origSpawn
+	})
 	return proj, &killed
 }
 
@@ -96,8 +106,8 @@ func TestLeadFlush_RunWritesNoteAndSummaryThenClosesTheLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Closed "+lead) || len(*killed) != 1 || (*killed)[0] != lead {
-		t.Fatalf("out %q killed %v", out, *killed)
+	if !strings.Contains(out, "Closed "+lead) || strings.Join(*killed, ",") != lead+",spawn "+lead {
+		t.Fatalf("close then start the lead again: out %q, events %v", out, *killed)
 	}
 	data, err := os.ReadFile(note)
 	if err != nil {
@@ -109,6 +119,9 @@ func TestLeadFlush_RunWritesNoteAndSummaryThenClosesTheLead(t *testing.T) {
 	if got, err := os.ReadFile(sum); err != nil || !strings.Contains(string(got), "asked for the flush") {
 		t.Fatalf("summary %q, %v", got, err)
 	}
+	// The fresh lead is live: a second close would close it again, so
+	// only a flush with no lead says there is nothing to close.
+	closeLeadSession(proj, lead)
 	if out, err := runFlush(t, proj, "close", "--run", flushRunSlug); err != nil || !strings.Contains(out, "No lead live") {
 		t.Fatalf("second close: %q, %v", out, err)
 	}

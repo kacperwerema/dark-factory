@@ -81,30 +81,9 @@ func TestBenchSmokePassesOnTheFixture(t *testing.T) {
 	}
 }
 
-func TestBenchSmokeKeepLeavesItsFolder(t *testing.T) {
-	t.Setenv("ISSUE_VIEWER_BENCH_DIR", filepath.Join(t.TempDir(), "bench"))
-	smokeCLI(t)
-	// A scorer that dies stops nothing but the stages: quick to fail, and the
-	// folder still has to stay.
-	benchSmokeScorer = "false"
-	ctx, out, _ := newTestContext(nil, false)
-	_ = runBench(ctx, []string{"smoke", "--keep"})
-	var kept string
-	for _, line := range strings.Split(out.String(), "\n") {
-		if p, ok := strings.CutPrefix(line, "kept: "); ok {
-			kept = p
-		}
-	}
-	if kept == "" {
-		t.Fatalf("no kept: line:\n%s", out)
-	}
-	for _, sub := range []string{"fx/repo", "bench/smoke.yaml", "standin/worker.sh"} {
-		if _, err := os.Stat(filepath.Join(kept, sub)); err != nil {
-			t.Errorf("kept folder has no %s: %v", sub, err)
-		}
-	}
-}
-
+// One smoke run checks both a broken harness and --keep: each smoke is a
+// whole run of the fixture (17 to 30 s of a loaded make validate), and a
+// failed run is where the kept folder matters most.
 func TestBenchSmokeFailsWhenTheHarnessBreaks(t *testing.T) {
 	benchDir := filepath.Join(t.TempDir(), "bench")
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", benchDir)
@@ -113,10 +92,25 @@ func TestBenchSmokeFailsWhenTheHarnessBreaks(t *testing.T) {
 	// ungraded, as with a broken promptfoo.
 	benchSmokeScorer = "true"
 	ctx, out, _ := newTestContext(nil, false)
-	err := runBench(ctx, []string{"smoke"})
+	err := runBench(ctx, []string{"smoke", "--keep"})
 	var code *exitCodeError
 	if !errors.As(err, &code) || code.Code != 1 {
 		t.Fatalf("err = %v, want exit 1\n%s", err, out)
+	}
+	// --keep leaves the smoke's folder, failed run and all.
+	var kept string
+	for _, line := range strings.Split(out.String(), "\n") {
+		if p, ok := strings.CutPrefix(line, "kept: "); ok {
+			kept = p
+		}
+	}
+	if kept == "" {
+		t.Errorf("no kept: line:\n%s", out)
+	}
+	for _, sub := range []string{"fx/repo", "bench/smoke.yaml", "standin/worker.sh"} {
+		if _, err := os.Stat(filepath.Join(kept, sub)); kept != "" && err != nil {
+			t.Errorf("kept folder has no %s: %v", sub, err)
+		}
 	}
 	if !strings.Contains(out.String(), "✗ stages: ") || !strings.Contains(out.String(), "bench smoke: FAIL (stages)") {
 		t.Errorf("want ✗ stages and FAIL (stages):\n%s", out)

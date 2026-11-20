@@ -176,3 +176,43 @@ connectors:
     deny_tools: [create_post, add_comment]
     sends: false
     note: "Reddit, read-only: the subreddits in subreddits.md for social research; posts go through social at publish"
+  # The site, for the piece and seo-pass publish steps: Ghost (MIT,
+  # github.com/TryGhost/Ghost), the cms slot's pick (issue-cli department
+  # partners --slot cms), run unchanged, the CMS and the site in one
+  # container. The prompts name the connector `cms`, never the tool, so
+  # swapping it is this entry and its helper only.
+  #
+  # - department add wrote the helper, departments/marketing/cms-ghost.sh
+  #   (ours, curl + openssl + jq). Three calls, each printing one JSON line
+  #   {"id","status","url"}; the url is what output publish --url records:
+  #     issue-cli connector exec marketing/cms -- sh departments/marketing/cms-ghost.sh
+  #       publish --file <approved.md> --title "<t>" --kind post|page
+  #       [--slug s] [--excerpt e] [--meta-description d] [--at <ISO time>]
+  #     ... cms-ghost.sh update --id <id> --file <approved.md> [--title t]
+  #     ... cms-ghost.sh get --slug <slug>
+  #   publish puts the piece out at once (or scheduled with --at), never a
+  #   draft, and never passes ?newsletter=, so no one is mailed. The file
+  #   goes out byte for byte as one markdown card.
+  # - Its Admin API key publishes, so sends: true, and needs_approved_output:
+  #   holds every call until the owner approved the issue's newest output on
+  #   the shelf. The key ("<id>:<secret>", from a Ghost custom
+  #   integration) lives in Keychain, never here.
+  # - Stand Ghost up once with issue-cli cms up (docs/stand-up-the-cms.md):
+  #   it starts Ghost on http://127.0.0.1:2368, sets it up, writes this key
+  #   and the owner password (ghost-owner) to Keychain and turns Ghost's
+  #   outbound link tagging off (else it adds ?ref= to every link and what
+  #   goes out differs from what you approved). It writes no config: then
+  #   uncomment this entry. GHOST_URL in the environment names another
+  #   Ghost; a Ghost set up by hand needs the same (the key by hand:
+  #   security add-generic-password -s ghost-admin-key -a "$USER" -w).
+  # - About 180 MB at idle, and once live it is the site, so no per_run:.
+  - name: cms
+    kind: tool
+    command: sh
+    args: [departments/marketing/cms-ghost.sh]
+    secrets:
+      GHOST_ADMIN_KEY: keychain:ghost-admin-key
+    check: "curl -fsS http://127.0.0.1:2368/ghost/api/admin/site/"
+    sends: true
+    needs_approved_output: true
+    note: "Ghost, the site: publish puts an approved post or page out and prints its URL (cms-ghost.sh publish|update|get)"

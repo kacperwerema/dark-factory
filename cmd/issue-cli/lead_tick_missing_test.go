@@ -35,7 +35,7 @@ func TestLeadHearsWhenItsTickIsGone(t *testing.T) {
 	}
 
 	out := say("status")
-	for _, want := range []string{"no background tick is running", "pid 4242", "run_in_background", "\n  " + tick + "\n"} {
+	for _, want := range []string{"no background tick is running", "pid 4242) is gone without a word: killed, or the session that ran it ended", "run_in_background", "\n  " + tick + "\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}

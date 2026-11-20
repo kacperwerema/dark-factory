@@ -172,7 +172,7 @@ func (s *Server) handleIssuesWb(w http.ResponseWriter, r *http.Request, proj *tr
 		data.Create.Status = createStatus(data.Create.Statuses, q.Get("status"))
 	}
 	lot, queue := s.decisionsLot(proj, now)
-	data.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "issues"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: queue, HideDone: true}
+	data.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "issues"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, Waiting: queue, HideDone: true}
 	data.Header.Crumbs[1].Color = lot.Color
 	data.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	data.Header.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}

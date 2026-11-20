@@ -25,8 +25,8 @@ type WorkersConfig struct {
 	// worker, or an item for the issues its systems/types/labels match.
 	Skills []WorkerSkill `yaml:"skills,omitempty" desc:"Skills a lean worker keeps on, by the name Claude Code lists (personal, project, bundled, or anthropic-skills:<name> synced from claude.ai): a name for every worker, or {skill, systems, types, labels} for the issues they match; every other one is off"`
 	// Tools are Claude Code tools a lean worker keeps that it otherwise
-	// starts without: only Artifact so far.
-	Tools []string `yaml:"tools,omitempty" desc:"Claude Code tools a lean worker keeps that it otherwise starts without (Artifact)"`
+	// starts without: one of WorkerToolsOff.
+	Tools []string `yaml:"tools,omitempty" desc:"Claude Code tools a lean worker keeps that it otherwise starts without (Artifact, Workflow, SendFeedback, ReportFindings, ListAgents)"`
 }
 
 // WorkerSkill is one item of workers: skills:, written as a bare name
@@ -57,9 +57,29 @@ func (s WorkerSkill) MarshalYAML() (any, error) {
 	return plain(s), nil
 }
 
-// WorkerToolArtifact is the one tool workers: tools: knows: Claude Code's
-// Artifact tool, off for a lean worker unless kept.
+// WorkerToolArtifact is Claude Code's Artifact tool, off for a lean worker
+// unless kept (by env: CLAUDE_CODE_DISABLE_ARTIFACT).
 const WorkerToolArtifact = "Artifact"
+
+// WorkerToolsOff are the Claude Code built-in tools a lean worker starts
+// without unless workers: tools: keeps one: their schemas sit in every
+// turn's context and workers made no call to them in 3 days (report
+// o-20261118-1f67, about 22k tokens of a 55k first turn). Artifact goes
+// off by env, the rest by --disallowedTools. Agent and ScheduleWakeup
+// stay: workers call them.
+var WorkerToolsOff = []string{WorkerToolArtifact, "Workflow", "SendFeedback", "ReportFindings", "ListAgents"}
+
+// WorkerToolsDropped are the tools of WorkerToolsOff wf's lean workers
+// start without, in that order.
+func (wf *WorkflowConfig) WorkerToolsDropped() []string {
+	var out []string
+	for _, t := range WorkerToolsOff {
+		if !wf.WorkerKeepsTool(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 // WorkerMCP is one server of workers: mcp:. Any of Systems, Types and
 // Labels matching an issue gives its worker the server; none set gives it
@@ -178,8 +198,8 @@ func (wf *WorkflowConfig) WorkersProblems() []string {
 		}
 	}
 	for _, t := range w.Tools {
-		if !strings.EqualFold(strings.TrimSpace(t), WorkerToolArtifact) {
-			out = append(out, fmt.Sprintf("workers: tools: %q is not a tool workers: can keep (%s)", t, WorkerToolArtifact))
+		if !slices.ContainsFunc(WorkerToolsOff, func(k string) bool { return strings.EqualFold(strings.TrimSpace(t), k) }) {
+			out = append(out, fmt.Sprintf("workers: tools: %q is not a tool workers: can keep (%s)", t, strings.Join(WorkerToolsOff, ", ")))
 		}
 	}
 	for _, p := range w.Plugins {

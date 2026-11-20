@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -51,8 +52,8 @@ func CIPromptSection(workDir string, wf *WorkflowConfig) string {
 		fails = "`" + ci + "` or a test fails"
 	}
 	return "\n\n## Local CI\n\n" + line + "\n" +
-		"- When " + fails + " on your branch, compare with this line (`issue-cli ci status`): a failure main already has is not yours to fix. If it has no issue, file it (`issue-cli create`); if it has one, name it in your `tests:` comment.\n" +
-		"- After you fast-forward main, local CI tests it by itself. Never wait for it: close your issue and stop. If it goes red on your merge, the lead may re-open your issue.\n"
+		"- When " + fails + " on your branch, compare with this line (`issue-cli ci status`): a failure main already has is not yours to fix; name its issue in your `tests:` comment, or file one (`issue-cli create`).\n" +
+		"- After you fast-forward main, local CI tests it by itself. Never wait for it: close your issue and stop (the lead re-opens it if your merge goes red).\n"
 }
 
 // LeadPromptSection is the "## Your lead" part of a worker's briefing. It
@@ -81,11 +82,9 @@ func LeadPromptSection(issue *Issue, route LeadRoute) string {
 		fmt.Fprintf(&b, " Your issue is part of epic %s.", route.Epic)
 	}
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "- Your lead follows your issue trail: ask with `issue-cli comment %s \"question: ...\"` and report with `progress:` comments. It relays questions and approvals to the human.\n", issue.Slug)
+	fmt.Fprintf(&b, "- Your lead reads your issue trail and relays to the human: ask with `issue-cli comment %s \"question: ...\"`, report with `progress:` comments.\n", issue.Slug)
 	b.WriteString("- " + WorkerMessageRule(route.Lead, AgentSessionName(issue.Slug)) + "\n")
-	b.WriteString("- To agree a format with a sibling issue's worker (one you build on, or one your brief names): `issue-cli ask <sibling> \"...\"`. It shows on that worker's next issue-cli call, and its `issue-cli answer` shows on yours; don't wait for it. " + NotAnApproval + "\n")
-	b.WriteString("- Only the human decides; a worker never ticks a gate.\n")
-	b.WriteString("- `issue-cli lead whoami` shows your lead and whether it is live right now.\n")
+	b.WriteString("- To agree a format with a sibling issue's worker: `issue-cli ask <sibling> \"...\"`; its `issue-cli answer` shows on yours at your next issue-cli call (don't wait for it). " + NotAnApproval + "\n")
 	return b.String()
 }
 
@@ -204,7 +203,7 @@ func BuildAgentPromptYOLO(proj *Project, issue *Issue, wf *WorkflowConfig, workt
 // EvidenceRule is the worktree briefing's line on stills: a worktree has no
 // issues/ tree, so issue-cli evidence add puts them where the Evidence tab
 // reads them.
-const EvidenceRule = "Stills you take for the issue outside a playtest run go in with `issue-cli evidence add <file> [--step <id>]`: it copies them into the primary checkout's issues/_evidence/ folder, which the issue's Evidence tab shows. Don't write into the primary checkout by hand or keep captures in the worktree."
+const EvidenceRule = "Stills taken outside a playtest run go in with `issue-cli evidence add <file> [--step <id>]` (into issues/_evidence/, which the Evidence tab shows), never by hand or kept in the worktree."
 
 // WorktreePromptSection is the "## Worktree" part of a worker's briefing:
 // where it works and what it leaves alone. A worker dispatch makes no
@@ -217,14 +216,26 @@ func WorktreePromptSection(proj *Project, issue *Issue, worktreePath, worktreeBr
 
 ## Worktree
 
-You are already in an isolated git worktree, your working directory, on branch %s.
-- Do your code work and make commits here, on that branch. Do not switch this checkout to another branch.
-- Issue management is NOT code work. The issues/ tree is excluded from this worktree on purpose — it lives on the primary checkout (master). Run every issue-cli command exactly as written: --project already points it at the primary checkout, so it manages the issue on master regardless of your worktree branch. Do not cd into the primary checkout, and do not try to create or edit issue files inside this worktree.
+You are in an isolated git worktree, your working directory, on branch %s. Code and commits go here; never switch it to another branch.
+- The issues/ tree is not in it: it lives on the primary checkout (master), and issue-cli's --project already points there. Don't cd into the primary checkout or write issue files.
 - %s
-%s- Leave the worktree in place after the issue ships: do not remove it yourself. The engine removes it once its branch is on main and its session has closed (the branch stays).
+%s%s- Leave the worktree in place after the issue ships: the engine removes it once its branch is on main and its session has closed.
 - %s
 - %s
-`, worktreeBranch, EvidenceRule, WorktreePathLines(proj, issue), SandboxViewerRule, WorkerGuardRule)
+`, worktreeBranch, EvidenceRule, WorktreePathLines(proj, issue), SharedDepsLine(proj), SandboxViewerRule, WorkerGuardRule)
+}
+
+// SharedDepsLine is the briefing's line on shared node_modules, for a
+// project whose main checkout has one (new worktrees link it:
+// agentrun.ShareDeps), "" otherwise.
+func SharedDepsLine(proj *Project) string {
+	if proj == nil || proj.Root() == "" {
+		return ""
+	}
+	if fi, err := os.Stat(filepath.Join(proj.Root(), "node_modules")); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return InjectProject(proj, "- node_modules in your worktree is a link to the main checkout's (shared, while your lock file is main's): before you add, remove or update a package, run issue-cli worktree deps --own (it turns the links into your own copies, a clone with no download, and installs over them); never rm -rf node_modules/ or npm ci through the link.\n")
 }
 
 // BranchPromptSection is the "## Branch" part of the briefing in a git
@@ -248,9 +259,9 @@ func BranchPromptSection(proj *Project, issue *Issue) string {
 This project's workflow has no worktree: true, so dispatch made no worktree. Before your first code change, make the issue's own: it makes %s on %s from main, runs the project's worktree_setup there (node_modules and the like) and prints the path last:
   issue-cli worktree add %s
 - Then cd into that path and work there: docs and code under %s are main's, not your branch's.
-- prove, check-script and the commit-message hint look for %s first, then a worktree whose branch ends in the slug or whose HANDOFF.md names it.
+%s- prove, check-script and the commit-message hint look for %s first, then a worktree whose branch ends in the slug or whose HANDOFF.md names it.
 - Already on another branch? Name it once: issue-cli set-meta %s --key branch --value <your-branch>
-`, shell.Quote(filepath.Join(".worktrees", slug)), shell.Quote("work/"+slug), shell.Quote(slug), shell.Quote(root), "work/"+slug, shell.Quote(slug)))
+`, shell.Quote(filepath.Join(".worktrees", slug)), shell.Quote("work/"+slug), shell.Quote(slug), shell.Quote(root), SharedDepsLine(proj), "work/"+slug, shell.Quote(slug)))
 }
 
 // BranchSafe reports whether git can name a branch work/<slug>: no space,
@@ -265,8 +276,8 @@ func BranchSafe(slug string) bool {
 // The Worktree section's two rules for a worker trying things out; the docs
 // quote them (TestDocsQuoteTheCode).
 const (
-	SandboxViewerRule = "A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer."
-	WorkerGuardRule   = "The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml: it knows you by your environment, tmux name and worktree, not by the config. Walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment to get past it."
+	SandboxViewerRule = "A sandbox viewer you start by hand gets its own state dir (XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml): the shared viewer.json is the owner's viewer's, which every issue-cli follows. Never pass -record-viewer."
+	WorkerGuardRule   = "The worker guard refuses issue-cli dispatch, department add and lead spawn from your shell, even with --config on a sandbox projects.yaml (it knows you by environment, tmux name and worktree): walk those steps in a Go test with a clean env and a private tmux server, as TestNewcomerWalkthrough (newcomer_test.go) does. Never strip the guard's environment."
 )
 
 // WorktreePathLines are the Worktree section's lines naming, as absolute
@@ -323,9 +334,9 @@ func RedRoundsPromptSection(slug string, wf *WorkflowConfig) string {
 	n := wf.RedRoundCap()
 	return fmt.Sprintf(`## Red checks
 
-A check that is still red after %d fix rounds (`+RedRoundsWhatCounts+`) becomes a question for the owner: transition posts it and refuses without re-running the check until the owner resolves it. Stop working on that check then; don't loop on it.
-  issue-cli rounds %s                                         # each red check: red N of %d
-  issue-cli rounds %s --cannot-fix "<check>" --why "..."      # can't fix it: ask now, recommendation first`, n, slug, n, slug)
+A check still red after %d fix rounds (`+RedRoundsWhatCounts+`) becomes a question for the owner, and transition refuses without re-running it until the owner resolves it: stop working on that check.
+  issue-cli rounds %s   # each red check: red N of %d
+  issue-cli rounds %s --cannot-fix "<check>" --why "..."   # can't fix it: ask now, recommendation first`, n, slug, n, slug)
 }
 
 // agentPromptFields is the value of each {{name}} placeholder in

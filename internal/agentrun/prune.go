@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -348,6 +349,50 @@ func RemoveIssueTree(in PruneInput, path, branch string) TreeVerdict {
 		v.Kind, v.Why = TreeDirty, firstLine(err.Error())
 	}
 	return v
+}
+
+// RemoveLandedTree removes the worktree of an issue that is still open
+// but whose branch is on main with commits of its own: clean, nothing live
+// inside, and (the caller's part) no live session for the issue. No idle
+// rule, so the tree goes at the first tick after the merge; a branch still
+// at its dispatch base is kept (nothing landed). The branch stays, so a
+// re-dispatch makes the tree again.
+func RemoveLandedTree(in PruneInput, path, branch string) TreeVerdict {
+	if _, err := os.Stat(path); err != nil {
+		return TreeVerdict{Path: path, Branch: branch, Kind: TreeRemoved}
+	}
+	merged, err := MergedBranches(in.Root, in.Main)
+	if err != nil {
+		return TreeVerdict{Path: path, Branch: branch, Kind: TreeUnmerged, Why: err.Error()}
+	}
+	if _, on := merged[branch]; !on {
+		return TreeVerdict{Path: path, Branch: branch, Kind: TreeUnmerged, Why: branch + " is not on " + in.Main}
+	}
+	if !branchMoved(in.Root, branch) {
+		return TreeVerdict{Path: path, Branch: branch, Kind: TreeUnmerged, Why: branch + " has no commits since it was made"}
+	}
+	in.Idle, in.EmptyGoes = 0, false
+	head, _ := gitmain.Git(path, "rev-parse", "--verify", "-q", "HEAD")
+	v := Judge(in, Tree{Path: path, Branch: branch, Head: head}, merged)
+	if v.Kind != TreeRemoved {
+		return v
+	}
+	if err := RemoveTree(in.Root, path); err != nil {
+		v.Kind, v.Why = TreeDirty, firstLine(err.Error())
+	}
+	return v
+}
+
+// branchMoved reports whether branch got a commit (or a reset) after it was
+// made, from its reflog: a branch cut from main is "on main" before any
+// work, and that tree must not go. No reflog reads as not moved.
+func branchMoved(root, branch string) bool {
+	out, err := gitmain.Git(root, "rev-list", "--walk-reflogs", "--count", "refs/heads/"+branch)
+	if err != nil {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	return err == nil && n >= 2
 }
 
 func firstLine(s string) string {

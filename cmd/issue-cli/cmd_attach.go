@@ -29,6 +29,9 @@ A file must be inside your worktree, the project or the temp folder (your
 scratchpad); copy anything else there first. One bad file refuses the
 whole call and saves nothing.
 
+A dispatched worker may leave its own slug out (ISSUE_VIEWER_ISSUE_SLUG):
+a first word that names no issue on the board is then a file.
+
 With --section, the links are also appended into that section of the issue
 (as append --section does); stdout still carries only the links.
 
@@ -88,7 +91,9 @@ type attachment struct {
 }
 
 func runAttach(ctx *Context, args []string) error {
-	slug, rest, err := requireSlug(args, "attach")
+	// A dispatched worker leaves its own slug out, as with evidence add: a
+	// first word that names no issue is a file.
+	slug, rest, err := evidenceSlug(ctx, args, "attach")
 	if err != nil {
 		return err
 	}

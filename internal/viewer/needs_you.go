@@ -380,7 +380,7 @@ func (s *Server) buildNeedsYou(p *tracker.Project, prefix string, now time.Time)
 	color := s.projectColor(p)
 	lot, rows := s.buildLot(p, color, now)
 	d := NeedsYouData{Title: p.Name + " · Needs you", Count: len(rows), OwnerChecksURL: prefix + "/owner-checks"}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
+	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Needs you", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
@@ -427,6 +427,7 @@ func (s *Server) buildNeedsYouAll(now time.Time) NeedsYouData {
 		d.Header.Working += r.lot.Working
 		d.Header.Idle += r.lot.Idle
 		d.Header.AgentWait += r.lot.AgentWait
+		d.Header.OwnerWait += r.lot.You
 		d.Header.DoneWeek += r.lot.DoneWeek
 		before := len(all)
 		all = appendNeedsYou(all, r.rows)

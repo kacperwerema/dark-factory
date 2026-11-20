@@ -9,7 +9,7 @@
 #
 # One row per tool:
 #   id, name      the tool
-#   slot          analytics | email | seo | social | video | support
+#   slot          analytics | email | seo | social | video | support | cms
 #   shape         tool (a connector) | studio (a partner: block) | service
 #   licence       the SPDX id, with words when one id doesn't cover it
 #   licence_url   the LICENSE file that was read
@@ -25,6 +25,9 @@
 #   money         whether it costs money, in words, never a price
 #   default       the slot's pick, at most one per slot
 #   note          one line more
+#   setup         the issue-cli command that stands the tool up on this
+#                 machine, when the engine has one (department add prints a
+#                 slot default's); it turns nothing on
 #   marks         paths only the tool's own checkout has (a trailing / is a
 #                 folder); TestTrackedFilesHoldNoPartnerFile fails on a
 #                 tracked path carrying one: a partner is never vendored.
@@ -173,3 +176,65 @@ partners:
     marks:
       - "VERSION_CWCTL"
       - "tailwind.superadmin.config.js"
+  - id: ghost
+    name: Ghost
+    slot: cms
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/TryGhost/Ghost/blob/main/LICENSE
+    licence_read: "2026-11-18"
+    upstream: https://github.com/TryGhost/Ghost
+    memory: "one Node container with SQLite (MySQL 8 for production); 179 MiB at idle, measured by the CMS spike"
+    runs: always
+    money: "free self-hosted; its hosted Ghost(Pro) is paid, and a public site needs a server and a domain you pay for"
+    default: true
+    note: "The CMS and the site in one container; Marketing carries it as a commented connector (cms) with its publish helper, cms-ghost.sh"
+    setup: "issue-cli cms up"
+  - id: payload
+    name: Payload
+    slot: cms
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/payloadcms/payload/blob/main/LICENSE.md
+    licence_read: "2026-11-18"
+    upstream: https://github.com/payloadcms/payload
+    memory: "a Next.js app you generate and keep, with SQLite, Postgres or MongoDB; unmeasured"
+    runs: always
+    money: "free self-hosted; its hosted cloud is paid"
+    note: "Headless: a frontend to build and host is yours; REST and GraphQL with API keys"
+  - id: strapi
+    name: Strapi
+    slot: cms
+    shape: tool
+    licence: "MIT outside ee/ (Strapi Enterprise licence there)"
+    licence_url: https://github.com/strapi/strapi/blob/develop/LICENSE
+    licence_read: "2026-11-18"
+    upstream: https://github.com/strapi/strapi
+    memory: "a Node project you generate, with SQLite or Postgres; unmeasured"
+    runs: always
+    money: "free self-hosted Community edition; review workflows and scheduled publishing are paid Enterprise features"
+    note: "Headless: a frontend to build and host is yours; never turn on ee/"
+  - id: decap
+    name: Decap CMS
+    slot: cms
+    shape: tool
+    licence: MIT
+    licence_url: https://github.com/decaporg/decap-cms/blob/main/LICENSE
+    licence_read: "2026-11-18"
+    upstream: https://github.com/decaporg/decap-cms
+    memory: "no server: an admin page inside the site's git repository"
+    runs: always
+    money: "free; the static site's host is yours to choose"
+    note: "Git-backed: content is markdown committed to a static site's repository, which must exist first"
+  - id: wordpress
+    name: WordPress
+    slot: cms
+    shape: tool
+    licence: GPL-2.0-or-later
+    licence_url: https://github.com/WordPress/WordPress/blob/master/license.txt
+    licence_read: "2026-11-18"
+    upstream: https://github.com/WordPress/WordPress
+    memory: "PHP and MySQL, two containers; unmeasured"
+    runs: always
+    money: "free self-hosted; WordPress.com hosting and many plugins are paid"
+    note: "For reference: REST API with application passwords, a review state; plugins and security updates to keep up"

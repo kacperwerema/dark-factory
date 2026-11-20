@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -100,21 +101,12 @@ func TestRetrosPageFastWithManyRetros(t *testing.T) {
 	}
 	get("board")
 	best := time.Hour
+	check := timing.Check{Limit: 500 * time.Millisecond, Ratio: retroVsBoard}
 	for _, q := range []string{"retros", "retros?all=1", "retros?retro=" + "x", "retros?all=1&to_sort_page=3"} {
-		var tries []string
-		for try := 0; try < 3; try++ {
-			board := get("board")
-			limit := max(500*time.Millisecond, retroVsBoard*board)
-			d := get(q)
-			best = min(best, d)
-			if d <= limit {
-				tries = nil
-				break
-			}
-			tries = append(tries, fmt.Sprintf("%v (limit %v: /board took %v)", d, limit, board))
-		}
-		if tries != nil {
-			t.Errorf("/%s warm: %s; want under 500 ms, or %d× /board on a slow machine", q, strings.Join(tries, ", "), retroVsBoard)
+		r := check.Run(func() time.Duration { return get(q) }, func() time.Duration { return get("board") })
+		best = min(best, r.Best)
+		if r.Slow {
+			t.Errorf("/%s warm: %s (baseline: /board)", q, r)
 		}
 	}
 	t.Logf("500 retros: warm best %v", best)

@@ -66,9 +66,9 @@ func BuildPromptSection(proj *Project, workDir string, wf *WorkflowConfig) strin
 		commits = "commit"
 	}
 	return fmt.Sprintf("\n\n## Your issue-cli build\n\n"+
-		"The installed issue-cli (%s) is %d %s behind %s: %s's workflow.yaml and this briefing may name rules and flags it doesn't know (an unknown validation rule, a missing flag).\n"+
-		"- Build your branch's issue-cli once in your worktree and use it for this issue: `go build -o ./%s ./cmd/issue-cli`, then `./%s%s <command>` for transitions, checks and gates (the file is git-ignored). Rebuild after you merge %s.\n"+
-		"- `./%s%s check-script <slug> --yes` runs your guided check scripts with $ISSUE_CLI set to that build, and refuses it when it is older than your code under cmd/ or internal/; `--cli <path>` names another.\n"+
-		"- never make install, during a soak or not: it replaces the installed build (the one the owner may be soaking) for every agent on this machine. Installing and restarting the viewer are the lead's or the owner's call.\n",
+		"The installed issue-cli (%s) is %d %s behind %s, so it may not know the rules and flags %s's workflow.yaml and this briefing name.\n"+
+		"- Build your branch's own (git-ignored) and use it for this issue: `go build -o ./%s ./cmd/issue-cli`, then `./%s%s <command>`; rebuild after you merge %s (a build older than your code under cmd/ or internal/ warns on every call).\n"+
+		"- `./%s%s check-script <slug> --yes` runs your guided check scripts with $ISSUE_CLI set to that build (`--cli <path>` names another).\n"+
+		"- never make install: it replaces the installed build, which the owner may be soaking, for every agent on this machine; installing and restarting the viewer are the lead's or the owner's call.\n",
 		BuildVersion, n, commits, branch, branch, BranchBuild, BranchBuild, project, branch, BranchBuild, project)
 }

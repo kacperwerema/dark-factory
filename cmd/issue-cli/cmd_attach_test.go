@@ -238,3 +238,20 @@ func TestAttachDefaultRoots(t *testing.T) {
 		}
 	}
 }
+
+// A dispatched worker leaves its slug out of attach, as with evidence add: a
+// first word that names no issue is a file, and --section writes into the
+// worker's own issue.
+func TestAttachTakesOwnSlug(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	proj, issuePath, scratch := attachFixture(t)
+	asWorkerOn(t, "cli/sample")
+	log := filepath.Join(scratch, "run.txt")
+	os.WriteFile(log, []byte("ok\n"), 0o644)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runAttach(ctx, []string{log, "--section", "Design"}); err != nil {
+		t.Fatalf("attach <file> with the slug left out: %v", err)
+	}
+	assertContains(t, stdout.String(), "run.txt")
+	assertContains(t, readFile(t, issuePath), "run.txt](")
+}

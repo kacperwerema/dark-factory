@@ -66,8 +66,8 @@ func newestCommit(root string) *StaleBuild {
 	return &StaleBuild{Changed: time.Unix(ct, 0), What: "commit " + short}
 }
 
-// newestFile finds the newest file a build is made from: Go sources and the
-// files their go:embed lines name. Anything else a run leaves there (a clilog,
+// newestFile finds the newest file a build is made from: Go sources (not
+// _test.go files) and the files their go:embed lines name. Anything else a run leaves there (a clilog,
 // a test's output) changes no build.
 func newestFile(root string) (*StaleBuild, error) {
 	var newest *StaleBuild
@@ -105,7 +105,8 @@ func newestFile(root string) (*StaleBuild, error) {
 				return nil
 			}
 			if !d.IsDir() {
-				if strings.HasSuffix(d.Name(), ".go") {
+				// A test file is in no build: editing one leaves the binary current.
+				if strings.HasSuffix(d.Name(), ".go") && !strings.HasSuffix(d.Name(), "_test.go") {
 					return see(path)
 				}
 				return nil

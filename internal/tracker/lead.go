@@ -1,6 +1,8 @@
 package tracker
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -109,6 +111,24 @@ func IssueWorktree(workdir string, issue *Issue, wf *WorkflowConfig) WorktreeSpe
 		return WorktreeSpec{}
 	}
 	return WorktreeSpec{Path: path, Branch: branch}
+}
+
+// IssueWorktreeOnDisk is IssueWorktree, or, for a workflow without
+// worktree: true, the tree `issue-cli worktree add` makes (.worktrees/<slug>
+// on work/<slug>) when that folder exists: what removal after landing
+// looks for, so a worker-made tree goes as a dispatched one does.
+func IssueWorktreeOnDisk(workdir string, issue *Issue, wf *WorkflowConfig) WorktreeSpec {
+	if wt := IssueWorktree(workdir, issue, wf); wt.Path != "" {
+		return wt
+	}
+	if issue == nil || strings.TrimSpace(workdir) == "" || !BranchSafe(issue.Slug) {
+		return WorktreeSpec{}
+	}
+	p := filepath.Join(workdir, ".worktrees", issue.Slug)
+	if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+		return WorktreeSpec{}
+	}
+	return WorktreeSpec{Path: p, Branch: "work/" + issue.Slug}
 }
 
 // LeadRole is who a session is in the lead hierarchy.

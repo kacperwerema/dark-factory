@@ -198,8 +198,8 @@ func TestBriefingCarriesTheRedOnMainRule(t *testing.T) {
 	section := CIPromptSection(t.TempDir(), &WorkflowConfig{})
 	for _, want := range []string{
 		"a failure main already has is not yours to fix",
-		"If it has no issue, file it (`issue-cli create`)",
-		"if it has one, name it in your `tests:` comment",
+		"name its issue in your `tests:` comment",
+		"or file one (`issue-cli create`)",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("Local CI section lacks %q:\n%s", want, section)

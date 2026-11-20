@@ -110,7 +110,7 @@ workers:
 		if !slices.Contains(ws.Env, "CLAUDE_CODE_DISABLE_ARTIFACT=1") {
 			t.Errorf("%s: env %v", c.slug, ws.Env)
 		}
-		if names := stepNames(steps); !strings.Contains(names, "listed by Claude Code") || !strings.Contains(names, "Artifact off") {
+		if names := stepNames(steps); !strings.Contains(names, "listed by Claude Code") || !strings.Contains(names, "Artifact, Workflow, SendFeedback, ReportFindings, ListAgents off") {
 			t.Errorf("%s: steps %s", c.slug, names)
 		}
 
@@ -126,11 +126,20 @@ workers:
 		}
 	}
 
-	// workers: tools: [Artifact] keeps the Artifact tool.
-	wf.Workers.Tools = []string{"Artifact"}
-	if _, ws, _ := start("button"); slices.Contains(ws.Env, "CLAUDE_CODE_DISABLE_ARTIFACT=1") {
-		t.Errorf("tools: [Artifact]: env %v", ws.Env)
+	// The built-in tools workers never call go off in one --disallowedTools
+	// list; workers: tools: keeps one (Artifact by env).
+	if _, ws, _ := start("button"); !slices.Contains(ws.Flags, "--disallowedTools=Workflow,SendFeedback,ReportFindings,ListAgents") {
+		t.Errorf("flags %q", ws.Flags)
 	}
+	wf.Workers.Tools = []string{"Artifact", "workflow"}
+	if _, ws, _ := start("button"); slices.Contains(ws.Env, "CLAUDE_CODE_DISABLE_ARTIFACT=1") || !slices.Contains(ws.Flags, "--disallowedTools=SendFeedback,ReportFindings,ListAgents") {
+		t.Errorf("tools: [Artifact, workflow]: env %v, flags %q", ws.Env, ws.Flags)
+	}
+	wf.Workers.Tools = tracker.WorkerToolsOff
+	if _, ws, _ := start("button"); slices.ContainsFunc(ws.Flags, func(f string) bool { return strings.HasPrefix(f, "--disallowedTools") }) {
+		t.Errorf("every tool kept: flags %q", ws.Flags)
+	}
+	wf.Workers.Tools = []string{"Artifact"}
 
 	// Once the transcripts list nothing more (every new one is a lean
 	// worker's), the names earlier workers turned off still go off.

@@ -51,6 +51,10 @@ type Options struct {
 	Now     func() time.Time
 	// BeforeFF runs just before each fast-forward (tests move main there).
 	BeforeFF func()
+	// Prepare runs before each check command in Worktree (ci.PrepareInstall:
+	// no install through a node_modules link): skip leaves the command out
+	// as passed, note is said, err fails the command unrun.
+	Prepare func(dir, command string) (skip bool, note string, err error)
 }
 
 // Result is what a run did: whether main holds the branch, why not, and
@@ -310,6 +314,25 @@ cmds:
 // runOne runs one command, writing its output to logf and echoing the
 // `validate: ` lines; verdict is "PASS", "FAIL" or "" (no verdict line).
 func (r *runner) runOne(command string, logf *os.File) (verdict, steps string, code int) {
+	if r.o.Prepare != nil {
+		skip, note, err := r.o.Prepare(r.o.Worktree, command)
+		if note != "" {
+			r.say("%s", note)
+			if logf != nil {
+				fmt.Fprintln(logf, note)
+			}
+		}
+		if err != nil {
+			r.say("%s", err)
+			if logf != nil {
+				fmt.Fprintln(logf, err)
+			}
+			return "", "", 1
+		}
+		if skip {
+			return "", "", 0
+		}
+	}
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = r.o.Worktree
 	cmd.Env = os.Environ()

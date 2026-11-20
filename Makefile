@@ -72,8 +72,8 @@ TEST_FIRST ?= ./internal/viewer ./cmd/issue-cli ./internal/bench
 # TEST_SHARD_PKGS names each package with its count (<pkg>=<n>, n=1: one).
 # cmd/issue-cli takes TEST_SHARDS. TestShardedPackagesRunEveryTestOnce
 # checks every package here splits into shards that run each test once.
-TEST_SHARDS ?= 3
-TEST_SHARD_PKGS ?= ./cmd/issue-cli=$(TEST_SHARDS) ./internal/viewer=3 ./internal/bench=2 ./internal/agentrun=2
+TEST_SHARDS ?= 4
+TEST_SHARD_PKGS ?= ./cmd/issue-cli=$(TEST_SHARDS) ./internal/viewer=3 ./internal/bench=3 ./internal/agentrun=2
 
 # The suite also writes cmd/issue-cli's coverage profile (CLI_COVER_PROFILE):
 # -coverpkg instruments only cmd/issue-cli's packages, in each test binary

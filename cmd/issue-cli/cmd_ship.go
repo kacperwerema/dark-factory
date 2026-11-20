@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
+	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/ship"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -129,7 +130,7 @@ func shipOptions(ctx *Context, issue *tracker.Issue) (ship.Options, error) {
 	}
 	o := ship.Options{
 		Worktree: b.Worktree, MainDir: st.Path, Main: main, Branch: b.Name,
-		Slug: issue.Slug,
+		Slug: issue.Slug, Prepare: ci.PrepareInstall,
 	}
 	if wf := ctx.Project.LoadWorkflow(); wf != nil && wf.CI != nil {
 		for _, c := range wf.CI.Run {

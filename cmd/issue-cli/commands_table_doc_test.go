@@ -46,17 +46,12 @@ func commandsTableNames(t *testing.T) map[string]bool {
 	return named
 }
 
-// Every command in the registry has a row in docs/CLI/overview.md's
-// Commands table, and every row names a command that exists, so the table
-// stays the one list a reader scans for what issue-cli can do.
-func TestCommandsTableListsEveryCommand(t *testing.T) {
+// Every row of docs/CLI/overview.md's Commands table names a command that
+// exists, so the table stays the one list a reader scans for what issue-cli
+// can do. A command with no row fails TestEveryCommandJoinsEveryRegistry
+// (command_checklist_test.go), with every other list it is missing from.
+func TestCommandsTableNamesOnlyCommands(t *testing.T) {
 	named := commandsTableNames(t)
-	for _, name := range commandNames() {
-		if !named[name] {
-			t.Errorf("docs/CLI/overview.md's Commands table has no row for `issue-cli %s`: add one, worded from its --help short line (%q)",
-				name, commandRegistry[name].ShortHelp)
-		}
-	}
 	for name := range named {
 		if commandRegistry[name] == nil {
 			t.Errorf("docs/CLI/overview.md's Commands table names `issue-cli %s`, which is not a command or alias", name)

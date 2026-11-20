@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 func TestConsolidatePackFindsClustersStaleExpiredAndPromotions(t *testing.T) {
@@ -95,10 +97,12 @@ func TestConsolidateAt5000IsCheap(t *testing.T) {
 		t.Fatal(err)
 	}
 	mems := load(t, s).All()
-	start := time.Now()
-	pack := Consolidate(mems, t0)
-	if d := time.Since(start); d > 20*time.Second {
-		t.Errorf("consolidate at 5,000 took %s", d)
+	var pack Pack
+	// On a slow machine the limit scales with a fold of the same log
+	// (about 20 ms here).
+	check := timing.Check{Limit: 20 * time.Second, Ratio: 1000, Rounds: 3}
+	if r := check.Run(timing.Timed(func() { pack = Consolidate(mems, t0) }), timing.Timed(func() { load(t, s) })); r.Slow {
+		t.Errorf("consolidate at 5,000: %s (baseline: a fold of the log)", r)
 	}
 	if len(pack.Clusters) > MaxClusters {
 		t.Errorf("clusters %d over the cap", len(pack.Clusters))

@@ -112,6 +112,28 @@ func crewSession(t *testing.T, tmux func(...string) (string, error), name, dir s
 	if out, err := tmux("new-session", "-d", "-s", name, "-c", dir, "sleep 600"); err != nil {
 		t.Fatalf("new-session %s: %v %s", name, err, out)
 	}
+	waitPaneRuns(t, tmux, name, "sleep")
+}
+
+// waitPaneRuns waits until the session's pane runs command. Until the
+// pane's shell has exec'd its command, the pane is a shell with no child:
+// exactly what the Crew page reads as an agent that exited ("only a shell is
+// left"). Under load that window lasts long enough for a page read to land
+// in it (main went red at 73e4ae1 that way), so a stand-in session is ready
+// only once its command runs.
+func waitPaneRuns(t *testing.T, tmux func(...string) (string, error), name, command string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		out, err := tmux("list-panes", "-t", "="+name+":", "-F", "#{pane_current_command}")
+		if err == nil && strings.TrimSpace(out) == command {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("session %s never ran %s: %v %q", name, command, err, out)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func crewServer(t *testing.T, projects ...tracker.Project) *Server {

@@ -459,3 +459,28 @@ func TestDepartmentOf(t *testing.T) {
 		t.Errorf("departments: %q %q %q", p.DepartmentOf(byField), p.DepartmentOf(bySystem), p.DepartmentOf(product))
 	}
 }
+
+// Every live worker waits on the owner (child at its gate, asker with a
+// question): the header's agents box counts them, so it doesn't read
+// 0 working, 0 idle, 0 waiting on an agent beside a floor of live robots.
+func TestHeaderAgentsBoxCountsAgentsWaitingOnYou(t *testing.T) {
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, leadChatPaneText)
+	withMockTmuxSessions(t, []AgentSession{{Name: "lead-agents"}, {Name: "agent-ui-child"}, {Name: "agent-ui-asker"}})
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+
+	want := `<span class="wb-stat" data-testid="map.agents.you"><span class="wb-dot wb-dot--you"></span>2 <span class="wb-muted">waiting on you</span></span>`
+	for _, page := range []string{"/", "/p/agents/agents"} {
+		code, html := getBody(t, ts.URL+page)
+		if code != 200 {
+			t.Fatalf("%s: status %d", page, code)
+		}
+		_, box, _ := strings.Cut(html, `data-testid="map.agents"`)
+		box, _, _ = strings.Cut(box, `class="wb-stat-box`)
+		if !strings.Contains(box, want) {
+			t.Errorf("%s: the agents box should count the 2 workers waiting on the owner; box:\n%s", page, box)
+		}
+	}
+}

@@ -74,6 +74,17 @@ type Store struct {
 	// Handover is the last rotate's: what the fresh session's first prompt
 	// carries while it is fresh.
 	Handover *Handover `json:"handover,omitempty"`
+	// Held is what the running lead tick --watch --exit-on-news holds for
+	// its next news, saved on each tick: a tick that dies without a word
+	// (SIGKILL) leaves it here, and the lead's next tick says it.
+	Held *HeldLines `json:"held,omitempty"`
+}
+
+// HeldLines are the lines a tick held and had not said yet, and its pid.
+type HeldLines struct {
+	PID   int       `json:"pid"`
+	At    time.Time `json:"at"`
+	Lines []string  `json:"lines"`
 }
 
 // TickSeen is the lead's last background tick: the command it ran and when
@@ -81,6 +92,11 @@ type Store struct {
 type TickSeen struct {
 	Command string    `json:"command"`
 	Ended   time.Time `json:"ended,omitempty"`
+	// Signal names the signal that stopped it ("SIGTERM"), "" when it
+	// exited on its own.
+	Signal string `json:"signal,omitempty"`
+	// PID is the stopped tick's pid, with Signal.
+	PID int `json:"pid,omitempty"`
 }
 
 // TickGrace is how long after a tick exits on news its lead may go
@@ -109,8 +125,12 @@ type TickState struct {
 	// Missing: no tick runs and none ended within TickGrace.
 	Missing bool
 	// DeadPID is the pid of a tick watch whose process is gone without
-	// exiting (the session that ran it ended), 0 when none is.
+	// a word (killed, or the session that ran it ended), 0 when none is.
 	DeadPID int
+	// Signal names the signal a stopped tick said it was stopped by, ""
+	// when none was; PID is that tick's.
+	Signal string
+	PID    int
 	// Command is the last tick's command, "" when none is known.
 	Command string
 	// Ended is when the last tick exited on its own, zero when unknown.
@@ -118,13 +138,14 @@ type TickState struct {
 }
 
 // TickStatus reads whether the lead has a live background tick: a tick
-// watch whose process runs is live; one whose process is gone means the
-// session restarted and is said at once; a tick that exited on its own
-// is given TickGrace before it counts as missing.
+// watch whose process runs is live; one whose process is gone (killed, or
+// its session ended) and one stopped by a signal are said at once; a tick
+// that exited on its own is given TickGrace before it counts as missing.
 func (s Store) TickStatus(alive func(pid int) bool, now time.Time) TickState {
 	var st TickState
 	if s.Tick != nil {
 		st.Command, st.Ended = s.Tick.Command, s.Tick.Ended
+		st.Signal, st.PID = s.Tick.Signal, s.Tick.PID
 	}
 	for _, w := range s.Watches {
 		if !IsTick(w.Command) {
@@ -135,25 +156,35 @@ func (s Store) TickStatus(alive func(pid int) bool, now time.Time) TickState {
 		}
 		st.DeadPID, st.Command = w.PID, w.Command
 	}
-	if st.DeadPID == 0 && !st.Ended.IsZero() && now.Sub(st.Ended) < TickGrace {
+	if st.DeadPID == 0 && st.Signal == "" && !st.Ended.IsZero() && now.Sub(st.Ended) < TickGrace {
 		return st
 	}
 	st.Missing = true
 	return st
 }
 
-// Handover is what a rotate leaves for the fresh session: when, the note
-// and digest it wrote, the state as it was, and the watches the old
-// session ran (they die with it, so the fresh one starts them again).
+// Handover is what a rotate or a flush close leaves for the fresh session:
+// when, the note and digest (a flush: its summary) it wrote, the state as it
+// was, and the watches the old session ran (they die with it, so the fresh
+// one starts them again).
 type Handover struct {
-	At      time.Time `json:"at"`
-	Note    string    `json:"note"`
-	Digest  string    `json:"digest"`
-	State   string    `json:"state"`
-	Watches []Watch   `json:"watches,omitempty"`
+	At time.Time `json:"at"`
+	// By is what closed the old session: "" or ByRotate for lead rotate,
+	// ByFlush for the nightly lead flush.
+	By      string  `json:"by,omitempty"`
+	Note    string  `json:"note"`
+	Digest  string  `json:"digest"`
+	State   string  `json:"state"`
+	Watches []Watch `json:"watches,omitempty"`
 	// Since is where the next rotate's digest starts.
 	Since time.Time `json:"since"`
 }
+
+// Handover.By values.
+const (
+	ByRotate = "rotate"
+	ByFlush  = "flush"
+)
 
 // HandoverFresh is how long after a rotate a spawn counts as its fresh
 // session: the finisher waits for the old turn to end (30 minutes at most)
@@ -282,6 +313,19 @@ func (s *Store) Ended(pid int, now time.Time) {
 	for _, w := range s.Watches {
 		if w.PID == pid && IsTick(w.Command) {
 			s.Tick = &TickSeen{Command: w.Command, Ended: now}
+		}
+	}
+	s.Unregister(pid)
+}
+
+// Stopped drops the tick watch with pid as one a signal stopped: the
+// lead's next call says so at once, naming sig. A pid no longer among the
+// watches (a newer tick stopped it and took its place) changes nothing
+// else.
+func (s *Store) Stopped(pid int, sig string, now time.Time) {
+	for _, w := range s.Watches {
+		if w.PID == pid && IsTick(w.Command) {
+			s.Tick = &TickSeen{Command: w.Command, Ended: now, Signal: sig, PID: pid}
 		}
 	}
 	s.Unregister(pid)
@@ -678,18 +722,37 @@ func HandoffNote(v View, s Store, stateCmd string) string {
 	return b.String()
 }
 
-// HandoverSection is the part of a fresh lead's first prompt after a
-// rotate: the state file as it was, the watches to start again and where
-// older context is (historyCmd, with --project in it). "" when no rotate is fresh.
-func HandoverSection(lead, historyCmd string, now time.Time) string {
+// FreshHandover is lead's last handover while a spawn still counts as its
+// fresh session, else nil.
+func FreshHandover(lead string, now time.Time) *Handover {
 	s, err := Load(lead)
 	if err != nil || s.Handover == nil || now.Sub(s.Handover.At) > HandoverFresh || now.Before(s.Handover.At.Add(-time.Minute)) {
+		return nil
+	}
+	return s.Handover
+}
+
+// FromFlush reports a handover the nightly lead flush left.
+func (h *Handover) FromFlush() bool { return h != nil && h.By == ByFlush }
+
+// HandoverSection is the part of a fresh lead's first prompt after a
+// rotate or a flush close: the state file as it was, the watches to start
+// again and where older context is (historyCmd, with --project in it). ""
+// when no handover is fresh. After a flush the note and summary come before
+// it (tracker.LeadHandoffSection), so it heads its own section.
+func HandoverSection(lead, historyCmd string, now time.Time) string {
+	h := FreshHandover(lead, now)
+	if h == nil {
 		return ""
 	}
-	h := s.Handover
 	var b strings.Builder
-	b.WriteString("\n\n## Where the last lead left off\n\n")
-	fmt.Fprintf(&b, "You are a fresh session of %s, started by issue-cli lead rotate at %s. Your state file (%s) as it was:\n\n", lead, h.At.Local().Format("15:04"), Path(lead))
+	if h.FromFlush() {
+		b.WriteString("\n\n## Your state file\n\n")
+		fmt.Fprintf(&b, "You are a fresh session of %s, started by the nightly lead flush at %s after it closed the last one. Your state file (%s) as it was:\n\n", lead, h.At.Local().Format("15:04"), Path(lead))
+	} else {
+		b.WriteString("\n\n## Where the last lead left off\n\n")
+		fmt.Fprintf(&b, "You are a fresh session of %s, started by issue-cli lead rotate at %s. Your state file (%s) as it was:\n\n", lead, h.At.Local().Format("15:04"), Path(lead))
+	}
 	b.WriteString(strings.TrimSpace(h.State))
 	b.WriteString("\n")
 	if len(h.Watches) > 0 {
@@ -698,6 +761,10 @@ func HandoverSection(lead, historyCmd string, now time.Time) string {
 			fmt.Fprintf(&b, "- %s\n", w.Command)
 		}
 	}
-	fmt.Fprintf(&b, "\nThe handoff note is %s, the digest of the old chat %s. Don't read them whole: look up what you need with %s.\n", h.Note, h.Digest, historyCmd)
+	if h.FromFlush() {
+		fmt.Fprintf(&b, "\nThe handoff note is %s, the summary of the day's chat %s (both above). Look older context up with %s.\n", h.Note, h.Digest, historyCmd)
+	} else {
+		fmt.Fprintf(&b, "\nThe handoff note is %s, the digest of the old chat %s. Don't read them whole: look up what you need with %s.\n", h.Note, h.Digest, historyCmd)
+	}
 	return b.String()
 }

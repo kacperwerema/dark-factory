@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -179,24 +180,36 @@ func TestCEOSwitcherHungCaptureIsUnknownAndDoesNotPileUp(t *testing.T) {
 	defer ts.Close()
 
 	before := runtime.NumGoroutine()
-	start := time.Now()
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, html := getBody(t, ts.URL+"/p/agents/lead?part=switcher")
-			if got := rowState(switcherRow(t, html, "lead_chat.switcher.lead.agents")); got != leadUnknown {
-				t.Errorf("hung CEO: %q, want unknown", got)
+	// opens opens path ten times at once.
+	opens := func(path string, each func(code int, html string)) func() {
+		return func() {
+			var wg sync.WaitGroup
+			for i := 0; i < 10; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					each(getBody(t, ts.URL+path))
+				}()
 			}
-			if got := rowState(switcherRow(t, html, "lead_chat.switcher.lead.agents.gtm")); got != leadWorking {
-				t.Errorf("GTM lead: %q, want working", got)
-			}
-		}()
+			wg.Wait()
+		}
 	}
-	wg.Wait()
-	if took := time.Since(start); took > 3*time.Second {
-		t.Errorf("ten opens took %s with a hung capture", took)
+	switcher := opens("/p/agents/lead?part=switcher", func(_ int, html string) {
+		if got := rowState(switcherRow(t, html, "lead_chat.switcher.lead.agents")); got != leadUnknown {
+			t.Errorf("hung CEO: %q, want unknown", got)
+		}
+		if got := rowState(switcherRow(t, html, "lead_chat.switcher.lead.agents.gtm")); got != leadWorking {
+			t.Errorf("GTM lead: %q, want working", got)
+		}
+	})
+	// The baseline is ten opens of the board at once, which captures no pane.
+	check := timing.Check{Limit: 3 * time.Second, Ratio: 3, Rounds: 3}
+	if r := check.Run(timing.Timed(switcher), timing.Timed(opens("/p/agents/board", func(code int, _ string) {
+		if code != http.StatusOK {
+			t.Errorf("/board: status %d", code)
+		}
+	}))); r.Slow {
+		t.Errorf("ten opens with a hung capture: %s (baseline: ten opens of /board)", r)
 	}
 	// One capture per lead at most: a second open waits for the running one.
 	if m := most.Load(); m > 2 {

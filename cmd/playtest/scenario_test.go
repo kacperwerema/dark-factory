@@ -18,6 +18,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/recent"
 	"github.com/kacperwerema/dark-factory/internal/retro"
 	"github.com/kacperwerema/dark-factory/internal/standin"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 func envMap(env []string) map[string]string {
@@ -342,12 +343,19 @@ func TestWaitHTTPBudgetHoldsOnAHangingBoard(t *testing.T) {
 	}))
 	defer hang.Close()
 	defer close(release)
-	start := time.Now()
-	if err := waitHTTP(hang.URL, 500*time.Millisecond); err == nil {
-		t.Fatal("a hanging board counted as ready")
-	}
-	if took := time.Since(start); took > 10*time.Second {
-		t.Fatalf("waitHTTP took %s on a 500ms budget", took)
+	// The baseline is a board that answers at the budget.
+	late := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+	}))
+	defer late.Close()
+	check := timing.Check{Limit: 10 * time.Second, Ratio: 3, Rounds: 3}
+	res := check.Run(timing.Timed(func() {
+		if err := waitHTTP(hang.URL, 500*time.Millisecond); err == nil {
+			t.Fatal("a hanging board counted as ready")
+		}
+	}), timing.Timed(func() { waitHTTP(late.URL, boardReadyBudget) }))
+	if res.Slow {
+		t.Fatalf("waitHTTP on a 500ms budget: %s (baseline: a board that answers at the budget)", res)
 	}
 
 	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))

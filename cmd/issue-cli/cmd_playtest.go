@@ -66,20 +66,9 @@ func runPlaytest(ctx *Context, args []string) error {
 	var targets []*tracker.Issue
 	var orphans []string
 	if *all {
-		issues, err := tracker.LoadIssues(ctx.Project.IssueDir)
-		if err != nil {
-			return fmt.Errorf("cannot load issues: %w", err)
-		}
-		bySlug := map[string]*tracker.Issue{}
-		for _, is := range issues {
-			bySlug[is.Slug] = is
-		}
-		for _, slug := range worktreesWithRuns(root) {
-			if is, ok := bySlug[slug]; ok {
-				targets = append(targets, is)
-			} else {
-				orphans = append(orphans, slug)
-			}
+		var err error
+		if targets, orphans, err = playtestPruneAll(ctx.Project, root); err != nil {
+			return err
 		}
 	} else {
 		issue, _, err := findIssueOrErr(ctx, fs.Arg(0))
@@ -233,4 +222,25 @@ func joinAnd(items []string) string {
 		return strings.Join(items, "")
 	}
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
+// playtestPruneAll is prune --all's worktrees: each worktree with playtest
+// runs whose issue is in proj, and the slugs of those with no issue.
+func playtestPruneAll(proj *tracker.Project, root string) (targets []*tracker.Issue, orphans []string, err error) {
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot load issues: %w", err)
+	}
+	bySlug := map[string]*tracker.Issue{}
+	for _, is := range issues {
+		bySlug[is.Slug] = is
+	}
+	for _, slug := range worktreesWithRuns(root) {
+		if is, ok := bySlug[slug]; ok {
+			targets = append(targets, is)
+		} else {
+			orphans = append(orphans, slug)
+		}
+	}
+	return targets, orphans, nil
 }

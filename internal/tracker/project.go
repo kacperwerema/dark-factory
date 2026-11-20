@@ -70,6 +70,10 @@ type Project struct {
 	// sync tab and auto-closing the remote issue when an issue is marked done.
 	// Defaults to false — the GitHub tab is hidden and auto-close is skipped.
 	SupportsGitHub bool `yaml:"supports_github"`
+	// CleanOff leaves this project's health snapshots, worktrees and
+	// playtest runs out of the nightly clean (issue-cli clean); the
+	// machine-wide parts still run.
+	CleanOff bool `yaml:"clean_off"`
 	// ImportStatus is the status assigned to issues imported from GitHub.
 	// Empty falls back to the workflow's first status (e.g. "idea").
 	ImportStatus string `yaml:"import_status"`
@@ -274,8 +278,11 @@ type ProjectsConfig struct {
 	// the viewer runs it before gh closes an issue that moved to done and
 	// hands gh its output as GH_TOKEN. Unset (the default), gh uses its own
 	// login (gh auth login).
-	GitHubTokenCommand string    `yaml:"github_token_command"`
-	Projects           []Project `yaml:"projects"`
+	GitHubTokenCommand string `yaml:"github_token_command"`
+	// Clean is the nightly clean's settings (issue-cli clean, CleanConfig);
+	// nil runs it with the defaults.
+	Clean    *CleanConfig `yaml:"clean"`
+	Projects []Project    `yaml:"projects"`
 }
 
 // IdentityConfig is projects.yaml's identity: block. Cloudflare Access sits

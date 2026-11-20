@@ -73,6 +73,7 @@ body.wb { margin: 0; font-family: var(--ui); color: var(--ink); background: var(
 .wb-dot--working { background: var(--working); }
 .wb-dot--idle { background: #C5CCD7; }
 .wb-dot--agent { background: var(--agent); }
+.wb-dot--you { background: var(--you); }
 .wb-you-btn { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 14px; border: 2px solid var(--ink); border-radius: 10px; background: var(--you); box-shadow: 3px 3px 0 var(--ink); font-size: 14px; font-weight: 800; color: var(--ink); text-decoration: none; }
 .wb-you-btn:hover { color: var(--ink); transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--ink); }
 .wb-you-btn--calm { background: var(--paper); }

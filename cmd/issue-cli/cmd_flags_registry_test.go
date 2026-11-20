@@ -130,6 +130,54 @@ func TestFlagsFirst(t *testing.T) {
 	}
 }
 
+// A value flag written last, before "--", or before another flag of the
+// command has no value: the parse says so instead of taking the "--"
+// flagsFirst adds (or the next flag) as its value.
+func TestFlagsFirstLeavesADanglingFlagWithoutAValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"--new"},
+		{"slug", "--new"},
+		{"--new", "--", "slug"},
+		{"--new", "--yes", "slug"},
+		{"--new", "-yes"},
+	} {
+		ctx := &Context{}
+		fs := newFlagSet("check-script", ctx)
+		name := fs.String("new", "", "")
+		fs.Bool("yes", false, "")
+		err := parseFlagsArgs(ctx, fs, args)
+		if err == nil || !strings.Contains(err.Error(), "flag needs an argument: --new") || processExitCode(err) != 2 {
+			t.Errorf("%q: err = %v (--new = %q), want flag needs an argument: --new", args, err, *name)
+		}
+	}
+	// A value that only looks like a flag, or names none of the command's, stays a value.
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--new", "-5"}, "-5"},
+		{[]string{"--new", "--other"}, "--other"},
+		{[]string{"--new=", "slug"}, ""},
+		{[]string{"slug", "--new", "x"}, "x"},
+	} {
+		ctx := &Context{}
+		fs := newFlagSet("check-script", ctx)
+		name := fs.String("new", "", "")
+		fs.Bool("yes", false, "")
+		if err := parseFlagsArgs(ctx, fs, c.args); err != nil || *name != c.want {
+			t.Errorf("%q: --new = %q, err %v; want %q", c.args, *name, err, c.want)
+		}
+	}
+}
+
+func TestCheckScriptNewWithoutANameNeedsAnArgument(t *testing.T) {
+	ctx := &Context{}
+	err := runCheckScript(ctx, []string{"some/slug", "--new"})
+	if err == nil || !strings.Contains(err.Error(), "flag needs an argument: --new") {
+		t.Fatalf("check-script --new: err = %v, want flag needs an argument: --new", err)
+	}
+}
+
 func TestRequireSlugRejectsFlag(t *testing.T) {
 	_, _, err := requireSlug([]string{"--text", "x"}, "comment")
 	if err == nil || processExitCode(err) != 2 || !strings.Contains(err.Error(), "comment takes <slug> first") {

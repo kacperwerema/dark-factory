@@ -87,7 +87,7 @@ func TestBuildDispatchPromptYOLO(t *testing.T) {
 			t.Errorf("YOLO prompt still says %q", gone)
 		}
 	}
-	for _, want := range []string{"YOLO is on: gates pass without the owner", "This is a handoff state.\nYOLO rule: ", "issue-cli --project proj decide --provisional", "YOLO passes the approval this status waits for", tracker.YOLOOwnerOnly(wf)} {
+	for _, want := range []string{"YOLO is on (the rule above)", "This is a handoff state.\nYOLO rule: ", "issue-cli --project proj decide --provisional", "YOLO passes the approval this status waits for", tracker.YOLOOwnerOnly(wf)} {
 		if !strings.Contains(on, want) {
 			t.Errorf("YOLO prompt lacks %q", want)
 		}

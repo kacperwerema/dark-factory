@@ -23,7 +23,7 @@ func init() {
 func GateError(run *Run, slug, status string) error {
 	again := fmt.Sprintf("issue-cli critique %s", slug)
 	if run == nil {
-		return fmt.Errorf("no critique run from %s yet — a fresh critic reads the work before this gate:\n\n  %s", status, again)
+		return tracker.RuleFailure(fmt.Sprintf("no critique run from %s yet", status), fmt.Sprintf("a fresh critic reads the work before this gate:\n\n  %s", again))
 	}
 	if !run.Holds() {
 		return nil
@@ -31,8 +31,7 @@ func GateError(run *Run, slug, status string) error {
 	var b strings.Builder
 	switch {
 	case run.Failed:
-		fmt.Fprintf(&b, "the critique run %s failed (%s) — run it again:\n\n  %s", run.ID, run.Error, again)
-		return fmt.Errorf("%s", b.String())
+		return tracker.RuleFailure(fmt.Sprintf("the critique run %s failed (%s)", run.ID, run.Error), fmt.Sprintf("run it again:\n\n  %s", again))
 	default:
 		n := run.Report.Count(Blocks) + len(run.Report.Problems)
 		fmt.Fprintf(&b, "the critic found %d blocks finding%s (run %s):\n", n, plural(n), run.ID)
@@ -44,8 +43,9 @@ func GateError(run *Run, slug, status string) error {
 			b.WriteString("  blocks " + p + "\n")
 		}
 	}
-	fmt.Fprintf(&b, "\nFix each where it is wrong, in place (the code, or the issue text with issue-cli replace %s --section <name>), not by appending a note: the critic reads the text, not its history. Then run the critic again (the new run is what counts):\n\n  %s\n\nOr the owner overrides: issue-cli critique %s --override --quote \"<the owner's words>\"", slug, again, slug)
-	return fmt.Errorf("%s", b.String())
+	fix := fmt.Sprintf("\nFix each where it is wrong, in place (the code, or the issue text with issue-cli replace %s --section <name>), not by appending a note: the critic reads the text, not its history. Then run the critic again (the new run is what counts):\n\n  %s\n\nOr the owner overrides: issue-cli critique %s --override --quote \"<the owner's words>\"", slug, again, slug)
+	// The gate's action hint: replaces fix (tracker.RuleShowsHint).
+	return tracker.RuleFailureJoined(b.String(), "", fix)
 }
 
 func plural(n int) string {

@@ -349,3 +349,62 @@ func TestIssueNote(t *testing.T) {
 		t.Error("another issue's slug not found")
 	}
 }
+
+// A status where stages nearly always pass first try (idea, baseline 1.00)
+// leaves no room for a lift: injections there are not scored, so a memory
+// shown 20 times at idea is not measured "no help". A status with room
+// (in progress, some failures) still scores. Sweep report o-20261117-f9bc,
+// item 1.
+func TestUsefulnessSkipsStatusesWithNoRoomToLift(t *testing.T) {
+	var outs []Outcome
+	var evs []Event
+	// idea: 20 visits, all first try (baseline 1.00); shipping: 19 of 20
+	// (0.95, as high as a lift can't clear UsefulMargin).
+	for i := 0; i < 20; i++ {
+		slug := "i/" + strings.Repeat("a", i+1)
+		outs = append(outs, visit(slug, "idea", i, boolp(true)))
+		evs = append(evs, useAt(slug, "idea", i, 1, "m-idea"))
+		slug2 := "s/" + strings.Repeat("a", i+1)
+		outs = append(outs, visit(slug2, "shipping", i, boolp(i != 0)))
+		evs = append(evs, useAt(slug2, "shipping", i, 1, "m-ship"))
+	}
+	// in progress: half first try over 10 visits; m-idea reaches 4 of them.
+	for i := 0; i < 10; i++ {
+		slug := "p/" + strings.Repeat("a", i+1)
+		outs = append(outs, visit(slug, "in progress", 50+i, boolp(i%2 == 0)))
+		if i < 4 {
+			evs = append(evs, useAt(slug, "in progress", 50+i, 1, "m-idea"))
+		}
+	}
+	room := LiftRoom(outs)
+	if room["idea"] || room["shipping"] || !room["in progress"] {
+		t.Fatalf("room %v", room)
+	}
+	sc := ScoreAll(evs, outs)
+	u := sc.Of("m-idea")
+	if u.Unhelpful() || u.Measured() || u.Known != 4 || u.Injections != 24 || u.NoRoom != 20 {
+		t.Fatalf("m-idea is scored only over its in progress stages: %+v", u)
+	}
+	if _, ok := u.ByStatus["idea"]; ok {
+		t.Fatalf("no score at idea: %+v", u.ByStatus)
+	}
+	if sc.UnhelpfulAt(Memory{ID: "m-idea"}, "idea") {
+		t.Fatal("not ranked down at idea")
+	}
+	if s := sc.Of("m-ship"); s.Unhelpful() || s.Known != 0 || s.NoRoom != 20 {
+		t.Fatalf("m-ship: %+v", s)
+	}
+	// The status mix shows an empty score before anyone acts on it
+	// (sweep report o-20261117-f9bc, item 2).
+	if got, want := u.Mix(), "scored: in progress 4 · not scored: idea 20"; got != want {
+		t.Fatalf("m-idea mix %q, want %q", got, want)
+	}
+	if got, want := sc.Of("m-ship").Mix(), "scored: none · not scored: shipping 20"; got != want {
+		t.Fatalf("m-ship mix %q, want %q", got, want)
+	}
+	// A status with too few failures has no room either, whatever its rate.
+	few := []Outcome{visit("f/a", "testing", 0, boolp(false)), visit("f/b", "testing", 1, boolp(true))}
+	if LiftRoom(few)["testing"] {
+		t.Fatal("one failure is not enough to measure against")
+	}
+}

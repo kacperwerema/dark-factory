@@ -30,8 +30,11 @@ type WbHeader struct {
 	// Health); nil elsewhere.
 	Tabs                     *WbHallTabs
 	Working, Idle, AgentWait int
-	DoneWeek                 int
-	Waiting                  int
+	// OwnerWait counts agents waiting on the owner (at a gate or with a
+	// question): the agents box's "N waiting on you".
+	OwnerWait int
+	DoneWeek  int
+	Waiting   int
 	// WaitingURL is where "N waiting on you" goes: the project's Needs you
 	// list, or /needs-you across projects.
 	WaitingURL string

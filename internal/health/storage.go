@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/clean"
 	"github.com/kacperwerema/dark-factory/internal/diskuse"
 )
 
@@ -25,7 +26,7 @@ func init() {
 	// The cache walk takes as long as the family timeout on a busy Mac: a
 	// snapshot refreshes the reading first, at most hourly, without one.
 	Prepare("storage", func(ctx context.Context, env Env) { _, _ = diskReading(ctx, env.Now) })
-	Describe("storage", "card: /stats (Disk use), /health (Disk outside the checkout); tidy shots: issue-cli playtest prune; a big Go cache or a full volume is a Needs you row: "+diskuse.Command)
+	Describe("storage", "card: /stats (Disk use), /health (Disk outside the checkout); tidy shots: issue-cli playtest prune; the nightly clean ("+diskuse.CleanCommand+") trims the Go cache, old transcripts and snapshots (storage.clean_freed_mb); a big Go cache or a full volume is a Needs you row")
 }
 
 // diskReading is where the family gets the machine's reading: a var for
@@ -85,7 +86,25 @@ func storageFamily(ctx context.Context, env Env) ([]Metric, error) {
 	if d, ok := machineDisk(ctx, now); ok {
 		out = append(out, diskMetrics(d)...)
 	}
+	if r, ok := lastClean(); ok && now.Sub(r.At) < diskuse.StaleAfter {
+		out = append(out, cleanMetric(r))
+	}
 	return out, nil
+}
+
+// lastClean is the newest nightly clean's result (internal/clean): a var
+// for tests; none in a test binary or a scenario.
+var lastClean = func() (clean.Result, bool) {
+	if !diskuse.Live {
+		return clean.Result{}, false
+	}
+	return clean.Load(clean.Path()).Last()
+}
+
+// cleanMetric is the last clean as storage.clean_freed_mb.
+func cleanMetric(r clean.Result) Metric {
+	return Metric{Name: "storage.clean_freed_mb", Value: float64(int64(float64(r.Freed())/(1<<20)*10+0.5)) / 10, Unit: UnitMB,
+		Help: "The nightly clean (" + diskuse.CleanCommand + "): " + r.Summary()}
 }
 
 // machineDisk is the machine's reading for this snapshot: one under an
@@ -136,7 +155,7 @@ func diskMetrics(d diskuse.Reading) []Metric {
 	}
 	if d.Volume.OK {
 		out = append(out, Metric{Name: "storage.volume_used_pct", Value: float64(int64(d.Volume.UsedPct*10+0.5)) / 10, Unit: UnitPercent,
-			Help: "The data volume's use, as df counts it; over 85% puts a row in Needs you"})
+			Help: "The data volume's use (the volume holding Go's build cache; on macOS the Data volume, not the sealed system volume df / shows), as df counts it; over 85% puts a row in Needs you"})
 	}
 	return out
 }

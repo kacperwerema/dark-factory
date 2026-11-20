@@ -353,6 +353,12 @@ func printCIAfterDone(ctx *Context, wf *tracker.WorkflowConfig) {
 		branch, gitdir.ShortSHA(head), tracker.InjectProject(ctx.Project, "issue-cli ci status"))
 }
 
+// dryRunHint ends a dry run's text: a dry run is a turn that re-reads the
+// whole context, and the real call does the same check (workers dry-ran
+// about once per issue although the briefing says not to; factory/fewer-
+// turns-per-worker-issue-…).
+const dryRunHint = "Skip --dry-run next time: transition --to <status> --check <ids> ticks and moves in one call, and a refusal prints this same list."
+
 // runTransitionDryRun reports every unmet requirement for issue → to and
 // changes nothing. Exits 1 (silently — the report is the message) when any
 // requirement is unmet so scripts can branch on it.
@@ -387,6 +393,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		}
 		printWarnings(ctx.Stdout, out.Warnings)
 		renderNextTransitionContract(ctx.Stdout, nil, out.SideEffects)
+		fmt.Fprintln(ctx.Stdout, dryRunHint)
 	} else {
 		fmt.Fprintf(ctx.Stdout, "== Dry run: %s → %s ==\n", from, to)
 		printProblemReport(ctx.Stdout, problems)
@@ -396,6 +403,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 			fmt.Fprintln(ctx.Stdout, yoloNote)
 		}
 		fmt.Fprintln(ctx.Stdout, "Nothing was changed.")
+		fmt.Fprintln(ctx.Stdout, dryRunHint)
 	}
 	if !out.Ready {
 		return &exitCodeError{Code: 1}

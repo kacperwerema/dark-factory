@@ -182,6 +182,7 @@ func runCritique(ctx *Context, args []string) error {
 			return nil, nil
 		}
 		argv, err := critiqueArgv(agent)
+		argv = critique.WithName(argv, critique.SessionName(slug))
 		if err != nil {
 			return nil, err
 		}

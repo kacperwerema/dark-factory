@@ -18,6 +18,7 @@ var worktreesCommand = &Command{
 	LongHelp: `Make or sweep the project's issue worktrees (.worktrees/<slug>).
 
   issue-cli worktree add [<slug>]
+  issue-cli worktree deps [--own | --shared] [--dir <worktree>]
   issue-cli worktrees prune [--dry-run] [--json]
 
 add makes .worktrees/<slug> on work/<slug>, cut from the main branch
@@ -28,6 +29,17 @@ the worktree's path: cd "$(issue-cli worktree add | tail -1)". The slug
 defaults to your issue (ISSUE_VIEWER_ISSUE_SLUG). A worktree that exists is
 left as it is: nothing runs, and it says so. With worktree: true dispatch
 makes the worktree itself; add is for projects whose workers make their own.
+
+Every new worktree (dispatch, dispatch --fresh, add, the critic) links each
+node_modules folder the main checkout has while its lock file is the same
+as the main checkout's, so it installs nothing (worktree_deps: own in
+workflow.yaml turns it off). deps says each folder's state; deps --own
+turns each link into the worktree's own copy (a clone on APFS, no
+download; never through the link) and runs the lock file's install (npm
+ci, pnpm install) over it: do that before you add, remove or update a
+package. deps --shared links again. ship, ci run, prove --run and
+worktree_setup skip an install while the lock file is main's, and make
+the copies themselves before any other install.
 
 prune removes a worktree (git worktree remove, then git worktree prune;
 the branch stays) only when every rule holds:
@@ -66,8 +78,11 @@ func runWorktrees(ctx *Context, args []string) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		sub, args = args[0], args[1:]
 	}
-	if sub == "add" {
+	switch sub {
+	case "add":
 		return runWorktreeAdd(ctx, args)
+	case "deps":
+		return runWorktreeDeps(ctx, args)
 	}
 	fs := newFlagSet("worktrees prune", ctx)
 	dry := fs.Bool("dry-run", false, "list what would go; remove nothing")
@@ -76,7 +91,7 @@ func runWorktrees(ctx *Context, args []string) error {
 		return err
 	}
 	if sub != "prune" || fs.NArg() != 0 {
-		return &usageError{msg: "usage: issue-cli worktrees prune [--dry-run] [--json] | worktree add [<slug>]"}
+		return &usageError{msg: "usage: issue-cli worktrees prune [--dry-run] [--json] | worktree add [<slug>] | worktree deps [--own | --shared]"}
 	}
 	if !*dry {
 		issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
@@ -220,7 +235,7 @@ func keptHint(proj *tracker.Project, kind string) string {
 // ok is false when the issue has none on disk or git can't say.
 var shippedTreeVerdict = func(ctx *Context, issue *tracker.Issue) (agentrun.TreeVerdict, bool) {
 	proj := ctx.Project
-	wt := tracker.IssueWorktree(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
+	wt := tracker.IssueWorktreeOnDisk(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
 	if wt.Path == "" || !dirExists(wt.Path) {
 		return agentrun.TreeVerdict{}, false
 	}

@@ -7,8 +7,8 @@
 // A walk of the cache is about a million files, so a reading is kept in a
 // small state file and reused for an hour (Recent): the storage health
 // family takes it, Needs you only reads the file and one statfs of the
-// cache's volume (Check). The owner's fix is a command in words; nothing
-// here runs it.
+// cache's volume (Check). The nightly clean (issue-cli clean,
+// internal/clean) trims the cache; nothing here deletes.
 package diskuse
 
 import (
@@ -401,10 +401,14 @@ func Current(now time.Time) Verdict {
 	return Check(r, has, vol, now)
 }
 
+// CleanCommand is the nightly clean (cmd/issue-cli clean, internal/clean),
+// which trims the cache to its cap.
+const CleanCommand = "issue-cli clean"
+
 // Advice is the sentence that tells the owner what to do.
 func Advice() string {
-	return "Trim the cache in a terminal while no worker is running: " + Command +
-		" (a build or test running then fails; Go rebuilds what it needs; nothing here runs it for you)."
+	return "The nightly clean (" + CleanCommand + ") trims the cache to its cap while no local CI run or go build is running, and starts early while the volume is over 85% used; " +
+		CleanCommand + " --dry-run shows what it would free. By hand, while no worker is running: " + Command + " (Go rebuilds what it needs)."
 }
 
 // gb is a size given in MB, in GB ("159 GB", "1.4 GB").

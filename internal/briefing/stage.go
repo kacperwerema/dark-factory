@@ -199,7 +199,7 @@ func stageWork(in stageInput) string {
 		for _, l := range lines {
 			b.WriteString("- " + l + "\n")
 		}
-		fmt.Fprintf(&b, "issue-cli transition %s --to %s --dry-run lists what is still unmet.\n", issue.Slug, shell.Quote(next))
+		fmt.Fprintf(&b, "Run issue-cli transition %s --to %s --check <id> [<id>...] once the work is done: a refusal lists every unmet requirement with its box ids and the one call that moves, so no --dry-run first.\n", issue.Slug, shell.Quote(next))
 	} else {
 		b.WriteString(".\n")
 	}
@@ -217,7 +217,7 @@ func stageHowTo(slug string, wf *tracker.WorkflowConfig, yoloOn bool) string {
 	fmt.Fprintf(&b, "  issue-cli start %s        # claims it again and prints the checklist, the next step and the memories matching the issue\n", slug)
 	fmt.Fprintf(&b, "  issue-cli checklist %s    # each box's id\n", slug)
 	fmt.Fprintf(&b, "  issue-cli check %s <id> [<id>...]\n", slug)
-	fmt.Fprintf(&b, "  issue-cli transition %s --to \"<next>\" [--dry-run]\n", slug)
+	fmt.Fprintf(&b, "  issue-cli transition %s --to \"<next>\" [--check <id>...]   # a refusal lists everything still unmet, with box ids\n", slug)
 	b.WriteString(strings.ReplaceAll(gates["ask_rule"], "<slug>", slug) + "\n")
 	b.WriteString("Never modify issue .md files by hand; a bug in issue-cli goes to issue-cli report-bug \"...\".\n")
 	b.WriteString(tracker.ReadRule + "\n")

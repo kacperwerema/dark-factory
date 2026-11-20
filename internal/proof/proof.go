@@ -218,6 +218,13 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 	for _, cm := range commits {
 		for _, value := range cm.proves {
 			ids, tests := splitTrailer(value, prefix)
+			if title, ok := unquotedTitle(value, prefix); ok && len(ids) > 0 {
+				// "Proves: AC1 <it() title>" without quotes: the whole
+				// rest of the line is one test when a test file has it.
+				if c.findTests([]string{title}); c.tests[title].OK {
+					tests = []string{title}
+				}
+			}
 			for _, id := range ids {
 				if len(tests) == 0 {
 					add(id, Link{Kind: tracker.ProofCommit, Ref: cm.sha, Source: SourceTrailer, From: gitdir.ShortSHA(cm.sha)})
@@ -329,6 +336,32 @@ func splitTrailer(value, prefix string) (ids, tests []string) {
 		tests = append(tests, w.text)
 	}
 	return ids, tests
+}
+
+// unquotedTitle is the rest of a Proves: value after its leading criterion
+// ids, as one string, when that rest is several words and holds no quote: a
+// JS/TS it() title written without quotes. Collect links it whole when a
+// test file has it, and word by word otherwise.
+func unquotedTitle(value, prefix string) (string, bool) {
+	sep := func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == ';' }
+	rest := value
+	for {
+		rest = strings.TrimLeftFunc(rest, sep)
+		end := strings.IndexFunc(rest, sep)
+		if end < 0 {
+			end = len(rest)
+		}
+		m := idShapeRe.FindStringSubmatch(rest[:end])
+		if m == nil || !strings.EqualFold(m[1], prefix) {
+			break
+		}
+		rest = rest[end:]
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" || strings.ContainsAny(rest, `"'`) || len(trailerWords(rest)) < 2 {
+		return "", false
+	}
+	return rest, true
 }
 
 // trailerWord is one word of a Proves: value; quoted: it was a quoted

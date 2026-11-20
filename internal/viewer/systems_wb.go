@@ -304,7 +304,7 @@ func (s *Server) buildSystemsWb(p *tracker.Project, prefix string, issues []*tra
 // systemsHeader is the hall header with the Systems tab current, for the
 // index and the Workshop page.
 func systemsHeader(p *tracker.Project, prefix string, lot MapLot) WbHeader {
-	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: lot.Waiting, HideDone: true}
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "systems"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: lot.Waiting, HideDone: true}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", Current: true, Color: companyProductColor}

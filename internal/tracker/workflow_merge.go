@@ -85,6 +85,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		PlaytestReport:   w.PlaytestReport,
 		Worktree:         w.Worktree,
 		WorktreeSetup:    w.WorktreeSetup,
+		WorktreeDeps:     w.WorktreeDeps,
 		LookupIssue:      w.LookupIssue,
 		ChildrenOf:       w.ChildrenOf,
 		ClosedIssue:      w.ClosedIssue,

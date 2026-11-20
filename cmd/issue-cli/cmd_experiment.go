@@ -46,13 +46,18 @@ Subcommands:
       The block and its verdict.
   list
       Every experiment issue and its verdict.
-  run <slug> [--ref HEAD] [--benchmark <name>] [--dry-run]
+  run <slug> [--ref HEAD] [--benchmark <name>] [--baseline <run>] [--dry-run]
       Guard (no protected path, only --change paths, contains main), then
       the baseline run (reused when one measured main's sha) and the
       candidate run (bench run --setup <ref>), then record. The plan ends
-      with the cost: tokens, hours, USD (or prices.yaml unset) from the
-      benchmark's newest finished run. --dry-run prints the guard and the
-      plan and runs nothing.
+      with the Reach line (issue-cli prompt-cell: how many tasks walk
+      through a prompt cell the branch edits) and the cost: tokens, hours,
+      USD (or prices.yaml unset) from the benchmark's newest finished run.
+      --dry-run prints the guard and the plan and runs nothing.
+      --baseline <run> pins a finished run as the baseline when main has
+      moved: the branch is cut from the commit that run measured, which
+      stands in for main (the guard, the diff), and it is never run
+      again, so one baseline serves every candidate cut from it.
   record <slug> --baseline <run> --candidate <run>
       Judge two finished benchmark runs and record the verdict: the block,
       an experiment: comment, and on promising an "Experiment result"
@@ -444,9 +449,13 @@ type experimentPlan struct {
 	RefSHA    string
 	Problems  []string
 	Baseline  *experiment.Run // reused, nil when it must run
+	// Pinned: Baseline is the run --baseline named, and PinSHA the commit
+	// it measured, which stands in for main (the guard, the diff).
+	Pinned bool
+	PinSHA string
 }
 
-func planExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, ref, benchFlag string) (*experimentPlan, error) {
+func planExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, ref, benchFlag, pin string) (*experimentPlan, error) {
 	benchDir := experiment.BenchDir()
 	name, err := experimentBenchmark(benchFlag, b, benchDir)
 	if err != nil {
@@ -460,17 +469,40 @@ func planExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, ref
 	if p.RefSHA, err = experiment.SHA(repo, ref); err != nil {
 		return nil, err
 	}
-	if p.RefSHA == p.MainSHA {
-		p.Problems = append(p.Problems, ref+" is main itself: make the change on the issue's branch first")
+	// base is the commit both runs start from: main, or the pinned run's.
+	base := p.MainSHA
+	if pin != "" {
+		run, sha, err := experiment.Pinned(benchDir, name, pin)
+		if err != nil {
+			return nil, err
+		}
+		if full, err := experiment.SHA(repo, sha); err == nil {
+			sha = full
+		}
+		p.Baseline, p.Pinned, p.PinSHA, base = run, true, sha, sha
 	}
-	if !experiment.Contains(repo, ref, p.MainSHA) {
-		p.Problems = append(p.Problems, fmt.Sprintf("%s does not contain main (%s): merge main, then run again, so both runs differ only by the change", ref, gitdir.ShortSHA(p.MainSHA)))
+	if p.RefSHA == base {
+		p.Problems = append(p.Problems, ref+" is the base itself: make the change on the issue's branch first")
+	}
+	switch {
+	case pin != "" && !experiment.Contains(repo, ref, base):
+		p.Problems = append(p.Problems, fmt.Sprintf("%s does not contain the pinned run's commit %s: cut the branch from it (git switch -c <branch> %s), so both runs differ only by the change", ref, gitdir.ShortSHA(base), gitdir.ShortSHA(base)))
+	case pin != "":
+		if mb, err := experiment.MergeBase(repo, ref, "main"); err == nil && mb != base && !experiment.Contains(repo, base, mb) {
+			p.Problems = append(p.Problems, fmt.Sprintf("%s has main's commits after the pinned run's %s (up to %s): the candidate would measure them too; cut the branch from %s and put only the change on it", ref, gitdir.ShortSHA(base), gitdir.ShortSHA(mb), gitdir.ShortSHA(base)))
+		}
+	case !experiment.Contains(repo, ref, p.MainSHA):
+		why := fmt.Sprintf("%s does not contain main (%s): merge main, then run again, so both runs differ only by the change", ref, gitdir.ShortSHA(p.MainSHA))
+		if last := experiment.LastFinished(benchDir, name); last != nil {
+			why += fmt.Sprintf(", or pin a baseline the branch was cut from: --baseline <run> (newest finished: %s)", last.ID)
+		}
+		p.Problems = append(p.Problems, why)
 	}
 	protected, err := experiment.Protected(benchDir, name)
 	if err != nil {
 		return nil, err
 	}
-	changed, err := experiment.Changed(repo, "main", ref)
+	changed, err := experiment.Changed(repo, base, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +510,9 @@ func planExperiment(ctx *Context, issue *tracker.Issue, b *experiment.Block, ref
 	for _, pr := range experiment.Guard(changed, protected, b.Change) {
 		p.Problems = append(p.Problems, pr.String())
 	}
-	p.Baseline = experiment.Baseline(benchDir, name, p.MainSHA)
+	if !p.Pinned {
+		p.Baseline = experiment.Baseline(benchDir, name, p.MainSHA)
+	}
 	return p, nil
 }
 
@@ -518,6 +552,7 @@ func runExperimentRun(ctx *Context, args []string) error {
 	benchFlag := fs.String("benchmark", "", "the benchmark (default: the block's)")
 	dry := fs.Bool("dry-run", false, "print the guard and the plan, run nothing")
 	quote := fs.String("quote", "", "the owner's words starting the benchmark runs, passed to bench run")
+	pin := fs.String("baseline", "", "a finished run of the benchmark to use as the baseline; the branch is cut from the commit it measured, which stands in for main")
 	if err := parseFlags(ctx, fs, rest); err != nil {
 		return err
 	}
@@ -532,7 +567,7 @@ func runExperimentRun(ctx *Context, args []string) error {
 	if b == nil {
 		return fmt.Errorf("%s has no experiment block: issue-cli experiment init %s --hypothesis ... --target ...", issue.Slug, issue.Slug)
 	}
-	p, err := planExperiment(ctx, issue, b, *ref, *benchFlag)
+	p, err := planExperiment(ctx, issue, b, *ref, *benchFlag, *pin)
 	if err != nil {
 		return err
 	}
@@ -546,15 +581,26 @@ func runExperimentRun(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("experiment run refused for %s (%d problem(s) above)", issue.Slug, len(p.Problems))
 	}
-	fmt.Fprintln(w, "Guard: ok (no protected path, contains main)")
+	if p.Pinned {
+		fmt.Fprintf(w, "Guard: ok (no protected path, cut from the pinned %s)\n", gitdir.ShortSHA(p.PinSHA))
+	} else {
+		fmt.Fprintln(w, "Guard: ok (no protected path, contains main)")
+	}
 	label := "experiment:" + issue.Slug + "@" + gitdir.ShortSHA(p.RefSHA)
-	if p.Baseline != nil {
+	if p.Pinned {
+		fmt.Fprintf(w, "Baseline: pinned run %s (%s%s)\n", p.Baseline.ID, gitdir.ShortSHA(p.PinSHA), pinnedBehind(p))
+	} else if p.Baseline != nil {
 		fmt.Fprintf(w, "Baseline: reuse run %s (main %s)\n", p.Baseline.ID, gitdir.ShortSHA(p.MainSHA))
 	} else {
 		fmt.Fprintf(w, "Baseline: bench run %s --setup %s (main)\n", p.Benchmark, gitdir.ShortSHA(p.MainSHA))
 	}
 	fmt.Fprintf(w, "Candidate: bench run %s --setup %s --label %s\n", p.Benchmark, gitdir.ShortSHA(p.RefSHA), label)
-	cost := spend.ExperimentCost(p.Benchmark, baselineID(p.Baseline), p.MainSHA)
+	fmt.Fprintln(w, experimentReachLine(ctx, issue, b, p))
+	costSHA := p.MainSHA
+	if p.Pinned {
+		costSHA = p.PinSHA
+	}
+	cost := spend.ExperimentCost(p.Benchmark, baselineID(p.Baseline), costSHA)
 	fmt.Fprintf(w, "Cost: %s\n", cost.Line)
 	for _, d := range cost.Detail {
 		fmt.Fprintf(w, "  %s\n", d)
@@ -594,6 +640,9 @@ func runExperimentRun(ctx *Context, args []string) error {
 	}
 	b.Benchmark = p.Benchmark
 	b.Baseline = &experiment.RunRef{Ref: "main", SHA: p.MainSHA, Run: base.ID}
+	if p.Pinned {
+		b.Baseline = &experiment.RunRef{Ref: "pin", SHA: p.PinSHA, Run: base.ID}
+	}
 	b.Candidate = &experiment.RunRef{Ref: *ref, SHA: p.RefSHA, Run: cand.ID}
 	return recordExperiment(ctx, issue, b, base, cand)
 }
@@ -948,4 +997,31 @@ func baselineID(r *experiment.Run) string {
 		return ""
 	}
 	return r.ID
+}
+
+// pinnedBehind says how far main has moved past the pinned commit.
+func pinnedBehind(p *experimentPlan) string {
+	if p.PinSHA == p.MainSHA {
+		return "; main is still there"
+	}
+	n, err := experiment.CommitsBetween(".", p.PinSHA, p.MainSHA)
+	if err != nil {
+		return "; main has moved"
+	}
+	return fmt.Sprintf("; main is %d commit(s) past it", n)
+}
+
+// experimentReachLine is prompt-cell's Reach line for the branch against
+// the plan's base, so the plan says before the spend whether the tasks
+// walk through a prompt cell the change edits.
+func experimentReachLine(ctx *Context, issue *tracker.Issue, b *experiment.Block, p *experimentPlan) string {
+	r := &cellReport{Slug: issue.Slug, Base: "main", BaseSHA: p.MainSHA, Ref: p.Ref, RefSHA: p.RefSHA}
+	if p.Pinned {
+		r.BaseSHA = p.PinSHA
+	}
+	if err := r.fill(ctx.Project, ".", nil); err != nil {
+		return "Reach: unknown (" + err.Error() + ")"
+	}
+	r.tasks(ctx, issue, b, p.Benchmark)
+	return r.reachLine() + " (issue-cli prompt-cell " + issue.Slug + " --ref " + p.Ref + ")"
 }

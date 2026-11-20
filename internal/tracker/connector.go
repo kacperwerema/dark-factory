@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -324,7 +323,7 @@ var SecretPresent = func(ref SecretRef) bool {
 		v, ok := os.LookupEnv(ref.Name)
 		return ok && v != ""
 	case "keychain":
-		if runtime.GOOS != "darwin" {
+		if KeychainOS != "darwin" {
 			return false
 		}
 		// Without -w security prints the item's attributes, not its password.
@@ -334,15 +333,16 @@ var SecretPresent = func(ref SecretRef) bool {
 	return false
 }
 
-// SecretValue reads ref's value. Only issue-cli connector exec and check
-// call it, to put the value into a child's environment; tests replace it.
+// SecretValue reads ref's value. issue-cli connector exec and check call
+// it, to put the value into a child's environment, and cms up, to sign in
+// to the Ghost it set up with the password it wrote; tests replace it.
 var SecretValue = func(ref SecretRef) (string, bool) {
 	switch ref.Scheme {
 	case "env":
 		v, ok := os.LookupEnv(ref.Name)
 		return v, ok && v != ""
 	case "keychain":
-		if runtime.GOOS != "darwin" {
+		if KeychainOS != "darwin" {
 			return "", false
 		}
 		out, err := exec.Command("security", keychainArgs(ref, true)...).Output()

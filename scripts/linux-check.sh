@@ -116,7 +116,7 @@ say "building $image if it changed (apt and Go, minutes the first time)"
 docker build --quiet -t "$image" - > /dev/null << EOF || exit 2
 FROM ubuntu:24.04
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git golang-go make shellcheck tmux \
+ && apt-get install -y --no-install-recommends ca-certificates curl git golang-go jq make shellcheck tmux \
  && useradd -m ci
 USER ci
 ENV LANG=C.UTF-8 GOTOOLCHAIN=$go_version

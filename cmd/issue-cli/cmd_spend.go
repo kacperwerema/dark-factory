@@ -49,8 +49,45 @@ session's main transcript is read (not its subagents'), and Claude Code's
 only: Codex is not covered. The Stats page's Context floor trend is the
 worker sessions' floor per day (the context health family).
 
+--kinds prints where the tokens go by kind of session instead, for the
+last --days calendar days (default 7) or --since/--until (a date or an
+RFC 3339 time): per project and kind (workers, leads, subagents,
+post-mortems, critics, sweeps, lead-flush and other jobs, benchmark runs,
+health reviews, your own sessions) sessions, turns, tokens read (input +
+cache), output, est. USD, share of the window's USD and % of the weekly
+limit; then workers by type and stage (the issue's status at each turn).
+A session's kind comes from its agent name (lead-*, agent-<slug>,
+postmortem-*, critic-*, bench-*, review-*), else its folder (an issue's
+worktree: its worker; the project folder: yours). A job's run issue (job:
+lead-flush, a sweep) is its job. Benchmark tasks run on a sandbox HOME
+count from their run records. --all-projects reads every project in
+projects.yaml, and the transcript folders of none as "other". Each price
+shows as assumed or confirmed (confirmed: true on its prices.yaml entry);
+weekly_limit: {usd: N} or {tokens: N} in prices.yaml fills % WEEK (pro
+rata for the window). --prices <file> reads another prices file.
+
+--turns prints each issue's worker turns by cause: transition (an
+issue-cli transition call; refused when its result was an error),
+validate (make validate, or reading its log), read (one Read, or one
+cat/head/tail/nl/sed -n of one file), red round (any other turn while a
+check of the issue's rounds or the session's make validate is red),
+rest; with the context each cause's
+turns read. Two counts name turns a batch would save: dry runs
+(transition calls with --dry-run) and follow-on reads (a read turn
+straight after another read turn of the same session). Pass a slug for
+one issue. Command text is read only to pick
+the cause; nothing of it is kept.
+
+Measure before and after a change: run --kinds --json and --turns --json
+on a fixed --since/--until window before it ships and on a window of the
+same length after (docs/workflow-stats.md, "Measure before and after").
+
 Examples:
   issue-cli spend
+  issue-cli spend --kinds --all-projects --days 7
+  issue-cli spend --kinds --json --since 2026-11-11T20:00:00Z --until 2026-11-18
+  issue-cli spend --turns --days 3
+  issue-cli spend --turns factory/some-issue --json
   issue-cli spend marketing
   issue-cli spend --json
   issue-cli spend --context
@@ -75,7 +112,13 @@ var loadContext = func(ctx *Context, days int) *spend.ContextReport {
 func runSpend(ctx *Context, args []string) error {
 	fs := newFlagSet("spend", ctx)
 	withContext := fs.Bool("context", false, "where the tokens come from: the context floor and per-turn size, per box and top session")
-	days := fs.Int("days", spend.ContextDays, "with --context: calendar days back, today included")
+	days := fs.Int("days", spend.ContextDays, "with --context, --kinds or --turns: calendar days back, today included")
+	kinds := fs.Bool("kinds", false, "tokens, est. USD and share by project and kind of session (workers by type and stage, leads, subagents, post-mortems, critics, sweeps, jobs, benchmark, yours)")
+	allProjects := fs.Bool("all-projects", false, "with --kinds: every project in projects.yaml, and the folders of none as other")
+	turns := fs.Bool("turns", false, "each issue's worker turns by cause: transition, validate, read, red round, rest")
+	since := fs.String("since", "", "with --kinds or --turns: the window's start, a date or an RFC 3339 time (instead of --days)")
+	until := fs.String("until", "", "with --kinds or --turns: the window's end (default now; a date counts the whole day)")
+	pricesFile := fs.String("prices", "", "with --kinds: read prices and weekly_limit from this file instead of prices.yaml")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
@@ -83,6 +126,39 @@ func runSpend(ctx *Context, args []string) error {
 		return unexpectedArgError(fs, fs.Arg(1))
 	}
 	pos := fs.Args()
+	if *allProjects && !*turns {
+		*kinds = true
+	}
+	switch {
+	case *kinds && *turns, *kinds && *withContext, *turns && *withContext:
+		return fmt.Errorf("--context, --kinds and --turns are separate views: give one")
+	case *allProjects && *turns:
+		return fmt.Errorf("--all-projects goes with --kinds: --turns reads this project's issues")
+	case *pricesFile != "" && !*kinds:
+		return fmt.Errorf("--prices goes with --kinds: issue-cli spend --kinds --prices %s", *pricesFile)
+	case (*since != "" || *until != "") && !*kinds && !*turns:
+		return fmt.Errorf("--since and --until go with --kinds or --turns")
+	}
+	if *kinds || *turns {
+		if *days < 1 {
+			return fmt.Errorf("--days must be 1 or more, got %d", *days)
+		}
+		w, err := spendWindowOf(ctx.now(), *days, daysSet(fs), *since, *until)
+		if err != nil {
+			return err
+		}
+		if *turns {
+			slug := ""
+			if len(pos) == 1 {
+				slug = pos[0]
+			}
+			return runSpendTurns(ctx, w, slug)
+		}
+		if len(pos) == 1 {
+			return fmt.Errorf("--kinds takes no box: it reads the whole project (--all-projects: every one)")
+		}
+		return runSpendKinds(ctx, w, *allProjects, *pricesFile)
+	}
 	if *withContext {
 		if *days < 1 {
 			return fmt.Errorf("--days must be 1 or more, got %d", *days)
@@ -90,7 +166,7 @@ func runSpend(ctx *Context, args []string) error {
 		return runSpendContext(ctx, pos, *days)
 	}
 	if daysSet(fs) {
-		return fmt.Errorf("--days goes with --context: issue-cli spend --context --days %d", *days)
+		return fmt.Errorf("--days goes with --context, --kinds or --turns: issue-cli spend --kinds --days %d", *days)
 	}
 	rep := loadSpend(ctx)
 	boxes := rep.Boxes
@@ -128,6 +204,7 @@ func runSpend(ctx *Context, args []string) error {
 	}
 	printPricesHint(w, rep)
 	fmt.Fprintln(w, "\nContext floor and turn size, per box and session: issue-cli spend --context")
+	fmt.Fprintln(w, "By project and kind of session: issue-cli spend --kinds --all-projects · worker turns by cause: issue-cli spend --turns")
 	return nil
 }
 

@@ -33,14 +33,14 @@ transitions:
   - from: in design
     to: backlog
     actions:
-      - {type: validate, rule: "criteria_proven: since 2026-01-01", hint: "prove each box"}
+      - {type: validate, rule: commits_reference_issue, hint: "reference the issue"}
 `
 	got := hintFindings(t, "/nowhere/workflow.yaml", []byte(raw))
 	if len(got) != 1 {
 		t.Fatalf("want one finding, got %+v", got)
 	}
 	f := got[0]
-	for _, want := range []string{"in design → backlog", `rule "criteria_proven"`, "never shows its hint"} {
+	for _, want := range []string{"in design → backlog", `rule "commits_reference_issue"`, "never shows its hint"} {
 		if !strings.Contains(f.Message, want) {
 			t.Errorf("message lacks %q: %s", want, f.Message)
 		}

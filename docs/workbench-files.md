@@ -375,11 +375,47 @@ Beside the checkout it counts what the factory fills elsewhere on the machine (`
 | `storage.gocache_mb` | none | Go's build cache: `$GOCACHE`, else the user cache dir's `go-build` (`~/Library/Caches/go-build` on a Mac). None with `GOCACHE=off` or no folder |
 | `storage.gocache_new_mb` | none | cache files created in the 24 hours before the reading, by birth time: what the day wrote before the trim. macOS only (Linux's `stat` has no birth time) |
 | `storage.transcripts_mb` | none | the agent transcripts: Claude Code's `projects/` (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and Codex's `sessions/` (`$CODEX_HOME`, else `~/.codex`) |
-| `storage.volume_used_pct` | none | the cache's volume, used / (used + available) as `df` counts it (percent) |
+| `storage.volume_used_pct` | none | the cache's volume (on macOS the Data volume: `df /` shows the sealed system volume, a few percent), used / (used + available) as `df` counts it (percent) |
+| `storage.clean_freed_mb` | none | what the last nightly clean freed, all areas together; its help names when it ran and the volume's use before and after. None without a clean in the last 3 days |
 
 They are the machine's, not the project's, and stay out of `storage.total_mb`. The cache is about a million files (a walk takes 20 s on a busy Mac, as long as the family timeout), so the reading is kept in `$XDG_STATE_HOME/ai-workflow-engine/machine/disk.json` (the last 14) and reused for an hour. A snapshot refreshes it first when it is an hour old, before the families and outside their timeout (that snapshot takes about 20 s longer), and the running viewer's health tick refreshes it in the background. A family that still finds none under an hour old walks with half its time left, then uses the newest reading under 3 days old, with a warning. The net growth a day is the change of `storage.gocache_mb` between two daily snapshots.
 
-**Needs you** lists one row, once across projects, while the cache is over 100 GB (the newest reading, if under 3 days old) or the volume is over 85% used (read live with `statfs`; the page never walks). The row names the owner's fix, `go clean -cache`, run in a terminal while no worker is running: a build or test running then fails. Nothing here runs it. A playtest scenario's board reads none of this (`ISSUE_VIEWER_NO_MACHINE=1`), so its counts don't follow the host's disk. The Health page's **Where to look** lists the cache, the day's new entries, the transcripts and the checkout under **Disk outside the checkout**.
+**Needs you** lists one row, once across projects, while the cache is over 100 GB (the newest reading, if under 3 days old) or the volume is over 85% used (read live with `statfs`; the page never walks). The row names the nightly clean (below) and how its last run went, or why it waits, and the fix by hand, `go clean -cache`, run in a terminal while no worker is running: a build or test running then fails. A playtest scenario's board reads none of this (`ISSUE_VIEWER_NO_MACHINE=1`), so its counts don't follow the host's disk. The Health page's **Where to look** lists the cache, the day's new entries, the transcripts and the checkout under **Disk outside the checkout**.
+
+### The nightly clean
+
+`issue-cli clean` frees the disk the factory fills, once for the whole machine: every project in projects.yaml. The viewer's health tick (every 10 minutes) starts it detached as `issue-cli clean --if-due` every night after `clean.at` (default 04:00, after local CI's 03:00 nightly tier), and early while the data volume is over 85% used and the last clean is over 6 hours old. Nothing else runs it, and no agent does: a job's run would be an agent spending tokens on work with no judgement in it, and a live worker beside the clean (factory/a-nightly-clean-job-keeps-the-disk-down-go-cache-cap-transcripts-over-14-days-health-snapshots-merged-worktrees-and-playtest-runs#D-1).
+
+It changes nothing while any of these holds, and records why (the Needs you disk row shows it); the next tick tries again:
+- no local CI run is live (`.ci/lock` in any project's main checkout);
+- no go build, test, vet, run, install or generate runs, no compiler or linker under the toolchain's `pkg/tool/`, no `*.test` binary; it looks again right before the cache;
+- mem-guard allows it.
+
+Live workers don't hold it: auto-start keeps workers running around the clock, and the cache loses only its oldest entries, as Go's own trim does beside other builds (a build refreshes an entry's mtime when it uses it). Source: factory/a-nightly-clean-job-keeps-the-disk-down-go-cache-cap-transcripts-over-14-days-health-snapshots-merged-worktrees-and-playtest-runs#D-6 (provisional under YOLO).
+
+| Area | What goes | Limit |
+|:--|:--|:--|
+| `gocache` | Go's build cache over the cap: the oldest entries by mtime (Go refreshes an entry's mtime when a build uses it) until it is under the cap, so the hot ones stay. Only files in the two-hex-character entry folders | `clean.gocache_cap_gb`, 40 GB |
+| `transcripts` | `*.jsonl` under Claude Code's `projects/` and Codex's `sessions/` last written over N calendar days ago; never a `memory/` folder, never another file, never a live session's file (it is written all the time). A folder a transcript went from goes when that left it empty | `clean.transcript_days`, 14 days |
+| `snapshots <project>` | `.health/snapshots`: the last N calendar days in full, of each older day only the newest | `clean.snapshot_days`, 7 days |
+| `worktrees <project>` | as `issue-cli worktrees prune`: merged, clean, idle, not live | its rules |
+| `playtest <project>` | as `issue-cli playtest prune --all` | its rules |
+
+The report is one line per area with the MB freed, then the total and the data volume's use before and after. The result is kept in `$XDG_STATE_HOME/ai-workflow-engine/machine/clean.json` (the last 14, and the last hold), a lock beside it lets one clean run at a time, and the viewer's starts log to `clean.log` there. The storage family's `storage.clean_freed_mb` shows the last one. `issue-cli clean --dry-run` reports what each area would free and deletes nothing; a worker may run only that. A test binary or a playtest scenario never cleans (`diskuse.Live`).
+
+The off switches, in projects.yaml (set by hand; the engine never writes it):
+
+```yaml
+clean:
+  off: true            # clean.off: no clean at all
+  at: "04:00"
+  gocache_cap_gb: 40
+  transcript_days: 14
+  snapshot_days: 7
+projects:
+  - slug: shop
+    clean_off: true    # this project's snapshots, worktrees and playtest runs are left alone
+```
 
 ### The machine family
 
@@ -426,7 +462,7 @@ No root is needed. The running viewer records a reading every 10 minutes (the he
   - `memory`: `memory: embedder:` settings search can't use ([Shared Memory](memory.md)): both or neither of `url` and `command`, a URL that leaves this machine, no model, a bad timeout or `min_similarity`; memories whose `--at` names a status no workflow has; a cluster of 3 or more memories in one scope that retell one fact (each linked pair shares 45% or more of the shorter one's words), named by id with `memory edit` and `memory forget` as the merge; and a project pitfall or howto with no `--at` whose text names a step (in design, in progress, "at shipping"), with the `memory edit <id> --at` to set.
   - `evals`: `evals:` entries the [factory benchmark](benchmark.md) can't use: no or a repeated id, an unknown score, a pass outside 0-1, a type the file doesn't define.
   - `critique`: the [fresh critic](Workflow/critique.md)'s settings: a `critique:` timeout that doesn't parse, an agent with no read-only command, a `critique:` block no edge uses, a critique gate out of the first status.
-  - `hints`: a validate action whose `hint:` its rule never shows. The structured rules and the legacy checkbox, assignee, test-plan, comment-prefix, `has_output` and `outputs_approved` rules put the hint in place of their fix (`tracker.RuleShowsHint`); `criteria_*`, `approved_for`, `decisions_*`, `critique`, `commits_reference` and `handoff_answered` keep their own text, so a hint there is never read. The finding names the edge and the rule.
+  - `hints`: a validate action whose `hint:` its rule never shows. The structured rules and the legacy checkbox, assignee, test-plan, comment-prefix, `has_output`, `outputs_approved`, `criteria_*`, `approved_for`, `decisions_*`, `citations_current`, `decision_unchallenged` and `critique` rules put the hint in place of their fix and keep what is wrong (`tracker.RuleShowsHint`); `commits_reference_issue` and `handoff_answered` keep their own text, so a hint there is never read. The finding names the edge and the rule.
   - `decisions`: a D-n line's attribute group the decision ledger can't use ([Decision ledger](workflow.md#decision-ledger)): a trailing `{…}` that names a decision key (scope, hard, at, paths, expires, ended) but doesn't parse, so the line silently reads as scope issue, soft (legacy text such as `{from: marketing, to: product, via: hq}` names no key and stays quiet), or a scope naming a system no issue or `workbench.systems` has, a department not in `projects.yaml`, a type no workflow defines; `hard` without the owner's words (`NeedsOwnerWords`: no quote, or a provisional or YOLO mark); a `paths:` glob that matches no file of the repository; an `at:` status in none of the project's workflow files. Replaced decisions are skipped. Each finding names the ref and the `decide` command that fixes it (the owner's, for a hard one). It reads the board, so it runs once.
   - `shas`: a commit ref (7 to 40 lowercase hex, with a letter and a digit) in a done issue's `## Implementation` that the main branch (`ci.branch`, else the main checkout's) does not reach: most often the SHA from before an amend or a rebase, while the commit that landed has another. The fix is the landed SHA (`git log --oneline main --grep '<slug>'`); `issue-cli health lint --check shas --fix` makes the swap where it is mechanical: of the commits on main whose message names the issue's slug, exactly one has the stale commit's subject. It rewrites only that ref's whole words in `## Implementation`, one write per issue under the issue lock, prints each swap, and lists each ref it kept with why (no such commit, with the one main commit of that subject as a hint when there is one; or several). An issue that quotes another issue's stale SHA keeps it, since its slug finds nothing. A ref git doesn't know is left alone (another repository's commit, an attachment's hash), and so is a short ref that names several objects. One `git cat-file --batch-check` and one `git rev-list --stdin` call per run, whatever the number of issues; outside git, nothing.
   - `goal-without-work`: each goal in `projects.yaml` (HQ's, Product's, every department's) and each open epic with nothing behind it: no open, unparked issue whose `goal:` names it, no active queue item whose `goal:` (or whose issue's) names it, no job filling it (a `source:` that is the job's metrics file), and for an HQ or group goal no covered goal rolling up into it; an epic needs an open child or an active queue item for it or a child. The finding names the goal (`hq/clients (Paying clients)`) or the epic and the command that adds work (`issue-cli create --title "…" --goal <key>`, `queue add --idea "…" --goal <key>`, `create --parent <epic>`). A project with no goals at all gets one note instead (no warning, so a new project starts clean), fixed by the owner's `department update hq --goal …`. The queue's out-of-work line names the same goals ([Work behind a goal](departments.md#work-behind-a-goal)).

@@ -5,6 +5,8 @@ func init() {
 		// The map of projects (templates/map.html, "/"): L0 of the Workshop Board design.
 		"map.brand",
 		"map.agents",
+		// The agents box's "N waiting on you": agents at the owner's gate or with a question.
+		"map.agents.you",
 		"map.done_week",
 		"map.waiting",
 		// The header's ☰ at phone width: opens the counts, YOLO switch and YOU (wb/header).

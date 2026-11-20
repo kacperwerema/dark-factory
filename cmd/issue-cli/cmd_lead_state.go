@@ -329,26 +329,10 @@ func shorten(s string, n int) string {
 var leadWatchArgs = func() []string { return os.Args[1:] }
 
 // registerLeadWatch records this process as a background shell lead waits
-// on, so the state file lists it and a rotate hands its command over; the
-// returned func drops it. Only a lead's own shells are recorded.
+// on (openLeadWatch, cmd_lead_tick_signal.go); the returned func drops it
+// as one that exited on its own. Only a lead's own shells are recorded.
 func registerLeadWatch(ctx *Context, me Identity) func() {
-	if me.Role != tracker.RoleProjectLead && me.Role != tracker.RoleDepartmentLead || me.Name == "" || leadstate.Dir() == "" {
-		return func() {}
-	}
-	pid := os.Getpid()
-	cmd := "issue-cli " + shellJoin(leadWatchArgs())
-	update := func(fn func(*leadstate.Store)) {
-		s, err := leadstate.Load(me.Name)
-		if err != nil {
-			return
-		}
-		fn(&s)
-		_ = s.Save(me.Name)
-	}
-	update(func(s *leadstate.Store) {
-		s.Register(leadstate.Watch{PID: pid, Command: cmd, Started: ctx.now()})
-	})
-	return func() { update(func(s *leadstate.Store) { s.Ended(pid, ctx.now()) }) }
+	return openLeadWatch(ctx, me).done
 }
 
 // shellJoin quotes each arg that needs it for /bin/sh.

@@ -16,6 +16,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/queue"
 	"github.com/kacperwerema/dark-factory/internal/recent"
 	"github.com/kacperwerema/dark-factory/internal/standin"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -100,31 +101,18 @@ const statusRounds = 8
 // statusPages are the warm pages statusTooSlow times.
 var statusPages = []string{"status", "status.md", "status", "status"}
 
-// statusTooSlow times each warm page in statusPages against /board and
-// returns a line per page that stays too slow. A page passes when its best
-// time is under statusLimit, or under statusVsBoard× the best /board. The
-// two are sampled in turns, a /board then the page, so a slow stretch of
-// the machine slows both; load only ever adds time, so each best is that
-// request's own cost, and a burst that lands on a few samples is ridden
-// out. It stops at the first round that passes.
+// statusTooSlow times each warm page in statusPages against /board
+// (timing.Check: best of statusRounds, in turns) and returns a line per
+// page that stays too slow. A page passes when its best time is under
+// statusLimit, or under statusVsBoard× the best /board.
 func statusTooSlow(timePage func(path string) time.Duration) (slow []string, best time.Duration) {
 	best = 1<<63 - 1
+	check := timing.Check{Limit: statusLimit, Ratio: statusVsBoard, Rounds: statusRounds}
 	for _, page := range statusPages {
-		bestBoard, bestPage := time.Duration(1<<63-1), time.Duration(1<<63-1)
-		var tries []string
-		for round := 0; round < statusRounds; round++ {
-			b, d := timePage("board"), timePage(page)
-			bestBoard, bestPage = min(bestBoard, b), min(bestPage, d)
-			if bestPage <= max(statusLimit, statusVsBoard*bestBoard) {
-				tries = nil
-				break
-			}
-			tries = append(tries, fmt.Sprintf("%v (/board %v)", d.Round(100*time.Microsecond), b.Round(100*time.Microsecond)))
-		}
-		best = min(best, bestPage)
-		if tries != nil {
-			slow = append(slow, fmt.Sprintf("%s warm: best %v against best /board %v (limit %v) over %d rounds: %s; want under %v, or %d× /board on a slow machine",
-				page, bestPage, bestBoard, max(statusLimit, statusVsBoard*bestBoard), statusRounds, strings.Join(tries, ", "), statusLimit, statusVsBoard))
+		r := check.Run(func() time.Duration { return timePage(page) }, func() time.Duration { return timePage("board") })
+		best = min(best, r.Best)
+		if r.Slow {
+			slow = append(slow, fmt.Sprintf("%s warm: %s (baseline: /board)", page, r))
 		}
 	}
 	return slow, best

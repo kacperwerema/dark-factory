@@ -301,7 +301,10 @@ func main() {
 			panic(r)
 		}
 	}()
+	staleBuild := startStaleBuildCheck()
 	err := runTraced(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, inv)
+	// A branch build older than its checkout's code says so (stale_build.go).
+	staleBuild(os.Stderr)
 	log.write(inv, err, false)
 	recordTelemetry(inv, os.Args[1:], err, start, false)
 	shareNotice(os.Stderr, start)

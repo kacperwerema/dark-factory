@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 // fakePrivateName is a made-up project name this test puts on its own
@@ -80,8 +82,8 @@ func TestCommitMsgNoLeakWarningOnACleanDiff(t *testing.T) {
 }
 
 // The scan of a 50-file staged diff stays under 1 s. On a loaded machine
-// it may take as long as three plain git diff --cached calls timed in the
-// same run instead.
+// it may take as long as three plain git diff --cached calls timed in
+// turns with it instead (timing.Check: best of each over the rounds).
 func TestCommitMsgLeakWarnIsFast(t *testing.T) {
 	privateNamesList(t, "Another Game", fakePrivateName, "third-name")
 	repo := t.TempDir()
@@ -109,21 +111,22 @@ func TestCommitMsgLeakWarnIsFast(t *testing.T) {
 	}
 	git("add", "-A")
 
-	base := time.Now()
-	cmd := exec.Command("git", "-C", repo, "diff", "--cached", "-U0")
-	if err := cmd.Run(); err != nil {
-		t.Fatal(err)
+	diff := func() {
+		if err := exec.Command("git", "-C", repo, "diff", "--cached", "-U0").Run(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	cheap := time.Since(base)
-
 	var w bytes.Buffer
-	start := time.Now()
-	warnStagedLeaks(&w, repo, commitSubject)
-	took := time.Since(start)
+	scan := func() {
+		w.Reset()
+		warnStagedLeaks(&w, repo, commitSubject)
+	}
+	check := timing.Check{Limit: time.Second, Ratio: 3}
+	r := check.Run(timing.Timed(scan), timing.Timed(diff))
 	if !strings.Contains(w.String(), "f49.go:301:") {
 		t.Fatalf("the hit in the 50th file wasn't found:\n%s", w.String())
 	}
-	if limit := max(time.Second, 3*cheap); took > limit {
-		t.Errorf("the staged scan took %v on 50 files (limit %v; a plain git diff --cached took %v)", took, limit, cheap)
+	if r.Slow {
+		t.Errorf("the staged scan of 50 files: %s (baseline: a plain git diff --cached)", r)
 	}
 }

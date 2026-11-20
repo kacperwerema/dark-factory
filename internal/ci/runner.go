@@ -190,6 +190,12 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 	run.State = Green
 	for _, c := range opts.Config.Commands(tier) {
 		fmt.Fprintf(out, "\n$ %s\n", c.Cmd)
+		skip, why, installKey := InstallSkip(dir, c.Cmd)
+		if skip {
+			fmt.Fprintln(out, why)
+			run.Commands = append(run.Commands, CommandResult{Cmd: c.Cmd, Tier: c.TierName(), Skipped: why})
+			continue
+		}
 		offset, _ := logFile.Seek(0, io.SeekCurrent)
 		start := time.Now()
 		loadDone := loadAround(c)
@@ -211,6 +217,9 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 				run.Failed = fmt.Sprintf("%s (timeout after %s)", c.Cmd, limit)
 			}
 			break
+		}
+		if err := WriteInstallStamp(dir, installKey); err != nil {
+			fmt.Fprintf(out, "CI could not record the install (the next run installs again): %v\n", err)
 		}
 		run.Commands = append(run.Commands, res)
 	}
@@ -235,11 +244,19 @@ func finishError(opts Options, run *Run, err error) *Run {
 // group, so a timeout kills everything it started, and no controlling
 // terminal, so a command that wants one (an interactive shell) does not stop
 // on the runner's tty. startErr means it could not start, or was refused
-// before it started (CheckNodeModules: it would delete node_modules
-// through a symlink).
+// before it started (PrepareInstall: it would install or delete through a
+// node_modules symlink). An install PrepareInstall skips exits 0 with its
+// line in out.
 func runCommand(ctx context.Context, dir, command string, nice int, resultsDir string, out io.Writer) (exit int, timedOut bool, startErr error) {
-	if err := CheckNodeModules(dir, command); err != nil {
+	skip, note, err := PrepareInstall(dir, command)
+	if note != "" {
+		fmt.Fprintln(out, note)
+	}
+	if err != nil {
 		return -1, false, err
+	}
+	if skip {
+		return 0, false, nil
 	}
 	args := []string{"sh", "-c", command}
 	if nice > 0 {
@@ -257,7 +274,7 @@ func runCommand(ctx context.Context, dir, command string, nice int, resultsDir s
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
-	err := cmd.Run()
+	err = cmd.Run()
 	if cmd.Process != nil {
 		// Whatever the command left running in the background goes too.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

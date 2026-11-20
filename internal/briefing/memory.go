@@ -72,11 +72,11 @@ func MemoryPromptSection(proj *tracker.Project, issue *tracker.Issue) string {
 	v := workerViewer(proj, issue)
 	var b strings.Builder
 	b.WriteString("\n## Memory\n\n")
-	b.WriteString("Shared memory holds what earlier agents learned, with its source. `issue-cli start` prints the memories matching this issue; `issue-cli memory search <words>` finds more.\n")
+	b.WriteString("What earlier agents learned: `issue-cli start` prints the memories matching this issue, `issue-cli memory search <words>` finds more.\n")
 	if pins := briefingPins(proj, v); len(pins.Shown) > 0 {
 		writePins(&b, pins)
 	}
-	b.WriteString("Memory is for durable project facts, true across issues. Notes on this work go in the issue file and HANDOFF.md, and lessons for later go through the post-mortem. When you learn such a fact (a convention, a pitfall, how something is done, who knows what), add it: `issue-cli memory add \"<fact>\" --kind fact|convention|pitfall|howto|who`. If a similar one exists, add refuses and lists it: update it (`--updates <id>`), replace it (`--supersedes <id>`) or add yours anyway (`--new`). A fact about a step, not a subject: add `--at <status>`, and transition prints it to whoever enters that status. Never put a secret in a memory.\n")
+	b.WriteString("Memory is for durable project facts, true across issues: `issue-cli memory add \"<fact>\" --kind fact|convention|pitfall|howto|who` (`--at <status>` for a fact about a step; a similar one makes add refuse: `--updates <id>`, `--supersedes <id>` or `--new`). Notes on this work go in the issue and HANDOFF.md, lessons through the post-mortem. Never put a secret in a memory.\n")
 	return b.String()
 }
 

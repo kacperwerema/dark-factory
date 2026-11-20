@@ -1,0 +1,43 @@
+session: header-agents-you
+issue: ui/headers-agents-box-shows-0-working-0-idle-0-waiting-on-an-agent-while-every-live-worker-waits-on-the-owner
+title: The header's agents box counts the agents waiting on you
+scenario: leads
+
+# Live agents are faked with `cat` sessions on the scenario's private tmux
+# server: ui/child sits at its gate and ui/legacy has an open question, so
+# every live worker waits on the owner and none works, idles or waits on an
+# agent.
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: With every live worker waiting on you, the agents box says 2 waiting on you beside 0 working, 0 idle, 0 waiting on an agent
+    proves: [AC1]
+    # At phone width the counts sit in the ☰ drawer: TP3 opens it.
+    viewports: [1440x900]
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /p/{project}/agents
+    checks:
+      - visible: [map.agents, map.agents.you]
+      - text_contains: { target: map.agents.you, text: "2 waiting on you" }
+      - text_contains: { target: map.agents, text: "0 working" }
+
+  - id: TP3
+    title: At phone width the ☰ drawer's agents box says 2 waiting on you too
+    proves: [AC1]
+    viewports: [390x844]
+    setup:
+      - tmux: [new-session, -d, -s, agent-ui-child, cat]
+      - tmux: [new-session, -d, -s, agent-ui-legacy, cat]
+      - open: /p/{project}/agents
+    act:
+      - click: map.drawer
+    checks:
+      - visible: [map.agents, map.agents.you]
+      - text_contains: { target: map.agents.you, text: "2 waiting on you" }

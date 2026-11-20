@@ -465,7 +465,7 @@ const citedFormsHint = "Forms that count, each on one line:\n" +
 	"  <slug>#D-5 · <slug>#D-5,D-6 · <slug>#D-5, #D-6 (a list takes the slug of the full ref before it)\n" +
 	"  n/a <ref>: <why>. n/a <ref>[, <ref>…]: <why>. (each n/a sentence sets its own refs aside)\n"
 
-func uncitedError(slug string, missing []UncitedDecision) error {
+func uncitedError(slug string, missing []UncitedDecision) *ruleFailure {
 	var b strings.Builder
 	noun := "decisions"
 	verb := "are"
@@ -484,11 +484,12 @@ func uncitedError(slug string, missing []UncitedDecision) error {
 		}
 	}
 	ref := missing[0].Entry.Entry.Ref
-	b.WriteString(citedFormsHint)
-	fmt.Fprintf(&b, "Cite each in ## Design, saying how the design follows it:\n  issue-cli append %s --section Design --body \"Follows %s: …\"\n", slug, ref)
-	fmt.Fprintf(&b, "or say why it doesn't apply here:\n  issue-cli append %s --section Design --body \"n/a %s: <why>\"\n", slug, ref)
-	fmt.Fprintf(&b, DecisionChallengeHint, slug, ref)
-	return fmt.Errorf("%s", b.String())
+	var fix strings.Builder
+	fix.WriteString(citedFormsHint)
+	fmt.Fprintf(&fix, "Cite each in ## Design, saying how the design follows it:\n  issue-cli append %s --section Design --body \"Follows %s: …\"\n", slug, ref)
+	fmt.Fprintf(&fix, "or say why it doesn't apply here:\n  issue-cli append %s --section Design --body \"n/a %s: <why>\"\n", slug, ref)
+	fmt.Fprintf(&fix, DecisionChallengeHint, slug, ref)
+	return &ruleFailure{problem: b.String(), fix: fix.String()}
 }
 
 func (w *WorkflowConfig) checkCitationsCurrent(arg string, issue *Issue) error {
@@ -524,7 +525,7 @@ func (s StaleCitation) reason() string {
 	return "expired after " + s.Expired
 }
 
-func staleError(slug string, stale []StaleCitation) error {
+func staleError(slug string, stale []StaleCitation) *ruleFailure {
 	var b strings.Builder
 	noun := "refs are"
 	if len(stale) == 1 {
@@ -540,8 +541,7 @@ func staleError(slug string, stale []StaleCitation) error {
 			fmt.Fprintf(&b, "    drop the citation, or ask the owner to renew it\n")
 		}
 	}
-	fmt.Fprintf(&b, DecisionChallengeHint, slug, stale[0].Ref)
-	return fmt.Errorf("%s", b.String())
+	return &ruleFailure{problem: b.String(), fix: fmt.Sprintf(DecisionChallengeHint, slug, stale[0].Ref)}
 }
 
 // UsesDecisionRules reports whether the workflow runs decisions_cited,

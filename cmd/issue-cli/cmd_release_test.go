@@ -246,3 +246,35 @@ func TestReleaseCutAndPublishAPatch(t *testing.T) {
 		t.Errorf("a soaking patch = %v, want past the card to the worktree check", err)
 	}
 }
+
+// One version is supported: with v0.63.0 published, cut, pick and publish
+// refuse v0.62.x and name the rule; a leftover release-v0.62 worktree does
+// not make pick ask for --release.
+func TestReleaseRefusesAVersionOlderThanTheNewestPublished(t *testing.T) {
+	proj, root, _ := makePrivacyFixture(t, snapshotsBlock)
+	gitIn(t, root, "tag", "v0.63.0")
+	for _, args := range [][]string{
+		{"cut", "v0.62.1"},
+		{"cut", "v0.62.0"},
+		{"pick", "--release", "v0.62.0", "ui/a"},
+		{"publish", "v0.62.1"},
+	} {
+		ctx, stdout, _ := newTestContext(proj, false)
+		err := runRelease(ctx, args)
+		if err == nil {
+			t.Fatalf("%v succeeded", args)
+		}
+		assertContains(t, err.Error(), "is older than v0.63.0, and one version is supported: the newest published release")
+		if stdout.Len() != 0 {
+			t.Errorf("%v printed %q", args, stdout.String())
+		}
+	}
+	if tags := gitOut(t, root, "tag", "-l"); strings.TrimSpace(tags) != "v0.63.0" {
+		t.Errorf("a refused call left tags: %q", tags)
+	}
+
+	wts := []string{filepath.Join(root, ".worktrees", "release-v0.62"), filepath.Join(root, ".worktrees", "release-v0.63")}
+	if got := supportedWorktrees(root, wts); len(got) != 1 || got[0] != wts[1] {
+		t.Errorf("supportedWorktrees = %v, want only release-v0.63", got)
+	}
+}

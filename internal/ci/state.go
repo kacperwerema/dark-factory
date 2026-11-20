@@ -40,6 +40,9 @@ type CommandResult struct {
 	DurationMS int64    `json:"duration_ms"`
 	TimedOut   bool     `json:"timed_out,omitempty"`
 	Failures   []string `json:"failures,omitempty"`
+	// Skipped is why the command did not run (an install whose lock file is
+	// unchanged: InstallSkip), "" when it ran.
+	Skipped string `json:"skipped,omitempty"`
 	// Steps are the command's own steps with their wall time, from the
 	// `validate: <step> <seconds>s` lines make validate prints (ParseSteps).
 	Steps []Step `json:"steps,omitempty"`

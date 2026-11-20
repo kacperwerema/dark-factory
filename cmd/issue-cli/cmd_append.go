@@ -17,6 +17,9 @@ var appendCommand = &Command{
 section; if --body starts with a heading the issue has at that level (or a
 shallower one), it auto-routes into that section. A deeper heading of the name
 is a different section: "## X" on an issue with only "### X" starts a new one.
+A sub-heading of the body that the section already has ("### Automated" into
+a Test Plan with one) is not written twice: its lines go under it, and the
+success line names it. An append that still leaves a heading twice warns.
 
 Use --body-file <path> (or --body-file - for stdin) to supply the body as raw
 bytes, which avoids shell mangling of backticks and parentheses in inline code.
@@ -24,7 +27,9 @@ bytes, which avoids shell mangling of backticks and parentheses in inline code.
 To fix one line of a section instead of adding a correction paragraph, name
 the line exactly with --replace: the one line that reads it (leading and
 trailing spaces aside) becomes --body. No match, or several, is refused with
-the section's numbered lines. (Same as issue-cli replace --match.)
+the section's numbered lines. (Same as issue-cli replace --match.) To replace
+a whole section, use issue-cli replace <slug> --section "<name>" --body-file <file>;
+a bare --replace is refused with both commands named.
 
 For screenshots use issue-cli attach <slug> <file> --section "<name>": it saves
 the image where the viewer serves it and appends its link.
@@ -55,6 +60,9 @@ func runAppend(ctx *Context, args []string) error {
 	forceFlag := fs.Bool("force", false, "force append even when target section is missing")
 	replaceFlag := fs.String("replace", "", "replace this one exact line of --section with --body instead of appending")
 	if err := parseFlags(ctx, fs, rest); err != nil {
+		if strings.HasPrefix(err.Error(), "flag needs an argument: --replace") {
+			return bareReplaceError(slug, sectionArg(rest), err)
+		}
 		return err
 	}
 	inline := normalizeEscapedText(*bodyFlag)
@@ -98,6 +106,7 @@ func runAppend(ctx *Context, args []string) error {
 		return writeErr("failed to append", err)
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Appended to %s\n", issue.Slug)
+	printSubheadingNotes(ctx, issue.Slug, section, text, before, after)
 	hintSection := section
 	if strings.TrimSpace(hintSection) == "" {
 		hintSection = "<section>"
@@ -105,6 +114,27 @@ func runAppend(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "Wrong line? issue-cli append %s --section %s --replace '<old line>' --body '<new line>' swaps it.\n", issue.Slug, shell.Quote(hintSection))
 	printDesignEditPreview(ctx.Stdout, ctx, issue, before, after)
 	return nil
+}
+
+// printSubheadingNotes says which of the body's sub-headings the append put
+// its lines under (the section already had them), and warns when the append
+// still wrote a heading a second time in one place.
+func printSubheadingNotes(ctx *Context, slug, section, text, before, after string) {
+	if before == after {
+		return
+	}
+	target := section
+	if strings.TrimSpace(target) == "" {
+		// Auto-routed: the section is the body's opening heading.
+		first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+		target = first
+	}
+	if merged := tracker.MergedSubheadings(before, after, target, text); len(merged) > 0 {
+		fmt.Fprintf(ctx.Stdout, "Merged under the existing %s: no second heading written.\n", strings.Join(merged, ", "))
+	}
+	if dups := tracker.NewDuplicateHeadings(before, after); len(dups) > 0 {
+		fmt.Fprintf(ctx.Stderr, "warning: the issue now has %s twice in one place; see it with issue-cli show %s and fold the copy back with issue-cli replace %s --section <name> --body-file <file>\n", strings.Join(dups, ", "), slug, slug)
+	}
 }
 
 // appendReplace is append --replace: the one line of section that reads
@@ -119,7 +149,7 @@ func appendReplace(ctx *Context, slug, section, old, text string, force bool) er
 	case force:
 		return &usageError{msg: "append --replace takes no --force: the line must already be in the section" + example}
 	case strings.TrimSpace(old) == "":
-		return &usageError{msg: "append --replace needs the old line's text" + example}
+		return bareReplaceError(slug, section, nil)
 	case strings.Contains(strings.TrimSpace(old), "\n"):
 		return &usageError{msg: "append --replace takes one old line; for a whole section use issue-cli replace " + slug + " --section \"" + section + "\" --body-file <file>"}
 	}
@@ -134,4 +164,37 @@ func appendReplace(ctx *Context, slug, section, old, text string, force bool) er
 		}
 	}
 	return err
+}
+
+// bareReplaceError refuses append --replace without the old line: the caller
+// most likely meant to replace the whole section, which is replace --section.
+// It names that command and the one-line form, with the slug and section the
+// call gave.
+func bareReplaceError(slug, section string, err error) error {
+	name := "<name>"
+	if strings.TrimSpace(section) != "" {
+		name = shell.Quote(section)
+	}
+	return &usageError{err: err, msg: "append --replace takes the old line's text: it swaps one line of the section.\n\n" +
+		"Whole section:\n  issue-cli replace " + slug + " --section " + name + " --body-file <file>\n" +
+		"One line:\n  issue-cli append " + slug + " --section " + name + " --replace '<old line>' --body '<new line>'"}
+}
+
+// sectionArg is the --section value in args (as --section X or
+// --section=X), for a message written when parsing failed; "" when none.
+func sectionArg(args []string) string {
+	for i, a := range args {
+		if a == "--" {
+			break
+		}
+		for _, f := range []string{"--section", "-section"} {
+			if v, ok := strings.CutPrefix(a, f+"="); ok {
+				return v
+			}
+			if a == f && i+1 < len(args) {
+				return args[i+1]
+			}
+		}
+	}
+	return ""
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 func TestMentionsFindTopicsAndNames(t *testing.T) {
@@ -108,13 +110,15 @@ func TestIndexOfFiveThousandIsQuick(t *testing.T) {
 	for i := range mems {
 		mems[i].Text += " #playtest @lead-x"
 	}
-	start := time.Now()
 	idx := Index(mems)
 	if len(idx) != 2 || len(idx[0].IDs) != 5000 {
 		t.Fatalf("index = %d entities", len(idx))
 	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("index of 5000 took %s", d)
+	// On a slow machine the limit scales with a fold of the same log
+	// (about 20 ms here).
+	check := timing.Check{Limit: 2 * time.Second, Ratio: 100}
+	if r := check.Run(timing.Timed(func() { Index(mems) }), timing.Timed(func() { load(t, s) })); r.Slow {
+		t.Fatalf("index of 5000: %s (baseline: a fold of the log)", r)
 	}
 }
 

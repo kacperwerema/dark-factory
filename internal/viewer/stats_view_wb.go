@@ -162,7 +162,7 @@ func (s *Server) renderStatsWb(w http.ResponseWriter, proj *tracker.Project, hea
 // time budget (TestStatsPageFastOnABigProject).
 func (s *Server) statsHeader(p *tracker.Project, prefix string, now time.Time) WbHeader {
 	lot, rows := s.buildLot(p, s.projectColor(p), now)
-	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "stats"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), HideDone: true}
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Tabs: wbHallTabs(prefix, "stats"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), HideDone: true}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
 	h.Crumbs[2] = WbCrumb{Label: "Product hall", URL: prefix + "/hall", Color: companyProductColor}

@@ -554,6 +554,12 @@ func StartScenarioWith(scenarioDir, name string, bins *Binaries, log io.Writer, 
 		s.board.Stdout, s.board.Stderr = log, s.codes
 	}
 	s.board.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if !o.Detached {
+		// The board goes with the runner even when the runner is killed
+		// (SIGKILL, a test timeout) and its stop hooks never run; make
+		// serve's detached board outlives it on purpose.
+		s.board.Env = append(s.board.Env, "ISSUE_VIEWER_EXIT_WITH_PID="+fmt.Sprint(os.Getpid()))
+	}
 	if err := s.board.Start(); err != nil {
 		return fail(fmt.Errorf("start board: %v", err))
 	}

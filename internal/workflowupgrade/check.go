@@ -152,11 +152,11 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	known := map[string]bool{}
+	versions := map[string]string{}
 	for _, e := range entries {
-		known[e.ID] = true
+		versions[e.ID] = e.Version
 	}
-	na, bad := naTrailers(b.Trailers, known)
+	na, bad := naTrailers(b.Trailers, TrailerCatalog{Versions: versions, LastRelease: lastRelease})
 	rep.BadTrailers = append(rep.BadTrailers, bad...)
 	newer := func(v string) bool { return CompareVersions(v, lastRelease) > 0 }
 	c := &checker{b: b, consts: map[string]map[string]string{}}
@@ -250,32 +250,51 @@ var naTrailer = regexp.MustCompile(`(?i)^n/a(?:\s+([^\s,]+(?:\s*,\s*[^\s,]+)*)(?
 
 var naColon = regexp.MustCompile(`(?i)^n/a\s*:`)
 
+// bumpTrailer is the bare form, `Catalog: <id>[,<id>...] [<why>]`: it names
+// entries the change bumps.
+var bumpTrailer = regexp.MustCompile(`^([^\s,]+(?:\s*,\s*[^\s,]+)*)(?:\s+(.*))?$`)
+
+// BumpForm is the other form catalog-check reads: entries this change
+// bumps, named for the reader. It marks nothing the bump doesn't.
+const BumpForm = "Catalog: <id>[,<id>...] [<why>]"
+
+// TrailerCatalog is what reading a Catalog: line needs of the catalog:
+// each entry's version by id and the last release. Versions nil skips
+// the question whether an id is an entry; LastRelease "" skips whether a
+// bare id's entry is bumped.
+type TrailerCatalog struct {
+	Versions    map[string]string
+	LastRelease string
+}
+
 // CheckTrailers returns the Catalog: values that mark nothing, with why:
 // the same reading catalog-check does, for a message before it is
-// committed (issue-cli workflow commit-msg). known nil skips the question
-// whether an id is a catalog entry; every other form is still checked.
-func CheckTrailers(values []Trailer, known map[string]bool) []BadTrailer {
-	_, bad := naTrailers(values, known)
+// committed (issue-cli workflow commit-msg).
+func CheckTrailers(values []Trailer, cat TrailerCatalog) []BadTrailer {
+	_, bad := naTrailers(values, cat)
 	return bad
 }
 
-// EntryIDs is the set of entry ids in the catalog of the checkout repo
-// reads (the split catalog included).
-func EntryIDs(repo Repo) (map[string]bool, error) {
+// EntryVersions is each entry's version: by id in the catalog of the
+// checkout repo reads (the split catalog included).
+func EntryVersions(repo Repo) (map[string]string, error) {
 	entries, err := RepoCatalog(repo)
 	if err != nil {
 		return nil, err
 	}
-	known := map[string]bool{}
+	out := map[string]string{}
 	for _, e := range entries {
-		known[e.ID] = true
+		out[e.ID] = e.Version
 	}
-	return known, nil
+	return out, nil
 }
 
 // naTrailers parses `Catalog: n/a <id>[,<id>...] <why>` values into id → why,
-// and returns the values that mark nothing as bad.
-func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []BadTrailer) {
+// and returns the values that mark nothing as bad. A bare
+// `Catalog: <id>[,<id>...] [<why>]` marks nothing of its own: it is
+// accepted when each id is an entry bumped past the last release, and bad
+// otherwise, with the catalog-bump that makes it true.
+func naTrailers(values []Trailer, cat TrailerCatalog) (map[string]string, []BadTrailer) {
 	out := map[string]string{}
 	var bad []BadTrailer
 	for _, t := range values {
@@ -289,25 +308,15 @@ func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []B
 			bad = append(bad, BadTrailer{t, "a colon after n/a: write " + TrailerForm + ", no colon"})
 			continue
 		case m == nil:
-			bad = append(bad, BadTrailer{t, "only n/a is read in a Catalog: line: a bumped entry needs no line (issue-cli workflow catalog-bump <id>), an unchanged one is " + TrailerForm})
+			if problem := cat.bumpProblem(t.Value); problem != "" {
+				bad = append(bad, BadTrailer{t, problem})
+			}
 			continue
 		case m[1] == "":
 			bad = append(bad, BadTrailer{t, "names no entry: when the change touches no catalog entry leave the Catalog: line out; otherwise the entry id comes right after n/a (" + TrailerForm + ")"})
 			continue
 		}
-		var ids, unknown, colon []string
-		for _, id := range strings.Split(m[1], ",") {
-			id = strings.TrimSpace(id)
-			if bare := strings.TrimRight(id, ":"); bare != id && bare != "" {
-				colon = append(colon, bare)
-				continue
-			}
-			if known == nil || known[id] {
-				ids = append(ids, id)
-			} else {
-				unknown = append(unknown, fmt.Sprintf("%q", id))
-			}
-		}
+		ids, unknown, colon := cat.splitIDs(m[1])
 		if len(colon) > 0 {
 			bad = append(bad, BadTrailer{t, fmt.Sprintf("a colon after the entry id %q: write \"Catalog: n/a %s <why>\", no colon (with it the line marks nothing)", colon[0], strings.Join(colon, ","))})
 			continue
@@ -321,6 +330,57 @@ func naTrailers(values []Trailer, known map[string]bool) (map[string]string, []B
 		}
 	}
 	return out, bad
+}
+
+// splitIDs splits a comma list of entry ids into the known ones, the
+// unknown ones (quoted) and those written with a colon after them.
+func (cat TrailerCatalog) splitIDs(list string) (ids, unknown, colon []string) {
+	for _, id := range strings.Split(list, ",") {
+		id = strings.TrimSpace(id)
+		if bare := strings.TrimRight(id, ":"); bare != id && bare != "" {
+			colon = append(colon, bare)
+			continue
+		}
+		if _, ok := cat.Versions[id]; cat.Versions == nil || ok {
+			ids = append(ids, id)
+		} else {
+			unknown = append(unknown, fmt.Sprintf("%q", id))
+		}
+	}
+	return ids, unknown, colon
+}
+
+// bumpProblem is what is wrong with a bare Catalog: value, "" when every
+// id it names is an entry bumped past the last release.
+func (cat TrailerCatalog) bumpProblem(value string) string {
+	forms := "a Catalog: line is " + TrailerForm + ", or " + BumpForm + " for entries this change bumps"
+	m := bumpTrailer.FindStringSubmatch(value)
+	if m == nil {
+		return forms
+	}
+	ids, unknown, colon := cat.splitIDs(m[1])
+	switch {
+	case len(colon) > 0:
+		return fmt.Sprintf("a colon after the entry id %q: %s, no colon", colon[0], forms)
+	case len(unknown) > 0:
+		return "no catalog entry " + strings.Join(unknown, ", ") + ": " + forms
+	}
+	if cat.LastRelease == "" || cat.Versions == nil {
+		return ""
+	}
+	var stale, at []string
+	for _, id := range ids {
+		if CompareVersions(cat.Versions[id], cat.LastRelease) <= 0 {
+			stale = append(stale, id)
+			at = append(at, id+" is at "+cat.Versions[id])
+		}
+	}
+	if len(stale) == 0 {
+		return ""
+	}
+	list := strings.Join(stale, ",")
+	return fmt.Sprintf("names %s as bumped, but %s, not newer than the last release %s: run issue-cli workflow catalog-bump %s; or, when nothing projects adopt changed, write Catalog: n/a %s <why>",
+		list, strings.Join(at, ", "), cat.LastRelease, list, list)
 }
 
 // checker holds what one CheckBranch run reads more than once.

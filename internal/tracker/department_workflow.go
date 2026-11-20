@@ -110,6 +110,9 @@ func departmentWorkflow(own, product *WorkflowConfig) *WorkflowConfig {
 	if own.Worktree == nil {
 		wf.Worktree, wf.WorktreeSetup, wf.WorktreeSparseExclude = product.Worktree, product.WorktreeSetup, product.WorktreeSparseExclude
 	}
+	if own.WorktreeDeps == "" {
+		wf.WorktreeDeps = product.WorktreeDeps
+	}
 	return wf
 }
 

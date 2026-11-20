@@ -311,3 +311,14 @@ func orNone(s string) string {
 	}
 	return s
 }
+
+// LastFinished is benchmark's newest finished run; nil when none.
+func LastFinished(benchDir, benchmark string) *Run {
+	runs := Runs(benchDir, benchmark)
+	for i := len(runs) - 1; i >= 0; i-- {
+		if runs[i].Finished() {
+			return runs[i]
+		}
+	}
+	return nil
+}

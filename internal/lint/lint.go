@@ -76,7 +76,7 @@ var checks = []Check{
 	{"evals", "evals: entries the factory benchmark can't use: no or repeated id, unknown score, pass outside 0-1, a type the file doesn't define", checkEvals},
 	{"department", "department workflow files (projects.yaml departments: workflow:) that don't load, project-wide keys in them, issues whose status their department's file lacks", checkDepartment},
 	{"critique", "the fresh critic's settings: a critique: timeout that doesn't parse, an agent with no read-only command, a critique: block no edge uses, a critique gate out of the first status", checkCritique},
-	{"hints", "validate actions whose hint: the rule never shows (criteria_*, approved_for, decisions_*, critique, has_output and other rules that keep their own fix text)", checkHints},
+	{"hints", "validate actions whose hint: the rule never shows (commits_reference_issue, handoff_answered: rules that keep their own fix text)", checkHints},
 	{"decisions", "D-n attribute groups the decision ledger can't use: a {…} naming a decision key that doesn't parse or a scope naming no system, department or type; hard without the owner's words; paths: matching no file; at: naming no status", checkDecisions},
 	{"testids", "playtest session steps (playtest/sessions) whose selector names a data-testid internal/testids does not list, so the step fails only in Chrome", checkTestIDs},
 	{"shas", "commit refs in a done issue's ## Implementation that main does not reach (the SHA from before an amend or rebase)", checkSHAs},

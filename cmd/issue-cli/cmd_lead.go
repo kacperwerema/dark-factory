@@ -67,7 +67,8 @@ Subcommands:
       context nudge, the owner's comment), so a background shell wakes
       the lead once per piece of news. A plain start and a closed session
       are no news: they are held and printed above the next news, one
-      line each; --verbose exits on them too. This is
+      line each, and so is the hold said last when it comes back after
+      a quiet load or memory tick; --verbose exits on them too. This is
       the lead's one way to wait: a /loop cron, a ScheduleWakeup poll or a
       Monitor (which expires every 30 minutes) wakes the whole context
       (0.5-1 M tokens) each time, news or not.
@@ -186,7 +187,15 @@ func runLeadSpawn(ctx *Context, args []string) error {
 		return fmt.Errorf("workers can't spawn the CEO (you are %s, detected from %s).\n\nPost a question: comment on your issue instead; the CEO relays it:\n  %s%s", valueOr(me.Name, "a worker"), me.Signal,
 			tracker.InjectProject(proj, fmt.Sprintf("issue-cli comment %s \"question: ...\"", valueOr(me.Slug, "<slug>"))), leadLinkHint(proj, me.Slug))
 	}
+	return spawnLead(ctx, strings.TrimSpace(*deptFlag), *agentFlag, *headlessFlag)
+}
 
+// spawnLead starts the CEO, or dept's lead, past lead spawn's worker guard:
+// lead spawn calls it for a lead or the owner's shell, lead flush close to
+// start the lead it just closed again.
+func spawnLead(ctx *Context, dept, agent string, headless bool) error {
+	proj := ctx.Project
+	deptFlag, agentFlag, headlessFlag := &dept, &agent, &headless
 	role := "CEO"
 	spec := agentrun.LeadSpec(proj, proj.LoadWorkflow(), projectRoot(proj), ctx.now())
 	deptKey := ""

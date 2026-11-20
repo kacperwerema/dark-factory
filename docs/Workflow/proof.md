@@ -30,7 +30,9 @@ Most links need no command: the agent declares them where it writes the proof.
   `Proves: AC1, AC3 TestA TestB` links AC1 and AC3 to both tests. Words shaped like a criterion id (the section's
   prefix plus a number) are ids, and the rest are test names. A test name with spaces (a JS/TS `it()` or
   `describe()` title) goes in double or single quotes and is read whole: `Proves: AC3 "lista: id i z (ryba)"`;
-  `prove --test "<title>"` takes it whole too. Test names only: no `<slug>#AC2` (the commit is on the issue's branch), no
+  `prove --test "<title>"` takes it whole too. Written without quotes (`Proves: AC3 lista ukryte przepisy`), the
+  words after the ids are read as one test when a test file on the branch has that whole phrase, else one test per
+  word; the commit-msg hook's note names the quoted form. Test names only: no `<slug>#AC2` (the commit is on the issue's branch), no
   package path (`internal/memory`: prove finds each test's package itself), no flags or prose.
   - **Playtest steps never prove through a trailer.** A step proves through `proves: [AC1]` on the step in its
     session file (or `issue-cli prove <slug> AC1 --step TP4`). A step id in a trailer (`Proves: AC1 TP4`,
@@ -200,6 +202,30 @@ worker guard's refusals for `dispatch` and `lead spawn` end with the `prove --le
 worker needs it. Source: workflow/a-proof-that-waits-on-the-leads-act-shows-as-waits-on-the-lead-command-on-the-leads-tick-and-the-station
 (the retro sweep 2026-11-02, I and O).
 
+## Proof after the install
+
+Some criteria can only be proven by the installed build: "the installed issue-cli works in every project", or a
+number measured over the issues that ran after the change reached agents. A worker never installs, and the lead
+installs only main, so the worker can't prove such a criterion before landing. Held at testing → human-testing, it
+cost a lead round (2026-11-19); an unlanded branch build installed to prove one emptied a production checkout's
+`node_modules` the same evening.
+
+The briefing text handles it without an engine marker:
+
+- **Design:** the criterion names its check, `- [ ] AC4 Every project's lead sees the new line (after install:
+  issue-cli check-script <slug> --yes)`. A measure-after window adds T0 (the install of main with the change), T1
+  (when the window ends) and what to revert on no gain.
+- **Testing:** the worker records it, `issue-cli prove <slug> AC4 --value "after install: <command>"`, with a
+  provisional decision saying so. The `criteria_proven` gate lists it as reported and moves on; its hint names the
+  form.
+- **The lead:** after installing a build of main, `issue-cli search "after install:"` lists the issues whose
+  criteria name a check. The lead runs each landed one and posts `tests: after install of <version>: AC4 pass|fail`
+  on the issue; a failure is a bugfix issue, a measure-after window a queue item or a job due at T1.
+
+A criterion that only the lead can run before landing (a check script the worker guard refuses) is the lead link
+above, not this. An engine-read `(after landing)` marker that the gate and the lead's tick know is the owner's
+experiment (post-mortem 2026-11-20 A4). Source: the retro sweep 2026-11-20, N3.
+
 ## The command
 
 ```bash
@@ -367,6 +393,7 @@ in `main.go` for transition previews; a program that doesn't import it fails the
 The feature adds two status prompt lines:
 
 - **`in progress`:** declare each criterion's proof where you write it (`proves:`, `Proves:` trailers).
+- **`in design`, `testing` and the lead addendum:** a criterion only the installed build can prove ([Proof after the install](#proof-after-the-install)).
 - **`shipping`:** post a `risk:` comment for anything to watch after the ship, or "risk: none".
 
 ## Code

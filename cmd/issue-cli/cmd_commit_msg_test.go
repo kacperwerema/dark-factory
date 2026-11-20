@@ -12,17 +12,23 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
-// knownCatalogIDs is this checkout's catalog entry ids.
-func knownCatalogIDs(t *testing.T) map[string]bool {
+// knownCatalogIDs is this checkout's catalog as the hook reads it, with
+// parked-status pinned at the last release (not bumped) and
+// assignee-gate pinned past it (bumped), whatever this branch did to them.
+func knownCatalogIDs(t *testing.T) workflowupgrade.TrailerCatalog {
 	t.Helper()
-	known, err := workflowupgrade.EntryIDs(repoAt(filepath.Join("..", "..")))
-	if err != nil {
-		t.Fatal(err)
+	cat := commitMsgCatalog(filepath.Join("..", ".."))
+	if cat.Versions == nil || cat.LastRelease == "" {
+		t.Fatal("no catalog or no last release in this checkout")
 	}
-	if !known["parked-status"] {
-		t.Fatal("catalog has no parked-status entry: pick another known id for these tests")
+	for _, id := range []string{"parked-status", "assignee-gate"} {
+		if _, ok := cat.Versions[id]; !ok {
+			t.Fatalf("catalog has no %s entry: pick another known id for these tests", id)
+		}
 	}
-	return known
+	cat.Versions["parked-status"] = cat.LastRelease
+	cat.Versions["assignee-gate"] = workflowupgrade.NextRelease(cat.LastRelease)
+	return cat
 }
 
 const commitSubject = "fix(workflow): something\n\nBody text.\n\n"
@@ -37,7 +43,10 @@ func TestCommitMsgProblems(t *testing.T) {
 		{"bare n/a", "Catalog: n/a", "names no entry: when the change touches no catalog entry leave the Catalog: line out"},
 		{"colon after n/a", "Catalog: n/a: parked-status why", "a colon after n/a"},
 		{"unknown id (wrapped prose)", "Catalog: n/a line per entry in the docs", `no catalog entry "line"`},
-		{"an id without n/a", "Catalog: parked-status", "a bumped entry needs no line"},
+		{"an id without n/a, not bumped", "Catalog: parked-status", "names parked-status as bumped, but parked-status is at"},
+		{"an id without n/a, bumped", "Catalog: assignee-gate the gate's new prompt", ""},
+		{"bumped and not", "Catalog: assignee-gate,parked-status", "run issue-cli workflow catalog-bump parked-status;"},
+		{"no entry, no n/a", "Catalog: none", `no catalog entry "none"`},
 		{"package path", "Proves: AC1 internal/memory TestX", `"internal/memory" is a path`},
 		{"path with flags", "Proves: AC1 TestX, cmd/issue-cli --project dark-factory TestY", `"cmd/issue-cli" is a path`},
 		{"slug#AC", "Proves: workflow/some-slug#AC2 TestX", "the issue slug doesn't go in a Proves: line"},
@@ -76,7 +85,14 @@ func commitThroughHook(t *testing.T, msg string) (string, error) {
 // written into the repo and staged beside the catalog.
 func commitFilesThroughHook(t *testing.T, msg string, extra map[string]string) (string, error) {
 	t.Helper()
-	repo := t.TempDir()
+	_, out, err := commitRepoThroughHook(t, msg, extra)
+	return out, err
+}
+
+// commitRepoThroughHook is commitFilesThroughHook that also returns the repo.
+func commitRepoThroughHook(t *testing.T, msg string, extra map[string]string) (repo, out string, err error) {
+	t.Helper()
+	repo = t.TempDir()
 	git := func(args ...string) (string, error) {
 		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
 		// The machine's global config (a core.hooksPath) stays out.
@@ -144,7 +160,8 @@ func commitFilesThroughHook(t *testing.T, msg string, extra map[string]string) (
 	if err := os.WriteFile(msgFile, []byte(msg), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return git("commit", "-q", "-F", msgFile)
+	out, err = git("commit", "-q", "-F", msgFile)
+	return repo, out, err
 }
 
 func TestCommitMsgHookRefusesAColonAfterTheCatalogID(t *testing.T) {
@@ -176,6 +193,48 @@ func TestCommitMsgHookPassesWellFormedLines(t *testing.T) {
 	}
 	if strings.Contains(out, "commit refused") {
 		t.Fatalf("hook complained:\n%s", out)
+	}
+}
+
+// A bare Catalog: <id> passes the hook when the working tree's catalog has
+// the entry past the changelog's last release (a catalog-bump), and is
+// refused with the catalog-bump to run when it isn't.
+func TestCommitMsgAcceptsABareIDForABumpedEntry(t *testing.T) {
+	msg := commitSubject + "Catalog: parked-status the parked column's new prompt\n"
+	out, err := commitFilesThroughHook(t, msg, map[string]string{workflowupgrade.ChangelogPath: "## Unreleased\n\n## v0.0.1 — 2026-01-01\n"})
+	if err != nil || strings.Contains(out, "commit refused") {
+		t.Fatalf("a bumped entry's id refused: %v\n%s", err, out)
+	}
+	out, err = commitFilesThroughHook(t, msg, map[string]string{workflowupgrade.ChangelogPath: "## v99.0.0 — 2026-01-01\n"})
+	if err == nil {
+		t.Fatalf("an entry not bumped went through:\n%s", out)
+	}
+	for _, want := range []string{"names parked-status as bumped, but parked-status is at", "not newer than the last release v99.0.0", "issue-cli workflow catalog-bump parked-status;", "Catalog: n/a parked-status <why>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+}
+
+// The line catalog-na recorded goes into the next commit through the hook,
+// and the record is dropped.
+func TestCommitMsgHookAddsTheRecordedNALine(t *testing.T) {
+	repo, out, err := commitRepoThroughHook(t, commitSubject+"Co-Authored-By: T <t@example.com>\n", map[string]string{".git/" + catalogNAFile: "n/a parked-status a refactor\n"})
+	if err != nil {
+		t.Fatalf("commit refused: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "note: added Catalog: n/a parked-status a refactor to the message (recorded with issue-cli workflow catalog-na)") {
+		t.Errorf("no note:\n%s", out)
+	}
+	body, err := exec.Command("git", "-C", repo, "log", "-1", "--format=%B").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "\nCatalog: n/a parked-status a refactor\n") {
+		t.Errorf("the commit lacks the line:\n%s", body)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", catalogNAFile)); err == nil {
+		t.Error("the record outlived the commit that got it")
 	}
 }
 
@@ -409,5 +468,27 @@ func TestCommitMsgRefusalHasNoRefsHint(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "Refs:") {
 		t.Errorf("a refusal carries the hint:\n%s", stderr)
+	}
+}
+
+// An unquoted vitest title in a Proves: line: the note names the whole
+// title and the quoted form; a list of Go tests gets no such note.
+func TestCommitMsgUnquotedTitleNoteNamesTheTitle(t *testing.T) {
+	proj, _, _ := makeProofFixture(t, "2026-10-23")
+	onWorkBranch(t, filepath.Dir(proj.WorkflowFile))
+	ctx, _, stderr := newTestContext(proj, false)
+	title := "kuchnia z daniami prawie tylko na obiad nie ma kafelka"
+	if err := runCommitMsg(ctx, []string{commitMsgFile(t, commitSubject+"Proves: AC1 "+title+"\n")}); err != nil {
+		t.Fatalf("Proves: with an unquoted title refused: %v\n%s", err, stderr)
+	}
+	assertContains(t, stderr.String(), `quote it to be sure (Proves: AC1 "`+title+`")`)
+	assertContains(t, stderr.String(), "note: AC1 stays unproven until `issue-cli prove cli/sample --run` runs \""+title+"\" and posts")
+
+	ctx, _, stderr = newTestContext(proj, false)
+	if err := runCommitMsg(ctx, []string{commitMsgFile(t, commitSubject+"Proves: AC1 TestA TestB\n")}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr.String(), "quote it") {
+		t.Errorf("a list of Go tests got the title note:\n%s", stderr)
 	}
 }

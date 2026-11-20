@@ -342,8 +342,8 @@ func TestDepartmentAddNamesUntrackedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := out.String()
-	assertContains(t, s, "New files git does not track yet: departments/marketing/jobs/weekly-seo-pass.md, departments/marketing/role.md, departments/marketing/subreddits.md, workflows/marketing.yaml")
-	assertContains(t, s, "add departments/marketing/jobs/weekly-seo-pass.md departments/marketing/role.md departments/marketing/subreddits.md workflows/marketing.yaml && git -C")
+	assertContains(t, s, "New files git does not track yet: departments/marketing/cms-ghost.sh, departments/marketing/jobs/weekly-seo-pass.md, departments/marketing/role.md, departments/marketing/subreddits.md, workflows/marketing.yaml")
+	assertContains(t, s, "add departments/marketing/cms-ghost.sh departments/marketing/jobs/weekly-seo-pass.md departments/marketing/role.md departments/marketing/subreddits.md workflows/marketing.yaml && git -C")
 	assertContains(t, s, "commit -m 'chore(departments): add the Marketing department' --")
 	assertContains(t, s, "projects.yaml is in this repository and has uncommitted changes, the new department entry among them")
 	if st := git(t, root, "status", "--porcelain"); !strings.Contains(st, "?? departments/") {

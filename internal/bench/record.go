@@ -440,3 +440,40 @@ func cutRunID(s string) (string, string, bool) {
 	}
 	return "", "", false
 }
+
+// SessionPrefix starts a benchmark worker's Claude Code session name, so
+// issue-cli spend --kinds can tell benchmark sessions from the rest.
+const SessionPrefix = "bench-"
+
+// SessionName is a task's worker session name: bench-<slug's last part>,
+// letters, digits, - and _ only.
+func SessionName(t Task) string {
+	return SessionPrefix + sessionWord(filepath.Base(t.Slug))
+}
+
+// sessionWord keeps a name to what a shell passes as one word.
+func sessionWord(s string) string {
+	s = nonAlnum.ReplaceAllString(s, "-")
+	if len(s) > 60 {
+		s = s[:60]
+	}
+	return strings.Trim(s, "-")
+}
+
+// NamedWorker is the worker command with -n name after its first word when
+// that word is claude (any path to it): a Claude Code session names itself
+// with -n, so the transcript carries it. Another CLI's command, one that
+// already names itself (-n, --name) or an empty name stays as it is.
+func NamedWorker(worker, name string) string {
+	if name == "" || WorkerAgent(worker) != AgentClaude {
+		return worker
+	}
+	for _, f := range strings.Fields(worker) {
+		if f == "-n" || f == "--name" || strings.HasPrefix(f, "--name=") {
+			return worker
+		}
+	}
+	lead := strings.TrimLeft(worker, " \t")
+	first := strings.Fields(lead)[0]
+	return worker[:len(worker)-len(lead)] + first + " -n " + name + lead[len(first):]
+}

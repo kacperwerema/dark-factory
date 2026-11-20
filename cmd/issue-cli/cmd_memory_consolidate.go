@@ -315,8 +315,9 @@ func printPack(w io.Writer, p memory.Pack, ctx *Context) {
 	}
 	for _, m := range p.Unhelpful {
 		line(m)
+		fmt.Fprintf(w, "    stages: %s\n", p.Scores[m.ID].Mix())
 	}
 	if len(p.Unhelpful) > 0 {
-		fmt.Fprintln(w, "  propose forgetting to the owner, never forget them in this run: list each id, its text and its usefulness in the owner's issue (the one for promotions). The owner forgets or keeps each.")
+		fmt.Fprintln(w, "  propose forgetting to the owner, never forget them in this run: list each id, its text, its usefulness and its stages in the owner's issue (the one for promotions). The owner forgets or keeps each.")
 	}
 }

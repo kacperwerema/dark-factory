@@ -7,8 +7,9 @@
 # One line per test: <package> <TestName>. TestGuardCheckListsEveryGuardTest
 # (internal/viewer) fails when a TestEvery*, Test*ListedInDocs or
 # TestDocNumbers* test is missing here, or a listed test doesn't exist.
-./cmd/issue-cli TestCommandsTableListsEveryCommand
-./cmd/issue-cli TestEveryCommandHasAccess
+./cmd/issue-cli TestCommandWideTestsListsEveryTestOverAllCommands
+./cmd/issue-cli TestCommandsTableNamesOnlyCommands
+./cmd/issue-cli TestEveryCommandJoinsEveryRegistry
 ./cmd/issue-cli TestEveryCommandHelpNeedsNoProject
 ./cmd/issue-cli TestEveryCommandRejectsUnknownFlags
 ./cmd/issue-cli TestEveryHelpHintNamesRealFlags
@@ -20,6 +21,7 @@
 ./internal/lint TestLintChecksListedInDocs
 ./internal/memguard TestEveryCallerGoesThroughThePackage
 ./internal/testbin TestEveryGoBuildInATestGoesThroughTestbin
+./internal/timing TestEveryTimeLimitGoesThroughTheHelper
 ./internal/tracker TestCloneCopiesEveryField
 ./internal/tracker TestEveryRuleHasASummary
 ./internal/tracker TestEveryRuleIsInTheDocs

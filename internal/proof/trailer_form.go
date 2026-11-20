@@ -82,3 +82,23 @@ func ProvesParts(value, prefix string) (ids, tests []string) {
 	}
 	return splitTrailer(value, prefix)
 }
+
+// UnquotedTitle is the rest of a Proves: value after its criterion ids when
+// it is several words with no quote (unquotedTitle) and not all of them Go
+// test names (Proves: AC1 TestA TestB is two tests): Collect links it as one
+// test when a test file has it.
+func UnquotedTitle(value, prefix string) (string, bool) {
+	if prefix == "" {
+		prefix = "AC"
+	}
+	title, ok := unquotedTitle(value, prefix)
+	if !ok {
+		return "", false
+	}
+	for _, w := range trailerWords(title) {
+		if top, _, _ := strings.Cut(w.text, "/"); !goTop.MatchString(top) {
+			return title, true
+		}
+	}
+	return "", false
+}

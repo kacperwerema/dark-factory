@@ -229,6 +229,12 @@ type dryRunOutput struct {
 // under their requirement.
 func printProblemReport(w io.Writer, problems []transitionProblem) {
 	fmt.Fprintf(w, "✗ %d unmet requirement(s):\n", len(problems))
+	printProblemLines(w, problems)
+}
+
+// printProblemLines is printProblemReport's list without its count line,
+// also under a refused transition's "Also unmet" line.
+func printProblemLines(w io.Writer, problems []transitionProblem) {
 	for _, p := range problems {
 		fmt.Fprintf(w, "  - [%s] %s\n", p.Kind, p.Requirement)
 		if msg := strings.TrimSpace(p.Message); msg != "" {

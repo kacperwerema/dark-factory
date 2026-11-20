@@ -47,7 +47,8 @@ contexts it reaches, the binaries to rebuild and the changed packages that
 import up a layer (Watch).
 
 With <slug> the files are the issue's work branch's changes since it left
-main (the diff decisions_respected reads). --files takes a comma or space
+main (the diff decisions_respected reads); a dispatched worker may leave
+its own slug out (ISSUE_VIEWER_ISSUE_SLUG) when it gives no --files. --files takes a comma or space
 separated list, or - for one file per line on stdin (git diff --name-only).
 The map is built from the project's checkout (main); --root <dir> reads
 another one (--root . in a worktree, to count imports the branch added).
@@ -217,6 +218,8 @@ type affectedOut struct {
 	Names map[string]string `json:"names"`
 }
 
+const affectedExamples = "\n\nExamples:\n  issue-cli affected <slug>\n  issue-cli affected --files internal/tracker/issue.go"
+
 func runAffected(ctx *Context, args []string) error {
 	slug := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -234,8 +237,18 @@ func runAffected(ctx *Context, args []string) error {
 		}
 		slug = rest[0]
 	}
-	if (slug == "") == (*filesFlag == "") {
-		return errors.New("affected needs <slug> or --files <list>, not both\n\nExamples:\n  issue-cli affected <slug>\n  issue-cli affected --files internal/tracker/issue.go")
+	if slug == "" && *filesFlag == "" {
+		// A dispatched worker leaves its own slug out, as with show or check.
+		if own := ownSlugEnv(); own != "" {
+			noteOwnSlug(ctx, own)
+			slug = own
+		}
+	}
+	if slug != "" && *filesFlag != "" {
+		return errors.New("affected needs <slug> or --files <list>, not both" + affectedExamples)
+	}
+	if slug == "" && *filesFlag == "" {
+		return errors.New("affected needs <slug> or --files <list>: none given" + affectedExamples)
 	}
 	out := affectedOut{Slug: slug}
 	var files []string

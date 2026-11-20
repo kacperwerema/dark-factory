@@ -133,3 +133,17 @@ func PrepareRevert(repo, ref, slug string, shas []string) (string, error) {
 	git(repo, "worktree", "remove", "--force", wt) //nolint:errcheck // the branch is made either way
 	return branch, nil
 }
+
+// MergeBase is the best common ancestor of a and b.
+func MergeBase(repo, a, b string) (string, error) { return git(repo, "merge-base", a, b) }
+
+// CommitsBetween counts the commits from..to.
+func CommitsBetween(repo, from, to string) (int, error) {
+	out, err := git(repo, "rev-list", "--count", from+".."+to)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	_, err = fmt.Sscanf(out, "%d", &n)
+	return n, err
+}

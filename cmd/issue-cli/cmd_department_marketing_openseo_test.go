@@ -87,7 +87,7 @@ func TestDepartmentAddMarketingOpenSEOExample(t *testing.T) {
 	if d == nil {
 		t.Fatal("uncommented: no marketing department")
 	}
-	for _, name := range []string{"openseo", "umami", "social", "social-analytics", "reddit"} {
+	for _, name := range []string{"openseo", "umami", "social", "social-analytics", "reddit", "cms"} {
 		if deptConnector(d, name) == nil {
 			t.Errorf("uncommented: no %s connector in %+v", name, d.Connectors)
 		}

@@ -197,7 +197,7 @@ func (s *Server) buildSocials(p *tracker.Project, prefix string, d *tracker.Depa
 	lot, rows := s.buildLot(p, color, now)
 	key := tracker.DepartmentKey(d.Name)
 	data := SocialsData{Title: p.Name + " · Connect socials", Dept: d.Name, DeptKey: key, BaseURL: prefix + "/socials/" + key}
-	data.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
+	data.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	data.Header.Crumbs[1].Color, data.Header.Crumbs[1].Current, data.Header.Crumbs[1].URL = color, false, prefix+"/company#dept-"+key
 	data.Header.Crumbs[2] = WbCrumb{Label: d.Name + " · Connect socials", Current: true}
 	data.Header.YOLO = headerYOLO(lot.YOLO, prefix)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/ci"
+	"github.com/kacperwerema/dark-factory/internal/gitmain"
 	"github.com/kacperwerema/dark-factory/internal/restrace"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -121,7 +122,10 @@ func EnsureWorktree(workdir string, wt tracker.WorktreeSpec, wf *tracker.Workflo
 	}
 	wtPath, branch := wt.Path, wt.Branch
 	if _, err := os.Stat(wtPath); err == nil {
-		return wtPath, []Step{{Name: fmt.Sprintf("Reuse worktree %s on %s", wtPath, branch), Status: "ok"}}, true
+		steps := []Step{{Name: fmt.Sprintf("Reuse worktree %s on %s", wtPath, branch), Status: "ok"}}
+		// Only adds a link where node_modules is missing (dispatch --fresh
+		// into a tree made before links, or one whose link was removed).
+		return wtPath, append(steps, shareDepsSteps(workdir, wtPath, wf)...), true
 	}
 	if out, err := RunGitWorktreeAdd(workdir, branch, wtPath, wt.StartPoint); err != nil {
 		return workdir, []Step{{
@@ -158,11 +162,21 @@ func EnsureWorktree(workdir string, wt tracker.WorktreeSpec, wf *tracker.Workflo
 		return workdir, steps, false
 	}
 
+	steps = append(steps, shareDepsSteps(workdir, wtPath, wf)...)
+
 	if setup := wf.WorktreeSetupCmd(); setup != "" {
 		name := fmt.Sprintf("Worktree setup: %s", setup)
-		if err := ci.CheckNodeModules(wtPath, setup); err != nil {
+		skip, note, err := ci.PrepareInstall(wtPath, setup)
+		if err != nil {
 			steps = append(steps, Step{Name: name, Status: "error", Detail: err.Error()})
 			return workdir, steps, false
+		}
+		if skip {
+			steps = append(steps, Step{Name: name + " (" + note + ")", Status: "ok"})
+			return wtPath, steps, true
+		}
+		if note != "" {
+			name += " (" + note + ")"
 		}
 		if out, err := RunWorktreeSetup(wtPath, setup); err != nil {
 			steps = append(steps, Step{Name: name, Status: "error", Detail: outputOrErr(out, err)})
@@ -171,6 +185,23 @@ func EnsureWorktree(workdir string, wt tracker.WorktreeSpec, wf *tracker.Workflo
 		steps = append(steps, Step{Name: name, Status: "ok"})
 	}
 	return wtPath, steps, true
+}
+
+// shareDepsSteps links the main checkout's node_modules into wtPath
+// (ShareDeps) unless the workflow says worktree_deps: own, as at most one
+// step. workdir may be any folder of the main checkout.
+func shareDepsSteps(workdir, wtPath string, wf *tracker.WorkflowConfig) []Step {
+	if !wf.WorktreeDepsShared() {
+		return nil
+	}
+	main := gitmain.Root(workdir)
+	if main == "" {
+		return nil
+	}
+	if st, ok := DepsStep(main, ShareDeps(main, wtPath)); ok {
+		return []Step{st}
+	}
+	return nil
 }
 
 func outputOrErr(out []byte, err error) string {

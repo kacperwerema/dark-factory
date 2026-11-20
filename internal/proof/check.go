@@ -395,15 +395,19 @@ func gateError(r Report, unproven []Criterion) error {
 	if len(waits) > 0 {
 		fmt.Fprintf(&b, "\n\nWaits on the lead: %s.\nNot yours to run: stop here, no question: comment needed. The lead's tick (issue-cli queue next) lists it; the lead runs issue-cli prove %s --lead-run.", strings.Join(waits, "; "), r.Slug)
 		if len(waits) == len(unproven) {
+			// Only the lead's run proves these: no fix, so no hint: either.
 			return fmt.Errorf("%s", b.String())
 		}
 	}
-	fmt.Fprintf(&b, "\n\nProve each one with any of (shown for %s):", unproven[0].ID)
+	b.WriteString("\n")
+	var fix strings.Builder
+	fmt.Fprintf(&fix, "\nProve each one with any of (shown for %s):", unproven[0].ID)
 	for _, w := range Ways(r.Slug, unproven[0].ID) {
-		fmt.Fprintf(&b, "\n  - %s", w)
+		fmt.Fprintf(&fix, "\n  - %s", w)
 	}
-	fmt.Fprintf(&b, "\n\nEvery link and its check: issue-cli prove %s --list", r.Slug)
-	return fmt.Errorf("%s", b.String())
+	fmt.Fprintf(&fix, "\n\nEvery link and its check: issue-cli prove %s --list", r.Slug)
+	// The gate's action hint: replaces the fix (tracker.RuleShowsHint).
+	return tracker.RuleFailureJoined(b.String(), "", fix.String())
 }
 
 // Describe renders a link as "test TestFoo (trailer 3f2a1c9)".

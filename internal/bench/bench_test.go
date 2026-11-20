@@ -13,6 +13,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/health"
 	"github.com/kacperwerema/dark-factory/internal/standin"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -192,16 +193,27 @@ func TestRunStopsATaskAtItsWallCap(t *testing.T) {
 	f := newFixture(t)
 	b := f.benchmark("sleep 30", f.task)
 	b.Budget.TaskWall = "300ms"
-	start := time.Now()
-	run, err := Execute(context.Background(), b, f.env(t), Options{})
-	if err != nil {
-		t.Fatal(err)
+	// The baseline is the same run with a worker that ends by itself at the
+	// cap; an unstopped worker takes 30 s, so the slow-machine limit stops
+	// short of that.
+	quick := f.benchmark("sleep 0.3", f.task)
+	execute := func(b *Benchmark) func() {
+		return func() {
+			run, err := Execute(context.Background(), b, f.env(t), Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b == quick {
+				return
+			}
+			if run.Tasks[0].Outcome != OutcomeTimeout {
+				t.Fatalf("record = %+v", run.Tasks[0])
+			}
+		}
 	}
-	if run.Tasks[0].Outcome != OutcomeTimeout {
-		t.Fatalf("record = %+v", run.Tasks[0])
-	}
-	if d := time.Since(start); d > 20*time.Second {
-		t.Errorf("the worker was not stopped: %s", d)
+	check := timing.Check{Limit: 20 * time.Second, Ratio: 3, Max: 25 * time.Second, Rounds: 3}
+	if r := check.Run(timing.Timed(execute(b)), timing.Timed(execute(quick))); r.Slow {
+		t.Errorf("the worker was not stopped: %s (baseline: a worker that ends at the cap)", r)
 	}
 }
 

@@ -81,6 +81,7 @@ func TestBuildStaleIgnoresWhatARunLeaves(t *testing.T) {
 	writeAt(t, filepath.Join(cli, "run.clilog"), later)
 	writeAt(t, filepath.Join(cli, "cover.out"), later)
 	writeAt(t, filepath.Join(cli, "testdata", "fixture.go"), later)
+	writeAt(t, filepath.Join(cli, "main_test.go"), later) // tests are in no build
 	writeAt(t, filepath.Join(root, "internal", "health", "snapshot.json"), later)
 	if s, err := BuildStale(root, build); err != nil || s != nil {
 		t.Fatalf("what a run left: %+v, %v", s, err)

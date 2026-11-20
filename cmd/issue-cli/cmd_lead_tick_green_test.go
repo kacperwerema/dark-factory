@@ -25,6 +25,11 @@ func greenProject(t *testing.T, extraWorkflow string) (*tracker.Project, string,
 		t.Fatal(err)
 	}
 	writeIssue(t, proj, "shipped", "shipping")
+	// The head is pinned at local midday, not the real clock: a tick a few
+	// hours later is the same calendar day, so "since" prints the clock
+	// time whatever hour the suite runs (from 23:20 it crossed midnight).
+	t.Setenv("GIT_AUTHOR_DATE", "2026-06-10T12:00:00")
+	t.Setenv("GIT_COMMITTER_DATE", "2026-06-10T12:00:00")
 	_, tip := queueShipRepo(t, root, "main", "shipped")
 	sec, err := strconv.ParseInt(queueGit(t, root, "log", "-1", "--format=%ct", tip), 10, 64)
 	if err != nil {

@@ -71,7 +71,11 @@ says the same (ready to cut; soaking). A patch's publish reads the card's patch
 row; its cut reads no card. Once the release branch exists, publish reads the
 candidate, not main's head: the candidate validated (release check) and local
 CI not red on main (a known break still stops it); main's newest head need not
-be tested.`,
+be tested.
+
+One version is supported: the newest published release (a v* tag that is not
+a candidate). cut, pick and publish refuse an older version (pick: a release
+branch older than the newest one's), naming the rule.`,
 	Run:         runRelease,
 	Subcommands: []string{"setup", "cut", "pick", "check", "publish"},
 }
@@ -242,6 +246,9 @@ func runReleaseCut(ctx *Context, args []string) error {
 	if err != nil {
 		return &usageError{msg: err.Error()}
 	}
+	if err := unsupportedRelease(privacy.MainCheckout(ctx.Project.TelemetryRoot()), "cutting", cut, false); err != nil {
+		return err
+	}
 	if milestone.IsPatch(cut) {
 		return runReleaseCutPatch(ctx, cut)
 	}
@@ -316,6 +323,20 @@ func runReleaseCutPatch(ctx *Context, cut string) error {
 	return nil
 }
 
+// supportedWorktrees drops the worktrees of release branches older than the
+// newest published release: a pick never goes there (one version is
+// supported), so a leftover one doesn't make --release necessary.
+func supportedWorktrees(root string, wts []string) []string {
+	newest := releaseNewest(root)
+	var keep []string
+	for _, w := range wts {
+		if !milestone.OlderLine(strings.TrimPrefix(filepath.Base(w), "release-")+".0", newest) {
+			keep = append(keep, w)
+		}
+	}
+	return keep
+}
+
 // releaseWorktrees are the release branches' worktrees under .worktrees/.
 func releaseWorktrees(root string) []string {
 	matches, _ := filepath.Glob(filepath.Join(root, ".worktrees", "release-v*"))
@@ -341,7 +362,7 @@ func runReleasePick(ctx *Context, args []string) error {
 		}
 		cut = v
 	} else {
-		wts := releaseWorktrees(root)
+		wts := supportedWorktrees(root, releaseWorktrees(root))
 		switch len(wts) {
 		case 0:
 			return fmt.Errorf("no release worktree under %s: cut the release first (issue-cli release cut <version>)", filepath.Join(root, ".worktrees"))
@@ -354,6 +375,9 @@ func runReleasePick(ctx *Context, args []string) error {
 			}
 			return &usageError{msg: fmt.Sprintf("more than one release worktree (%s): pass --release <version>", strings.Join(names, ", "))}
 		}
+	}
+	if err := unsupportedRelease(root, "picking onto", cut, true); err != nil {
+		return err
 	}
 	res, err := privacy.Pick(root, cut, fs.Args(), privacy.PickOptions{Changelog: ctx.Project.LoadWorkflow().Workbench.Changelog})
 	if err != nil {
@@ -400,6 +424,12 @@ func runReleasePublish(ctx *Context, args []string) error {
 	}
 	dryRunHint := tracker.InjectProject(ctx.Project, "issue-cli release publish "+cut+" --dry-run")
 	var waits []string
+	if err := unsupportedRelease(privacy.MainCheckout(ctx.Project.TelemetryRoot()), "publishing", cut, false); err != nil {
+		if !*dryRun {
+			return err
+		}
+		waits = append(waits, err.Error())
+	}
 	if st, on, _ := yolo.Active(yoloRoot(ctx.Project), ctx.Project.Slug, ctx.now()); on && !st.Valves.Releases {
 		msg := fmt.Sprintf("YOLO is on: external releases wait for the owner. Publish after YOLO ends (%s), or the owner unlocks releases when turning YOLO on (--allow-releases)",
 			tracker.InjectProject(ctx.Project, "issue-cli yolo off"))
@@ -528,4 +558,28 @@ func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, re
 			}
 		}
 	}
+}
+
+// releaseNewest is the newest published release in root's repo. A var so
+// tests don't need tags.
+var releaseNewest = privacy.NewestPublished
+
+// unsupportedRelease refuses cut when it is older than the newest
+// published release (line: compare release branches, for a pick that
+// patches the newest line). nil when cut is supported.
+func unsupportedRelease(root, verb, cut string, line bool) error {
+	newest := releaseNewest(root)
+	older := milestone.Unsupported(cut, newest)
+	if line {
+		older = milestone.OlderLine(cut, newest)
+	}
+	if !older {
+		return nil
+	}
+	what := cut
+	if line {
+		what = milestone.ReleaseBranch(cut)
+	}
+	return fmt.Errorf("not %s %s: %s is older than %s, and %s (docs/roadmap.md, Cutting a release). Land the fix on main: it ships in a %s patch or the next release",
+		verb, what, what, newest, milestone.OneSupported, strings.TrimPrefix(milestone.ReleaseBranch(newest), "release/"))
 }

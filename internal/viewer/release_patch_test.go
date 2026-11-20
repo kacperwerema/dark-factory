@@ -33,6 +33,10 @@ func TestNewestPatchCut(t *testing.T) {
 	if got := newestPatchCut([]string{"v0.52.1-rc.1", "v0.52.1"}); got != "" {
 		t.Errorf("a released patch = %q", got)
 	}
+	// One version is supported: v0.63.0 is out, so v0.62.1 is no candidate.
+	if got := newestPatchCut([]string{"v0.62.0", "v0.62.1-rc.1", "v0.63.0"}); got != "" {
+		t.Errorf("a patch older than the newest published release = %q, want none", got)
+	}
 }
 
 // stubPatch makes the repo hold release/v0.52 with a v0.52.1 candidate, its

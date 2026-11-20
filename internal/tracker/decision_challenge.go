@@ -270,7 +270,7 @@ func (w *WorkflowConfig) checkDecisionUnchallenged(arg string, issue *Issue) err
 	return challengedError(issue.Slug, mine)
 }
 
-func challengedError(slug string, mine []Challenge) error {
+func challengedError(slug string, mine []Challenge) *ruleFailure {
 	var b strings.Builder
 	noun := "challenge"
 	if len(mine) > 1 {
@@ -281,9 +281,10 @@ func challengedError(slug string, mine []Challenge) error {
 		fmt.Fprintf(&b, "  %s (challenged %s): %s\n", c.Ref, c.Since.Format("2006-01-02"), oneLineCut(c.Why, decisionTextCut))
 	}
 	ref := mine[0].Ref
-	fmt.Fprintf(&b, "The owner answers it on Needs you, or the lead relays the owner's words:\n")
-	fmt.Fprintf(&b, "  keep:   issue-cli decision resolve %s --keep --quote \"…\"\n", ref)
-	fmt.Fprintf(&b, "  change: issue-cli decide %s --replaces %s --text \"…\" --quote \"…\"\n", refSlug(ref), ref)
-	fmt.Fprintf(&b, "Ask the lead on your trail: issue-cli comment %s \"question: answer on %s?\"", slug, ref)
-	return fmt.Errorf("%s", b.String())
+	var fix strings.Builder
+	fmt.Fprintf(&fix, "The owner answers it on Needs you, or the lead relays the owner's words:\n")
+	fmt.Fprintf(&fix, "  keep:   issue-cli decision resolve %s --keep --quote \"…\"\n", ref)
+	fmt.Fprintf(&fix, "  change: issue-cli decide %s --replaces %s --text \"…\" --quote \"…\"\n", refSlug(ref), ref)
+	fmt.Fprintf(&fix, "Ask the lead on your trail: issue-cli comment %s \"question: answer on %s?\"", slug, ref)
+	return &ruleFailure{problem: b.String(), fix: fix.String()}
 }

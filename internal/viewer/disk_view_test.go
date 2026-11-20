@@ -28,7 +28,7 @@ func bigGoCache(now time.Time) diskuse.Verdict {
 
 // AC2: a Go cache over 100 GB, or a volume over 85% used, is one Needs you
 // row that names go clean -cache and that no worker may be running; it is
-// listed and counted once across projects, and nothing runs the command.
+// listed and counted once across projects, and it names the nightly clean.
 func TestNeedsYouNamesALargeGoCache(t *testing.T) {
 	now := time.Now()
 	p := &tracker.Project{Name: "P", Slug: "p"}
@@ -39,7 +39,7 @@ func TestNeedsYouNamesALargeGoCache(t *testing.T) {
 	}
 	want := "The Go build cache holds 159 GB, the data volume is 80% used (180 GB free): the cache is over 100 GB. " +
 		"A full disk stops every build and every worker at once. " +
-		"Trim the cache in a terminal while no worker is running: go clean -cache (a build or test running then fails; Go rebuilds what it needs; nothing here runs it for you)."
+		"The nightly clean (issue-cli clean) trims the cache to its cap while no local CI run or go build is running, and starts early while the volume is over 85% used; issue-cli clean --dry-run shows what it would free. By hand, while no worker is running: go clean -cache (Go rebuilds what it needs)."
 	if r := rows[0]; r.Kind != "disk" || r.Note != want || r.URL != "/p/p/health" || r.Age != "1h" {
 		t.Errorf("row = %+v\nnote %q\nwant %q", r, r.Note, want)
 	}
@@ -105,7 +105,7 @@ func TestHealthShowsTheDiskOutsideTheCheckout(t *testing.T) {
 	if got == nil {
 		t.Fatalf("no disk list in %+v", l.Lists)
 	}
-	if got.Sub != "the data volume 80% used · trim the cache while no worker is running: go clean -cache" {
+	if got.Sub != "the data volume 80% used · the nightly clean trims the cache: issue-cli clean" {
 		t.Errorf("sub = %q", got.Sub)
 	}
 	var lines []string

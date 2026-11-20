@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -130,13 +131,23 @@ func TestExecuteTimeoutKillsTheCommand(t *testing.T) {
 	root := newRepo(t)
 	c := cfg(cmd("sleep 30"))
 	c.Timeout = "1s"
-	start := time.Now()
-	runs, _, err := Execute(Options{Root: root, Config: c})
-	if err != nil {
-		t.Fatal(err)
+	var runs []*Run
+	execute := func(c *tracker.CIConfig, keep bool) func() {
+		return func() {
+			got, _, err := Execute(Options{Root: root, Config: c})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if keep {
+				runs = got
+			}
+		}
 	}
-	if time.Since(start) > 15*time.Second {
-		t.Errorf("timeout took %s", time.Since(start))
+	// The baseline is a run whose command ends by itself at the timeout; an
+	// unkilled command takes 30 s, so the slow-machine limit stops short.
+	check := timing.Check{Limit: 15 * time.Second, Ratio: 3, Max: 25 * time.Second, Rounds: 3}
+	if res := check.Run(timing.Timed(execute(c, true)), timing.Timed(execute(cfg(cmd("sleep 1")), false))); res.Slow {
+		t.Errorf("the timeout: %s (baseline: a command that ends at the timeout)", res)
 	}
 	r := runs[0]
 	if r.State != Red || !r.Commands[0].TimedOut || !strings.Contains(r.Failed, "timeout after 1s") {

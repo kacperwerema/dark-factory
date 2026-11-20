@@ -14,6 +14,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/clilog"
 	"github.com/kacperwerema/dark-factory/internal/health"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -197,11 +198,11 @@ func bigProject(t testing.TB, n int) tracker.Project {
 //
 // Under load (parallel workers, CI) every request is slower, so each warm
 // render is held to 300 ms or, when the machine is slow, to statsVsIssues
-// times /issues.json timed just before it: the same 800 issues loaded and
-// encoded, nothing cached. On a quiet machine that is under 300 ms, so the
-// limit stays 300 ms; a page that rebuilt its aggregate (cold, seconds) or
-// grew a slow input fails either way. A sample gets three tries, so one
-// spike between the two requests doesn't fail it.
+// times /issues.json: the same 800 issues loaded and encoded, nothing
+// cached. On a quiet machine that is under 300 ms, so the limit stays
+// 300 ms; a page that rebuilt its aggregate (cold, seconds) or grew a slow
+// input fails either way. timing.Check times the two in turns and compares
+// the best of each, so a burst of load on a few samples fails nothing.
 const statsVsIssues = 6
 
 func TestStatsPageFastOnABigProject(t *testing.T) {
@@ -248,23 +249,12 @@ func TestStatsPageFastOnABigProject(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	best := time.Hour
+	check := timing.Check{Limit: 300 * time.Millisecond, Ratio: statsVsIssues}
 	for _, q := range []string{"range=30d", "range=7d&group=system", "range=90d&group=type&drill=status:human-testing", "range=30d&scale=share"} {
-		for i := 0; i < 2; i++ {
-			var tries []string
-			for try := 0; try < 3; try++ {
-				base := get("issues.json")
-				limit := max(300*time.Millisecond, statsVsIssues*base)
-				d := get("stats?" + q)
-				best = min(best, d)
-				if d <= limit {
-					tries = nil
-					break
-				}
-				tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
-			}
-			if tries != nil {
-				t.Errorf("%s warm: %s; want under 300 ms, or %d× /issues.json on a slow machine", q, strings.Join(tries, ", "), statsVsIssues)
-			}
+		r := check.Run(func() time.Duration { return get("stats?" + q) }, func() time.Duration { return get("issues.json") })
+		best = min(best, r.Best)
+		if r.Slow {
+			t.Errorf("%s warm: %s (baseline: /issues.json)", q, r)
 		}
 	}
 	t.Logf("800 issues: cold %v, warm best %v", cold, best)
@@ -318,21 +308,10 @@ func TestHealthPageFastOnABigProject(t *testing.T) {
 		return time.Since(start)
 	}
 	cold := get("health")
-	best := time.Hour
-	var tries []string
-	for try := 0; try < 3; try++ {
-		base := get("issues.json")
-		limit := max(healthLimit, statsVsIssues*base)
-		d := get("health")
-		best = min(best, d)
-		if d <= limit {
-			tries = nil
-			break
-		}
-		tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
+	r := timing.Check{Limit: healthLimit, Ratio: statsVsIssues}.Run(
+		func() time.Duration { return get("health") }, func() time.Duration { return get("issues.json") })
+	if r.Slow {
+		t.Errorf("/health warm: %s (baseline: /issues.json)", r)
 	}
-	if tries != nil {
-		t.Errorf("/health warm: %s; want under %v, or %d× /issues.json on a slow machine", strings.Join(tries, ", "), healthLimit, statsVsIssues)
-	}
-	t.Logf("800 issues: cold %v, warm best %v", cold, best)
+	t.Logf("800 issues: cold %v, warm %s", cold, r)
 }

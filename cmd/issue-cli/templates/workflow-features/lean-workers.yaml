@@ -1,5 +1,5 @@
 id: lean-workers
-version: v0.63.0
+version: v0.64.0
 category: dispatch
 propose: true
 sources: ["internal/tracker/workers_config.go", "internal/agentrun/worker_setup.go", "internal/connectors/owner.go", "internal/lint/workers.go"]
@@ -11,7 +11,8 @@ what: |
   project, bundled with Claude Code, or synced from claude.ai as anthropic-skills:<name>)
   is turned off for that session (`--settings` with `enabledPlugins`, `skillOverrides`
   and `disableBundledSkills`) unless `workers: plugins:` or `skills:` keeps it for the
-  issue's system, type or label; the Artifact tool is off unless `tools:` keeps it, and
+  issue's system, type or label; the built-in Artifact, Workflow, SendFeedback,
+  ReportFindings and ListAgents tools are off unless `tools:` keeps them, and
   claude.ai connectors are off. Your own Claude Code files are never changed. Leads and codex
   workers keep your whole setup; `setup: full` keeps it for workers too.
 why: |
@@ -28,7 +29,7 @@ snippet: |
     # skills:
     #   - stageshow
     #   - {skill: "anthropic-skills:pdf", types: [report]}
-    # tools: [Artifact]
+    # tools: [Artifact]      # or Workflow, SendFeedback, ReportFindings, ListAgents
     # setup: full            # the owner's whole setup, as before
 detect:
   - path: workers

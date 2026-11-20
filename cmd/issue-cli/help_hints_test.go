@@ -193,7 +193,7 @@ func TestAddingACommandDocNamesTheRegistries(t *testing.T) {
 	}
 	for _, name := range []string{
 		"commandAccess", "readSamples", "TestEveryCommandRejectsUnknownFlags",
-		"TestEveryCommandHasAccess", "TestEveryCommandHelpNeedsNoProject",
+		"TestEveryCommandJoinsEveryRegistry", "TestEveryCommandHelpNeedsNoProject",
 		"TestEveryHelpHintNamesRealFlags", "parseFlags", "ExtraFlags",
 		"runTraced", "resolveBootstrap", "WorkflowFile",
 	} {

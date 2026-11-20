@@ -58,6 +58,7 @@ Until 2026-10-22 every push to main cut a release (v0.34 → v0.50 in two days).
 - Every release first runs as a **release candidate** on this machine's projects (`workbench.release_candidates: true`, set 2026-10-24). The steps are below.
 - The Status page's **Waiting for release** card (and `status.md`) shows the `## Unreleased` entries, the commits not pushed, and whether the current milestone is ready to cut. If it isn't, the card says what blocks it: open issues, CI not green on the head, or nothing under `## Unreleased`.
 - An urgent fix can be released alone as a patch (`v0.N.1`) the same way.
+- **One version is supported: the newest published release** (owner, 2026-11-19: "We support 1 version"). Once `v0.N.0` is published, nothing older gets a patch: Waiting for release (and `status`, `status --json`) shows no candidate older than it, and `release cut`, `release pick` and `release publish` refuse an older version (pick: a branch older than `release/v0.N`), naming the rule. A fix for an older version lands on main and ships in the next patch or release.
 
 ### Cutting a release: candidate, soak, publish
 

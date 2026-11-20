@@ -409,6 +409,7 @@ workbench:
         - cmd/issue-cli/templates
         - internal/buildversion
         - internal/chart
+        - internal/clean
         - internal/clilog
         - internal/diskuse
         - internal/doclinks
@@ -433,6 +434,7 @@ workbench:
         - internal/testids
         - internal/testresults
         - internal/testshard
+        - internal/timing
         - internal/tmuxguard
         - internal/tokens
         - internal/viewerstate
@@ -474,6 +476,10 @@ statuses:
       Before settling the approach, list existing features that already do something similar and say why this one is still needed — or propose shrinking or dropping it.
       Describe how agents will discover and use the change. Prefer hints in CLI output and error messages over prompt text, which does not reach other projects' workflows or non-dispatched sessions.
       When the design is complete, tell the human in chat that it needs approval in the issue viewer: `backlog` to queue it, or `in progress` to start straight away. Then stop and end your turn. When the human says it is approved, run `issue-cli context <slug>` and transition to the status in `human_approval`.
+    # prompt_append, not prompt: a systems: overlay replaces the prompt, so only an append
+    # reaches every system (docs/Workflow/proof.md#proof-after-the-install).
+    prompt_append: |
+      A criterion only the installed build can prove (the installed issue-cli or viewer working in every project, a number measured after the change reached agents) names its check in its text: `- [ ] AC4 Every project's lead sees the new line (after install: issue-cli check-script <slug> --yes)`; for a measure-after window add T0 = the install of main with this change, T1 = when the window ends, and what to revert on no gain. A worker never installs and the lead installs only main, so no worker can prove it before landing: at testing it is recorded with `prove --value "after install: …"`, and the lead runs the check after the install.
   - name: "backlog"
     role: "queue"
     description: "Ready to work on"
@@ -498,6 +504,7 @@ statuses:
       Write the manual checks as a playtest session, playtest/sessions/<name>.yaml (how: issue-cli process playtest web, docs/patterns/playtest/web-app.md): step id = the Test Plan checkbox id, a scenario from playtest/scenarios/ (add one if none fits; fixtures under tracker/, never issues/), machine checks for everything a machine can see, and expect:/do:/why: only for what needs the owner's eye. New elements a step points at get a data-testid listed in its page's file under internal/testids/.
       Run `make playtest-check`, single `make ux-test ISSUE=<slug>` runs while fixing, and `make ux-test ISSUE=<slug> REPEAT=2` once, as the final run before handing over. The runner builds the scenario: never point a session at the real projects.yaml, issues tree, user state or tmux server.
       A manual check a session can't drive (CLI commands, API routes, tmux, a terminal-only flow) comes as a guided check script: start it with `issue-cli check-script <slug> --new <name>` (scripts/checks/<name>.sh on the issue branch), read the helpers in `issue-cli check-script --lib` (sandbox_project, private_tmux, clean_shell with a stand-in claude, --touches-real for anything in the owner's real session), name the box each step proves with `--box`, and pass `issue-cli check-script <slug> --yes` before handing over. Never tick the owner's Manual boxes yourself. Its sandbox never touches the real projects.yaml, issues tree, user state or tmux server.
+      A criterion that names `(after install: <command>)` is recorded, not run: `issue-cli prove <slug> <AC> --value "after install: <command>"` and `issue-cli decide <slug> --provisional --text "<AC> is checked after the install: <command>"`. The `criteria_proven` gate lists it as reported and doesn't hold testing → human-testing on it. Never ask the lead to install your branch's build to prove it (an unlanded build installed live emptied a production checkout's node_modules on 2026-11-19); the lead runs the command once main with your change is installed.
       A box that doesn't fit the change is ticked with its reason in a named form: `issue-cli check <slug> <id> --na "<reason>"`. The forms: `the repro is an automated test (<TestName>)` (a test-only fix, a bug whose repro is a go test), `no page changes` (a CLI, tmux, runner or docs change: no playtest session, no ux-test), `runner-internal, covered by <TestName>`, `covered by playtest session <name>` (the check-script box), `cli flow covered by <TestName>` (a CLI-only change a go test walks), `page state a scenario can't build (<what>), shown by <evidence>` (a page change a scenario board can't reach), or a reason in 3 words or more. Shipping boxes have no N/A: tick them plainly when done; in a repo with no git remote the move into shipping ticks the push and PR boxes itself with `no git remote` (by hand: `--na "no git remote"`). A refused N/A says `✗ not ticked:` and exits non-zero. Don't write a check script that only wraps `make validate`. An N/A never skips the owner's boxes (Human Testing, "(owner)"): they wait for the owner, or the YOLO review queue. Docs-only work is the `docs` type, with no Test Plan.
   - name: "human-testing"
     role: "owner-test"
@@ -681,6 +688,8 @@ transitions:
       # workflow/issue-cli-prove-link-each-criterion-to-its-proof).
       - type: "validate"
         rule: "criteria_proven: since 2026-10-24"
+        # Replaces the gate's built-in "Prove each one with any of" list.
+        hint: "A criterion box ticks with issue-cli prove, never issue-cli check: issue-cli prove {{slug}} <id> --test <Name> | --step <id> | --commit <sha> | --value \"<measured>\" (a criterion only the installed build can prove: --value \"after install: <command>\"), or a `Proves: <id> <TestName>` trailer on the commit. Every link and its check: issue-cli prove {{slug}} --list"
       - type: "append_section"
         title: "Human Testing"
         body: |
@@ -756,6 +765,12 @@ leads:
       research or a report only (the report goes on the shelf, no code, no commit), docs for docs
       or screenshots, bugfix, tweak, else feature. Code fixes a report finds are their own issues.
     - Bring each question with the asker's recommendation and yours.
+    - After you install a build of main, run the after-install checks of the issues it landed:
+      issue-cli search "after install:" lists the issues whose criteria name one, and the command
+      is in the criterion. Post the result on the issue (comment --text "tests: after install of
+      <version>: <AC> <pass|fail>: …"); a failed one is a bugfix issue. A measure-after window
+      (T0, T1 in the criterion) is a queue item or a job due at T1, not a comment.
+      Never install an unlanded branch build to prove one.
 
 # Project-level one-shot agent buttons, rendered on the list/board/graph views
 # (not bound to a single issue). Prompts template with {{project}} only.
@@ -841,7 +856,7 @@ systems:
           Reference docs/CLI/overview.md for the current CLI documentation structure.
       - name: "in progress"
         prompt_append: |
-          CLI: a new command or subcommand joins several registries, each with a guard test that fails only in `make validate`: walk "Adding a command" in docs/CLI/overview.md before the first run.
+          CLI: a new command or subcommand joins several registries: walk "Adding a command" in docs/CLI/overview.md, then run `go test ./cmd/issue-cli -run TestEveryCommandJoinsEveryRegistry`, which names every list it is still missing from at once.
     transitions:
       []
   UI:
@@ -947,7 +962,7 @@ types:
         prompt: |
           Tweak: build exactly what the body says the human decided, nothing more. No design doc.
           If it turns out to need new behaviour or a design decision, say in chat that the type should change to feature (in the issue viewer) and end your turn.
-          Catalog: run `issue-cli workflow catalog-check` on the staged change before the first commit (it checks uncommitted changes too). Each entry it names needs its version bumped (`issue-cli workflow catalog-bump <id>`), or its id in one `Catalog: n/a <id>[,<id>...] <why>` line in the commit message, entry ids first. A change it names no entry for, or that only moves files unchanged, needs no Catalog: line: leave it out.
+          Catalog: run `issue-cli workflow catalog-check` on the staged change before the first commit (it checks uncommitted changes too). Each entry it names needs its version bumped (`issue-cli workflow catalog-bump <id>`), or its id in one `Catalog: n/a <id>[,<id>...] <why>` line in the commit message, entry ids first; `issue-cli workflow catalog-na <id>[,<id>...] <why>` records that line before the commit, so make validate's catalog-check is green on the uncommitted change, and the commit-msg hook writes it into the commit. A change it names no entry for, or that only moves files unchanged, needs no Catalog: line: leave it out.
     transitions:
       - from: "idea"
         to: "in progress"
@@ -1147,7 +1162,7 @@ types:
         prompt: |
           Bugfix: first write a test that fails on the bug, then fix it. No design doc.
           If the fix changes behaviour the design decided, say in chat that the type should change to feature (in the issue viewer) and end your turn.
-          Catalog: run `issue-cli workflow catalog-check` on the staged change before the first commit (it checks uncommitted changes too). Each entry it names needs its version bumped (`issue-cli workflow catalog-bump <id>`), or its id in one `Catalog: n/a <id>[,<id>...] <why>` line in the commit message, entry ids first. A change it names no entry for, or that only moves files unchanged, needs no Catalog: line: leave it out.
+          Catalog: run `issue-cli workflow catalog-check` on the staged change before the first commit (it checks uncommitted changes too). Each entry it names needs its version bumped (`issue-cli workflow catalog-bump <id>`), or its id in one `Catalog: n/a <id>[,<id>...] <why>` line in the commit message, entry ids first; `issue-cli workflow catalog-na <id>[,<id>...] <why>` records that line before the commit, so make validate's catalog-check is green on the uncommitted change, and the commit-msg hook writes it into the commit. A change it names no entry for, or that only moves files unchanged, needs no Catalog: line: leave it out.
     transitions:
       - from: "idea"
         to: "in progress"
@@ -1188,7 +1203,8 @@ privacy:
 # What a Claude Code worker starts with (docs/agent-dispatch.md "Worker
 # setup"): only these MCP servers, plugins, skills and tools, plus its
 # department's connectors; leads keep the owner's whole setup. No skill and
-# no Artifact tool: Go-and-markdown work uses none of them. UI workers get the two
+# no Artifact, Workflow, SendFeedback, ReportFindings or ListAgents tool:
+# Go-and-markdown work uses none of them. UI workers get the two
 # browser servers they used so far; the playtest runner drives Chrome
 # through make (chromedp), not MCP.
 workers:

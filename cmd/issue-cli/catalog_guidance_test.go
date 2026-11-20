@@ -73,7 +73,8 @@ func TestInProgressRunsCatalogCheckBeforeTheFirstCommit(t *testing.T) {
 }
 
 // The form the guidance names, filled in, passes the commit-msg hook; the bare
-// id the retro proposal named does not, so the guidance must not offer it.
+// id of an entry the change doesn't bump does not, so the guidance must not
+// offer the bare form as the n/a's alternative.
 func TestCatalogGuidanceFormPassesTheCommitHook(t *testing.T) {
 	known := knownCatalogIDs(t)
 	filled := strings.NewReplacer("<id>[,<id>...]", "parked-status,parked-status", "<why>", "a refactor").Replace(workflowupgrade.TrailerForm)
@@ -81,7 +82,7 @@ func TestCatalogGuidanceFormPassesTheCommitHook(t *testing.T) {
 		t.Fatalf("%q refused: %v", filled, got)
 	}
 	if got := CommitMsgProblems(commitSubject+"Catalog: parked-status\n", known); len(got) == 0 {
-		t.Fatal("a bare Catalog: <id> passes the hook: the box and the guidance can offer it now")
+		t.Fatal("a bare Catalog: <id> of an entry not bumped passes the hook: the box and the guidance can offer it now")
 	}
 	wf := engineWorkflow(t)
 	text := designCatalogBox(t, wf) + "\n" + wf.ForType("tweak").StatusPrompt("in progress")

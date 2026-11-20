@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -211,25 +212,13 @@ func TestCompanyPageFastAtScale(t *testing.T) {
 		{"classic", "/p/acme/company?classic=1"},
 	} {
 		_, cold := timedGet(t, ts.URL+page.path)
-		best := time.Hour
-		for i := 0; i < 3; i++ {
-			var tries []string
-			for try := 0; try < 3; try++ {
-				_, base := timedGet(t, ts.URL+"/p/acme/issues.json")
-				limit := max(150*time.Millisecond, companyVsIssues*base)
-				_, d := timedGet(t, ts.URL+page.path)
-				best = min(best, d)
-				if d <= limit {
-					tries = nil
-					break
-				}
-				tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
-			}
-			if tries != nil {
-				t.Errorf("company page (%s): %s; want under 150 ms, or %d× /issues.json on a slow machine", page.name, strings.Join(tries, ", "), companyVsIssues)
-			}
+		r := timing.Check{Limit: 150 * time.Millisecond, Ratio: companyVsIssues}.Run(
+			func() time.Duration { _, d := timedGet(t, ts.URL+page.path); return d },
+			func() time.Duration { _, d := timedGet(t, ts.URL+"/p/acme/issues.json"); return d })
+		if r.Slow {
+			t.Errorf("company page (%s): %s (baseline: /issues.json)", page.name, r)
 		}
-		t.Logf("15 departments, %s: cold %v, warm best %v", page.name, cold, best)
+		t.Logf("15 departments, %s: cold %v, warm %s", page.name, cold, r)
 	}
 }
 

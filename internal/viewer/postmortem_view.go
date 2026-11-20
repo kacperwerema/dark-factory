@@ -59,7 +59,7 @@ func (s *Server) buildPostmortem(p *tracker.Project, prefix string, issue *track
 	lot, rows := s.buildLot(p, color, now)
 	d := PostmortemData{Title: p.Name + " · Post-mortem", Slug: issue.Slug, IssueTitle: issue.Title,
 		IssueURL: prefix + "/issue/" + issue.Slug, DecideURL: prefix + "/postmortem/" + issue.Slug + "/decide", QueueURL: prefix + "/postmortems"}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
+	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Post-mortem", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)

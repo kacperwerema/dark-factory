@@ -77,7 +77,7 @@ func (w *WorkflowConfig) checkValidateAction(action WorkflowAction, issue *Issue
 
 // hintRules are the legacy rules whose failure is a ruleFailure, so an
 // action's hint: takes the place of their fix. The other legacy rules
-// (criteria_*, approved_for, decisions_*, critique, …) and
+// (commits_reference_issue, the error a rule's bad argument gives) and
 // handoff_answered keep their own text and never show a hint.
 // TestRuleShowsHintMatchesCheckRule keeps this list in step with checkRule.
 var hintRules = map[string]bool{
@@ -85,6 +85,10 @@ var hintRules = map[string]bool{
 	"has_assignee": true, "all_checkboxes_checked": true, "section_checkboxes_checked": true,
 	"has_test_plan": true, "has_comment_prefix": true,
 	hasOutputRule: true, outputsApprovedRule: true,
+	"criteria_checkboxes": true, criteriaProvenRule: true,
+	"approved_for": true, "human_approval": true,
+	CritiqueRule: true, DecisionsCitedRule: true, CitationsCurrentRule: true,
+	DecisionUnchallengedRule: true, DecisionsRespectedRule: true,
 }
 
 // RuleShowsHint reports whether a validate action on rule shows its hint:
@@ -102,12 +106,16 @@ func RuleShowsHint(rule string) bool {
 // ruleFailure is a legacy rule's failure in two parts, what is wrong and how
 // to fix it, so an action's hint: can replace the fix the way it does on the
 // validations package's rules. sep joins them: " — ", or "\n" after a
-// problem that ends in a list.
+// problem that ends in a list. err is the typed error the failure stands
+// for (an *ApprovalMissingError), so errors.As and errors.Is still find it.
 type ruleFailure struct {
 	problem, sep, fix string
+	err               error
 }
 
 func (f *ruleFailure) Error() string { return f.problem + f.sep + f.fix }
+
+func (f *ruleFailure) Unwrap() error { return f.err }
 
 // withFix is f with fix in place of its built-in one.
 func (f *ruleFailure) withFix(fix string) *ruleFailure {
@@ -115,7 +123,7 @@ func (f *ruleFailure) withFix(fix string) *ruleFailure {
 	if strings.HasSuffix(f.problem, "\n") {
 		sep = "\n"
 	}
-	return &ruleFailure{problem: f.problem, sep: sep, fix: fix}
+	return &ruleFailure{problem: f.problem, sep: sep, fix: fix, err: f.err}
 }
 
 func failRule(problem, fix string) *ruleFailure {
@@ -126,6 +134,14 @@ func failRule(problem, fix string) *ruleFailure {
 // and outputs_approved, registered by internal/outputs): an action's hint:
 // replaces fix, the text after " — ".
 func RuleFailure(problem, fix string) error { return failRule(problem, fix) }
+
+// RuleFailureJoined is RuleFailure for a failure whose text runs problem,
+// sep, fix as written (sep "" when problem already ends in its own line
+// break): the gates checked outside the package (criteria_proven, critique)
+// keep their text, and an action's hint: replaces fix.
+func RuleFailureJoined(problem, sep, fix string) error {
+	return &ruleFailure{problem: problem, sep: sep, fix: fix}
+}
 
 // Validate is kept for compatibility with older call sites and tests.
 func (w *WorkflowConfig) Validate(issue *Issue, toStatus string, comments []Comment) error {
@@ -343,10 +359,16 @@ func (w *WorkflowConfig) checkRule(rule string, issue *Issue, comments []Comment
 			return fmt.Errorf("human_approval rule requires a status argument")
 		}
 		if !strings.EqualFold(issue.HumanApproval, ruleArg) {
-			return &ApprovalMissingError{
+			missing := &ApprovalMissingError{
 				Slug:     issue.Slug,
 				Required: ruleArg,
 				Verb:     "validate",
+			}
+			// The same text as missing.Error(), split so a hint: replaces
+			// the fix; errors.As still finds missing.
+			return &ruleFailure{
+				problem: fmt.Sprintf("issue is not human-approved for %q", ruleArg), sep: " — ",
+				fix: "a human must approve it in the issue viewer first", err: missing,
 			}
 		}
 	default:

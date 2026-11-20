@@ -630,3 +630,32 @@ func TestCollectStaysFreshOverItsGitCache(t *testing.T) {
 		t.Errorf("a new tests: comment isn't read: %+v", got)
 	}
 }
+
+// TestProofGateShowsTheHint: the criteria_proven action's hint: replaces
+// the gate's fix and keeps the list of unproven criteria.
+func TestProofGateShowsTheHint(t *testing.T) {
+	f := newFixture(t, "TestFoo")
+	wf := &tracker.WorkflowConfig{
+		Statuses: []tracker.WorkflowStatus{{Name: "testing"}, {Name: "human-testing"}},
+		Transitions: []tracker.WorkflowTransition{{From: "testing", To: "human-testing", Actions: []tracker.WorkflowAction{
+			{Type: "validate", Rule: "criteria_proven", Hint: "tick each criterion with issue-cli prove {{slug}}, never check"},
+		}}},
+		RepoRoot: f.root,
+	}
+	err := wf.ValidateTransition(f.issue, "testing", "human-testing", nil)
+	if err == nil {
+		t.Fatal("want the proof gate to hold")
+	}
+	msg := err.Error()
+	for _, want := range []string{"3 of 4 acceptance criteria are not proven", "AC3 A value proves it", "tick each criterion with issue-cli prove " + f.issue.Slug + ", never check"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("gate error lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "Prove each one with any of") {
+		t.Errorf("the hint replaces the built-in fix, yet it is still there:\n%s", msg)
+	}
+	if !tracker.RuleShowsHint("criteria_proven: since 2026-10-24") {
+		t.Error("RuleShowsHint(criteria_proven) = false")
+	}
+}

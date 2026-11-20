@@ -8,20 +8,26 @@ import (
 	"strings"
 )
 
+// KeychainOS is the OS the Keychain helpers take this machine for: only
+// "darwin" has a Keychain. A test on Linux sets it to "darwin" beside a
+// stand-in security on PATH.
+var KeychainOS = runtime.GOOS
+
 // ErrNoKeychain is SecretWrite off macOS: there is no Keychain to write to.
 var ErrNoKeychain = errors.New("no Keychain on this machine (macOS only): keep the value in an env: reference instead")
 
 // SecretWrite stores value in the Keychain item ref names, replacing what
-// was there. It is the engine's one writer of a secret, used only by the
-// owner's Connect socials page (the owner types the value; nothing reads it
-// back to a page). The value goes to `security -i` on stdin, never in argv
+// was there. It is the engine's one writer of a secret, used by the owner's
+// Connect socials page (the owner types the value; nothing reads it back to
+// a page) and by issue-cli cms up, run in the owner's shell (the values its
+// run generates: Ghost's owner password and its Admin API key). The value goes to `security -i` on stdin, never in argv
 // where ps would show it, and the tool's output is dropped: an error names
 // the item, never the value. Tests replace it.
 var SecretWrite = func(ref SecretRef, value string) error {
 	if ref.Scheme != "keychain" {
 		return fmt.Errorf("%s is not a keychain: reference", ref)
 	}
-	if runtime.GOOS != "darwin" {
+	if KeychainOS != "darwin" {
 		return ErrNoKeychain
 	}
 	line, err := keychainAddLine(ref, value)

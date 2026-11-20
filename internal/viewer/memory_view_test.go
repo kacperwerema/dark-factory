@@ -289,3 +289,19 @@ func TestMemoryPageUsefulness(t *testing.T) {
 	_, js := getResp(t, sb.base+"/p/acme/memory.json")
 	assertContains(t, js, `"usefulness"`)
 }
+
+// A red chip's tooltip names the status mix behind the score, so an empty
+// one shows before the owner forgets a memory (sweep report
+// o-20261117-f9bc, item 2).
+func TestUsefulnessChipNamesTheStatusMix(t *testing.T) {
+	u := memory.Usefulness{
+		Score:      memory.Score{Known: 15, Lift: -0.1},
+		Injections: 35, NoRoom: 20, NoRoomAt: map[string]int{"idea": 20},
+		ByStatus: map[string]memory.Score{"in progress": {Known: 15, Lift: -0.1}},
+	}
+	_, chip, title := usefulnessChip(memory.Memory{ID: "m-1"}, u)
+	if chip != "wb-chip--red" {
+		t.Fatalf("chip %q", chip)
+	}
+	assertContains(t, title, "stages scored: in progress 15 · not scored: idea 20")
+}

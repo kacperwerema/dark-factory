@@ -278,7 +278,7 @@ func nightlyExperiment(ctx *Context, name, date string, base *bench.Run, issue *
 		return skip("held: "+held+"; it stays queued", false)
 	}
 	ref := valueOr(b.Queue.Ref, "work/"+issue.Slug)
-	plan, err := planExperiment(ctx, issue, b, ref, name)
+	plan, err := planExperiment(ctx, issue, b, ref, name, "")
 	if err != nil {
 		return skip(err.Error(), true)
 	}

@@ -700,7 +700,7 @@ func healthTrends(c *HealthPage) []WbTrendCard {
 func (s *Server) handleHealthWb(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix string, classic *HealthPage) {
 	now := time.Now()
 	lot := s.headerLot(proj, now)
-	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait,
+	h := WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You,
 		DoneWeek: lot.DoneWeek, Waiting: lot.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "health")}
 	h.Crumbs[1].Color = lot.Color
 	h.YOLO = headerYOLO(lot.YOLO, prefix)
@@ -799,7 +799,7 @@ func diskLookList(s *health.Snapshot) (WbLookList, bool) {
 	for _, r := range rows {
 		top = math.Max(top, r.mb)
 	}
-	sub := "trim the cache while no worker is running: " + diskuse.Command
+	sub := "the nightly clean trims the cache: " + diskuse.CleanCommand
 	if v, ok := s.Value("storage.volume_used_pct", nil); ok {
 		sub = fmt.Sprintf("the data volume %.0f%% used · %s", v, sub)
 	}

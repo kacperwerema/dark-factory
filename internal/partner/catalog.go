@@ -27,7 +27,7 @@ import (
 const CatalogFile = "partners.yaml"
 
 // Slots are the catalog's slots, in the order they are listed.
-var Slots = []string{"analytics", "email", "seo", "social", "video", "support"}
+var Slots = []string{"analytics", "email", "seo", "social", "video", "support", "cms"}
 
 // Shapes and runs a row may have.
 var (
@@ -54,6 +54,11 @@ type CatalogRow struct {
 	Money     string `yaml:"money" json:"money"`
 	Default   bool   `yaml:"default" json:"default,omitempty"`
 	Note      string `yaml:"note" json:"note,omitempty"`
+	// Setup is the one issue-cli command the owner runs to stand the tool
+	// up on this machine ("issue-cli cms up"), when the engine has one;
+	// department add prints it under a slot whose default row has one.
+	// It turns nothing on: the connector stays the owner's to add.
+	Setup string `yaml:"setup" json:"setup,omitempty"`
 	// Marks are paths only the tool's own checkout has (a trailing / is a
 	// folder): TestTrackedFilesHoldNoPartnerFile fails on a tracked path
 	// carrying one, since a partner is never vendored. Required on an AGPL

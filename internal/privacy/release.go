@@ -1086,3 +1086,13 @@ func unquote(q string) string {
 	}
 	return strings.Trim(q, `"`)
 }
+
+// NewestPublished is the highest published release tag in root's repo
+// ("v0.63.0"), "" for none or when git fails.
+func NewestPublished(root string) string {
+	out, err := git(root, "tag", "-l", "v*")
+	if err != nil {
+		return ""
+	}
+	return milestone.NewestPublished(strings.Fields(out))
+}

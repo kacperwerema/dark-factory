@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 // proveVsChecklist is how many checklist calls a plain prove link may cost
@@ -60,24 +62,23 @@ func TestPlainProveLinkFastOnABigBoard(t *testing.T) {
 		}
 		return time.Since(start)
 	}
-	var tries []string
-	for try := 0; try < 3; try++ {
-		base := timed(runChecklist, "cli/sample")
-		limit := max(time.Second, proveVsChecklist*base)
+	round := 0
+	prove := func() time.Duration {
+		round++
 		// A process parses each file once per mtime: a new one makes this
-		// try a fresh process's cold read, not one warmed by the checklist.
-		stamp := time.Now().Add(time.Duration(try+1) * time.Minute)
+		// round a fresh process's cold read, not one warmed by the checklist.
+		stamp := time.Now().Add(time.Duration(round) * time.Minute)
 		for _, f := range files {
 			if err := os.Chtimes(f, stamp, stamp); err != nil {
 				t.Fatal(err)
 			}
 		}
-		d := timed(runProve, "cli/sample", "AC1", "--test", "TestCount"+strconv.Itoa(try))
-		if d <= limit {
-			t.Logf("plain prove link %v (checklist %v)", d, base)
-			return
-		}
-		tries = append(tries, fmt.Sprintf("%v (limit %v: checklist took %v)", d, limit, base))
+		return timed(runProve, "cli/sample", "AC1", "--test", "TestCount"+strconv.Itoa(round))
 	}
-	t.Errorf("plain prove link: %s; want under 1 s, or %d× checklist on a slow machine", strings.Join(tries, ", "), proveVsChecklist)
+	checklist := func() time.Duration { return timed(runChecklist, "cli/sample") }
+	r := timing.Check{Limit: time.Second, Ratio: proveVsChecklist}.Run(prove, checklist)
+	if r.Slow {
+		t.Errorf("plain prove link: %s (baseline: checklist)", r)
+	}
+	t.Logf("plain prove link: %s", r)
 }

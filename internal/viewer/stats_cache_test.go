@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/timeline"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -223,17 +224,22 @@ func TestStatsColdRequestDoesNotWait(t *testing.T) {
 					release()
 				}
 			}()
-			for range 2 {
+			// Every request while the build is held is a cold one: the
+			// check takes the best of several, so a burst of load on one
+			// does not fail it.
+			cold := func() time.Duration {
 				body, refresh, took := s.pageWithHeaders(t, tc.query)
-				if took >= time.Second {
-					t.Errorf("a cold request took %v, want under 1 s", took)
-				}
 				if !strings.Contains(body, `data-testid="stats.updating"`) || !strings.Contains(body, "Building these numbers") {
 					t.Error("a cold request must say the numbers are being built")
 				}
 				if refresh != statsBuildingRefresh {
 					t.Errorf("Refresh = %q, want %q so the page fills in by itself", refresh, statsBuildingRefresh)
 				}
+				return took
+			}
+			cold()
+			if r := (timing.Check{Limit: time.Second}).Run(cold, nil); r.Slow {
+				t.Errorf("a cold request: %v", r)
 			}
 			release()
 			s.finishBackground(t)

@@ -42,6 +42,13 @@ private-names list in the title or slug leaves the slug, pinned with slug:,
 and create warns: a slug goes into the branch and every Refs: line, which
 make leak-check scans. The title keeps the name.
 
+create warns when a done issue may already hold the new one: its brief's
+first lines name the same sweep source and item (an output id such as
+o-20261117-f9bc, "report f9bc", or the report issue's slug, and "item N"
+or "follow-up N"), or its title shares at least 5 words and half of the
+shorter title's. It names the done issues and the close --fixed-by line;
+it never refuses.
+
 When workflow.yaml defines types of work, --type picks the issue's path
 (default: default_type); the issue starts at that type's first status.
 
@@ -306,6 +313,9 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 	}
 	if tmpl != "" {
 		fmt.Fprintln(ctx.Stdout, "✓ Template checkboxes added to issue body")
+	}
+	if issues, err := proj.LoadIssues(); err == nil {
+		warnDoneTwins(ctx.Stdout, display, findDoneTwins(proj, issues, display, title, spec.Body))
 	}
 	return &newIssue{File: filename, Slug: display, Department: dept, RequestedBy: requestedBy}, nil
 }

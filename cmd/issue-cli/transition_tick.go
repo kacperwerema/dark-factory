@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -153,15 +154,28 @@ func probeTicked(ctx *Context, issue *tracker.Issue, ids []string) (*tracker.Iss
 // wf's), and a gate command is not run again (SkipCommandRules): the
 // transition runs it when the one call comes.
 func oneCallLine(ctx *Context, base *tracker.WorkflowConfig, issue *tracker.Issue, to string, fields map[string]string) string {
+	problems, wf := refusalProblems(ctx, base, issue, to, fields)
+	return oneCallLineFor(ctx, wf, issue, to, fields, problems)
+}
+
+// refusalProblems is every requirement of the move still unmet, on its
+// own copy of the config (see oneCallLine), after YOLO drops the approval
+// it would pass. nil when the config can't be read.
+func refusalProblems(ctx *Context, base *tracker.WorkflowConfig, issue *tracker.Issue, to string, fields map[string]string) ([]transitionProblem, *tracker.WorkflowConfig) {
 	wf, err := issueWorkflow(ctx, issue)
 	if err != nil {
-		return ""
+		return nil, nil
 	}
 	wf.DeferOwnerProof, wf.DeferDecisionHolds, wf.KeepOwnAssignee = base.DeferOwnerProof, base.DeferDecisionHolds, base.KeepOwnAssignee
 	wf.SkipCommandRules = true
 	problems := collectTransitionProblems(ctx, wf, issue, issue.Slug, issue.Status, to, fields)
 	problems, _ = yoloDryRun(ctx, wf, issue, issue.Status, to, problems)
-	if len(problems) == 0 {
+	return problems, wf
+}
+
+// oneCallLineFor is oneCallLine on problems already collected.
+func oneCallLineFor(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Issue, to string, fields map[string]string, problems []transitionProblem) string {
+	if len(problems) == 0 || wf == nil {
 		return ""
 	}
 	want := map[string]bool{}
@@ -204,18 +218,58 @@ func oneCallLine(ctx *Context, base *tracker.WorkflowConfig, issue *tracker.Issu
 	return tracker.InjectProject(ctx.Project, cmd+" --check "+strings.Join(ids, " "))
 }
 
-// withOneCallLine ends a refused transition with oneCallLine when there is
-// one, so the agent's next call ticks the boxes and moves the issue.
+// withOneCallLine ends a refused transition with every other requirement
+// still unmet (the engine stops at the first; the agent shouldn't pay a
+// round per rule) and with oneCallLine when there is one, so the agent's
+// next call ticks the boxes and moves the issue.
 func withOneCallLine(ctx *Context, wf *tracker.WorkflowConfig, slug, to string, fields map[string]string, err error) error {
 	issue, _, ferr := findIssueOrErr(ctx, slug)
 	if ferr != nil {
 		return err
 	}
-	line := oneCallLine(ctx, wf, issue, to, fields)
+	problems, pwf := refusalProblems(ctx, wf, issue, to, fields)
+	if errors.Is(err, tracker.ErrApprovalMissing) {
+		problems = dropKind(problems, "approval") // the refusal is that approval, in its own words
+	}
+	if others := otherProblems(err.Error(), problems); len(others) > 0 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "Also unmet for this move (%d more):\n", len(others))
+		printProblemLines(&b, others)
+		err = fmt.Errorf("%w\n\n%s", err, strings.TrimRight(b.String(), "\n"))
+	}
+	line := oneCallLineFor(ctx, pwf, issue, to, fields, problems)
 	if line == "" {
 		return err
 	}
 	return fmt.Errorf("%w\n\nTick them and move in one call:\n  %s", err, line)
+}
+
+// dropKind is problems without those of kind.
+func dropKind(problems []transitionProblem, kind string) []transitionProblem {
+	var out []transitionProblem
+	for _, p := range problems {
+		if p.Kind != kind {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// otherProblems drops from problems the one the refusal (shown) already
+// names: its message's first line is in shown.
+func otherProblems(shown string, problems []transitionProblem) []transitionProblem {
+	var out []transitionProblem
+	for _, p := range problems {
+		key := p.Requirement
+		if first, _, _ := strings.Cut(strings.TrimSpace(p.Message), "\n"); strings.TrimSpace(first) != "" {
+			key = strings.TrimSpace(first)
+		}
+		if strings.Contains(shown, key) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // printOneCallLine is withOneCallLine for a dry run's report.

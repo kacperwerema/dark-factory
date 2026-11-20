@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 func TestParseFindings(t *testing.T) {
@@ -368,5 +370,35 @@ func TestGateErrorIndentsContinuationUnderTheFinding(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "  blocks a.go:3 — two holes:\n    - one\n    - two\n  blocks b.go:4 — three\n") {
 		t.Errorf("refusal:\n%s", err)
+	}
+}
+
+// TestCritiqueGateShowsTheHint: the critique action's hint: replaces the
+// gate's fix, with and without a run, and keeps what holds it.
+func TestCritiqueGateShowsTheHint(t *testing.T) {
+	dir := t.TempDir()
+	wf := &tracker.WorkflowConfig{
+		Statuses: []tracker.WorkflowStatus{{Name: "testing"}, {Name: "human-testing"}},
+		Transitions: []tracker.WorkflowTransition{{From: "testing", To: "human-testing", Actions: []tracker.WorkflowAction{
+			{Type: "validate", Rule: "critique", Hint: "run the critic on {{slug}}"},
+		}}},
+		IssuesRoot: dir,
+	}
+	issue := &tracker.Issue{Slug: "s", Status: "testing"}
+	check := func(want string) {
+		t.Helper()
+		err := wf.ValidateTransition(issue, "testing", "human-testing", nil)
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "run the critic on s") || strings.Contains(err.Error(), "--override") || strings.Contains(err.Error(), "a fresh critic reads") {
+			t.Errorf("gate = %v, want %q and the hint in place of the fix", err, want)
+		}
+	}
+	check("no critique run from testing yet")
+	at := time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)
+	if err := Record(dir, &Run{Slug: "s", From: "testing", To: "human-testing", At: at, Report: Parse("blocks a.go:1 — x\nCoverage: all")}); err != nil {
+		t.Fatal(err)
+	}
+	check("blocks a.go:1 — x")
+	if !tracker.RuleShowsHint("critique") {
+		t.Error("RuleShowsHint(critique) = false")
 	}
 }

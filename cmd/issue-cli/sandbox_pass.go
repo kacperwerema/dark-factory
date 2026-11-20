@@ -105,9 +105,13 @@ var guardVerbs = map[string]guardRule{
 	// Provisional (factory/lead-context-is-kept-as-…, clarify assumed): the
 	// strictest rule until the owner says whether a sandbox may keep or
 	// rotate a lead's state.
-	"lead state":       neverInSandbox,
-	"lead rotate":      neverInSandbox,
-	"worktrees prune":  neverInSandbox,
+	"lead state":      neverInSandbox,
+	"lead rotate":     neverInSandbox,
+	"worktrees prune": neverInSandbox,
+	// Provisional (factory/a-nightly-clean-job-…#Q5, clarify assumed): the
+	// clean deletes the machine's Go cache and transcripts, outside any
+	// sandbox.
+	"clean":            neverInSandbox,
 	"health review":    neverInSandbox,
 	"postmortem start": neverInSandbox,
 	"experiment queue": neverInSandbox,
@@ -116,6 +120,9 @@ var guardVerbs = map[string]guardRule{
 	// says otherwise (it arrived after the design, D-3: asked on the issue).
 	"prove --lead-run": neverInSandbox,
 	"bench nightly":    neverInSandbox,
+	// Provisional (factory/stand-up-a-projects-cms-ghost-…, clarify Q3
+	// assumed): it starts a container and writes the owner's Keychain.
+	"cms up": neverInSandbox,
 }
 
 // sandboxVerdict is the sandbox check's answer for this process.

@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: marketing@v0.63.0
+template: marketing@v0.64.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -10,6 +10,7 @@ template: marketing@v0.63.0
 features:
   installed:
     - brand-foundation@v0.61.0
+    - cms-publish@v0.64.0
     - competitor-scan@v0.63.0
     - keyword-research@v0.61.0
     - measure-after-publish@v0.58.0
@@ -698,9 +699,35 @@ types:
           - type: "require_human_approval"
             status: "done"
 
+  # The site: a post or page goes out through the department's `cms`
+  # connector (Ghost by default, docs/departments.md, "Publishing to the
+  # site"), only at publish; brief and draft make no `cms` call.
   piece:
     description: "One post, page or email: brief, draft, owner review, publish"
     path: [brief, draft, owner review, publish, done]
+    statuses:
+      - name: "brief"
+        prompt: |
+          Read the department's brand and ICP first (departments/<department>/brand.md and icp.md, next to its role.md); the brief can't move to draft without them. Read keywords.md there too, where it exists, and name the cluster the piece targets.
+          Write the brief: what this piece is, who it is for (which ICP segment), where it will be published and what counts as done.
+          Where: when the department has the `cms` connector (`issue-cli connectors` lists it), the site is `site (cms)`: say post or page, and the slug if the piece needs one. Otherwise name the site, account or list it goes to.
+          Make no `cms` call: nothing goes to the site before the owner's yes.
+          Ask the owner about anything the brief can't say on its own, then move to draft.
+      - name: "draft"
+        prompt: |
+          Make the piece the brief asks for. Put the full text (or a link to the file) in the issue under ## Draft,
+          and put the piece on the department's shelf: `issue-cli output add --issue <slug> --title "..." --kind <post|page|design|...> (--url | --file | --path)`. A piece for `site (cms)` goes on the shelf as the markdown file that will go out (`--kind post|page --file <piece.md>`): publish sends that file byte for byte.
+          Make no `cms` call while drafting: the draft stays on the shelf until the owner's yes.
+          Check facts, names, links and prices against their source.
+          When the draft is ready, move to owner review.
+      - name: "publish"
+        prompt: |
+          Publish exactly what the owner approved, where the brief says. Do not change it on the way out.
+          Find the approved output and its file: `issue-cli outputs --issue <slug> --state approved --json` gives its `id` and its `file` (under the issues folder's .outputs/files/).
+          The site (`site (cms)` in the brief), with the department's `cms` connector: `issue-cli connector exec <department>/cms -- sh departments/<department>/cms-ghost.sh publish --file <the approved file> --title "<title>" --kind post|page` (add `--slug <s>` or `--at <ISO time>` when the brief names them). It prints one JSON line, `{"id","status","url"}`: the url is the link. A `scheduled` status: record the URL and say when it goes live. An error (exit 1, nothing on stdout): post Ghost's message as a `question:` comment and say it in chat, then end your turn; never retry with a changed file.
+          Another place the brief names (a social account, a list): use that place's connector instead; `cms` is for the site.
+          No `cms` connector (`issue-cli connectors` doesn't list it), or no connector for the place: publish nothing yourself. Say in chat which approved file goes out (its path) and where, ask the owner to put it out and leave an `answer:` comment with the link, then end your turn. Once the answer is there, that link is the URL.
+          Mark it published on the shelf: `issue-cli output publish <id> --url <url>`, record the link under ## Published, then move to done.
     transitions:
       - from: "publish"
         to: "done"
@@ -725,8 +752,19 @@ types:
       - name: "draft"
         prompt: |
           Refresh what the brief lists: local pages, FAQs, schema, facts, opening hours, prices and links; draft a blog post where a site is due one.
-          Put each refreshed page and each draft on the shelf: `issue-cli output add --issue <slug> --title "<site>: <page>" --kind page --url <page>` (a post: `--kind post --file <draft>`).
+          Put each refreshed page and each draft on the shelf: `issue-cli output add --issue <slug> --title "<site>: <page>" --kind page --url <page>` (a post: `--kind post --file <draft>`). A page on the site the department's `cms` connector serves goes on the shelf as its full refreshed markdown instead (`--kind page --file <page.md>`, its live URL in the title): publish sends that file.
+          Make no `cms` call while drafting: the drafts stay on the shelf until the owner's yes.
           List them under ## Draft with what changed on each, then move to owner review.
+      - name: "publish"
+        prompt: |
+          Publish exactly what the owner approved, where the brief says. Do not change it on the way out. Go output by output.
+          `issue-cli outputs --issue <slug> --state approved --json` lists each approved output with its `id`, `kind` and `file`.
+          With the department's `cms` connector (`issue-cli connectors` lists it), per approved output on its site, each call printing one JSON line `{"id","status","url"}`:
+          - a page or post that already exists: read it first, `issue-cli connector exec <department>/cms -- sh departments/<department>/cms-ghost.sh get --slug <its slug>`, then `issue-cli connector exec <department>/cms -- sh departments/<department>/cms-ghost.sh update --id <the id it printed> --file <the approved file>`;
+          - a new post: `issue-cli connector exec <department>/cms -- sh departments/<department>/cms-ghost.sh publish --file <the approved file> --title "<title>" --kind post`.
+          An error (exit 1, nothing on stdout): post Ghost's message as a `question:` comment and say it in chat, then end your turn; never retry with a changed file.
+          No `cms` connector (`issue-cli connectors` doesn't list it), or a site it doesn't serve: publish nothing yourself. Say in chat which approved files go out (their paths) and where, ask the owner to put them out and leave an `answer:` comment with each link, then end your turn. Once the answer is there, those links are the URLs.
+          One `issue-cli output publish <id> --url <url>` per output, every link under ## Published, then move to measure.
       - name: "measure"
         prompt: |
           Record the pass's numbers: `issue-cli goal set <department>/pages <pages refreshed>` and `<department>/posts` once posts are out (`issue-cli goals <department>` lists the goals).

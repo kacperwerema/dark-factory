@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/checks"
@@ -24,9 +25,14 @@ catalog-check and the proof check use, before the commit exists, and refuses
 it with the fix when a line marks or links nothing:
   Catalog: n/a <id>[,<id>...] <why>     an entry id right after n/a, no colon
                                         after it, an id the catalog has
+  Catalog: <id>[,<id>...] [<why>]       entries this change bumps: each one's
+                                        version: in the working tree newer
+                                        than the changelog's last release
   Proves: AC1[, AC2] [TestName ...]     test names only: no <slug>#AC1, no
                                         package path, no playtest step (steps
                                         prove through proves: in their session)
+A Catalog: n/a line recorded with issue-cli workflow catalog-na goes into
+an accepted message, and the record is dropped.
 In a dark-factory checkout it also warns, never refuses, when a staged line
 or the message holds what make leak-check refuses (a name from the
 private-names list, a real home or scratchpad path): file:line and the
@@ -93,11 +99,9 @@ func runCommitMsg(ctx *Context, args []string) error {
 		return err
 	}
 	// Outside a dark-factory checkout the ids aren't checked; the forms are.
-	var known map[string]bool
+	var cat workflowupgrade.TrailerCatalog
 	if rootErr == nil {
-		if ids, err := workflowupgrade.EntryIDs(repoAt(root)); err == nil {
-			known = ids
-		}
+		cat = commitMsgCatalog(root)
 	}
 	msg := string(data)
 	slug, noCriteria := "<slug>", false
@@ -109,11 +113,16 @@ func runCommitMsg(ctx *Context, args []string) error {
 			slug, noCriteria = issue.Slug, len(tracker.Criteria(issue.BodyRaw)) == 0
 		}
 	}
-	if known != nil {
+	if cat.Versions != nil {
 		warnStagedLeaks(ctx.Stderr, root, msg)
 	}
-	problems := commitMsgProblems(msg, known, noCriteria, slug)
+	problems := commitMsgProblems(msg, cat, noCriteria, slug)
 	if len(problems) == 0 {
+		if rootErr == nil {
+			if v := addRecordedNA(root, fs.Arg(0)); v != "" {
+				fmt.Fprintf(ctx.Stderr, "note: added Catalog: %s to the message (recorded with issue-cli workflow catalog-na)\n", v)
+			}
+		}
 		for _, n := range CommitMsgNotes(msg, slug, noCriteria) {
 			fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
 		}
@@ -128,6 +137,23 @@ func runCommitMsg(ctx *Context, args []string) error {
 	}
 	printCommitMsgProblems(ctx.Stderr, problems)
 	return &exitCodeError{Code: 1}
+}
+
+// commitMsgCatalog is the catalog as the working tree has it, the
+// version a catalog-bump just wrote included, and the changelog's last
+// release: a bare Catalog: <id> line is read against them. Versions is
+// nil outside a dark-factory checkout; LastRelease is "" when the
+// changelog has none, and then a bare id isn't asked to be bumped.
+func commitMsgCatalog(root string) workflowupgrade.TrailerCatalog {
+	versions, err := workflowupgrade.EntryVersions(repoAt(root))
+	if err != nil {
+		return workflowupgrade.TrailerCatalog{}
+	}
+	cat := workflowupgrade.TrailerCatalog{Versions: versions}
+	if data, err := os.ReadFile(filepath.Join(root, workflowupgrade.ChangelogPath)); err == nil {
+		cat.LastRelease, _ = workflowupgrade.LastRelease(data)
+	}
+	return cat
 }
 
 // warnStagedLeaks prints what make leak-check would refuse in the lines
@@ -298,8 +324,14 @@ func CommitMsgNotes(msg, slug string, noCriteria bool) []string {
 		if len(tests) == 0 {
 			continue // Proves: AC1 alone: the commit is the proof
 		}
+		runs := strings.Join(tests, ", ")
+		if title, ok := proof.UnquotedTitle(v, "AC"); ok && len(ids) > 0 {
+			// Collect reads it whole when a test file has the title.
+			runs = strconv.Quote(title)
+			out = append(out, fmt.Sprintf("Proves: %s reads as the one test %s when a test file has that title, else as %d one-word tests: quote it to be sure (Proves: %s %s)", v, runs, len(tests), strings.Join(ids, ", "), runs))
+		}
 		for _, id := range ids {
-			out = append(out, fmt.Sprintf("%s stays unproven until `issue-cli prove %s --run` runs %s and posts a tests: comment", id, slug, strings.Join(tests, ", ")))
+			out = append(out, fmt.Sprintf("%s stays unproven until `issue-cli prove %s --run` runs %s and posts a tests: comment", id, slug, runs))
 		}
 	}
 	return out
@@ -314,8 +346,8 @@ func noProvesNeeded(slug string) string {
 // CommitMsgProblems lists every Catalog: and Proves: line of msg (a commit
 // message as git hands it to the hook) that marks or links nothing, each
 // as `<the line>: <what is wrong and the fix>`.
-func CommitMsgProblems(msg string, known map[string]bool) []string {
-	return commitMsgProblems(msg, known, false, "")
+func CommitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog) []string {
+	return commitMsgProblems(msg, cat, false, "")
 }
 
 // commitMsgProblems is CommitMsgProblems for the issue slug. On an issue
@@ -323,14 +355,14 @@ func CommitMsgProblems(msg string, known map[string]bool) []string {
 // problem is that it exists: its one fix is noProvesNeeded, and the
 // per-word hints (a step id's proves: [AC1] on step ...) would name
 // criteria and steps the issue doesn't have.
-func commitMsgProblems(msg string, known map[string]bool, noCriteria bool, slug string) []string {
+func commitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog, noCriteria bool, slug string) []string {
 	msg = stripCommitComments(msg)
 	var out []string
 	var trailers []workflowupgrade.Trailer
 	for _, v := range proof.MessageLines(msg, "Catalog") {
 		trailers = append(trailers, workflowupgrade.Trailer{Value: v})
 	}
-	for _, b := range workflowupgrade.CheckTrailers(trailers, known) {
+	for _, b := range workflowupgrade.CheckTrailers(trailers, cat) {
 		out = append(out, fmt.Sprintf("Catalog: %s\n    → %s", b.Value, b.Problem))
 	}
 	for _, v := range proof.MessageLines(msg, "Proves") {

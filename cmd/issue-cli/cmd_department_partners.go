@@ -92,6 +92,9 @@ func printSlot(w io.Writer, slot string, rows []partner.CatalogRow, tmpls []stri
 		if r.Note != "" {
 			fmt.Fprintf(w, "    %s\n", r.Note)
 		}
+		if r.Setup != "" {
+			fmt.Fprintf(w, "    stand it up: %s\n", r.Setup)
+		}
 		fmt.Fprintf(w, "    upstream: %s\n", r.Upstream)
 	}
 }
@@ -136,6 +139,7 @@ func printPartnerOptions(w io.Writer, plan *depttemplate.Plan, proj *tracker.Pro
 			continue
 		}
 		fmt.Fprintf(w, "\nPartner options for %s's slots (listed only: nothing is installed or turned on):\n", p.Name)
+		var setups []string
 		for _, s := range slots {
 			var names []string
 			def := false
@@ -147,6 +151,9 @@ func printPartnerOptions(w io.Writer, plan *depttemplate.Plan, proj *tracker.Pro
 				if r.Default {
 					run += ", default"
 					def = true
+					if r.Setup != "" {
+						setups = append(setups, fmt.Sprintf("Stand up %s (%s) once on this machine: %s (it writes no config: you turn the %s connector on in %s)", r.Name, s, tracker.InjectProject(proj, r.Setup), s, valueOr(proj.ConfigPath, "projects.yaml")))
+					}
 				}
 				names = append(names, fmt.Sprintf("%s (%s, %s)", r.Name, r.Licence, run))
 			}
@@ -160,5 +167,8 @@ func printPartnerOptions(w io.Writer, plan *depttemplate.Plan, proj *tracker.Pro
 			fmt.Fprintf(w, "  %s: %s\n", s, line)
 		}
 		fmt.Fprintf(w, "Licence, needs and money for each: %s\n", tracker.InjectProject(proj, "issue-cli department partners --slot <slot>"))
+		for _, l := range setups {
+			fmt.Fprintln(w, l)
+		}
 	}
 }

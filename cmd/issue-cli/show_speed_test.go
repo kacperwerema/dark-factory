@@ -11,6 +11,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/testbin"
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 // showLimit is what show may take on a quiet machine with its git cache
@@ -76,25 +77,22 @@ func TestShowFastWithAColdBranchScan(t *testing.T) {
 	// macOS checks a fresh executable on its first exec; that is no part of
 	// either call's time.
 	call("version")
-	var tries []string
-	for try := 0; try < 3; try++ {
+	show := func() time.Duration {
 		if err := os.Remove(cache); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
-		ref, _ := call("checklist", "cli/b0")
 		d, out := call("show", "cli/b0")
 		if !strings.Contains(out, "== Shared files (") {
 			t.Fatalf("show printed no Shared files section, so it ran no branch scan:\n%s", out)
 		}
-		limit := max(showLimit, showVsChecklist*ref)
-		if d <= limit {
-			t.Logf("cold show %v, checklist %v (limit %v)", d, ref, limit)
-			return
-		}
-		tries = append(tries, fmt.Sprintf("%v (limit %v: checklist took %v)", d, limit, ref))
+		return d
 	}
-	t.Errorf("show with a cold branch scan of %d branches: %s; want under %v, or %d× checklist on a slow machine",
-		showBranches, strings.Join(tries, ", "), showLimit, showVsChecklist)
+	checklist := func() time.Duration { d, _ := call("checklist", "cli/b0"); return d }
+	r := timing.Check{Limit: showLimit, Ratio: showVsChecklist}.Run(show, checklist)
+	if r.Slow {
+		t.Errorf("show with a cold branch scan of %d branches: %s (baseline: checklist)", showBranches, r)
+	}
+	t.Logf("cold show: %s", r)
 }
 
 // branchScanRepo is a repo on main with n open issues, each on its own

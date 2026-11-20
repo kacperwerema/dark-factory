@@ -105,3 +105,47 @@ func TestVolumeOfReadsTheRealVolume(t *testing.T) {
 		t.Errorf("volume = %+v", v)
 	}
 }
+
+// The disk reading is the volume that holds Go's build cache (else home):
+// on macOS that is the Data volume. `df /` names the sealed system volume,
+// whose use (a few percent) is not the one that fills up, so no reading
+// statfs's "/" (report 7da6 read `df /` as the card's 15%).
+func TestVolumeIsTheCacheFoldersNotRoot(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("GOCACHE", cache)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+	var read []string
+	prevVol, prevLive := VolumeOf, Live
+	t.Cleanup(func() { VolumeOf, Live = prevVol, prevLive })
+	VolumeOf = func(p string) Volume {
+		read = append(read, p)
+		return Volume{UsedPct: 93, FreeGB: 60, OK: true}
+	}
+	Live = true
+	r, err := Measure(context.Background(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Volume.UsedPct != 93 {
+		t.Errorf("measured volume = %+v, want the cache folder's 93%%", r.Volume)
+	}
+	if v := Current(time.Now()); !v.Over {
+		t.Errorf("current = %+v, want over the line at 93%%", v)
+	}
+	if len(read) != 2 || read[0] != cache || read[1] != cache {
+		t.Errorf("statfs paths = %q, want the cache folder %q twice", read, cache)
+	}
+
+	// No cache folder: the home folder's volume, still never "/".
+	read = nil
+	t.Setenv("GOCACHE", "off")
+	if _, err := Measure(context.Background(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	if len(read) != 1 || read[0] != home || home == "/" {
+		t.Errorf("statfs paths without a cache = %q, want home %q", read, home)
+	}
+}

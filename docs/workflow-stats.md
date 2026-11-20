@@ -286,6 +286,24 @@ Bare file names (`handlers_stats.go`, `templates/…`, `static/…`) are in `int
 - `internal/milestone/` — the current milestone (`Pick`, `Released`) and the `milestone` health family.
 - `static/stats.js` — table toggles, the group-by select, remembered options (classic page); `static/workshop-stats.js` — Copy buttons and remembered options (Workshop Board page).
 
+## Measure before and after
+
+An improvement to the factory's cost (a smaller briefing, fewer tools for workers, fewer turns per issue) records the same numbers before and after it ships, from `issue-cli spend` ([By kind of session](departments.md#by-kind-of-session-spend-kinds), [Turns by cause](departments.md#turns-by-cause-spend-turns)):
+
+1. **Before**, on the issue's branch before it merges: pick a window that ends now and is long enough to hold typical work (7 days), and record both views with fixed times, so a rerun gives the same numbers:
+
+   ```bash
+   T1=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+   issue-cli spend --kinds --all-projects --json --since 2026-11-11T00:00:00Z --until "$T1" > before-kinds.json
+   issue-cli spend --turns --json --since 2026-11-11T00:00:00Z --until "$T1" > before-turns.json
+   ```
+
+   Attach both to the issue (`issue-cli attach <slug> before-kinds.json --section "Measurement"`) and write the rows the change aims at (say `dark-factory worker`, its turns and USD per session, or the share of `read` turns) and the window in a `## Measurement` section.
+2. **After**: once the change has run for a window of the same length (7 days after the merge), run the same two commands with that window's `--since`/`--until` and attach `after-*.json`.
+3. **Compare per unit, not in total**: the amount of work differs between windows, so compare tokens or USD per session, per turn or per issue of the same kind (`tokens / sessions` of a row, `by_cause.read.turns / turns`). Use the same prices on both sides (`--prices <file>` pins them; the output marks each price `assumed` or `confirmed`).
+
+The JSON's `rows` and `workers` carry `project`, `kind`, `job`, `type`, `stage`, `sessions`, `turns`, the token counts, `usd_estimate`, `share` and `weekly_limit_share`; `--turns` carries each issue's `by_cause` (turns and `context_tokens` per cause), `transitions_refused` and `red_rounds`. Nothing in either is text from a transcript.
+
 ## Experiments
 
 The experiment loop (factory/factory-experiment-loop) measures a change to prompts, `workflow.yaml` or a tool before the owner adopts it. It goes propose → experiment → adopt, and the benchmark (factory/factory-benchmark-and-evals) is its yardstick.
@@ -308,6 +326,10 @@ Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold i
 5. Record. The block, an `experiment:` comment with the numbers (holdout only as passed n/m), and on promising a `## Experiment result` table.
 6. By workflow. Beside the verdict, each workflow's own verdict (`bench compare`'s By workflow), marked changed or control by the files the candidate's commit changed since main ([which workflows a branch changed](benchmark.md#which-workflows-a-branch-changed)). They go in the block as `workflows:` (with `workflows_note:` when they are missing or unmarked), on the `experiment:` comment's `workflows:` tail, in a By workflow table under `## Experiment result`, and in `experiment show`. They are advice: the overall verdict and its target are unchanged, and a control turning net negative is a warning line.
 
+**Which prompt cells it reaches.** A type's own status `prompt:` replaces the base one ([Types of Work](Workflow/types.md)), so a prompt is a cell: (type, status). `issue-cli prompt-cell <slug>` says, before any run, which cells a proposal edits and which benchmark tasks walk through them. With a branch (`--ref`, else `work/<slug>`), it reads the workflow file at main and at the branch; a cell is edited when its status prompt or an `inject_prompt` on an edge into it differs, and a change in one `systems:` overlay is listed as `type · status · system`. A proposal with no branch names them: `--cell "in progress"` is the base prompt (every type that shares it), `--cell tweak:in progress` one type's cell. Tasks are the benchmark's, else the slugs under the proposal's `## Bench tasks`; a task is reached when an edited cell is on its type's path at or after its start, and a missed one says why (`tweak has its own in progress prompt`, `tweak's path skips in design`, `starts at testing, after in progress`). It ends `Reach: N of M tasks` and writes nothing; `--json` prints the same. `experiment run` prints that Reach line in its plan.
+
+**A pinned baseline.** Main's sha moves with every merge, so the baseline found by main's sha is gone the next day. `experiment run <slug> --baseline <run>` pins a finished run of the benchmark instead: the branch is cut from the commit that run measured, which stands in for main in the guard and the diff, and the run is never run again (`Baseline: pinned run <id> (<sha>; main is N commit(s) past it)`; the block records `baseline: {ref: pin, …}`). So one baseline serves every candidate of a pass cut from that commit. A branch that merged main's later commits is refused (the candidate would measure them too), and so is a run that didn't finish. Without `--baseline` nothing changes; the refusal for a branch that no longer contains main names the newest finished run to pin. The nightly keeps tonight's baseline.
+
 `--dry-run` prints the guard and the plan and runs nothing. The plan ends with a `Cost:` line, also printed before a real run: `≈ 210M tokens, 9.2 h, $… ` for the runs it will start (both, or only the candidate when the baseline on main's sha is reused, said under it), from the benchmark's newest finished run's mean per task times its task count (`bench run`'s estimate, `bench.ForecastRun`). USD is priced with today's `prices.yaml` (a figure the run recorded wins); `prices.yaml unset` when there is none, `USD unknown` or `≥ $…` when it misses a model, with the note saying which. No finished run, or no benchmark, says so and names no number. An experiment issue's page shows the same estimate as a **Cost preview** row in its Fields card until the experiment has a verdict. `experiment record <slug> --baseline <run> --candidate <run>` judges two runs that already exist. Runs start only from a session the owner started, or on a night the owner queued it for.
 
 **Queue for a night.** `issue-cli experiment queue <slug> [--ref <branch>] --quote "<owner's words>"` (the owner, or a lead with the owner's words; workers are refused) writes `queue: {at, by, quote, ref}` into the block; `--ref` defaults to `work/<slug>`. The next `bench nightly` runs the oldest queued experiment once against that night's baseline and records the verdict as above; the entry gets the night's date (`ran`), or `why` when the guard skipped it. `experiment unqueue <slug>` takes it off; `experiment show` prints the queue line, or the queue command for an experiment not yet adopted ([Every night](benchmark.md#every-night)).
@@ -316,7 +338,7 @@ Targets: `pass_rate`, `gates_first_try`, `rework`, `judge`, with the threshold i
 
 **Roll back.** `issue-cli experiment rollback <slug>` creates branch `revert/<slug>` with one `revert(experiment): …` commit reverting the commits on main with that trailer. It never touches main; the owner reviews and merges it. The numbers stay in the sidecar.
 
-Code: `internal/experiment/` (block, `Judge`, `Guard`, `Protected`, `Candidates`, the git helpers), `cmd/issue-cli/cmd_experiment.go`, the exception in `internal/yolo/eligible.go`.
+Code: `internal/experiment/` (block, `Judge`, `Guard`, `Protected`, `Candidates`, `EditedCells`/`NamedCells`/`Reach` in cells.go, `Pinned` in pin.go, the git helpers), `cmd/issue-cli/cmd_experiment.go`, `cmd/issue-cli/cmd_prompt_cell.go`, the exception in `internal/yolo/eligible.go`.
 
 ## Out of scope (today)
 

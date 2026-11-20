@@ -151,11 +151,11 @@ func TestCatalogCheckIgnoresBriefingTextOnly(t *testing.T) {
 		t.Fatalf("no entry lists %s: the test proves nothing", dispatchPath)
 	}
 	src := readRepo(t, dispatchPath)
-	line := "- `issue-cli lead whoami` shows your lead"
+	line := "- Leave the worktree in place after the issue ships"
 	if !strings.Contains(src, line) {
 		t.Fatalf("%s has no %q", dispatchPath, line)
 	}
-	text := strings.Replace(src, line, "- `issue-cli lead whoami` names your lead", 1)
+	text := strings.Replace(src, line, "- Keep the worktree in place after the issue ships", 1)
 	rep, err := CheckBranch(realBranch(t, []string{dispatchPath}, nil, map[string]string{dispatchPath: text}), "v0.36.0")
 	if err != nil {
 		t.Fatal(err)

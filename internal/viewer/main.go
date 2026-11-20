@@ -160,6 +160,7 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	context.AfterFunc(ctx, stop)
+	ctx = exitWithParent(ctx)
 	srv.bg = newBackground(ctx)
 
 	addr := listenAddr(*host, *port)

@@ -144,7 +144,9 @@ func TestCheckBranchRejectsTrailersThatMarkNothing(t *testing.T) {
 	for _, tc := range []struct{ value, problem string }{
 		{"n/a refactor only", `no catalog entry "refactor"`},
 		{"n/a", "leave the Catalog: line out"},
-		{"none, a refactor", "only n/a is read"},
+		{"none, a refactor", `no catalog entry "none", "a": a Catalog: line is`},
+		{"health-tuning", "names health-tuning as bumped, but health-tuning is at v0.53.0, not newer than the last release v0.53.0: run issue-cli workflow catalog-bump health-tuning"},
+		{"health-tuning: new rule", `a colon after the entry id "health-tuning"`},
 		{"n/a health-tuning,health-tunning typo", `no catalog entry "health-tunning"`},
 	} {
 		b := fakeBranch([]string{"internal/tracker/health.go"}, map[string]string{}, map[string]string{}, tc.value)
@@ -166,6 +168,33 @@ func TestCheckBranchRejectsTrailersThatMarkNothing(t *testing.T) {
 	}
 	if !rep.OK() || len(rep.BadTrailers) != 0 || rep.Entries[0].Why != "rename only" {
 		t.Errorf("good trailers: ok = %v, bad = %+v, entries = %+v", rep.OK(), rep.BadTrailers, rep.Entries)
+	}
+}
+
+// A bare Catalog: <id> line names an entry the change bumps: it is read
+// when the entry is bumped (the bump marks it, the line only says so).
+func TestCheckBranchReadsABareIDForABumpedEntry(t *testing.T) {
+	bumpedCatalog := strings.Replace(checkCatalog, "version: v0.53.0", "version: v0.54.0", 1)
+	b := fakeBranch([]string{"internal/tracker/health.go"}, map[string]string{}, map[string]string{catalogList: bumpedCatalog}, "health-tuning the health score's new rule")
+	rep, err := CheckBranch(b, "v0.53.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entryStates(rep); got != "health-tuning=bumped" || !rep.OK() || len(rep.BadTrailers) != 0 {
+		t.Errorf("bare id of a bumped entry: %s, bad = %+v", got, rep.BadTrailers)
+	}
+
+	// Outside a checkout (no versions known) the form alone is checked.
+	if bad := CheckTrailers([]Trailer{{Value: "health-tuning"}}, TrailerCatalog{}); len(bad) != 0 {
+		t.Errorf("no catalog known: %+v", bad)
+	}
+	versions := map[string]string{"health-tuning": "v0.54.0", "checklist-gates": "v0.40.0"}
+	if bad := CheckTrailers([]Trailer{{Value: "health-tuning"}}, TrailerCatalog{Versions: versions, LastRelease: "v0.53.0"}); len(bad) != 0 {
+		t.Errorf("bumped entry refused: %+v", bad)
+	}
+	bad := CheckTrailers([]Trailer{{Value: "health-tuning, checklist-gates"}}, TrailerCatalog{Versions: versions, LastRelease: "v0.53.0"})
+	if len(bad) != 1 || !strings.Contains(bad[0].Problem, "catalog-bump checklist-gates;") || strings.Contains(bad[0].Problem, "catalog-bump health-tuning") {
+		t.Errorf("one stale id of two: %+v", bad)
 	}
 }
 

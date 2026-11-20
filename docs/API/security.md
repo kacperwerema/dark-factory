@@ -114,6 +114,7 @@ The viewer sends Web Push to the owner's devices (`push_view.go`, `internal/push
 
   They run in `make validate`.
 - **`make security-check`** runs `scripts/security-check.sh`, then `govulncheck`. The script builds the viewer, starts it on loopback with its own HOME, XDG dirs and tmux dir, attacks it as if it were public, and stops everything. Run it before a release, and after any change to `routes.go`, `origin.go`, `identity.go`, `headers.go`, the upload and attachment code, or anything that runs a command.
+- **The Go toolchain.** A standard-library advisory (net/http, crypto/tls) is fixed by a Go point release, not by our code: govulncheck names it with `Found in: net/http@go1.x.y` and `Fixed in: …@go1.x.z`. Raise the `toolchain` line in `go.mod` to the fixed release (go1.27.4 since GO-2026-6859) and keep the `go` line, the oldest Go that builds the code. With `GOTOOLCHAIN=auto`, the default, `go` downloads that release on the next build, and public CI's setup-go reads the same line.
 - **Rules for new code:**
   - A new route must fit the inventory below: add its row, classified R/W/O/X (`TestEveryRouteIsInTheSecurityInventory` fails without it). The API overlay in `workflow.yaml` tells workers so, in design and in progress (`prompt_append`, so tweaks and bugfixes read it while they build).
   - Never put a request value into a shell string without `shell.Quote`.

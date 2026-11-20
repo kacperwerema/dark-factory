@@ -256,14 +256,23 @@ func parsePositionals(ctx *Context, name string, args []string, max int) ([]stri
 // with "-" and is not a bare "-" or a negative number; a flag the FlagSet
 // knows as non-boolean takes the next token as its value unless written as
 // --name=value. Unknown flags stay in the flag part so Parse rejects them.
+// A non-boolean flag with no value (last, before "--", or before another
+// flag of fs) goes last with nothing after it, so Parse says "flag needs an
+// argument" instead of taking the "--" added here, or the next flag, as its
+// value (`check-script --new` named a script "--").
 func flagsFirst(fs *flag.FlagSet, args []string) []string {
-	flags, words, literal := splitFlags(fs, args)
+	flags, words, literal, dangling := splitFlags(fs, args)
+	if dangling != "" {
+		return append(flags, dangling)
+	}
 	return append(append(append(flags, "--"), words...), literal...)
 }
 
 // splitFlags is flagsFirst's walk: the flags with their values, the words
-// among them, and whatever came after a "--".
-func splitFlags(fs *flag.FlagSet, args []string) (flags, words, literal []string) {
+// among them, and whatever came after a "--". A non-boolean flag of fs that
+// is last or followed by "--" or another flag of fs takes no value: the
+// first such is dangling, left out of flags.
+func splitFlags(fs *flag.FlagSet, args []string) (flags, words, literal []string, dangling string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -274,18 +283,24 @@ func splitFlags(fs *flag.FlagSet, args []string) (flags, words, literal []string
 			words = append(words, a)
 			continue
 		}
-		flags = append(flags, a)
 		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
 		f := fs.Lookup(name)
 		if f == nil || hasValue || isBoolFlag(f) {
+			flags = append(flags, a)
 			continue
 		}
-		if i+1 < len(args) {
-			flags = append(flags, args[i+1])
-			i++
+		if i+1 == len(args) || namesFlag(fs, args[i+1]) {
+			if dangling == "" {
+				dangling = a
+			} else {
+				flags = append(flags, a)
+			}
+			continue
 		}
+		flags = append(flags, a, args[i+1])
+		i++
 	}
-	return flags, words, literal
+	return flags, words, literal, dangling
 }
 
 // refuseFlagWord refuses a word that starts with one of fs's flags and a
@@ -294,7 +309,7 @@ func splitFlags(fs *flag.FlagSet, args []string) (flags, words, literal []string
 // that names no flag of the command stays text, and so does anything after a
 // "--", which is how to say the text really starts that way.
 func refuseFlagWord(fs *flag.FlagSet, args []string) error {
-	_, words, _ := splitFlags(fs, args)
+	_, words, _, _ := splitFlags(fs, args)
 	for _, w := range words {
 		m := flagWordRe.FindStringSubmatch(w)
 		if m == nil || fs.Lookup(m[2]) == nil {
@@ -314,6 +329,19 @@ var flagTokenRe = regexp.MustCompile(`^--?[A-Za-z][A-Za-z0-9_-]*(=|$)`)
 
 // flagWordRe matches a flag's name followed by a space, in one word.
 var flagWordRe = regexp.MustCompile(`^(--?)([A-Za-z][A-Za-z0-9_-]*)\s`)
+
+// namesFlag reports whether a is "--" or a flag of fs (or -h, --help): a
+// word that can't be the value of the flag before it.
+func namesFlag(fs *flag.FlagSet, a string) bool {
+	if a == "--" {
+		return true
+	}
+	if !isFlagToken(a) {
+		return false
+	}
+	name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+	return fs.Lookup(name) != nil || name == "h" || name == "help"
+}
 
 // isFlagToken reports whether a looks like a flag rather than a value.
 func isFlagToken(a string) bool {

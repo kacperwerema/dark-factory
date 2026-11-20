@@ -201,7 +201,7 @@ func (w *WorkflowConfig) checkCriteriaCheckboxes(section string, issue *Issue) e
 	text, ok := SectionText(issue.BodyRaw, section)
 	total, _ := CountCheckboxesInSection(issue.BodyRaw, section)
 	if !ok || total == 0 {
-		return fmt.Errorf("no checkboxes found in section %q — write each criterion as a checkbox:\n\n  - [ ] <what someone can observe when it works>", section)
+		return failRule(fmt.Sprintf("no checkboxes found in section %q", section), "write each criterion as a checkbox:\n\n  - [ ] <what someone can observe when it works>")
 	}
 	var plain []string
 	for _, line := range strings.Split(text, "\n") {
@@ -228,14 +228,19 @@ func (w *WorkflowConfig) checkCriteriaCheckboxes(section string, issue *Issue) e
 	for _, it := range unchanged {
 		fmt.Fprintf(&b, "\n  - %s still has the template text: %s", it.ID, it.Text)
 	}
+	b.WriteString("\n")
+	var fix strings.Builder
 	if len(unchanged) > 0 {
 		id := unchanged[0].ID
-		fmt.Fprintf(&b, "\n\nReword a template box, or drop it (the other boxes keep their ids):\n  issue-cli check-edit %s %s --text \"<what someone can observe when it works>\"\n  issue-cli check-remove %s %s", issue.Slug, id, issue.Slug, id)
+		fmt.Fprintf(&fix, "\nReword a template box, or drop it (the other boxes keep their ids):\n  issue-cli check-edit %s %s --text \"<what someone can observe when it works>\"\n  issue-cli check-remove %s %s", issue.Slug, id, issue.Slug, id)
 	}
 	if len(plain) > 0 {
-		fmt.Fprintf(&b, "\n\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %s --body \"- [ ] ...\"", issue.Slug, shell.Quote(section))
+		if fix.Len() > 0 {
+			fix.WriteString("\n")
+		}
+		fmt.Fprintf(&fix, "\nRewrite the section with one checkbox per criterion:\n  issue-cli replace %s --section %s --body \"- [ ] ...\"", issue.Slug, shell.Quote(section))
 	}
-	return fmt.Errorf("%s", b.String())
+	return &ruleFailure{problem: b.String(), fix: fix.String()}
 }
 
 var (

@@ -16,7 +16,7 @@ import (
 type readOnly func(args []string) bool
 
 // commandAccess marks every registered command read-only, writing, or
-// read-only for some subcommands or flags. TestEveryCommandHasAccess makes a
+// read-only for some subcommands or flags. TestEveryCommandJoinsEveryRegistry makes a
 // new command pick one; TestReadCommandsLeaveAnotherProjectUnchanged runs the
 // read-only ones on a sandbox repo and checks its git status. When unsure,
 // mark a command writes: it then logs into the project as before.
@@ -45,6 +45,7 @@ var commandAccess = map[string]readOnly{
 	"comment":         writes,
 	"comments":        reads,
 	"connections":     reads,
+	"cms":             writes,
 	"connector":       writes,
 	"connectors":      reads,
 	"context":         reads,
@@ -61,6 +62,7 @@ var commandAccess = map[string]readOnly{
 	"experiment":      readSubs("candidates", "show", "list"),
 	"postmortem":      readSubs("brief", "show", "list"),
 	"rules":           reads,
+	"clean":           readWithFlag("dry-run"),
 	"goal":            writes,
 	"goals":           reads,
 	"handoff":         writes,
@@ -87,6 +89,7 @@ var commandAccess = map[string]readOnly{
 	"rounds":          writes,
 	"ship":            writes,
 	"codemap":         reads,
+	"prompt-cell":     reads,
 	"ref":             reads,
 	"affected":        reads,
 	"release":         writes,

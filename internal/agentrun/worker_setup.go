@@ -90,7 +90,8 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 	// Each flag that takes a list is written --flag=value, so none swallows
 	// the prompt that follows (LaunchCommandWith).
 	flags := []string{"--strict-mcp-config", "--mcp-config=" + mcpPath}
-	if off := connectors.ClaudeDisallowed(conns); off != "" {
+	dropped := spec.Workflow.WorkerToolsDropped()
+	if off := workerDisallowed(connectors.ClaudeDisallowed(conns), dropped); off != "" {
 		flags = append(flags, "--disallowedTools="+off)
 	}
 
@@ -110,8 +111,7 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 		}
 	}
 	envOut := []string{claudeAIConnectorsOff}
-	artifactOff := !spec.Workflow.WorkerKeepsTool(tracker.WorkerToolArtifact)
-	if artifactOff {
+	if slices.Contains(dropped, tracker.WorkerToolArtifact) {
 		envOut = append(envOut, artifactToolOff)
 	}
 
@@ -120,7 +120,7 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 		what = strings.Join(loaded, "; ")
 	}
 	*steps = append(*steps, Step{
-		Name:   fmt.Sprintf("Worker setup (workers:): %s; %s", what, off.summary(artifactOff)),
+		Name:   fmt.Sprintf("Worker setup (workers:): %s; %s", what, off.summary(dropped)),
 		Status: "ok",
 		Detail: mcpPath + " (workers: skills: and tools: keep one, setup: full in workflow.yaml the owner's whole setup; docs/agent-dispatch.md#worker-setup)",
 	})
@@ -139,6 +139,24 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 // measured 2026-11-16) out of a lean worker unless workers: tools: keeps it.
 const artifactToolOff = "CLAUDE_CODE_DISABLE_ARTIFACT=1"
 
+// workerDisallowed is a lean worker's one --disallowedTools list: the
+// connectors' denied tools (connectorOff, comma-separated) and the built-in
+// tools it starts without, but Artifact, which goes off by env
+// (artifactToolOff). A bare tool name in --disallowedTools takes the tool
+// out of the model's context, schema and all. "" when there is none.
+func workerDisallowed(connectorOff string, dropped []string) string {
+	var list []string
+	if connectorOff != "" {
+		list = append(list, connectorOff)
+	}
+	for _, t := range dropped {
+		if t != tracker.WorkerToolArtifact {
+			list = append(list, t)
+		}
+	}
+	return strings.Join(list, ",")
+}
+
 type workersKeep struct{ plugins, skills []string }
 
 // workerOff counts what WorkerSettings turned off.
@@ -147,7 +165,7 @@ type workerOff struct {
 	bundled                 bool
 }
 
-func (o workerOff) summary(artifactOff bool) string {
+func (o workerOff) summary(toolsOff []string) string {
 	s := fmt.Sprintf("plugins off %d, skills off %d", o.plugins, o.skills)
 	if o.listed > 0 {
 		s += fmt.Sprintf(" (%d listed by Claude Code)", o.listed)
@@ -155,8 +173,8 @@ func (o workerOff) summary(artifactOff bool) string {
 	if o.bundled {
 		s += ", bundled skills off"
 	}
-	if artifactOff {
-		s += ", Artifact off"
+	if len(toolsOff) > 0 {
+		s += ", " + strings.Join(toolsOff, ", ") + " off"
 	}
 	return s + ", claude.ai connectors off"
 }

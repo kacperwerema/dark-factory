@@ -41,6 +41,11 @@ func TestBundledTemplatesNameOnlyFlagsTheCommandAccepts(t *testing.T) {
 			for len(words) >= 2 && words[0] == "--project" {
 				words = words[2:]
 			}
+			// After a bare --, the words are the child command's (connector
+			// exec <dept>/<name> -- sh helper.sh publish --file …), not ours.
+			if i := slices.Index(words, "--"); i >= 0 {
+				words = words[:i]
+			}
 			if len(words) == 0 {
 				continue
 			}

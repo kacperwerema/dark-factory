@@ -85,7 +85,7 @@ func TestStageBriefingIsPathsOnly(t *testing.T) {
 		filepath.Join("/w", ".worktrees", "api/fix", tracker.HandoffFile),
 		"Your output is this stage's artifact: ## Implementation, ## Test Plan",
 		"The gate out checks it (into testing):",
-		"issue-cli --project proj transition --to testing --dry-run",
+		"issue-cli --project proj transition --to testing --check <id> [<id>...] once the work is done: a refusal lists every unmet requirement",
 		"## Worktree",
 		"## Your lead",
 		"Briefing: ",
@@ -93,6 +93,9 @@ func TestStageBriefingIsPathsOnly(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Errorf("stage briefing misses %q:\n%s", want, p)
 		}
+	}
+	if strings.Contains(p, "--dry-run lists") {
+		t.Error("the stage briefing still sends the worker to a dry run to see what's missing")
 	}
 	if strings.Contains(p, "## Before you start") || strings.Contains(p, "## Issue metadata") {
 		t.Error("the stage briefing carries the continue briefing's sections")

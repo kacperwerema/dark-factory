@@ -15,7 +15,7 @@ import (
 )
 
 // readSamples is one read-only call per command that has a read mode; each
-// must be read-only by commandAccess. TestReadSamplesCoverEveryReadCommand
+// must be read-only by commandAccess. TestEveryCommandJoinsEveryRegistry
 // makes a new read command add one, so the sandbox test runs it.
 var readSamples = map[string][]string{
 	"agents":          {"agents", "status"},
@@ -43,6 +43,7 @@ var readSamples = map[string][]string{
 	"retro":           {"retro", "list"},
 	"rules":           {"rules"},
 	"codemap":         {"codemap"},
+	"prompt-cell":     {"prompt-cell", "cli/sample", "--cell", "in progress"},
 	"ref":             {"ref", "--measure", "--days", "1"},
 	"affected":        {"affected", "--files", "README.md"},
 	"goals":           {"goals"},
@@ -65,6 +66,7 @@ var readSamples = map[string][]string{
 	"spend":           {"spend"},
 	"trace":           {"trace", "cli/sample"},
 	"worktrees":       {"worktrees", "prune", "--dry-run"},
+	"clean":           {"clean", "--dry-run"},
 	"stats":           {"stats"},
 	"status":          {"status"},
 	"telemetry":       {"telemetry", "path"},
@@ -79,12 +81,9 @@ func isWrites(rule readOnly) bool {
 	return reflect.ValueOf(rule).Pointer() == reflect.ValueOf(writes).Pointer()
 }
 
-func TestEveryCommandHasAccess(t *testing.T) {
-	for _, name := range commandNames() {
-		if commandAccess[name] == nil {
-			t.Errorf("command %q is not in commandAccess (readonly.go): mark it reads, writes or by subcommand", name)
-		}
-	}
+// A command missing from commandAccess fails TestEveryCommandJoinsEveryRegistry
+// (command_checklist_test.go), with every other list it is missing from.
+func TestCommandAccessNamesOnlyCommands(t *testing.T) {
 	for name := range commandAccess {
 		if commandRegistry[name] == nil {
 			t.Errorf("commandAccess lists %q, which is not a command", name)
@@ -102,8 +101,7 @@ func TestReadSamplesCoverEveryReadCommand(t *testing.T) {
 			continue
 		}
 		if !ok {
-			t.Errorf("%q has a read mode but no readSamples entry: add a read-only call so the sandbox test runs it", name)
-			continue
+			continue // TestEveryCommandJoinsEveryRegistry names the missing sample
 		}
 		cmd := lookupCommand(sample[0])
 		if cmd == nil || cmd.Name != name {

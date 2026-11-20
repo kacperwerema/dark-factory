@@ -16,8 +16,9 @@ systems: [SEO, Social]
 workflow: marketing
 # The partners catalog's slots this department fills: department add names
 # the tools listed for each (issue-cli department partners --slot <slot>)
-# and installs none of them.
-partner_slots: [seo, analytics, social]
+# and installs none of them. cms is the site the publish step writes into
+# (Ghost by default, through the commented cms connector).
+partner_slots: [seo, analytics, social, cms]
 # The seo-pass measure step's sources, written into the department's entry
 # commented out (the owner uncomments them): the rankings from a self-hosted
 # OpenSEO over MCP (it costs nothing until the owner adds a DataForSEO key),
@@ -26,8 +27,10 @@ connector_examples: connectors.example.yaml
 # Starter files the owner edits, written to departments/<key>/ (never over
 # one): subreddits.md lists the subreddits the social channel may read and
 # post in, each with its rule on self-promotion (docs/departments.md,
-# "Social: Reddit").
-files: [subreddits.md]
+# "Social: Reddit"); cms-ghost.sh is the cms connector's helper, which
+# publishes an approved piece into Ghost (docs/departments.md, "Channels as
+# types").
+files: [subreddits.md, cms-ghost.sh]
 goals:
   - id: pages
     name: Pages refreshed

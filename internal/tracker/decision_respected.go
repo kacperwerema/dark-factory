@@ -276,7 +276,7 @@ func (w *WorkflowConfig) checkDecisionsRespected(arg string, issue *Issue) error
 	return respectedError(issue.Slug, r.Holds)
 }
 
-func respectedError(slug string, holds []RespectedHold) error {
+func respectedError(slug string, holds []RespectedHold) *ruleFailure {
 	var b strings.Builder
 	noun := "decisions guard"
 	if len(holds) == 1 {
@@ -295,11 +295,12 @@ func respectedError(slug string, holds []RespectedHold) error {
 		}
 	}
 	ref := holds[0].Entry.Ref
-	fmt.Fprintf(&b, "Cite each, saying how the change follows it:\n  issue-cli append %s --section Design --body \"Follows %s: …\"\n", slug, ref)
-	b.WriteString("or, if the change goes against it, undo that part, or challenge it and wait for the owner.\n")
-	fmt.Fprintf(&b, "See them all: issue-cli decisions --touched %s\n", slug)
-	fmt.Fprintf(&b, DecisionChallengeHint, slug, ref)
-	return fmt.Errorf("%s", b.String())
+	var fix strings.Builder
+	fmt.Fprintf(&fix, "Cite each, saying how the change follows it:\n  issue-cli append %s --section Design --body \"Follows %s: …\"\n", slug, ref)
+	fix.WriteString("or, if the change goes against it, undo that part, or challenge it and wait for the owner.\n")
+	fmt.Fprintf(&fix, "See them all: issue-cli decisions --touched %s\n", slug)
+	fmt.Fprintf(&fix, DecisionChallengeHint, slug, ref)
+	return &ruleFailure{problem: b.String(), fix: fix.String()}
 }
 
 // DecisionWarnings is every warning line the ledger rules left on this

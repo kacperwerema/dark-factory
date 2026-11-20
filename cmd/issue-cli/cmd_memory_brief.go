@@ -204,6 +204,13 @@ func usefulnessLine(u memory.Usefulness) string {
 			parts = append(parts, fmt.Sprintf("%s — (%d)", st, sc.Known))
 		}
 	}
+	if u.NoRoom > 0 {
+		where := ""
+		if nr := u.NoRoomMix(); nr != "" {
+			where = ": " + nr
+		}
+		parts = append(parts, fmt.Sprintf("%d not scored (statuses that nearly always pass first try%s)", u.NoRoom, where))
+	}
 	if len(parts) > 0 {
 		line += " · " + strings.Join(parts, " · ")
 	}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -72,7 +73,8 @@ func bigSystemsProject(t *testing.T) tracker.Project {
 
 // B1: on a big project the page renders in under 300 ms, held the
 // way TestStatsPageFastOnABigProject holds its page: under load, to
-// statsVsIssues times /issues.json timed just before it. 300 ms and not the
+// statsVsIssues times the best /issues.json timed in turns with it
+// (timing.Check: one sample in a burst fails nothing). 300 ms and not the
 // 500 ms line, because this fixture has none of the real board's tmux
 // sessions, jobs or shelf.
 func TestSystemsPageFastOnABigProject(t *testing.T) {
@@ -98,25 +100,12 @@ func TestSystemsPageFastOnABigProject(t *testing.T) {
 		return time.Since(start)
 	}
 	cold := get("systems")
-	best := time.Hour
-	for i := 0; i < 4; i++ {
-		var tries []string
-		for try := 0; try < 3; try++ {
-			base := get("issues.json")
-			limit := max(300*time.Millisecond, statsVsIssues*base)
-			d := get("systems")
-			best = min(best, d)
-			if d <= limit {
-				tries = nil
-				break
-			}
-			tries = append(tries, fmt.Sprintf("%v (limit %v: /issues.json took %v)", d, limit, base))
-		}
-		if tries != nil {
-			t.Errorf("warm: %s; want under 300 ms, or %d× /issues.json on a slow machine", strings.Join(tries, ", "), statsVsIssues)
-		}
+	r := timing.Check{Limit: 300 * time.Millisecond, Ratio: statsVsIssues}.Run(
+		func() time.Duration { return get("systems") }, func() time.Duration { return get("issues.json") })
+	if r.Slow {
+		t.Errorf("/systems warm: %s (baseline: /issues.json)", r)
 	}
-	t.Logf("800 issues: cold %v, warm best %v", cold, best)
+	t.Logf("800 issues: cold %v, warm %s", cold, r)
 }
 
 // statExists is fileExists's rule, one stat per path.

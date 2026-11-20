@@ -9,9 +9,9 @@ import (
 
 // checkHints flags a validate action whose hint: its rule never shows:
 // only the structured rules and the legacy rules tracker.RuleShowsHint
-// lists put a hint in place of their fix; criteria_*, approved_for,
-// decisions_*, critique, has_output and the like keep their own text, so
-// the hint is dead text the author thinks the agent reads.
+// lists put a hint in place of their fix; commits_reference_issue and
+// handoff_answered keep their own text, so the hint is dead text the
+// author thinks the agent reads.
 func checkHints(env *Env) []Finding {
 	wf := env.Workflow
 	if wf == nil {

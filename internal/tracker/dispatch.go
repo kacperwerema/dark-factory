@@ -49,8 +49,10 @@ On a stop (approval, manual check, clarification, blocked tool): issue-cli retro
 {{body}}`
 
 // ReadRule points a worker at the short forms before whole files: the code
-// map, a change's footprint, and a docs page's outline or one section.
-const ReadRule = "Read the short form first: issue-cli codemap (where each concern's code lives) and issue-cli affected \"$ISSUE_VIEWER_ISSUE_SLUG\" (what your branch touches) before opening files; issue-cli ref <page> (a docs page's outline, e.g. ref cli) and ref <page> <heading words> (one section) instead of reading a whole docs page."
+// map, a change's footprint, and a docs page's outline or one section; and
+// at batching a step's reads into one turn (one-file reads one per turn were
+// the most common repeat turn, spend --turns follow_on_reads).
+const ReadRule = "Read the short form first: issue-cli codemap (where each concern's code lives) and issue-cli affected \"$ISSUE_VIEWER_ISSUE_SLUG\" (what your branch touches) before opening files; issue-cli ref <page> (a docs page's outline, e.g. ref cli) and ref <page> <heading words> (one section) instead of reading a whole docs page. Each turn re-reads the whole context: read every file and run every look-up a step needs in one turn (one command over several files, or several tool calls in one message), not one per turn."
 
 // CloseRule is who may close an issue as a duplicate: one sentence, the same
 // in the worker brief, issue-cli close's help and its refusal.
@@ -69,9 +71,8 @@ func DispatchGateLines(wf *WorkflowConfig, yoloOn bool) map[string]string {
 		}
 	}
 	return map[string]string{
-		"gate_rules": `YOLO is on: gates pass without the owner (the YOLO rule above). For what it leaves to the owner, post a question: comment, tell the user in chat and end your turn; never poll for an approval.`,
-		"ask_rule": `4. If you are unsure about something, decide it yourself: issue-cli decide <slug> --provisional --text "..."; what you can't, put in a question: comment and go on.
-   ` + clarify,
+		"gate_rules": `YOLO is on (the rule above): for what it leaves to the owner, post a question: comment, tell the user in chat and end your turn; never poll for an approval.`,
+		"ask_rule":   `4. Unsure? Decide it yourself: issue-cli decide <slug> --provisional --text "..."; what you can't, a question: comment. ` + clarify,
 	}
 }
 

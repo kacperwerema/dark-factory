@@ -160,7 +160,7 @@ func (s *Server) buildCompany(p *tracker.Project, prefix string, now time.Time) 
 	d.Header = WbHeader{
 		Crumbs:  wbCrumbs(1, p.Name, prefix+"/company"),
 		Goals:   companyHeaderGoals(p, rep, issues, color),
-		Waiting: len(all), WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek,
+		Waiting: len(all), WaitingURL: prefix + "/needs-you", Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek,
 	}
 	d.Header.Crumbs[1].Color = color
 	d.Header.Crumbs[2] = WbCrumb{Label: "Hall", URL: prefix + "/hall"}

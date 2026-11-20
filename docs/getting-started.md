@@ -291,7 +291,7 @@ This mode can't set dispatch options such as `terminal`, so use a `projects.yaml
 
 A worker's briefing has the rule for trying a viewer out:
 
-> A sandbox viewer you start by hand gets its own state dir: XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml. The shared viewer.json (~/.local/state/ai-workflow-engine/) belongs to the owner's viewer: every issue-cli on the machine follows it. Never pass -record-viewer.
+> A sandbox viewer you start by hand gets its own state dir (XDG_STATE_HOME=<sandbox>/state issue-viewer -config <sandbox>/projects.yaml): the shared viewer.json is the owner's viewer's, which every issue-cli follows. Never pass -record-viewer.
 
 The server listens on loopback only. Its POST endpoints start agents, tmux sessions and editors on your machine, so binding to another interface (`-host 0.0.0.0`) lets anyone who can reach the port drive them; it is an explicit opt-in and the server prints a warning at startup. Writes from another site in your browser are refused either way (see [API: Design Considerations](API/overview.md#design-considerations)).
 
@@ -343,7 +343,7 @@ Where it lives: the VAPID keys, the devices and the settings are in `$XDG_STATE_
 
 ### The disk fills up: the Go build cache
 
-Each worktree is a different path, and Go keys its build cache by directory, so every worktree's builds and tests write their own entries into `go env GOCACHE` (`~/Library/Caches/go-build` on a Mac); Go trims only what went unused for 5 days. With many workers it grows to well over 100 GB. Needs you says so (the row "The disk is filling up") when the cache is over 100 GB or the data volume over 85% used, and the Health page lists the cache and the agent transcripts under **Disk outside the checkout** (docs/workbench-files.md, "The storage family"). The fix is yours, in a terminal while no worker is running, since a build or test running then fails:
+Each worktree is a different path, and Go keys its build cache by directory, so every worktree's builds and tests write their own entries into `go env GOCACHE` (`~/Library/Caches/go-build` on a Mac); Go trims only what went unused for 5 days. With many workers it grows to well over 100 GB. Needs you says so (the row "The disk is filling up") when the cache is over 100 GB or the data volume over 85% used, and the Health page lists the cache and the agent transcripts under **Disk outside the checkout** (docs/workbench-files.md, "The storage family"). The viewer's nightly clean trims it to 40 GB, with old transcripts and health snapshots, while no local CI run or go build runs (`issue-cli clean`, [The nightly clean](workbench-files.md#the-nightly-clean); `issue-cli clean --dry-run` shows what it would free). By hand, in a terminal while no worker is running, since a build or test running then fails:
 
 ```bash
 go clean -cache
@@ -351,7 +351,7 @@ go clean -cache
 
 ### Something keeps running after a run: DF_TRACE and doctor leaks
 
-A process the factory started and nothing stopped keeps its file watchers, and macOS's fseventsd keeps state for each (the Needs you row "fseventsd is running away" is the sign). The runs stop what they start on every way out: the playtest runner on SIGINT, SIGTERM and SIGHUP (its next start reaps what a SIGKILL left), every test binary and every check script's sandbox at exit (any process whose `CODEX_HOME` or `CLAUDE_CONFIG_DIR` is their temp home, a detached `codex app-server-daemon` included).
+A process the factory started and nothing stopped keeps its file watchers, and macOS's fseventsd keeps state for each (the Needs you row "fseventsd is running away" is the sign). The runs stop what they start on every way out: the playtest runner on SIGINT, SIGTERM and SIGHUP (its next start reaps what a SIGKILL left), every test binary and every check script's sandbox at exit (any process whose `CODEX_HOME` or `CLAUDE_CONFIG_DIR` is their temp home, a detached `codex app-server-daemon` included). A viewer started with `ISSUE_VIEWER_EXIT_WITH_PID=<pid>` stops by itself within 2 s of that process going, even by SIGKILL: TestNewcomerWalkthrough and the playtest runner's attached board set it to their own pid (make serve's detached board outlives its runner on purpose).
 
 To see what is still alive that should not be:
 
@@ -360,7 +360,7 @@ issue-cli doctor leaks          # pid, age and the stop command of each; stops n
 issue-cli doctor leaks --stop   # stop them
 ```
 
-It needs no tracing: it matches the shapes leaks took on this machine (a playtest Chrome whose runner is gone, a process of a temp or scratchpad CLI home whose parent is gone, a killed test's tmux server under `/tmp`, a `per_run:` tool no run holds, a registered git worktree nothing uses outside `.worktrees/`: one a worker added in a temp or scratchpad folder, gone or untouched for an hour, or a Claude Code subagent's under `.claude/worktrees/` whose branch is on main, untouched for a day; its stop is `git worktree remove`, after `git worktree unlock` when locked, never forced). `issue-cli lead tick` runs it once a day and says when it finds something.
+It needs no tracing: it matches the shapes leaks took on this machine (a playtest Chrome whose runner is gone, a process of a temp or scratchpad CLI home whose parent is gone, a killed test's tmux server under `/tmp`, a `per_run:` tool no run holds, an `issue-viewer` whose `-config` or `-dir` is in a temp or scratchpad folder that is gone or whose parent is gone, a registered git worktree nothing uses outside `.worktrees/`: one a worker added in a temp or scratchpad folder, gone or untouched for an hour, or a Claude Code subagent's under `.claude/worktrees/` whose branch is on main, untouched for a day; its stop is `git worktree remove`, after `git worktree unlock` when locked, never forced). `issue-cli lead tick` runs it once a day and says when it finds something.
 
 To find where a leak comes from, turn the resource trace on: `DF_TRACE=resources` in the environment, or `--debug` on `issue-cli` and `-debug` on `issue-viewer` (both pass it to their children). Every start and stop of a Chrome, a tmux session, an agent CLI launch, a worktree, a `per_run:` tool (`container` when its `start:` runs docker or podman) and a detached child is then one JSONL line (kind, pid, owner issue or command, cwd, time) in `$XDG_STATE_HOME/ai-workflow-engine/trace/resources.jsonl`, rotated to `.1` at 10 MB. The viewer adds fseventsd's footprint every 10 minutes beside the count of traced resources still alive, so a growth can be matched to what was running. With the trace there, `doctor leaks` also lists what was started, never stopped and is still alive; those may be in use (a live worker), so `--stop` leaves them to you. Off (the default), nothing is opened or written.
 

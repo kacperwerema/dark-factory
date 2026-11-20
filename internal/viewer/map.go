@@ -41,10 +41,10 @@ type MapData struct {
 	Header WbHeader
 	Lots   []MapLot
 	// Totals across projects, for the header.
-	Working, Idle, AgentWait int
-	DoneWeek                 int
-	Queue                    []WbQueueCard
-	Updates                  int
+	Working, Idle, AgentWait, OwnerWait int
+	DoneWeek                            int
+	Queue                               []WbQueueCard
+	Updates                             int
 	// Engine is the engine project's slug when it is on the map: its lot
 	// stands in the middle and a road joins it to every project.
 	Engine string
@@ -154,6 +154,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 		data.Working += lot.Working
 		data.Idle += lot.Idle
 		data.AgentWait += lot.AgentWait
+		data.OwnerWait += lot.You
 		data.DoneWeek += lot.DoneWeek
 		data.Updates += lot.Updates
 		data.Queue = appendNeedsYou(data.Queue, queues[i])
@@ -167,7 +168,7 @@ func (s *Server) buildMap(now time.Time) MapData {
 	}
 	sort.SliceStable(data.Lots, func(i, j int) bool { return !data.Lots[i].Site && data.Lots[j].Site })
 	sortMapQueue(data.Queue)
-	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue), WaitingURL: "/needs-you"}
+	data.Header = WbHeader{Crumbs: wbCrumbs(0, "", ""), Working: data.Working, Idle: data.Idle, AgentWait: data.AgentWait, OwnerWait: data.OwnerWait, DoneWeek: data.DoneWeek, Waiting: len(data.Queue), WaitingURL: "/needs-you"}
 	return data
 }
 

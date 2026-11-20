@@ -239,6 +239,10 @@ func appendContentToMatch(body string, match headingMatch, content string) (stri
 		return body, false
 	}
 
+	if next, changed, ok := mergeIntoSubheadings(body, match, content); ok {
+		return next, changed
+	}
+
 	lines := strings.Split(body, "\n")
 	sectionLines := append([]string(nil), lines[match.StartLine:match.EndLine]...)
 	sectionBody := strings.TrimSpace(strings.Join(sectionLines[1:], "\n"))

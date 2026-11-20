@@ -127,7 +127,7 @@ func TestDocsStateTheMachineLines(t *testing.T) {
 		{"docs/CLI/overview.md", fmt.Sprintf("Held while memory is ≥ %d%%", below)},
 		{"cmd/issue-cli/templates/jobs/nightly-improve.md", fmt.Sprintf("holds itself while memory is %d%% or more", below)},
 		{"cmd/issue-cli/templates/workflow-features/memory-embedder.yaml", fmt.Sprintf("at %d%% or more", quiet)},
-		{"CLAUDE.md", fmt.Sprintf("check` is blocked, stops at %d%%)", quiet)},
+		{"docs/testing.md", fmt.Sprintf("check` is blocked, stops at %d%%)", quiet)},
 		{"scripts/under-load.sh", fmt.Sprintf("reports this much used (default %d)", quiet)},
 	}
 	banned := []string{"at most the core count", "is over the core count", "load over the cores"}

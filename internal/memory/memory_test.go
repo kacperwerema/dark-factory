@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kacperwerema/dark-factory/internal/timing"
 )
 
 var t0 = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
@@ -344,11 +346,16 @@ func TestSearchAt5000IsCheap(t *testing.T) {
 	if err := s.seed(5000, t0); err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	set := load(t, s)
-	hits := BM25{}.Rank(Query{Text: "playtest runner board 12", Limit: 5}, set.Active(t0))
-	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("load + rank of 5000 took %s", d)
+	var hits []Hit
+	search := func() {
+		set := load(t, s)
+		hits = BM25{}.Rank(Query{Text: "playtest runner board 12", Limit: 5}, set.Active(t0))
+	}
+	// On a slow machine the limit scales with the fold alone (about 20 ms
+	// here).
+	check := timing.Check{Limit: 2 * time.Second, Ratio: 100}
+	if r := check.Run(timing.Timed(search), timing.Timed(func() { load(t, s) })); r.Slow {
+		t.Errorf("load + rank of 5000: %s (baseline: the fold alone)", r)
 	}
 	if len(hits) != 5 {
 		t.Errorf("%d hits", len(hits))

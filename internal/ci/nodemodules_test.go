@@ -2,7 +2,6 @@ package ci
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -61,11 +60,12 @@ func assertUntouched(t *testing.T, target string) {
 	}
 }
 
-// A worktree whose node_modules links to another checkout's: `npm ci` is
-// refused before it runs, naming the link and its target, and the target
-// keeps its files. Both ways in: the one command prove --run runs, and a
-// whole local CI run (which records an error, not a red).
-func TestCIRefusesNpmCiThroughSymlinkedNodeModules(t *testing.T) {
+// A worktree whose node_modules links to another checkout's: `npm ci`
+// never runs through the link (D-8). The tree has no lock file of the
+// target's, so the link first becomes the tree's own copy (OwnCopy, said
+// in the output) and npm ci runs on that; the target keeps its files. Both
+// ways in: the one command prove --run runs, and a whole local CI run.
+func TestCINeverRunsNpmCiThroughSymlinkedNodeModules(t *testing.T) {
 	fakeNpm(t)
 	t.Run("RunCommand", func(t *testing.T) {
 		wt := realTempDir(t)
@@ -73,18 +73,18 @@ func TestCIRefusesNpmCiThroughSymlinkedNodeModules(t *testing.T) {
 		link := linkModules(t, wt, target)
 		var out strings.Builder
 		exit, _, err := RunCommand(context.Background(), wt, "npm ci", 0, "", &out)
-		var refusal *NodeModulesRefusal
-		if !errors.As(err, &refusal) {
-			t.Fatalf("RunCommand(npm ci) = exit %d, err %v; want a NodeModulesRefusal (output %q)", exit, err, out.String())
+		if err != nil || exit != 0 {
+			t.Fatalf("RunCommand(npm ci) = exit %d, err %v (output %q)", exit, err, out.String())
 		}
-		for _, want := range []string{link, target} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("refusal %q does not name %s", err, want)
-			}
+		if !strings.Contains(out.String(), "node_modules is its own now") || !strings.Contains(out.String(), target) {
+			t.Errorf("no own-copy line naming %s:\n%s", target, out.String())
 		}
 		assertUntouched(t, target)
-		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
-			t.Errorf("the link is gone or changed: %v", err)
+		if fi, err := os.Lstat(link); err != nil || !fi.IsDir() {
+			t.Errorf("node_modules is not the tree's own folder: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(link, ".installed")); err != nil {
+			t.Errorf("npm ci did not run on the copy: %v", err)
 		}
 	})
 	t.Run("Execute", func(t *testing.T) {
@@ -101,9 +101,8 @@ func TestCIRefusesNpmCiThroughSymlinkedNodeModules(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		last := runs[len(runs)-1]
-		if last.State != Error || !strings.Contains(last.Error, "rm ") || !strings.Contains(last.Error, target) {
-			t.Fatalf("run = %s, error %q; want an error naming the target and the fix", last.State, last.Error)
+		if last := runs[len(runs)-1]; last.State != Green {
+			t.Fatalf("run = %s, error %q; want green on the tree's own copy", last.State, last.Error)
 		}
 		assertUntouched(t, target)
 	})
@@ -228,5 +227,32 @@ func TestCheckNodeModulesForms(t *testing.T) {
 	linkModules(t, broken, filepath.Join(broken, "gone"))
 	if err := CheckNodeModules(broken, "npm ci"); err != nil {
 		t.Errorf("broken link: %v, want it allowed", err)
+	}
+}
+
+// TestCheckNodeModulesRefusesPackageWrites: a command that adds, removes
+// or updates packages through a shared node_modules link is refused with
+// the worktree deps --own fix; a bare install from the lock file is not.
+func TestCheckNodeModulesRefusesPackageWrites(t *testing.T) {
+	wt := realTempDir(t)
+	linkModules(t, wt, sharedModules(t))
+	for _, c := range []string{"npm install left-pad", "npm i -D zod", "npm uninstall left-pad", "npm update", "pnpm add zod", "pnpm remove zod", "pnpm up"} {
+		err := CheckNodeModules(wt, c)
+		if err == nil {
+			t.Errorf("CheckNodeModules(%q) = nil, want a refusal", c)
+			continue
+		}
+		if !strings.Contains(err.Error(), "issue-cli worktree deps --own") {
+			t.Errorf("refusal of %q lacks the fix: %v", c, err)
+		}
+	}
+	for _, c := range []string{"npm install", "npm i --prefer-offline", "pnpm install", "npm ls"} {
+		if err := CheckNodeModules(wt, c); err != nil {
+			t.Errorf("CheckNodeModules(%q) = %v, want it allowed", c, err)
+		}
+	}
+	plain := realTempDir(t)
+	if err := CheckNodeModules(plain, "npm install left-pad"); err != nil {
+		t.Errorf("no link: %v, want it allowed", err)
 	}
 }

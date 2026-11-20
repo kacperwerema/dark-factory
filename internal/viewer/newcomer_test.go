@@ -234,7 +234,8 @@ func TestNewcomerWalkthrough(t *testing.T) {
 	port := freePort(t)
 	viewer := exec.Command(filepath.Join(n.bin, "issue-viewer"), "-config", config, "-port", fmt.Sprint(port))
 	viewer.Dir = n.home
-	viewer.Env = n.env
+	// It goes with this test binary even when go test -timeout kills it.
+	viewer.Env = append(append([]string{}, n.env...), ExitWithPIDEnv+"="+fmt.Sprint(os.Getpid()))
 	var vlog strings.Builder
 	viewer.Stdout, viewer.Stderr = &vlog, &vlog
 	if err := viewer.Start(); err != nil {

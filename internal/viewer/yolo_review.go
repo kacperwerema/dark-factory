@@ -212,7 +212,7 @@ func (s *Server) buildYOLOReview(p *tracker.Project, prefix string, page int, no
 	color := s.projectColor(p)
 	lot, rows := s.buildLot(p, color, now)
 	d := YOLOReviewData{Title: p.Name + " · Review after YOLO", IssueURL: prefix + "/yolo/review", TickURL: prefix + "/owner-checks/tick"}
-	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
+	d.Header = WbHeader{Crumbs: wbCrumbs(1, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: len(rows), WaitingURL: prefix + "/needs-you"}
 	d.Header.Crumbs[1].Color, d.Header.Crumbs[1].Current, d.Header.Crumbs[1].URL = color, false, prefix+"/company"
 	d.Header.Crumbs[2] = WbCrumb{Label: "Review after YOLO", Current: true}
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)

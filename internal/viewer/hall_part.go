@@ -128,7 +128,7 @@ func (s *Server) buildHallPart(p *tracker.Project, sc *hallScope, kind, key stri
 	company := s.buildCompany(p, prefix, now)
 	lot := company.Lot
 	d := HallPartData{Kind: kind, HallURL: sc.url("", ""), Label: sc.Label}
-	d.Header = WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
+	d.Header = WbHeader{Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs = append(wbCrumbs(1, p.Name, prefix+"/company"), WbCrumb{Current: true})
 	d.Header.Crumbs[1] = WbCrumb{Label: p.Name, URL: prefix + "/company", Color: lot.Color}
 	d.Header.Crumbs[2] = WbCrumb{Label: sc.Label, URL: d.HallURL, Color: sc.Color}

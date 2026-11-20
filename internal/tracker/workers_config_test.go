@@ -39,6 +39,12 @@ func TestWorkerSkillsForTypes(t *testing.T) {
 	if !wf.WorkerKeepsTool(WorkerToolArtifact) || (&WorkflowConfig{}).WorkerKeepsTool(WorkerToolArtifact) {
 		t.Error("WorkerKeepsTool")
 	}
+	if got := wf.WorkerToolsDropped(); !slices.Equal(got, WorkerToolsOff[1:]) {
+		t.Errorf("WorkerToolsDropped = %v", got)
+	}
+	if got := (&WorkflowConfig{Workers: &WorkersConfig{Tools: []string{"Workflow", "Bash"}}}).WorkersProblems(); len(got) != 1 || !strings.Contains(got[0], `"Bash"`) {
+		t.Errorf("WorkersProblems = %v", got)
+	}
 	out, err := yaml.Marshal(wf.Workers.clone())
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -144,9 +145,17 @@ func TestChecksAndList(t *testing.T) {
 	CheckTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { CheckTimeout = orig })
 	slow := tracker.Connector{Name: "slow", Check: "sleep 5"}
-	start := time.Now()
-	if r := RunCheck(context.Background(), "Marketing", &slow, now); r.Result != ResultFailing || r.Exit != -1 || time.Since(start) > 3*time.Second {
-		t.Errorf("slow check = %+v after %s", r, time.Since(start))
+	quick := tracker.Connector{Name: "quick", Check: "sleep 0.2"}
+	// The baseline is a check that ends by itself at the timeout; an
+	// unkilled one takes 5 s, so the slow-machine limit stops short.
+	check := timing.Check{Limit: 3 * time.Second, Ratio: 3, Max: 4500 * time.Millisecond, Rounds: 3}
+	res := check.Run(timing.Timed(func() {
+		if r := RunCheck(context.Background(), "Marketing", &slow, now); r.Result != ResultFailing || r.Exit != -1 {
+			t.Errorf("slow check = %+v", r)
+		}
+	}), timing.Timed(func() { RunCheck(context.Background(), "Marketing", &quick, now) }))
+	if res.Slow {
+		t.Errorf("slow check: %s (baseline: a check that ends at the timeout)", res)
 	}
 
 	if err := Append(p, recs...); err != nil {

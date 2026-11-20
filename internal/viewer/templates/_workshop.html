@@ -84,6 +84,7 @@ their styles). Pages compose them; a new element is a new component here first.
             <span class="wb-stat"><span class="wb-dot wb-dot--working"></span>{{.Working}} <span class="wb-muted">working</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--idle"></span>{{.Idle}} <span class="wb-muted">idle</span></span>
             <span class="wb-stat"><span class="wb-dot wb-dot--agent"></span>{{.AgentWait}} <span class="wb-muted">waiting on an agent</span></span>
+            <span class="wb-stat" data-testid="map.agents.you"><span class="wb-dot wb-dot--you"></span>{{.OwnerWait}} <span class="wb-muted">waiting on you</span></span>
         {{if .CrewURL}}</a>{{else}}</div>{{end}}
         {{if not .HideDone}}<div class="wb-stat-box" data-testid="map.done_week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#157A42" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>{{.DoneWeek}} <span class="wb-muted">this week</span></div>{{end}}{{end}}
         {{range .Chips}}<div class="wb-stat-box wb-stat-box--chip">{{template "wb/chip" .}}</div>{{end}}

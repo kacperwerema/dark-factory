@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
@@ -64,6 +65,10 @@ type leadTickState struct {
 	// InstallLagOn is the local date the tick last said the installed
 	// issue-cli is behind main (cmd_lead_tick_install.go).
 	InstallLagOn string `json:"install_lag_on,omitempty"`
+	// LastHold is the key of the last start hold the tick said; a tick
+	// where a hold that clears by itself wins quietly keeps it, a start
+	// forgets it. The same hold back after such a tick is no news.
+	LastHold string `json:"last_hold,omitempty"`
 }
 
 // leadTickPath is the project's tick state; "" without a state dir.
@@ -112,6 +117,8 @@ type leadTicker struct {
 	contextOn string
 	// installLagOn is the next state's InstallLagOn.
 	installLagOn string
+	// lastHold is the next state's LastHold.
+	lastHold string
 }
 
 // say prints line unless key was already said and is still true.
@@ -196,8 +203,10 @@ func runLeadTick(ctx *Context, args []string) error {
 		guardNever(ctx, "lead tick")
 		return fmt.Errorf("workers don't run the lead's tick (you are %s): post a question: comment on your issue instead", valueOr(me.Name, "a worker"))
 	}
+	var lw *leadShell
 	if *watch {
-		defer registerLeadWatch(ctx, whoAmI(proj, issues))()
+		lw = openLeadWatch(ctx, whoAmI(proj, issues))
+		defer lw.done()
 	}
 	once := func(ctx *Context, watch bool) (tickCount, error) { return leadTickOnce(ctx, watch) }
 	if *observe {
@@ -222,27 +231,82 @@ func runLeadTick(ctx *Context, args []string) error {
 	// Under --exit-on-news the ticks write into held: a tick with no news
 	// adds its lines there, and the first tick with news prints them all,
 	// oldest first, and exits. --verbose exits on any line.
-	var held bytes.Buffer
+	// A tick an earlier one held and never said (it was killed) goes out
+	// first. A signal (cmd_lead_tick_signal.go) says what was held and
+	// the stop, then exits.
+	var held, tickOut bytes.Buffer
+	var mu sync.Mutex
 	sub := *ctx
 	if *exitOnNews {
-		sub.Stdout = &held
+		sub.Stdout = &tickOut
+		held.WriteString(lw.takeHeld())
+	}
+	sigs, stopSigs := leadTickSignals()
+	defer stopSigs()
+	quit := make(chan struct{})
+	defer close(quit)
+	go func() {
+		select {
+		case sig := <-sigs:
+			mu.Lock()
+			defer mu.Unlock()
+			if !lw.stopped(signalName(sig)) {
+				return
+			}
+			ctx.Stdout.Write(held.Bytes())
+			held.Reset()
+			fmt.Fprint(ctx.Stdout, leadTickStopLine(signalName(sig), os.Getpid(), lw.cmd))
+			leadTickExit(signalExitCode(sig))
+		case <-quit:
+		}
+	}()
+	flush := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		_, werr := ctx.Stdout.Write(held.Bytes())
+		held.Reset()
+		return werr
 	}
 	for {
+		tickOut.Reset()
 		n, err := once(&sub, true)
 		if err != nil {
 			fmt.Fprintf(sub.Stdout, "tick error: %s\n", firstLineOf(err.Error()))
 			n.said++
 			n.news++
 		}
+		if *exitOnNews {
+			mu.Lock()
+			holdOnce(&held, tickOut.String())
+			mu.Unlock()
+		}
 		if *exitOnNews && (n.news > 0 || (*verbose && n.said > 0)) {
-			_, werr := ctx.Stdout.Write(held.Bytes())
-			return werr
+			return flush()
+		}
+		if *exitOnNews {
+			mu.Lock()
+			lw.hold(held.String())
+			mu.Unlock()
 		}
 		if !leadTickSleep(*every) {
 			// Stopped with no news: what was held still goes out.
-			_, werr := ctx.Stdout.Write(held.Bytes())
-			return werr
+			return flush()
 		}
+	}
+}
+
+// holdOnce adds a tick's lines to held, but a "hold: " line held already
+// only once: a hold that comes back on every other tick goes out with the
+// next news one time.
+func holdOnce(held *bytes.Buffer, out string) {
+	for _, line := range strings.SplitAfter(out, "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "hold: ") && bytes.Contains(held.Bytes(), []byte(line)) {
+			continue
+		}
+		held.WriteString(line)
 	}
 }
 
@@ -256,6 +320,7 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	}
 	path := leadTickPath(proj)
 	t := &leadTicker{w: ctx.Stdout, prev: loadLeadTickState(path), seen: map[string]time.Time{}, now: ctx.now(), watch: watch}
+	t.lastHold = t.prev.LastHold
 	first := path == "" || t.prev.Since.IsZero()
 
 	unlanded := leadTickBranches(ctx, t, issues)
@@ -266,6 +331,8 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	leadTickLeaks(ctx, t)
 	leadTickInstallLag(ctx, t)
 	leadTickAttention(ctx, t, issues)
+	leadTickReports(ctx, t, issues)
+	leadTickQuestions(ctx, t, issues)
 	leadTickStart(ctx, t, issues)
 	if fresh, err := tracker.LoadIssues(proj.IssueDir); err == nil {
 		issues = fresh
@@ -280,7 +347,7 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	}
 
 	if path != "" {
-		next := leadTickState{Said: t.seen, Since: t.now, HeldSince: t.heldSince, PrunedOn: t.prunedOn, LeaksOn: t.leaksOn, ContextOn: t.contextOn, InstallLagOn: t.installLagOn}
+		next := leadTickState{Said: t.seen, Since: t.now, HeldSince: t.heldSince, PrunedOn: t.prunedOn, LeaksOn: t.leaksOn, ContextOn: t.contextOn, InstallLagOn: t.installLagOn, LastHold: t.lastHold}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
 			if err := jsonfile.Write(path, next, 0o644); err != nil {
 				fmt.Fprintf(ctx.Stderr, "warning: saving the tick state: %v\n", err)
@@ -352,6 +419,9 @@ func leadTickStart(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 			t.seen["held-long"] = at
 		}
 	}
+	if err == nil || len(started) > 0 {
+		t.lastHold = ""
+	}
 	if err == nil {
 		return
 	}
@@ -369,7 +439,17 @@ func leadTickStart(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 		if reason == "" || strings.Contains(reason, "gap ") || strings.Contains(reason, "nothing open in the queue") {
 			return
 		}
-		t.say("hold:"+tickKey(reason), "hold: "+reason)
+		key := "hold:" + tickKey(reason)
+		_, said := t.prev.Said[key]
+		if key == t.lastHold && !said {
+			// The hold said last, back after a tick where one that
+			// clears by itself won: no news, it goes out with the next.
+			t.seen[key] = t.now
+			t.held("hold: " + reason)
+			return
+		}
+		t.say(key, "hold: "+reason)
+		t.lastHold = key
 		return
 	}
 	t.say("start-error:"+tickKey(msg), "start: "+firstLineOf(msg))
@@ -551,19 +631,25 @@ func leadTickSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue, unlande
 func leadTickWorktrees(ctx *Context, t *leadTicker, issues []*tracker.Issue, unlanded map[string]bool) {
 	proj := ctx.Project
 	t.prunedOn = t.prev.PrunedOn
-	var done []*tracker.Issue
+	var done, open []*tracker.Issue
 	for _, issue := range issues {
-		if unlanded[issue.Slug] || !proj.IssueClosed(issue) {
+		if unlanded[issue.Slug] {
 			continue
 		}
-		wt := tracker.IssueWorktree(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
-		if wt.Path != "" && dirExists(wt.Path) {
+		wt := tracker.IssueWorktreeOnDisk(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
+		if wt.Path == "" || !dirExists(wt.Path) {
+			continue
+		}
+		switch {
+		case proj.IssueClosed(issue):
 			done = append(done, issue)
+		case !issueSessionLive(proj, issue):
+			open = append(open, issue)
 		}
 	}
 	today := t.now.Local().Format("2006-01-02")
 	daily := t.prev.PrunedOn != today
-	if len(done) == 0 && !daily {
+	if len(done) == 0 && len(open) == 0 && !daily {
 		return
 	}
 	in, err := pruneInput(ctx)
@@ -571,11 +657,18 @@ func leadTickWorktrees(ctx *Context, t *leadTicker, issues []*tracker.Issue, unl
 		return // no main checkout with a branch: leadTickBranches is quiet too
 	}
 	for _, issue := range done {
-		wt := tracker.IssueWorktree(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
+		wt := tracker.IssueWorktreeOnDisk(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
 		v := agentrun.RemoveIssueTree(in, wt.Path, wt.Branch)
 		if v.Kind == agentrun.TreeDirty {
 			t.say("worktree-dirty:"+issue.Slug, fmt.Sprintf("worktree: %s is %s but %s stays: %s", issue.Slug, issue.Status, wt.Path, v.Why))
 		}
+	}
+	// An open issue whose branch already landed, with no session working
+	// on it: its tree goes now, not at the daily sweep's 3-hour idle mark.
+	// Kept quietly when anything says it is still in use.
+	for _, issue := range open {
+		wt := tracker.IssueWorktreeOnDisk(projectRoot(proj), issue, proj.LoadWorkflowForIssue(issue))
+		agentrun.RemoveLandedTree(in, wt.Path, wt.Branch)
 	}
 	if !daily {
 		return
@@ -593,6 +686,12 @@ func leadTickWorktrees(ctx *Context, t *leadTicker, issues []*tracker.Issue, unl
 		}
 		t.held(line + "  (" + tracker.InjectProject(proj, "issue-cli worktrees prune --dry-run") + ")")
 	}
+}
+
+// issueSessionLive reports whether the issue's agent session is live; a
+// var so a test can say.
+var issueSessionLive = func(proj *tracker.Project, issue *tracker.Issue) bool {
+	return agentrun.IsLive(proj, tracker.AgentSessionName(issue.Slug))
 }
 
 // leadTickLeaks runs doctor leaks once a day (the first tick of the local

@@ -2,6 +2,8 @@ module github.com/kacperwerema/dark-factory
 
 go 1.25
 
+toolchain go1.27.4
+
 // v0.55.0 and v0.56.0 were tagged under the old module path and cannot
 // build as github.com/kacperwerema/dark-factory.
 retract [v0.55.0, v0.56.0]

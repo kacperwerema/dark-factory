@@ -138,7 +138,7 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request, proj *tracke
 	}
 	data := buildCrew(model, proj.Departments, prefix, selected, now)
 	lot, waiting := s.decisionsLot(proj, now)
-	data.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(1, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, Waiting: waiting, HideDone: true}
+	data.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(1, proj.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, Waiting: waiting, HideDone: true}
 	data.Header.Crumbs[1].Color = lot.Color
 	data.Header.Crumbs[1].Current, data.Header.Crumbs[1].URL = false, prefix+"/company"
 	data.Header.Crumbs[2] = WbCrumb{Label: "Crew", Current: true}

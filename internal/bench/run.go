@@ -364,7 +364,7 @@ func runTask(ctx context.Context, b *Benchmark, j job, jobs, n int, run *Run, en
 			}
 		}
 	}()
-	stdout, stderr, werr := runWorker(wctx, sb.work, j.worker, prompt, sb.env(env))
+	stdout, stderr, werr := runWorker(wctx, sb.work, NamedWorker(j.worker, SessionName(j.task)), prompt, sb.env(env))
 	close(stopWatch)
 	rec.WallSec = env.now().Sub(rec.Started).Seconds()
 

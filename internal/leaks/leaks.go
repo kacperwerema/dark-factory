@@ -9,6 +9,8 @@
 //   - a process whose CODEX_HOME or CLAUDE_CONFIG_DIR is a temp or
 //     scratchpad folder, detached (parent pid 1) or with that folder gone:
 //     codex app-server-daemon out of a test's or a sandbox's home;
+//   - an issue-viewer on a temp or scratchpad folder, detached or with
+//     that folder gone: a test's or a sandbox's board (testViewers);
 //   - the tmux server of a test run that was killed (tmuxguard's stale
 //     folders, its socket still there);
 //   - a per_run: tool the engine started that no run holds any more;
@@ -21,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +44,7 @@ const (
 	KindAgentHome = "agent-home"
 	KindTmux      = "tmux-server"
 	KindPerRun    = "per-run"
+	KindViewer    = "test-viewer"
 )
 
 // Finding is one thing still alive that should not be.
@@ -120,6 +124,7 @@ func Find(o Options) Report {
 	}
 	r.Leaks = append(r.Leaks, chromes(mine)...)
 	r.Leaks = append(r.Leaks, agentHomes(mine, skip)...)
+	r.Leaks = append(r.Leaks, testViewers(mine, skip)...)
 	r.Leaks = append(r.Leaks, tmuxServers(o.TmpRoot, o.Now)...)
 	r.Leaks = append(r.Leaks, perRunTools(o.Projects)...)
 	if roots := projectRoots(o.Projects); len(roots) > 0 {
@@ -166,6 +171,65 @@ func chromes(mine []procs.Proc) []Finding {
 		})
 	}
 	return out
+}
+
+// testViewers are issue-viewers a test or a sandbox started (their -config
+// or -dir is in a temp or scratchpad folder) that nothing owns any more:
+// detached to launchd for procs.DetachedMinAge or more, or that folder is
+// gone. The owner's viewer reads a config in the home folder, never these.
+func testViewers(mine []procs.Proc, skip map[int]bool) []Finding {
+	var out []Finding
+	for _, p := range mine {
+		if skip[p.PID] {
+			continue
+		}
+		place, ok := viewerPlace(p.Command)
+		if !ok || !procs.TempPlace(place) {
+			continue
+		}
+		_, statErr := os.Stat(place)
+		gone := os.IsNotExist(statErr)
+		if !gone && (p.PPID != 1 || p.Age < procs.DetachedMinAge) {
+			continue
+		}
+		why := "an issue-viewer on a temp folder whose parent is gone (pid 1)"
+		if gone {
+			why = "an issue-viewer on a temp folder that no longer exists"
+		}
+		out = append(out, Finding{
+			Kind: KindViewer, PID: p.PID, Age: p.Age,
+			What:        "issue-viewer on " + place,
+			Why:         why,
+			StopCommand: killCommand(p.PID),
+		})
+	}
+	return out
+}
+
+// viewerPlace reads an issue-viewer command line: the folder its -config
+// or -dir names, ok false when the command is no issue-viewer.
+func viewerPlace(command string) (string, bool) {
+	f := strings.Fields(command)
+	if len(f) == 0 || filepath.Base(f[0]) != "issue-viewer" {
+		return "", false
+	}
+	for i := 1; i < len(f); i++ {
+		a := strings.TrimLeft(f[i], "-")
+		if !strings.HasPrefix(f[i], "-") {
+			continue
+		}
+		name, val, has := strings.Cut(a, "=")
+		if name != "config" && name != "dir" {
+			continue
+		}
+		if !has && i+1 < len(f) {
+			val = f[i+1]
+		}
+		if val != "" {
+			return val, true
+		}
+	}
+	return "", false
 }
 
 // agentHomes are processes whose CLI home is a throwaway folder and that

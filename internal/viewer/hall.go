@@ -82,7 +82,7 @@ func (s *Server) buildHall(p *tracker.Project, sc *hallScope, selected string, n
 	if sc.File != "" {
 		d.File = hallEditFileName(p, sc.File)
 	}
-	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
+	d.Header = WbHeader{WaitingURL: prefix + "/needs-you", Crumbs: wbCrumbs(2, p.Name, prefix+"/company"), Working: lot.Working, Idle: lot.Idle, AgentWait: lot.AgentWait, OwnerWait: lot.You, DoneWeek: lot.DoneWeek, Waiting: company.Waiting, HideDone: true, Tabs: wbHallTabs(prefix, "line")}
 	d.Header.Crumbs[1].Color = lot.Color
 	d.Header.YOLO = headerYOLO(lot.YOLO, prefix)
 	d.Header.Crumbs[2] = WbCrumb{Label: sc.Label, Current: true, Color: sc.Color}
