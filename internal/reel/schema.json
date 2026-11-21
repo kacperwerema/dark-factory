@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kacperwerema/dark-factory/internal/reel/schema.json",
+  "title": "Reel storyboard",
+  "description": "One reel for the Dark Factory reel kit (issue-cli reel; docs/reels.md). Paths are relative to the storyboard's folder. issue-cli reel validate is the full check: it also checks each shape's roles and that every file exists.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "shape", "title", "brand", "scenes", "cta"],
+  "properties": {
+    "version": {"const": 1},
+    "shape": {"enum": ["hook-list", "before-after", "app-demo"], "description": "hook-list: hook, 2-6 item, cta. before-after: hook, before, after, cta. app-demo: hook, 1-6 step (each with an app-recording clip), cta."},
+    "title": {"type": "string", "minLength": 1},
+    "language": {"type": "string", "description": "BCP 47, e.g. pl"},
+    "brand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "colors"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "colors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary", "text", "background"],
+          "properties": {
+            "primary": {"type": "string"},
+            "accent": {"type": "string"},
+            "text": {"type": "string"},
+            "background": {"type": "string"}
+          }
+        },
+        "font": {"type": "string"},
+        "logo": {"type": "string", "description": "an image file"}
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "duration"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "role": {"enum": ["hook", "item", "before", "after", "step", "cta"]},
+          "duration": {"type": "number", "exclusiveMinimum": 0, "description": "planned seconds; a longer narration stretches the scene"},
+          "text": {"type": "string", "description": "on-screen text"},
+          "narration": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "voice"],
+            "properties": {
+              "text": {"type": "string", "minLength": 1},
+              "voice": {"type": "string", "minLength": 1, "description": "a placement name the project's TTS connector resolves to a voice"},
+              "audio": {"type": "string", "description": "the audio file the TTS connector wrote"},
+              "alignment": {"type": "string", "description": "word timings: ElevenLabs with-timestamps JSON or [{word,start,end}]"}
+            }
+          },
+          "clips": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "path"],
+              "properties": {
+                "source": {"enum": ["app-recording", "owner", "stock", "ai"]},
+                "path": {"type": "string", "minLength": 1},
+                "start": {"type": "number", "minimum": 0},
+                "end": {"type": "number", "minimum": 0},
+                "ai_generated": {"type": "boolean", "description": "true for every ai clip: the AI-content label reads it"},
+                "prompt": {"type": "string"},
+                "tool": {"type": "string", "description": "the tool that made an ai clip, e.g. kling"},
+                "licence": {"type": "string", "description": "required for stock"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "captions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "style": {"enum": ["words", "lines"]},
+        "position": {"enum": ["lower", "middle", "upper", "custom"]},
+        "max_words": {"type": "integer", "minimum": 0},
+        "font_size": {"type": "integer", "minimum": 0},
+        "box": {"$ref": "#/$defs/box"}
+      }
+    },
+    "music": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "licence"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "licence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "ref"],
+          "properties": {
+            "source": {"type": "string", "minLength": 1},
+            "ref": {"type": "string", "minLength": 1, "description": "a licence id or URL"}
+          }
+        },
+        "volume_db": {"type": "number", "description": "default -18"},
+        "duck": {"type": "boolean", "description": "lower the music under the narration"}
+      }
+    },
+    "cta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "url": {"type": "string"},
+        "handle": {"type": "string"}
+      }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "QA bound overrides, laid over the kit's defaults and the template's reel.json qa:",
+      "properties": {
+        "min_seconds": {"type": "number", "minimum": 0},
+        "max_seconds": {"type": "number", "minimum": 0},
+        "plan_slack_seconds": {"type": "number", "minimum": 0},
+        "lufs": {"type": "number"},
+        "lufs_slack": {"type": "number", "minimum": 0},
+        "black_seconds": {"type": "number", "minimum": 0},
+        "cue_slack_seconds": {"type": "number", "minimum": 0},
+        "speech_slack_seconds": {"type": "number", "minimum": 0},
+        "safe_zone": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["top", "bottom", "left", "right"],
+          "properties": {
+            "top": {"type": "number", "minimum": 0},
+            "bottom": {"type": "number", "minimum": 0},
+            "left": {"type": "number", "minimum": 0},
+            "right": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "box": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "w", "h"],
+      "description": "pixels on the 1080x1920 frame",
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "w": {"type": "number"},
+        "h": {"type": "number"}
+      }
+    }
+  }
+}

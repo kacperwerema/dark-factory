@@ -51,7 +51,10 @@ type ShelfReadData struct {
 	Video            bool
 	VideoInfo        string
 	PrevURL, PrevTag string
-	Diff             *OdocDiff
+	// Report is the file kept beside the video (a reel's QA report from
+	// issue-cli reel shelve), rendered under the player; "" for none.
+	Report template.HTML
+	Diff   *OdocDiff
 	// Threads are the open ones in document order; Gone the open ones whose
 	// passage and heading are not in this version; Resolved the rest.
 	Threads, Gone, Resolved []OdocThread
@@ -213,6 +216,11 @@ func (s *Server) buildShelfRead(p *tracker.Project, prefix string, o *outputs.Ou
 		}
 		if prev := o.Previous(); prev != nil {
 			d.PrevURL, d.PrevTag = prefix+"/shelf/file/"+prev.File, fmt.Sprintf("v%d", prev.N)
+		}
+		if o.Report != "" {
+			if src, err := readOutputText(outputFile(p, o, o.Report)); err == nil {
+				d.Report = template.HTML(renderOutputDoc(src).HTML)
+			}
 		}
 		d.Marks = template.JS("[]")
 		for _, t := range talk[o.ID] {

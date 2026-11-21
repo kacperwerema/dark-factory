@@ -218,3 +218,44 @@ func TestIsTick(t *testing.T) {
 		}
 	}
 }
+
+// After a flush the note comes first and holds the state's workers, queue
+// and owner asks: the fresh lead's prompt carries them once. A rotate's
+// prompt has no note, so its state stays whole.
+func TestAFlushHandoverCarriesTheNotesRepeatsOnce(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := pinnedNow()
+	v := View{Lead: "lead-x", Project: "x", At: now, Workers: []Worker{{Session: "agent-one", Status: "in progress"}}, Queue: []QueueItem{{ID: 7, Label: "the queued one"}}, QueueOpen: 1}
+	var s Store
+	s.Add(KindAsk, "the owner's open ask", now)
+	s.Add(KindTomorrow, "the thing for tomorrow", now)
+	state := Render(v, s)
+	for _, by := range []string{ByFlush, ByRotate} {
+		s.Handover = &Handover{At: now, By: by, Note: "note.md", Digest: "digest.md", State: state}
+		if err := s.Save("lead-x"); err != nil {
+			t.Fatal(err)
+		}
+		sec := HandoverSection("lead-x", "issue-cli lead history <words>", now.Add(time.Minute))
+		for _, want := range []string{"# Lead state: lead-x", "## Watches", "the thing for tomorrow"} {
+			if !strings.Contains(sec, want) {
+				t.Errorf("%s: the section misses %q:\n%s", by, want, sec)
+			}
+		}
+		repeats := []string{"## Workers", "agent-one", "## Queue", "the queued one", "## Owner asks", "the owner's open ask"}
+		for _, part := range repeats {
+			if got := strings.Contains(sec, part); got != (by == ByRotate) {
+				t.Errorf("%s: %q in the section = %v:\n%s", by, part, got, sec)
+			}
+		}
+		if by == ByFlush && !strings.Contains(sec, "issue-cli lead state prints them") {
+			t.Errorf("the flush section doesn't say where the dropped parts are:\n%s", sec)
+		}
+	}
+}
+
+func TestDropSectionsKeepsTheRest(t *testing.T) {
+	text := "# T\n\n## A\n\na\n\n## B\n\nb\n\n## C\n\nc\n"
+	if got, want := DropSections(text, "b", "missing"), "# T\n\n## A\n\na\n\n## C\n\nc\n"; got != want {
+		t.Fatalf("DropSections = %q, want %q", got, want)
+	}
+}

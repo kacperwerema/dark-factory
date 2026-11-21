@@ -185,18 +185,90 @@ func TestDue(t *testing.T) {
 	now := time.Date(2026, 11, 17, 10, 30, 0, 0, time.Local)
 	low := diskuse.Volume{UsedPct: 50, OK: true}
 	full := diskuse.Volume{UsedPct: 93, OK: true}
-	if ok, why := Due(File{}, 4, 0, low, now); !ok || why != "nightly" {
+	due := func(f File, vol diskuse.Volume, at time.Time) (bool, string) {
+		p, ok := Due(f, 4, 0, vol, Cache{}, at)
+		if p.CacheOnly {
+			t.Errorf("a full clean planned cache-only: %+v", p)
+		}
+		return ok, p.Why
+	}
+	if ok, why := due(File{}, low, now); !ok || why != "nightly" {
 		t.Errorf("no clean yet: %v %q", ok, why)
 	}
 	done := File{Results: []Result{{At: time.Date(2026, 11, 17, 4, 1, 0, 0, time.Local)}}}
-	if ok, _ := Due(done, 4, 0, low, now); ok {
+	if ok, _ := due(done, low, now); ok {
 		t.Error("due again after tonight's clean")
 	}
-	if ok, why := Due(done, 4, 0, full, now); !ok || !strings.Contains(why, "93%") {
+	if ok, why := due(done, full, now); !ok || !strings.Contains(why, "93%") {
 		t.Errorf("a full volume 6 h after the clean: %v %q", ok, why)
 	}
-	if ok, _ := Due(done, 4, 0, full, time.Date(2026, 11, 17, 8, 0, 0, 0, time.Local)); ok {
+	if ok, _ := due(done, full, time.Date(2026, 11, 17, 8, 0, 0, 0, time.Local)); ok {
 		t.Error("a full volume restarted the clean within 6 hours")
+	}
+}
+
+// After tonight's clean the gocache area alone is due: while it waits, and
+// in the day once a reading taken after it last ran has it over its cap by
+// more than 25% (34 GB → 59.7 GB in a day over a 40 GB cap, 2026-11-21).
+func TestDueCacheOnly(t *testing.T) {
+	low := diskuse.Volume{UsedPct: 50, OK: true}
+	night := time.Date(2026, 11, 21, 4, 1, 0, 0, time.Local)
+	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.Local)
+	gb := int64(1 << 30)
+	over := Cache{At: now.Add(-30 * time.Minute), Bytes: 51 * gb, CapBytes: 40 * gb, OK: true}
+	done := File{Results: []Result{{At: night}}, CacheAt: night}
+	if p, ok := Due(done, 4, 0, low, over, now); !ok || !p.CacheOnly || !strings.Contains(p.Why, "over its cap of 40.0 GB by more than 25%") {
+		t.Errorf("51 GB over a 40 GB cap: %v %+v", ok, p)
+	}
+	if _, ok := Due(done, 4, 0, low, Cache{At: over.At, Bytes: 49 * gb, CapBytes: 40 * gb, OK: true}, now); ok {
+		t.Error("49 GB (under 25% over a 40 GB cap) is due in the day")
+	}
+	trimmed := done
+	trimmed.CacheAt = now.Add(-10 * time.Minute)
+	if _, ok := Due(trimmed, 4, 0, low, over, now); ok {
+		t.Error("a reading from before the last trim made the cache due again")
+	}
+	waits := done
+	waits.CacheWaits = &Hold{At: now, Since: night, Why: "go test is running (pid 9)"}
+	if p, ok := Due(waits, 4, 0, low, Cache{}, now); !ok || !p.CacheOnly || !strings.Contains(p.Why, "waits since 21 Nov 04:01") {
+		t.Errorf("a waiting cache: %v %+v", ok, p)
+	}
+	if p, _ := Due(File{CacheWaits: waits.CacheWaits}, 4, 0, low, over, now); p.CacheOnly {
+		t.Error("the nightly clean lost to a cache-only one")
+	}
+}
+
+// The gocache area's wait: Record of a result whose cache waited starts
+// CacheWaits and keeps the rest's result; a cache-only wait keeps Since;
+// the cache running clears it. A whole-clean hold keeps its Since too.
+func TestStateFileCacheWaits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "machine", "clean.json")
+	t0 := time.Date(2026, 11, 21, 4, 0, 0, 0, time.Local)
+	if err := Record(path, Result{At: t0, Areas: []Area{Waits(CacheArea, "go test is running (pid 9)"), {Name: "transcripts"}}}); err != nil {
+		t.Fatal(err)
+	}
+	f := Load(path)
+	if f.CacheWaits == nil || f.CacheWaits.Why != "go test is running (pid 9)" || len(f.Results) != 1 {
+		t.Fatalf("after a nightly whose cache waited: %+v", f)
+	}
+	_ = RecordCacheWait(path, Hold{At: t0.Add(4 * time.Hour), Why: "go build is running (pid 3)"})
+	f = Load(path)
+	if w, ok := Waiting(f); !ok || !w.From().Equal(t0) || w.Why != "go build is running (pid 3)" {
+		t.Errorf("Waiting after a second try: %+v %v", w, ok)
+	}
+	if s := Status(f); !strings.Contains(s, "the Go cache waits since 21 Nov 04:00: go build") {
+		t.Errorf("Status: %q", s)
+	}
+	_ = Record(path, Result{At: t0.Add(5 * time.Hour), Areas: []Area{{Name: CacheArea}}})
+	f = Load(path)
+	if _, ok := Waiting(f); ok || !f.CacheAt.Equal(t0.Add(5*time.Hour)) {
+		t.Errorf("the cache ran but still waits: %+v", f)
+	}
+	t1 := t0.AddDate(0, 0, 1)
+	_ = RecordHold(path, Hold{At: t1, Why: "mem-guard says no"})
+	_ = RecordHold(path, Hold{At: t1.Add(time.Hour), Why: "mem-guard says no"})
+	if w, ok := Waiting(Load(path)); !ok || !w.From().Equal(t1) {
+		t.Errorf("a standing hold lost its Since: %+v", w)
 	}
 }
 

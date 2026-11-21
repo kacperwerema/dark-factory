@@ -72,6 +72,83 @@ type Connector struct {
 	// lint check departments warns without it (docs/departments.md#the-licence-rule).
 	Exception string `yaml:"exception"`
 	Note      string `yaml:"note"`
+	// Spend meters a paid tool: connector exec records each call's cost in
+	// <issues>/.connectors/spend.jsonl and refuses a billing call once the
+	// calendar month's spend reaches Cap (docs/departments.md#spend-caps).
+	Spend *ConnectorSpend `yaml:"spend"`
+	// Voices are a meter: elevenlabs connector's voices, by placement.
+	Voices []Voice `yaml:"voices"`
+}
+
+// Spend meters.
+const (
+	// MeterJSON reads a call's cost from the number under Field in the
+	// command's JSON stdout (the Kling CLI's creditsConsumed).
+	MeterJSON = "json"
+	// MeterElevenLabs is issue-cli's own text-to-speech call: the cost is
+	// the characters the API bills.
+	MeterElevenLabs = "elevenlabs"
+)
+
+// SpendMeters are the meters lint accepts.
+var SpendMeters = []string{MeterJSON, MeterElevenLabs}
+
+// ConnectorSpend is a connector's spend: block. Cap is the owner's number,
+// per calendar month (local time) and project; 0 means none is set, and
+// every billing call is refused until the owner writes one.
+type ConnectorSpend struct {
+	Meter string  `yaml:"meter" json:"meter"`
+	Field string  `yaml:"field" json:"field,omitempty"`
+	Unit  string  `yaml:"unit" json:"unit"`
+	Cap   float64 `yaml:"cap" json:"cap"`
+	// Free are the command's subcommands that never bill: they run over the
+	// cap and record nothing.
+	Free []string `yaml:"free" json:"free,omitempty"`
+	// Refuse are subcommands connector exec never runs (a login that is the
+	// owner's, in their own shell).
+	Refuse []string `yaml:"refuse" json:"refuse,omitempty"`
+	// Balance is a meter: json connector's free subcommand that prints the
+	// account balance as JSON, BalanceField its key: read before and after
+	// a billing call whose output names no cost, the difference is the
+	// cost. A kling command defaults to account / availableRemainCredits.
+	Balance      string `yaml:"balance" json:"balance,omitempty"`
+	BalanceField string `yaml:"balance_field" json:"balance_field,omitempty"`
+}
+
+// UnitWords is the spend's unit, "units" when unset.
+func (s *ConnectorSpend) UnitWords() string {
+	if u := strings.TrimSpace(s.Unit); u != "" {
+		return u
+	}
+	return "units"
+}
+
+// Voice is one voice of a text-to-speech connector: the placement a
+// storyboard names it by, the vendor's voice id (not a secret), and, for a
+// real person's voice, who it is and where their consent is noted.
+type Voice struct {
+	Placement  string `yaml:"placement" json:"placement"`
+	VoiceID    string `yaml:"voice_id" json:"voice_id"`
+	Name       string `yaml:"name" json:"name,omitempty"`
+	RealPerson string `yaml:"real_person" json:"real_person,omitempty"`
+	Consent    string `yaml:"consent" json:"consent,omitempty"`
+	// Model is the vendor's model for this voice; empty: the vendor's default.
+	Model string `yaml:"model" json:"model,omitempty"`
+}
+
+// NeedsConsent is a real person's voice with no consent noted.
+func (v Voice) NeedsConsent() bool {
+	return strings.TrimSpace(v.RealPerson) != "" && strings.TrimSpace(v.Consent) == ""
+}
+
+// VoiceFor is c's voice at placement, nil when it has none.
+func (c Connector) VoiceFor(placement string) *Voice {
+	for i := range c.Voices {
+		if strings.EqualFold(strings.TrimSpace(c.Voices[i].Placement), strings.TrimSpace(placement)) {
+			return &c.Voices[i]
+		}
+	}
+	return nil
 }
 
 // DefaultRunTimeout is per_run: timeout: when it isn't set, in seconds.
@@ -467,6 +544,15 @@ func ConnectorsBrief(p *Project, dept string, lead bool) string {
 		case c.Sends:
 			s += " — it sends: use it only for an output the owner approved, then issue-cli output publish"
 		}
+		if c.Spend != nil {
+			s += " — it spends money: each billing call is metered in " + c.Spend.UnitWords() + " and refused once this month reaches the owner's cap"
+			if c.Spend.Cap > 0 {
+				s += fmt.Sprintf(" (%g a month)", c.Spend.Cap)
+			} else {
+				s += " (none set yet: every billing call is refused)"
+			}
+			s += "; issue-cli connectors " + DepartmentKey(d.Name) + " shows the spend"
+		}
 		if len(c.At) > 0 && c.URL != "" {
 			s += "; its tools are limited per status (at: " + strings.Join(c.AtStatuses(), ", ") + "): issue-cli connectors " + DepartmentKey(d.Name) + " lists them"
 		}
@@ -494,4 +580,15 @@ func ConnectorsLine(p *Project, dept string) string {
 		s += fmt.Sprintf(" (%d missing)", missing)
 	}
 	return s + " — issue-cli connectors " + DepartmentKey(d.Name)
+}
+
+// BuiltinCheck is a connector issue-cli checks itself: a spend: meter:
+// elevenlabs connector with no check: reads the account's subscription.
+func (c Connector) BuiltinCheck() bool {
+	return strings.TrimSpace(c.Check) == "" && c.Spend != nil && c.Spend.Meter == MeterElevenLabs
+}
+
+// HasCheck is a connector with a check: or a built-in one.
+func (c Connector) HasCheck() bool {
+	return strings.TrimSpace(c.Check) != "" || c.BuiltinCheck()
 }

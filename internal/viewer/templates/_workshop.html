@@ -218,6 +218,8 @@ their styles). Pages compose them; a new element is a new component here first.
             <span class="wb-connector-name">{{.Name}}</span> <span class="wb-muted">{{.Kind}}</span>{{if .Sends}} <span class="wb-chip wb-chip--you" title="It can publish or spend: only after you approve the output">sends</span>{{end}}
             <span class="wb-connector-check wb-connector-check--{{.Tone}}" data-testid="company.room.connector.check">{{.Check}}</span>
             {{with .Run}}<div class="wb-muted" data-testid="company.room.connector.run">{{.}}</div>{{end}}
+            {{with .Spend}}<div class="wb-connector-spend" data-testid="company.room.connector.spend"><span class="wb-goal-mini"><i style="width:{{.Pct}}%" class="wb-connector-spend--{{.Tone}}"></i></span> <span class="wb-connector-check--{{.Tone}}">{{.Words}}</span></div>{{end}}
+            {{range .Voices}}<div class="wb-muted" data-testid="company.room.connector.voice">{{.}}</div>{{end}}
             {{range .Secrets}}<div class="wb-connector-secret" data-testid="company.room.connector.secret"><span class="wb-mono-inline">{{.Var}}</span> {{.Ref}} {{if .Set}}<span class="wb-connector-set">set</span>{{else if .Optional}}<span class="wb-muted">not set</span>{{else}}<span class="wb-connector-missing">missing</span>{{end}}{{if .Optional}} <span class="wb-muted">(optional)</span>{{end}}</div>{{end}}
             {{with .Note}}<div class="wb-muted">{{.}}</div>{{end}}
         </li>{{end}}

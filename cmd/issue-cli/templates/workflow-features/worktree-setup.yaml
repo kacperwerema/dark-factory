@@ -1,5 +1,5 @@
 id: worktree-setup
-version: v0.64.0
+version: v0.65.0
 category: dispatch
 propose: false
 sources: ["internal/agentrun/worktree.go"]
@@ -8,7 +8,8 @@ what: |
   `worktree_setup` runs a bootstrap command (e.g. `make`) inside a newly created
   worktree; a failure aborts the dispatch. Before it, every new worktree links the
   main checkout's node_modules while its lock file is the same, so nothing is
-  installed (`worktree_deps: own` turns that off; `issue-cli worktree deps --own`
+  installed (`worktree_deps: own` gives it its own copy, a clone, instead, unless
+  worktree_setup installs; `issue-cli worktree deps --own`
   gives a worktree its own copy, a clone, when its branch changes dependencies).
   No install runs through a link: an unchanged one is skipped, any other gets
   the tree's own copies first.
@@ -19,7 +20,7 @@ where: "top-level worktree_setup: (needs worktree: true or issue-cli worktree ad
 snippet: |
   worktree: true
   worktree_setup: "make"
-  worktree_deps: shared   # own: link no node_modules from the main checkout
+  worktree_deps: shared   # own: no links: a clone of the main checkout's
 question: "Does a fresh checkout need a setup command before an agent can work in it?"
 detect:
   - path: worktree_setup

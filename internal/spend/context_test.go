@@ -71,8 +71,18 @@ func TestLoadContextSums(t *testing.T) {
 	if rep.Workers.Sessions != 3 || rep.All.Sessions != 5 || rep.All.Context != 2120 {
 		t.Errorf("workers = %+v, all = %+v", rep.Workers, rep.All)
 	}
-	if rep.Top[0].Agent != "lead-acme" || rep.Top[0].Box != HQ {
+	if rep.Top[0].Agent != "lead-acme" || rep.Top[0].Box != HQ || !rep.Top[0].Lead {
 		t.Errorf("top = %+v", rep.Top[0])
+	}
+	// Leads: the CEO's session (another project's lead is skipped).
+	if rep.Leads.Sessions != 1 || rep.Leads.Context != 900 {
+		t.Errorf("leads = %+v", rep.Leads)
+	}
+	// A department lead counts as a lead too, with its floor.
+	f.write(root, "mlead.jsonl", "lead-acme-marketing", msg("d1", at(10), "claude-test", 30, 0, 0, 0))
+	rep = LoadContext(f.p, f.issues, now, 7, Options{ProjectsDir: f.projects})
+	if rep.Leads.Sessions != 2 || rep.Leads.Floored != 1 || rep.Leads.Floor != 30 {
+		t.Errorf("leads with the marketing lead = %+v", rep.Leads)
 	}
 	// Numbers only: no message text reaches the report.
 	b, _ := json.Marshal(rep)

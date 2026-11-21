@@ -18,10 +18,14 @@ issue's forward path pass without the owner. Each pass writes
   approval: "YOLO" (yolo · <agent> · from <status>, <date>) → <status>
 on the issue and waits in the "after the fact" queue for the owner's review.
 CI, tests, review, retros and the agents' permission prompts stay on. YOLO
-never passes backwards steps, gates into an optional status (parked), Human Testing
-approval itself, an experiment's gates, a gate marked owner_only (it spends
+never passes backwards steps, gates into an optional status (parked), an
+experiment's gates, a gate marked owner_only (it spends
 money or publishes outside the machine), or release publish (unless
 unlocked with --allow-releases).
+The Human Testing approval passes like any other gate and waits for the
+owner's review after the fact. A worked issue whose worker has gone and
+that is Ready at a gate YOLO passes is moved on by the lead's tick
+(moved: <slug> <from> → <to>), so nothing waits at such a gate overnight.
 Safety valve: CI red for more than 30 min turns YOLO off by itself.
 
 A box only the owner can check (a playtest judgement step, a guided check

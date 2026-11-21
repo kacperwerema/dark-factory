@@ -59,6 +59,7 @@ var readSamples = map[string][]string{
 	"next":            {"next"},
 	"output":          {"output", "show", "nothing"},
 	"outputs":         {"outputs"},
+	"reel":            {"reel", "schema"},
 	"privacy":         {"privacy", "check"},
 	"process":         {"process", "transitions"},
 	"projects":        {"projects"},
@@ -73,6 +74,8 @@ var readSamples = map[string][]string{
 	"transition":      {"transition", "cli/sample", "--to", "in progress", "--dry-run"},
 	"upgrade":         {"upgrade"},
 	"version":         {"version"},
+	"page-check":      {"page-check", "--delay", "0s", "http://127.0.0.1:1/"},
+	"reel-legal":      {"reel-legal"},
 	"workflow":        {"workflow", "upgrade"},
 	"yolo":            {"yolo", "status"},
 }

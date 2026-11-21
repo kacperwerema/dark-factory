@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,34 @@ func TestDepartmentAddVideoPrintsInstallSteps(t *testing.T) {
 			t.Errorf("secret %s = %q: references only, in the Keychain", v, ref)
 		}
 	}
+	// The reel connectors: Kling's CLI from PATH with no secret (its login
+	// is the owner's), ElevenLabs' key a Keychain reference in a header,
+	// both metered and neither with a cap (the owner writes it).
+	kl := deptConnector(d, "kling")
+	if kl == nil || kl.Command != "kling" || len(kl.Secrets) != 0 || len(kl.Headers) != 0 || !kl.Sends ||
+		kl.Spend == nil || kl.Spend.Meter != "json" || kl.Spend.Field != "creditsConsumed" || kl.Spend.Unit != "credits" || kl.Spend.Cap != 0 {
+		t.Fatalf("kling connector = %+v", kl)
+	}
+	if !slices.Contains(kl.Spend.Refuse, "login") || !slices.Contains(kl.Spend.Free, "query_tasks") {
+		t.Errorf("kling spend = %+v", *kl.Spend)
+	}
+	el := deptConnector(d, "elevenlabs")
+	if el == nil || el.Command != "" || el.URL != "https://api.elevenlabs.io" || el.Headers["xi-api-key"] != "keychain:elevenlabs-api" || len(el.Secrets) != 0 ||
+		el.Spend == nil || el.Spend.Meter != "elevenlabs" || el.Spend.Unit != "characters" || el.Spend.Cap != 0 {
+		t.Fatalf("elevenlabs connector = %+v", el)
+	}
+	raw, _ := os.ReadFile(cfg)
+	for _, l := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "cap:") {
+			t.Errorf("the entry carries a cap: %q", l)
+		}
+	}
+	if strings.Contains(string(raw), ".kling") {
+		t.Error("the entry names the Kling CLI's own files")
+	}
+	for _, step := range []string{"npm i -g @klingai/cli-global", "kling login in your own", "security add-generic-password -s elevenlabs-api", "consent: noted"} {
+		assertContains(t, s, step)
+	}
 	if _, err := proj.WorkflowFor("Video"); err != nil {
 		t.Fatalf("department workflow: %v", err)
 	}
@@ -130,10 +159,12 @@ func TestVideoDepartmentLintClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	wf := filepath.Join("workflows", "video.yaml")
-	var missing int
+	var missing, noCap int
 	for _, f := range rep.Findings {
 		switch {
 		case isTemplateSample(f), isGoalWithoutWork(f):
+		case f.Check == "departments" && strings.Contains(f.Message, "spend: has no cap: every billing call is refused until the owner writes one"):
+			noCap++
 		case strings.Contains(f.Where, wf) || strings.Contains(f.Message, "video.yaml"):
 			t.Errorf("finding in the video workflow: %+v", f)
 		case f.Check == "departments" && strings.Contains(f.Message, "partner OpenMontage: path "+studio+" is not a folder"):
@@ -144,6 +175,10 @@ func TestVideoDepartmentLintClean(t *testing.T) {
 	}
 	if missing != 1 {
 		t.Errorf("want the one 'install the partner there' finding, got %d in %+v", missing, rep.Findings)
+	}
+	// The reel connectors ship without a cap, the owner's number.
+	if noCap != 2 {
+		t.Errorf("want kling's and elevenlabs's 'no cap' findings, got %d in %+v", noCap, rep.Findings)
 	}
 }
 

@@ -3,6 +3,7 @@ package tracker
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -30,18 +31,23 @@ func TestNewestHandoffNote(t *testing.T) {
 }
 
 func TestLeadsSurviveCloneAndSchema(t *testing.T) {
-	wf := &WorkflowConfig{Leads: LeadsConfig{Project: "P", ProjectAddendum: "A", Epic: "E", GreenBranchMinutes: 45}}
-	if got := wf.Clone().Leads; got != wf.Leads {
+	wf := &WorkflowConfig{Leads: LeadsConfig{Project: "P", ProjectAddendum: "A", Epic: "E", GreenBranchMinutes: 45, IdleMinutes: 90, Tools: []string{"Artifact"}, Setup: "lean"}}
+	c := wf.Clone()
+	if got := c.Leads; !reflect.DeepEqual(got, wf.Leads) {
 		t.Fatalf("Clone dropped leads: %+v", got)
+	}
+	c.Leads.Tools[0] = "changed"
+	if wf.Leads.Tools[0] != "Artifact" {
+		t.Fatal("Clone shares leads.tools with the original")
 	}
 	var found bool
 	for _, sec := range WorkflowSchemaSections() {
-		if sec.Path == "leads" && len(sec.Fields) == 4 {
+		if sec.Path == "leads" && len(sec.Fields) == 7 {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("help schema has no leads section with project_addendum/project/epic/green_branch_minutes")
+		t.Fatal("help schema has no leads section with project_addendum/green_branch_minutes/idle_minutes/tools/setup/project/epic")
 	}
 }
 

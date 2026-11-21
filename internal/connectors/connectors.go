@@ -199,6 +199,9 @@ type Record struct {
 	MS        int64     `json:"ms"`
 	// Optional is each optional secret, set or not, when the check ran.
 	Optional []OptionalSecret `json:"optional,omitempty"`
+	// Detail is what a built-in check read, in a line (an ElevenLabs
+	// plan and its credits left); never a secret.
+	Detail string `json:"detail,omitempty"`
 }
 
 // OptionalSecret is one optional secret's env var and whether it was set.
@@ -220,6 +223,15 @@ func RunCheck(ctx context.Context, dept string, c *tracker.Connector, now func()
 		if s.Optional && s.Err == "" {
 			r.Optional = append(r.Optional, OptionalSecret{Var: s.Var, Set: s.Set})
 		}
+	}
+	if c.BuiltinCheck() {
+		start := time.Now()
+		r.Result, r.Detail = CheckElevenLabs(ctx, c)
+		r.MS = time.Since(start).Milliseconds()
+		if r.Result == ResultFailing {
+			r.Exit = 1
+		}
+		return r
 	}
 	if strings.TrimSpace(c.Check) == "" {
 		r.Result = ResultNoCheck
@@ -326,6 +338,10 @@ type Status struct {
 	// ToolsSaved is when a url: tool's copy of its server's tools was last
 	// saved: with one, a session starts the tool at its first call.
 	ToolsSaved *time.Time `json:"tools_saved,omitempty"`
+	// Spend is a spend: connector's month against its cap; Voices its
+	// voices: (placement, voice id, who and consent; ids aren't secrets).
+	Spend  *SpendState     `json:"spend,omitempty"`
+	Voices []tracker.Voice `json:"voices,omitempty"`
 }
 
 // RunWords is a per_run: tool's state: "starts per run, stopped" or
@@ -361,6 +377,8 @@ func (s Status) Problem() string {
 		return "start failing"
 	case s.Last != nil && (s.Last.Result == ResultFailing || s.Last.Result == ResultMissing):
 		return "check failing"
+	case s.Spend != nil && s.Spend.Problem() != "":
+		return s.Spend.Problem()
 	}
 	return ""
 }
@@ -370,6 +388,8 @@ func (s Status) Problem() string {
 func List(p *tracker.Project, dept string) []Status {
 	checks := LoadChecks(p)
 	runs := LoadRuns(p)
+	var spend []SpendRecord
+	now := time.Now()
 	var out []Status
 	for _, d := range p.Departments {
 		if dept != "" && tracker.DepartmentKey(d.Name) != tracker.DepartmentKey(dept) {
@@ -379,7 +399,7 @@ func List(p *tracker.Project, dept string) []Status {
 			addr := tracker.ConnectorAddress(d.Name, c.Name)
 			s := Status{Department: d.Name, Key: tracker.DepartmentKey(d.Name), Name: c.Name, Address: addr, Kind: c.Kind,
 				Secrets: c.SecretStates(), Sends: c.Sends, DenyTools: c.DeniedTools(), Note: c.Note,
-				NeedsApprovedOutput: c.NeedsApprovedOutput, ReadTools: c.ReadToolNames(), At: c.At, HasCheck: strings.TrimSpace(c.Check) != ""}
+				NeedsApprovedOutput: c.NeedsApprovedOutput, ReadTools: c.ReadToolNames(), At: c.At, HasCheck: c.HasCheck()}
 			s.Missing = len(c.Missing()) > 0
 			if c.Kind == tracker.ConnectorRest {
 				s.Get = RestPatterns(&c)
@@ -387,6 +407,13 @@ func List(p *tracker.Project, dept string) []Status {
 			if r, ok := checks[addr]; ok {
 				s.Last = &r
 			}
+			if c.Spend != nil {
+				if spend == nil {
+					spend = LoadSpend(p)
+				}
+				s.Spend = SpendFor(spend, addr, &c, now)
+			}
+			s.Voices = c.Voices
 			if c.PerRun != nil {
 				s.PerRun = true
 				s.Running, s.Holders = Up(p, d.Name, &c)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/leaks"
 	"github.com/kacperwerema/dark-factory/internal/tmuxguard"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -24,6 +25,9 @@ func TestMain(m *testing.M) {
 	scanPaneLimits = func(*tracker.Project, string, time.Time) []agentrun.PaneLimit { return nil }
 	scanPaneStalls = func(*tracker.Project, string, time.Time) []agentrun.PaneStall { return nil }
 	sessionAgent = func(*tracker.Project, string) string { return "" }
+	// Nor its processes' RSS or the shared server's lead sessions.
+	recordLongLived = func(time.Time) error { return nil }
+	readLongLived = func([]*tracker.Project, time.Time) leaks.LongReport { return leaks.LongReport{} }
 	// Every tmux the tests start reaches a private server, and no test reads
 	// the owner's Codex or Claude Code folders (internal/tmuxguard).
 	cleanupTmux := tmuxguard.Isolate()

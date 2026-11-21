@@ -1,0 +1,1 @@
+`issue-cli reel render` copies each reel's clips and logo into a `reel-<name>/` folder here, where the compositions read them with `staticFile()`. These folders are made again on every render: don't keep your own files in them.

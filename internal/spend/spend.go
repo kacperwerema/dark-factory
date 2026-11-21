@@ -349,6 +349,8 @@ func Load(p *tracker.Project, issues []*tracker.Issue, now time.Time, opt Option
 type owner struct {
 	box   string
 	issue *tracker.Issue
+	// lead marks the CEO's or a department or group lead's session name.
+	lead bool
 }
 
 // boxDef is one box of a project: key, name, group and budget.
@@ -390,9 +392,9 @@ func attributionOf(p *tracker.Project, issues []*tracker.Issue) attribution {
 		}
 		return Product
 	}
-	at.names = map[string]owner{tracker.LeadSessionName(p): {box: HQ}}
+	at.names = map[string]owner{tracker.LeadSessionName(p): {box: HQ, lead: true}}
 	for _, d := range p.Departments {
-		at.names[tracker.DepartmentLeadName(p, d.Name)] = owner{box: tracker.DepartmentKey(d.Name)}
+		at.names[tracker.DepartmentLeadName(p, d.Name)] = owner{box: tracker.DepartmentKey(d.Name), lead: true}
 	}
 	for _, issue := range issues {
 		o := owner{box: at.boxOf(issue), issue: issue}
@@ -602,6 +604,20 @@ type fileRead struct {
 	// compactions are when the session's context was compacted
 	// (compact_boundary records).
 	compactions []time.Time
+	// chars is the first request by part, read on first use (spend
+	// --context only).
+	chars     *floorChars
+	charsRead bool
+}
+
+// floorChars is the file's first request by part, read once.
+func (fr *fileRead) floorChars(path string) *floorChars {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	if !fr.charsRead {
+		fr.chars, fr.charsRead = readFloorChars(path), true
+	}
+	return fr.chars
 }
 
 var (

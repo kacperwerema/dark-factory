@@ -380,3 +380,24 @@ func TestLint_LeadsProjectReplacesTheDefault(t *testing.T) {
 		t.Errorf("blank leads.project: lint = %q", got)
 	}
 }
+
+// leads: setup: and tools: take only what a lead launch can use.
+func TestLint_LeadsSetup(t *testing.T) {
+	wf := WorkflowConfig{Leads: LeadsConfig{Setup: "half", Tools: []string{"Artifact", "Bash"}}}
+	got := strings.Join(wf.Lint(), "\n")
+	for _, want := range []string{`leads.setup "half" is neither lean nor full`, `leads.tools "Bash" is not a tool leads: can keep (Artifact, Workflow, SendFeedback, ReportFindings)`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lint = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, `"Artifact"`) {
+		t.Errorf("lint names a tool leads: can keep: %q", got)
+	}
+	wf.Leads = LeadsConfig{Setup: "full", Tools: []string{"artifact"}}
+	if got := wf.Lint(); got != nil {
+		t.Errorf("good leads: lint = %q", got)
+	}
+	if !wf.Leads.LeadSetupFull() || len(wf.Leads.LeadToolsDropped()) != 3 {
+		t.Errorf("full %v, dropped %v", wf.Leads.LeadSetupFull(), wf.Leads.LeadToolsDropped())
+	}
+}

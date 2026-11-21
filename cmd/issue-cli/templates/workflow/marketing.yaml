@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: marketing@v0.64.0
+template: marketing@v0.65.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -14,6 +14,7 @@ features:
     - competitor-scan@v0.63.0
     - keyword-research@v0.61.0
     - measure-after-publish@v0.58.0
+    - page-rules@v0.65.0
     - report-type@v0.61.0
     - seo-baseline@v0.61.0
     - social-channel@v0.61.0
@@ -245,6 +246,7 @@ transitions:
         body: |
           - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
           - [ ] Facts, names and links checked
+          - [ ] Page rules: <title> at most 60 characters with the brand suffix, primary phrase first, and the page served with charset=utf-8; checked by issue-cli page-check <url> (or "no page yet" when it has no URL before publish)
   - from: "draft"
     to: "owner review"
     actions:
@@ -827,6 +829,7 @@ types:
               - [ ] JSON-LD (organization, product, article, FAQ) with true facts only: no price without a price list, no ratings, FAQ entries the same as the visible FAQ; checked by the test (each block parses, FAQ matches)
               - [ ] An Open Graph image 1200×630 rendered from code, and llms.txt; checked by the test (the PNG's size)
               - [ ] The app or sign-in subdomain sends X-Robots-Tag: noindex on every response (not Disallow: /, which hides the header from crawlers); checked by a test or curl -I
+              - [ ] Page rules: every text response (HTML, sitemap.xml, robots.txt, llms.txt) sends Content-Type with charset=utf-8, and the article template keeps <title> at most 60 characters with the brand suffix, primary phrase first; checked by issue-cli page-check <site>/sitemap.xml
           - type: "append_section"
             title: "Waitlist"
             body: |

@@ -16,8 +16,8 @@ import (
 // Worker setup (docs/agent-dispatch.md "Worker setup"): an issue's Claude
 // Code worker starts with only what workflow.yaml workers: names plus its
 // department's connectors, instead of every MCP server, plugin and skill of
-// the owner's Claude Code. Leads, codex and workers: setup: full launch as
-// before. Nothing here writes the owner's own Claude Code files: the
+// the owner's Claude Code. Leads have their own lean setup (lead_setup.go);
+// codex and workers: setup: full launch as before. Nothing here writes the owner's own Claude Code files: the
 // session gets its own mcp.json and settings.json in its log dir.
 
 // claudeAIConnectorsOff is the session env that keeps claude.ai connectors
@@ -157,7 +157,12 @@ func workerDisallowed(connectorOff string, dropped []string) string {
 	return strings.Join(list, ",")
 }
 
-type workersKeep struct{ plugins, skills []string }
+// workersKeep is what WorkerSettings leaves on: plugins and skills by
+// name, or every plugin (allPlugins: a lead's settings name none).
+type workersKeep struct {
+	plugins, skills []string
+	allPlugins      bool
+}
 
 // workerOff counts what WorkerSettings turned off.
 type workerOff struct {
@@ -166,7 +171,12 @@ type workerOff struct {
 }
 
 func (o workerOff) summary(toolsOff []string) string {
-	s := fmt.Sprintf("plugins off %d, skills off %d", o.plugins, o.skills)
+	return fmt.Sprintf("plugins off %d, %s, claude.ai connectors off", o.plugins, o.skillsAndTools(toolsOff))
+}
+
+// skillsAndTools is the skills and tools part of summary.
+func (o workerOff) skillsAndTools(toolsOff []string) string {
+	s := fmt.Sprintf("skills off %d", o.skills)
 	if o.listed > 0 {
 		s += fmt.Sprintf(" (%d listed by Claude Code)", o.listed)
 	}
@@ -176,7 +186,7 @@ func (o workerOff) summary(toolsOff []string) string {
 	if len(toolsOff) > 0 {
 		s += ", " + strings.Join(toolsOff, ", ") + " off"
 	}
-	return s + ", claude.ai connectors off"
+	return s
 }
 
 // WorkerSettings is the --settings document turning off every plugin the
@@ -194,7 +204,7 @@ func WorkerSettings(root, workDir, logsRoot string, keep workersKeep) (map[strin
 	var off workerOff
 	plugins := map[string]bool{}
 	for _, id := range connectors.OwnerPlugins(root, workDir) {
-		if !slices.Contains(keep.plugins, id) {
+		if !keep.allPlugins && !slices.Contains(keep.plugins, id) {
 			plugins[id] = false
 			off.plugins++
 		}

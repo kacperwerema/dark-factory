@@ -124,11 +124,17 @@ func TestShareDeps(t *testing.T) {
 		t.Errorf("the step says why nothing was shared:\n%s", depSteps(steps))
 	}
 
-	// worktree_deps: own links nothing.
+	// worktree_deps: own links nothing: the tree gets its own copy.
 	zwt := filepath.Join(repo, ".worktrees", "z")
-	EnsureWorktree(repo, tracker.WorktreeSpec{Path: zwt, Branch: "work/z", StartPoint: "main"}, &tracker.WorkflowConfig{WorktreeDeps: "own"})
-	if _, err := os.Lstat(filepath.Join(zwt, "node_modules")); err == nil {
-		t.Error("worktree_deps: own still linked")
+	_, steps, _ = EnsureWorktree(repo, tracker.WorktreeSpec{Path: zwt, Branch: "work/z", StartPoint: "main"}, &tracker.WorkflowConfig{WorktreeDeps: "own"})
+	if fi, err := os.Lstat(filepath.Join(zwt, "node_modules")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("worktree_deps: own: want the tree's own node_modules folder, got %v %v:\n%s", fi, err, depSteps(steps))
+	}
+	// With a worktree_setup, own leaves the install to it.
+	swt := filepath.Join(repo, ".worktrees", "s")
+	EnsureWorktree(repo, tracker.WorktreeSpec{Path: swt, Branch: "work/s", StartPoint: "main"}, &tracker.WorkflowConfig{WorktreeDeps: "own", WorktreeSetup: "true"})
+	if _, err := os.Lstat(filepath.Join(swt, "node_modules")); err == nil {
+		t.Error("worktree_deps: own with a worktree_setup still placed node_modules")
 	}
 
 	// A real folder stays as it is.

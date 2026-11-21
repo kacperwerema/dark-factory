@@ -848,7 +848,19 @@ type entryConnector struct {
 	Optional []string          `yaml:"optional,flow,omitempty"`
 	Check    string            `yaml:"check,omitempty"`
 	Sends    bool              `yaml:"sends,omitempty"`
+	Spend    *entrySpend       `yaml:"spend,omitempty"`
 	Note     string            `yaml:"note,omitempty"`
+}
+
+// entrySpend is a metered connector's spend: block. A template carries no
+// cap: (the owner's number), so it isn't written until there is one.
+type entrySpend struct {
+	Meter  string   `yaml:"meter"`
+	Field  string   `yaml:"field,omitempty"`
+	Unit   string   `yaml:"unit,omitempty"`
+	Cap    float64  `yaml:"cap,omitempty"`
+	Free   []string `yaml:"free,flow,omitempty"`
+	Refuse []string `yaml:"refuse,flow,omitempty"`
 }
 
 type entryJob struct {
@@ -905,6 +917,9 @@ func renderEntry(t *Template, name, parent, workflow, prompt string, briefs map[
 		ec := entryConnector{Name: c.Name, Kind: c.Kind, Command: fill(c.Command), URL: c.URL, Headers: c.Headers, Secrets: c.Secrets, Optional: c.Optional, Check: fill(c.Check), Sends: c.Sends, Note: c.Note}
 		for _, a := range c.Args {
 			ec.Args = append(ec.Args, fill(a))
+		}
+		if sp := c.Spend; sp != nil {
+			ec.Spend = &entrySpend{Meter: sp.Meter, Field: sp.Field, Unit: sp.Unit, Cap: sp.Cap, Free: sp.Free, Refuse: sp.Refuse}
 		}
 		e.Connectors = append(e.Connectors, ec)
 	}

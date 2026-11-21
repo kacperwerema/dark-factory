@@ -29,3 +29,36 @@ Licences:
   - Models: each has its own licence (CogVideoX-2b Apache-2.0, CogVideoX-5b
     its own, SD 2.1 openrail++, Wan and LTX their own). Check each one you
     download before a video is used commercially.
+
+Reel connectors (paid, metered: docs/departments.md#spend-caps). Nothing is
+billed until you write a monthly cap for each, in this department's entry
+in projects.yaml:
+
+  1. Kling: npm i -g @klingai/cli-global, then kling login in your own
+     shell (agents never log in; the connector refuses login and logout).
+     Its terms: https://kling.ai (the CLI's own LICENSE).
+  2. ElevenLabs: keep the API key in your Keychain only:
+       security add-generic-password -s elevenlabs-api -a "$USER" -w
+  3. Caps, your numbers, per calendar month for this project:
+       - name: kling
+         spend: {meter: json, field: creditsConsumed, unit: credits, cap: <credits>, ...}
+       - name: elevenlabs
+         spend: {meter: elevenlabs, unit: characters, cap: <characters>}
+  4. Voices, by placement (a storyboard names the placement), under the
+     elevenlabs connector. To pick a library voice, listen to its preview
+     first (free, nothing billed):
+       issue-cli connector exec video/elevenlabs --as-owner -- voices search --language pl --gender female --commercial
+     A real person's voice (your clone, an actor) needs consent: noted,
+     where their consent is kept; until then it is refused:
+       voices:
+         - placement: narrator
+           voice_id: <from ElevenLabs>
+           name: "Owner (clone)"
+           real_person: "the owner"
+           consent: "<date>, own voice"
+         - placement: actor-1
+           voice_id: <id>
+           name: "Library voice"
+  5. Check: issue-cli connector check video/elevenlabs (free: the plan and
+     the credits left), issue-cli connectors video (spend against each cap,
+     voices with consent) and issue-cli health lint --check departments.

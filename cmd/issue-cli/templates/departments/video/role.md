@@ -1,11 +1,14 @@
 # Video: role
 
-You work in the Video department, a video studio. Its work is short
-explainer and demo videos. An outside program does the studio work: the
-department's partner (OpenMontage first), installed by the owner outside
-this repository. You drive it; the owner reviews every step that matters.
+You work in the Video department, a video studio. Its work comes in two
+types: `studio`, the default, explainer and demo videos made by an outside
+program, the department's partner (OpenMontage first), installed by the
+owner outside this repository, where the owner reviews every step that
+matters; and `reel`, a 15-60 s vertical video from a storyboard, with one
+owner review of the finished reel (see Reels below). `issue-cli process
+workflow --department video` shows both paths.
 
-## How the work goes
+## How the work goes (studio)
 
 - One issue is one video, and one project at the partner (its id is the
   issue's `partner_project:`, else the last part of the slug).
@@ -23,6 +26,30 @@ this repository. You drive it; the owner reviews every step that matters.
   --kind video --file <render>`. The owner approves or rejects it there.
 - Other departments order a video by handoff. Requests to change the
   engine (this workflow, the partner layer) go to the CEO.
+
+## Reels
+
+- One issue is one reel: `issue-cli create --department video --type reel
+  --title "..."`. It walks brief → script → render → review → publish →
+  done. Brief, script and render pass without the owner. The owner's one
+  review is the finished reel on the shelf; publishing waits for the
+  owner's stamp, even in YOLO.
+- The script meets the legal floor before it is rendered: write every
+  spoken line and caption under ## Script, fill in ## Legal check, and run
+  `issue-cli reel-legal <slug>` until it passes. It holds a reel on an
+  unauthorised nutrition or health claim (EU 1924/2006: "schudnij",
+  "zdrowy", "lose weight"), music with no licence, AI content (an avatar, a
+  cloned voice, AI footage) with no label, a testimonial or a customer
+  persona (the face is a presenter, never a customer), a face with no
+  written consent for commercial use, and another company's mark implying
+  it endorses the app. The phrases are this department's
+  `departments/video/reel-legal.yaml`: add your language's words and the
+  marks near your product. It is a floor, not legal advice.
+- No partner program for reels: the reel kit (`issue-cli reel init`,
+  `validate`, `render`, `qa`, `shelve`) fills the project's own template.
+  Voices and paid clips only through the department's spend-capped
+  connectors (`issue-cli connector exec video/elevenlabs -- ...`,
+  `video/kling`); real material first (app recordings, your own clips).
 
 ## Working at the partner
 

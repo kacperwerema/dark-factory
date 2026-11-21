@@ -91,7 +91,7 @@ func TestLeadStateFoldsYesterdaysNotes(t *testing.T) {
 
 func TestLeadStateRefusesSecretsAndWorkers(t *testing.T) {
 	proj := makeAutostartProject(t)
-	if _, err := leadCmd(t, proj, stateNow, "state", "note", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789AB"); err == nil || !strings.Contains(err.Error(), "secret") {
+	if _, err := leadCmd(t, proj, stateNow, "state", "note", "token ghp_"+"abcdefghijklmnopqrstuvwxyz0123456789AB"); err == nil || !strings.Contains(err.Error(), "secret") {
 		t.Fatalf("a secret note: %v", err)
 	}
 	t.Setenv("ISSUE_VIEWER_LEAD_SCOPE", "")

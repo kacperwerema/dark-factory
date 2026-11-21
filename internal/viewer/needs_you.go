@@ -161,6 +161,7 @@ func needsYouRowsWith(p *tracker.Project, color, prefix string, owner []WaitingI
 	rows = append(rows, decisionExpiryNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, machineNeedsYou(p, color, prefix, now)...)
 	rows = append(rows, diskNeedsYou(p, color, prefix, now)...)
+	rows = append(rows, longNeedsYou(p, color, prefix, now)...)
 	if n := unsentBugReports(); n > 0 {
 		rows = append(rows, WbQueueCard{
 			Kind: "bugs", Label: "Bug reports", Tone: "you",

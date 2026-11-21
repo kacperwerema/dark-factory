@@ -42,11 +42,25 @@ package's `TestMain` calls `internal/tmuxguard`, which drops `$TMUX` for the
 whole binary (`TestEveryTestBinaryDropsTMUX`) and points `CODEX_HOME` and
 `CLAUDE_CONFIG_DIR` at empty folders: a real agent CLI finds no login, and
 what it writes there fails the run (`TestNoTestReachesARealAgentCLI`), so a
-test that seems to pass can still exit 1 naming the CLI.
+test that seems to pass can still exit 1 naming the CLI. It also points
+`TMPDIR` at a private `$TMPDIR/dft-*` folder for the binary's run and removes
+it at exit: anything a test left in it (an `os.MkdirTemp("", …)` nobody
+removed, a package-level helper's folder) fails the binary with
+`tmuxguard: <pkg>.test left <name> in TMPDIR`
+(`TestTestBinaryLeavingATempEntryFails`). Make it with `t.TempDir`, or remove
+a folder shared by the whole binary in `TestMain` after `m.Run`. What test
+binaries share on purpose (internal/standin's warmed scripts) goes under
+`DF_SHARED_TMPDIR`.
 `CHECK_REAL_CODEX=1` gives codex its real home back
 (`TestRealCLIRunsNeedTheirSwitch`). A test that starts a stand-in agent CLI in
 a pane sets PATH inside the start command (`PATH=<bin>:$PATH; trap : INT;
-codex go`): `tmux -e PATH` doesn't survive the pane's login shell. A stand-in
+codex go`): `tmux -e PATH` doesn't survive the pane's login shell.
+`#{pane_current_command}` differs too: a pane started as `sleep 600` reads
+`sleep` on macOS, whose `/bin/sh` (bash) execs a lone command, but `sh` on
+Ubuntu, whose dash forks it and stays the pane's process. A test that waits for
+a pane to run its command starts it with `exec` (`exec sleep 600`, crewSession
+in crew_all_test.go), so the pane's own process is the command everywhere.
+A stand-in
 executable a test writes goes through `standin.Write` (internal/standin):
 macOS checks a fresh executable on its first exec, now and then for over
 10 s, and caches the result per file, so the helper keeps each distinct body

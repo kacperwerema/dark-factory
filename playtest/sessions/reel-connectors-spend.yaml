@@ -1,0 +1,33 @@
+session: reel-connectors-spend
+issue: factory/spend-capped-connectors-for-reels-elevenlabs-and-one-video-generation-api-keychain-keys-a-monthly-cap-the-connector-enforces
+title: Metered reel connectors - the room shows spend against the cap and the voices; no cap is the Needs you row
+scenario: reel-connectors
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    proves: [AC5]
+    title: Kling reads 0 / 500 credits this month (an earlier month doesn't count), ElevenLabs "no cap set", voices with consent noted or missing
+    setup:
+      - open: /p/acme/company?classic=1
+      - click: company.room.connectors
+    checks:
+      - visible: [company.room.connectors, company.room.connector.spend, company.room.connector.voice]
+      - text_contains: { target: company.room.connectors, text: "0 / 500 credits this month" }
+      - text_contains: { target: company.room.connectors, text: "0 characters this month" }
+      - text_contains: { target: company.room.connectors, text: "no cap set" }
+      - text_contains: { target: company.room.connectors, text: "voice narrator: Owner (clone) · the owner's voice, consent noted" }
+      - text_contains: { target: company.room.connectors, text: "voice actor-1: Actor · an actor's voice, consent missing" }
+      - text_contains: { target: company.room.connectors.failing, text: "failing" }
+      - http:
+          path: /p/acme/connectors.json?dept=video
+          status: 200
+          body_contains: '"cap":500'
+      - http:
+          path: /p/acme/needs-you
+          status: 200
+          body_contains: "Video: elevenlabs no spend cap set"

@@ -169,3 +169,36 @@ func TestVideoWithoutPoster(t *testing.T) {
 		t.Error("a player for a missing video")
 	}
 }
+
+// A reel's QA report kept beside the video (output add --report, issue-cli
+// reel shelve) shows under the player in the reader.
+func TestVideoReportShowsUnderThePlayer(t *testing.T) {
+	a, _ := shelfProject(t)
+	t.Setenv("PATH", t.TempDir())
+	dir := t.TempDir()
+	video, report := filepath.Join(dir, "reel.mp4"), filepath.Join(dir, "reel.mp4.qa.md")
+	if err := os.WriteFile(video, []byte("mp4"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(report, []byte("## Reel QA: pass\n\n| Check | Result |\n|---|---|\n| loudness | pass |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o, err := outputs.Add(&a, outputs.AddInput{Department: "marketing", Title: "Reel", Kind: "video", File: video, Report: report, Issue: "ui/child"}, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/p/agents/shelf/read/"+o.ID)
+	assertContains(t, html, `data-testid="odoc.report"`, `Reel QA: pass`, `<td>loudness</td>`)
+
+	// Without a report, no block.
+	v2, _ := videoShelf(t, false)
+	ts2 := newTestServer(t, []tracker.Project{v2})
+	defer ts2.Close()
+	list, _ := outputs.Load(&v2)
+	_, html = getBody(t, ts2.URL+"/p/agents/shelf/read/"+list[0].ID)
+	if strings.Contains(html, `odoc.report`) {
+		t.Error("a report block without a report")
+	}
+}

@@ -33,6 +33,8 @@ type DepLink struct {
 	State string
 	// Lock is the lock file that decides, relative to the checkout.
 	Lock string
+	// Err is why a DepFailed folder was not made.
+	Err string
 }
 
 // The DepLink states.
@@ -42,6 +44,8 @@ const (
 	DepOwn      = "own"       // the worktree has its own node_modules folder
 	DepLockDiff = "lock-diff" // the lock file differs: nothing linked
 	DepOther    = "other"     // a link somewhere else, left as it is
+	DepCopied   = "copied"    // CopyDeps made the worktree's own copy
+	DepFailed   = "failed"    // the link or copy could not be made (Err)
 )
 
 // MainDepDirs is every folder (relative, "." for the root) under main that
@@ -101,8 +105,25 @@ func sameFile(a, b string) bool {
 // .gitignore that says node_modules/ ignores folders, not links), it adds
 // node_modules to the repository's info/exclude.
 func ShareDeps(main, wt string) []DepLink {
+	return placeDeps(main, wt, DepLinked, func(target, link string) error {
+		return os.Symlink(target, link)
+	})
+}
+
+// CopyDeps is ShareDeps for worktree_deps: own: where ShareDeps would link,
+// it makes the worktree's own copy of the main checkout's folder instead (a
+// clone on APFS: no download, and an install in the worktree writes only
+// into its copy, never into the main checkout's).
+func CopyDeps(main, wt string) []DepLink {
+	return placeDeps(main, wt, DepCopied, func(target, link string) error {
+		_, err := ci.CloneDir(target, link)
+		return err
+	})
+}
+
+func placeDeps(main, wt, done string, place func(target, link string) error) []DepLink {
 	var out []DepLink
-	linked := false
+	placed := false
 	for _, d := range MainDepDirs(main) {
 		if _, err := os.Stat(filepath.Join(wt, d, "package.json")); err != nil {
 			continue
@@ -131,16 +152,37 @@ func ShareDeps(main, wt string) []DepLink {
 			out = append(out, dl)
 			continue
 		}
-		if err := os.Symlink(target, link); err != nil {
+		if err := place(target, link); err != nil {
+			dl.State, dl.Err = DepFailed, err.Error()
+			out = append(out, dl)
 			continue
 		}
-		dl.State, linked = DepLinked, true
+		dl.State, placed = done, true
 		out = append(out, dl)
 	}
-	if linked {
+	if placed {
 		excludeLinks(wt)
 	}
 	return out
+}
+
+// MissingDeps is each folder (relative) the main checkout has a
+// node_modules for, ruled by a lock file, where the worktree wt has the
+// package.json but no node_modules: a tree whose scripts can't run yet.
+func MissingDeps(main, wt string) []string {
+	var missing []string
+	for _, d := range MainDepDirs(main) {
+		if _, err := os.Stat(filepath.Join(wt, d, "package.json")); err != nil {
+			continue
+		}
+		if lockFor(main, d) == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(wt, d, "node_modules")); err != nil {
+			missing = append(missing, depName(d))
+		}
+	}
+	return missing
 }
 
 func pointsTo(link, target string) bool {
@@ -192,9 +234,13 @@ func DepsStep(main string, links []DepLink) (Step, bool) {
 	if len(links) == 0 {
 		return Step{}, false
 	}
-	var linked, shared, diff []string
+	var linked, shared, copied, diff, failed []string
 	for _, l := range links {
 		switch l.State {
+		case DepCopied:
+			copied = append(copied, depName(l.Dir))
+		case DepFailed:
+			failed = append(failed, depName(l.Dir)+" ("+l.Err+")")
 		case DepLinked:
 			linked = append(linked, depName(l.Dir))
 		case DepShared:
@@ -207,8 +253,14 @@ func DepsStep(main string, links []DepLink) (Step, bool) {
 	if len(linked) > 0 {
 		parts = append(parts, fmt.Sprintf("linked %s to the main checkout's (%s), lock file unchanged", strings.Join(linked, ", "), main))
 	}
+	if len(copied) > 0 {
+		parts = append(parts, fmt.Sprintf("made %s this worktree's own copy of the main checkout's (%s), lock file unchanged", strings.Join(copied, ", "), main))
+	}
 	if len(shared) > 0 {
 		parts = append(parts, "already shared: "+strings.Join(shared, ", "))
+	}
+	if len(failed) > 0 {
+		parts = append(parts, "not made, install in the worktree: "+strings.Join(failed, ", "))
 	}
 	if len(diff) > 0 {
 		parts = append(parts, "not shared, install in the worktree: "+strings.Join(diff, ", "))

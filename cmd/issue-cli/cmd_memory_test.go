@@ -531,7 +531,7 @@ func TestLeadScopeStaysInTheProjectAndRefusesSecrets(t *testing.T) {
 	memoryAs(t, "")
 	proj := goalsProject(t)
 	ctx, _ := goalsCtx(t, proj, false)
-	if err := runMemory(ctx, []string{"add", "--scope", "lead", "ghp_0123456789abcdefghijABCDEFGHIJ012345 opens the release"}); err == nil || !strings.Contains(err.Error(), "secret") {
+	if err := runMemory(ctx, []string{"add", "--scope", "lead", "ghp_" + "0123456789abcdefghijABCDEFGHIJ012345 opens the release"}); err == nil || !strings.Contains(err.Error(), "secret") {
 		t.Fatalf("a secret = %v", err)
 	}
 	if err := runMemory(ctx, []string{"add", "--scope", "lead", "read the newest handoff note first"}); err != nil {

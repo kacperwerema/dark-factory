@@ -43,9 +43,10 @@ import (
 // points TMUX_TMPDIR at a fresh folder under /tmp (not os.TempDir: under
 // macOS's deep temp dir a socket path passes the ~104-byte limit). The
 // cleanup it returns kills that folder's server by its -S socket, with TMUX
-// removed from the kill's environment, and removes the folder. It exits the
-// binary with status 1 when a test reached a real agent CLI, whatever m.Run
-// returned: call it after m.Run.
+// removed from the kill's environment, and removes the folder. TMPDIR points
+// at a private folder for the binary's run (tmpdir.go). The cleanup exits
+// the binary with status 1 when a test reached a real agent CLI or left
+// anything in that folder, whatever m.Run returned: call it after m.Run.
 func Isolate() (cleanup func()) {
 	os.Unsetenv("TMUX")
 	os.Unsetenv("TMUX_PANE")
@@ -55,6 +56,21 @@ func Isolate() (cleanup func()) {
 	dropWorkerEnv()
 	quietGit()
 	SweepStale("/tmp", time.Now())
+	temp, restoreTemp := privateTemp()
+	// finishTemp lists what the tests left in the private temp folder,
+	// removes it and fails the binary when a test left anything.
+	finishTemp := func() {
+		if temp == "" {
+			return
+		}
+		left := TempLeft(temp)
+		restoreTemp()
+		_ = os.RemoveAll(temp)
+		if len(left) > 0 {
+			fmt.Fprint(os.Stderr, tempLeftMessage(left))
+			os.Exit(1)
+		}
+	}
 	dir, err := os.MkdirTemp("/tmp", "tmg-")
 	if err != nil {
 		// No private folder: still never the developer's server. A tmux
@@ -62,7 +78,10 @@ func Isolate() (cleanup func()) {
 		none := filepath.Join("/tmp", "tmg-none-"+strconv.Itoa(os.Getpid()))
 		os.Setenv("TMUX_TMPDIR", none)
 		guardAgentCLIs(none)
-		return testbin.Cleanup
+		return func() {
+			testbin.Cleanup()
+			finishTemp()
+		}
 	}
 	os.Setenv("TMUX_TMPDIR", dir)
 	realHomes := realTempHomes()
@@ -80,6 +99,7 @@ func Isolate() (cleanup func()) {
 		procs.StopHomes(append([]string{dir}, realHomes...), 2*time.Second)
 		_ = os.RemoveAll(dir)
 		testbin.Cleanup()
+		finishTemp()
 		if len(reached) > 0 {
 			fmt.Fprintf(os.Stderr, "tmuxguard: a test reached the real %s (no login, so nothing was spent). "+
 				"A stand-in in a pane needs PATH inside its start command (PATH=<bin>:$PATH; trap : INT; codex go): "+

@@ -81,6 +81,18 @@ type WbConnectorRow struct {
 	Check, Tone string
 	// Run is a per_run: tool's state, "starts per run, stopped".
 	Run string
+	// Spend is a spend: connector's month against its cap, nil for others.
+	Spend *WbConnectorSpend
+	// Voices are its voices, one line each ("voice narrator: …").
+	Voices []string
+}
+
+// WbConnectorSpend is one metered connector's month: "120 / 500 credits this month
+// (2026-11)", the bar's percent, and Tone red at the cap or with no cap.
+type WbConnectorSpend struct {
+	Words string
+	Pct   int
+	Tone  string
 }
 
 // WbSecret is one secret's env var, reference and state.
@@ -118,6 +130,19 @@ func roomConnectors(p *tracker.Project, prefix, dept string, now time.Time) *WbC
 			case connectors.ResultMissing:
 				row.Check, row.Tone = "✗ "+row.Check, "red"
 			}
+		}
+		if st := s.Spend; st != nil {
+			sp := &WbConnectorSpend{Words: st.Words(), Tone: "green"}
+			if st.Cap > 0 {
+				sp.Pct = int(min(100, st.Spent*100/st.Cap))
+			}
+			if st.AtCap() {
+				sp.Tone = "red"
+			}
+			row.Spend = sp
+		}
+		for _, v := range s.Voices {
+			row.Voices = append(row.Voices, voiceWords(v))
 		}
 		if s.Failing() {
 			out.Failing++
@@ -223,4 +248,21 @@ func (s *Server) handleConnectorsJSON(w http.ResponseWriter, r *http.Request, pr
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(list)
+}
+
+// voiceWords is one voice for the room: placement, name, and a real
+// person's consent noted or missing.
+func voiceWords(v tracker.Voice) string {
+	name := v.Name
+	if name == "" {
+		name = v.VoiceID
+	}
+	w := "voice " + v.Placement + ": " + name
+	switch {
+	case v.NeedsConsent():
+		w += " · " + v.RealPerson + "'s voice, consent missing"
+	case strings.TrimSpace(v.RealPerson) != "":
+		w += " · " + v.RealPerson + "'s voice, consent noted"
+	}
+	return w
 }

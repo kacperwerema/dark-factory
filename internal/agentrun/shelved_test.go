@@ -120,3 +120,24 @@ func TestFinishedSessionsClosesShelvedReport(t *testing.T) {
 		t.Errorf("why = %q, want %q", f.Why, want)
 	}
 }
+
+// 2026-11-20: a finished report at idea, its output on the shelf, waits on
+// an open owner box: its session holds no slot either. One at idea with its
+// output but no owner box still has the worker's own work.
+func TestShelvedReportBeforeTheGateWaitsOnAnOwnerBox(t *testing.T) {
+	proj, _ := shelfProject(t, map[string][2]string{
+		"boxed":   {"idea", "report"},
+		"unboxed": {"idea", "report"},
+	}, "boxed", "unboxed")
+	body := "---\ntitle: \"boxed\"\nstatus: \"idea\"\ntype: \"report\"\n---\n\n## Research\n- [x] Gateways compared\n- [ ] Legal checklist, which items need a lawyer (owner)\n"
+	if err := os.WriteFile(filepath.Join(proj.IssueDir, "boxed.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shelved := ShelvedReports(proj, mustIssues(t, proj))
+	if r, ok := shelved[tracker.AgentSessionName("boxed")]; !ok || r.Status != "idea" {
+		t.Errorf("ShelvedReports = %+v, want boxed (an open owner box, output on the shelf)", shelved)
+	}
+	if _, ok := shelved[tracker.AgentSessionName("unboxed")]; ok {
+		t.Errorf("unboxed is before its gate with no owner box: its worker still has work (%+v)", shelved)
+	}
+}

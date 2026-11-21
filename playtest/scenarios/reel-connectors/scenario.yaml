@@ -1,0 +1,41 @@
+# Reel connectors: Video (system Reels) has the two metered connectors the
+# Video template ships. kling has a 500-credit cap and one spend line from
+# an earlier month, which doesn't count, so it reads 0 / 500 this month;
+# elevenlabs has no cap yet (the owner's number), so it reads "no cap set"
+# and is the Needs you row. Its voices: the owner's clone with consent, an
+# actor's voice without. Nothing here calls Kling or ElevenLabs.
+title: Video with metered reel connectors, one without a cap
+project:
+  name: Acme
+  slug: acme
+  extra: |
+    departments:
+      - name: Video
+        color: "#8B5CF6"
+        role: Reels for the app
+        systems: [Reels]
+        connectors:
+          - name: kling
+            kind: tool
+            command: kling
+            sends: true
+            spend: {meter: json, field: creditsConsumed, unit: credits, cap: 500}
+          - name: elevenlabs
+            kind: tool
+            url: https://api.elevenlabs.io
+            headers:
+              xi-api-key: env:HOME
+            sends: true
+            spend: {meter: elevenlabs, unit: characters}
+            voices:
+              - placement: narrator
+                voice_id: V1
+                name: Owner (clone)
+                real_person: the owner
+                consent: "2026-11-21, own voice"
+              - placement: actor-1
+                voice_id: V2
+                name: Actor
+                real_person: an actor
+issues: tracker
+workflow: workflow.yaml

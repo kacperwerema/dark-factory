@@ -20,10 +20,12 @@ workflow: sales-b2c
 # The partners catalog's slots this department fills: department add names
 # the tools listed for each (issue-cli department partners --slot <slot>)
 # and installs none of them.
-partner_slots: [analytics, email, support]
-# Visits for the weekly funnel review from Umami, and email for a launch
-# from SendPortal (it sends: held to the owner's approved output), written
-# into the department's entry commented out (the owner uncomments them).
+partner_slots: [analytics, email, support, payments]
+# Visits for the weekly funnel review from Umami, email for a launch from
+# SendPortal (it sends: held to the owner's approved output), and the
+# payments kit's two connectors for when the product charges (payments,
+# read-only; payments-refund, held like SendPortal), written into the
+# department's entry commented out (the owner uncomments them).
 connector_examples: connectors.example.yaml
 # The goals read the metrics file the weekly funnel review writes from real numbers
 # (connectors, or the owner's): no value until its first run. Targets are a

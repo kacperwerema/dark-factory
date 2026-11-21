@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
 	"github.com/kacperwerema/dark-factory/internal/spend"
@@ -117,6 +118,7 @@ func TestSpendContextPrintsBoxesAndTopSessions(t *testing.T) {
 	s := out.String()
 	assertContains(t, s, "Context per turn since 2026-10-22 (7 days; Claude Code transcripts on this machine, main sessions only)")
 	assertContains(t, s, "Workers: 1 session · 1 turn · floor 1.5M · turn median 1.5M, max 1.5M · 0 compactions · floor share 100% of 1.5M read")
+	assertContains(t, s, "Leads:   1 session · 1 turn · floor 2k")
 	assertContains(t, s, "== Marketing ==\n  1 session · 1 turn · floor 1.5M")
 	assertContains(t, s, "== HQ · incl. product, marketing ==\n  2 sessions · 2 turns · floor 2k")
 	assertContains(t, s, "Unattributed (yours): 1 session · 1 turn · floor 30")
@@ -155,4 +157,36 @@ func TestSpendContextPrintsBoxesAndTopSessions(t *testing.T) {
 	}
 	assertContains(t, out.String(), `"floor_share": 1`)
 	assertContains(t, out.String(), `"floor_tokens": 1500000`)
+}
+
+func TestSpendContextPrintsTheFloorByPart(t *testing.T) {
+	proj := goalsProject(t)
+	parts := &spend.FloorParts{System: 3300, Tools: 27200, MCP: 90, ClaudeMD: 4700, Skills: 9800, Brief: 9500, Other: 3000,
+		ToolSizes: []spend.NamedTokens{{Name: "Artifact", Tokens: 13100}, {Name: "mcp__srv__q", Tokens: 9000}, {Name: "SendFeedback", Tokens: 2000}, {Name: "Workflow", Tokens: 1900}, {Name: "Bash", Tokens: 1200}},
+		Files:     []spend.NamedTokens{{Name: spend.FileGlobal, Tokens: 2200}, {Name: spend.FileProject, Tokens: 1700}, {Name: spend.FileMemory, Tokens: 800}}}
+	lead := spend.ContextSession{Agent: "lead-acme", Lead: true, Start: time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC), Turns: 2, Floor: 60700, Parts: parts, Median: 61000, Max: 70000, Context: 130700}
+	stats := spend.SumContext([]spend.ContextSession{lead})
+	old := loadContext
+	loadContext = func(*Context, int) *spend.ContextReport {
+		return &spend.ContextReport{Days: 7, All: stats, Leads: stats, Top: []spend.ContextSession{lead},
+			Boxes: []*spend.ContextBox{{Key: "hq", Name: "HQ", ContextStats: stats, Top: []spend.ContextSession{lead}}}}
+	}
+	t.Cleanup(func() { loadContext = old })
+	ctx, out := goalsCtx(t, proj, false)
+	if err := runSpend(ctx, []string{"--context"}); err != nil {
+		t.Fatal(err)
+	}
+	split := "system 3.3k · tools 27.2k (Artifact 13.1k, SendFeedback 2k, Workflow 1.9k) · MCP 90 · CLAUDE.md 4.7k (global 2.2k, project 1.7k, memory 800) · skills 9.8k · brief 9.5k · other 3k"
+	assertContains(t, out.String(), "Leads:   1 session · 2 turns · floor 60.7k")
+	assertContains(t, out.String(), "\n         floor by part (median of 1 session, est. ±10%): "+split+"\n")
+	assertContains(t, out.String(), "  lead-acme  2 turns · floor 60.7k")
+	assertContains(t, out.String(), "\n      floor: "+split+"\n")
+	if strings.Contains(out.String(), "Workers: 0 sessions · 0 turns · floor 0 · turn median 0, max 0 · 0 compactions · 0 read\n         floor") {
+		t.Error("a floor-by-part line under workers without a split")
+	}
+	out.Reset()
+	if err := runSpend(ctx, []string{"--context", "hq"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, out.String(), "\n  floor by part (median of 1 session, est. ±10%): "+split+"\n")
 }

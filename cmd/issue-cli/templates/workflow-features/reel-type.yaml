@@ -1,0 +1,174 @@
+id: reel-type
+version: v0.65.0
+category: lifecycle
+propose: true
+templates: [video]
+requires: [types-of-work]
+sources: ["cmd/issue-cli/templates/workflow/video.yaml", "cmd/issue-cli/templates/departments/video/department.yaml", "cmd/issue-cli/templates/departments/video/role.md", "cmd/issue-cli/templates/departments/video/reel-legal.yaml", "internal/tracker/validations/reel_legal_check.go", "internal/reellegal/reellegal.go"]
+title: "Reel type: brief, script with a legal check, render, one owner review on the shelf, publish by the owner"
+what: |
+  Video's workflow gets two types of work: `studio` (the default, the partner
+  flow with its 6 owner_only gates, unchanged) and `reel` (brief → script →
+  render → review → publish → done), for 15-60 s vertical videos from a
+  storyboard filled into the project's own template (issue-cli reel ...).
+  Brief, script and render pass without the owner. script → render and render
+  → review run `reel_legal_check`: no unauthorised nutrition or health claim
+  (EU 1924/2006), licensed music, an AI label on AI content (EU AI Act art. 50),
+  no testimonial and a presenter persona (Omnibus), the face's written consent,
+  no implied trademark endorsement. The phrases are the project's own
+  `departments/<dept>/reel-legal.yaml` (department add video installs it).
+  review → publish waits for the owner's approval on the shelf (the review) and
+  an owner_only publish stamp; publish → done asks for no third approval.
+why: |
+  The studio flow asks the owner six times per video; a reel needs one review
+  of the finished video plus publishing (the reels epic's D-2). Reels advertise
+  products, so every script meets the legal floor before it is rendered, and the
+  check holds the reel instead of a box the worker ticks.
+where: "a new base status render, default_type and types: studio and reel in the department's workflow file"
+snippet: |
+  statuses:
+    # A new base status after compose; only the reel type walks it.
+    - name: "render"
+      description: "A reel's storyboard rendered, QA green, on the shelf"
+  board:
+    columns: [brief, proposal, script, scene plan, assets, compose, render, review, publish, done]
+
+  # Types of work (docs/Workflow/types.md). An issue without type: is a studio
+  # video; issue-cli create --department <dept> --type reel makes a reel.
+  default_type: studio
+  types:
+    studio:
+      description: "A long explainer or demo video made with the partner program; the owner reviews every stage (6 owner_only gates)"
+      path: [brief, proposal, script, scene plan, assets, compose, review, publish, done]
+
+    # A reel: one owner review of the finished video on the shelf, plus the
+    # publish stamp, which stays owner_only (reels epic D-2). No partner program:
+    # the reel kit (issue-cli reel init|validate|render|qa|shelve) fills the
+    # project's own template, and paid voices and clips come through the
+    # department's spend-capped connectors (elevenlabs, kling).
+    reel:
+      description: "A 15-60 s vertical reel from a storyboard: brief, script (legal check), render, the owner's review on the shelf, publish by the owner"
+      path: [brief, script, render, review, publish, done]
+      statuses:
+        - name: "brief"
+          prompt: |
+            Write the brief under ## Reel brief (issue-cli append <slug> --section "Reel brief" --body "..."): the topic and the one message, the audience, the length (15-60 s), where it goes (Instagram Reels, TikTok, Shorts), the template shape (hook plus list, before/after, app demo), the voice, and the call to action.
+            A reel another department asked for comes as a handoff: its ## Handoff section says who asked and why.
+            Then move to script: it appends ## Legal check for you to fill in.
+        - name: "script"
+          prompt: |
+            Write the script under ## Script (issue-cli append <slug> --section Script --body "..."): every spoken line and every on-screen caption, in order, with the length it reads at. The legal floor holds it, so write it that way from the start: no weight-loss or health promise unless it is an authorised claim, no first-person result ("I lost", "schudłam"): the face is a presenter, never a customer, and no other company's mark as if it endorsed the app.
+            Fill in ## Legal check, one line each (issue-cli append <slug> --section "Legal check" --replace '<old line>' --body '<new line>'): music and its licence, ai_content and ai_label, face, persona and the consent file, a disclaimer when a mark is named, and a claim: line for each authorised claim with its authorisation.
+            Check it: `issue-cli reel-legal <slug>` lists each finding with its fix, the same as the gate. Then move to render; the gate runs the check again and holds the reel on any finding. The phrases it looks for are the project's own: departments/<department>/reel-legal.yaml.
+        - name: "render"
+          prompt: |
+            Make the storyboard JSON for the script and the template shape (the reel kit's schema; `issue-cli reel validate <storyboard.json>`), and name it under ## Legal check (`storyboard: <path>`): render → review checks its narration and captions too.
+            Voice and paid clips come only through the department's connectors (`issue-cli connector exec <dept>/elevenlabs -- ...`, `issue-cli connector exec <dept>/kling -- ...`), which keep to the month's spend cap; real material first (app recordings, the project's own clips).
+            Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. A render starts a browser (Remotion's Chrome).
+            Render (`issue-cli reel render <storyboard.json> --out <mp4>`), run the QA (`issue-cli reel qa <mp4> --storyboard <storyboard.json>`) until it is green, and put it on the shelf with its QA report (`issue-cli reel shelve <mp4> --storyboard <storyboard.json> --title "..." --issue <slug>`). Tick ## Render, then move to review.
+        - name: "review"
+          prompt: |
+            Nothing is published. Say in chat where the reel is on the shelf, that the owner approves or rejects it there (the review), and that publishing it needs `publish` approval in the issue viewer, the owner's even in YOLO. Then end your turn. Don't wait or poll.
+            If the owner asks for changes, they leave a `revise:` comment (or reject it on the shelf with a note): go back to render (the picture, the voice, the timing) or to script (the words), and put the new version on the shelf (`issue-cli output revise <id> --file <mp4>`).
+            Once the newest version is approved on the shelf and the owner stamped `publish`, move to publish.
+        - name: "publish"
+          prompt: |
+            The owner approved this reel on the shelf and stamped publish. Post it where the brief says (or, when no connector posts there, say in chat that the owner posts it and end your turn) with the caption, the hashtags, the platform's AI label (when ## Legal check says ai_label: yes) and the disclaimer, exactly the approved version.
+            Mark it on the shelf (`issue-cli output publish <id> --url <link>`), tick ## Published with the link and move to done.
+      transitions:
+        - from: "brief"
+          to: "script"
+          actions:
+            - type: "validate"
+              rule: "has_section"
+              section: "Reel brief"
+              hint: "write the brief first: issue-cli append {{slug}} --section \"Reel brief\" --body \"...\""
+            - type: "append_section"
+              title: "Legal check"
+              body: |
+                - music: <none, or the track and where it is from>
+                - music_licence: <the licence that covers ads on Instagram and TikTok, when there is music>
+                - ai_content: <yes when any person, voice or footage is AI-made, else no>
+                - ai_label: <yes: the platform's AI label when it goes out, and a note on screen or in the caption>
+                - face: <none, avatar or real>
+                - persona: <presenter, when there is a face>
+                - consent: <path to the face's written consent for commercial use, when there is a face>
+                - disclaimer: <on-screen text, when the script names another company's mark>
+                - claim: <phrase> = <its authorisation, one line per authorised claim>
+                - storyboard: <path to the storyboard JSON, once it exists>
+        - from: "script"
+          to: "brief"
+          actions:
+            - type: "validate"
+              rule: "has_comment_prefix: revise:"
+        - from: "script"
+          to: "render"
+          actions:
+            # The legal floor: no owner here, the check holds the reel.
+            - type: "validate"
+              rule: "reel_legal_check"
+              section: "Script"
+              path: "departments/{{department}}/reel-legal.yaml"
+            - type: "append_section"
+              title: "Render"
+              body: |
+                - [ ] Storyboard valid (issue-cli reel validate <storyboard.json>) and named under ## Legal check (storyboard:)
+                - [ ] Rendered (issue-cli reel render <storyboard.json> --out <mp4>)
+                - [ ] QA green (issue-cli reel qa <mp4> --storyboard <storyboard.json>)
+                - [ ] On the shelf with its QA report (issue-cli reel shelve <mp4> --storyboard <storyboard.json> --title "..." --issue <slug>)
+        - from: "render"
+          to: "script"
+          actions:
+            - type: "validate"
+              rule: "has_comment_prefix: revise:"
+        - from: "render"
+          to: "review"
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Render"
+            - type: "validate"
+              rule: "has_output: video"
+            # Again, now with the storyboard's narration and captions.
+            - type: "validate"
+              rule: "reel_legal_check"
+              section: "Script"
+              path: "departments/{{department}}/reel-legal.yaml"
+        - from: "review"
+          to: "render"
+          actions:
+            - type: "validate"
+              rule: "has_comment_prefix: revise:"
+        - from: "review"
+          to: "script"
+          actions:
+            - type: "validate"
+              rule: "has_comment_prefix: revise:"
+        # The owner's two acts, both before anything goes out: the review (the
+        # newest version approved on the shelf) and the publish stamp, which
+        # YOLO never passes. publish → done then needs no third stamp.
+        - from: "review"
+          to: "publish"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "outputs_approved: video"
+              hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+            - type: "require_human_approval"
+              status: "publish"
+              owner_only: true # it publishes outside the machine: the owner's even in YOLO
+            - type: "append_section"
+              title: "Published"
+              body: |
+                - [ ] Caption, hashtags, the AI label and the disclaimer ready, as ## Legal check says
+                - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+        - from: "publish"
+          to: "done"
+          replace: true
+          actions:
+            - type: "validate"
+              rule: "section_checkboxes_checked: Published"
+question: "Should the Video department make reels too: a short-video type with a legal check on the script and one owner review of the finished reel on the shelf, publishing still the owner's?"
+detect:
+  - path: types.reel
+  - path: transitions[].actions[].rule
+    rule_in: [reel_legal_check]

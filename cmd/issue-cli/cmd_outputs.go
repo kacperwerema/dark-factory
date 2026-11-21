@@ -16,7 +16,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-const outputAddUsage = `usage: issue-cli output add --title "..." --kind <kind> (--url <link> | --file <file> | --path <repo path>) [--issue <slug>] [--department <name>] [--job <name>] [--note "..."]`
+const outputAddUsage = `usage: issue-cli output add --title "..." --kind <kind> (--url <link> | --file <file> | --path <repo path>) [--issue <slug>] [--department <name>] [--job <name>] [--note "..."] [--report <file>]`
 
 var outputCommand = &Command{
 	Name:      "output",
@@ -27,7 +27,7 @@ report or invoice an issue or a job made. It goes into
 it, and only an approved output is published.
 
   output add --title "..." --kind <kind> (--url <link> | --file <file> | --path <repo path>)
-             [--issue <slug>] [--department <name>] [--job <name>] [--note "..."]
+             [--issue <slug>] [--department <name>] [--job <name>] [--note "..."] [--report <file>]
       --file copies the file onto the shelf (<issues>/.outputs/files/, up to
       25 MB); --path links a file in the repo; --url an http(s) link. A
       --path that is not on the project's checkout but is in the issue's
@@ -37,7 +37,9 @@ it, and only an approved output is published.
       issue already has a file output of that title, it hints output revise.
       --kind video --file <.mp4|.webm> (up to 200 MB) plays in the shelf's
       reader and on the Station; with ffmpeg on PATH a poster (the frame at
-      1 s) is written next to it.
+      1 s) is written next to it. --report <file> keeps a file beside a
+      --file output (a reel's QA report: issue-cli reel shelve passes it);
+      a markdown report shows in the reader under the file.
   output list [<department>] [--department <name>] [--issue <slug>] [--state <state>]
       The shelf, as issue-cli outputs prints it (same rows, same filters).
   output review <id> approve|reject --quote "<the owner's words>" [--how "..."]
@@ -140,6 +142,7 @@ func runOutputAdd(ctx *Context, args []string) error {
 	dept := fs.String("department", "", "the department, when there is no --issue (default Product)")
 	job := fs.String("job", "", "the job that made it, when there is no issue")
 	note := fs.String("note", "", "a line about it")
+	report := fs.String("report", "", "a file to keep beside the --file output (a QA report)")
 	if err := parseFlags(ctx, fs, args); err != nil {
 		return err
 	}
@@ -150,7 +153,7 @@ func runOutputAdd(ctx *Context, args []string) error {
 	issues, _ := tracker.LoadIssues(p.IssueDir)
 	in := outputs.AddInput{
 		Title: normalizeEscapedText(*title), Kind: *kind, URL: *link, File: *file, Path: *path,
-		Job: *job, Note: normalizeEscapedText(*note), By: whoAmI(p, issues).sender(),
+		Job: *job, Note: normalizeEscapedText(*note), By: whoAmI(p, issues).sender(), Report: *report,
 	}
 	var issue *tracker.Issue
 	if *slug == "" && *dept == "" && *job == "" {
@@ -558,6 +561,9 @@ func printVideo(w io.Writer, p *tracker.Project, o *outputs.Output) {
 		fmt.Fprintf(w, "  poster  %s (frame at 1 s, ffmpeg)\n", filepath.ToSlash(filepath.Join(".outputs", "files", o.Poster)))
 	case o.PosterErr != nil:
 		fmt.Fprintf(w, "  poster  none: %v (the shelf shows 🎬; the player shows the video's first frame)\n", o.PosterErr)
+	}
+	if o.Report != "" {
+		fmt.Fprintf(w, "  report  %s (shown under the player)\n", filepath.ToSlash(filepath.Join(".outputs", "files", o.Report)))
 	}
 	fmt.Fprintf(w, "Plays at: %s\n", readerURL(p, o))
 }

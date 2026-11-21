@@ -1,0 +1,69 @@
+# The payments kit's built-in consent texts (docs/payments.md#consent-withdrawal-and-cancel).
+#
+# PLACEHOLDER WORDING, PENDING THE OWNER'S LAWYER'S REVIEW. Not for live use:
+# mode: live refuses a pack with placeholder: true. A project names its own
+# reviewed copy in payments.yaml (consent: texts: <file>) with placeholder:
+# false, reviewed_by and reviewed_on filled.
+#
+# Placeholders a text may use: {reference} {amount} {date} {deadline} {days}
+# {waiver_part} (confirmation_body only: confirmation_waived or _kept),
+# {withdraw_url} {cancel_url} {requested_at} {name} {email}.
+version: placeholder-2026-11-21
+placeholder: true
+reviewed_by: ""
+reviewed_on: ""
+langs:
+  pl:
+    waiver_checkbox: "Żądam rozpoczęcia dostarczania treści cyfrowej przed upływem terminu do odstąpienia od umowy i przyjmuję do wiadomości, że w ten sposób tracę prawo odstąpienia od umowy."
+    confirmation_subject: "Potwierdzenie zamówienia {reference}"
+    confirmation_body: "Dziękujemy za zamówienie {reference} z dnia {date} na kwotę {amount}.\n\n{waiver_part}\n\nOdstąpienie od umowy: {withdraw_url}"
+    confirmation_waived: "Potwierdzamy, że przed rozpoczęciem dostarczania treści cyfrowej wyraził(a) Pan/Pani wyraźną zgodę i przyjął(ęła) do wiadomości utratę prawa odstąpienia od umowy."
+    confirmation_kept: "Przysługuje Panu/Pani prawo odstąpienia od umowy w terminie {days} dni, do {deadline}, bez podania przyczyny."
+    confirmation_subscription: "Subskrypcję można anulować w każdej chwili: {cancel_url}"
+    withdraw_title: "Odstąpienie od umowy"
+    withdraw_intro: "Zamówienie {reference} z dnia {date}, {amount}. Termin na odstąpienie: {deadline}."
+    withdraw_button: "Odstąp od umowy tutaj"
+    withdraw_form_intro: "Oświadczam, że odstępuję od umowy {reference}. Potwierdzenie otrzymania wyślemy na podany adres e-mail."
+    withdraw_confirm_button: "Potwierdź odstąpienie od umowy"
+    withdraw_done: "Otrzymaliśmy Pana/Pani oświadczenie o odstąpieniu od umowy {reference} dnia {requested_at}. Potwierdzenie wyślemy na {email}."
+    withdraw_expired: "Termin na odstąpienie od umowy {reference} minął {deadline}."
+    withdraw_receipt_subject: "Potwierdzenie otrzymania odstąpienia od umowy {reference}"
+    withdraw_receipt_body: "Dzień dobry {name},\n\npotwierdzamy otrzymanie oświadczenia o odstąpieniu od umowy {reference} (zamówienie z dnia {date}, {amount}) dnia {requested_at}."
+    cancel_title: "Anulowanie subskrypcji"
+    cancel_intro: "Subskrypcja {reference}, {amount}."
+    cancel_button: "Anuluj subskrypcję"
+    cancel_form_intro: "Anulowanie zatrzyma kolejne płatności za subskrypcję {reference}."
+    cancel_confirm_button: "Potwierdź anulowanie subskrypcji"
+    cancel_done: "Subskrypcja {reference} została anulowana dnia {requested_at}."
+    cancel_receipt_subject: "Potwierdzenie anulowania subskrypcji {reference}"
+    cancel_receipt_body: "Potwierdzamy anulowanie subskrypcji {reference} dnia {requested_at}. Kolejne płatności nie zostaną pobrane."
+    field_name: "Imię i nazwisko"
+    field_email: "Adres e-mail"
+    field_contract: "Umowa (numer zamówienia)"
+  en:
+    waiver_checkbox: "I ask for the digital content to be supplied before the withdrawal period ends, and I acknowledge that I thereby lose my right of withdrawal."
+    confirmation_subject: "Order confirmation {reference}"
+    confirmation_body: "Thank you for your order {reference} of {date} for {amount}.\n\n{waiver_part}\n\nWithdraw from the contract: {withdraw_url}"
+    confirmation_waived: "We confirm that before the supply of the digital content began you gave your express consent and acknowledged that you lose your right of withdrawal."
+    confirmation_kept: "You may withdraw from the contract within {days} days, until {deadline}, without giving a reason."
+    confirmation_subscription: "You can cancel the subscription at any time: {cancel_url}"
+    withdraw_title: "Withdraw from the contract"
+    withdraw_intro: "Order {reference} of {date}, {amount}. Withdrawal period ends: {deadline}."
+    withdraw_button: "Withdraw from contract here"
+    withdraw_form_intro: "I hereby withdraw from contract {reference}. We will send the acknowledgement to the email address you give."
+    withdraw_confirm_button: "Confirm withdrawal"
+    withdraw_done: "We received your withdrawal from contract {reference} on {requested_at}. The acknowledgement goes to {email}."
+    withdraw_expired: "The withdrawal period for {reference} ended on {deadline}."
+    withdraw_receipt_subject: "Acknowledgement of your withdrawal {reference}"
+    withdraw_receipt_body: "Hello {name},\n\nwe acknowledge receipt of your withdrawal from contract {reference} (order of {date}, {amount}) on {requested_at}."
+    cancel_title: "Cancel the subscription"
+    cancel_intro: "Subscription {reference}, {amount}."
+    cancel_button: "Cancel subscription"
+    cancel_form_intro: "Cancelling stops further payments for subscription {reference}."
+    cancel_confirm_button: "Confirm cancellation"
+    cancel_done: "Subscription {reference} was cancelled on {requested_at}."
+    cancel_receipt_subject: "Your subscription {reference} is cancelled"
+    cancel_receipt_body: "We confirm that subscription {reference} was cancelled on {requested_at}. No further payments will be taken."
+    field_name: "Full name"
+    field_email: "Email address"
+    field_contract: "Contract (order number)"

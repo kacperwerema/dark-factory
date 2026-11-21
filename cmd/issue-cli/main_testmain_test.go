@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/tmuxguard"
+	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
 // TestMain gives the tests their own state and config homes and drops an
@@ -46,6 +48,9 @@ func TestMain(m *testing.M) {
 	// The lead tick's daily doctor leaks would read this machine's
 	// processes: a test that wants a finding stubs findLeaks itself.
 	findLeaks = func(leaks.Options) leaks.Report { return leaks.Report{} }
+	// Nor the shared server's lead sessions and the viewer's RSS readings:
+	// a test that wants a long-running finding stubs longReport.
+	longReport = func([]*tracker.Project, time.Time) leaks.LongReport { return leaks.LongReport{} }
 	// Every tmux the tests start reaches a private server, and no test reads
 	// the owner's Codex or Claude Code folders (internal/tmuxguard).
 	cleanupTmux := tmuxguard.Isolate()

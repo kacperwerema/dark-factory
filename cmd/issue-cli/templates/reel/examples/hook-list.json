@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "shape": "hook-list",
+  "title": "3 mistakes that slow your mornings",
+  "language": "en",
+  "brand": {"name": "Brand", "colors": {"primary": "#2F6BFF", "accent": "#FFB800", "text": "#FFFFFF", "background": "#101418"}},
+  "scenes": [
+    {"id": "hook", "role": "hook", "duration": 2.5, "text": "3 mistakes that slow your mornings", "narration": {"text": "Three mistakes that slow your mornings.", "voice": "narrator"}},
+    {"id": "one", "role": "item", "duration": 3, "text": "No plan the night before", "narration": {"text": "One: no plan the night before.", "voice": "narrator"}},
+    {"id": "two", "role": "item", "duration": 3, "text": "Shopping without a list", "narration": {"text": "Two: shopping without a list.", "voice": "narrator"}},
+    {"id": "three", "role": "item", "duration": 3, "text": "Starting from scratch every day", "narration": {"text": "Three: starting from scratch every day.", "voice": "narrator"}},
+    {"id": "cta", "role": "cta", "duration": 2.5, "narration": {"text": "Plan your week in a minute.", "voice": "narrator"}}
+  ],
+  "captions": {"style": "words", "position": "lower"},
+  "cta": {"text": "Plan your week in a minute", "handle": "@brand"}
+}

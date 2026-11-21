@@ -135,6 +135,8 @@ func init() {
 		"status.release_wait.candidate.reports",
 		"status.release_wait.candidate.report.*",
 		"status.release_wait.candidate.fixed",
+		"status.release_wait.candidate.moved",
+		"status.release_wait.candidate.moved.*",
 		"status.release_wait.open",
 		"status.release_wait.open.row.*",
 		"status.release_wait.open.epic.*",

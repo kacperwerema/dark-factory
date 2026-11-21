@@ -32,7 +32,9 @@ func TestMakeValidateEndsWithOnePassOrFailLine(t *testing.T) {
 	}
 	run := func(steps string) (stdout, combined string, err error) {
 		t.Helper()
-		cmd := exec.Command("make", "validate", "VALIDATE_STEPS="+steps)
+		// The cover profiles go in the test's folder, not TMPDIR, which
+		// the guard holds to empty (internal/tmuxguard).
+		cmd := exec.Command("make", "validate", "VALIDATE_STEPS="+steps, "CLI_COVER_PROFILE="+filepath.Join(root, "cover.out"))
 		cmd.Dir = root
 		var out strings.Builder
 		both := &lockedBuilder{}
@@ -193,7 +195,7 @@ func TestValidateRunsItsCheapStepsFirst(t *testing.T) {
 			env = append(env, kv)
 		}
 	}
-	cmd := exec.Command("make", "validate", "VALIDATE_STEPS=stub-red stub-slow guard-check test stub-after", "GUARD_COVER_PROFILE="+filepath.Join(marks, "guard.out"))
+	cmd := exec.Command("make", "validate", "VALIDATE_STEPS=stub-red stub-slow guard-check test stub-after", "GUARD_COVER_PROFILE="+filepath.Join(marks, "guard.out"), "CLI_COVER_PROFILE="+filepath.Join(marks, "cover.out"))
 	cmd.Dir = root
 	cmd.Env = env
 	stdout, err := cmd.StdoutPipe()
@@ -381,7 +383,7 @@ func TestValidateCoverageFloorReadsTheTestRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for steps, want := range map[string]string{"test stub-from": "from-test=1.", "stub-from": "from-test=."} {
-		cmd := exec.Command("make", "validate", "VALIDATE_STEPS="+steps)
+		cmd := exec.Command("make", "validate", "VALIDATE_STEPS="+steps, "CLI_COVER_PROFILE="+filepath.Join(root, "cover.out"))
 		cmd.Dir = root
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()

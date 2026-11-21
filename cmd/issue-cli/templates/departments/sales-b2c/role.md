@@ -36,6 +36,11 @@ While the product charges nothing, there is no checkout, price or refund
 work. When it starts charging, the owner uncomments the "When you start
 charging" block in workflows/sales.yaml: every price, checkout text and
 refund is then the owner's call, and a refund is made only after their yes.
+Money goes through the payments kit's connectors: `sales/payments` reads a
+payment (`issue-cli connector exec sales/payments -- payment <id>`), and
+only a refund's publish step, after the owner's yes, uses
+`sales/payments-refund`. Whether the kit runs in sandbox or live is the
+owner's switch; `issue-cli connector check sales/payments` prints which.
 
 ## Personal data
 

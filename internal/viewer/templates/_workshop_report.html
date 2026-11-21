@@ -217,6 +217,12 @@ release flow reads the same on both pages.
                 {{range .Reports}}<div class="wb-rel-row" data-testid="status.release_wait.candidate.report.{{tid .Issue.Slug}}"><a class="wb-rel-title" href="{{$.IssueURL .Issue.Slug}}">{{.Issue.Title}}</a><span class="wb-rel-meta">{{.Found}} · {{.Issue.Status}}</span></div>{{end}}
             </div>
             {{end}}
+            {{if .MovedOut}}
+            <div class="wb-rel-stack" data-testid="status.release_wait.candidate.moved">
+                <div class="wb-rsub">Moved out on the owner's ok · {{len .MovedOut}}</div>
+                {{range .MovedOut}}<div class="wb-rel-row" data-testid="status.release_wait.candidate.moved.{{tid .Issue.Slug}}"><a class="wb-rel-title" href="{{$.IssueURL .Issue.Slug}}">moved out: {{.Issue.Slug}} → {{.MovedTo}}</a><span class="wb-rel-meta">{{.Found}} · {{.Issue.Status}}</span></div>{{end}}
+            </div>
+            {{end}}
             {{if .Fixed}}
             <div class="wb-rel-stack" data-testid="status.release_wait.candidate.fixed">
                 <div class="wb-rsub">Fixed since {{$.ReleaseWait.Milestone.Candidate.Tag}}: soak in {{$.ReleaseWait.Milestone.Candidate.Next}}</div>

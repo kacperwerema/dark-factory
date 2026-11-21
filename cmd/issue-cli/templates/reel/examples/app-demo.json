@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "shape": "app-demo",
+  "title": "A week's plan in three taps",
+  "language": "en",
+  "brand": {"name": "Brand", "colors": {"primary": "#2F6BFF", "accent": "#FFB800", "text": "#FFFFFF", "background": "#101418"}},
+  "scenes": [
+    {"id": "hook", "role": "hook", "duration": 2.5, "text": "A week's plan in three taps", "narration": {"text": "A week's plan in three taps.", "voice": "narrator"}},
+    {"id": "pick", "role": "step", "duration": 3.5, "text": "Pick what you like", "narration": {"text": "Pick what you like.", "voice": "narrator"}, "clips": [{"source": "app-recording", "path": "media/pick.mp4"}]},
+    {"id": "plan", "role": "step", "duration": 3.5, "text": "Get the week's plan", "narration": {"text": "Get the plan for the week.", "voice": "narrator"}, "clips": [{"source": "app-recording", "path": "media/plan.mp4"}]},
+    {"id": "cta", "role": "cta", "duration": 2.5, "narration": {"text": "Link in bio.", "voice": "narrator"}}
+  ],
+  "captions": {"style": "words", "position": "lower"},
+  "cta": {"text": "Link in bio", "handle": "@brand"}
+}

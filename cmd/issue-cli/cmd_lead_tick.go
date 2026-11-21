@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/checks"
 	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/gitmain"
@@ -69,6 +70,12 @@ type leadTickState struct {
 	// where a hold that clears by itself wins quietly keeps it, a start
 	// forgets it. The same hold back after such a tick is no news.
 	LastHold string `json:"last_hold,omitempty"`
+	// LastStart is the last tick that started something; zero before the
+	// first (the idle check counts from the first tick then).
+	LastStart time.Time `json:"last_start,omitempty"`
+	// IdleFrom is when the idle check began counting with no start seen:
+	// the first tick after an upgrade or of a new project.
+	IdleFrom time.Time `json:"idle_from,omitempty"`
 }
 
 // leadTickPath is the project's tick state; "" without a state dir.
@@ -119,6 +126,12 @@ type leadTicker struct {
 	installLagOn string
 	// lastHold is the next state's LastHold.
 	lastHold string
+	// lastStart and idleFrom are the next state's LastStart and IdleFrom.
+	lastStart, idleFrom time.Time
+	// idle is this tick's start hold when it leaves room unused (the
+	// queue empty, everything held, idle sessions on the slots); nil
+	// when nothing held or the machine or another project did.
+	idle *idleReason
 }
 
 // say prints line unless key was already said and is still true.
@@ -321,14 +334,21 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	path := leadTickPath(proj)
 	t := &leadTicker{w: ctx.Stdout, prev: loadLeadTickState(path), seen: map[string]time.Time{}, now: ctx.now(), watch: watch}
 	t.lastHold = t.prev.LastHold
+	t.lastStart, t.idleFrom = t.prev.LastStart, t.prev.IdleFrom
+	if t.idleFrom.IsZero() {
+		t.idleFrom = t.now
+	}
 	first := path == "" || t.prev.Since.IsZero()
 
 	unlanded := leadTickBranches(ctx, t, issues)
 	leadTickGreen(ctx, t, issues)
 	leadTickSweep(ctx, t, issues, unlanded)
+	leadTickYoloMoves(ctx, t, issues)
 	leadTickWorktrees(ctx, t, issues, unlanded)
 	leadTickCI(ctx, t)
 	leadTickLeaks(ctx, t)
+	leadTickClean(t)
+	leadTickLong(ctx, t)
 	leadTickInstallLag(ctx, t)
 	leadTickAttention(ctx, t, issues)
 	leadTickReports(ctx, t, issues)
@@ -338,6 +358,7 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 		issues = fresh
 	}
 	leadTickQueueLow(ctx, t, issues)
+	leadTickIdle(ctx, t)
 	if !first {
 		leadTickOwner(ctx, t, issues)
 	}
@@ -347,7 +368,7 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	}
 
 	if path != "" {
-		next := leadTickState{Said: t.seen, Since: t.now, HeldSince: t.heldSince, PrunedOn: t.prunedOn, LeaksOn: t.leaksOn, ContextOn: t.contextOn, InstallLagOn: t.installLagOn, LastHold: t.lastHold}
+		next := leadTickState{Said: t.seen, Since: t.now, HeldSince: t.heldSince, PrunedOn: t.prunedOn, LeaksOn: t.leaksOn, ContextOn: t.contextOn, InstallLagOn: t.installLagOn, LastHold: t.lastHold, LastStart: t.lastStart, IdleFrom: t.idleFrom}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
 			if err := jsonfile.Write(path, next, 0o644); err != nil {
 				fmt.Fprintf(ctx.Stderr, "warning: saving the tick state: %v\n", err)
@@ -368,11 +389,15 @@ func leadTickStart(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 	sub := *ctx
 	sub.Stdout, sub.Stderr, sub.JSONOutput = &out, &errOut, false
 	err := queueStart(&sub, issues, "")
-	// A memory hold: close the idle sessions holding memory for nothing
-	// (issue done, or waiting on the owner), say so in one line and ask
-	// the queue once more.
-	if h := (*exitCodeError)(nil); errors.As(err, &h) && h.Hold && isMemoryHold(h.HoldKind) {
-		if line, closed := leadTickFree(ctx, issues); line != "" {
+	// A memory hold or the worker cap: close the idle sessions holding
+	// memory or a slot for nothing (issue done, or waiting on the owner),
+	// say so in one line and ask the queue once more.
+	if h := (*exitCodeError)(nil); errors.As(err, &h) && h.Hold && (isMemoryHold(h.HoldKind) || h.HoldKind == autostart.HoldWorkers) {
+		under := "the memory hold"
+		if h.HoldKind == autostart.HoldWorkers {
+			under = "the worker cap"
+		}
+		if line, closed := leadTickFree(ctx, issues, under); line != "" {
 			if strings.Contains(line, "not closed ") {
 				t.note(line) // a session that won't close is the lead's
 			} else {
@@ -409,6 +434,11 @@ func leadTickStart(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 	}
 	var held *exitCodeError
 	isHold := err != nil && errors.As(err, &held) && held.Hold
+	if len(started) > 0 {
+		t.lastStart = t.now
+	} else if isHold {
+		t.idle = leadTickIdleReason(ctx, issues, held)
+	}
 	if isHold && len(started) == 0 {
 		t.heldSince = t.prev.HeldSince
 		if t.heldSince.IsZero() {
@@ -429,6 +459,9 @@ func leadTickStart(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 	if isHold {
 		reason := leadTickHoldReason(held.Msg)
 		if t.watch && held.Clears {
+			if t.idle != nil {
+				return // the idle line says it (cmd_lead_tick_idle.go)
+			}
 			if d := t.now.Sub(t.heldSince); d >= leadstate.HeldLong && reason != "" {
 				t.say("held-long", fmt.Sprintf("hold: nothing started for %s (since %s), now: %s", roundHours(d), t.heldSince.Local().Format("15:04"), reason))
 			}
@@ -504,7 +537,7 @@ func leadTickQueueLow(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 	add := tracker.InjectProject(proj, `issue-cli queue add <slug> --quote "<owner's words>"`)
 	// Under YOLO with auto-start on the tick queues a sweep itself
 	// (cmd_lead_tick_sweep.go); the line says which, once per sweep.
-	sweep, sweepKey := leadTickQueueSweep(ctx, t, issues)
+	sweep, sweepKey := leadTickQueueSweep(ctx, t, issues, open)
 	if sweep != "" {
 		sweep, sweepKey = "; "+sweep, ":"+sweepKey
 	}

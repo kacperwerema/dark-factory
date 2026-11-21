@@ -272,3 +272,23 @@ func OwnCopy(link string) (how string, err error) {
 	_ = os.Remove(filepath.Join(link, StampName)) // the copy was not installed here
 	return how, nil
 }
+
+// CloneDir makes dst a copy of the folder src the way OwnCopy does (a clone
+// on APFS, symlinks inside copied as links), beside dst first and then
+// moved in, so a failed copy leaves no half folder. dst must not exist.
+func CloneDir(src, dst string) (how string, err error) {
+	tmp := dst + ".df-own"
+	if err := os.RemoveAll(tmp); err != nil {
+		return "", err
+	}
+	if how, err = cloneCommand(src, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	_ = os.Remove(filepath.Join(dst, StampName)) // the copy was not installed here
+	return how, nil
+}

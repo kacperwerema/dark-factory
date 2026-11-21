@@ -42,6 +42,9 @@ func mergeCheckRepo(t *testing.T) string {
 // stderr together, and whether it exited 0.
 func runValidate(t *testing.T, dir string, args ...string) (string, bool) {
 	t.Helper()
+	// The cover profiles go in a test folder, not TMPDIR, which the guard holds to
+	// empty (internal/tmuxguard).
+	args = append(args, "CLI_COVER_PROFILE="+filepath.Join(t.TempDir(), "cover.out"))
 	cmd := exec.Command("make", append([]string{"--no-print-directory", "validate"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")

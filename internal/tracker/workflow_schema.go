@@ -87,6 +87,7 @@ var WorkflowValidationRules = []SchemaNamedDoc{
 	{Name: "section_max_length", Description: "Section '## <action.section>' has at most action.max non-whitespace chars (missing section passes)"},
 	{Name: "no_todo_markers", Description: "Body contains no whole-word TODO or FIXME markers"},
 	{Name: "file_exists", Description: "File action.path, relative to the project root (or the issues folder for a path starting with <issues>/), exists and isn't empty; templated with {{slug}}/{{number}}/{{repo}}/{{system}}/{{department}}; runs no shell"},
+	{Name: "reel_legal_check", Description: "A reel's '## <action.section>' (Script by default), its '## Legal check' declarations and the storyboard they name meet the legal floor in the rules file at action.path (departments/{{department}}/reel-legal.yaml by default): no unauthorised nutrition or health claim, licensed music, an AI label on AI content, no testimonial, a presenter persona and written consent for a face, no implied trademark endorsement; a missing rules file holds; runs no shell"},
 	{Name: "command_succeeds", Description: "Shell command in action.command exits 0; templated with {{slug}}/{{number}}/{{repo}}/{{system}}; requires top-level allow_shell=true"},
 }
 

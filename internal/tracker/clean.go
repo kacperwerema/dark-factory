@@ -3,6 +3,7 @@ package tracker
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CleanConfig is projects.yaml's clean: block, the nightly clean's
@@ -23,6 +24,12 @@ type CleanConfig struct {
 	// SnapshotDays is how many calendar days of health snapshots stay in
 	// full (default 7); before that, one per day.
 	SnapshotDays int `yaml:"snapshot_days"`
+	// TmpHours is how old an entry in $TMPDIR the factory made has to be
+	// before the tmp area takes it (default 24).
+	TmpHours int `yaml:"tmp_hours"`
+	// TmpPrefixes are other projects' name prefixes in $TMPDIR the tmp
+	// area may take too (say "fma-"); none by default.
+	TmpPrefixes []string `yaml:"tmp_prefixes"`
 }
 
 // The clean's defaults.
@@ -31,6 +38,7 @@ const (
 	DefaultCleanGoCacheCapGB   = 40
 	DefaultCleanTranscriptDays = 14
 	DefaultCleanSnapshotDays   = 7
+	DefaultCleanTmpHours       = 24
 )
 
 // Enabled is false only for clean.off.
@@ -72,4 +80,26 @@ func (c *CleanConfig) Snapshots() int {
 		return DefaultCleanSnapshotDays
 	}
 	return c.SnapshotDays
+}
+
+// TmpAge is how old a temp entry has to be before it goes.
+func (c *CleanConfig) TmpAge() time.Duration {
+	if c == nil || c.TmpHours <= 0 {
+		return DefaultCleanTmpHours * time.Hour
+	}
+	return time.Duration(c.TmpHours) * time.Hour
+}
+
+// ExtraTmpPrefixes are clean.tmp_prefixes without blanks.
+func (c *CleanConfig) ExtraTmpPrefixes() []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for _, p := range c.TmpPrefixes {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

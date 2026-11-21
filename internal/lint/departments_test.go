@@ -852,3 +852,46 @@ func TestLintDenyArgsPath(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckDepartmentsSpendConnectors(t *testing.T) {
+	env := lintProject(t, minimalWorkflow, nil)
+	env.Project.Departments = []tracker.Department{{Name: "Video", Connectors: []tracker.Connector{
+		{Name: "kling", Kind: "tool", Command: "kling", Spend: &tracker.ConnectorSpend{Meter: "json", Field: "creditsConsumed", Unit: "credits", Cap: 500}},
+		{Name: "tts", Kind: "tool", URL: "https://api.elevenlabs.io", Headers: map[string]string{"xi-api-key": "keychain:elevenlabs-api"},
+			Spend:  &tracker.ConnectorSpend{Meter: "elevenlabs", Unit: "characters", Cap: 1000},
+			Voices: []tracker.Voice{{Placement: "narrator", VoiceID: "V1", RealPerson: "the owner", Consent: "2026-11-21"}, {Placement: "Narrator", VoiceID: "V2"}, {Placement: "actor", RealPerson: "an actor"}, {VoiceID: "V4"}}},
+		{Name: "nocap", Kind: "tool", Command: "kling", Spend: &tracker.ConnectorSpend{Meter: "json", Field: "creditsConsumed"}},
+		{Name: "nofield", Kind: "tool", Command: "kling", Spend: &tracker.ConnectorSpend{Meter: "json", Cap: 1}},
+		{Name: "meter", Kind: "tool", Command: "x", Spend: &tracker.ConnectorSpend{Meter: "usd", Cap: 1}},
+		{Name: "mcp", Kind: "mcp", Command: "x", Spend: &tracker.ConnectorSpend{Meter: "json", Field: "c", Cap: 1}},
+		{Name: "ttscmd", Kind: "tool", Command: "x", Spend: &tracker.ConnectorSpend{Meter: "elevenlabs", Cap: -1}},
+		{Name: "loose", Kind: "tool", Command: "x", Voices: []tracker.Voice{{Placement: "a", VoiceID: "V"}}},
+	}}}
+	var got []string
+	for _, f := range checkDepartments(env) {
+		got = append(got, f.Message)
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{
+		"connector nocap: spend: has no cap: every billing call is refused until the owner writes one (spend: cap:, units a month)",
+		"connector nofield: spend: meter: json needs field:",
+		`connector meter: spend: meter: "usd" is not json or elevenlabs`,
+		"connector mcp: spend: is only for kind: tool",
+		"connector ttscmd: a meter: elevenlabs connector runs no command:",
+		"connector ttscmd: spend: cap: is an amount a month, above 0",
+		"connector loose: voices: are only read by a spend: meter: elevenlabs connector",
+		"connector tts: voice placement Narrator appears twice",
+		"connector tts: voice actor has no voice_id:",
+		"connector tts: voice actor is an actor's, a real person's, with no consent: noted",
+		"connector tts: a voice has no placement:",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing finding %q in:\n%s", want, all)
+		}
+	}
+	for _, clean := range []string{"connector kling:", "connector tts: url:", "connector tts: headers:", "voice narrator is"} {
+		if strings.Contains(all, clean) {
+			t.Errorf("a finding on a good config (%q) in:\n%s", clean, all)
+		}
+	}
+}

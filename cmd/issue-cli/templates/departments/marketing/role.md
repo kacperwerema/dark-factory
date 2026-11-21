@@ -25,6 +25,25 @@ your site(s): refreshed pages (local pages too), FAQs and schema, blog posts.
   The owner approves or rejects each one there.
 - After it goes out, `issue-cli output publish <id> --url <where it went>`.
 
+## Page rules
+
+Every page this department ships or measures keeps two rules, on every
+site:
+
+- `<title>` at most 60 characters including the brand suffix
+  (" — <brand>"), the primary phrase first. The h1 and og:title may be
+  longer. Search engines flag a longer title ("Title too long") and cut it.
+- Every text response (HTML, sitemap.xml, robots.txt, llms.txt, feeds)
+  is served with `charset=utf-8` in its Content-Type header
+  (`text/html; charset=utf-8`). A `<meta charset>` is not enough: without
+  the header a crawler can read the page as Latin-1 and show mojibake in
+  og:title and og:description.
+
+`issue-cli page-check <url>` checks one page, `issue-cli page-check
+<site>/sitemap.xml` every page in the sitemap: it names each URL that
+breaks a rule and the fix, and exits 1. Run it before a draft goes to
+owner review (the Draft box asks for it) and in every weekly SEO pass.
+
 ## Brand, ICP and market
 
 Read these before writing any brief. They sit next to this file:

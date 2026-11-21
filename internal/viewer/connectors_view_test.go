@@ -134,3 +134,42 @@ func TestConnectorRoomShowsAPerRunTool(t *testing.T) {
 	_, needs := getBody(t, ts.URL+"/p/agents/needs-you")
 	assertContains(t, needs, "Marketing: heavy start failing (issue-cli connectors marketing).")
 }
+
+// A metered connector's room line shows this month's spend against its cap
+// and its voices with consent; at the cap it is the Needs you row.
+func TestConnectorRoomShowsSpendAgainstTheCap(t *testing.T) {
+	a := setupAgentsProject(t)
+	stubAgentsGit(t)
+	stubLeadPane(t, "")
+	withMockTmuxSessions(t, nil)
+	a.Departments = []tracker.Department{{Name: "Video", Systems: []string{"UI"}, Connectors: []tracker.Connector{
+		{Name: "kling", Kind: "tool", Command: "kling", Spend: &tracker.ConnectorSpend{Meter: "json", Field: "creditsConsumed", Unit: "credits", Cap: 500}},
+		{Name: "elevenlabs", Kind: "tool", URL: "https://api.elevenlabs.io", Spend: &tracker.ConnectorSpend{Meter: "elevenlabs", Unit: "characters", Cap: 1000},
+			Voices: []tracker.Voice{{Placement: "narrator", VoiceID: "V1", Name: "Owner (clone)", RealPerson: "the owner", Consent: "2026-11-21"}, {Placement: "actor-1", VoiceID: "V2", RealPerson: "an actor"}}},
+	}}}
+	now := time.Now()
+	for _, r := range []connectors.SpendRecord{
+		{Connector: "video/kling", Date: now, Month: connectors.Month(now), Unit: "credits", Amount: 120},
+		{Connector: "video/elevenlabs", Date: now, Month: connectors.Month(now), Unit: "characters", Amount: 1000},
+		{Connector: "video/kling", Date: now.AddDate(0, -2, 0), Month: connectors.Month(now.AddDate(0, -2, 0)), Unit: "credits", Amount: 400},
+	} {
+		if err := connectors.AppendSpend(&a, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ts := newTestServer(t, []tracker.Project{a})
+	defer ts.Close()
+	_, html := getBody(t, ts.URL+"/p/agents/company")
+	month := connectors.Month(now)
+	assertContains(t, html,
+		`<i style="width:24%" class="wb-connector-spend--green"></i></span> <span class="wb-connector-check--green">120 / 500 credits this month (`+month+`)</span>`,
+		`<span class="wb-connector-check--red">1000 / 1000 characters this month (`+month+`)</span>`,
+		`data-testid="company.room.connector.voice">voice narrator: Owner (clone) · the owner&#39;s voice, consent noted</div>`,
+		`data-testid="company.room.connector.voice">voice actor-1: V2 · an actor&#39;s voice, consent missing</div>`,
+	)
+	_, needs := getBody(t, ts.URL+"/p/agents/needs-you")
+	assertContains(t, needs, "Video: elevenlabs at its spend cap (1000 / 1000 characters) (issue-cli connectors video).")
+	if strings.Contains(needs, "kling") {
+		t.Error("kling has room under its cap and is not a Needs you row")
+	}
+}

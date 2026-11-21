@@ -69,7 +69,7 @@ var leadTickPause = time.Sleep
 
 // leadTickFree closes the sessions a memory hold could free and returns the
 // tick's one line about it ("" when there were none).
-func leadTickFree(ctx *Context, issues []*tracker.Issue) (string, bool) {
+func leadTickFree(ctx *Context, issues []*tracker.Issue, under string) (string, bool) {
 	proj := ctx.Project
 	free := reclaimableSessions(proj, issues, ctx.now())
 	if len(free) == 0 {
@@ -94,5 +94,5 @@ func leadTickFree(ctx *Context, issues []*tracker.Issue) (string, bool) {
 	if len(failed) > 0 {
 		parts = append(parts, "not closed "+strings.Join(failed, "; "))
 	}
-	return "freed under the memory hold: " + strings.Join(parts, "; "), len(closed) > 0
+	return "freed under " + under + ": " + strings.Join(parts, "; "), len(closed) > 0
 }

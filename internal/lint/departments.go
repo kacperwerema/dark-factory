@@ -492,7 +492,13 @@ func connectorFindings(d tracker.Department) []string {
 		}
 		hasURL := strings.TrimSpace(c.URL) != ""
 		isRest := c.Kind == tracker.ConnectorRest
+		// A meter: elevenlabs tool is called by issue-cli itself, at url:.
+		isTTS := c.Kind == tracker.ConnectorTool && c.Spend != nil && c.Spend.Meter == tracker.MeterElevenLabs
+		out = append(out, spendFindings(label, c)...)
 		switch {
+		case isTTS && strings.TrimSpace(c.Command) != "":
+			out = append(out, label+": a meter: elevenlabs connector runs no command: (issue-cli makes its text-to-speech calls itself)")
+		case isTTS:
 		case c.Kind == tracker.ConnectorMCP && strings.TrimSpace(c.Command) == "" && !hasURL:
 			out = append(out, label+": an mcp connector needs command: or url:")
 		case isRest && !hasURL:
@@ -559,6 +565,57 @@ func connectorFindings(d tracker.Department) []string {
 		if on := connectors.RiskyAllowed(c); len(on) > 0 {
 			out = append(out, fmt.Sprintf("%s: tools that send or spend are on: %s; add them to deny_tools: [%s], or mark the connector sends: true (an owner_only gate before the step that uses it)",
 				label, strings.Join(on, ", "), strings.Join(on, ", ")))
+		}
+	}
+	return out
+}
+
+// spendFindings are a connector's spend: and voices: mistakes: an unknown
+// meter, a cap that isn't a number above 0 (every billing call is refused
+// until the owner writes one), meter: json without field: or command:,
+// a meter on the wrong kind, and voices without a placement, a voice id,
+// once each, or a real person's voice with no consent noted.
+func spendFindings(label string, c tracker.Connector) []string {
+	var out []string
+	if sp := c.Spend; sp != nil {
+		switch {
+		case !slices.Contains(tracker.SpendMeters, sp.Meter):
+			out = append(out, fmt.Sprintf("%s: spend: meter: %q is not %s: connector exec refuses it", label, sp.Meter, strings.Join(tracker.SpendMeters, " or ")))
+		case c.Kind != tracker.ConnectorTool:
+			out = append(out, fmt.Sprintf("%s: spend: is only for kind: tool (connector exec meters its calls)", label))
+		case sp.Meter == tracker.MeterJSON && strings.TrimSpace(sp.Field) == "":
+			out = append(out, label+": spend: meter: json needs field: (the key the cost is under in the command's JSON output)")
+		case sp.Meter == tracker.MeterJSON && strings.TrimSpace(c.Command) == "":
+			out = append(out, label+": spend: meter: json needs command: (a metered connector runs only its own command)")
+		}
+		if sp.Cap < 0 {
+			out = append(out, label+": spend: cap: is an amount a month, above 0")
+		}
+		if sp.Cap == 0 {
+			out = append(out, label+": spend: has no cap: every billing call is refused until the owner writes one (spend: cap:, "+sp.UnitWords()+" a month)")
+		}
+		if c.PerRun != nil {
+			out = append(out, label+": spend: and per_run: together are not metered: connector exec meters the call and skips per_run:")
+		}
+	}
+	if len(c.Voices) > 0 && (c.Spend == nil || c.Spend.Meter != tracker.MeterElevenLabs) {
+		out = append(out, label+": voices: are only read by a spend: meter: elevenlabs connector")
+	}
+	seen := map[string]bool{}
+	for _, v := range c.Voices {
+		key := strings.ToLower(strings.TrimSpace(v.Placement))
+		switch {
+		case key == "":
+			out = append(out, label+": a voice has no placement:")
+		case seen[key]:
+			out = append(out, fmt.Sprintf("%s: voice placement %s appears twice (the first one is used)", label, v.Placement))
+		}
+		seen[key] = true
+		if strings.TrimSpace(v.VoiceID) == "" {
+			out = append(out, fmt.Sprintf("%s: voice %s has no voice_id:", label, v.Placement))
+		}
+		if v.NeedsConsent() {
+			out = append(out, fmt.Sprintf("%s: voice %s is %s's, a real person's, with no consent: noted: connector exec refuses it until then", label, v.Placement, v.RealPerson))
 		}
 	}
 	return out

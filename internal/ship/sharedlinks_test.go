@@ -129,6 +129,34 @@ func TestShipNeverInstallsThroughWorkspaceLinks(t *testing.T) {
 		}
 	})
 
+	// The 2026-11-19 23:39 incident's own check (that project's ci.run, npm ci with
+	// flags), both ways: the lock file main's, and a branch that changed it.
+	for _, lockChanged := range []bool{false, true} {
+		name := "incident form, lock unchanged: skipped"
+		want := "skipped: npm ci --no-audit --no-fund: node_modules is shared with the main checkout"
+		if lockChanged {
+			name = "incident form, lock changed: own copies first"
+			want = "before npm ci --no-audit --no-fund: node_modules is its own now"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := workspaceFixture(t)
+			if lockChanged {
+				f.commit(f.wt, "package-lock.json", `{"lockfileVersion":3,"v":2}`+"\n", "feat: a new dependency")
+			}
+			var out bytes.Buffer
+			o := f.opts(&out)
+			o.Check = []string{"npm ci --no-audit --no-fund", "npm test", f.pass("full")}
+			o.Prepare = ci.PrepareInstall
+			if res := Run(o); !res.Landed {
+				t.Fatalf("not landed: %s\n%s", res.Verdict(), out.String())
+			}
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("ship does not say what it did with the install, want %q:\n%s", want, out.String())
+			}
+			f.mainUntouched(out.String())
+		})
+	}
+
 	t.Run("without Prepare the stand-in empties main (the incident)", func(t *testing.T) {
 		f := workspaceFixture(t)
 		var out bytes.Buffer

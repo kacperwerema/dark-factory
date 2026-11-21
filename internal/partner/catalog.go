@@ -27,7 +27,7 @@ import (
 const CatalogFile = "partners.yaml"
 
 // Slots are the catalog's slots, in the order they are listed.
-var Slots = []string{"analytics", "email", "seo", "social", "video", "support", "cms"}
+var Slots = []string{"analytics", "email", "seo", "social", "video", "support", "cms", "payments"}
 
 // Shapes and runs a row may have.
 var (

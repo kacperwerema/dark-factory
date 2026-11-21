@@ -1,0 +1,38 @@
+session: reel-shelf
+issue: factory/reel-kit-storyboard-json-schema-render-and-qa-command-template-shapes-a-project-fills-hook-plus-list-beforeafter-app-demo
+title: Reel kit - a reel's QA report shows under the player in the shelf reader
+scenario: shelf
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: A video shelved with its QA report shows the report under the player
+    proves: [AC5]
+    setup:
+      # out/draft.mp4.qa.md: a QA report as issue-cli reel shelve writes it
+      # (reel.Report.Markdown); reel shelve adds the video with --report.
+      - cli: [output, add, --issue, seo/weekly-seo-pass, --title, "Reel: a week's plan", --kind, video, --file, out/draft.mp4, --report, out/draft.mp4.qa.md, --note, "QA pass (6 checks) · duration 12.40 s · loudness -14.1 LUFS integrated"]
+      - open: /p/acme/shelf
+    act:
+      - click: shelf.title
+      - wait_for: { media: { target: odoc.player, state: loaded }, ms: 8000 }
+      - check: { below: [odoc.player, odoc.report] }
+    checks:
+      - exists: odoc.report
+      - text_contains: { target: odoc.report, text: "Reel QA: pass" }
+      - text_contains: { target: odoc.report, text: "caption-sync" }
+      - inside: { target: odoc.report, within: odoc.reader }
+      - exists: odoc.approve
+    do: |
+      1. Open the reel from the shelf; read the report under the player.
+    expect: |
+      Under the player and its type line sits the QA report: the verdict,
+      then one row per check (duration, aspect, loudness, black frames,
+      safe zone, caption sync) with what was measured and the bound. The
+      table fits the player's width on a phone too.
+    targets:
+      - { id: odoc.report, note: "The reel's QA report under the player" }

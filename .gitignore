@@ -50,3 +50,10 @@ projects-*.yaml
 
 # Work files live in the private tracker repo (issue-cli tracker init)
 /.health/snapshots/
+
+# Env files hold keys: never tracked (the leak scan and the pre-push guard
+# refuse one too; docs/departments.md#secrets). The example with empty
+# values is the one a repo keeps.
+.env
+.env.*
+!.env.example

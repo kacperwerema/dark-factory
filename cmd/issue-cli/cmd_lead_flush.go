@@ -35,7 +35,9 @@ only the lead it closed, again.
                        lines at most; no secret
   close                close the lead's session, once both files exist and
                        the lead isn't in the middle of a turn, stop its old
-                       tick and start the lead again under the same name
+                       tick and start the lead again under the same name;
+                       then rotate each department and group lead that ran
+                       20 h or more (as lead rotate --lead <it>)
 
 <date> is the run's created day. The fresh lead's first prompt carries the
 newest note, its summary, the memory pins, its state file and the tick to
@@ -269,6 +271,7 @@ func (f flush) close() error {
 	}
 	if !agentrun.IsLive(f.proj, f.lead) {
 		fmt.Fprintf(f.ctx.Stdout, "No lead live: %s has nothing to close.\n", f.lead)
+		f.rotateDepartmentLeads()
 		return nil
 	}
 	if agentrun.PaneWorking(agentrun.Target(f.proj, f.lead), flushBusyLines) {
@@ -288,6 +291,7 @@ func (f flush) close() error {
 	if err := leadFlushSpawn(f.ctx); err != nil {
 		return fmt.Errorf("%s is closed but did not start again: %w. Start it from the owner's shell: %s", f.lead, err, tracker.InjectProject(f.proj, "issue-cli lead spawn"))
 	}
+	f.rotateDepartmentLeads()
 	return nil
 }
 
@@ -373,5 +377,62 @@ func (f flush) stopTicks(pids []int) {
 			store.Unregister(pid)
 		}
 		_ = store.Save(f.lead)
+	}
+}
+
+// flushDeptLeadAge is how long a department or group lead runs before the
+// nightly flush rotates it: under a day, so a lead the flush rotated
+// yesterday is rotated again tonight.
+const flushDeptLeadAge = 20 * time.Hour
+
+// leadSessionStarted is when the live session called name started; false
+// when it isn't listed. A var for the tests.
+var leadSessionStarted = func(proj *tracker.Project, name string) (time.Time, bool) {
+	for _, s := range agentrun.ListSessions() {
+		if s.Name != name {
+			continue
+		}
+		at, err := time.ParseInLocation("2006-01-02 15:04:05", s.StartTime, time.Local)
+		return at, err == nil
+	}
+	return time.Time{}, false
+}
+
+// leadFlushRotate rotates one lead (rotateLead); a var for the tests.
+var leadFlushRotate = rotateLead
+
+// rotateDepartmentLeads rotates each live department and group lead of the
+// project that has run flushDeptLeadAge or longer, the way lead rotate
+// does: a handoff note from its state file, then a detached finisher that
+// waits for its turn to end, closes it and starts it again with its tick.
+// The flush closed only the CEO until 2026-11-21, and one project's
+// marketing lead ran 8 days (factory/no-disk-or-memory-leaks-over-a-247-…). A lead
+// that can't be rotated is said and left for the next night; it never
+// fails the close.
+func (f flush) rotateDepartmentLeads() {
+	if f.proj == nil || len(f.proj.Departments) == 0 {
+		return
+	}
+	now := f.ctx.now()
+	var issues []*tracker.Issue
+	for i := range f.proj.Departments {
+		lead := tracker.DepartmentLeadName(f.proj, f.proj.Departments[i].Name)
+		if lead == f.lead || !agentrun.IsLive(f.proj, lead) {
+			continue
+		}
+		started, ok := leadSessionStarted(f.proj, lead)
+		if ok && now.Sub(started) < flushDeptLeadAge {
+			continue
+		}
+		if issues == nil {
+			var err error
+			if issues, err = f.proj.LoadIssues(); err != nil {
+				fmt.Fprintf(f.ctx.Stdout, "! %s not rotated: %v\n", lead, err)
+				return
+			}
+		}
+		if err := leadFlushRotate(f.ctx, lead, issues, false); err != nil {
+			fmt.Fprintf(f.ctx.Stdout, "! %s not rotated: %v. The next flush tries again; by hand: %s\n", lead, err, tracker.InjectProject(f.proj, "issue-cli lead rotate --lead "+lead))
+		}
 	}
 }

@@ -10,11 +10,15 @@
 # path and the commit. Swapping the partner is a change to partner: in
 # projects.yaml, not to the workflow.
 name: Video
-description: "Video studio: explainer and demo videos made with an outside partner program (OpenMontage), local models first, every review the owner's"
+description: "Video studio: explainer and demo videos made with an outside partner program (OpenMontage), every review the owner's; and reels, one owner review on the shelf after a legal check"
 color: "#8B5CF6"
 role: "Explainer and demo videos, made with an outside studio program"
 mission: "Videos the owner is glad to show"
 workflow: video
+# Starter files the owner edits, written to departments/<key>/ (never over
+# one): reel-legal.yaml holds the phrases the reel type's legal check looks
+# for (docs/departments.md, "Reels").
+files: [reel-legal.yaml]
 # The partners catalog's slots this department fills: department add names
 # the tools listed for each (issue-cli department partners --slot <slot>)
 # and installs none of them.
@@ -46,5 +50,41 @@ connectors:
     optional: [FAL_KEY, ELEVENLABS_API_KEY]
     check: "test -x {{path}}/.venv/bin/python"
     sends: true
-    note: "OpenMontage's tools; a set key lets them spend money, so the assets and publish gates stay the owner's"
+    note: "OpenMontage's tools; a set key lets them spend money, so the assets and publish gates stay the owner's. Its keys are not capped: the reel connectors below are"
+  # Paid tools for reels, metered (docs/departments.md#spend-caps): each
+  # billing call's cost goes to <issues>/.connectors/spend.jsonl, and a
+  # billing call is refused once this calendar month reaches spend: cap:.
+  # No cap ships: it is the owner's number, and until the owner writes one
+  # under spend: in projects.yaml every billing call is refused.
+  #
+  # kling: the official Kling CLI (npm i -g @klingai/cli-global), found on
+  # PATH, billed from the Kling membership credits. kling login is the
+  # owner's, in their own shell; the connector holds no secret and never
+  # reads the CLI's own login files.
+  - name: kling
+    kind: tool
+    command: kling
+    check: "kling --version"
+    sends: true
+    spend:
+      meter: json
+      field: creditsConsumed
+      unit: credits
+      free: [who_am_i, account, query_tasks, tool_list, element_list, element_get, motion_library_list, file_upload]
+      refuse: [login, logout]
+    note: "Kling video and images for reel B-roll: issue-cli connector exec video/kling -- <subcommand> …; capped in credits a month"
+  # elevenlabs: text-to-speech and music, called by issue-cli itself with the key
+  # from the owner's Keychain (security add-generic-password -s
+  # elevenlabs-api -a "$USER" -w). Its voices: by placement are the
+  # owner's to add (install.md).
+  - name: elevenlabs
+    kind: tool
+    url: https://api.elevenlabs.io
+    headers:
+      xi-api-key: keychain:elevenlabs-api
+    sends: true
+    spend:
+      meter: elevenlabs
+      unit: characters
+    note: "Narration and music: -- tts --placement <p> --text-file <f> --out <x.mp3> --alignment <x.json>; -- voices search --language pl (free, previews to pick a voice); -- music --prompt \"…\" --length-ms N --out <x.mp3> (paid plan); capped in characters (credits) a month; connector check shows the plan and credits left"
 install: install.md

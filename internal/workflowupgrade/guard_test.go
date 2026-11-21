@@ -21,6 +21,7 @@ var nonFeatureKeys = map[string]string{
 	"worktree_sparse_exclude":    "tunes worktree (default issues/); not something to adopt on its own",
 	"leads.epic":                 "obsolete and ignored; lint warns when set",
 	"leads.green_branch_minutes": "how long the lead tick lets a shipping branch wait unmerged before its merge: line; a tuning knob with a default (30)",
+	"leads.idle_minutes":         "how long the lead tick lets a project start nothing while it has room before its idle: line; a tuning knob with a default (60)",
 	"ci.branch":                  "local CI's integration branch; the default (main/master) fits every project so far",
 	"ci.nice":                    "local CI's process priority; a tuning knob, not a feature",
 	"health.off":                 "turns snapshots off; the opposite of adopting a feature",

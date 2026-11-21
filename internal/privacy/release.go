@@ -435,7 +435,10 @@ func ValidatedTip(root, branch string) string {
 }
 
 // cherryNew is the commits of ref, oldest first, that branch has no
-// equivalent of (git cherry's + lines).
+// equivalent of: git cherry's + lines, less those a commit on branch names
+// in its "(cherry picked from commit <sha>)" line. A pick rewrites the
+// changelog hunk (the branch keeps only its own ## Unreleased lines), so its
+// patch id differs and git cherry alone counts it as missing.
 func cherryNew(root, branch, ref string) ([]string, error) {
 	out, err := git(root, "cherry", branch, ref)
 	if err != nil {
@@ -447,7 +450,43 @@ func cherryNew(root, branch, ref string) ([]string, error) {
 			mine = append(mine, sha)
 		}
 	}
-	return mine, nil
+	if len(mine) == 0 {
+		return mine, nil
+	}
+	picked, err := PickedFrom(root, branch)
+	if err != nil {
+		return nil, err
+	}
+	kept := mine[:0]
+	for _, sha := range mine {
+		if !picked[sha] {
+			kept = append(kept, sha)
+		}
+	}
+	return kept, nil
+}
+
+// Unpicked is the commits of ref, oldest first, that the release branch has
+// neither by patch nor by a cherry-pick -x line naming them.
+func Unpicked(root, branch, ref string) ([]string, error) {
+	return cherryNew(root, branch, ref)
+}
+
+// pickedFromRe is the line git cherry-pick -x writes.
+var pickedFromRe = regexp.MustCompile(`(?m)^\(cherry picked from commit ([0-9a-f]{40})\)\s*$`)
+
+// PickedFrom is the full commit ids that branch's commits name in a
+// "(cherry picked from commit <sha>)" line: what release pick put there.
+func PickedFrom(root, branch string) (map[string]bool, error) {
+	out, err := git(root, "log", "-E", "--grep=^\\(cherry picked from commit [0-9a-f]{40}\\)", "--format=%B%x00", branch)
+	if err != nil {
+		return nil, err
+	}
+	picked := map[string]bool{}
+	for _, m := range pickedFromRe.FindAllStringSubmatch(out, -1) {
+		picked[m[1]] = true
+	}
+	return picked, nil
 }
 
 // refsCommits is the non-merge commits on mainBranch, oldest first, with a

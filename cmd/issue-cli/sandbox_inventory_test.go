@@ -39,6 +39,7 @@ var notGuards = map[string]string{
 	"memoryCaller":         "picks what memories a caller sees",
 	"checkRoute":           "declared routes between departments, the same for any worker; not an owner-only command",
 	"leadTickQueueSweep":   "lead tick's queue-low sweep: does nothing for a worker (refuses nothing); the tick's start keeps queueStart's worker refusal",
+	"leadTickYoloMoves":    "lead tick's YOLO moves: does nothing for a worker (refuses nothing); each move is runTransition, which keeps its own-issue guard",
 }
 
 // guardHelpers ask the sandbox pass themselves.

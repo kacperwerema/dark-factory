@@ -23,7 +23,7 @@ var machineVerdict = fseventsd.Current
 
 // machineWideKinds are the Needs you kinds that belong to the machine, not a
 // project: listed once across projects and counted once in the total.
-var machineWideKinds = map[string]bool{"bugs": true, "machine": true, "disk": true}
+var machineWideKinds = map[string]bool{"bugs": true, "machine": true, "disk": true, "sessions": true}
 
 // machineWideRows is how many machine-wide rows each project's list holds.
 func machineWideRows(now time.Time) int {
@@ -35,6 +35,9 @@ func machineWideRows(now time.Time) int {
 		n++
 	}
 	if diskVerdict(now).Over {
+		n++
+	}
+	if !longNow().Empty() {
 		n++
 	}
 	return n

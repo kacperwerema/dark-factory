@@ -38,6 +38,7 @@ func init() {
 		"odoc.approve",
 		"odoc.reject",
 		"odoc.missing",
+		"odoc.report",
 		"odoc.player",
 		"odoc.vidinfo",
 		"odoc.prev",

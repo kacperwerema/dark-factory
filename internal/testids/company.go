@@ -57,6 +57,8 @@ func init() {
 		"company.room.connectors.expired",
 		"company.room.connector",
 		"company.room.connector.check",
+		"company.room.connector.spend",
+		"company.room.connector.voice",
 		"company.room.connector.secret",
 		"company.room.connector.run",
 		"company.room.jobs",

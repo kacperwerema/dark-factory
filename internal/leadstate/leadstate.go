@@ -732,6 +732,32 @@ func FreshHandover(lead string, now time.Time) *Handover {
 	return s.Handover
 }
 
+// NoteRepeats are the state file's sections a flush's handoff note holds
+// too (its State, Queue and Waiting on the owner): after a flush the fresh
+// lead's prompt carries them once, in the note (the lead floor report's
+// lever 5).
+var NoteRepeats = []string{"Workers", "Queue", "Owner asks"}
+
+// DropSections is text without its "## <name>" sections (heading to the
+// next "## " heading), for each name.
+func DropSections(text string, names ...string) string {
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[strings.ToLower(n)] = true
+	}
+	var out []string
+	skip := false
+	for _, line := range strings.Split(text, "\n") {
+		if h, ok := strings.CutPrefix(line, "## "); ok {
+			skip = drop[strings.ToLower(strings.TrimSpace(h))]
+		}
+		if !skip {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // FromFlush reports a handover the nightly lead flush left.
 func (h *Handover) FromFlush() bool { return h != nil && h.By == ByFlush }
 
@@ -753,7 +779,14 @@ func HandoverSection(lead, historyCmd string, now time.Time) string {
 		b.WriteString("\n\n## Where the last lead left off\n\n")
 		fmt.Fprintf(&b, "You are a fresh session of %s, started by issue-cli lead rotate at %s. Your state file (%s) as it was:\n\n", lead, h.At.Local().Format("15:04"), Path(lead))
 	}
-	b.WriteString(strings.TrimSpace(h.State))
+	state := h.State
+	if h.FromFlush() {
+		// The flush wrote its note from this state the same minute, and
+		// the note comes first: one copy of each part is enough.
+		state = DropSections(state, NoteRepeats...)
+		fmt.Fprintf(&b, "(Its %s are in the note above; issue-cli lead state prints them as they are now.)\n\n", strings.ToLower(strings.Join(NoteRepeats, ", ")))
+	}
+	b.WriteString(strings.TrimSpace(state))
 	b.WriteString("\n")
 	if len(h.Watches) > 0 {
 		b.WriteString("\n## Restart these watches\n\nThe old session's background shells ended with it. Start each again with Bash run_in_background:\n\n")

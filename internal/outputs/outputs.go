@@ -82,6 +82,9 @@ type Event struct {
 	Worktree string `json:"worktree,omitempty"`
 	// Poster is a video file's poster under FilesDir (add and revise).
 	Poster string `json:"poster,omitempty"`
+	// Report is a file kept beside a shelf file (add --report, e.g. a
+	// reel's QA report), under FilesDir; a revise drops it.
+	Report string `json:"report,omitempty"`
 	Issue  string `json:"issue,omitempty"`
 	Job    string `json:"job,omitempty"`
 	Note   string `json:"note,omitempty"`
@@ -112,7 +115,10 @@ type Output struct {
 	Branch   string `json:"branch,omitempty"`
 	Worktree string `json:"worktree,omitempty"`
 	// Poster is the newest video file's poster under FilesDir ("" for none).
-	Poster string    `json:"poster,omitempty"`
+	Poster string `json:"poster,omitempty"`
+	// Report is the file kept beside the newest version under FilesDir
+	// ("" for none): a reel's QA report from issue-cli reel shelve.
+	Report string    `json:"report,omitempty"`
 	Issue  string    `json:"issue,omitempty"`
 	Job    string    `json:"job,omitempty"`
 	Note   string    `json:"note,omitempty"`
@@ -355,7 +361,7 @@ func apply(byID map[string]*Output, e Event) error {
 		}
 		byID[e.ID] = &Output{
 			ID: e.ID, Department: e.Department, Title: e.Title, Kind: e.Kind,
-			URL: e.URL, File: e.File, Path: e.Path, Branch: e.Branch, Worktree: e.Worktree, Poster: e.Poster, Issue: e.Issue, Job: e.Job, Note: e.Note,
+			URL: e.URL, File: e.File, Path: e.Path, Branch: e.Branch, Worktree: e.Worktree, Poster: e.Poster, Report: e.Report, Issue: e.Issue, Job: e.Job, Note: e.Note,
 			By: e.By, Added: when, State: StateReview,
 		}
 		if e.File != "" {
@@ -400,7 +406,7 @@ func apply(byID map[string]*Output, e Event) error {
 			return fmt.Errorf("revise of published output %s", e.ID)
 		}
 		o.Versions = append(o.Versions, Version{N: o.Version() + 1, File: e.File, Poster: e.Poster, Date: when, By: e.By, Note: e.Note})
-		o.File, o.Poster, o.State = e.File, e.Poster, StateReview
+		o.File, o.Poster, o.Report, o.State = e.File, e.Poster, e.Report, StateReview
 	default:
 		return fmt.Errorf("unknown op %q", e.Op)
 	}
@@ -524,6 +530,9 @@ type AddInput struct {
 	URL, File, Path         string
 	Issue, Job, Note, By    string
 	Worktree, Branch        string
+	// Report is a file to keep beside File (only with File): a reel's QA
+	// report. Markdown shows in the shelf's reader under the file.
+	Report string
 }
 
 // Add checks the input, copies a file onto the shelf and records the
@@ -547,6 +556,9 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 	}
 	if err := checkVideoInput(in); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(in.Report) != "" && strings.TrimSpace(in.File) == "" {
+		return nil, errors.New("--report keeps a file beside a shelf file: use it with --file")
 	}
 	if !Configured(p, in.Department) {
 		return nil, fmt.Errorf("no department %q (departments: %s)", in.Department, strings.Join(Keys(p), ", "))
@@ -581,6 +593,12 @@ func Add(p *tracker.Project, in AddInput, now time.Time) (*Output, error) {
 		}
 		e.File = rel
 		e.Poster, posterErr = posterFor(p, rel)
+		if strings.TrimSpace(in.Report) != "" {
+			if e.Report, err = copyFile(p, in.Department, id+"-report", in.Report); err != nil {
+				os.Remove(filepath.Join(FilesDir(p), filepath.FromSlash(rel)))
+				return nil, fmt.Errorf("--report: %w", err)
+			}
+		}
 	}
 	if err := Append(p, e); err != nil {
 		return nil, fmt.Errorf("recording the output: %w", err)

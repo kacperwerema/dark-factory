@@ -44,7 +44,12 @@ the last --days calendar days (default 7): sessions, turns, the floor
 (the first turn's context: CLAUDE.md, the briefing, tools and skills,
 before any work; the median over the box's sessions), median and max
 context per turn, compactions, and the floor's share (floor × turns over
-the context read). A resumed session has no floor of its own. Only a
+the context read). Under Workers and Leads, under each top session and
+in one box's view, the floor by part: system prompt, tools (the three
+biggest named), MCP, CLAUDE.md files (global, project, memory), skills,
+brief, other; read from the request Claude Code writes before the first
+answer, scaled to the floor's tokens (an estimate, about ±10%; a part is
+its median over the sessions). A resumed session has no floor of its own. Only a
 session's main transcript is read (not its subagents'), and Claude Code's
 only: Codex is not covered. The Stats page's Context floor trend is the
 worker sessions' floor per day (the context health family).
@@ -245,6 +250,9 @@ func runSpendContext(ctx *Context, pos []string, days int) error {
 	if len(pos) == 0 {
 		fmt.Fprintf(w, "\nAll:     %s\n", contextLine(rep.All))
 		fmt.Fprintf(w, "Workers: %s\n", contextLine(rep.Workers))
+		printFloorParts(w, "         ", rep.Workers)
+		fmt.Fprintf(w, "Leads:   %s\n", contextLine(rep.Leads))
+		printFloorParts(w, "         ", rep.Leads)
 	}
 	for _, b := range boxes {
 		head := "== " + b.Name
@@ -260,6 +268,9 @@ func runSpendContext(ctx *Context, pos []string, days int) error {
 			continue
 		}
 		fmt.Fprintf(w, "  %s\n", contextLine(b.ContextStats))
+		if len(pos) == 1 {
+			printFloorParts(w, "  ", b.ContextStats)
+		}
 		if len(b.Top) > 0 && len(pos) == 1 {
 			printTopSessions(w, b.Top)
 		}
@@ -306,7 +317,55 @@ func printTopSessions(w io.Writer, top []spend.ContextSession) {
 		}
 		fmt.Fprintf(w, "    %s  %s  %s · floor %s · turn median %s, max %s · %s · %s read\n",
 			s.Start.Local().Format("2006-01-02 15:04"), who, countOf(s.Turns, "turn", "turns"), floor, tokens.Format(s.Median), tokens.Format(s.Max), countOf(s.Compactions, "compaction", "compactions"), tokens.Format(s.Context))
+		if s.Parts != nil {
+			fmt.Fprintf(w, "      floor: %s\n", floorPartsLine(s.Parts))
+		}
 	}
+}
+
+// printFloorParts is the floor-by-part line under a stats line, when its
+// sessions' transcripts carry a request shape.
+func printFloorParts(w io.Writer, indent string, st spend.ContextStats) {
+	if st.Parts == nil {
+		return
+	}
+	fmt.Fprintf(w, "%sfloor by part (median of %s, est. ±10%%): %s\n", indent, countOf(st.PartsOf, "session", "sessions"), floorPartsLine(st.Parts))
+}
+
+// floorPartLabels are the parts as printed.
+var floorPartLabels = map[string]string{
+	spend.PartSystem: "system", spend.PartTools: "tools", spend.PartMCP: "MCP", spend.PartClaudeMD: "CLAUDE.md",
+	spend.PartSkills: "skills", spend.PartBrief: "brief", spend.PartOther: "other",
+}
+
+// floorPartsLine is a floor's parts: tools with their three biggest, the
+// CLAUDE.md files by kind.
+func floorPartsLine(p *spend.FloorParts) string {
+	var out []string
+	for _, name := range spend.FloorPartNames {
+		part := floorPartLabels[name] + " " + tokens.Format(p.Part(name))
+		var detail []string
+		switch name {
+		case spend.PartTools:
+			for _, t := range p.ToolSizes {
+				if len(detail) == 3 {
+					break
+				}
+				if !strings.HasPrefix(t.Name, "mcp__") {
+					detail = append(detail, t.Name+" "+tokens.Format(t.Tokens))
+				}
+			}
+		case spend.PartClaudeMD:
+			for _, f := range p.Files {
+				detail = append(detail, f.Name+" "+tokens.Format(f.Tokens))
+			}
+		}
+		if len(detail) > 0 && p.Part(name) > 0 {
+			part += " (" + strings.Join(detail, ", ") + ")"
+		}
+		out = append(out, part)
+	}
+	return strings.Join(out, " · ")
 }
 
 // printSubscriptions is the split by agent CLI: this week and the weeks

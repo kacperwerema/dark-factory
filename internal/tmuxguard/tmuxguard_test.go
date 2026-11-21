@@ -21,6 +21,10 @@ func TestMain(m *testing.M) {
 		guardedRun() // a run of its own, see agent_cli_test.go
 		return
 	}
+	if os.Getenv(tempRunVar) != "" {
+		tempRun() // a run of its own, see tmpdir_test.go
+		return
+	}
 	tmuxguard.Main(m)
 }
 

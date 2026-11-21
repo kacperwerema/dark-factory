@@ -471,6 +471,12 @@
                         {{range .Reports}}<div class="status-row" data-testid="status.release_wait.candidate.report.{{tid .Issue.Slug}}"><a href="{{$.IssueURL .Issue.Slug}}" class="status-title status-ellipsis">{{.Issue.Title}}</a><span class="mono status-meta">{{.Found}} · {{.Issue.Status}}</span></div>{{end}}
                     </div>
                     {{end}}
+                    {{if .MovedOut}}
+                    <div class="status-row-stack" data-testid="status.release_wait.candidate.moved">
+                        <span class="label">Moved out on the owner's ok · {{len .MovedOut}}</span>
+                        {{range .MovedOut}}<div class="status-row" data-testid="status.release_wait.candidate.moved.{{tid .Issue.Slug}}"><a href="{{$.IssueURL .Issue.Slug}}" class="status-title status-ellipsis">moved out: {{.Issue.Slug}} → {{.MovedTo}}</a><span class="mono status-meta">{{.Found}} · {{.Issue.Status}}</span></div>{{end}}
+                    </div>
+                    {{end}}
                     {{if .Fixed}}
                     <div class="status-row-stack" data-testid="status.release_wait.candidate.fixed">
                         <span class="label">Fixed since {{$.ReleaseWait.Milestone.Candidate.Tag}}: soak in {{$.ReleaseWait.Milestone.Candidate.Next}}</span>

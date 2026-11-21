@@ -16,8 +16,9 @@ const (
 )
 
 // Limits for lead-scope memories in a lead's brief. Their pins are the
-// lead's standing rules, shown in full on their own budget, so project pins
-// can't crowd them out; the unpinned ones get one clipped line each.
+// lead's standing rules, on their own budget so project pins can't crowd
+// them out; a lead brief shows every pin as its title and Never sentences
+// (writePinTitles), the unpinned ones as one clipped line each.
 const (
 	leadPinLimit  = 12
 	leadPinChars  = 6000
@@ -111,13 +112,16 @@ func MemoryLeadLine(proj *tracker.Project, name, department string) string {
 	b.WriteString("- Memory: issue-cli memory search|list|show reads what agents learned; pin what every briefing should carry (issue-cli memory pin <id>, leads and the owner only; issue-cli memory list --suggested shows the workers' suggestions); your own notebook is --scope agent. A standing rule for every lead and no worker is --scope lead: it stays in this project's log, and neither a secret nor deal, client or price context goes in one.\n")
 	lead, rest := splitLeadScope(briefingMemories(proj, v))
 	rules, others := memory.SplitPins(lead, leadPinLimit, leadPinChars)
+	if len(rules.Shown) > 0 || len(rest) > 0 {
+		b.WriteString("  Pins are titles here, with their Never rules in full: read one whole with issue-cli memory show <id> before you act on it.\n")
+	}
 	if len(rules.Shown) > 0 {
 		b.WriteString("  Standing rules (lead scope):\n")
-		writePinList(&b, rules.Shown)
+		writePinTitles(&b, rules.Shown)
 		writePinsMore(&b, rules)
 	}
 	if pins, _ := memory.SplitPins(rest, memoryPinLimit, memoryPinChars); len(pins.Shown) > 0 {
-		writePins(&b, pins)
+		writePinsWith(&b, pins, writePinTitles)
 	}
 	writeLeadList(&b, others)
 	return b.String()
@@ -160,12 +164,17 @@ func LeadMemoriesLine(proj *tracker.Project) string {
 			pinned++
 		}
 	}
-	return fmt.Sprintf("Lead memories: %d (%d pinned, in the brief in full): issue-cli memory list --scope lead", len(lead), pinned)
+	return fmt.Sprintf("Lead memories: %d (%d pinned, in the brief as titles): issue-cli memory list --scope lead", len(lead), pinned)
 }
 
 // writePins is the pins by layer, machine first: the same two layers
 // ## Rules shows, one budget between them.
 func writePins(b *strings.Builder, pins memory.Pins) {
+	writePinsWith(b, pins, writePinList)
+}
+
+// writePinsWith is writePins with each layer written by write.
+func writePinsWith(b *strings.Builder, pins memory.Pins, write func(*strings.Builder, []memory.Memory)) {
 	var machine, project []memory.Memory
 	for _, m := range pins.Shown {
 		if m.Scope == memory.ScopeMachine {
@@ -176,11 +185,11 @@ func writePins(b *strings.Builder, pins memory.Pins) {
 	}
 	if len(machine) > 0 {
 		b.WriteString("Pinned on every project:\n")
-		writePinList(b, machine)
+		write(b, machine)
 	}
 	if len(project) > 0 {
 		b.WriteString("Pinned on this project:\n")
-		writePinList(b, project)
+		write(b, project)
 	}
 	writePinsMore(b, pins)
 }
@@ -189,6 +198,104 @@ func writePinList(b *strings.Builder, mems []memory.Memory) {
 	for _, m := range mems {
 		fmt.Fprintf(b, "- %s (%s) %s\n", m.ID, m.Kind, m.Text)
 	}
+}
+
+// writePinTitles is a lead brief's pins: each one's title and its Never
+// sentences (the hard rules a lead must not miss), not the whole text, which
+// issue-cli memory show <id> prints (the lead floor report's lever 6).
+func writePinTitles(b *strings.Builder, mems []memory.Memory) {
+	for _, m := range mems {
+		line := pinTitle(m.Text)
+		for _, n := range neverSentences(m.Text) {
+			if !strings.Contains(line, n) {
+				line += " " + n
+			}
+		}
+		fmt.Fprintf(b, "- %s (%s) %s\n", m.ID, m.Kind, line)
+	}
+}
+
+// Caps on a pin's line in a lead brief.
+const (
+	pinTitleChars = 120
+	pinNeverChars = 200
+)
+
+// pinTitle is a memory's first sentence without its parentheses (the
+// owner's quote and the source a rule carries), clipped: what the rule is,
+// not why.
+func pinTitle(text string) string {
+	sentences := splitSentences(text)
+	if len(sentences) == 0 {
+		return ""
+	}
+	t := sentences[0]
+	if bare := dropParens(t); bare != "" {
+		t = bare
+	}
+	return clipLine(t, pinTitleChars)
+}
+
+// neverSentences is text's sentences after the first that start with
+// "Never", each clipped.
+func neverSentences(text string) []string {
+	var out []string
+	for i, s := range splitSentences(text) {
+		if i > 0 && strings.HasPrefix(s, "Never ") {
+			out = append(out, clipLine(s, pinNeverChars))
+		}
+	}
+	return out
+}
+
+// splitSentences cuts text after each ". ", "! " or "? " outside
+// parentheses, so an owner's quoted words don't end a sentence.
+func splitSentences(text string) []string {
+	var out []string
+	depth, start := 0, 0
+	r := []rune(text)
+	for i, c := range r {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case '.', '!', '?':
+			if depth == 0 && i+1 < len(r) && r[i+1] == ' ' {
+				if s := strings.TrimSpace(string(r[start : i+1])); s != "" {
+					out = append(out, s)
+				}
+				start = i + 1
+			}
+		}
+	}
+	if s := strings.TrimSpace(string(r[start:])); s != "" {
+		out = append(out, s)
+	}
+	return out
+}
+
+// dropParens is s without its parenthesised parts, spaces tidied.
+func dropParens(s string) string {
+	var b strings.Builder
+	depth := 0
+	for _, c := range s {
+		switch {
+		case c == '(':
+			depth++
+		case c == ')' && depth > 0:
+			depth--
+		case depth == 0:
+			b.WriteRune(c)
+		}
+	}
+	t := strings.Join(strings.Fields(b.String()), " ")
+	for _, p := range []string{" .", " ,", " ;", " :"} {
+		t = strings.ReplaceAll(t, p, p[1:])
+	}
+	return t
 }
 
 func writePinsMore(b *strings.Builder, pins memory.Pins) {

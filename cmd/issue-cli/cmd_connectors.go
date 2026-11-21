@@ -105,9 +105,48 @@ department's agents only.
       each: {"path", "status", "body"}. GET is the only method; a path its
       get: patterns don't match is refused before anything starts. Exit 1
       when any answer isn't a 2xx.
+  connector exec <dept>/<name> -- <subcommand> [<arg>...]
+      A connector with spend: (a paid tool, meter: json) runs only its own
+      command:, the words after -- being its arguments. A billing call is
+      refused while this month's spend is at its cap:, while no cap is set,
+      or while the last call's cost is unknown; its cost (the number under
+      spend: field:, e.g. Kling's creditsConsumed) goes to
+      <issues>/.connectors/spend.jsonl. With no such number, the balance
+      read before and after it (spend: balance:, kling: account's
+      availableRemainCredits) prices it, source: balance; unknown, and the
+      next call held, only when that can't be read. One billing call of a
+      connector at a time per project (later ones wait). free: subcommands
+      run over the cap; refuse: ones never run.
+  connector exec <dept>/<name> -- tts --placement <p> --text-file <f> --out <x.mp3> [--alignment <x.json>] [--model <id>]
+  connector exec <dept>/<name> -- voices
+  connector exec <dept>/<name> -- voices search [--language pl] [--gender female] [--use-case <u>] [--accent <a>] [--search "<words>"] [--commercial] [--limit N] [--json]
+  connector exec <dept>/<name> -- music (--prompt "…" | --prompt-file <f>) --length-ms N --out <x.mp3> [--instrumental] [--model <id>]
+      A meter: elevenlabs connector: issue-cli calls ElevenLabs itself,
+      with its headers: key. tts speaks for the voice at that placement
+      (voices:), writes the MP3 and the character alignment, and records
+      the characters billed; a real person's voice needs consent:. voices
+      search reads the shared library (free): voice_id, name, accent, use
+      case, preview_url. music writes an MP3 and its licence file, capped
+      like tts (credits; refused on a free plan or when the estimate passes
+      the cap's room). With no character-cost in the answer, either is
+      priced from the subscription's count before and after it (re-read
+      up to 30 s while it settles), source: balance. Its check is built
+      in: the plan and credits left.
+  connector spend [<dept>[/<name>]] [--json]
+      This month's entries with their ids (s-1a2b3c), removed ones marked.
+  connector spend add <dept>/<name> <amount> [--for <entry-id> | --ref <generation id> | --outside] [--note "..."]
+      Records an amount by hand: for the held unknown call (by default),
+      the call --for or --ref names, or with --outside spend made outside
+      the engine. A call already priced is refused, naming the first
+      entry. The owner or the department's lead.
+  connector spend remove <entry-id> --reason "..."
+      Cancels one entry by appending a removal line (never an edit in
+      place): it leaves the month's total and its hold. The owner or the
+      department's lead.
   connector check [<dept>[/<name>]]
       Runs each check: (read-only) with its secrets, a 20 s timeout and its
-      output thrown away, and records ok / failing / missing / no-check in
+      output thrown away (a meter: elevenlabs connector's built-in check
+      reads the subscription and prints the plan and credits left), and records ok / failing / missing / no-check in
       <issues>/.connectors/checks.jsonl. The owner or the department's lead.
       A per_run: tool no run holds records stopped, and isn't checked.
   connector sweep [<dept>]
@@ -121,9 +160,18 @@ running as the owner can read their environment and Keychain.
 Examples:
   issue-cli connector exec marketing/wordpress -- wp post list
   issue-cli connector exec marketing/social-analytics -- /public/v1/analytics/post/<id>?date=7
+  issue-cli connector exec video/kling -- query_tasks <generationId>
+  issue-cli connector exec video/elevenlabs -- tts --placement narrator --text-file s1.txt --out s1.mp3 --alignment s1.json
+  issue-cli connector exec video/elevenlabs -- voices search --language pl --gender female --commercial
+  issue-cli connector exec video/elevenlabs -- music --prompt "warm acoustic, 100 bpm" --length-ms 30000 --out reels/r1/music.mp3
   issue-cli connector check marketing`,
 	Run:         runConnector,
-	Subcommands: []string{"exec", "check", "sweep"},
+	Subcommands: []string{"exec", "check", "sweep", "spend"},
+	// exec's tts, voices search and music forms parse their own flags
+	// after -- (runMeteredTTS).
+	ExtraFlags: []string{"placement", "text-file", "text", "out", "alignment", "model", "language", "gender", "use-case", "accent", "search", "commercial", "limit", "prompt", "prompt-file", "length-ms", "instrumental",
+		// connector spend add / remove / list.
+		"note", "for", "ref", "outside", "reason", "json"},
 }
 
 func init() {
@@ -207,6 +255,9 @@ func printConnectors(w io.Writer, list []connectors.Status, now time.Time, inden
 		if w := s.RunWords(); w != "" {
 			line += " · " + w
 		}
+		if s.Spend != nil {
+			line += " · spend " + s.Spend.Words()
+		}
 		line += " · " + checkWords(s, now)
 		fmt.Fprintln(w, line)
 		for _, sec := range s.Secrets {
@@ -228,6 +279,9 @@ func printConnectors(w io.Writer, list []connectors.Status, now time.Time, inden
 				name = "header " + name + ":"
 			}
 			fmt.Fprintf(w, "%s  %s %s %s\n", indent, name, sec.Ref, state)
+		}
+		for _, v := range s.Voices {
+			fmt.Fprintf(w, "%s  %s\n", indent, voiceLine(v))
 		}
 		if s.Note != "" {
 			fmt.Fprintf(w, "%s  %s\n", indent, s.Note)
@@ -273,8 +327,10 @@ func runConnector(ctx *Context, args []string) error {
 		return runConnectorCheck(ctx, args[1:])
 	case "sweep":
 		return runConnectorSweep(ctx, args[1:])
+	case "spend":
+		return runConnectorSpendCmd(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown connector command %q: exec, check or sweep", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown connector command %q: exec, check, sweep or spend", args[0])}
 }
 
 // connectorCaller is who runs this command, from the session's signals.
@@ -329,6 +385,14 @@ func runConnectorExec(ctx *Context, args []string) error {
 	checks := callChecks{hold: connectorHold(p, addr, c, caller)}
 	if c.Kind == tracker.ConnectorRest {
 		return runConnectorRest(ctx, dept, addr, c, child, checks.hold)
+	}
+	if c.Spend != nil {
+		if checks.hold != nil {
+			if err := checks.hold(); err != nil {
+				return err
+			}
+		}
+		return runConnectorMetered(ctx, dept, addr, c, child, caller)
 	}
 	// A tool or a stdio server is held whole: nothing starts, no secret is
 	// read. A url: server is held per tools/call, in the bridge, which is
@@ -636,6 +700,9 @@ func runConnectorCheck(ctx *Context, args []string) error {
 			line += " (a secret is missing: issue-cli connectors " + strings.SplitN(r.Connector, "/", 2)[0] + ")"
 		}
 		fmt.Fprintln(ctx.Stdout, line)
+		if r.Detail != "" {
+			fmt.Fprintf(ctx.Stdout, "  %s\n", r.Detail)
+		}
 		for _, o := range r.Optional {
 			state := "not set"
 			if o.Set {

@@ -72,7 +72,15 @@ func runLeadRotate(ctx *Context, args []string) error {
 	if *finish {
 		return leadRotateFinish(ctx, lead)
 	}
+	return rotateLead(ctx, lead, issues, *noStart)
+}
 
+// rotateLead writes lead's handoff note and digest and, unless noStart,
+// starts the detached finisher that closes the session after its turn and
+// starts it again. lead rotate runs it for one lead; the nightly flush's
+// close runs it for each department lead (rotateDepartmentLeads).
+func rotateLead(ctx *Context, lead string, issues []*tracker.Issue, noStart bool) error {
+	proj := ctx.Project
 	state, err := renderLeadState(ctx, lead, issues)
 	if err != nil {
 		return err
@@ -113,7 +121,7 @@ func runLeadRotate(ctx *Context, args []string) error {
 	w := ctx.Stdout
 	fmt.Fprintf(w, "✓ Wrote %s\n✓ Wrote %s\n", notePath, digestPath)
 	history := tracker.InjectProject(proj, "issue-cli lead history <words>")
-	if *noStart {
+	if noStart {
 		fmt.Fprintf(w, "--no-start: %s keeps running. Older context: %s\n", lead, history)
 		return nil
 	}

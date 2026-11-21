@@ -219,6 +219,7 @@ func (w *WorkflowConfig) Lint() []string {
 	if strings.TrimSpace(w.Leads.Project) != "" {
 		out = append(out, "leads.project replaces the built-in lead brief, so it misses every later change to it: move what this project adds to leads.project_addendum and remove leads.project")
 	}
+	out = append(out, w.Leads.LeadsSetupProblems()...)
 	out = append(out, w.lintRules()...)
 	out = append(out, w.lintSessions()...)
 	if !w.HasTypes() {

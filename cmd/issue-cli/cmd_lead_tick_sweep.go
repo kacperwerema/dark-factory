@@ -22,11 +22,17 @@ import (
 // queueSweepNote is the queued item's note.
 const queueSweepNote = "queue-low sweep by the lead tick: file its proposals"
 
+// queueSweepsPerDay is how many queue-low sweeps the tick runs in a local
+// day: the first at the refill line, more only while the queue stays empty
+// and the last one closed, so a night with no lead turn still gets new
+// work and a sweep that files nothing can't repeat all night.
+const queueSweepsPerDay = 4
+
 // leadTickQueueSweep files and queues the queue-low sweep when YOLO and
 // auto-start are on and no sweep of the same job is open or ran today. It
 // returns the phrase the queue-low line adds ("" when it did nothing) and
 // the said key's suffix (the sweep's slug, so a new sweep is said again).
-func leadTickQueueSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue) (phrase, key string) {
+func leadTickQueueSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue, open int) (phrase, key string) {
 	proj := ctx.Project
 	me := whoAmI(proj, issues)
 	if me.Role == tracker.RoleWorker {
@@ -51,7 +57,18 @@ func leadTickQueueSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue) (p
 	n, err := jobs.PlanRun(plan, ref, runs, period, false)
 	var exists *jobs.ExistsError
 	if errors.As(err, &exists) {
-		return "", "" // today's sweep ran: the lead's call until tomorrow
+		// Today's sweep ran. With the queue empty another may, up to
+		// queueSweepsPerDay; otherwise the lead's call until tomorrow.
+		today := 0
+		for _, run := range runs {
+			if run.Period == period {
+				today++
+			}
+		}
+		if open > 0 || today >= queueSweepsPerDay {
+			return "", ""
+		}
+		n, err = jobs.PlanRun(plan, ref, runs, period, true)
 	}
 	if err != nil {
 		t.fail("queue-sweep", err)

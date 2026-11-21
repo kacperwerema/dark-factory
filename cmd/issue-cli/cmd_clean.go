@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
@@ -21,7 +22,7 @@ import (
 
 var cleanCommand = &Command{
 	Name:      "clean",
-	ShortHelp: "The nightly clean: trim the Go build cache to its cap, old agent transcripts, health snapshots, merged worktrees, playtest runs",
+	ShortHelp: "The nightly clean: trim the Go build cache to its cap, old agent transcripts, $TMPDIR leftovers, health snapshots, merged worktrees, playtest runs",
 	LongHelp: `Free the disk the factory fills, once for the whole machine (every
 project in projects.yaml). The viewer runs it every night at clean.at
 (04:00) and early while the data volume is over 85% used; by hand:
@@ -36,15 +37,26 @@ before and after:
   transcripts   *.jsonl under Claude Code's projects/ and Codex's
                 sessions/ older than clean.transcript_days (14); never a
                 memory/ folder, never another file
+  tmp           $TMPDIR entries the factory and its tests made
+                (pt-bins-*, com.google.chrome.for.testing.*, go-build*,
+                issue-cli-*, issue-viewer-*, dft-*, the playtest ones)
+                older than clean.tmp_hours (24) and open by no live
+                process (lsof); another project's only under
+                clean.tmp_prefixes
   snapshots     .health/snapshots: the last clean.snapshot_days (7) in
                 full, one per older day
   worktrees     as issue-cli worktrees prune (merged, clean, idle)
   playtest      as issue-cli playtest prune --all
 
-It changes nothing and says why while a local CI run is live, a go build
-or test runs, or mem-guard says no; the viewer tries again on its next
-tick. Live workers don't hold it: the cache loses only its oldest
-entries, as Go's own trim does beside other builds. projects.yaml:
+Holds are per area. While mem-guard says no it changes nothing and says
+why. While a go build or test runs, or a local CI run is live, only the
+gocache area waits (its line says why) and the others run; a CI run also
+keeps its project's worktrees area. The viewer tries the waiting cache
+again on each tick, and trims it in the day as well once the hourly disk
+reading has it over its cap by more than 25%. A clean waiting over 3 h is
+said once on the lead tick. Live workers don't hold it: the cache loses
+only its oldest entries, as Go's own trim does beside other builds.
+projects.yaml:
 
   clean:
     off: true          # no clean at all
@@ -52,13 +64,17 @@ entries, as Go's own trim does beside other builds. projects.yaml:
     gocache_cap_gb: 40
     transcript_days: 14
     snapshot_days: 7
+    tmp_hours: 24
+    tmp_prefixes: ["fma-"]   # other projects' temp names it may take
   projects:
     - slug: x
       clean_off: true  # leave this project's snapshots, worktrees, runs
 
   --dry-run   report what would go; delete nothing (holds don't apply)
   --if-due    only when due (the viewer's call): no clean since tonight's
-              slot, or the volume over 85% and the last clean 6 h ago
+              slot, or the volume over 85% and the last clean 6 h ago;
+              else the gocache area alone when it waited, or is over its
+              cap by more than 25%
   --json      the result as JSON
 
 The last clean and its result show on the Needs you disk row and the
@@ -80,8 +96,12 @@ var (
 	cleanTranscriptDirs = diskuse.TranscriptDirs
 	cleanVolume         = cleanVolumeNow
 	cleanHolds          = cleanHoldsNow
+	cleanAreaHolds      = cleanAreaHoldsNow
+	cleanCache          = clean.CacheNow
 	cleanGoBusy         = func() string { ps, _ := procs.Mine(); return clean.GoBusy(ps) }
 	cleanStatePath      = clean.Path
+	cleanTmpDir         = os.TempDir
+	cleanTmpInUse       = procs.InUseUnder
 )
 
 func runClean(ctx *Context, args []string) error {
@@ -114,15 +134,17 @@ func runClean(ctx *Context, args []string) error {
 	path := cleanStatePath()
 	now := ctx.now()
 	before := cleanVolume()
-	why := "by hand"
+	capBytes := int64(cfg.CapGB() * (1 << 30))
+	plan := clean.Plan{Why: "by hand"}
 	if *ifDue {
 		h, m := cfg.Clock()
-		due, dueWhy := clean.Due(clean.Load(path), h, m, before, now)
+		var due bool
+		plan, due = clean.Due(clean.Load(path), h, m, before, cleanCache(now, capBytes), now)
 		if !due {
 			return nil
 		}
-		why = dueWhy
 	}
+	var areaHolds map[string]string
 	if !*dry {
 		release, err := clean.Lock(path)
 		if err != nil {
@@ -136,16 +158,26 @@ func runClean(ctx *Context, args []string) error {
 			fmt.Fprintf(w, "clean waits: %s\n", held)
 			return nil
 		}
+		// Read right before the areas run: a go build that started since
+		// the viewer's tick still keeps the cache.
+		areaHolds = cleanAreaHolds(ctx)
+		if why := areaHolds[clean.CacheArea]; why != "" && plan.CacheOnly {
+			_ = clean.RecordCacheWait(path, clean.Hold{At: now, Why: why})
+			fmt.Fprintf(w, "clean waits: %s: %s\n", clean.CacheArea, why)
+			return nil
+		}
 	}
-	res := clean.Result{At: now, Why: why, Before: before}
-	capBytes := int64(cfg.CapGB() * (1 << 30))
-	if busy := cleanGoBusy(); busy != "" && !*dry {
-		res.Areas = append(res.Areas, clean.Area{Name: "gocache", Note: "left alone: " + busy})
+	res := clean.Result{At: now, Why: plan.Why, Before: before}
+	if why := areaHolds[clean.CacheArea]; why != "" {
+		res.Areas = append(res.Areas, clean.Waits(clean.CacheArea, why))
 	} else {
 		res.Areas = append(res.Areas, clean.GoCache(cleanGoCacheDir(), capBytes, *dry))
 	}
-	res.Areas = append(res.Areas, clean.Transcripts(cleanTranscriptDirs(), cfg.Transcripts(), now, *dry))
-	res.Areas = append(res.Areas, cleanProjects(ctx, cfg, *dry)...)
+	if !plan.CacheOnly {
+		res.Areas = append(res.Areas, clean.Transcripts(cleanTranscriptDirs(), cfg.Transcripts(), now, *dry))
+		res.Areas = append(res.Areas, cleanTmp(cfg, now, *dry))
+		res.Areas = append(res.Areas, cleanProjects(ctx, cfg, areaHolds, *dry)...)
+	}
 	res.After = cleanVolume()
 	res.Done = ctx.now()
 	if !*dry {
@@ -160,9 +192,16 @@ func runClean(ctx *Context, args []string) error {
 	if *dry {
 		title += " (dry run)"
 	}
-	fmt.Fprintf(w, "== %s: %s ==\n", title, why)
+	fmt.Fprintf(w, "== %s: %s ==\n", title, plan.Why)
+	var waited []string
 	for _, a := range res.Areas {
 		fmt.Fprintln(w, a.Line())
+		if a.Waited {
+			waited = append(waited, a.Name)
+		}
+	}
+	if len(waited) > 0 {
+		fmt.Fprintf(w, "%-28s %s (the viewer tries again on its next tick)\n", "waited", strings.Join(waited, ", "))
 	}
 	fmt.Fprintf(w, "%-28s freed %9s", "total", clean.MB(res.Freed()))
 	if res.Before.OK && res.After.OK {
@@ -170,6 +209,18 @@ func runClean(ctx *Context, args []string) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+// cleanTmp is the tmp area over $TMPDIR, with what live processes hold
+// read once; lsof failing leaves the area alone and says why.
+func cleanTmp(cfg *tracker.CleanConfig, now time.Time, dry bool) clean.Area {
+	dir := cleanTmpDir()
+	inUse, err := cleanTmpInUse(dir)
+	a := clean.Tmp(dir, cfg.ExtraTmpPrefixes(), cfg.TmpAge(), inUse, now, dry)
+	if err != nil {
+		a.Note = "left alone: " + err.Error()
+	}
+	return a
 }
 
 // cleanConfig is projects.yaml's clean: block; nil (the defaults) without
@@ -186,8 +237,8 @@ func cleanConfig(ctx *Context) *tracker.CleanConfig {
 }
 
 // cleanProjects runs the per-project areas, once per main checkout, for
-// every project without clean_off.
-func cleanProjects(ctx *Context, cfg *tracker.CleanConfig, dry bool) []clean.Area {
+// every project without clean_off; an area named in holds waits.
+func cleanProjects(ctx *Context, cfg *tracker.CleanConfig, holds map[string]string, dry bool) []clean.Area {
 	projects := ctx.AllProjects
 	if len(projects) == 0 && ctx.Project != nil {
 		projects = []tracker.Project{*ctx.Project}
@@ -211,7 +262,11 @@ func cleanProjects(ctx *Context, cfg *tracker.CleanConfig, dry bool) []clean.Are
 		pctx := *ctx
 		pctx.Project = proj
 		out = append(out, clean.Snapshots("snapshots "+proj.Slug, health.SnapshotsDir(root), cfg.Snapshots(), ctx.now(), dry))
-		out = append(out, cleanWorktrees(&pctx, dry))
+		if why := holds["worktrees "+proj.Slug]; why != "" {
+			out = append(out, clean.Waits("worktrees "+proj.Slug, why))
+		} else {
+			out = append(out, cleanWorktrees(&pctx, dry))
+		}
 		out = append(out, cleanPlaytest(&pctx, root, dry))
 	}
 	return out
@@ -304,13 +359,27 @@ func cleanVolumeNow() diskuse.Volume {
 	return diskuse.VolumeOf(home)
 }
 
-// cleanHoldsNow is what holds a clean on this machine: a live local CI
-// run in any project, a go build or test, mem-guard. Live workers don't
-// (factory/a-nightly-clean-job-…#D-6): auto-start keeps them live around
-// the clock, and the cache trim deletes only the oldest entries, as Go's
-// own trim does beside other builds.
-func cleanHoldsNow(ctx *Context) []string {
-	var holds []string
+// cleanHoldsNow is what holds the whole clean on this machine: mem-guard.
+// Live workers don't (factory/a-nightly-clean-job-…#D-6): auto-start keeps
+// them live around the clock, and the cache trim deletes only the oldest
+// entries, as Go's own trim does beside other builds. What holds one area
+// only is cleanAreaHoldsNow's.
+func cleanHoldsNow(*Context) []string {
+	if ok, why := autostart.MemGuardAllows(); !ok {
+		return []string{why}
+	}
+	return nil
+}
+
+// cleanAreaHoldsNow is what holds single areas, by area name, so the rest
+// run beside it (factory/clean-holds-per-area-…): a go build or test, or a
+// live local CI run in any project (it builds with the cache), holds
+// gocache; a CI run also holds its project's worktrees (it runs in a linked
+// worktree). tmp, transcripts, snapshots and playtest never wait: tmp keeps
+// what a live process holds open.
+func cleanAreaHoldsNow(ctx *Context) map[string]string {
+	holds := map[string]string{}
+	var cache []string
 	projects := ctx.AllProjects
 	if len(projects) == 0 && ctx.Project != nil {
 		projects = []tracker.Project{*ctx.Project}
@@ -324,14 +393,16 @@ func cleanHoldsNow(ctx *Context) []string {
 		}
 		seen[root] = true
 		if l, alive := ci.ReadLock(root); alive {
-			holds = append(holds, fmt.Sprintf("a local CI run is live in %s (pid %d)", proj.Slug, l.PID))
+			why := fmt.Sprintf("a local CI run is live in %s (pid %d)", proj.Slug, l.PID)
+			cache = append(cache, why)
+			holds["worktrees "+proj.Slug] = why
 		}
 	}
 	if busy := cleanGoBusy(); busy != "" {
-		holds = append(holds, busy)
+		cache = append(cache, busy)
 	}
-	if ok, why := autostart.MemGuardAllows(); !ok {
-		holds = append(holds, why)
+	if len(cache) > 0 {
+		holds[clean.CacheArea] = strings.Join(cache, "; ")
 	}
 	return holds
 }

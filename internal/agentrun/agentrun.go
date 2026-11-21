@@ -338,7 +338,9 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// paste sent before the agent's input is ready is silently dropped. Both
 	// agents start interactive, so a human stays in the loop.
 	// A lean worker (workers: in workflow.yaml) gets only the MCP servers,
-	// plugins and skills its issue needs; leads, codex and setup: full get
+	// plugins and skills its issue needs; a lean lead (leads: in
+	// workflow.yaml) its connectors and the owner's MCP servers and plugins,
+	// no skill list and no unused built-in tool; codex and setup: full get
 	// the owner's whole setup plus the department's connectors.
 	var extra []string
 	if LeanWorker(spec) {
@@ -348,6 +350,11 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	} else {
 		extra = ConnectorFlags(proj, spec, sessionLogDir, env, &steps)
 		env = append(env, ConnectorEnv(proj, spec)...)
+		if LeanLead(spec) {
+			ls := LeadSetupFlags(proj, spec, workDir, sessionLogDir, extra, &steps)
+			extra = ls.Flags
+			env = append(env, ls.Env...)
+		}
 	}
 	if spec.AgentType == "codex" {
 		extra = append(CodexStartFlags(workDir), extra...)

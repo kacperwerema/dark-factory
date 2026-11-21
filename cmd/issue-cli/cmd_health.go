@@ -144,6 +144,7 @@ func runHealth(ctx *Context, args []string) error {
 			return writeJSON(ctx.Stdout, map[string]any{"snapshot": nil, "hint": healthNoSnapshot})
 		}
 		fmt.Fprintln(ctx.Stdout, healthNoSnapshot)
+		printLongLived(ctx, longReport(everyProject(ctx), ctx.now()))
 		return nil
 	}
 	if *family != "" {
@@ -154,6 +155,7 @@ func runHealth(ctx *Context, args []string) error {
 	}
 	printHealth(ctx.Stdout, snap, path)
 	printHealthHints(ctx, env.Root, snap)
+	printLongLived(ctx, longReport(everyProject(ctx), ctx.now()))
 	fmt.Fprintf(ctx.Stdout, "\nCharts: %s · scores and the review: %s\n", statsURL(ctx.Project), healthURL(ctx.Project))
 	if n := health.Count(env.Root); n < 2 {
 		fmt.Fprintf(ctx.Stdout, "Trends need history (%d snapshot so far): issue-cli health backfill\n", n)
@@ -246,6 +248,7 @@ func runHealthSnapshot(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "✓ Snapshot written: %s\n\n", path)
 	printHealth(ctx.Stdout, snap, path)
 	printHealthHints(ctx, env.Root, snap)
+	printLongLived(ctx, longReport(everyProject(ctx), ctx.now()))
 	return nil
 }
 

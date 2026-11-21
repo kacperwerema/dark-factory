@@ -109,7 +109,11 @@ func crewProjects(t *testing.T) (tracker.Project, tracker.Project) {
 
 func crewSession(t *testing.T, tmux func(...string) (string, error), name, dir string) {
 	t.Helper()
-	if out, err := tmux("new-session", "-d", "-s", name, "-c", dir, "sleep 600"); err != nil {
+	// exec: the pane's own process becomes sleep on every /bin/sh. macOS's
+	// sh (bash) execs a lone command by itself, Ubuntu's dash forks it and
+	// stays the pane's process, so pane_current_command would read sh there
+	// for good (public CI went red on v0.64.0 that way).
+	if out, err := tmux("new-session", "-d", "-s", name, "-c", dir, "exec sleep 600"); err != nil {
 		t.Fatalf("new-session %s: %v %s", name, err, out)
 	}
 	waitPaneRuns(t, tmux, name, "sleep")

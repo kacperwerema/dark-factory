@@ -35,6 +35,17 @@ type Area struct {
 	// Note is the rest of the line: sizes, the cap, why nothing went.
 	Note string `json:"note,omitempty"`
 	Err  string `json:"err,omitempty"`
+	// Waited is an area that didn't run for a hold of its own (Note says
+	// which): the gocache beside a go build or test.
+	Waited bool `json:"waited,omitempty"`
+}
+
+// CacheArea is the gocache area's name.
+const CacheArea = "gocache"
+
+// Waits is an area that didn't run: hold is why.
+func Waits(name, hold string) Area {
+	return Area{Name: name, Note: "waits: " + hold, Waited: true}
 }
 
 // Line is the area as one report line.
@@ -68,7 +79,7 @@ func MB(b int64) string {
 // count and go; README, trim.txt and the folders stay. Under the cap
 // nothing goes. dry reports without deleting.
 func GoCache(dir string, capBytes int64, dry bool) Area {
-	a := Area{Name: "gocache"}
+	a := Area{Name: CacheArea}
 	if dir == "" {
 		a.Note = "no cache (GOCACHE=off)"
 		return a

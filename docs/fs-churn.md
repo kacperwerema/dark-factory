@@ -21,6 +21,35 @@ Most of the writes were `node_modules`:
 | A worker's worktree with its own install | 29,279 | one link per `node_modules` folder (5 in an npm workspace with 4 packages); its own copy (an APFS clone, then an install over it) only after `issue-cli worktree deps --own` or an install with a changed lock file (docs/agent-dispatch.md#per-issue-worktrees) |
 | Merged worktrees waiting for the nightly sweep | 36 folders, 22 GB in one project | removed at the next lead tick after landing |
 
+## What grows over time and what bounds it
+
+The factory runs around the clock, so everything it writes or keeps alive
+needs a bound that works beside live workers (none of these holds a
+start). One row per place; `clean <area>` is an area of the nightly clean
+(issue-cli clean, docs/workbench-files.md#the-nightly-clean), and a test
+fails when the clean gets an area this table doesn't list.
+
+| What grows | Where | Bound | Setting |
+|------|------|------|------|
+| Go build cache | `GOCACHE` | clean `gocache`: the oldest entries go over the cap | `clean.gocache_cap_gb`, 40 GB |
+| Agent transcripts | Claude Code `projects/`, Codex `sessions/` | clean `transcripts` | `clean.transcript_days`, 14 days |
+| Temp leftovers of the factory and its tests | `$TMPDIR` | clean `tmp` (old, unheld, the factory's names only); every test binary runs on a private `$TMPDIR/dft-*` that is removed at exit and fails the binary when a test left anything (internal/tmuxguard) | `clean.tmp_hours`, 24 h; `clean.tmp_prefixes` for other projects |
+| Health snapshots | `.health/snapshots` | clean `snapshots`: one a day past the window | `clean.snapshot_days`, 7 days |
+| Worker worktrees | `.worktrees/` | removed at the lead tick after landing; clean `worktrees` sweeps the rest | worktrees prune's rules |
+| Playtest runs | `.playtest/` in each worktree | clean `playtest` | playtest prune's rules |
+| Test tmux folders | `/tmp/tmg-*` | each test binary's guard sweeps stale ones at start (`tmuxguard.SweepStale`) | none |
+| Resource trace | `trace/resources.jsonl` in the state dir | rotated to `.1` at 10 MB (internal/restrace) | off unless `DF_TRACE=resources` |
+| CLI logs | `.agent-logs/<agent>/<agent>.clilog` | each rotated to `.1` at 10 MB; finished agents' folders stay (70 MB on 2026-11-21) | none |
+| Local CI | `.ci/` | 50 run records per tier; red logs: 10, none over 30 days | none |
+| fseventsd readings | `machine/fseventsd.json` | the last 6 readings | none |
+| Long-lived processes' RSS | `machine/rss.json` | the last 26 h | none |
+| Clean results | `machine/clean.json` | the last 14 and the last hold | none |
+| `viewer.log` | the state dir | not bounded: it grows only on viewer starts and errors (44 KB on 2026-11-21) | none |
+| A lead session's memory | tmux `lead-<project>[-<dept>]` | rotation: the nightly flush rotates the CEO and every department and group lead that ran 20 h; `lead rotate` past 300k tokens; `issue-cli health`, Needs you and the tick name one over 26 h, and a `lead-*` session no project owns | the `lead-flush` job and its standing start |
+| A worker session's memory | tmux `agent-*` | the worker cap; the lead tick closes finished sessions and idle ones that wait on the owner; `issue-cli health` names an idle worker holding a slot | the worker cap (auto-start's window or `queue limits`), mem-guard |
+| A long-lived process growing | the viewer, each lead's pane, `issue-cli ci run` | `issue-cli health`, Needs you and the tick name one whose RSS more than doubled in 24 h (over 256 MB) with the command that restarts or rotates it | none |
+| The machine's memory | every process | mem-guard: no start at 75%, the watchdog pauses the largest heavy process at 82% | mem-guard's own |
+
 ## Measuring
 
 `scripts/fs-churn.sh` counts what a step writes:

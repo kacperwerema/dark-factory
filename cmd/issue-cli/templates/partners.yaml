@@ -9,7 +9,8 @@
 #
 # One row per tool:
 #   id, name      the tool
-#   slot          analytics | email | seo | social | video | support | cms
+#   slot          analytics | email | seo | social | video | support | cms |
+#                 payments
 #   shape         tool (a connector) | studio (a partner: block) | service
 #   licence       the SPDX id, with words when one id doesn't cover it
 #   licence_url   the LICENSE file that was read
@@ -238,3 +239,16 @@ partners:
     runs: always
     money: "free self-hosted; WordPress.com hosting and many plugins are paid"
     note: "For reference: REST API with application passwords, a review state; plugins and security updates to keep up"
+  - id: payments-kit
+    name: Payments kit
+    slot: payments
+    shape: tool
+    licence: PolyForm-Noncommercial-1.0.0
+    licence_url: https://github.com/kacperwerema/dark-factory/blob/main/LICENSE.md
+    licence_read: "2026-11-21"
+    upstream: https://github.com/kacperwerema/dark-factory/tree/main/cmd/payments-kit
+    memory: "a single Go binary beside the product's app, light; unmeasured"
+    runs: always
+    money: "free itself; a real provider charges a fee per payment, and opening its merchant account is your step"
+    default: true
+    note: "One interface for checkouts, events and refunds (docs/payments.md); adapters: standin built in (no money), Stripe, Paddle, Przelewy24 and Tpay planned; it moves to a repository of its own under a licence you pick before any live payment"

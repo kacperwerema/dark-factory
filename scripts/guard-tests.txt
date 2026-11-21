@@ -9,6 +9,7 @@
 # TestDocNumbers* test is missing here, or a listed test doesn't exist.
 ./cmd/issue-cli TestCommandWideTestsListsEveryTestOverAllCommands
 ./cmd/issue-cli TestCommandsTableNamesOnlyCommands
+./cmd/issue-cli TestEveryCleanAreaIsInTheGrowthTable
 ./cmd/issue-cli TestEveryCommandJoinsEveryRegistry
 ./cmd/issue-cli TestEveryCommandHelpNeedsNoProject
 ./cmd/issue-cli TestEveryCommandRejectsUnknownFlags

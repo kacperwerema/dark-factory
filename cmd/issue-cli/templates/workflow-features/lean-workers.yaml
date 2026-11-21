@@ -1,8 +1,8 @@
 id: lean-workers
-version: v0.64.0
+version: v0.65.0
 category: dispatch
 propose: true
-sources: ["internal/tracker/workers_config.go", "internal/agentrun/worker_setup.go", "internal/connectors/owner.go", "internal/lint/workers.go"]
+sources: ["internal/tracker/workers_config.go", "internal/agentrun/worker_setup.go", "internal/tracker/leads_setup.go", "internal/agentrun/lead_setup.go", "internal/connectors/owner.go", "internal/lint/workers.go"]
 title: "Workers start with only the MCP servers, plugins, skills and tools their issue needs"
 what: |
   An issue's Claude Code worker starts with `--strict-mcp-config`: its department's
@@ -13,8 +13,12 @@ what: |
   and `disableBundledSkills`) unless `workers: plugins:` or `skills:` keeps it for the
   issue's system, type or label; the built-in Artifact, Workflow, SendFeedback,
   ReportFindings and ListAgents tools are off unless `tools:` keeps them, and
-  claude.ai connectors are off. Your own Claude Code files are never changed. Leads and codex
-  workers keep your whole setup; `setup: full` keeps it for workers too.
+  claude.ai connectors are off. Your own Claude Code files are never changed. Codex
+  workers keep your whole setup; `setup: full` keeps it for workers too. Since v0.65.0
+  leads (the CEO, department and group leads) start without the skill list and the
+  Artifact, Workflow, SendFeedback and ReportFindings tools, keeping your MCP servers,
+  connectors and plugins; `leads: tools:` keeps one, `leads: setup: full` gives them
+  your whole setup.
 why: |
   Every tool name, server instruction and skill description sits in a worker's first
   turn and is read again on every turn; a worker that never opens a browser pays for
@@ -31,5 +35,10 @@ snippet: |
     #   - {skill: "anthropic-skills:pdf", types: [report]}
     # tools: [Artifact]      # or Workflow, SendFeedback, ReportFindings, ListAgents
     # setup: full            # the owner's whole setup, as before
+  # leads:
+  #   tools: [Artifact]      # a lead keeps it (Workflow, SendFeedback, ReportFindings too)
+  #   setup: full            # leads get the owner's whole setup
 detect:
   - path: workers
+  - path: leads.tools
+  - path: leads.setup

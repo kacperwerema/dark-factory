@@ -110,6 +110,7 @@ leads:
 - A workflow without `leads:` gets the built-in brief alone, so it still has a working lead.
 - `project_addendum` goes after the built-in brief, which stays the one source. An old `project` key still replaces the built-in brief; `issue-cli health lint` and `process workflow` warn, because a replaced brief misses every later change to it. Move what the project adds to `project_addendum`.
 - `green_branch_minutes` (default 30): how long a branch at its issue's merge status (the last status before done that isn't optional, shipping in the development template) may wait unmerged, counted from the later of its head commit and the move into that status, before `issue-cli lead tick` names it in a `merge:` line, once an hour while it waits.
+- `idle_minutes` (default 60; a negative value turns it off): how long the project may start nothing while it has room before `issue-cli lead tick` wakes the lead with an `idle:` line, again each such stretch ([The factory runs 24/7](agent-dispatch.md#the-factory-runs-247)).
 - The CLI always appends a footer: role, what the lead may tick, and its handoff note under `sessions/`.
 - An old `epic` key still loads but is ignored; `issue-cli process workflow` warns about it.
 - `leads:` is project-wide: type, system and per-issue overlays keep it as it is.
@@ -268,6 +269,17 @@ transitions:
 - `path` is templated with `{{slug}}`, `{{number}}`, `{{repo}}`, `{{system}}` and `{{department}}`, which is the key of the department whose workflow the issue walks (`marketing`, `growth-team`). A `{{department}}` path on a Product issue fails and says the issue belongs to no department.
 - A path outside the project root, either absolute or one that climbs out with `..`, is a config error.
 - `issue-cli health lint` (the `departments` check) warns about a file a department's base transitions gate on that isn't written yet, and gives the rule's hint as the fix. Gates on a type's own edges aren't listed, because those check files the type's issues write themselves.
+
+### Reel legal check
+
+`reel_legal_check` holds a reel whose script breaks the legal floor. It reads the issue's `## <section>` (`Script` when `section:` is unset), the `## Legal check` declarations (`- key: value` lines: `music`, `music_licence`, `ai_content`, `ai_label`, `face`, `persona`, `consent`, `claim: <phrase> = <authorisation>`, `disclaimer`, `storyboard`), every string of the storyboard JSON `storyboard:` names when that file is there, and the phrase lists in `path` (`departments/{{department}}/reel-legal.yaml` when unset, relative to the project root). It runs no shell. The refusal lists each finding with its rule and fix; `issue-cli reel-legal [<slug>]` prints the same without moving. A missing or empty rules file holds the reel. The video template's reel type gates script → render and render → review on it ([Reels](departments.md#reels)).
+
+```yaml
+- type: validate
+  rule: reel_legal_check
+  section: Script
+  path: "departments/{{department}}/reel-legal.yaml"
+```
 
 ### Failure hints
 
@@ -786,6 +798,7 @@ A public dev repo publishes how the work was done, not just the result: commit m
 
 `tracker init` and `release setup` install a pre-push hook in the repository's common git folder, so every worktree shares it. An existing pre-push hook is kept as `pre-push.local` and runs first. The hook runs `issue-cli privacy pre-push`, which refuses:
 
+- in every project, with or without a `privacy:` block, a push whose commits add a key or an env file (`secret guard: this push: …`, [the secret scan](#the-secret-scan));
 - with `work_files: tracker`, a push whose commits add a work path to the code repo (`privacy guard: <sha> adds work files to the code repo (issues/…)`);
 - with `code: snapshots`, any commit or tag to the public remote (by name or URL) that is not a release snapshot (`privacy guard: public gets release snapshots only, and <sha> ("…") is a dev commit`);
 - with `code: public`, a commit message that quotes a decision.
@@ -807,6 +820,23 @@ Earlier yet, `issue-cli create` (and `handoff`, which writes through it) keeps a
 Beside it, `TestTrackedFilesNameUpstreamOnlyInLicense` (`internal/privacy/upstream.go`) guards the upstream author's name: in any case, it may appear in LICENSE.md only (its Required Notice lines), and a hit in any other tracked file fails `make validate` with its file and line. `issue-cli release publish` (and its `--dry-run`) runs the same check over the release branch's tree and refuses a hit, even on a machine with no private-names list. Fixtures and docs use placeholder owners such as `example-org/example-repo`; this repo is `github.com/kacperwerema/dark-factory`. Source: factory/public-repo-cleanup-v0-60-0-module-path-layout-leftovers-naming-licence-and-attribution#D-4.
 
 A test input or doc that needs a home path uses a placeholder user: `someone`, `owner`, `me`, `u`, `a` and the others in `placeholderUsers` in leaks.go. Add a made-up name there when a test needs another one, never a real one. For a sample project, use a placeholder such as `Orchard` / `orchard`.
+
+### The secret scan
+
+A key never goes in a file in a repo ([where each kind lives](departments.md#secrets)). The secret scan (`internal/privacy/secrets.go`) refuses:
+
+- a line holding a key: ElevenLabs (`sk_` and 32+ letters or digits), Stripe live (`sk_live_`, `rk_live_`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), AWS (`AKIA`/`ASIA` and 16), Slack (`xoxb-<digits>-…`), OpenAI and Anthropic (`sk-proj-`, `sk-ant-`, `sk-svcacct-`), a PEM `-----BEGIN … PRIVATE KEY-----` line, a JWT (`eyJ….eyJ….…`);
+- a file named `.env` or `.env.*`. `.env.example`, `.env.sample` and `.env.template` pass; their lines are checked like any file's, so a key in one is still refused.
+
+A value that looks like a placeholder passes: fewer than 8 distinct characters after the prefix (`sk_xxxx…`, `ghp_0000…`), or `EXAMPLE` in it (AWS's documented `AKIAIOSFODNN7EXAMPLE`); `sk_…` in a doc is too short to match. Each hit names the file, the line and the kind (`config.go:3: a GitHub token (ghp_…)`), never the value or any part of it, then says what to do: keep the key in Keychain or the vendor CLI's own file, take it out of the commit, add `.env` to `.gitignore`, and rotate a key that was ever pushed. A test that needs a key-shaped value builds it at run time (`"gh" + "p_" + …`), so its source line holds none.
+
+It runs in three places:
+
+- `make leak-check` (`TestTrackedFilesCarryNoSecrets`), over every tracked file, so `make validate` fails on a hit;
+- the commit-msg hook (`issue-cli workflow commit-msg`), over the lines the staged diff adds and the files it adds or changes: it refuses the commit (a merge in progress is skipped);
+- the pre-push guard (`issue-cli privacy pre-push`), over the commits the push sends (their added lines and added or changed files, a key added then removed included), in **every** project that has the guard, with or without a `privacy:` block. A file the push doesn't touch is not read, so an old one never blocks a push. Another project gets it with `issue-cli --project <slug> privacy hook`; `issue-cli privacy check` shows a `secret` line, amber with that fix while the guard is missing.
+
+Beside it, memories refuse secrets of their own (`internal/memory/secret.go`, which also knows `password=` forms that would be too noisy over a whole repo).
 
 ### What Status shows
 

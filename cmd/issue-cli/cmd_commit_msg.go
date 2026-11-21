@@ -33,6 +33,9 @@ it with the fix when a line marks or links nothing:
                                         prove through proves: in their session)
 A Catalog: n/a line recorded with issue-cli workflow catalog-na goes into
 an accepted message, and the record is dropped.
+It refuses a commit whose staged lines hold a key, or that adds or changes
+an env file (.env, .env.*; .env.example passes): file:line and the kind,
+never the value (docs/departments.md#secrets).
 In a dark-factory checkout it also warns, never refuses, when a staged line
 or the message holds what make leak-check refuses (a name from the
 private-names list, a real home or scratchpad path): file:line and the
@@ -113,6 +116,12 @@ func runCommitMsg(ctx *Context, args []string) error {
 			slug, noCriteria = issue.Slug, len(tracker.Criteria(issue.BodyRaw)) == 0
 		}
 	}
+	if rootErr == nil {
+		if refusal := stagedSecrets(root); refusal != "" {
+			fmt.Fprintln(ctx.Stderr, refusal)
+			return &exitCodeError{Code: 1}
+		}
+	}
 	if cat.Versions != nil {
 		warnStagedLeaks(ctx.Stderr, root, msg)
 	}
@@ -154,6 +163,25 @@ func commitMsgCatalog(root string) workflowupgrade.TrailerCatalog {
 		cat.LastRelease, _ = workflowupgrade.LastRelease(data)
 	}
 	return cat
+}
+
+// stagedSecrets is the refusal for a key or an env file in the commit
+// being made (privacy.ScanStagedSecrets), "" when there is none. It runs in
+// every checkout with the hook: a commit is cheap to redo, a pushed key is
+// not. A merge in progress (the other side's lines) and a git failure stay
+// quiet; the pre-push guard still reads every pushed commit.
+func stagedSecrets(root string) string {
+	if privacy.Merging(root) {
+		return ""
+	}
+	leaks, err := privacy.ScanStagedSecrets(root)
+	if err != nil {
+		return ""
+	}
+	if r := privacy.SecretRefusal("✗ commit refused", leaks); r != "" {
+		return r + "\nYour message is in .git/COMMIT_EDITMSG."
+	}
+	return ""
 }
 
 // warnStagedLeaks prints what make leak-check would refuse in the lines

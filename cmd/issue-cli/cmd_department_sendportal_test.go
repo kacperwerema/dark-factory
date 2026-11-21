@@ -61,8 +61,8 @@ func TestSalesExampleConnectorsLintClean(t *testing.T) {
 			sp = &d.Connectors[i]
 		}
 	}
-	if strings.Join(names, ",") != "umami,sendportal" || sp == nil {
-		t.Fatalf("uncommented: sales connectors %v, want umami,sendportal", names)
+	if strings.Join(names, ",") != "umami,sendportal,payments,payments-refund" || sp == nil {
+		t.Fatalf("uncommented: sales connectors %v, want umami,sendportal,payments,payments-refund (TestSalesB2CPaymentsConnectorsPreset)", names)
 	}
 	if sp.Kind != tracker.ConnectorTool || sp.Command != "curl" || !sp.Sends || !sp.NeedsApprovedOutput || sp.PerRun != nil || sp.URL != "" {
 		t.Errorf("sendportal = %+v, want a curl tool, sends, needs_approved_output, no per_run", *sp)

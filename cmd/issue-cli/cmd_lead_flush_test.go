@@ -164,7 +164,7 @@ func TestLeadFlushNoteRefusals(t *testing.T) {
 	for name, tc := range map[string]struct{ text, want string }{
 		"over the cap":    {goodNote(tracker.HandoffNoteMaxLines + 5), "the cap is 80"},
 		"missing section": {strings.Replace(goodNote(10), "## Queue", "## Other", 1), "## Queue"},
-		"secret":          {goodNote(10) + "ghp_abcdefghijklmnopqrstuvwxyz0123456789\n", "secret"},
+		"secret":          {goodNote(10) + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789\n", "secret"},
 	} {
 		_, err := runFlush(t, proj, "note", "--run", flushRunSlug, "--file", writeTemp(t, tc.text))
 		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "Nothing was written") {
@@ -459,5 +459,59 @@ func TestOwnerStepInHandoffNote(t *testing.T) {
 	}
 	if err := tracker.CheckHandoffNote(note); err != nil {
 		t.Errorf("the note with steps fails its own check: %v", err)
+	}
+}
+
+// The close rotates each department or group lead that ran 20 h or more
+// (a marketing lead ran 8 days because the flush closed only the CEO),
+// leaves a younger one and a department with no live lead alone, and a
+// failed rotate is said without failing the close.
+func TestLeadFlushCloseRotatesOldDepartmentLeads(t *testing.T) {
+	proj, killed := makeFlushProject(t, "idle prompt\n> ")
+	proj.Departments = []tracker.Department{{Name: "Marketing"}, {Name: "Sales"}, {Name: "GTM"}, {Name: "Support"}}
+	lead := tracker.LeadSessionName(proj)
+	marketing := tracker.DepartmentLeadName(proj, "Marketing")
+	sales := tracker.DepartmentLeadName(proj, "Sales")
+	gtm := tracker.DepartmentLeadName(proj, "GTM")
+	now := time.Date(2026, 10, 30, 0, 5, 0, 0, time.Local)
+	started := map[string]time.Time{marketing: now.AddDate(0, 0, -8), sales: now.Add(-2 * time.Hour), gtm: now.Add(-30 * time.Hour)}
+	origHas := agentrun.HasSession
+	agentrun.HasSession = func(target string) bool {
+		for name := range started {
+			if target == agentrun.Target(proj, name) {
+				return true
+			}
+		}
+		return origHas(target)
+	}
+	origStarted, origRotate := leadSessionStarted, leadFlushRotate
+	leadSessionStarted = func(_ *tracker.Project, name string) (time.Time, bool) { at, ok := started[name]; return at, ok }
+	var rotated []string
+	leadFlushRotate = func(_ *Context, name string, _ []*tracker.Issue, noStart bool) error {
+		if noStart {
+			t.Errorf("%s rotated with --no-start: it must come back", name)
+		}
+		rotated = append(rotated, name)
+		if name == gtm {
+			return os.ErrPermission
+		}
+		return nil
+	}
+	t.Cleanup(func() { agentrun.HasSession, leadSessionStarted, leadFlushRotate = origHas, origStarted, origRotate })
+
+	runFlush(t, proj, "note", "--run", flushRunSlug, "--file", writeTemp(t, goodNote(10)))
+	runFlush(t, proj, "summary", "--run", flushRunSlug, "--file", writeTemp(t, "A day."))
+	out, err := runFlush(t, proj, "close", "--run", flushRunSlug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(*killed, ",") != lead+",spawn "+lead {
+		t.Errorf("the CEO: %v", *killed)
+	}
+	if strings.Join(rotated, ",") != marketing+","+gtm {
+		t.Errorf("rotated %v, want %s and %s (Sales is 2 h old, Support has no live lead)", rotated, marketing, gtm)
+	}
+	if !strings.Contains(out, "! "+gtm+" not rotated") || !strings.Contains(out, "lead rotate --lead "+gtm) {
+		t.Errorf("a failed rotate isn't said with its command:\n%s", out)
 	}
 }

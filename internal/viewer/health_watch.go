@@ -18,8 +18,10 @@ import (
 // The daily health snapshot: the server looks every HealthCheckInterval and
 // takes one for each project (once per repository) that has none from
 // today. issue-cli ci run takes the others, after each run. Each tick also
-// records the machine's fseventsd reading (machine_view.go) and refreshes
-// the disk reading in the background, at most hourly (disk_view.go), and
+// records the machine's fseventsd reading (machine_view.go) and the
+// long-lived processes' RSS with what runs past its bound (long_view.go),
+// refreshes the disk reading in the background, at most hourly
+// (disk_view.go), and
 // starts the nightly clean when it is due (clean_watch.go).
 
 const HealthCheckInterval = 10 * time.Minute
@@ -32,6 +34,7 @@ func (s *Server) watchHealth(stop <-chan struct{}) {
 	for {
 		now := time.Now()
 		recordMachine(now, lastErr)
+		refreshLongLived(s.projects, now, lastErr)
 		diskuse.RefreshInBackground(now, log.Printf)
 		healthDaily(s.projects, now, lastErr)
 		cleanTick(s.projects, now, clean.Path(), lastErr)

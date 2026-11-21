@@ -1,0 +1,9 @@
+{
+  "render": ["npx", "remotion", "render", "src/index.ts", "{composition}", "{out}", "--props={props}", "--muted", "--log=warn"],
+  "compositions": {
+    "hook-list": "HookList",
+    "before-after": "BeforeAfter",
+    "app-demo": "AppDemo"
+  },
+  "public": "public"
+}

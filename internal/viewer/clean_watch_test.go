@@ -17,11 +17,12 @@ import (
 func stubClean(t *testing.T, vol diskuse.Volume) *[]string {
 	t.Helper()
 	var spawned []string
-	prevSpawn, prevLive, prevVol := cleanSpawn, cleanLive, cleanVolume
+	prevSpawn, prevLive, prevVol, prevCache := cleanSpawn, cleanLive, cleanVolume, cleanCache
 	cleanSpawn = func(config string) error { spawned = append(spawned, config); return nil }
 	cleanLive = func() bool { return true }
 	cleanVolume = func() diskuse.Volume { return vol }
-	t.Cleanup(func() { cleanSpawn, cleanLive, cleanVolume = prevSpawn, prevLive, prevVol })
+	cleanCache = func(time.Time, int64) clean.Cache { return clean.Cache{} }
+	t.Cleanup(func() { cleanSpawn, cleanLive, cleanVolume, cleanCache = prevSpawn, prevLive, prevVol, prevCache })
 	return &spawned
 }
 
@@ -60,6 +61,37 @@ func TestHealthTickStartsTheCleanWhenDue(t *testing.T) {
 	n := len(*spawned)
 	if why := cleanTick(projects, now.AddDate(0, 0, 2), state, lastErr); why != "" || len(*spawned) != n {
 		t.Errorf("clean.off still started it: %q", why)
+	}
+}
+
+// In the day the tick starts the cache-only clean once the hourly reading
+// has the cache over its cap by more than 25% (59.7 GB over 40 GB on
+// 2026-11-21), and while the cache waits from the nightly clean.
+func TestHealthTickTrimsAnOverCapCacheInTheDay(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(dir, "projects.yaml")
+	os.WriteFile(config, []byte("clean:\n  at: \"04:00\"\n  gocache_cap_gb: 40\nprojects: []\n"), 0o644)
+	projects := []tracker.Project{{Slug: "p", ConfigPath: config}}
+	state := filepath.Join(dir, "state", "machine", "clean.json")
+	spawned := stubClean(t, diskuse.Volume{UsedPct: 50, OK: true})
+	night := time.Date(2026, 11, 21, 4, 5, 0, 0, time.Local)
+	clean.Record(state, clean.Result{At: night, Areas: []clean.Area{{Name: clean.CacheArea}}})
+	noon := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	cleanCache = func(_ time.Time, capBytes int64) clean.Cache {
+		return clean.Cache{At: noon.Add(-time.Hour), Bytes: 59 << 30, CapBytes: capBytes, OK: true}
+	}
+	if why := cleanTick(projects, noon, state, map[string]string{}); !strings.Contains(why, "over its cap of 40.0 GB") || len(*spawned) != 1 {
+		t.Errorf("an over-cap cache in the day: why %q, spawned %v", why, *spawned)
+	}
+	cleanCache = func(_ time.Time, capBytes int64) clean.Cache {
+		return clean.Cache{At: noon.Add(-time.Hour), Bytes: 45 << 30, CapBytes: capBytes, OK: true}
+	}
+	if why := cleanTick(projects, noon, state, map[string]string{}); why != "" {
+		t.Errorf("45 GB over a 40 GB cap started a clean: %q", why)
+	}
+	clean.RecordCacheWait(state, clean.Hold{At: noon, Why: "go test is running (pid 9)"})
+	if why := cleanTick(projects, noon, state, map[string]string{}); !strings.Contains(why, "the Go cache waits since") {
+		t.Errorf("a waiting cache wasn't tried again: %q", why)
 	}
 }
 

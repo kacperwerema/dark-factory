@@ -386,10 +386,11 @@ They are the machine's, not the project's, and stay out of `storage.total_mb`. T
 
 `issue-cli clean` frees the disk the factory fills, once for the whole machine: every project in projects.yaml. The viewer's health tick (every 10 minutes) starts it detached as `issue-cli clean --if-due` every night after `clean.at` (default 04:00, after local CI's 03:00 nightly tier), and early while the data volume is over 85% used and the last clean is over 6 hours old. Nothing else runs it, and no agent does: a job's run would be an agent spending tokens on work with no judgement in it, and a live worker beside the clean (factory/a-nightly-clean-job-keeps-the-disk-down-go-cache-cap-transcripts-over-14-days-health-snapshots-merged-worktrees-and-playtest-runs#D-1).
 
-It changes nothing while any of these holds, and records why (the Needs you disk row shows it); the next tick tries again:
-- no local CI run is live (`.ci/lock` in any project's main checkout);
-- no go build, test, vet, run, install or generate runs, no compiler or linker under the toolchain's `pkg/tool/`, no `*.test` binary; it looks again right before the cache;
-- mem-guard allows it.
+Holds are per area (factory/clean-holds-per-area-not-all-at-once-only-the-go-cache-waits-on-a-running-go-test-and-an-over-cap-cache-is-trimmed-by-day), each recorded with why (the Needs you disk row shows it); the next tick tries again:
+- mem-guard saying no holds the whole clean: nothing changes;
+- a go build, test, vet, run, install or generate, a compiler or linker under the toolchain's `pkg/tool/`, a `*.test` binary, or a live local CI run (`.ci/lock` in any project's main checkout) holds only `gocache`, read right before the areas run; a CI run also holds its project's `worktrees` (it runs in a linked worktree). The other areas run beside it: `tmp` keeps what a live process holds open. The report's `gocache` line says `waits: <why>`, and a `waited` line lists the areas that waited.
+
+A cache that waited is tried alone (`--if-due`, cache only) on each tick until it runs. In the day the tick also starts the cache alone once the hourly disk reading (taken after the cache last ran) has it over its cap by more than 25% (`clean.CacheOver`), so it can't overshoot by a day's growth between nights (34 GB to 59.7 GB on 2026-11-21). A clean that has waited more than 3 hours, whole or the cache, is said once on the lead tick with the hold that kept it (`clean: waits since …`).
 
 Live workers don't hold it: auto-start keeps workers running around the clock, and the cache loses only its oldest entries, as Go's own trim does beside other builds (a build refreshes an entry's mtime when it uses it). Source: factory/a-nightly-clean-job-keeps-the-disk-down-go-cache-cap-transcripts-over-14-days-health-snapshots-merged-worktrees-and-playtest-runs#D-6 (provisional under YOLO).
 
@@ -397,11 +398,12 @@ Live workers don't hold it: auto-start keeps workers running around the clock, a
 |:--|:--|:--|
 | `gocache` | Go's build cache over the cap: the oldest entries by mtime (Go refreshes an entry's mtime when a build uses it) until it is under the cap, so the hot ones stay. Only files in the two-hex-character entry folders | `clean.gocache_cap_gb`, 40 GB |
 | `transcripts` | `*.jsonl` under Claude Code's `projects/` and Codex's `sessions/` last written over N calendar days ago; never a `memory/` folder, never another file, never a live session's file (it is written all the time). A folder a transcript went from goes when that left it empty | `clean.transcript_days`, 14 days |
+| `tmp` | entries in `$TMPDIR` the factory and its tests made (`clean.FactoryTmp`: `pt-bins-*`, `com.google.chrome.for.testing.*`, `go-build*`, `issue-cli-*`, `issue-viewer-*`, `dft-*`, `testbin-*`, make's `dark-factory-cover-*.out`, the playtest ones; a name counts only with its random part, so `pt-` takes `pt-123456`, never `pt-notes`), whose newest file is older than the limit and that no live process holds (one `lsof` call: open files, working directories, running executables). Another project's names only under `clean.tmp_prefixes`. `lsof` failing leaves the area alone and says so | `clean.tmp_hours`, 24 h |
 | `snapshots <project>` | `.health/snapshots`: the last N calendar days in full, of each older day only the newest | `clean.snapshot_days`, 7 days |
 | `worktrees <project>` | as `issue-cli worktrees prune`: merged, clean, idle, not live | its rules |
 | `playtest <project>` | as `issue-cli playtest prune --all` | its rules |
 
-The report is one line per area with the MB freed, then the total and the data volume's use before and after. The result is kept in `$XDG_STATE_HOME/ai-workflow-engine/machine/clean.json` (the last 14, and the last hold), a lock beside it lets one clean run at a time, and the viewer's starts log to `clean.log` there. The storage family's `storage.clean_freed_mb` shows the last one. `issue-cli clean --dry-run` reports what each area would free and deletes nothing; a worker may run only that. A test binary or a playtest scenario never cleans (`diskuse.Live`).
+The report is one line per area with the MB freed, then the total and the data volume's use before and after. The result is kept in `$XDG_STATE_HOME/ai-workflow-engine/machine/clean.json` (the last 14, the last hold, the cache's wait and when it last ran), a lock beside it lets one clean run at a time, and the viewer's starts log to `clean.log` there. The storage family's `storage.clean_freed_mb` shows the last one. `issue-cli clean --dry-run` reports what each area would free and deletes nothing; a worker may run only that. A test binary or a playtest scenario never cleans (`diskuse.Live`).
 
 The off switches, in projects.yaml (set by hand; the engine never writes it):
 
@@ -412,6 +414,8 @@ clean:
   gocache_cap_gb: 40
   transcript_days: 14
   snapshot_days: 7
+  tmp_hours: 24
+  tmp_prefixes: ["orchard-"]   # another project's temp names the tmp area may take
 projects:
   - slug: shop
     clean_off: true    # this project's snapshots, worktrees and playtest runs are left alone

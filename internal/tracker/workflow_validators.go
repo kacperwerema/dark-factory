@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/reellegal"
 	"github.com/kacperwerema/dark-factory/internal/tracker/validations"
 )
 
@@ -188,6 +189,12 @@ func structuredSummary(action WorkflowAction) string {
 		return "Validate body has no TODO/FIXME markers"
 	case "file_exists":
 		return fmt.Sprintf("Validate file %s exists", action.Path)
+	case "reel_legal_check":
+		sec := action.Section
+		if sec == "" {
+			sec = "Script"
+		}
+		return fmt.Sprintf("Validate the reel's ## %s meets the legal check (issue-cli reel-legal)", sec)
 	case "command_succeeds":
 		cmd := action.Command
 		if len(cmd) > 60 {
@@ -196,4 +203,41 @@ func structuredSummary(action WorkflowAction) string {
 		return fmt.Sprintf("Validate shell command succeeds: %s", cmd)
 	}
 	return fmt.Sprintf("Validate %s", rule)
+}
+
+// ReelLegalAction is the reel_legal_check action the gate runs: the first
+// one on a transition out of status (else out of any status), or the
+// default action when the workflow has none, so issue-cli reel-legal
+// checks with the same section and rules file the gate does.
+func (w *WorkflowConfig) ReelLegalAction(status string) WorkflowAction {
+	var any *WorkflowAction
+	for i := range w.Transitions {
+		t := &w.Transitions[i]
+		for j := range t.Actions {
+			a := &t.Actions[j]
+			if a.Type != "validate" || strings.TrimSpace(a.Rule) != "reel_legal_check" {
+				continue
+			}
+			if t.From == status {
+				return *a
+			}
+			if any == nil {
+				any = a
+			}
+		}
+	}
+	if any != nil {
+		return *any
+	}
+	return WorkflowAction{Type: "validate", Rule: "reel_legal_check"}
+}
+
+// ReelLegalFindings runs action (a reel_legal_check) on issue the way the
+// gate does and returns each finding; an error is a rules file or a
+// section it can't read.
+func (w *WorkflowConfig) ReelLegalFindings(action WorkflowAction, issue *Issue) ([]reellegal.Finding, error) {
+	cfg := validations.Config{IssuesRoot: w.IssuesRoot, ProjectRoot: w.ProjectRoot}
+	view := toIssueView(issue)
+	view.Department = w.departmentKey(issue)
+	return validations.ReelLegalFindings(toAction(action), view, cfg)
 }

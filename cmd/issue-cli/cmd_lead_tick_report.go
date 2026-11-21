@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
+	"github.com/kacperwerema/dark-factory/internal/outputs"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -38,6 +43,108 @@ func leadTickReports(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
 					run.Issue.Slug, text, add))
 		}
 	}
+	leadTickWorkerReports(ctx, t, issues)
+}
+
+// leadTickWorkerReports says every other worker's report: comment on an
+// open issue in the lead's scope, once per comment, with how many
+// follow-ups it proposes; and a report output on the shelf, in review, that
+// no report: comment came after, once per output. 2026-11-20: two reports
+// landed by 22:20 with follow-ups "for the lead to file"; neither was news
+// and the queue stayed empty all night.
+func leadTickWorkerReports(ctx *Context, t *leadTicker, issues []*tracker.Issue) {
+	proj := ctx.Project
+	me := whoAmI(proj, issues)
+	create := tracker.InjectProject(proj, `issue-cli create`)
+	add := tracker.InjectProject(proj, `issue-cli queue add <slug> --quote "<owner's words>"`)
+	var shelf []*outputs.Output
+	loaded := false
+	for _, issue := range issues {
+		if proj.IssueClosed(issue) || outOfScope(proj, me, issue, "files reports for") != "" {
+			continue
+		}
+		var lastReport time.Time
+		for _, c := range issue.Comments() {
+			text, ok := commentAfter(c, "report:")
+			if !ok || askedByALead(tracker.CommentAuthor(c)) {
+				continue
+			}
+			if at, ok := tracker.CommentTime(c.Date); ok && at.After(lastReport) {
+				lastReport = at
+			}
+			line := fmt.Sprintf("report: %s reported: %s", issue.Slug, text)
+			if n := followUpCount(c.Text); n > 0 {
+				line = fmt.Sprintf("report: %s's report has %s to file: %s: %s, then %s", issue.Slug, countOf(n, "follow-up", "follow-ups"), text, create, add)
+			}
+			t.say(fmt.Sprintf("report:%s:%d", issue.Slug, c.ID), line)
+		}
+		wf := proj.LoadWorkflowForIssue(issue)
+		if _, _, ok := wf.HasOutputRule(); !ok {
+			continue
+		}
+		if !loaded {
+			shelf, _ = outputs.Load(proj)
+			loaded = true
+		}
+		for _, o := range outputs.Select(shelf, outputs.Filter{Issue: issue.Slug}) {
+			if o.State != outputs.StateReview || o.Missing || !o.Added.After(lastReport) {
+				continue
+			}
+			t.say("report-output:"+o.ID, fmt.Sprintf("report: %s's output %s is on the shelf: file its follow-ups (%s, then %s)",
+				issue.Slug, agentrun.OutputLabel(o), create, add))
+		}
+	}
+}
+
+// followUpCounted is "Follow-ups (11 proposed issues …):": the count named.
+var followUpCounted = regexp.MustCompile(`(?i)follow[- ]?ups?\b[^:\n]*?\b(\d+)\b[^:\n]*:`)
+
+// followUpHead is a follow-ups lead-in: "Follow-ups:", "follow-ups for the lead to file:".
+var followUpHead = regexp.MustCompile(`(?i)follow[- ]?ups?\b[^:\n]*:`)
+
+// listItem is a markdown list line.
+var listItem = regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])\s+\S`)
+
+// followUpCount is how many follow-ups a report: comment proposes: the
+// number its "Follow-ups (N …):" names, else the list lines under a
+// follow-ups line, else the items after it up to the sentence's end split
+// on ";"; 0 when it names no follow-ups.
+func followUpCount(text string) int {
+	if m := followUpCounted.FindStringSubmatch(text); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return n
+		}
+	}
+	loc := followUpHead.FindStringIndex(text)
+	if loc == nil {
+		return 0
+	}
+	rest := text[loc[1]:]
+	lines := strings.Split(rest, "\n")
+	n := 0
+	for _, l := range lines[1:] {
+		if listItem.MatchString(l) {
+			n++
+		} else if strings.TrimSpace(l) != "" && n > 0 {
+			break
+		}
+	}
+	if n > 0 {
+		return n
+	}
+	first := lines[0]
+	if i := strings.Index(first, ". "); i >= 0 {
+		first = first[:i]
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "none") {
+		return 0
+	}
+	for _, part := range strings.Split(first, ";") {
+		if strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(part), ".")) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // leadTickQuestions says each open issue whose newest comment is a

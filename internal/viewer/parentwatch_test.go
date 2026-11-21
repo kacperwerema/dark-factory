@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/testbin"
+	"github.com/kacperwerema/dark-factory/internal/viewerstate"
 )
 
 // TestViewerExitsWithParent: a viewer started with ISSUE_VIEWER_EXIT_WITH_PID
@@ -36,7 +37,10 @@ func TestViewerExitsWithParent(t *testing.T) {
 	viewer := exec.Command(bin, "-dir", issues, "-docs", filepath.Join(home, "docs"), "-port", fmt.Sprint(port), "-owner-code", "terminal")
 	viewer.Dir = home
 	viewer.Env = append(os.Environ(), "HOME="+home, "XDG_STATE_HOME="+filepath.Join(home, "state"), "XDG_CONFIG_HOME="+filepath.Join(home, "config"),
-		ExitWithPIDEnv+"="+fmt.Sprint(parent.Process.Pid))
+		ExitWithPIDEnv+"="+fmt.Sprint(parent.Process.Pid),
+		// No reading of this machine: its first health tick would start a
+		// detached issue-cli clean that writes into home after the test.
+		viewerstate.MachineOffEnv+"=1")
 	var vlog strings.Builder
 	viewer.Stdout, viewer.Stderr = &vlog, &vlog
 	if err := viewer.Start(); err != nil {

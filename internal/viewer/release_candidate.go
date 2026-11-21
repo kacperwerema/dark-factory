@@ -14,6 +14,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/clibug"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
+	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -58,6 +59,9 @@ type SoakRow struct {
 	// whose fixes ship in the next one.
 	Reports []SoakReport
 	Fixed   []SoakReport
+	// MovedOut are reports from a candidate whose version the owner moved
+	// past this release (ownerMovedOut): they no longer hold the cut.
+	MovedOut []SoakReport
 }
 
 // SoakProject is one configured project's use of the candidate.
@@ -72,6 +76,11 @@ type SoakProject struct {
 type SoakReport struct {
 	Issue *tracker.Issue
 	Found string // "rc.1"
+	// MovedTo is the version a moved-out report went to ("0.66");
+	// Unapproved the version of a report moved without the owner's ok
+	// recorded, which still holds the cut.
+	MovedTo    string
+	Unapproved string
 }
 
 // ViewerStale and CLIStale report a running build that is not the
@@ -170,7 +179,9 @@ var gitHasBranch = func(root, branch string) bool {
 }
 
 // gitUnpicked is, for each slug whose work/<slug> branch has commits the
-// release branch lacks (by patch, so a cherry-pick counts), how many. One
+// release branch lacks (by patch, or by a release-branch commit whose
+// "(cherry picked from commit <sha>)" line names it, so a pick whose
+// changelog hunk was rewritten counts too), how many. One
 // git call lists the work branches not merged into the release branch; only
 // those are checked with git cherry. A var so tests don't run git.
 var gitUnpicked = func(root, branch string, slugs []string) map[string]int {
@@ -188,17 +199,11 @@ var gitUnpicked = func(root, branch string, slugs []string) map[string]int {
 			if !want[b] {
 				continue
 			}
-			cherry, err := exec.Command("git", "-C", root, "cherry", branch, b).Output()
+			lacking, err := privacy.Unpicked(root, branch, b)
 			if err != nil {
 				continue
 			}
-			n := 0
-			for _, l := range strings.Split(string(cherry), "\n") {
-				if strings.HasPrefix(l, "+ ") {
-					n++
-				}
-			}
-			if n > 0 {
+			if n := len(lacking); n > 0 {
 				res[strings.TrimPrefix(b, "work/")] = n
 			}
 		}
@@ -379,6 +384,14 @@ func (ms *MilestoneRow) addSoak(in soakInput) {
 			continue
 		}
 		r := SoakReport{Issue: issue, Found: found}
+		if to := issue.Version; to != "" && normVersion(to) != normVersion(ms.Version) {
+			if ownerMovedOut(issue, to) {
+				r.MovedTo = to
+				s.MovedOut = append(s.MovedOut, r)
+				continue
+			}
+			r.Unapproved = to
+		}
 		switch k := statusKey(issue.Status); {
 		case !in.cs.closed(issue.Status):
 			s.Reports = append(s.Reports, r)
@@ -397,12 +410,67 @@ func (ms *MilestoneRow) addSoak(in soakInput) {
 		check.Meta = fmt.Sprintf("%d open", len(s.Reports))
 		var slugs []string
 		for _, r := range s.Reports {
-			slugs = append(slugs, r.Issue.Slug)
+			slug := r.Issue.Slug
+			if r.Unapproved != "" {
+				slug += " (version " + r.Unapproved + " without the owner's ok recorded: a decision or a lead comment quoting the owner)"
+			}
+			slugs = append(slugs, slug)
 		}
 		check.Detail = plural(len(s.Reports), "report", "reports") + " open: " + strings.Join(slugs, ", ")
 	}
+	if len(s.MovedOut) > 0 {
+		var moved []string
+		for _, r := range s.MovedOut {
+			moved = append(moved, r.Issue.Slug+" → "+r.MovedTo)
+		}
+		check.Meta += fmt.Sprintf(", %d moved out", len(s.MovedOut))
+		if check.Detail != "" {
+			check.Detail += "; "
+		}
+		check.Detail += "moved out: " + strings.Join(moved, ", ")
+	}
 	ms.Checks = append(ms.Checks, check)
 	ms.finishRC()
+}
+
+// soakVersionRe finds a version named in a decision or comment ("0.66",
+// "v0.66.0").
+var soakVersionRe = regexp.MustCompile(`\bv?\d+\.\d+(?:\.\d+)?\b`)
+
+// quotedRe is a quoted phrase: the owner's words in a lead's comment.
+var quotedRe = regexp.MustCompile(`"[^"]+"|“[^”]+”`)
+
+// ownerMovedOut reports whether the move of a soak report to version to
+// carries the owner's ok (docs/roadmap.md: moving a report out of the
+// release needs the owner's ok, recorded as a decision): a decision naming
+// to that has the owner's words (not provisional, quoted or confirmed), a
+// comment from the owner naming it, or a lead's comment naming it that
+// quotes the owner.
+func ownerMovedOut(issue *tracker.Issue, to string) bool {
+	names := func(text string) bool {
+		for _, v := range soakVersionRe.FindAllString(text, -1) {
+			if normVersion(v) == normVersion(to) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, d := range issue.Decisions() {
+		if !tracker.NeedsOwnerWords(d) && names(d.Text+" "+d.Quote) {
+			return true
+		}
+	}
+	for _, cm := range issue.Comments() {
+		author := tracker.CommentAuthor(cm)
+		switch {
+		case !names(cm.Text):
+		case author == "owner":
+			return true
+		case strings.HasPrefix(author, "lead-") && strings.Contains(strings.ToLower(cm.Text), "owner") && quotedRe.MatchString(cm.Text):
+			return true
+		}
+	}
+	return false
 }
 
 // reportVersionRe finds the build a report came from in its context lines
@@ -505,6 +573,13 @@ func candidateMarkdown(b *strings.Builder, c *CandidateRow, now time.Time) {
 			slugs = append(slugs, r.Issue.Slug)
 		}
 		fmt.Fprintf(b, "- Fixed since %s, soak in %s: %s\n", c.Tag, c.Next, strings.Join(slugs, ", "))
+	}
+	if len(s.MovedOut) > 0 {
+		var moved []string
+		for _, r := range s.MovedOut {
+			moved = append(moved, r.Issue.Slug+" → "+r.MovedTo)
+		}
+		fmt.Fprintf(b, "- Moved out on the owner's ok: %s\n", strings.Join(moved, ", "))
 	}
 }
 

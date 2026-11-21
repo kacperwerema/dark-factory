@@ -8,6 +8,7 @@ Read the competitors and queries in `departments/marketing/competitors.md`, wher
 
 For each site:
 
+- Run `issue-cli page-check <site>/sitemap.xml` and write its last line in the brief. It checks the page rules on every sitemap URL (role.md, "Page rules"): `<title>` at most 60 characters with the brand suffix, and `charset=utf-8` in the Content-Type header. When a URL breaks one, open one fix for the site listing every failing URL and its fix, unless one is already open (`issue-cli search "page rules"`): `issue-cli create --department marketing --type seo-pass --system SEO --title "<site>: page rules (title length, charset)"`.
 - Check the pages that changed or lost traffic since the previous run, and the local pages, FAQs and schema.
 - Refresh what is out of date: facts, opening hours, prices, links, FAQ answers.
 - Put each refreshed page on the shelf: `issue-cli output add --issue <this run> --title "<site>: <page>" --kind page --url <page>`.

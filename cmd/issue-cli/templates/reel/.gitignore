@@ -1,0 +1,9 @@
+# Installed and rendered files
+node_modules/
+out/
+
+# Env files hold keys: never tracked (docs/departments.md#secrets in
+# Dark Factory). Keep the variable names in .env.example, values empty.
+.env
+.env.*
+!.env.example

@@ -20,8 +20,19 @@ func ScanStaged(root string, names []string) ([]Leak, error) {
 		return nil, err
 	}
 	var leaks []Leak
+	addedLines(out, func(path string, line int, text string) {
+		for _, what := range ScanText(text, names) {
+			leaks = append(leaks, Leak{Path: path, Line: line, What: what})
+		}
+	})
+	return leaks, nil
+}
+
+// addedLines calls fn with each line a unified diff (-U0) adds: the new
+// file's path, the line's number there and its text.
+func addedLines(diff string, fn func(path string, line int, text string)) {
 	path, line, inHunk := "", 0, false
-	for _, l := range strings.Split(out, "\n") {
+	for _, l := range strings.Split(diff, "\n") {
 		switch {
 		case strings.HasPrefix(l, "diff --git "):
 			path, inHunk = "", false
@@ -35,13 +46,10 @@ func ScanStaged(root string, names []string) ([]Leak, error) {
 		case strings.HasPrefix(l, "@@ "):
 			line, inHunk = hunkStart(l), true
 		case strings.HasPrefix(l, "+") && path != "":
-			for _, what := range ScanText(strings.TrimSuffix(l[1:], "\r"), names) {
-				leaks = append(leaks, Leak{Path: path, Line: line, What: what})
-			}
+			fn(path, line, strings.TrimSuffix(l[1:], "\r"))
 			line++
 		}
 	}
-	return leaks, nil
 }
 
 // hunkStart is the new-file line a hunk header starts at:

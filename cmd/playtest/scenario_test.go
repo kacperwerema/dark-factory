@@ -146,9 +146,12 @@ var (
 	testBinsOnce sync.Once
 	testBins     *Binaries
 	testBinsErr  error
+	// testBinsDir is the binaries' folder; TestMain removes it after m.Run.
+	testBinsDir string
 )
 
-// buildTestBinaries builds issue-viewer and issue-cli once per test run.
+// buildTestBinaries builds issue-viewer and issue-cli once per test run,
+// into a folder TestMain removes when the binary ends.
 func buildTestBinaries(t *testing.T) *Binaries {
 	t.Helper()
 	if testing.Short() {
@@ -160,6 +163,7 @@ func buildTestBinaries(t *testing.T) *Binaries {
 			testBinsErr = err
 			return
 		}
+		testBinsDir = dir
 		testBins, testBinsErr = BuildBinaries(repoDir(t), dir, io.Discard)
 	})
 	if testBinsErr != nil {

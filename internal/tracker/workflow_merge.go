@@ -62,7 +62,7 @@ func (w *WorkflowConfig) Clone() *WorkflowConfig {
 		IssueActions:     append([]CustomAction(nil), w.IssueActions...),
 		Actions:          append([]CustomAction(nil), w.Actions...),
 		ProjectActions:   append([]CustomAction(nil), w.ProjectActions...),
-		Leads:            w.Leads,
+		Leads:            w.Leads.clone(),
 		Board:            cloneBoardConfig(w.Board),
 		Scoring:          cloneScoringConfig(w.Scoring),
 		Workbench:        cloneWorkbench(w.Workbench),

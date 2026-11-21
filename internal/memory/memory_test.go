@@ -40,15 +40,15 @@ func load(t *testing.T, s Store) *Set {
 
 func TestFindSecretRefusesKeysAndTokens(t *testing.T) {
 	secrets := map[string]string{
-		"private key":   "the deploy key is -----BEGIN OPENSSH PRIVATE KEY----- b3Blbn",
-		"openai":        "use sk-proj-AbCdEf0123456789AbCdEf0123 for the bench",
-		"anthropic":     "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123",
+		"private key":   "the deploy key is -----BEGIN OPENSSH PRIVATE " + "KEY----- b3Blbn",
+		"openai":        "use sk-proj-" + "AbCdEf0123456789AbCdEf0123 for the bench",
+		"anthropic":     "key sk-ant-" + "api03-abcdefghijklmnopqrstuvwxyz0123",
 		"github":        "token " + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789 works",
 		"github pat":    "github_pat_" + "11ABCDEFG0123456789_abcdefghijkl",
 		"slack":         "post with " + "xoxb-" + "1234567890-abcdefghij",
 		"aws":           "AWS key AKIAIOSFODNN7EXAMPLE in the env",
 		"google":        "AIzaSyA-1234567890abcdefghijklmnopqrstu is the maps key",
-		"jwt":           "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+		"jwt":           "eyJhbGciOiJIUzI1NiJ9." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
 		"bearer":        "curl -H 'Authorization: Bearer abcdef0123456789abcdef'",
 		"url password":  "the db is postgres://admin:hunter22@db.local/app",
 		"password=":     "login with password=hunter22 on staging",
@@ -366,8 +366,8 @@ func TestSearchAt5000IsCheap(t *testing.T) {
 // FindSecret would still see, and keeps plain text and references.
 func TestRedactSecretsScrubsWhatFindSecretRefuses(t *testing.T) {
 	for _, text := range []string{
-		"the deploy key is -----BEGIN OPENSSH PRIVATE KEY----- b3Blbn",
-		"use sk-proj-AbCdEf0123456789AbCdEf0123 for the bench",
+		"the deploy key is -----BEGIN OPENSSH PRIVATE " + "KEY----- b3Blbn",
+		"use sk-proj-" + "AbCdEf0123456789AbCdEf0123 for the bench",
 		"token " + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789 works",
 		"curl -H 'Authorization: Bearer abcdef0123456789abcdef'",
 		"the db is postgres://admin:hunter22@db.local/app",

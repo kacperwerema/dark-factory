@@ -70,6 +70,7 @@ Under `## Technical basics`, each box names what the site must have and the test
 - **JSON-LD** (organization, product, article, FAQ) with true facts only: no price when there is no price list, no ratings you don't have, FAQ entries the same as the FAQ on the page. A `<script type="application/ld+json">` block is data and a CSP of `script-src 'self'` doesn't block it.
 - **An Open Graph image** 1200×630 rendered from code (an HTML source in the site's fonts and colors, shot to PNG), and **llms.txt** (cheap, effect uncertain).
 - **noindex on the app subdomain, by header.** `X-Robots-Tag: noindex, nofollow` on every response. Not `Disallow: /`: a crawler that robots.txt keeps out never sees the header, and a page already in the index stays there as "indexed, though blocked". Add `Disallow` only after the pages have dropped out.
+- **Page rules.** Every text response (HTML, sitemap.xml, robots.txt, llms.txt) sends `Content-Type: …; charset=utf-8` from the server or CDN (a `<meta charset>` alone lets Bing read the page as Latin-1 and garble og:title), and the article template keeps `<title>` at most 60 characters with the brand suffix, the primary phrase first. `issue-cli page-check <site>/sitemap.xml` checks every page; the weekly SEO pass runs it again (docs/departments.md, [Page rules](departments.md#page-rules)).
 
 ## 6. The waitlist (Agent)
 

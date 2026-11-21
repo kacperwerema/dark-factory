@@ -51,7 +51,7 @@ func TestMemoryPromptSectionCarriesThePins(t *testing.T) {
 	}
 }
 
-// Lead-scope pins sit in every lead's brief in full, on their own budget;
+// Lead-scope pins sit in every lead's brief as titles, on their own budget;
 // the unpinned ones get a clipped line; a worker's briefing has neither.
 func TestLeadScopeInTheBriefs(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -87,9 +87,14 @@ func TestLeadScopeInTheBriefs(t *testing.T) {
 	id := add(long, memory.ScopeLead, false)
 
 	for _, brief := range []string{MemoryLeadLine(proj, "lead-acme", ""), MemoryLeadLine(proj, "lead-acme-marketing", "Marketing")} {
-		for _, want := range append([]string{"Standing rules (lead scope):", "the project pin stays too", id + " (fact) an unpinned lead fact", "…"}, rules...) {
+		for _, want := range []string{"Standing rules (lead scope):", "the project pin stays too", id + " (fact) an unpinned lead fact", "…", "issue-cli memory show <id>"} {
 			if !strings.Contains(brief, want) {
 				t.Errorf("a lead's brief is missing %q:\n%s", want, brief)
+			}
+		}
+		for i, rule := range rules {
+			if !strings.Contains(brief, fmt.Sprintf("standing rule %d word", i)) || strings.Contains(brief, rule) {
+				t.Errorf("rule %d is not a title in a lead's brief:\n%s", i, brief)
 			}
 		}
 		if strings.Contains(brief, "END") {
@@ -115,5 +120,22 @@ func TestLeadScopeInTheBriefs(t *testing.T) {
 	}
 	if brief := MemoryLeadLine(proj, "lead-acme", ""); !strings.Contains(brief, "- +1 more: issue-cli memory list --scope lead") {
 		t.Errorf("no more line:\n%s", brief)
+	}
+}
+
+// A lead brief's pin is its first sentence without the owner's quote, then
+// its Never sentences whole: the rule and the hard limits, not the why.
+func TestAPinIsItsTitleAndItsNeverRules(t *testing.T) {
+	text := "Under YOLO nothing waits on the owner (owner 2026-11-21: 'Go on. Always.', x#D-2). At each check-in move what is ready. Never an experiment's gate or money. Keep going."
+	var b strings.Builder
+	writePinTitles(&b, []memory.Memory{{ID: "m-1", Kind: "convention", Text: text}})
+	if got, want := b.String(), "- m-1 (convention) Under YOLO nothing waits on the owner. Never an experiment's gate or money.\n"; got != want {
+		t.Fatalf("pin line = %q, want %q", got, want)
+	}
+	if got := pinTitle("YOLO mode: never open a dialog; take the default."); got != "YOLO mode: never open a dialog; take the default." {
+		t.Fatalf("one-sentence title = %q", got)
+	}
+	if got := pinTitle("(only a parenthesis)"); got != "(only a parenthesis)" {
+		t.Fatalf("all-parens title = %q", got)
 	}
 }

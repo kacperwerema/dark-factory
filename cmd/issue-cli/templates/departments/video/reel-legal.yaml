@@ -1,0 +1,122 @@
+# Reel legal check: the phrases that hold a reel at script → render and
+# render → review (the reel_legal_check gate; issue-cli reel-legal shows the
+# findings). This is your project's own copy, installed by `issue-cli
+# department add video`: add your language's words, your market's claims
+# and the marks near your product; deleting a list turns its rule off for
+# you, and deleting the file holds every reel. docs/departments.md#reels.
+#
+# Matching is case-insensitive, at the start of a word, with diacritics
+# dropped (zdrów = zdrow), so a stem matches every ending: "odchudz" holds
+# "odchudzanie". The check is a floor, not legal advice; the owner still
+# reviews the finished reel.
+
+# Nutrition and health claims (EU Regulation 1924/2006): only authorised
+# ones may be made, under their conditions. A phrase here holds the reel
+# unless the reel's ## Legal check has `claim: <phrase> = <authorisation>`.
+claims:
+  # Polish
+  - schudnij
+  - schudniesz
+  - odchudz
+  - spal tłuszcz
+  - spalanie tłuszczu
+  - utrata wagi
+  - mniej kilogramów
+  - zdrow
+  - detoks
+  - oczyszcza
+  - odporność
+  - leczy
+  - zapobiega
+  - obniża cholesterol
+  - bez cukru
+  - mało cukru
+  - niskokaloryczn
+  - wysokobiałk
+  - źródło białka
+  - bogaty w
+  - bogate w
+  - bez tłuszczu
+  - superfood
+  # English
+  - lose weight
+  - weight loss
+  - burn fat
+  - fat burning
+  - slim
+  - healthy
+  - healthier
+  - detox
+  - cleanse
+  - boosts immun
+  - immunity
+  - cure
+  - prevents
+  - lowers cholesterol
+  - sugar-free
+  - sugar free
+  - low sugar
+  - low-calorie
+  - low calorie
+  - high protein
+  - high-protein
+  - source of protein
+  - rich in
+  - fat-free
+  - fat free
+
+# A first-person result or recommendation: a fake review when the face is a
+# presenter or an avatar (Omnibus directive 2019/2161). Always holds.
+testimonial:
+  - schudłam
+  - schudłem
+  - straciłam
+  - straciłem
+  - jako klientka
+  - jako klient
+  - moje wyniki
+  - u mnie zadziałało
+  - dzięki tej aplikacji schud
+  - i lost
+  - my results
+  - as a customer
+  - worked for me
+  - since i started using
+
+# A persona: line with one of these presents the face as a customer.
+customer_personas:
+  - customer
+  - user
+  - klient
+  - klientka
+  - użytkownik
+  - użytkowniczka
+
+# Other companies' marks. With an endorsement phrase in the same sentence
+# the reel always holds; named alone, the reel needs a disclaimer: line.
+marks:
+  - Thermomix
+  - Vorwerk
+  - TM5
+  - TM6
+  - TM7
+  - Cookidoo
+endorsement:
+  - oficjaln
+  - official
+  - approved
+  - zatwierdz
+  - rekomend
+  - recommended by
+  - polecan
+  - partner
+  - certyfik
+  - certified
+  - endorse
+  - autoryzowan
+  - authorised
+  - authorized
+  - w imieniu
+  - on behalf of
+  - by vorwerk
+  - od vorwerk

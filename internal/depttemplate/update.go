@@ -51,6 +51,8 @@ var earlierTexts = map[string]earlier{
 				"8e2b11d11db640c9f2b81919fe20bea06169c46a5571b7cf985e0ecfbc1695e0",
 				// Before competitors.md and the competitor-scan type.
 				"d6dc0c112dc11b462a4da0c81d68d431f46270c877056ab8781a35740f2e7391",
+				// Before the page rules (title length, charset).
+				"ead2418f30300bbb79c7314e57abd69891d31e310ad475941f905f094225e15c",
 			},
 			"jobs/weekly-seo-pass.md": {
 				"ceebb064382c0d1ce29bbf644c9e0abd0c384a5f5697119fb949f498dd192524",
@@ -61,6 +63,8 @@ var earlierTexts = map[string]earlier{
 				"6bb7607d955440311d342db35eaadaa6613aff5fe48af9a44be6158988373622",
 				// Before the brief read competitors.md.
 				"33c575af72ad8462c27931e3d74f5e08f4a83cbc12bd6413b275a747b660424d",
+				// Before the pass ran page-check on each sitemap.
+				"26bb3ef021ca6bb499c522a5105ab24cd7a7948c5bff8bfa9fa2b1623d4d2a58",
 			},
 			// No workflow text: the report type is a catalog feature, not
 			// wording, and so were v0.61's gates (section_min_links,
@@ -76,7 +80,8 @@ var earlierTexts = map[string]earlier{
 		Files: map[string][]string{
 			// Before the job's metrics file moved to
 			// <issues>/.goals/sales/weekly-funnel.json (issue-cli goal write).
-			"role.md":               {"c7cec5416443db736d974ba1f5135360dc2989eb41114e8fbeefa90588285d66"},
+			// Then before Money named the payments kit's connectors.
+			"role.md":               {"c7cec5416443db736d974ba1f5135360dc2989eb41114e8fbeefa90588285d66", "17dc2ef5d951ead9575790ed63d6eeb4254c8e5f21b9a39cec42df712309bf3a"},
 			"jobs/weekly-funnel.md": {"3afe86366058a6fcbe9db7d37e3cd038178ed0baf58ea610bd0fa945c06908b3"},
 			// No workflow text: its funnel-review gate path changed, which
 			// is not wording; edit an earlier one's path by hand (docs).
@@ -93,8 +98,13 @@ var earlierTexts = map[string]earlier{
 	"video": {
 		Files: map[string][]string{
 			// Before the shared heavy-tools line (departments/_shared).
-			"role.md":  {"b2e18d1eb95f8bb78b1abcd6bfe358be2f2a7feef99653e049e9f6ffdfedb73e"},
-			"workflow": {"07c0a3f34f710b3c65c95c717b7c669569c79b4d3890786743c66d8573b8649b"},
+			"role.md": {
+				"b2e18d1eb95f8bb78b1abcd6bfe358be2f2a7feef99653e049e9f6ffdfedb73e",
+				// Before the reel type.
+				"5781a3e0041459174ee88e6c0b1981aeca99931d555502a4c5628dec0e7929b2",
+			},
+			// No earlier workflow: the reel type (a status, types:) is more
+			// than wording, so workflow upgrade offers it (catalog reel-type).
 		},
 	},
 	"gtm": {

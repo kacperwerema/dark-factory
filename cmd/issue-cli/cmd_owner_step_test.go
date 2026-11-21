@@ -66,7 +66,7 @@ func TestOwnerStepAddRefuses(t *testing.T) {
 		args []string
 		want string
 	}{
-		"secret":   {[]string{"--title", "Set the key", "--due", "today", "--body", "export TOKEN=ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"}, "seems to hold a secret"},
+		"secret":   {[]string{"--title", "Set the key", "--due", "today", "--body", "export TOKEN=ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"}, "seems to hold a secret"},
 		"no title": {[]string{"--due", "today", "--body", "x"}, "needs --title"},
 		"no body":  {[]string{"--title", "x", "--due", "today"}, "needs --body"},
 		"past":     {[]string{"--title", "x", "--due", "2026-11-15", "--body", "x"}, "before today"},

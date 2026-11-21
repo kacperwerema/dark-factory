@@ -58,3 +58,56 @@ connectors:
     sends: true
     needs_approved_output: true
     note: "SendPortal email: sends a launch the owner approved to the waitlist list the brief names; check the list's consent version first"
+  # Payments, for when the product charges: the payments kit
+  # (docs/payments.md), a small service the product runs beside its app
+  # (payments-kit serve) with one provider behind it: the stand-in, which
+  # takes no money and needs no account, until you pick a real one. These
+  # two connectors run the kit's own commands against it; the kit holds the
+  # provider's keys, an agent only ever holds a kit token, read from
+  # Keychain at the call. Off until you uncomment them, with the "When you
+  # start charging" block in workflows/sales.yaml.
+  #
+  # - Install the kit: go install github.com/kacperwerema/dark-factory/cmd/payments-kit@latest
+  # - The product's payments.yaml (shape: docs/payments.md#config) names
+  #   provider: standin, mode: sandbox, and its secrets as references:
+  #     api_token: keychain:payments-api-token     (the app's, and refunds')
+  #     read_token: keychain:payments-read-token   (lookups only)
+  #   Edit -config in check: below to that file's path.
+  # - The Keychain items, each a value you type (an agent never sees it):
+  #   security add-generic-password -s payments-api-token -a "$USER" -w
+  #   security add-generic-password -s payments-read-token -a "$USER" -w
+  # - mode: is the sandbox/live switch, in payments.yaml, and it is yours:
+  #   live needs a real provider, its live keys as new Keychain items
+  #   (separate from the sandbox ones; the kit refuses env: keys in live)
+  #   and Legal's word on the checkout texts. The stand-in refuses live.
+  #   The check: prints the mode on its first line.
+  #
+  # payments: lookups, for the weekly funnel review and a refund's brief.
+  # The read token reaches only a payment's state and the provider; the
+  # kit answers anything else 403. A call:
+  #   issue-cli connector exec sales/payments -- payment <payment-id>
+  - name: payments
+    kind: tool
+    command: payments-kit
+    secrets:
+      PAYMENTS_TOKEN: keychain:payments-read-token
+    check: "payments-kit check -config payments.yaml"
+    sends: false
+    note: "Payments kit, read-only: a payment's state and the provider (payments-kit payment <id>, payments-kit provider)"
+  # payments-refund: a refund, only in a refund's publish step after the
+  # owner's yes. It holds the api token, so it moves money: sends: true and
+  # needs_approved_output: true (connector exec refuses until the owner
+  # approved the issue's newest output on the shelf), on top of the
+  # owner_only gate before publish. The idempotency key is the issue's
+  # slug, so a repeated call never refunds twice:
+  #   issue-cli connector exec sales/payments-refund --
+  #     refund <payment-id> --amount <approved, minor units> --idempotency-key <slug>
+  - name: payments-refund
+    kind: tool
+    command: payments-kit
+    secrets:
+      PAYMENTS_TOKEN: keychain:payments-api-token
+    check: "payments-kit check -config payments.yaml"
+    sends: true
+    needs_approved_output: true
+    note: "Payments kit refund: refunds exactly the amount the owner approved (payments-kit refund <id> --amount N --idempotency-key <slug>)"

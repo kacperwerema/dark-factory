@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: sales-b2c@v0.64.0
+template: sales-b2c@v0.65.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -279,9 +279,13 @@ types:
   #       - {id: mrr, name: Monthly revenue, unit: zł, target: 500, period: month, source: "file:<issues>/.goals/sales/weekly-funnel.json#mrr"}
   #       - {id: refunds, name: Refunds, target: 0, period: month, direction: down, source: "file:<issues>/.goals/sales/weekly-funnel.json#refunds"}
   #       - {id: churn, name: Churn, unit: pct, target: 5, period: month, direction: down, source: "file:<issues>/.goals/sales/weekly-funnel.json#churn"}
-  #   - the payment provider's connector reads with a read-only key; a
-  #     refund needs a separate restricted key (a keychain: reference),
-  #     used only in publish, after the owner's yes.
+  #   - uncomment the payments kit's connectors in the department's entry
+  #     (department add wrote them commented out; docs/payments.md): sales/payments
+  #     reads with the kit's read token; a refund needs the separate,
+  #     restricted sales/payments-refund (the api token, a keychain:
+  #     reference, held until the owner approved the output), used only in
+  #     publish, after the owner's yes. The sandbox/live switch is mode: in
+  #     the product's payments.yaml, and only the owner flips it.
   # Checkout and price changes also wait for Legal's answer (a `legal:`
   # comment) on the text before publish, until a Legal department's handoff
   # replaces it.
@@ -318,10 +322,10 @@ types:
   #   statuses:
   #     - name: "brief"
   #       prompt: |
-  #         Write the case: the order, what the customer asks, the amount, and the rule it falls under (the 14-day withdrawal or the terms). Put the proposed answer on the shelf (--kind email), then move to owner review.
+  #         Write the case: the order, what the customer asks, the amount, and the rule it falls under (the 14-day withdrawal or the terms). Read the payment first (`issue-cli connector exec sales/payments -- payment <payment-id>`: its state and what is left to refund). Put the proposed answer on the shelf (--kind email), then move to owner review.
   #     - name: "publish"
   #       prompt: |
-  #         Only after the owner's yes: refund exactly the approved amount through the payment connector's refund key, send the approved answer, record both under ## Published, then move to done.
+  #         Only after the owner's yes: refund exactly the approved amount (minor units) with the issue's slug as the key, so a repeated call never refunds twice: `issue-cli connector exec sales/payments-refund -- refund <payment-id> --amount <approved> --idempotency-key <slug>`. Send the approved answer, record both under ## Published (the refund's id), then move to done.
   #   transitions:
   #     - from: "brief"
   #       to: "owner review"

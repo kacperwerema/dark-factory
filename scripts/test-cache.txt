@@ -21,6 +21,7 @@
 # TEST_CACHE=0 runs everything with -count=1; local CI's slow tier does.
 
 cached ./cmd/issue-cli
+cached ./cmd/payments-kit
 cached ./cmd/playtest
 cached ./internal/agentrun
 cached ./internal/autostart
@@ -65,7 +66,10 @@ cached ./internal/memory
 cached ./internal/milestone
 cached ./internal/outputs
 cached ./internal/ownerstep
+cached ./internal/pagecheck
 fresh ./internal/partner reads the checkout's tracked files and blob ids through git ls-files
+cached ./internal/payments
+cached ./internal/payments/standin
 cached ./internal/period
 cached ./internal/playtestruns
 cached ./internal/postmortem
@@ -77,6 +81,7 @@ cached ./internal/push
 cached ./internal/queue
 cached ./internal/recent
 cached ./internal/redrounds
+cached ./internal/reel
 cached ./internal/restrace
 cached ./internal/retro
 cached ./internal/routing

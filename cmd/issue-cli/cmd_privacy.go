@@ -24,8 +24,14 @@ Subcommands:
       worktree). A pre-push hook that is not ours is kept as pre-push.local and
       still runs first.
   pre-push <remote> <url>
-      What the hook runs, with git's ref lines on stdin. Refuses a push that
-      adds work files to the code repo (privacy.work_files: tracker).
+      What the hook runs, with git's ref lines on stdin. In every project it
+      refuses a push whose commits add a key (ElevenLabs, Stripe live, GitHub,
+      AWS, Slack, OpenAI/Anthropic, a private key block, a JWT) or an env file
+      (.env, .env.*; .env.example passes), naming file and line, never the
+      value. With a privacy: choice it also refuses a push that adds work
+      files to the code repo (privacy.work_files: tracker).
+Another project gets the secret check with: issue-cli --project <slug> privacy hook
+Where keys live instead: docs/departments.md#secrets.
 See docs/workflow.md, "Private work and code".`,
 	Run:         runPrivacy,
 	Subcommands: []string{"check", "hook", "pre-push"},
@@ -82,6 +88,11 @@ func runPrivacyCheck(ctx *Context, args []string) error {
 		}
 		out = append(out, g)
 	}
+	sg := privacyCheckLine{Kind: "secret", Level: "green", Label: "Secrets guarded", Sentence: "The pre-push guard refuses a key or an env file in a push from " + in.Root}
+	if !privacy.HookInstalled(in.Root) {
+		sg = privacyCheckLine{Kind: "secret", Level: "amber", Label: "Secrets unguarded", Sentence: "This clone has no pre-push guard, so a key or an .env file can be pushed unchecked", Fix: "issue-cli privacy hook"}
+	}
+	out = append(out, sg)
 	red := false
 	for _, l := range out {
 		red = red || l.Level == "red"
@@ -149,6 +160,13 @@ func runPrivacyPrePush(ctx *Context, args []string) error {
 	cfg := ctx.Project.LoadWorkflow().Privacy
 	in := privacy.ForProject(ctx.Project, cfg, ctx.Now())
 	refs := privacy.ReadPushRefs(ctx.Stdin)
+	leaks, err := privacy.PushSecrets(in.Root, remote, refs)
+	if err != nil {
+		return &exitCodeError{Code: 1, Msg: "secret guard: can't read the commits in this push: " + err.Error()}
+	}
+	if len(leaks) > 0 {
+		return &exitCodeError{Code: 1, Msg: privacy.SecretRefusal("secret guard: this push", leaks)}
+	}
 	var quotes []string
 	if cfg != nil && cfg.Code == tracker.CodePublic {
 		issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)

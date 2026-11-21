@@ -276,6 +276,7 @@ workbench:
       packages:
         - cmd/issue-cli
         - cmd/issue-viewer
+        - cmd/payments-kit
         - cmd/playtest
         - cmd/telemetry-collector
         - internal/docnumbers
@@ -353,9 +354,22 @@ workbench:
         - internal/goals
         - internal/goalwork
         - internal/outputs
+        - internal/pagecheck
         - internal/partner
         - internal/projectinit
         - internal/weekplan
+    - name: "Project kits"
+      key: kits
+      layer: domain
+      summary: "Kits a project runs beside its app: the provider-neutral payments kit and its stand-in provider; the reel kit (storyboard, render, QA)."
+      paths:
+        - docs/payments.md
+        - docs/reels.md
+      packages:
+        - internal/payments
+        - internal/reel
+        - internal/payments/paymentstest
+        - internal/payments/standin
     - name: "Measurement"
       key: measure
       layer: domain
@@ -393,6 +407,7 @@ workbench:
         - internal/tracker
         - internal/tracker/statustest
         - internal/tracker/validations
+        - internal/reellegal
         - internal/wfedit
         - internal/workflowupgrade
     - name: "Health registry"

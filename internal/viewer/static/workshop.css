@@ -1915,6 +1915,9 @@ a.wb-cdot:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .wb-connector-check--idle { color: var(--muted-2); }
 .wb-connector-check--green { color: #1E7A3C; }
 .wb-connector-check--red { color: #A3172A; font-weight: 700; }
+.wb-connector-spend { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.wb-connector-spend--green { background: #1E7A3C; }
+.wb-connector-spend--red { background: #A3172A; }
 .wb-connector-secret { flex-basis: 100%; color: var(--muted-2); overflow-wrap: anywhere; }
 .wb-connector-set { color: #1E7A3C; font-weight: 700; }
 .wb-connector-missing { color: #A3172A; font-weight: 700; }
@@ -2828,6 +2831,9 @@ a.wb-mem-entity--on .wb-mem-entity-who { color: inherit; }
 .wb-odoc-player { border: 2.5px solid var(--ink); border-radius: 16px; background: #0E1220; box-shadow: 6px 6px 0 var(--ink); overflow: hidden; }
 .wb-vid { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; background: #0E1220; }
 .wb-odoc-vidinfo { padding: 10px 16px; background: var(--paper); border-top: 2px solid var(--ink); font-size: 13px; color: var(--muted-2); }
+/* A video's report (a reel's QA from issue-cli reel shelve) under the player. */
+.wb-odoc-report { margin-top: 16px; padding: 14px 18px; font-size: 14px; overflow-x: auto; }
+.wb-odoc-report th:nth-child(-n+2), .wb-odoc-report td:nth-child(-n+2) { white-space: nowrap; }
 .wb-shelf-thumb--video { position: relative; }
 .wb-shelf-thumb--video::after { content: "▶"; position: absolute; right: 3px; bottom: 2px; padding: 2px 3px; border-radius: 4px; background: var(--ink); color: #fff; font-size: 10px; line-height: 1; }
 .wb-st-video { margin: 2px 12px 12px; max-width: 520px; border: 2px solid var(--ink); border-radius: 12px; overflow: hidden; background: #0E1220; }

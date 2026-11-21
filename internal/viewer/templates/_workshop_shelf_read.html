@@ -49,7 +49,7 @@ static/shelf-read.js their behaviour).
 {{else}}<div class="wb-odoc-sheet wb-md" data-sheet="day" data-testid="odoc.sheet">{{.Body}}</div>{{end}}{{end}}
 
 {{define "wb/odoc-video"}}{{if .Missing}}<div class="wb-odoc-empty" data-testid="odoc.missing">The video is gone from the shelf. The comments stay in the margin; the agent adds a new version with <code>issue-cli output revise {{.Row.Short}} --file &lt;file.mp4&gt;</code>.</div>
-{{else}}<div class="wb-odoc-player" data-testid="odoc.player">{{template "wb/shelf-video" .Row}}<div class="wb-odoc-vidinfo" data-testid="odoc.vidinfo">{{.VideoInfo}}</div></div>{{end}}{{end}}
+{{else}}<div class="wb-odoc-player" data-testid="odoc.player">{{template "wb/shelf-video" .Row}}<div class="wb-odoc-vidinfo" data-testid="odoc.vidinfo">{{.VideoInfo}}</div></div>{{with .Report}}<div class="wb-odoc-sheet wb-md wb-odoc-report" data-sheet="day" data-testid="odoc.report">{{.}}</div>{{end}}{{end}}{{end}}
 
 {{define "wb/odoc-diff"}}<div class="wb-odoc-diff" data-testid="odoc.diff">
     <div class="wb-odoc-diff-head"><span>{{.From}} → {{.To}}</span><b class="wb-odoc-add">+{{.Add}} line{{if ne .Add 1}}s{{end}}</b><b class="wb-odoc-del">−{{.Del}} line{{if ne .Del 1}}s{{end}}</b></div>

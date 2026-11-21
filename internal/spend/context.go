@@ -34,16 +34,21 @@ type ContextSession struct {
 	Start time.Time `json:"start"`
 	// Worker is a session in an issue's worktree.
 	Worker bool `json:"worker"`
+	// Lead is the CEO's or a department or group lead's session.
+	Lead bool `json:"lead,omitempty"`
 	// Resumed is a session continuing an earlier one: its first turn carries
 	// the old conversation, so it has no floor of its own.
 	Resumed bool `json:"resumed,omitempty"`
 	Turns   int  `json:"turns"`
 	// Floor is the first turn's context; 0 when resumed or when the first
 	// turn is before the window.
-	Floor       int64 `json:"floor_tokens"`
-	Median      int64 `json:"median_turn_tokens"`
-	Max         int64 `json:"max_turn_tokens"`
-	Compactions int   `json:"compactions"`
+	Floor int64 `json:"floor_tokens"`
+	// Parts is the floor split by part (floor_parts.go); nil without a
+	// floor or when the transcript has no request shape.
+	Parts       *FloorParts `json:"floor_parts,omitempty"`
+	Median      int64       `json:"median_turn_tokens"`
+	Max         int64       `json:"max_turn_tokens"`
+	Compactions int         `json:"compactions"`
 	// Context is the context tokens of all its turns in the window.
 	Context int64 `json:"context_tokens"`
 
@@ -69,6 +74,10 @@ type ContextStats struct {
 	// the floor alone accounts for.
 	FloorTokens int64   `json:"floor_x_turns_tokens"`
 	FloorShare  float64 `json:"floor_share"`
+	// Parts is the floor by part, each part's median over the PartsOf
+	// floored sessions whose transcript has a request shape.
+	Parts   *FloorParts `json:"floor_parts,omitempty"`
+	PartsOf int         `json:"floor_parts_sessions,omitempty"`
 }
 
 // ContextBox is one box's context numbers, rolled up like spend's.
@@ -88,9 +97,11 @@ type ContextReport struct {
 	Boxes []*ContextBox `json:"boxes"`
 	// Unattributed is the owner's own sessions in the project folder.
 	Unattributed ContextStats `json:"unattributed"`
-	// All is every session counted, Workers those in an issue's worktree.
+	// All is every session counted, Workers those in an issue's worktree,
+	// Leads the CEO's and the department and group leads' sessions.
 	All     ContextStats     `json:"all"`
 	Workers ContextStats     `json:"workers"`
+	Leads   ContextStats     `json:"leads"`
 	Top     []ContextSession `json:"top,omitempty"`
 }
 
@@ -138,13 +149,17 @@ func LoadContext(p *tracker.Project, issues []*tracker.Issue, now time.Time, day
 	}
 	rep.Unattributed = SumContext(owners)
 	rep.All = SumContext(sessions)
-	var workers []ContextSession
+	var workers, leads []ContextSession
 	for _, s := range sessions {
-		if s.Worker {
+		switch {
+		case s.Worker:
 			workers = append(workers, s)
+		case s.Lead:
+			leads = append(leads, s)
 		}
 	}
 	rep.Workers = SumContext(workers)
+	rep.Leads = SumContext(leads)
 	rep.Top = topSessions(sessions)
 	return rep
 }
@@ -174,7 +189,7 @@ func ContextSessions(p *tracker.Project, issues []*tracker.Issue, since, until t
 			o, known := at.names[s.Agent]
 			switch {
 			case known:
-				s.Box = o.box
+				s.Box, s.Lead = o.box, o.lead
 				if o.issue != nil {
 					s.Issue = o.issue.Slug
 				}
@@ -248,6 +263,9 @@ func folderContext(folder string, since, until time.Time) []ContextSession {
 		if len(s.turns) == 0 {
 			continue
 		}
+		if s.Floor > 0 {
+			s.Parts = f.fr.floorChars(f.path).split(s.Floor)
+		}
 		s.Turns = len(s.turns)
 		s.Median = median(s.turns)
 		for _, c := range s.turns {
@@ -269,6 +287,7 @@ func SumContext(sessions []ContextSession) ContextStats {
 	var st ContextStats
 	var floors, turns []int64
 	var flooredContext int64
+	var parts []*FloorParts
 	for _, s := range sessions {
 		st.Sessions++
 		st.Turns += s.Turns
@@ -284,9 +303,13 @@ func SumContext(sessions []ContextSession) ContextStats {
 			floors = append(floors, s.Floor)
 			st.FloorTokens += s.Floor * int64(s.Turns)
 			flooredContext += s.Context
+			if s.Parts != nil {
+				parts = append(parts, s.Parts)
+			}
 		}
 	}
 	st.Floor = median(floors)
+	st.Parts, st.PartsOf = medianParts(parts), len(parts)
 	st.Median = median(turns)
 	if flooredContext > 0 {
 		st.FloorShare = float64(st.FloorTokens) / float64(flooredContext)

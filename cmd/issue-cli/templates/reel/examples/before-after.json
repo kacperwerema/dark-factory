@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "shape": "before-after",
+  "title": "Before and after a weekly plan",
+  "language": "en",
+  "brand": {"name": "Brand", "colors": {"primary": "#2F6BFF", "accent": "#FFB800", "text": "#FFFFFF", "background": "#101418"}},
+  "scenes": [
+    {"id": "hook", "role": "hook", "duration": 2.5, "text": "Same week, two ways", "narration": {"text": "Same week, two ways.", "voice": "narrator"}},
+    {"id": "before", "role": "before", "duration": 4, "text": "Deciding every evening", "narration": {"text": "Before: deciding what to cook every single evening.", "voice": "narrator"}},
+    {"id": "after", "role": "after", "duration": 4, "text": "One plan, one list", "narration": {"text": "After: one plan and one list for the whole week.", "voice": "narrator"}},
+    {"id": "cta", "role": "cta", "duration": 2.5, "narration": {"text": "Try it free.", "voice": "narrator"}}
+  ],
+  "captions": {"style": "words", "position": "lower"},
+  "cta": {"text": "Try it free", "handle": "@brand"}
+}

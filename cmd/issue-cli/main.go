@@ -430,7 +430,8 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	// help, releases, workflow reference, project listing); init/workflow/
 	// upgrade fall back to ./workflow.yaml in the current directory; report-bug
 	// files to the engine project whatever this one is; check-script --lib
-	// only prints the library. Every other
+	// only prints the library; reel reads and writes the files it is given,
+	// all but reel shelve (the shelf is a project's). Every other
 	// command must surface project-resolution errors so a nil project doesn't
 	// propagate into a downstream nil-pointer panic — covers ambiguous
 	// multi-project, missing config file, and unknown --project slug.
@@ -438,7 +439,7 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	// always surface the error — the project-agnostic bypass is only for
 	// discovery without --project.
 	inv.cmd = cmd
-	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "project" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || rest.command == "doctor" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "bench" && len(rest.args) > 0 && (rest.args[0] == "fixture" || rest.args[0] == "smoke")) || (rest.command == "check-script" && checkScriptLibOnly(rest.args))
+	bypassProjErr := rest.command == "help" || rest.command == "process" || rest.command == "projects" || rest.command == "project" || rest.command == "version" || rest.command == "init" || rest.command == "workflow" || rest.command == "upgrade" || rest.command == "telemetry" || rest.command == "report-bug" || rest.command == "doctor" || rest.command == "page-check" || (rest.command == "ci" && len(rest.args) > 0 && rest.args[0] == "gotest") || (rest.command == "bench" && len(rest.args) > 0 && (rest.args[0] == "fixture" || rest.args[0] == "smoke")) || (rest.command == "check-script" && checkScriptLibOnly(rest.args)) || (rest.command == "reel" && reelNeedsNoProject(rest.args))
 	if errors.Is(projErr, errNoConfig) {
 		projErr = cfgSrc.notFound()
 	}

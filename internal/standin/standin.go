@@ -33,8 +33,16 @@ const WarmEnv = "STANDIN_WARM"
 // Header starts every stand-in: the shell, then the warm run's no-op.
 const Header = "#!/bin/sh\n[ -n \"$" + WarmEnv + "\" ] && exit 0\n"
 
-// Dir is the cache folder; a var so a test can point it elsewhere.
-var Dir = func() string { return filepath.Join(os.TempDir(), "dark-factory-standins") }
+// Dir is the cache folder; a var so a test can point it elsewhere. It is
+// shared by every test binary, so it sits in the machine's temp folder
+// (DF_SHARED_TMPDIR, which tmuxguard sets), not the binary's private one.
+var Dir = func() string {
+	tmp := os.Getenv("DF_SHARED_TMPDIR")
+	if tmp == "" {
+		tmp = os.TempDir()
+	}
+	return filepath.Join(tmp, "dark-factory-standins")
+}
 
 // Write puts an executable sh script running body at path: Header, then
 // body. A body that starts with its own "#!" line (#!/bin/bash) keeps it,

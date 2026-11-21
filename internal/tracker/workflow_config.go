@@ -170,6 +170,16 @@ type LeadsConfig struct {
 	// may wait unmerged before the lead tick names it; 0 is
 	// DefaultGreenBranchMinutes.
 	GreenBranchMinutes int `yaml:"green_branch_minutes,omitempty" desc:"Minutes a branch at its issue's merge status (shipping) may wait unmerged before the lead tick names it (default 30)"`
+	// IdleMinutes is how long the project may start nothing while it has
+	// room before the lead tick says so, again each such stretch; 0 is
+	// DefaultIdleMinutes, a negative value turns the check off.
+	IdleMinutes int `yaml:"idle_minutes,omitempty" desc:"Minutes the project may start nothing while it has room (the queue is empty, everything is held, or idle sessions hold the slots) before the lead tick wakes the lead, again each such stretch (default 60; negative turns it off)"`
+	// Tools are Claude Code tools a lean lead keeps that it otherwise
+	// starts without: one of LeadToolsOff.
+	Tools []string `yaml:"tools,omitempty" desc:"Claude Code tools this project's leads keep that they otherwise start without (Artifact, Workflow, SendFeedback, ReportFindings)"`
+	// Setup is "lean" (the default) or "full": the owner's whole Claude
+	// Code setup, as a lead had before.
+	Setup string `yaml:"setup,omitempty" desc:"lean (default): leads start without the skill list and the Artifact, Workflow, SendFeedback and ReportFindings tools; full: the owner's whole Claude Code setup"`
 	// Project replaces the built-in brief, which then drifts; lint warns.
 	Project string `yaml:"project,omitempty" desc:"Replaces the project lead's built-in brief; lint warns, use project_addendum"`
 	// Epic is obsolete: still parsed so old configs load, ignored, and
@@ -187,6 +197,22 @@ func (l LeadsConfig) GreenBranchWait() time.Duration {
 		return time.Duration(l.GreenBranchMinutes) * time.Minute
 	}
 	return DefaultGreenBranchMinutes * time.Minute
+}
+
+// DefaultIdleMinutes is leads.idle_minutes when unset: the factory runs
+// 24/7, so an hour with room and no start is news.
+const DefaultIdleMinutes = 60
+
+// IdleWait is leads.idle_minutes as a duration: the default when unset, 0
+// (off) when negative.
+func (l LeadsConfig) IdleWait() time.Duration {
+	switch {
+	case l.IdleMinutes < 0:
+		return 0
+	case l.IdleMinutes > 0:
+		return time.Duration(l.IdleMinutes) * time.Minute
+	}
+	return DefaultIdleMinutes * time.Minute
 }
 
 // FeatureRecord is the per-project feature state next to the template stamp.
@@ -315,7 +341,7 @@ type WorkflowConfig struct {
 	// while the worktree's lock file is the same as the main checkout's
 	// (agentrun.ShareDeps); "own" links nothing, so worktree_setup or the
 	// worker installs.
-	WorktreeDeps string `yaml:"worktree_deps,omitempty" desc:"shared (default): link the main checkout's node_modules into a new worktree while its lock file is the same; own: link nothing"`
+	WorktreeDeps string `yaml:"worktree_deps,omitempty" desc:"shared (default): link the main checkout's node_modules into a new worktree while its lock file is the same; own: no links, a new worktree gets its own copy (a clone) of the main checkout's node_modules instead, unless worktree_setup installs them"`
 
 	// WorktreeSparseExclude lists path patterns to keep OUT of the worktree
 	// via git sparse-checkout. Agents dispatched into the worktree get

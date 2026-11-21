@@ -1,0 +1,43 @@
+id: page-rules
+version: v0.65.0
+category: lifecycle
+propose: true
+templates: [marketing]
+requires: [types-of-work, seo-baseline]
+sources: ["cmd/issue-cli/templates/workflow/marketing.yaml", "cmd/issue-cli/templates/departments/marketing/role.md", "cmd/issue-cli/templates/departments/marketing/jobs/weekly-seo-pass.md"]
+title: "Page rules: <title> at most 60 characters and a charset=utf-8 header, checked by issue-cli page-check"
+what: |
+  Two rules every page the department ships or measures keeps: a `<title>` of at
+  most 60 characters including the brand suffix, the primary phrase first (the h1
+  and og:title may be longer), and every text response (HTML, sitemap.xml,
+  robots.txt, llms.txt) served with `charset=utf-8` in its Content-Type header.
+  `issue-cli page-check <url|sitemap.xml>` checks them with read-only GETs, names
+  each failing URL with its fix and exits 1. The base `## Draft` section (piece,
+  seo-pass) gets a box for them, so draft → owner review waits until page-check
+  passes (or the piece has no page yet); the seo-baseline's `## Technical basics`
+  gets one for the whole site. role.md's `## Page rules` and the weekly SEO pass's
+  brief (page-check on each sitemap, one fix issue per site) come through
+  `issue-cli department update`.
+why: |
+  A site's articles all had 66–78-character titles with the brand suffix (Bing:
+  "Title too long") and served text/html with no charset, so Bing read the
+  OpenGraph tags as Latin-1. Nothing in the department checked either; the rule
+  belongs in every project's marketing, not in one site's fix.
+where: "the Draft section the base brief → draft appends, and the seo-baseline brief → draft's Technical basics section"
+snippet: |
+  transitions:
+    - from: "brief"
+      to: "draft"
+      actions:
+        - type: "append_section"
+          title: "Draft"
+          body: |
+            - [ ] Full draft in the issue (text or a link to the file), and on the shelf (issue-cli output add --issue <slug> ...)
+            - [ ] Facts, names and links checked
+            - [ ] Page rules: <title> at most 60 characters with the brand suffix, primary phrase first, and the page served with charset=utf-8; checked by issue-cli page-check <url> (or "no page yet" when it has no URL before publish)
+  # The seo-baseline's Technical basics box is in the bundled marketing
+  # template (docs/departments.md, "Page rules").
+question: "Should Marketing check every page for a <title> of at most 60 characters and a charset=utf-8 header (issue-cli page-check) before owner review and in each weekly SEO pass?"
+detect:
+  - path: transitions[].actions[].body
+    contains: "issue-cli page-check"

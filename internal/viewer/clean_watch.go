@@ -15,10 +15,12 @@ import (
 
 // The nightly clean (issue-cli clean, internal/clean): each health tick
 // asks whether it is due (no clean since tonight's clean.at, or the volume
-// over 85% used and the last clean 6 h ago) and starts `issue-cli clean
-// --if-due` detached, once for the machine. The command itself waits for
-// workers, local CI and go builds, and records why; the next tick tries
-// again.
+// over 85% used and the last clean 6 h ago; else the gocache area alone
+// when it waited at the last clean or the hourly disk reading has it over
+// its cap by more than 25%) and starts `issue-cli clean --if-due`
+// detached, once for the machine. The command itself reads the holds per
+// area (mem-guard holds all; a go build or test or local CI the cache) and
+// records why; the next tick tries again.
 
 // cleanSpawn starts the clean. A var so tests never start one.
 var cleanSpawn = func(config string) error {
@@ -55,6 +57,10 @@ var cleanVolume = func() diskuse.Volume {
 	return diskuse.VolumeOf(home)
 }
 
+// cleanCache is the Go cache's size by the newest disk reading, with its
+// cap: a var for tests.
+var cleanCache = clean.CacheNow
+
 // cleanLive is false in a test binary and a scenario (diskuse.Live).
 var cleanLive = func() bool { return diskuse.Live }
 
@@ -78,7 +84,8 @@ func cleanTick(projects []tracker.Project, now time.Time, statePath string, last
 		return ""
 	}
 	h, m := cfg.Clock()
-	due, why := clean.Due(clean.Load(statePath), h, m, cleanVolume(), now)
+	plan, due := clean.Due(clean.Load(statePath), h, m, cleanVolume(), cleanCache(now, int64(cfg.CapGB()*(1<<30))), now)
+	why := plan.Why
 	if !due {
 		delete(lastErr, "#clean-start")
 		return ""

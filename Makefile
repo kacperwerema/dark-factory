@@ -158,7 +158,7 @@ link-check:
 # shows before the suite. TestValidateRunsItsCheapStepsFirst catches a renamed
 # test: -run would match nothing and pass.
 leak-check:
-	@go test ./internal/privacy -run '^(TestTrackedFilesCarryNoLeaks|TestTrackedFilesNameUpstreamOnlyInLicense)$$' -count=1
+	@go test ./internal/privacy -run '^(TestTrackedFilesCarryNoLeaks|TestTrackedFilesNameUpstreamOnlyInLicense|TestTrackedFilesCarryNoSecrets)$$' -count=1
 
 # The engine's code map (workbench.contexts in workflow.yaml) maps every
 # package and knows every upward import: the same test `test` runs, as a step

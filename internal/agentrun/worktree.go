@@ -187,18 +187,23 @@ func EnsureWorktree(workdir string, wt tracker.WorktreeSpec, wf *tracker.Workflo
 	return wtPath, steps, true
 }
 
-// shareDepsSteps links the main checkout's node_modules into wtPath
-// (ShareDeps) unless the workflow says worktree_deps: own, as at most one
-// step. workdir may be any folder of the main checkout.
+// shareDepsSteps gives wtPath the main checkout's node_modules, as at most
+// one step: links (ShareDeps), or under worktree_deps: own the tree's own
+// copies (CopyDeps) unless a worktree_setup installs them instead. workdir
+// may be any folder of the main checkout.
 func shareDepsSteps(workdir, wtPath string, wf *tracker.WorkflowConfig) []Step {
+	place := ShareDeps
 	if !wf.WorktreeDepsShared() {
-		return nil
+		if wf.WorktreeSetupCmd() != "" {
+			return nil
+		}
+		place = CopyDeps
 	}
 	main := gitmain.Root(workdir)
 	if main == "" {
 		return nil
 	}
-	if st, ok := DepsStep(main, ShareDeps(main, wtPath)); ok {
+	if st, ok := DepsStep(main, place(main, wtPath)); ok {
 		return []Step{st}
 	}
 	return nil

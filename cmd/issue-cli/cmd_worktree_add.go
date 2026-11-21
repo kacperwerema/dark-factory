@@ -80,6 +80,16 @@ func runWorktreeAdd(ctx *Context, args []string) error {
 		}
 		return fmt.Errorf("worktree add: %s not made", wt.Path)
 	}
+	// A tree whose package scripts can't run is not a finished tree: say
+	// which node_modules the main checkout has that this one lacks.
+	if missing := agentrun.MissingDeps(root, wt.Path); len(missing) > 0 {
+		install := agentrun.InstallCommand(wt.Path)
+		if install == "" {
+			install = "your package manager's install"
+		}
+		fmt.Fprintf(ctx.Stdout, "✗ no %s in the worktree (the main checkout has them)\n", strings.Join(missing, ", "))
+		return fmt.Errorf("worktree add: %s was made without %s: run %s there (cd %s), then go on", wt.Path, strings.Join(missing, ", "), shell.Quote(install), shell.Quote(wt.Path))
+	}
 	fmt.Fprintln(ctx.Stdout, dir)
 	return nil
 }
