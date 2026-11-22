@@ -896,6 +896,15 @@ func Publish(in PublishInput) (PublishResult, error) {
 	if len(leaks) > 0 {
 		return res, leakError(branch, leaks)
 	}
+	// Keys and env files: the pre-push guard's secret scan over the tree
+	// that goes public, so the dry run says what the push would refuse.
+	secrets, err := ScanSecrets(in.Worktree, "HEAD")
+	if err != nil {
+		return res, err
+	}
+	if len(secrets) > 0 {
+		return res, fmt.Errorf("%s Then pick the fix from main and cut a new rc", SecretRefusal(branch+"'s tree", secrets))
+	}
 	tracking := "refs/remotes/" + remote + "/" + pubBranch
 	if _, err := git(in.Root, "fetch", "-q", "--no-tags", remote, "+refs/heads/"+pubBranch+":"+tracking); err != nil && !strings.Contains(err.Error(), "couldn't find remote ref") {
 		return res, fmt.Errorf("fetching %s/%s: %w", remote, pubBranch, err)

@@ -44,6 +44,22 @@ func git(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// gitStdin is git with stdin: rev-list --stdin and cat-file --batch-check
+// take a list too long for the command line (every tip of a remote).
+func gitStdin(dir, stdin string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(stdin)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), valueOr(lastLines(strings.TrimSpace(stderr.String()), 3), err.Error()))
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 // lastLines keeps the last n lines of git's error output.
 func lastLines(s string, n int) string {
 	lines := strings.Split(s, "\n")

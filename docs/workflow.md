@@ -830,11 +830,12 @@ A key never goes in a file in a repo ([where each kind lives](departments.md#sec
 
 A value that looks like a placeholder passes: fewer than 8 distinct characters after the prefix (`sk_xxxx…`, `ghp_0000…`), or `EXAMPLE` in it (AWS's documented `AKIAIOSFODNN7EXAMPLE`); `sk_…` in a doc is too short to match. Each hit names the file, the line and the kind (`config.go:3: a GitHub token (ghp_…)`), never the value or any part of it, then says what to do: keep the key in Keychain or the vendor CLI's own file, take it out of the commit, add `.env` to `.gitignore`, and rotate a key that was ever pushed. A test that needs a key-shaped value builds it at run time (`"gh" + "p_" + …`), so its source line holds none.
 
-It runs in three places:
+It runs in four places:
 
 - `make leak-check` (`TestTrackedFilesCarryNoSecrets`), over every tracked file, so `make validate` fails on a hit;
 - the commit-msg hook (`issue-cli workflow commit-msg`), over the lines the staged diff adds and the files it adds or changes: it refuses the commit (a merge in progress is skipped);
-- the pre-push guard (`issue-cli privacy pre-push`), over the commits the push sends (their added lines and added or changed files, a key added then removed included), in **every** project that has the guard, with or without a `privacy:` block. A file the push doesn't touch is not read, so an old one never blocks a push. Another project gets it with `issue-cli --project <slug> privacy hook`; `issue-cli privacy check` shows a `secret` line, amber with that fix while the guard is missing.
+- the pre-push guard (`issue-cli privacy pre-push`), over the commits the push sends (their added lines and added or changed files, a key added then removed included), in **every** project that has the guard, with or without a `privacy:` block. A file the push doesn't touch is not read, so an old one never blocks a push. The commits it reads stop at what the remote has: the ref's old tip and the remote's tracking refs, or, for a push by URL or to a remote never fetched, the tips `git ls-remote` lists. When the remote shares no commit with the repo (empty, unreadable or unrelated: a first push), it scans the pushed tip's tree the way `make leak-check` does instead of every commit since the root, so a stand-in an old commit held and the tree no longer does is not refused; a key in the tree still is. Another project gets it with `issue-cli --project <slug> privacy hook`; `issue-cli privacy check` shows a `secret` line, amber with that fix while the guard is missing;
+- `issue-cli release publish`, `--dry-run` too, over the release branch's tree, before anything goes public.
 
 Beside it, memories refuse secrets of their own (`internal/memory/secret.go`, which also knows `password=` forms that would be too noisy over a whole repo).
 

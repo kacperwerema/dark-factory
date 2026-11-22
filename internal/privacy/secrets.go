@@ -12,10 +12,11 @@ package privacy
 // that looks like a placeholder (few distinct characters, or EXAMPLE in
 // it) passes, so docs and examples can show a key's shape.
 //
-// Three places run it: make leak-check over the tracked tree
+// Four places run it: make leak-check over the tracked tree
 // (TestTrackedFilesCarryNoSecrets), the pre-push guard over what a push
-// sends (PushSecrets, every project with the hook), and the commit-msg
-// hook over the staged diff (ScanStagedSecrets). Keys live in Keychain or
+// sends (PushSecrets, every project with the hook), the commit-msg hook
+// over the staged diff (ScanStagedSecrets), and release publish over the
+// release branch's tree (Publish). Keys live in Keychain or
 // in a vendor CLI's own file in the home directory: docs/departments.md,
 // Secrets.
 
@@ -187,14 +188,36 @@ func ScanStagedSecrets(root string) ([]Leak, error) {
 // PushSecrets is the secret scan over what a push sends: each commit the
 // remote lacks, its added lines and its added or changed files. A file the
 // push doesn't touch is not read, so an old one never blocks a push
-// (make leak-check covers the whole tree). Hits are deduplicated.
+// (make leak-check covers the whole tree). When the guard can't tell what
+// the remote has (a first push to an empty or unrelated remote: no old
+// tip, no tracking refs, no ls-remote tip this repo holds), it scans the
+// pushed tip's tree instead, as make leak-check does, rather than every
+// commit since the root: a stand-in an old commit held and the tree no
+// longer does is not refused. Hits are deduplicated.
 func PushSecrets(root, remote string, refs []PushRef) ([]Leak, error) {
 	seen := map[string]bool{}
 	var leaks []Leak
+	add := func(ls []Leak) {
+		for _, l := range ls {
+			if k := l.String(); !seen[k] {
+				seen[k] = true
+				leaks = append(leaks, l)
+			}
+		}
+	}
+	base := remoteBase(root, remote)
 	for _, ref := range refs {
-		commits, err := pushedCommits(root, remote, ref)
+		commits, known, err := pushedCommits(root, base, ref)
 		if err != nil {
 			return nil, err
+		}
+		if !known && len(commits) > 0 {
+			tree, err := ScanSecrets(root, ref.LocalSHA)
+			if err != nil {
+				return nil, err
+			}
+			add(tree)
+			continue
 		}
 		for _, c := range commits {
 			diff, err := git(root, "-c", "core.quotePath=false", "diff-tree", "-p", "-U0", "-r", "--root", "--no-commit-id", "--no-color", "--no-ext-diff", "--no-renames", "--diff-filter=d", c)
@@ -205,12 +228,7 @@ func PushSecrets(root, remote string, refs []PushRef) ([]Leak, error) {
 			if err != nil {
 				return nil, err
 			}
-			for _, l := range diffSecrets(diff, lines0(names)) {
-				if k := l.String(); !seen[k] {
-					seen[k] = true
-					leaks = append(leaks, l)
-				}
-			}
+			add(diffSecrets(diff, lines0(names)))
 		}
 	}
 	sortLeaks(leaks)

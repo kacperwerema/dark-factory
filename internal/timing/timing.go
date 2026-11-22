@@ -142,6 +142,42 @@ func (c Check) Run(op, base func() time.Duration) (r Result) {
 	return r
 }
 
+// SlowedMargin is how far over the check's own bounds Slowed's stand-in
+// operation is held: twice the larger of Limit and Ratio× the slowest
+// baseline seen.
+const SlowedMargin = 2
+
+// Slowed is the stand-in a self-check runs through c to prove c bites: op
+// made factor times slower, and never under SlowedMargin× the larger of
+// c.Limit and c.Ratio× the slowest baseline seen so far (base is timed once
+// first when none has been yet). A fixed factor alone proves nothing on a
+// machine whose baseline is slow too: a /status of 36 ms against a /board
+// of 60 ms is 180 ms at 5×, inside 3× the baseline. slowBase is base, its
+// samples recorded; pass both to c.Run. On a saturated machine Ratio
+// widens by SaturatedSlack (= SlowedMargin), so the stand-in can pass
+// there: a self-check skips on a Result that passed with Saturated set.
+func (c Check) Slowed(factor float64, op, base func() time.Duration) (slowOp, slowBase func() time.Duration) {
+	var worst time.Duration
+	if base == nil {
+		c.Ratio = 0
+	} else {
+		slowBase = func() time.Duration {
+			b := base()
+			worst = max(worst, b)
+			return b
+		}
+	}
+	slowOp = func() time.Duration {
+		d := time.Duration(factor * float64(op()))
+		if c.Ratio > 0 && worst == 0 {
+			slowBase()
+		}
+		floor := max(c.Limit, time.Duration(c.Ratio*float64(worst)))
+		return max(d, SlowedMargin*floor)
+	}
+	return slowOp, slowBase
+}
+
 // readLoad takes a load reading into r and says whether it saturated the
 // machine.
 func (r *Result) readLoad() bool {

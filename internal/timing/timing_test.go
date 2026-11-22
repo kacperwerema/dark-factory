@@ -147,3 +147,38 @@ func TestRunReadsTheLoadOnlyWhenSlow(t *testing.T) {
 		t.Errorf("Limit alone widened: %+v", r)
 	}
 }
+
+// The shape v0.65.0's public CI had (ubuntu, run 44957743950): a warm
+// /status of 36 ms against a /board of 60 ms. Made 5× slower it is 180 ms,
+// inside 3× the baseline, so a fixed factor proved nothing there; Slowed's
+// stand-in is reported slow on that machine and on a fast one, also when
+// the first baseline lands in a burst or the baseline climbs during the check. On a saturated reading it may
+// pass, and says so (the self-check skips then).
+func TestSlowedIsReportedSlowWhereTheBaselineIsSlowToo(t *testing.T) {
+	c := Check{Limit: 150 * time.Millisecond, Ratio: 3, Rounds: 8, Load: quiet}
+	page, board := steady(36*time.Millisecond), steady(60*time.Millisecond)
+	if r := c.Run(func() time.Duration { return 5 * page() }, board); r.Slow {
+		t.Fatalf("the repro no longer holds: a 5× page passed before the fix too: %+v", r)
+	}
+	if r := c.Run(c.Slowed(5, page, board)); !r.Slow {
+		t.Errorf("Slowed's stand-in passed on the CI shape: %s", r)
+	}
+	if r := c.Run(c.Slowed(5, steady(20*time.Millisecond), steady(5*time.Millisecond))); !r.Slow {
+		t.Errorf("Slowed's stand-in passed on a fast machine: %s", r)
+	}
+	if r := c.Run(c.Slowed(5, page, timer(60*time.Millisecond, 1, 3))); !r.Slow {
+		t.Errorf("Slowed's stand-in passed after a burst on the first baseline: %s", r)
+	}
+	n := 0
+	climbing := func() time.Duration { n++; return time.Duration(n) * 40 * time.Millisecond }
+	if r := c.Run(c.Slowed(5, page, climbing)); !r.Slow {
+		t.Errorf("Slowed's stand-in passed against a climbing baseline: %s", r)
+	}
+	if op, base := (Check{Limit: 150 * time.Millisecond}).Slowed(5, page, nil); base != nil || op() < 300*time.Millisecond {
+		t.Errorf("with no baseline the stand-in is not twice Limit")
+	}
+	c.Load = saturated
+	if r := c.Run(c.Slowed(5, page, board)); r.Slow || !r.Saturated {
+		t.Errorf("on a saturated reading the stand-in should pass, saying so: %+v", r)
+	}
+}

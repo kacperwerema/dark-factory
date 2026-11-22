@@ -101,27 +101,62 @@ const statusRounds = 8
 // statusPages are the warm pages statusTooSlow times.
 var statusPages = []string{"status", "status.md", "status", "status"}
 
-// statusTooSlow times each warm page in statusPages against /board
-// (timing.Check: best of statusRounds, in turns) and returns a line per
-// page that stays too slow. A page passes when its best time is under
+// statusCheck is the limit each warm page in statusPages answers to.
+var statusCheck = timing.Check{Limit: statusLimit, Ratio: statusVsBoard, Rounds: statusRounds}
+
+// statusRuns times each warm page in statusPages against /board with check
+// (timing.Check: best of statusRounds, in turns). slowBy > 0 times each page
+// as check.Slowed's stand-in, slowBy times slower.
+func statusRuns(check timing.Check, timePage func(path string) time.Duration, slowBy float64) []timing.Result {
+	var rs []timing.Result
+	for _, page := range statusPages {
+		op := func() time.Duration { return timePage(page) }
+		base := func() time.Duration { return timePage("board") }
+		if slowBy > 0 {
+			op, base = check.Slowed(slowBy, op, base)
+		}
+		rs = append(rs, check.Run(op, base))
+	}
+	return rs
+}
+
+// statusTooSlow returns a line per warm page in statusPages that stays too
+// slow, and the best time of any. A page passes when its best time is under
 // statusLimit, or under statusVsBoard× the best /board.
 func statusTooSlow(timePage func(path string) time.Duration) (slow []string, best time.Duration) {
 	best = 1<<63 - 1
-	check := timing.Check{Limit: statusLimit, Ratio: statusVsBoard, Rounds: statusRounds}
-	for _, page := range statusPages {
-		r := check.Run(func() time.Duration { return timePage(page) }, func() time.Duration { return timePage("board") })
+	for i, r := range statusRuns(statusCheck, timePage, 0) {
 		best = min(best, r.Best)
 		if r.Slow {
-			slow = append(slow, fmt.Sprintf("%s warm: %s (baseline: /board)", page, r))
+			slow = append(slow, fmt.Sprintf("%s warm: %s (baseline: /board)", statusPages[i], r))
 		}
 	}
 	return slow, best
 }
 
+// statusSelfCheck runs check on each page made 5× slower, and never under
+// twice both statusLimit and statusVsBoard× the /board timed beside it
+// (timing.Check.Slowed: a bare 5× passed on a runner whose /board is slow
+// too). It returns why the check caught no slowdown, or why that proves
+// nothing on this run (a saturated machine, whose widened ratio the
+// stand-in may sit inside); both empty when every page was caught.
+func statusSelfCheck(check timing.Check, timePage func(path string) time.Duration) (missed, skip string) {
+	for i, r := range statusRuns(check, timePage, 5) {
+		switch {
+		case r.Slow:
+		case r.Saturated:
+			return "", fmt.Sprintf("/%s made 5× slower passed on a saturated run: %s", statusPages[i], r)
+		default:
+			return fmt.Sprintf("/%s made 5× slower passed: the check catches no real slowdown: %s", statusPages[i], r), ""
+		}
+	}
+	return "", ""
+}
+
 // TestStatusPageFastOnABigProject: a warm /status (the Report) renders in
 // under statusLimit, or, on a loaded machine, no slower than 3× /board
 // timed beside it (statusTooSlow). Machine readings are kept as viewer.Run
-// keeps them. A /status made 5× slower fails it.
+// keeps them. A /status made 5× slower fails it (statusSelfCheck).
 func TestStatusPageFastOnABigProject(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds an 800-issue project")
@@ -152,19 +187,47 @@ func TestStatusPageFastOnABigProject(t *testing.T) {
 	}
 	t.Logf("830 issues: /status cold %v, warm best %v; /board cold %v", cold, best, board)
 
-	// The same check on a /status 5× slower must fail: a stand-in timer that
-	// reads the real request and counts it five times.
-	slower := func(path string) time.Duration {
-		d := get(path)
-		if strings.HasPrefix(path, "status") {
-			d *= 5
-		}
-		return d
+	// The same check on a /status 5× slower must fail (statusSelfCheck).
+	missed, skip := statusSelfCheck(statusCheck, get)
+	if missed != "" {
+		t.Error(missed)
 	}
-	if slow, _ := statusTooSlow(slower); len(slow) == 0 {
-		t.Errorf("a /status 5× slower passed: the check catches no real slowdown")
-	} else {
-		t.Logf("5× slower: %s", slow[0])
+	if skip != "" {
+		t.Skip(skip)
+	}
+}
+
+// TestStatusSelfCheckCatchesASlowedPageOnASlowRunner: the shape v0.65.0's
+// public CI had (a warm /status 36 ms, /board 60 ms): a bare 5× /status
+// passes there, so the self-check's stand-in is reported slow instead; on a
+// saturated reading the self-check skips, naming the load, rather than
+// failing.
+func TestStatusSelfCheckCatchesASlowedPageOnASlowRunner(t *testing.T) {
+	ci := func(path string) time.Duration {
+		if path == "board" {
+			return 60 * time.Millisecond
+		}
+		return 36 * time.Millisecond
+	}
+	check := statusCheck
+	check.Load = func() (float64, int, bool) { return 2, 4, true }
+	bare := func(path string) time.Duration {
+		if path == "board" {
+			return ci(path)
+		}
+		return 5 * ci(path)
+	}
+	for _, r := range statusRuns(check, bare, 0) {
+		if r.Slow {
+			t.Fatalf("the repro no longer holds: a bare 5× /status was slow on the CI shape: %s", r)
+		}
+	}
+	if missed, skip := statusSelfCheck(check, ci); missed != "" || skip != "" {
+		t.Errorf("the self-check on the CI shape: missed %q, skip %q", missed, skip)
+	}
+	check.Load = func() (float64, int, bool) { return 9, 4, true }
+	if missed, skip := statusSelfCheck(check, ci); missed != "" || !strings.Contains(skip, "saturated") || !strings.Contains(skip, "load 9.0 on 4 cores") {
+		t.Errorf("the self-check on a saturated run: missed %q, skip %q", missed, skip)
 	}
 }
 

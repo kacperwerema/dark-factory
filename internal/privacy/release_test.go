@@ -316,6 +316,19 @@ func TestPublishRefusals(t *testing.T) {
 	}
 	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
 
+	// A key in the tree: the pre-push secret scan, run by the dry run too;
+	// a split stand-in in a test passes, a real-shaped key in one doesn't.
+	write(t, filepath.Join(cut.Worktree, "x_test.go"), "package x\n\nvar stand = \"gh\" + \"p_stand-in\"\nvar k = \""+fakeKeys()["a GitHub token (ghp_…)"]+"\"\n")
+	run(t, cut.Worktree, "git", "add", "x_test.go")
+	run(t, cut.Worktree, "git", "commit", "-q", "-m", "a key")
+	keyed := in
+	keyed.DryRun = true
+	_, err = Publish(keyed)
+	if err == nil || !strings.Contains(err.Error(), "release/v0.54's tree: 1 secret(s)") || !strings.Contains(err.Error(), "x_test.go:4: a GitHub token (ghp_…)") {
+		t.Errorf("a key in the tree = %v", err)
+	}
+	run(t, cut.Worktree, "git", "reset", "-q", "--hard", "HEAD~1")
+
 	// The public tip moved past the base to a dev commit.
 	run(t, r.root, "git", "commit", "-q", "--allow-empty", "-m", "dev work")
 	run(t, r.root, "git", "push", "-q", "--no-verify", "public", "main:main")

@@ -22,6 +22,11 @@ renames `## Unreleased` to `## vX.Y.Z — YYYY-MM-DD` and pushes, and the
 release-marker Action tags and builds it. Pushes with `## Unreleased` on top
 release nothing.
 
+## v0.65.1 — 2026-11-22
+
+- **The pre-push secret guard passes a push by URL, a first push to a new remote and a release, for stand-in keys only old commits held** (factory/the-pre-push-secret-guard-refuses-the-stand-in-keys-in-test-fixtures-so-a-push-by-url-to-a-new-remote-or-a-release-touching-those-tests-is-refused). With no tracking refs to stop at, the guard read every commit since the root and refused the 13 test fixtures that held a whole stand-in literal before they were split. It now asks `git ls-remote` which of the remote's tips the repo already has and reads only the commits above them. When the remote shares no commit with the repo, it scans the pushed tip's tree the way `make leak-check` does. A real-shaped key in a test is still refused. `release publish`, including `--dry-run`, runs the same secret scan over the release tree.
+- **TestStatusPageFastOnABigProject's "5× slower must fail" self-check no longer goes red on a slow runner** (factory/teststatuspagefastonabigprojects-5-slower-self-check-passes-on-a-slow-linux-runner-so-v0-65-0s-public-ci-is-red). v0.65.0's public CI (ubuntu) timed a warm /status at 36 ms and /board at 60 ms: 5× the page is 180 ms, inside 3× the baseline, so the stand-in passed and the test failed. `timing.Check.Slowed` is the stand-in now: the page made N× slower, never under twice both the limit and Ratio× the slowest baseline seen; on a saturated run the self-check skips, naming the load. See [Timing self-checks](../../docs/testing.md#timing-self-checks).
+
 ## v0.65.0 — 2026-11-21
 
 - **A regression test pins ship's install guard to the 2026-11-19 incident's own command** (cli/issue-cli-ship-runs-npm-ci-in-a-worktree-whose-node-modules-root-and). ship with `npm ci --no-audit --no-fund` in a worktree whose root and packages/* node_modules link the main checkout's skips the install while the lock file is main's, or makes the tree's own copies first once it changed, and says which; a stand-in npm that empties every node_modules it reaches leaves the main checkout's untouched. The guard itself shipped with the file-churn fix (no install runs through a node_modules link at any depth).

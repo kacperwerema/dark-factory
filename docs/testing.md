@@ -112,6 +112,20 @@ load, `scripts/under-load.sh [-c cpu] [-m mb] -- <command>` runs it beside
 a CPU and memory hog it starts and stops itself (refuses when `mem-guard
 check` is blocked, stops at 70%).
 
+### Timing self-checks
+
+A timing test that proves its check bites (the page made N× slower must
+fail) times a stand-in through the same check: `op, base :=
+check.Slowed(n, op, base)`, then `check.Run(op, base)`. A bare N× of the
+real page is not enough: where the baseline is slow too, N× can sit inside
+Ratio× it (v0.65.0's public CI: a /status of 36 ms against a /board of
+60 ms is 180 ms at 5×, within 3×). `Slowed` keeps the stand-in at least
+twice both `Limit` and `Ratio`× the slowest baseline it has seen, so it fails
+on any machine. On a saturated run the ratio doubles and the stand-in may
+pass: when the `Result` passed with `Saturated` set, the self-check
+`t.Skip`s with `r.String()` (it names the load) instead of failing
+(`statusSelfCheck`, `TestStatusSelfCheckCatchesASlowedPageOnASlowRunner`).
+
 ## Shell
 
 The worker briefing's `## Shell on this machine` section says what

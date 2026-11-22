@@ -115,23 +115,72 @@ func ReadPushRefs(r io.Reader) []PushRef {
 
 func isZero(sha string) bool { return strings.Trim(sha, "0") == "" }
 
-// pushedCommits are the commits a ref update sends that the remote lacks.
-func pushedCommits(root, remote string, ref PushRef) ([]string, error) {
-	if isZero(ref.LocalSHA) {
-		return nil, nil // a delete sends nothing
+// remoteBase is what the remote already has, as rev-list arguments that
+// stop the commit walk there: --remotes=<name> when the remote has tracking
+// refs, else the tips git ls-remote lists that this repo holds too (a push
+// by URL, or to a remote never fetched). nil when neither is known: the
+// remote is empty, can't be read, or shares no commit with this repo.
+func remoteBase(root, remote string) []string {
+	if out, _ := git(root, "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes/"+remote+"/"); out != "" {
+		return []string{"--remotes=" + remote}
 	}
-	args := []string{"rev-list", ref.LocalSHA}
-	if !isZero(ref.RemoteSHA) {
-		if _, err := git(root, "cat-file", "-e", ref.RemoteSHA+"^{commit}"); err == nil {
-			args = append(args, "^"+ref.RemoteSHA)
+	out, err := git(root, "ls-remote", "--", remote)
+	if err != nil {
+		return nil
+	}
+	var tips []string
+	seen := map[string]bool{}
+	for _, l := range lines(out) {
+		sha, _, _ := strings.Cut(l, "\t")
+		if !seen[sha] && !isZero(sha) {
+			seen[sha] = true
+			tips = append(tips, sha)
 		}
 	}
-	args = append(args, "--not", "--remotes="+remote)
-	out, err := git(root, args...)
-	if err != nil {
-		return nil, err
+	if len(tips) == 0 {
+		return nil
 	}
-	return lines(out), nil
+	known, err := gitStdin(root, strings.Join(tips, "\n")+"\n", "cat-file", "--batch-check=%(objectname) %(objecttype)")
+	if err != nil {
+		return nil
+	}
+	var base []string
+	for _, l := range lines(known) {
+		if f := strings.Fields(l); len(f) == 2 && (f[1] == "commit" || f[1] == "tag") {
+			base = append(base, "^"+f[0])
+		}
+	}
+	return base
+}
+
+// pushedCommits are the commits a ref update sends that the remote lacks:
+// those above the ref's old tip and base (remoteBase). known is false when
+// neither stops the walk, so the list runs back to the root and holds
+// commits the remote may well have.
+func pushedCommits(root string, base []string, ref PushRef) (commits []string, known bool, err error) {
+	if isZero(ref.LocalSHA) {
+		return nil, true, nil // a delete sends nothing
+	}
+	revs := []string{ref.LocalSHA}
+	if !isZero(ref.RemoteSHA) {
+		if _, err := git(root, "cat-file", "-e", ref.RemoteSHA+"^{commit}"); err == nil {
+			revs = append(revs, "^"+ref.RemoteSHA)
+			known = true
+		}
+	}
+	if len(base) > 0 {
+		known = true
+	}
+	var out string
+	if len(base) == 1 && strings.HasPrefix(base[0], "--remotes=") {
+		out, err = git(root, append(append([]string{"rev-list"}, revs...), "--not", base[0])...)
+	} else {
+		out, err = gitStdin(root, strings.Join(append(revs, base...), "\n")+"\n", "rev-list", "--stdin")
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return lines(out), known, nil
 }
 
 // PrePush checks a push of refs to remote (name and url, as git passes
@@ -152,6 +201,7 @@ func PrePush(root string, cfg *tracker.PrivacyConfig, remote, url string, refs [
 		toPublic = remote == cfg.Remote() || (pub != "" && url == pub)
 	}
 	paths := cfg.Paths()
+	base := remoteBase(root, remote)
 	for _, ref := range refs {
 		if isZero(ref.LocalSHA) {
 			continue
@@ -163,7 +213,7 @@ func PrePush(root string, cfg *tracker.PrivacyConfig, remote, url string, refs [
 			}
 			continue
 		}
-		commits, err := pushedCommits(root, remote, ref)
+		commits, _, err := pushedCommits(root, base, ref)
 		if err != nil {
 			return fmt.Errorf("privacy guard: can't list the commits in this push: %w", err)
 		}

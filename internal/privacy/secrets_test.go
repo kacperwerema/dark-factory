@@ -246,3 +246,89 @@ func TestRepoIgnoresEnvFiles(t *testing.T) {
 		}
 	}
 }
+
+// standInHistory is a repo whose history once held a key-shaped stand-in
+// in a test (the PEM header and a GitHub token, as this repo's own tests
+// did before a07453ed split them), replaced by a split string since: the
+// tree passes make leak-check, the old commit would not.
+func standInHistory(t *testing.T) (dir string, git func(...string) string) {
+	t.Helper()
+	keys := fakeKeys()
+	dir, git = pushRepo(t, map[string]string{"a.txt": "a\n"})
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("fix_test.go", "package x\n\nvar pem = \""+keys["a private key block (-----BEGIN … PRIVATE KEY-----)"]+"\"\nvar tok = \""+keys["a GitHub token (ghp_…)"]+"\"\n")
+	git("add", "fix_test.go")
+	git("commit", "-q", "-m", "fixture")
+	write("fix_test.go", "package x\n\nvar pem = \"-----BEGIN \" + \"RSA PRIVATE KEY-----\"\nvar tok = \"gh\" + \"p_stand-in\"\n")
+	git("commit", "-q", "-am", "split the stand-ins")
+	return dir, git
+}
+
+// A push to an empty remote, or by URL, has no tracking refs to stop the
+// commit walk at. The guard asks the remote what it has (ls-remote) and
+// reads only the commits it lacks; a remote with nothing this repo knows
+// gets the tip's tree scanned, as make leak-check scans it, so a stand-in
+// a past commit held and the tree no longer does is not refused. A key in
+// the tree still is.
+func TestPushSecretsByURLOrToANewRemote(t *testing.T) {
+	dir, git := standInHistory(t)
+	head := git("rev-parse", "HEAD")
+	push := func(remote, remoteSHA string) ([]Leak, error) {
+		return PushSecrets(dir, remote, []PushRef{{"refs/heads/main", head, "refs/heads/main", remoteSHA}})
+	}
+	zero := strings.Repeat("0", 40)
+
+	empty := t.TempDir()
+	git("init", "-q", "--bare", empty)
+	if leaks, err := push(empty, zero); err != nil || len(leaks) != 0 {
+		t.Errorf("a first push by URL to an empty remote: %v %v, want none", leaks, err)
+	}
+	git("remote", "add", "fresh", empty)
+	if leaks, err := push("fresh", zero); err != nil || len(leaks) != 0 {
+		t.Errorf("a first push to a new named remote: %v %v, want none", leaks, err)
+	}
+
+	// A bare clone already holds the history: nothing is new but one
+	// commit on top, and an old stand-in is not read again.
+	clone := t.TempDir()
+	git("clone", "-q", "--bare", dir, clone)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("commit", "-q", "-am", "one more")
+	head = git("rev-parse", "HEAD")
+	if leaks, err := push(clone, zero); err != nil || len(leaks) != 0 {
+		t.Errorf("a push by URL to a bare clone: %v %v, want none", leaks, err)
+	}
+
+	// A real-shaped key in a test is still refused, by URL as by name.
+	if err := os.WriteFile(filepath.Join(dir, "real_test.go"), []byte("package x\n\nvar k = \""+fakeKeys()["an AWS access key (AKIA…)"]+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "real_test.go")
+	git("commit", "-q", "-m", "real")
+	head = git("rev-parse", "HEAD")
+	for _, remote := range []string{clone, empty} {
+		leaks, err := push(remote, zero)
+		if err != nil || len(leaks) != 1 || leaks[0].String() != "real_test.go:3: an AWS access key (AKIA…)" {
+			t.Errorf("a real key in a test, pushed to %s: %v %v, want real_test.go:3", filepath.Base(remote), leaks, err)
+		}
+	}
+}
+
+// The commit walk still reads the history the remote lacks when it knows a
+// base: the old stand-in commit, pushed on top of the remote's main, is
+// refused, as TestPushSecretsReadsOnlyWhatThePushSends wants for a key added
+// and removed again.
+func TestPushSecretsReadsHistoryAboveAKnownBase(t *testing.T) {
+	dir, git := standInHistory(t)
+	leaks, err := PushSecrets(dir, "origin", []PushRef{{"refs/heads/main", git("rev-parse", "HEAD"), "refs/heads/main", git("rev-parse", "origin/main")}})
+	if err != nil || len(leaks) != 2 {
+		t.Errorf("the stand-in commit above origin/main: %v %v, want its two hits", leaks, err)
+	}
+}
