@@ -31,7 +31,7 @@ func OneLine(st *State, lock *Lock, alive bool, branch string, now time.Time) st
 	case st.State == Green:
 		line = fmt.Sprintf("%s green at %s (%s ago)", branch, gitdir.ShortSHA(st.GreenSha), Ago(now.Sub(st.GreenAt)))
 	case st.State == Red:
-		line = fmt.Sprintf("%s red since %s: %s", branch, gitdir.ShortSHA(st.RedSince), st.Failed)
+		line = fmt.Sprintf("%s red since %s: %s", branch, gitdir.ShortSHA(st.RedSince), FailedText(st.Failed, st.Red))
 		if f := FailureList(st.Failures); f != "" {
 			line += ": " + f
 		}
@@ -82,6 +82,9 @@ func AgentLine(workDir string, wf *tracker.WorkflowConfig) string {
 	line := "Local CI: " + OneLine(st, lock, alive, branch, now)
 	if st.IsRed() {
 		line += " — inherited from " + st.Branch + ", not caused by your branch"
+		if st.Leftover != "" {
+			line += "\nLocal CI leftover: " + st.Leftover
+		}
 	}
 	for _, name := range st.TierNames() {
 		if ts := st.Tiers[name]; ts.State == Red {
@@ -102,7 +105,7 @@ func AgentLine(workDir string, wf *tracker.WorkflowConfig) string {
 func TierLine(name string, ts TierState, branch string, now time.Time) string {
 	line := fmt.Sprintf("tier %s: %s at %s (%s ago)", name, ts.State, gitdir.ShortSHA(ts.Sha), Ago(now.Sub(ts.Finished)))
 	if ts.Failed != "" {
-		line += ": " + ts.Failed
+		line += ": " + FailedText(ts.Failed, ts.Red)
 	}
 	if f := FailureList(ts.Failures); f != "" {
 		line += ": " + f

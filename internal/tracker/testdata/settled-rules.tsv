@@ -53,7 +53,7 @@ A human starts the work.	factory/a-fresh-critic-that-never-wrote-the-work-a-read
 A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-1	project	soft
 A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-10	system:Factory	soft
 A human starts the work.	factory/post-mortem-actions-each-lesson-to-one-place-only-if-a-fresh-agent-would-act-differently-applied-after-the-owner-agrees#D-11	system:Factory	soft
-Lint checks that read issues: `undated`, `na-boxes`, `owner-marker`, `show-footer`, `criteria`, `types`, `reports`, `decisions`	-	-	soft
+Lint checks that read issues: `undated`, `na-boxes`, `owner-marker`, `after-install`, `show-footer`, `criteria`, `types`, `reports`, `decisions`	-	-	soft
 A pilot is rehearsed on a sandbox; go-live comes later.	factory/marketing-pilot-seo-as-the-first-department#D-2	system:Factory	soft
 A red newcomer walkthrough blocks shipping.	-	-	soft
 Research watches memory.	factory/marketing-brand-foundation-brand-analyst-icp-and-tamsamsom-before-channel-work#D-2	department:marketing	hard

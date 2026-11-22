@@ -179,3 +179,58 @@ func TestClarifyNudgeNamesTheWriteCommand(t *testing.T) {
 	assertContains(t, out, "Clarify: cli/x left idea with no ## Clarify.")
 	assertContains(t, out, `issue-cli --project proj append cli/x --section Clarify --body "Nothing to ask: <why>."`)
 }
+
+// A round with format problems: the YOLO gate still passes, but no answer
+// is assumed and no D-n recorded; the output names the problem and the
+// command to run once it is fixed. clarify --assume refuses the same way,
+// and after the fix a second --assume records each question once.
+func TestYOLOPassSkipsAssumeWhileTheRoundHasFormatProblems(t *testing.T) {
+	proj := makeYOLOProject(t)
+	path := filepath.Join(proj.IssueDir, "design.md")
+	addClarify(t, path)
+	good := readFile(t, path)
+	bad := strings.Replace(good, " Cost: a form per row.", "", 1)
+	if err := os.WriteFile(path, []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	yoloOn(t, proj, now, time.Hour)
+	out, _, err := runYOLOTransition(t, proj, now, "design", "--to", "backlog")
+	if err != nil {
+		t.Fatalf("YOLO transition: %v\n%s", err, out)
+	}
+	assertContains(t, out, "YOLO: clarify not assumed: the round's format has problems")
+	assertContains(t, out, "Q1: option 2 says no `Cost:`")
+	assertContains(t, out, "clarify design --assume")
+	if body := readFile(t, path); strings.Contains(body, "**D-") || strings.Contains(body, "assumed") {
+		t.Fatalf("the refused pass wrote:\n%s", body)
+	}
+
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runClarify(ctx, []string{"design", "--assume"}); err == nil || !strings.Contains(err.Error(), "Q1: option 2 says no `Cost:`") {
+		t.Fatalf("clarify --assume on a bad round: %v", err)
+	}
+
+	// Fixed: assume, rewrite the round with the answers open, assume again.
+	if err := os.WriteFile(path, []byte(good), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runClarify(ctx, []string{"design", "--assume"}); err != nil {
+		t.Fatal(err)
+	}
+	assumed := readFile(t, path)
+	reopened := strings.ReplaceAll(assumed, "**Answer:** assumed — took the recommendation (D-1)", "**Answer:** —")
+	reopened = strings.ReplaceAll(reopened, "**Answer:** assumed — took the recommendation (D-2)", "**Answer:** —")
+	if err := os.WriteFile(path, []byte(reopened), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runClarify(ctx, []string{"design", "--assume"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "✓ Assumed Q1 (D-1), Q2 (D-2)")
+	if body := readFile(t, path); strings.Contains(body, "**D-3**") || strings.Count(body, "clarify round, provisional:") != 2 {
+		t.Fatalf("second assume recorded again:\n%s", body)
+	}
+}

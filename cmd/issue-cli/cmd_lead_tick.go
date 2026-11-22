@@ -350,6 +350,7 @@ func leadTickOnce(ctx *Context, watch bool) (tickCount, error) {
 	leadTickClean(t)
 	leadTickLong(ctx, t)
 	leadTickInstallLag(ctx, t)
+	leadTickGuards(ctx, t)
 	leadTickAttention(ctx, t, issues)
 	leadTickReports(ctx, t, issues)
 	leadTickQuestions(ctx, t, issues)

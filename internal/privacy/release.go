@@ -3,14 +3,17 @@ package privacy
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/checks"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -195,6 +198,9 @@ func NotSwitched(root string, cfg *tracker.PrivacyConfig) error {
 type PickOptions struct {
 	Main      string // the branch done issues landed on (default main)
 	Changelog string // the changelog, relative to the root (default CHANGELOG.md)
+	// Out, when set, gets each slug's commits (sha and subject) before
+	// anything is picked.
+	Out io.Writer
 }
 
 // PickResult is the commits Pick applied and what it checked after.
@@ -221,10 +227,9 @@ func (r PickResult) BuildHint() string {
 }
 
 // Pick cherry-picks onto the release branch, in its worktree, each item's
-// commits the branch lacks: for an issue slug the commits of work/<slug>
-// (git cherry), else the item as a commit, else (a done issue, its branch
-// deleted at close) the commits on main whose Refs: trailer names the
-// slug, oldest first, merges skipped. Commits apply one by one; a conflict
+// commits the branch lacks: for an issue slug its commits (UnpickedIssues:
+// the commits on main whose Refs: trailer names it, else work/<slug>'s),
+// else the item as a commit. Commits apply one by one; a conflict
 // puts the branch back where it was and names the commit and files, except
 // one only in the changelog. A commit that touches the changelog leaves
 // the branch's changelog as it was plus the commit's new lines at the top
@@ -244,53 +249,39 @@ func Pick(root, cut string, items []string, opts PickOptions) (PickResult, error
 	if st, _ := git(wt, "status", "--porcelain", "--untracked-files=no"); st != "" {
 		return res, fmt.Errorf("%s has uncommitted changes: commit or discard them first", wt)
 	}
+	issues, err := UnpickedIssues(root, branch, mainBranch, items)
+	if err != nil {
+		return res, err
+	}
 	var shas []string
 	for _, item := range items {
-		ref := "work/" + item
-		if _, err := git(root, "rev-parse", "-q", "--verify", "refs/heads/"+ref); err == nil {
-			mine, err := cherryNew(root, branch, ref)
-			if err != nil {
-				return res, err
-			}
+		if mine, ok := issues[item]; ok {
 			if len(mine) == 0 {
 				res.Already = append(res.Already, item)
+				continue
+			}
+			if opts.Out != nil {
+				fmt.Fprintf(opts.Out, "%s: %d %s to pick\n", item, len(mine), map[bool]string{true: "commit", false: "commits"}[len(mine) == 1])
+				for _, s := range mine {
+					subj, _ := git(root, "log", "-1", "--format=%s", s)
+					fmt.Fprintf(opts.Out, "  %s %s\n", gitdir.ShortSHA(s), subj)
+				}
+			}
+			if err := refuseForeign(root, mainBranch, item, mine); err != nil {
+				return res, err
 			}
 			shas = append(shas, mine...)
 			continue
 		}
-		if sha, err := git(root, "rev-parse", "-q", "--verify", item+"^{commit}"); err == nil {
-			if _, err := git(root, "merge-base", "--is-ancestor", sha, branch); err == nil {
-				res.Already = append(res.Already, item)
-				continue
-			}
-			shas = append(shas, sha)
-			continue
-		}
-		refs, err := refsCommits(root, mainBranch, item)
+		sha, err := git(root, "rev-parse", "-q", "--verify", item+"^{commit}")
 		if err != nil {
-			return res, err
-		}
-		if len(refs) == 0 {
 			return res, fmt.Errorf("%s is not a commit, has no work/%s branch, and no commit on %s has the trailer Refs: %s", item, item, mainBranch, item)
 		}
-		lacking, err := cherryNew(root, branch, mainBranch)
-		if err != nil {
-			return res, err
-		}
-		want := map[string]bool{}
-		for _, s := range lacking {
-			want[s] = true
-		}
-		var mine []string
-		for _, s := range refs {
-			if want[s] {
-				mine = append(mine, s)
-			}
-		}
-		if len(mine) == 0 {
+		if _, err := git(root, "merge-base", "--is-ancestor", sha, branch); err == nil {
 			res.Already = append(res.Already, item)
+			continue
 		}
-		shas = append(shas, mine...)
+		shas = append(shas, sha)
 	}
 	if len(shas) == 0 {
 		return res, nil
@@ -489,24 +480,161 @@ func PickedFrom(root, branch string) (map[string]bool, error) {
 	return picked, nil
 }
 
-// refsCommits is the non-merge commits on mainBranch, oldest first, with a
-// Refs: trailer that is exactly slug.
-func refsCommits(root, mainBranch, slug string) ([]string, error) {
-	out, err := git(root, "log", "-z", "--reverse", "--no-merges", "--format=%H%n%(trailers:key=Refs,valueonly,separator=%x1f)", mainBranch)
+// UnpickedIssues is, for each slug that names an issue, its commits that
+// branch lacks (cherryNew), oldest first. Once it landed, an issue's
+// commits are the non-merge commits on mainBranch whose message has a
+// Refs: line naming exactly the slug, in any paragraph (agents put it
+// before Co-Authored-By, where git's %(trailers) never looks). Before, they
+// are the non-merge commits of mainBranch..work/<slug>: the other issues'
+// commits a main merge put on work/<slug> are on mainBranch, so they never
+// count. Commits that change only guided check
+// scripts (checks.Dir: the script and its drop before the merge) are left
+// out. A slug with neither is left out; one with nothing to pick maps to
+// an empty list.
+func UnpickedIssues(root, branch, mainBranch string, slugs []string) (map[string][]string, error) {
+	byRefs, err := refsBySlug(root, mainBranch)
 	if err != nil {
 		return nil, err
 	}
-	var shas []string
+	var lacking map[string]bool
+	res := map[string][]string{}
+	for _, slug := range slugs {
+		refs, from := byRefs[slug], mainBranch
+		if len(refs) == 0 {
+			ref := "work/" + slug
+			if _, err := git(root, "rev-parse", "-q", "--verify", "refs/heads/"+ref); err != nil {
+				continue
+			}
+			out, err := git(root, "rev-list", "--reverse", "--no-merges", mainBranch+".."+ref)
+			if err != nil {
+				return nil, err
+			}
+			refs, from = lines(out), ref
+		}
+		var have map[string]bool
+		if from == mainBranch {
+			if lacking == nil {
+				if lacking, err = cherrySet(root, branch, mainBranch); err != nil {
+					return nil, err
+				}
+			}
+			have = lacking
+		} else if have, err = cherrySet(root, branch, from); err != nil {
+			return nil, err
+		}
+		mine := []string{}
+		for _, s := range refs {
+			if have[s] && !onlyCheckScripts(root, s) {
+				mine = append(mine, s)
+			}
+		}
+		res[slug] = mine
+	}
+	return res, nil
+}
+
+// cherrySet is cherryNew as a set.
+func cherrySet(root, branch, ref string) (map[string]bool, error) {
+	shas, err := cherryNew(root, branch, ref)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, s := range shas {
+		set[s] = true
+	}
+	return set, nil
+}
+
+// refsBySlug is, by the values of their Refs: lines (any paragraph), the
+// non-merge commits in rev (a branch or a range), oldest first.
+func refsBySlug(root, rev string) (map[string][]string, error) {
+	out, err := git(root, "log", "-z", "--reverse", "--no-merges", "--format=%H%n%B", rev)
+	if err != nil {
+		return nil, err
+	}
+	res := map[string][]string{}
 	for _, rec := range strings.Split(out, "\x00") {
-		sha, vals, _ := strings.Cut(strings.TrimSpace(rec), "\n")
-		for _, v := range strings.Split(vals, "\x1f") {
-			if strings.TrimSpace(v) == slug {
-				shas = append(shas, sha)
-				break
+		sha, msg, _ := strings.Cut(strings.TrimSpace(rec), "\n")
+		if sha == "" {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, v := range refsLines(msg) {
+			if !seen[v] {
+				seen[v] = true
+				res[v] = append(res[v], sha)
 			}
 		}
 	}
-	return shas, nil
+	return res, nil
+}
+
+// refsLines is the values of the Refs: lines in a commit message's body
+// (the subject left out), in any paragraph.
+func refsLines(msg string) []string {
+	var out []string
+	ls := strings.Split(msg, "\n")
+	for _, l := range ls[min(1, len(ls)):] {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), ":")
+		if ok && strings.EqualFold(k, "Refs") {
+			if v = strings.TrimSpace(v); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}
+
+// onlyCheckScripts is whether sha changes nothing outside checks.Dir: a
+// guided check script, or its drop before the merge.
+func onlyCheckScripts(root, sha string) bool {
+	files, err := git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha)
+	if err != nil || strings.TrimSpace(files) == "" {
+		return false
+	}
+	for _, f := range lines(files) {
+		if !strings.HasPrefix(f, checks.Dir+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+// foreignCommits is those of shas that are not slug's own: a merge, a
+// commit with no Refs: line naming slug, or (no Refs: line, but on
+// work/<slug>) one mainBranch has: a main merge brought it.
+func foreignCommits(root, mainBranch, slug string, shas []string) []string {
+	var extras []string
+	for _, s := range shas {
+		msg, err := git(root, "log", "-1", "--format=%B", s)
+		parents, perr := git(root, "rev-list", "--parents", "-n", "1", s)
+		mine := err == nil && perr == nil && len(strings.Fields(parents)) == 2
+		if mine && !slices.Contains(refsLines(msg), slug) {
+			_, onMain := git(root, "merge-base", "--is-ancestor", s, mainBranch)
+			_, onWork := git(root, "merge-base", "--is-ancestor", s, "refs/heads/work/"+slug)
+			mine = onMain != nil && onWork == nil
+		}
+		if !mine {
+			extras = append(extras, s)
+		}
+	}
+	return extras
+}
+
+// refuseForeign is the error when shas, picked for slug, hold commits that
+// are not slug's own (foreignCommits), naming each with its subject.
+func refuseForeign(root, mainBranch, slug string, shas []string) error {
+	extras := foreignCommits(root, mainBranch, slug, shas)
+	if len(extras) == 0 {
+		return nil
+	}
+	var named []string
+	for _, s := range extras {
+		subj, _ := git(root, "log", "-1", "--format=%s", s)
+		named = append(named, fmt.Sprintf("  %s %s", gitdir.ShortSHA(s), subj))
+	}
+	return fmt.Errorf("%d of the %d commits found for %s are not its own (a merge, or a commit on %s without a Refs: %s line): nothing picked.\n%s\nPick its own commits by sha (issue-cli release pick <sha>...)", len(extras), len(shas), slug, mainBranch, slug, strings.Join(named, "\n"))
 }
 
 // releasedHeadingRe is a changelog's version heading ("## v0.60.0 — …").

@@ -153,6 +153,12 @@ func (env Env) apply(a Action) (string, error) {
 		var sim *memory.SimilarError
 		if errors.As(err, &sim) && len(sim.Similar) > 0 {
 			res, err = store.Add(d, memory.AddOptions{Mode: memory.ModeUpdates, Target: sim.Similar[0].ID}, env.Now)
+			// Near by containment yet sharing under a third of its words:
+			// a fact of its own, not that one reworded.
+			var unrelated *memory.UnrelatedUpdateError
+			if errors.As(err, &unrelated) {
+				res, err = store.Add(d, memory.AddOptions{Mode: memory.ModeNew}, env.Now)
+			}
 		}
 		if err != nil {
 			return "", err

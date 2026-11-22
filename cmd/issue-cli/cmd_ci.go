@@ -29,8 +29,10 @@ agent never waits for CI.
 
 Subcommands:
   status [--tier <name>]
-      One line first: "main green at <sha>", "main red since <sha>: <command>:
-      <first failing tests>" or "main: CI can't run: ...". Then the recent runs.
+      One line first: "main green at <sha>", "main red since <sha>: <command>
+      FAIL (test: <pkg>, <pkg>): <first failing tests>" or "main: CI can't
+      run: ...". A red run's first tmuxguard leftover line follows as
+      "Leftover: tmuxguard: <bin> left ...". Then the recent runs.
       Pass --json (global flag) for the state and runs.
   run [--tier <name>] [--detach] [--if-untested]
       Run now, in the foreground. Re-tests the head; keeps going while new
@@ -165,6 +167,9 @@ func runCIStatus(ctx *Context, args []string) error {
 			fmt.Fprintf(ctx.Stdout, "Fix tracked in: %s\n", st.RedIssue)
 		}
 		fmt.Fprintf(ctx.Stdout, "Log: %s\n", filepath.Join(root, st.Log))
+		if st.Leftover != "" {
+			fmt.Fprintf(ctx.Stdout, "Leftover: %s\n", st.Leftover)
+		}
 	}
 	if l := st.LastRedLine(root, ctx.now()); l != "" {
 		fmt.Fprintln(ctx.Stdout, l)
@@ -176,7 +181,7 @@ func runCIStatus(ctx *Context, args []string) error {
 			if r.Tier != tracker.CIDefaultTier {
 				tier = " [" + r.Tier + "]"
 			}
-			detail := failedSuffix(r.Failed)
+			detail := failedSuffix(ci.FailedText(r.Failed, r.Red))
 			if r.State == ci.Error {
 				detail = ": " + r.Error
 			}
@@ -278,7 +283,7 @@ func runCIRun(ctx *Context, args []string) error {
 	st, _ := ci.ReadState(root)
 	fmt.Fprintln(ctx.Stdout, ci.OneLine(st, nil, false, "", ctx.now()))
 	if last.Tier != tracker.CIDefaultTier {
-		fmt.Fprintf(ctx.Stdout, "tier %s: %s at %s%s\n", last.Tier, last.State, gitdir.ShortSHA(last.Sha), failedSuffix(last.Failed))
+		fmt.Fprintf(ctx.Stdout, "tier %s: %s at %s%s\n", last.Tier, last.State, gitdir.ShortSHA(last.Sha), failedSuffix(ci.FailedText(last.Failed, last.Red)))
 	}
 	fmt.Fprintf(ctx.Stdout, "Log: %s\n", filepath.Join(root, last.Log))
 	if last.State != ci.Green {

@@ -127,6 +127,55 @@ func TestExecuteRedStopsAtFirstFailureAndPullsTestNames(t *testing.T) {
 	}
 }
 
+func TestExecuteRedNamesTheFailingPackagesAndTheLeftover(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.com/standin\n")
+	run(t, root, "git", "add", "go.mod")
+	commit(t, root, "chore: go.mod")
+	standIn, err := filepath.Abs(filepath.Join("..", "testresults", "testdata", "go-test-two-red-packages.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := tracker.CICommand{Cmd: "cat '" + standIn + "'; exit 2", Failures: `--- FAIL: (\S+)`}
+	var out strings.Builder
+	runs, _, err := Execute(Options{Root: root, Config: cfg(c), Out: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := runs[0]
+	if r.Red != "FAIL (fmt-check, test: internal/beta, internal/delta)" {
+		t.Errorf("red = %q", r.Red)
+	}
+	leftover := "tmuxguard: delta.test left dft-sock-1, scratch.txt in TMPDIR"
+	if !strings.HasPrefix(r.Leftover, leftover) {
+		t.Errorf("leftover = %q", r.Leftover)
+	}
+	if !strings.Contains(out.String(), "== local CI red: "+c.Cmd+" FAIL (fmt-check, test: internal/beta, internal/delta) at ") {
+		t.Errorf("the run's last line names no packages:\n%s", out.String())
+	}
+	st := mustState(t, root)
+	line := OneLine(st, nil, false, "", time.Now())
+	if !strings.Contains(line, "FAIL (fmt-check, test: internal/beta, internal/delta): TestBeta") {
+		t.Errorf("OneLine = %q", line)
+	}
+	if st.Leftover != r.Leftover {
+		t.Errorf("state leftover = %q", st.Leftover)
+	}
+}
+
+func TestRedSummaryWithoutAValidateVerdict(t *testing.T) {
+	red, left := RedSummary("FAIL\texample.com/standin/internal/beta\t0.2s\n", "example.com/standin")
+	if red != "FAIL (internal/beta)" || left != "" {
+		t.Errorf("red %q, leftover %q", red, left)
+	}
+	if red, _ := RedSummary("boom\n", ""); red != "" {
+		t.Errorf("no packages, no verdict: %q", red)
+	}
+	if got := FailedText("make validate", ""); got != "make validate" {
+		t.Errorf("FailedText = %q", got)
+	}
+}
+
 func TestExecuteTimeoutKillsTheCommand(t *testing.T) {
 	root := newRepo(t)
 	c := cfg(cmd("sleep 30"))

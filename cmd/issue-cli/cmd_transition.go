@@ -256,6 +256,7 @@ func runTransition(ctx *Context, args []string) error {
 			fmt.Fprintln(ctx.Stdout, line)
 		}
 		printWarnings(ctx.Stdout, criteriaWarnings(wf, issue, from, to))
+		printWarnings(ctx.Stdout, afterInstallWarnings(wf, issue, to))
 		printWarnings(ctx.Stdout, wf.DecisionWarnings())
 		printWarnings(ctx.Stdout, leadCommentWarnings(ctx, issue.Slug, leads))
 		if isShipStatus(wf, to) {
@@ -370,6 +371,7 @@ func runTransitionDryRun(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 		out.Warnings = openDepWarnings(shipDeps(ctx, issue, issues))
 	}
 	out.Warnings = append(out.Warnings, criteriaWarnings(wf, issue, from, to)...)
+	out.Warnings = append(out.Warnings, afterInstallWarnings(wf, issue, to)...)
 	out.Warnings = append(out.Warnings, wf.DecisionWarnings()...)
 	if out.Ready {
 		_, out.SideEffects = nextTransitionContract(wf, from, to)

@@ -29,7 +29,9 @@ Correct a comment you wrote (a typo in a tests: line):
 Only your own latest comment on the issue, from a session that signs its
 comments (a lead or a worker). The owner's comments, other agents' comments
 and approval:, dispatch:, stage:, yolo-review: and yolo-owner-check: comments can't be
-edited. The old text stays in the comment's history (edits in the file),
+edited. last skips those and the comments the engine writes under your name
+(stage:, yolo-owner-check:, yolo-hold:, session: closed): it is your newest
+comment in your own words. The old text stays in the comment's history (edits in the file),
 and show marks the comment (edited). Decisions (decide) are never edited.`,
 	Run: runComment,
 }
@@ -110,6 +112,43 @@ func lockedComment(text string) string {
 	return ""
 }
 
+// engineWrittenPrefixes are comments the engine writes under the caller's
+// name as a side effect (a transition's yolo-hold:, the lead tick's session:
+// closed): not the caller's own words, so --amend never lands on one.
+var engineWrittenPrefixes = []string{"yolo-hold:", tracker.SessionClosedPrefix}
+
+// notOwnWords names the prefix of a comment the caller signed but did not
+// write itself (locked or engine-written), or "".
+func notOwnWords(text string) string {
+	if p := lockedComment(text); p != "" {
+		return p
+	}
+	t := strings.TrimSpace(text)
+	for _, p := range engineWrittenPrefixes {
+		if strings.HasPrefix(t, p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// latestOwnComment is me's newest comment in its own words, skipping the
+// locked and engine-written ones signed with its name; skipped lists those
+// newer than it (or all of them when there is none), as "#n prefix".
+func latestOwnComment(comments []tracker.Comment, me string) (c tracker.Comment, ok bool, skipped []string) {
+	for i := len(comments) - 1; i >= 0; i-- {
+		if tracker.CommentAuthor(comments[i]) != me {
+			continue
+		}
+		if p := notOwnWords(comments[i].Text); p != "" {
+			skipped = append([]string{fmt.Sprintf("#%d %s", comments[i].ID, p)}, skipped...)
+			continue
+		}
+		return comments[i], true, skipped
+	}
+	return tracker.Comment{}, false, skipped
+}
+
 // runCommentEdit corrects the caller's own latest comment, keeping the old
 // text in the comment's history.
 func runCommentEdit(ctx *Context, args []string) error {
@@ -176,8 +215,11 @@ func editComment(ctx *Context, slug, ref, text string) error {
 		if err != nil {
 			return err
 		}
-		latest, ok := tracker.LatestCommentBy(comments, me)
+		latest, ok, skipped := latestOwnComment(comments, me)
 		if !ok {
+			if len(skipped) > 0 {
+				return fmt.Errorf("%s has no comment of its own on %s to edit: the ones signed with its name were written by the engine or are locked (%s); add a new comment instead; nothing changed", me, issue.Slug, strings.Join(skipped, ", "))
+			}
 			return fmt.Errorf("%s has no comment on %s to edit; nothing changed", me, issue.Slug)
 		}
 		id = latest.ID
@@ -197,7 +239,10 @@ func editComment(ctx *Context, slug, ref, text string) error {
 		if p := lockedComment(c.Text); p != "" {
 			return fmt.Errorf("comment #%d is a %s comment: it records what was approved and is never edited; nothing changed", c.ID, p)
 		}
-		if latest, _ := tracker.LatestCommentBy(comments, me); latest.ID != c.ID {
+		if p := notOwnWords(c.Text); p != "" {
+			return fmt.Errorf("comment #%d is a %s comment the engine wrote under your name: it is never edited; nothing changed", c.ID, p)
+		}
+		if latest, _, _ := latestOwnComment(comments, me); latest.ID != c.ID {
 			return fmt.Errorf("comment #%d is not your latest: only your latest comment (#%d) can be edited; add a new comment to correct an older one; nothing changed", c.ID, latest.ID)
 		}
 		return nil

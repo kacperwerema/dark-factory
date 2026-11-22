@@ -88,7 +88,7 @@ func runRef(ctx *Context, args []string) error {
 	}
 	out, err := page.Section(fs.Args()[1:])
 	if err != nil {
-		return err
+		return refElsewhere(dir, page.Rel, fs.Args()[1:], err)
 	}
 	fmt.Fprint(w, out)
 	return nil
@@ -144,4 +144,37 @@ func refMeasure(ctx *Context, days int) error {
 		fmt.Fprintf(w, "  %4d sessions %5d reads  docs/%s\n", r.Sessions, r.Reads, r.Rel)
 	}
 	return nil
+}
+
+// refElsewhere adds to a missed section the other pages whose heading holds
+// the words ("ref testing catalog" names "ref cli catalog", the
+// workflow catalog-check section), up to three, so the guess lands on the
+// real page. err comes back unchanged when no other page has one.
+func refElsewhere(dir, rel string, words []string, err error) error {
+	var hits []string
+	for _, other := range docref.Pages(dir) {
+		if other == rel {
+			continue
+		}
+		p, lerr := docref.Load(dir, other)
+		if lerr != nil {
+			continue
+		}
+		sec, serr := p.Section(words)
+		if serr != nil {
+			continue
+		}
+		heading := ""
+		if _, after, ok := strings.Cut(sec, "\n\n"); ok {
+			heading, _, _ = strings.Cut(after, "\n")
+		}
+		hits = append(hits, fmt.Sprintf("  issue-cli ref %s %s    %s", docref.Key(other), strings.Join(words, " "), strings.TrimSpace(heading)))
+		if len(hits) == 3 {
+			break
+		}
+	}
+	if len(hits) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\n\nOn other pages:\n%s", err, strings.Join(hits, "\n"))
 }

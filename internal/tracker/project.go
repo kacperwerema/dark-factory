@@ -438,6 +438,9 @@ type Job struct {
 	Type string `yaml:"type" json:"type,omitempty"`
 	// Overlap lets a new run start while the last one is still open.
 	Overlap bool `yaml:"overlap" json:"overlap,omitempty"`
+	// Since (YYYY-MM-DD) is the job's first day: a period due before it is
+	// never due nor missed. Moving it forward skips the periods before.
+	Since string `yaml:"since" json:"since,omitempty"`
 }
 
 // Connections are projects.yaml's declared connections between boxes (hq,

@@ -192,6 +192,46 @@ func TestShipRedCheckNamesItsStepsAndLeavesMain(t *testing.T) {
 	}
 }
 
+// standInRed is the stand-in go test output with two red packages and a
+// tmuxguard leftover line (internal/testresults/testdata).
+func standInRed(t *testing.T) string {
+	t.Helper()
+	p, err := filepath.Abs(filepath.Join("..", "testresults", "testdata", "go-test-two-red-packages.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestShipRedCheckNamesTheFailingPackagesAndTheLeftover(t *testing.T) {
+	f := newFixture(t)
+	f.commit(f.wt, "go.mod", "module example.com/standin\n", "chore: go.mod")
+	var out bytes.Buffer
+	o := f.opts(&out)
+	o.Check = []string{"cat '" + standInRed(t) + "'; exit 2"}
+	res := Run(o)
+	if want := "check FAIL (fmt-check, test: internal/beta, internal/delta) at "; res.Landed || !strings.HasPrefix(res.Reason, want) {
+		t.Fatalf("reason %q, want it to start %q", res.Reason, want)
+	}
+	if !strings.Contains(out.String(), "ship: tmuxguard: delta.test left dft-sock-1, scratch.txt in TMPDIR") || strings.Contains(out.String(), "second.txt") {
+		t.Errorf("output does not say the first leftover line alone:\n%s", out.String())
+	}
+	if !strings.Contains(res.Verdict(), "test: internal/beta, internal/delta") {
+		t.Errorf("verdict %q", res.Verdict())
+	}
+}
+
+func TestShipLandedButRedNamesThePackagesInTheVerdict(t *testing.T) {
+	r := Result{Landed: true, SHA: "abcdef1234", AfterRan: true, AfterRed: []string{"test"}, AfterRedText: "test: internal/beta, internal/delta"}
+	if got := r.Verdict(); got != "ship: LANDED abcdef1, check after landing FAIL (test: internal/beta, internal/delta)" {
+		t.Errorf("verdict %q", got)
+	}
+	r.AfterRedText = ""
+	if got := r.Verdict(); !strings.HasSuffix(got, "FAIL (test)") {
+		t.Errorf("verdict without text %q", got)
+	}
+}
+
 func TestShipWithoutAVerdictLineReadsTheExitCode(t *testing.T) {
 	f := newFixture(t)
 	var out bytes.Buffer

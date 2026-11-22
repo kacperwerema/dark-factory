@@ -53,14 +53,23 @@ func TestCommentAmendOwnLastOnly(t *testing.T) {
 		t.Fatal("a refused amend changed the file")
 	}
 
-	// A locked comment of its own stays as it is.
+	// A locked comment of its own stays as it is: --amend skips it and
+	// amends its own words, #1; by id it is refused.
 	asWorker(t)
 	if err := tracker.AddCommentBy(issuePath, 0, tracker.ApprovalComment("go", "viewer", "2026-11-16", "in progress"), "cli", "agent-calc-other"); err != nil {
 		t.Fatal(err)
 	}
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runComment(ctx, []string{slug, "--amend", "--text", "x"}); err != nil {
+		t.Fatalf("amend past an approval: %v", err)
+	}
+	assertContains(t, stdout.String(), "✓ Comment #1 on "+slug)
+	if after, _ := tracker.LoadComments(issuePath); len(after[2].Edits) != 0 {
+		t.Fatalf("the approval changed: %+v", after[2])
+	}
 	ctx, _, _ = newTestContext(proj, false)
-	if err := runComment(ctx, []string{slug, "--amend", "--text", "x"}); err == nil || !strings.Contains(err.Error(), "is a approval: comment") {
-		t.Fatalf("amend of an approval: %v", err)
+	if err := runComment(ctx, []string{"edit", slug, "3", "--text", "x"}); err == nil || !strings.Contains(err.Error(), "is a approval: comment") {
+		t.Fatalf("edit of an approval: %v", err)
 	}
 
 	// No session: no author, nothing to amend.

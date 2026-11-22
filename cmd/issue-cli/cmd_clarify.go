@@ -35,7 +35,10 @@ With no flags it prints the round, each answer's state and the format's
 problems.
 
   --assume          mark every open answer "assumed — <reason>" (the
-                    recommendation). Under YOLO this replaces decide
+                    recommendation), each a provisional D-n; an unchanged
+                    question assumed again keeps its D-n. Refused while the
+                    format has problems (a missing **Answer:** line aside):
+                    fix them first. Under YOLO this replaces decide
                     --provisional lines and question: comments for the
                     design's questions; the YOLO pass out of in design does
                     it by itself, and the after-the-fact review lists them.
@@ -91,7 +94,7 @@ func runClarify(ctx *Context, args []string) error {
 	case *assume:
 		qs, err := tracker.AssumeOpen(issue.FilePath, issue.Slug, tracker.AssumeInput{Reason: *reason, Log: decisionWrite(ctx, whoAmI(ctx.Project, nil), nil)}, ctx.now())
 		if err != nil {
-			return fmt.Errorf("failed to mark answers assumed: %w", err)
+			return fmt.Errorf("failed to mark answers assumed: %w\n\nSee the round:\n  issue-cli clarify %s", err, issue.Slug)
 		}
 		out.Assumed = qs
 	case *answer != "":
@@ -250,6 +253,11 @@ func clarifyOnTransition(ctx *Context, wf *tracker.WorkflowConfig, issue *tracke
 	}
 	if yoloPassed && len(c.Open()) > 0 {
 		qs, err := tracker.AssumeOpen(issue.FilePath, issue.Slug, tracker.AssumeInput{Reason: "YOLO: " + tracker.DefaultAssumedReason, Log: decisionWrite(ctx, whoAmI(ctx.Project, nil), nil)}, ctx.now())
+		if errors.Is(err, tracker.ErrClarifyFormat) {
+			// The gate passed; the answers wait for the fixed round.
+			fmt.Fprintf(w, "YOLO: clarify not assumed: %v\nThen: issue-cli --project %s clarify %s --assume\n", err, ctx.Project.Slug, issue.Slug)
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("YOLO: marking the open clarify answers assumed: %w", err)
 		}

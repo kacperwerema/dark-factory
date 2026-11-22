@@ -38,7 +38,7 @@ func BuildDispatchPrompt(proj *tracker.Project, issue *tracker.Issue, wf *tracke
 	prompt := tracker.BuildAgentPromptYOLO(proj, issue, wf, wt.Path, wt.Branch, yoloOn)
 	prompt += tracker.HandoffPromptSection(wf)
 	prompt += tracker.InjectProject(proj, tracker.DepartmentPromptSection(proj, issue))
-	prompt += tracker.InjectProject(proj, tracker.LeadPromptSection(issue, route))
+	prompt += tracker.InjectProject(proj, tracker.LeadPromptSection(issue, route)+tracker.LandPromptLine(wf))
 	prompt += tracker.InjectProject(proj, tracker.OwnerWordsPromptSection(issue))
 	prompt += tracker.InjectProject(proj, tracker.ResumePromptSection(issue))
 	decisions := tracker.IssueDecisionBlock(proj, issues, issue, issue.Status, wf, tracker.DecisionsNow())

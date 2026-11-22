@@ -6,6 +6,7 @@ import (
 
 	"strings"
 
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/memory"
 	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -48,6 +49,7 @@ func printStartMemories(w io.Writer, ctx *Context, issue *tracker.Issue) []strin
 	scores := memoryScores(ctx)
 	pins, rest := memory.SplitPins(mems, pinLimit, pinChars)
 	at, rest := memory.ForStage(rest, issue.Status, scores, ctx.now(), statusMemoryLimit, statusMemoryChars)
+	tagged, tags, rest := workTagged(ctx, issue, rest, idSet(at.Shown))
 	ranker, _ := memoryRankerScored(ctx, scores)
 	hits := ranker.Rank(issueQuery(p, issue, startMemoryLimit), rest)
 	if len(mems) == 0 {
@@ -66,6 +68,7 @@ func printStartMemories(w io.Writer, ctx *Context, issue *tracker.Issue) []strin
 		fmt.Fprintf(w, "At %s:\n", issue.Status)
 		writeStatusMemories(w, ctx, at, issue.Status)
 	}
+	writeTaggedMemories(w, ctx, tagged, tags)
 	if len(hits) > 0 {
 		fmt.Fprintln(w, "Matching this issue:")
 		for _, h := range hits {
@@ -74,14 +77,14 @@ func printStartMemories(w io.Writer, ctx *Context, issue *tracker.Issue) []strin
 	} else if len(mems) > 0 {
 		fmt.Fprintln(w, "None matches this issue.")
 	}
-	if len(mems) > len(pins.Shown)+len(at.Shown)+len(hits) {
+	if len(mems) > len(pins.Shown)+len(at.Shown)+len(tagged.Shown)+len(hits) {
 		fmt.Fprintf(w, "(%d you can see: issue-cli memory search <words>)\n", len(mems))
 	}
 	var used []string
 	for _, m := range pins.Shown {
 		used = append(used, m.ID)
 	}
-	for _, m := range at.Shown {
+	for _, m := range append(at.Shown, tagged.Shown...) {
 		used = append(used, m.ID)
 	}
 	for _, h := range hits {
@@ -103,6 +106,48 @@ func writeStatusMemories(w io.Writer, ctx *Context, at memory.Pins, status strin
 	}
 }
 
+// workTagged is the memories of mems a briefing at the work status carries
+// for the folders issue touches (briefing.TaggedMemories, skip left out),
+// their tags, and mems without them.
+func workTagged(ctx *Context, issue *tracker.Issue, mems []memory.Memory, skip map[string]bool) (memory.Pins, []string, []memory.Memory) {
+	tagged, tags := briefing.TaggedMemories(ctx.Project, issue, mems, skip, ctx.now())
+	if len(tagged.Shown) == 0 {
+		return tagged, tags, mems
+	}
+	shown := idSet(tagged.Shown)
+	rest := make([]memory.Memory, 0, len(mems))
+	for _, m := range mems {
+		if !shown[m.ID] {
+			rest = append(rest, m)
+		}
+	}
+	return tagged, tags, rest
+}
+
+// writeTaggedMemories is workTagged's block: a heading naming the tags,
+// one line each, and the list that finds the ones that did not fit.
+func writeTaggedMemories(w io.Writer, ctx *Context, tagged memory.Pins, tags []string) {
+	if len(tagged.Shown) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "For the %s files this issue touches:\n", strings.Join(tags, ", "))
+	for _, m := range tagged.Shown {
+		fmt.Fprintf(w, "  %s (%s) %s\n", m.ID, m.Kind, m.Text)
+	}
+	if tagged.More > 0 {
+		fmt.Fprintf(w, "  +%d more: %s\n", tagged.More, tracker.InjectProject(ctx.Project, "issue-cli memory list --tag "+shell.Quote(tags[0])))
+	}
+}
+
+// idSet is the ids of mems.
+func idSet(mems []memory.Memory) map[string]bool {
+	out := make(map[string]bool, len(mems))
+	for _, m := range mems {
+		out[m.ID] = true
+	}
+	return out
+}
+
 // printTransitionMemories is the block a transition ends with when memories
 // matter at the status issue just entered, recorded as used. Nothing at all
 // when none do: most transitions gain no lines.
@@ -112,13 +157,15 @@ func printTransitionMemories(w io.Writer, ctx *Context, issue *tracker.Issue) {
 		return
 	}
 	at, _ := memory.ForStage(mems, issue.Status, memoryScores(ctx), ctx.now(), statusMemoryLimit, statusMemoryChars)
-	if len(at.Shown) == 0 {
+	tagged, tags, _ := workTagged(ctx, issue, mems, idSet(at.Shown))
+	if len(at.Shown) == 0 && len(tagged.Shown) == 0 {
 		return
 	}
 	fmt.Fprintf(w, "\n== Memories for %s ==\n", issue.Status)
 	writeStatusMemories(w, ctx, at, issue.Status)
-	used := make([]string, 0, len(at.Shown))
-	for _, m := range at.Shown {
+	writeTaggedMemories(w, ctx, tagged, tags)
+	used := make([]string, 0, len(at.Shown)+len(tagged.Shown))
+	for _, m := range append(at.Shown, tagged.Shown...) {
 		used = append(used, m.ID)
 	}
 	recordUse(ctx, used, agentNameForSlug(issue.Slug), issue.Slug, issue.Status)

@@ -7,7 +7,7 @@ What `make validate` runs, and the rules a test in this repo follows: on macOS a
 
 ## make validate
 
-`make validate` runs its cheap steps one by one beside the full suite (each logs to a file, printed whole with a `[<step>]` lead when it ends; a red one says so at once): `make merge-check` (no MERGE_HEAD in the checkout's own git dir, no tracked line starting with a conflict marker, each named file:line; fixtures that need one go on `MERGE_CHECK_ALLOW`), `gofmt -l` (fmt-check), `go vet ./...` (vet), `make catalog-check`, `make link-check` (every relative markdown link points at a file, spelled in the exact case of its name on disk), `make leak-check` (the tracked tree's leak scan), `make codemap-check` (every package mapped in `workbench.contexts`, no new upward import; names the unmapped package and the fix), `make guard-check` (the repo-wide guard tests listed in `scripts/guard-tests.txt`: docs tables, doc numbers, every-X-is-listed checks; a new `TestEvery*`, `Test*ListedInDocs` or `TestDocNumbers*` goes on that list; the suite skips them then, `GUARD_SKIP`, and cover-cli adds their coverage, `TestValidateRunsTheGuardTestsOnce`), `make playtest-check`, and beside them the full test
+`make validate` runs its cheap steps one by one beside the full suite (each logs to a file, printed whole with a `[<step>]` lead when it ends; a red one says so at once): `make merge-check` (no MERGE_HEAD in the checkout's own git dir, no tracked line starting with a conflict marker, each named file:line; fixtures that need one go on `MERGE_CHECK_ALLOW`), `gofmt -l` (fmt-check), `go vet ./...` (vet), `make catalog-check`, `make link-check` (every relative markdown link points at a file, spelled in the exact case of its name on disk), `make leak-check` (the tracked tree's leak scan), `make codemap-check` (every package mapped in `workbench.contexts`, no new upward import; names the unmapped package and the fix), `make guard-check` (the repo-wide guard tests listed in `scripts/guard-tests.txt`, each failure with its rule from [Guard tests](#guard-tests): docs tables, doc numbers, every-X-is-listed checks; a new `TestEvery*`, `Test*ListedInDocs` or `TestDocNumbers*` goes on that list; the suite skips them then, `GUARD_SKIP`, and cover-cli adds their coverage, `TestValidateRunsTheGuardTestsOnce`), `make playtest-check`, and beside them the full test
 suite (test; tools/test-shards runs the slowest packages' tests in several go test processes each, `TEST_SHARD_PKGS`: cmd/issue-cli in `TEST_SHARDS` (default 4), internal/viewer and internal/bench 3, internal/agentrun 2; split by the newest local CI run's times and kept while a package's tests stay the same, beside the rest) and a coverage gate on `cmd/issue-cli` (cover-cli; floor: `CLI_COVERAGE_FLOOR`,
 default 70). Packages come from go test's cache when nothing they read changed: `scripts/test-cache.txt` lists every test package `cached` or `fresh` (-count=1, with why: it asks git about the checkout, reads this machine), plus `fresh-test` tests that run on their own beside the cached run; a live-board test (`liveboard.Dir`) skips in the cached run and fails there unless it has a fresh-test line (`TestEveryTestPackageIsInTheCacheList`). `TEST_CACHE=0` runs everything fresh, as local CI's slow tier does. A test writes nothing into the checkout: a folder a test walks is hashed with each entry's size and mtime, so one stray file reruns every walker. The suite writes cmd/issue-cli's profile (`-coverpkg`, `CLI_COVER_PROFILE`, in TMPDIR, merged across the shards) and cover-cli reads it instead of running those tests again; `make cover-cli` alone runs them itself (`TestValidateCoverageFloorReadsTheTestRun`). Use it before proposing a change that touches
 `cmd/issue-cli/`. Every step runs even after a red one; a red step prints `validate: red so far: <step>, <step>` at once, so a worker watching the log can stop there. Its last line on stdout is `validate: PASS` or `validate: FAIL (<step>, <step>)`, naming each red step;
@@ -17,6 +17,42 @@ them as the run's `steps` in `.ci/runs/<sha>.json`, and `issue-cli ci status`
 names the slowest):
 read that line, not a wrapper's exit code (a backgrounded `make validate > log; echo $?`
 reports the echo's 0). `VALIDATE_STEPS=` runs a subset.
+
+### Guard tests
+
+`make guard-check` runs the guard tests alone, in about 10 seconds: run it after your first commit that touches `cmd/` or `internal/` (the commit-msg hook says so), not first at `make validate`. Each guard test that fails gets a `guard-check: <test>` line under the go test output with its rule from the table below, the table's file:line and the page that says more. Every test in `scripts/guard-tests.txt` has one row here (`TestGuardTestsTableNamesEveryGuardTest`); a row's cells hold no `|`.
+
+| Test | Rule | More |
+|---|---|---|
+| `TestEveryTestPackageIsInTheCacheList` | Every test package has one line in scripts/test-cache.txt: `cached ./<pkg>`, or `fresh ./<pkg> <why>` when a test reads what go test's cache can't see (git about this checkout, this machine, the live board); a live-board test also gets a `fresh-test` line. | [make validate](#make-validate) |
+| `TestEveryCommandJoinsEveryRegistry` | A new command or subcommand joins commandAccess, readSamples (a command with a read mode; the sample call must write a clilog record), guardVerbs for a guarded verb and the Commands table: walk "Adding a command". | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestCommandWideTestsListsEveryTestOverAllCommands` | A test that loops over every registered command is listed in commandWideTests (command_checklist_test.go), so the checklist test's `-run` line names it. | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestCommandsTableNamesOnlyCommands` | Each row of the Commands table names a registered command or alias. | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestEveryCommandHelpNeedsNoProject` | `<cmd> --help` runs without a config: help loads no project, and a command that runs with no project at all (one that reads only files) is named in bypassProjErr (main.go). | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestEveryCommandRejectsUnknownFlags` | Every command and subcommand parses its flags through parseFlags, parseFlagsArgs or parsePositionals before acting, so `--no-such-flag` exits 2 naming it; flags parsed by hand (a vendor's after ` -- `) go in ExtraFlags. | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestEveryHelpHintNamesRealFlags` | A flag named in a ShortHelp, LongHelp or usage line is one that command defines. | [Adding a command](CLI/overview.md#adding-a-command) |
+| `TestEveryWorkerGuardConsultsTheSandboxPass` | Each worker guard asks the sandbox pass under a verb in guardVerbs, and every verb there has a guard; a new guard's rule is the owner's call in that command's design. | [Owner-only commands in a sandbox](patterns/guided-check-scripts.md#owner-only-commands-in-a-sandbox) |
+| `TestEveryCleanAreaIsInTheGrowthTable` | Every `issue-cli clean` area is a row of the table of what grows and what bounds it. | [What grows over time](fs-churn.md#what-grows-over-time-and-what-bounds-it) |
+| `TestPlaytestGuidesInSync` | issue-cli's copy of docs/patterns/playtest is generated: run `go generate ./cmd/issue-cli/...` after editing a guide. | [UI checks](#ui-checks) |
+| `TestEveryPaneSenderIsListed` | Code outside internal/agentrun that types into an agent's pane is listed in paneSenders (suggestion_test.go) with its delivery check. | [Code Structure](code-structure.md) |
+| `TestDocNumbersInSync` | docs/numbers.md is generated from the constants: run `go generate ./internal/docnumbers/...`, never edit it by hand. | [Numbers](numbers.md) |
+| `TestDocNumbersCopiesAgree` | A sentence that quotes a number reads the constant's value: change the sentence, the constant is the source. | [Numbers](numbers.md) |
+| `TestLintChecksListedInDocs` | Every registered lint check has a bullet under "The checks" in the lint family, and every bullet names one. | [Adding a lint check](CLI/overview.md#adding-a-lint-check) |
+| `TestEveryCallerGoesThroughThePackage` | Go code runs mem-guard and compares memory only through internal/memguard: no copy of its lines or load comparisons. | [Code Structure](code-structure.md) |
+| `TestEveryGoBuildInATestGoesThroughTestbin` | A test that needs a binary of this module asks testbin.Path for it, never its own `go build`. | [Code Structure](code-structure.md) |
+| `TestEveryTimeLimitGoesThroughTheHelper` | A test with a time limit runs through timing.Check, never its own clock comparison. | [A loaded machine](#a-loaded-machine) |
+| `TestEveryTestBinaryDropsTMUX` | Every test binary's TestMain is tmuxguard.Main, so no test reaches the shared tmux server. | [macOS and Linux](#macos-and-linux) |
+| `TestCloneCopiesEveryField` | A field added to WorkflowConfig gets its line in Clone (workflow_merge.go). | [Workflow engine](Workflow/overview.md#key-files) |
+| `TestEveryRuleHasASummary` | A validator rule has a summary (structuredSummary or validationSummary) for process transitions and the previews. | [Validation Rules](Workflow/overview.md#validation-rules) |
+| `TestEveryRuleIsInTheDocs` | docs/workflow.md names every validator rule. | [Validation Rules](Workflow/overview.md#validation-rules) |
+| `TestSettledRulesTableMatchesDoc` | Every rule and D-n ref "Settled rules" cites has a row in the settled-rules table, and every row is one it cites. | [Settled rules](departments.md#settled-rules) |
+| `TestEveryRouteIsInTheSecurityInventory` | A route you add or change gets a row in the route inventory, classified R/W/O/X. | [Route inventory](API/security.md#route-inventory) |
+| `TestOwnerRoutesListedInSecurityDoc` | Every O row of the route inventory has a request in ownerRoutes (owner_test.go), and every request there is an O row. | [Route inventory](API/security.md#route-inventory) |
+| `TestEveryWorkflowFeatureHasACatalogEntry` | A workflow.yaml key, validator rule or action type has a catalog entry that detects it (a probe or `rule_in:`). | [Adding or changing a catalog entry](Workflow/overview.md#adding-or-changing-a-catalog-entry) |
+| `TestEveryEntryDetectsItsOwnSnippet` | A catalog entry's probes find its own snippet. | [Adding or changing a catalog entry](Workflow/overview.md#adding-or-changing-a-catalog-entry) |
+| `TestEveryEntryHasSourcesThatExist` | A catalog entry names the code behind it in `sources:`, and every source matches a tracked file. | [Adding or changing a catalog entry](Workflow/overview.md#adding-or-changing-a-catalog-entry) |
+| `TestGuardCheckListsEveryGuardTest` | A new `TestEvery*`, `Test*ListedInDocs` or `TestDocNumbers*` test goes on scripts/guard-tests.txt, and every line there names a test that exists. | [Guard tests](#guard-tests) |
+| `TestGuardTestsTableNamesEveryGuardTest` | Every test in scripts/guard-tests.txt has one row in this table, and every row names a listed test. | [Guard tests](#guard-tests) |
 
 ## macOS and Linux
 
@@ -52,7 +88,13 @@ a folder shared by the whole binary in `TestMain` after `m.Run`. What test
 binaries share on purpose (internal/standin's warmed scripts) goes under
 `DF_SHARED_TMPDIR`.
 `CHECK_REAL_CODEX=1` gives codex its real home back
-(`TestRealCLIRunsNeedTheirSwitch`). A test that starts a stand-in agent CLI in
+(`TestRealCLIRunsNeedTheirSwitch`). A test never reads the owner's
+config: a package whose code reads `~/.config/ai-workflow-engine` (the
+machine's rules.md, projects.yaml) points `XDG_CONFIG_HOME` at a temp folder
+in its `TestMain`, as cmd/issue-cli and internal/lint do
+(`TestLintTestsNeverReadTheOwnersRules`), so a stray line in the owner's
+file can't turn every worktree red; a test that wants one sets its own with
+`t.Setenv`. A test that starts a stand-in agent CLI in
 a pane sets PATH inside the start command (`PATH=<bin>:$PATH; trap : INT;
 codex go`): `tmux -e PATH` doesn't survive the pane's login shell.
 `#{pane_current_command}` differs too: a pane started as `sleep 600` reads

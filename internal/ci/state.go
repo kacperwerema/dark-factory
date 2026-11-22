@@ -119,7 +119,12 @@ type Run struct {
 	// Failed is the command that stopped the run ("" when green).
 	Failed   string   `json:"failed,omitempty"`
 	Failures []string `json:"failures,omitempty"`
-	Log      string   `json:"log"`
+	// Red is the failed command's verdict with the failing go test
+	// packages named, "FAIL (test: internal/ci, internal/ship)"; Leftover
+	// the first tmuxguard leftover line in its output (RedSummary).
+	Red      string `json:"red,omitempty"`
+	Leftover string `json:"leftover,omitempty"`
+	Log      string `json:"log"`
 	// KeptLog is the red run's copy of Log under .ci/red, which outlives
 	// the next green run ("" for a green run, or once pruned).
 	KeptLog   string   `json:"kept_log,omitempty"`
@@ -137,6 +142,8 @@ type TierState struct {
 	State    string    `json:"state"`
 	Failed   string    `json:"failed,omitempty"`
 	Failures []string  `json:"failures,omitempty"`
+	Red      string    `json:"red,omitempty"`
+	Leftover string    `json:"leftover,omitempty"`
 	Finished time.Time `json:"finished"`
 	Log      string    `json:"log"`
 }
@@ -157,6 +164,8 @@ type State struct {
 	RedAt    time.Time `json:"red_at,omitempty"`
 	Failed   string    `json:"failed,omitempty"`
 	Failures []string  `json:"failures,omitempty"`
+	Red      string    `json:"red,omitempty"`
+	Leftover string    `json:"leftover,omitempty"`
 	Error    string    `json:"error,omitempty"`
 	// Merged / Blamed: what landed since the last green run, and the issues
 	// among it (they carry the ci-red marker while red).

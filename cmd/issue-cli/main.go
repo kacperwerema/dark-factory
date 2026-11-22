@@ -290,23 +290,24 @@ func tailRecords(path string, n int64) []clilog.Record {
 
 func main() {
 	start := time.Now()
-	log := newCallLog(os.Args[1:], start)
+	args := expandGlobalFlagEquals(os.Args[1:])
+	log := newCallLog(args, start)
 	inv := &invocation{}
 	defer func() {
 		// A panicking command still gets its clilog record and telemetry
 		// event; the panic then propagates exactly as before.
 		if r := recover(); r != nil {
 			log.write(inv, nil, true)
-			recordTelemetry(inv, os.Args[1:], nil, start, true)
+			recordTelemetry(inv, args, nil, start, true)
 			panic(r)
 		}
 	}()
 	staleBuild := startStaleBuildCheck()
-	err := runTraced(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, inv)
+	err := runTraced(args, os.Stdin, os.Stdout, os.Stderr, inv)
 	// A branch build older than its checkout's code says so (stale_build.go).
 	staleBuild(os.Stderr)
 	log.write(inv, err, false)
-	recordTelemetry(inv, os.Args[1:], err, start, false)
+	recordTelemetry(inv, args, err, start, false)
 	shareNotice(os.Stderr, start)
 	if err != nil {
 		var codeErr *exitCodeError
@@ -374,7 +375,7 @@ func runTraced(args []string, in io.Reader, out, errw io.Writer, inv *invocation
 	jsonOut := global.Bool("json", false, "output as JSON")
 	debug := global.Bool("debug", false, "print which config was used and why (stderr), and trace outside resources (DF_TRACE=resources)")
 
-	rest, err := splitGlobalAndCommand(args)
+	rest, err := splitGlobalAndCommand(expandGlobalFlagEquals(args))
 	if err != nil {
 		inv.phase = phaseSplit
 		return err

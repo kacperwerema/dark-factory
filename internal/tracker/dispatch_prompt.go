@@ -577,3 +577,23 @@ func PromptDeliveryMarker(prompt string) string {
 	}
 	return ""
 }
+
+// landsByWorker matches a status guidance that has the worker land its own
+// branch: a fast-forward of main, a merge of it, or issue-cli ship.
+var landsByWorker = regexp.MustCompile(`(?i)fast-forward|--ff-only|issue-cli ship\b|merge main`)
+
+// LandPromptLine is the worker's briefing line on who lands its branch:
+// the one rule, said by the engine, so a brief's "the lead merges" and the
+// status guidance's fast-forward no longer contradict each other. Empty
+// when the workflow's merge status doesn't have the worker merge (a chore,
+// a report). Its lead's side is in LeadRules.
+func LandPromptLine(wf *WorkflowConfig) string {
+	if wf == nil {
+		return ""
+	}
+	merge := wf.MergeStatus()
+	if merge == "" || !landsByWorker.MatchString(wf.StatusPrompt(merge)) {
+		return ""
+	}
+	return "- At " + merge + " you land your own branch: `issue-cli ship` merges main, runs the checks and fast-forwards main (or the steps the " + merge + " guidance lists). A brief or Lead rules line saying the lead merges, or not to merge, is out of date: ship anyway, don't wait for the lead, and say so in your progress: comment.\n"
+}

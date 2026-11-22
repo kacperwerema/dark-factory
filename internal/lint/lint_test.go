@@ -93,7 +93,7 @@ func TestMinimalWorkflowIsClean(t *testing.T) {
 	if len(rep.Findings) != 0 {
 		t.Errorf("findings on a clean workflow: %+v", rep.Findings)
 	}
-	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,untracked,paths,contexts,roles,rules,owner-only,na-boxes,owner-marker,show-footer,criteria,types,reports,routing,workers,memory,evals,department,critique,hints,decisions,testids,shas,goal-without-work,roadmap-behind,worktrees" {
+	if strings.Join(rep.Checks, ",") != "undated,workflow,schema,template,placeholders,sections,departments,untracked,paths,contexts,roles,rules,owner-only,na-boxes,owner-marker,after-install,show-footer,criteria,types,reports,routing,workers,memory,evals,department,critique,hints,decisions,testids,shas,goal-without-work,roadmap-behind,worktrees" {
 		t.Errorf("checks = %v", rep.Checks)
 	}
 }

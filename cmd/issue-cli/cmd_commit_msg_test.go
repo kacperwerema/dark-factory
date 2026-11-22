@@ -92,6 +92,18 @@ func commitFilesThroughHook(t *testing.T, msg string, extra map[string]string) (
 // commitRepoThroughHook is commitFilesThroughHook that also returns the repo.
 func commitRepoThroughHook(t *testing.T, msg string, extra map[string]string) (repo, out string, err error) {
 	t.Helper()
+	return commitRepoThroughHookCLI(t, msg, extra, selfCLI)
+}
+
+// selfCLI is the body of an issue-cli stand-in that runs this test binary
+// as issue-cli. The test binary's path changes with each build: it comes
+// from the environment, so the stand-in's body stays the same.
+const selfCLI = "ISSUE_CLI_TEST_AS_CLI=1 exec \"$ISSUE_CLI_TEST_SELF\" \"$@\"\n"
+
+// commitRepoThroughHookCLI is commitRepoThroughHook with cli as the body of
+// the issue-cli on PATH, the one the hook runs.
+func commitRepoThroughHookCLI(t *testing.T, msg string, extra map[string]string, cli string) (repo, out string, err error) {
+	t.Helper()
 	repo = t.TempDir()
 	git := func(args ...string) (string, error) {
 		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
@@ -138,10 +150,8 @@ func commitRepoThroughHook(t *testing.T, msg string, extra map[string]string) (r
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	// The test binary's path changes with each build: it comes from the
-	// environment, so the stand-in's body stays the same.
 	t.Setenv("ISSUE_CLI_TEST_SELF", self)
-	standin.Write(t, filepath.Join(bin, "issue-cli"), "ISSUE_CLI_TEST_AS_CLI=1 exec \"$ISSUE_CLI_TEST_SELF\" \"$@\"\n")
+	standin.Write(t, filepath.Join(bin, "issue-cli"), cli)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	for rel, body := range extra {
@@ -235,6 +245,37 @@ func TestCommitMsgHookAddsTheRecordedNALine(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".git", catalogNAFile)); err == nil {
 		t.Error("the record outlived the commit that got it")
+	}
+}
+
+// An issue-cli on PATH older than catalog-na accepts the message and
+// leaves the recorded line out: the hook adds it itself, so the commit
+// gets it whichever build the hook runs. Both older forms: one that knows
+// commit-msg but not the record, and one that knows neither.
+func TestCommitMsgHookAddsTheRecordedNALineWhenTheCLIPredatesIt(t *testing.T) {
+	for name, cli := range map[string]string{
+		"commit-msg without the record": "exit 0\n",
+		"no commit-msg":                 "echo \"unknown workflow subcommand: commit-msg\" >&2; exit 1\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo, out, err := commitRepoThroughHookCLI(t, commitSubject+"Body para.\n\nCo-Authored-By: T <t@example.com>\n", map[string]string{".git/" + catalogNAFile: "n/a parked-status a refactor\n"}, cli)
+			if err != nil {
+				t.Fatalf("commit refused: %v\n%s", err, out)
+			}
+			if !strings.Contains(out, "note: added Catalog: n/a parked-status a refactor to the message (recorded with issue-cli workflow catalog-na; the issue-cli on PATH didn't add it: make install)") {
+				t.Errorf("no note:\n%s", out)
+			}
+			body, err := exec.Command("git", "-C", repo, "log", "-1", "--format=%B").Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Count(string(body), "Catalog: n/a parked-status a refactor") != 1 {
+				t.Errorf("want the line once in the commit:\n%s", body)
+			}
+			if _, err := os.Stat(filepath.Join(repo, ".git", catalogNAFile)); err == nil {
+				t.Error("the record outlived the commit that got it")
+			}
+		})
 	}
 }
 

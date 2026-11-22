@@ -42,8 +42,8 @@ func TestGitUnpickedRewrittenPick(t *testing.T) {
 	git("commit", "-q", "-am", "fix: the fix\n\nRefs: ui/fix")
 	fix := strings.TrimSpace(git("rev-parse", "HEAD"))
 
-	if got := gitUnpicked(root, "release/v0.53", []string{"ui/fix"}); got["ui/fix"] != 2 {
-		t.Fatalf("before the pick, unpicked = %v; want ui/fix: 2 (feat B and the fix)", got)
+	if got := gitUnpicked(root, "release/v0.53", []string{"ui/fix"}); got["ui/fix"] != 1 {
+		t.Fatalf("before the pick, unpicked = %v; want ui/fix: 1 (the fix; feat B is main's, on the work branch from its cut)", got)
 	}
 
 	// Feature B picked as it is (same patch), then the fix as release pick
@@ -143,4 +143,57 @@ func TestSoakReportNotMovedOutStillBlocks(t *testing.T) {
 			wantAll(t, "status.md", md, strings.TrimSuffix(tc.want, "\n"))
 		})
 	}
+}
+
+// A done issue's work branch merged main (another issue's commit on it)
+// and kept a guided-check commit dropped before its merge to main. The
+// check reads the issue's Refs: commits on main: all picked is green
+// whatever the work branch holds, one left unpicked is red.
+func TestGitUnpickedReadsRefsOnMain(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		return strings.TrimSpace(runGitT(t, root, append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false"}, args...)...))
+	}
+	commit := func(file, msg string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, file), []byte(msg+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git("add", file)
+		git("commit", "-q", "-m", msg)
+		return git("rev-parse", "HEAD")
+	}
+	git("init", "-q", "-b", "main")
+	commit("a.go", "feat: A")
+	git("branch", "release/v0.53")
+	git("checkout", "-q", "-b", "work/ui/fix")
+	commit("check.sh", "test(checks): guided check\n\nRefs: ui/fix")
+	git("checkout", "-q", "main")
+	commit("other.go", "feat: other\n\nRefs: ui/other")
+	git("checkout", "-q", "work/ui/fix")
+	git("merge", "-q", "--no-ff", "main", "-m", "chore(merge): main into ui/fix")
+	git("checkout", "-q", "main")
+	fix1 := commit("fix1.go", "fix: part one\n\nRefs: ui/fix")
+	fix2 := commit("fix2.go", "fix: part two\n\nRefs: ui/fix")
+
+	check := func(want bool) {
+		t.Helper()
+		ms := &MilestoneRow{Version: "0.53", Branch: "release/v0.53"}
+		ms.addPicked(root, []*tracker.Issue{{Slug: "ui/fix", Status: "done"}}, &canvasStatuses{final: "done"})
+		if len(ms.Checks) != 1 || ms.Checks[0].OK != want {
+			t.Fatalf("picked check = %+v, unpicked %v; want OK %v", ms.Checks, ms.Unpicked, want)
+		}
+	}
+	git("checkout", "-q", "release/v0.53")
+	git("cherry-pick", "-x", fix1)
+	if got := gitUnpicked(root, "release/v0.53", []string{"ui/fix"}); got["ui/fix"] != 1 {
+		t.Fatalf("one Refs commit left, unpicked = %v; want ui/fix: 1", got)
+	}
+	check(false)
+	git("cherry-pick", "-x", fix2)
+	if got := gitUnpicked(root, "release/v0.53", []string{"ui/fix"}); len(got) != 0 {
+		t.Fatalf("all Refs commits picked, unpicked = %v; want none (work/ui/fix's merge and check commit don't count)", got)
+	}
+	check(true)
 }

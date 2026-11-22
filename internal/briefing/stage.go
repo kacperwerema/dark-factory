@@ -50,7 +50,7 @@ func buildStageBriefing(in stageInput) (string, tracker.StageBriefing) {
 		{name: "how", text: inject(stageHowTo(issue.Slug, wf, in.yoloOn))},
 		{name: "worktree", text: tracker.WorktreePromptSection(proj, issue, in.worktree.Path, in.worktree.Branch)},
 		{name: "handoff", text: tracker.HandoffPromptSection(wf)},
-		{name: "lead", text: inject(tracker.LeadPromptSection(issue, in.route))},
+		{name: "lead", text: inject(tracker.LeadPromptSection(issue, in.route) + tracker.LandPromptLine(wf))},
 		{name: "owner-words", text: inject(tracker.OwnerWordsPromptSection(issue))},
 		{name: "resume", text: inject(tracker.ResumePromptSection(issue))},
 		{name: "rules", text: inject(RulesPromptSection(wf))},
@@ -224,25 +224,52 @@ func stageHowTo(slug string, wf *tracker.WorkflowConfig, yoloOn bool) string {
 	return b.String()
 }
 
-// stageMemories is the memories that matter at the issue's status, "" when
+// stageMemories is the memories that matter at the issue's status, and at
+// the work status those tagged for the folders the issue touches; "" when
 // none does.
 func stageMemories(proj *tracker.Project, issue *tracker.Issue) string {
+	at, tagged, tags := stageMemorySets(proj, issue)
+	if len(at.Shown) == 0 && len(tagged.Shown) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## Memory\n\n")
+	if len(at.Shown) > 0 {
+		fmt.Fprintf(&b, "What earlier agents learned about %s (pinned ones: issue-cli memory list --pinned):\n", issue.Status)
+		for _, m := range at.Shown {
+			fmt.Fprintf(&b, "- %s · %s: %s\n", m.ID, m.Kind, m.Text)
+		}
+	}
+	if len(tagged.Shown) > 0 {
+		fmt.Fprintf(&b, "For the %s files this issue touches:\n", strings.Join(tags, ", "))
+		for _, m := range tagged.Shown {
+			fmt.Fprintf(&b, "- %s · %s: %s\n", m.ID, m.Kind, m.Text)
+		}
+		if tagged.More > 0 {
+			fmt.Fprintf(&b, "- +%d more: issue-cli memory list --tag %s\n", tagged.More, shell.Quote(tags[0]))
+		}
+	}
+	return b.String()
+}
+
+// stageMemorySets is what a stage briefing at the issue's status shows: the
+// memories --at it, and the ones tagged for the files it touches (with
+// those tags).
+func stageMemorySets(proj *tracker.Project, issue *tracker.Issue) (at, tagged memory.Pins, tags []string) {
 	v := memory.Viewer{Agent: tracker.AgentSessionName(issue.Slug)}
 	if proj != nil {
 		if d := proj.DepartmentOf(issue); d != "" {
 			v.Department = tracker.DepartmentKey(d)
 		}
 	}
-	at, _ := memory.ForStage(briefingMemories(proj, v), issue.Status, stageScores(proj), memoryNow(), stageMemoryLimit, stageMemoryChars)
-	if len(at.Shown) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n## Memory\n\nWhat earlier agents learned about %s (pinned ones: issue-cli memory list --pinned):\n", issue.Status)
+	mems := briefingMemories(proj, v)
+	at, _ = memory.ForStage(mems, issue.Status, stageScores(proj), memoryNow(), stageMemoryLimit, stageMemoryChars)
+	skip := map[string]bool{}
 	for _, m := range at.Shown {
-		fmt.Fprintf(&b, "- %s · %s: %s\n", m.ID, m.Kind, m.Text)
+		skip[m.ID] = true
 	}
-	return b.String()
+	tagged, tags = TaggedMemories(proj, issue, mems, skip, memoryNow())
+	return at, tagged, tags
 }
 
 // stageScores is the memories' usefulness by status from the project's and
@@ -268,10 +295,9 @@ func stageScores(proj *tracker.Project) memory.Scores {
 // StageMemoryIDs are the memories a stage briefing at the issue's status
 // shows, for the briefing record.
 func StageMemoryIDs(proj *tracker.Project, issue *tracker.Issue) []string {
-	v := memory.Viewer{Agent: tracker.AgentSessionName(issue.Slug)}
-	at, _ := memory.ForStage(briefingMemories(proj, v), issue.Status, stageScores(proj), memoryNow(), stageMemoryLimit, stageMemoryChars)
+	at, tagged, _ := stageMemorySets(proj, issue)
 	var ids []string
-	for _, m := range at.Shown {
+	for _, m := range append(at.Shown, tagged.Shown...) {
 		ids = append(ids, m.ID)
 	}
 	return ids

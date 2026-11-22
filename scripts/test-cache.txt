@@ -47,6 +47,7 @@ cached ./internal/docref
 cached ./internal/experiment
 cached ./internal/fseventsd
 cached ./internal/gitdir
+cached ./internal/gitfile
 cached ./internal/gitmain
 cached ./internal/goals
 cached ./internal/goalwork

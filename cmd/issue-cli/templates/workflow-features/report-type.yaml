@@ -1,5 +1,5 @@
 id: report-type
-version: v0.61.0
+version: v0.66.0
 category: lifecycle
 propose: true
 templates: [development, marketing]
@@ -16,7 +16,11 @@ what: |
   (the YOLO queue under YOLO). Code fixes the research finds are filed as their
   own issues; a follow-up that is the owner's call ends "(owner)" (or sits under a
   sub-heading or lead-in naming the owner), and lint's `reports` check, which warns
-  once per done report whose Follow-ups nothing quotes, counts only the rest. The marketing template has the same type in research mode
+  once per done report whose Follow-ups nothing quotes, counts only the rest.
+  Vendor facts (prices, plans, limits, API fields) are read from the vendor's own
+  page with the web-fetch agent, its URL beside each, and the report ends with an
+  `## UNVERIFIED` list; `reports` warns on a report past the gate that cites a
+  price or an API field with no URL and no UNVERIFIED list. The marketing template has the same type in research mode
   (research → owner review → done: at least 5 sources under ## Research, the
   report on the shelf and a `report:` comment, then the owner's approval);
   a growth-scout job's runs (`brief: builtin:growth-scout`) take it by themselves.

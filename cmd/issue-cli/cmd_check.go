@@ -134,9 +134,10 @@ func runCheck(ctx *Context, args []string) error {
 }
 
 // looksLikeRefs reports whether args should be read as checkbox ids rather
-// than a text query: every arg is shaped like an id and at least one names a
-// section of this issue. A lone word such as "phase1" whose letters name no
-// section stays a text query.
+// than a text query: every arg is shaped like an id (or a loose box's number:
+// "2", "#2") and at least one names a box or section of this issue. A lone
+// word such as "phase1" whose letters name no section stays a text query, and
+// so does a number when no box sits above the first heading.
 func looksLikeRefs(body string, args []string) bool {
 	if len(args) == 0 {
 		return false
@@ -144,7 +145,7 @@ func looksLikeRefs(body string, args []string) bool {
 	items := tracker.ListCheckboxes(body)
 	known := false
 	for _, a := range args {
-		if !tracker.IsCheckboxRefShaped(a) {
+		if !tracker.IsCheckboxRefShaped(a) && !tracker.IsLooseRefShaped(a) {
 			return false
 		}
 		if _, st := tracker.ResolveCheckboxRef(items, a); st != tracker.RefNotARef {

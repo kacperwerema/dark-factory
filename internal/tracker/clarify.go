@@ -54,6 +54,9 @@ var (
 	ErrQuestionAnswered = errors.New("question already answered by the owner")
 	// ErrQuestionChanged: the question's text is not what the caller saw.
 	ErrQuestionChanged = errors.New("question changed since it was read")
+	// ErrClarifyFormat: the round's format has problems, so assume records
+	// nothing until it is fixed.
+	ErrClarifyFormat = errors.New("the round's format has problems")
 
 	questionHeadRe = regexp.MustCompile(`^###\s+Q(\d+)[.:)]?\s+(.+?)\s*$`)
 	questionIDRe   = regexp.MustCompile(`(?m)^###\s+Q(\d+)\b`)
@@ -623,11 +626,16 @@ func AssumeOpen(filePath, slug string, in AssumeInput, now time.Time) ([]Clarify
 	}
 	var out []ClarifyQuestion
 	err := writeDecision(filePath, in.Log, now, func(body string) (decisionChange, error) {
-		open := ParseQuestionSection(body, section).Open()
+		c := ParseQuestionSection(body, section)
+		open := c.Open()
 		out = nil
 		if len(open) == 0 {
 			return decisionChange{Unchanged: true}, nil
 		}
+		if probs := assumeBlockers(section, c); len(probs) > 0 {
+			return decisionChange{}, fmt.Errorf("%w; fix them, then assume again:\n  - %s", ErrClarifyFormat, strings.Join(probs, "\n  - "))
+		}
+		reuse := provisionalClarifyDecisions(slug, body)
 		n := nextNumber(decisionIDRe, body)
 		var decLines []string
 		var evs []DecisionEvent
@@ -638,9 +646,17 @@ func AssumeOpen(filePath, slug string, in AssumeInput, now time.Time) ([]Clarify
 			if rec == nil {
 				continue // no options: nothing to record, the line stays as before
 			}
+			text := clarifyDecisionText(q.ID, q.Text, rec.Label)
+			if did, ok := reuse[text]; ok {
+				// The same choice, recorded by an earlier assume of this
+				// question: name that D-n again instead of a second one.
+				q.Answer.Decision = did
+				delete(reuse, text)
+				continue
+			}
 			did := fmt.Sprintf("D-%d", n)
 			n++
-			d := NewDecision{Text: clarifyDecisionText(q.ID, q.Text, rec.Label), How: MarkProvisional(ClarifyHow)}
+			d := NewDecision{Text: text, How: MarkProvisional(ClarifyHow)}
 			if err := ValidateNewDecision(d); err != nil {
 				return decisionChange{}, err
 			}
@@ -661,6 +677,41 @@ func AssumeOpen(filePath, slug string, in AssumeInput, now time.Time) ([]Clarify
 		return decisionChange{Body: body, Events: evs}, nil
 	})
 	return out, err
+}
+
+// assumeBlockers is the round's format problems that stop assume: all but
+// a missing **Answer:** line, which assume writes itself.
+func assumeBlockers(section string, c Clarify) []string {
+	qs := make([]ClarifyQuestion, len(c.Questions))
+	for i, q := range c.Questions {
+		q.HasAnswerLine = true
+		qs[i] = q
+	}
+	c.Questions = qs
+	return questionProblems(section, c)
+}
+
+// provisionalClarifyDecisions maps the text of each provisional clarify-round
+// D-n still in force (nothing replaces it) to its id, so a question assumed
+// again with the same recommendation reuses its D-n.
+func provisionalClarifyDecisions(slug string, body string) map[string]string {
+	ds := ParseDecisions(slug, body)
+	replaced := map[string]bool{}
+	for _, d := range ds {
+		for _, r := range d.Replaces {
+			replaced[r] = true
+		}
+	}
+	out := map[string]string{}
+	for _, d := range ds {
+		if d.How != MarkProvisional(ClarifyHow) || replaced[d.Ref] || replaced[d.ID] {
+			continue
+		}
+		if _, ok := out[d.Text]; !ok {
+			out[d.Text] = d.ID
+		}
+	}
+	return out
 }
 
 // ClarifyOfFile reads the issue at filePath and parses its ## Clarify.

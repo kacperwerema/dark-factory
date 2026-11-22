@@ -200,6 +200,12 @@ write from its worktree. The `report` type in the bundled `development` template
   a follow-up with no home ([what counts as quoting](../workbench-files.md)), once per issue however many outputs it
   has. A follow-up that is the owner's call ends `(owner)`, or sits under a sub-heading or lead-in line naming the owner
   ("Owner actions:"); the check leaves those out and counts only the engine and docs work.
+- Vendor facts come from the vendor's own page: the `in progress` prompt tells the worker to read prices, plans, limits
+  and API fields with the web-fetch agent, put the page's URL beside each, and end the report with an `## UNVERIFIED`
+  list (what no first-party page confirmed, or none). Lint check `reports` warns on a report past the gate whose newest
+  output cites a price (a currency sign or code beside a number) or an API field (a line naming an API, endpoint,
+  parameter or field with a name in backticks) and has no http(s) URL and no UNVERIFIED heading or lead-in line
+  (`outputs.UnsourcedVendorFact`, internal/outputs/sources.go).
 - Catalog entry `report-type` (requires `types-of-work`). When the lead files an issue it picks the type
   ([which type to file](../patterns/lead-session.md#which-type-to-file)).
 

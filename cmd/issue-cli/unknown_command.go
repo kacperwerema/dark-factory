@@ -44,6 +44,9 @@ var commandHints = map[string]string{
 // commandHints, else the closest name), and where the full list is.
 func unknownCommandError(name string) error {
 	msg := "unknown command: " + name
+	if where, ok := outsideCommands[strings.ToLower(name)]; ok {
+		return fmt.Errorf("%s: %s", msg, where)
+	}
 	if near := suggestCommand(name); near != "" {
 		msg += fmt.Sprintf("\n\nDid you mean: issue-cli %s", near)
 		if c := lookupCommand(near); c != nil && c.ShortHelp != "" {
@@ -116,4 +119,64 @@ func editDistance(a, b string) int {
 		prev = cur
 	}
 	return prev[len(b)]
+}
+
+// subcommandHints maps a "<command> <word>" agents guess to the command line
+// that does the job (after "issue-cli "). Like commandHints it never runs
+// anything: it only names the real command in the unknown-subcommand error.
+var subcommandHints = map[string]string{
+	"workflow catalog":   "workflow catalog-check",
+	"workflow catalogue": "workflow catalog-check",
+	"decision show":      "decisions --issue <slug> (or decisions --in-force <slug>)",
+	"decision list":      "decisions --issue <slug> (or decisions --in-force <slug>)",
+	"decision view":      "decisions --issue <slug> (or decisions --in-force <slug>)",
+	"decision get":       "decisions --issue <slug> (or decisions --in-force <slug>)",
+	"decision log":       "decisions log",
+	"job list":           "jobs",
+	"job ls":             "jobs",
+	"job show":           "jobs",
+}
+
+// subcommandHint is the "Did you mean" paragraph for an unknown subcommand
+// word of cmd, "" when no hint names one.
+func subcommandHint(cmd, word string) string {
+	to, ok := subcommandHints[cmd+" "+strings.ToLower(word)]
+	if !ok {
+		return ""
+	}
+	return "\n\nDid you mean: issue-cli " + to
+}
+
+// outsideCommands are names agents try on issue-cli that belong to another
+// program: the unknown-command error says where the command is.
+var outsideCommands = map[string]string{
+	"viewer":       "the board is its own binary: issue-viewer --help (docs/getting-started.md)",
+	"issue-viewer": "the board is its own binary: issue-viewer --help (docs/getting-started.md)",
+}
+
+// expandGlobalFlagEquals turns a leading --config=<path> or --project=<slug>
+// into the two words splitGlobalAndCommand reads, so both spellings work.
+// Only the global flags before the command change: a command's own flags
+// parse --flag=value themselves.
+func expandGlobalFlagEquals(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, val, ok := strings.Cut(a, "=")
+		switch {
+		case ok && (name == "--config" || name == "--project"):
+			out = append(out, name, val)
+		case a == "--config" || a == "--project":
+			out = append(out, a)
+			if i+1 < len(args) {
+				i++
+				out = append(out, args[i])
+			}
+		case a == "--json" || a == "--debug":
+			out = append(out, a)
+		default:
+			return append(out, args[i:]...)
+		}
+	}
+	return out
 }

@@ -30,6 +30,7 @@
 ./internal/viewer TestEveryRouteIsInTheSecurityInventory
 ./internal/viewer TestEveryTestBinaryDropsTMUX
 ./internal/viewer TestGuardCheckListsEveryGuardTest
+./internal/viewer TestGuardTestsTableNamesEveryGuardTest
 ./internal/viewer TestOwnerRoutesListedInSecurityDoc
 ./internal/workflowupgrade TestEveryEntryDetectsItsOwnSnippet
 ./internal/workflowupgrade TestEveryEntryHasSourcesThatExist

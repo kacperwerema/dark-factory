@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -70,12 +71,56 @@ func runCatalogNA(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Recorded for the next commit: Catalog: %s\n", value)
 	fmt.Fprintln(ctx.Stdout, "  catalog-check counts it while this change is uncommitted")
-	if catalogHookInstalled(root) {
-		fmt.Fprintln(ctx.Stdout, "  the commit-msg hook writes it into your next commit's message")
-	} else {
-		fmt.Fprintf(ctx.Stdout, "  no commit-msg hook here (make hooks installs it): paste the line into your next commit's message yourself, then issue-cli workflow catalog-na --clear\n")
-	}
+	fmt.Fprintln(ctx.Stdout, "  "+catalogHookAddsNA(root))
 	return nil
+}
+
+// catalogHookAddsNA says whether the next commit gets the recorded line:
+// the hook adds it when it is ours and either adds it itself (one
+// installed since commitMsgAddsNA) or runs an issue-cli on PATH that
+// knows catalog-na. An older issue-cli accepts the message and leaves the
+// line out, so the next commit would go without it.
+func catalogHookAddsNA(root string) string {
+	const paste = "paste the line into your next commit's message yourself, then issue-cli workflow catalog-na --clear"
+	script, ok := catalogHookScript(root)
+	switch {
+	case !ok:
+		return "no commit-msg hook here (make hooks installs it): " + paste
+	case strings.Contains(script, commitMsgAddsNA):
+		return "the commit-msg hook writes it into your next commit's message"
+	}
+	switch knows, found := pathCLIKnowsCatalogNA(); {
+	case !found:
+		return "✗ no issue-cli on PATH, and this commit-msg hook is older than catalog-na: the next commit won't get the line. Run make hooks (its hook adds it itself), or " + paste
+	case !knows:
+		return "✗ the issue-cli on PATH, which the commit-msg hook runs, is older than catalog-na: the next commit won't get the line. Run make hooks (its hook adds it itself), or " + paste
+	}
+	return "the commit-msg hook writes it into your next commit's message"
+}
+
+// catalogHookScript is root's commit-msg hook when it is ours.
+func catalogHookScript(root string) (string, bool) {
+	dir, err := privacy.HooksDir(root)
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "commit-msg"))
+	if err != nil || !strings.Contains(string(data), commitMsgMarker) {
+		return "", false
+	}
+	return string(data), true
+}
+
+// pathCLIKnowsCatalogNA asks the issue-cli on PATH, the one the hook runs,
+// whether it has workflow catalog-na: run bare, one that has it refuses
+// with its usage, an older one says the subcommand is unknown.
+func pathCLIKnowsCatalogNA() (knows, found bool) {
+	bin, err := exec.LookPath("issue-cli")
+	if err != nil {
+		return false, false
+	}
+	out, _ := exec.Command(bin, "workflow", "catalog-na").CombinedOutput()
+	return !strings.Contains(string(out), "unknown workflow subcommand"), true
 }
 
 // catalogNAPath is the CATALOG_NA file in root's own git dir (a
@@ -102,16 +147,6 @@ func catalogRecordedNA(root string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-// catalogHookInstalled reports whether root's commit-msg hook is ours.
-func catalogHookInstalled(root string) bool {
-	dir, err := privacy.HooksDir(root)
-	if err != nil {
-		return false
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "commit-msg"))
-	return err == nil && strings.Contains(string(data), commitMsgMarker)
 }
 
 // addRecordedNA writes the line catalog-na recorded into the message file

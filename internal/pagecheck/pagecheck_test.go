@@ -161,3 +161,36 @@ func TestTitles(t *testing.T) {
 		t.Errorf("Titles = %q", got)
 	}
 }
+
+// An image or video sitemap's extension entries (image:loc, video:loc and
+// their kin) are media under a page, not pages: page-check reads only the
+// <loc> of each <url>, so a big sitemap costs one GET per page and MaxURLs
+// counts pages only.
+func TestSitemapSkipsExtensionLocs(t *testing.T) {
+	s, srv := newSite(t)
+	s.pages["/sitemap.xml"] = [2]string{"application/xml; charset=utf-8", `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+<url><loc>` + srv.URL + `/ok</loc><image:image><image:loc>` + srv.URL + `/logo.png</image:loc></image:image><image:image><image:loc>` + srv.URL + `/a.jpg</image:loc></image:image></url>
+<url><loc>` + srv.URL + `/upper</loc><video:video><video:loc>` + srv.URL + `/v.mp4</video:loc><video:content_loc>` + srv.URL + `/c.mp4</video:content_loc><video:player_loc>` + srv.URL + `/p</video:player_loc></video:video></url>
+<url><loc>` + srv.URL + `/long</loc></url></urlset>`}
+	rep := Run(context.Background(), []string{srv.URL + "/sitemap.xml"}, Options{})
+	var got []string
+	for _, r := range rep.Results {
+		got = append(got, strings.TrimPrefix(r.URL, srv.URL))
+	}
+	if want := "/sitemap.xml /ok /upper /long"; strings.Join(got, " ") != want {
+		t.Errorf("checked %q, want %q", strings.Join(got, " "), want)
+	}
+	if n := len(s.methods); n != 4 {
+		t.Errorf("%d GETs, want 4: the sitemap and one per page", n)
+	}
+	if !strings.Contains(strings.Join(rep.Results[0].Notes, " "), "sitemap: 3 URL(s)") {
+		t.Errorf("sitemap note %q, want 3 URLs", rep.Results[0].Notes)
+	}
+
+	s.methods = nil
+	capped := Run(context.Background(), []string{srv.URL + "/sitemap.xml"}, Options{MaxURLs: 3})
+	if len(capped.Results) != 3 || capped.Skipped != 1 || len(s.methods) != 3 {
+		t.Errorf("cap 3: %d results, %d skipped, %d GETs; want 3, 1 and 3 (pages only)", len(capped.Results), capped.Skipped, len(s.methods))
+	}
+}

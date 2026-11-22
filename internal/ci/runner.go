@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -213,6 +214,7 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 			res.Failures = c.FailureNames(output, maxFailures)
 			run.Commands = append(run.Commands, res)
 			run.State, run.Failed, run.Failures = Red, c.Cmd, res.Failures
+			run.Red, run.Leftover = RedSummary(output, testresults.GoModule(dir))
 			if timedOut {
 				run.Failed = fmt.Sprintf("%s (timeout after %s)", c.Cmd, limit)
 			}
@@ -226,7 +228,10 @@ func runOnce(opts Options, branch, tier, sha string, prev *State) *Run {
 	run.Finished = opts.now()
 	verdict := run.State
 	if run.Failed != "" {
-		verdict += ": " + run.Failed
+		verdict += ": " + FailedText(run.Failed, run.Red)
+	}
+	if run.Leftover != "" {
+		fmt.Fprintln(out, run.Leftover)
 	}
 	fmt.Fprintf(out, "\n== local CI %s at %s in %s ==\n", verdict, gitdir.ShortSHA(sha), run.Finished.Sub(run.Started).Round(time.Second))
 	logFile.Sync()
@@ -327,7 +332,7 @@ func applyRun(prev *State, run *Run) *State {
 		for k, v := range next.Tiers {
 			tiers[k] = v
 		}
-		tiers[run.Tier] = TierState{Sha: run.Sha, State: run.State, Failed: run.Failed, Failures: run.Failures, Finished: run.Finished, Log: run.Log}
+		tiers[run.Tier] = TierState{Sha: run.Sha, State: run.State, Failed: run.Failed, Failures: run.Failures, Red: run.Red, Leftover: run.Leftover, Finished: run.Finished, Log: run.Log}
 		next.Tiers = tiers
 		return next
 	}
@@ -336,16 +341,19 @@ func applyRun(prev *State, run *Run) *State {
 	case Green:
 		next.State, next.GreenSha, next.GreenAt = Green, run.Sha, run.Finished
 		next.RedSince, next.RedAt, next.Failed, next.Failures, next.Error = "", time.Time{}, "", nil, ""
+		next.Red, next.Leftover = "", ""
 		next.Merged, next.Blamed, next.RedIssue, next.LogTail = nil, nil, "", nil
 	case Red:
 		if !prev.IsRed() {
 			next.RedSince, next.RedAt = run.Sha, run.Finished
 		}
 		next.State, next.Failed, next.Failures, next.Error = Red, run.Failed, run.Failures, ""
+		next.Red, next.Leftover = run.Red, run.Leftover
 		next.Merged, next.Blamed, next.LogTail = run.Merged, Slugs(run.Merged), run.LogTail
 	default:
 		next.State, next.Error, next.LogTail = Error, run.Error, run.LogTail
 		next.RedSince, next.RedAt, next.Failed, next.Failures, next.Merged, next.Blamed = "", time.Time{}, "", nil, nil, nil
+		next.Red, next.Leftover = "", ""
 	}
 	return next
 }

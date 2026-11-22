@@ -111,7 +111,7 @@ type Report struct {
 
 // Run checks each target. A target whose path ends in .xml and holds a
 // <urlset> or <sitemapindex> is a sitemap: its own response is checked for
-// the charset, then every <loc> in it (a sitemap index's sitemaps one level
+// the charset, then each <url>'s <loc> in it (a sitemap index's sitemaps one level
 // down) up to MaxURLs.
 func Run(ctx context.Context, targets []string, o Options) Report {
 	var rep Report
@@ -271,14 +271,19 @@ func Titles(body []byte) []string {
 }
 
 // sitemapLocs returns the <loc> values of a sitemap or sitemap index, and
-// whether body is one (a sitemap index's <loc>s are sitemaps).
+// whether body is one (a sitemap index's <loc>s are sitemaps). Only a <loc>
+// right under a <url> or <sitemap>, in the root's namespace, counts: an
+// image or video sitemap's image:loc, video:loc and their kin are media
+// under a page, not pages, and fetching them would cost a GET each and eat
+// into MaxURLs.
 func sitemapLocs(body []byte) (locs []string, ok bool) {
 	if len(body) == 0 {
 		return nil, false
 	}
 	dec := xml.NewDecoder(strings.NewReader(string(body)))
 	dec.Strict = false
-	root := ""
+	var root xml.Name
+	var path []xml.Name // open elements under the root
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -287,23 +292,33 @@ func sitemapLocs(body []byte) (locs []string, ok bool) {
 			}
 			return nil, false
 		}
-		se, isStart := tok.(xml.StartElement)
-		if !isStart {
-			continue
-		}
-		if root == "" {
-			root = se.Name.Local
-			if root != "urlset" && root != "sitemapindex" {
-				return nil, false
+		switch t := tok.(type) {
+		case xml.EndElement:
+			if len(path) > 0 {
+				path = path[:len(path)-1]
 			}
-			continue
-		}
-		if se.Name.Local == "loc" {
-			var v string
-			if err := dec.DecodeElement(&v, &se); err == nil {
-				locs = append(locs, strings.TrimSpace(v))
+		case xml.StartElement:
+			if root.Local == "" {
+				root = t.Name
+				if root.Local != "urlset" && root.Local != "sitemapindex" {
+					return nil, false
+				}
+				continue
 			}
+			entry := "url"
+			if root.Local == "sitemapindex" {
+				entry = "sitemap"
+			}
+			if len(path) == 1 && path[0].Local == entry && path[0].Space == root.Space &&
+				t.Name.Local == "loc" && t.Name.Space == root.Space {
+				var v string
+				if err := dec.DecodeElement(&v, &t); err == nil {
+					locs = append(locs, strings.TrimSpace(v))
+				}
+				continue // DecodeElement consumed the end tag
+			}
+			path = append(path, t.Name)
 		}
 	}
-	return locs, root != ""
+	return locs, root.Local != ""
 }

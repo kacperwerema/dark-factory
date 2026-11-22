@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/privacy"
+	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
@@ -189,6 +191,42 @@ func TestCatalogCheckReadsTheRecordedNALineBeforeTheCommit(t *testing.T) {
 	}
 	if catalogRecordedNA(wt) != "" {
 		t.Fatal("--clear left the record")
+	}
+}
+
+// catalog-na promises the hook writes the line only when it will: a hook
+// that adds it itself, or an older hook whose issue-cli on PATH knows
+// catalog-na. An older hook running an issue-cli that predates catalog-na
+// would let the commit go without the line: catalog-na says so at once.
+func TestCatalogNASaysWhenTheHookWontAddTheLine(t *testing.T) {
+	dir := catalogRepo(t)
+	chdir(t, dir)
+	writeCatalogFile(t, dir, "internal/health/score.go", "package health\n\nconst h = 7\n")
+	hooks, err := privacy.HooksDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(hooks, 0o755)
+	oldHook := "#!/bin/sh\n" + commitMsgMarker + "\nissue-cli workflow commit-msg \"$1\"\n"
+	path := os.Getenv("PATH")
+	for _, c := range []struct{ name, hook, cli, want string }{
+		{"current hook, old issue-cli", commitMsgScript, "echo \"unknown workflow subcommand: $2\" >&2; exit 1\n", "the commit-msg hook writes it into your next commit's message"},
+		{"old hook, current issue-cli", oldHook, "echo \"catalog-na needs the entry ids and why\" >&2; exit 2\n", "the commit-msg hook writes it into your next commit's message"},
+		{"old hook, old issue-cli", oldHook, "echo \"unknown workflow subcommand: $2\" >&2; exit 1\n", "✗ the issue-cli on PATH, which the commit-msg hook runs, is older than catalog-na: the next commit won't get the line. Run make hooks (its hook adds it itself), or paste the line"},
+	} {
+		hook := filepath.Join(hooks, "commit-msg")
+		os.Remove(hook) // a stand-in is a link to a read-only file: replace it
+		standin.Write(t, hook, c.hook)
+		bin := t.TempDir()
+		standin.Write(t, filepath.Join(bin, "issue-cli"), c.cli)
+		t.Setenv("PATH", bin+string(os.PathListSeparator)+path)
+		ctx, stdout, _ := newTestContext(&tracker.Project{Name: "t", IssueDir: dir}, false)
+		if err := runWorkflow(ctx, []string{"catalog-na", "health-tuning", "only", "a", "constant"}); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if !strings.Contains(stdout.String(), c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.name, c.want, stdout)
+		}
 	}
 }
 

@@ -92,6 +92,11 @@ func topLevelTests(t *testing.T, files []string) map[string]bool {
 func TestEveryTestPackageIsInTheCacheList(t *testing.T) {
 	root := moduleRoot(t)
 	listPath := filepath.Join(root, "scripts", "test-cache.txt")
+	// A stand-in list in place of the real one: the guard-check test's
+	// change that forgot a line (TestGuardCheckNamesTheRuleOfAFailingGuard).
+	if p := os.Getenv("GUARD_STANDIN_TEST_CACHE"); p != "" {
+		listPath = p
+	}
 	data, err := os.ReadFile(listPath)
 	if err != nil {
 		t.Fatal(err)

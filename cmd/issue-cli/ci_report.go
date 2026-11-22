@@ -50,7 +50,7 @@ func ciReporter(ctx *Context, proj *tracker.Project, wf *tracker.WorkflowConfig,
 						issues, _ = tracker.LoadIssues(proj.IssueDir)
 					}
 				} else {
-					ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s, now failing `%s`%s. Log: %s", branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures), run.Log))
+					ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s, now failing `%s`%s. Log: %s", branch, gitdir.ShortSHA(run.Sha), ci.FailedText(run.Failed, run.Red), failuresNote(run.Failures), run.Log))
 				}
 			}
 			text := tracker.InjectProject(proj, redComment(run, next))
@@ -59,7 +59,7 @@ func ciReporter(ctx *Context, proj *tracker.Project, wf *tracker.WorkflowConfig,
 			}
 		case run.State == ci.Red:
 			if next.RedIssue != "" {
-				ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s (`%s`). Log: %s", branch, gitdir.ShortSHA(run.Sha), run.Failed, run.Log))
+				ciComment(ctx, issues, next.RedIssue, fmt.Sprintf("ci: %s still red at %s (`%s`). Log: %s", branch, gitdir.ShortSHA(run.Sha), ci.FailedText(run.Failed, run.Red), run.Log))
 			}
 		case run.State == ci.Green && prevState == ci.Red:
 			if prev.RedIssue != "" {
@@ -79,7 +79,7 @@ func failuresNote(names []string) string {
 // redComment is the ci: comment on an issue merged since the last green run.
 func redComment(run *ci.Run, st *ci.State) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ci: local CI red on %s at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures))
+	fmt.Fprintf(&b, "ci: local CI red on %s at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), ci.FailedText(run.Failed, run.Red), failuresNote(run.Failures))
 	var landed []string
 	for _, m := range st.Merged {
 		landed = append(landed, mergedLabel(m))
@@ -144,7 +144,7 @@ func fileRedIssue(ctx *Context, proj *tracker.Project, issues []*tracker.Issue, 
 		return "", fmt.Errorf("created %q but cannot find it as %s", title, slug)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ci: filed by local CI. %s went red at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), run.Failed, failuresNote(run.Failures))
+	fmt.Fprintf(&b, "ci: filed by local CI. %s went red at %s: `%s` failed%s. ", run.Branch, gitdir.ShortSHA(run.Sha), ci.FailedText(run.Failed, run.Red), failuresNote(run.Failures))
 	if st.GreenSha != "" {
 		fmt.Fprintf(&b, "Range: %s..%s. ", gitdir.ShortSHA(st.GreenSha), gitdir.ShortSHA(run.Sha))
 	}

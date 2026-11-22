@@ -33,3 +33,18 @@ func criteriaWarnings(wf *tracker.WorkflowConfig, issue *tracker.Issue, from, to
 	}
 	return out
 }
+
+// afterInstallWarnings is lint's after-install findings for an issue moving
+// into shipping: a Test Plan line "After install …" / "Live: …" that no
+// `after install:` criterion carries is the last chance to become one
+// before the branch lands. Warnings, never a refusal.
+func afterInstallWarnings(wf *tracker.WorkflowConfig, issue *tracker.Issue, to string) []string {
+	if !isShipStatus(wf, to) {
+		return nil
+	}
+	var out []string
+	for _, f := range lint.AfterInstallProse(issue) {
+		out = append(out, fmt.Sprintf("after-install: %s: %s\n    fix: %s", f.Where, f.Message, f.Fix))
+	}
+	return out
+}

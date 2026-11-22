@@ -370,3 +370,43 @@ func TestReportsCountsOnlyAgentFollowUps(t *testing.T) {
 		t.Errorf("message = %s\nwant it to hold %s", got[0].Message, want)
 	}
 }
+
+// A report that cites a vendor price or an API field with no source URL and
+// no UNVERIFIED list warns, naming its newest good output; a URL, the list,
+// a newer output that adds one, or the owner's approval clears it.
+func TestCheckReportsUnsourcedVendorFacts(t *testing.T) {
+	env, added := followUpEnv(t, map[string][]string{
+		"guessed":  {"# R\n\nThe Pro plan costs $29/mo and the API's `max_tokens` field caps it.\n"},
+		"api":      {"# R\n\nThe API's `max_tokens` field caps it.\n"},
+		"linked":   {"# R\n\nThe Pro plan costs $29/mo (https://example.com/pricing).\n"},
+		"listed":   {"# R\n\nThe API's `max_tokens` field caps it.\n\n## UNVERIFIED\n\n- `max_tokens`: docs unreachable\n"},
+		"fixed":    {"# R\n\nCosts $29/mo.\n", "# R\n\nCosts $29/mo.\n\nUNVERIFIED: the price, the pricing page was down.\n"},
+		"no-facts": {"# R\n\nThe board shows each issue.\n"},
+		"approved": {"# R\n\nCosts $29/mo.\n"},
+	})
+	if _, err := outputs.Review(env.Project, added["approved"][0].ID, outputs.StateApproved, "ok", "", "owner", time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Finding{}
+	for _, f := range run(t, env, "reports") {
+		got[f.Where] = f
+	}
+	var where []string
+	for w := range got {
+		where = append(where, w)
+	}
+	sort.Strings(where)
+	if strings.Join(where, ",") != "api,guessed" {
+		t.Fatalf("warned on %s, want api,guessed", strings.Join(where, ","))
+	}
+	g := got["guessed"]
+	if want := added["guessed"][0].ID + ` cites a price ("The Pro plan costs $29/mo and the API's ` + "`max_tokens`" + ` field caps it.") with no source URL and no UNVERIFIED list`; g.Message != want {
+		t.Errorf("message = %s\nwant      %s", g.Message, want)
+	}
+	if !strings.Contains(g.Fix, "web-fetch") || !strings.Contains(g.Fix, "## UNVERIFIED") || !strings.Contains(g.Fix, "issue-cli output revise "+added["guessed"][0].ID) {
+		t.Errorf("fix = %s", g.Fix)
+	}
+	if !strings.Contains(got["api"].Message, "cites an API field") {
+		t.Errorf("api message = %s", got["api"].Message)
+	}
+}

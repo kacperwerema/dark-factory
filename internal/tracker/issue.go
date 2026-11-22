@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -217,7 +218,7 @@ func withIssueLock(filePath string, fn func() error) error {
 
 func writeFileAtomically(filePath string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(filePath)
-	tmp, err := os.CreateTemp(dir, filepath.Base(filePath)+".tmp-*")
+	tmp, err := os.CreateTemp(dir, gitfile.TempPattern("", filepath.Base(filePath)))
 	if err != nil {
 		return fmt.Errorf("creating temp file for %s: %w", filePath, err)
 	}

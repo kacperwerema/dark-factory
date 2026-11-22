@@ -13,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/codemap"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
+	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
 
 var codemapCommand = &Command{
@@ -44,11 +45,17 @@ the packages that import them directly or not, the contexts it works in
 (the changed packages' own, the contexts each changed viewer or CLI file
 imports, the contexts a changed non-Go file's paths: match), the other
 contexts it reaches, the binaries to rebuild and the changed packages that
-import up a layer (Watch).
+import up a layer (Watch). In the dark-factory repo it ends with the
+catalog impact: the catalog entries whose sources: the changed files and
+the files the issue's body names match (the ones catalog-check will name),
+with the catalog-bump command and the Catalog: n/a line to write, so a
+design names them before the build.
 
 With <slug> the files are the issue's work branch's changes since it left
 main (the diff decisions_respected reads); a dispatched worker may leave
-its own slug out (ISSUE_VIEWER_ISSUE_SLUG) when it gives no --files. --files takes a comma or space
+its own slug out (ISSUE_VIEWER_ISSUE_SLUG) when it gives no --files.
+Before the branch has changes (in design), the paths the body names are
+the files. --files takes a comma or space
 separated list, or - for one file per line on stdin (git diff --name-only).
 The map is built from the project's checkout (main); --root <dir> reads
 another one (--root . in a worktree, to count imports the branch added).
@@ -216,6 +223,12 @@ type affectedOut struct {
 	Head string `json:"head,omitempty"`
 	codemap.Footprint
 	Names map[string]string `json:"names"`
+	// Planned are the paths the issue's body names (plannedFiles); Catalog
+	// the entries the changed and planned files turn red in catalog-check.
+	// Both only in the dark-factory repo, where the catalog is.
+	Planned []string                       `json:"planned,omitempty"`
+	Catalog []workflowupgrade.PlannedEntry `json:"catalog,omitempty"`
+	catalog bool
 }
 
 const affectedExamples = "\n\nExamples:\n  issue-cli affected <slug>\n  issue-cli affected --files internal/tracker/issue.go"
@@ -251,6 +264,10 @@ func runAffected(ctx *Context, args []string) error {
 		return errors.New("affected needs <slug> or --files <list>: none given" + affectedExamples)
 	}
 	out := affectedOut{Slug: slug}
+	catRoot := ctx.Project.Root()
+	if *root != "" {
+		catRoot = *root
+	}
 	var files []string
 	if slug != "" {
 		issue, _, err := findIssueOrErr(ctx, slug)
@@ -258,14 +275,19 @@ func runAffected(ctx *Context, args []string) error {
 			return err
 		}
 		out.Slug = issue.Slug
+		out.Planned = plannedFiles(catRoot, issue.BodyRaw)
 		d, err := tracker.BranchChanges(ctx.Project.TelemetryRoot(), issue)
 		if err != nil {
 			return err
 		}
-		if d.Warn != "" && len(d.Files) == 0 {
+		if d.Warn != "" && len(d.Files) == 0 && len(out.Planned) == 0 {
 			return errors.New(strings.Replace(d.Warn, "decisions_respected: ", "affected: ", 1) + "; pass --files instead")
 		}
 		files, out.Base, out.Head = d.Files, d.Base, d.Head
+		if len(files) == 0 {
+			// In design nothing is changed yet: the planned files are the footprint.
+			files = out.Planned
+		}
 	} else {
 		files = splitFiles(*filesFlag, ctx.Stdin)
 	}
@@ -275,6 +297,7 @@ func runAffected(ctx *Context, args []string) error {
 	}
 	out.Main = sha
 	out.Footprint = m.Affected(files)
+	out.Catalog, out.catalog = affectedCatalog(catRoot, unionFiles(files, out.Planned))
 	out.Names = map[string]string{}
 	for _, c := range m.Contexts {
 		out.Names[c.Key] = c.Name
@@ -283,7 +306,23 @@ func runAffected(ctx *Context, args []string) error {
 		return writeJSON(ctx.Stdout, out)
 	}
 	printAffected(ctx.Stdout, m, out)
+	if out.catalog {
+		printAffectedCatalog(ctx.Stdout, out.Catalog, out.Planned)
+	}
 	return nil
+}
+
+// unionFiles is a, then the paths of b that a lacks.
+func unionFiles(a, b []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range append(append([]string(nil), a...), b...) {
+		if !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func splitFiles(s string, stdin io.Reader) []string {

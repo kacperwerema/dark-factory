@@ -125,6 +125,9 @@ func Evaluate1(p *tracker.Project, r *Ref, runs []Run, in Input) Status {
 	s.Schedule = sch.Label()
 	s.Next = sch.Next(in.Now)
 	s.Period, s.DueAt = sch.Latest(in.Now)
+	if s.Period == "" { // before the job's since: day
+		return s
+	}
 	if s.LastPeriod >= s.Period && s.LastPeriod != "" {
 		return s
 	}

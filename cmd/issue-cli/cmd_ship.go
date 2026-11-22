@@ -36,6 +36,11 @@ The last line on stdout is the verdict, and the exit code matches it:
   ship: LANDED <sha>                                          exit 0
   ship: NOT LANDED (<reason>)                                 exit 1
   ship: LANDED <sha>, check after landing FAIL (<steps>)      exit 3
+A red make validate names the test step's failing packages,
+"check FAIL (vet, test: internal/ci, internal/ship) at <sha>", and the
+line before the verdict is the first tmuxguard leftover line when a test
+binary left files in TMPDIR ("ship: tmuxguard: <bin> left ..."), so a
+leftover reads apart from a failing test without the log.
 Read that line, not $? of a pipe: "issue-cli ship | tail" exits 0 on a
 refusal. On exit 3 main holds the branch: fix forward at once and post a
 tests: comment naming the red step.

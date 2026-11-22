@@ -2,7 +2,7 @@
 # issue-cli release that last changed it. `issue-cli workflow upgrade` compares
 # it with the template bundled in the binary and proposes newer features.
 # Set it to `custom` if this workflow is no longer based on a template.
-template: development@v0.65.0
+template: development@v0.66.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -11,7 +11,7 @@ features:
   installed:
     - chore-type@v0.61.0
     - docs-type@v0.58.0
-    - report-type@v0.61.0
+    - report-type@v0.66.0
     - status-prompts@v0.36.0
     - status-roles@v0.61.0
     - types-of-work@v0.36.0
@@ -446,6 +446,7 @@ types:
           Report: research what the body asks and write the report as one file (markdown is fine) anywhere outside the repo, for example your scratchpad. Nothing is built or committed on this issue, and there is no branch to ship.
           Put the report on the shelf with the issue: `issue-cli output add --issue <slug> --kind report --title "<title>" --file <report.md>` (it is copied with the work files, under <issues>/.outputs/files/, and listed on the issue's page). Re-run it with a new file if the report changes.
           Code fixes the research turns up are not built here: list each under "Follow-ups" in the report and in the `report:` comment, and file each as its own issue (`issue-cli create`, or ask the lead to). A follow-up that is the owner's call (publishing, spending, picking a channel) ends "(owner)", or goes under a sub-heading or lead-in that names the owner ("Owner actions:"): lint's reports check counts only the rest, the engine and docs work an issue or queue item has to pick up.
+          Vendor facts (prices, plans, limits, API fields and parameter names) come from the vendor's own page, not a search result's summary: read the page with the web-fetch agent (or WebFetch) and put its URL beside the fact. Never guess a name you could not read. End the report with an `## UNVERIFIED` list: each fact no first-party page confirmed (the page unreachable, behind a login or silent on it), or "none". Lint's reports check warns on a report that cites prices or API fields with no URL and no UNVERIFIED list.
           If it turns out the work is a code or docs change, say in chat that the type should change to feature, tweak or docs (in the issue viewer) and end your turn.
       - name: "human-testing"
         prompt: |

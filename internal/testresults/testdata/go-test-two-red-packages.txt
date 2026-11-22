@@ -1,0 +1,17 @@
+ok  	example.com/standin/internal/alpha	0.412s
+--- FAIL: TestBeta (0.01s)
+    beta_test.go:12: want 2, got 3
+FAIL
+FAIL	example.com/standin/internal/beta	0.233s
+[leak-check] FAIL	example.com/standin/internal/privacy	0.101s
+[leak-check] tmuxguard: privacy.test left other-dir in TMPDIR: make it with t.TempDir, or remove it in t.Cleanup or TestMain (a package-level helper's folder goes in TestMain after m.Run)
+ok  	example.com/standin/internal/gamma	(cached)
+tmuxguard: delta.test left dft-sock-1, scratch.txt in TMPDIR: make it with t.TempDir, or remove it in t.Cleanup or TestMain (a package-level helper's folder goes in TestMain after m.Run)
+FAIL	example.com/standin/internal/delta	1.020s
+tmuxguard: delta.test left second.txt in TMPDIR: make it with t.TempDir, or remove it in t.Cleanup or TestMain (a package-level helper's folder goes in TestMain after m.Run)
+FAIL	example.com/standin/internal/beta	0.240s
+FAIL
+validate: test 31s
+validate: red so far: test
+validate: total 40s
+validate: FAIL (fmt-check, test)

@@ -178,33 +178,27 @@ var gitHasBranch = func(root, branch string) bool {
 	})
 }
 
-// gitUnpicked is, for each slug whose work/<slug> branch has commits the
-// release branch lacks (by patch, or by a release-branch commit whose
-// "(cherry picked from commit <sha>)" line names it, so a pick whose
-// changelog hunk was rewritten counts too), how many. One
-// git call lists the work branches not merged into the release branch; only
-// those are checked with git cherry. A var so tests don't run git.
+// gitUnpicked is, for each done issue's slug with commits the release
+// branch lacks, how many (privacy.UnpickedIssues: its Refs: commits on
+// main, else work/<slug>'s; picked by patch or by a release-branch
+// commit's "(cherry picked from commit <sha>)" line). A work branch that
+// merged main carries other issues' commits and its own dropped ones, so
+// it is read only for an issue with no Refs: commit on main. A var so
+// tests don't run git.
 var gitUnpicked = func(root, branch string, slugs []string) map[string]int {
 	return refsKept(root, append([]string{"unpicked", branch}, slugs...), func() map[string]int {
-		out, err := exec.Command("git", "-C", root, "branch", "--format=%(refname:short)", "--no-merged", branch, "--list", "work/*").Output()
+		mainBranch, err := tracker.MainBranch(root)
+		if err != nil || mainBranch == "" {
+			return nil
+		}
+		lacking, err := privacy.UnpickedIssues(root, branch, mainBranch, slugs)
 		if err != nil {
 			return nil
 		}
-		want := map[string]bool{}
-		for _, s := range slugs {
-			want["work/"+s] = true
-		}
 		res := map[string]int{}
-		for _, b := range strings.Fields(string(out)) {
-			if !want[b] {
-				continue
-			}
-			lacking, err := privacy.Unpicked(root, branch, b)
-			if err != nil {
-				continue
-			}
-			if n := len(lacking); n > 0 {
-				res[strings.TrimPrefix(b, "work/")] = n
+		for s, shas := range lacking {
+			if len(shas) > 0 {
+				res[s] = len(shas)
 			}
 		}
 		return res

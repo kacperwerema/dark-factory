@@ -21,6 +21,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/testresults"
 )
 
 // Exit codes: landed and green, not landed, landed but the check after
@@ -68,6 +69,9 @@ type Result struct {
 	// after a landing that came through a re-check; AfterRan says it ran.
 	AfterRan bool
 	AfterRed []string
+	// AfterRedText is AfterRed as the verdict says it, the test step's
+	// failing packages named ("test: internal/ci, internal/ship").
+	AfterRedText string
 }
 
 // Verdict is the run's last line.
@@ -76,7 +80,11 @@ func (r Result) Verdict() string {
 	case !r.Landed:
 		return "ship: NOT LANDED (" + r.Reason + ")"
 	case r.AfterRan && r.AfterRed != nil:
-		return fmt.Sprintf("ship: LANDED %s, check after landing FAIL (%s)", gitdir.ShortSHA(r.SHA), strings.Join(r.AfterRed, ", "))
+		red := r.AfterRedText
+		if red == "" {
+			red = strings.Join(r.AfterRed, ", ")
+		}
+		return fmt.Sprintf("ship: LANDED %s, check after landing FAIL (%s)", gitdir.ShortSHA(r.SHA), red)
 	}
 	return "ship: LANDED " + gitdir.ShortSHA(r.SHA)
 }
@@ -131,7 +139,7 @@ func Run(o Options) Result {
 			res.Records = append(res.Records, fmt.Sprintf("check PASS at %s (remembered)", gitdir.ShortSHA(head)))
 			needFull = false
 		case round == 0 || !merged:
-			rec, red := r.check("check", o.Check, head)
+			rec, red, _ := r.check("check", o.Check, head)
 			res.Records = append(res.Records, rec)
 			if red != "" {
 				res.Reason = fmt.Sprintf("check FAIL (%s) at %s", red, gitdir.ShortSHA(head))
@@ -144,7 +152,7 @@ func Run(o Options) Result {
 			if cmds == nil {
 				cmds = RecheckFor(o.Worktree, o.Main, o.Check)
 			}
-			rec, red := r.check("re-check", cmds, head)
+			rec, red, _ := r.check("re-check", cmds, head)
 			res.Records = append(res.Records, rec)
 			if red != "" {
 				res.Reason = fmt.Sprintf("re-check FAIL (%s) at %s", red, gitdir.ShortSHA(head))
@@ -181,11 +189,11 @@ func Run(o Options) Result {
 	}
 	if needFull {
 		r.say("landed after a re-check: running the full check on the landed tree")
-		rec, red := r.check("check after landing", o.Check, res.SHA)
+		rec, red, steps := r.check("check after landing", o.Check, res.SHA)
 		res.Records = append(res.Records, rec)
 		res.AfterRan = true
 		if red != "" {
-			res.AfterRed = strings.Split(red, ", ")
+			res.AfterRed, res.AfterRedText = steps, red
 		} else {
 			RecordPass(o.Worktree, res.SHA)
 		}
@@ -276,8 +284,11 @@ var progressLine = regexp.MustCompile(`^validate: `)
 
 // check runs cmds in order in the worktree, its output in a log under the
 // git dir, echoing make validate's step lines. red is "" on a pass, else
-// the red steps (or the command and exit code when there is no verdict).
-func (r *runner) check(label string, cmds []string, sha string) (record, red string) {
+// the red steps with the test step's failing packages named (or the
+// command and exit code when there is no verdict); steps are the red step
+// names alone. On red it says the first tmuxguard leftover line, so a
+// leftover file reads apart from a failing test without the log.
+func (r *runner) check(label string, cmds []string, sha string) (record, red string, steps []string) {
 	o := r.o
 	start := o.Now()
 	logPath := LogPath(o.Worktree, sha, label)
@@ -286,29 +297,49 @@ func (r *runner) check(label string, cmds []string, sha string) (record, red str
 	if err != nil {
 		logf = nil
 	}
+	var from int64
+	noVerdict := false
 cmds:
 	for _, c := range cmds {
 		r.say("%s at %s: %s (log %s)", label, gitdir.ShortSHA(sha), c, logPath)
-		verdict, steps, code := r.runOne(c, logf)
+		if logf != nil {
+			from, _ = logf.Seek(0, io.SeekCurrent)
+		}
+		verdict, redSteps, code := r.runOne(c, logf)
 		switch {
 		case verdict == "PASS" && code == 0, verdict == "" && code == 0:
 			continue
-		case verdict == "FAIL" && steps != "":
-			red = steps
+		case verdict == "FAIL" && redSteps != "":
+			steps = strings.Split(redSteps, ", ")
+			red = redSteps
 		default:
 			red = fmt.Sprintf("%s exited %d", c, code)
+			steps, noVerdict = []string{red}, true
 		}
 		break cmds
 	}
 	if logf != nil {
 		_ = logf.Close()
 	}
+	if red != "" {
+		rt := testresults.ParseRedText(readFrom(logPath, from), testresults.GoModule(o.Worktree))
+		if len(rt.Packages) > 0 {
+			if slices.Contains(steps, "test") {
+				red = testresults.NameTestStep(steps, rt.Packages)
+			} else if noVerdict {
+				red += ": " + testresults.PackageList(rt.Packages)
+			}
+		}
+		if rt.Leftover != "" {
+			r.say("%s", rt.Leftover)
+		}
+	}
 	secs := int(o.Now().Sub(start).Seconds())
 	state := "PASS"
 	if red != "" {
 		state = "FAIL (" + red + ")"
 	}
-	return fmt.Sprintf("%s %s at %s (%s, %ds)", label, state, gitdir.ShortSHA(sha), strings.Join(cmds, " && "), secs), red
+	return fmt.Sprintf("%s %s at %s (%s, %ds)", label, state, gitdir.ShortSHA(sha), strings.Join(cmds, " && "), secs), red, steps
 }
 
 // runOne runs one command, writing its output to logf and echoing the
@@ -493,6 +524,15 @@ func gitOut(dir string, args ...string) (string, error) {
 		return strings.TrimSpace(stdout.String()), errors.New(msg)
 	}
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// readFrom is the file's content from offset on, "" when it can't be read.
+func readFrom(path string, offset int64) string {
+	b, err := os.ReadFile(path)
+	if err != nil || offset > int64(len(b)) {
+		return ""
+	}
+	return string(b[offset:])
 }
 
 func firstLine(s string) string {

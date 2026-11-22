@@ -56,7 +56,7 @@ func runDecision(ctx *Context, args []string) error {
 	case "challenges":
 		return runDecisionChallenges(ctx, args[1:])
 	}
-	return fmt.Errorf("unknown decision subcommand %q: challenge, resolve or challenges\n\nRun: issue-cli decision --help", args[0])
+	return fmt.Errorf("unknown decision subcommand %q: challenge, resolve or challenges%s\n\nRun: issue-cli decision --help", args[0], subcommandHint("decision", args[0]))
 }
 
 // challengeWrite is where this session's challenge write goes.

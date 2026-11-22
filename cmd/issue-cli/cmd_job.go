@@ -120,7 +120,7 @@ func runJob(ctx *Context, args []string) error {
 	case "auto":
 		return runJobAuto(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown job subcommand %q (due, run, auto)", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown job subcommand %q (due, run, auto)%s", args[0], subcommandHint("job", args[0]))}
 }
 
 // jobInput reads what an evaluation needs: the standing starts, mem-guard,
@@ -532,7 +532,11 @@ func runJobRun(ctx *Context, args []string) error {
 			return err
 		}
 		s := jobs.Evaluate1(proj, r, jobs.Runs(proj, issues, r.Key), in)
-		return startJobRun(ctx, r, issues, s.Period, rs, *dryRun)
+		period := s.Period
+		if period == "" { // before since:: the run is the first period's
+			period = r.Schedule.KeyAt(s.Next)
+		}
+		return startJobRun(ctx, r, issues, period, rs, *dryRun)
 	}
 	return startScheduledRun(ctx, r, issues, rs, *dryRun)
 }

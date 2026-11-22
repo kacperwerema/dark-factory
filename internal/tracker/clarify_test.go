@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -261,5 +262,46 @@ func TestAssumeOpenRecordsProvisionalDecisions(t *testing.T) {
 	}
 	if !strings.Contains(readBody(t, fp), `clarify round: Q1 Where does it go → Station, "On the Station" (replaces f/x#D-2)`) {
 		t.Fatalf("body:\n%s", readBody(t, fp))
+	}
+}
+
+// A round with format problems is refused before anything is recorded: the
+// answers and their D-n wait for the fixed round. A missing **Answer:** line
+// is no reason to refuse, assume writes it.
+func TestAssumeOpenRefusesFormatProblems(t *testing.T) {
+	fp := writeDecisionIssue(t, "## Clarify\n\n### Q1. A?\n1. **x** (recommended)\n2. **y** Cost: 2.\n**Answer:** —\n\n## Design\nText.")
+	before := readBody(t, fp)
+	got, err := AssumeOpen(fp, "f/x", AssumeInput{}, time.Now())
+	if !errors.Is(err, ErrClarifyFormat) || len(got) != 0 || !strings.Contains(err.Error(), "Q1: option 1 says no `Cost:`") {
+		t.Fatalf("assume = %+v, %v", got, err)
+	}
+	if readBody(t, fp) != before {
+		t.Fatalf("refused assume wrote:\n%s", readBody(t, fp))
+	}
+}
+
+// The round fixed by a rewrite puts `**Answer:** —` back; a second assume
+// reuses the provisional D-n of each unchanged question instead of
+// recording the same choice again. A changed question gets a new one.
+func TestAssumeOpenReusesTheDecisionOfAnUnchangedQuestion(t *testing.T) {
+	round := "## Clarify\n\n### Q1. A?\n1. **x** (recommended) Cost: 1.\n2. **y** Cost: 2.\n**Answer:** %s\n\n### Q2. B?\n1. **%s** (recommended) Cost: 1.\n2. **y** Cost: 2.\n**Answer:** %s\n"
+	fp := writeDecisionIssue(t, fmt.Sprintf(round, "—", "x", "—")+"\n## Decisions\n")
+	now := time.Date(2026, 11, 18, 9, 0, 0, 0, time.Local)
+	if _, err := AssumeOpen(fp, "f/x", AssumeInput{}, now); err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite the round: Q1 unchanged, Q2's recommendation now "z".
+	body := readBody(t, fp)
+	decs := body[strings.Index(body, "## Decisions"):]
+	if err := os.WriteFile(fp, []byte("---\ntitle: \"X\"\nstatus: \"idea\"\n---\n\n"+fmt.Sprintf(round, "—", "z", "—")+"\n"+decs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AssumeOpen(fp, "f/x", AssumeInput{}, now)
+	if err != nil || len(got) != 2 || got[0].Answer.Decision != "D-1" || got[1].Answer.Decision != "D-3" {
+		t.Fatalf("second assume = %+v, %v\n%s", got, err, readBody(t, fp))
+	}
+	body = readBody(t, fp)
+	if strings.Count(body, "Q1 A → x") != 1 || !strings.Contains(body, "- **D-3** · 2026-11-18 · clarify round, provisional: Q2 B → z") {
+		t.Fatalf("body:\n%s", body)
 	}
 }

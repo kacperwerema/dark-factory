@@ -7,10 +7,12 @@ import (
 	"unicode"
 )
 
-// A checkbox ref names one box in an issue body. Two forms are accepted:
+// A checkbox ref names one box in an issue body. Three forms are accepted:
 //
 //	short  D3, AC2, do1   section abbreviation + per-section index (case-insensitive)
 //	long   Design#3       section name + "#" + per-section index (case-insensitive)
+//	loose  2, #2, 2.      a box above any section heading, which has no id
+//	                      (checklist lists it as "2." under (no section))
 //
 // Section abbreviations are the uppercased initials of the heading's words
 // ("Acceptance Criteria" → "AC"). Sections claim abbreviations in the order
@@ -21,6 +23,7 @@ import (
 var (
 	shortRefRe = regexp.MustCompile(`^([A-Za-z]+)(\d+)$`)
 	longRefRe  = regexp.MustCompile(`^(.*\S)\s*#\s*(\d+)$`)
+	looseRefRe = regexp.MustCompile(`^#?\s*(\d+)\.?$`)
 )
 
 // RefStatus reports how a checkbox ref resolved against an issue's boxes.
@@ -43,6 +46,13 @@ func IsCheckboxRefShaped(s string) bool {
 	return shortRefRe.MatchString(s) || longRefRe.MatchString(s)
 }
 
+// IsLooseRefShaped reports whether s has the syntax of a loose-box ref
+// ("2", "#2", "2."). It is kept apart from IsCheckboxRefShaped, whose
+// callers (playtest step ids, proof steps) take letter-led ids only.
+func IsLooseRefShaped(s string) bool {
+	return looseRefRe.MatchString(strings.TrimSpace(s))
+}
+
 // ResolveCheckboxRef finds the box that ref names among items (as returned
 // by ListCheckboxes).
 func ResolveCheckboxRef(items []CheckboxItem, ref string) (CheckboxItem, RefStatus) {
@@ -52,15 +62,19 @@ func ResolveCheckboxRef(items []CheckboxItem, ref string) (CheckboxItem, RefStat
 	if m := shortRefRe.FindStringSubmatch(ref); m != nil {
 		index, _ = strconv.Atoi(m[2])
 		match = func(it CheckboxItem) bool { return strings.EqualFold(idPrefix(it.ID), m[1]) }
+	} else if m := looseRefRe.FindStringSubmatch(ref); m != nil {
+		index, _ = strconv.Atoi(m[1])
+		match = func(it CheckboxItem) bool { return it.Section == "" }
 	} else if m := longRefRe.FindStringSubmatch(ref); m != nil {
 		index, _ = strconv.Atoi(m[2])
+		// An id-less section ("## 2026") is reached by its long form too.
 		match = func(it CheckboxItem) bool { return it.Section != "" && strings.EqualFold(it.Section, m[1]) }
 	} else {
 		return CheckboxItem{}, RefNotARef
 	}
 	known := false
 	for _, it := range items {
-		if it.ID == "" || !match(it) {
+		if !match(it) {
 			continue
 		}
 		known = true

@@ -144,7 +144,8 @@ func printBriefMemories(w io.Writer, ctx *Context, b *dispatchBrief, issue *trac
 	pins, rest := memory.SplitPins(mems, pinLimit, pinChars)
 	at, rest := memory.ForStage(rest, issue.Status, scores, ctx.now(), statusMemoryLimit, statusMemoryChars)
 	ranker, _ := memoryRankerScored(ctx, scores)
-	shown := append(append([]memory.Memory{}, pins.Shown...), at.Shown...)
+	tagged, _, rest := workTagged(ctx, issue, rest, idSet(at.Shown))
+	shown := append(append(append([]memory.Memory{}, pins.Shown...), at.Shown...), tagged.Shown...)
 	for _, h := range ranker.Rank(issueQuery(ctx.Project, issue, startMemoryLimit), rest) {
 		shown = append(shown, h.Memory)
 	}

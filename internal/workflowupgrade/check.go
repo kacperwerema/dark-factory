@@ -98,8 +98,9 @@ type CheckReport struct {
 	Templates   []CheckTemplate `json:"templates"`
 	BadTrailers []BadTrailer    `json:"bad_trailers"`
 	// Problems are the catalog's own mistakes at the head, each with its
-	// fix: CatalogProblems, and a bundled template whose features: record
-	// isn't what a scan records (RecordDrift).
+	// fix: CatalogProblems, a workflow.yaml key no entry detects or teaches
+	// (KeyProblems), and a bundled template whose features: record isn't
+	// what a scan records (RecordDrift).
 	Problems []string `json:"problems"`
 }
 
@@ -212,6 +213,11 @@ func CheckBranch(b Branch, lastRelease string) (*CheckReport, error) {
 		files = b.HeadFiles()
 	}
 	rep.Problems = append(rep.Problems, CatalogProblems(entries, files, b.Head)...)
+	keys, err := KeyProblems(entries, trackerSources(b))
+	if err != nil {
+		return nil, err
+	}
+	rep.Problems = append(rep.Problems, keys...)
 	if b.HeadDir != nil {
 		for _, f := range b.HeadDir(TemplatesPath) {
 			if path.Ext(f) != ".yaml" {

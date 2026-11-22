@@ -50,7 +50,7 @@ func (r releaseRepo) land(t *testing.T, slug, file, text, changelogLine string) 
 		write(t, filepath.Join(r.root, "CHANGELOG.md"), s)
 	}
 	run(t, r.root, "git", "add", ".")
-	run(t, r.root, "git", "commit", "-q", "-m", "fix: "+slug+" per D-3")
+	run(t, r.root, "git", "commit", "-q", "-m", agentMsg("fix: "+slug+" per D-3", slug))
 	run(t, r.root, "git", "checkout", "-q", "main")
 	run(t, r.root, "git", "merge", "-q", "--ff-only", "work/"+slug)
 }

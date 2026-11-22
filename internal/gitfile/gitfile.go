@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // mu keeps two commits from interleaving their write and commit.
@@ -159,7 +160,7 @@ func RealPath(p string) string {
 
 // WriteAtomic writes data to path through a temp file and a rename.
 func WriteAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), TempPattern(".", filepath.Base(path)))
 	if err != nil {
 		return err
 	}
@@ -192,4 +193,29 @@ func Tracked(file string) bool {
 	}
 	out, err := Git(top, "ls-files", "--", rel)
 	return err == nil && out != ""
+}
+
+// nameMax is the longest file name (one path element, in bytes) the file
+// systems we run on take: NAME_MAX on Linux and macOS.
+const nameMax = 255
+
+// tempRandMax is the most bytes os.CreateTemp puts for the "*" of a pattern
+// (a uint32 in decimal).
+const tempRandMax = 10
+
+// TempPattern is the os.CreateTemp pattern for a temp file beside a file
+// named base: prefix + base + ".tmp-*", with base cut (on a rune boundary)
+// so the temp name stays within 255 bytes. An issue whose file name is long
+// still has a stats sidecar that fits, while its temp name would not.
+func TempPattern(prefix, base string) string {
+	const suffix = ".tmp-"
+	room := nameMax - tempRandMax - len(prefix) - len(suffix)
+	if len(base) > room {
+		cut := room
+		for cut > 0 && !utf8.RuneStart(base[cut]) {
+			cut--
+		}
+		base = base[:cut]
+	}
+	return prefix + base + suffix + "*"
 }

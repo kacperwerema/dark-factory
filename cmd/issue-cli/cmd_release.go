@@ -38,9 +38,12 @@ Subcommands:
       A patch (v0.N.1) tags v0.N.1-rc.K on the existing release/v0.N, with no
       milestone check, once go build and go vet pass in its worktree.
   pick [--release <version>] <slug|sha>...
-      Cherry-picks (with -x) an issue's commits (work/<slug>, or for a done issue
-      the commits on main with Refs: <slug>) or a commit onto the release branch,
-      in its worktree. A conflict names the commit and files and leaves the
+      Cherry-picks (with -x) an issue's commits or a commit onto the release
+      branch, in its worktree. An issue's commits are the non-merge commits on
+      main with a Refs: <slug> line (any paragraph), or before it lands those
+      of main..work/<slug>; guided check scripts (only scripts/checks/) and
+      their drop are skipped. It prints each slug's list first and refuses,
+      naming them, when it holds a commit that is not the issue's. A conflict names the commit and files and leaves the
       branch as it was; the branch's ## Unreleased gets only the picked lines.
       Then go build and go vet run there. Fixes land on main first; nothing is
       fixed on the branch itself. A pick after the newest candidate needs the
@@ -379,7 +382,7 @@ func runReleasePick(ctx *Context, args []string) error {
 	if err := unsupportedRelease(root, "picking onto", cut, true); err != nil {
 		return err
 	}
-	res, err := privacy.Pick(root, cut, fs.Args(), privacy.PickOptions{Changelog: ctx.Project.LoadWorkflow().Workbench.Changelog})
+	res, err := privacy.Pick(root, cut, fs.Args(), privacy.PickOptions{Changelog: ctx.Project.LoadWorkflow().Workbench.Changelog, Out: ctx.Stdout})
 	if err != nil {
 		return err
 	}

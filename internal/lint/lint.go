@@ -66,10 +66,11 @@ var checks = []Check{
 	{"owner-only", "steps that spend or publish (publish/launch/send statuses, sends: connectors) behind a gate YOLO may pass: no owner_only", checkOwnerOnly},
 	{"na-boxes", "ticked N/A boxes on open issues whose reason is not in a named form (issue-cli check --help), or that sit on the owner's box", checkNABoxes},
 	{"owner-marker", "open acceptance criteria that read like the owner's check (\"the owner confirms …\") without the (owner) marker", checkOwnerMarker},
+	{"after-install", "open issues' Test Plan lines opening with \"After install\" or \"Live:\" that no `after install:` acceptance criterion carries: prose nobody runs; the fix is the criterion", checkAfterInstall},
 	{"show-footer", "issue sections holding issue-cli show's own output (== Checklist ==, the tick hints, == Comments ==), pasted when a section is rebuilt from show; quotes in code spans and fences don't count", checkShowFooter},
 	{"criteria", "open acceptance criteria no test, command or playtest step could fail (\"it works\", \"is clear\"), and a ## Must not left as the template's placeholder; owner boxes and types whose path skips testing (report, docs, chore) are exempt from the test ask", checkCriteria},
 	{"types", "open docs-type issues whose ## Wanted or open acceptance criteria name a test, a package or a .go path: work the docs path has no Test Plan for", checkTypes},
-	{"reports", "issues past a has_output gate (the report type) whose output is gone from the shelf: never added, file deleted, or rejected and not replaced; done reports whose Follow-ups no issue or queue item quotes", checkReports},
+	{"reports", "issues past a has_output gate (the report type) whose output is gone from the shelf: never added, file deleted, or rejected and not replaced; done reports whose Follow-ups no issue or queue item quotes; reports citing vendor prices or API fields with no source URL and no UNVERIFIED list", checkReports},
 	{"routing", "routing: rules that pick the agent CLI (claude, codex): agents not installed or not command names, unknown types, statuses or departments, rules after a catch-all, a fallback that repeats or leaves out the default", checkRouting},
 	{"workers", "workers: settings a worker launch can't use: setup: other than lean or full, an mcp: item with no server or a server the owner's Claude Code config does not define, a type the file does not define, a plugin that is not name@marketplace", checkWorkers},
 	{"memory", "memory: embedder: settings search can't use: both or neither of url and command, a URL that leaves this machine (hosted is the owner's gate), no model, a bad timeout or min_similarity; memories whose --at names a status no workflow has; a cluster of 3+ memories retelling one fact; a pitfall or howto that names a step with no --at", checkMemory},
@@ -88,7 +89,7 @@ var checks = []Check{
 // boardChecks read the board or the repository, not only a workflow file:
 // they run once. The other checks run on Product's file and again on each
 // department's own (workbench: is project-wide, so paths runs on Product's).
-var boardChecks = map[string]bool{"rules": true, "undated": true, "na-boxes": true, "owner-marker": true, "show-footer": true, "criteria": true, "types": true, "reports": true, "department": true, "departments": true, "untracked": true, "paths": true, "contexts": true, "testids": true, "decisions": true, "shas": true, "worktrees": true, "goal-without-work": true, "roadmap-behind": true}
+var boardChecks = map[string]bool{"rules": true, "undated": true, "na-boxes": true, "owner-marker": true, "after-install": true, "show-footer": true, "criteria": true, "types": true, "reports": true, "department": true, "departments": true, "untracked": true, "paths": true, "contexts": true, "testids": true, "decisions": true, "shas": true, "worktrees": true, "goal-without-work": true, "roadmap-behind": true}
 
 // Checks lists every check in run order.
 func Checks() []Check { return append([]Check(nil), checks...) }

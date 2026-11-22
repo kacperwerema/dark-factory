@@ -222,6 +222,12 @@ The briefing text handles it without an engine marker:
   criteria name a check. The lead runs each landed one and posts `tests: after install of <version>: AC4 pass|fail`
   on the issue; a failure is a bugfix issue, a measure-after window a queue item or a job due at T1.
 
+Two things keep such a check from staying prose. Lint check `after-install` (and `issue-cli transition` on the move
+into shipping) warns on a Test Plan line opening with "After install" or "Live:" that names no `after install:`
+criterion, with the `check-add` fix. And a change to a guard the installed issue-cli runs (the commit-msg hook, the
+pre-push guard, the leak scan) needs no criterion at all: once the installed build holds the commit, `lead tick` says
+it in one `after install:` line with the guard's live check and the comment to post (queue sweep 2026-11-21, C6).
+
 A criterion that only the lead can run before landing (a check script the worker guard refuses) is the lead link
 above, not this. An engine-read `(after landing)` marker that the gate and the lead's tick know is the owner's
 experiment (post-mortem 2026-11-20 A4). Source: the retro sweep 2026-11-20, N3.

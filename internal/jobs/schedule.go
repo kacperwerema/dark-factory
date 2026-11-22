@@ -26,6 +26,9 @@ type Schedule struct {
 	Day    int
 	Hour   int
 	Minute int
+	// Since is the job's since: day at midnight, local: a period due
+	// before it is not due. Zero: no first day.
+	Since time.Time
 }
 
 var weekdays = map[string]time.Weekday{
@@ -76,6 +79,13 @@ func Parse(j tracker.Job) (Schedule, error) {
 			return s, fmt.Errorf("at: %q: a local time like 07:00", j.At)
 		}
 		s.Hour, s.Minute = t.Hour(), t.Minute()
+	}
+	if since := strings.TrimSpace(j.Since); since != "" {
+		t, err := time.ParseInLocation("2006-01-02", since, time.Local)
+		if err != nil {
+			return s, fmt.Errorf("since: %q: a day like 2026-11-21", j.Since)
+		}
+		s.Since = t
 	}
 	return s, nil
 }
@@ -141,15 +151,26 @@ func (s Schedule) Key(start time.Time) string {
 	return period.DayKey(start)
 }
 
+// before is a period whose due time comes before the job's since: day.
+func (s Schedule) before(start time.Time) bool {
+	return !s.Since.IsZero() && s.dueAt(start).Before(s.Since)
+}
+
 // Latest is the newest period whose run is due by now: its key and when it
-// was due.
+// was due. Before the job's first period (since:) there is none: "".
 func (s Schedule) Latest(now time.Time) (key string, due time.Time) {
 	start := s.periodStart(now)
 	if s.dueAt(start).After(now) {
 		start = s.prev(start)
 	}
+	if s.before(start) {
+		return "", time.Time{}
+	}
 	return s.Key(start), s.dueAt(start)
 }
+
+// KeyAt is the run key of the period holding t.
+func (s Schedule) KeyAt(t time.Time) string { return s.Key(s.periodStart(t)) }
 
 // PrevDue is when the run before the latest due one was due: a value that
 // run's job wrote before that day means a whole run was missed since
@@ -162,17 +183,26 @@ func (s Schedule) PrevDue(now time.Time) time.Time {
 	return s.dueAt(s.prev(start))
 }
 
-// Next is when the first run after now is due.
+// Next is when the first run after now is due, on or after since:.
 func (s Schedule) Next(now time.Time) time.Time {
 	start := s.periodStart(now)
-	if d := s.dueAt(start); d.After(now) {
-		return d
+	if !s.dueAt(start).After(now) {
+		start = s.next(start)
 	}
-	return s.dueAt(s.next(start))
+	if !s.Since.IsZero() && s.Since.After(now) {
+		if f := s.periodStart(s.Since); f.After(start) {
+			start = f
+		}
+		if s.before(start) {
+			start = s.next(start)
+		}
+	}
+	return s.dueAt(start)
 }
 
 // Missed counts the periods between last's key and now's latest, both
-// excluded: the runs nobody made. last "" (never ran) misses none.
+// excluded: the runs nobody made. last "" (never ran) misses none, nor
+// does a period before since:.
 func (s Schedule) Missed(last string, now time.Time) int {
 	if last == "" {
 		return 0
@@ -184,7 +214,7 @@ func (s Schedule) Missed(last string, now time.Time) int {
 	n := 0
 	for i := 0; i < 400; i++ {
 		start = s.prev(start)
-		if k := s.Key(start); k <= last {
+		if k := s.Key(start); k <= last || s.before(start) {
 			return n
 		}
 		n++

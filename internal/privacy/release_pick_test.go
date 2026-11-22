@@ -253,9 +253,9 @@ func TestPatchReleaseCutPickPublish(t *testing.T) {
 
 // The v0.60.1 sequence: publish commits "vX is published" on main (only
 // the changelog: a released heading, no ## Unreleased line), the fix's
-// work branch is cut from main after it, and pick by slug lists every
-// commit of that branch the release lacks. Publish's move is skipped, so
-// the branch keeps one ## v0.54.0 heading and the patch publishes.
+// work branch is cut from main after it, and a pick names the move by sha
+// beside the slug (the slug alone no longer lists it). Publish's move is
+// skipped, so the branch keeps one ## v0.54.0 heading and the patch publishes.
 func TestPickSkipsPublishsChangelogMove(t *testing.T) {
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
@@ -275,7 +275,7 @@ func TestPickSkipsPublishsChangelogMove(t *testing.T) {
 	}
 	r.land(t, "ui/patch", "patch.go", "package main // patch\n", "- fix P")
 
-	res, err := Pick(r.root, "v0.54.1", []string{"ui/patch"}, PickOptions{})
+	res, err := Pick(r.root, "v0.54.1", []string{gitdir.ShortSHA(moved), "ui/patch"}, PickOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,4 +456,157 @@ func readFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// workBranchWithMainMerge makes work/ui/fix as a run leaves it: its own
+// fix (landed on main with Refs: ui/fix), a guided-check commit dropped
+// before the merge to main, and a merge of main carrying another issue's
+// commit. It returns the fix's commit on main.
+func (r releaseRepo) workBranchWithMainMerge(t *testing.T) string {
+	t.Helper()
+	run(t, r.root, "git", "checkout", "-q", "-b", "work/ui/fix")
+	r.commitMain(t, "check.sh", "echo check\n", "", "test(checks): guided check\n\nRefs: ui/fix")
+	run(t, r.root, "git", "checkout", "-q", "main")
+	r.commitMain(t, "other.go", "package main // other\n", "", "feat: other\n\nRefs: ui/other")
+	run(t, r.root, "git", "checkout", "-q", "work/ui/fix")
+	run(t, r.root, "git", "merge", "-q", "--no-ff", "main", "-m", "chore(merge): main into ui/fix")
+	run(t, r.root, "git", "checkout", "-q", "main")
+	return r.commitMain(t, "fix.go", "package main // fix\n", "", "fix: the fix\n\nRefs: ui/fix")
+}
+
+// A done issue whose work branch merged main (another issue's commit on
+// it) and kept a check commit main never got: pick takes only the issue's
+// Refs: commits on main, not the work branch, and the check then counts
+// nothing unpicked.
+func TestPickPrefersRefsOnMainOverAWorkBranch(t *testing.T) {
+	r, wt := pickRepo(t)
+	fix := r.workBranchWithMainMerge(t)
+	before, err := UnpickedIssues(r.root, "release/v0.54", "main", []string{"ui/fix"})
+	if err != nil || strings.Join(before["ui/fix"], " ") != fix {
+		t.Fatalf("before the pick, unpicked = %v, %v; want only %s", before, err, fix)
+	}
+	res, err := Pick(r.root, "v0.54.0", []string{"ui/fix"}, PickOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(res.Picked, " "); got != gitdir.ShortSHA(fix) {
+		t.Errorf("picked %q, want only the Refs commit %s", got, gitdir.ShortSHA(fix))
+	}
+	for _, f := range []string{"other.go", "check.sh"} {
+		if _, err := os.Stat(filepath.Join(wt, f)); err == nil {
+			t.Errorf("%s reached the release branch from work/ui/fix", f)
+		}
+	}
+	after, err := UnpickedIssues(r.root, "release/v0.54", "main", []string{"ui/fix"})
+	if err != nil || len(after["ui/fix"]) != 0 {
+		t.Errorf("after the pick, unpicked = %v, %v; want none", after, err)
+	}
+	if _, ok := after["ui/fix"]; !ok {
+		t.Error("a found issue with nothing left to pick is missing from the map")
+	}
+}
+
+// Without a Refs: commit on main, the work branch is still read.
+func TestUnpickedIssuesFallsBackToTheWorkBranch(t *testing.T) {
+	r, _ := pickRepo(t)
+	run(t, r.root, "git", "checkout", "-q", "-b", "work/ui/wip")
+	wip := r.commitMain(t, "wip.go", "package main // wip\n", "", "fix: wip")
+	run(t, r.root, "git", "checkout", "-q", "main")
+	got, err := UnpickedIssues(r.root, "release/v0.54", "main", []string{"ui/wip", "ui/none"})
+	if err != nil || strings.Join(got["ui/wip"], " ") != wip {
+		t.Errorf("unpicked = %v, %v; want work/ui/wip's %s", got, err, wip)
+	}
+	if _, ok := got["ui/none"]; ok {
+		t.Errorf("a slug with neither Refs commits nor a branch is in the map: %v", got)
+	}
+}
+
+// agentMsg is a commit message as agents write it: the Refs: line in its
+// own paragraph before Co-Authored-By, so git's %(trailers) (the last
+// paragraph only) never sees it.
+func agentMsg(subject, slug string) string {
+	return subject + "\n\nWhy it changed.\n\nRefs: " + slug + "\n\nCo-Authored-By: Agent <agent@example.com>"
+}
+
+// agentWorkBranch is work/ui/fix with the issue's two commits, a guided
+// check script and its drop (all naming the slug as agents write it), and
+// a merge of main that brought two other issues' commits onto it.
+func (r releaseRepo) agentWorkBranch(t *testing.T) (own []string) {
+	t.Helper()
+	run(t, r.root, "git", "checkout", "-q", "-b", "work/ui/fix")
+	own = append(own, r.commitMain(t, "fix.go", "package main // fix\n", "", agentMsg("fix: the fix", "ui/fix")))
+	r.commitMain(t, "scripts/checks/fix-repro.sh", "echo check\n", "", agentMsg("test(checks): guided check", "ui/fix"))
+	run(t, r.root, "git", "checkout", "-q", "main")
+	r.commitMain(t, "other.go", "package main // other\n", "", agentMsg("feat: other", "ui/other"))
+	r.commitMain(t, "more.go", "package main // more\n", "", agentMsg("feat: more", "ui/more"))
+	run(t, r.root, "git", "checkout", "-q", "work/ui/fix")
+	run(t, r.root, "git", "merge", "-q", "--no-ff", "main", "-m", "chore(merge): main into ui/fix")
+	own = append(own, r.commitMain(t, "fix_test.go", "package main // test\n", "", agentMsg("test: the fix's test", "ui/fix")))
+	run(t, r.root, "git", "rm", "-q", "scripts/checks/fix-repro.sh")
+	run(t, r.root, "git", "commit", "-q", "-m", agentMsg("chore(checks): drop the check script before the merge", "ui/fix"))
+	run(t, r.root, "git", "checkout", "-q", "main")
+	return own
+}
+
+func shortJoin(shas []string) string {
+	var out []string
+	for _, s := range shas {
+		out = append(out, gitdir.ShortSHA(s))
+	}
+	return strings.Join(out, " ")
+}
+
+// A work branch that merged main with two other issues' commits, its
+// Refs: lines in their own paragraph: pick <slug> picks only the slug's 2
+// commits, before the issue lands (from work/<slug>) and after (from main,
+// the work branch still there), never the merge, main's commits or the
+// guided check script and its drop.
+func TestPickTakesOnlyTheSlugsCommitsFromAWorkBranchThatMergedMain(t *testing.T) {
+	for _, landed := range []bool{false, true} {
+		name := "before landing"
+		if landed {
+			name = "landed, work branch kept"
+		}
+		t.Run(name, func(t *testing.T) {
+			r, wt := pickRepo(t)
+			own := r.agentWorkBranch(t)
+			if landed {
+				run(t, r.root, "git", "merge", "-q", "--ff-only", "work/ui/fix")
+			}
+			var out strings.Builder
+			res, err := Pick(r.root, "v0.54.0", []string{"ui/fix"}, PickOptions{Out: &out})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := strings.Join(res.Picked, " "), shortJoin(own); got != want {
+				t.Errorf("picked %q, want only the slug's 2 commits %q", got, want)
+			}
+			for _, f := range []string{"other.go", "more.go", "scripts/checks/fix-repro.sh"} {
+				if _, err := os.Stat(filepath.Join(wt, f)); err == nil {
+					t.Errorf("%s reached the release branch", f)
+				}
+			}
+			for _, s := range own {
+				if !strings.Contains(out.String(), gitdir.ShortSHA(s)) {
+					t.Errorf("the list before the pick lacks %s:\n%s", gitdir.ShortSHA(s), out.String())
+				}
+			}
+		})
+	}
+}
+
+// A commit asked for under a slug that does not name it is refused before
+// anything is picked, by sha.
+func TestPickRefusesACommitThatDoesNotNameTheSlug(t *testing.T) {
+	r, _ := pickRepo(t)
+	fix := r.commitMain(t, "fix.go", "package main // fix\n", "", agentMsg("fix: the fix", "ui/fix"))
+	other := r.commitMain(t, "other.go", "package main // other\n", "", agentMsg("feat: other", "ui/other"))
+	extras := foreignCommits(r.root, "main", "ui/fix", []string{fix, other})
+	if strings.Join(extras, " ") != other {
+		t.Errorf("extras = %v, want only %s", extras, other)
+	}
+	err := refuseForeign(r.root, "main", "ui/fix", []string{fix, other})
+	if err == nil || !strings.Contains(err.Error(), gitdir.ShortSHA(other)) || !strings.Contains(err.Error(), "feat: other") {
+		t.Errorf("refusal = %v, want it to name %s and its subject", err, gitdir.ShortSHA(other))
+	}
 }

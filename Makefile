@@ -169,7 +169,9 @@ codemap-check:
 
 # The repo-wide guard tests (scripts/guard-tests.txt: a docs table listing
 # every command, every lint check in the docs, doc numbers that agree...) run
-# on their own, so a missing docs line shows in about a minute.
+# on their own, so a missing docs line shows in seconds; each failing one gets
+# its rule from docs/testing.md's Guard tests table, and the commit-msg hook
+# names this step at a branch's first commit touching cmd/ or internal/.
 # TestGuardCheckListsEveryGuardTest keeps the list whole: a TestEvery*,
 # Test*ListedInDocs or TestDocNumbers* test missing from it, or a listed name
 # no package has, fails. In validate with test among its steps they run here

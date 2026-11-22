@@ -78,7 +78,7 @@ func runWorkflow(ctx *Context, args []string) error {
 	case "commit-msg":
 		return runCommitMsg(ctx, rest)
 	default:
-		return fmt.Errorf("unknown workflow subcommand: %s\n\n%s", sub, workflowUsage)
+		return fmt.Errorf("unknown workflow subcommand: %s%s\n\n%s", sub, subcommandHint("workflow", sub), workflowUsage)
 	}
 }
 

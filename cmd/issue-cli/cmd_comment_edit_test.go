@@ -93,3 +93,62 @@ func TestCommentEditOwnLatestOnly(t *testing.T) {
 		t.Fatalf("no session: %v", err)
 	}
 }
+
+// A transition writes the yolo-owner-check: and stage: comments under the
+// worker's name; --amend skips them and amends the worker's own comment.
+func TestCommentAmendSkipsEngineWrittenComments(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "in progress")
+	me := "agent-calc-other"
+	for _, text := range []string{
+		"tests: 44a branch",
+		tracker.StageMarkComment("testing"),
+		tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: "AC2", Why: "owner box", Text: "the owner tries it", From: "testing"}),
+	} {
+		if err := tracker.AddCommentBy(issuePath, 0, text, "cli", me); err != nil {
+			t.Fatal(err)
+		}
+	}
+	asWorker(t)
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runComment(ctx, []string{slug, "--amend", "--text", "tests: 44 on the branch"}); err != nil {
+		t.Fatalf("--amend after a yolo-owner-check comment: %v", err)
+	}
+	assertContains(t, stdout.String(), "✓ Comment #1 on "+slug+" edited by "+me)
+	comments, _ := tracker.LoadComments(issuePath)
+	if comments[0].Text != "tests: 44 on the branch" {
+		t.Fatalf("the worker's comment: %+v", comments[0])
+	}
+	for _, c := range comments[1:] {
+		if len(c.Edits) != 0 {
+			t.Fatalf("an engine-written comment was edited: %+v", c)
+		}
+	}
+
+	// The worker's comment by id, older than the engine's: still its latest own.
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runComment(ctx, []string{"edit", slug, "1", "--text", "tests: 45 on the branch"}); err != nil {
+		t.Fatalf("edit by id under an engine comment: %v", err)
+	}
+
+	// Only engine-written comments of its own: --amend says there is none.
+	proj2, slug2, path2 := makeSimpleProject(t, "in progress")
+	for _, text := range []string{
+		tracker.StageMarkComment("testing"),
+		tracker.YOLOOwnerCheckComment(tracker.YOLOOwnerCheck{ID: "AC2", Why: "owner box", Text: "x", From: "testing"}),
+	} {
+		if err := tracker.AddCommentBy(path2, 0, text, "cli", me); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := readFile(t, path2)
+	ctx, _, _ = newTestContext(proj2, false)
+	err := runComment(ctx, []string{slug2, "--amend", "--text", "tests: 1"})
+	if err == nil {
+		t.Fatal("--amend with only engine-written comments: want a refusal")
+	}
+	assertContains(t, err.Error(), me+" has no comment of its own on "+slug2+" to edit")
+	assertContains(t, err.Error(), "#1 stage:, #2 yolo-owner-check:")
+	if readFile(t, path2) != before {
+		t.Fatal("a refused amend changed the file")
+	}
+}

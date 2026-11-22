@@ -32,7 +32,8 @@ it with the fix when a line marks or links nothing:
                                         package path, no playtest step (steps
                                         prove through proves: in their session)
 A Catalog: n/a line recorded with issue-cli workflow catalog-na goes into
-an accepted message, and the record is dropped.
+an accepted message, and the record is dropped; the hook script adds it
+itself when the issue-cli it runs is older than catalog-na.
 It refuses a commit whose staged lines hold a key, or that adds or changes
 an env file (.env, .env.*; .env.example passes): file:line and the kind,
 never the value (docs/departments.md#secrets).
@@ -45,6 +46,8 @@ accepted message gets a note with the Refs: <slug> line until one commit on
 the branch references the issue. In a session dispatched for that issue
 (ISSUE_VIEWER_ISSUE_SLUG) the hook adds the line to the message itself
 instead, and says so; a merge commit is left as it is.
+In a checkout with make guard-check (scripts/guard-check.sh), a branch's
+first commit that touches cmd/ or internal/ gets a note to run it now.
 --install writes the repository's commit-msg hook (core.hooksPath, else the
 common .git/hooks every worktree shares); an existing hook is kept as
 commit-msg.local and runs first.`
@@ -52,14 +55,32 @@ commit-msg.local and runs first.`
 // commitMsgMarker tells our commit-msg hook from someone else's.
 const commitMsgMarker = "# issue-cli commit-msg check"
 
+// commitMsgAddsNA is in a hook that adds a recorded Catalog: n/a line
+// itself when the issue-cli it runs didn't (one older than catalog-na):
+// catalog-na checks for it before promising the next commit gets the line.
+const commitMsgAddsNA = "add_recorded_na"
+
 const commitMsgScript = `#!/bin/sh
 ` + commitMsgMarker + ` (issue-cli workflow commit-msg --install, or make hooks)
 here=$(dirname "$0")
+# A Catalog: n/a line issue-cli workflow catalog-na recorded, and the
+# issue-cli below didn't add (one older than catalog-na, or none on PATH),
+# goes into the message here, and the record is dropped.
+` + commitMsgAddsNA + `() {
+	na=$(git rev-parse --git-path ` + catalogNAFile + ` 2>/dev/null) || return 0
+	[ -s "$na" ] || return 0
+	v=$(sed -n '1p' "$na")
+	[ -n "$v" ] || return 0
+	git interpret-trailers --in-place --if-exists addIfDifferent --trailer "Catalog: $v" "$1" || return 0
+	rm -f "$na"
+	echo "note: added Catalog: $v to the message (recorded with issue-cli workflow catalog-na; the issue-cli on PATH didn't add it: make install)" >&2
+}
 if [ -x "$here/commit-msg.local" ]; then
 	"$here/commit-msg.local" "$@" || exit $?
 fi
 if ! command -v issue-cli >/dev/null 2>&1; then
 	echo "commit-msg: issue-cli is not on PATH: Catalog: and Proves: lines not checked" >&2
+	` + commitMsgAddsNA + ` "$1"
 	exit 0
 fi
 out=$(issue-cli workflow commit-msg "$1" 2>&1)
@@ -67,9 +88,11 @@ code=$?
 case "$out" in
 *"unknown workflow subcommand"*)
 	echo "commit-msg: the installed issue-cli is older than this check (make install): Catalog: and Proves: lines not checked" >&2
+	` + commitMsgAddsNA + ` "$1"
 	exit 0 ;;
 esac
 [ -n "$out" ] && printf '%s\n' "$out" >&2
+[ "$code" -eq 0 ] && ` + commitMsgAddsNA + ` "$1"
 exit $code
 `
 
@@ -134,6 +157,11 @@ func runCommitMsg(ctx *Context, args []string) error {
 		}
 		for _, n := range CommitMsgNotes(msg, slug, noCriteria) {
 			fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
+		}
+		if rootErr == nil {
+			if n := guardCheckHint(root); n != "" {
+				fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
+			}
 		}
 		if issue != nil && needsRefsLine(root, proj, issue, msg) {
 			if addRefsLine(root, fs.Arg(0), issue.Slug) {
@@ -242,6 +270,42 @@ func addRefsLine(root, file, slug string) bool {
 	}
 	_, err = catalogGit(root, "interpret-trailers", "--in-place", "--if-exists", "addIfDifferent", "--trailer", proof.RefsKey+": "+slug, abs)
 	return err == nil
+}
+
+// guardCheckHint names make guard-check on a branch's first commit that
+// touches cmd/ or internal/, in a checkout that has the step
+// (scripts/guard-check.sh): the guard tests teach their rules in seconds
+// there, not first at make validate. Nothing on main itself, a detached
+// HEAD, a merge, a branch with no main to count from, or a branch whose
+// earlier commits already touched that code.
+func guardCheckHint(root string) string {
+	if _, err := os.Stat(filepath.Join(root, "scripts", "guard-check.sh")); err != nil {
+		return ""
+	}
+	branch, err := catalogGit(root, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil || branch == "HEAD" || branch == "main" || branch == "master" {
+		return ""
+	}
+	if _, err := catalogGit(root, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+		return ""
+	}
+	if staged, err := catalogGit(root, "diff", "--cached", "--name-only", "--", "cmd", "internal"); err != nil || staged == "" {
+		return ""
+	}
+	base := ""
+	for _, ref := range []string{"main", "origin/main"} {
+		if _, err := catalogGit(root, "rev-parse", "-q", "--verify", ref+"^{commit}"); err == nil {
+			base = ref
+			break
+		}
+	}
+	if base == "" {
+		return ""
+	}
+	if earlier, err := catalogGit(root, "rev-list", "-1", base+"..HEAD", "--", "cmd", "internal"); err != nil || earlier != "" {
+		return ""
+	}
+	return "the first commit on " + branch + " that touches cmd/ or internal/: run `make guard-check` now (the guard tests alone, about 10 s; each failure names its rule and its docs/testing.md line), not first at make validate"
 }
 
 // refsHint gives the line to add. Amending is safe here: the commit was

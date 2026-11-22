@@ -36,7 +36,7 @@ var FactoryTmp = []TmpName{
 	{Prefix: "dark-factory-cover-", Suffix: ".out"}, {Prefix: "dark-factory-cover-", Suffix: ".guard.out"},
 	{Prefix: "dark-factory-cover-", Suffix: ".guard.out.merged"},
 	{Prefix: "issue-cli-help-"}, {Prefix: "issue-cli-introspect-"}, {Prefix: "issue-cli-test-xdg-"},
-	{Prefix: "issue-viewer-test-xdg-"}, {Prefix: "agentrun-test-xdg-"},
+	{Prefix: "issue-viewer-test-xdg-"}, {Prefix: "agentrun-test-xdg-"}, {Prefix: "lint-test-xdg-"},
 	{Prefix: "prove-run-results-"}, {Prefix: "check-script-"}, {Prefix: "experiment-revert-"},
 	{Prefix: "awe-bench-verify-"},
 	{Prefix: "issue-nudge-", Suffix: ".txt"}, {Prefix: "issue-approval-", Suffix: ".txt"},

@@ -24,14 +24,15 @@ the issue under == Memories ==.
              [--scope project|lead|department|agent|machine] [--issue <slug>]
              [--commit <sha>] [--comment N] [--tag a,b] [--system S]
              [--expires YYYY-MM-DD] [--at <status>] [--links id,id]
-             [--suggest-pin] [--updates <id> [--yes] | --supersedes <id>[,<id>] | --new]
+             [--suggest-pin] [--updates <id> [--yes] | --supersedes <id>[,<id>] | --new|--force]
       Store a fact of at most 500 characters. The update step: the same
-      fact again changes nothing; a near-duplicate is refused with the
-      similar memories, and you decide: --updates <id> (better wording of
+      fact again changes nothing; a near-duplicate (half its words the
+      same, or 65% of the shorter one's in the other, in one scope) is
+      refused with the similar memories, and you decide: --updates <id> (better wording of
       the same fact: it replaces the whole text, and a text sharing under
       a third of its words is refused with the old text unless --yes),
       --supersedes <id> (it is no longer true; yours replaces it, the old
-      one stays in history as invalid) or --new (a different fact). The source is your own issue when you are a worker.
+      one stays in history as invalid) or --new, also --force (a different fact). The source is your own issue when you are a worker.
       Scope: a department's agents write to their department by default,
       others to the project; agent is your own notebook; lead is for every
       lead and no worker but the lead flush's, which reads it and only a
@@ -44,6 +45,9 @@ the issue under == Memories ==.
       prints it to whoever enters that status, whatever the issue is about
       (at most 3 memories and 600 characters; a pinned one stays in the
       briefing), and start prints it while the issue is there.
+      --tag template: an issue at in progress that changes or names a
+      file under cmd/issue-cli/templates/ gets it in start, its stage
+      briefing and the transition (at most 3 and 900 characters).
   memory search <words...|#topic|@name> [--kind K] [--scope S] [--tag T] [--system S] [--at <status>] [--all] [--limit N]
       The memories you can see, best match first (BM25). A #topic or
       @name in the query is a filter: only memories that carry it (in
@@ -260,13 +264,14 @@ func runMemoryAdd(ctx *Context, args []string) error {
 	updates := fs.String("updates", "", "UPDATE: replace this memory's text (the same fact, better worded)")
 	supersedes := fs.String("supersedes", "", "SUPERSEDE: these memories (id or id,id) are no longer true or are merged; yours replaces them")
 	isNew := fs.Bool("new", false, "ADD even though similar memories exist")
+	force := fs.Bool("force", false, "the same as --new: ADD even though a near-duplicate exists")
 	yes := fs.Bool("yes", false, "with --updates: replace the text even when it shares under a third of its words with yours")
 	if err := parseFlagsArgs(ctx, fs, args); err != nil {
 		return err
 	}
 	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
-		return &usageError{msg: `usage: issue-cli memory add "<fact>" [--kind K] [--scope S] [--issue <slug>] [--commit <sha>] [--updates <id> [--yes] | --supersedes <id> | --new]`}
+		return &usageError{msg: `usage: issue-cli memory add "<fact>" [--kind K] [--scope S] [--issue <slug>] [--commit <sha>] [--updates <id> [--yes] | --supersedes <id> | --new|--force]`}
 	}
 	opt := memory.AddOptions{}
 	decisions := 0
@@ -280,11 +285,11 @@ func runMemoryAdd(ctx *Context, args []string) error {
 		}
 		opt, decisions = memory.AddOptions{Mode: memory.ModeSupersedes, Target: ids[0], Targets: ids[1:]}, decisions+1
 	}
-	if *isNew {
+	if *isNew || *force {
 		opt, decisions = memory.AddOptions{Mode: memory.ModeNew}, decisions+1
 	}
 	if decisions > 1 {
-		return &usageError{msg: "pick one of --updates, --supersedes and --new"}
+		return &usageError{msg: "pick one of --updates, --supersedes and --new (--force)"}
 	}
 	if *yes && *updates == "" {
 		return &usageError{msg: "--yes goes with --updates <id>: it replaces a text that shares under a third of its words with yours"}

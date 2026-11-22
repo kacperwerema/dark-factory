@@ -17,13 +17,15 @@ issue-cli memory add "make shot URL= takes one screenshot; no playtest session n
 |---|---|---|
 | nothing similar | adds it | ADD |
 | the same fact (same words, case and punctuation aside) in the same scope | writes nothing: `Already remembered as m-…` | NONE |
-| a near-duplicate (half or more of the words shared) | **refuses**, lists up to 3 similar memories and the three ways on | (the agent decides) |
+| a near-duplicate in the same scope: half or more of the words shared, or 65% or more of the shorter one's distinct words (8 or more) in the other | **refuses**, lists up to 3 similar memories and the three ways on | (the agent decides) |
+
+The second measure catches a fact retold in other words: m-60b23e was added beside m-7bffcb (the same "earlier hash" steps for a department template) with 43% of the words the same but 69% of the shorter one's (`memory.ContainedThreshold`, internal/memory/add.go). On the project's 320 memories it named only the two known retold pairs. Tags are no condition: few memories carry one. Source: factory/memory-add-refuses-a-near-duplicate-and-in-progress-briefings-carry-the-memories-a-template-change-needs#D-1.
 
 The three ways on:
 
 - `--updates <id>`: the same fact, better worded. Its whole text is replaced and history keeps the old one (UPDATE). When yours shares under a third of its words with the old text (`memory.UpdateThreshold`), add prints the old text and refuses: that is a different fact, so `--new` or `--supersedes` fits. `--yes` replaces it anyway.
 - `--supersedes <id>[,<id>…]`: the old one is no longer true, or several near-duplicates merge into yours (every id is invalidated with yours and linked). Yours is added, linked to it, and the old one becomes invalid (superseded, still in history). This follows Graphiti: facts are invalidated, not deleted.
-- `--new`: a different fact (ADD). The refusal names it for that case: `--updates` on a different fact overwrites the one it names.
+- `--new` (or `--force`): a different fact (ADD). The refusal names it for that case: `--updates` on a different fact overwrites the one it names.
 
 Other flags:
 
@@ -102,6 +104,10 @@ issue-cli memory list --at shipping              # every one tied there (search 
 - `--supersedes` keeps the old memory's status unless `--at` names another; adding the same fact again with `--at` ties the existing memory.
 
 A process rule that always holds belongs in the status's `prompt:` in workflow.yaml. A memory is the lighter place: it has a source, it can expire, and it fades when nobody uses it. On the Memory page the row shows `at <status>`, read-only. Source: factory/a-memory-can-say-which-status-it-matters-at.
+
+## For the files an issue touches
+
+Some facts belong to a folder: editing a bundled template under `cmd/issue-cli/templates/` needs its earlier hash pinned, and the test says so only at make validate. Tag such a memory `template` (`memory add … --tag template`). At in progress (the workflow's work status), start, the stage briefing and the transition into it carry the valid memories with that tag when the issue touches the folder: a file its branch changed, or a repository path its body names (`affected`'s planned files, so it works before the first edit). They print under `For the template files this issue touches:`, at most 3 memories and 900 characters, strongest first, with `+N more: issue-cli memory list --tag template`; a pinned one, or one already shown at the status, is not repeated. The folder-to-tag table is `memory.PathTags` (internal/memory/tagged.go); `briefing.TaggedMemories` picks them, with `tracker.PlannedFiles` for the body's paths. Source: factory/memory-add-refuses-a-near-duplicate-and-in-progress-briefings-carry-the-memories-a-template-change-needs#D-2.
 
 ## Entities: who knows what
 

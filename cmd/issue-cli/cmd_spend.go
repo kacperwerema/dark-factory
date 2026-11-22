@@ -142,7 +142,10 @@ func runSpend(ctx *Context, args []string) error {
 	case *pricesFile != "" && !*kinds:
 		return fmt.Errorf("--prices goes with --kinds: issue-cli spend --kinds --prices %s", *pricesFile)
 	case (*since != "" || *until != "") && !*kinds && !*turns:
-		return fmt.Errorf("--since and --until go with --kinds or --turns")
+		if *withContext {
+			return fmt.Errorf("--since and --until go with --kinds or --turns; --context counts calendar days back: issue-cli spend --context --days <n>")
+		}
+		return fmt.Errorf("--since and --until go with --kinds or --turns (issue-cli spend --kinds --since <date>); --context counts calendar days back: issue-cli spend --context --days <n>")
 	}
 	if *kinds || *turns {
 		if *days < 1 {

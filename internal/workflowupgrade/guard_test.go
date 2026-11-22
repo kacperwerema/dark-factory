@@ -4,39 +4,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
-
-// nonFeatureKeys are workflow.yaml keys with no catalog entry, each with the
-// reason. Everything else a project can set must be detected by an entry's
-// probe or taught by an entry's snippet, so `workflow upgrade` can offer it.
-var nonFeatureKeys = map[string]string{
-	"template":                   "the template stamp itself",
-	"features":                   "the feature record itself",
-	"worktree_sparse_exclude":    "tunes worktree (default issues/); not something to adopt on its own",
-	"leads.epic":                 "obsolete and ignored; lint warns when set",
-	"leads.green_branch_minutes": "how long the lead tick lets a shipping branch wait unmerged before its merge: line; a tuning knob with a default (30)",
-	"leads.idle_minutes":         "how long the lead tick lets a project start nothing while it has room before its idle: line; a tuning knob with a default (60)",
-	"ci.branch":                  "local CI's integration branch; the default (main/master) fits every project so far",
-	"ci.nice":                    "local CI's process priority; a tuning knob, not a feature",
-	"health.off":                 "turns snapshots off; the opposite of adopting a feature",
-	"health.timeout":             "per-family time limit; a tuning knob",
-	"health.exclude":             "codebase-count exclusions; a tuning knob",
-	"health.big_file_lines":      "a tuning knob for big files",
-	"health.long_func_lines":     "a tuning knob for long functions",
-	"health.score":               "per-component score overrides; a tuning knob",
-	"decisions":                  "the decisions-in-force block's cap (brief_cap), a tuning knob with a default; the decision-ledger entry (factory/decisions-cited-in-design-…) may cover it",
-}
-
-// blocks are the project-wide config blocks whose sub-keys the guard walks.
-// Lifecycle structs (statuses, transitions, overlays) are covered by the
-// lifecycle and gate entries and are not walked key by key.
-var blocks = []string{"ci", "ci.run[]", "health", "leads", "workbench", "workbench.systems.*"}
 
 // TestEveryWorkflowFeatureHasACatalogEntry fails when workflow.yaml gains a
 // key, a validator rule or an action type that no catalog entry detects or
@@ -46,26 +19,25 @@ func TestEveryWorkflowFeatureHasACatalogEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const fix = "add a probe or snippet line to the entry that teaches it, or a new entry file, in " + CatalogPath + "/<id>.yaml (docs/Workflow/overview.md, Feature catalog), or add it to nonFeatureKeys with a reason"
 
-	keys := yamlKeys(reflect.TypeOf(tracker.WorkflowConfig{}), "")
-	for _, b := range blocks {
-		keys = append(keys, yamlKeys(schemaType(t, b), b)...)
+	keys, err := WorkflowKeys()
+	if err != nil {
+		t.Fatal(err)
 	}
 	seen := map[string]bool{}
 	for _, k := range keys {
 		seen[k] = true
-		_, allowed := nonFeatureKeys[k]
-		switch covered := keyCovered(entries, k); {
+		_, allowed := NonFeatureKeys[k]
+		switch covered := KeyCovered(entries, k); {
 		case covered && allowed:
-			t.Errorf("%s is in nonFeatureKeys but an entry covers it now; drop the allowlist line", k)
+			t.Errorf("%s is in NonFeatureKeys but an entry covers it now; drop the allowlist line", k)
 		case !covered && !allowed:
-			t.Errorf("workflow.yaml key %s has no catalog entry: %s", k, fix)
+			t.Error(UncoveredKeyProblem(entries, k))
 		}
 	}
-	for k := range nonFeatureKeys {
+	for k := range NonFeatureKeys {
 		if !seen[k] {
-			t.Errorf("nonFeatureKeys has %s, which is no longer a workflow.yaml key; drop the line", k)
+			t.Errorf("NonFeatureKeys has %s, which is no longer a workflow.yaml key; drop the line", k)
 		}
 	}
 
@@ -84,78 +56,9 @@ func TestEveryWorkflowFeatureHasACatalogEntry(t *testing.T) {
 	}
 	for _, a := range tracker.WorkflowActionTypes {
 		if !actionCovered(entries, a.Name) {
-			t.Errorf("action type %s has no catalog entry probing transitions[].actions[].type: %s", a.Name, fix)
+			t.Errorf("action type %s has no catalog entry probing transitions[].actions[].type: add it to that probe's one_of: in the entry that teaches it, or a new entry file, in %s/<id>.yaml (docs/Workflow/overview.md, Feature catalog)", a.Name, CatalogPath)
 		}
 	}
-}
-
-// yamlKeys lists the yaml keys of a struct type, prefixed with at.
-func yamlKeys(typ reflect.Type, at string) []string {
-	for typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
-	}
-	var keys []string
-	for i := 0; i < typ.NumField(); i++ {
-		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("yaml"), ",")
-		if name == "" || name == "-" {
-			continue
-		}
-		if at != "" {
-			name = at + "." + name
-		}
-		keys = append(keys, name)
-	}
-	return keys
-}
-
-// schemaType resolves a block path (as in blocks) to its struct type.
-func schemaType(t *testing.T, path string) reflect.Type {
-	t.Helper()
-	typ := reflect.TypeOf(tracker.WorkflowConfig{})
-	for _, seg := range strings.Split(path, ".") {
-		for typ.Kind() == reflect.Pointer {
-			typ = typ.Elem()
-		}
-		if seg == "*" {
-			typ = typ.Elem()
-			continue
-		}
-		key, isList := strings.CutSuffix(seg, "[]")
-		var next reflect.Type
-		for i := 0; i < typ.NumField(); i++ {
-			if name, _, _ := strings.Cut(typ.Field(i).Tag.Get("yaml"), ","); name == key {
-				next = typ.Field(i).Type
-			}
-		}
-		if next == nil {
-			t.Fatalf("block %s: no key %s", path, seg)
-		}
-		for next.Kind() == reflect.Pointer {
-			next = next.Elem()
-		}
-		if isList {
-			next = next.Elem()
-		}
-		typ = next
-	}
-	return typ
-}
-
-// keyCovered: a probe path starts at the key, or an entry's snippet sets it.
-func keyCovered(entries []Entry, key string) bool {
-	for _, e := range entries {
-		for _, p := range e.Detect {
-			if p.Path == key || strings.HasPrefix(p.Path, key+".") || strings.HasPrefix(p.Path, key+"[]") {
-				return true
-			}
-		}
-		found := false
-		walkProbePath(ParseDoc([]byte(e.Snippet)), key, func(string, any) { found = true })
-		if found {
-			return true
-		}
-	}
-	return false
 }
 
 func ruleCovered(entries []Entry, rule string) bool {
@@ -190,11 +93,11 @@ func TestGuardCatchesANewKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, k := range []string{"ci.run", "health.limits", "workbench.pages", "leads.project", "leads.project_addendum", "ci.run[].results"} {
-		if !keyCovered(entries, k) {
+		if !KeyCovered(entries, k) {
 			t.Errorf("%s should be covered", k)
 		}
 	}
-	if keyCovered(entries, "workbench.not_a_feature_yet") || ruleCovered(entries, "not_a_rule_yet") || actionCovered(entries, "not_an_action_yet") {
+	if KeyCovered(entries, "workbench.not_a_feature_yet") || ruleCovered(entries, "not_a_rule_yet") || actionCovered(entries, "not_an_action_yet") {
 		t.Error("an unknown key, rule or action counts as covered")
 	}
 }

@@ -71,21 +71,81 @@ type AddResult struct {
 // a near-duplicate the agent must decide on.
 const SimilarThreshold = 0.5
 
+// Containment thresholds of the update step: a fact retold in other words
+// keeps most of the shorter text's words while its Jaccard stays under
+// SimilarThreshold (m-60b23e beside m-7bffcb: 0.43, yet 0.69 of the
+// shorter one's words). On the project's 320 memories (2026-11-22) 0.65
+// named only the two known retold pairs; the next pair was at 0.59.
+const (
+	// ContainedThreshold is the share of the shorter memory's distinct
+	// words the other must hold to be a near-duplicate.
+	ContainedThreshold = 0.65
+	// ContainedMinWords: a shorter memory with fewer distinct words is
+	// never a near-duplicate by containment, so a short fact inside a long
+	// one is not refused.
+	ContainedMinWords = 8
+)
+
+// Contained is the share of the shorter text's distinct words found in the
+// other, 0 when the shorter has fewer than ContainedMinWords.
+func Contained(a, b string) float64 {
+	wa, wb := wordSet(a), wordSet(b)
+	if len(wb) < len(wa) {
+		wa, wb = wb, wa
+	}
+	if len(wa) < ContainedMinWords {
+		return 0
+	}
+	inter := 0
+	for w := range wa {
+		if wb[w] {
+			inter++
+		}
+	}
+	return float64(inter) / float64(len(wa))
+}
+
+// nearDuplicate is the score at which text is a near-duplicate of other
+// (its Jaccard, else its containment), 0 when it is neither.
+func nearDuplicate(text, other string) float64 {
+	if sim := Similarity(text, other); sim >= SimilarThreshold {
+		return sim
+	}
+	if c := Contained(text, other); c >= ContainedThreshold {
+		return c
+	}
+	return 0
+}
+
 // SimilarError is an add refused because near-duplicates exist; the agent
-// reruns with --updates, --supersedes or --new.
-type SimilarError struct{ Similar []Hit }
+// reruns with --updates, --supersedes or --new (--force).
+type SimilarError struct {
+	Similar []Hit
+	// Text is the refused memory's text, for the overlap figures.
+	Text string
+}
 
 func (e *SimilarError) Error() string {
 	var b strings.Builder
 	b.WriteString("similar memories exist, so nothing was written. Decide like mem0's update step and run add again with one of:\n")
 	for _, h := range e.Similar {
-		fmt.Fprintf(&b, "  %s (%s, %.0f%% the same words): %s\n", h.ID, h.Kind, h.Score*100, h.Text)
+		fmt.Fprintf(&b, "  %s (%s, %s): %s\n", h.ID, h.Kind, overlapWords(e.Text, h), h.Text)
 	}
 	id := e.Similar[0].ID
 	fmt.Fprintf(&b, "  --updates %s     the same fact, better worded: replaces its whole text (history kept)\n", id)
 	fmt.Fprintf(&b, "  --supersedes %s  the same subject, no longer true: yours replaces it (it stays in history, invalid)\n", id)
-	fmt.Fprintf(&b, "  --new             a different fact: add it alongside (not --updates, which would overwrite %s)", id)
+	fmt.Fprintf(&b, "  --new             a different fact: add it alongside (not --updates, which would overwrite %s); --force is the same", id)
 	return b.String()
+}
+
+// overlapWords is how much h shares with text, in words: the Jaccard, and
+// the containment when that is what made it a near-duplicate.
+func overlapWords(text string, h Hit) string {
+	j := Similarity(text, h.Text)
+	if text == "" || j >= SimilarThreshold {
+		return fmt.Sprintf("%.0f%% the same words", h.Score*100)
+	}
+	return fmt.Sprintf("%.0f%% the same words, %.0f%% of the shorter one's", j*100, Contained(text, h.Text)*100)
 }
 
 // UpdateThreshold is the word overlap (Jaccard) under which --updates is
@@ -142,15 +202,16 @@ func wordSet(s string) map[string]bool {
 	return out
 }
 
-// Similar is the valid memories in scope whose words overlap text's at
-// least SimilarThreshold, most similar first, at most limit.
+// Similar is the valid memories in scope that text near-duplicates (words
+// overlapping at least SimilarThreshold, or the shorter one's words held
+// at least ContainedThreshold), most similar first, at most limit.
 func (s *Set) Similar(text, scope string, now time.Time, limit int) []Hit {
 	var hits []Hit
 	for _, m := range s.Active(now) {
 		if m.Scope != scope {
 			continue
 		}
-		if sim := Similarity(text, m.Text); sim >= SimilarThreshold {
+		if sim := nearDuplicate(text, m.Text); sim > 0 {
 			hits = append(hits, Hit{Memory: m, Score: sim})
 		}
 	}
@@ -276,7 +337,7 @@ func (s Store) Add(d Draft, opt AddOptions, now time.Time) (AddResult, error) {
 				}
 			}
 			if sim := set.Similar(d.Text, d.Scope, now, 3); len(sim) > 0 {
-				return &SimilarError{Similar: sim}
+				return &SimilarError{Similar: sim, Text: d.Text}
 			}
 		}
 		m := s.newMemory(d, set, at)
