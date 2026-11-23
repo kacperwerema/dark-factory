@@ -242,9 +242,7 @@ func TestResolveShotURL(t *testing.T) {
 // into OUT.base, and HTML=1 saves both pages' DOM for a diff. The boards
 // are stubs: each answers with its own name.
 func TestShotWithBaseWritesBoth(t *testing.T) {
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
+	needChrome(t)
 	var mu sync.Mutex
 	var paths []string
 	stub := func(name string) *httptest.Server {

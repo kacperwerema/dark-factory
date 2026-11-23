@@ -100,6 +100,22 @@ func retroSince(ctx *Context, since string, now time.Time) (from, mark time.Time
 	return from, mark, nil
 }
 
+// retrosSinceMark are the retros `retro list` with no --since prints at
+// now: the files in retros/ after the last sweep's mark (zero with none
+// logged), up to now.
+func retrosSinceMark(ctx *Context, now time.Time) (picked []*retro.Entry, mark time.Time, err error) {
+	from, mark, err := retroSince(ctx, "", now)
+	if err != nil {
+		return nil, mark, err
+	}
+	dir := retrosDir(ctx)
+	entries, err := retro.Load(dir)
+	if err != nil {
+		return nil, mark, err
+	}
+	return retro.Select(entries, dir, retro.Window{Since: from, Until: now}), mark, nil
+}
+
 // retroRow is a retro as list prints it.
 type retroRow struct {
 	File  string `json:"file"`

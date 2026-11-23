@@ -49,7 +49,7 @@ func TestRunWorkflowUpgradeIsReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"== Workflow upgrade ==", "Status:   unstamped", "== Proposals ==", "[1] ", "Ask:", "Snippet:", "== Steps ==", "workflow.old1.yaml"} {
+	for _, want := range []string{"== Workflow upgrade ==", "Status:   unstamped", "== Missing (", "[1] ", "Ask:", "Snippet:", "== Steps ==", "workflow.old1.yaml"} {
 		assertContains(t, out, want)
 	}
 	got, err := os.ReadFile(proj.WorkflowFile)

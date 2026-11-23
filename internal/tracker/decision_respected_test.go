@@ -37,15 +37,22 @@ func newRespectedRepo(t *testing.T) *respectedRepo {
 
 func (r *respectedRepo) git(args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
-		"-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "core.hooksPath=/dev/null"}, args...)...)
-	cmd.Dir = r.dir
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	out, err := cmd.CombinedOutput()
+	out, err := respectedGit(r.dir, nil, args...).CombinedOutput()
 	if err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// respectedGit is git in dir with a fixed author, no hooks, no signing, no
+// background maintenance and no user or system config; env goes on top of
+// this process's environment.
+func respectedGit(dir string, env []string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+		"-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "core.hooksPath=/dev/null"}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"), env...)
+	return cmd
 }
 
 func (r *respectedRepo) write(rel, content string) {

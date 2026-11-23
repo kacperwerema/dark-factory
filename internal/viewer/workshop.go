@@ -9,8 +9,9 @@ import (
 
 // Workshop Board components: the view models of the new UI's building
 // blocks. Each has one template in templates/_workshop.html ({{define
-// "wb/<name>"}}) and one CSS block in static/workshop.css; pages (map.html for
-// L0, then the company L1 and the hall L2) only compose them. A new element
+// "wb/<name>"}}) and one CSS block in its view's static/workshop-<view>.css
+// (css_bundles.go); pages (map.html for L0, then the company L1 and the
+// hall L2) only compose them. A new element
 // is a new component first.
 
 // WbHeader is the bar on top of every level: brand, where you are (Map ›

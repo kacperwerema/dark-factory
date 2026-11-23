@@ -1,0 +1,24 @@
+/* Phone width: tap targets. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- phone width: tap targets (Needs you, the station, the CEO chat, the reader, the HQ report, the header) ---- */
+/* At 640px and below every button and link the owner steers with is at least
+   44px tall (and the square keys 44px wide), so a thumb hits it without zoom.
+   The pages' own blocks already stack their columns; this only grows targets. */
+@media (max-width: 640px) {
+  .wb .wb-btn, .wb .wb-btn--sm, .wb .wb-btn--link, .wb .wb-ctl, .wb .wb-toggle-btn, .wb .wb-hqr-btn, .wb .wb-you-btn, .wb .wb-brand { min-height: 44px; }
+  .wb .wb-shelf-btn, .wb .wb-odoc-link { display: inline-flex; align-items: center; min-height: 44px; padding-left: 14px; padding-right: 14px; }
+  .wb .wb-ctl--key { min-width: 44px; }
+  .wb .wb-avatar { width: 44px; height: 44px; }
+  .wb .wb-odoc-seg > :is(a, button) { display: inline-flex; align-items: center; min-height: 44px; padding-left: 16px; padding-right: 16px; }
+  .wb .wb-ny-all { min-height: 44px; }
+  .wb .wb-ny-pick { display: grid; place-items: center; width: 44px; height: 44px; margin-left: -8px; cursor: pointer; }
+  .wb .wb-ny-pick input, .wb .wb-ny-all input { width: 22px; height: 22px; }
+  .wb .wb-ny-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .wb .wb-ny-chip { min-height: 44px; }
+  .wb .wb-ny-main .wb-slug, .wb .wb-ny-main .wb-card-note { overflow-wrap: anywhere; }
+  .wb .wb-fl-head, .wb .wb-fl-subhead, .wb .wb-fl-tab, .wb .wb-fl-btn, .wb .wb-fl-ink, .wb .wb-fl-ghost, .wb .wb-fl-you, .wb .wb-fl-after, .wb .wb-fl-crumb, .wb .wb-fl-yolo-btn { min-height: 44px; }
+  /* The floor is scaled to fit (about 0.35 at 390px): its heads are too
+     small to tap, so the rail's Rooms list is the phone's way to a room. */
+  .wb .wb-fl-rooms .wb-fl-irow { min-height: 44px; }
+  .wb .wb-fl-avatar, .wb .wb-fl-logo { width: 44px; height: 44px; }
+}
+

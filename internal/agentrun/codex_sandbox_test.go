@@ -108,9 +108,7 @@ func TestCodexSandboxReachesTheStart(t *testing.T) {
 	record := standInAgent(t, "codex")
 	isolateTmux(t)
 	t.Setenv("SHELL", "/bin/sh")
-	orig := PromptDeliveryTimeout
-	PromptDeliveryTimeout = 0
-	t.Cleanup(func() { PromptDeliveryTimeout = orig })
+	liveAgentStart(t)
 
 	dir := t.TempDir()
 	wf := &tracker.WorkflowConfig{Routing: &tracker.RoutingConfig{Codex: &tracker.CodexSandbox{Approval: "auto-review", Writable: []string{"issues"}}}}

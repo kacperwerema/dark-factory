@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/testbudget"
 	"github.com/kacperwerema/dark-factory/internal/testresults"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -302,10 +303,11 @@ func runCommand(ctx context.Context, dir, command string, nice int, resultsDir s
 
 // commandEnv is the environment CI commands get: CI=true, and nothing that
 // would make issue-cli inside a test think it is a dispatched agent or reach
-// the real tmux server.
+// the real tmux server, nor a worker's test budget (testbudget.Strip): CI keeps
+// the machine's full parallelism.
 func commandEnv(env []string) []string {
 	out := make([]string, 0, len(env)+1)
-	for _, kv := range env {
+	for _, kv := range testbudget.Strip(env) {
 		key, _, _ := strings.Cut(kv, "=")
 		switch {
 		case strings.HasPrefix(key, "ISSUE_VIEWER_"), key == "TMUX", key == "TMUX_PANE", key == "AGENT_NAME", key == "CI", key == ResultsEnv:

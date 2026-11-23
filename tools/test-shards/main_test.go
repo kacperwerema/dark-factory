@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/liveboard"
+	"github.com/kacperwerema/dark-factory/internal/testshard"
 	"github.com/kacperwerema/dark-factory/internal/tmuxguard"
 )
 
@@ -58,7 +60,7 @@ func fixtureModule(t *testing.T, n int, failing string) string {
 	}
 	write("big/big_test.go", tests.String())
 	write("small/small.go", "package small\n\nfunc One() int { return 1 }\n")
-	write("small/small_test.go", "package small\n\nimport \"testing\"\n\nfunc TestOne(t *testing.T) {\n\tif One() != 1 {\n\t\tt.Fatal(1)\n\t}\n}\n")
+	write("small/small_test.go", "package small\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestOne(t *testing.T) {\n\tt.Log(\"listing=\" + os.Getenv(\""+testshard.ListingEnv+"\"))\n\tif One() != 1 {\n\t\tt.Fatal(1)\n\t}\n}\n")
 	t.Chdir(dir)
 	return dir
 }
@@ -127,6 +129,43 @@ func TestShardedJSONRunListsEveryTestOnceAndMergesCoverage(t *testing.T) {
 	left, _ := filepath.Glob(filepath.Join(dir, "cover.out.*"))
 	if len(left) > 0 {
 		t.Fatalf("per-process profiles left behind: %v", left)
+	}
+}
+
+// TestTheRunsListingIsWrittenForItsTests: the sharded packages' listing goes
+// to listing.json in the plans folder and every go test the run starts gets
+// its path, so TestShardedPackagesRunEveryTestOnce (internal/testshard) reads
+// it instead of listing again; with -plans none it is a temp file, gone
+// after the run.
+func TestTheRunsListingIsWrittenForItsTests(t *testing.T) {
+	fixtureModule(t, 4, "")
+	t.Setenv(testshard.ListingEnv, "/an/outer/runs/listing.json")
+	plans := t.TempDir()
+	var out, errb bytes.Buffer
+	if code, err := run([]string{"./big=2"}, "none", plans, "", []string{"./...", "-count=1", "-json"}, &out, &errb); err != nil || code != 0 {
+		t.Fatalf("run = %d, %v\n%s%s", code, err, out.String(), errb.String())
+	}
+	path := filepath.Join(plans, "listing.json")
+	l, err := testshard.ReadListing(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (testshard.Listing{"fixture/big": {"TestT0", "TestT1", "TestT2", "TestT3"}}); !reflect.DeepEqual(l, want) {
+		t.Fatalf("listing = %v, want %v", l, want)
+	}
+	if !strings.Contains(out.String(), "listing="+path) {
+		t.Fatalf("go test wasn't given the listing's path %s:\n%s", path, out.String())
+	}
+	out.Reset()
+	if code, err := run([]string{"./big=2"}, "none", "none", "", []string{"./small", "./big", "-count=1", "-json"}, &out, &errb); err != nil || code != 0 {
+		t.Fatalf("run = %d, %v\n%s%s", code, err, out.String(), errb.String())
+	}
+	m := regexp.MustCompile(`listing=(\S+listing\.json)`).FindStringSubmatch(out.String())
+	if m == nil {
+		t.Fatalf("no listing path given with -plans none:\n%s", out.String())
+	}
+	if _, err := os.Stat(m[1]); !os.IsNotExist(err) {
+		t.Fatalf("the temp listing %s outlived the run: %v", m[1], err)
 	}
 }
 

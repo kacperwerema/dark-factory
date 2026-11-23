@@ -1,0 +1,45 @@
+/* L2: one system. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- L2: one system (the Workshop page, system_wb.go) ---- */
+.wb-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--muted-2); }
+.wb-trail b { color: var(--ink); }
+.wb-pagehead-hint { font-size: 13.5px; color: var(--muted-2); }
+.wb-sys-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.wb-sys-meta .wb-chip { text-decoration: none; }
+.wb-link-row { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; font-weight: 700; }
+.wb-shop-floor { background: #fff; border: 2px solid var(--ink); border-radius: 16px; box-shadow: 5px 5px 0 var(--ink); padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wb-crates--floor { gap: 5px; }
+.wb-sbar-wrap { display: flex; flex-direction: column; gap: 8px; }
+.wb-sbar { display: flex; height: 12px; border: 1.5px solid var(--ink); border-radius: 99px; overflow: hidden; background: #F1F3F7; }
+.wb-sbar .wb-sbar-seg { display: block; height: 100%; }
+.wb-sbar-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; font-weight: 700; color: #3A4252; }
+.wb-sbar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.wb-sbar-legend .wb-sbar-seg { display: inline-block; width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid var(--ink); }
+.wb-sbar-seg--neutral { background: #C9D0DB; }
+.wb-sbar-seg--blue { background: #3D7BF7; }
+.wb-sbar-seg--amber { background: var(--you); }
+.wb-sbar-seg--green { background: var(--working); }
+.wb-sbar-seg--red { background: var(--red); }
+.wb-sbar-seg--muted { background: #EEF0F4; }
+.wb-sys-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wb-sys-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wb-fams { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.wb-fam { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: #fff; border: 2px solid var(--ink); border-radius: 12px; color: var(--ink); text-decoration: none; min-width: 0; }
+.wb-fam:hover { box-shadow: 3px 3px 0 var(--ink); }
+.wb-fam-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-fam-name { font-family: var(--display); font-weight: 800; font-size: 16px; overflow-wrap: anywhere; }
+.wb-fam-sum { font-size: 12.5px; color: #3A4252; line-height: 1.4; }
+.wb-fam-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: #3A4252; }
+.wb-fam-bar .wb-goal-track { flex: 1; }
+.wb-fam-bar .wb-goal-track span { display: block; height: 100%; background: var(--working); }
+.wb-fam-slug { font-family: var(--mono); font-size: 11.5px; color: var(--muted-2); overflow-wrap: anywhere; }
+.wb-sysdoc-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-code-file--knob .wb-code-file-name { white-space: normal; overflow-wrap: anywhere; }
+.wb-code-file--knob, .wb-code-file--metric { flex-wrap: wrap; }
+.wb-sysmet-id, .wb-sysmet-branch, .wb-sysknob-where, .wb-sysknob-comment { flex: 1 0 100%; font-size: 11.5px; color: var(--muted-2); overflow-wrap: anywhere; }
+.wb-sysmet-id, .wb-sysmet-branch, .wb-sysknob-where { font-family: var(--mono); }
+.wb-sysknob-comment { font-style: italic; }
+.wb-sys-whole { font-size: 12.5px; font-weight: 600; color: var(--muted-2); }
+.wb-bnote { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; font-size: 13px; }
+.wb-bnote-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-2); }
+.wb-bnote-text { line-height: 1.4; }
+

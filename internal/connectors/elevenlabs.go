@@ -294,7 +294,9 @@ type SharedVoice struct {
 	Language    string `json:"language,omitempty"`
 	Descriptive string `json:"descriptive,omitempty"`
 	PreviewURL  string `json:"preview_url,omitempty"`
-	// LiveModerated and Rate are the terms --commercial filters on.
+	// LiveModerated and Rate are the terms --commercial filters on. Rate is
+	// the price multiplier: the library sends 1 for a standard voice, so only
+	// a rate above 1 (a custom rate) is dropped.
 	LiveModerated bool     `json:"live_moderation_enabled,omitempty"`
 	Rate          *float64 `json:"rate,omitempty"`
 }
@@ -334,7 +336,7 @@ func SharedVoices(ctx context.Context, hc *http.Client, base string, header http
 	}
 	out := ans.Voices[:0]
 	for _, sv := range ans.Voices {
-		if q.Commercial && (sv.LiveModerated || (sv.Rate != nil && *sv.Rate > 0)) {
+		if q.Commercial && (sv.LiveModerated || (sv.Rate != nil && *sv.Rate > 1)) {
 			continue
 		}
 		out = append(out, sv)

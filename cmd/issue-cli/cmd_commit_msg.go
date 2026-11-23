@@ -131,12 +131,15 @@ func runCommitMsg(ctx *Context, args []string) error {
 	}
 	msg := string(data)
 	slug, noCriteria := "<slug>", false
+	var prefixes []string // the issue's criteria id prefixes (AC when unknown)
 	var issue *tracker.Issue
 	var proj *tracker.Project
 	branch := ""
 	if rootErr == nil {
 		if issue, proj, branch = commitMsgIssue(ctx, root); issue != nil {
-			slug, noCriteria = issue.Slug, len(tracker.Criteria(issue.BodyRaw)) == 0
+			criteria := tracker.Criteria(issue.BodyRaw)
+			slug, noCriteria = issue.Slug, len(criteria) == 0
+			prefixes = proof.CriteriaPrefixes(criteria)
 		}
 	}
 	if rootErr == nil {
@@ -148,14 +151,14 @@ func runCommitMsg(ctx *Context, args []string) error {
 	if cat.Versions != nil {
 		warnStagedLeaks(ctx.Stderr, root, msg)
 	}
-	problems := commitMsgProblems(msg, cat, noCriteria, slug)
+	problems := commitMsgProblems(msg, cat, noCriteria, slug, prefixes...)
 	if len(problems) == 0 {
 		if rootErr == nil {
 			if v := addRecordedNA(root, fs.Arg(0)); v != "" {
 				fmt.Fprintf(ctx.Stderr, "note: added Catalog: %s to the message (recorded with issue-cli workflow catalog-na)\n", v)
 			}
 		}
-		for _, n := range CommitMsgNotes(msg, slug, noCriteria) {
+		for _, n := range CommitMsgNotes(msg, slug, noCriteria, prefixes...) {
 			fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
 		}
 		if rootErr == nil {
@@ -401,8 +404,9 @@ func commitMsgIssue(ctx *Context, root string) (*tracker.Issue, *tracker.Project
 // CommitMsgNotes is what an accepted message's Proves: lines still leave
 // to do: a criterion linked to a test stays unproven until prove --run
 // posts the tests: report; on an issue with no acceptance criteria
-// (noCriteria) the line isn't needed at all.
-func CommitMsgNotes(msg, slug string, noCriteria bool) []string {
+// (noCriteria) the line isn't needed at all. prefixes are the issue's
+// criteria id prefixes (proof.CriteriaPrefixes; AC when none is given).
+func CommitMsgNotes(msg, slug string, noCriteria bool, prefixes ...string) []string {
 	lines := proof.MessageLines(stripCommitComments(msg), "Proves")
 	if len(lines) == 0 {
 		return nil
@@ -412,12 +416,12 @@ func CommitMsgNotes(msg, slug string, noCriteria bool) []string {
 	}
 	var out []string
 	for _, v := range lines {
-		ids, tests := proof.ProvesParts(v, "AC")
+		ids, tests := proof.ProvesParts(v, prefixes...)
 		if len(tests) == 0 {
 			continue // Proves: AC1 alone: the commit is the proof
 		}
 		runs := strings.Join(tests, ", ")
-		if title, ok := proof.UnquotedTitle(v, "AC"); ok && len(ids) > 0 {
+		if title, ok := proof.UnquotedTitle(v, prefixes...); ok && len(ids) > 0 {
 			// Collect reads it whole when a test file has the title.
 			runs = strconv.Quote(title)
 			out = append(out, fmt.Sprintf("Proves: %s reads as the one test %s when a test file has that title, else as %d one-word tests: quote it to be sure (Proves: %s %s)", v, runs, len(tests), strings.Join(ids, ", "), runs))
@@ -447,7 +451,7 @@ func CommitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog) []string 
 // problem is that it exists: its one fix is noProvesNeeded, and the
 // per-word hints (a step id's proves: [AC1] on step ...) would name
 // criteria and steps the issue doesn't have.
-func commitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog, noCriteria bool, slug string) []string {
+func commitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog, noCriteria bool, slug string, prefixes ...string) []string {
 	msg = stripCommitComments(msg)
 	var out []string
 	var trailers []workflowupgrade.Trailer
@@ -458,7 +462,7 @@ func commitMsgProblems(msg string, cat workflowupgrade.TrailerCatalog, noCriteri
 		out = append(out, fmt.Sprintf("Catalog: %s\n    → %s", b.Value, b.Problem))
 	}
 	for _, v := range proof.MessageLines(msg, "Proves") {
-		problems := proof.CheckProves(v, "AC")
+		problems := proof.CheckProves(v, prefixes...)
 		if noCriteria && len(problems) > 0 {
 			out = append(out, fmt.Sprintf("Proves: %s\n    → %s", v, strings.TrimPrefix(noProvesNeeded(slug), "note: ")))
 			continue

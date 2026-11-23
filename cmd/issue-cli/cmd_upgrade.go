@@ -118,10 +118,19 @@ func printUpgradePlan(w io.Writer, plan *workflowupgrade.Plan) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, plan.Message)
 
-	if len(plan.Proposals) > 0 {
+	missing := 0
+	for _, p := range plan.Proposals {
+		if !p.Present {
+			missing++
+		}
+	}
+	if missing > 0 {
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "== Proposals ==")
+		fmt.Fprintf(w, "== Missing (%d): not in the file, to adopt ==\n", missing)
 		for _, p := range plan.Proposals {
+			if p.Present {
+				continue
+			}
 			var tags []string
 			if p.Kind == workflowupgrade.ProposalUpdate {
 				tags = append(tags, "update from "+p.Installed)
@@ -156,14 +165,31 @@ func printUpgradePlan(w io.Writer, plan *workflowupgrade.Plan) {
 			fmt.Fprintln(w)
 		}
 	}
+	if recordOnly := len(plan.Proposals) - missing + len(plan.Unrecorded); recordOnly > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "== Present, record only (%d): in the file, record older or absent ==\n", recordOnly)
+		var update []string
+		for _, p := range plan.Proposals {
+			if p.Present {
+				fmt.Fprintf(w, "[%d] %s — %s (recorded %s, catalog %s)\n", p.Number, p.ID, p.Title, p.Installed, p.Version)
+				update = append(update, p.ID)
+			}
+		}
+		for _, id := range plan.Unrecorded {
+			fmt.Fprintf(w, "    %s (not in the record)\n", id)
+		}
+		if len(update) > 0 {
+			fmt.Fprintf(w, "Record at the catalog version: `issue-cli workflow scan --installed %s`\n", strings.Join(update, ","))
+		}
+		if len(plan.Unrecorded) > 0 {
+			fmt.Fprintln(w, "Record the unrecorded ones: `issue-cli workflow scan`")
+		}
+	}
 	if len(plan.Present) > 0 {
 		fmt.Fprintf(w, "Already present (not proposed): %s\n", strings.Join(plan.Present, ", "))
 	}
 	if len(plan.Declined) > 0 {
 		fmt.Fprintf(w, "Declined (not proposed; re-open with `issue-cli workflow scan --forget <id>`): %s\n", strings.Join(plan.Declined, ", "))
-	}
-	if len(plan.Unrecorded) > 0 {
-		fmt.Fprintf(w, "Detected but not in the features: record (run `issue-cli workflow scan`): %s\n", strings.Join(plan.Unrecorded, ", "))
 	}
 	if len(plan.Steps) > 0 {
 		fmt.Fprintln(w)

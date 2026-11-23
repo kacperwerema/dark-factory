@@ -40,6 +40,7 @@ func stagedWorker(word string) string {
 const stageJudge = `if grep -q 'WORKER DESIGN'; then printf 'SCORE: 4\nREASON: same plan\n'; else printf 'SCORE: 3\nREASON: same fix\n'; fi`
 
 func TestRunWritesStages(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	task := stagedTask(t, f)
 	b := f.benchmark(stagedWorker("GOOD"), task)
@@ -77,6 +78,7 @@ func TestRunWritesStages(t *testing.T) {
 }
 
 func TestStagesLeaveOutcome(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	task := stagedTask(t, f)
 	b := f.benchmark(stagedWorker("BAD"), task)

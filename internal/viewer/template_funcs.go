@@ -46,6 +46,7 @@ var funcMap = template.FuncMap{
 	// Script CSP (csp.go): nonce="{{cspNonce}}" on inline scripts,
 	// data-click="{{onCall "fn" arg…}}" instead of on*= handlers.
 	"cspNonce":      cspNonce,
+	"stylesheets":   stylesheets, // css_bundles.go
 	"onCall":        onCall,
 	"releaseBranch": milestone.ReleaseBranch,
 	// commentDay is the day of a comment date stored as RFC3339 or a day.

@@ -68,9 +68,7 @@ body { margin: 0; }
 // fixturePage opens the fixture at a viewport with checks.js loaded.
 func fixturePage(t *testing.T, w, h int) (*Page, func(fn string, out any, args ...any)) {
 	t.Helper()
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
+	needChrome(t)
 	b, err := NewBrowser(false, w, h)
 	if err != nil {
 		t.Skip(err)

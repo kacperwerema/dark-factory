@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/slowtier"
 	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
@@ -84,7 +85,12 @@ func TestBenchSmokePassesOnTheFixture(t *testing.T) {
 // One smoke run checks both a broken harness and --keep: each smoke is a
 // whole run of the fixture (17 to 30 s of a loaded make validate), and a
 // failed run is where the kept folder matters most.
+//
+// Slow tier only: validate keeps one whole smoke run
+// (TestBenchSmokePassesOnTheFixture); internal/bench's TestSmoke* prove each
+// check's verdict without a run.
 func TestBenchSmokeFailsWhenTheHarnessBreaks(t *testing.T) {
+	slowtier.Only(t, "a second whole smoke run; TestBenchSmokePassesOnTheFixture runs one in validate")
 	benchDir := filepath.Join(t.TempDir(), "bench")
 	t.Setenv("ISSUE_VIEWER_BENCH_DIR", benchDir)
 	smokeCLI(t)

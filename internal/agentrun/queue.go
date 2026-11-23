@@ -228,38 +228,52 @@ func QueueEvaluate(in QueueInput) QueueVerdict {
 	return out
 }
 
-// queueHold is why one item can't start now ("" when it can), and whether
-// that is a blocker.
-func queueHold(in QueueInput, qi *QueueItem, bySlug map[string]*tracker.Issue, isDone func(string) (bool, bool), subs *routing.State) (string, bool) {
-	q := in.Queue
-	onMain := func(b string) (string, bool) {
+// BlockerHold is why item can't start yet for its queue blockers ("" when
+// none holds): a blocker not found, one not at its last status, or a
+// --merged one whose work isn't on main. isDone says whether a slug is
+// shipped; onMain (nil knows no git: a --merged blocker holds until it is
+// done) finds a slug's work on main. cleared, when not nil, gets each
+// --merged blocker that no longer holds.
+func BlockerHold(proj *tracker.Project, q *queue.Queue, item *queue.Item, isDone func(string) (bool, bool), onMain func(string) (string, bool), cleared *[]string) string {
+	workOnMain := func(b string) (string, bool) {
 		slug := q.BlockerSlug(b)
-		if slug == "" || in.OnMain == nil {
+		if slug == "" || onMain == nil {
 			return "", false
 		}
-		return in.OnMain(slug)
+		return onMain(slug)
 	}
-	for _, b := range qi.BlockedOn {
+	for _, b := range item.BlockedOn {
 		done, found := q.BlockerDone(b, isDone)
 		if !found {
-			return "blocked on " + b + " (not found)", true
+			return "blocked on " + b + " (not found)"
 		}
 		if done {
 			continue
 		}
-		if qi.MergedOnly(b) {
-			sha, ok := onMain(b)
+		if item.MergedOnly(b) {
+			sha, ok := workOnMain(b)
 			if !ok {
-				return "waits for " + b + " on main", true
+				return "waits for " + b + " on main"
 			}
-			qi.Cleared = append(qi.Cleared, b+" on main at "+gitdir.ShortSHA(sha))
+			if cleared != nil {
+				*cleared = append(*cleared, b+" on main at "+gitdir.ShortSHA(sha))
+			}
 			continue
 		}
-		if sha, ok := onMain(b); ok {
+		if sha, ok := workOnMain(b); ok {
 			return fmt.Sprintf("blocked on %s (its work is on main at %s: %s to start on that)", b, gitdir.ShortSHA(sha),
-				tracker.InjectProject(in.Proj, fmt.Sprintf("issue-cli queue block %d --on %s --merged", qi.ID, b))), true
+				tracker.InjectProject(proj, fmt.Sprintf("issue-cli queue block %d --on %s --merged", item.ID, b)))
 		}
-		return "blocked on " + b, true
+		return "blocked on " + b
+	}
+	return ""
+}
+
+// queueHold is why one item can't start now ("" when it can), and whether
+// that is a blocker.
+func queueHold(in QueueInput, qi *QueueItem, bySlug map[string]*tracker.Issue, isDone func(string) (bool, bool), subs *routing.State) (string, bool) {
+	if hold := BlockerHold(in.Proj, in.Queue, &qi.Item, isDone, in.OnMain, &qi.Cleared); hold != "" {
+		return hold, true
 	}
 	if qi.Slug == "" {
 		return fmt.Sprintf("an idea: file it, then %s", tracker.InjectProject(in.Proj, fmt.Sprintf("issue-cli queue link %d <slug>", qi.ID))), false

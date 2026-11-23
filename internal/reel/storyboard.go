@@ -50,8 +50,10 @@ var Positions = []string{"lower", "middle", "upper", "custom"}
 // Storyboard is one reel: what each scene shows and says, the captions,
 // the music, the call to action and the brand.
 type Storyboard struct {
-	Version  int       `json:"version"`
-	Shape    string    `json:"shape"`
+	Version int    `json:"version"`
+	Shape   string `json:"shape"`
+	// Format is the frame: 9:16 (the default), 4:5 or 1:1.
+	Format   string    `json:"format,omitempty"`
 	Title    string    `json:"title"`
 	Language string    `json:"language,omitempty"`
 	Brand    Brand     `json:"brand"`
@@ -125,11 +127,11 @@ type Captions struct {
 	Position string `json:"position,omitempty"`
 	MaxWords int    `json:"max_words,omitempty"`
 	FontSize int    `json:"font_size,omitempty"`
-	// Box is the caption box on a 1080x1920 frame, for position custom.
+	// Box is the caption box on the format's frame, for position custom.
 	Box *Box `json:"box,omitempty"`
 }
 
-// Box is a rectangle in pixels on the 1080x1920 frame.
+// Box is a rectangle in pixels on the reel's frame (1080x1920 for 9:16).
 type Box struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
@@ -201,6 +203,14 @@ func Load(path string) (*Storyboard, error) {
 	return &s, nil
 }
 
+// Frame is the storyboard's format; an unknown name (a Problem) is 9:16.
+func (s *Storyboard) Frame() Format {
+	if f, ok := LookupFormat(s.Format); ok {
+		return f
+	}
+	return Formats[0]
+}
+
 // Dir is the folder the storyboard's paths are relative to.
 func (s *Storyboard) Dir() string { return s.dir }
 
@@ -224,6 +234,10 @@ func (s *Storyboard) Problems() []Problem {
 	if !known {
 		add("shape", "want one of %s, got %q", strings.Join(Shapes, ", "), s.Shape)
 	}
+	if _, ok := LookupFormat(s.Format); !ok {
+		add("format", "want one of %s, got %q", strings.Join(FormatNames(), ", "), s.Format)
+	}
+	frame := s.Frame()
 	if strings.TrimSpace(s.Title) == "" {
 		add("title", "missing")
 	}
@@ -312,7 +326,10 @@ func (s *Storyboard) Problems() []Problem {
 		add("captions.position", "want one of %s, got %q", strings.Join(Positions, ", "), c.Position)
 	}
 	if c.Position == "custom" && c.Box == nil {
-		add("captions.box", "position custom wants a box {x, y, w, h} on the 1080x1920 frame")
+		add("captions.box", "position custom wants a box {x, y, w, h} on the %s frame (format %s)", frame.Size(), frame.Name)
+	}
+	if b := c.Box; b != nil && (b.X < 0 || b.Y < 0 || b.W <= 0 || b.H <= 0 || b.X+b.W > float64(frame.Width) || b.Y+b.H > float64(frame.Height)) {
+		add("captions.box", "%gx%g at %g,%g is not inside the %s frame (format %s)", b.W, b.H, b.X, b.Y, frame.Size(), frame.Name)
 	}
 	if c.MaxWords < 0 || c.FontSize < 0 {
 		add("captions", "max_words and font_size are 0 (the default) or above")
@@ -331,7 +348,7 @@ func (s *Storyboard) Problems() []Problem {
 		add("cta.text", "missing")
 	}
 	if s.QA != nil {
-		ps = append(ps, s.QA.problems("qa")...)
+		ps = append(ps, s.QA.problems("qa", frame)...)
 	}
 	return ps
 }

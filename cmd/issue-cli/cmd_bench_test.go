@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/bench"
+	"github.com/kacperwerema/dark-factory/internal/slowtier"
 	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
@@ -399,11 +400,11 @@ func TestBenchIssueCLIBuildsTheSetupRef(t *testing.T) {
 	}
 }
 
-// TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites: --check
-// labels the proposed candidate solvable with why, leaves no worktree or
-// temp folder behind, never runs a model (claude on PATH is a tripwire)
-// and writes no benchmark file.
-func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) {
+// replayCandidateProject: the bench project with one done issue,
+// calc/fix-add, whose own commit fixes a bug its hidden test catches on the
+// base: the one candidate bench candidates lists. git runs in its repo.
+func replayCandidateProject(t *testing.T) (*tracker.Project, func(time.Time, ...string) string) {
+	t.Helper()
 	proj, _, _ := benchProject(t)
 	repo := proj.WorkDir
 	t0 := time.Now().Add(time.Hour)
@@ -440,6 +441,19 @@ func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) 
 		t.Fatal(err)
 	}
 
+	return proj, git
+}
+
+// TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites: --check
+// labels the proposed candidate solvable with why, leaves no worktree or
+// temp folder behind, never runs a model (claude on PATH is a tripwire)
+// and writes no benchmark file.
+//
+// Slow tier only: a whole replay (worktrees, go test twice) on top of the
+// bench project; internal/bench's TestReplay* prove the replay itself.
+func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) {
+	slowtier.Only(t, "bench candidates --replay end to end; internal/bench TestReplay* and TestBenchCandidatesNeedReplayForSlugs run in validate")
+	proj, git := replayCandidateProject(t)
 	bin := t.TempDir()
 	tripwire := filepath.Join(bin, "model-called")
 	for _, name := range []string{"claude", "codex"} {
@@ -482,14 +496,19 @@ func TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites(t *testing.T) 
 	if _, err := os.Stat(bench.Dir()); !os.IsNotExist(err) {
 		t.Errorf("--replay created %s", bench.Dir())
 	}
-	// Slugs without --replay are a usage error; without --replay the footer
-	// names it.
-	ctx, out, _ = newTestContext(proj, false)
+}
+
+// TestBenchCandidatesNeedReplayForSlugs: slugs without --replay are a usage
+// error, and without --replay the footer names it. The fast-tier half of
+// TestBenchCandidatesCheckReplaysWithoutModelOrBenchmarkWrites.
+func TestBenchCandidatesNeedReplayForSlugs(t *testing.T) {
+	proj, _ := replayCandidateProject(t)
+	ctx, _, _ := newTestContext(proj, false)
 	var usage *usageError
 	if err := runBench(ctx, []string{"candidates", "calc/fix-add"}); !errors.As(err, &usage) {
 		t.Errorf("candidates <slug> without --replay: err = %v", err)
 	}
-	ctx, out, _ = newTestContext(proj, false)
+	ctx, out, _ := newTestContext(proj, false)
 	if err := runBench(ctx, []string{"candidates"}); err != nil || !strings.Contains(out.String(), "bench candidates --replay") {
 		t.Errorf("candidates footer lacks the --replay hint (%v):\n%s", err, out)
 	}

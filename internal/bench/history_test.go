@@ -16,48 +16,82 @@ import (
 
 // doneBoard is a repo whose n done issues each have a branch merged with
 // --no-ff: a source file and a test file of their own, with main moved on by
-// one file beside each.
+// one file beside each. The repo is built once per test binary with
+// maxBoard issues (doneBoardFixture); the test gets its own copy of it and
+// of the first n issues, so the rest of the repo's history is in no range.
 func doneBoard(t *testing.T, n int) *tracker.Project {
 	t.Helper()
-	repo := filepath.Join(t.TempDir(), "r")
-	mustGit(t, filepath.Dir(repo), "init", "-q", "-b", "main", repo)
-	mustGit(t, repo, "config", "maintenance.auto", "false")
-	mustGit(t, repo, "config", "gc.auto", "0")
-	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	commit := func(msg string, files ...string) {
-		t.Helper()
-		at = at.Add(time.Minute)
-		for _, f := range files {
-			write(t, filepath.Join(repo, f), "package a\n\nimport \"testing\"\n\nfunc Test"+strings.NewReplacer("/", "", ".", "", "_", "").Replace(f)+"(t *testing.T) {}\n")
-		}
-		mustGit(t, repo, "add", "-A")
-		t.Setenv("GIT_COMMITTER_DATE", at.Format(time.RFC3339))
-		mustGit(t, repo, "commit", "-q", "--allow-empty", "--date", at.Format(time.RFC3339), "-m", msg)
+	if n > maxBoard {
+		t.Fatalf("doneBoard(%d): the shared board has %d issues", n, maxBoard)
 	}
-	commit("start", "go.go")
+	base := doneBoardFixture.get(t, buildDoneBoard)
+	repo := filepath.Join(t.TempDir(), "r")
+	copyTree(t, base.repo, repo)
 	issues := t.TempDir() // outside the repo: not in any commit
 	for i := 0; i < n; i++ {
-		start := at
-		mustGit(t, repo, "checkout", "-q", "-b", fmt.Sprintf("work/%d", i))
-		commit("code", fmt.Sprintf("c%d.go", i))
-		commit("test", fmt.Sprintf("c%d_test.go", i))
-		head := mustGit(t, repo, "rev-parse", "HEAD")
-		mustGit(t, repo, "checkout", "-q", "main")
-		commit(fmt.Sprintf("main moves %d", i), fmt.Sprintf("m%d.go", i))
-		t.Setenv("GIT_COMMITTER_DATE", at.Format(time.RFC3339))
-		mustGit(t, repo, "merge", "-q", "--no-ff", "-m", "merge", head)
-		merged := mustGit(t, repo, "rev-parse", "HEAD")
-
-		path := filepath.Join(issues, fmt.Sprintf("i%03d.md", i))
-		write(t, path, fmt.Sprintf("---\ntitle: \"I %03d\"\nstatus: \"done\"\ntype: \"bugfix\"\n---\n\nBody.\n", i))
-		if err := tracker.SaveStats(path, tracker.StatsStore{
-			Dispatches:  []tracker.Dispatch{{At: start.Add(time.Second)}},
-			Transitions: []tracker.TransitionStat{{To: "done", TS: at, BranchHead: head, MergeSHA: merged}},
-		}); err != nil {
-			t.Fatal(err)
+		issue := filepath.Join(base.issues, fmt.Sprintf("i%03d.md", i))
+		for _, src := range []string{issue, tracker.StatsSidecarPath(issue)} {
+			name := filepath.Base(src)
+			data, err := os.ReadFile(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(t, filepath.Join(issues, name), string(data))
 		}
 	}
 	return &tracker.Project{Name: "R", Slug: "r", IssueDir: issues, WorkDir: repo}
+}
+
+// maxBoard is the shared done board's size: the largest doneBoard a test
+// asks for.
+const maxBoard = 16
+
+type boardBase struct{ repo, issues string }
+
+var doneBoardFixture shared[boardBase]
+
+func buildDoneBoard(dir string) (boardBase, error) {
+	bb := boardBase{repo: filepath.Join(dir, "r"), issues: filepath.Join(dir, "issues")}
+	var b fxb
+	b.git(dir, "init", "-q", "-b", "main", bb.repo)
+	b.git(bb.repo, "config", "maintenance.auto", "false")
+	b.git(bb.repo, "config", "gc.auto", "0")
+	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	commit := func(msg string, files ...string) {
+		at = at.Add(time.Minute)
+		for _, f := range files {
+			b.write(filepath.Join(bb.repo, f), "package a\n\nimport \"testing\"\n\nfunc Test"+strings.NewReplacer("/", "", ".", "", "_", "").Replace(f)+"(t *testing.T) {}\n")
+		}
+		b.env = nil
+		b.git(bb.repo, "add", "-A")
+		b.env = gitDateEnv(at.Format(time.RFC3339))
+		b.git(bb.repo, "commit", "-q", "--allow-empty", "-m", msg)
+		b.env = nil
+	}
+	commit("start", "go.go")
+	for i := 0; i < maxBoard; i++ {
+		start := at
+		b.git(bb.repo, "checkout", "-q", "-b", fmt.Sprintf("work/%d", i))
+		commit("code", fmt.Sprintf("c%d.go", i))
+		commit("test", fmt.Sprintf("c%d_test.go", i))
+		head := b.git(bb.repo, "rev-parse", "HEAD")
+		b.git(bb.repo, "checkout", "-q", "main")
+		commit(fmt.Sprintf("main moves %d", i), fmt.Sprintf("m%d.go", i))
+		b.env = gitDateEnv(at.Format(time.RFC3339))
+		b.git(bb.repo, "merge", "-q", "--no-ff", "-m", "merge", head)
+		b.env = nil
+		merged := b.git(bb.repo, "rev-parse", "HEAD")
+
+		path := filepath.Join(bb.issues, fmt.Sprintf("i%03d.md", i))
+		b.write(path, fmt.Sprintf("---\ntitle: \"I %03d\"\nstatus: \"done\"\ntype: \"bugfix\"\n---\n\nBody.\n", i))
+		if b.err == nil {
+			b.err = tracker.SaveStats(path, tracker.StatsStore{
+				Dispatches:  []tracker.Dispatch{{At: start.Add(time.Second)}},
+				Transitions: []tracker.TransitionStat{{To: "done", TS: at, BranchHead: head, MergeSHA: merged}},
+			})
+		}
+	}
+	return bb, b.err
 }
 
 // loggingGit puts a git on PATH that logs each call to the returned file.
@@ -114,6 +148,7 @@ func TestCandidatesRunsNoGitPerIssue(t *testing.T) {
 
 // A candidate's row says what the one-issue path says of the same issue.
 func TestCandidatesAgreeWithFindRange(t *testing.T) {
+	parallel(t)
 	p := doneBoard(t, 4)
 	issues, err := tracker.LoadIssues(p.IssueDir)
 	if err != nil {
@@ -150,6 +185,7 @@ func TestCandidatesAgreeWithFindRange(t *testing.T) {
 
 // A commit gone from the repo costs that issue alone, and it says why.
 func TestCandidatesNameACommitThatIsGone(t *testing.T) {
+	parallel(t)
 	p := doneBoard(t, 2)
 	issues, err := tracker.LoadIssues(p.IssueDir)
 	if err != nil {

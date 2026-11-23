@@ -1,7 +1,7 @@
 {{/*
 Workshop Board components of the company floor (L1, /p/<project>/company;
 factory/company-floor-v2-…). View models in company_floor.go, styles in
-static/workshop.css ("L1: the company floor"), behaviour in
+static/workshop-floor.css ("L1: the company floor"), behaviour in
 static/company-floor.js. Tiles have a fixed size from the plan; what does not
 fit is in the inspector. The classic company page is at ?classic=1.
 
@@ -31,7 +31,7 @@ fit is in the inspector. The classic company page is at ?classic=1.
     <label for="wb-drawer" class="wb-drawer-btn" title="More: goals, views, YOLO and sign-in" data-testid="map.drawer"><span class="wb-drawer-open" aria-hidden="true">☰</span><span class="wb-drawer-close" aria-hidden="true">✕</span></label>
     {{/* .wb-fl-stats is display: contents: above 640px its children sit in the
        header row as before; at 640px and below all but the waiting count fold
-       into the ☰ drawer (workshop.css, phone block). */}}
+       into the ☰ drawer (workshop-phone-screen.css). */}}
     <div class="wb-fl-stats">
     <div class="wb-fl-goals">{{range .Header.Goals}}<span class="wb-fl-goal{{if .Off}} wb-fl-goal--off{{end}}" title="Goal: {{if .Title}}{{.Title}}{{else}}{{.Progress.Label}}{{end}}" data-testid="floor.goal"><span class="wb-fl-goal-name">{{.Progress.Label}}</span><span class="wb-fl-goal-bar"><i style="width:{{.Progress.Pct}}%"></i></span>{{if .Text}}{{.Text}}{{else}}{{.Progress.Done}}/{{.Progress.Total}}{{end}}</span>{{end}}</div>
     <span class="wb-grow"></span>

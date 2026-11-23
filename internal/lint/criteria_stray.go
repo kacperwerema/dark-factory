@@ -66,7 +66,7 @@ func strayCriteriaBoxes(body string) []strayBox {
 			}
 		case strayLabel.MatchString(trimmed):
 			label = ""
-			if !strings.EqualFold(section, tracker.CriteriaSection) {
+			if !tracker.IsCriteriaSection(section) {
 				label = strayLabel.FindStringSubmatch(trimmed)[1]
 			}
 		case trimmed == "":

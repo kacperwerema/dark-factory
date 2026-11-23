@@ -276,3 +276,93 @@ func TempPlace(path string) bool {
 	}
 	return strings.Contains(p, "/scratchpad/") || strings.HasSuffix(p, "/scratchpad")
 }
+
+// Descendants are pid's children, their children and so on in procs
+// (pid itself not included).
+func Descendants(procs []Proc, pid int) []int {
+	children := map[int][]int{}
+	for _, p := range procs {
+		children[p.PPID] = append(children[p.PPID], p.PID)
+	}
+	var out []int
+	seen := map[int]bool{pid: true}
+	queue := []int{pid}
+	for len(queue) > 0 {
+		next := queue[0]
+		queue = queue[1:]
+		for _, c := range children[next] {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+				queue = append(queue, c)
+			}
+		}
+	}
+	return out
+}
+
+// StopTree kills pid and every process under it and waits up to wait for
+// them to be gone; it reports whether they are. The tree is frozen first
+// (SIGSTOP, listed again until no new child shows up), so a process can't
+// fork a child past the kill, and then sent SIGKILL: nothing in it writes
+// again, which a SIGHUP or SIGTERM (a closed tmux pane) doesn't promise.
+// This process and its ancestors are never sent anything.
+func StopTree(pid int, wait time.Duration) bool {
+	if pid <= 1 {
+		return true
+	}
+	all, err := List()
+	if err != nil {
+		return false
+	}
+	skip := Ancestors(all, os.Getpid())
+	if skip[pid] {
+		return false
+	}
+	frozen := map[int]bool{}
+	tree := []int{pid}
+	for round := 0; round < 10; round++ {
+		grew := false
+		for _, p := range tree {
+			if !frozen[p] && !skip[p] {
+				frozen[p] = true
+				grew = true
+				_ = syscall.Kill(p, syscall.SIGSTOP)
+			}
+		}
+		if !grew {
+			break
+		}
+		if all, err = List(); err != nil {
+			break
+		}
+		tree = append([]int{pid}, Descendants(all, pid)...)
+	}
+	for p := range frozen {
+		_ = syscall.Kill(p, syscall.SIGKILL)
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		live := false
+		for p := range frozen {
+			if Alive(p) && !zombie(p) {
+				live = true
+				break
+			}
+		}
+		if !live {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// zombie reports whether pid has exited and only waits to be reaped: it
+// writes nothing more.
+func zombie(pid int) bool {
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
+}

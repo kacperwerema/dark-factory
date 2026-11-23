@@ -19,9 +19,18 @@ const (
 // review, no post-mortem (the workflow's `chore` type, the chore-type entry).
 const ChoreType = "chore"
 
-// HandoffHeadings are the sections every flushed note has, in the order the
-// brief asks for them. ## Next is the Status page's What's next list.
-var HandoffHeadings = []string{"State", "Queue", "Waiting on the owner", "Rules in force", "How to resume", "Next"}
+// HandoffHeadings are the sections every handoff note has, in the order the
+// brief asks for them. ## Next is the Status page's What's next list. A
+// note carries only what nothing else renders: workers, the queue and the
+// owner's asks are in the lead's state file, which the fresh lead's brief
+// renders live, so a note never copies them (they went stale by morning).
+var HandoffHeadings = []string{"Next", "Rules in force", "Released and installed"}
+
+// LegacyHandoffHeadings are the sections notes written before 2026-11-23
+// had besides HandoffHeadings. A new note may not have them; an older note
+// still loads, and the brief inlines it without them (the state file has
+// their parts as they are now).
+var LegacyHandoffHeadings = []string{"State", "Queue", "Waiting on the owner", "How to resume"}
 
 // HandoffSummaryName is the file name of the day's lead-chat summary, beside
 // the note. It can't match NewestHandoffNote's -<lead>.md.
@@ -49,7 +58,37 @@ func CheckHandoffNote(text string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("the note has no %s (every note has: %s)", strings.Join(missing, ", "), strings.Join(HandoffHeadings, ", "))
 	}
+	var copied []string
+	for _, h := range LegacyHandoffHeadings {
+		if hasHeading(text, h) {
+			copied = append(copied, "## "+h)
+		}
+	}
+	if len(copied) > 0 {
+		return fmt.Errorf("the note has %s: the fresh lead's brief renders workers, the queue and the owner's asks live from the state file, so take them out (a note has only %s)", strings.Join(copied, ", "), strings.Join(HandoffHeadings, ", "))
+	}
 	return nil
+}
+
+// dropHeadings is text without its "## <name>" sections (heading to the
+// next "## " heading), names matched without case.
+func dropHeadings(text string, names []string) (string, bool) {
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[strings.ToLower(n)] = true
+	}
+	var out []string
+	skip, dropped := false, false
+	for _, line := range strings.Split(text, "\n") {
+		if h, ok := strings.CutPrefix(strings.TrimSpace(line), "## "); ok {
+			skip = drop[strings.ToLower(strings.TrimSpace(h))]
+			dropped = dropped || skip
+		}
+		if !skip {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n"), dropped
 }
 
 // CheckHandoffSummary says what is wrong with a chat summary.
@@ -95,7 +134,13 @@ func LeadHandoffSection(notesDir, lead string) string {
 	var b strings.Builder
 	b.WriteString("\n\n## Where the last lead left off\n\n")
 	fmt.Fprintf(&b, "From %s:\n\n", path)
-	lines := strings.Split(strings.TrimSpace(string(note)), "\n")
+	// An older note's State, Queue and Waiting were as of the night
+	// before: the state file below has them as they are now.
+	text, legacy := dropHeadings(strings.TrimSpace(string(note)), LegacyHandoffHeadings)
+	if legacy {
+		b.WriteString("(Its State, Queue, Waiting and How to resume are left out: your state file has them as they are now.)\n\n")
+	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
 	cut := len(lines) > HandoffNoteMaxLines
 	if cut {
 		lines = lines[:HandoffNoteMaxLines]

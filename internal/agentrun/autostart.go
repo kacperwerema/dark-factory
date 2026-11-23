@@ -1,11 +1,13 @@
 package agentrun
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/queue"
 	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -113,7 +115,9 @@ func LiveWorkers(proj *tracker.Project, root string) int {
 // turn between projects (both read under the lock when starting; a nil
 // share takes no turn). only, when set, limits the pick to that issue, so
 // dispatch --autostart can't start something the next order wouldn't.
-func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot, workRoot string, yoloOn bool, last *autostart.Start, share *autostart.Share, only string, now time.Time) (autostart.Verdict, *autostart.State, error) {
+// onMain finds a slug's work on main for a --merged queue blocker (nil
+// knows no git: such a blocker holds until it is done).
+func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot, workRoot string, yoloOn bool, last *autostart.Start, share *autostart.Share, only string, onMain func(string) (string, bool), now time.Time) (autostart.Verdict, *autostart.State, error) {
 	st, err := autostart.Load(stateRoot, proj.Slug)
 	if err != nil {
 		return autostart.Verdict{}, nil, err
@@ -125,11 +129,45 @@ func AutostartEvaluate(proj *tracker.Project, issues []*tracker.Issue, stateRoot
 		in.CPU = autostart.ReadLoad()
 		in.Workers = LiveWorkers(proj, workRoot)
 		in.Candidates = AutostartCandidates(proj, issues, yoloOn)
+		holdQueueBlocked(proj, issues, in.Candidates, onMain, now)
 		if only != "" {
 			in.Candidates = autostartOnly(in.Candidates, only)
 		}
 	}
 	return autostart.Decide(in), st, nil
+}
+
+// holdQueueBlocked holds each candidate whose open queue item waits on a
+// blocker (queue block): auto-start picks from the backlog, and without
+// this it would start an item the queue holds back.
+func holdQueueBlocked(proj *tracker.Project, issues []*tracker.Issue, cands []autostart.Candidate, onMain func(string) (string, bool), now time.Time) {
+	if !queue.Exists(proj.IssueDir) {
+		return
+	}
+	q, err := queue.Load(proj.IssueDir)
+	if err != nil {
+		return
+	}
+	QueueReconcile(proj, issues, q, now)
+	isDone := func(slug string) (bool, bool) { return IssueShipped(proj, issues, slug) }
+	holds := map[string]string{}
+	for _, it := range q.ActiveItems() {
+		if it.State != queue.Open || it.Slug == "" || len(it.BlockedOn) == 0 {
+			continue
+		}
+		key := strings.ToLower(it.Slug)
+		if _, seen := holds[key]; seen {
+			continue
+		}
+		if hold := BlockerHold(proj, q, &it, isDone, onMain, nil); hold != "" {
+			holds[key] = fmt.Sprintf("queue item %d: %s", it.ID, hold)
+		}
+	}
+	for i := range cands {
+		if hold, ok := holds[strings.ToLower(cands[i].Slug)]; ok && cands[i].Hold == "" {
+			cands[i].Hold = hold
+		}
+	}
 }
 
 func autostartOnly(cands []autostart.Candidate, slug string) []autostart.Candidate {

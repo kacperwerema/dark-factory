@@ -14,7 +14,7 @@ import (
 
 var leadCommand = &Command{
 	Name:      "lead",
-	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom, flush it at night, tick, wait on a probe, keep its state, rotate it, search its history (sub: spawn|whoami|list|message|flush|tick|watch|state|rotate|history; alias: ceo)",
+	ShortHelp: "The CEO (the project lead): spawn it, see who reports to whom, flush it at night, tick, wait on a probe, keep its state, rotate it, search its history (sub: spawn|brief|whoami|list|message|flush|tick|watch|state|rotate|history; alias: ceo)",
 	LongHelp: `The CEO supervises workers; it is what was called the project lead.
 There is one CEO per project (tmux lead-<project>, in the project
 checkout); every worker and department reports to it, epic children
@@ -28,6 +28,13 @@ Subcommands:
       twice. lead_terminal: in projects.yaml decides what opens (unset:
       headless; tmux-window: a tab in lead_window_session); --headless
       opens nothing either way. Workers follow terminal: instead.
+  brief --render [--department <name>] [--sections]
+      Print the first prompt a fresh lead (lead spawn, or with
+      --department that department's lead) would get now, from any
+      shell, a worker's included: it starts nothing and writes nothing.
+      --sections prints each section instead, with its characters and
+      tokens (chars/2.7), named as spend --context names them; measure a
+      brief cut with it before the lead runs. --json for either.
   whoami
       Your role, who you report to, and what you may tick.
   list
@@ -67,7 +74,7 @@ Subcommands:
       context nudge, the owner's comment), so a background shell wakes
       the lead once per piece of news. A plain start and a closed session
       are no news: they are held and printed above the next news, one
-      line each, and so is the hold said last when it comes back after
+      line each with its tick's time ("[00:35] start: ..."), and so is the hold said last when it comes back after
       a quiet load or memory tick; --verbose exits on them too. This is
       the lead's one way to wait: a /loop cron, a ScheduleWakeup poll or a
       Monitor (which expires every 30 minutes) wakes the whole context
@@ -115,12 +122,13 @@ Examples:
   issue-cli lead spawn
   issue-cli lead spawn --department marketing
   issue-cli lead whoami
+  issue-cli lead brief --render --sections
   issue-cli lead tick --watch --exit-on-news
   issue-cli lead tick --watch --exit-on-news --observe --department marketing
   issue-cli lead watch --run 'ls out/images | wc -l' --every 10m
   issue-cli lead message ui/workbench-redesign "please rebase on main"`,
 	Run:         runLead,
-	Subcommands: []string{"spawn", "whoami", "list", "message", "flush", "tick", "watch", "state", "rotate", "history"},
+	Subcommands: []string{"spawn", "brief", "whoami", "list", "message", "flush", "tick", "watch", "state", "rotate", "history"},
 }
 
 func init() {
@@ -130,12 +138,14 @@ func init() {
 
 func runLead(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"\n  issue-cli lead flush pack|note|summary|close --run <slug>\n  issue-cli lead tick [--watch] [--every 5m] [--exit-on-news [--verbose]] [--observe [--department <d>]]\n  issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']\n  issue-cli lead state [note \"<text>\" | ask --quote \"<words>\" | done <n>]\n  issue-cli lead rotate\n  issue-cli lead history <words>")
+		return fmt.Errorf("lead requires a subcommand\n\nUsage:\n  issue-cli lead spawn [--department <name>] [--headless]\n  issue-cli lead brief --render [--department <name>] [--sections]\n  issue-cli lead whoami\n  issue-cli lead list\n  issue-cli lead message <target> \"text\"\n  issue-cli lead flush pack|note|summary|close --run <slug>\n  issue-cli lead tick [--watch] [--every 5m] [--exit-on-news [--verbose]] [--observe [--department <d>]]\n  issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']\n  issue-cli lead state [note \"<text>\" | ask --quote \"<words>\" | done <n>]\n  issue-cli lead rotate\n  issue-cli lead history <words>")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
 	case "spawn":
 		return runLeadSpawn(ctx, rest)
+	case "brief":
+		return runLeadBrief(ctx, rest)
 	case "whoami":
 		return runLeadWhoami(ctx, rest)
 	case "list":
@@ -155,7 +165,7 @@ func runLead(ctx *Context, args []string) error {
 	case "history":
 		return runLeadHistory(ctx, rest)
 	default:
-		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, whoami, list, message, flush, tick, watch, state, rotate, history", sub)
+		return fmt.Errorf("unknown lead subcommand: %s\n\nValid: spawn, brief, whoami, list, message, flush, tick, watch, state, rotate, history", sub)
 	}
 }
 

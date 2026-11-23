@@ -310,7 +310,7 @@ func (g Growth) Line() string {
 func restartCommand(name string) string {
 	switch {
 	case name == "issue-viewer":
-		return "restart the viewer (GOBIN=~/.local/bin make install restarts it)"
+		return "restart it: issue-cli viewer restart"
 	case strings.HasPrefix(name, "lead-"):
 		return "rotate it: issue-cli lead rotate --lead " + name
 	}

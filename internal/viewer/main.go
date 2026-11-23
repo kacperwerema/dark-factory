@@ -207,7 +207,7 @@ func run(args []string) error {
 			record = *recordViewer
 		}
 		if record {
-			state := viewerstate.State{Config: absConfig, URL: url, PID: os.Getpid(), Started: time.Now()}
+			state := viewerstate.State{Config: absConfig, URL: url, PID: os.Getpid(), Started: time.Now(), Version: Version}
 			if err := viewerstate.Write(state); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: could not record the viewer for issue-cli in %s: %v\n", viewerstate.Path(), err)
 			}

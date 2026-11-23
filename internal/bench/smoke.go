@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/jsonfile"
@@ -312,25 +313,41 @@ func smokeTasks(ctx context.Context, dir string, now time.Time) (*Fixture, *trac
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var tasks []Task
-	for _, slug := range fx.Tasks {
-		var issue *tracker.Issue
+	picked := make([]*tracker.Issue, len(fx.Tasks))
+	for k, slug := range fx.Tasks {
 		for i := range issues {
 			if issues[i].Slug == slug {
-				issue = issues[i]
+				picked[k] = issues[i]
 			}
 		}
-		if issue == nil {
+		if picked[k] == nil {
 			return nil, nil, nil, fmt.Errorf("fixture task %s did not load", slug)
 		}
-		t, _, err := NewTask(ctx, proj, issue, AddOptions{Verify: true, DocsRubric: []string{"Says what the change does for a user"}}, now)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("task %s: %w", slug, err)
-		}
-		if t.Stages == nil {
-			return nil, nil, nil, fmt.Errorf("task %s: no stage references", slug)
-		}
-		tasks = append(tasks, t)
+	}
+	// Each task is verified in its own clone (two go test runs apiece), so
+	// the three run at once: one after another they were most of the
+	// fixture step, and the smoke's whole time on a loaded machine.
+	tasks := make([]Task, len(picked))
+	errs := make([]error, len(picked))
+	var wg sync.WaitGroup
+	for k, issue := range picked {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p := *proj
+			t, _, err := NewTask(ctx, &p, issue, AddOptions{Verify: true, DocsRubric: []string{"Says what the change does for a user"}}, now)
+			switch {
+			case err != nil:
+				errs[k] = fmt.Errorf("task %s: %w", issue.Slug, err)
+			case t.Stages == nil:
+				errs[k] = fmt.Errorf("task %s: no stage references", issue.Slug)
+			}
+			tasks[k] = t
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return nil, nil, nil, err
 	}
 	if len(tasks) != len(fixtureTasks) {
 		return nil, nil, nil, fmt.Errorf("%d tasks, the fixture has %d", len(tasks), len(fixtureTasks))

@@ -21,8 +21,9 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component. Its 
 - **Honest empty states.** When there is nothing to show, say what is missing
   and how to get it (`wb/empty`); never draw a fake or sample row.
 - **No sidebar.** Workshop Board pages carry `wb/header` and its breadcrumb,
-  not `_sidebar.html`. Workshop pages load `static/workshop.css` only, never
-  `static/style.css`.
+  not `_sidebar.html`. Workshop pages load the workshop stylesheets only
+  (`{{stylesheets "workshop"}}` in `wb/head`), never the classic `style`
+  ones.
 - **Orange waits on the owner.** If something is orange, it waits on you;
   nothing else is orange. Yellow-black stripes mean YOLO only.
 - **Classic pages.** A page that replaced a classic one keeps the old page at
@@ -35,11 +36,11 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component. Its 
   before adding to a classic page, add the Workshop half too.
 - **Thumb-sized at phone width.** At 640px and below every button, link and
   key the owner acts with is at least 44px tall (square keys 44px wide). The
-  rule lives in one block at the end of `static/workshop.css` ("phone width:
-  tap targets"): add a new button class there, and give the page's phone
+  rule lives in `static/workshop-phone-taps.css` ("phone width: tap
+  targets"): add a new button class there, and give the page's phone
   session a `size: { target: …, min_height: 44 }` check (`phone-*.yaml`).
 - **No sideways scroll at 390px.** The second phone block ("phone width:
-  every page") folds the header into one row (‹ up, the current crumb, the
+  every page", `static/workshop-phone.css`) folds the header into one row (‹ up, the current crumb, the
   waiting count as "! N", ☰): a new header item goes inside
   `.wb-header-stats`, and the ☰ drawer (`map.drawer`, a checkbox and its
   label, no script) shows it with YOU and the view toggle. The hall's tabs
@@ -54,7 +55,8 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component. Its 
   `phone-pages-*.yaml` session (inside_viewport at 390x844 fails on
   `scrollWidth`, naming the element that sticks out).
 - **The title in the first screen.** At 390x844 a page's title sits in the
-  top half (the "one screen" block at the end of `static/workshop.css`):
+  top half (the "one screen" block, `static/workshop-phone-screen.css`, the last
+  workshop part):
   the YOLO band is one 44px line (`wb/yolo-line`) that opens its card on a
   tap, and the company floor shows its rooms as a list (`wb/fl-list`)
   instead of the scaled plan. Nothing in that block changes a page above
@@ -122,7 +124,7 @@ to check when a page moves behind `?classic=1`, and every `wb/*` component. Its 
 
 What earlier workers learned the hard way (2026-10-31 retro sweep):
 
-- **Workshop pages have one theme.** `workshop.css` has no theme switch:
+- **Workshop pages have one theme.** The workshop stylesheets have no theme switch:
   no `[data-theme]` blocks, no dark mode, no Dracula. The dark workbench,
   Dracula and light themes live in `static/style.css` and reach only the
   classic pages. An issue that asks for "all three themes" on a Workshop page
@@ -133,8 +135,8 @@ What earlier workers learned the hard way (2026-10-31 retro sweep):
   replaces anything with `(`, `)`, `;`, `/` or quotes by `ZgotmplZ`, so
   `style="color:{{.}}"` with `var(--ink)` renders as `color:ZgotmplZ` and the
   colour is lost. Pass plain values only (`left:{{.Pos}}` with `40%`, a hex
-  colour); for a token, add a modifier class whose rule in `workshop.css`
-  uses `var(--…)`.
+  colour); for a token, add a modifier class whose rule in the page's
+  `workshop-<view>.css` uses `var(--…)`.
 - **A control that needs its script starts disabled.** A submit button or
   key that only works once `static/<page>.js` has wired it is rendered with
   `disabled` and the script enables it. Before the script runs (slow load, a
@@ -144,7 +146,7 @@ What earlier workers learned the hard way (2026-10-31 retro sweep):
   request (a nonce, a temp-file name, a generated key) stays in attributes
   and URLs, not in visible text: a session's `expect` reads text and fails
   on every run that draws a new one.
-- **Every `wb-*` class a template names has a rule in `workshop.css`.** A
+- **Every `wb-*` class a template names has a rule in a workshop stylesheet.** A
   class with no rule draws the element unstyled and fails a playtest's
   `styles_applied` check later (`wb-ny-sec--after` did).
   `TestWorkshopTemplateClassesHaveRules` (internal/viewer/workshop_guide_test.go) names each
@@ -166,22 +168,43 @@ What earlier workers learned the hard way (2026-10-31 retro sweep):
 | Components | `templates/_workshop.html` (shared) and one `templates/_workshop_<page>.html` per page; the header comment of each lists its components |
 | Pages | `templates/<page>_wb.html`, `report.html`, `station.html`, `crew.html`… compose the components |
 | View models | `workshop.go` (shared), `<page>_wb.go` or the page's Go file (named in the template's header) |
-| Styles | `static/workshop.css`, one block per page under a `/* ---- <name> ---- */` banner ("L1: the report", "L2: hall health", "L3: the station") |
+| Styles | `static/workshop.css` (tokens, header, layout, lots, right panel), then one `static/workshop-<view>.css` per page (`workshop-report.css`, `workshop-health.css`, `workshop-station.css`…), each under its `/* ---- <name> ---- */` banner. `css_bundles.go` lists them in cascade order; see [Stylesheets](#stylesheets) |
 | Behaviour | `static/workshop.js` (shared), `static/<page>.js` |
 | Test ids | `internal/testids/<page>.go`, one file per page; `TestTemplateTestIDs` keeps them in step with the templates |
 
-`static/style.css` also has a few `wb-*` classes (`wb-chip`, `wb-empty`,
+`static/style*.css` also has a few `wb-*` classes (`wb-chip`, `wb-empty`,
 `wb-panel`…): those belong to the classic workbench pages, which never load
-`workshop.css`. Don't touch them for a Workshop page.
+the workshop stylesheets. Don't touch them for a Workshop page.
+
+## Stylesheets
+
+`static/style.css` and `static/workshop.css` were one file each; they are
+split by view so branches that change different pages edit different files.
+`internal/viewer/css_bundles.go` lists each bundle's parts in cascade order,
+and a page's head writes `{{stylesheets "workshop"}}` (or `"style"`), one
+`<link>` per part in that order, so the cascade is the one the single file
+had. Every page loads every part of its bundle.
+
+- A new page's rules go in its own `workshop-<view>.css`, added to the list
+  where its rules should fall in the cascade (usually before the phone
+  parts at the end, which override page rules at 640px and below).
+- No file under `static/` is over 1000 lines
+  (`TestCSSPartsListedAndShort`, which also fails on a CSS file no bundle
+  lists). Split a part that grows past it, at a top-level rule.
+- Each part closes every block it opens (`TestStylesheetsCloseEveryBlock`,
+  `TestStyleCSSBracesBalanced`): a lost `}` no longer spills into the next
+  part, but still swallows the rest of its own.
+- The first part of each bundle holds the tokens (`:root`) every later part
+  reads.
 
 ## CSS class names
 
-`static/workshop.css` is one file loaded by every Workshop page, so a class
-defined twice is a clash: the later rule wins on every page, not only the one
+Every Workshop page loads every workshop stylesheet, so a class
+defined twice, in one part or in two, is a clash: the later rule wins on every page, not only the one
 that wrote it. That is how the docs page title was drawn at 12.5px with an
 ellipsis: the system page had defined its own `.wb-doc-title` further down.
 
-- Search `workshop.css` for a name before you use it. Generic names
+- Search `static/workshop*.css` for a name before you use it. Generic names
   (`wb-ccard`, `wb-floor`, `wb-shelf`, `wb-h2`) are taken.
 - A page's own classes carry the page in the name: `wb-sysdoc-title` on the
   system page, `upd-*` on Updates, `wb-crew-*` on Crew.

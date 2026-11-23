@@ -19,9 +19,9 @@ type releaseRepo struct {
 	cfg               *tracker.PrivacyConfig
 }
 
+// Its git runs on TestMain's environment, so a test on it can be parallel.
 func newReleaseRepo(t *testing.T) releaseRepo {
 	t.Helper()
-	gitEnv(t)
 	base := t.TempDir()
 	r := releaseRepo{root: filepath.Join(base, "proj"), public: filepath.Join(base, "public.git"), dev: filepath.Join(base, "dev.git"),
 		cfg: &tracker.PrivacyConfig{Code: "snapshots", Decided: "x"}}
@@ -56,6 +56,7 @@ func (r releaseRepo) land(t *testing.T, slug, file, text, changelogLine string) 
 }
 
 func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	setup, err := Setup(r.root, r.dev, r.cfg)
 	if err != nil {
@@ -194,6 +195,7 @@ func TestReleaseFlowCutSoakPickPublish(t *testing.T) {
 }
 
 func TestPublishDryRunChangesNothing(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	setup, err := Setup(r.root, r.dev, r.cfg)
 	if err != nil {
@@ -254,6 +256,7 @@ func TestSnapshotMessage(t *testing.T) {
 }
 
 func TestPublishRefusals(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
@@ -343,6 +346,7 @@ func TestPublishRefusals(t *testing.T) {
 }
 
 func TestPrePushGuardsThePublicRemoteAndQuotes(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
@@ -422,6 +426,7 @@ func signingKey(t *testing.T, root string) {
 }
 
 func TestPublishSignsTheSnapshot(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
@@ -462,6 +467,7 @@ func TestPublishSignsTheSnapshot(t *testing.T) {
 // Before release setup, origin is still the public repo: cut must not push
 // there, and must not leave a branch, tag or worktree behind either.
 func TestCutRefusesBeforeTheSwitch(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	refs := func() string {
 		return run(t, r.root, "git", "for-each-ref", "--format=%(refname) %(objectname)") + "\n" + run(t, r.root, "git", "ls-remote", r.public)

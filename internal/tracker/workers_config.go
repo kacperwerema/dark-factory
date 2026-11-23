@@ -27,6 +27,21 @@ type WorkersConfig struct {
 	// Tools are Claude Code tools a lean worker keeps that it otherwise
 	// starts without: one of WorkerToolsOff.
 	Tools []string `yaml:"tools,omitempty" desc:"Claude Code tools a lean worker keeps that it otherwise starts without (Artifact, Workflow, SendFeedback, ReportFindings, ListAgents)"`
+	// Nice is the nice level a worker's session starts at (0..19); nil
+	// or 0 leaves it at the dispatcher's. Leads never get it.
+	Nice *int `yaml:"nice,omitempty" desc:"nice level (0..19) dispatch starts a worker's session at, so a worker and everything it runs (tests, builds, browsers) yield the cores to the lead and to what else the machine serves; leads stay at 0 (default 0 = off)"`
+}
+
+// WorkerNice is the nice level workers: nice: starts a worker at; 0 when
+// unset or outside 0..19 (WorkersProblems names that).
+func (wf *WorkflowConfig) WorkerNice() int {
+	if wf == nil || wf.Workers == nil || wf.Workers.Nice == nil {
+		return 0
+	}
+	if n := *wf.Workers.Nice; n > 0 && n <= 19 {
+		return n
+	}
+	return 0
 }
 
 // WorkerSkill is one item of workers: skills:, written as a bare name
@@ -173,6 +188,9 @@ func (wf *WorkflowConfig) WorkersProblems() []string {
 	if w.Setup != "" && w.Setup != WorkerSetupLean && w.Setup != WorkerSetupFull {
 		out = append(out, fmt.Sprintf("workers: setup: %q is neither lean nor full", w.Setup))
 	}
+	if w.Nice != nil && (*w.Nice < 0 || *w.Nice > 19) {
+		out = append(out, fmt.Sprintf("workers: nice: %d is outside 0..19 (workers start at nice 0)", *w.Nice))
+	}
 	for i, m := range w.MCP {
 		if strings.TrimSpace(m.Server) == "" {
 			out = append(out, fmt.Sprintf("workers: mcp: item %d names no server:", i+1))
@@ -216,6 +234,10 @@ func (w *WorkersConfig) clone() *WorkersConfig {
 		return nil
 	}
 	c := *w
+	if w.Nice != nil {
+		n := *w.Nice
+		c.Nice = &n
+	}
 	c.Plugins = slices.Clone(w.Plugins)
 	c.Tools = slices.Clone(w.Tools)
 	c.Skills = make([]WorkerSkill, len(w.Skills))

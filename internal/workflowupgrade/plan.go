@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -115,12 +116,16 @@ type Proposal struct {
 	Category   string `json:"category"`
 	InTemplate bool   `json:"in_template"`
 	Declined   bool   `json:"declined,omitempty"`
-	Title      string `json:"title"`
-	What       string `json:"what"`
-	Why        string `json:"why"`
-	Where      string `json:"where"`
-	Snippet    string `json:"snippet"`
-	Question   string `json:"question"`
+	// Present: an update whose feature the file already has; only its
+	// features: record is older, so `workflow scan --installed` records it
+	// and nothing in the file needs adding.
+	Present  bool   `json:"present_in_file,omitempty"`
+	Title    string `json:"title"`
+	What     string `json:"what"`
+	Why      string `json:"why"`
+	Where    string `json:"where"`
+	Snippet  string `json:"snippet"`
+	Question string `json:"question"`
 	// Setup is the entry's steps beyond the snippet (owner or agent).
 	Setup []SetupStep `json:"setup,omitempty"`
 	// Needs lists required entries the project lacks; only --all lists
@@ -147,7 +152,13 @@ type Plan struct {
 	Unrecorded   []string   `json:"detected_unrecorded"`
 	// Undecided lists the proposals made without --all: the features the
 	// record leaves for the owner to pick or decline.
-	Undecided  []string `json:"undecided"`
+	Undecided []string `json:"undecided"`
+	// Missing lists the proposals whose feature is not in the file: the
+	// ones to adopt. RecordOnly lists the features the file has whose
+	// record is older (a Present update) or absent (Unrecorded): `workflow
+	// scan` records them, nothing to adopt.
+	Missing    []string `json:"missing"`
+	RecordOnly []string `json:"record_only"`
 	BackupPath string   `json:"backup_path,omitempty"`
 	Steps      []string `json:"steps"`
 	Message    string   `json:"message"`
@@ -172,7 +183,7 @@ const (
 // What counts as installed comes from the features: record when the file has
 // one, otherwise from the catalog's detection probes.
 func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, error) {
-	plan := &Plan{WorkflowFile: path, All: all, Proposals: []Proposal{}, Present: []string{}, Declined: []string{}, Unrecorded: []string{}, Undecided: []string{}, Steps: []string{}}
+	plan := &Plan{WorkflowFile: path, All: all, Proposals: []Proposal{}, Present: []string{}, Declined: []string{}, Unrecorded: []string{}, Undecided: []string{}, Missing: []string{}, RecordOnly: []string{}, Steps: []string{}}
 	stamp := ReadStamp(raw)
 	templateFlag = strings.TrimSpace(templateFlag)
 
@@ -281,6 +292,7 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 				plan.Present = append(plan.Present, e.ID)
 				if (all || newer) && v != "" && CompareVersions(e.Version, v) > 0 {
 					p.Kind, p.Installed = ProposalUpdate, v
+					p.Present = Detect(e, doc).Matches > 0
 					plan.Proposals = append(plan.Proposals, p)
 					if newer {
 						plan.Undecided = append(plan.Undecided, e.ID)
@@ -312,9 +324,13 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 			plan.Undecided = append(plan.Undecided, e.ID)
 		}
 	}
+	// The missing ones first, so the numbers run in order through the
+	// "missing" block and on into the "present, record only" one.
+	sort.SliceStable(plan.Proposals, func(i, j int) bool { return !plan.Proposals[i].Present && plan.Proposals[j].Present })
 	for i := range plan.Proposals {
 		plan.Proposals[i].Number = i + 1
 	}
+	plan.Missing, plan.RecordOnly = splitProposals(plan.Proposals, plan.Unrecorded)
 
 	// A current stamp is up to date only when the record decides
 	// everything: an unrecorded feature or an undecided proposal is not.
@@ -348,6 +364,22 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 		return plan, nil
 	}
 
+	if len(plan.Missing) == 0 {
+		// Every proposal is a feature the file already has at an older
+		// record version: nothing to adopt, only the record to bring up.
+		present := presentUpdates(plan.Proposals)
+		plan.Message = fmt.Sprintf("Nothing missing: workflow.yaml already has every feature the bundled %s template (%s) proposes; %d present, record only (%s), recorded at an older version.", plan.Template, latest, len(present), strings.Join(present, ", "))
+		plan.Steps = []string{
+			fmt.Sprintf("Record them at the catalog version: `issue-cli workflow scan --installed %s` (preview with --dry-run). Nothing else in the file changes.", strings.Join(present, ",")),
+			fmt.Sprintf("Set the stamp at the top of %s: `%s`.", path, stampLine),
+			"Validate: run `issue-cli process workflow` and fix anything under == Warnings (workflow.yaml) ==.",
+		}
+		if len(plan.Unrecorded) > 0 {
+			plan.Steps = append(plan.Steps, "Some features are in the file but not in its features: record; `issue-cli workflow scan` records them with the rest.")
+		}
+		return plan, nil
+	}
+
 	plan.BackupPath = NextBackupPath(path)
 	note := ""
 	switch plan.Status {
@@ -356,7 +388,11 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 	case StatusUndecided:
 		note = fmt.Sprintf("The stamp matches the bundled %s template (%s), but the features: record leaves %d undecided; `issue-cli workflow scan --installed/--declined` records each pick. ", plan.Template, latest, len(plan.Undecided))
 	}
-	plan.Message = note + fmt.Sprintf("%d feature(s) to propose. Only act on them if the operator asked you to upgrade workflow.yaml; otherwise tell them an upgrade is available and stop.", len(plan.Proposals))
+	split := ""
+	if n := len(plan.RecordOnly); n > 0 {
+		split = fmt.Sprintf(" (%d more present in the file, record only: `issue-cli workflow scan` records them)", n)
+	}
+	plan.Message = note + fmt.Sprintf("%d missing feature(s) to propose%s. Only act on them if the operator asked you to upgrade workflow.yaml; otherwise tell them an upgrade is available and stop.", len(plan.Missing), split)
 	plan.Steps = []string{
 		"Continue only if the operator explicitly asked for a workflow upgrade. Otherwise tell them it is available (`issue-cli workflow upgrade` lists it) and stop.",
 		"Propose the items one at a time: say what it is and why it helps, ask its question, and note whether the human picks or declines it. Don't apply anything they didn't pick.",
@@ -368,6 +404,31 @@ func BuildPlan(path string, raw []byte, templateFlag string, all bool) (*Plan, e
 		"Existing issues keep the checklist sections they already have; new sections appear as issues pass the changed transitions.",
 	}
 	return plan, nil
+}
+
+// splitProposals sorts the proposals into the missing ones (not in the
+// file) and the record-only ones: Present updates, then the unrecorded ids.
+func splitProposals(proposals []Proposal, unrecorded []string) (missing, recordOnly []string) {
+	missing, recordOnly = []string{}, []string{}
+	for _, p := range proposals {
+		if p.Present {
+			recordOnly = append(recordOnly, p.ID)
+		} else {
+			missing = append(missing, p.ID)
+		}
+	}
+	return missing, append(recordOnly, unrecorded...)
+}
+
+// presentUpdates is the ids of the proposals the file already has.
+func presentUpdates(proposals []Proposal) []string {
+	ids := []string{}
+	for _, p := range proposals {
+		if p.Present {
+			ids = append(ids, p.ID)
+		}
+	}
+	return ids
 }
 
 // StaleRecord is the warning for a features: record that misses features

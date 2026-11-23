@@ -32,7 +32,7 @@ func TestLeadBriefMentionsReleaseCandidatesOnlyWhenConfigured(t *testing.T) {
 		t.Error("no release_candidates, but the brief mentions release candidates")
 	}
 	on := LeadBrief(&tracker.WorkflowConfig{Workbench: tracker.WorkbenchConfig{ReleaseCandidates: true}}, in)
-	for _, want := range []string{"- Releases go through a release candidate on a release branch.", "release cut <version>", "never push a candidate tag", "release pick <slug>", "each pick needs the next candidate", "Never publish the release", "explicit ok on a soaked candidate"} {
+	for _, want := range []string{"- Releases: candidate, soak, publish (" + ReleaseDoc + ")", "release cut <version>", "Never push a candidate tag", "release pick <slug>", "each pick needs the next candidate", "never publish without", "explicit ok on a soaked candidate"} {
 		if !strings.Contains(on, want) {
 			t.Errorf("brief missing %q", want)
 		}

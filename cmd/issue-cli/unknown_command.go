@@ -150,7 +150,6 @@ func subcommandHint(cmd, word string) string {
 // outsideCommands are names agents try on issue-cli that belong to another
 // program: the unknown-command error says where the command is.
 var outsideCommands = map[string]string{
-	"viewer":       "the board is its own binary: issue-viewer --help (docs/getting-started.md)",
 	"issue-viewer": "the board is its own binary: issue-viewer --help (docs/getting-started.md)",
 }
 

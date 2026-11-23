@@ -267,7 +267,9 @@ func softCount(n int) string {
 const DecisionBriefingChallengeLine = "Disagree? issue-cli decision challenge <ref> --why \"…\" (your issue waits)."
 
 // DecisionsLeadLines is the lead brief's decisions item: the project's (and
-// for a department lead its department's) decisions in force.
+// for a department lead its department's) decisions in force. A hard one is
+// its ref and title (DecisionTitle), never its body; the soft ones are one
+// count line naming the command that lists them all in full.
 func DecisionsLeadLines(b DecisionBlock, department string) string {
 	scope, cmd := "project", "issue-cli decisions --lead ceo"
 	if department != "" {
@@ -275,10 +277,43 @@ func DecisionsLeadLines(b DecisionBlock, department string) string {
 	}
 	var s strings.Builder
 	fmt.Fprintf(&s, "- Decisions in force (%s scope; hard ones are rules for every worker you start):\n", scope)
-	for _, l := range b.Lines(cmd, "the "+scope+" scope") {
-		s.WriteString("  " + l + "\n")
+	if b.Empty() {
+		s.WriteString("  " + b.Lines(cmd, "the "+scope+" scope")[0] + "\n")
+		return s.String()
 	}
+	soft := 0
+	for _, it := range append(append([]InForceEntry{}, b.Shown...), b.Folded...) {
+		if it.Entry == nil {
+			continue
+		}
+		if !it.Entry.Hard {
+			soft++
+			continue
+		}
+		fmt.Fprintf(&s, "  - %s · %s\n", it.Entry.Ref, DecisionTitle(it.Entry.Text))
+	}
+	if soft > 0 {
+		fmt.Fprintf(&s, "  - %s: %s\n", softCount(soft), cmd)
+	}
+	s.WriteString("  " + DecisionBriefingChallengeLine + "\n")
 	return s.String()
+}
+
+// decisionTitleRunes cuts a decision's title in the lead brief.
+const decisionTitleRunes = 60
+
+// DecisionTitle is a decision's title: its text up to the first sentence
+// or clause end (". ", "; ", " — ", ": "), on one line, cut at 60 runes.
+// A decision has no title of its own; its first clause names it.
+func DecisionTitle(text string) string {
+	t := oneLine(text)
+	end := len(t)
+	for _, sep := range []string{". ", "; ", " — ", ": "} {
+		if i := strings.Index(t, sep); i > 0 && i < end {
+			end = i
+		}
+	}
+	return cutRunes(strings.TrimRight(t[:end], ".;: "), decisionTitleRunes)
 }
 
 // Injected is one real briefing that carried the decisions block.

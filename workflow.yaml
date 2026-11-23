@@ -1,7 +1,7 @@
 # This repo's own workflow (the one Dark Factory is built with), not a starting point.
 # Start yours with `issue-cli project init`, or copy workflow.yaml.example.
 # Tests, lint and the privacy guard read this file, so it stays at the root.
-template: development@v0.36.0
+template: development@v0.66.0
 
 # Feature record: catalog features this file has (<id>@<version>) and the
 # ones the human declined. Written by `issue-cli workflow scan`, read by
@@ -12,11 +12,11 @@ features:
     - docs-type@v0.58.0
     - optional-statuses@v0.36.0
     - parked-status@v0.36.0
-    - report-type@v0.58.0
+    - report-type@v0.66.0
     - status-prompt-append@v0.61.0
     - status-prompts@v0.36.0
     - status-roles@v0.61.0
-    - system-overlays@v0.36.0
+    - system-overlays@v0.61.0
     - transition-fields@v0.36.0
     - types-of-work@v0.36.0
     - wildcard-transitions@v0.36.0
@@ -25,40 +25,42 @@ features:
     - checklist-gates@v0.36.0
     - comment-evidence-gates@v0.36.0
     - commit-references-issue@v0.58.0
-    - decision-ledger@v0.60.1
+    - decision-ledger@v0.61.0
     - failure-hints@v0.36.0
     - human-approval-gates@v0.36.0
     - linked-issue-gate@v0.36.0
     - proof-links@v0.58.0
-    - red-round-cap@v0.59.0
+    - red-round-cap@v0.60.0
     - test-plan-gate@v0.36.0
     - checklist-sections@v0.36.0
     - ci-test-results@v0.54.0
-    - local-ci@v0.54.0
-    - postmortem@v0.59.0
+    - local-ci@v0.64.0
+    - postmortem@v0.63.0
     - set-fields@v0.36.0
     - transition-prompts@v0.36.0
     - issue-actions@v0.36.0
     - project-actions@v0.36.0
     - board-card-fields@v0.36.0
     - board-columns@v0.36.0
+    - code-map@v0.61.0
     - privacy@v0.54.0
     - release-candidates@v0.54.0
     - status-changelog@v0.54.0
     - system-pages@v0.57.0
-    - agent-routing@v0.59.0
-    - lead-prompt@v0.61.0
+    - agent-routing@v0.63.0
+    - lead-prompt@v0.63.0
+    - lean-workers@v0.65.0
     - worktree@v0.36.0
     - clarify-round@v0.59.0
     - design-overlap-discoverability@v0.36.0
     - guided-check-scripts@v0.54.0
     - lead-handoff-prompts@v0.36.0
-    - local-merge-shipping@v0.54.0
-    - must-not-section@v0.59.0
+    - local-merge-shipping@v0.63.0
+    - must-not-section@v0.63.0
     - playtest-owner-switch@v0.55.0
-    - playtest-sessions@v0.36.0
+    - playtest-sessions@v0.63.0
     - sandbox-manual-tests@v0.36.0
-    - testing-na-forms@v0.58.0
+    - testing-na-forms@v0.63.0
     - testing-unrelated-failures@v0.36.0
   declined:
     - critique-gate
@@ -93,7 +95,7 @@ ci:
     # make validate takes unchanged packages from go test's cache
     # (scripts/test-cache.txt); the slow tier runs the suite fresh, so a test
     # that fails only on a later day can't sit behind a cached pass.
-    - cmd: make test TEST_CACHE=0 CI_RESULTS_DIR=
+    - cmd: make test TEST_CACHE=0 SLOW_TESTS=1 CI_RESULTS_DIR=
       tier: slow
       failures: '--- FAIL: (\S+)'
     - cmd: make ux-test ALL=1
@@ -284,6 +286,7 @@ workbench:
         - tools/clilog-scrub
         - tools/doc-numbers
         - tools/playtest-guides
+        - tools/main-fix-hint
         - tools/test-shards
     - name: "Cross-context checks"
       key: checker
@@ -443,7 +446,9 @@ workbench:
         - internal/recent
         - internal/restrace
         - internal/shell
+        - internal/slowtier
         - internal/standin
+        - internal/testbudget
         - internal/telemetry
         - internal/testbin
         - internal/testids
@@ -782,9 +787,9 @@ leads:
       research or a report only (the report goes on the shelf, no code, no commit), docs for docs
       or screenshots, bugfix, tweak, else feature. Code fixes a report finds are their own issues.
     - Bring each question with the asker's recommendation and yours.
-    - After you install a build of main, run the after-install checks of the issues it landed:
-      issue-cli search "after install:" lists the issues whose criteria name one, and the command
-      is in the criterion. Post the result on the issue (comment --text "tests: after install of
+    - After make install && issue-cli viewer restart, run the after-install checks of the issues it
+      landed: issue-cli search "after install:" lists the issues whose criteria name one, with the
+      command. Post the result on the issue (comment --text "tests: after install of
       <version>: <AC> <pass|fail>: …"); a failed one is a bugfix issue. A measure-after window
       (T0, T1 in the criterion) is a queue item or a job due at T1, not a comment.
       Never install an unlanded branch build to prove one.

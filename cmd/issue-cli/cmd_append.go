@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,7 +30,8 @@ the line exactly with --replace: the one line that reads it (leading and
 trailing spaces aside) becomes --body. No match, or several, is refused with
 the section's numbered lines. (Same as issue-cli replace --match.) To replace
 a whole section, use issue-cli replace <slug> --section "<name>" --body-file <file>;
-a bare --replace is refused with both commands named.
+a bare --replace is refused with both commands named. --replace can't delete
+a line: an empty --body is refused with the replace --section call that can.
 
 For screenshots use issue-cli attach <slug> <file> --section "<name>": it saves
 the image where the viewer serves it and appends its link.
@@ -76,6 +78,9 @@ func runAppend(ctx *Context, args []string) error {
 	}
 	section := *sectionFlag
 	force := *forceFlag
+	if text == "" && flagWasSet(fs, "replace") && strings.TrimSpace(*replaceFlag) != "" {
+		return emptyReplaceError(ctx, slug, section, *replaceFlag)
+	}
 	if text == "" {
 		return fmt.Errorf("append requires --body or --body-file\n\nExamples:\n  issue-cli append <slug> --section \"Design\" --body \"- [ ] edge case covered\"\n  issue-cli append <slug> --section \"Design\" --body-file design.md\n  cat design.md | issue-cli append <slug> --section \"Design\" --body-file -")
 	}
@@ -178,6 +183,49 @@ func bareReplaceError(slug, section string, err error) error {
 	return &usageError{err: err, msg: "append --replace takes the old line's text: it swaps one line of the section.\n\n" +
 		"Whole section:\n  issue-cli replace " + slug + " --section " + name + " --body-file <file>\n" +
 		"One line:\n  issue-cli append " + slug + " --section " + name + " --replace '<old line>' --body '<new line>'"}
+}
+
+// emptyReplaceError refuses append --replace <line> --body "": one line
+// can't be deleted that way, so it names replace --section, filled in with
+// --section or else the one section holding the line ("<name>" when none or
+// several do). Nothing is written.
+func emptyReplaceError(ctx *Context, slug, section, old string) error {
+	name := "<name>"
+	if strings.TrimSpace(section) != "" {
+		name = shell.Quote(section)
+	} else if found := sectionHoldingLine(ctx, slug, old); found != "" {
+		name = shell.Quote(found)
+	}
+	return &usageError{msg: "append --replace with an empty --body can't delete a line: it swaps one line for another.\n\n" +
+		"To drop the line, write the section without it:\n  issue-cli replace " + slug + " --section " + name + " --body-file <file>"}
+}
+
+// sectionHoldingLine is the title of the one "## " section of slug's issue
+// with a line reading old (leading and trailing spaces aside); "" when none,
+// several, or the issue can't be read.
+func sectionHoldingLine(ctx *Context, slug, old string) string {
+	issue, _, err := findIssueOrErr(ctx, slug)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(issue.FilePath)
+	if err != nil {
+		return ""
+	}
+	want := strings.TrimSpace(old)
+	found := ""
+	for _, sec := range tracker.SplitSections(string(data)) {
+		for _, line := range strings.Split(sec.Text, "\n") {
+			if strings.TrimSpace(line) == want {
+				if found != "" && found != sec.Title {
+					return ""
+				}
+				found = sec.Title
+				break
+			}
+		}
+	}
+	return found
 }
 
 // sectionArg is the --section value in args (as --section X or

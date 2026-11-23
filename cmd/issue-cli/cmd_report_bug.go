@@ -40,7 +40,8 @@ as context. Pass --cmd "<command line>" to name the command that failed.
 
 Without an engine project on this machine, the report is saved locally in
 ${XDG_DATA_HOME:-~/.local/share}/issue-cli/bug-reports/ and sent by the next
-report-bug that finds one, or by 'issue-cli report-bug --send'.
+report-bug that finds one, or by 'issue-cli report-bug --send'. A queued
+report that fails again stays queued; the others are still sent.
 
 Examples:
   issue-cli report-bug "transition rejects a valid status name with a trailing space"
@@ -288,14 +289,14 @@ func projectOfIssue(ctx *Context, slug string) string {
 }
 
 // drainQueue sends the queued reports, oldest first, except the one this
-// call just queued. It stops at the first failure and returns why.
+// call just queued. A report that fails stays queued and the rest are still
+// tried: one report never holds back the others. why names the failures.
 func drainQueue(sender clibug.Sender, current *reportOutcome) ([]string, string) {
-	if current != nil && current.Kind == "queued" {
-		// The board just failed; the queue would fail the same way.
-		return nil, ""
-	}
-	var sent []string
+	var sent, failed []string
 	for _, q := range clibug.Pending() {
+		if current != nil && current.Queued != "" && q.Path == current.Queued {
+			continue
+		}
 		var res clibug.Result
 		err := clibug.WithLock(func() error {
 			var err error
@@ -303,12 +304,13 @@ func drainQueue(sender clibug.Sender, current *reportOutcome) ([]string, string)
 			return err
 		})
 		if err != nil {
-			return sent, err.Error()
+			failed = append(failed, fmt.Sprintf("%s: %v", filepath.Base(q.Path), err))
+			continue
 		}
 		os.Remove(q.Path)
 		sent = append(sent, res.Slug)
 	}
-	return sent, ""
+	return sent, strings.Join(failed, "; ")
 }
 
 func printReportBug(ctx *Context, out reportBugOutput, send bool) {
@@ -437,7 +439,49 @@ func (b *boardSender) Send(r clibug.Report) (clibug.Result, error) {
 	if closedMatch != nil {
 		title += " (again)"
 	}
+	title, inTheWay := freeTitle(proj, issues, title, r.Title())
+	if inTheWay != nil {
+		closedMatch = inTheWay
+	}
 	return b.create(title, r, closedMatch)
+}
+
+// freeTitle is title, or the next of base " (again)", " (again 2)", …
+// when an issue file already sits at the slug create would give it: a
+// closed match, or the bare issue an earlier report left. It returns the
+// last issue in the way (nil when title was free), so the new issue names
+// it.
+func freeTitle(proj *tracker.Project, issues []*tracker.Issue, title, base string) (string, *tracker.Issue) {
+	candidates := []string{base, base + " (again)"}
+	for n := 2; n < 100; n++ {
+		candidates = append(candidates, fmt.Sprintf("%s (again %d)", base, n))
+	}
+	from := 0
+	for i, c := range candidates {
+		if c == title {
+			from = i
+		}
+	}
+	var inTheWay *tracker.Issue
+	for _, c := range candidates[from:] {
+		_, _, file := newIssueFile(proj, "CLI", c)
+		if _, err := os.Stat(file); err != nil {
+			return c, inTheWay
+		}
+		inTheWay = issueAtFile(issues, file)
+	}
+	return title, inTheWay
+}
+
+// issueAtFile is the loaded issue whose file is path; a stand-in naming the
+// file when it does not parse.
+func issueAtFile(issues []*tracker.Issue, path string) *tracker.Issue {
+	for _, issue := range issues {
+		if sameFile(issue.FilePath, path) {
+			return issue
+		}
+	}
+	return &tracker.Issue{Slug: "cli/" + strings.TrimSuffix(filepath.Base(path), ".md"), FilePath: path}
 }
 
 func (b *boardSender) comment(issue *tracker.Issue, r clibug.Report) (clibug.Result, error) {
@@ -523,23 +567,31 @@ func (b *boardSender) withMilestone(res clibug.Result, r clibug.Report, version 
 func (b *boardSender) create(title string, r clibug.Report, previous *tracker.Issue) (clibug.Result, error) {
 	proj := b.engine
 	const system = "CLI"
-	args := []string{"--title", title, "--system", system}
+	spec := newIssueSpec{Title: title, System: system}
 	if wf := proj.LoadWorkflow(); wf.HasTypes() {
 		if _, ok := wf.Types["bugfix"]; ok {
-			args = append(args, "--type", "bugfix")
+			spec.Type = "bugfix"
 		}
 	}
 	var out bytes.Buffer
 	sub := *b.ctx
 	sub.Project, sub.Stdout, sub.JSONOutput = proj, &out, false
-	if err := runCreate(&sub, args); err != nil {
+	made, err := writeNewIssue(&sub, spec)
+	if err != nil {
 		return clibug.Result{}, fmt.Errorf("creating the issue on the %s board: %w", proj.Slug, err)
 	}
-	slug := strings.ToLower(system) + "/" + tracker.Slugify(title)
+	// create may leave a private name out of the slug: find the issue by
+	// the file it wrote, not by a slug worked out again from the title.
 	issues, _ := tracker.LoadIssues(proj.IssueDir)
-	issue := tracker.FindIssue(issues, slug)
+	var issue *tracker.Issue
+	for _, is := range issues {
+		if sameFile(is.FilePath, made.File) {
+			issue = is
+			break
+		}
+	}
 	if issue == nil {
-		return clibug.Result{}, fmt.Errorf("created %q but cannot find it as %s", title, slug)
+		return clibug.Result{}, fmt.Errorf("created %s but cannot read it back", made.File)
 	}
 
 	var body strings.Builder
@@ -547,8 +599,11 @@ func (b *boardSender) create(title string, r clibug.Report, previous *tracker.Is
 	body.WriteString(r.Text)
 	body.WriteString("\n\n")
 	body.WriteString(r.Context())
-	if previous != nil {
+	switch {
+	case previous != nil && tracker.ClosedIssueFunc(proj)(previous):
 		fmt.Fprintf(&body, "\nReported again after `%s` was closed.\n", previous.Slug)
+	case previous != nil:
+		fmt.Fprintf(&body, "\nFiled beside `%s`, which already had this report's slug.\n", previous.Slug)
 	}
 	fixed, branch := b.maybeFixed(r)
 	if block := clibug.MaybeFixedBlock(r.Version, branch, fixed); block != "" {

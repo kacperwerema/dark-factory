@@ -60,7 +60,7 @@ func autostartView(proj *tracker.Project, issues []*tracker.Issue, prefix string
 	last, _ := autostart.LastStart(autostart.SharedDir())
 	share, _ := autostart.LoadShare(autostart.SharedDir())
 	_, yoloOn, _ := yolo.Active(root, proj.Slug, now)
-	v, st, err := agentrun.AutostartEvaluate(proj, issues, root, projectRoot(proj), yoloOn, last, share, "", now)
+	v, st, err := agentrun.AutostartEvaluate(proj, issues, root, projectRoot(proj), yoloOn, last, share, "", nil, now)
 	if err != nil {
 		log.Printf("autostart: %s: %v", proj.Slug, err)
 		return nil

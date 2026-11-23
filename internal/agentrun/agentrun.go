@@ -17,6 +17,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/routing"
 	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
+	"github.com/kacperwerema/dark-factory/internal/testbudget"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -225,6 +226,7 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	// checkout, not the worktree, so removing a worktree loses no history.
 	sessionLogDir := filepath.Join(workDir, ".agent-logs", session)
 	cliLog := filepath.Join(sessionLogDir, session+".clilog")
+	projRoot := workDir
 	workDir = newDir
 
 	steps := append([]Step{}, worktreeSteps...)
@@ -330,6 +332,13 @@ func Start(proj *tracker.Project, spec Spec) Response {
 	if cfg := strings.TrimSpace(os.Getenv("ISSUE_VIEWER_CONFIG")); cfg != "" {
 		env = append(env, "ISSUE_VIEWER_CONFIG="+cfg)
 	}
+	// A worker's test runs take its share of the cores; a lead's (and
+	// local CI's, which strips it) keep them all.
+	if !lead {
+		budget, detail := WorkerTestBudget(proj, projRoot)
+		env = append(env, testbudget.Env(budget, os.Getenv("GOFLAGS"))...)
+		steps = append(steps, Step{Name: "Test budget", Status: "ok", Detail: detail})
+	}
 
 	// The agent is the window's own command, started with its environment and
 	// working directory already set. Nothing is typed into a shell, so keys
@@ -369,8 +378,11 @@ func Start(proj *tracker.Project, spec Spec) Response {
 		steps = append(steps, Step{Name: "Model", Status: "warning", Detail: fmt.Sprintf("%q is not a model name: started without --model (routing: rules model:, or agent_models)", model)})
 		model = ""
 	}
-	createName, createCmd := CreateTmux(proj, session, workDir, env,
-		AgentCommand(LaunchCommandModel(proj, spec.AgentType, model, session, promptPath, extra))...)
+	argv, niceStep := WorkerNiceCommand(proj, spec, AgentCommand(LaunchCommandModel(proj, spec.AgentType, model, session, promptPath, extra)))
+	if niceStep != nil {
+		steps = append(steps, *niceStep)
+	}
+	createName, createCmd := CreateTmux(proj, session, workDir, env, argv...)
 	if !RunStep(&steps, fmt.Sprintf("%s, running %s (interactive, prompt as argument)", createName, spec.AgentType), createCmd) {
 		response.Status = "error"
 		response.Steps = steps

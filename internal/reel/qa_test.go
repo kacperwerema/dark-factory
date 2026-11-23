@@ -59,7 +59,7 @@ func goodCase() (Measured, *Plan) {
 		{ID: "a", Start: 0, Duration: 4, Narration: &PlanNarration{Words: words(0)}},
 		{ID: "b", Start: 4, Duration: 4, Narration: &PlanNarration{Words: words(4)}},
 	}}
-	box := captionBox("One two.", PlanCaptions{Position: "lower", FontSize: 64}, nil)
+	box := captionBox("One two.", PlanCaptions{Position: "lower", FontSize: 64}, nil, Formats[0])
 	p.Cues = []Cue{{Scene: "a", Text: "One two.", Start: 0.1, End: 0.9, From: 0, To: 1, Box: box}, {Scene: "b", Text: "One two.", Start: 4.1, End: 4.9, From: 0, To: 1, Box: box}}
 	m := Measured{
 		Probe:    Probe{Duration: 8.01, Width: 1080, Height: 1920, SARNum: 1, SARDen: 1, HasVideo: true, HasAudio: true},
@@ -106,7 +106,7 @@ func TestJudgeEachFail(t *testing.T) {
 	}{
 		{"too short", func(m *Measured) { m.Probe.Duration = 4 }, nil, CheckDuration, "outside 5-90 s"},
 		{"off the plan", func(m *Measured) { m.Probe.Duration = 9.2 }, nil, CheckDuration, "+1.20 s off the storyboard's plan"},
-		{"square", func(m *Measured) { m.Probe.Height = 1080 }, nil, CheckAspect, "vertical 9:16"},
+		{"square", func(m *Measured) { m.Probe.Height = 1080 }, nil, CheckAspect, "format is 9:16 (1080x1920)"},
 		{"loud", func(m *Measured) { m.Loudness = -11.5 }, nil, CheckLoudness, "+2.5 LU off -14"},
 		{"quiet", func(m *Measured) { m.Loudness = -16.5 }, nil, CheckLoudness, "-2.5 LU off -14"},
 		{"silent", func(m *Measured) { m.Loudness = math.Inf(-1) }, nil, CheckLoudness, "no sound"},
@@ -173,5 +173,32 @@ func TestReportSummaryAndMarkdown(t *testing.T) {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown lacks %q:\n%s", want, md)
 		}
+	}
+}
+
+// The aspect check holds the file to the storyboard's format: a 1080x1350
+// file passes a 4:5 plan and fails a 9:16 one, and the other way round.
+func TestFormatAspectFollowsThePlan(t *testing.T) {
+	m, p := goodCase()
+	b := DefaultBounds()
+	four := *p
+	four.Format, four.Width, four.Height = "4:5", 1080, 1350
+	four.Cues = append([]Cue(nil), p.Cues...)
+	for i := range four.Cues {
+		four.Cues[i].Box = captionBox(four.Cues[i].Text, PlanCaptions{Position: "lower", FontSize: 64}, nil, four.Frame())
+	}
+	post := m
+	post.Probe.Width, post.Probe.Height = 1080, 1350
+	if c := judgeAspect(post, four.Frame()); !c.OK {
+		t.Errorf("1080x1350 against 4:5: %+v", c)
+	}
+	if f := failed(Judge(post, &four, &four, DefaultBoundsFor(four.Frame()))); len(f) > 0 {
+		t.Errorf("a 4:5 post fails %v", f)
+	}
+	if f := failed(Judge(post, p, p, b)); len(f) != 1 || f[0] != CheckAspect {
+		t.Errorf("1080x1350 against a 9:16 plan fails %v, want aspect", f)
+	}
+	if c := judgeAspect(m, four.Frame()); c.OK || !strings.Contains(c.Bound, "4:5") || !strings.Contains(strings.Join(c.Details, " "), "1080x1350") {
+		t.Errorf("1080x1920 against 4:5: %+v", c)
 	}
 }

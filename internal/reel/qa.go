@@ -221,7 +221,7 @@ type Measured struct {
 func Judge(m Measured, drawn, fresh *Plan, b Bounds) []Check {
 	return []Check{
 		judgeDuration(m, fresh, b),
-		judgeAspect(m),
+		judgeAspect(m, fresh.Frame()),
 		judgeLoudness(m, b),
 		judgeBlack(m, b),
 		judgeSafeZone(drawn, b),
@@ -243,20 +243,21 @@ func judgeDuration(m Measured, p *Plan, b Bounds) Check {
 	return c
 }
 
-func judgeAspect(m Measured) Check {
+// judgeAspect holds the file to the storyboard's format f.
+func judgeAspect(m Measured, f Format) Check {
 	p := m.Probe
-	c := Check{Name: CheckAspect, Bound: "9:16 (0.5625)"}
+	c := Check{Name: CheckAspect, Bound: fmt.Sprintf("%s (%.4f)", f.Name, f.Aspect())}
 	if !p.HasVideo {
 		c.Measured = "no video stream"
 		return c
 	}
 	a := p.Aspect()
 	c.Measured = fmt.Sprintf("%dx%d, SAR %d:%d, %.4f", p.Width, p.Height, p.SARNum, p.SARDen, a)
-	c.OK = math.Abs(a-9.0/16.0) < 0.005
+	c.OK = math.Abs(a-f.Aspect()) < 0.005
 	if !c.OK {
-		c.Details = append(c.Details, "a reel is vertical 9:16 (1080x1920): the template's composition or the encode is another shape")
-	} else if p.Width < FrameWidth {
-		c.Details = append(c.Details, fmt.Sprintf("%dx%d is below 1080x1920: the platforms upscale it", p.Width, p.Height))
+		c.Details = append(c.Details, fmt.Sprintf("the storyboard's format is %s (%s): the template's composition or the encode is another shape; another shape wants format: %s in the storyboard", f.Name, f.Size(), strings.Join(FormatNames(), ", ")))
+	} else if p.Width < f.Width {
+		c.Details = append(c.Details, fmt.Sprintf("%dx%d is below %s: the platforms upscale it", p.Width, p.Height, f.Size()))
 	}
 	return c
 }
@@ -305,7 +306,9 @@ func judgeBlack(m Measured, b Bounds) Check {
 
 func judgeSafeZone(p *Plan, b Bounds) Check {
 	z := b.SafeZone
-	c := Check{Name: CheckSafeZone, Bound: fmt.Sprintf("inside top %g, bottom %g, left %g, right %g px of 1080x1920", z.Top, z.Bottom, z.Left, z.Right)}
+	f := p.Frame()
+	fw, fh := float64(f.Width), float64(f.Height)
+	c := Check{Name: CheckSafeZone, Bound: fmt.Sprintf("inside top %g, bottom %g, left %g, right %g px of %s", z.Top, z.Bottom, z.Left, z.Right, f.Size())}
 	narrated := false
 	for _, s := range p.Scenes {
 		if s.Narration != nil {
@@ -328,14 +331,14 @@ func judgeSafeZone(p *Plan, b Bounds) Check {
 		if x.Y < z.Top {
 			where = append(where, fmt.Sprintf("top %g px into the top %g", z.Top-x.Y, z.Top))
 		}
-		if x.Y+x.H > FrameHeight-z.Bottom {
-			where = append(where, fmt.Sprintf("bottom %g px into the bottom %g", x.Y+x.H-(FrameHeight-z.Bottom), z.Bottom))
+		if x.Y+x.H > fh-z.Bottom {
+			where = append(where, fmt.Sprintf("bottom %g px into the bottom %g", x.Y+x.H-(fh-z.Bottom), z.Bottom))
 		}
 		if x.X < z.Left {
 			where = append(where, fmt.Sprintf("left %g px into the left %g", z.Left-x.X, z.Left))
 		}
-		if x.X+x.W > FrameWidth-z.Right {
-			where = append(where, fmt.Sprintf("right %g px into the right %g", x.X+x.W-(FrameWidth-z.Right), z.Right))
+		if x.X+x.W > fw-z.Right {
+			where = append(where, fmt.Sprintf("right %g px into the right %g", x.X+x.W-(fw-z.Right), z.Right))
 		}
 		if len(where) > 0 {
 			out++

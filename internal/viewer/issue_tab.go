@@ -201,7 +201,7 @@ func buildIssueTab(in issueTabInput) IssueTab {
 	t.NotStarted = notStartedSections(in.WF, issue)
 	t.Agent = agentCardFor(in)
 	for _, b := range in.Src.Boxes {
-		if strings.EqualFold(b.Section, "Acceptance Criteria") {
+		if tracker.IsCriteriaSection(b.Section) {
 			t.Criteria = append(t.Criteria, b)
 			if b.Checked {
 				t.CriteriaDone++

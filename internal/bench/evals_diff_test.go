@@ -33,6 +33,7 @@ func docsTask(f *fixture) Task {
 // AC: a score: diff eval grades the worker's diff (new files included) and
 // reads the known good diff as its reference.
 func TestRunScoresADocsTaskByTheWorkersDiff(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	write(t, filepath.Join(calc.repo, "workflow.yaml"), docsWorkflow)
 	env := calc.env(t)
@@ -59,6 +60,7 @@ func TestRunScoresADocsTaskByTheWorkersDiff(t *testing.T) {
 }
 
 func TestRunFailsADiffTaskWithNoChange(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	write(t, filepath.Join(calc.repo, "workflow.yaml"), docsWorkflow)
 	b := calc.benchmark(`cat > /dev/null; echo '{}'`, docsTask(calc))

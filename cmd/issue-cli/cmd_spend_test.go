@@ -163,7 +163,8 @@ func TestSpendContextPrintsTheFloorByPart(t *testing.T) {
 	proj := goalsProject(t)
 	parts := &spend.FloorParts{System: 3300, Tools: 27200, MCP: 90, ClaudeMD: 4700, Skills: 9800, Brief: 9500, Other: 3000,
 		ToolSizes: []spend.NamedTokens{{Name: "Artifact", Tokens: 13100}, {Name: "mcp__srv__q", Tokens: 9000}, {Name: "SendFeedback", Tokens: 2000}, {Name: "Workflow", Tokens: 1900}, {Name: "Bash", Tokens: 1200}},
-		Files:     []spend.NamedTokens{{Name: spend.FileGlobal, Tokens: 2200}, {Name: spend.FileProject, Tokens: 1700}, {Name: spend.FileMemory, Tokens: 800}}}
+		Files:     []spend.NamedTokens{{Name: spend.FileGlobal, Tokens: 2200}, {Name: spend.FileProject, Tokens: 1700}, {Name: spend.FileMemory, Tokens: 800}},
+		BriefKind: spend.BriefLead, BriefSections: []spend.NamedTokens{{Name: spend.SectionRole, Tokens: 4700}, {Name: spend.SectionPins, Tokens: 1200}, {Name: spend.SectionHandoffNote, Tokens: 3600}}}
 	lead := spend.ContextSession{Agent: "lead-acme", Lead: true, Start: time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC), Turns: 2, Floor: 60700, Parts: parts, Median: 61000, Max: 70000, Context: 130700}
 	stats := spend.SumContext([]spend.ContextSession{lead})
 	old := loadContext
@@ -181,6 +182,9 @@ func TestSpendContextPrintsTheFloorByPart(t *testing.T) {
 	assertContains(t, out.String(), "\n         floor by part (median of 1 session, est. ±10%): "+split+"\n")
 	assertContains(t, out.String(), "  lead-acme  2 turns · floor 60.7k")
 	assertContains(t, out.String(), "\n      floor: "+split+"\n")
+	sections := "role 4.7k · pins 1.2k · handoff note 3.6k"
+	assertContains(t, out.String(), "\n         lead brief by section (median of 1 session): "+sections+"\n")
+	assertContains(t, out.String(), "\n      lead brief: "+sections+"\n")
 	if strings.Contains(out.String(), "Workers: 0 sessions · 0 turns · floor 0 · turn median 0, max 0 · 0 compactions · 0 read\n         floor") {
 		t.Error("a floor-by-part line under workers without a split")
 	}

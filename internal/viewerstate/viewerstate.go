@@ -23,6 +23,10 @@ type State struct {
 	URL     string    `json:"url"`
 	PID     int       `json:"pid"`
 	Started time.Time `json:"started"`
+	// Version is the viewer's build (main.Version, `git describe` at make
+	// install); issue-cli viewer restart prints the old and the new one.
+	// Empty for a viewer started before viewers recorded it.
+	Version string `json:"version,omitempty"`
 }
 
 // Dir is $XDG_STATE_HOME/ai-workflow-engine, default

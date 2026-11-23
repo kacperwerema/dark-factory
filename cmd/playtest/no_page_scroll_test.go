@@ -17,9 +17,7 @@ import (
 // rule's violations as "<id> <rule>".
 func pageViolations(t *testing.T, html string, w, h int, rules ...string) []string {
 	t.Helper()
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
+	needChrome(t)
 	b, err := NewBrowser(false, w, h)
 	if err != nil {
 		t.Skip(err)

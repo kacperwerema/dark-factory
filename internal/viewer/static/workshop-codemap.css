@@ -1,0 +1,37 @@
+/* The code map. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- The code map (/p/<project>/codemap, codemap_view.go, static/codemap.js) ---- */
+.wb-cm { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .wb-cm { grid-template-columns: minmax(0, 1fr); } }
+.wb-cm-plan { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wb-cm-side { position: sticky; top: 8px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+@media (max-width: 1000px) { .wb-cm-side { position: static; } }
+.wb-cm-lane { background: var(--board); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+@media (max-width: 640px) { .wb-cm-lane { grid-template-columns: minmax(0, 1fr); } }
+.wb-cm-lane-h { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.wb-cm-lane-h b { color: var(--ink); font-size: 12px; }
+.wb-cm-boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; min-width: 0; }
+.wb-cm-box { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wb-cm-box[data-mark="works-in"] { border-color: var(--you); box-shadow: inset 0 3px 0 var(--you); }
+.wb-cm-box[data-mark="reaches"] { border-color: var(--you); box-shadow: inset 0 3px 0 var(--you-bg); }
+.wb-cm-box[data-mark="dep"] { border-color: var(--group); box-shadow: inset 0 3px 0 var(--group); }
+.wb-cm-box-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.wb-cm-box-h strong { font-size: 14px; }
+.wb-cm-box-h span, .wb-cm-files { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.wb-cm-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-cm-chip { font-family: var(--mono); font-size: 11.5px; background: var(--page); border: 1px solid var(--line); color: var(--ink); border-radius: 5px; padding: 2px 6px; cursor: pointer; }
+.wb-cm-chip:hover { border-color: var(--ink); }
+.wb-cm-chip:focus-visible { outline: 2px solid var(--plan); outline-offset: 1px; }
+.wb-cm-chip--big { font-weight: 700; }
+.wb-cm-chip--up { text-decoration: underline wavy var(--red); text-underline-offset: 3px; }
+.wb-cm-chip[data-mark="sel"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.wb-cm-chip[data-mark="changed"] { background: var(--you); color: var(--paper); border-color: var(--you); }
+.wb-cm-chip[data-mark="hit"] { background: var(--you-bg); border-color: var(--you); color: var(--you-fg); }
+.wb-cm-chip[data-mark="dep"] { background: #DDF5F2; border-color: var(--group); }
+.wb-cm-mx-wrap { overflow-x: auto; }
+.wb-cm-mx { border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.wb-cm-mx th, .wb-cm-mx td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
+.wb-cm-mx th { color: var(--muted); background: var(--board); font-weight: 600; }
+.wb-cm-mx th[scope=row] { text-align: left; white-space: nowrap; }
+.wb-cm-mx td.wb-cm-up { background: #FDE8EA; color: #A3172A; font-weight: 700; }
+.wb-cm-mx td.wb-cm-self { color: var(--line); }
+

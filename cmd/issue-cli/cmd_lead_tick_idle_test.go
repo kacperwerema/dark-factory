@@ -30,6 +30,7 @@ func nightProject(t *testing.T) (*tracker.Project, *[]string) {
 	if err := os.WriteFile(proj.WorkflowFile, []byte(nightWorkflow), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	retroFile(t, proj, "20261101-090000-r1.md", "", "2026-11-01T09:00:00Z", "Base workflow: fine")
 	for _, name := range []string{"low", "blocked", "base", "high", "claimed"} {
 		os.Remove(filepath.Join(proj.IssueDir, name+".md"))
 	}

@@ -59,7 +59,7 @@ func LoadTemplate(dir string) (*TemplateConfig, error) {
 		c.Public = "public"
 	}
 	if c.QA != nil {
-		if ps := c.QA.problems("qa"); len(ps) > 0 {
+		if ps := c.QA.problems("qa", Formats[0]); len(ps) > 0 {
 			return nil, fmt.Errorf("%s: %s", path, ps[0])
 		}
 	}
@@ -232,7 +232,7 @@ func runRenderer(ctx context.Context, tc *TemplateConfig, o RenderOptions, p *Pl
 
 // encode lays the narration at its scene starts, the music under it,
 // brings the mix to -14 LUFS (loudnorm, two passes) and encodes H.264/AAC
-// 9:16 with the index first.
+// at the plan's frame with the index first.
 func encode(ctx context.Context, o RenderOptions, p *Plan, raw, stem string) error {
 	total := strconv.FormatFloat(p.Duration, 'f', 3, 64)
 	mix := strings.TrimSuffix(o.Out, filepath.Ext(o.Out)) + ".mix.wav"

@@ -73,12 +73,12 @@ func TestDispatchPromptCarriesScopedDecisions(t *testing.T) {
 func TestLeadBriefsCarryTheirScopes(t *testing.T) {
 	proj := leadDeptProject(t, "")
 	briefIssues(t, proj.IssueDir, map[string]string{
-		"Ops/rules.md": issueFile("rules", "done", "Ops", "- **D-1** · 2026-10-01 · chat: Project rule {scope: project}\n"+
-			"- **D-2** · 2026-10-02 · chat: Marketing rule {scope: department:marketing}\n"+
-			"- **D-3** · 2026-10-03 · chat: Sales rule {scope: department:sales}\n"+
-			"- **D-4** · 2026-10-04 · chat: UI rule {scope: system:UI}\n"+
-			"- **D-5** · 2026-10-05 · chat: Pieces rule {scope: type:piece}\n"+
-			"- **D-6** · 2026-10-06 · chat: Issue rule\n"),
+		"Ops/rules.md": issueFile("rules", "done", "Ops", "- **D-1** · 2026-10-01 · chat: Project rule {scope: project; hard}\n"+
+			"- **D-2** · 2026-10-02 · chat: Marketing rule {scope: department:marketing; hard}\n"+
+			"- **D-3** · 2026-10-03 · chat: Sales rule {scope: department:sales; hard}\n"+
+			"- **D-4** · 2026-10-04 · chat: UI rule {scope: system:UI; hard}\n"+
+			"- **D-5** · 2026-10-05 · chat: Pieces rule {scope: type:piece; hard}\n"+
+			"- **D-6** · 2026-10-06 · chat: Issue rule {hard}\n"),
 	})
 	now := time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local)
 	ceo := LeadBrief(nil, LeadBriefInput{Project: proj, Root: proj.Root(), Now: now})
@@ -107,5 +107,42 @@ func TestLeadBriefEmptyDecisions(t *testing.T) {
 	got := LeadBrief(nil, LeadBriefInput{Project: proj, Root: proj.Root()})
 	if !strings.Contains(got, "No decisions in force for the project scope: issue-cli --project acme decisions --lead ceo") {
 		t.Errorf("CEO brief:\n%s", got)
+	}
+}
+
+// The lead brief's decisions block: a hard decision is its ref and title,
+// never its body; the soft ones are one count line with decisions --lead.
+func TestLeadBriefDecisionsAreRefTitleAndASoftCount(t *testing.T) {
+	proj := leadDeptProject(t, "")
+	briefIssues(t, proj.IssueDir, map[string]string{
+		"Ops/rules.md": issueFile("rules", "done", "Ops",
+			"- **D-1** · 2026-10-01 · chat: Connector secrets stay in the project. Each project keeps its own store under its config dir {scope: project; hard}\n"+
+				"- **D-2** · 2026-10-02 · chat: Groups are an engine concept; any project can use them {scope: project; hard}\n"+
+				"- **D-3** · 2026-10-03 · chat: Soft one body text {scope: project}\n"+
+				"- **D-4** · 2026-10-04 · chat: Another soft body {scope: project}\n"+
+				"- **D-5** · 2026-10-05 · chat: Third soft body {scope: project}\n"),
+	})
+	now := time.Date(2026, 10, 31, 9, 0, 0, 0, time.Local)
+	brief := LeadBrief(nil, LeadBriefInput{Project: proj, Root: proj.Root(), Now: now})
+	i := strings.Index(brief, "- Decisions in force (")
+	if i < 0 {
+		t.Fatalf("no decisions block:\n%s", brief)
+	}
+	block := brief[i:]
+	if j := strings.Index(block, "\n- "); j > 0 {
+		block = block[:j+1]
+	}
+	want := "- Decisions in force (project scope; hard ones are rules for every worker you start):\n" +
+		"  - ops/rules#D-2 · Groups are an engine concept\n" +
+		"  - ops/rules#D-1 · Connector secrets stay in the project\n" +
+		"  - 3 soft ones: issue-cli --project acme decisions --lead ceo\n" +
+		"  " + strings.Replace(tracker.DecisionBriefingChallengeLine, "issue-cli ", "issue-cli --project acme ", 1) + "\n"
+	if block != want {
+		t.Errorf("decisions block:\n%s\nwant:\n%s", block, want)
+	}
+	for _, never := range []string{"Each project keeps", "any project can use", "Soft one body", "Another soft", "Third soft"} {
+		if strings.Contains(block, never) {
+			t.Errorf("block carries body text %q", never)
+		}
 	}
 }

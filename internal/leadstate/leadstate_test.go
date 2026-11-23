@@ -219,10 +219,10 @@ func TestIsTick(t *testing.T) {
 	}
 }
 
-// After a flush the note comes first and holds the state's workers, queue
-// and owner asks: the fresh lead's prompt carries them once. A rotate's
-// prompt has no note, so its state stays whole.
-func TestAFlushHandoverCarriesTheNotesRepeatsOnce(t *testing.T) {
+// A note copies no worker, queue item or owner ask, so a fresh lead's
+// prompt carries the state file whole after a flush as after a rotate:
+// its Workers, Queue and Owner asks are their one copy.
+func TestAHandoverCarriesTheStateWhole(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := pinnedNow()
 	v := View{Lead: "lead-x", Project: "x", At: now, Workers: []Worker{{Session: "agent-one", Status: "in progress"}}, Queue: []QueueItem{{ID: 7, Label: "the queued one"}}, QueueOpen: 1}
@@ -236,26 +236,80 @@ func TestAFlushHandoverCarriesTheNotesRepeatsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		sec := HandoverSection("lead-x", "issue-cli lead history <words>", now.Add(time.Minute))
-		for _, want := range []string{"# Lead state: lead-x", "## Watches", "the thing for tomorrow"} {
-			if !strings.Contains(sec, want) {
-				t.Errorf("%s: the section misses %q:\n%s", by, want, sec)
+		for _, part := range []string{"# Lead state: lead-x", "## Watches", "the thing for tomorrow", "## Workers", "## Queue", "the queued one", "## Owner asks", "the owner's open ask"} {
+			if !strings.Contains(sec, part) {
+				t.Errorf("%s: the section misses %q:\n%s", by, part, sec)
 			}
 		}
-		repeats := []string{"## Workers", "agent-one", "## Queue", "the queued one", "## Owner asks", "the owner's open ask"}
-		for _, part := range repeats {
-			if got := strings.Contains(sec, part); got != (by == ByRotate) {
-				t.Errorf("%s: %q in the section = %v:\n%s", by, part, got, sec)
-			}
-		}
-		if by == ByFlush && !strings.Contains(sec, "issue-cli lead state prints them") {
-			t.Errorf("the flush section doesn't say where the dropped parts are:\n%s", sec)
+		if n := strings.Count(sec, "agent-one"); n != 1 {
+			t.Errorf("%s: agent-one %d times in the section, want once:\n%s", by, n, sec)
 		}
 	}
 }
 
-func TestDropSectionsKeepsTheRest(t *testing.T) {
-	text := "# T\n\n## A\n\na\n\n## B\n\nb\n\n## C\n\nc\n"
-	if got, want := DropSections(text, "b", "missing"), "# T\n\n## A\n\na\n\n## C\n\nc\n"; got != want {
-		t.Fatalf("DropSections = %q, want %q", got, want)
+// The rotate's note has the three sections only, and none of the state's
+// workers, queue items or owner asks.
+func TestARotateNoteCopiesNoLivePart(t *testing.T) {
+	now := pinnedNow()
+	v := View{Lead: "lead-x", At: now, Workers: []Worker{{Session: "agent-one"}}, Queue: []QueueItem{{ID: 7, Label: "the queued one"}}, QueueOpen: 1,
+		Decisions: []Ref{{ID: "x#D-1", Text: "the owner's rule"}}, OwnerSteps: []string{"st-1 · Reinstall the phone build"}}
+	var s Store
+	s.Add(KindAsk, "the owner's open ask", now)
+	s.Add(KindTomorrow, "the thing for tomorrow", now)
+	note := HandoffNote(v, s, Builds{Released: "v1.2.0", Installed: "issue-cli v1.2.0-3-gabc"}, "issue-cli lead state")
+	var heads []string
+	for _, l := range strings.Split(note, "\n") {
+		if h, ok := strings.CutPrefix(l, "## "); ok {
+			heads = append(heads, h)
+		}
+	}
+	if got := strings.Join(heads, "|"); got != "Next|Rules in force|Released and installed" {
+		t.Errorf("headings %q", got)
+	}
+	for _, want := range []string{"1. the thing for tomorrow", "x#D-1: the owner's rule", "released: v1.2.0", "installed: issue-cli v1.2.0-3-gabc", "issue-cli lead state"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("no %q in\n%s", want, note)
+		}
+	}
+	for _, live := range []string{"agent-one", "the queued one", "the owner's open ask", "st-1"} {
+		if strings.Contains(note, live) {
+			t.Errorf("the note copies %q:\n%s", live, note)
+		}
+	}
+}
+
+// A plain spawn's brief gets the state file's live parts, once, and
+// nothing else of it; none without a state file.
+func TestLiveSectionIsTheStatesLiveParts(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if got := LiveSection("lead-x"); got != "" {
+		t.Fatalf("no state file, got %q", got)
+	}
+	now := pinnedNow()
+	v := View{Lead: "lead-x", Project: "x", At: now, Workers: []Worker{{Session: "agent-one"}, {Session: "agent-two"}}, Queue: []QueueItem{{ID: 7, Label: "the queued one"}}, QueueOpen: 1}
+	var s Store
+	s.Add(KindAsk, "the owner's open ask", now)
+	s.Add(KindNote, "a plain note", now)
+	if err := os.MkdirAll(filepath.Dir(Path("lead-x")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path("lead-x"), []byte(Render(v, s)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sec := LiveSection("lead-x")
+	for _, want := range []string{"## Your state file", "## Workers", "## Queue", "the queued one", "## Owner asks", "the owner's open ask"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("no %q in\n%s", want, sec)
+		}
+	}
+	for _, w := range []string{"agent-one", "agent-two"} {
+		if n := strings.Count(sec, w); n != 1 {
+			t.Errorf("%s %d times, want once:\n%s", w, n, sec)
+		}
+	}
+	for _, not := range []string{"# Lead state", "## Notes", "a plain note", "## Today"} {
+		if strings.Contains(sec, not) {
+			t.Errorf("the live section has %q:\n%s", not, sec)
+		}
 	}
 }

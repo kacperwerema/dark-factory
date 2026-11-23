@@ -211,6 +211,41 @@ func TestTemplateStaleRecord(t *testing.T) {
 	}
 }
 
+// The "is behind" line counts only the features missing from the file; one
+// the file has at an older record version is named for workflow scan.
+func TestTemplateBehindCountsOnlyMissing(t *testing.T) {
+	data, err := workflowupgrade.ReadTemplate(workflowupgrade.DefaultTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := workflowupgrade.BuildPlan("workflow.yaml", data, "", false)
+	if err != nil || len(base.Proposals) == 0 {
+		t.Fatalf("base plan: %v (%d proposals)", err, len(base.Proposals))
+	}
+	rec, _ := workflowupgrade.ReadRecord(data)
+	for _, p := range base.Proposals[1:] {
+		rec.Declined = append(rec.Declined, p.ID)
+	}
+	id, _, _ := strings.Cut(rec.Installed[0], "@")
+	rec.Installed[0] = id + "@v0.0.1"
+	out, err := workflowupgrade.WriteRecord(data, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err := workflowupgrade.BundledVersion(workflowupgrade.DefaultTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf := strings.Replace(string(out), "template: development@"+latest, "template: development@v0.36.0", 1)
+	fs := run(t, lintProject(t, wf, nil), "template")
+	if !has(fs, "is behind the bundled", "(1 missing feature to adopt; 1 present, record only: `issue-cli workflow scan --installed <ids>` records them)") {
+		t.Errorf("findings = %+v, want 1 missing and 1 record only", fs)
+	}
+	if has(fs, "2 missing") || has(fs, "features to adopt)") {
+		t.Errorf("a record-only feature was counted as one to adopt: %+v", fs)
+	}
+}
+
 func TestPlaceholders(t *testing.T) {
 	wf := minimalWorkflow + `issue_actions:
   - id: ok

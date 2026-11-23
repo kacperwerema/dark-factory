@@ -322,7 +322,8 @@ cmds:
 		_ = logf.Close()
 	}
 	if red != "" {
-		rt := testresults.ParseRedText(readFrom(logPath, from), testresults.GoModule(o.Worktree))
+		text := readFrom(logPath, from)
+		rt := testresults.ParseRedText(text, testresults.GoModule(o.Worktree))
 		if len(rt.Packages) > 0 {
 			if slices.Contains(steps, "test") {
 				red = testresults.NameTestStep(steps, rt.Packages)
@@ -332,6 +333,9 @@ cmds:
 		}
 		if rt.Leftover != "" {
 			r.say("%s", rt.Leftover)
+		}
+		for _, h := range MainFixHints(o.Worktree, o.Main, text) {
+			r.say("%s", h)
 		}
 	}
 	secs := int(o.Now().Sub(start).Seconds())

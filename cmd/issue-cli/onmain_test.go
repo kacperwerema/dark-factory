@@ -46,8 +46,8 @@ func TestOneBranchOnMainPredicate(t *testing.T) {
 		file, fn string
 		want     string
 	}{
-		{"cmd_queue.go", "issueWorkOnMain", "gitmain.OnMain("},
-		{"cmd_queue.go", "queueBranchSHA", "gitmain.WorkAt("},
+		{"cmd_queue_next.go", "issueWorkOnMain", "gitmain.OnMain("},
+		{"cmd_queue_ship.go", "queueBranchSHA", "gitmain.WorkAt("},
 		{"../../internal/agentrun/prune.go", "Judge", "gitmain.WorkAt("},
 		{"cmd_worktrees.go", "pruneInput", "Base: pruneBases("},
 		{"cmd_lead_tick.go", "leadTickWorktrees", "pruneInput(ctx)"},

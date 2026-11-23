@@ -1,5 +1,5 @@
 {{/*
-Workshop Board components (workshop.go has their view models, static/workshop.css
+Workshop Board components (workshop.go has their view models, static/workshop*.css
 their styles). Pages compose them; a new element is a new component here first.
 
   wb/head        <head> links: fonts, styles             data: page title (string)
@@ -61,7 +61,7 @@ their styles). Pages compose them; a new element is a new component here first.
     <meta name="theme-color" content="#1B1F2A">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Factory">
-    <link rel="stylesheet" href="/static/workshop.css">
+    {{stylesheets "workshop"}}
     <script src="/static/events.js"></script>     <script src="/static/menu.js"></script>     <script src="/static/owner-signin.js"></script>
 {{end}}
 

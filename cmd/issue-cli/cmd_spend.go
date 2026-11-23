@@ -49,7 +49,10 @@ in one box's view, the floor by part: system prompt, tools (the three
 biggest named), MCP, CLAUDE.md files (global, project, memory), skills,
 brief, other; read from the request Claude Code writes before the first
 answer, scaled to the floor's tokens (an estimate, about ±10%; a part is
-its median over the sessions). A resumed session has no floor of its own. Only a
+its median over the sessions). Under it, the brief by section: a lead's
+role, rules, pins, decisions, handoff note, chat summary, state file and
+restart list; a worker's at the briefing's own headings (--json:
+floor_parts.brief_sections). A resumed session has no floor of its own. Only a
 session's main transcript is read (not its subagents'), and Claude Code's
 only: Codex is not covered. The Stats page's Context floor trend is the
 worker sessions' floor per day (the context health family).
@@ -322,6 +325,9 @@ func printTopSessions(w io.Writer, top []spend.ContextSession) {
 			s.Start.Local().Format("2006-01-02 15:04"), who, countOf(s.Turns, "turn", "turns"), floor, tokens.Format(s.Median), tokens.Format(s.Max), countOf(s.Compactions, "compaction", "compactions"), tokens.Format(s.Context))
 		if s.Parts != nil {
 			fmt.Fprintf(w, "      floor: %s\n", floorPartsLine(s.Parts))
+			if line := briefSectionsLine(s.Parts); line != "" {
+				fmt.Fprintf(w, "      %s brief: %s\n", s.Parts.BriefKind, line)
+			}
 		}
 	}
 }
@@ -333,6 +339,22 @@ func printFloorParts(w io.Writer, indent string, st spend.ContextStats) {
 		return
 	}
 	fmt.Fprintf(w, "%sfloor by part (median of %s, est. ±10%%): %s\n", indent, countOf(st.PartsOf, "session", "sessions"), floorPartsLine(st.Parts))
+	if line := briefSectionsLine(st.Parts); line != "" {
+		fmt.Fprintf(w, "%s%s brief by section (median of %s): %s\n", indent, st.Parts.BriefKind, countOf(st.Parts.BriefSectionsOf, "session", "sessions"), line)
+		if st.Parts.BriefKind == spend.BriefLead {
+			fmt.Fprintf(w, "%s  (the brief a lead would get now: issue-cli lead brief --render --sections)\n", indent)
+		}
+	}
+}
+
+// briefSectionsLine is the brief's sections in brief order, "" without a
+// split (what the owner typed, or no request shape).
+func briefSectionsLine(p *spend.FloorParts) string {
+	var out []string
+	for _, s := range p.BriefSections {
+		out = append(out, strings.ReplaceAll(s.Name, "_", " ")+" "+tokens.Format(s.Tokens))
+	}
+	return strings.Join(out, " · ")
 }
 
 // floorPartLabels are the parts as printed.

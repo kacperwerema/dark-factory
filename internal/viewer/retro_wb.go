@@ -19,7 +19,7 @@ import (
 // in retros/ after an issue, taken apart into findings and sent where they
 // change something for good. The view models of its components live here,
 // their templates in templates/_workshop_retro.html and their styles in the
-// "L2: retro" block of static/workshop.css; templates/retro_wb.html composes
+// "L2: retro" block of static/workshop-retro.css; templates/retro_wb.html composes
 // them. The classic retros page stays at ?classic=1.
 //
 // Findings are derived, not stored: the retrospective an agent writes

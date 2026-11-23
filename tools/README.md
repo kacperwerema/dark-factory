@@ -20,3 +20,9 @@ One-off helpers, not part of the binaries.
   go test for the rest, and keeps a package's plan while its tests stay the
   same. `go run ./tools/test-shards -shard ./cmd/issue-cli=3 -shard ./internal/viewer=3 -- ./... -count=1`
   ([docs/code-structure.md](../docs/code-structure.md)).
+- `main-fix-hint/` — make validate's hint after a red test step: one
+  `validate: main has <sha> <subject> touching <path>: merge main and re-run`
+  line per commit main has since the branch's merge base that touches a
+  failing test's file or package (internal/ship MainFixHints).
+  `go run ./tools/main-fix-hint [-main <branch>] <test output file>`
+  ([docs/testing.md](../docs/testing.md)).

@@ -153,7 +153,9 @@ issue-cli decisions drift [--record] [--since <commit>] [--json]
 
 start, show and the worker and lead briefings carry the capped view of
 --in-force (--lead for leads) as "Decisions in force": hard ones always,
-soft ones up to decisions: brief_cap: (12), the rest as a count line.
+soft ones up to decisions: brief_cap: (12), the rest as a count line. The
+lead briefs list each hard one as its ref and title and the soft ones as one
+count line naming --lead.
 
 The same index is the viewer's Decisions tab (/p/<project>/decisions).
 

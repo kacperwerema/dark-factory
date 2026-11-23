@@ -96,6 +96,21 @@ CLI_COVER_PROFILE ?= $(patsubst %/,%,$(or $(TMPDIR),/tmp))/dark-factory-cover-$(
 # everything with -count=1 (local CI's slow tier does).
 TEST_CACHE ?= 1
 TEST_CACHE_LIST := scripts/test-cache.txt
+# SLOW_TESTS=1 (local CI's slow tier) also runs the tests that call
+# slowtier.Only: whole-run tests beside a cheaper fast-tier one that proves
+# the same (docs/testing.md#test-tiers). make validate leaves it at 0.
+SLOW_TESTS ?= 0
+ifeq ($(SLOW_TESTS),1)
+export DF_SLOW_TESTS := 1
+endif
+# cmd/playtest's Chrome tests (~60 s of the suite) run in make test only
+# when the change since main touches what they drive (scripts/touches.sh on
+# these paths), and always under SLOW_TESTS=1: the suite gets
+# DF_PLAYTEST_E2E=1 or 0, and a plain go test (unset) runs them
+# (docs/testing.md#test-tiers; TestChromeGatePathsMatchTheMakefile).
+PLAYTEST_E2E_PATHS := cmd/playtest/ playtest/ internal/viewer/templates/ internal/viewer/static/
+PLAYTEST_E2E = $(if $(filter 1,$(SLOW_TESTS)),1,$(shell scripts/touches.sh $(PLAYTEST_E2E_PATHS)))
+test: export DF_PLAYTEST_E2E = $(PLAYTEST_E2E)
 
 test:
 	@command -v shellcheck >/dev/null 2>&1 || echo "test: no shellcheck on PATH: TestLibPassesShellcheck skips, lib.sh goes unchecked (make linux-check runs it)"
@@ -191,7 +206,11 @@ guard-check:
 # Without test the steps run one by one as listed. A red step doesn't stop
 # the next, so one known red can't hide what the later steps would say. A red
 # step prints `validate: red so far: <step>, <step>` at once: a worker watching
-# the log can stop there instead of waiting for the suite. The last line on stdout is
+# the log can stop there instead of waiting for the suite. A red test step on a
+# work branch is followed by one `validate: main has <sha> <subject> touching
+# <path>: merge main and re-run` line per commit main has since the merge base
+# that touches a failing test's file or package (tools/main-fix-hint,
+# ship.MainFixHints): main may have fixed it already. The last line on stdout is
 # `validate: PASS` or `validate: FAIL (<step>, <step>)`, every red step named
 # in VALIDATE_STEPS order, so a run in the background with its output in a
 # log can't hide a red step behind a wrapper's exit 0: read that line. An
@@ -201,21 +220,40 @@ guard-check:
 # just before the verdict: local CI keeps those lines as the run's steps
 # (internal/ci ParseSteps) and ci status names the slowest.
 VALIDATE_STEPS ?= merge-check fmt-check vet catalog-check link-check leak-check codemap-check guard-check playtest-check test cover-cli
+# The red test step's hint command, given the step's output file (a test stands it in).
+MAIN_FIX_HINT ?= go run ./tools/main-fix-hint
 VALIDATE_FLAGS = $(if $(filter test,$(VALIDATE_STEPS)),COVER_FROM_TEST=1 $(if $(filter guard-check,$(VALIDATE_STEPS)),GUARD_SKIP=1))
+
+# The whole output, stderr too, also goes to VALIDATE_LOG as it runs (tee), so
+# a worker can run it in the background and read that file instead of a
+# shortened stdout; the first line says where: `validate: log <path>`. In a
+# linked worktree (.git is a file) VALIDATE_LOG defaults to the worktree's own
+# git dir (git rev-parse --git-path validate.log): one file per worktree, so
+# another session's run can't overwrite it as a shared /tmp name can, and
+# outside the work tree, so no go test cache sees it change (a file at the
+# root that grows reruns internal/viewer, whose tests walk the repo) and no
+# leak or catalog scan reads it. The main checkout has none; VALIDATE_LOG=
+# turns it off, VALIDATE_LOG=<file> names another. When stdout already is that
+# file (make validate > <log>) nothing is teed. The exit code and the last
+# line stay the verdict either way (TestValidateWritesItsLogIntoTheWorktreesGitDir).
+ifeq ($(origin VALIDATE_LOG),undefined)
+VALIDATE_LOG = $(if $(wildcard .git/HEAD),,$(if $(wildcard .git),$(shell git rev-parse --path-format=absolute --git-path validate.log 2>/dev/null)))
+endif
 
 validate:
 	@tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/validate.XXXXXX") || exit 1; \
-	trap '[ -n "$$tmp" ] && rm -rf "$$tmp"' EXIT; : > "$$tmp/red"; \
+	trap '[ -n "$$tmp" ] && rm -rf "$$tmp"' EXIT; : > "$$tmp/red"; echo 1 > "$$tmp/rc"; \
 	red() { echo "$$1" >> "$$tmp/red"; echo "validate: red so far: $$(paste -sd , "$$tmp/red" | sed 's/,/, /g')"; }; \
 	took() { echo "validate: $$1 $$(( $$(date +%s) - $$2 ))s"; }; \
-	t0=$$(date +%s); \
 	step() { st=$$(date +%s); $(MAKE) --no-print-directory "$$1" $(VALIDATE_FLAGS); rc=$$?; took "$$1" "$$st"; return $$rc; }; \
+	run() { \
+	t0=$$(date +%s); \
 	before=""; after=""; suite=""; ran=""; \
 	for s in $(VALIDATE_STEPS); do \
 	  ran=1; \
 	  if [ -n "$$suite" ]; then after="$$after $$s"; elif [ "$$s" = test ]; then suite=1; else before="$$before $$s"; fi; \
 	done; \
-	if [ -z "$$ran" ]; then echo "validate: FAIL (no steps ran)"; exit 1; fi; \
+	if [ -z "$$ran" ]; then echo "validate: FAIL (no steps ran)"; return; fi; \
 	if [ -z "$$suite" ]; then \
 	  for s in $$before; do step "$$s" || red "$$s"; done; \
 	else \
@@ -226,14 +264,22 @@ validate:
 	      sed "s/^/[$$s] /" "$$tmp/$$s.log"; took "$$s" "$$st"; \
 	      [ -n "$$ok" ] || red "$$s"; \
 	    done ) & cheap=$$!; \
-	  step test || red test; \
+	  { step test; echo $$? > "$$tmp/test.rc"; } 2>&1 | tee "$$tmp/test-out.log"; \
+	  if [ "$$(cat "$$tmp/test.rc")" != 0 ]; then red test; $(MAIN_FIX_HINT) "$$tmp/test-out.log" 2>/dev/null; fi; \
 	  wait $$cheap; \
 	  for s in $$after; do step "$$s" || red "$$s"; done; \
 	fi; \
 	took total "$$t0"; failed=""; \
 	for s in $(VALIDATE_STEPS); do grep -qxF "$$s" "$$tmp/red" && failed="$${failed:+$$failed, }$$s"; done; \
-	if [ -n "$$failed" ]; then echo "validate: FAIL ($$failed)"; exit 1; fi; \
-	echo "validate: PASS"
+	if [ -n "$$failed" ]; then echo "validate: FAIL ($$failed)"; return; fi; \
+	echo 0 > "$$tmp/rc"; echo "validate: PASS"; \
+	}; \
+	log='$(VALIDATE_LOG)'; exec 3>&1; \
+	inode() { ls -iL "$$1" 2>/dev/null | awk '{ print $$1 }'; }; \
+	if [ -n "$$log" ] && { [ ! -e "$$log" ] || [ "$$(inode /dev/fd/3)" != "$$(inode "$$log")" ]; }; then \
+	  { echo "validate: log $$log"; run; } 2>&1 | tee "$$log"; \
+	else run; fi; \
+	exit "$$(cat "$$tmp/rc")"
 
 # The ported guided check scripts (internal/checks/testdata/ported) as
 # machine runs: this checkout's issue-cli, the library from LIB= (default

@@ -289,7 +289,7 @@ func runReleaseCut(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(out, `Next:
   - Validate the candidate (publish reads it): issue-cli release check %s runs local CI's commands in the release worktree and records it with %s.
-  - Install the candidate from the release worktree: cd %s && make install, then restart what runs it.
+  - Install the candidate from the release worktree: cd %s && make install && issue-cli viewer restart.
   - Tell the leads of the projects that run it; their issue-cli report-bug files join %s.
   - Fixes land on main as usual; pick them onto the branch: issue-cli release pick <slug>. Each pick needs the next candidate (issue-cli release cut %s).
 `, cut, res.Tag, res.Worktree, card.Version, cut)
@@ -319,7 +319,7 @@ func runReleaseCutPatch(ctx *Context, cut string) error {
 	}
 	fmt.Fprintf(out, `Next:
   - Validate the candidate (publish reads it): issue-cli release check %s runs local CI's commands in the release worktree and records it with %s.
-  - Install the candidate from the release worktree: cd %s && make install, then restart what runs it.
+  - Install the candidate from the release worktree: cd %s && make install && issue-cli viewer restart.
   - Waiting for release shows the patch candidate and its checks; publish only on the owner's ok: cd %s && issue-cli release publish %s.
   - More fixes: issue-cli release pick <slug|sha>, then cut the next candidate (issue-cli release cut %s).
 `, cut, res.Tag, res.Worktree, res.Worktree, cut, cut)

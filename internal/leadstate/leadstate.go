@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"github.com/kacperwerema/dark-factory/internal/jsonfile"
@@ -376,6 +377,8 @@ type QueueItem struct {
 type Ref struct {
 	ID   string
 	Text string
+	// At is when it was recorded, for the Today cap's newest-first pick.
+	At time.Time
 }
 
 // View is the board part of the state, read by the caller.
@@ -392,6 +395,11 @@ type View struct {
 	QueueState string
 	Decisions  []Ref
 	Memories   []Ref
+	// Pinned are the pinned memories (id and title) the brief's pins
+	// already carry: a state line that only repeats one is not rendered.
+	Pinned []Ref
+	// Full lifts the Today, Tomorrow and Notes caps (lead state --all).
+	Full bool
 	// OwnerSteps are the open owner steps, one line each (ownerstep.Line):
 	// the owner's hand steps a fresh lead must not lose.
 	OwnerSteps []string
@@ -403,17 +411,18 @@ type View struct {
 // Commands are the commands a section's "+N more" line and hints name.
 type Commands struct {
 	Workers, Queue, Status, Decisions, Memories, Note, Ask, Done, History, OwnerSteps string
+	// All is the command that prints the state uncapped (lead state --all).
+	All string
 }
 
 // caps per section; a longer list ends with a "+N more" line.
 const (
-	capWorkers   = 20
-	capQueue     = 5
-	capRefs      = 12
-	capAsks      = 15
-	capTomorrow  = 12
-	capWatches   = 10
-	capNotesLast = 30
+	capWorkers = 20
+	capQueue   = 5
+	capAsks    = 15
+	capWatches = 10
+	// Today, Tomorrow and Notes show their newest capNewest items.
+	capNewest = 5
 )
 
 // Render is the state file: the view and the store, under MaxBytes. When
@@ -496,11 +505,17 @@ func render(v View, s Store, notes []Note) string {
 	}
 
 	b.WriteString("\n## Today\n\n")
-	if len(v.Decisions) == 0 && len(v.Memories) == 0 {
+	today := todayRefs(v)
+	if len(today) == 0 {
 		b.WriteString("No decision or lead memory recorded today.\n")
 	}
-	refs(&b, v.Decisions, v.Commands.Decisions)
-	refs(&b, v.Memories, v.Commands.Memories)
+	if n := len(today) - capNewest; n > 0 && !v.Full {
+		today = today[n:]
+		more(&b, n, joinCmds(v.Commands.Decisions, v.Commands.Memories))
+	}
+	for _, r := range today {
+		writeLine(&b, "- "+r.ID+": "+r.Text)
+	}
 
 	b.WriteString("\n## Watches\n\n")
 	if len(s.Watches) == 0 {
@@ -515,21 +530,21 @@ func render(v View, s Store, notes []Note) string {
 	}
 
 	b.WriteString("\n## Tomorrow\n\n")
-	tom := open(notes, KindTomorrow)
+	tom := v.unpinned(open(notes, KindTomorrow))
 	if len(tom) == 0 {
 		b.WriteString("Nothing noted.\n")
 	}
-	list(&b, tom, capTomorrow, v.Commands.Note)
+	tom = v.newest(&b, tom)
+	for _, n := range tom {
+		writeLine(&b, fmt.Sprintf("- #%d %s %q", n.ID, n.At.Local().Format("01-02 15:04"), n.Text))
+	}
 
 	b.WriteString("\n## Notes\n\n")
-	plain := open(notes, KindNote)
+	plain := v.unpinned(open(notes, KindNote))
 	if len(plain) == 0 {
 		b.WriteString("None today.\n")
 	}
-	if len(plain) > capNotesLast {
-		fmt.Fprintf(&b, "(%d older notes in the store)\n", len(plain)-capNotesLast)
-		plain = plain[len(plain)-capNotesLast:]
-	}
+	plain = v.newest(&b, plain)
 	for _, n := range plain {
 		writeLine(&b, fmt.Sprintf("- #%d %s %s", n.ID, n.At.Local().Format("15:04"), n.Text))
 	}
@@ -561,14 +576,90 @@ func list(b *strings.Builder, notes []Note, limit int, cmd string) {
 	}
 }
 
-func refs(b *strings.Builder, rs []Ref, cmd string) {
-	for i, r := range rs {
-		if i == capRefs {
-			more(b, len(rs)-i, cmd)
-			return
-		}
-		writeLine(b, "- "+r.ID+": "+r.Text)
+// todayRefs is the Today section's refs, oldest first: the decisions and
+// the lead memories recorded today, without the pinned memories (the
+// brief's pins carry them).
+func todayRefs(v View) []Ref {
+	pinned := map[string]bool{}
+	for _, p := range v.Pinned {
+		pinned[p.ID] = true
 	}
+	out := append([]Ref{}, v.Decisions...)
+	for _, m := range v.Memories {
+		if !pinned[m.ID] {
+			out = append(out, m)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
+	return out
+}
+
+// newest keeps the capNewest newest of notes (oldest first, as open sorts
+// them), writing the "+N more" line for the rest; all of them under Full.
+func (v View) newest(b *strings.Builder, notes []Note) []Note {
+	n := len(notes) - capNewest
+	if n <= 0 || v.Full {
+		return notes
+	}
+	more(b, n, v.Commands.All)
+	return notes[n:]
+}
+
+// unpinned drops the notes that only repeat a pinned memory's id and title.
+func (v View) unpinned(notes []Note) []Note {
+	if len(v.Pinned) == 0 {
+		return notes
+	}
+	var out []Note
+	for _, n := range notes {
+		if !RepeatsPin(n.Text, v.Pinned) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// pinFiller is the words a line naming a pin may add without saying more.
+var pinFiller = map[string]bool{"pin": true, "pinned": true, "pins": true, "memory": true, "lead": true, "rule": true, "new": true, "added": true, "see": true}
+
+// RepeatsPin reports whether text only repeats a pinned memory's id and
+// title: once the id, the title and filler words ("pinned", "memory") are
+// taken out, nothing is left.
+func RepeatsPin(text string, pins []Ref) bool {
+	low := strings.ToLower(text)
+	for _, p := range pins {
+		id := strings.ToLower(strings.TrimSpace(p.ID))
+		if id == "" || !strings.Contains(low, id) {
+			continue
+		}
+		rest := strings.ReplaceAll(low, id, " ")
+		if t := strings.ToLower(strings.TrimRight(strings.TrimSpace(p.Text), ".…")); t != "" {
+			rest = strings.ReplaceAll(rest, t, " ")
+		}
+		left := strings.FieldsFunc(rest, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		bare := true
+		for _, w := range left {
+			if !pinFiller[w] {
+				bare = false
+				break
+			}
+		}
+		if bare {
+			return true
+		}
+	}
+	return false
+}
+
+// joinCmds joins the non-empty commands with " · ".
+func joinCmds(cmds ...string) string {
+	var out []string
+	for _, c := range cmds {
+		if c != "" {
+			out = append(out, c)
+		}
+	}
+	return strings.Join(out, " · ")
 }
 
 func more(b *strings.Builder, n int, cmd string) {
@@ -641,59 +732,37 @@ func ownerSteps(b *strings.Builder, v View, max int) {
 
 // noteCaps keep the handoff note under the flush's 80 lines.
 const (
-	noteWorkers = 15
-	noteQueue   = 5
-	noteAsks    = 10
-	noteRefs    = 8
-	noteNext    = 8
+	noteRefs = 8
+	noteNext = 8
 )
 
+// Builds is what a handoff note's ## Released and installed says: the
+// newest release and the build the machine runs, "" when unknown.
+type Builds struct {
+	Released, Installed string
+}
+
 // HandoffNote is the handoff note a rotate writes from the state: the
-// sections the flush's note has (tracker.CheckHandoffNote), short;
-// stateCmd is the command that prints the state file.
-func HandoffNote(v View, s Store, stateCmd string) string {
+// sections the flush's note has (tracker.CheckHandoffNote), short. It
+// copies no worker, queue item or owner ask: the fresh lead's brief has
+// the state file (stateCmd prints it) with them as they are.
+func HandoffNote(v View, s Store, builds Builds, stateCmd string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Handoff: %s, %s (rotate)\n", v.Lead, v.At.Local().Format("2006-01-02 15:04"))
-	b.WriteString("\n## State\n\n")
-	if len(v.Workers) == 0 {
-		b.WriteString("No worker live.\n")
-	}
-	for i, w := range v.Workers {
-		if i == noteWorkers {
-			more(&b, len(v.Workers)-i, v.Commands.Workers)
+	b.WriteString("\n## Next\n\n")
+	tom := open(s.Notes, KindTomorrow)
+	for i, n := range tom {
+		if i == noteNext {
 			break
 		}
-		writeLine(&b, fmt.Sprintf("- %s · %s", w.Session, valueOr(w.Status, "?")))
+		writeLine(&b, fmt.Sprintf("%d. %s", i+1, n.Text))
 	}
-	for _, w := range s.Watches {
-		writeLine(&b, "- watch: "+w.Command)
-	}
-	b.WriteString("\n## Queue\n\n")
-	fmt.Fprintf(&b, "%d open.\n", v.QueueOpen)
-	for i, q := range v.Queue {
-		if i == noteQueue {
-			break
-		}
-		writeLine(&b, fmt.Sprintf("- #%d %s", q.ID, q.Label))
-	}
-	b.WriteString("\n## Waiting on the owner\n\n")
-	asks := open(s.Notes, KindAsk)
-	if len(asks) == 0 {
-		b.WriteString("No open ask noted.\n")
-	}
-	for i, n := range asks {
-		if i == noteAsks {
-			more(&b, len(asks)-i, "")
-			break
-		}
-		writeLine(&b, fmt.Sprintf("- %q", n.Text))
-	}
-	ownerSteps(&b, v, noteAsks)
-	if v.Commands.Status != "" {
-		writeLine(&b, "- gates and questions: "+v.Commands.Status)
-	}
+	fmt.Fprintf(&b, "%d. Keep the tick running.\n", min(len(tom), noteNext)+1)
 	b.WriteString("\n## Rules in force\n\n")
 	all := append(append([]Ref{}, v.Decisions...), v.Memories...)
+	if len(all) == 0 && v.Commands.Memories == "" {
+		b.WriteString("None recorded today.\n")
+	}
 	for i, r := range all {
 		if i == noteRefs {
 			more(&b, len(all)-i, v.Commands.Decisions)
@@ -704,21 +773,10 @@ func HandoffNote(v View, s Store, stateCmd string) string {
 	if v.Commands.Memories != "" {
 		writeLine(&b, "- the lead's rules: "+v.Commands.Memories)
 	}
-	b.WriteString("\n## How to resume\n\n")
-	writeLine(&b, "- Read the state file first: "+stateCmd)
-	b.WriteString("- Start the watches in the state file again (Bash run_in_background).\n")
-	if v.Commands.History != "" {
-		writeLine(&b, "- Older context: "+v.Commands.History)
-	}
-	b.WriteString("\n## Next\n\n")
-	tom := open(s.Notes, KindTomorrow)
-	for i, n := range tom {
-		if i == noteNext {
-			break
-		}
-		writeLine(&b, fmt.Sprintf("%d. %s", i+1, n.Text))
-	}
-	fmt.Fprintf(&b, "%d. Keep the tick running.\n", min(len(tom), noteNext)+1)
+	b.WriteString("\n## Released and installed\n\n")
+	writeLine(&b, "- released: "+valueOr(builds.Released, "no release tag found"))
+	writeLine(&b, "- installed: "+valueOr(builds.Installed, "unknown"))
+	writeLine(&b, "- workers, queue and the owner's asks: the state file ("+stateCmd+")")
 	return b.String()
 }
 
@@ -732,26 +790,54 @@ func FreshHandover(lead string, now time.Time) *Handover {
 	return s.Handover
 }
 
-// NoteRepeats are the state file's sections a flush's handoff note holds
-// too (its State, Queue and Waiting on the owner): after a flush the fresh
-// lead's prompt carries them once, in the note (the lead floor report's
-// lever 5).
-var NoteRepeats = []string{"Workers", "Queue", "Owner asks"}
+// LiveParts are the state file's sections a fresh lead's brief carries
+// once, as they are: a handoff note no longer copies them.
+var LiveParts = []string{"Workers", "Queue", "Owner asks"}
 
-// DropSections is text without its "## <name>" sections (heading to the
-// next "## " heading), for each name.
-func DropSections(text string, names ...string) string {
-	drop := map[string]bool{}
+// LiveSection is the part of a lead's first prompt with no fresh handover:
+// the state file's LiveParts as the last tick rendered them, with when.
+// "" without a state file.
+func LiveSection(lead string) string {
+	p := Path(lead)
+	if p == "" {
+		return ""
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	parts := strings.TrimSpace(KeepSections(string(data), LiveParts...))
+	if parts == "" {
+		return ""
+	}
+	at := ""
+	if fi, err := os.Stat(p); err == nil {
+		at = " at " + fi.ModTime().Local().Format("2006-01-02 15:04")
+	}
+	var b strings.Builder
+	b.WriteString("\n\n## Your state file\n\n")
+	fmt.Fprintf(&b, "Its workers, queue and owner asks as your tick last rendered them%s (%s; issue-cli lead state prints it as it is now):\n\n", at, p)
+	b.WriteString(parts)
+	b.WriteString("\n")
+	return b.String()
+}
+
+// KeepSections is only text's "## <name>" sections, for each name, in the
+// order they are in text.
+func KeepSections(text string, names ...string) string {
+	keep := map[string]bool{}
 	for _, n := range names {
-		drop[strings.ToLower(n)] = true
+		keep[strings.ToLower(n)] = true
 	}
 	var out []string
-	skip := false
+	in := false
 	for _, line := range strings.Split(text, "\n") {
 		if h, ok := strings.CutPrefix(line, "## "); ok {
-			skip = drop[strings.ToLower(strings.TrimSpace(h))]
+			in = keep[strings.ToLower(strings.TrimSpace(h))]
+		} else if strings.HasPrefix(line, "# ") {
+			in = false
 		}
-		if !skip {
+		if in {
 			out = append(out, line)
 		}
 	}
@@ -779,14 +865,8 @@ func HandoverSection(lead, historyCmd string, now time.Time) string {
 		b.WriteString("\n\n## Where the last lead left off\n\n")
 		fmt.Fprintf(&b, "You are a fresh session of %s, started by issue-cli lead rotate at %s. Your state file (%s) as it was:\n\n", lead, h.At.Local().Format("15:04"), Path(lead))
 	}
-	state := h.State
-	if h.FromFlush() {
-		// The flush wrote its note from this state the same minute, and
-		// the note comes first: one copy of each part is enough.
-		state = DropSections(state, NoteRepeats...)
-		fmt.Fprintf(&b, "(Its %s are in the note above; issue-cli lead state prints them as they are now.)\n\n", strings.ToLower(strings.Join(NoteRepeats, ", ")))
-	}
-	b.WriteString(strings.TrimSpace(state))
+	// The note copies none of the state's parts: this is their one copy.
+	b.WriteString(strings.TrimSpace(h.State))
 	b.WriteString("\n")
 	if len(h.Watches) > 0 {
 		b.WriteString("\n## Restart these watches\n\nThe old session's background shells ended with it. Start each again with Bash run_in_background:\n\n")

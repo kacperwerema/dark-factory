@@ -132,7 +132,9 @@ func TestMergeProfilesKeepsOneModeLine(t *testing.T) {
 // TestShardedPackagesRunEveryTestOnce is the guard on the real packages
 // make test shards: the Makefile's TEST_SHARD_PKGS (cmd/issue-cli at
 // TEST_SHARDS, at least 3), each package's listed tests against its shards'
-// -run patterns.
+// -run patterns. Under make test the tests come from the listing
+// tools/test-shards made for the run (ListingEnv); a package it doesn't hold,
+// or a run without it, is listed here with go test -list.
 func TestShardedPackagesRunEveryTestOnce(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -170,15 +172,35 @@ func TestShardedPackagesRunEveryTestOnce(t *testing.T) {
 			t.Errorf("TEST_SHARD_PKGS runs %s in %d shards, want at least %d", pkg, counts[pkg], min)
 		}
 	}
+	listing := Listing{}
+	if path := os.Getenv(ListingEnv); path != "" {
+		l, err := ReadListing(path)
+		if err != nil {
+			t.Fatalf("%s=%s: %v", ListingEnv, path, err)
+		}
+		listing = l
+	}
+	gomod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := regexp.MustCompile(`(?m)^module (\S+)$`).FindSubmatch(gomod)
+	if module == nil {
+		t.Fatal("no module line in go.mod")
+	}
 	for pkg, n := range counts {
 		t.Run(strings.TrimPrefix(pkg, "./"), func(t *testing.T) {
-			cmd := exec.Command("go", "test", "-list=.", pkg)
-			cmd.Dir = root
-			out, err := cmd.Output()
-			if err != nil {
-				t.Fatalf("go test -list: %v\n%s", err, out)
+			tests, ok := listing[string(module[1])+strings.TrimPrefix(pkg, ".")]
+			if !ok {
+				cmd := exec.Command("go", "test", "-list=.", pkg)
+				cmd.Dir = root
+				out, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("go test -list: %v\n%s", err, out)
+				}
+				tests = ListedTests(out)
 			}
-			tests := ListedTests(out)
+			out := strings.Join(tests, "\n")
 			if len(tests) < n*10 {
 				t.Fatalf("listed %d tests in %s, want many more than its %d shards:\n%s", len(tests), pkg, n, out)
 			}

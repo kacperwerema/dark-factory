@@ -65,17 +65,20 @@ func TestPlanStretchesScenesAndPlacesCues(t *testing.T) {
 	if c := judgeSafeZone(p, DefaultBounds()); !c.OK {
 		t.Errorf("default boxes outside the safe zone: %+v", c)
 	}
-	for _, pos := range []string{"upper", "middle", "lower"} {
-		b := captionBox(strings.Repeat("word ", 12), PlanCaptions{Position: pos, FontSize: 64}, nil)
-		if b.Y < DefaultSafeZone.Top || b.Y+b.H > FrameHeight-DefaultSafeZone.Bottom || b.X < DefaultSafeZone.Left || b.X+b.W > FrameWidth-DefaultSafeZone.Right {
-			t.Errorf("%s box %+v outside the safe zone", pos, b)
+	for _, f := range Formats {
+		z := f.SafeZone
+		for _, pos := range []string{"upper", "middle", "lower"} {
+			b := captionBox(strings.Repeat("word ", 12), PlanCaptions{Position: pos, FontSize: 64}, nil, f)
+			if b.Y < z.Top || b.Y+b.H > float64(f.Height)-z.Bottom || b.X < z.Left || b.X+b.W > float64(f.Width)-z.Right {
+				t.Errorf("%s: %s box %+v outside the safe zone %+v", f.Name, pos, b, z)
+			}
 		}
 	}
 }
 
 func TestCuesBreakAtPhrases(t *testing.T) {
 	ws := []Word{{"Hi,", 0, 0.2}, {"one", 0.3, 0.4}, {"two", 0.5, 0.6}, {"three", 0.7, 0.8}, {"four.", 0.9, 1}}
-	got := cues("s", ws, 3, PlanCaptions{Position: "lower", FontSize: 64}, nil)
+	got := cues("s", ws, 3, PlanCaptions{Position: "lower", FontSize: 64}, nil, Formats[0])
 	var texts []string
 	for _, c := range got {
 		texts = append(texts, c.Text)
@@ -97,7 +100,71 @@ func TestBoundsLayering(t *testing.T) {
 		t.Errorf("from = %v", b.From)
 	}
 	neg := -1.0
-	if ps := (&QABounds{LUFSSlack: &neg}).problems("qa"); len(ps) != 1 || ps[0].Path != "qa.lufs_slack" {
+	if ps := (&QABounds{LUFSSlack: &neg}).problems("qa", Formats[0]); len(ps) != 1 || ps[0].Path != "qa.lufs_slack" {
 		t.Errorf("problems = %v", ps)
 	}
+}
+
+// A 4:5 storyboard plans a 1080x1350 frame, its caption boxes inside it,
+// and the safe-zone check passes them against 4:5's own margins.
+func TestFormatFourFivePlansItsOwnFrame(t *testing.T) {
+	m := storyboardFor(ShapeHookList)
+	m["format"] = "4:5"
+	s, err := Load(saveStoryboard(t, t.TempDir(), m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ps := s.Problems(); len(ps) > 0 {
+		t.Fatalf("a 4:5 storyboard has problems: %v", ps)
+	}
+	p, err := BuildPlan(s, func(string) (float64, error) { return 1.4, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Format != "4:5" || p.Width != 1080 || p.Height != 1350 {
+		t.Fatalf("plan frame = %s %dx%d, want 4:5 1080x1350", p.Format, p.Width, p.Height)
+	}
+	for _, q := range p.Cues {
+		if q.Box.Y+q.Box.H > 1350 {
+			t.Errorf("cue %q box %+v runs off the 1350 px frame", q.Text, q.Box)
+		}
+	}
+	f, _ := LookupFormat("4:5")
+	if c := judgeSafeZone(p, DefaultBoundsFor(f)); !c.OK || !strings.Contains(c.Bound, "1080x1350") {
+		t.Errorf("4:5 safe zone = %+v", c)
+	}
+	// A plan written before formats (no format, 1080x1920) is 9:16.
+	if f := (&Plan{Width: 1080, Height: 1920}).Frame(); f.Name != "9:16" {
+		t.Errorf("old plan frame = %s", f.Name)
+	}
+}
+
+func TestFormatUnknownAndBoxOffFrameAreProblems(t *testing.T) {
+	m := storyboardFor(ShapeHookList)
+	m["format"] = "16:9"
+	s, err := Load(saveStoryboard(t, t.TempDir(), m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasProblem(s.Problems(), "format") {
+		t.Errorf("16:9 is not a problem: %v", s.Problems())
+	}
+	m = storyboardFor(ShapeHookList)
+	m["format"] = "1:1"
+	m["captions"] = map[string]any{"position": "custom", "box": map[string]any{"x": 90, "y": 1500, "w": 840, "h": 200}}
+	if s, err = Load(saveStoryboard(t, t.TempDir(), m)); err != nil {
+		t.Fatal(err)
+	}
+	if !hasProblem(s.Problems(), "captions.box") {
+		t.Errorf("a box below a 1:1 frame is not a problem: %v", s.Problems())
+	}
+}
+
+func hasProblem(ps []Problem, path string) bool {
+	for _, p := range ps {
+		if p.Path == path {
+			return true
+		}
+	}
+	return false
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
+	"github.com/kacperwerema/dark-factory/internal/gitmain"
 	"github.com/kacperwerema/dark-factory/internal/leadchat"
 	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/memory"
@@ -75,6 +76,18 @@ func runLeadRotate(ctx *Context, args []string) error {
 	return rotateLead(ctx, lead, issues, *noStart)
 }
 
+// handoffBuilds is the note's ## Released and installed: the project's
+// newest release tag and the running issue-cli. A var for the tests.
+var handoffBuilds = func(proj *tracker.Project) leadstate.Builds {
+	b := leadstate.Builds{Installed: "issue-cli " + tracker.BuildVersion}
+	if root := gitmain.Root(projectRoot(proj)); root != "" {
+		if out, err := exec.Command("git", "-C", root, "describe", "--tags", "--abbrev=0").Output(); err == nil {
+			b.Released = strings.TrimSpace(string(out))
+		}
+	}
+	return b
+}
+
 // rotateLead writes lead's handoff note and digest and, unless noStart,
 // starts the detached finisher that closes the session after its turn and
 // starts it again. lead rotate runs it for one lead; the nightly flush's
@@ -92,7 +105,7 @@ func rotateLead(ctx *Context, lead string, issues []*tracker.Issue, noStart bool
 	now := ctx.now()
 	dir := filepath.Join(projectRoot(proj), "sessions")
 	notePath := rotateNotePath(dir, lead, now)
-	note := leadstate.HandoffNote(leadStateView(ctx, lead, issues, now), store, tracker.InjectProject(proj, "issue-cli lead state"))
+	note := leadstate.HandoffNote(leadStateView(ctx, lead, issues, now), store, handoffBuilds(proj), tracker.InjectProject(proj, "issue-cli lead state"))
 	if err := tracker.CheckHandoffNote(note); err != nil {
 		return fmt.Errorf("the note from the state file: %w. Nothing was written", err)
 	}

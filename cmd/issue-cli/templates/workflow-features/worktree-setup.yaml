@@ -13,6 +13,11 @@ what: |
   gives a worktree its own copy, a clone, when its branch changes dependencies).
   No install runs through a link: an unchanged one is skipped, any other gets
   the tree's own copies first.
+  A worker's tests run on its test-thread budget (ISSUE_VIEWER_TEST_THREADS,
+  with vitest's VITEST_MAX_THREADS/FORKS/WORKERS and GOFLAGS -p set from it):
+  a vitest config that sizes its own pool reads
+  Number(process.env.ISSUE_VIEWER_TEST_THREADS) || os.cpus().length, jest takes
+  --maxWorkers=$ISSUE_VIEWER_TEST_THREADS (docs/agent-dispatch.md#test-thread-budget).
 why: |
   Agents start in a tree that already builds, instead of each one re-discovering the
   setup steps.

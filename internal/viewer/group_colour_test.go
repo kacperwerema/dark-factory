@@ -1,7 +1,6 @@
 package viewer
 
 import (
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,10 +11,7 @@ import (
 // workshopToken is the value of --name in workshop.css's :root block.
 func workshopToken(t *testing.T, name string) string {
 	t.Helper()
-	css, err := os.ReadFile("static/workshop.css")
-	if err != nil {
-		t.Fatal(err)
-	}
+	css := []byte(cssBundleText(t, "workshop"))
 	root := regexp.MustCompile(`(?s):root \{(.*?)\n\}`).FindSubmatch(css)
 	if root == nil {
 		t.Fatal("workshop.css has no :root block")
@@ -80,8 +76,7 @@ func TestGroupRoomColourDiffersFromHQ(t *testing.T) {
 	assertContains(t, company,
 		`data-testid="company.room.head.hq" style="background:`+companyHQColor+`"`,
 		`data-testid="company.room.head.group">`)
-	css, _ := os.ReadFile("static/workshop.css")
-	assertContains(t, string(css), ".wb-room--group > .wb-room-head { background: var(--group); }")
+	assertContains(t, cssBundleText(t, "workshop"), ".wb-room--group > .wb-room-head { background: var(--group); }")
 	if strings.Contains(company, "#F2A541") {
 		t.Error("GTM's projects.yaml amber still drawn on the company page")
 	}

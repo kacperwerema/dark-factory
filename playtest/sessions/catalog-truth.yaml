@@ -23,7 +23,7 @@ steps:
       - visible: health.warnings
       - text_contains: { target: health.warnings, text: "tests" }
       - text_contains: { target: health.warnings, text: "health.e2e_sessions (default playtest/sessions/*.yaml) matched no file" }
-      - cli: { args: [workflow, upgrade], contains: "Detected but not in the features: record", not_contains: "up_to_date" }
+      - cli: { args: [workflow, upgrade], contains: "== Present, record only (", not_contains: "up_to_date" }
       - cli: { args: [process, workflow], contains: "features: record is stale: local-ci" }
       - cli: { args: [health, lint, --check, template], contains: "issue-cli workflow scan" }
       - cli: { args: [health], contains: "⚠ health.e2e_sessions" }

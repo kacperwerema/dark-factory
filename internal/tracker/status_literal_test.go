@@ -113,7 +113,7 @@ var notAStatusMeaning = map[string]string{
 	"cmd/issue-cli/cmd_help.go|testing":               "a help topic, not a status",
 	"cmd/issue-cli/cmd_process.go|testing":            "a process topic, not a status",
 	"cmd/issue-cli/cmd_process.go|documentation":      "an alias of the docs topic, not a status",
-	"cmd/issue-cli/cmd_queue.go|idea":                 "the --idea flag, not a status",
+	"cmd/issue-cli/cmd_queue_edit.go|idea":            "the --idea flag, not a status",
 	"cmd/issue-cli/cmd_next.go|backlog":               "a key of next --json, a stable output contract",
 	"cmd/issue-cli/cmd_next.go|testing":               "a key of next --json, a stable output contract",
 	"internal/viewer/report.go|testing":               "a data-testid, not a status",

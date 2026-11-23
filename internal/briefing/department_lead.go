@@ -137,13 +137,13 @@ func DepartmentLeadBrief(wf *tracker.WorkflowConfig, dept *tracker.Department, i
 	if now.IsZero() {
 		now = time.Now()
 	}
-	fmt.Fprintf(&b, "- Before you exit, or before the human takes a long break, write %s: what is live, what waits on whom, the decisions made, and a ## Next section.\n", filepath.Join(notesDir, tracker.HandoffNoteName(now, lead)))
+	fmt.Fprintf(&b, "- Before you exit, or before the human takes a long break, write %s with %s.\n", filepath.Join(notesDir, tracker.HandoffNoteName(now, lead)), HandoffNoteSections)
 	b.WriteString("- issue-cli lead whoami shows this role again; issue-cli lead list shows the CEO and the department leads.\n")
 	b.WriteString(LeadStateLine)
 	if h := leadstate.HandoverSection(lead, tracker.InjectProject(proj, "issue-cli lead history <words>"), now); h != "" {
 		return tracker.InjectProject(proj, b.String()) + h
 	}
-	return tracker.InjectProject(proj, b.String())
+	return tracker.InjectProject(proj, b.String()) + leadstate.LiveSection(lead)
 }
 
 // DepartmentWaitLine is a department lead's one way to wait: the read-only

@@ -199,6 +199,30 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, route := range projectRouteAreas {
+		if route(s, w, r, proj, prefix, rest) {
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+// projectRouteAreas are the /p/<slug>/... routes by area, tried in this
+// order; each answers its area's routes and returns true, or returns false
+// for a path it does not hold. The first route that matches answers, as in
+// one switch: an earlier area's case wins over a later one's.
+var projectRouteAreas = []func(s *Server, w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool{
+	(*Server).routeHall,
+	(*Server).routeOwnerPages,
+	(*Server).routeBoardPages,
+	(*Server).routeCrewAndLead,
+	(*Server).routeDecisionsAndDocs,
+	(*Server).routeIssue,
+	(*Server).routeOps,
+}
+
+// routeHall answers the project's home, the hall, the company floor and HQ's report.
+func (s *Server) routeHall(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
 	switch {
 	case rest == "" || rest == "/":
 		if r.URL.Query().Get("classic") == "1" {
@@ -224,6 +248,15 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHQReport(w, r, proj, prefix)
 	case rest == "hq/report.md" && r.Method == http.MethodGet:
 		s.handleHQReportMD(w, r, proj, prefix)
+	default:
+		return false
+	}
+	return true
+}
+
+// routeOwnerPages answers Needs you, memory, post-mortems, owner checks, connectors, socials, connections, reports and the shelf.
+func (s *Server) routeOwnerPages(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case rest == "needs-you" && r.Method == http.MethodGet:
 		s.handleNeedsYou(w, r, proj, prefix)
 	case rest == "needs-you.json" && r.Method == http.MethodGet:
@@ -276,6 +309,15 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleShelfCommentResolve(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "shelf/file/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		s.handleShelfFile(w, r, proj, strings.TrimPrefix(rest, "shelf/file/"))
+	default:
+		return false
+	}
+	return true
+}
+
+// routeBoardPages answers the classic board pages, CI logs, status, pages, GitHub, stats and health.
+func (s *Server) routeBoardPages(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case (rest == "board" || rest == "workboard") && r.URL.Query().Get("classic") != "1":
 		// The hall is the board now; the old pages answer at ?classic=1
 		// (factory/retire-board-canvas-graph#D-1).
@@ -318,6 +360,15 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleHealthFile(w, r, proj, prefix, rest)
 	case strings.HasPrefix(rest, "health/recommendation/") && strings.HasSuffix(rest, "/dismiss") && r.Method == http.MethodPost:
 		s.handleHealthDismiss(w, r, proj, prefix, rest)
+	default:
+		return false
+	}
+	return true
+}
+
+// routeCrewAndLead answers the crew, the lead's chat and the retros.
+func (s *Server) routeCrewAndLead(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case rest == "agents" && r.Method == http.MethodGet:
 		if r.URL.Query().Get("classic") == "1" {
 			s.handleAgents(w, r, proj, prefix)
@@ -358,6 +409,15 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleUpdateRetroStatus(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "retros/bug/") && strings.HasSuffix(rest, "/status") && r.Method == http.MethodPost:
 		s.handleUpdateBugStatus(w, r, proj, prefix)
+	default:
+		return false
+	}
+	return true
+}
+
+// routeDecisionsAndDocs answers decisions, updates, departments, metrics, systems, the issue list's data and docs.
+func (s *Server) routeDecisionsAndDocs(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case rest == "decisions" && r.Method == http.MethodGet:
 		if r.URL.Query().Get("classic") == "1" {
 			s.handleDecisions(w, r, proj, prefix)
@@ -406,6 +466,15 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleDocsWb(w, r, proj, prefix, "")
 	case strings.HasPrefix(rest, "docs/"):
 		s.handleDocsWb(w, r, proj, prefix, strings.TrimPrefix(rest, "docs/"))
+	default:
+		return false
+	}
+	return true
+}
+
+// routeIssue answers /issue/<slug>/...: comments, data, dispatch, reviews, the detail page and its edits.
+func (s *Server) routeIssue(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/comments") && r.Method == http.MethodGet:
 		s.handleGetComments(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/comments") && r.Method == http.MethodPost:
@@ -446,6 +515,31 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handlePlaytest(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/checkbox") && r.Method == http.MethodPost:
 		s.handleToggleCheckbox(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
+		s.handleYOLOReview(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/clarify") && r.Method == http.MethodPost:
+		s.handleClarifyAnswer(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/partner") && r.Method == http.MethodPost:
+		s.handlePartnerAnswer(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/send-back") && r.Method == http.MethodPost:
+		s.handleSendBack(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:
+		s.handleApproveIssue(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/delete") && r.Method == http.MethodPost:
+		s.handleDeleteIssue(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodGet:
+		s.handleDetail(w, r, proj, prefix)
+	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodPost:
+		s.handleUpdateIssue(w, r, proj, prefix)
+	default:
+		return false
+	}
+	return true
+}
+
+// routeOps answers YOLO, jobs, auto-start, the queue, crew actions, project actions, uploads and files.
+func (s *Server) routeOps(w http.ResponseWriter, r *http.Request, proj *tracker.Project, prefix, rest string) bool {
+	switch {
 	case rest == "yolo/review" && r.Method == http.MethodGet:
 		s.handleYOLOReviewPage(w, r, proj, prefix)
 	case rest == "yolo/review" && r.Method == http.MethodPost:
@@ -465,18 +559,6 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 	case rest == "crew/tail" && r.Method == http.MethodGet,
 		strings.HasPrefix(rest, "crew/") && r.Method == http.MethodPost:
 		s.handleCrewAction(w, r, proj, prefix, strings.TrimPrefix(rest, "crew/"))
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/yolo-review") && r.Method == http.MethodPost:
-		s.handleYOLOReview(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/clarify") && r.Method == http.MethodPost:
-		s.handleClarifyAnswer(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/partner") && r.Method == http.MethodPost:
-		s.handlePartnerAnswer(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/send-back") && r.Method == http.MethodPost:
-		s.handleSendBack(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/approve") && r.Method == http.MethodPost:
-		s.handleApproveIssue(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && strings.HasSuffix(rest, "/delete") && r.Method == http.MethodPost:
-		s.handleDeleteIssue(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "action/") && r.Method == http.MethodPost:
 		s.handleProjectAction(w, r, proj, prefix)
 	case rest == "issues/create" && r.Method == http.MethodPost:
@@ -487,13 +569,10 @@ func (s *Server) handleProjectRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleProjectFile(w, r, proj, prefix)
 	case strings.HasPrefix(rest, "attachments/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		handleAttachment(w, r, proj, strings.TrimPrefix(rest, "attachments/"))
-	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodGet:
-		s.handleDetail(w, r, proj, prefix)
-	case strings.HasPrefix(rest, "issue/") && r.Method == http.MethodPost:
-		s.handleUpdateIssue(w, r, proj, prefix)
 	default:
-		http.NotFound(w, r)
+		return false
 	}
+	return true
 }
 
 // --- Project List ---

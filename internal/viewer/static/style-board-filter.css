@@ -1,0 +1,174 @@
+/* Board filter, vertical board, drag and drop, assignees. One of the style stylesheets, loaded in the order css_bundles.go lists them. */
+/* Board Filter */
+.board-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 0 16px 12px;
+    align-items: center;
+}
+
+.board-filter-bar select,
+.filter-bar select {
+    max-width: 220px;
+}
+
+.board-filter-bar select {
+    background: var(--bg-secondary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 14px;
+    height: 32px;
+}
+
+.board-filter-bar select:focus {
+    outline: none;
+    border-color: var(--text-link);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+.board-filter-bar .clear-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    height: 32px;
+}
+
+.board-filter-bar .clear-btn:hover {
+    color: var(--text);
+    border-color: var(--text-secondary);
+}
+
+.board-search {
+    background: var(--bg-secondary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 14px;
+    height: 32px;
+    min-width: 200px;
+}
+
+.board-search:focus {
+    outline: none;
+    border-color: var(--text-link);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+}
+
+.board-hide-empty {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin-left: auto;
+}
+
+.board-hide-empty input {
+    margin: 0;
+    cursor: pointer;
+}
+
+.board-layout-btn {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    height: 32px;
+    display: flex;
+    align-items: center;
+}
+
+.board-layout-btn:hover {
+    color: var(--text);
+    border-color: var(--text-link);
+}
+
+/* Vertical board layout */
+.board-vertical .board {
+    flex-direction: column;
+    gap: 12px;
+}
+
+.board-vertical .board-column {
+    width: 100%;
+    min-width: unset;
+    max-height: none;
+}
+
+.board-vertical .board-column-cards {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow-y: visible;
+}
+
+.board-vertical .board-card {
+    width: 320px;
+}
+
+/* Drag and drop */
+.board-card.dragging {
+    opacity: 0.4;
+}
+
+.board-column.drag-over {
+    background: rgba(88, 166, 255, 0.05);
+    border-radius: 6px;
+    outline: 2px dashed var(--text-link);
+    outline-offset: -2px;
+}
+
+.board-card[draggable="true"] {
+    cursor: grab;
+}
+
+.board-card[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+/* Assignee */
+.assignee-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border: 1px solid;
+    border-radius: 20px;
+    padding: 1px 10px;
+}
+
+/* Assignee on board cards */
+.board-card-assignee {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+}
+
+.board-agent-active {
+    margin-top: 8px;
+}
+
+.assignee-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+

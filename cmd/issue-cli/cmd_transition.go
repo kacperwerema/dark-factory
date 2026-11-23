@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -31,9 +32,15 @@ boxes the agent may tick ends with that one call, ids filled in.
 approval) with the command that fixes each, and changes nothing. Exit 0 when
 the transition would succeed, 1 otherwise.
 
-Both print first, under "From the lead since your last move", every lead:
-comment posted since the issue's last move (--json: lead_comments). A real
-transition warns on each with no reply after it; it never refuses over one.
+Both print first (a move: right after its ✓ line), under "From the lead since
+your last move", every lead: comment posted since the issue's last move
+(--json: lead_comments). A real transition warns on each with no reply after
+it; it never refuses over one.
+
+A transition that moves prints "✓ <from> → <to>" as its first line (the
+lead's comments and the --check lines follow it) and again as its last, after
+the memories and the trace line, so the end of the output shows the move. A
+refused one prints no ✓ line.
 
 At a human-approval gate, tell the human what to approve, then stop and end
 your turn. The viewer's approve button nudges your session to resume; re-run
@@ -92,6 +99,9 @@ type transitionOutput struct {
 	YOLORule string `json:"yolo_rule,omitempty"`
 	// LeadComments are the lead: comments posted since the previous move.
 	LeadComments []leadComment `json:"lead_comments,omitempty"`
+	// preMove is what printed before the move (lead comments, --check's
+	// lines), printed right after the ✓ line; never in --json.
+	preMove []byte
 }
 
 func runTransition(ctx *Context, args []string) error {
@@ -152,6 +162,22 @@ func runTransition(ctx *Context, args []string) error {
 		return err
 	}
 	printTypeWarnings(ctx.Stderr, wf, issue)
+	// What prints before the move (the lead's comments, --check's lines) is
+	// held until the move's outcome is known: a move prints its ✓ line first
+	// and these after it; a refusal, a dry run or "already at" prints them
+	// as they were, with no ✓ line.
+	stdout, preMove, held := ctx.Stdout, &bytes.Buffer{}, !ctx.JSONOutput
+	if held {
+		ctx.Stdout = preMove
+		defer func() {
+			if ctx.Stdout == preMove {
+				ctx.Stdout = stdout
+			}
+			if held {
+				stdout.Write(preMove.Bytes())
+			}
+		}()
+	}
 	// Read before the move writes its row: the window is the previous move's.
 	leads := leadCommentsFor(ctx, issue)
 	if !ctx.JSONOutput {
@@ -225,6 +251,7 @@ func runTransition(ctx *Context, args []string) error {
 		return withOneCallLine(ctx, wf, slug, to, fields, yoloRefusal(ctx.Stderr, gate, issue.Status, to, ctx.now(), fmt.Errorf("failed to transition: %w", err)))
 	}
 
+	ctx.Stdout = stdout
 	var noRemote string
 	if isShipStatus(wf, to) {
 		noRemote = tickNoRemoteShipping(ctx, issue)
@@ -238,6 +265,7 @@ func runTransition(ctx *Context, args []string) error {
 		out.SideEffects = append(out.SideEffects, noRemote)
 	}
 	out.LeadComments = leads
+	out.preMove = preMove.Bytes()
 	out.NextCommand, out.NextCommandNote = yoloNextStep(ctx, wf, issue, issue.Status, out.NextStatus, out.NextCommand, out.NextCommandNote)
 	out.Guidance, out.YOLORule = yoloGuidance(ctx, wf, issue.Slug, out.Guidance)
 	if gate.Passed {
@@ -246,6 +274,7 @@ func runTransition(ctx *Context, args []string) error {
 	if result.KeptAssignee {
 		out.SideEffects = append(out.SideEffects, fmt.Sprintf("Assignee kept (%s): you are this issue's worker and carry on", issue.Assignee))
 	}
+	held = false // printTransitionResult prints them after the ✓ line
 	if err := printTransitionResult(ctx, out); err != nil {
 		return err
 	}
@@ -297,8 +326,16 @@ func runTransition(ctx *Context, args []string) error {
 		if hint := outputsTransitionHint(ctx.Project, issue, wf, to); hint != "" {
 			fmt.Fprintln(ctx.Stdout, hint)
 		}
+		// Again last: memories and the trace line came after the first one,
+		// and `| tail -1` should still show that the issue moved.
+		fmt.Fprintln(ctx.Stdout, moveLine(from, to))
 	}
 	return nil
+}
+
+// moveLine is a successful transition's first and last line.
+func moveLine(from, to string) string {
+	return fmt.Sprintf("✓ %s → %s", from, to)
 }
 
 // printAlreadyAt answers a transition to the status the issue is already at:
@@ -609,7 +646,8 @@ func printTransitionResult(ctx *Context, output transitionOutput) error {
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, output)
 	}
-	fmt.Fprintf(ctx.Stdout, "✓ %s → %s\n", output.From, output.To)
+	fmt.Fprintln(ctx.Stdout, moveLine(output.From, output.To))
+	ctx.Stdout.Write(output.preMove)
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", output.File)
 	statusDisp := output.Status
 	if output.StatusOptional {

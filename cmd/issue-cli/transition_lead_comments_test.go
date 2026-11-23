@@ -70,8 +70,9 @@ func TestTransitionShowsNewLeadComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("real transition refused: %v\n%s", err, out)
 	}
-	if !strings.HasPrefix(out, leadCommentsHeading) {
-		t.Fatalf("real transition doesn't start with the lead block:\n%s", out)
+	// The move line comes first (its own issue), the lead block right after.
+	if !strings.HasPrefix(out, "✓ in progress → human-testing\n"+leadCommentsHeading) {
+		t.Fatalf("real transition doesn't start with the move line, then the lead block:\n%s", out)
 	}
 	if !strings.Contains(out, "⚠ lead comment #3 has no reply after it") || strings.Contains(out, "lead comment #1 has no reply") {
 		t.Fatalf("want a warning for #3 only:\n%s", out)

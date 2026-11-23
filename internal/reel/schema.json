@@ -9,6 +9,7 @@
   "properties": {
     "version": {"const": 1},
     "shape": {"enum": ["hook-list", "before-after", "app-demo"], "description": "hook-list: hook, 2-6 item, cta. before-after: hook, before, after, cta. app-demo: hook, 1-6 step (each with an app-recording clip), cta."},
+    "format": {"enum": ["9:16", "4:5", "1:1"], "description": "the frame: 9:16 1080x1920 (default; Reels, TikTok, Shorts), 4:5 1080x1350 (a feed post), 1:1 1080x1080. Plan, caption boxes, safe zone and the aspect check follow it."},
     "title": {"type": "string", "minLength": 1},
     "language": {"type": "string", "description": "BCP 47, e.g. pl"},
     "brand": {
@@ -148,7 +149,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["x", "y", "w", "h"],
-      "description": "pixels on the 1080x1920 frame",
+      "description": "pixels on the format's frame (1080x1920 for 9:16, 1080x1350 for 4:5, 1080x1080 for 1:1)",
       "properties": {
         "x": {"type": "number"},
         "y": {"type": "number"},

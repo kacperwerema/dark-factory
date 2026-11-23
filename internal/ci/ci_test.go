@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
+	"github.com/kacperwerema/dark-factory/internal/testbudget"
 	"github.com/kacperwerema/dark-factory/internal/timing"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -467,6 +468,16 @@ func TestCommandEnv(t *testing.T) {
 	env := commandEnv([]string{"PATH=/bin", "ISSUE_VIEWER_ISSUE_SLUG=x", "TMUX=/tmp/s", "AGENT_NAME=a", "CI=false", "HOME=/h"})
 	got := strings.Join(env, " ")
 	if got != "PATH=/bin HOME=/h CI=true" {
+		t.Errorf("env = %q", got)
+	}
+}
+
+// A worker's shell that starts local CI hands it its test budget: CI's
+// commands run with none of it, so DF's own validate keeps every core.
+func TestCommandEnvDropsAWorkersTestBudget(t *testing.T) {
+	in := append([]string{"PATH=/bin", "HOME=/h"}, testbudget.Env(3, "-mod=mod")...)
+	got := strings.Join(commandEnv(in), " ")
+	if got != "PATH=/bin HOME=/h GOFLAGS=-mod=mod CI=true" {
 		t.Errorf("env = %q", got)
 	}
 }

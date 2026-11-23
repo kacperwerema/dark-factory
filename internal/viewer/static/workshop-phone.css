@@ -1,0 +1,98 @@
+/* Phone width: every page. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- phone width: every page (the header drawer, tables as rows, the hall in
+   one column, overflows, 16px gutters, 44px targets) ---- */
+/* Above 640px the drawer's checkbox and button don't show and nothing here
+   applies. At 640px and below the header is one row (‹ up, the current
+   crumb, the waiting count, ☰) and the rest of .wb-header-stats, YOU and the
+   view toggle open under it from the ☰: a checkbox and its label, no script.
+   The hall's tabs stay out of the drawer, one row under the header. A new header item goes inside .wb-header-stats, so
+   the drawer folds it too. The "one screen" block at the end of this file
+   has the rest (the ‹, the YOLO band as one line, the floor as a list). */
+.wb-drawer-toggle { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); border: 0; opacity: 0; }
+.wb-drawer-btn { display: none; }
+@media (max-width: 640px) {
+  /* header: one row and a drawer (wb/header) */
+  .wb .wb-header { padding: 8px 16px; gap: 8px; }
+  .wb .wb-header .wb-brand { display: none; }
+  .wb .wb-header .wb-grow { display: none; }
+  .wb .wb-header .wb-crumbs { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; }
+  .wb .wb-header .wb-crumbs > :not(.wb-crumb--on) { display: none; }
+  .wb .wb-header .wb-crumbs:not(:has(.wb-crumb--on)) > :last-child { display: block; }
+  .wb .wb-header .wb-crumb { display: block; flex: 0 1 auto; min-width: 0; line-height: 30px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wb .wb-header-stats { display: contents; }
+  .wb .wb-header-stats > * { display: none; order: 3; flex: 1 1 100%; }
+  .wb .wb-header-stats > .wb-you-btn { display: flex; order: 1; flex: none; }
+  .wb .wb-drawer-btn { display: grid; place-items: center; order: 2; flex: none; margin-left: auto; width: 44px; height: 44px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); font-size: 20px; font-weight: 800; cursor: pointer; }
+  .wb .wb-drawer-close { display: none; }
+  .wb .wb-drawer-toggle:checked + .wb-drawer-btn { background: var(--ink); color: #fff; }
+  .wb .wb-drawer-toggle:checked + .wb-drawer-btn .wb-drawer-open { display: none; }
+  .wb .wb-drawer-toggle:checked + .wb-drawer-btn .wb-drawer-close { display: inline; }
+  .wb .wb-drawer-toggle:focus-visible + .wb-drawer-btn { outline: 3px solid #2A5BD7; outline-offset: 2px; }
+  .wb .wb-drawer-toggle:checked ~ .wb-header-stats > :not(.wb-you-btn) { display: flex; flex-wrap: wrap; min-height: 44px; min-width: 0; }
+  .wb .wb-goal-chip { min-width: 0; }
+  /* the hall's view tabs: always one row under the header (after the drawer's
+     rows), scrolling inside itself; its own navigation, so no tap */
+  .wb .wb-header > .wb-seg--wrap { order: 4; flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .wb .wb-header > .wb-seg--wrap .wb-seg-item { flex: none; }
+  .wb .wb-goal-name { flex: 1 1 0; min-width: 0; max-width: none; }
+
+  /* tables with value columns: one card per row, the column name before
+     each value (wb/data-table, Health's departments, the Report's benchmark) */
+  .wb .wb-table-scroll:has(> .wb-table--stack) { max-height: none; overflow: visible; }
+  .wb table.wb-table--stack, .wb .wb-table--stack tbody, .wb .wb-table--stack tr, .wb .wb-table--stack th, .wb .wb-table--stack td { display: block; width: auto; }
+  .wb .wb-table--stack { border: 0; background: transparent; }
+  .wb .wb-table--stack thead { display: none; }
+  .wb .wb-table--stack tbody { display: flex; flex-direction: column; gap: 8px; }
+  .wb .wb-table--stack tr { padding: 10px 12px; border: 1.5px solid var(--ink); border-radius: 10px; background: var(--paper); }
+  .wb .wb-table--stack th, .wb .wb-table--stack td { padding: 2px 0; border: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+  .wb .wb-table--stack tbody th { font-weight: 800; font-size: 13.5px; }
+  .wb .wb-table--stack td[data-label]:not([data-label=""]) { display: flex; gap: 8px; }
+  .wb .wb-table--stack td[data-label]:not([data-label=""])::before { content: attr(data-label); flex: none; width: 40%; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-2); padding-top: 2px; }
+  .wb .wb-table--stack td a { min-width: 0; }
+  .wb .wb-table--stack .wb-num { font-family: var(--mono); }
+  /* the code map's import matrix stays a grid and scrolls inside its panel */
+  .wb .wb-cm-mx-wrap { overflow-x: auto; }
+
+  /* the hall and the sidebar Board: stations in one column, in path order */
+  .wb .wb-hall { padding: 14px 16px 8px; }
+  .wb .wb-hall-row, .wb .wb-hall-row--back { flex-direction: column; gap: 10px; }
+  .wb .wb-belt-row, .wb .wb-belt-down { display: none; }
+  .wb .wb-hall-turn { margin: 10px 0; min-height: 0; }
+  .wb .wb-hall-turn .wb-scanner { margin: 0; width: 100%; }
+  .wb .wb-hst { flex: none; min-width: 0; min-height: 0; }
+  .wb .wb-hst-head { min-height: 44px; }
+  .wb .wb-hst-body { min-height: 60px; }
+  .wb .wb-crate-line { min-height: 44px; }
+  .wb .wb-gatecard { width: auto; min-height: 44px; flex-direction: row; justify-content: flex-start; padding: 4px 12px; gap: 10px; text-align: left; }
+  .wb .wb-gatecard .wb-stamp { width: 30px; height: 30px; }
+  .wb .wb-gatecard .wb-mono { font-size: 11px; }
+  .wb .wb-gatecard > :last-child { margin-left: auto; }
+  .wb .wb-hall-foot { flex-direction: column; }
+  .wb .wb-hall-foot > * { flex: none; width: 100%; min-width: 0; }
+  .wb .wb-parked { flex-wrap: wrap; }
+  .wb .wb-parked-slug { max-width: 100%; display: inline-flex; align-items: center; min-height: 36px; }
+
+  /* overflows */
+  .wb .wb-crewall { width: 100%; min-width: 0; }
+  .wb main pre, .wb .wb-panel pre { max-width: 100%; overflow-x: auto; }
+
+  /* 16px gutters */
+  .wb .wb-report, .wb .wb-hmain { padding-left: 16px; padding-right: 16px; }
+  .wb .wb-fl-view { margin-left: 16px; margin-right: 16px; }
+
+  /* the company floor: the list replaces the plan (the one screen block) */
+  .wb .wb-fl-floor { height: auto; }
+
+  /* 44px targets the earlier block doesn't name */
+  .wb .wb-mem-filter-item, .wb .wb-seg-item, .wb .wb-tab { display: inline-flex; align-items: center; min-height: 44px; }
+  .wb .wb-seg--small .wb-seg-item { min-height: 44px; }
+  .wb .wb-mem-filter-item { padding: 0 14px; font-size: 14px; }
+  /* pills, tabs and row links the 390px measure found under 40px: decisions,
+     memory, shelf, the YOLO review, the Report, the station, systems */
+  .wb .wb-tag-pill, .wb .wb-pill, .wb .wb-mem-tag, .wb .wb-mem-entity, .wb .wb-mem-src, .wb .wb-shelf-tab, .wb .wb-oc-evidence, .wb .wb-filter, .wb .wb-badge, .wb .wb-rlink, .wb .wb-shiprow-more, .wb .wb-shiprow-slug, .wb .wb-toggle a, .wb .wb-table--stack td a, .wb .wb-table--stack th a { display: inline-flex; align-items: center; min-height: 44px; }
+  .wb .wb-thread-title, .wb .wb-shelf-title, .wb .wb-rel-title, .wb .wb-bar, .wb .wb-workshop-name a, .wb .wb-workshop-foot a, .wb .wb-shelf-meta a { display: inline-flex; align-items: center; min-height: 44px; max-width: 100%; }
+  .wb .wb-ract, .wb .wb-trend-cmd, .wb .wb-sempty-link { min-height: 44px; }
+  .wb main summary { min-height: 44px; padding-block: 10px; }
+  .wb main select, .wb main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), .wb main button { min-height: 44px; }
+}
+

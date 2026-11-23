@@ -40,23 +40,40 @@ type mktFixture struct {
 	task Task
 }
 
+const (
+	mktSnapshot  = "---\ntitle: \"Post: tees\"\nstatus: \"brief\"\ntype: piece\n---\n\nA post about tees.\n"
+	mktReference = "The approved post about tees.\n"
+)
+
+var marketingFixture shared[mktFixture]
+
+// newMarketingFixture is the test's own copy of the marketing fixture,
+// built once per test binary.
 func newMarketingFixture(t *testing.T) *mktFixture {
 	t.Helper()
-	f := &mktFixture{repo: filepath.Join(t.TempDir(), "shop")}
-	mustGit(t, filepath.Dir(f.repo), "init", "-q", "-b", "main", f.repo)
-	write(t, filepath.Join(f.repo, "workflow.yaml"), fixtureWorkflow)
-	write(t, filepath.Join(f.repo, "workflows", "marketing.yaml"), marketingWorkflow)
-	write(t, filepath.Join(f.repo, "departments", "marketing", "brand.md"), "Warm, plain.\n")
-	mustGit(t, f.repo, "add", "-A")
-	mustGit(t, f.repo, "commit", "-q", "-m", "base")
-	head := mustGit(t, f.repo, "rev-parse", "HEAD")
+	base := marketingFixture.get(t, func(dir string) (mktFixture, error) {
+		var b fxb
+		f := mktFixture{repo: filepath.Join(dir, "shop")}
+		b.git(dir, "init", "-q", "-b", "main", f.repo)
+		b.write(filepath.Join(f.repo, "workflow.yaml"), fixtureWorkflow)
+		b.write(filepath.Join(f.repo, "workflows", "marketing.yaml"), marketingWorkflow)
+		b.write(filepath.Join(f.repo, "departments", "marketing", "brand.md"), "Warm, plain.\n")
+		b.git(f.repo, "add", "-A")
+		b.git(f.repo, "commit", "-q", "-m", "base")
+		head := b.git(f.repo, "rev-parse", "HEAD")
+		f.task = Task{Project: "shop", Slug: "marketing/post-tees", Type: "piece", Workflow: "marketing", Base: head, Merged: head, Start: "brief",
+			Output: "o-1", Reference: "o-1-post.md"}
+		b.write(inPkgBench(SnapshotPath(f.task)), mktSnapshot)
+		b.write(inPkgBench(ReferencePath(f.task)), mktReference)
+		return f, b.err
+	})
+	f := base
+	f.repo = filepath.Join(t.TempDir(), "shop")
+	copyTree(t, base.repo, f.repo)
 	f.proj = &tracker.Project{Name: "Shop", Slug: "shop", IssueDir: filepath.Join(f.repo, "issues"), WorkflowFile: filepath.Join(f.repo, "workflow.yaml"), WorkDir: f.repo,
 		Departments: []tracker.Department{{Name: "Marketing", Workflow: "workflows/marketing.yaml"}}}
-	f.task = Task{Project: "shop", Slug: "marketing/post-tees", Type: "piece", Workflow: "marketing", Base: head, Merged: head, Start: "brief",
-		Output: "o-1", Reference: "o-1-post.md"}
-	write(t, SnapshotPath(f.task), "---\ntitle: \"Post: tees\"\nstatus: \"brief\"\ntype: piece\n---\n\nA post about tees.\n")
-	write(t, ReferencePath(f.task), "The approved post about tees.\n")
-	return f
+	ownTaskFiles(t, map[string]string{SnapshotPath(f.task): mktSnapshot, ReferencePath(f.task): mktReference})
+	return &f
 }
 
 // postWorker puts a post saying word on the sandbox's shelf (the tracker is
@@ -96,6 +113,7 @@ func twoProjectEnv(t *testing.T, calc *fixture, mkt *mktFixture) Env {
 }
 
 func TestRunScoresAnOutputTaskWithItsWorkflowsEval(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	mkt := newMarketingFixture(t)
 	env := twoProjectEnv(t, calc, mkt)
@@ -134,6 +152,7 @@ func TestRunScoresAnOutputTaskWithItsWorkflowsEval(t *testing.T) {
 }
 
 func TestRunFailsAnOutputTaskWithNothingOnTheShelf(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	mkt := newMarketingFixture(t)
 	b := calc.benchmark(`cat > /dev/null; echo '{}'`, mkt.task)
@@ -148,6 +167,7 @@ func TestRunFailsAnOutputTaskWithNothingOnTheShelf(t *testing.T) {
 }
 
 func TestRunRefusesAnEvalNothingCanGradeBeforeTheWorkerStarts(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	mkt := newMarketingFixture(t)
 	write(t, filepath.Join(mkt.repo, "workflows", "marketing.yaml"), strings.Replace(marketingWorkflow, "    assert:\n      - {type: icontains, value: GOOD}\n", "", 1))
@@ -172,6 +192,7 @@ func TestRunRefusesAnEvalNothingCanGradeBeforeTheWorkerStarts(t *testing.T) {
 // sandbox runs: the change to the marketing file makes the post worse, the
 // development task is a control and holds.
 func TestAWorkflowChangeGetsAVerdictPerWorkflow(t *testing.T) {
+	parallel(t)
 	calc := newFixture(t)
 	mkt := newMarketingFixture(t)
 	env := twoProjectEnv(t, calc, mkt)

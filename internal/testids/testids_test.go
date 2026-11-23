@@ -100,18 +100,31 @@ func TestIDsAreWellFormed(t *testing.T) {
 }
 
 // TestKnownMatchesEveryListedID checks the index against the walk it
-// replaced, on every entry and the ids and patterns made from it.
+// replaced, on every entry and the ids and patterns made from it. The walk
+// is Compatible over every entry, with the entries split once and each id
+// checked once: split on every call it took about 4 s (25 s on a loaded
+// machine) for the same answers.
 func TestKnownMatchesEveryListedID(t *testing.T) {
+	var entries [][]string
+	for _, e := range allIDs() {
+		entries = append(entries, strings.Split(e, "."))
+	}
 	walk := func(id string) bool {
-		for _, e := range allIDs() {
-			if Compatible(e, id) {
+		segs := strings.Split(id, ".")
+		for _, e := range entries {
+			if segsCompatible(e, segs) {
 				return true
 			}
 		}
 		return false
 	}
+	checked := map[string]bool{}
 	check := func(id string) {
 		t.Helper()
+		if checked[id] {
+			return
+		}
+		checked[id] = true
 		if got, want := Known(id), walk(id); got != want {
 			t.Errorf("Known(%q) = %v, the walk says %v", id, got, want)
 		}

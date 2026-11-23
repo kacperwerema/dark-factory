@@ -185,5 +185,5 @@ func behindMarkdown(b *strings.Builder, r *BehindRow) {
 			}
 		}
 	}
-	fmt.Fprintf(b, "- To get them: %s, then restart the viewer (the owner's call; nothing runs it for you)\n", r.Install)
+	fmt.Fprintf(b, "- To get them: %s && issue-cli viewer restart (the owner's or the lead's call; nothing runs it for you)\n", r.Install)
 }

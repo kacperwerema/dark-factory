@@ -42,6 +42,9 @@ export type Plan = {
 	shape: 'hook-list' | 'before-after' | 'app-demo';
 	composition?: string;
 	title: string;
+	// format is the storyboard's frame: '9:16' (1080x1920), '4:5'
+	// (1080x1350) or '1:1' (1080x1080); width and height are its size.
+	format?: '9:16' | '4:5' | '1:1';
 	width: number;
 	height: number;
 	fps: number;

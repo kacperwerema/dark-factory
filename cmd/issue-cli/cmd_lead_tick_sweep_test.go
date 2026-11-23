@@ -26,6 +26,8 @@ func sweepProject(t *testing.T) *tracker.Project {
 	// Memory over auto-start's line: the tick's start holds, so what it
 	// queues stays open for the test to read.
 	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 70, CanStart: true} }
+	// A retro to read: with none since the mark the tick queues no sweep.
+	retroFile(t, proj, "20261101-090000-r1.md", "", "2026-11-01T09:00:00Z", "Base workflow: fine")
 	return proj
 }
 

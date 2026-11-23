@@ -171,9 +171,7 @@ func TestLeadLaunchSetup(t *testing.T) {
 	record := standInAgent(t, "claude")
 	isolateTmux(t)
 	t.Setenv("SHELL", "/bin/sh")
-	orig := PromptDeliveryTimeout
-	PromptDeliveryTimeout = 0
-	t.Cleanup(func() { PromptDeliveryTimeout = orig })
+	liveAgentStart(t)
 
 	proj, wf := workerProject(t)
 	proj.Terminal = "none"

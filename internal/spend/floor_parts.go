@@ -72,6 +72,13 @@ type FloorParts struct {
 	ToolSizes []NamedTokens `json:"tool_sizes,omitempty"`
 	// Files is the claude_md part by kind of file (global, project, memory).
 	Files []NamedTokens `json:"files,omitempty"`
+	// BriefKind is the brief's kind (lead, worker; "" for what the owner
+	// typed), BriefSections the brief by section in brief order, adding
+	// up to Brief (brief_sections.go); in a sum of sessions the median
+	// over BriefSectionsOf sessions of the commonest kind.
+	BriefKind       string        `json:"brief_kind,omitempty"`
+	BriefSections   []NamedTokens `json:"brief_sections,omitempty"`
+	BriefSectionsOf int           `json:"brief_sections_sessions,omitempty"`
 	// CharsPerToken is the session's ratio; 0 in a sum of sessions.
 	CharsPerToken float64 `json:"chars_per_token,omitempty"`
 }
@@ -124,6 +131,8 @@ type floorChars struct {
 	// blob records (an older Claude Code), then the attachments count.
 	blobs     int
 	brief     int
+	briefKind string
+	sections  []namedChars // the brief by section
 	files     []namedChars
 	claudeMD  int // the instructions attachment as rendered
 	skills    int
@@ -186,6 +195,10 @@ func (c *floorChars) split(floor int64) *FloorParts {
 		}
 	}
 	sortNamed(p.Files)
+	p.BriefKind, p.BriefSections = c.briefKind, briefTokens(p.Brief, c.sections)
+	if p.BriefSections == nil {
+		p.BriefKind = ""
+	}
 	return p
 }
 
@@ -287,7 +300,9 @@ func readFloorChars(path string) *floorChars {
 		case "user":
 			if !user && rec.Message != nil {
 				user = true
-				c.brief = textChars(rec.Message.Content)
+				text := messageText(rec.Message.Content)
+				c.brief = len(text)
+				c.briefKind, c.sections = splitBrief(text)
 			}
 		case "attachment":
 			if rec.Attachment == nil {
@@ -320,24 +335,27 @@ func readFloorChars(path string) *floorChars {
 	return nil
 }
 
-// textChars is the text in a message's content: a string, or the text of
-// its blocks.
-func textChars(raw json.RawMessage) int {
+// textChars is the length of the text in a message's content.
+func textChars(raw json.RawMessage) int { return len(messageText(raw)) }
+
+// messageText is the text in a message's content: a string, or the text of
+// its blocks one after another.
+func messageText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return len(s)
+		return s
 	}
 	var blocks []struct {
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
-		return 0
+		return ""
 	}
-	n := 0
-	for _, b := range blocks {
-		n += len(b.Text)
+	var b strings.Builder
+	for _, bl := range blocks {
+		b.WriteString(bl.Text)
 	}
-	return n
+	return b.String()
 }
 
 // homeDir is the owner's home, for telling the global CLAUDE.md apart; a
@@ -379,6 +397,7 @@ func medianParts(all []*FloorParts) *FloorParts {
 	}
 	out.ToolSizes = medianNamed(all, func(p *FloorParts) []NamedTokens { return p.ToolSizes })
 	out.Files = medianNamed(all, func(p *FloorParts) []NamedTokens { return p.Files })
+	out.BriefSections, out.BriefKind, out.BriefSectionsOf = medianSections(all)
 	return out
 }
 

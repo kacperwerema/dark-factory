@@ -47,9 +47,7 @@ type helperRun struct {
 
 func startHelperRunner(t *testing.T) helperRun {
 	t.Helper()
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
+	needChrome(t)
 	out := filepath.Join(t.TempDir(), "browser")
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), helperRunnerVar+"="+out)

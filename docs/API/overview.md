@@ -13,7 +13,7 @@ The viewer's code is the `internal/viewer` package: the `.go` files, `templates/
 
 - `main.go` — `run` (flags, listener, signals), `newHTTPServer` (timeouts), `serve` (graceful shutdown); `Run` is what `cmd/issue-viewer`'s `main` calls; it exits non-zero on a `Run` error
 - `background.go` — `background`: goroutines that outlive a request (`Go(name, fn)`, `Wait(deadline)`), with the shutdown context `ctx` and the deadline context `hard`
-- `routes.go` — `Server` struct, `NewServer`, `Routes`, `handleProjectRoutes` dispatcher, project list page (logs per-project load errors with the slug)
+- `routes.go` — `Server` struct, `NewServer`, `Routes`, `handleProjectRoutes` dispatcher (owner gate, then the per-area route functions `projectRouteAreas` lists, tried in order), project list page (logs per-project load errors with the slug)
 - `owner.go` — the owner credential on loopback: `/owner` sign-in (`handleOwner`: a one-time code shown outside HTTP, `-owner-code`), the `iv_owner` session (`ownerAuth`; `owner_store.go` keeps the sessions' hashes in `$XDG_STATE_HOME/ai-workflow-engine/owner/sessions.json`, 0600, so a restart doesn't sign the owner out), `fromOwner`, and the owner gate (`ownerOnlyRoute`, `refuseNonOwner`, whose 403 carries `X-Owner-Sign-In: /owner` for `static/owner-signin.js`, the sign-in in place) on every O route of [Security](security.md#owner-sign-in)
 - `origin.go` — `hostAllowed` (Host allowlist, 421), `sameOriginOnly` (cross-origin write guard), `-host` helpers (`defaultHost`, `listenAddr`, `isLoopbackHost`, `allowedHostsFor`)
 - `template_funcs.go` — `funcMap`, `statusColor`/`priorityColor`/`assigneeColor`, `linkIssueRefs`, status ordering helpers

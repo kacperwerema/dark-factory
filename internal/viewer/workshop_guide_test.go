@@ -68,14 +68,11 @@ func workshopCatalog(doc string) map[string]string {
 	return listed
 }
 
-// Every Workshop page loads static/workshop.css, so a wb-* class with two
-// rules is styled by whichever comes last, on every page.
+// Every Workshop page loads every part of the workshop bundle
+// (css_bundles.go), so a wb-* class with two rules is styled by whichever
+// comes last, on every page.
 func TestWorkshopCSSClassesDefinedOnce(t *testing.T) {
-	css, err := fs.ReadFile(staticFS, "static/workshop.css")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, clash := range wbClassClashes(string(css)) {
+	for _, clash := range wbClassClashesIn(cssBundleParts(t, "workshop")) {
 		t.Error(clash)
 	}
 }
@@ -104,55 +101,66 @@ func TestWbClassClashes(t *testing.T) {
 // than one "/* ---- <block> ---- */" block. Rules inside at-rules (@media)
 // may restate a class.
 func wbClassClashes(css string) []string {
+	return wbClassClashesIn([]cssPart{{"static/workshop.css", css}})
+}
+
+// wbClassClashesIn is wbClassClashes over a bundle's parts in order: a
+// block's banner carries on into the next part until another banner.
+func wbClassClashesIn(files []cssPart) []string {
 	banner := regexp.MustCompile(`^/\*\s*-{2,}\s*(.*?)\s*-{2,}`)
 	class := regexp.MustCompile(`^\.wb-[\w-]+$`)
 	type rule struct {
+		file  string
 		line  int
 		block string
 		alone bool
 	}
 	rules := map[string][]rule{}
-	var stack []bool // per open brace: inside an at-rule
-	block, start, line := "", 0, 1
-	for i := 0; i < len(css); i++ {
-		switch {
-		case strings.HasPrefix(css[i:], "/*"):
-			end := strings.Index(css[i+2:], "*/")
-			if end < 0 {
-				end = len(css) - i - 4
-			}
-			comment := css[i : i+end+4]
-			if m := banner.FindStringSubmatch(comment); m != nil && len(stack) == 0 {
-				block = m[1]
-			}
-			line += strings.Count(comment, "\n")
-			i += len(comment) - 1
-			start = i + 1
-		case css[i] == '\n':
-			line++
-		case css[i] == '{':
-			sel := strings.TrimSpace(css[start:i])
-			inAt := false
-			for _, at := range stack {
-				inAt = inAt || at
-			}
-			stack = append(stack, inAt || strings.HasPrefix(sel, "@"))
-			if !inAt && !strings.HasPrefix(sel, "@") {
-				parts := strings.Split(sel, ",")
-				for _, p := range parts {
-					if p = strings.TrimSpace(p); class.MatchString(p) {
-						rules[p] = append(rules[p], rule{line, block, len(parts) == 1})
+	block := ""
+	for _, f := range files {
+		css := f.text
+		var stack []bool // per open brace: inside an at-rule
+		start, line := 0, 1
+		for i := 0; i < len(css); i++ {
+			switch {
+			case strings.HasPrefix(css[i:], "/*"):
+				end := strings.Index(css[i+2:], "*/")
+				if end < 0 {
+					end = len(css) - i - 4
+				}
+				comment := css[i : i+end+4]
+				if m := banner.FindStringSubmatch(comment); m != nil && len(stack) == 0 {
+					block = m[1]
+				}
+				line += strings.Count(comment, "\n")
+				i += len(comment) - 1
+				start = i + 1
+			case css[i] == '\n':
+				line++
+			case css[i] == '{':
+				sel := strings.TrimSpace(css[start:i])
+				inAt := false
+				for _, at := range stack {
+					inAt = inAt || at
+				}
+				stack = append(stack, inAt || strings.HasPrefix(sel, "@"))
+				if !inAt && !strings.HasPrefix(sel, "@") {
+					parts := strings.Split(sel, ",")
+					for _, p := range parts {
+						if p = strings.TrimSpace(p); class.MatchString(p) {
+							rules[p] = append(rules[p], rule{f.name, line, block, len(parts) == 1})
+						}
 					}
 				}
+				start = i + 1
+			case css[i] == '}':
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				start = i + 1
+			case css[i] == ';':
+				start = i + 1
 			}
-			start = i + 1
-		case css[i] == '}':
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
-			start = i + 1
-		case css[i] == ';':
-			start = i + 1
 		}
 	}
 
@@ -165,10 +173,10 @@ func wbClassClashes(css string) []string {
 				alone++
 			}
 			blocks[r.block] = true
-			where = append(where, fmt.Sprintf("line %d (%q)", r.line, r.block))
+			where = append(where, fmt.Sprintf("%s:%d (%q)", r.file, r.line, r.block))
 		}
 		if alone > 1 || len(blocks) > 1 {
-			clashes = append(clashes, fmt.Sprintf("%s is defined in more than one place in static/workshop.css: %s; keep one rule, or give the page's own class its own name (docs/UI/workshop-board.md#css-class-names)", name, strings.Join(where, ", ")))
+			clashes = append(clashes, fmt.Sprintf("%s is defined in more than one place in the workshop stylesheets: %s; keep one rule, or give the page's own class its own name (docs/UI/workshop-board.md#css-class-names)", name, strings.Join(where, ", ")))
 		}
 	}
 	sort.Strings(clashes)
@@ -181,13 +189,11 @@ func wbClassClashes(css string) []string {
 // check passed. Each stylesheet closes every block before the next banner
 // and before the end of the file.
 func TestStylesheetsCloseEveryBlock(t *testing.T) {
-	for _, name := range []string{"static/workshop.css", "static/style.css"} {
-		css, err := fs.ReadFile(staticFS, name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, p := range unclosedBlocks(string(css)) {
-			t.Errorf("%s: %s", name, p)
+	for _, bundle := range []string{"workshop", "style"} {
+		for _, f := range cssBundleParts(t, bundle) {
+			for _, p := range unclosedBlocks(f.text) {
+				t.Errorf("%s: %s", f.name, p)
+			}
 		}
 	}
 }
@@ -262,13 +268,10 @@ func unclosedBlocks(css string) []string {
 // A Workshop template that uses a wb-* class with no rule in
 // static/workshop.css draws that element unstyled, and a playtest's
 // styles_applied check fails on it later (wb-ny-sec--after did). Every wb-*
-// class a Workshop template names has a rule somewhere in workshop.css.
+// class a Workshop template names has a rule somewhere in the workshop
+// bundle (css_bundles.go).
 func TestWorkshopTemplateClassesHaveRules(t *testing.T) {
-	css, err := fs.ReadFile(staticFS, "static/workshop.css")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ruled := wbCSSClasses(string(css))
+	ruled := wbCSSClasses(cssBundleText(t, "workshop"))
 	files, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +285,7 @@ func TestWorkshopTemplateClassesHaveRules(t *testing.T) {
 		checked++
 		for _, u := range wbTemplateClasses(string(src)) {
 			if !ruled[u.class] && wbHookClasses[u.class] == "" {
-				t.Errorf("%s:%d uses class %s, which has no rule in static/workshop.css: add one in the page's block, or drop the class (docs/UI/workshop-board.md#css-class-names)", f, u.line, u.class)
+				t.Errorf("%s:%d uses class %s, which has no rule in the workshop stylesheets: add one in the page's file under static/ (css_bundles.go), or drop the class (docs/UI/workshop-board.md#css-class-names)", f, u.line, u.class)
 			}
 		}
 	}

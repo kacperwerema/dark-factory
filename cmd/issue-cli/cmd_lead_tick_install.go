@@ -116,14 +116,14 @@ func installLagNote(proj *tracker.Project) string {
 }
 
 // installCommand is the install over the running build: make install in
-// the repository with GOBIN at the running issue-cli's folder, home as ~.
-// The tick only prints it.
+// the repository with GOBIN at the running issue-cli's folder, home as ~,
+// then the viewer's restart in its own pane. The tick only prints it.
 func installCommand(root string) string {
 	cmd := "cd " + tildeHome(root) + " && "
 	if exe := installLagExe(); exe != "" {
 		cmd += "GOBIN=" + tildeHome(filepath.Dir(exe)) + " "
 	}
-	return cmd + "make install"
+	return cmd + "make install && issue-cli viewer restart"
 }
 
 // tildeHome is path with the home folder as ~.

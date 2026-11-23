@@ -10,6 +10,12 @@ a test, a playtest step, a commit, or a measured value. A link points at somethi
 into the issue or the repo, and the engine checks every link each time it reads it. A ticked criterion means
 "proven", not "the agent said so".
 
+A heading with a parenthetical suffix is the same section: boxes under `## Acceptance criteria (lead, 2026-11-21)`,
+the heading a lead adds criteria under after the fact, are criteria too, with that section's ids (`ACL1`, `ACL2`).
+prove, the proof gate and the commit-msg hook read them alike, so `Proves: ACL1 TestX` links, and one line may name
+`AC` and `ACL` ids on an issue with both. Other words after the name (`## Acceptance criteria for the UI`) make a
+different section.
+
 The `proof-links` workflow feature turns this on. It is in this repo's `workflow.yaml`, in the bundled
 `development` template, and `issue-cli workflow upgrade` offers it to other projects.
 

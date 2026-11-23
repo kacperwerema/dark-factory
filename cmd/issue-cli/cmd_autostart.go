@@ -121,7 +121,7 @@ func autostartVerdict(ctx *Context, issues []*tracker.Issue, b *autostart.Budget
 	now := ctx.now()
 	b = budgetOrRead(b)
 	_, yoloOn, _ := yolo.Active(yoloRoot(proj), proj.Slug, now)
-	return agentrun.AutostartEvaluate(proj, issues, yoloRoot(proj), projectRoot(proj), yoloOn, b.Last, b.Share, only, now)
+	return agentrun.AutostartEvaluate(proj, issues, yoloRoot(proj), projectRoot(proj), yoloOn, b.Last, b.Share, only, queueOnMain(proj, issues), now)
 }
 
 // budgetOrRead is b, or the shared budget read without the lock.

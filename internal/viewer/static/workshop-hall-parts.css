@@ -1,0 +1,209 @@
+/* L2: hall drill-in, hall edit, department halls, stats, telemetry. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* L2: hall drill-in (templates/_workshop_hall_part.html). The hall's parts
+   are links; their pages show what is inside a station, a gate or CI. */
+a.wb-gatecard, a.wb-scanner, .wb-hst-head--link { color: inherit; text-decoration: none; }
+a.wb-gatecard:hover, a.wb-scanner:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
+.wb-hst-head--link:hover .wb-hst-name, a.wb-parking-head:hover .wb-hst-name { text-decoration: underline; }
+a.wb-gatecard:focus-visible, a.wb-scanner:focus-visible, .wb-hst-head--link:focus-visible { outline: 3px solid var(--working); outline-offset: 2px; }
+.wb-part { padding: 18px 24px 40px; display: flex; flex-direction: column; gap: 14px; }
+.wb-part-grid > [data-testid="hall.part.overlays"] { grid-column: 1 / -1; }
+.wb-part .wb-titlebar { flex-wrap: wrap; }
+.wb-part-back { font-weight: 800; font-size: 13px; color: var(--ink); }
+.wb-part-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 18px; align-items: start; }
+.wb-part-panel { background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wb-part-panel--wide { grid-column: 1 / -1; }
+.wb-part-panel--red { box-shadow: 4px 4px 0 var(--red); }
+.wb-part-panel .wb-h2 { display: flex; align-items: center; gap: 8px; }
+.wb-part-panel .wb-h2 .wb-hst-count { margin-left: 0; }
+.wb-part-crates { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.wb-part-desc { font-weight: 600; }
+.wb-part-pre { margin: 0; padding: 10px; background: #F4F6F9; border: 1.5px solid #E1E5EB; border-radius: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
+.wb-part-fold summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
+.wb-part-edges { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.wb-part-edge { border: 1.5px solid #E1E5EB; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.wb-part-edge--gate { background: var(--you-bg); border-color: var(--ink); }
+.wb-part-edge-way { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 700; }
+.wb-part-edge-go { font-size: 12px; font-weight: 800; color: var(--ink); }
+.wb-part-actions { margin: 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.wb-stamp--sm { width: 24px; height: 24px; }
+.wb-stamp--sm svg { width: 14px; height: 14px; }
+.wb-part-overlay { border-top: 1.5px solid #E1E5EB; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wb-part-overlay-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 700; }
+.wb-part-raised { font-weight: 600; }
+
+/* L2: hall edit (templates/_workshop_hall_edit.html, hall_edit.html): a
+   station's Edit form, its preview and Confirm. */
+.wb-part-edit { margin-left: auto; text-decoration: none; padding: 6px 14px; border-radius: 10px; }
+.wb-edit-saved { display: block; box-shadow: 4px 4px 0 var(--working); font-weight: 600; }
+.wb-edit-label { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 13px; }
+.wb-edit input, .wb-edit textarea, .wb-edit select { font: inherit; font-size: 13px; font-weight: 400; padding: 6px 8px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; color: var(--ink); min-width: 0; }
+.wb-edit textarea { resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+.wb-edit-edge { border: 1.5px solid #E1E5EB; border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.wb-edit-gate { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.wb-edit-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wb-edit-row { border: 1.5px solid #E1E5EB; border-radius: 8px; padding: 6px 8px; background: #FAFBFC; display: flex; flex-direction: column; gap: 6px; }
+.wb-edit-row-head { display: flex; align-items: center; gap: 8px; }
+.wb-edit-row-tools { margin-left: auto; display: flex; gap: 4px; }
+.wb-edit-tool { width: 30px; height: 30px; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); font: inherit; font-weight: 800; cursor: pointer; }
+.wb-edit-tool:focus-visible, .wb-edit-add:focus-visible { outline: 3px solid var(--working); outline-offset: 2px; }
+.wb-edit-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 6px 10px; }
+.wb-edit-fields label { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; font-weight: 700; color: var(--muted-2); }
+.wb-edit-fields .wb-edit-wide { grid-column: 1 / -1; }
+.wb-edit-fields [hidden] { display: none; }
+.wb-edit-add { align-self: flex-start; padding: 4px 12px; border-radius: 8px; font-size: 13px; }
+.wb-edit-error { color: var(--red); font-weight: 700; overflow-wrap: anywhere; }
+.wb-edit-diff .wb-diff-add { color: #1E6B35; background: #E3F5E8; display: inline-block; width: 100%; }
+.wb-edit-diff .wb-diff-del { color: #9B1C1C; background: #FBE4E4; display: inline-block; width: 100%; }
+.wb-edit-diff .wb-diff-hunk { color: var(--muted-2); }
+.wb-edit-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.wb-edit-confirm button[disabled] { opacity: .5; cursor: not-allowed; }
+/* L2: department halls (hall_scope.go): the switcher between Product's
+   and each department's workflow, every type's path, the owner_only mark,
+   the in-place note on the Edit form. */
+.wb-hall-switch { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 24px 10px; }
+.wb-hall-switch a, .wb-hall-switch-on { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 14px; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); font-weight: 700; font-size: 13px; text-decoration: none; }
+.wb-hall-switch-on { background: var(--ink); color: #fff; }
+.wb-hall-switch-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid currentColor; display: inline-block; }
+.wb-hall-types { margin: 4px 24px 12px; padding: 12px 14px; background: var(--paper); border: 2px solid var(--ink); border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.wb-hall-types .wb-h2 { margin: 0; }
+.wb-hall-type { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 4px 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.wb-hall-type:first-of-type { border-top: 0; padding-top: 0; }
+.wb-hall-type-name { display: flex; flex-direction: column; gap: 2px; font-weight: 700; font-size: 13px; }
+.wb-hall-type-name .wb-muted { font-size: 11.5px; }
+.wb-hall-type-path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.wb-hall-type-step { padding: 3px 9px; border: 1.5px solid var(--ink); border-radius: 999px; background: #fff; font-family: var(--mono); font-size: 12px; font-weight: 600; text-decoration: none; }
+.wb-hall-type-arrow { color: var(--muted); font-size: 12px; }
+.wb-hall-type-gate { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px 1px 4px; border: 1.5px solid var(--ink); border-radius: 999px; background: var(--you); font-family: var(--mono); font-size: 11px; font-weight: 800; }
+.wb-hall-type-gate svg { width: 15px; height: 15px; }
+.wb-hall-type-desc { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+.wb-owner-only { padding: 2px 7px; border: 1px solid var(--you); border-radius: 5px; background: var(--you-bg); color: var(--you-fg); font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
+.wb-edit-inplace { border-style: dashed; border-color: var(--plan); background: #EEF2F8; font-size: 13px; }
+@media (max-width: 640px) {
+  .wb .wb-hall-switch { padding: 0 16px 10px; }
+  .wb .wb-hall-types { margin: 4px 16px 12px; }
+  .wb .wb-hall-type { grid-template-columns: minmax(0, 1fr); }
+  .wb .wb-hall-type-desc { grid-column: 1; }
+}
+.wb-ceo-card-depts { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.wb-ceo-card-depts--group { margin: 4px 0 0; padding-left: 16px; border-left: 2px solid var(--line); }
+
+/* Hall stats (/p/<project>/stats, stats_view_wb.go) and /stats.
+   Components: templates/_workshop_stats.html. Charts are internal/chart SVG,
+   marks in currentColor: agent working green, waiting on you orange (the
+   owner's colour), idle grey; types never orange. */
+.wb-stats .s-agent, .wb-stats .s-all { color: var(--working); }
+.wb-stats .s-waiting { color: var(--you); }
+/* /telemetry: the collector path may be one long unbroken token. */
+.wb-telemetry-source { overflow-wrap: anywhere; }
+.wb-stats .s-idle, .wb-stats .s-none { color: #8F99A6; }
+.wb-stats .s-feature { color: #3D7BF7; }
+.wb-stats .s-bugfix { color: var(--red); }
+.wb-stats .s-tweak { color: #13A386; }
+.wb-stats .s-epic { color: var(--agent); }
+.wb-stats .s-cat5 { color: #8A5A00; }
+.wb-stats .s-cat6 { color: #C2378B; }
+.wb-stats .s-other { color: #8F99A6; }
+.wb-stats .chart text { font-family: var(--mono); }
+.wb-stats .chart a { color: inherit; }
+.wb-stats .chart-grid line { stroke: #E1E5EB; stroke-width: 1; }
+.wb-stats .chart-axis { font-size: 10.5px; fill: var(--muted); }
+.wb-stats .chart-value { font-size: 11px; fill: var(--ink); }
+.wb-stats .chart-label { font-family: var(--ui) !important; font-size: 12px; fill: var(--ink); }
+.wb-stats .chart-series polyline { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; }
+.wb-stats .chart-series.faint polyline { stroke-dasharray: 5 3; opacity: .6; }
+.wb-stats .chart-point { fill: currentColor; stroke: #fff; stroke-width: 2; }
+.wb-stats .chart-point.dense { stroke-width: 1; }
+.wb-stats .chart-point.selected, .wb-stats .chart-seg.selected { stroke: var(--ink); stroke-width: 2.5; }
+.wb-stats .chart-hit { fill: transparent; }
+.wb-stats a:hover > .chart-point, .wb-stats a:focus > .chart-point { stroke: var(--ink); }
+.wb-stats .chart-limit, .wb-stats .chart-marker { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.wb-stats .chart-seg { fill: currentColor; }
+.wb-stats a:hover > .chart-seg, .wb-stats a:focus > .chart-seg { opacity: .8; }
+.wb-stats .chart-track { fill: none; stroke: #EEF0F4; stroke-width: 12; stroke-linecap: round; }
+.wb-stats .chart-arc { fill: none; stroke: currentColor; stroke-width: 12; stroke-linecap: round; }
+.wb-stats .chart-tick { stroke: var(--ink); stroke-width: 2; }
+.wb-stats .chart-spark { vertical-align: -4px; }
+.wb-stats .chart-spark polyline { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.wb-stats .chart-spark .chart-point { stroke: none; }
+.wb-gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; align-items: stretch; }
+.wb-gauge { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); }
+.wb-gauge--locked { border: 2px dashed var(--plan); background: #EEF3FB; color: #243B5E; box-shadow: none; }
+.wb-gauge-title { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 15px; }
+.wb-gauge-title a { text-decoration: none; }
+.wb-gauge-title a::after { content: " ›"; color: var(--muted); }
+.wb-gauge-fog { height: 40px; border-radius: 8px; border: 1.5px solid #B9C7DC; }
+.wb-gauge-dial .chart-gauge { display: block; width: 100%; max-width: 190px; height: auto; }
+.wb-gauge-big { font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1; }
+.wb-gauge-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: 13px; }
+.wb-sempty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1.5px dashed #B9C7DC; border-radius: 10px; background: #F4F7FB; color: #243B5E; font-size: 13px; line-height: 1.45; }
+.wb-sempty-link { font-weight: 800; }
+.wb-shint { margin-bottom: 14px; }
+.wb-shint .wb-sempty { border-color: var(--plan); }
+.wb-trend-grid--two { grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); }
+.wb-chart { margin: 0; scroll-margin-top: 16px; }
+.wb-chart--wide { grid-column: 1 / -1; }
+.wb-chart-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 12px; }
+.wb-chart-titles { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wb-chart-titles .wb-trend-head { margin: 0; }
+.wb-chart-plot .chart { max-height: 260px; }
+.wb-chart--wide .wb-chart-plot .chart { max-height: 300px; }
+.wb-seg--small { font-size: 12.5px; }
+.wb-seg--small .wb-seg-item { min-height: 28px; padding: 0 10px; }
+.wb-legend-off { opacity: .55; text-decoration: line-through; }
+.wb-trend-legend a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; min-height: 24px; }
+.wb-stats-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.wb-stats-saved { align-self: center; white-space: nowrap; }
+.wb-chart-table > summary { cursor: pointer; font-size: 12.5px; font-weight: 800; padding: 4px 0; }
+.wb-areas { display: flex; flex-direction: column; gap: 8px; }
+.wb-area { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(60px, 1fr); gap: 10px; align-items: center; font-size: 12.5px; }
+.wb-area-v { font-family: var(--mono); font-weight: 600; text-align: right; }
+.wb-area-bar { height: 8px; border-radius: 99px; background: #EEF0F4; }
+.wb-area-bar i { display: block; height: 100%; border-radius: 99px; background: var(--ink); }
+.wb-drill { border-top: 2px solid #EEF0F4; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.wb-drill-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 13.5px; }
+.wb .wb-drill-head .wb-btn { border: 2px solid var(--ink); background: #fff; }
+.wb-drill-list { list-style: none; margin: 0; padding: 0; }
+.wb-drill-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid #EEF0F4; }
+.wb-drill-list li a { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.wb-tgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr)); gap: 16px; align-items: start; }
+.wb-tcard { min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); }
+.wb-tcard .wb-trend-head { margin: 0; }
+.wb-tcard--wide { grid-column: 1 / -1; }
+.wb-bench-agents th, .wb-bench-agents td { padding: 5px 4px; }
+.wb-bench-agents td:last-child, .wb-bench-agents th:last-child { white-space: normal; }
+.wb-bench-route { display: block; border-radius: 8px; white-space: normal; margin-top: 6px; }
+.wb-table-scroll { overflow: auto; max-width: 100%; max-height: 440px; }
+.wb-table thead th { position: sticky; top: 0; background: var(--paper); z-index: 1; }
+.wb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.wb-table th, .wb-table td { padding: 6px 8px; border-bottom: 1px solid #EEF0F4; text-align: left; vertical-align: top; white-space: nowrap; }
+.wb-table thead th { font-size: 11.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-2); border-bottom: 2px solid var(--ink); }
+.wb-table tbody th { font-weight: 600; }
+.wb-table .wb-num { text-align: right; font-family: var(--mono); }
+.wb-table code { font-family: var(--mono); font-size: 11.5px; white-space: normal; overflow-wrap: anywhere; }
+.wb-fold { border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); }
+.wb-fold > summary { cursor: pointer; padding: 12px 16px; font-weight: 800; font-size: 14.5px; }
+.wb-fold[open] { padding: 0 16px 16px; }
+.wb-fold[open] > summary { padding-left: 0; padding-right: 0; }
+.wb-fold .wb-sempty { margin-bottom: 12px; }
+.wb-seealso { border-style: dashed; }
+.wb-seealso .wb-btn { align-self: flex-start; border: 2px solid var(--ink); background: #fff; }
+.wb-pstats { display: flex; flex-direction: column; gap: 12px; }
+.wb-pstat { display: grid; grid-template-columns: minmax(180px, 1.4fr) repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 18px; align-items: center; padding: 14px 16px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); text-decoration: none; }
+.wb .wb-pstat:hover { color: var(--ink); background: #FAFBFD; }
+.wb-pstat-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.wb-pstat-name strong { font-family: var(--display); font-size: 17px; }
+.wb-pstat-privacy { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-pstat-cell { display: flex; flex-direction: column; gap: 3px; font-size: 12px; min-width: 0; }
+.wb-pstat-cell--span { grid-column: span 3; }
+.wb-pstat-v { font-family: var(--mono); font-weight: 700; font-size: 15px; }
+.wb-meter { position: relative; display: block; height: 8px; border-radius: 99px; background: #EEF0F4; }
+.wb-meter i { display: block; height: 100%; border-radius: 99px; background: var(--you); }
+.wb-meter b { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+@media (max-width: 640px) {
+  .wb-pstat { grid-template-columns: 1fr 1fr; }
+  .wb-pstat-name, .wb-pstat-cell--span { grid-column: 1 / -1; }
+  .wb-area { grid-template-columns: minmax(0, 1fr) max-content; }
+  .wb-area-bar { grid-column: 1 / -1; }
+}
+.wb-contents { display: contents; }
+.wb-table td a { white-space: normal; display: inline-block; min-width: 220px; }

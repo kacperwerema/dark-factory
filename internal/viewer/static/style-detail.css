@@ -1,0 +1,332 @@
+/* Detail page, its sidebar, empty state, scrollbars. One of the style stylesheets, loaded in the order css_bundles.go lists them. */
+/* Detail Page */
+.detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 24px;
+    margin-top: 16px;
+}
+
+/* Grid items default to min-width:auto, so a wide <pre> code block would
+   expand the 1fr track and blow out the page. Allow the column to shrink so
+   the pre's overflow-x:auto scrolls instead. */
+.detail-layout > div:first-child { min-width: 0; }
+
+.detail-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.detail-back:hover { color: var(--text-link); }
+
+.detail-title {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+}
+.detail-title:hover .title-edit-icon {
+    opacity: 1;
+}
+.title-edit-icon {
+    font-size: 16px;
+    opacity: 0;
+    color: var(--text-secondary);
+    transition: opacity 0.15s;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+.title-editor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+.title-input {
+    font-size: 28px;
+    font-weight: 600;
+    flex: 1;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+.detail-body {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 24px;
+    line-height: 1.7;
+}
+
+.detail-body h1, .detail-body h2, .detail-body h3 {
+    margin-top: 24px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.detail-body h1 { font-size: 24px; }
+.detail-body h2 { font-size: 20px; }
+.detail-body h3 { font-size: 16px; }
+
+.detail-body p { margin-bottom: 12px; }
+
+.detail-body img { max-width: 100%; height: auto; }
+
+.detail-body code {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 85%;
+}
+
+.detail-body pre {
+    background: var(--bg-tertiary);
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+}
+
+.detail-body pre code {
+    background: none;
+    padding: 0;
+}
+
+.detail-body ul, .detail-body ol {
+    margin-bottom: 12px;
+    padding-left: 24px;
+}
+
+.detail-body li { margin-bottom: 4px; }
+
+.detail-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+}
+
+.detail-body th {
+    text-align: left;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border);
+    background: var(--bg-tertiary);
+}
+
+.detail-body td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.detail-body tr:hover {
+    background: var(--bg-secondary);
+}
+
+.detail-body li input[type="checkbox"] {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg);
+    vertical-align: middle;
+    margin-right: 6px;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.detail-body li input[type="checkbox"]:hover {
+    border-color: var(--text-link);
+}
+
+.detail-body li input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.detail-body li input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.detail-body blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+/* Sidebar */
+.detail-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sidebar-toolbar {
+    display: flex;
+    gap: 6px;
+}
+
+.sidebar-toolbar-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.sidebar-toolbar-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+html[data-sidebar-locked="true"] #sidebar-lock-btn {
+    background: var(--bg-tertiary);
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+html[data-sidebar-locked="true"] .detail-sidebar {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+}
+
+html[data-sidebar-hidden="true"] .detail-layout {
+    grid-template-columns: 1fr;
+}
+
+html[data-sidebar-hidden="true"] .detail-sidebar {
+    display: none;
+}
+
+.sidebar-show-btn { display: none; }
+html[data-sidebar-hidden="true"] .sidebar-show-btn { display: inline-block; }
+
+.sidebar-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.sidebar-section h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.sidebar-value {
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sidebar-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.active-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.active-session-item {
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+
+.active-session-item:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.active-session-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.active-session-time {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-secondary);
+}
+
+.empty-state h2 {
+    font-size: 20px;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+/* Scrollbar styling */
+.board-container::-webkit-scrollbar,
+.board-column-cards::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.board-container::-webkit-scrollbar-track,
+.board-column-cards::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.board-container::-webkit-scrollbar-thumb,
+.board-column-cards::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.board-container::-webkit-scrollbar-thumb:hover,
+.board-column-cards::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}
+
+/* Firefox scrollbar */
+.board-container,
+.board-column-cards {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+

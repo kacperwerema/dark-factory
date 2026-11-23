@@ -41,7 +41,8 @@ func TestGuessedNamesAnswerWithTheRealCommand(t *testing.T) {
 		{[]string{"job", "list"}, []string{`unknown job subcommand "list"`, "Did you mean: issue-cli jobs"}},
 		{[]string{"spend", "--context", "--since", "2026-11-01"}, []string{"issue-cli spend --context --days <n>"}},
 		{[]string{"spend", "--since", "2026-11-01"}, []string{"issue-cli spend --kinds --since <date>", "--days <n>"}},
-		{[]string{"viewer", "--help"}, []string{"unknown command: viewer", "issue-viewer --help"}},
+		{[]string{"issue-viewer", "--help"}, []string{"unknown command: issue-viewer", "issue-viewer --help"}},
+		{[]string{"viewer", "start"}, []string{"unknown viewer subcommand: start", "its own binary: issue-viewer --help"}},
 		{[]string{"prove", "--value", "3"}, []string{"prove"}},
 	}
 	for _, c := range cases {

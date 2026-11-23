@@ -142,7 +142,7 @@ A toast confirms each save (or surfaces the error). Embedded templates and CSS d
 - `cmd/issue-cli/cmd_data.go` — `runDataAdd` (`--tier`), `runDataList` (tier column), `runDataSetStatus`, `runDataSetTier`, `runDataSetComment`, `runDataRemove`. `validateTier` enforces the body's `tiers=` enum.
 - `handlers_data.go` — `handleDataAdd` / `handleDataSetStatus` / `handleDataSetTier` / `handleDataSetComment` / `handleDataRemove`. `handlers_detail.go::renderDataTable` builds the inline HTML (Tier column conditional on `len(tiers) > 0`); `renderBodyWithDataTable` does the marker substitution.
 - `templates/detail.html` — `dataSetStatus`, `dataSetTier`, `dataSetComment`, `dataRemove` row-action JS; `dataTableInit`, `dataTableFilter`, `dataTableTierFilter`, `dataTableApplyFilters`, `dataTableToggleWide` for toolbar/persistence.
-- `static/style.css` — `.data-table-wrap`, `.data-table`, `.data-table.has-tier .data-status`, `.data-table .data-tier`, `.data-table-tier-filter` styles.
+- `static/style-detail-tabs.css` — `.data-table-wrap`, `.data-table`, `.data-table.has-tier .data-status`, `.data-table .data-tier`, `.data-table-tier-filter` styles.
 
 ## Out of scope (v1)
 

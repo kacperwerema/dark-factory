@@ -24,14 +24,21 @@ func TestLeadBrief_CustomPromptsAndPlaceholders(t *testing.T) {
 	if !strings.Contains(got, "/r/sessions/2026-10-18-lead-p.md") || !strings.Contains(got, "no earlier handoff note") {
 		t.Fatalf("project brief handoff lines:\n%s", got)
 	}
-	if !strings.Contains(got, "message each other with ListAgents / SendMessage, addressed by tmux name (yours is lead-p;") {
+	if !strings.Contains(got, "agents are addressed by tmux name (yours is lead-p)") {
 		t.Fatalf("project brief messaging line:\n%s", got)
 	}
-	if !strings.Contains(got, "a ## Next section with the ordered next steps. The viewer's Status page shows that ## Next list; its text form, issue-cli --project p status,") {
+	if !strings.Contains(got, "with "+HandoffNoteSections+". issue-cli --project p status (the Status page as text") {
 		t.Fatalf("project brief should ask for ## Next and name issue-cli status:\n%s", got)
 	}
-	if !strings.Contains(got, "issue-cli --project p dispatch <slug> --quote \"<the human's words>\" starts the worker exactly like ▶") {
+	if !strings.Contains(got, "issue-cli --project p dispatch <slug> --quote \"<the human's words>\", one call per issue") {
 		t.Fatalf("project brief should name issue-cli dispatch:\n%s", got)
+	}
+	// Dispatch's mechanics, and the decisions rule a replaced brief no
+	// longer carries in its Relay questions line.
+	for _, want := range []string{"- Dispatch starts the worker like ▶ on the board", "- Decisions: each owner decision goes on its issue in the human's words"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("project brief missing %q", want)
+		}
 	}
 	// The brief never sends the lead to the viewer's HTTP endpoints.
 	for _, raw := range []string{"curl", "/status.md", "/status.json", "/dispatch"} {
@@ -53,7 +60,7 @@ func TestLeadBrief_DefaultsWithoutLeadsBlock(t *testing.T) {
 	}
 	// The default brief agrees with the rules: dispatch is conditional, and
 	// workers are reached with SendMessage, not a tmux paste.
-	for _, want := range []string{"dispatch the workers the human names", "names them in your chat and you dispatch exactly those", "Talk to a worker: SendMessage to agent-<slug>"} {
+	for _, want := range []string{"dispatch the workers the human names", "Dispatch only when the human tells you to in this chat", "Talk to a worker: SendMessage to agent-<slug>"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("default brief missing %q", want)
 		}
@@ -94,7 +101,7 @@ func TestLeadBrief_AutoStartLineOnlyWhenOn(t *testing.T) {
 		t.Fatalf("brief without auto-start mentions it:\n%s", off)
 	}
 	on := LeadBrief(&tracker.WorkflowConfig{}, LeadBriefInput{Project: proj, Root: t.TempDir(), AutoStart: &AutoStartBrief{Words: "start one under 50%", Below: 50, MaxWorkers: 3}})
-	for _, w := range []string{`Auto-start is on for this project (the owner's words: "start one under 50%")`, "issue-cli --project proj autostart next", "dispatch --autostart", "memory is at or above 50%, the 1- and 5-minute load are both at or above the core count, 3 workers are live, another project just started one, or it is another project's turn"} {
+	for _, w := range []string{`Auto-start is on for this project (the owner's words: "start one under 50%")`, "issue-cli --project proj autostart next", "dispatch --autostart", "(Holds, below)", "- Holds: queue next --start holds by itself while memory is at or above 50%, the 1- and 5-minute load are both at or above the core count, 3 workers are live, another project just started one, it is another project's turn, or local CI is red on main"} {
 		if !strings.Contains(on, w) {
 			t.Errorf("brief missing %q:\n%s", w, on)
 		}

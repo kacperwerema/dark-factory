@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/procs"
 	"github.com/kacperwerema/dark-factory/internal/standin"
 	"github.com/kacperwerema/dark-factory/internal/testbin"
+	"github.com/kacperwerema/dark-factory/internal/tmuxguard"
 )
 
 // newcomer is a clean machine for one test: an empty HOME, no XDG
@@ -75,9 +77,10 @@ func newNewcomer(t *testing.T) *newcomer {
 	t.Cleanup(func() {
 		// Only this test's server: an explicit socket, and no TMUX in the
 		// environment (TMUX would point tmux at the developer's server).
-		kill := exec.Command(tmuxPath, "-S", n.socket, "kill-server")
-		kill.Env = n.env
-		_ = kill.Run()
+		// KillServer returns once the panes' agents are gone: a bare
+		// kill-server let the lead's stand-in still write into bin/ while
+		// t.TempDir's cleanup removed it.
+		tmuxguard.KillServer(n.socket, n.env)
 		_ = os.RemoveAll(n.tmux)
 	})
 	n.build()
@@ -242,6 +245,12 @@ func TestNewcomerWalkthrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// The viewer and what it started: its health tick starts the
+		// nightly clean (issue-cli clean --if-due) in this fresh HOME, and a
+		// bare Kill left that clean running to write clean.json under
+		// home/ after t.TempDir's cleanup had removed it (TempDir left in
+		// TMPDIR under make validate's load).
+		procs.StopTree(viewer.Process.Pid, 10*time.Second)
 		_ = viewer.Process.Kill()
 		_, _ = viewer.Process.Wait()
 		if t.Failed() {

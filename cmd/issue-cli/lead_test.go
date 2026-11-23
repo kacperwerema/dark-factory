@@ -122,7 +122,7 @@ func TestLeadSpawn_ProjectLead(t *testing.T) {
 		"## Your role",
 		"- Role: project lead (lead-proj).",
 		"read " + legacy + " first",
-		"-lead-proj.md: what is live",
+		"-lead-proj.md with ## Next",
 	} {
 		if !strings.Contains(spec.Prompt, want) {
 			t.Errorf("brief missing %q\n%s", want, spec.Prompt)

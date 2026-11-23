@@ -29,8 +29,9 @@ only the lead it closed, again.
   pack                 the previous note, the commands that show the state,
                        the last 24 hours of lead chat; reads only
   note --file <f>      write sessions/<date>-lead-<project>.md: 80 lines at
-                       most, with ## State, Queue, Waiting on the owner,
-                       Rules in force, How to resume, Next; no secret
+                       most, with ## Next, Rules in force, Released and
+                       installed only (the brief renders workers, queue and
+                       owner asks live); no secret
   summary --file <f>   write sessions/<date>-lead-<project>.summary.md: 30
                        lines at most; no secret
   close                close the lead's session, once both files exist and
@@ -195,7 +196,7 @@ func (f flush) pack(run *tracker.Issue) error {
 	for _, c := range []string{"issue-cli status", "issue-cli queue list", "issue-cli ci status", "issue-cli memory list --pinned", "issue-cli memory list --scope lead", "issue-cli decisions --lead ceo"} {
 		fmt.Fprintln(w, "  "+tracker.InjectProject(f.proj, c))
 	}
-	fmt.Fprintln(w, "\n== Open owner steps (copy each into ## Waiting on the owner) ==")
+	fmt.Fprintln(w, "\n== Open owner steps (the state file has them: don't copy them into the note) ==")
 	if steps, err := ownerstep.LoadOpen(f.proj.IssueDir, f.ctx.now()); err != nil {
 		fmt.Fprintln(w, "Unreadable: "+err.Error())
 	} else if len(steps) == 0 {

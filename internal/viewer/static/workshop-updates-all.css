@@ -1,0 +1,97 @@
+/* /updates for every project, the project switcher, one primary action. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- /updates, every project (wb/upd-tally, wb/upd-project) ---- */
+.wb-uo { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
+.wb-uo-tally { display: flex; flex-wrap: wrap; gap: 12px; }
+.wb-uo-num { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px; background: #fff; border: 2px solid var(--ink); border-radius: 12px; box-shadow: 3px 3px 0 var(--ink); }
+.wb-uo-num b { font-family: var(--display); font-weight: 800; font-size: 24px; }
+.wb-uo-num span { font-size: 13px; color: var(--muted-2); font-weight: 600; }
+.wb-uo-num--you { background: var(--you-bg); }
+.wb-uo-num--you b { color: var(--you-fg); }
+.wb-uo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 18px; }
+.wb-uo-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: #fff; border: 2px solid var(--ink); border-top: 8px solid var(--lot, var(--ink)); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); min-width: 0; }
+.wb-uo-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.wb-uo-name { font-family: var(--display); font-weight: 800; font-size: 18px; overflow-wrap: anywhere; }
+.wb-uo-facts { margin: 0; display: grid; gap: 3px; font-size: 13px; }
+.wb-uo-facts div { display: flex; gap: 8px; }
+.wb-uo-facts dt { color: var(--muted-2); font-weight: 600; min-width: 74px; }
+.wb-uo-facts dd { margin: 0; overflow-wrap: anywhere; }
+.wb-uo-card .wb-btn { align-self: flex-start; }
+.wb-uo-note { max-width: 70ch; }
+.wb-ceo-card { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 16px; background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--ink); }
+.wb-ceo-card-main { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-ceo-card > .wb-btn { margin-left: auto; }
+.wb-ceo-card-name { font-family: var(--display); font-weight: 800; font-size: 18px; }
+/* The CEO chat on a phone: the switcher, dictation, the camera, More keys
+   (ceo_switcher.go, static/ceo-chat.js). */
+.wb-switch-wrap { position: relative; }
+.wb-switch-btn { min-height: 36px; }
+.wb-switch-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--you); border: 1.5px solid var(--ink); }
+.wb-switch-dot[hidden] { display: none; }
+.wb-switcher { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(420px, calc(100vw - 32px)); max-height: min(70vh, 640px); overflow: auto; background: #fff; border: 2px solid var(--ink); border-radius: 14px; box-shadow: 5px 5px 0 var(--ink); }
+.wb-switcher[hidden] { display: none; }
+.wb-switcher-in { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px 12px; }
+.wb-switcher-proj { display: flex; align-items: center; gap: 8px; margin: 8px 0 2px; font-family: var(--display); font-weight: 800; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: #3A4252; }
+.wb-switcher-proj:first-child { margin-top: 0; }
+.wb-switcher-lot { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--ink); background: var(--lot, var(--ink)); }
+.wb-switcher-row { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 10px; margin-left: calc(var(--depth, 0) * 16px); border: 1.5px solid #D3D8E0; border-radius: 10px; color: var(--ink); text-decoration: none; }
+.wb-switcher-row:hover, .wb-switcher-row:focus-visible { border-color: var(--ink); }
+.wb-switcher-row--sub { border-style: dashed; }
+.wb-switcher-row--sub.wb-switcher-row--cur { border-style: solid; }
+.wb-switcher-row--cur { border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.wb-switcher-name { flex: 1; min-width: 0; font-weight: 800; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-switcher-name small { display: block; font-family: var(--mono); font-weight: 500; font-size: 11px; color: var(--muted-2); overflow: hidden; text-overflow: ellipsis; }
+.wb-switcher-count { flex: none; font-size: 11.5px; font-weight: 800; color: var(--you-fg); }
+.wb-switcher-foot { margin-top: 6px; font-size: 12px; color: var(--muted-2); }
+.wb-switcher-foot a { color: inherit; }
+.wb-lead-state { flex: none; font-size: 11.5px; font-weight: 700; padding: 1px 8px; white-space: nowrap; }
+.wb-lead-state--working { background: #E6F6EE; color: #136B3A; } .wb-lead-state--working .wb-chip-dot { background: var(--working); }
+.wb-lead-state--you { background: var(--you-bg); color: var(--you-fg); } .wb-lead-state--you .wb-chip-dot { background: var(--you); }
+.wb-lead-state--idle { background: #EEF0F4; color: #3A4252; } .wb-lead-state--idle .wb-chip-dot { background: #9AA3B2; }
+.wb-lead-state--unknown, .wb-lead-state--off { background: transparent; color: #3A4252; border: 1.5px dashed #9AA3B2; }
+.wb-mic-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 13px 0; font-size: 12.5px; font-weight: 700; color: #A3172A; }
+.wb-mic-state[hidden] { display: none; }
+.wb-mic-rec { width: 9px; height: 9px; border-radius: 50%; background: #D7263D; }
+.wb-mic-interim { font-weight: 500; font-style: italic; color: var(--muted-2); }
+.wb .wb-mic-btn[aria-pressed="true"] { background: #D7263D; border-color: #D7263D; color: #fff; }
+.wb-mic-btn, .wb-open-tmux, .wb-mode-btn, .wb-ctl--more { white-space: nowrap; }
+.wb-mic-btn[hidden], .wb-mic-lang[hidden] { display: none; }
+.wb .wb-mic-lang { font-family: var(--mono); }
+.wb-camera-btn { display: none !important; }
+/* One primary action (docs/UI/workshop-board.md): at every width the box shows
+   Attach and Send, the controls Interrupt and More; More (data-keys-more) unfolds
+   Send now, Mode, the other controls and the key pad in place. A menu the CEO
+   shows is answered by its own choice buttons above the box. */
+.wb .wb-keys-more { display: inline-flex; }
+.wb-controls .wb-ctl--more, .wb-controls .wb-ctl--key, .wb-composer-bar .wb-mode-btn, .wb-composer-bar [data-send-now] { display: none; }
+.wb-ceo-chat.wb-more-open .wb-controls .wb-ctl--more, .wb-ceo-chat.wb-more-open .wb-controls .wb-ctl--key, .wb-ceo-chat.wb-more-open .wb-composer-bar .wb-mode-btn, .wb-ceo-chat.wb-more-open .wb-composer-bar [data-send-now] { display: inline-flex; }
+@media (pointer: coarse) {
+  .wb-camera-btn { display: inline-flex !important; }
+  .wb-open-tmux { display: none; }
+}
+@media (max-width: 640px) {
+  .wb-ceo-main { display: block; }
+  .wb-ceo-chat { height: calc(var(--ceo-vh, 100dvh) - var(--ceo-top, 0px)); min-height: 300px; max-height: none; }
+  .wb-ceo-band { position: relative; padding-top: 10px; padding-bottom: 10px; gap: 8px 10px; }
+  .wb-switch-wrap { position: static; }
+  .wb-switcher { left: 16px; right: 16px; top: calc(100% - 4px); width: auto; }
+  .wb-ceo-scroll { min-height: 0; padding-top: 14px; padding-bottom: 14px; }
+  /* A permission card, the box and the keys can be taller than the screen
+     left under the band: the compose part scrolls inside the column then,
+     never over the Waiting band below it. */
+  .wb-ceo-compose { padding-top: 10px; padding-bottom: 12px; gap: 8px; min-height: 0; overflow-y: auto; }
+  .wb-composer textarea { min-height: 48px; resize: none; }
+  .wb-composer-bar .wb-btn, .wb .wb-switch-btn { min-height: 44px; }
+  .wb-controls-label, .wb-kbd { display: none; }
+  .wb-controls-keys { flex-wrap: wrap; margin-left: 0; width: 100%; }
+  .wb .wb-ctl, .wb .wb-ctl--key { min-height: 44px; min-width: 44px; }
+  .wb-keys-more { margin-left: auto; }
+  .wb-ceo-chat.wb-ceo-kbd .wb-controls, .wb-ceo-chat.wb-ceo-kbd .wb-ceo-band { display: none; }
+  .wb-open-tmux { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .wb-dots span { animation: none; } }
+@media (max-width: 900px) {
+  .wb-ceo-chat, .wb-ceo-side { max-height: none; border-right: 0; }
+  .wb-ceo-band, .wb-ceo-scroll, .wb-ceo-compose { padding-left: 16px; padding-right: 16px; }
+  .wb-controls-keys { margin-left: 0; }
+}
+

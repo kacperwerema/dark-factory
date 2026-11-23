@@ -1,0 +1,92 @@
+/* Needs you, the station's playtest run. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- Needs you: every waiting item, ready gates approved together ---- */
+.wb-ny-count { display: inline-grid; place-items: center; min-width: 30px; height: 30px; margin-left: 6px; padding: 0 8px; border: 2px solid var(--ink); border-radius: 99px; background: var(--you); font-size: 16px; vertical-align: 4px; }
+.wb-ny { max-width: 1080px; padding-right: 6px; }
+.wb-ny-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); box-shadow: 3px 3px 0 var(--ink); }
+.wb-ny-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+.wb-ny-hint { font-size: 12px; color: var(--muted-2); font-weight: 500; }
+.wb-ny-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+.wb-ny-proj { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 17px; }
+.wb-ny-proj i { width: 12px; height: 12px; border-radius: 4px; }
+.wb-ny-n { font-size: 12px; font-weight: 700; color: var(--muted-2); }
+.wb-ny-error { padding: 8px 12px; border: 1.5px solid #A3172A; border-radius: 10px; background: #FDE8EA; color: #A3172A; font-size: 13px; }
+.wb-ny-sec { display: flex; flex-direction: column; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); overflow: hidden; }
+.wb-ny-sec-h { margin: 0; padding: 10px 14px; font-size: 14px; border-bottom: 1.5px solid #E3E6EC; background: #F6F7F9; }
+.wb-ny-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1.5px solid #E3E6EC; }
+.wb-ny-sec-h + .wb-ny-row { border-top: 0; }
+.wb-ny-row--you { box-shadow: inset 4px 0 0 var(--you); }
+.wb-ny-row--red { background: #FFF6F7; box-shadow: inset 4px 0 0 #A3172A; }
+.wb-ny-row--done { opacity: .6; }
+.wb-ny-pick input, .wb-ny-all input { width: 18px; height: 18px; accent-color: var(--ink); cursor: pointer; }
+.wb-ny-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wb-ny-acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.wb-ny-acts button { font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; }
+.wb-ny-msg { font-size: 12.5px; font-weight: 700; }
+.wb-ny-msg:empty { display: none; }
+.wb-ny-msg--ok { color: #157A42; }
+.wb-ny-msg--err { color: #A3172A; }
+.wb-ny-after { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-top: 1.5px solid #E3E6EC; color: inherit; text-decoration: none; font-size: 13px; }
+.wb-ny-sec-h + .wb-ny-after { border-top: 0; }
+.wb-ny-after .wb-qrow-go { margin-left: auto; }
+.wb-ny-sec--after { box-shadow: 4px 4px 0 var(--yolo); }
+.wb-ny-sec--after > .wb-ny-sec-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; background: var(--yolo-bg); }
+.wb-ny-after-all { min-height: 32px; margin-left: auto; font-size: 12.5px; }
+.wb-ny-dialog { max-width: min(560px, calc(100vw - 32px)); padding: 20px 22px; border: 2px solid var(--ink); border-radius: 16px; background: var(--paper); box-shadow: 5px 5px 0 var(--ink); }
+.wb-ny-dialog::backdrop { background: rgba(27, 31, 42, .35); }
+.wb-ny-dialog h2 { margin: 0 0 10px; font-size: 18px; }
+.wb-ny-list { margin: 0 0 14px; padding-left: 18px; max-height: 45vh; overflow: auto; font-size: 13px; line-height: 1.6; }
+.wb-ny-list b { font-family: var(--mono, ui-monospace, monospace); font-weight: 600; }
+.wb-ny-words { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 700; }
+.wb-ny-words textarea { font: inherit; font-weight: 400; padding: 8px; border: 1.5px solid var(--ink); border-radius: 8px; resize: vertical; }
+.wb-ny-dialog-acts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.wb-ny-dialog-acts button { font: inherit; font-weight: 800; cursor: pointer; }
+.wb-ny-switch { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.wb-ny-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 12px; border: 2px solid var(--ink); border-radius: 99px; background: var(--paper); color: inherit; font-size: 13px; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.wb-ny-chip i { flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.wb-ny-chip--map { background: #F6F7F9; }
+.wb-ny-q { margin: 4px 0 0; padding: 6px 10px; border-left: 3px solid var(--you); background: #FFFBEF; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.wb-ny-step-body { margin: 4px 0 0; padding: 6px 10px; border-left: 3px solid var(--you); background: #FFFBEF; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16em; overflow-y: auto; }
+.wb-ny-row--red .wb-ny-step-body { border-left-color: var(--red); }
+.wb-ny-q--decision { border-left-color: var(--muted); background: transparent; font-style: italic; }
+.wb-ny-also { margin-top: 4px; font-size: 12.5px; color: var(--muted-2); overflow-wrap: anywhere; }
+.wb-ny-clarify { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.wb-ny-cq { margin: 0; padding: 8px 10px; border: 1.5px solid #E3E6EC; border-radius: 10px; min-width: 0; }
+.wb-ny-cq legend { padding: 0 4px; font-size: 13.5px; overflow-wrap: anywhere; }
+.wb-ny-opts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.wb-ny-opt { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; max-width: 100%; padding: 6px 12px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); font: inherit; font-size: 13px; font-weight: 700; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.wb-ny-opt--rec { background: var(--you); }
+.wb-ny-opt--chosen { box-shadow: 3px 3px 0 var(--ink); }
+.wb-ny-opt:disabled { cursor: default; opacity: .7; }
+.wb-ny-opt em { font-style: normal; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.wb-ny-opt-c { font-size: 11.5px; font-weight: 500; color: var(--muted-2); }
+.wb-ny-reply { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.wb-ny-expiry { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.wb-ny-expiry label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; }
+.wb-ny-expiry input, .wb-ny-expiry textarea { font: inherit; font-size: 14px; padding: 6px 8px; border: 1.5px solid var(--ink); border-radius: 8px; min-width: 0; }
+.wb-ny-expiry textarea { resize: vertical; }
+.wb-ny-expiry[hidden] { display: none; }
+.wb-ny-expiry-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wb-ny-expiry-acts button { font: inherit; font-weight: 800; cursor: pointer; }
+.wb-ny-reply[hidden] { display: none; }
+.wb-ny-reply textarea { font: inherit; font-size: 14px; padding: 8px; border: 1.5px solid var(--ink); border-radius: 8px; resize: vertical; min-width: 0; }
+.wb-ny-reply button { align-self: flex-start; font: inherit; font-weight: 800; cursor: pointer; }
+.wb-ny-after--row { flex-wrap: wrap; }
+.wb-ny-after-link { display: flex; flex: 1 1 200px; align-items: center; gap: 10px; min-width: 0; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+.wb-ny-after--row button { font: inherit; font-weight: 800; font-size: 13px; cursor: pointer; }
+.wb-ny-after--row .wb-ny-msg { flex-basis: 100%; }
+@media (max-width: 640px) {
+    .wb-ny-row { grid-template-columns: 24px minmax(0, 1fr); }
+    .wb-ny-acts { grid-column: 2; justify-content: flex-start; }
+}
+
+/* ▶ Run playtest on the station (static/playtest-run.js): the result under
+   the playtest step and Tick passed boxes. */
+[data-playtest-result][hidden], [data-playtest-tick][hidden], [data-playtest-note][hidden] { display: none; }
+.wb .playtest-result { margin-top: 8px; font-weight: 400; }
+.wb .playtest-result p { margin: 4px 0; font-weight: 600; }
+.wb .playtest-steps { margin: 4px 0 8px; padding-left: 18px; font-family: var(--mono); font-size: 12px; }
+.wb .playtest-step--pass { color: #136B3A; }
+.wb .playtest-step--fail { color: var(--red); }
+.wb .playtest-step--open { color: var(--muted); }
+.wb .playtest-note { color: var(--muted); font-weight: 400; }
+

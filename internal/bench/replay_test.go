@@ -20,19 +20,27 @@ type replayRepo struct {
 	marker string
 }
 
+// replayBase is the replay repo's base commit, built once per test binary.
+type replayBase struct{ dir, base string }
+
+var replayFixture shared[replayBase]
+
 func newReplayRepo(t *testing.T) *replayRepo {
 	t.Helper()
-	r := &replayRepo{t: t, dir: filepath.Join(t.TempDir(), "repo")}
+	base := replayFixture.get(t, func(dir string) (replayBase, error) {
+		var b fxb
+		rb := replayBase{dir: filepath.Join(dir, "repo")}
+		b.git(dir, "init", "-q", "-b", "main", rb.dir)
+		b.write(filepath.Join(rb.dir, "go.mod"), "module example.com/calc\n\ngo 1.21\n")
+		b.write(filepath.Join(rb.dir, "calc.go"), "package calc\n\nfunc Add(a, b int) int { return a - b }\n\nfunc Sub(a, b int) int { return a - b }\n")
+		b.git(rb.dir, "add", "-A")
+		b.git(rb.dir, "commit", "-qm", "base")
+		rb.base = b.git(rb.dir, "rev-parse", "HEAD")
+		return rb, b.err
+	})
+	r := &replayRepo{t: t, dir: filepath.Join(t.TempDir(), "repo"), base: base.base}
 	r.marker = filepath.Join(t.TempDir(), "hook-ran")
-	if err := os.MkdirAll(r.dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	r.git("init", "-q", "-b", "main")
-	r.put("go.mod", "module example.com/calc\n\ngo 1.21\n")
-	r.put("calc.go", "package calc\n\nfunc Add(a, b int) int { return a - b }\n\nfunc Sub(a, b int) int { return a - b }\n")
-	r.git("add", "-A")
-	r.git("commit", "-qm", "base")
-	r.base = r.git("rev-parse", "HEAD")
+	copyTree(t, base.dir, r.dir)
 	hook := filepath.Join(r.dir, ".git", "hooks", "post-checkout")
 	standin.Write(t, hook, "touch "+r.marker+"\n")
 	return r
@@ -108,6 +116,7 @@ func (r *replayRepo) leftNothing(tmp string) {
 }
 
 func TestReplaySolvable(t *testing.T) {
+	parallel(t)
 	r := newReplayRepo(t)
 	merged := r.commit("fix add", map[string]string{"calc.go": fixed, "add_test.go": addTest})
 	res := r.replay(merged, ReplayEnv{})
@@ -117,6 +126,7 @@ func TestReplaySolvable(t *testing.T) {
 }
 
 func TestReplayTestsPassOnBase(t *testing.T) {
+	parallel(t)
 	r := newReplayRepo(t)
 	merged := r.commit("sub test", map[string]string{"sub_test.go": "package calc\n\nimport \"testing\"\n\nfunc TestSubOK(t *testing.T) {\n\tif Sub(3, 2) != 1 {\n\t\tt.Fatal(\"3-2\")\n\t}\n}\n"})
 	res := r.replay(merged, ReplayEnv{})
@@ -128,6 +138,7 @@ func TestReplayTestsPassOnBase(t *testing.T) {
 // TestReplayDoesNotReplay: the branch merged main, then changed the line
 // main changed; its own commit doesn't apply on base.
 func TestReplayDoesNotReplay(t *testing.T) {
+	parallel(t)
 	r := newReplayRepo(t)
 	r.git("checkout", "-qb", "work")
 	r.git("checkout", "-q", "main")
@@ -144,6 +155,7 @@ func TestReplayDoesNotReplay(t *testing.T) {
 // TestReplayNeedsLaterMain: the hidden test calls Mul, which came from
 // main after base.
 func TestReplayNeedsLaterMain(t *testing.T) {
+	parallel(t)
 	r := newReplayRepo(t)
 	r.git("checkout", "-qb", "work")
 	r.git("checkout", "-q", "main")
@@ -158,6 +170,7 @@ func TestReplayNeedsLaterMain(t *testing.T) {
 }
 
 func TestReplayStopsWhenMemoryIsBlocked(t *testing.T) {
+	parallel(t)
 	r := newReplayRepo(t)
 	merged := r.commit("fix add", map[string]string{"calc.go": fixed, "add_test.go": addTest})
 	ran := false

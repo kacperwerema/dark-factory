@@ -68,7 +68,7 @@ func TestTheSandboxHoldsMemoryAsOfTheBaseAndNoRefPastIt(t *testing.T) {
 		t.Errorf("line = %q", m.Line())
 	}
 	// Counts only: no memory's text reaches run.json.
-	data, err := os.ReadFile(filepath.Join(RunDir("t", run.ID), "run.json"))
+	data, err := os.ReadFile(filepath.Join(RunDir(run.Benchmark, run.ID), "run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

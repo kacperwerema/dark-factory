@@ -16,7 +16,7 @@ import (
 // one screen, a fixed plan of rooms that always fits the view (scaled as a
 // CSS transform by static/company-floor.js) and an inspector rail holding
 // what does not fit a tile. Today's page stays at ?classic=1 (#D-1).
-// Components in templates/_workshop_floor.html, styles in static/workshop.css
+// Components in templates/_workshop_floor.html, styles in static/workshop-floor.css
 // ("L1: the company floor").
 
 // The plan's fixed geometry, in plan pixels. Row 1 is HQ and Product; the
@@ -65,7 +65,7 @@ type FloorData struct {
 	Inspectors []FloorInspector
 	Rooms      []FloorLink
 	// List is the floor on a phone: one row per room, in plan order, the
-	// plan hidden (workshop.css, phone block).
+	// plan hidden (workshop-phone-screen.css).
 	List []FloorListRow
 	// AfterYOLO is how many issues wait for review after YOLO.
 	AfterYOLO int

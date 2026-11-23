@@ -226,9 +226,7 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 		}
 	}
 
-	slug := tracker.Slugify(title)
-	slug, private := privateFreeSlug(proj, slug, title)
-	filename := filepath.Join(dir, slug+".md")
+	slug, private, filename := newIssueFile(proj, system, title)
 	if _, err := os.Stat(filename); err == nil {
 		return nil, fmt.Errorf("issue already exists: %s\nUse 'update' to modify existing issues.", filename)
 	}
@@ -318,6 +316,18 @@ func writeNewIssue(ctx *Context, spec newIssueSpec) (*newIssue, error) {
 		warnDoneTwins(ctx.Stdout, display, findDoneTwins(proj, issues, display, title, spec.Body))
 	}
 	return &newIssue{File: filename, Slug: display, Department: dept, RequestedBy: requestedBy}, nil
+}
+
+// newIssueFile is where create writes an issue titled title in system: its
+// slug (private names left out, see privateFreeSlug), the private-names
+// lines that hit, and the file path.
+func newIssueFile(proj *tracker.Project, system, title string) (string, []int, string) {
+	dir := proj.IssueDir
+	if system != "" {
+		dir = filepath.Join(dir, system)
+	}
+	slug, private := privateFreeSlug(proj, tracker.Slugify(title), title)
+	return slug, private, filepath.Join(dir, slug+".md")
 }
 
 // privateFreeSlug drops the owner's private names (privacy.PrivateNames)

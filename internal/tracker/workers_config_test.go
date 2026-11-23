@@ -53,3 +53,40 @@ func TestWorkerSkillsForTypes(t *testing.T) {
 		t.Errorf("marshal:\n%s", out)
 	}
 }
+
+// workers: nice: is the nice level a worker's session starts at; unset is 0
+// (no change), and lint names a level outside 0..19.
+func TestWorkersNiceLevel(t *testing.T) {
+	for _, c := range []struct {
+		raw     string
+		want    int
+		problem bool
+	}{
+		{"statuses: []\n", 0, false},
+		{"workers:\n  setup: lean\n", 0, false},
+		{"workers:\n  nice: 10\n", 10, false},
+		{"workers:\n  nice: 0\n", 0, false},
+		{"workers:\n  nice: 25\n", 0, true},
+		{"workers:\n  nice: -5\n", 0, true},
+	} {
+		var wf WorkflowConfig
+		if err := yaml.Unmarshal([]byte(c.raw), &wf); err != nil {
+			t.Fatal(err)
+		}
+		if got := wf.WorkerNice(); got != c.want {
+			t.Errorf("%q: WorkerNice() = %d, want %d", c.raw, got, c.want)
+		}
+		probs := wf.WorkersProblems()
+		named := slices.ContainsFunc(probs, func(p string) bool { return strings.Contains(p, "nice") })
+		if named != c.problem {
+			t.Errorf("%q: WorkersProblems() = %q, want a nice problem: %v", c.raw, probs, c.problem)
+		}
+	}
+	// A clone keeps the level and does not share it.
+	n := 7
+	w := (&WorkersConfig{Nice: &n}).clone()
+	n = 3
+	if w.Nice == nil || *w.Nice != 7 {
+		t.Errorf("clone shares Nice with its source: %v", w.Nice)
+	}
+}

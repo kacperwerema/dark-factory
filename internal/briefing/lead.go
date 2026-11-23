@@ -75,11 +75,17 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 	fmt.Fprintf(&b, "- Role: project lead (%s). You answer to the human.\n", lead)
 	b.WriteString(tracker.LeadRules)
 	b.WriteString("- Authority: never Human Testing (the human approves it in the viewer); workers never tick.\n")
-	fmt.Fprintf(&b, "- Messaging: in Claude Code, agents on this project message each other with ListAgents / SendMessage, addressed by tmux name (yours is %s; workers are agent-<slug>). Workers message you only when the human, in their chat, gives them permission or asks them to; don't ask workers to report to you. issue-cli lead message pastes only into Codex sessions; for a Claude session it refuses and prints the SendMessage call to make.\n", lead)
-	b.WriteString("- Dispatching: issue-cli dispatch <slug> --quote \"<the human's words>\" starts the worker exactly like ▶ on the board and leaves the words on the issue (--agent codex; --reprompt re-sends a live worker's briefing, also with --quote). It refuses, exit 3, while the issue only waits on the human's approval. Never call the viewer over HTTP: issue-cli dispatch and issue-cli status cover it. Starting any other agent (issue-cli health review --spawn) needs the human's words the same way.\n")
-	b.WriteString("- Decisions: record each owner decision under ## Decisions with the human's words (issue-cli append <slug> --section Decisions --body \"- **D-n** · <date> · lead chat: ...\").\n")
+	fmt.Fprintf(&b, "- Messaging: agents are addressed by tmux name (yours is %s); don't ask workers to report to you. lead message is for Codex only (for Claude it prints the SendMessage call).\n", lead)
+	b.WriteString("- Dispatch starts the worker like ▶ on the board and leaves the words on the issue (--agent codex; --reprompt re-sends a live worker's briefing, also with --quote); it refuses, exit 3, while the issue only waits on the human's approval. Never call the viewer over HTTP. Starting any other agent (health review --spawn) needs the human's words too.\n")
+	if wf != nil && strings.TrimSpace(wf.Leads.Project) != "" {
+		// The default brief's Relay questions line says it; a replaced
+		// brief may not.
+		b.WriteString("- Decisions: each owner decision goes on its issue in the human's words (issue-cli decide <slug> --quote).\n")
+	}
+	limits := autostart.Limits{}
 	if a := in.AutoStart; a != nil {
-		fmt.Fprintf(&b, "- Auto-start is on for this project (the owner's words: %q): the one exception to dispatching only what the human names. At each check-in run issue-cli autostart next; when it says start, run the dispatch --autostart command it prints, one per check-in. It holds by itself while %s; mem-guard check stays the hard stop. Never turn auto-start on, off or pause it without the human's words.", a.Words, autostart.HoldSentence(autostart.HoldClauses(autostart.Limits{Below: a.Below, MaxWorkers: a.MaxWorkers, MaxLoad: a.MaxLoad})))
+		limits = autostart.Limits{Below: a.Below, MaxWorkers: a.MaxWorkers, MaxLoad: a.MaxLoad}
+		fmt.Fprintf(&b, "- Auto-start is on for this project (the owner's words: %q): the one exception to dispatching only what the human names. At each check-in run issue-cli autostart next and the dispatch --autostart command it prints, one per check-in (Holds, below). Never turn auto-start on, off or pause it without the human's words.", a.Words)
 		if a.Paused {
 			b.WriteString(" It is paused now: start nothing until the human resumes it.")
 		}
@@ -91,7 +97,8 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 		}
 	}
 	b.WriteString(LeadTickLine)
-	b.WriteString("- Queue: issue-cli queue keeps the project's ordered plan (add <slug> or --idea, move, block, list). Each tick runs issue-cli queue next --start: it starts the first startable item and marks it, and holds by itself while " + autostart.HoldSentence(append(autostart.HoldClauses(autostart.Limits{}), autostart.CIRedClause)) + "; shipped items are marked done with their SHA. Queue an item with the human's words (--quote); without them it starts only while auto-start is on. When only \"think up more\" is left, refill it.\n")
+	b.WriteString("- Queue: issue-cli queue keeps the project's ordered plan (add <slug> or --idea, move, block, list). The tick starts its first startable item; shipped items are marked done with their SHA. Queue an item with the human's words (--quote); without them it starts only while auto-start is on. When only \"think up more\" is left, refill it.\n")
+	b.WriteString(HoldsLine(limits))
 	n := 0
 	if proj != nil {
 		for _, d := range proj.Departments {
@@ -107,7 +114,7 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 		b.WriteString(tracker.HQReportCEOBrief)
 	}
 	if wf != nil && wf.CI.Enabled() {
-		b.WriteString("- Local CI: the ci: commands run on the integration branch after every move, without you. CI never messages you: read issue-cli ci status (or the Status page) when the human asks, at each check-in and before any push. When it is red, bring it to the human and decide together whether to revert, fix forward or dispatch a fix. Never push a release while it is red.\n")
+		b.WriteString("- Local CI: the ci: commands run on main after every move. CI never messages you: read issue-cli ci status at each check-in and before any push; when it is red, decide with the human whether to revert, fix forward or dispatch a fix. Never push a release while it is red.\n")
 	}
 	if wf != nil && wf.Workbench.ReleaseCandidates {
 		b.WriteString(releaseCandidateBrief)
@@ -128,9 +135,9 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	fmt.Fprintf(&b, "- Before you exit, or before the human takes a long break, write %s: what is live, what waits on whom, the decisions made, and a ## Next section with the ordered next steps.", filepath.Join(notesDir, tracker.HandoffNoteName(now, lead)))
-	b.WriteString(" The viewer's Status page shows that ## Next list; its text form, issue-cli status, is a ready-made stand-up (issue-cli status --json for the data). Its Waiting for release block says what is merged and not released, what is not pushed, and when the current milestone is ready to cut (and what blocks it). Its lists are capped: a \"+K more\" line names the issue-cli list command that shows the rest.")
-	b.WriteString("\n- issue-cli lead whoami shows this role again; issue-cli lead list shows the lead and its epics.\n")
+	fmt.Fprintf(&b, "- Before you exit, or before the human takes a long break, write %s with %s.", filepath.Join(notesDir, tracker.HandoffNoteName(now, lead)), HandoffNoteSections)
+	b.WriteString(" issue-cli status (the Status page as text, --json for the data) shows that list and is a ready-made stand-up; a \"+K more\" line names the command for the rest.")
+	b.WriteString("\n- issue-cli lead whoami shows this role again.\n")
 	// The note is the last lead's own words: added after InjectProject,
 	// which is for the commands above.
 	b.WriteString(LeadStateLine)
@@ -143,25 +150,42 @@ func LeadBrief(wf *tracker.WorkflowConfig, in LeadBriefInput) string {
 		}
 		return tracker.InjectProject(proj, b.String()) + h
 	}
-	return tracker.InjectProject(proj, b.String()) + tracker.LeadHandoffSection(notesDir, lead)
+	return tracker.InjectProject(proj, b.String()) + tracker.LeadHandoffSection(notesDir, lead) + leadstate.LiveSection(lead)
 }
 
-// HandoffNoteName is the file name of a lead's handoff note for a day:
+// HandoffNoteSections is what a lead's own handoff note holds, the
+// sections tracker.HandoffHeadings checks: workers, the queue and the
+// owner's asks are the state file's, which the next brief renders live.
+const HandoffNoteSections = "## Next (the ordered steps), ## Rules in force and ## Released and installed; never workers, queue or asks (your state file has them)"
+
+// HoldsLine is the lead brief's one list of what holds a start: the
+// queue's holds (auto-start's, plus local CI red), with the project's
+// auto-start limits when it is on.
+func HoldsLine(l autostart.Limits) string {
+	return "- Holds: queue next --start holds by itself while " + autostart.HoldSentence(append(autostart.HoldClauses(l), autostart.CIRedClause)) + "; autostart next holds the same, CI aside. mem-guard check stays the hard stop.\n"
+}
+
+// ReleaseDoc and PrivacyDoc are the pages the release and privacy lines
+// point at (TestLeadBriefRulesMovedToDocsAreThere).
+const (
+	ReleaseDoc = "docs/roadmap.md#cutting-a-release-candidate-soak-publish"
+	PrivacyDoc = "docs/workflow.md#private-work-and-code"
+)
 
 // releaseCandidateBrief is the lead's line for workbench.release_candidates.
-const releaseCandidateBrief = "- Releases go through a release candidate on a release branch. When Waiting for release says the milestone is ready, run issue-cli release cut <version>: it creates release/vX.Y from main with its worktree and tags <version>-rc.1 there (local; never push a candidate tag). Install that build from the release worktree, restart what runs it, and tell the leads of the projects that run it: they report problems with issue-cli report-bug, and those bugs join the milestone. Main moves on. Fixes land on main as usual and are picked onto the branch with issue-cli release pick <slug>; nothing is fixed on the branch itself, and each pick needs the next candidate (release cut again). Never publish the release without the human's explicit ok on a soaked candidate.\n"
+const releaseCandidateBrief = "- Releases: candidate, soak, publish (" + ReleaseDoc + "): when Waiting for release says ready, release cut <version>; then release pick <slug> for each fix from main (each pick needs the next candidate). Never push a candidate tag; never publish without the human's explicit ok on a soaked candidate.\n"
 
 // snapshotsBrief is the lead's line for privacy.code: snapshots.
-const snapshotsBrief = "- Private development (privacy.code: snapshots): origin is the private dev repo; the public repo (remote public) gets one commit per release. Publish only with issue-cli release publish <version> from the release worktree, on the human's ok; never push anything else to public (the pre-push guard refuses dev commits). Cloud sessions and other machines work against the dev repo.\n"
+const snapshotsBrief = "- Private development (code: snapshots, " + PrivacyDoc + "): publish only with issue-cli release publish <version> from the release worktree, on the human's ok; never push anything else to public.\n"
 
 // trackerBrief is the lead's line for privacy.work_files: tracker.
-const trackerBrief = "- Private tracker (privacy.work_files: tracker): issues, sessions and retros live in a private tracker repo; the viewer syncs it every 10 minutes. Before a handoff run issue-cli tracker sync; never add work files to the code repo (the pre-push guard refuses them).\n"
+const trackerBrief = "- Private tracker (work_files: tracker): before a handoff run issue-cli tracker sync; never add work files to the code repo.\n"
 
 // LeadStateLine is every lead's line for its state file, rotate and history
 // (docs/patterns/lead-session.md#the-state-file).
-const LeadStateLine = "- State: issue-cli lead state is your compact state file (workers, queue head, the owner's open asks, today's decisions and memories, your watches, tomorrow); the tick rewrites it. Write down what you'd need after a restart there, not in a long chat: issue-cli lead state note \"<text>\" [--tomorrow], an owner's request with issue-cli lead state ask --quote \"<their words>\" (done <n> when it is). When the tick says rotate, issue-cli lead rotate writes the handoff note and a digest of this chat and starts a fresh session of you that reads the state first; end your turn then. Look old context up with issue-cli lead history <words> instead of carrying it.\n"
+const LeadStateLine = "- State: issue-cli lead state is your compact state file; the tick rewrites it. Note what you'd need after a restart there, not in a long chat: issue-cli lead state note \"<text>\" [--tomorrow], an owner's request with issue-cli lead state ask --quote \"<their words>\" (done <n> when it is). When the tick says rotate, issue-cli lead rotate writes the handoff note and a digest of this chat, then starts a fresh you that reads the state first; end your turn then. Look old context up with issue-cli lead history <words> instead of carrying it.\n"
 
 // LeadTickLine is the lead brief's tick line: the one command the lead's
 // 5-minute check-in is, and how to keep it running without waking for
 // nothing.
-const LeadTickLine = "- Waiting: you wait in one way only, a background shell that exits on news (Bash run_in_background), started again each time it exits: issue-cli lead tick --watch --exit-on-news (add --observe [--department <d>] when you don't start work: it starts and closes nothing), and for any other probe issue-cli lead watch --run '<cmd>' [--every 10m] [--until-change | --until '<regex>']. Never a /loop cron, a ScheduleWakeup poll or a Monitor (it expires every 30 minutes): each wakes your whole context, news or not. Measured 2026-11-15: timed lead loops cost 476k-960k tokens per wake (a 20-minute tick 32.4M a day), 38% of the day's usage. When the tick says lead context <n>k: rotate, run issue-cli lead rotate and end your turn.\n- Tick: your 5-minute check-in is issue-cli lead tick. Each tick runs queue next --start (a due job on its standing start first), closes finished worker sessions whose branch is on main, and prints a line only when you have to act: a done issue's branch to land, local CI red, a start held for a new reason, the queue at 5 open items or fewer, the owner's comment, a takeover or a stalled worker. It says a thing once; a quiet tick prints nothing, so don't run the check-in by hand. Under --exit-on-news a plain start or a closed session doesn't wake you: it is printed above the next news.\n"
+const LeadTickLine = "- Waiting: you wait in one way only, a background shell that exits on news (Bash run_in_background), started again each time it exits: issue-cli lead tick --watch --exit-on-news (add --observe [--department <d>] when you start no work), and for any other probe issue-cli lead watch --run '<cmd>' (--until-change, --until '<regex>'). Never a /loop cron, a ScheduleWakeup poll or a Monitor (it expires every 30 minutes): each wakes your whole context, news or not (measured 2026-11-15: up to 960k tokens a wake).\n- Tick: your 5-minute check-in is issue-cli lead tick. Each tick starts the queue's next item (a due job on its standing start first), closes finished worker sessions whose branch is on main, and prints a line only when you have to act: a done issue's branch to land, local CI red, a start held for a new reason, the queue at 5 open items or fewer, the owner's comment, a takeover or a stalled worker. It says a thing once and a quiet tick prints nothing: don't run the check-in by hand. Under --exit-on-news a plain start or a closed session doesn't wake you: it prints above the next news.\n"

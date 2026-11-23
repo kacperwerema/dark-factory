@@ -1,0 +1,22 @@
+/* wb-menu: the More menu. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- wb-menu: the ⋯ More menu of a card or row (docs/UI/workshop-board.md "One primary action") ----
+   <details class="wb-menu"><summary class="wb-btn wb-menu-btn">⋯</summary><div class="wb-menu-list" role="menu">…</div></details>
+   The moved buttons keep their own classes and data-* hooks; inside the list they draw as menu items.
+   It opens and closes with no script; static/menu.js closes it on a pick, Esc or a click outside. */
+.wb-menu { position: relative; display: inline-block; }
+.wb-menu > summary { list-style: none; cursor: pointer; user-select: none; }
+.wb-menu > summary::-webkit-details-marker { display: none; }
+.wb .wb-menu-btn { border: 2px solid var(--line); background: #fff; color: #3A4252; justify-content: center; min-width: 40px; }
+.wb .wb-menu[open] > .wb-menu-btn { border-color: var(--ink); color: var(--ink); }
+.wb-menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 200px; max-width: min(320px, calc(100vw - 32px)); display: grid; gap: 2px; padding: 6px; background: #fff; border: 2px solid var(--ink); border-radius: 10px; box-shadow: 4px 4px 0 var(--ink); }
+.wb .wb-menu-list > .wb-btn, .wb .wb-menu-list > a, .wb .wb-menu-list > button { display: flex; width: 100%; min-height: 40px; justify-content: flex-start; text-align: left; padding: 0 10px; border: 0; border-radius: 6px; background: none; box-shadow: none; color: var(--ink); font-weight: 600; font-size: 13px; text-decoration: none; white-space: normal; }
+.wb .wb-menu-list > :hover:not(:disabled), .wb .wb-menu-list > :focus-visible { background: #EEF0F5; outline: none; }
+.wb .wb-menu-list > :disabled { color: var(--muted-2); cursor: not-allowed; }
+.wb .wb-menu-list > .wb-menu-danger { color: #B42318; }
+.wb-menu-sep { border: 0; border-top: 1.5px solid var(--line); margin: 4px 2px; }
+@media (max-width: 640px) {
+  .wb .wb-menu-btn, .wb .wb-menu-list > .wb-btn, .wb .wb-menu-list > a, .wb .wb-menu-list > button { min-height: 44px; }
+  /* On a phone the list is a sheet at the bottom of the screen: a ⋯ near the left edge can't push it off. */
+  .wb-menu-list { position: fixed; left: 16px; right: 16px; top: auto; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: none; max-height: 60vh; overflow-y: auto; }
+}
+

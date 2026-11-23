@@ -166,3 +166,44 @@ func TestStopHomesSparesItsAncestors(t *testing.T) {
 		t.Fatal("parent hung")
 	}
 }
+
+func TestDescendants(t *testing.T) {
+	ps := []procs.Proc{{PID: 10, PPID: 1}, {PID: 11, PPID: 10}, {PID: 12, PPID: 11}, {PID: 13, PPID: 10}, {PID: 20, PPID: 1}}
+	got := procs.Descendants(ps, 10)
+	want := map[int]bool{11: true, 12: true, 13: true}
+	if len(got) != len(want) {
+		t.Fatalf("Descendants(10) = %v, want 11, 12, 13", got)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("Descendants(10) has %d", p)
+		}
+	}
+}
+
+// A child's own children outlive a kill of the child alone: the walkthrough's
+// viewer left its nightly clean running that way, which wrote into the
+// test's t.TempDir after its cleanup. StopTree takes the whole tree: once it
+// returns, the grandchild writes nothing.
+func TestStopTreeStopsGrandchildren(t *testing.T) {
+	dir := t.TempDir()
+	started, late := filepath.Join(dir, "started"), filepath.Join(dir, "late")
+	cmd := exec.Command("sh", "-c", `(: > `+started+`; sleep 1; echo late > `+late+`) & wait`)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !procs.StopTree(cmd.Process.Pid, 5*time.Second) {
+		t.Error("StopTree: the tree is still running")
+	}
+	_ = cmd.Wait()
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat(late); err == nil {
+		t.Error("the grandchild wrote after StopTree returned")
+	}
+}

@@ -1,0 +1,47 @@
+/* Memory. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- Memory: the agents' shared memory (memory_view.go, templates/_workshop_memory.html) ---- */
+.wb-mem { display: flex; flex-direction: column; gap: 14px; max-width: 1080px; padding: 16px 24px 28px; }
+.wb-mem-flash { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); font-weight: 600; }
+.wb-mem-flash--error { border-color: #C0392B; color: #8E1F14; }
+.wb-mem-filters { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); }
+.wb-mem-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.wb-mem-filter-label { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-2); margin-right: 2px; }
+.wb-mem-filter-item { padding: 3px 9px; border: 1.5px solid var(--ink); border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--ink); text-decoration: none; background: var(--paper); }
+a.wb-mem-filter-item--on, a.wb-mem-filter-item--on:hover { background: var(--ink); color: var(--paper); }
+.wb-mem-entities { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); }
+.wb-mem-entities summary { cursor: pointer; }
+.wb-mem-entity-on { margin-top: 8px; font-size: 13px; }
+.wb-mem-entity-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.wb-mem-entity { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px; max-width: 100%; padding: 3px 10px; border: 1.5px solid var(--ink); border-radius: 999px; font-size: 12px; color: var(--ink); text-decoration: none; background: var(--paper); overflow-wrap: anywhere; }
+a.wb-mem-entity--on, a.wb-mem-entity--on:hover { background: var(--ink); color: var(--paper); }
+.wb-mem-entity-n { font-weight: 700; }
+.wb-mem-entity-who { color: var(--muted-2); }
+a.wb-mem-entity--on .wb-mem-entity-who { color: inherit; }
+.wb-mem-group { border-top: 2px solid var(--ink); }
+.wb-mem-list-head + .wb-mem-group { border-top: 0; }
+.wb-mem-group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding: 10px 14px; font-size: 14px; background: #F4F5F8; overflow-wrap: anywhere; }
+.wb-mem-group-head + .wb-mem-row { border-top: 0; }
+.wb-mem-recent { padding: 10px 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); }
+.wb-mem-recent summary { cursor: pointer; }
+.wb-mem-ev { padding: 4px 0; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.wb-mem-list { display: flex; flex-direction: column; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); overflow: hidden; }
+.wb-mem-list-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 14px; border-bottom: 1.5px solid #E3E6EC; }
+.wb-mem-path { margin-left: auto; font-size: 11px; color: var(--muted-2); overflow-wrap: anywhere; }
+.wb-mem-row { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-top: 1.5px solid #E3E6EC; }
+.wb-mem-list-head + .wb-mem-row { border-top: 0; }
+.wb-mem-row--invalid .wb-mem-text { color: var(--muted); text-decoration: line-through; }
+.wb-mem-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
+.wb-mem-id { font-weight: 700; }
+.wb-mem-src, .wb-mem-tag { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.wb-mem-edit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.wb-mem-text { width: 100%; min-height: 52px; padding: 8px 10px; border: 2px solid var(--ink); border-radius: 8px; background: var(--paper); color: var(--ink); font: inherit; line-height: 1.4; resize: vertical; box-sizing: border-box; }
+.wb-mem-text:focus-visible { outline: 3px solid #2A5BD7; outline-offset: 2px; }
+.wb-mem-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-mem-history summary { cursor: pointer; font-size: 12px; color: var(--muted-2); }
+.wb-mem-empty { padding: 14px; font-weight: 600; line-height: 1.45; }
+@media (max-width: 640px) {
+  .wb-mem { padding: 12px 16px 24px; }
+  .wb-mem-edit { grid-template-columns: minmax(0, 1fr); }
+  .wb-mem-path { margin-left: 0; }
+}
+

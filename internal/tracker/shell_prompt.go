@@ -125,7 +125,7 @@ func rtkNote(p ProjectTests) string {
 	s := "- rtk shortens some output (" + what + "): when output feeds a commit message or a parser, or you need a test's log, use `/usr/bin/git`, `/usr/bin/grep` or `rtk proxy <cmd>`" + proxyExample + "."
 	switch {
 	case p.validate():
-		s += " `make validate` loses its verdict line: run it in the background with `make validate > <log> 2>&1` and watch the log. A `validate: red so far: <step>` line means that step is red: stop and fix it instead of waiting for the suite. The verdict is the last `validate:` line, `validate: PASS` or `validate: FAIL (<step>, <step>)` (on red, make's own error line comes after it)."
+		s += " `make validate` loses its verdict line: run it in the background with `make validate > \"$(git rev-parse --git-path validate.log)\" 2>&1` and watch that file: it is in the worktree's own git dir, so no other session's run overwrites it, as one can a shared /tmp name. A `validate: red so far: <step>` line means that step is red: stop and fix it instead of waiting for the suite. The verdict is the last `validate:` line, `validate: PASS` or `validate: FAIL (<step>, <step>)` (on red, make's own error line comes after it)."
 	case p.CI != "":
 		s += " Run `" + p.CI + " > <log> 2>&1` and read the log, not rtk's summary of it."
 	}

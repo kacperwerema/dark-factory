@@ -105,7 +105,11 @@ var guardVerbs = map[string]guardRule{
 	// Provisional (factory/lead-context-is-kept-as-…, clarify assumed): the
 	// strictest rule until the owner says whether a sandbox may keep or
 	// rotate a lead's state.
-	"lead state":      neverInSandbox,
+	"lead state": neverInSandbox,
+	// Provisional (cli/issue-cli-viewer-restart-…, decided in its design
+	// under YOLO): the pane lookup can fall back to the shared server's
+	// viewer, so no sandbox restarts it.
+	"viewer restart":  neverInSandbox,
 	"lead rotate":     neverInSandbox,
 	"worktrees prune": neverInSandbox,
 	// Provisional (factory/a-nightly-clean-job-…#Q5, clarify assumed): the

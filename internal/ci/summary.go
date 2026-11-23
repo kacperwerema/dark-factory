@@ -3,6 +3,7 @@ package ci
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,9 +83,12 @@ func AgentLine(workDir string, wf *tracker.WorkflowConfig) string {
 	line := "Local CI: " + OneLine(st, lock, alive, branch, now)
 	if st.IsRed() {
 		line += " — inherited from " + st.Branch + ", not caused by your branch"
-		if st.Leftover != "" {
-			line += "\nLocal CI leftover: " + st.Leftover
-		}
+	}
+	if branch != "" {
+		line += AheadText(branch, aheadOfBase(workDir, branch))
+	}
+	if st.IsRed() && st.Leftover != "" {
+		line += "\nLocal CI leftover: " + st.Leftover
 	}
 	for _, name := range st.TierNames() {
 		if ts := st.Tiers[name]; ts.State == Red {
@@ -92,6 +96,35 @@ func AgentLine(workDir string, wf *tracker.WorkflowConfig) string {
 		}
 	}
 	return line
+}
+
+// AheadText is the Local CI line's note that branch has moved past the
+// work branch's base, so its green or red says nothing of the base the
+// branch was tested on: "; main is 3 commits ahead of your branch's base:
+// merge main before you debug a red test". "" when n is 0.
+func AheadText(branch string, n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n == 1:
+		return fmt.Sprintf("; %s is 1 commit ahead of your branch's base: merge %s before you debug a red test", branch, branch)
+	}
+	return fmt.Sprintf("; %s is %d commits ahead of your branch's base: merge %s before you debug a red test", branch, n, branch)
+}
+
+// aheadOfBase is how many commits branch has that the checkout at dir
+// (HEAD) lacks since their merge base; 0 on the branch itself or when git
+// can't tell.
+func aheadOfBase(dir, branch string) int {
+	out, err := git(dir, "rev-list", "--count", "HEAD.."+branch)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // TierLine is one non-default tier's newest run, as `ci status` and the

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
+	"github.com/kacperwerema/dark-factory/internal/briefing"
 	"github.com/kacperwerema/dark-factory/internal/gitfile"
 	"github.com/kacperwerema/dark-factory/internal/leadstate"
 	"github.com/kacperwerema/dark-factory/internal/memory"
@@ -26,7 +27,7 @@ import (
 // (docs/patterns/lead-session.md#the-state-file).
 
 const leadStateUsage = `Usage:
-  issue-cli lead state [--path] [--lead <name>]
+  issue-cli lead state [--path] [--all] [--lead <name>]
   issue-cli lead state note "<text>" [--tomorrow]
   issue-cli lead state ask --quote "<the owner's words>"
   issue-cli lead state done <n>`
@@ -34,6 +35,7 @@ const leadStateUsage = `Usage:
 func runLeadState(ctx *Context, args []string) error {
 	fs := newFlagSet("lead state", ctx)
 	pathOnly := fs.Bool("path", false, "print the state file's path only")
+	all := fs.Bool("all", false, "print every Today, Tomorrow and Notes item (the file keeps the 5 newest of each)")
 	leadFlag := fs.String("lead", "", "the lead whose state this is (default: you as a lead, else the CEO)")
 	tomorrow := fs.Bool("tomorrow", false, "note: something to check tomorrow")
 	quote := fs.String("quote", "", "ask: the owner's words")
@@ -67,6 +69,12 @@ func runLeadState(ctx *Context, args []string) error {
 	case "":
 		if *pathOnly {
 			fmt.Fprintln(ctx.Stdout, leadstate.Path(lead))
+			return nil
+		}
+		if *all {
+			v := leadStateView(ctx, lead, issues, now)
+			v.Full = true
+			fmt.Fprint(ctx.Stdout, leadstate.Render(v, store))
 			return nil
 		}
 		out, err := renderLeadState(ctx, lead, issues)
@@ -209,6 +217,7 @@ func leadStateView(ctx *Context, lead string, issues []*tracker.Issue, now time.
 			Done:       inject("issue-cli lead state done <n>"),
 			History:    inject("issue-cli lead history <words>"),
 			OwnerSteps: inject("issue-cli owner-step list"),
+			All:        inject("issue-cli lead state --all"),
 		}}
 	if steps, err := ownerstep.LoadOpen(proj.IssueDir, now); err == nil {
 		v.OwnerSteps = ownerstep.Lines(steps, now)
@@ -276,16 +285,20 @@ func leadStateView(ctx *Context, lead string, issues []*tracker.Issue, now time.
 		}
 		for _, d := range is.Decisions() {
 			if d.Date.Format("2006-01-02") == today {
-				v.Decisions = append(v.Decisions, leadstate.Ref{ID: d.Ref, Text: shorten(d.Text, 80)})
+				v.Decisions = append(v.Decisions, leadstate.Ref{ID: d.Ref, Text: shorten(d.Text, 80), At: d.Date})
 			}
 		}
 	}
 	if set, err := memory.ProjectStore(proj.IssueDir).Load(); err == nil {
 		for _, m := range set.Active(now) {
+			if m.Pinned {
+				v.Pinned = append(v.Pinned, leadstate.Ref{ID: m.ID, Text: briefing.PinTitle(m.Text)})
+			}
 			if !strings.HasPrefix(m.Created, today) || !leadMemory(m) {
 				continue
 			}
-			v.Memories = append(v.Memories, leadstate.Ref{ID: m.ID, Text: shorten(m.Text, 80)})
+			at, _ := time.Parse(time.RFC3339, m.Created)
+			v.Memories = append(v.Memories, leadstate.Ref{ID: m.ID, Text: shorten(m.Text, 80), At: at})
 		}
 	}
 	return v

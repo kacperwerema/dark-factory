@@ -117,7 +117,7 @@ func TestStatusShowsTheBuildBehindMainOnTheEngineOnly(t *testing.T) {
 		"## Installed build behind main\n",
 		"- installed v0.1.0 · main is 2 commits ahead\n",
 		"  - New A: the review count wrapped onto a second line\n  - New B\n",
-		"- To get them: cd "+root+" && make install, then restart the viewer",
+		"- To get them: cd "+root+" && make install && issue-cli viewer restart",
 	)
 
 	// Not the engine's own repo: nothing, though the same repo is behind.

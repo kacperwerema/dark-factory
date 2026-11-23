@@ -96,7 +96,7 @@ func TestGrownNeedsADayOld(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "issue-viewer" || got[0].FromMB != 400 || got[0].ToMB != 1020 {
 		t.Fatalf("grown = %+v", got)
 	}
-	if !strings.Contains(got[0].Line(), "issue-viewer grew 400 → 1020 MB since 11-20 07:00: restart the viewer") {
+	if !strings.Contains(got[0].Line(), "issue-viewer grew 400 → 1020 MB since 11-20 07:00: restart it: issue-cli viewer restart") {
 		t.Errorf("line %q", got[0].Line())
 	}
 }

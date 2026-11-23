@@ -146,3 +146,37 @@ func TestAppendBareReplaceNamesReplaceSection(t *testing.T) {
 		t.Fatalf("the refused call changed the issue:\n%s", got)
 	}
 }
+
+func TestAppendReplaceEmptyBodyNamesReplaceSectionOfTheLine(t *testing.T) {
+	proj, slug, issuePath := makeSimpleProject(t, "in progress")
+	data := readFile(t, issuePath) + "\n## Test Plan\n- placeholder: tbd\n- keep me\n"
+	if err := os.WriteFile(issuePath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{slug, "--replace", "- placeholder: tbd", "--body", ""},
+		{slug, "--section", "Test Plan", "--replace", "- placeholder: tbd", "--body", ""},
+		{slug, "--replace", "  - placeholder: tbd ", "--text", ""},
+	} {
+		ctx, _, _ := newTestContext(proj, false)
+		err := runAppend(ctx, args)
+		if err == nil {
+			t.Fatalf("%q: no refusal", args[1:])
+		}
+		var ue *usageError
+		if !errors.As(err, &ue) {
+			t.Errorf("%q: %T, want a usage error (exit 2)", args[1:], err)
+		}
+		for _, want := range []string{
+			"can't delete a line",
+			"issue-cli replace " + slug + " --section 'Test Plan' --body-file <file>",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%q: refusal lacks %q:\n%s", args[1:], want, err)
+			}
+		}
+	}
+	if got := readFile(t, issuePath); got != data {
+		t.Fatalf("the refused call changed the issue:\n%s", got)
+	}
+}

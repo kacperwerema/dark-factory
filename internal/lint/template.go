@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kacperwerema/dark-factory/internal/workflowupgrade"
 )
@@ -26,10 +27,24 @@ func checkTemplate(env *Env) []Finding {
 	switch plan.Status {
 	case workflowupgrade.StatusBehind:
 		msg := fmt.Sprintf("template: %s@%s is behind the bundled %s@%s", plan.Template, plan.Current, plan.Template, plan.Latest)
-		if n := len(plan.Proposals); n > 0 {
-			msg += fmt.Sprintf(" (%d features to adopt)", n)
+		// Only a missing feature is one to adopt; one the file already has
+		// at an older record version is the record's to catch up (the
+		// unrecorded ones get the stale-record finding above).
+		var parts []string
+		if n := len(plan.Missing); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d missing %s to adopt", n, plural(n, "feature", "features")))
 		}
-		out = append(out, Finding{Where: where, Message: msg, Fix: "issue-cli workflow upgrade"})
+		if n := len(plan.RecordOnly) - len(plan.Unrecorded); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d present, record only: `issue-cli workflow scan --installed <ids>` records them", n))
+		}
+		if len(parts) > 0 {
+			msg += " (" + strings.Join(parts, "; ") + ")"
+		}
+		fix := "issue-cli workflow upgrade"
+		if len(plan.Missing) == 0 {
+			fix = "issue-cli workflow upgrade (it lists the scan --installed ids and the stamp to set)"
+		}
+		out = append(out, Finding{Where: where, Message: msg, Fix: fix})
 	case workflowupgrade.StatusUnstamped:
 		out = append(out, Finding{Where: env.where(0),
 			Message: "no template: stamp, so workflow upgrade can't tell which features are new",
@@ -38,4 +53,11 @@ func checkTemplate(env *Env) []Finding {
 		out = append(out, Finding{Where: where, Message: plan.Message, Fix: "issue-cli workflow upgrade"})
 	}
 	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

@@ -18,11 +18,12 @@ func TestLeadBriefNamesLeadTick(t *testing.T) {
 		"issue-cli --project p lead tick --watch --exit-on-news (add --observe",
 		"issue-cli --project p lead watch --run '<cmd>'",
 		"Never a /loop cron, a ScheduleWakeup poll or a Monitor",
-		"476k-960k tokens per wake",
-		"lead context <n>k: rotate, run issue-cli --project p lead rotate and end your turn",
+		"up to 960k tokens a wake",
+		"When the tick says rotate, issue-cli --project p lead rotate writes the handoff note",
 		"issue-cli --project p lead state note",
 		"issue-cli --project p lead history <words>",
-		"Each tick runs issue-cli --project p queue next --start",
+		"Each tick starts the queue's next item",
+		"- Holds: queue next --start holds by itself while",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)

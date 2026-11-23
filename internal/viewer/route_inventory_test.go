@@ -14,8 +14,9 @@ import (
 
 // The route inventory in docs/API/security.md names every route and its
 // class (R/W/O/X). routeInventoryGaps reads the router from routes.go's
-// source (the mux patterns in Routes and every case of handleProjectRoutes'
-// switch) and reports each route with no row and each row with no route.
+// source (the mux patterns in Routes and every switch case of the area
+// functions projectRouteAreas lists for /p/<slug>/...) and reports each
+// route with no row and each row with no route.
 
 // routeAtom is one condition a switch case puts on the request: rest equal
 // to, starting with, ending with or holding a literal, or the method.
@@ -43,40 +44,69 @@ func routerFromSource(t *testing.T, src string) (mux []string, cases []routeCase
 	if err != nil {
 		t.Fatalf("parse routes.go: %v", err)
 	}
+	// The /p/<slug>/... routes are the switch cases of each area function
+	// projectRouteAreas lists, in its order.
+	var areas []string
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.VAR {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			vs := sp.(*ast.ValueSpec)
+			if len(vs.Names) != 1 || vs.Names[0].Name != "projectRouteAreas" || len(vs.Values) != 1 {
+				continue
+			}
+			if lit, ok := vs.Values[0].(*ast.CompositeLit); ok {
+				for _, el := range lit.Elts {
+					if sel, ok := el.(*ast.SelectorExpr); ok {
+						areas = append(areas, sel.Sel.Name)
+					}
+				}
+			}
+		}
+	}
+	funcs := map[string]*ast.FuncDecl{}
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
-		switch fn.Name.Name {
-		case "Routes":
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok || len(call.Args) == 0 {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || (sel.Sel.Name != "HandleFunc" && sel.Sel.Name != "Handle") {
-					return true
-				}
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-					p, _ := strconv.Unquote(lit.Value)
-					mux = append(mux, p)
-				}
+		funcs[fn.Name.Name] = fn
+		if fn.Name.Name != "Routes" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
 				return true
-			})
-		case "handleProjectRoutes":
-			for _, st := range fn.Body.List {
-				sw, ok := st.(*ast.SwitchStmt)
-				if !ok || sw.Tag != nil {
-					continue
-				}
-				for _, c := range sw.Body.List {
-					cc := c.(*ast.CaseClause)
-					for _, e := range cc.List {
-						for _, conj := range routeDNF(e) {
-							cases = append(cases, routeCase{atoms: conj, pos: fset.Position(e.Pos()).String()})
-						}
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "HandleFunc" && sel.Sel.Name != "Handle") {
+				return true
+			}
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				p, _ := strconv.Unquote(lit.Value)
+				mux = append(mux, p)
+			}
+			return true
+		})
+	}
+	for _, name := range areas {
+		fn := funcs[name]
+		if fn == nil {
+			t.Fatalf("projectRouteAreas names %s, which routes.go does not define", name)
+		}
+		for _, st := range fn.Body.List {
+			sw, ok := st.(*ast.SwitchStmt)
+			if !ok || sw.Tag != nil {
+				continue
+			}
+			for _, c := range sw.Body.List {
+				cc := c.(*ast.CaseClause)
+				for _, e := range cc.List {
+					for _, conj := range routeDNF(e) {
+						cases = append(cases, routeCase{atoms: conj, pos: fset.Position(e.Pos()).String()})
 					}
 				}
 			}
@@ -264,7 +294,7 @@ func routeInventoryGaps(t *testing.T, routesSrc, doc string) []string {
 	var gaps []string
 	for _, p := range mux {
 		if p == "/p/" {
-			continue // handleProjectRoutes: its cases are checked one by one
+			continue // /p/<slug>/...: its cases are checked one by one
 		}
 		found := false
 		for _, r := range rows {
@@ -286,7 +316,7 @@ func routeInventoryGaps(t *testing.T, routesSrc, doc string) []string {
 			}
 		}
 		if !found {
-			gaps = append(gaps, "handleProjectRoutes case at "+c.pos+" ("+c.String()+") has no row")
+			gaps = append(gaps, "project route case at "+c.pos+" ("+c.String()+") has no row")
 		}
 	}
 	for _, r := range rows {
@@ -341,9 +371,9 @@ func TestRouteInventoryCatchesANewRouteAndAStaleRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const anchor = "\tdefault:\n\t\thttp.NotFound(w, r)"
+	const anchor = "\tdefault:\n\t\treturn false"
 	if !strings.Contains(string(src), anchor) {
-		t.Fatal("routes.go's switch has no default case to add a route before")
+		t.Fatal("routes.go's area switches have no default case to add a route before")
 	}
 	withRoute := strings.Replace(string(src), anchor,
 		"\tcase rest == \"temporary-test-route\" && r.Method == http.MethodPost:\n\t\thttp.NotFound(w, r)\n"+anchor, 1)

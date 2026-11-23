@@ -1,0 +1,111 @@
+/* Docs. One of the style stylesheets, loaded in the order css_bundles.go lists them. */
+/* Docs */
+.docs-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 24px;
+    margin-top: 8px;
+}
+
+.docs-sidebar {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+}
+
+.docs-sidebar h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    padding: 0 12px;
+}
+
+.docs-nav {
+    list-style: none;
+    padding: 0;
+}
+
+.docs-nav li {
+    margin: 0;
+}
+
+.docs-nav-link {
+    display: block;
+    padding: 4px 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+}
+
+.docs-nav-link:hover {
+    color: var(--text);
+    background: var(--bg-secondary);
+    text-decoration: none;
+}
+
+.docs-nav-link.active {
+    color: var(--text);
+    background: var(--bg-secondary);
+    border-left-color: var(--text-link);
+    font-weight: 600;
+}
+
+.docs-section {
+    margin-bottom: 4px;
+}
+
+.docs-section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: capitalize;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.docs-section-toggle:hover {
+    background: var(--bg-secondary);
+}
+
+.docs-chevron {
+    transition: transform 0.15s;
+    flex-shrink: 0;
+}
+
+.docs-section-toggle.open .docs-chevron {
+    transform: rotate(90deg);
+}
+
+.docs-subnav {
+    display: none;
+    padding-left: 12px;
+}
+
+.docs-subnav.open {
+    display: block;
+}
+
+.docs-content {
+    min-width: 0;
+}
+
+.docs-title {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
+

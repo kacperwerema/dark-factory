@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/autostart"
 	"github.com/kacperwerema/dark-factory/internal/jobs"
@@ -29,7 +30,8 @@ const queueSweepNote = "queue-low sweep by the lead tick: file its proposals"
 const queueSweepsPerDay = 4
 
 // leadTickQueueSweep files and queues the queue-low sweep when YOLO and
-// auto-start are on and no sweep of the same job is open or ran today. It
+// auto-start are on, no sweep of the same job is open or ran today, and
+// retros/ has files since the last sweep's mark (none: it says so). It
 // returns the phrase the queue-low line adds ("" when it did nothing) and
 // the said key's suffix (the sweep's slug, so a new sweep is said again).
 func leadTickQueueSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue, open int) (phrase, key string) {
@@ -73,6 +75,20 @@ func leadTickQueueSweep(ctx *Context, t *leadTicker, issues []*tracker.Issue, op
 	if err != nil {
 		t.fail("queue-sweep", err)
 		return "", ""
+	}
+	// A sweep with nothing to read files nothing: say so once per mark
+	// instead of queueing a run that can only report "no retros".
+	picked, mark, err := retrosSinceMark(ctx, t.now.Truncate(time.Second))
+	if err != nil {
+		t.fail("queue-sweep", err)
+		return "", ""
+	}
+	if len(picked) == 0 {
+		since := "the start (no sweep recorded yet)"
+		if !mark.IsZero() {
+			since = mark.Format(time.RFC3339)
+		}
+		return "queue low: no retros since " + since + ", no sweep queued", "no-retros:" + since
 	}
 	brief, err := jobs.Brief(plan, ref, n, t.now)
 	if err == nil {

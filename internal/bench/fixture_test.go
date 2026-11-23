@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,11 +17,29 @@ func fixtureProject(f *Fixture) *tracker.Project {
 	return &tracker.Project{Name: FixtureName, Slug: FixtureSlug, IssueDir: f.Issues, WorkflowFile: f.Workflow, WorkDir: f.Repo, Terminal: "none"}
 }
 
+var benchFixture shared[*Fixture]
+
+// sharedFixture is the fixture project written once per test binary: read
+// it, never write in it (ownFixture is a copy to write in).
+func sharedFixture(t *testing.T) *Fixture {
+	t.Helper()
+	return benchFixture.get(t, func(dir string) (*Fixture, error) { return FixtureInit(filepath.Join(dir, "fx")) })
+}
+
+// ownFixture is the test's own copy of the fixture project.
+func ownFixture(t *testing.T) *Fixture {
+	t.Helper()
+	base := sharedFixture(t)
+	dir := filepath.Join(t.TempDir(), "fx")
+	copyTree(t, base.Dir, dir)
+	moved := func(p string) string { return dir + strings.TrimPrefix(p, base.Dir) }
+	return &Fixture{Dir: dir, Repo: moved(base.Repo), Tracker: moved(base.Tracker), Issues: moved(base.Issues), Workflow: moved(base.Workflow),
+		Tasks: slices.Clone(base.Tasks), Entry: strings.ReplaceAll(base.Entry, base.Dir, dir)}
+}
+
 func TestFixtureInitWritesTheSameProjectOnEveryRun(t *testing.T) {
-	a, err := FixtureInit(filepath.Join(t.TempDir(), "a"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	parallel(t)
+	a := sharedFixture(t)
 	b, err := FixtureInit(filepath.Join(t.TempDir(), "b"))
 	if err != nil {
 		t.Fatal(err)
@@ -47,12 +66,12 @@ func TestFixtureInitWritesTheSameProjectOnEveryRun(t *testing.T) {
 	if !strings.Contains(a.Entry, `slug: "bench-fixture"`) || !strings.Contains(a.Entry, a.Repo) {
 		t.Errorf("entry = %q", a.Entry)
 	}
-	if _, err := FixtureInit(a.Dir); err == nil || !strings.Contains(err.Error(), "not empty") {
+	if _, err := FixtureInit(b.Dir); err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Errorf("init over a written fixture: %v", err)
 	}
 	// The project's own tests pass at main, without the network.
 	cmd := exec.Command("go", "test", "./...")
-	cmd.Dir = a.Repo
+	cmd.Dir = b.Repo
 	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod", "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go test in the fixture: %v\n%s", err, out)
@@ -60,11 +79,8 @@ func TestFixtureInitWritesTheSameProjectOnEveryRun(t *testing.T) {
 }
 
 func TestTheFixturesTasksAreProposedWithAReferencePerStage(t *testing.T) {
-	t.Setenv("ISSUE_VIEWER_BENCH_DIR", filepath.Join(t.TempDir(), "bench"))
-	f, err := FixtureInit(filepath.Join(t.TempDir(), "fx"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	parallel(t)
+	f := ownFixture(t)
 	p := fixtureProject(f)
 	issues, err := tracker.LoadIssues(f.Issues)
 	if err != nil {

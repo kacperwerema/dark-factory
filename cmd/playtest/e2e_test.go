@@ -16,10 +16,8 @@ import (
 // runs in a temp dir and a headless Chrome. It skips without Chrome.
 func newTestRunner(t *testing.T) (*Runner, *Browser) {
 	t.Helper()
+	needChrome(t)
 	bins := buildTestBinaries(t)
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
 	b, err := NewBrowser(false, 1440, 900)
 	if err != nil {
 		t.Skip(err)
@@ -279,7 +277,8 @@ func TestOverlayEndToEnd(t *testing.T) {
 // page rendered unstyled on desktop while every content check passed. With
 // that stylesheet swapped in, styles_applied and the step's shape checks
 // fail the status page at 1440x900 and its content checks still pass; with
-// the current one everything passes.
+// the current one everything passes. style.css is split into parts now
+// (internal/viewer/css_bundles.go): the swap replaces all of them.
 func TestStylesAppliedCatchesV048(t *testing.T) {
 	old, err := os.ReadFile(filepath.Join("testdata", "style-v0.48.0.css"))
 	if err != nil {
@@ -290,11 +289,12 @@ func TestStylesAppliedCatchesV048(t *testing.T) {
 		if swap {
 			css, _ := json.Marshal(string(old))
 			r.pageScripts = []string{`document.addEventListener('DOMContentLoaded', function () {
-  var l = document.querySelector('link[href="/static/style.css"]');
-  if (!l) return;
+  var ls = document.querySelectorAll('link[href^="/static/style"]');
+  if (!ls.length) return;
   var s = document.createElement('style');
   s.textContent = ` + string(css) + `;
-  l.replaceWith(s);
+  ls[0].replaceWith(s);
+  for (var i = 1; i < ls.length; i++) ls[i].remove();
 });`}
 		}
 		s := loadRepoSession(t, "status-page")

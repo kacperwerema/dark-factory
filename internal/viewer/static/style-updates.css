@@ -1,0 +1,120 @@
+/* Updates tab, lead chat, classic Status, playtest run. One of the style stylesheets, loaded in the order css_bundles.go lists them. */
+/* Updates tab (updates.html, updates_overview.html): workflow features to adopt */
+.updates .btn-sm, .updates-overview .btn-sm { min-height: 32px; padding: 4px 10px; font-size: 12.5px; }
+.updates-flash { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.updates-template { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; padding: 14px 18px; margin: 18px 0 4px; }
+.updates-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.updates-field code, .updates-what code, .updates-running code, .updates-install-form code, .updates-dl code { font-size: 12px; background: var(--bg-tertiary); padding: 1px 5px; border-radius: 4px; }
+.updates-terminal { margin-left: auto; }
+.updates-stamp { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.updates-chips { align-items: center; }
+.updates-chips .label { margin-right: 4px; }
+.updates-chips .wb-chip { text-transform: capitalize; }
+.updates-cards { display: flex; flex-direction: column; gap: 12px; }
+.updates-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px; }
+.updates-card.open { border-color: var(--amber-border); }
+.updates-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.updates-card-head h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.updates-card-head .mono { font-size: 12px; }
+.updates-what { margin: 0; color: var(--text-nav); overflow-wrap: anywhere; }
+.updates-running { margin: 0; font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.updates-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.updates-actions > details > summary { list-style: none; }
+.updates-actions > details > summary::-webkit-details-marker { display: none; }
+.updates-actions > details[open] { flex-basis: 100%; order: 2; }
+.updates-actions > details[open] > summary { margin-bottom: 10px; }
+.updates-decline { margin: 0; }
+.updates-dl { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 16px; margin: 0 0 10px; font-size: 14px; }
+.updates-dl dt { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-secondary); padding-top: 2px; }
+.updates-dl dd { margin: 0; overflow-wrap: anywhere; }
+.updates-ask { font-weight: 600; }
+.updates-snippet { margin: 0; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; background: var(--bg); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px 14px; overflow-x: auto; color: var(--text-nav); }
+.updates-install-form { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.updates-install-form p { margin: 0; color: var(--text-nav); font-size: 14px; }
+.updates-install-form textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; resize: vertical; }
+.updates-installed { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+.updates-installed h3, .updates-declined h3 { margin: 0; }
+.updates-ids { display: flex; flex-wrap: wrap; gap: 6px; }
+.updates-ids .chip { font-weight: 500; }
+.updates-declined { display: flex; flex-direction: column; margin-top: 16px; }
+.updates-declined h3 { padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); }
+.updates-declined-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 18px; border-bottom: 1px solid var(--border-subtle); }
+.updates-declined-row:last-child { border-bottom: 0; }
+.updates-declined-row.just { background: var(--bg-tertiary); }
+.updates-declined-row .mono { font-size: 13px; min-width: 200px; }
+.updates-declined-row .muted { flex: 1 1 240px; }
+.updates-declined-row form { margin: 0; }
+.updates-cat-gates { color: var(--purple); background: var(--purple-bg); border-color: var(--purple-border); }
+.updates-cat-automation, .updates-cat-dispatch { color: var(--blue); background: var(--blue-bg); border-color: var(--blue-border); }
+.updates-cat-workbench { color: var(--amber); background: var(--amber-bg); border-color: var(--amber-border); }
+.updates-overview { padding-top: 24px; padding-bottom: 48px; display: flex; flex-direction: column; gap: 18px; }
+.updates-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); }
+.updates-overview-table { min-width: 760px; }
+.projects-updates-link { font-size: 14px; font-weight: 600; }
+.project-card-updates { color: var(--amber); }
+.updates { padding-bottom: 48px; }
+.updates-details, .updates-install { min-width: 0; }
+.updates-cat-lifecycle, .updates-cat-actions, .updates-cat-board, .updates-cat-conventions { color: var(--text-nav); }
+
+/* Lead chat (/p/<project>/lead): the lead's pane, the message box, and a
+   side column with what waits on the owner. */
+.lead-chat-page { padding-bottom: 24px; }
+.lead-chat-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.lead-chat-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lead-chat-pane {
+    margin: 0;
+    height: calc(100vh - 290px);
+    min-height: 320px;
+    overflow: auto;
+    padding: 12px 14px;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.lead-chat-not-live { padding: 18px; display: flex; align-items: center; gap: 14px; }
+.lead-chat-not-live[hidden], .lead-chat-pane[hidden] { display: none; }
+.lead-chat-form { display: flex; flex-direction: column; gap: 8px; }
+.lead-chat-form textarea {
+    width: 100%;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text);
+    resize: vertical;
+}
+.lead-chat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lead-chat-keys { display: inline-flex; gap: 4px; }
+.lead-chat-status { color: var(--text-secondary); font-size: 13px; }
+.lead-chat-side { display: flex; flex-direction: column; gap: 12px; }
+.lead-chat-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.lead-chat-card h2 { display: flex; align-items: center; gap: 8px; }
+.lead-chat-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lead-chat-row-text { display: flex; flex-direction: column; min-width: 0; }
+.lead-chat-questions { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.lead-chat-hint { font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+    .lead-chat-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Classic Status: the Needs you card's link to the full list. */
+.status-see-all { margin-left: auto; font-size: 13px; font-weight: 600; }
+
+/* ▶ Run playtest (static/playtest-run.js): the result under the button. */
+.playtest-result { margin-top: 8px; }
+[data-playtest-result][hidden], [data-playtest-tick][hidden], [data-playtest-note][hidden] { display: none; }
+.playtest-result p { margin: 4px 0; }
+.playtest-steps { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; }
+.playtest-step--pass { color: var(--green); }
+.playtest-step--fail { color: var(--red); }
+.playtest-step--open { color: var(--text-secondary); }
+.playtest-note { font-size: 12px; color: var(--text-secondary); }
+.ev-run { margin-bottom: 12px; }

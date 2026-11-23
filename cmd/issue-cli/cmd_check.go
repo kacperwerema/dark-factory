@@ -206,7 +206,7 @@ func splitCriteriaRefs(ctx *Context, issue *tracker.Issue, refs []string) (keep,
 	}
 	items := tracker.ListCheckboxes(issue.BodyRaw)
 	for _, ref := range refs {
-		if it, st := tracker.ResolveCheckboxRef(items, ref); st == tracker.RefFound && !it.Checked && strings.EqualFold(it.Section, tracker.CriteriaSection) {
+		if it, st := tracker.ResolveCheckboxRef(items, ref); st == tracker.RefFound && !it.Checked && tracker.IsCriteriaSection(it.Section) {
 			criteria = append(criteria, it.ID)
 			continue
 		}
@@ -530,7 +530,7 @@ func refuseCriteria(ctx *Context, issue *tracker.Issue, section string, index in
 	var hit []string
 	switch {
 	case all:
-		if strings.EqualFold(section, tracker.CriteriaSection) {
+		if tracker.IsCriteriaSection(section) {
 			for _, it := range tracker.Criteria(issue.BodyRaw) {
 				if !it.Checked {
 					hit = append(hit, it.ID)
@@ -538,17 +538,17 @@ func refuseCriteria(ctx *Context, issue *tracker.Issue, section string, index in
 			}
 		}
 	case index != 0:
-		if _, it, already, ok := tracker.CheckByIndex(issue.BodyRaw, section, index); ok && !already && strings.EqualFold(it.Section, tracker.CriteriaSection) {
+		if _, it, already, ok := tracker.CheckByIndex(issue.BodyRaw, section, index); ok && !already && tracker.IsCriteriaSection(it.Section) {
 			hit = append(hit, it.ID)
 		}
 	case section == "" && looksLikeRefs(issue.BodyRaw, positional):
 		for _, ref := range positional {
-			if it, st := tracker.ResolveCheckboxRef(items, ref); st == tracker.RefFound && strings.EqualFold(it.Section, tracker.CriteriaSection) && !it.Checked {
+			if it, st := tracker.ResolveCheckboxRef(items, ref); st == tracker.RefFound && tracker.IsCriteriaSection(it.Section) && !it.Checked {
 				hit = append(hit, it.ID)
 			}
 		}
 	default:
-		if m := tracker.MatchUncheckedByText(issue.BodyRaw, section, query); len(m) == 1 && strings.EqualFold(m[0].Section, tracker.CriteriaSection) {
+		if m := tracker.MatchUncheckedByText(issue.BodyRaw, section, query); len(m) == 1 && tracker.IsCriteriaSection(m[0].Section) {
 			hit = append(hit, m[0].ID)
 		}
 	}

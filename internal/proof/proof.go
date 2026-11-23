@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,7 +178,7 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 		byID[strings.ToUpper(it.ID)] = i
 		r.Criteria = append(r.Criteria, Criterion{ID: it.ID, Text: it.Label(), Checked: it.Checked, Visual: tracker.IsVisualCriterion(it.Text), Links: []CheckedLink{}})
 	}
-	prefix := criteriaPrefix(criteria)
+	prefixes := CriteriaPrefixes(criteria)
 
 	r.Ref, r.RefName = at.Ref, at.Name
 	c := &checker{cache: cache, root: root, worktree: worktree, ref: r.Ref, miss: at.Miss, slug: issue.Slug, issuesDir: issuesRoot(issue), statsPath: tracker.StatsSidecarPath(issue.FilePath), tests: map[string]Check{}}
@@ -217,8 +218,8 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 	}
 	for _, cm := range commits {
 		for _, value := range cm.proves {
-			ids, tests := splitTrailer(value, prefix)
-			if title, ok := unquotedTitle(value, prefix); ok && len(ids) > 0 {
+			ids, tests := splitTrailer(value, prefixes...)
+			if title, ok := unquotedTitle(value, prefixes...); ok && len(ids) > 0 {
 				// "Proves: AC1 <it() title>" without quotes: the whole
 				// rest of the line is one test when a test file has it.
 				if c.findTests([]string{title}); c.tests[title].OK {
@@ -310,26 +311,49 @@ func CollectWith(cache *timeline.Cache, root string, issue *tracker.Issue, comme
 	return r
 }
 
-// criteriaPrefix is the id prefix of the criteria boxes ("AC").
-func criteriaPrefix(items []tracker.CheckboxItem) string {
+// CriteriaPrefixes are the id prefixes of the criteria boxes, one per
+// criteria section in body order ("AC", and "ACL" for boxes under
+// "## Acceptance criteria (lead, …)"); ["AC"] when no box has an id.
+func CriteriaPrefixes(items []tracker.CheckboxItem) []string {
+	var out []string
 	for _, it := range items {
-		if it.ID != "" {
-			return strings.TrimRightFunc(it.ID, func(r rune) bool { return r >= '0' && r <= '9' })
+		if it.ID == "" {
+			continue
+		}
+		p := strings.TrimRightFunc(it.ID, func(r rune) bool { return r >= '0' && r <= '9' })
+		if !slices.ContainsFunc(out, func(q string) bool { return strings.EqualFold(p, q) }) {
+			out = append(out, p)
 		}
 	}
-	return "AC"
+	if len(out) == 0 {
+		return []string{"AC"}
+	}
+	return out
+}
+
+// isCriterionID reports whether word is shaped like a criterion id with
+// one of prefixes (AC if none): letters, then a number.
+func isCriterionID(word string, prefixes []string) bool {
+	m := idShapeRe.FindStringSubmatch(word)
+	if m == nil {
+		return false
+	}
+	if len(prefixes) == 0 {
+		prefixes = []string{"AC"}
+	}
+	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.EqualFold(m[1], p) })
 }
 
 var idShapeRe = regexp.MustCompile(`^([A-Za-z]+)\d+$`)
 
 // splitTrailer reads one Proves: value ("AC1, AC3 TestA TestB"): words
-// shaped like a criterion id (the criteria prefix plus a number) are ids,
+// shaped like a criterion id (a criteria prefix plus a number) are ids,
 // the rest test names. A quoted string ("…" or '…') is one test name, so a
 // JS/TS it() or describe() title with spaces, colons or parentheses links
 // whole.
-func splitTrailer(value, prefix string) (ids, tests []string) {
+func splitTrailer(value string, prefixes ...string) (ids, tests []string) {
 	for _, w := range trailerWords(value) {
-		if m := idShapeRe.FindStringSubmatch(w.text); !w.quoted && m != nil && strings.EqualFold(m[1], prefix) {
+		if !w.quoted && isCriterionID(w.text, prefixes) {
 			ids = append(ids, strings.ToUpper(w.text))
 			continue
 		}
@@ -342,7 +366,7 @@ func splitTrailer(value, prefix string) (ids, tests []string) {
 // ids, as one string, when that rest is several words and holds no quote: a
 // JS/TS it() title written without quotes. Collect links it whole when a
 // test file has it, and word by word otherwise.
-func unquotedTitle(value, prefix string) (string, bool) {
+func unquotedTitle(value string, prefixes ...string) (string, bool) {
 	sep := func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == ';' }
 	rest := value
 	for {
@@ -351,8 +375,7 @@ func unquotedTitle(value, prefix string) (string, bool) {
 		if end < 0 {
 			end = len(rest)
 		}
-		m := idShapeRe.FindStringSubmatch(rest[:end])
-		if m == nil || !strings.EqualFold(m[1], prefix) {
+		if !isCriterionID(rest[:end], prefixes) {
 			break
 		}
 		rest = rest[end:]

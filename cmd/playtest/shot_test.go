@@ -65,9 +65,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 // inside shoots the whole floor, as does SCROLL=<selector>; a selector that
 // matches nothing fails.
 func TestShotUnrollsTheScrollingFloor(t *testing.T) {
-	if _, err := ChromePath(); err != nil {
-		t.Skip(err)
-	}
+	needChrome(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		io.WriteString(w, floorPage)

@@ -224,6 +224,10 @@ const (
 // pinTitle is a memory's first sentence without its parentheses (the
 // owner's quote and the source a rule carries), clipped: what the rule is,
 // not why.
+// PinTitle is a pinned memory's title as the lead brief shows it: its
+// first sentence without parentheses, clipped.
+func PinTitle(text string) string { return pinTitle(text) }
+
 func pinTitle(text string) string {
 	sentences := splitSentences(text)
 	if len(sentences) == 0 {

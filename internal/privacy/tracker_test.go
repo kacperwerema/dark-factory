@@ -11,25 +11,29 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
-// gitEnv gives every git call in these tests an identity and no signing.
+// gitEnvVars is the environment every git in these tests runs with: home
+// as HOME and XDG_CONFIG_HOME, no system config, a fixed author. TestMain
+// sets it for the binary; gitEnv sets it again with a home of the test's own.
+func gitEnvVars(home string) map[string]string {
+	return map[string]string{
+		"HOME":                home,
+		"XDG_CONFIG_HOME":     home,
+		"GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME":     "t",
+		"GIT_AUTHOR_EMAIL":    "t@test",
+		"GIT_COMMITTER_NAME":  "t",
+		"GIT_COMMITTER_EMAIL": "t@test",
+	}
+}
+
+// gitEnv gives a serial test a HOME of its own on top of TestMain's git
+// environment. A parallel test cannot t.Setenv: it runs on TestMain's.
+// (git's maintenance.auto and gc.auto are off for the binary: tmuxguard.)
 func gitEnv(t *testing.T) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", home)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("GIT_AUTHOR_NAME", "t")
-	t.Setenv("GIT_AUTHOR_EMAIL", "t@test")
-	t.Setenv("GIT_COMMITTER_NAME", "t")
-	t.Setenv("GIT_COMMITTER_EMAIL", "t@test")
-	// git commit, merge and fetch start a detached `git maintenance run
-	// --auto` that can still be writing .git/objects when TempDir cleanup
-	// runs ("directory not empty"): turn it off.
-	t.Setenv("GIT_CONFIG_COUNT", "2")
-	t.Setenv("GIT_CONFIG_KEY_0", "maintenance.auto")
-	t.Setenv("GIT_CONFIG_VALUE_0", "false")
-	t.Setenv("GIT_CONFIG_KEY_1", "gc.auto")
-	t.Setenv("GIT_CONFIG_VALUE_1", "0")
+	for k, v := range gitEnvVars(t.TempDir()) {
+		t.Setenv(k, v)
+	}
 }
 
 func run(t *testing.T, dir string, args ...string) string {

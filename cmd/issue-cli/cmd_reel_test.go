@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/reel"
 	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
@@ -201,9 +202,9 @@ func TestReelShelveRefusesARedReelAndShelvesAGreenOne(t *testing.T) {
 	mustWrite(t, sb, `{"version":1,"shape":"before-after","title":"T","brand":{"name":"B","colors":{"primary":"#123","text":"#fff","background":"#000"}},
 		"scenes":[`+scene("h", "hook")+`,`+scene("b", "before")+`,`+scene("a", "after")+`,`+scene("c", "cta")+`],"cta":{"text":"Go"}}`)
 	tmpl := t.TempDir()
-	standin.Write(t, filepath.Join(tmpl, "render.sh"), `exec ffmpeg -hide_banner -loglevel error -nostdin -y -f lavfi -i "color=c=0x335577:s=1080x1920:r=30" -t "$3" -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$2"
+	standin.Write(t, filepath.Join(tmpl, "render.sh"), `exec ffmpeg -hide_banner -loglevel error -nostdin -y -f lavfi -i "color=c=0x335577:s=$4x$5:r=30" -t "$3" -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$2"
 `)
-	mustWrite(t, filepath.Join(tmpl, "reel.json"), `{"render":["./render.sh","{composition}","{out}","{duration}"],"compositions":{"before-after":"BeforeAfter"}}`)
+	mustWrite(t, filepath.Join(tmpl, "reel.json"), `{"render":["./render.sh","{composition}","{out}","{duration}","{width}","{height}"],"compositions":{"before-after":"BeforeAfter"}}`)
 
 	ctx, out := goalsCtx(t, proj, false)
 	if err := runReel(ctx, []string{"render", sb, "--template", tmpl}); err != nil {
@@ -254,6 +255,33 @@ func TestReelShelveRefusesARedReelAndShelvesAGreenOne(t *testing.T) {
 	md := readText(t, filepath.Join(outputs.FilesDir(proj), o.Report))
 	assertContains(t, md, "## Reel QA: pass")
 	assertContains(t, md, "| caption-sync | pass |")
+
+	// A 4:5 feed post from the same material: rendered at 1080x1350,
+	// held to 4:5 and shelved like a reel.
+	post := filepath.Join(dir, "post.json")
+	mustWrite(t, post, strings.Replace(readText(t, sb), `"shape":"before-after",`, `"shape":"before-after","format":"4:5",`, 1))
+	ctx, _ = goalsCtx(t, proj, false)
+	if err := runReel(ctx, []string{"render", post, "--template", tmpl}); err != nil {
+		t.Fatal(err)
+	}
+	postMP4 := filepath.Join(dir, "post.mp4")
+	if p, err := reel.LoadPlan(reel.PlanPath(postMP4)); err != nil || p.Format != "4:5" || p.Width != 1080 || p.Height != 1350 {
+		t.Fatalf("4:5 plan = %+v, %v", p, err)
+	}
+	ctx, out = goalsCtx(t, proj, false)
+	if err := runReel(ctx, []string{"shelve", postMP4, "--storyboard", post, "--template", tmpl, "--title", "Post: before and after", "--department", "Marketing"}); err != nil {
+		t.Fatalf("shelve 4:5: %v\n%s", err, readText(t, postMP4+".qa.json"))
+	}
+	if list, _ := outputs.Load(proj); len(list) != 2 {
+		t.Fatalf("shelf after the 4:5 post = %+v", list)
+	}
+	// The 9:16 file against the 4:5 storyboard fails its aspect.
+	ctx, out = goalsCtx(t, proj, false)
+	if err := runReel(ctx, []string{"qa", mp4, "--storyboard", post, "--template", tmpl}); reelExitCode(err) != 1 {
+		t.Fatalf("qa 9:16 file on a 4:5 storyboard: %v", err)
+	}
+	assertContains(t, out.String(), "✗ aspect: 1080x1920")
+	assertContains(t, out.String(), "(bound: 4:5 (0.8000))")
 }
 
 // TestReelDocNamesEveryCommand keeps docs/reels.md naming each reel

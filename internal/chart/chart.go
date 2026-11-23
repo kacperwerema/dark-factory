@@ -3,7 +3,7 @@
 // them, so they work under a strict CSP and without JavaScript.
 //
 // Colours are CSS classes, never hex: a series or segment carries a class
-// (s-agent, s-feature, ...) and style.css maps it to the theme's token, so
+// (s-agent, s-feature, ...) and style-stats.css maps it to the theme's token, so
 // every theme recolours the charts. Marks use currentColor.
 //
 // Every chart is accessible on its own: role="img" with an aria-label on the

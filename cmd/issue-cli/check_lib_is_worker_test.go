@@ -65,6 +65,10 @@ func TestCheckLibIsWorkerAsksTheGuard(t *testing.T) {
 // on the sandbox sandbox_project marked the worker's owner-only steps pass
 // (claim of another issue, yolo on, department add) while dispatch stays
 // refused. With the marker gone the same steps are refused.
+//
+// One script and one sandbox walk all three outcomes in turn (folder only,
+// then a known issue, then the marker removed): a sandbox per outcome
+// tripled the setup, 34.4 s of a loaded validate.
 func TestCheckScriptWorkerRunsOwnerOnlyStepsOnAMarkedSandbox(t *testing.T) {
 	bash, err := checks.FindBash()
 	if err != nil {
@@ -82,12 +86,23 @@ func TestCheckScriptWorkerRunsOwnerOnlyStepsOnAMarkedSandbox(t *testing.T) {
 	if err := os.WriteFile(lib, checks.Lib, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Each phase's output starts at its PHASE line. A worker known by its
+	// folder alone has no issue, so phase 1 leaves the claim to phase 2;
+	// the guard refuses phase 3's steps before they meet phase 1's state.
 	body := `source "$CHECKS_LIB"
 sandbox_project sbx
-[ -z "${UNMARK:-}" ] || rm -f "$SANDBOX/.issue-cli-sandbox"
 stand_in claude 'echo STAND-IN'
 printf -- '---\ntitle: "Other"\nstatus: "backlog"\n---\n\nx\n' > "$SANDBOX_PROJECT_DIR/issues/other.md"
+echo "PHASE folder"
 echo "ENV: $(clean_shell sh -c 'echo "$ISSUE_VIEWER_WORKER"')"
+sic yolo on --until 4h --quote "guided check"; echo "YOLO=$?"
+sic department add marketing; echo "DEPT=$?"
+sic dispatch other --quote go; echo "DISPATCH=$?"
+echo "PHASE known"
+export ISSUE_VIEWER_ISSUE_SLUG=cli/x
+sic claim other; echo "CLAIM=$?"
+echo "PHASE unmarked"
+rm -f "$SANDBOX/.issue-cli-sandbox"
 sic claim other; echo "CLAIM=$?"
 sic yolo on --until 4h --quote "guided check"; echo "YOLO=$?"
 sic department add marketing; echo "DEPT=$?"
@@ -97,26 +112,30 @@ sic dispatch other --quote go; echo "DISPATCH=$?"
 	os.WriteFile(script, []byte(body), 0o644)
 	root := filepath.Join(t.TempDir(), ".worktrees", "cli", "x") // a worker by its folder alone
 	os.MkdirAll(root, 0o755)
-	run := func(extra ...string) string {
-		t.Helper()
-		var env []string
-		for _, kv := range os.Environ() {
-			k, _, _ := strings.Cut(kv, "=")
-			if k == "TMUX" || k == "AGENT_NAME" || k == "CLAUDECODE" || strings.HasPrefix(k, "ISSUE_VIEWER_") || strings.HasPrefix(k, "CHECKS_") || strings.HasPrefix(k, "XDG_") {
-				continue
-			}
-			env = append(env, kv)
+	var env []string
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+		if k == "TMUX" || k == "AGENT_NAME" || k == "CLAUDECODE" || strings.HasPrefix(k, "ISSUE_VIEWER_") || strings.HasPrefix(k, "CHECKS_") || strings.HasPrefix(k, "XDG_") {
+			continue
 		}
-		env = append(env, "CHECKS_LIB="+lib, "CHECKS_ROOT="+root, "CHECKS_YES=1", "NO_COLOR=1",
-			"ISSUE_CLI="+cli, "TMPDIR="+t.TempDir(), "ISSUE_CLI_TELEMETRY=off")
-		cmd := exec.Command(bash, script)
-		cmd.Dir = root
-		cmd.Env = append(env, extra...)
-		out, _ := cmd.CombinedOutput()
-		return string(out)
+		env = append(env, kv)
+	}
+	env = append(env, "CHECKS_LIB="+lib, "CHECKS_ROOT="+root, "CHECKS_YES=1", "NO_COLOR=1",
+		"ISSUE_CLI="+cli, "TMPDIR="+t.TempDir(), "ISSUE_CLI_TELEMETRY=off")
+	cmd := exec.Command(bash, script)
+	cmd.Dir = root
+	cmd.Env = env
+	all, _ := cmd.CombinedOutput()
+	phase := map[string]string{}
+	for _, part := range strings.Split(string(all), "PHASE ")[1:] {
+		name, rest, _ := strings.Cut(part, "\n")
+		phase[name] = rest
+	}
+	if len(phase) != 3 {
+		t.Fatalf("want 3 phases, got %d\n%s", len(phase), all)
 	}
 
-	out := run()
+	out := phase["folder"]
 	for _, want := range []string{
 		"ENV: working directory under .worktrees/",
 		"sandbox: the worker guard passed yolo for worker",
@@ -133,14 +152,14 @@ sic dispatch other --quote go; echo "DISPATCH=$?"
 	}
 
 	// A worker whose issue is known: claiming another issue passes too.
-	out = run("ISSUE_VIEWER_ISSUE_SLUG=cli/x")
+	out = phase["known"]
 	for _, want := range []string{"sandbox: the worker guard passed claim for worker", "CLAIM=0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("marked sandbox, known issue: missing %q\n%s", want, out)
 		}
 	}
 
-	out = run("UNMARK=1", "ISSUE_VIEWER_ISSUE_SLUG=cli/x")
+	out = phase["unmarked"]
 	for _, want := range []string{"you work on cli/x only", "CLAIM=1", "YOLO=1", "DEPT=1", "workers never add departments", "workers can't dispatch"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("unmarked sandbox: missing %q\n%s", want, out)

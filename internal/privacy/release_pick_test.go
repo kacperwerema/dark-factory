@@ -64,6 +64,7 @@ func unreleasedLines(t *testing.T, dir string) []string {
 // their Refs: trailer, oldest first, merges and other issues' commits
 // skipped.
 func TestPickFindsADoneIssuesCommitsByRefs(t *testing.T) {
+	t.Parallel()
 	r, wt := pickRepo(t)
 	first := r.commitMain(t, "fix.go", "package main // fix 1\n", "", "fix: part one\n\nRefs: ui/fix")
 	r.commitMain(t, "other.go", "package main // other\n", "", "feat: other\n\nRefs: ui/fix-more")
@@ -100,6 +101,7 @@ func TestPickFindsADoneIssuesCommitsByRefs(t *testing.T) {
 // tip from before the call, even when an earlier commit of the same call
 // applied.
 func TestPickConflictNamesCommitAndFileAndKeepsTheBranch(t *testing.T) {
+	t.Parallel()
 	r, wt := pickRepo(t)
 	write(t, filepath.Join(wt, "main.go"), "package main // release only\n")
 	run(t, wt, "git", "commit", "-q", "-am", "fix: release only")
@@ -132,6 +134,7 @@ func TestPickConflictNamesCommitAndFileAndKeepsTheBranch(t *testing.T) {
 // fix adds its own line next to it. The branch's Unreleased gets the fix's
 // line and nothing else from main.
 func TestPickKeepsTheChangelogToThePickedLines(t *testing.T) {
+	t.Parallel()
 	r, wt := pickRepo(t)
 	r.commitMain(t, "routing.go", "package main // routing\n", "- routing", "feat: routing")
 	r.commitMain(t, "memory.go", "package main // memory\n", "- memory", "feat: memory")
@@ -153,12 +156,12 @@ func TestPickKeepsTheChangelogToThePickedLines(t *testing.T) {
 }
 
 // After a pick the release worktree is built and vetted; a picked commit
-// that needs an unpicked one is reported with the hint.
+// that needs an unpicked one is reported with the hint. Its go build runs
+// with TestMain's GOTOOLCHAIN=local and GOFLAGS=-mod=mod.
 func TestPickReportsABranchThatNoLongerBuilds(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	r.cfg = &tracker.PrivacyConfig{}
-	t.Setenv("GOTOOLCHAIN", "local")
-	t.Setenv("GOFLAGS", "-mod=mod")
 	write(t, filepath.Join(r.root, "go.mod"), "module example.com/rel\n\ngo 1.21\n")
 	write(t, filepath.Join(r.root, "main.go"), "package main\n\nfunc main() {}\n")
 	r.commitMain(t, "", "", "", "build: go.mod")
@@ -191,6 +194,7 @@ func TestPickReportsABranchThatNoLongerBuilds(t *testing.T) {
 // ## Unreleased (no main entries), the owner's hand-written ## v0.54.1
 // heading is kept, and publish puts one more snapshot on public.
 func TestPatchReleaseCutPickPublish(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
@@ -257,6 +261,7 @@ func TestPatchReleaseCutPickPublish(t *testing.T) {
 // beside the slug (the slug alone no longer lists it). Publish's move is
 // skipped, so the branch keeps one ## v0.54.0 heading and the patch publishes.
 func TestPickSkipsPublishsChangelogMove(t *testing.T) {
+	t.Parallel()
 	r := newReleaseRepo(t)
 	if _, err := Setup(r.root, r.dev, r.cfg); err != nil {
 		t.Fatal(err)
@@ -318,8 +323,10 @@ func TestPickSkipsPublishsChangelogMove(t *testing.T) {
 // layout (no blank line under ## Unreleased), where git's union merge
 // wrote "## v0.62.0 — …" then a second "## Unreleased".
 func TestPickUnderUnionMergeKeepsTheReleasedSection(t *testing.T) {
+	t.Parallel()
 	for _, layout := range []struct{ name, gap string }{{"blank", "\n\n"}, {"tight", "\n"}} {
 		t.Run(layout.name, func(t *testing.T) {
+			t.Parallel()
 			r, cut := unionReleaseRepo(t, layout.gap)
 			addLine := func(line string) {
 				data, _ := os.ReadFile(filepath.Join(r.root, "CHANGELOG.md"))
@@ -397,6 +404,7 @@ func unionReleaseRepo(t *testing.T, gap string) (releaseRepo, string) {
 // applied by hand, then picked) commits nothing: it is reported as
 // already on the branch, and the line is not written twice.
 func TestPickWritesNoLineTheBranchAlreadyHas(t *testing.T) {
+	t.Parallel()
 	r, wt := pickRepo(t)
 	write(t, filepath.Join(wt, "CHANGELOG.md"), strings.Replace(string(readFile(t, filepath.Join(wt, "CHANGELOG.md"))), "## Unreleased\n\n", "## Unreleased\n\n- fix B\n", 1))
 	run(t, wt, "git", "commit", "-q", "-am", "docs(changelog): fix B by hand")
@@ -421,6 +429,7 @@ func TestPickWritesNoLineTheBranchAlreadyHas(t *testing.T) {
 // v0.62.1 pick left under ## v0.54.0) fails the check after the next pick:
 // the branch goes back where it was and the error names the lines.
 func TestPickRefusesABranchWithAStrayUnreleased(t *testing.T) {
+	t.Parallel()
 	r, cut := unionReleaseRepo(t, "\n\n")
 	day := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
 	if _, err := Publish(PublishInput{Root: r.root, Worktree: cut, Cut: "v0.54.0", Cfg: r.cfg, Changelog: "CHANGELOG.md", Now: day}); err != nil {
@@ -479,6 +488,7 @@ func (r releaseRepo) workBranchWithMainMerge(t *testing.T) string {
 // Refs: commits on main, not the work branch, and the check then counts
 // nothing unpicked.
 func TestPickPrefersRefsOnMainOverAWorkBranch(t *testing.T) {
+	t.Parallel()
 	r, wt := pickRepo(t)
 	fix := r.workBranchWithMainMerge(t)
 	before, err := UnpickedIssues(r.root, "release/v0.54", "main", []string{"ui/fix"})
@@ -508,6 +518,7 @@ func TestPickPrefersRefsOnMainOverAWorkBranch(t *testing.T) {
 
 // Without a Refs: commit on main, the work branch is still read.
 func TestUnpickedIssuesFallsBackToTheWorkBranch(t *testing.T) {
+	t.Parallel()
 	r, _ := pickRepo(t)
 	run(t, r.root, "git", "checkout", "-q", "-b", "work/ui/wip")
 	wip := r.commitMain(t, "wip.go", "package main // wip\n", "", "fix: wip")
@@ -562,12 +573,14 @@ func shortJoin(shas []string) string {
 // the work branch still there), never the merge, main's commits or the
 // guided check script and its drop.
 func TestPickTakesOnlyTheSlugsCommitsFromAWorkBranchThatMergedMain(t *testing.T) {
+	t.Parallel()
 	for _, landed := range []bool{false, true} {
 		name := "before landing"
 		if landed {
 			name = "landed, work branch kept"
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			r, wt := pickRepo(t)
 			own := r.agentWorkBranch(t)
 			if landed {
@@ -598,6 +611,7 @@ func TestPickTakesOnlyTheSlugsCommitsFromAWorkBranchThatMergedMain(t *testing.T)
 // A commit asked for under a slug that does not name it is refused before
 // anything is picked, by sha.
 func TestPickRefusesACommitThatDoesNotNameTheSlug(t *testing.T) {
+	t.Parallel()
 	r, _ := pickRepo(t)
 	fix := r.commitMain(t, "fix.go", "package main // fix\n", "", agentMsg("fix: the fix", "ui/fix"))
 	other := r.commitMain(t, "other.go", "package main // other\n", "", agentMsg("feat: other", "ui/other"))

@@ -20,7 +20,7 @@ import (
 // the margin (internal/outputs comments.go) and what changed since the last
 // version. Components in templates/_workshop_shelf_read.html, page
 // templates/shelf_read.html, behaviour static/shelf-read.js, styles in the
-// "L2: output reader" block of static/workshop.css. Comments are the
+// "L2: output reader" block of static/workshop-reader.css. Comments are the
 // owner's: the writes take s.fromOwner; agents read them with
 // issue-cli output comments and answer with output reply.
 

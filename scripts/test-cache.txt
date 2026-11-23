@@ -95,7 +95,9 @@ cached ./internal/spend
 cached ./internal/standin
 cached ./internal/telemetry
 cached ./internal/telemetry/share
+cached ./internal/slowtier
 cached ./internal/testbin
+cached ./internal/testbudget
 cached ./internal/testids
 cached ./internal/testresults
 cached ./internal/testshard

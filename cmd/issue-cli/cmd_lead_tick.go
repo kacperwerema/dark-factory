@@ -288,12 +288,19 @@ func runLeadTick(ctx *Context, args []string) error {
 			n.said++
 			n.news++
 		}
+		exitNow := *exitOnNews && (n.news > 0 || (*verbose && n.said > 0))
 		if *exitOnNews {
+			// A tick whose lines wait for a later news says when it
+			// printed them: starts held over hours otherwise read as one.
+			at := ""
+			if !exitNow {
+				at = sub.now().Local().Format("15:04")
+			}
 			mu.Lock()
-			holdOnce(&held, tickOut.String())
+			holdOnce(&held, tickOut.String(), at)
 			mu.Unlock()
 		}
-		if *exitOnNews && (n.news > 0 || (*verbose && n.said > 0)) {
+		if exitNow {
 			return flush()
 		}
 		if *exitOnNews {
@@ -310,17 +317,32 @@ func runLeadTick(ctx *Context, args []string) error {
 
 // holdOnce adds a tick's lines to held, but a "hold: " line held already
 // only once: a hold that comes back on every other tick goes out with the
-// next news one time.
-func holdOnce(held *bytes.Buffer, out string) {
+// next news one time. at, when set, is the tick's time ("15:04"), put in
+// front of each line ("[15:04] start: …") so lines held over several
+// ticks read in their order, not as one moment.
+func holdOnce(held *bytes.Buffer, out, at string) {
 	for _, line := range strings.SplitAfter(out, "\n") {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "hold: ") && bytes.Contains(held.Bytes(), []byte(line)) {
+		if strings.HasPrefix(line, "hold: ") && heldHas(held.String(), line) {
 			continue
+		}
+		if at != "" {
+			line = "[" + at + "] " + line
 		}
 		held.WriteString(line)
 	}
+}
+
+// heldHas reports whether held has line, with or without a tick's time.
+func heldHas(held, line string) bool {
+	for _, h := range strings.SplitAfter(held, "\n") {
+		if h == line || (strings.HasPrefix(h, "[") && strings.Index(h, "] ") == 6 && h[8:] == line) {
+			return true
+		}
+	}
+	return false
 }
 
 // leadTickOnce runs one tick and returns how many lines it printed; watch

@@ -155,7 +155,7 @@ func (v *Validator) Validate(s *Session) []error {
 			switch section, known := ids[strings.ToUpper(id)]; {
 			case !tracker.IsCheckboxRefShaped(id):
 				at(st.Line, "step %s proves %q, which is not a criterion id (e.g. AC2)", st.ID, id)
-			case ids != nil && (!known || !strings.EqualFold(section, tracker.CriteriaSection)):
+			case ids != nil && (!known || !tracker.IsCriteriaSection(section)):
 				at(st.Line, "step %s proves %q, which is not an acceptance criterion of %s (see issue-cli checklist %s)", st.ID, id, s.Issue, s.Issue)
 			}
 		}

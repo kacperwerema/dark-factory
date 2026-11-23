@@ -17,6 +17,10 @@ import (
 func TestMain(m *testing.M) {
 	// A test that needs issue-cli as a program (a git hook calling it) puts
 	// a stub on PATH that runs this test binary with ISSUE_CLI_TEST_AS_CLI=1.
+	// A stand-in issue-viewer for viewer restart's tests (cmd_viewer_test.go).
+	if os.Getenv("ISSUE_CLI_TEST_AS_VIEWER") == "1" {
+		standInViewer(os.Args[1:])
+	}
 	if os.Getenv("ISSUE_CLI_TEST_AS_CLI") == "1" {
 		err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 		if err != nil {

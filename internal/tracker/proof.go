@@ -51,11 +51,26 @@ type ProofLink struct {
 	Criterion string `json:"criterion"`
 }
 
-// Criteria returns the issue's acceptance criteria boxes, in order.
+// IsCriteriaSection reports whether a section heading names the
+// acceptance criteria: "Acceptance Criteria" in any case, alone or with a
+// parenthetical suffix ("Acceptance criteria (lead, 2026-11-21)", the
+// heading a lead adds criteria under after the fact). Other words after
+// it ("Acceptance criteria for the UI") make a different section.
+func IsCriteriaSection(name string) bool {
+	name = strings.TrimSpace(name)
+	if len(name) < len(CriteriaSection) || !strings.EqualFold(name[:len(CriteriaSection)], CriteriaSection) {
+		return false
+	}
+	rest := strings.TrimSpace(name[len(CriteriaSection):])
+	return rest == "" || (strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")"))
+}
+
+// Criteria returns the issue's acceptance criteria boxes, in order: the
+// boxes of every section IsCriteriaSection names.
 func Criteria(body string) []CheckboxItem {
 	var out []CheckboxItem
 	for _, it := range ListCheckboxes(body) {
-		if strings.EqualFold(it.Section, CriteriaSection) {
+		if IsCriteriaSection(it.Section) {
 			out = append(out, it)
 		}
 	}

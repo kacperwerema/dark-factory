@@ -343,8 +343,9 @@ func runTask(ctx context.Context, b *Benchmark, j job, jobs, n int, run *Run, en
 	defer cancel()
 	var budgetHit string
 	var mu sync.Mutex
-	stopWatch := make(chan struct{})
+	stopWatch, watchDone := make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(watchDone)
 		tick := time.NewTicker(env.Poll)
 		defer tick.Stop()
 		for {
@@ -366,6 +367,8 @@ func runTask(ctx context.Context, b *Benchmark, j job, jobs, n int, run *Run, en
 	}()
 	stdout, stderr, werr := runWorker(wctx, sb.work, NamedWorker(j.worker, SessionName(j.task)), prompt, sb.env(env))
 	close(stopWatch)
+	// The watcher reads run's spend: it is gone before Execute recounts it.
+	<-watchDone
 	rec.WallSec = env.now().Sub(rec.Started).Seconds()
 
 	tr := sb.transcript(env, cli, rec.Started)

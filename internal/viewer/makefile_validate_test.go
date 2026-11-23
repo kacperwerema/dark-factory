@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kacperwerema/dark-factory/internal/standin"
 )
 
 // make validate ends with one line that says how it went: a run in the
@@ -330,6 +332,164 @@ func nameSet(listed map[string]bool) map[string]bool {
 	return out
 }
 
+// In a linked worktree make validate writes its whole output to the
+// worktree's own git dir (git rev-parse --git-path validate.log) and names
+// it on its first line: one file per worktree, never a shared /tmp name
+// another session's run can overwrite, and outside the work tree, so no
+// test walking the checkout sees it grow. A run already redirected into that
+// file (the briefing's shell note) isn't written twice; VALIDATE_LOG= turns
+// it off; the main checkout has none. The verdict and exit code don't change.
+func TestValidateWritesItsLogIntoTheWorktreesGitDir(t *testing.T) {
+	for _, tool := range []string{"make", "git"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	makefile, err := os.ReadFile(repoPath("Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubs := "\nstub-ok:\n\t@echo ok ran; echo ok to stderr >&2\n\nstub-red:\n\t@echo red ran; exit 3\n"
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, wt, wt2 := filepath.Join(base, "main"), filepath.Join(base, "wt"), filepath.Join(base, "wt2")
+	env := []string{"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "VALIDATE_LOG=") && !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
+			env = append(env, kv)
+		}
+	}
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if err := os.MkdirAll(main, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(main, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(main, "Makefile"), append(makefile, stubs...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(main, "add", "Makefile")
+	git(main, "commit", "-q", "-m", "makefile")
+	git(main, "worktree", "add", "-q", "-b", "one", wt)
+	git(main, "worktree", "add", "-q", "-b", "two", wt2)
+	logOf := func(dir string) string {
+		return git(dir, "rev-parse", "--path-format=absolute", "--git-path", "validate.log")
+	}
+	wtLog, wt2Log := logOf(wt), logOf(wt2)
+	if wtLog == wt2Log || strings.HasPrefix(wtLog, wt+string(filepath.Separator)) || !strings.HasPrefix(wtLog, filepath.Join(main, ".git")) {
+		t.Fatalf("each worktree's log must be its own, in its git dir: %s, %s", wtLog, wt2Log)
+	}
+	run := func(dir string, stdout io.Writer, args ...string) (combined string, err error) {
+		t.Helper()
+		cmd := exec.Command("make", append([]string{"validate", "CLI_COVER_PROFILE=" + filepath.Join(base, "cover.out")}, args...)...)
+		cmd.Dir, cmd.Env = dir, env
+		both := &lockedBuilder{}
+		if stdout == nil {
+			cmd.Stdout = both
+		} else {
+			cmd.Stdout = stdout
+		}
+		cmd.Stderr = both
+		err = cmd.Run()
+		return both.b.String(), err
+	}
+	read := func(path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		return string(b)
+	}
+	lastValidate := func(s string) string {
+		last := ""
+		for _, l := range strings.Split(s, "\n") {
+			if strings.HasPrefix(l, "validate: ") {
+				last = l
+			}
+		}
+		return last
+	}
+
+	out, err := run(wt, nil, "VALIDATE_STEPS=stub-ok")
+	if err != nil {
+		t.Fatalf("green run: %v\n%s", err, out)
+	}
+	if first := strings.SplitN(out, "\n", 2)[0]; first != "validate: log "+wtLog {
+		t.Errorf("first line %q, want it to name the log %s:\n%s", first, wtLog, out)
+	}
+	log := read(wtLog)
+	if lastValidate(log) != "validate: PASS" || !strings.Contains(log, "ok ran") || !strings.Contains(log, "ok to stderr") || !strings.HasPrefix(log, "validate: log ") {
+		t.Errorf("the log must hold the whole run, stderr too, and its verdict:\n%s", log)
+	}
+	if st := git(wt, "status", "--porcelain", "--ignored"); st != "" {
+		t.Errorf("the log must stay out of the work tree, git status says:\n%s", st)
+	}
+
+	out, err = run(wt, nil, "VALIDATE_STEPS=stub-ok stub-red")
+	if err == nil {
+		t.Fatalf("red run exited 0:\n%s", out)
+	}
+	if got := lastValidate(read(wtLog)); got != "validate: FAIL (stub-red)" {
+		t.Errorf("red run: the log's verdict is %q:\n%s", got, read(wtLog))
+	}
+
+	// The other worktree's run writes its own file, not this one's.
+	before := read(wtLog)
+	if out, err := run(wt2, nil, "VALIDATE_STEPS=stub-ok"); err != nil {
+		t.Fatalf("second worktree: %v\n%s", err, out)
+	}
+	if read(wtLog) != before || lastValidate(read(wt2Log)) != "validate: PASS" {
+		t.Errorf("a run in another worktree touched this one's log, or wrote none of its own")
+	}
+
+	// make validate > <that file>: written once, not teed over itself.
+	f, err := os.Create(wtLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = run(wt, f, "VALIDATE_STEPS=stub-ok")
+	f.Close()
+	if err != nil {
+		t.Fatalf("redirected run: %v", err)
+	}
+	if log := read(wtLog); strings.Contains(log, "validate: log ") || strings.Count(log, "validate: PASS") != 1 || strings.Count(log, "ok ran") != 1 {
+		t.Errorf("a run redirected into its log must write it once:\n%s", log)
+	}
+
+	// VALIDATE_LOG= in a worktree, and the main checkout: no log.
+	for _, c := range []struct {
+		name, dir string
+		args      []string
+		path      string
+	}{
+		{"VALIDATE_LOG=", wt2, []string{"VALIDATE_LOG="}, wt2Log},
+		{"the main checkout", main, nil, filepath.Join(main, ".git", "validate.log")},
+	} {
+		_ = os.Remove(c.path)
+		out, err := run(c.dir, nil, append(c.args, "VALIDATE_STEPS=stub-ok")...)
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", c.name, err, out)
+		}
+		if strings.Contains(out, "validate: log ") || lastValidate(out) != "validate: PASS" {
+			t.Errorf("%s: want no log line and the verdict:\n%s", c.name, out)
+		}
+		if _, err := os.Stat(c.path); err == nil {
+			t.Errorf("%s: wrote %s", c.name, c.path)
+		}
+	}
+}
+
 // lockedBuilder takes stdout and stderr, which exec copies in two
 // goroutines, in the order they come.
 type lockedBuilder struct {
@@ -432,5 +592,62 @@ func TestValidateCoverageFloorReadsTheTestRun(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "none.out")
 	if out, err := cover("40", missing); err == nil || !strings.Contains(out, "cover-cli: no coverage profile at "+missing) {
 		t.Errorf("no profile from the test step: want a red exit naming it, got %v:\n%s", err, out)
+	}
+}
+
+// A red test step hands its output to MAIN_FIX_HINT (tools/main-fix-hint,
+// which names main's commits touching a failing test: ship.MainFixHints),
+// and the hint comes before the verdict; a green suite runs no hint.
+func TestValidateHandsARedSuitesOutputToTheMainFixHint(t *testing.T) {
+	if _, err := exec.LookPath("make"); err != nil {
+		t.Skip("make not installed")
+	}
+	makefile, err := os.ReadFile(repoPath("Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	hint := filepath.Join(root, "hint.sh")
+	standin.Write(t, hint, "#!/bin/sh\ngrep -q 'FAIL: TestA' \"$1\" && echo 'validate: main has abc1234 fix: TestA touching a_test.go: merge main and re-run'\n")
+	stubs := "\nstub-ok:\n\t@echo ok ran\n" +
+		"\ntest:\n\t@echo '--- FAIL: TestA (0.00s)'; [ -z \"$(SUITE_GREEN)\" ] || exit 0; exit 1\n"
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), append(makefile, stubs...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "MAKEFLAGS=") && !strings.HasPrefix(kv, "MFLAGS=") && !strings.HasPrefix(kv, "MAKELEVEL=") {
+			env = append(env, kv)
+		}
+	}
+	run := func(extra ...string) (string, error) {
+		args := append([]string{"validate", "VALIDATE_STEPS=stub-ok test", "VALIDATE_LOG=", "MAIN_FIX_HINT=" + hint, "CLI_COVER_PROFILE=" + filepath.Join(root, "cover.out"), "GUARD_COVER_PROFILE=" + filepath.Join(root, "guard.out")}, extra...)
+		cmd := exec.Command("make", args...)
+		cmd.Dir = root
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	const want = "validate: main has abc1234 fix: TestA touching a_test.go: merge main and re-run\n"
+	got, err := run()
+	if err == nil {
+		t.Fatalf("a red suite: make validate exited 0:\n%s", got)
+	}
+	i, j := strings.Index(got, want), strings.Index(got, "validate: FAIL (test)")
+	if i < 0 || j < i {
+		t.Errorf("want the hint before the verdict:\n%s", got)
+	}
+	if !strings.Contains(got, "--- FAIL: TestA") {
+		t.Errorf("the suite's own output must still show:\n%s", got)
+	}
+	got, err = run("SUITE_GREEN=1")
+	if err != nil {
+		t.Fatalf("a green suite: %v\n%s", err, got)
+	}
+	if strings.Contains(got, "main has") {
+		t.Errorf("a green suite runs no hint:\n%s", got)
+	}
+	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "validate: PASS") {
+		t.Errorf("a green suite: want validate: PASS last:\n%s", got)
 	}
 }

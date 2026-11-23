@@ -16,6 +16,11 @@
 // primary checkout) that has the package. Without one each test counts the
 // same. With -run, -list or -bench in go test's flags nothing is sharded.
 //
+// The listed tests are written to listing.json in the plans folder, and every
+// go test it starts gets its path in DF_TEST_SHARD_LISTING
+// (internal/testshard.ListingEnv), so the test that checks the shards reads
+// that listing instead of listing each package again.
+//
 // -cache-list <file> (scripts/test-cache.txt, internal/testshard.CacheList)
 // says which packages may come from go test's cache: when go test's flags
 // set no -count, the cached ones run without it, the fresh ones (and any the
@@ -297,6 +302,13 @@ func run(shards []string, timesArg, plansArg, cacheListPath string, args []strin
 			return 1, err
 		}
 	}
+	listingPath, err := writeListing(plansArg, specs, listed)
+	if err != nil {
+		return 1, err
+	}
+	if listingPath != "" && plansDir(plansArg) == "" {
+		defer os.RemoveAll(filepath.Dir(listingPath))
+	}
 	for si, s := range specs {
 		listed := listed[si]
 		times, from := loadTimes(timesArg, s.pkg)
@@ -343,7 +355,10 @@ func run(shards []string, timesArg, plansArg, cacheListPath string, args []strin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			codes[i] = out.run(append([]string{"test"}, p.args...), p.env, p.buffer)
+			// Every go test hears of this run's listing, and none of one
+			// inherited from a run around this one.
+			env := append(append([]string{}, p.env...), testshard.ListingEnv+"="+listingPath)
+			codes[i] = out.run(append([]string{"test"}, p.args...), env, p.buffer)
 		}()
 	}
 	wg.Wait()
@@ -498,6 +513,33 @@ func goListTests(flags []string, pkg string) ([]string, error) {
 		return nil, fmt.Errorf("go test -list found no tests in %s", pkg)
 	}
 	return tests, nil
+}
+
+// writeListing writes what the sharded packages listed for the tests the
+// run starts to read (testshard.ListingEnv): listing.json in the plans
+// folder, or a temp folder's with -plans none (the caller removes it). It
+// returns "" when nothing is sharded.
+func writeListing(plansArg string, specs []shardSpec, listed [][]string) (string, error) {
+	if len(specs) == 0 {
+		return "", nil
+	}
+	l := testshard.Listing{}
+	for i, s := range specs {
+		l[s.pkg] = listed[i]
+	}
+	dir := plansDir(plansArg)
+	if dir == "" {
+		d, err := os.MkdirTemp("", "test-shards-listing-")
+		if err != nil {
+			return "", err
+		}
+		dir = d
+	}
+	path := filepath.Join(dir, "listing.json")
+	if err := testshard.WriteListing(path, l); err != nil {
+		return "", fmt.Errorf("writing the listing: %v", err)
+	}
+	return path, nil
 }
 
 // loadTimes reads recorded times for pkg and says where from ("" for none).

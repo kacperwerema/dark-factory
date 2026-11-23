@@ -40,7 +40,10 @@ A red make validate names the test step's failing packages,
 "check FAIL (vet, test: internal/ci, internal/ship) at <sha>", and the
 line before the verdict is the first tmuxguard leftover line when a test
 binary left files in TMPDIR ("ship: tmuxguard: <bin> left ..."), so a
-leftover reads apart from a failing test without the log.
+leftover reads apart from a failing test without the log. A red test is
+followed by "ship: main has <sha> <subject> touching <path>: merge main
+and re-run" for each commit main has since the merge base that touches a
+failing test's file or package.
 Read that line, not $? of a pipe: "issue-cli ship | tail" exits 0 on a
 refusal. On exit 3 main holds the branch: fix forward at once and post a
 tests: comment naming the red step.

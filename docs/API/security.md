@@ -109,7 +109,7 @@ The viewer sends Web Push to the owner's devices (`push_view.go`, `internal/push
   - `identity_test.go`: fail closed, token verification, the key refetch limit, headers and the body cap.
   - `push_view_test.go`, `internal/push`, `internal/webpush`: owner-only push routes, no secrets on pages or logs, the allow-list and no redirects, sandboxes not sending.
   - `owner_test.go`: every O route refuses a request without the owner's sign-in, the code's limits, the cookie's flags, and the O rows of this page kept in step with the gate.
-  - `route_inventory_test.go`: every route in `routes.go` (the mux patterns and each case of `handleProjectRoutes`) has a row in the route inventory with its method, and every row has a route.
+  - `route_inventory_test.go`: every route in `routes.go` (the mux patterns and each case of the area functions `projectRouteAreas` lists for `/p/<slug>/...`) has a row in the route inventory with its method, and every row has a route.
   - `origin_test.go`, plus tests in `internal/tracker/validations`, `internal/timeline` and `internal/tracker`.
 
   They run in `make validate`.

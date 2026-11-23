@@ -18,11 +18,14 @@ import (
 )
 
 // fixture is a project repo with one golden task: base has a wrong Add,
-// merged fixes it and adds add_test.go (the hidden test).
+// merged fixes it and adds add_test.go (the hidden test). The repo is built
+// once per test binary (calcFixture); each test gets its own copy.
 type fixture struct {
 	repo, base, merged string
 	proj               *tracker.Project
 	task               Task
+	// name is the test's own benchmark name (benchName).
+	name string
 }
 
 const fixtureWorkflow = `statuses:
@@ -51,28 +54,40 @@ func write(t *testing.T, path, data string) {
 	}
 }
 
+const calcSnapshot = "---\ntitle: \"Fix add\"\nstatus: \"in progress\"\nsystem: \"calc\"\n---\n\nAdd subtracts.\n"
+
+var calcFixture shared[fixture]
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	t.Setenv("ISSUE_VIEWER_BENCH_DIR", filepath.Join(t.TempDir(), "bench"))
-	f := &fixture{repo: filepath.Join(t.TempDir(), "proj")}
-	mustGit(t, filepath.Dir(f.repo), "init", "-q", "-b", "main", f.repo)
-	write(t, filepath.Join(f.repo, "go.mod"), "module example.com/calc\n\ngo 1.21\n")
-	write(t, filepath.Join(f.repo, "calc.go"), "package calc\n\nfunc Add(a, b int) int { return a - b }\n")
-	write(t, filepath.Join(f.repo, "workflow.yaml"), fixtureWorkflow)
-	write(t, filepath.Join(f.repo, "issues", "calc", "fix-add.md"), "---\ntitle: \"Fix add\"\nstatus: \"in progress\"\nsystem: \"calc\"\n---\n\nAdd subtracts.\n")
-	mustGit(t, f.repo, "add", "-A")
-	mustGit(t, f.repo, "commit", "-q", "-m", "base")
-	f.base = mustGit(t, f.repo, "rev-parse", "HEAD")
-	write(t, filepath.Join(f.repo, "calc.go"), "package calc\n\nfunc Add(a, b int) int { return a + b }\n")
-	write(t, filepath.Join(f.repo, "add_test.go"), "package calc\n\nimport \"testing\"\n\nfunc TestAddAdds(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatal(\"2+3\")\n\t}\n}\n")
-	mustGit(t, f.repo, "add", "-A")
-	mustGit(t, f.repo, "commit", "-q", "-m", "fix add")
-	f.merged = mustGit(t, f.repo, "rev-parse", "HEAD")
+	base := calcFixture.get(t, func(dir string) (fixture, error) {
+		var b fxb
+		f := fixture{repo: filepath.Join(dir, "proj")}
+		b.git(dir, "init", "-q", "-b", "main", f.repo)
+		b.write(filepath.Join(f.repo, "go.mod"), "module example.com/calc\n\ngo 1.21\n")
+		b.write(filepath.Join(f.repo, "calc.go"), "package calc\n\nfunc Add(a, b int) int { return a - b }\n")
+		b.write(filepath.Join(f.repo, "workflow.yaml"), fixtureWorkflow)
+		b.write(filepath.Join(f.repo, "issues", "calc", "fix-add.md"), calcSnapshot)
+		b.git(f.repo, "add", "-A")
+		b.git(f.repo, "commit", "-q", "-m", "base")
+		f.base = b.git(f.repo, "rev-parse", "HEAD")
+		b.write(filepath.Join(f.repo, "calc.go"), "package calc\n\nfunc Add(a, b int) int { return a + b }\n")
+		b.write(filepath.Join(f.repo, "add_test.go"), "package calc\n\nimport \"testing\"\n\nfunc TestAddAdds(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatal(\"2+3\")\n\t}\n}\n")
+		b.git(f.repo, "add", "-A")
+		b.git(f.repo, "commit", "-q", "-m", "fix add")
+		f.merged = b.git(f.repo, "rev-parse", "HEAD")
+		f.task = Task{Project: "calc", Slug: "calc/fix-add", Type: "bugfix", Base: f.base, Merged: f.merged, Start: "in progress",
+			Hidden: []string{"add_test.go"}, HiddenTests: []string{"TestAddAdds"}}
+		b.write(inPkgBench(SnapshotPath(f.task)), calcSnapshot)
+		return f, b.err
+	})
+	f := base
+	f.repo = filepath.Join(t.TempDir(), "proj")
+	copyTree(t, base.repo, f.repo)
 	f.proj = &tracker.Project{Name: "Calc", Slug: "calc", IssueDir: filepath.Join(f.repo, "issues"), WorkflowFile: filepath.Join(f.repo, "workflow.yaml"), WorkDir: f.repo}
-	f.task = Task{Project: "calc", Slug: "calc/fix-add", Type: "bugfix", Base: f.base, Merged: f.merged, Start: "in progress",
-		Hidden: []string{"add_test.go"}, HiddenTests: []string{"TestAddAdds"}}
-	write(t, SnapshotPath(f.task), "---\ntitle: \"Fix add\"\nstatus: \"in progress\"\nsystem: \"calc\"\n---\n\nAdd subtracts.\n")
-	return f
+	f.name = benchName(t)
+	ownTaskFiles(t, map[string]string{SnapshotPath(f.task): calcSnapshot})
+	return &f
 }
 
 // fakeCLI answers dispatch-prompt --json like issue-cli and logs nothing.
@@ -105,13 +120,14 @@ func (f *fixture) env(t *testing.T) Env {
 }
 
 func (f *fixture) benchmark(worker string, tasks ...Task) *Benchmark {
-	b := New("t")
+	b := New(f.name)
 	b.Worker = worker
 	b.Tasks = tasks
 	return b
 }
 
 func TestRunPassesATaskTheWorkerSolves(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Keep = true
@@ -147,13 +163,14 @@ func TestRunPassesATaskTheWorkerSolves(t *testing.T) {
 	if st := mustGit(t, f.repo, "status", "--porcelain"); st != "" {
 		t.Errorf("real repo changed:\n%s", st)
 	}
-	saved, err := LoadRun("t", run.ID)
+	saved, err := LoadRun(run.Benchmark, run.ID)
 	if err != nil || saved.Tasks[0].Outcome != OutcomePass {
 		t.Fatalf("run.json = %+v, %v", saved, err)
 	}
 }
 
 func TestRunFailsATaskTheWorkerDoesNotSolve(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	run, err := Execute(context.Background(), f.benchmark("cat > /dev/null", f.task), f.env(t), Options{})
 	if err != nil {
@@ -172,6 +189,7 @@ func TestRunFailsATaskTheWorkerDoesNotSolve(t *testing.T) {
 }
 
 func TestRunMarksABaseThatFailsItsCheckBrokenAndLeavesItOutOfThePassRate(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	broken := f.task
 	broken.Slug = "calc/broken"
@@ -218,6 +236,7 @@ func TestRunStopsATaskAtItsWallCap(t *testing.T) {
 }
 
 func TestRunStopsWhenTheTokenBudgetIsSpent(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	second := f.task
 	second.Slug = "calc/again"
@@ -237,6 +256,7 @@ func TestRunStopsWhenTheTokenBudgetIsSpent(t *testing.T) {
 }
 
 func TestRunStopsAWorkerMidTaskWhenItsTranscriptSpendsTheBudget(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Home = t.TempDir()
@@ -260,6 +280,7 @@ func TestRunStopsAWorkerMidTaskWhenItsTranscriptSpendsTheBudget(t *testing.T) {
 }
 
 func TestRunWaitsForMemoryThenPausesAndResumes(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	calls := 0
@@ -293,6 +314,7 @@ func TestRunWaitsForMemoryThenPausesAndResumes(t *testing.T) {
 }
 
 func TestHoldoutTasksAreOnlyAnAggregateInRunJSON(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	hold := f.task
 	hold.Slug = "calc/secret-task"
@@ -305,7 +327,7 @@ func TestHoldoutTasksAreOnlyAnAggregateInRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(RunDir("t", run.ID), "run.json"))
+	data, err := os.ReadFile(filepath.Join(RunDir(run.Benchmark, run.ID), "run.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +340,7 @@ func TestHoldoutTasksAreOnlyAnAggregateInRunJSON(t *testing.T) {
 	if run.Holdout != (Holdout{Passed: 1, Total: 1}) || len(run.Tasks) != 1 {
 		t.Fatalf("holdout %+v, tasks %d", run.Holdout, len(run.Tasks))
 	}
-	all, err := LoadRecords("t", run.ID)
+	all, err := LoadRecords(run.Benchmark, run.ID)
 	if err != nil || len(all) != 2 || all[1].Task != "calc/calc/secret-task" {
 		t.Fatalf("holdout.json records = %+v, %v", all, err)
 	}
@@ -332,6 +354,7 @@ func TestHoldoutTasksAreOnlyAnAggregateInRunJSON(t *testing.T) {
 }
 
 func TestRunRecordsGatesRefusalsAndReworkFromTheSandboxClilog(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	// The worker writes the clilog and stats a real issue-cli would.
 	worker := `mkdir -p .agent-logs; cat > .agent-logs/clilog.jsonl <<'EOF'
@@ -357,6 +380,7 @@ echo '{"transitions":[{"from":"in progress","to":"testing"},{"from":"testing","t
 }
 
 func TestRunJudgeScoresTheTask(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	b := f.benchmark(fixWorker, f.task)
 	b.Judge = `grep -q 'WORKER DIFF' && printf '%s\n' '{"result":"SCORE: 4\nREASON: same fix","usage":{"input_tokens":10,"output_tokens":5},"total_cost_usd":0.01}'`
@@ -581,6 +605,7 @@ func TestBenchFamilyReportsTheNewestFinishedRunOfBenchmarksWithTheProject(t *tes
 }
 
 func TestRunUsesTheSetupsIssueCLIAndWorkflow(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Keep = true
@@ -598,12 +623,12 @@ func TestRunUsesTheSetupsIssueCLIAndWorkflow(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(sb, "wf.seen")); !strings.Contains(string(data), "experiment B") {
 		t.Errorf("the sandbox workflow = %q", data)
 	}
-	if saved, _ := LoadRun("t", run.ID); saved.Setup.Ref != "abc" || saved.Setup.SHA != "abc123" || saved.Setup.Label != "B" {
+	if saved, _ := LoadRun(run.Benchmark, run.ID); saved.Setup.Ref != "abc" || saved.Setup.SHA != "abc123" || saved.Setup.Label != "B" {
 		t.Errorf("setup = %+v", saved.Setup)
 	}
 	// The record carries setup.sha, the key experiment.Run reads for its
 	// baseline (it falls back to setup.ref only for old runs).
-	data, err := os.ReadFile(filepath.Join(RunDir("t", run.ID), "run.json"))
+	data, err := os.ReadFile(filepath.Join(RunDir(run.Benchmark, run.ID), "run.json"))
 	if err != nil || !strings.Contains(string(data), `"sha": "abc123"`) {
 		t.Errorf("run.json lacks setup.sha (%v):\n%s", err, data)
 	}

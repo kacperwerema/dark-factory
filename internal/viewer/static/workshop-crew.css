@@ -1,0 +1,88 @@
+/* L1: crew. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- L1: crew (the agents org chart, /agents) ---- */
+.wb-crew { gap: 22px; }
+.wb-crew-top { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.wb-crew-top::after { content: ""; width: 2px; height: 18px; background: var(--ink); }
+.wb-crew-you { display: flex; flex-direction: column; align-items: center; }
+.wb-crew-you::after { content: ""; width: 2px; height: 14px; background: var(--ink); }
+.wb-crew-ceo { width: 100%; max-width: 360px; }
+.wb-crew-cols { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; align-items: flex-start; }
+.wb-crew-col { flex: 0 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 0 0 12px; border: 2px solid var(--ink); border-radius: 16px; background: var(--paper); box-shadow: 5px 5px 0 var(--ink); overflow: hidden; }
+.wb-crew-col > :not(.wb-crew-col-head) { margin: 0 12px; }
+.wb-crew-col--group { flex: 1 1 100%; background: var(--board); }
+.wb-crew-cols--group { justify-content: flex-start; }
+.wb-crew-cols--group .wb-crew-col { box-shadow: 3px 3px 0 var(--ink); }
+.wb-crew-col-head { margin: 0; display: flex; justify-content: space-between; align-items: center; padding: 9px 14px; border-bottom: 2px solid var(--ink); background: var(--dept); font-family: var(--display); font-weight: 800; font-size: 16px; }
+.wb-crew-col-head span:first-child { padding: 2px 10px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; }
+.wb-crew-col-count { min-width: 28px; text-align: center; padding: 2px 8px; border: 2px solid var(--ink); border-radius: 99px; background: #fff; font-size: 13px; }
+.wb-crew-workers { display: flex; flex-direction: column; gap: 8px; }
+.wb-crew-led, .wb-crew-none { padding: 6px 0; }
+.wb-crew-card { min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); }
+.wb-crew-card--ceo { box-shadow: 4px 4px 0 var(--ink); border-color: var(--ink); background: #FFF8E6; }
+.wb-crew-card--lead { background: #F6F7FA; }
+.wb-crew-card--worker, .wb-crew-card--other { background: var(--paper); }
+.wb-crew-card--stopped { border-style: dashed; }
+.wb-crew-card--on { outline: 3px solid #2A5BD7; outline-offset: 2px; }
+.wb .wb-crew-card-pick { display: flex; align-items: flex-end; gap: 10px; text-decoration: none; min-height: 32px; }
+.wb-crew-name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.wb-crew-state .wb-chip { font-size: 12px; font-weight: 800; }
+.wb .wb-crew-issue { font-weight: 700; font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.wb-crew-tags { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11.5px; font-weight: 700; }
+.wb .wb-tag-pill--epic { border-color: var(--agent); color: #5530C2; }
+.wb .wb-tag-pill--note { border-style: dashed; }
+.wb .wb-tag-pill--agent { font-family: var(--mono); font-size: 11px; }
+.wb-crew-limit { color: #8A5A00; }
+.wb-crew-subs { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; }
+.wb-crew-sub { display: inline-flex; align-items: center; gap: 6px; }
+.wb-crew-meta { font-size: 12px; color: var(--muted-2); font-weight: 600; }
+.wb-crew-spawn { display: flex; flex-direction: column; gap: 6px; }
+.wb-crew-row { display: flex; flex-direction: column; gap: 10px; }
+.wb-crew-row-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.wb-crew-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.wb-crew-panel { display: flex; flex-direction: column; gap: 10px; }
+.wb-crew-panel-head { display: flex; align-items: flex-end; gap: 12px; }
+.wb-crew-open { display: flex; flex-direction: column; gap: 6px; }
+.wb-crew-code { font-family: var(--mono); font-size: 11.5px; padding: 4px 8px; border-radius: 6px; background: #F1F3F7; overflow-wrap: anywhere; }
+.wb-crew-diff { margin: 0; max-height: 240px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: #F1F3F7; font-family: var(--mono); font-size: 11px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-crew-comments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.wb-crew-live { margin-top: 4px; font-size: 12.5px; font-weight: 700; color: #136B3A; font-variant-numeric: tabular-nums; }
+.wb-bot--off { --body: #fff; --lamp: #C9CFDA; --eye: 2px; opacity: .75; }
+.wb .wb-stat-box--link { text-decoration: none; color: var(--ink); }
+.wb .wb-stat-box--link:hover { box-shadow: 3px 3px 0 var(--ink); }
+.wb-room-foot a { color: inherit; }
+.wb-room-foot a.wb-foot--green { color: #136B3A; }
+.wb-room-foot a.wb-foot--amber { color: #8A5A00; }
+.wb-room-foot a.wb-foot--red { color: #B42318; }
+/* The crate store (issues_wb.go): shelves of crate cards. */
+.wb-shelf { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; }
+@media (max-width: 640px) { .wb-shelf { padding: 14px 16px; } }
+.wb-shelf-crates { list-style: none; margin: 0; padding: 0; }
+.wb-scrate { display: flex; align-items: flex-start; gap: 12px; padding: 11px 16px; }
+.wb-scrate + .wb-scrate { border-top: 1.5px solid #D9DEE6; }
+.wb-scrate--you { background: var(--you-bg); }
+.wb-scrate-icon { flex: none; width: 28px; display: flex; justify-content: center; padding-top: 1px; }
+.wb-scrate-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.wb-scrate-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.wb .wb-scrate-title { font-weight: 800; font-size: 15px; overflow-wrap: anywhere; }
+.wb-scrate-top .wb-chip { font-size: 11.5px; font-weight: 800; padding: 1px 7px; }
+.wb-scrate-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
+.wb-scrate-meta .wb-chip { font-size: 11.5px; padding: 1px 7px; }
+.wb-scrate-slug { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: #3A4252; overflow-wrap: anywhere; margin-right: 4px; }
+.wb .wb-tag-pill--label { border-style: dashed; }
+.wb-scrate-score { padding: 1px 7px; border-radius: 99px; background: var(--c); color: #fff; font-weight: 800; }
+.wb-scrate-date { color: #5A6272; font-weight: 500; }
+.wb .wb-shelf-more { align-self: flex-start; font-size: 13px; font-weight: 800; }
+/* The store's New issue dialog (wb/create-issue). */
+.wb-newissue { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 2px solid var(--ink); border-radius: 16px; background: var(--paper); box-shadow: 6px 6px 0 var(--ink); color: var(--ink); font-family: var(--ui); overflow: auto; }
+.wb-newissue::backdrop { background: rgba(27, 31, 42, .4); }
+.wb-newissue-form { display: flex; flex-direction: column; gap: 12px; padding: 18px 22px 20px; }
+.wb-newissue-form .wb-h1 { margin: 0; }
+.wb-newissue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.wb-newissue-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 800; min-width: 0; }
+.wb-newissue-field input, .wb-newissue-field select, .wb-newissue-field textarea { font: inherit; font-size: 14px; font-weight: 500; padding: 7px 9px; border: 2px solid var(--ink); border-radius: 9px; background: var(--paper); color: var(--ink); min-width: 0; width: 100%; }
+.wb-newissue-field textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-height: 140px; }
+.wb-newissue-error { padding: 8px 10px; border-radius: 9px; background: #FDE8EA; color: #A3172A; font-size: 13px; font-weight: 700; }
+.wb-newissue-acts { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+/* On a phone the header wraps to ~280px: sticky, it would hide a third of
+   the screen and the links under it. */
+@media (max-width: 640px) { .wb-header { position: static; } }

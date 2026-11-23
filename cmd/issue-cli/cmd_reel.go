@@ -19,13 +19,15 @@ import (
 
 var reelCommand = &Command{
 	Name:      "reel",
-	ShortHelp: "The reel kit: storyboard, render, QA and the shelf for 9:16 reels (reel init|schema|validate|render|qa|shelve)",
-	LongHelp: `Make a short vertical video (a reel) from a storyboard JSON: the kit fills
+	ShortHelp: "The reel kit: storyboard, render, QA and the shelf for reels in 9:16, 4:5 or 1:1 (reel init|schema|validate|render|qa|shelve)",
+	LongHelp: `Make a short video (a reel) from a storyboard JSON: the kit fills
 the project's Remotion template with it, encodes the MP4 with FFmpeg, checks
 it and puts it with its QA report on the shelf for the owner's review.
 The kit reads files only: the narration audio, its word timings and any AI
 clips come from the project's connectors first, so the kit spends nothing.
-docs/reels.md is the page.
+The storyboard's format: is the frame: 9:16 1080x1920 (the default), 4:5
+1080x1350 (a feed post) or 1:1 1080x1080; render, the captions and QA
+follow it. docs/reels.md is the page.
 
   reel init [<dir>]
       Copy the starter Remotion template (shapes HookList, BeforeAfter,
@@ -42,13 +44,14 @@ docs/reels.md is the page.
       Work out the plan (scene starts, word timings, caption cues and
       boxes), run the template's render command from its reel.json, then
       FFmpeg: narration at its scene starts, music under it, -14 LUFS,
-      H.264/AAC 1080x1920. Writes <out>, <name>.plan.json and
+      H.264/AAC at the format's frame. Writes <out>, <name>.plan.json and
       <name>.narration.wav. Runs mem-guard check first (Remotion starts
       Chrome) and refuses when it is blocked. Default --out: the
       storyboard's name with .mp4, beside it.
   reel qa <file.mp4> --storyboard <storyboard.json> [--template <dir>] [--plan <file>] [--narration <file>]
-      Duration, 9:16, loudness (-14 LUFS ±2), black frames, captions in
-      the Instagram/TikTok safe zones, captions in sync with the audio.
+      Duration, aspect (the storyboard's format), loudness (-14 LUFS
+      ±2), black frames, captions in the format's safe zones, captions
+      in sync with the audio.
       One line per check; writes <file.mp4>.qa.json; exit 1 on a fail.
       Bounds: the kit's, then the template's reel.json qa:, then the
       storyboard's qa:.
@@ -269,7 +272,7 @@ func reelQA(ctx *Context, mp4, sbFile, tmpl, planFile, narration string, tmplSet
 	if _, err := os.Stat(mp4); err != nil {
 		return nil, err
 	}
-	b := reel.DefaultBounds()
+	b := reel.DefaultBoundsFor(s.Frame())
 	if tc, err := reel.LoadTemplate(tmpl); err == nil {
 		b.Apply(tc.QA, filepath.Join(tmpl, reel.TemplateConfigFile))
 	} else if tmplSet {

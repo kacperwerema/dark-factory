@@ -163,7 +163,8 @@ func TestLeadFlushNoteRefusals(t *testing.T) {
 	proj, _ := makeFlushProject(t, "> ")
 	for name, tc := range map[string]struct{ text, want string }{
 		"over the cap":    {goodNote(tracker.HandoffNoteMaxLines + 5), "the cap is 80"},
-		"missing section": {strings.Replace(goodNote(10), "## Queue", "## Other", 1), "## Queue"},
+		"missing section": {strings.Replace(goodNote(10), "## Rules in force", "## Other", 1), "## Rules in force"},
+		"a copied state":  {goodNote(10) + "## Queue\n\n- #7 the queued one\n", "renders workers, the queue and the owner's asks live"},
 		"secret":          {goodNote(10) + "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789\n", "secret"},
 	} {
 		_, err := runFlush(t, proj, "note", "--run", flushRunSlug, "--file", writeTemp(t, tc.text))
@@ -280,11 +281,25 @@ func TestLeadFlushBriefRules(t *testing.T) {
 			t.Errorf("no %q in the brief", want)
 		}
 	}
-	// Each section the note command insists on is named in the brief.
+	// The note's sections are the three the note command insists on, and
+	// the brief asks for no copy of what the state file renders live.
+	step := text[strings.Index(text, "2. **Write the note**"):strings.Index(text, "3. **Write the summary**")]
+	only := step[strings.Index(step, "these sections only"):strings.Index(step, ". No ")]
 	for _, h := range tracker.HandoffHeadings {
-		if !strings.Contains(text, h) {
-			t.Errorf("the brief doesn't name section %s", h)
+		if !strings.Contains(only, h) {
+			t.Errorf("the brief's sections don't name %s: %q", h, only)
 		}
+	}
+	for _, h := range tracker.LegacyHandoffHeadings {
+		if strings.Contains(only, h) {
+			t.Errorf("the brief still asks for %s: %q", h, only)
+		}
+		if !strings.Contains(step, "No State, Queue, Waiting on the owner or How to resume") {
+			t.Errorf("the brief doesn't say the note leaves %s out:\n%s", h, step)
+		}
+	}
+	if !strings.Contains(step, "live from the state file") {
+		t.Errorf("the brief doesn't say where workers and the queue are:\n%s", step)
 	}
 	if got := jobs.BuiltinType(jobs.LeadFlushBrief); got != tracker.ChoreType {
 		t.Fatalf("type %q", got)
@@ -449,16 +464,22 @@ func TestOwnerStepInHandoffNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := leadstate.View{Lead: "lead-x", At: now, OwnerSteps: ownerstep.Lines(steps, now), Commands: leadstate.Commands{OwnerSteps: "issue-cli owner-step list"}}
-	note := leadstate.HandoffNote(v, leadstate.Store{}, "issue-cli lead state")
-	waiting := note[strings.Index(note, "## Waiting on the owner"):]
-	waiting = waiting[:strings.Index(waiting, "## Rules in force")]
+	// The steps are the state file's (its Owner asks, which the fresh
+	// lead's brief renders live); the note copies none of them.
+	state := leadstate.Render(v, leadstate.Store{})
+	asks := state[strings.Index(state, "## Owner asks"):]
+	asks = asks[:strings.Index(asks, "## Today")]
 	for _, want := range []string{"- step st-111111 · overdue", "- step st-222222 · due 2026-11-02: Request indexing", "- the steps' exact text: issue-cli owner-step list"} {
-		if !strings.Contains(waiting, want) {
-			t.Errorf("note: no %q in\n%s", want, waiting)
+		if !strings.Contains(asks, want) {
+			t.Errorf("state: no %q in\n%s", want, asks)
 		}
 	}
+	note := leadstate.HandoffNote(v, leadstate.Store{}, leadstate.Builds{}, "issue-cli lead state")
+	if strings.Contains(note, "st-111111") {
+		t.Errorf("the note copies the owner steps:\n%s", note)
+	}
 	if err := tracker.CheckHandoffNote(note); err != nil {
-		t.Errorf("the note with steps fails its own check: %v", err)
+		t.Errorf("the rotate note fails its own check: %v", err)
 	}
 }
 

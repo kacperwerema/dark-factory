@@ -5,7 +5,7 @@ order: 47
 
 # Reel kit
 
-The reel kit makes short vertical videos (reels, 9:16, for Instagram Reels and TikTok) from a **storyboard JSON**: an agent fills the storyboard, the kit fills the project's **Remotion template** with it, encodes the MP4 with **FFmpeg**, runs **QA** on it, and puts the reel with its QA report on the **shelf** for the owner's one review. The command is `issue-cli reel`; the code is `internal/reel`; the starter template is `cmd/issue-cli/templates/reel/`.
+The reel kit makes short videos (reels, 9:16, for Instagram Reels and TikTok; or a 4:5 or 1:1 feed post, see [Formats](#formats)) from a **storyboard JSON**: an agent fills the storyboard, the kit fills the project's **Remotion template** with it, encodes the MP4 with **FFmpeg**, runs **QA** on it, and puts the reel with its QA report on the **shelf** for the owner's one review. The command is `issue-cli reel`; the code is `internal/reel`; the starter template is `cmd/issue-cli/templates/reel/`.
 
 The kit **reads files only**. The narration audio and its word timings come from the project's TTS connector, AI clips from its video-generation connector, screen recordings from the playtest runner; the storyboard names the files they wrote. So a render spends no money and needs no key. Connectors, their spend caps and the voices per placement are their own feature; the department workflow that runs the steps (brief, script with a legal check, render, the owner's review, publish) is the video department's reel type.
 
@@ -67,12 +67,13 @@ One JSON file per reel, `version: 1`. Paths in it are relative to its folder. `i
 | Field | What |
 |---|---|
 | `shape` | `hook-list`, `before-after` or `app-demo` (below) |
+| `format` | the frame: `9:16` (default), `4:5` or `1:1` ([Formats](#formats)) |
 | `title`, `language` | the reel's working title; BCP 47 language (`pl`) |
 | `brand` | `name`, `colors {primary, accent, text, background}`, `font`, `logo` (an image) |
 | `scenes[]` | `id`, `role` (the shape's), `duration` (planned seconds), `text` (on screen), `narration`, `clips[]` |
 | `scenes[].narration` | `text`, `voice` (a placement name the TTS connector's config resolves, e.g. `narrator`), `audio` (the file it wrote), `alignment` (its word timings) |
 | `scenes[].clips[]` | `source` (`app-recording`, `owner`, `stock`, `ai`), `path`, `start`/`end` (trim), `ai_generated`, `prompt`, `tool`, `licence` |
-| `captions` | `style` (`words`: 3 words a cue; `lines`: 8), `position` (`lower`, `middle`, `upper`, `custom` with `box {x,y,w,h}`), `max_words`, `font_size` |
+| `captions` | `style` (`words`: 3 words a cue; `lines`: 8), `position` (`lower`, `middle`, `upper`, `custom` with `box {x,y,w,h}` in pixels on the format's frame, which `validate` keeps inside it), `max_words`, `font_size` |
 | `music` | `path`, `licence {source, ref}` (licensed music only), `volume_db` (default -18), `duck` (lower it under the narration) |
 | `cta` | `text`, `url`, `handle`: what the `cta` scene shows |
 | `qa` | QA bound overrides for this reel ([QA](#qa)) |
@@ -80,6 +81,18 @@ One JSON file per reel, `version: 1`. Paths in it are relative to its folder. `i
 Rules `validate` holds a storyboard to: every `ai` clip says `ai_generated: true` and names its `tool` (the AI-content label and the legal check read them); every `stock` clip names its `licence`; music names its licence's source and ref; an `app-demo` step shows an `app-recording` clip; unknown fields are refused, so a typo is not a silent default.
 
 **Word timings** (`alignment`): ElevenLabs' with-timestamps response as it comes (its `alignment`, or `normalized_alignment`, or the alignment object alone: `characters`, `character_start_times_seconds`, `character_end_times_seconds`), or the kit's own `[{"word", "start", "end"}]` (also `{"words": [...]}`), seconds into the audio file. For a recorded human voice, any tool that writes word timings in one of these forms will do.
+
+### Formats
+
+`format` picks the frame. The plan, the size render asks the template for (`{width}`, `{height}`), the caption boxes, the default safe zone and the `aspect` check all follow it, so a feed post renders, passes QA and shelves the same way a reel does.
+
+| `format` | Frame | For | Default safe zone (top, bottom, left, right px) |
+|---|---|---|---|
+| `9:16` (default) | 1080x1920 | Instagram Reels, TikTok, YouTube Shorts, Facebook Reels | 220, 420, 60, 140 |
+| `4:5` | 1080x1350 | a Facebook or Instagram feed post | 100, 150, 60, 60 |
+| `1:1` | 1080x1080 | a square feed post | 80, 120, 60, 60 |
+
+The same material in two formats is two storyboards (one with `"format": "4:5"`), each rendered and shelved on its own. A template's `reel.json` `qa: safe_zone` applies to every format it renders: set a 4:5 or 1:1 reel's own in its storyboard's `qa:`. The starter template's compositions take their size from the plan; a project's copy that hard-codes positions for 1920 px wants a look at a 4:5 frame in Remotion Studio.
 
 ### The shapes
 
@@ -93,12 +106,12 @@ The template's `examples/` has one text-only storyboard per shape to start from.
 
 ## Render
 
-`reel render` works out the **plan**: each scene runs its planned `duration`, or its narration plus 0.4 s when that is longer; every word is placed on the reel's clock; the words are grouped into caption **cues**, each with its box on the 1080x1920 frame. It writes the plan beside the reel as `<name>.plan.json`, copies the clips and logo into the template's `public/reel-<name>/`, and runs the template's `render` command from its `reel.json` with the composition for the shape. Then FFmpeg:
+`reel render` works out the **plan**: each scene runs its planned `duration`, or its narration plus 0.4 s when that is longer; every word is placed on the reel's clock; the words are grouped into caption **cues**, each with its box on the format's frame (1080x1920 for 9:16). It writes the plan beside the reel as `<name>.plan.json`, copies the clips and logo into the template's `public/reel-<name>/`, and runs the template's `render` command from its `reel.json` with the composition for the shape. Then FFmpeg:
 
 1. the narration stem, each scene's audio at its scene's start (`<name>.narration.wav`, kept: QA's sync check reads it);
 2. the music under it, looped to length, ducked under the narration when `duck`;
 3. loudness: `loudnorm` to -14 LUFS, -1 dBTP, measured first and applied with the measured values (two passes);
-4. the encode: H.264 High, yuv420p, 1080x1920, 30 fps, AAC 48 kHz 192 kb/s, `+faststart`.
+4. the encode: H.264 High, yuv420p, the format's frame (1080x1920 for 9:16), 30 fps, AAC 48 kHz 192 kb/s, `+faststart`.
 
 The template only draws frames (`--muted`); every sound is the kit's.
 
@@ -109,13 +122,13 @@ The template only draws frames (`--muted`); every sound is the kit's.
 | Check | Fails when | Default bound |
 |---|---|---|
 | `duration` | outside the bounds, or off the storyboard's plan | 5-90 s, within 0.5 s of the plan |
-| `aspect` | the display aspect is not 9:16 (width × sample aspect / height) | 0.5625 |
+| `aspect` | the display aspect is not the storyboard's format (width × sample aspect / height) | 9:16 0.5625, 4:5 0.8, 1:1 1 |
 | `loudness` | integrated loudness (`ebur128`) off the target; silence fails | -14 LUFS ±2 |
 | `black-frames` | a black stretch (`blackdetect`, pixel threshold 0.10) | none of 0.2 s or more |
-| `safe-zone` | a caption box enters what the platforms' UI covers; a narrated reel with no cues | top 220, bottom 420, left 60, right 140 px of 1080x1920 |
+| `safe-zone` | a caption box enters what the platforms' UI covers; a narrated reel with no cues | 9:16: top 220, bottom 420, left 60, right 140 px of 1080x1920; 4:5 and 1:1: [Formats](#formats) |
 | `caption-sync` | a cue more than 0.15 s from its words; speech (`silencedetect` on the narration stem, else the reel's own audio) starting more than 0.25 s from a scene's first word; audio and video streams starting more than 0.15 s apart | as listed |
 
-The safe zone is the union of Instagram Reels' and TikTok's overlays (the top bar; caption, music and buttons at the bottom; the like/comment/share column on the right). The caption checks read the cues in the plan the template drew from (`<name>.plan.json`), against the words worked out from the storyboard now: a narration re-recorded after the render shows as a sync fail until the reel is rendered again. A check with no data fails and says so; none passes silently.
+The 9:16 safe zone is the union of Instagram Reels' and TikTok's overlays (the top bar; caption, music and buttons at the bottom; the like/comment/share column on the right). The caption checks read the cues in the plan the template drew from (`<name>.plan.json`), against the words worked out from the storyboard now: a narration re-recorded after the render shows as a sync fail until the reel is rendered again. A check with no data fails and says so; none passes silently.
 
 **Bounds** are laid in order: the kit's defaults, then the template's `reel.json` `qa:` (every reel the project makes), then the storyboard's `qa:` (this reel). The fields: `min_seconds`, `max_seconds`, `plan_slack_seconds`, `lufs`, `lufs_slack`, `black_seconds`, `cue_slack_seconds`, `speech_slack_seconds`, `safe_zone {top, bottom, left, right}`. The report names each bound that didn't come from the defaults, and where it came from.
 

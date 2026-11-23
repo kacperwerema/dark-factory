@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	_ "time/tzdata" // Europe/Warsaw on a machine without a zoneinfo database
@@ -39,19 +40,18 @@ func newDriftBoard(t *testing.T) *driftBoard {
 }
 
 // newDriftBoardAt is the fixture board with today fixed at now (zero: the
-// real clock). With a fixed now every commit is dated a minute before it,
-// so the decisions' dates and the commits agree whatever the real day.
+// real clock, read when its fixture is first built). With a fixed now every
+// commit is dated a minute before it, so the decisions' dates and the
+// commits agree whatever the real day. The repo is a fresh copy of the
+// clock's fixture, so a test may commit on it.
 func newDriftBoardAt(t *testing.T, now time.Time) *driftBoard {
 	t.Helper()
-	today := now
-	if today.IsZero() {
-		today = time.Now()
-	} else {
-		at := today.Add(-time.Minute).Format(time.RFC3339)
-		t.Setenv("GIT_AUTHOR_DATE", at)
-		t.Setenv("GIT_COMMITTER_DATE", at)
+	f := driftFixtureAt(t, now)
+	repo := &respectedRepo{t: t, dir: t.TempDir()}
+	if err := os.CopyFS(repo.dir, os.DirFS(f.dir)); err != nil {
+		t.Fatal(err)
 	}
-	repo := newRespectedRepo(t)
+	today := f.today
 	day := func(n int) string { return today.AddDate(0, 0, -n).Format("2006-01-02") }
 	rules := &Issue{Slug: "board/rules", Status: "done", BodyRaw: "## Decisions\n\n" +
 		fmt.Sprintf(`- **D-1** · %s · chat: The store is append-only, "append only" {scope: project; hard; paths: internal/store/**}`, day(40)) + "\n" +
@@ -63,7 +63,7 @@ func newDriftBoardAt(t *testing.T, now time.Time) *driftBoard {
 		fmt.Sprintf(`- **D-7** · %s · YOLO, provisional: Logs rotate daily {scope: project}`, day(13)) + "\n" +
 		fmt.Sprintf(`- **D-8** · %s · recorded by agent: No quote, not provisional {scope: project}`, day(30)) + "\n" +
 		fmt.Sprintf(`- **D-9** · %s · chat: Pages get a review, "review" {scope: project; hard; paths: web/**}`, today.AddDate(0, 0, 1).Format("2006-01-02")) + "\n"}
-	b := &driftBoard{repo: repo, dir: t.TempDir(), today: today, issues: []*Issue{
+	b := &driftBoard{repo: repo, dir: t.TempDir(), today: today, direct: f.direct, issues: []*Issue{
 		rules,
 		{Slug: "board/open", Status: "in progress", BodyRaw: "Follows board/rules#D-2.\n"},
 		{Slug: "board/old", Status: "done", BodyRaw: "Followed board/rules#D-2.\n"},
@@ -72,39 +72,177 @@ func newDriftBoardAt(t *testing.T, now time.Time) *driftBoard {
 		{Slug: "board/feature", Status: "done", BodyRaw: "Follows board/rules#D-1.\n"},
 		{Slug: "board/other", Status: "done", BodyRaw: "Nothing to cite.\n"},
 	}}
-
-	init := repo.git("rev-parse", "main")
-	if err := SaveDriftMark(b.dir, DriftMark{At: today.Add(-time.Hour), Main: init}); err != nil {
+	if err := SaveDriftMark(b.dir, DriftMark{At: today.Add(-time.Hour), Main: f.init}); err != nil {
 		t.Fatal(err)
 	}
+	b.based(t, "board/other", f.otherBase)
+	b.based(t, "board/feature", f.featureBase)
+	return b
+}
+
+// driftFixture is the fixture board's git repo for one clock. Its commits
+// are dated by the clock, so each clock has its own. Every clock's is built
+// once per test binary, all at once and in parallel (about 0.5 s of serial
+// git each), and each test gets a copy of its clock's.
+type driftFixture struct {
+	dir                                  string
+	today                                time.Time
+	init, otherBase, featureBase, direct string
+}
+
+// driftFixtures are the fixtures by clock (driftFixtureKey), built on the
+// first test's call.
+var (
+	driftFixturesMu sync.Mutex
+	driftFixtures   map[string]*driftFixture
+)
+
+// driftFixturesDir holds the fixtures' repos; TestMain removes it.
+func driftFixturesDir() string { return filepath.Join(os.TempDir(), "drift-fixtures") }
+
+func driftFixtureKey(now time.Time) string {
+	if now.IsZero() {
+		return "real clock"
+	}
+	return now.Format(time.RFC3339) + " " + now.Location().String()
+}
+
+// driftFixtureAt is the fixture for now's clock: one of driftClocks, or
+// built on its own for another.
+func driftFixtureAt(t *testing.T, now time.Time) *driftFixture {
+	t.Helper()
+	driftFixturesMu.Lock()
+	defer driftFixturesMu.Unlock()
+	if driftFixtures == nil {
+		var nows []time.Time
+		for _, c := range driftClocks(t) {
+			nows = append(nows, c.now)
+		}
+		built, err := buildDriftFixtures(nows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		driftFixtures = built
+	}
+	if f := driftFixtures[driftFixtureKey(now)]; f != nil {
+		return f
+	}
+	built, err := buildDriftFixtures([]time.Time{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, f := range built {
+		driftFixtures[k] = f
+	}
+	return driftFixtures[driftFixtureKey(now)]
+}
+
+// buildDriftFixtures builds a fixture for each of nows in parallel, under
+// driftFixturesDir. Its git takes the commit dates in its own environment,
+// so nothing here touches the process's.
+func buildDriftFixtures(nows []time.Time) (map[string]*driftFixture, error) {
+	out := make([]*driftFixture, len(nows))
+	errs := make([]error, len(nows))
+	var wg sync.WaitGroup
+	for i, now := range nows {
+		dir, err := os.MkdirTemp(mkdirAll(driftFixturesDir()), "clock-")
+		if err != nil {
+			return nil, err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out[i], errs[i] = buildDriftFixture(dir, now)
+		}()
+	}
+	wg.Wait()
+	built := map[string]*driftFixture{}
+	for i, now := range nows {
+		if errs[i] != nil {
+			return nil, fmt.Errorf("drift fixture at %s: %w", driftFixtureKey(now), errs[i])
+		}
+		built[driftFixtureKey(now)] = out[i]
+	}
+	return built, nil
+}
+
+func mkdirAll(dir string) string {
+	_ = os.MkdirAll(dir, 0o755) // MkdirTemp's error names it
+	return dir
+}
+
+func buildDriftFixture(dir string, now time.Time) (*driftFixture, error) {
+	f := &driftFixture{dir: dir, today: now}
+	var env []string
+	if f.today.IsZero() {
+		f.today = time.Now()
+	} else {
+		at := f.today.Add(-time.Minute).Format(time.RFC3339)
+		env = []string{"GIT_AUTHOR_DATE=" + at, "GIT_COMMITTER_DATE=" + at}
+	}
+	var failed error
+	git := func(args ...string) string {
+		if failed != nil {
+			return ""
+		}
+		out, err := respectedGit(dir, env, args...).CombinedOutput()
+		if err != nil {
+			failed = fmt.Errorf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(rel, content string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil && failed == nil {
+			failed = err
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil && failed == nil {
+			failed = err
+		}
+	}
+	commit := func(msg string) string {
+		git("add", "-A")
+		git("commit", "-q", "-m", msg)
+		return git("rev-parse", "HEAD")
+	}
+	// What newRespectedRepo starts with.
+	git("init", "-q", "-b", "main")
+	git("config", "maintenance.auto", "false")
+	git("config", "gc.auto", "0")
+	write("README.md", "hi\n")
+	write("internal/store/db.go", "package store\n")
+	write("web/page.html", "<p>\n")
+	f.init = commit("init")
+
 	// work/board/other is cut before the direct commit and later merges main.
-	b.based(t, "board/other", repo.branch("board/other"))
-	repo.write("web/other.html", "<p>other\n")
-	repo.commit("feat: other page")
-	repo.git("checkout", "-q", "main")
+	f.otherBase = f.init
+	git("checkout", "-q", "-b", "work/board/other", "main")
+	write("web/other.html", "<p>other\n")
+	commit("feat: other page")
+	git("checkout", "-q", "main")
 
-	repo.write("internal/store/direct.go", "package store\n")
-	b.direct = repo.commit("fix: store tweak straight on main")
-	repo.write("internal/store/refs.go", "package store\n")
-	repo.commit("feat: store via refs\n\nRefs: board/citer")
-	repo.write("web/plain.html", "<p>plain\n")
-	repo.commit("feat: a page")
+	write("internal/store/direct.go", "package store\n")
+	f.direct = commit("fix: store tweak straight on main")
+	write("internal/store/refs.go", "package store\n")
+	commit("feat: store via refs\n\nRefs: board/citer")
+	write("web/plain.html", "<p>plain\n")
+	f.featureBase = commit("feat: a page")
 
-	b.based(t, "board/feature", repo.branch("board/feature"))
-	repo.write("internal/store/feature.go", "package store\n")
-	repo.commit("feat: store feature")
-	repo.git("checkout", "-q", "main")
-	repo.git("merge", "-q", "--ff-only", "work/board/feature")
+	git("checkout", "-q", "-b", "work/board/feature", "main")
+	write("internal/store/feature.go", "package store\n")
+	commit("feat: store feature")
+	git("checkout", "-q", "main")
+	git("merge", "-q", "--ff-only", "work/board/feature")
 
-	repo.git("checkout", "-q", "work/board/other")
-	repo.git("merge", "-q", "--no-edit", "main", "-m", "chore(merge): main into board/other")
-	repo.git("checkout", "-q", "main")
-	repo.git("merge", "-q", "--ff-only", "work/board/other")
+	git("checkout", "-q", "work/board/other")
+	git("merge", "-q", "--no-edit", "main", "-m", "chore(merge): main into board/other")
+	git("checkout", "-q", "main")
+	git("merge", "-q", "--ff-only", "work/board/other")
 
-	repo.write("docs/departments.md", "# Departments\n\nSee board/rules#D-2 for history.\n\n## Settled rules\n\n"+
+	write("docs/departments.md", "# Departments\n\nSee board/rules#D-2 for history.\n\n## Settled rules\n\n"+
 		"- **Store.** Append only. Sources: board/rules#D-1, #D-2.\n"+
 		"- **Pages.** One script. Source: board/rules#D-3.\n\n## Config\n\nboard/rules#D-2 again.\n")
-	return b
+	return f, failed
 }
 
 // based gives issue slug a file in the issues dir and a stats sidecar
@@ -144,25 +282,34 @@ func (b *driftBoard) run(t *testing.T) DriftReport {
 // days old at each and never listed.
 func driftClocks(t *testing.T) []struct {
 	name string
-	now  func(t *testing.T) time.Time
+	now  time.Time // zero: the real clock
 } {
 	t.Helper()
-	at := func(y int, m time.Month, d, hh, mm int) func(t *testing.T) time.Time {
-		return func(t *testing.T) time.Time {
-			loc := inZone(t, "Europe/Warsaw")
-			return time.Date(y, m, d, hh, mm, 0, 0, loc)
-		}
+	loc, err := time.LoadLocation("Europe/Warsaw")
+	if err != nil {
+		t.Fatal(err)
 	}
+	at := func(y int, m time.Month, d, hh, mm int) time.Time { return time.Date(y, m, d, hh, mm, 0, 0, loc) }
 	return []struct {
 		name string
-		now  func(t *testing.T) time.Time
+		now  time.Time
 	}{
-		{"real clock", func(*testing.T) time.Time { return time.Time{} }},
+		{"real clock", time.Time{}},
 		{"23:30 after the autumn DST change", at(2026, time.November, 2, 23, 30)},
 		{"23:59 after the autumn DST change", at(2026, time.October, 26, 23, 59)},
 		{"00:01 after the spring DST change", at(2026, time.April, 6, 0, 1)},
 		{"23:59 on a plain day", at(2026, time.July, 15, 23, 59)},
 	}
+}
+
+// clockNow sets time.Local to now's zone for the rest of the test (inZone)
+// unless now is the real clock, and returns now.
+func clockNow(t *testing.T, now time.Time) time.Time {
+	t.Helper()
+	if !now.IsZero() {
+		inZone(t, now.Location().String())
+	}
+	return now
 }
 
 // inZone sets time.Local to the named zone for the rest of the test (the
@@ -182,7 +329,7 @@ func inZone(t *testing.T, name string) *time.Location {
 
 func TestDriftFixtureBoardEachKindOnce(t *testing.T) {
 	for _, c := range driftClocks(t) {
-		t.Run(c.name, func(t *testing.T) { driftFixtureBoardEachKindOnce(t, c.now(t)) })
+		t.Run(c.name, func(t *testing.T) { driftFixtureBoardEachKindOnce(t, clockNow(t, c.now)) })
 	}
 }
 
@@ -300,7 +447,7 @@ func TestDriftMarkNotInHistoryFallsBack(t *testing.T) {
 func TestDriftNoRepoSkipsPathsOnly(t *testing.T) {
 	for _, c := range driftClocks(t) {
 		t.Run(c.name, func(t *testing.T) {
-			b := newDriftBoardAt(t, c.now(t))
+			b := newDriftBoardAt(t, clockNow(t, c.now))
 			rep, err := Drift(DriftInput{Issues: b.issues, IsClosed: func(i *Issue) bool { return i.Status == "done" }, IssueDir: b.dir, Today: b.today})
 			if err != nil {
 				t.Fatal(err)

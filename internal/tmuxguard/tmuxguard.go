@@ -89,9 +89,7 @@ func Isolate() (cleanup func()) {
 	return func() {
 		sock := Socket(dir)
 		if _, err := os.Stat(sock); err == nil {
-			kill := exec.Command("tmux", "-S", sock, "kill-server")
-			kill.Env = EnvWithoutTMUX()
-			_ = kill.Run()
+			KillServer(sock, EnvWithoutTMUX())
 		}
 		reached := reachedAgentCLIs(guarded)
 		// Every exit, reached or not: a CLI a test started (or a daemon it
@@ -327,4 +325,25 @@ func SweepStale(root string, now time.Time) []string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// KillServer stops the tmux server on socket (env is the tmux command's
+// environment: without TMUX, so it never reaches another server) and
+// returns once nothing it ran is left. `tmux kill-server` alone closes the
+// panes and returns while their processes still run: on a loaded machine
+// a pane's agent then still wrote into its test's t.TempDir during the
+// cleanup that removed it, and the binary failed with "left <Test><N> in
+// TMPDIR" (TestNewcomerWalkthrough, 2026-11-21). So the server and every
+// process under it are killed (procs.StopTree) before kill-server runs.
+func KillServer(socket string, env []string) {
+	pidCmd := exec.Command("tmux", "-S", socket, "display-message", "-p", "#{pid}")
+	pidCmd.Env = env
+	if out, err := pidCmd.Output(); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil {
+			procs.StopTree(pid, 5*time.Second)
+		}
+	}
+	kill := exec.Command("tmux", "-S", socket, "kill-server")
+	kill.Env = env
+	_ = kill.Run()
 }

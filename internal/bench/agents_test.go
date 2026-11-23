@@ -33,6 +33,7 @@ func (f *fixture) twoAgents(t *testing.T) *Benchmark {
 var bothAgents = Options{Agents: []string{AgentClaude, AgentCodex}, Setup: Setup{Agent: "claude,codex"}}
 
 func TestTwoAgentRunRecordsBothInRunJSON(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Keep = true
@@ -40,7 +41,7 @@ func TestTwoAgentRunRecordsBothInRunJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved, err := LoadRun("t", run.ID)
+	saved, err := LoadRun(run.Benchmark, run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +74,7 @@ func TestTwoAgentRunRecordsBothInRunJSON(t *testing.T) {
 }
 
 func TestTwoAgentRunPricesCodexFromPricesAlone(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	b := f.twoAgents(t)
 	b.Prices = map[string]Price{"gpt-stand": {In: 1, Out: 2, CacheRead: 0.5, CacheWrite: 1}}
@@ -88,6 +90,7 @@ func TestTwoAgentRunPricesCodexFromPricesAlone(t *testing.T) {
 }
 
 func TestTwoAgentRunResumesEachAgentsMissingTask(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	calls := 0
@@ -111,6 +114,7 @@ func TestTwoAgentRunResumesEachAgentsMissingTask(t *testing.T) {
 }
 
 func TestDefaultTokenCapCountsEveryAgent(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	b := f.twoAgents(t)
 	// Over one task's share: a cap counting tasks would stop before codex.
@@ -125,6 +129,7 @@ func TestDefaultTokenCapCountsEveryAgent(t *testing.T) {
 }
 
 func TestBudgetStopRecordsEachAgentsRest(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	b := f.twoAgents(t)
 	b.Budget.Tokens = 100
@@ -138,6 +143,7 @@ func TestBudgetStopRecordsEachAgentsRest(t *testing.T) {
 }
 
 func TestOneAgentRunRecordsNoAgentOnItsTasks(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	run, err := Execute(context.Background(), f.benchmark(fixWorker, f.task), f.env(t), Options{Setup: Setup{Agent: AgentClaude}})
 	if err != nil {
@@ -146,7 +152,7 @@ func TestOneAgentRunRecordsNoAgentOnItsTasks(t *testing.T) {
 	if run.Tasks[0].Agent != "" || run.Tasks[0].Key() != run.Tasks[0].Task {
 		t.Fatalf("record = %+v", run.Tasks[0])
 	}
-	data, _ := os.ReadFile(filepath.Join(RunDir("t", run.ID), "run.json"))
+	data, _ := os.ReadFile(filepath.Join(RunDir(run.Benchmark, run.ID), "run.json"))
 	var raw struct {
 		Tasks []map[string]any `json:"tasks"`
 	}
@@ -159,6 +165,7 @@ func TestOneAgentRunRecordsNoAgentOnItsTasks(t *testing.T) {
 }
 
 func TestACodexWorkerThatNeverRanIsNoLostTask(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	b := f.twoAgents(t)
 	b.Workers[AgentCodex] = `cat > /dev/null; echo 'stream disconnected' >&2; exit 1`

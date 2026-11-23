@@ -118,7 +118,7 @@ Each workflow point covers the issues done in the 30 days before its snapshot, s
 **Charts** are SVG drawn on the server (`internal/chart`): no chart library, no inline script, so they work under a strict CSP.
 
 - **Accessible:** `role="img"` and an `aria-label` on each chart, a `<title>` on every mark (the hover tooltip), and a Table button per chart that swaps it for the same numbers as rows (a plain `<details>` without JavaScript).
-- **Colours:** classes (`s-agent`, `s-waiting`, `s-idle`, `s-feature`, `s-bugfix`, `s-tweak`, `s-none`, …) mapped to the theme's `--chart-*` tokens in `static/style.css`, in dark, Dracula and light. A type of work keeps its colour on every chart. The dark palette passes the colour-vision checks (worst adjacent ΔE 9.4); the light one is below 3:1 contrast for aqua and amber, which the table view covers.
+- **Colours:** classes (`s-agent`, `s-waiting`, `s-idle`, `s-feature`, `s-bugfix`, `s-tweak`, `s-none`, …) mapped (in `static/style-stats.css`) to the theme's `--chart-*` tokens in `static/style.css`, in dark, Dracula and light. A type of work keeps its colour on every chart. The dark palette passes the colour-vision checks (worst adjacent ΔE 9.4); the light one is below 3:1 contrast for aqua and amber, which the table view covers.
 
 **Speed.** The aggregate is cached per project, keyed by the done issues (slug and file time):
 

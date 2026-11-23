@@ -14,7 +14,7 @@ func TestShellPromptSection(t *testing.T) {
 	if !strings.HasPrefix(all, "\n\n## Shell on this machine\n\n") {
 		t.Fatalf("missing heading: %q", all)
 	}
-	for _, want := range []string{"doesn't word-split", "quote them (`'*.go'`)", "`/usr/bin/git`", "rtk proxy", "`t.Log` lines", "`rtk proxy go test -v …`", "`make validate > <log> 2>&1`", "watch the log", "`validate: red so far: <step>`", "stop and fix it", "The verdict is the last `validate:` line", "`rtk grep` is ripgrep", "`--include` fails", "false \"0 matches\"", "`-g '*.go'`", "Never pipe or chain a command whose exit code decides the next step", "\"no verdict\" from auto mode", "send that call alone", "`sed -i ''`", "no `-c`", "`/bin/cp`"} {
+	for _, want := range []string{"doesn't word-split", "quote them (`'*.go'`)", "`/usr/bin/git`", "rtk proxy", "`t.Log` lines", "`rtk proxy go test -v …`", "`make validate > \"$(git rev-parse --git-path validate.log)\" 2>&1`", "watch that file", "the worktree's own git dir", "a shared /tmp name", "`validate: red so far: <step>`", "stop and fix it", "The verdict is the last `validate:` line", "`rtk grep` is ripgrep", "`--include` fails", "false \"0 matches\"", "`-g '*.go'`", "Never pipe or chain a command whose exit code decides the next step", "\"no verdict\" from auto mode", "send that call alone", "`sed -i ''`", "no `-c`", "`/bin/cp`"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("section missing %q: %q", want, all)
 		}

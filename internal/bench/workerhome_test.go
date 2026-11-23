@@ -125,6 +125,7 @@ func TestAClaudeConfigDirIsWhereTheCredentialsLinkPoints(t *testing.T) {
 }
 
 func TestWorkerHomeOwnerKeepsTheOwnersHome(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Keep = true
@@ -167,6 +168,7 @@ func TestLoadRefusesAnUnknownWorkerHome(t *testing.T) {
 }
 
 func TestAWorkerWithNoLoginEndsAsErrorNamingTheDoc(t *testing.T) {
+	parallel(t)
 	f := newFixture(t)
 	env := f.env(t)
 	env.Home = t.TempDir()

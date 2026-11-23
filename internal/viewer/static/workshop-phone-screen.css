@@ -1,0 +1,122 @@
+/* Phone width: one screen. One of the workshop stylesheets, loaded in the order css_bundles.go lists them. */
+/* ---- phone width: one screen (the ‹, the waiting count, the YOLO band as a
+   line, the company floor as a list) ---- */
+/* Everything here renders at every width and shows only at 640px and below,
+   so desktop is unchanged. Each page's title sits in the top half of a
+   390x844 screen (playtest/sessions/phone-fold.yaml checks it). */
+.wb-crumb-up { display: none; }
+/* contents: the words run on from the count, so the button is as wide as before */
+.wb-you-words { display: contents; }
+.wb-avatar-words { display: none; }
+.wb-hazard-line { display: none; }
+.wb-fl-stats { display: contents; }
+.wb-fl-drawer-views { display: none; }
+.wb-fl-list { display: none; }
+@media (max-width: 640px) {
+  /* the header row: ‹ up, the current crumb as the title, "! N", ☰ */
+  .wb .wb-crumb-up { display: grid; place-items: center; order: 0; flex: none; width: 44px; height: 44px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); color: var(--ink); font-size: 24px; font-weight: 800; line-height: 1; text-decoration: none; }
+  .wb .wb-crumb-up:focus-visible { outline: 3px solid #2A5BD7; outline-offset: 2px; }
+  .wb .wb-header .wb-crumb--on, .wb .wb-fl-header .wb-fl-crumb--on { padding: 0; border: 0; background: none; color: var(--ink); font-family: var(--display); font-weight: 800; font-size: 18px; }
+  .wb .wb-header .wb-crumb--on .wb-crumb-sq, .wb .wb-fl-crumb--on .wb-fl-crumb-sq { width: 10px; height: 10px; margin-right: 6px; border: 1.5px solid var(--ink); }
+  .wb .wb-you-words { display: block; position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .wb .wb-you-btn, .wb .wb-fl-you { gap: 6px; padding: 0 10px; box-shadow: 2px 2px 0 var(--ink); }
+  /* the drawer: YOU as a row, then the view toggle */
+  .wb .wb-drawer-toggle:checked ~ .wb-header-stats > .wb-avatar, .wb .wb-drawer-toggle:checked ~ .wb-fl-stats > .wb-fl-avatar { width: auto; height: auto; justify-content: flex-start; gap: 4px; padding: 0 12px; border-radius: 10px; }
+  .wb .wb-drawer-toggle:checked ~ .wb-header-stats > .wb-avatar .wb-avatar-words, .wb .wb-drawer-toggle:checked ~ .wb-fl-stats .wb-avatar-words { display: inline; font-weight: 600; }
+  .wb .wb-header:has(.wb-drawer-toggle:checked) > .wb-toggle { display: flex; order: 3; flex: 1 1 100%; }
+  .wb .wb-header > .wb-toggle { display: none; }
+  .wb .wb-header > .wb-toggle > a, .wb .wb-header > .wb-toggle > .wb-toggle-on, .wb .wb-fl-drawer-views > a, .wb .wb-fl-drawer-views > .wb-toggle-on { flex: 1 1 0; justify-content: center; min-height: 40px; }
+
+  /* the company floor's header: the same row and drawer */
+  .wb .wb-fl-header { flex-wrap: wrap; gap: 8px; padding: 8px 16px; }
+  .wb .wb-fl-logo { display: none; }
+  .wb .wb-fl-crumbs { flex: 1 1 0; min-width: 0; }
+  .wb .wb-fl-crumbs > :not(.wb-fl-crumb--on) { display: none; }
+  .wb .wb-fl-crumb--on { display: block; min-width: 0; min-height: 0; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
+  .wb .wb-fl-stats > * { display: none; order: 3; flex: 1 1 100%; }
+  .wb .wb-fl-stats > .wb-fl-you { display: inline-flex; order: 1; flex: none; }
+  .wb .wb-fl-header > .wb-drawer-btn { order: 2; margin-left: 0; }
+  .wb .wb-drawer-toggle:checked ~ .wb-fl-stats > :not(.wb-fl-you):not(.wb-grow) { display: flex; flex-wrap: wrap; min-height: 44px; min-width: 0; margin: 0; overflow: visible; }
+  .wb .wb-fl-titlebar { flex-wrap: wrap; row-gap: 2px; padding: 14px 16px 0; }
+  .wb .wb-fl-titlebar .wb-toggle, .wb .wb-fl-titlebar .wb-grow { display: none; }
+  .wb .wb-fl-h1 { font-size: 24px; }
+  .wb .wb-fl-subtitle { flex: 1 1 100%; white-space: normal; }
+
+  /* the YOLO band as one 44px line; the checkbox before it opens the card */
+  .wb .wb-hazard, .wb .wb-fl-yolo { display: block; height: auto; padding: 0; background: var(--paper); }
+  .wb .wb-hazard-line { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px 0 0; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .wb .wb-hazard-toggle:focus-visible + .wb-hazard-line { outline: 3px solid #2A5BD7; outline-offset: -3px; }
+  .wb-hazard-edge { align-self: stretch; flex: none; width: 18px; border-right: 2px solid var(--ink); background: repeating-linear-gradient(135deg, var(--yolo) 0 6px, var(--ink) 6px 12px); }
+  .wb-hazard-tag { flex: none; padding: 1px 7px; border: 1.5px solid var(--ink); border-radius: 6px; background: var(--yolo); font-family: var(--display); font-weight: 800; font-size: 12.5px; }
+  .wb-hazard-line-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wb-hazard-line-end { color: var(--muted-2); font-weight: 500; }
+  .wb-hazard-chev { flex: none; margin-left: auto; font-size: 18px; }
+  .wb-hazard-chev::before { content: "›"; }
+  .wb .wb-hazard-toggle:checked + .wb-hazard-line .wb-hazard-chev::before { content: "⌄"; }
+  .wb .wb-hazard-card, .wb .wb-fl-yolo-card { display: none; }
+  .wb .wb-hazard-toggle:checked ~ .wb-hazard-card, .wb .wb-hazard-toggle:checked ~ .wb-fl-yolo-card { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; height: auto; max-width: none; margin: 0; padding: 10px 16px 12px; border: 0; border-top: 2px solid var(--ink); border-radius: 0; white-space: normal; font-size: 13px; }
+  .wb .wb-hazard-card .wb-hazard-title, .wb .wb-hazard-card .wb-grow, .wb .wb-fl-yolo-card .wb-fl-yolo-tag { display: none; }
+  .wb .wb-hazard-card .wb-hazard-text, .wb .wb-hazard-card .wb-hazard-meta { flex: 1 1 100%; }
+  .wb .wb-hazard-extend, .wb .wb-hazard-card > .wb-btn, .wb .wb-fl-yolo-extend, .wb .wb-fl-yolo-card > .wb-fl-yolo-btn { flex: 1 1 0; }
+  .wb .wb-hazard-extend > summary, .wb .wb-fl-yolo-extend > summary { justify-content: center; width: 100%; }
+  .wb .wb-hazard-card .wb-btn, .wb .wb-fl-yolo-card .wb-fl-yolo-btn { justify-content: center; }
+  .wb .wb-hazard-menu, .wb .wb-fl-yolo-menu { left: 0; right: auto; }
+  .wb .wb-hazard-msg { margin: 0 16px 8px; }
+
+  /* the company floor: a list of rooms instead of the scaled plan */
+  .wb .wb-fl-view, .wb .wb-fl-legend, .wb .wb-fl-rooms { display: none; }
+  .wb .wb-fl-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 16px 16px; padding: 0; list-style: none; }
+  .wb-fl-lrow { display: flex; align-items: center; gap: 10px; min-height: 60px; margin-left: calc(var(--depth, 0) * 18px); padding: 6px 8px 6px 12px; border: 2px solid var(--ink); border-left: 8px solid var(--lrow, var(--ink)); border-radius: 12px; background: var(--paper); }
+  .wb .wb-fl-lrow--new { border-style: dashed; border-left: 2px dashed var(--ink); background: rgba(255,255,255,.55); }
+  .wb .wb-fl-lname { flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; flex-direction: column; justify-content: center; gap: 2px; color: var(--ink); text-decoration: none; }
+  .wb-fl-lhead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+  .wb-fl-lhead b { font-size: 15px; font-weight: 800; overflow-wrap: anywhere; }
+  .wb-fl-llive { color: #157A42; font-size: 11.5px; font-weight: 700; }
+  .wb-fl-lcounts { font-size: 13px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .wb-fl-lcounts b { color: var(--ink); }
+  .wb .wb-fl-lgo { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 2px solid var(--ink); border-radius: 10px; background: var(--paper); color: var(--ink); font-weight: 800; font-size: 14px; text-decoration: none; }
+}
+
+/* Connect socials (/p/<project>/socials/<dept>, templates/_workshop_socials.html) */
+.wb-so { display: flex; flex-direction: column; gap: 16px; max-width: 860px; padding: 12px 24px 32px; }
+.wb-so-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 2px solid var(--ink); border-radius: 14px; background: var(--paper); box-shadow: 4px 4px 0 var(--ink); }
+.wb-so-h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 18px; }
+.wb-so-step { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--ink); border-radius: 50%; font-family: var(--mono); font-size: 13px; }
+.wb-so-line { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.wb-so-note { margin: 0; font-size: 13px; color: var(--muted-2); }
+.wb-so-warn { margin: 0; padding: 8px 10px; border-left: 4px solid var(--you); background: #FFF6E5; font-size: 13px; }
+.wb-so-flash, .wb-so-error, .wb-so-hold { padding: 10px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 600; }
+.wb-so-flash { background: #E8F6EC; }
+.wb-so-error { background: #FDEBEC; }
+.wb-so-hold { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; background: #FFF6E5; }
+.wb-so-form { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.wb-so-field { display: flex; flex-direction: column; gap: 4px; width: 100%; max-width: 480px; font-size: 13px; font-weight: 600; }
+.wb-so-field input { font: inherit; font-weight: 500; min-height: 40px; padding: 6px 10px; border: 2px solid var(--ink); border-radius: 8px; background: var(--paper); color: var(--ink); }
+.wb-so-diff { margin: 0; max-width: 100%; overflow-x: auto; padding: 8px 10px; border: 1.5px solid #E3E6EC; border-radius: 8px; background: #FAFBFC; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.wb-so-diff-line { display: inline; white-space: pre; }
+.wb-so-diff-line--add { color: #1C7C3C; }
+.wb-so-diff-line--del { color: #B4232C; }
+.wb-so-diff-line--gap, .wb-so-diff-line--same { color: var(--muted-2); }
+.wb-so-networks-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.wb-so-checked { margin-left: auto; font-family: var(--mono); font-size: 12px; }
+.wb-so-nets { display: flex; flex-direction: column; gap: 8px; }
+.wb-so-net { border: 1.5px solid var(--ink); border-radius: 10px; background: var(--paper); }
+.wb-so-net-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; cursor: pointer; }
+.wb-so-net-name { min-width: 9em; }
+.wb-so-net-how { margin-left: auto; font-size: 12px; }
+.wb-so-net-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px; }
+.wb-so-copy { user-select: all; }
+.wb-so-channels { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.wb-so-channel { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.wb-so-disconnect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-left: auto; }
+.wb-so-confirm { font-size: 12px; color: var(--muted-2); }
+.wb-so-more summary { cursor: pointer; font-weight: 600; }
+.wb-room-socials { display: inline-block; margin-top: 6px; font-family: var(--mono); font-size: 12px; }
+@media (max-width: 600px) {
+  .wb-so { padding: 10px 16px 24px; }
+  .wb-so-card { padding: 12px; box-shadow: 3px 3px 0 var(--ink); }
+  .wb-so-form .wb-btn, .wb-so-hold .wb-btn { width: 100%; min-height: 44px; }
+  .wb-so-hold form { width: 100%; }
+  .wb-so-net-how, .wb-so-checked, .wb-so-disconnect { margin-left: 0; }
+  .wb-so-disconnect { width: 100%; }
+}

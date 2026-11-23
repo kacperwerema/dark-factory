@@ -95,8 +95,8 @@ func TestRunWorkflowUpgradeListsDeclinedAndRecord(t *testing.T) {
 	out := stdout.String()
 	assertContains(t, out, "Record:   features: (0 installed, 1 declined)")
 	assertContains(t, out, "Declined (not proposed; re-open with `issue-cli workflow scan --forget <id>`): scoring")
-	assertContains(t, out, "Detected but not in the features: record (run `issue-cli workflow scan`): ")
-	assertContains(t, out, "worktree\n")
+	assertContains(t, out, "== Present, record only (")
+	assertContains(t, out, "    worktree (not in the record)\n")
 
 	ctx, stdout, _ = newTestContext(proj, false)
 	if err := runWorkflow(ctx, []string{"upgrade", "--all"}); err != nil {

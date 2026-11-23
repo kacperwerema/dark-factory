@@ -1,0 +1,504 @@
+/* Action buttons, inline editing, dispatch, approval, board card controls. One of the style stylesheets, loaded in the order css_bundles.go lists them. */
+/* Reusable action button — subtle green, matches dispatch button palette */
+.btn-action {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 6px;
+    padding: 6px 20px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.btn-action:hover {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.5);
+}
+
+.body-save-btn {
+    align-self: flex-end;
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 6px;
+    padding: 6px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.body-save-btn:hover {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.5);
+}
+
+/* Inline editing */
+.edit-select {
+    background: var(--bg-tertiary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 14px;
+    width: 100%;
+    cursor: pointer;
+}
+
+.edit-select:focus {
+    outline: none;
+    border-color: var(--text-link);
+}
+
+.edit-input {
+    background: var(--bg-tertiary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 14px;
+    width: 100%;
+}
+
+.edit-input:focus {
+    outline: none;
+    border-color: var(--text-link);
+}
+
+.editable-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.label-remove {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.label-remove:hover {
+    color: #ef4444;
+}
+
+.label-add-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.label-add-row .edit-input {
+    flex: 1;
+}
+
+.label-add-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.label-add-btn:hover {
+    color: var(--text);
+    border-color: var(--text-link);
+}
+
+/* Dispatch to agent button */
+.dispatch-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.dispatch-btn:hover {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.5);
+}
+
+.dispatch-btn-group {
+    display: flex;
+    gap: 6px;
+}
+.dispatch-btn-group .dispatch-btn {
+    flex: 1;
+}
+.dispatch-btn-codex {
+    background: rgba(99, 102, 241, 0.1);
+    color: #818cf8;
+    border-color: rgba(99, 102, 241, 0.3);
+}
+.dispatch-btn-codex:hover {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* Re-send prompt into a live agent session */
+.reprompt-group {
+    margin-top: 8px;
+}
+.dispatch-btn-reprompt {
+    background: rgba(234, 179, 8, 0.1);
+    color: #eab308;
+    border-color: rgba(234, 179, 8, 0.3);
+}
+.dispatch-btn-reprompt:hover {
+    background: rgba(234, 179, 8, 0.2);
+    border-color: rgba(234, 179, 8, 0.5);
+}
+.dispatch-banner-btn {
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 1px 6px;
+}
+
+/* Custom workflow actions — stacked full-width buttons below Claude/Codex */
+.custom-actions-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+.dispatch-btn-custom {
+    background: rgba(148, 163, 184, 0.1);
+    color: #94a3b8;
+    border-color: rgba(148, 163, 184, 0.3);
+}
+.dispatch-btn-custom:hover {
+    background: rgba(148, 163, 184, 0.2);
+    border-color: rgba(148, 163, 184, 0.5);
+}
+
+/* Approval button */
+.approve-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: rgba(234, 179, 8, 0.1);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.approve-then-btn { text-align: left; margin-top: 6px; }
+.approve-btn:hover {
+    background: rgba(234, 179, 8, 0.2);
+    border-color: rgba(234, 179, 8, 0.5);
+}
+.approve-btn.approved {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.3);
+}
+.approve-btn.approved:hover {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.5);
+}
+.approve-check {
+    font-size: 16px;
+}
+/* Words box under approve buttons (templates/_approve_words.html) */
+.approve-words {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    margin-top: 6px;
+}
+.approve-words label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.approve-words textarea {
+    width: 100%;
+    min-height: 54px;
+    resize: vertical;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+.approve-words textarea:focus {
+    outline: none;
+    border-color: var(--text-link);
+}
+.approve-words textarea::placeholder {
+    color: var(--text-secondary);
+}
+.approve-btn-flash {
+    animation: approve-btn-flash-anim 1.5s ease-out;
+}
+@keyframes approve-btn-flash-anim {
+    0%   { box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.6); }
+    100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+}
+
+/* Optional-path approval: CTA + lazily revealed approval widget */
+.optional-approval-group {
+    margin-top: 8px;
+}
+.optional-approval-group:first-child {
+    margin-top: 0;
+}
+.optional-approval-cta {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--muted-fg, #8b8f99);
+    border: 1px dashed rgba(139, 143, 153, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: left;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.optional-approval-cta:hover {
+    color: #eab308;
+    background: rgba(234, 179, 8, 0.08);
+    border-color: rgba(234, 179, 8, 0.4);
+}
+.optional-approval-widget {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.optional-approval-dismiss {
+    align-self: flex-start;
+    padding: 2px 6px;
+    background: transparent;
+    color: var(--muted-fg, #8b8f99);
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    text-decoration: underline;
+}
+.optional-approval-dismiss:hover {
+    color: #f87171;
+}
+.optional-approval-group .hidden,
+.optional-approval-widget.hidden,
+.optional-approval-cta.hidden {
+    display: none;
+}
+
+/* Dispatch modal */
+.dispatch-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.dispatch-step {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+}
+
+.dispatch-step.ok {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+}
+
+.dispatch-step.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+}
+
+.dispatch-step.pending {
+    color: var(--text-muted);
+}
+
+.dispatch-step.reattached {
+    background: rgba(234, 179, 8, 0.12);
+    color: #eab308;
+}
+
+.dispatch-banner.reattached {
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: rgba(234, 179, 8, 0.12);
+    color: #eab308;
+    border-left: 3px solid #eab308;
+    margin-bottom: 6px;
+}
+
+.dispatch-step-icon {
+    font-weight: bold;
+}
+
+.dispatch-step-detail {
+    opacity: 0.7;
+    font-size: 12px;
+}
+
+.dispatch-session {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-family: var(--font-mono);
+}
+
+.dispatch-prompt-details {
+    margin-top: 8px;
+}
+
+.dispatch-prompt-details summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.dispatch-prompt-pre {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 8px;
+}
+
+/* Board card wrapper (for delete button positioning) */
+.board-card-wrapper {
+    position: relative;
+}
+
+.board-card-dispatch {
+    position: absolute;
+    top: 8px;
+    right: 30px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+    z-index: 2;
+}
+
+.board-card-wrapper:hover .board-card-dispatch {
+    opacity: 1;
+}
+
+.board-card-dispatch:hover {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
+}
+
+/* Agent picker dropdown on board cards */
+.agent-picker {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 10;
+    min-width: 100px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.agent-picker.open {
+    display: block;
+}
+.agent-picker-option {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+.agent-picker-option:hover {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+.agent-picker-option + .agent-picker-option {
+    border-top: 1px solid var(--border);
+}
+
+.board-card-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+    z-index: 2;
+}
+
+.board-card-wrapper:hover .board-card-delete {
+    opacity: 1;
+}
+
+.board-card-delete:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* Column add button */
+.board-column-add {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.board-column-header:hover .board-column-add {
+    opacity: 1;
+}
+
+.board-column-add:hover {
+    color: var(--accent);
+    background: rgba(56, 132, 244, 0.1);
+}
+

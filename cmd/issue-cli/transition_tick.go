@@ -13,8 +13,9 @@ import (
 )
 
 // parseCheckFlag pulls transition's --check ids out of args: the ids after
-// one --check (as long as each is shaped like a box id), a comma list, or
-// the flag repeated. given reports whether the flag was there at all.
+// one --check (as long as each is shaped like a box id, letter-led or the
+// number of a box above any section: 1, #2, 3.), a comma list, or the flag
+// repeated. given reports whether the flag was there at all.
 func parseCheckFlag(args []string) (ids, rest []string, given bool, err error) {
 	add := func(v string) {
 		for _, id := range strings.Split(v, ",") {
@@ -39,7 +40,7 @@ func parseCheckFlag(args []string) (ids, rest []string, given bool, err error) {
 			add(val)
 			continue
 		}
-		for i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && tracker.IsCheckboxRefShaped(strings.Split(args[i+1], ",")[0]) {
+		for i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && isCheckFlagRef(strings.Split(args[i+1], ",")[0]) {
 			i++
 			add(args[i])
 		}
@@ -48,6 +49,12 @@ func parseCheckFlag(args []string) (ids, rest []string, given bool, err error) {
 		return nil, nil, true, fmt.Errorf("--check takes the ids of the boxes to tick first (from 'issue-cli checklist <slug>')\n\nExample:\n  issue-cli transition <slug> --to testing --check Im1 Im2 TP1")
 	}
 	return ids, rest, given, nil
+}
+
+// isCheckFlagRef reports whether s can be a --check id: a section id (I1,
+// AC2) or a loose box's number (1, #2, 3.), as checklist lists them.
+func isCheckFlagRef(s string) bool {
+	return tracker.IsCheckboxRefShaped(s) || tracker.IsLooseRefShaped(s)
 }
 
 // tickForTransition ticks ids the way check does (same output, same
@@ -194,7 +201,7 @@ func oneCallLineFor(ctx *Context, wf *tracker.WorkflowConfig, issue *tracker.Iss
 		if it.Checked || !want[strings.ToUpper(it.ID)] {
 			continue
 		}
-		if proofTicks && strings.EqualFold(it.Section, tracker.CriteriaSection) {
+		if proofTicks && tracker.IsCriteriaSection(it.Section) {
 			return ""
 		}
 		ids = append(ids, it.ID)
@@ -343,7 +350,7 @@ func checkSectionNote(wf *tracker.WorkflowConfig, body, from, to string, ids []s
 	bySection := map[string][]string{}
 	for _, ref := range ids {
 		it, st := tracker.ResolveCheckboxRef(items, ref)
-		if st != tracker.RefFound || it.Section == "" || waits(it.Section) || strings.EqualFold(it.Section, tracker.CriteriaSection) {
+		if st != tracker.RefFound || it.Section == "" || waits(it.Section) || tracker.IsCriteriaSection(it.Section) {
 			continue
 		}
 		if _, ok := bySection[it.Section]; !ok {

@@ -66,6 +66,17 @@ func isolateTmux(t *testing.T) {
 	})
 }
 
+// liveAgentStart is for a test whose agents stay alive (a stand-in that
+// sleeps, or sleep itself) and that checks what Start launched, not how it
+// spots a dead launch: Start skips the delivery wait and takes one look for a
+// dead agent instead of watching it for LaunchSettle (3 s per Start).
+func liveAgentStart(t *testing.T) {
+	t.Helper()
+	origTimeout, origSettle := PromptDeliveryTimeout, LaunchSettle
+	PromptDeliveryTimeout, LaunchSettle = 0, 0
+	t.Cleanup(func() { PromptDeliveryTimeout, LaunchSettle = origTimeout, origSettle })
+}
+
 // testTmuxSocket is the socket of the test's private server: where tmux
 // puts its default socket under the TMUX_TMPDIR isolateTmux set.
 func testTmuxSocket(t *testing.T) string {
@@ -249,9 +260,7 @@ func TestLeadView_Misconfigured(t *testing.T) {
 func TestStart_LeadTerminalAndHeadlessWorkers(t *testing.T) {
 	isolateTmux(t)
 	t.Setenv("SHELL", "/bin/sh")
-	orig := PromptDeliveryTimeout
-	PromptDeliveryTimeout = 0
-	t.Cleanup(func() { PromptDeliveryTimeout = orig })
+	liveAgentStart(t)
 	tmuxRun(t, "new-session", "-d", "-s", "main", "-n", "shell", "/bin/sh")
 	proj := &tracker.Project{Slug: "p", Terminal: "none", TmuxSession: "work", WorkDir: t.TempDir(),
 		LeadTerminal: LeadTerminalTmuxWindow, LeadWindowSession: "main"}

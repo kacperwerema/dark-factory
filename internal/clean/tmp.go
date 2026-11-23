@@ -30,7 +30,7 @@ var FactoryTmp = []TmpName{
 	{Prefix: "com.google.chrome.for.testing.", Alnum: true},
 	{Prefix: "go-build"},
 	{Prefix: "dft-"}, // a test binary's private TMPDIR (internal/tmuxguard)
-	{Prefix: "testbin-"}, {Prefix: "test-shards-cover-"},
+	{Prefix: "testbin-"}, {Prefix: "test-shards-cover-"}, {Prefix: "test-shards-listing-"},
 	// make's cover profiles, one per worktree path (Makefile CLI_COVER_PROFILE):
 	// a removed worktree's stay behind.
 	{Prefix: "dark-factory-cover-", Suffix: ".out"}, {Prefix: "dark-factory-cover-", Suffix: ".guard.out"},
@@ -38,7 +38,7 @@ var FactoryTmp = []TmpName{
 	{Prefix: "issue-cli-help-"}, {Prefix: "issue-cli-introspect-"}, {Prefix: "issue-cli-test-xdg-"},
 	{Prefix: "issue-viewer-test-xdg-"}, {Prefix: "agentrun-test-xdg-"}, {Prefix: "lint-test-xdg-"},
 	{Prefix: "prove-run-results-"}, {Prefix: "check-script-"}, {Prefix: "experiment-revert-"},
-	{Prefix: "awe-bench-verify-"},
+	{Prefix: "awe-bench-verify-"}, {Prefix: "bench-test-"}, // internal/bench test binary's shared fixtures
 	{Prefix: "issue-nudge-", Suffix: ".txt"}, {Prefix: "issue-approval-", Suffix: ".txt"},
 	{Prefix: "issue-edit-", Suffix: ".md"}, {Prefix: "issue-edit-status-", Suffix: ".txt"},
 }

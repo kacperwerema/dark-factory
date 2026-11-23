@@ -26,11 +26,10 @@ var (
 // it says. issue-cli workflow commit-msg asks it before the commit exists,
 // since a word Collect can't use is otherwise read as a test name, or the
 // line is dropped, without a word.
-func CheckProves(value, prefix string) []string {
-	if prefix == "" {
-		prefix = "AC"
-	}
-	ids, _ := splitTrailer(value, prefix)
+func CheckProves(value string, prefixes ...string) []string {
+	prefixes = orAC(prefixes)
+	prefix := prefixes[0] // the hints name the first
+	ids, _ := splitTrailer(value, prefixes...)
 	var out []string
 	for _, w := range trailerWords(value) {
 		if w.quoted || slices.Contains(ids, strings.ToUpper(w.text)) {
@@ -76,22 +75,30 @@ func provesWordProblem(w, prefix string) string {
 
 // ProvesParts splits one Proves: value the way Collect reads it: the
 // criterion ids (upper case) and the words read as test names.
-func ProvesParts(value, prefix string) (ids, tests []string) {
-	if prefix == "" {
-		prefix = "AC"
+func ProvesParts(value string, prefixes ...string) (ids, tests []string) {
+	return splitTrailer(value, orAC(prefixes)...)
+}
+
+// orAC is prefixes without empty ones, ["AC"] when none is left.
+func orAC(prefixes []string) []string {
+	var out []string
+	for _, p := range prefixes {
+		if p != "" {
+			out = append(out, p)
+		}
 	}
-	return splitTrailer(value, prefix)
+	if len(out) == 0 {
+		return []string{"AC"}
+	}
+	return out
 }
 
 // UnquotedTitle is the rest of a Proves: value after its criterion ids when
 // it is several words with no quote (unquotedTitle) and not all of them Go
 // test names (Proves: AC1 TestA TestB is two tests): Collect links it as one
 // test when a test file has it.
-func UnquotedTitle(value, prefix string) (string, bool) {
-	if prefix == "" {
-		prefix = "AC"
-	}
-	title, ok := unquotedTitle(value, prefix)
+func UnquotedTitle(value string, prefixes ...string) (string, bool) {
+	title, ok := unquotedTitle(value, orAC(prefixes)...)
 	if !ok {
 		return "", false
 	}

@@ -84,7 +84,7 @@ func newElevenAPI(t *testing.T) *elevenAPI {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/shared-voices":
 			rate := 2.0
 			json.NewEncoder(w).Encode(map[string]any{"has_more": false, "voices": []map[string]any{
-				{"voice_id": "PLV1", "name": "Ania", "accent": "standard", "gender": "female", "age": "young", "use_case": "narrative_story", "language": "pl", "preview_url": "https://example.invalid/ania.mp3"},
+				{"voice_id": "PLV1", "name": "Ania", "accent": "standard", "gender": "female", "age": "young", "use_case": "narrative_story", "language": "pl", "preview_url": "https://example.invalid/ania.mp3", "rate": 1.0},
 				{"voice_id": "PLV2", "name": "Marta", "accent": "standard", "gender": "female", "use_case": "advertisement", "language": "pl", "preview_url": "https://example.invalid/marta.mp3", "rate": rate},
 				{"voice_id": "PLV3", "name": "Ola", "gender": "female", "use_case": "social_media", "language": "pl", "live_moderation_enabled": true},
 			}})

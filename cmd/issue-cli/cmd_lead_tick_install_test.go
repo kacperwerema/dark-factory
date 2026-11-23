@@ -39,10 +39,19 @@ func installLagProject(t *testing.T, behind *int, fixes *[]string) *tracker.Proj
 	return proj
 }
 
+// stripTickTime drops the "[15:04] " a --exit-on-news watch puts in front
+// of a line it held from an earlier tick.
+func stripTickTime(line string) string {
+	if len(line) > 8 && line[0] == '[' && line[6:8] == "] " {
+		return line[8:]
+	}
+	return line
+}
+
 func notes(out string) []string {
 	var got []string
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "note: the installed issue-cli") {
+		if strings.HasPrefix(stripTickTime(line), "note: the installed issue-cli") {
 			got = append(got, line)
 		}
 	}
@@ -73,7 +82,7 @@ func TestLeadTickNotesAnInstallLagOncePerDay(t *testing.T) {
 	root := filepath.Dir(proj.IssueDir)
 	real, _ := filepath.EvalSymlinks(root)
 	want := "note: the installed issue-cli (v0.62.0-rc.1-174-g27afdabb) is 37 commits behind main; 7 shipped fixes wait on an install: " +
-		"fix(lead): a; fix(cli): b; fix: c; fix(tracker): d; fix(jobs): e (+2 more); install: cd " + tildeHome(real) + " && GOBIN=/opt/df/bin make install"
+		"fix(lead): a; fix(cli): b; fix: c; fix(tracker): d; fix(jobs): e (+2 more); install: cd " + tildeHome(real) + " && GOBIN=/opt/df/bin make install && issue-cli viewer restart"
 	if got[0] != want {
 		t.Fatalf("note:\n got %s\nwant %s", got[0], want)
 	}

@@ -12,14 +12,16 @@ import (
 // props (<reel>.plan.json); QA reads it back, so the captions it checks are
 // the ones the template drew.
 type Plan struct {
-	Version     int     `json:"version"`
-	Shape       string  `json:"shape"`
-	Composition string  `json:"composition,omitempty"`
-	Title       string  `json:"title"`
-	Width       int     `json:"width"`
-	Height      int     `json:"height"`
-	FPS         int     `json:"fps"`
-	Duration    float64 `json:"duration"`
+	Version     int    `json:"version"`
+	Shape       string `json:"shape"`
+	Composition string `json:"composition,omitempty"`
+	Title       string `json:"title"`
+	// Format is the storyboard's format; Width and Height its frame.
+	Format   string  `json:"format,omitempty"`
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	FPS      int     `json:"fps"`
+	Duration float64 `json:"duration"`
 	// Frames is Duration at FPS, what the template's composition runs.
 	Frames   int          `json:"frames"`
 	Brand    Brand        `json:"brand"`
@@ -91,16 +93,29 @@ type Cue struct {
 	Box   Box     `json:"box"`
 }
 
-// Caption layout on the 1080x1920 frame.
+// Frame is the plan's format: by name, else by its size (a plan written
+// before formats), else 9:16.
+func (p *Plan) Frame() Format {
+	if f, ok := LookupFormat(p.Format); ok && p.Format != "" {
+		return f
+	}
+	for _, f := range Formats {
+		if f.Width == p.Width && f.Height == p.Height {
+			return f
+		}
+	}
+	return Formats[0]
+}
+
+// Caption layout across a 1080-wide frame; the upper and lower boxes'
+// heights come from the format.
 const (
-	captionX      = 90
-	captionW      = 840
-	captionPad    = 24
-	captionUpperY = 300
-	captionLowerB = 520 // a lower box ends this far above the frame's bottom
-	tailSeconds   = 0.4 // silence after a narration before the next scene
-	defaultFont   = 64
-	defaultFPS    = 30
+	captionX    = 90
+	captionW    = 840
+	captionPad  = 24
+	tailSeconds = 0.4 // silence after a narration before the next scene
+	defaultFont = 64
+	defaultFPS  = 30
 )
 
 // AudioSeconds is how long an audio file is (ffprobe in render and QA, a
@@ -110,9 +125,10 @@ type AudioSeconds func(path string) (float64, error)
 // BuildPlan works out the plan. A scene runs its planned duration, or its
 // narration plus a short tail when that is longer.
 func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
+	f := s.Frame()
 	p := &Plan{
 		Version: Version, Shape: s.Shape, Title: s.Title,
-		Width: FrameWidth, Height: FrameHeight, FPS: defaultFPS,
+		Format: f.Name, Width: f.Width, Height: f.Height, FPS: defaultFPS,
 		Brand: s.Brand, CTA: s.CTA,
 		Captions: PlanCaptions{Style: s.Captions.Style, Position: s.Captions.Position, FontSize: s.Captions.FontSize},
 	}
@@ -159,7 +175,7 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 			if need := secs + tailSeconds; need > ps.Duration {
 				ps.Duration = need
 			}
-			p.Cues = append(p.Cues, cues(sc.ID, on, maxWords, p.Captions, s.Captions.Box)...)
+			p.Cues = append(p.Cues, cues(sc.ID, on, maxWords, p.Captions, s.Captions.Box, f)...)
 		}
 		ps.Duration = round3(ps.Duration)
 		ps.From = int(math.Round(start * float64(p.FPS)))
@@ -181,7 +197,7 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 
 // cues groups a scene's words into captions of up to max words, breaking
 // after a word that ends a phrase.
-func cues(scene string, words []Word, max int, style PlanCaptions, custom *Box) []Cue {
+func cues(scene string, words []Word, max int, style PlanCaptions, custom *Box, f Format) []Cue {
 	var out []Cue
 	from := 0
 	for i := range words {
@@ -194,7 +210,7 @@ func cues(scene string, words []Word, max int, style PlanCaptions, custom *Box) 
 			parts = append(parts, w.Word)
 		}
 		text := strings.Join(parts, " ")
-		out = append(out, Cue{Scene: scene, Text: text, Start: words[from].Start, End: words[i].End, From: from, To: i, Box: captionBox(text, style, custom)})
+		out = append(out, Cue{Scene: scene, Text: text, Start: words[from].Start, End: words[i].End, From: from, To: i, Box: captionBox(text, style, custom, f)})
 		from = i + 1
 	}
 	return out
@@ -205,8 +221,8 @@ func endsPhrase(w string) bool {
 }
 
 // captionBox is where a cue's text sits: lines wrap at the box's width
-// (an average glyph is about 0.55 of the font size).
-func captionBox(text string, style PlanCaptions, custom *Box) Box {
+// (an average glyph is about 0.55 of the font size), on frame f.
+func captionBox(text string, style PlanCaptions, custom *Box, f Format) Box {
 	if style.Position == "custom" && custom != nil {
 		return *custom
 	}
@@ -217,11 +233,11 @@ func captionBox(text string, style PlanCaptions, custom *Box) Box {
 	b := Box{X: captionX, W: captionW, H: h}
 	switch style.Position {
 	case "upper":
-		b.Y = captionUpperY
+		b.Y = f.UpperY
 	case "middle":
-		b.Y = math.Round((FrameHeight - h) / 2)
+		b.Y = math.Round((float64(f.Height) - h) / 2)
 	default:
-		b.Y = FrameHeight - captionLowerB - h
+		b.Y = float64(f.Height) - f.LowerB - h
 	}
 	return b
 }
