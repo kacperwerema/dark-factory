@@ -2,19 +2,24 @@ package briefing
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kacperwerema/dark-factory/internal/memory"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 	"gopkg.in/yaml.v3"
 )
 
 // dfLeadBrief renders this repo's lead brief as its lead gets it: the repo's
-// workflow.yaml (CI, release candidates, privacy) with auto-start on.
-func dfLeadBrief(t *testing.T) string {
+// workflow.yaml (CI, release candidates, privacy) with auto-start on. It
+// reads nothing of the machine it runs on (isolateHost): its only
+// memories are leadPins, lead-scope pins in the project's own store.
+func dfLeadBrief(t *testing.T, leadPins ...string) string {
 	t.Helper()
+	isolateHost(t)
 	raw, err := os.ReadFile("../../workflow.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -23,12 +28,48 @@ func dfLeadBrief(t *testing.T) string {
 	if err := yaml.Unmarshal(raw, &wf); err != nil {
 		t.Fatal(err)
 	}
+	dir := filepath.Join(t.TempDir(), "issues")
+	store := memory.ProjectStore(dir)
+	now := time.Now()
+	for _, text := range leadPins {
+		r, err := store.Add(memory.Draft{Text: text, Scope: memory.ScopeLead}, memory.AddOptions{Mode: memory.ModeNew}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Pin(r.Memory.ID, "lead-dark-factory", true, now); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return LeadBrief(&wf, LeadBriefInput{
-		Project:   &tracker.Project{Slug: "dark-factory", Name: "Dark Factory"},
+		Project:   &tracker.Project{Slug: "dark-factory", Name: "Dark Factory", IssueDir: dir},
 		Root:      "/r",
 		Now:       time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC),
 		AutoStart: &AutoStartBrief{Words: "start under 60%", Below: 60, MaxWorkers: 4},
 	})
+}
+
+// isolateHost points HOME and the XDG dirs at empty temp dirs, so a test
+// reads no memories, rules, state or config of the machine it runs on.
+func isolateHost(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, t.TempDir())
+	}
+}
+
+// The Pins line comes with the lead's memories: none on a fresh machine
+// leaves it out, one lead pin puts it in, on any host.
+func TestLeadBriefPinsLineFollowsTheLeadMemories(t *testing.T) {
+	const line = "Pins are titles here, with their Never rules in full"
+	if got := dfLeadBrief(t); strings.Contains(got, line) || strings.Contains(got, "Standing rules (lead scope):") {
+		t.Errorf("a lead with no memories gets the pins line:\n%s", got)
+	}
+	got := dfLeadBrief(t, "never dispatch without the owner's words")
+	for _, want := range []string{line, "Standing rules (lead scope):", "never dispatch without the owner's words"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a lead with a lead pin misses %q", want)
+		}
+	}
 }
 
 // The hold conditions are listed once in the lead brief: the auto-start
@@ -60,7 +101,7 @@ func TestLeadBriefListsTheHoldsOnce(t *testing.T) {
 // their docs page, and every Never rule of the brief before the cut is
 // still in the brief.
 func TestLeadBriefRulesMovedToDocsAreThere(t *testing.T) {
-	got := dfLeadBrief(t)
+	got := dfLeadBrief(t, "never dispatch without the owner's words")
 	for prefix, doc := range map[string]string{"- Releases:": ReleaseDoc, "- Private development": PrivacyDoc} {
 		var lines []string
 		for _, l := range strings.Split(got, "\n") {

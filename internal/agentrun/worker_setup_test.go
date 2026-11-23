@@ -219,13 +219,31 @@ func TestWorkerSetupTurnsOffPluginsAndSkills(t *testing.T) {
 		t.Errorf("steps %s", stepNames(steps))
 	}
 
-	// Nothing on: the settings only turn the bundled skills off.
+	// The read nudge (spend.ReadNudge) runs after every tool call.
+	var hooks struct {
+		Hooks struct {
+			Post []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct{ Type, Command string }
+			} `json:"PostToolUse"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(b, &hooks) != nil || len(hooks.Hooks.Post) != 1 || hooks.Hooks.Post[0].Matcher != "" ||
+		len(hooks.Hooks.Post[0].Hooks) != 1 || hooks.Hooks.Post[0].Hooks[0].Command != ReadNudgeCommand {
+		t.Errorf("hooks = %s", b)
+	}
+	if !strings.Contains(stepNames(steps), "claude.ai connectors off, read nudge on") {
+		t.Errorf("steps %s", stepNames(steps))
+	}
+
+	// Nothing on: the settings only turn the bundled skills off, and carry
+	// the read nudge.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bare := &tracker.Project{Slug: "b", IssueDir: proj.IssueDir, WorkDir: t.TempDir()}
 	dir = filepath.Join(t.TempDir(), "agent-bug") // no earlier worker's settings beside it
 	os.Mkdir(dir, 0o755)
 	WorkerSetupFlags(bare, Spec{IssueSlug: "bug", AgentType: "claude"}, bare.WorkDir, dir, nil, new([]Step))
-	if b, _ := os.ReadFile(filepath.Join(dir, "settings.json")); strings.Join(strings.Fields(string(b)), "") != `{"disableBundledSkills":true}` {
+	if b, _ := os.ReadFile(filepath.Join(dir, "settings.json")); strings.Join(strings.Fields(string(b)), "") != `{"disableBundledSkills":true,"hooks":{"PostToolUse":[{"hooks":[{"command":"issue-clihookread-nudge","timeout":5,"type":"command"}]}]}}` {
 		t.Errorf("settings = %s", b)
 	}
 }

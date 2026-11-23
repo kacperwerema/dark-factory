@@ -205,6 +205,10 @@ func TestHealthPageAndActions(t *testing.T) {
 	if loc := post("/p/test-project/health/recommendation/R2/dismiss", url.Values{"reason": {"later"}}); !strings.Contains(loc, "dismissed=R2") {
 		t.Fatalf("dismiss redirect = %s", loc)
 	}
+	// A filed recommendation shows its issue's status next to the slug.
+	if after := get("/p/test-project/health"); !strings.Contains(after, `move-the-chrome-tests-to-the-e2e-tier</a> (idea)`) && !strings.Contains(after, `move-the-chrome-tests-to-the-e2e-tier</a> <span data-testid="health.decided.status">(idea)</span>`) {
+		t.Error("the filed recommendation doesn't show its issue's status")
+	}
 	if loc := post("/p/test-project/health/recommendation/R9/file", nil); !strings.Contains(loc, "error=") {
 		t.Fatalf("unknown id must come back as an error: %s", loc)
 	}

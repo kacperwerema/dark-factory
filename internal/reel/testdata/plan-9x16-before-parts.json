@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "shape": "hook-list",
+  "title": "A reel",
+  "format": "9:16",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "duration": 8,
+  "frames": 240,
+  "brand": {
+    "name": "Brand",
+    "colors": {
+      "primary": "#123456",
+      "text": "#fff",
+      "background": "#000"
+    }
+  },
+  "cta": {
+    "text": "Try it",
+    "handle": "@brand"
+  },
+  "captions": {
+    "style": "words",
+    "position": "lower",
+    "font_size": 64
+  },
+  "scenes": [
+    {
+      "id": "hook",
+      "role": "hook",
+      "start": 0,
+      "duration": 2,
+      "from": 0,
+      "frames": 60,
+      "text": "hook",
+      "narration": {
+        "text": "One two three.",
+        "voice": "narrator",
+        "file": "n.mp3",
+        "start": 0,
+        "seconds": 1.4,
+        "words": [
+          {
+            "word": "One",
+            "start": 0.1,
+            "end": 0.4
+          },
+          {
+            "word": "two",
+            "start": 0.45,
+            "end": 0.8
+          },
+          {
+            "word": "three.",
+            "start": 0.85,
+            "end": 1.3
+          }
+        ]
+      }
+    },
+    {
+      "id": "a",
+      "role": "item",
+      "start": 2,
+      "duration": 2,
+      "from": 60,
+      "frames": 60,
+      "text": "a",
+      "clips": [
+        {
+          "source": "owner",
+          "src": "media/stock.mp4",
+          "file": "",
+          "start": 1,
+          "end": 2.5
+        }
+      ],
+      "narration": {
+        "text": "One two three.",
+        "voice": "narrator",
+        "file": "n.mp3",
+        "start": 2,
+        "seconds": 1.4,
+        "words": [
+          {
+            "word": "One",
+            "start": 2.1,
+            "end": 2.4
+          },
+          {
+            "word": "two",
+            "start": 2.45,
+            "end": 2.8
+          },
+          {
+            "word": "three.",
+            "start": 2.85,
+            "end": 3.3
+          }
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "role": "item",
+      "start": 4,
+      "duration": 2,
+      "from": 120,
+      "frames": 60,
+      "text": "b",
+      "clips": [
+        {
+          "source": "ai",
+          "src": "media/ai.mp4",
+          "file": "",
+          "ai_generated": true
+        }
+      ],
+      "narration": {
+        "text": "One two three.",
+        "voice": "narrator",
+        "file": "n.mp3",
+        "start": 4,
+        "seconds": 1.4,
+        "words": [
+          {
+            "word": "One",
+            "start": 4.1,
+            "end": 4.4
+          },
+          {
+            "word": "two",
+            "start": 4.45,
+            "end": 4.8
+          },
+          {
+            "word": "three.",
+            "start": 4.85,
+            "end": 5.3
+          }
+        ]
+      }
+    },
+    {
+      "id": "cta",
+      "role": "cta",
+      "start": 6,
+      "duration": 2,
+      "from": 180,
+      "frames": 60,
+      "text": "cta",
+      "narration": {
+        "text": "One two three.",
+        "voice": "narrator",
+        "file": "n.mp3",
+        "start": 6,
+        "seconds": 1.4,
+        "words": [
+          {
+            "word": "One",
+            "start": 6.1,
+            "end": 6.4
+          },
+          {
+            "word": "two",
+            "start": 6.45,
+            "end": 6.8
+          },
+          {
+            "word": "three.",
+            "start": 6.85,
+            "end": 7.3
+          }
+        ]
+      }
+    }
+  ],
+  "cues": [
+    {
+      "scene": "hook",
+      "text": "One two three.",
+      "start": 0.1,
+      "end": 1.3,
+      "from_word": 0,
+      "to_word": 2,
+      "box": {
+        "x": 90,
+        "y": 1272,
+        "w": 840,
+        "h": 128
+      }
+    },
+    {
+      "scene": "a",
+      "text": "One two three.",
+      "start": 2.1,
+      "end": 3.3,
+      "from_word": 0,
+      "to_word": 2,
+      "box": {
+        "x": 90,
+        "y": 1272,
+        "w": 840,
+        "h": 128
+      }
+    },
+    {
+      "scene": "b",
+      "text": "One two three.",
+      "start": 4.1,
+      "end": 5.3,
+      "from_word": 0,
+      "to_word": 2,
+      "box": {
+        "x": 90,
+        "y": 1272,
+        "w": 840,
+        "h": 128
+      }
+    },
+    {
+      "scene": "cta",
+      "text": "One two three.",
+      "start": 6.1,
+      "end": 7.3,
+      "from_word": 0,
+      "to_word": 2,
+      "box": {
+        "x": 90,
+        "y": 1272,
+        "w": 840,
+        "h": 128
+      }
+    }
+  ],
+  "music": {
+    "file": "media/bed.mp3",
+    "volume_db": -18,
+    "duck": true
+  }
+}

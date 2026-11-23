@@ -124,7 +124,7 @@ block). templates/health_wb.html composes them.
     {{if .Recs}}<div class="wb-rec-grid">{{range .Recs}}{{template "wb/health-rec" .}}{{end}}</div>{{end}}
     {{with .DecidedRecs}}<details class="wb-hdecided" data-testid="health.decided"{{if not $.Recs}} open{{end}}>
         <summary>Decided · {{len .}}</summary>
-        <ul class="wb-hdecided-list">{{range .}}<li data-testid="health.decided.row"><span class="wb-mono-inline wb-muted">{{.ID}}</span> <span>{{.Title}}</span> {{if eq .State "filed"}}<span class="wb-chip wb-chip--green">filed{{if .Issue}}: <a href="{{.IssueHref}}" class="wb-mono-inline">{{.Issue}}</a>{{end}}</span>{{else}}<span class="wb-chip wb-chip--idle">dismissed{{with .Reason}}: {{.}}{{end}}</span>{{end}}</li>{{end}}</ul>
+        <ul class="wb-hdecided-list">{{range .}}<li data-testid="health.decided.row"><span class="wb-mono-inline wb-muted">{{.ID}}</span> <span>{{.Title}}</span> {{if eq .State "filed"}}<span class="wb-chip wb-chip--green">filed{{if .Issue}}: <a href="{{.IssueHref}}" class="wb-mono-inline">{{.Issue}}</a>{{with .IssueStatus}} <span data-testid="health.decided.status">({{.}})</span>{{end}}{{end}}</span>{{else}}<span class="wb-chip wb-chip--idle">dismissed{{with .Reason}}: {{.}}{{end}}</span>{{end}}</li>{{end}}</ul>
     </details>{{end}}
 </section>
 {{end}}{{end}}

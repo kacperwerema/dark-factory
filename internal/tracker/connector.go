@@ -78,6 +78,14 @@ type Connector struct {
 	Spend *ConnectorSpend `yaml:"spend"`
 	// Voices are a meter: elevenlabs connector's voices, by placement.
 	Voices []Voice `yaml:"voices"`
+	// Publish makes the connector a direct publisher: instagram-reels,
+	// facebook-reels, tiktok or pinterest. issue-cli makes the platform's
+	// calls itself with the secrets: read into its process only
+	// (internal/directpost, docs/reels.md#direct-publishing).
+	Publish string `yaml:"publish"`
+	// Account holds a publisher's account ids (page_id, ig_user_id,
+	// board): ids, never a secret.
+	Account map[string]string `yaml:"account"`
 }
 
 // Spend meters.

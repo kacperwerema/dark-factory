@@ -17,7 +17,10 @@ const oldDFLeadRoleChars = 12183
 // This repo's lead brief's role section, as spend --context splits it,
 // stays at least 1k tokens (chars/2.7) under what it was before the cut.
 func TestDFLeadBriefRoleIsAThousandTokensShorter(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir()) // no state file of this machine's lead
+	// No memories, rules, state file or config of this machine's lead.
+	for _, k := range []string{"HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME"} {
+		t.Setenv(k, t.TempDir())
+	}
 	raw, err := os.ReadFile("../../workflow.yaml")
 	if err != nil {
 		t.Fatal(err)

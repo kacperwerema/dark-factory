@@ -1,0 +1,30 @@
+session: release-card-no-refs
+issue: factory/release-pick-by-slug-misses-main-commits-with-no-refs-line-11-for-v0-65-3-rc-1-failed-leak-check-the-release-card-should-list-them
+title: Status page - the release card lists main's commits without a Refs line
+scenario: release-branch
+
+session_checks:
+  viewports: [1440x900, 390x844]
+  layout: [inside_viewport, no_clipping, no_overlap, no_zero_size_text, styles_applied]
+  console: no_errors
+
+steps:
+  - id: TP2
+    title: The card lists the offline-tiles commit on main that has no Refs line, with its pick command; the picked fix and the changelog commit are not listed
+    setup:
+      - open: /p/{project}/status
+    act:
+      - wait_for: status.release_wait.norefs
+    checks:
+      - visible: [status.release_wait.norefs]
+      - text_contains: { target: status.release_wait.norefs, text: "Offline tiles cache by zoom level" }
+      - text_contains: { target: status.release_wait.norefs, text: "issue-cli release pick" }
+      # The picked fix and the changelog-only commit stay off the list.
+      - count: { pattern: status.release_wait.norefs.commit.*, equals: 1 }
+    do: |
+      Open Status and read the Waiting for release card, under its checks.
+    expect: |
+      One commit is listed: "Offline tiles cache by zoom level", with its
+      short sha and issue-cli release pick <sha>. The route export fix
+      (already picked) and the changelog-only commit are not.
+    why: v0.65.3's rc.1 missed 11 such commits; only you can say the list tells you what a pick by slug would miss.

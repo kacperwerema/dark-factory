@@ -27,7 +27,15 @@ const healthReviewUsage = `Usage:
   issue-cli health review show
   issue-cli health review record <file.json> [--reviewer <name>]
   issue-cli health review file <R#> --quote "<owner's words>" [--how "CEO chat"]
-  issue-cli health review dismiss <R#> --quote "<owner's words>" [--reason "..."]`
+  issue-cli health review link <R#> <slug>
+  issue-cli health review dismiss <R#> --quote "<owner's words>" [--reason "..."]
+
+Each recommendation ends one of three ways:
+  file     the owner's words make it a new idea issue (owner only)
+  link     an issue for it already exists (a review run that created its
+           findings with issue-cli create): marks it filed as that issue;
+           any agent may run it, it creates nothing
+  dismiss  the owner's words drop it (owner only)`
 
 // runHealthReview is `issue-cli health review`: the agent opinion.
 func runHealthReview(ctx *Context, args []string) error {
@@ -37,6 +45,8 @@ func runHealthReview(ctx *Context, args []string) error {
 			return runReviewRecord(ctx, args[1:])
 		case "file":
 			return runReviewFile(ctx, args[1:])
+		case "link":
+			return runReviewLink(ctx, args[1:])
 		case "dismiss":
 			return runReviewDismiss(ctx, args[1:])
 		case "show":
@@ -193,7 +203,7 @@ func runReviewRecord(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Recorded the review: score %d, %d recommendation(s) · %s\n", o.Score, len(o.Recommendations), path)
 	fmt.Fprintf(ctx.Stdout, "Nothing becomes an issue by itself: the owner files or dismisses each one on %s\n", healthURL(ctx.Project))
-	fmt.Fprintf(ctx.Stdout, "(or, with their words: issue-cli health review file R1 --quote \"...\")\n")
+	fmt.Fprintf(ctx.Stdout, "(or, with their words: issue-cli health review file R1 --quote \"...\"; an issue already made for one: issue-cli health review link R1 <slug>)\n")
 	return nil
 }
 
@@ -218,17 +228,38 @@ func runReviewShow(ctx *Context, args []string) error {
 	if ctx.JSONOutput {
 		return writeJSON(ctx.Stdout, o)
 	}
-	printOpinion(ctx, o, path)
+	printOpinion(ctx, o, path, boardStatus(ctx))
 	return nil
 }
 
-func printOpinion(ctx *Context, o *health.Opinion, path string) {
+// boardStatus answers an issue's status on the project's board, and whether
+// the slug is there at all.
+func boardStatus(ctx *Context) func(string) (string, bool) {
+	var bySlug map[string]string
+	return func(slug string) (string, bool) {
+		if bySlug == nil {
+			bySlug = map[string]string{}
+			issues, _ := tracker.LoadIssues(ctx.Project.IssueDir)
+			for _, is := range issues {
+				bySlug[is.Slug] = is.Status
+			}
+		}
+		st, ok := bySlug[slug]
+		return st, ok
+	}
+}
+
+func printOpinion(ctx *Context, o *health.Opinion, path string, status func(string) (string, bool)) {
 	w := ctx.Stdout
 	fmt.Fprintf(w, "Health review %s · score %d · %.1f days old · by %s\nFile: %s\n\n%s\n\n", o.Date, o.Score, o.AgeDays(ctx.now()), valueOr(o.Reviewer, "an agent"), path, o.Assessment)
 	for _, r := range o.Recommendations {
 		state := valueOr(r.State, health.StateProposed)
 		if r.Issue != "" {
-			state += " → " + r.Issue
+			st, ok := status(r.Issue)
+			if !ok {
+				st = "not on the board"
+			}
+			state += " → " + r.Issue + " (" + st + ")"
 		}
 		fmt.Fprintf(w, "%s [%s, effort %s, %s] %s\n", r.ID, r.Kind, r.Effort, state, r.Title)
 		for _, e := range r.Evidence {
@@ -244,7 +275,7 @@ func printOpinion(ctx *Context, o *health.Opinion, path string) {
 		fmt.Fprintf(w, "    expected: %s\n", r.ExpectedEffect)
 	}
 	if n := o.Proposed(); n > 0 {
-		fmt.Fprintf(w, "\n%d proposed: the owner files or dismisses them on %s (or: issue-cli health review file <R#> --quote \"<their words>\")\n", n, healthURL(ctx.Project))
+		fmt.Fprintf(w, "\n%d proposed: the owner files or dismisses them on %s (or: issue-cli health review file <R#> --quote \"<their words>\"); one that already has an issue: issue-cli health review link <R#> <slug>\n", n, healthURL(ctx.Project))
 	}
 }
 
@@ -293,4 +324,61 @@ func runReviewDismiss(ctx *Context, args []string) error {
 	}
 	fmt.Fprintf(ctx.Stdout, "✓ Dismissed %s: %s\n", r.ID, r.Title)
 	return nil
+}
+
+func runReviewLink(ctx *Context, args []string) error {
+	fs := newFlagSet("health review link", ctx)
+	if err := parseFlagsArgs(ctx, fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return &usageError{msg: "health review link needs a recommendation id and an issue slug (R1 <slug>)\n\n" + healthReviewUsage}
+	}
+	issues, err := tracker.LoadIssues(ctx.Project.IssueDir)
+	if err != nil {
+		return fmt.Errorf("cannot load issues: %w", err)
+	}
+	slug, err := boardSlug(issues, fs.Arg(1), ctx.Project.Slug)
+	if err != nil {
+		return err
+	}
+	env, err := health.NewEnv(ctx.Project, projectRoot(ctx.Project), ctx.now())
+	if err != nil {
+		return err
+	}
+	status := boardStatus(ctx)
+	r, err := health.LinkRecommendation(env.Root, fs.Arg(0), slug, status, ctx.now())
+	if err != nil {
+		return err
+	}
+	st, _ := status(slug)
+	if ctx.JSONOutput {
+		return writeJSON(ctx.Stdout, map[string]string{"id": r.ID, "slug": slug, "status": st})
+	}
+	fmt.Fprintf(ctx.Stdout, "✓ Linked %s to %s (%s): it shows as filed on %s\n", r.ID, slug, st, healthURL(ctx.Project))
+	return nil
+}
+
+// boardSlug resolves a slug given to health review link: the exact slug
+// (any case) or a unique /<slug> suffix, so the system folder may be left
+// out. Every error is one line naming the slug.
+func boardSlug(issues []*tracker.Issue, given, project string) (string, error) {
+	want := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(given), ".md"))
+	var suffix []string
+	for _, is := range issues {
+		l := strings.ToLower(is.Slug)
+		if l == want {
+			return is.Slug, nil
+		}
+		if strings.HasSuffix(l, "/"+want) {
+			suffix = append(suffix, is.Slug)
+		}
+	}
+	switch len(suffix) {
+	case 1:
+		return suffix[0], nil
+	case 0:
+		return "", fmt.Errorf("no issue %s on the %s board: give the slug of an existing issue (issue-cli list)", given, project)
+	}
+	return "", fmt.Errorf("%s matches %d issues (%s): give the full slug", given, len(suffix), strings.Join(suffix, ", "))
 }

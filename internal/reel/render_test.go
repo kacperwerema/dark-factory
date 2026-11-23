@@ -18,9 +18,9 @@ import (
 // These tests run the real ffmpeg (skipped without it, as on the public
 // CI) and a stand-in renderer in place of Remotion: no Chrome, no network.
 
-// standinRenderer is a template's render command: a flat 1080x1920 frame
-// for the plan's length, as Remotion would write the frames.
-const standinRenderer = `exec ffmpeg -hide_banner -loglevel error -nostdin -y -f lavfi -i "color=c=0x335577:s=1080x1920:r=30" -t "$3" -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$2"
+// standinRenderer is a template's render command: a flat frame of the
+// plan's size for the plan's length, as Remotion would write the frames.
+const standinRenderer = `exec ffmpeg -hide_banner -loglevel error -nostdin -y -f lavfi -i "color=c=0x335577:s=$4x$5:r=30" -t "$3" -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$2"
 `
 
 func needFFmpeg(t *testing.T) Tools {
@@ -45,7 +45,7 @@ func fixtureTemplate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	standin.Write(t, filepath.Join(dir, "render.sh"), standinRenderer)
-	writeFile(t, dir, TemplateConfigFile, `{"render": ["./render.sh", "{composition}", "{out}", "{duration}"],
+	writeFile(t, dir, TemplateConfigFile, `{"render": ["./render.sh", "{composition}", "{out}", "{duration}", "{width}", "{height}"],
 		"compositions": {"hook-list": "HookList", "before-after": "BeforeAfter", "app-demo": "AppDemo"}}`)
 	return dir
 }
@@ -55,10 +55,7 @@ func fixtureTemplate(t *testing.T) string {
 func fixtureReel(t *testing.T) (dir, sb string) {
 	t.Helper()
 	dir = t.TempDir()
-	ff(t, "-f", "lavfi", "-i", "sine=f=330:d=1.2", "-af", "adelay=100|100,apad=pad_dur=0.1", "-ar", "44100", filepath.Join(dir, "n.mp3"))
-	ff(t, "-f", "lavfi", "-i", "sine=f=110:d=3", "-ar", "44100", filepath.Join(dir, "bed.mp3"))
-	ff(t, "-f", "lavfi", "-i", "color=c=0x885522:s=540x960:r=30", "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", filepath.Join(dir, "clip.mp4"))
-	writeFile(t, dir, "w.json", `[{"word":"One","start":0.1,"end":0.4},{"word":"two","start":0.45,"end":0.8},{"word":"three.","start":0.85,"end":1.3}]`)
+	fixtureMedia(t, dir)
 	m := storyboardFor(ShapeHookList)
 	m["music"] = map[string]any{"path": "bed.mp3", "licence": map[string]any{"source": "library", "ref": "t-1"}, "duck": true, "volume_db": -20}
 	m["scenes"].([]any)[1].(map[string]any)["clips"] = []any{map[string]any{"source": "owner", "path": "clip.mp4"}}
@@ -66,9 +63,37 @@ func fixtureReel(t *testing.T) (dir, sb string) {
 	return dir, writeFile(t, dir, "sb.json", string(data))
 }
 
+// fixturePartsReel is partsStoryboard in format f with fixtureReel's real
+// audio and clips: a label, a stamped hook of three cuts, a phone scene.
+func fixturePartsReel(t *testing.T, f string) (dir, sb string) {
+	t.Helper()
+	dir = t.TempDir()
+	fixtureMedia(t, dir)
+	writeFile(t, dir, "no.json", `[{"word":"One,","start":0.1,"end":0.3},{"word":"no.","start":0.35,"end":0.5},{"word":"two,","start":0.55,"end":0.7},{"word":"no.","start":0.75,"end":0.9},{"word":"three,","start":0.95,"end":1.1},{"word":"no.","start":1.15,"end":1.3}]`)
+	m := partsStoryboard(f)
+	m["music"] = map[string]any{"path": "bed.mp3", "licence": map[string]any{"source": "library", "ref": "t-1"}, "duck": true, "volume_db": -20}
+	data, _ := json.Marshal(m)
+	data = []byte(strings.NewReplacer(`"media/ai.mp4"`, `"clip.mp4"`, `"media/app.mp4"`, `"clip.mp4"`).Replace(string(data)))
+	return dir, writeFile(t, dir, "sb.json", string(data))
+}
+
+// fixtureMedia writes the narration tone, the music bed and a clip in dir.
+func fixtureMedia(t *testing.T, dir string) {
+	t.Helper()
+	ff(t, "-f", "lavfi", "-i", "sine=f=330:d=1.2", "-af", "adelay=100|100,apad=pad_dur=0.1", "-ar", "44100", filepath.Join(dir, "n.mp3"))
+	ff(t, "-f", "lavfi", "-i", "sine=f=110:d=3", "-ar", "44100", filepath.Join(dir, "bed.mp3"))
+	ff(t, "-f", "lavfi", "-i", "color=c=0x885522:s=540x960:r=30", "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", filepath.Join(dir, "clip.mp4"))
+	writeFile(t, dir, "w.json", `[{"word":"One","start":0.1,"end":0.4},{"word":"two","start":0.45,"end":0.8},{"word":"three.","start":0.85,"end":1.3}]`)
+}
+
 func renderFixture(t *testing.T, tools Tools) (*Storyboard, *Result, string) {
 	t.Helper()
-	dir, sb := fixtureReel(t)
+	return renderStoryboard(t, tools, fixtureReel)
+}
+
+func renderStoryboard(t *testing.T, tools Tools, fixture func(*testing.T) (string, string)) (*Storyboard, *Result, string) {
+	t.Helper()
+	dir, sb := fixture(t)
 	s, err := Load(sb)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +113,7 @@ func qa(t *testing.T, tools Tools, s *Storyboard, file, plan, narration string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := QAInput{File: file, Fresh: fresh, Narration: narration, Bounds: DefaultBounds()}
+	in := QAInput{File: file, Fresh: fresh, Narration: narration, Bounds: DefaultBoundsFor(s.Frame())}
 	if plan != "" {
 		if in.Drawn, err = LoadPlan(plan); err != nil {
 			t.Fatal(err)
@@ -103,6 +128,51 @@ func qa(t *testing.T, tools Tools, s *Storyboard, file, plan, narration string) 
 
 func TestRenderWritesAQAPassingReel(t *testing.T) {
 	tools := needFFmpeg(t)
+	t.Run("9:16", func(t *testing.T) { renderPasses(t, tools) })
+}
+
+// A storyboard using every part (clips, phone, label, stamps) renders and
+// passes QA in 9:16 and in 4:5; the 4:5 one at 1080x1350, its aspect checked.
+func TestRenderPartsPassQAInEachFormat(t *testing.T) {
+	tools := needFFmpeg(t)
+	for _, c := range []struct {
+		format        string
+		width, height int
+		aspect        string
+	}{{"9:16", 1080, 1920, "0.5625"}, {"4:5", 1080, 1350, "0.8"}} {
+		t.Run(c.format, func(t *testing.T) {
+			s, res, _ := renderStoryboard(t, tools, func(t *testing.T) (string, string) { return fixturePartsReel(t, c.format) })
+			pr, err := tools.Probe(context.Background(), res.Out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pr.Width != c.width || pr.Height != c.height {
+				t.Fatalf("%s rendered %dx%d", c.format, pr.Width, pr.Height)
+			}
+			plan, err := LoadPlan(res.PlanFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Label == nil || len(plan.Scenes[0].Stamps) != 3 || len(plan.Scenes[0].Clips) != 3 || plan.Scenes[1].Clips[0].Source != SourceAppRecording || plan.Layout.Phone.W == 0 {
+				t.Fatalf("the plan lacks a part: label %+v, hook %+v, layout %+v", plan.Label, plan.Scenes[0], plan.Layout)
+			}
+			r := qa(t, tools, s, res.Out, res.PlanFile, res.Narration)
+			if !r.Pass {
+				t.Fatalf("QA failed:\n%s", r.Summary())
+			}
+			for _, ch := range r.Checks {
+				if ch.Name == CheckAspect && !strings.Contains(ch.Bound+ch.Measured, c.aspect) {
+					t.Errorf("aspect check = %+v, want %s", ch, c.aspect)
+				}
+				if ch.Name == CheckSafeZone && !strings.Contains(ch.Measured, "1 label, 3 stamp") {
+					t.Errorf("safe-zone did not read the parts: %+v", ch)
+				}
+			}
+		})
+	}
+}
+
+func renderPasses(t *testing.T, tools Tools) {
 	s, res, tmpl := renderFixture(t, tools)
 	ctx := context.Background()
 	pr, err := tools.Probe(ctx, res.Out)

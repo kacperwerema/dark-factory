@@ -53,9 +53,14 @@ type Storyboard struct {
 	Version int    `json:"version"`
 	Shape   string `json:"shape"`
 	// Format is the frame: 9:16 (the default), 4:5 or 1:1.
-	Format   string    `json:"format,omitempty"`
-	Title    string    `json:"title"`
-	Language string    `json:"language,omitempty"`
+	Format string `json:"format,omitempty"`
+	Title  string `json:"title"`
+	// Language is the voice's; captions.language may differ.
+	Language string `json:"language,omitempty"`
+	// Label is a disclosure shown over the whole reel, in the reel's own
+	// words (e.g. "Acted scene, AI voice and video"); it takes the place of
+	// the per-clip AI badge.
+	Label    string    `json:"label,omitempty"`
 	Brand    Brand     `json:"brand"`
 	Scenes   []Scene   `json:"scenes"`
 	Captions Captions  `json:"captions"`
@@ -93,6 +98,21 @@ type Scene struct {
 	Text      string     `json:"text,omitempty"`
 	Narration *Narration `json:"narration,omitempty"`
 	Clips     []Clip     `json:"clips,omitempty"`
+	// Stamp is a word stamped on each of the scene's cuts.
+	Stamp *Stamp `json:"stamp,omitempty"`
+	// Captions are the scene's caption lines in place of its voice's
+	// words (captions.go): a language other than the voice's, or the
+	// voice's words spelled as the captions want them.
+	Captions []CaptionLine `json:"captions,omitempty"`
+}
+
+// Stamp is a big word that lands on each of a scene's cuts, or on each
+// time its narration says On.
+type Stamp struct {
+	Text string `json:"text"`
+	// On is the spoken word it lands on (case and punctuation aside);
+	// empty is Text.
+	On string `json:"on,omitempty"`
 }
 
 // Narration is what a scene says. Voice is a placement name the project's
@@ -129,6 +149,9 @@ type Captions struct {
 	FontSize int    `json:"font_size,omitempty"`
 	// Box is the caption box on the format's frame, for position custom.
 	Box *Box `json:"box,omitempty"`
+	// Language is the captions' language when it is not the voice's
+	// (storyboard language): every narrated scene then has its own lines.
+	Language string `json:"language,omitempty"`
 }
 
 // Box is a rectangle in pixels on the reel's frame (1080x1920 for 9:16).
@@ -211,6 +234,15 @@ func (s *Storyboard) Frame() Format {
 	return Formats[0]
 }
 
+// zone is the safe zone the parts are laid out in: the storyboard's qa:
+// one, else its format's.
+func (s *Storyboard) zone() SafeZone {
+	if s.QA != nil && s.QA.SafeZone != nil {
+		return *s.QA.SafeZone
+	}
+	return s.Frame().SafeZone
+}
+
 // Dir is the folder the storyboard's paths are relative to.
 func (s *Storyboard) Dir() string { return s.dir }
 
@@ -250,6 +282,15 @@ func (s *Storyboard) Problems() []Problem {
 		}
 	}
 	s.fileProblem(&ps, "brand.logo", s.Brand.Logo)
+	zone := s.zone()
+	room := float64(frame.Width) - zone.Left - zone.Right
+	if s.Label != "" {
+		if strings.TrimSpace(s.Label) == "" {
+			add("label", "blank: leave it out, or say what is acted or AI-made")
+		} else if b := labelBox(s.Label, layoutFor(frame, zone)); len(outside(b, zone, float64(frame.Width), float64(frame.Height))) > 0 {
+			add("label", "about %g px wide, more than the %s frame's safe area: shorten it", b.W, frame.Name)
+		}
+	}
 	if len(s.Scenes) == 0 {
 		add("scenes", "no scenes")
 	}
@@ -280,6 +321,19 @@ func (s *Storyboard) Problems() []Problem {
 			s.fileProblem(&ps, at+".narration.audio", n.Audio)
 			s.fileProblem(&ps, at+".narration.alignment", n.Alignment)
 		}
+		if st := sc.Stamp; st != nil {
+			switch {
+			case strings.TrimSpace(st.Text) == "":
+				add(at+".stamp.text", "missing: the word to stamp (e.g. NO)")
+			case sc.Role == "cta":
+				add(at+".stamp", "the cta scene is the brand's card: stamp a hook or another scene")
+			default:
+				if b := stampBox(st.Text, frame); b.W > room {
+					add(at+".stamp.text", "%q is about %g px wide at %d px, the %s frame's safe area %g: a shorter word", st.Text, b.W, stampFont, frame.Name, room)
+				}
+			}
+		}
+		ps = append(ps, lineProblems(at, sc.Captions)...)
 		if s.Shape == ShapeAppDemo && sc.Role == "step" && !hasSource(sc.Clips, SourceAppRecording) {
 			add(at+".clips", "an app-demo step shows the app: add a clip with source app-recording")
 		}
@@ -334,6 +388,7 @@ func (s *Storyboard) Problems() []Problem {
 	if c.MaxWords < 0 || c.FontSize < 0 {
 		add("captions", "max_words and font_size are 0 (the default) or above")
 	}
+	ps = append(ps, s.languageProblems()...)
 	if m := s.Music; m != nil {
 		if m.Path == "" {
 			add("music.path", "missing")

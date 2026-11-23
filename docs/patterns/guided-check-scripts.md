@@ -352,8 +352,10 @@ Stand-ins that check scripts kept writing for themselves, now in the library:
   first (`build=`) and put `# shellcheck source=/dev/null
   disable=SC2034,SC2154` above the source line (`--new` writes it).
 - `TestLibPassesShellcheck` skips where shellcheck isn't installed, as on a
-  stock Mac (`make test` says so): after changing `lib.sh`, `make linux-check`
-  runs it.
+  stock Mac (`make test` says so): after changing `lib.sh` or one of its
+  parts in `internal/checks/lib/` (a new helper goes in the part of its
+  concern; issue-cli inlines the parts into the one library it ships),
+  `make linux-check` runs it.
 - A viewer writes `viewer.json` under `XDG_STATE_HOME`: start sandbox viewers
   after `sandbox_dir` or `sandbox_project`, which move it into the sandbox
   (the project's own when there is one). Without them a

@@ -445,6 +445,12 @@
                     </div>
                     {{end}}
                 </div>
+                {{if .NoRefs}}
+                <div class="status-list status-divided" data-testid="status.release_wait.norefs">
+                    <span class="label" title="release pick &lt;slug&gt; finds an issue's commits by their Refs: line, so it never picks these. Pick one by sha if the release needs it">Not on {{.Branch}}, no Refs: line · {{len .NoRefs}}</span>
+                    {{range .NoRefs}}<div class="status-row-stack" data-testid="status.release_wait.norefs.commit.{{.Short}}"><span><span class="mono">{{.Short}}</span> {{.Subject}}</span><span class="mono status-check-detail">{{.PickCommand}}</span></div>{{end}}
+                </div>
+                {{end}}
                 {{with .Candidate}}
                 {{$stale := or .ViewerStale .CLIStale}}
                 <div class="status-list status-divided" data-testid="status.release_wait.candidate">

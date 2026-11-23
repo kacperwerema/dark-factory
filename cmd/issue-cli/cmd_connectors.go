@@ -383,6 +383,9 @@ func runConnectorExec(ctx *Context, args []string) error {
 	}
 	addr := tracker.ConnectorAddress(dept.Name, c.Name)
 	checks := callChecks{hold: connectorHold(p, addr, c, caller)}
+	if c.Publish != "" {
+		return runConnectorPublish(ctx, dept, addr, c, child, caller, checks.hold)
+	}
 	if c.Kind == tracker.ConnectorRest {
 		return runConnectorRest(ctx, dept, addr, c, child, checks.hold)
 	}

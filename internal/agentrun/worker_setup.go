@@ -100,15 +100,15 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 		kept.plugins = spec.Workflow.Workers.Plugins
 	}
 	settings, off := WorkerSettings(root, workDir, filepath.Dir(sessionLogDir), kept)
-	if len(settings) > 0 {
-		setPath := filepath.Join(sessionLogDir, "settings.json")
-		sb, _ := json.MarshalIndent(settings, "", "  ")
-		if err := os.WriteFile(setPath, append(sb, '\n'), 0600); err != nil {
-			*steps = append(*steps, Step{Name: "Write worker settings", Status: "warning", Detail: err.Error() + "; plugins and skills stay on"})
-			off = workerOff{}
-		} else {
-			flags = append(flags, "--settings="+setPath)
-		}
+	settings["hooks"] = ReadNudgeHooks()
+	setPath := filepath.Join(sessionLogDir, "settings.json")
+	sb, _ := json.MarshalIndent(settings, "", "  ")
+	if err := os.WriteFile(setPath, append(sb, '\n'), 0600); err != nil {
+		*steps = append(*steps, Step{Name: "Write worker settings", Status: "warning", Detail: err.Error() + "; plugins and skills stay on"})
+		off = workerOff{}
+	} else {
+		flags = append(flags, "--settings="+setPath)
+		off.nudge = true
 	}
 	envOut := []string{claudeAIConnectorsOff}
 	if slices.Contains(dropped, tracker.WorkerToolArtifact) {
@@ -133,6 +133,22 @@ func WorkerSetupFlags(proj *tracker.Project, spec Spec, workDir, sessionLogDir s
 	}
 	return WorkerSetup{Flags: flags, Env: append(envOut, connectors.ClaudeStartEnv(conns)...)}
 }
+
+// ReadNudgeHooks are a lean worker's settings hooks: after each tool call
+// Claude Code runs issue-cli hook read-nudge (spend.ReadNudge), which adds
+// a one-line nudge to the worker's context when its last two turns were
+// each one read-only call (docs/agent-dispatch.md#worker-setup). --settings
+// merges hooks with the owner's own, which still run.
+func ReadNudgeHooks() map[string]any {
+	return map[string]any{
+		"PostToolUse": []any{map[string]any{
+			"hooks": []any{map[string]any{"type": "command", "command": ReadNudgeCommand, "timeout": 5}},
+		}},
+	}
+}
+
+// ReadNudgeCommand is the hook's command line.
+const ReadNudgeCommand = "issue-cli hook read-nudge"
 
 // artifactToolOff is the session env that keeps Claude Code's Artifact tool
 // (its schema is the largest single part of a worker's first turn,
@@ -168,10 +184,16 @@ type workersKeep struct {
 type workerOff struct {
 	plugins, skills, listed int
 	bundled                 bool
+	// nudge: the settings carry the read-nudge hook (ReadNudgeHooks).
+	nudge bool
 }
 
 func (o workerOff) summary(toolsOff []string) string {
-	return fmt.Sprintf("plugins off %d, %s, claude.ai connectors off", o.plugins, o.skillsAndTools(toolsOff))
+	s := fmt.Sprintf("plugins off %d, %s, claude.ai connectors off", o.plugins, o.skillsAndTools(toolsOff))
+	if o.nudge {
+		s += ", read nudge on"
+	}
+	return s
 }
 
 // skillsAndTools is the skills and tools part of summary.

@@ -19,7 +19,8 @@ func repoRootT(t *testing.T) string {
 
 // TestMakeUXTestAllRunsEverySession: `make ux-test ALL=1` passes the runner
 // no -issue or -s selector, even in a dispatched worktree (where ISSUE
-// defaults to the branch's slug) and even with ISSUE= or S= given.
+// defaults to the branch's slug) and even with ISSUE= or S= given; JOBS=
+// becomes -jobs.
 func TestMakeUXTestAllRunsEverySession(t *testing.T) {
 	if _, err := exec.LookPath("make"); err != nil {
 		t.Skip("make not installed")
@@ -48,7 +49,7 @@ func TestMakeUXTestAllRunsEverySession(t *testing.T) {
 		cmd := exec.Command("make", append([]string{"-n", "ux-test"}, vars...)...)
 		cmd.Dir = root
 		for _, kv := range os.Environ() {
-			if k, _, _ := strings.Cut(kv, "="); k != "ISSUE" && k != "S" && k != "ALL" && k != "MAKEFLAGS" {
+			if k, _, _ := strings.Cut(kv, "="); k != "ISSUE" && k != "S" && k != "ALL" && k != "JOBS" && k != "MAKEFLAGS" {
 				cmd.Env = append(cmd.Env, kv)
 			}
 		}
@@ -66,6 +67,13 @@ func TestMakeUXTestAllRunsEverySession(t *testing.T) {
 		if !strings.Contains(out, "playtest ux-test") || strings.Contains(out, "-issue") || strings.Contains(out, " -s ") {
 			t.Errorf("make ux-test %v = %q, want the runner with no -issue/-s selector", vars, out)
 		}
+	}
+	// JOBS= is the runner's -jobs; without it the runner's default holds.
+	if out := uxTest("ALL=1", "JOBS=2"); !strings.Contains(out, "-jobs 2") {
+		t.Errorf("make ux-test ALL=1 JOBS=2 = %q, want -jobs 2", out)
+	}
+	if out := uxTest("ALL=1"); strings.Contains(out, "-jobs") {
+		t.Errorf("make ux-test ALL=1 = %q, want no -jobs (the runner's default)", out)
 	}
 }
 

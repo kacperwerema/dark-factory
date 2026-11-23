@@ -27,7 +27,9 @@ The kit reads files only: the narration audio, its word timings and any AI
 clips come from the project's connectors first, so the kit spends nothing.
 The storyboard's format: is the frame: 9:16 1080x1920 (the default), 4:5
 1080x1350 (a feed post) or 1:1 1080x1080; render, the captions and QA
-follow it. docs/reels.md is the page.
+follow it. Captions may be in another language than the voice
+(captions.language, and each scene's captions lines timed on the voice's
+words). docs/reels.md is the page.
 
   reel init [<dir>]
       Copy the starter Remotion template (shapes HookList, BeforeAfter,
@@ -59,6 +61,11 @@ follow it. docs/reels.md is the page.
       Run QA; refuse a reel that fails it; else put it on the shelf as one
       video output in review, the QA summary as its note and the report
       beside it (the shelf shows it under the player).
+  reel routes [<slug>] [--department <name>]
+      How each channel goes out: direct (a publish: connector, issue-cli
+      calls the platform) or through a social tool (Postiz), with the
+      command. The department is the issue's (default: yours), or every
+      department with publish: (docs/reels.md#direct-publishing).
 
 Examples:
   issue-cli reel init
@@ -67,16 +74,17 @@ Examples:
   issue-cli reel qa reels/week-plan/storyboard.mp4 --storyboard reels/week-plan/storyboard.json
   issue-cli reel shelve reels/week-plan/storyboard.mp4 --storyboard reels/week-plan/storyboard.json --title "Reel: a week's plan in three taps"`,
 	Run:         runReel,
-	Subcommands: []string{"init", "schema", "validate", "render", "qa", "shelve"},
+	Subcommands: []string{"init", "schema", "validate", "render", "qa", "shelve", "routes"},
 }
 
 func init() { registerCommand(reelCommand) }
 
 // reelNeedsNoProject: every reel subcommand but shelve works on the files
 // it is given, so it runs outside a project too (a template folder, a
-// scratch copy); shelve writes to a project's shelf.
+// scratch copy); shelve writes to a project's shelf and routes reads its
+// departments.
 func reelNeedsNoProject(args []string) bool {
-	return len(args) == 0 || args[0] != "shelve"
+	return len(args) == 0 || (args[0] != "shelve" && args[0] != "routes")
 }
 
 // reelMemCheck is mem-guard check (a test stands in for it).
@@ -84,7 +92,7 @@ var reelMemCheck = memguard.Check
 
 func runReel(ctx *Context, args []string) error {
 	if len(args) == 0 {
-		return &usageError{msg: "usage: issue-cli reel init|schema|validate|render|qa|shelve ... (issue-cli help reel)"}
+		return &usageError{msg: "usage: issue-cli reel init|schema|validate|render|qa|shelve|routes ... (issue-cli help reel)"}
 	}
 	switch args[0] {
 	case "init":
@@ -107,8 +115,10 @@ func runReel(ctx *Context, args []string) error {
 		return runReelQA(ctx, args[1:])
 	case "shelve":
 		return runReelShelve(ctx, args[1:])
+	case "routes":
+		return runReelRoutes(ctx, args[1:])
 	}
-	return &usageError{msg: fmt.Sprintf("unknown reel command %q: init, schema, validate, render, qa or shelve", args[0])}
+	return &usageError{msg: fmt.Sprintf("unknown reel command %q: init, schema, validate, render, qa, shelve or routes", args[0])}
 }
 
 func runReelInit(ctx *Context, args []string) error {

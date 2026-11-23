@@ -20,6 +20,10 @@ type Format struct {
 	// frame's bottom a lower one ends.
 	UpperY float64 `json:"-"`
 	LowerB float64 `json:"-"`
+	// PhoneTop and PhoneScreenW place the phone frame (parts.go): its top
+	// and its screen's width.
+	PhoneTop     float64 `json:"-"`
+	PhoneScreenW float64 `json:"-"`
 	// For says where the format goes, for help texts.
 	For string `json:"for"`
 }
@@ -39,9 +43,9 @@ const DefaultFormat = Format916
 // but the platforms' crop of its edges in a grid or a reels placement, so
 // smaller margins.
 var Formats = []Format{
-	{Name: Format916, Width: FrameWidth, Height: FrameHeight, SafeZone: DefaultSafeZone, UpperY: 300, LowerB: 520, For: "Instagram Reels, TikTok, YouTube Shorts, Facebook Reels"},
-	{Name: Format45, Width: 1080, Height: 1350, SafeZone: SafeZone{Top: 100, Bottom: 150, Left: 60, Right: 60}, UpperY: 180, LowerB: 250, For: "a Facebook or Instagram feed post"},
-	{Name: Format11, Width: 1080, Height: 1080, SafeZone: SafeZone{Top: 80, Bottom: 120, Left: 60, Right: 60}, UpperY: 150, LowerB: 200, For: "a square feed post"},
+	{Name: Format916, Width: FrameWidth, Height: FrameHeight, SafeZone: DefaultSafeZone, UpperY: 300, LowerB: 520, PhoneTop: 312, PhoneScreenW: 540, For: "Instagram Reels, TikTok, YouTube Shorts, Facebook Reels"},
+	{Name: Format45, Width: 1080, Height: 1350, SafeZone: SafeZone{Top: 100, Bottom: 150, Left: 60, Right: 60}, UpperY: 180, LowerB: 250, PhoneTop: 200, PhoneScreenW: 430, For: "a Facebook or Instagram feed post"},
+	{Name: Format11, Width: 1080, Height: 1080, SafeZone: SafeZone{Top: 80, Bottom: 120, Left: 60, Right: 60}, UpperY: 150, LowerB: 200, PhoneTop: 180, PhoneScreenW: 340, For: "a square feed post"},
 }
 
 // FormatNames are the formats' names in order.

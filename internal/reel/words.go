@@ -27,7 +27,8 @@ type elevenAlignment struct {
 // LoadWords reads a narration's word timings: ElevenLabs' with-timestamps
 // response (its alignment, or the alignment object alone) or the kit's own
 // list, [{word,start,end}] or {"words": [...]}. Times are seconds into the
-// narration's audio file.
+// narration's audio file. An eleven_v3 audio tag in the alignment
+// ([laughs]) is left out: it is not a spoken word.
 func LoadWords(path string) ([]Word, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -78,7 +79,19 @@ func fromCharacters(a elevenAlignment) ([]Word, error) {
 	}
 	var ws []Word
 	var cur *Word
+	inTag := false
 	for i, ch := range a.Characters {
+		// An eleven_v3 audio tag ([laughs], [whispers]) is not spoken.
+		if ch == "[" {
+			inTag = true
+			continue
+		}
+		if inTag {
+			if ch == "]" {
+				inTag = false
+			}
+			continue
+		}
 		if strings.TrimFunc(ch, unicode.IsSpace) == "" {
 			cur = nil
 			continue

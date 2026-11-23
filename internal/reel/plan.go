@@ -23,9 +23,13 @@ type Plan struct {
 	FPS      int     `json:"fps"`
 	Duration float64 `json:"duration"`
 	// Frames is Duration at FPS, what the template's composition runs.
-	Frames   int          `json:"frames"`
-	Brand    Brand        `json:"brand"`
-	CTA      CTA          `json:"cta"`
+	Frames int   `json:"frames"`
+	Brand  Brand `json:"brand"`
+	CTA    CTA   `json:"cta"`
+	// Layout is where the parts sit on the frame; Label the disclosure
+	// drawn over the whole reel, if the storyboard has one.
+	Layout   Layout       `json:"layout"`
+	Label    *PlanLabel   `json:"label,omitempty"`
 	Captions PlanCaptions `json:"captions"`
 	Scenes   []PlanScene  `json:"scenes"`
 	Cues     []Cue        `json:"cues"`
@@ -37,6 +41,9 @@ type PlanCaptions struct {
 	Style    string `json:"style"`
 	Position string `json:"position"`
 	FontSize int    `json:"font_size"`
+	// Language is the captions' language (captions.language, else the
+	// voice's); the template sets it on the caption box.
+	Language string `json:"language,omitempty"`
 }
 
 // PlanScene is a scene on the reel's clock.
@@ -50,6 +57,7 @@ type PlanScene struct {
 	Text      string         `json:"text,omitempty"`
 	Clips     []PlanClip     `json:"clips,omitempty"`
 	Narration *PlanNarration `json:"narration,omitempty"`
+	Stamps    []PlanStamp    `json:"stamps,omitempty"`
 }
 
 // PlanClip is a clip; Src is relative to the template's public folder
@@ -61,6 +69,11 @@ type PlanClip struct {
 	Start       float64 `json:"start,omitempty"`
 	End         float64 `json:"end,omitempty"`
 	AIGenerated bool    `json:"ai_generated,omitempty"`
+	// From and Frames are the clip's share of its scene (parts.go
+	// splitClips); Rate its playback speed, below 1 to fill the share.
+	From   int     `json:"from"`
+	Frames int     `json:"frames"`
+	Rate   float64 `json:"rate"`
 }
 
 // PlanNarration is a scene's narration placed on the reel's clock.
@@ -82,7 +95,8 @@ type PlanMusic struct {
 }
 
 // Cue is one caption on screen: its words (indexes into the scene's
-// narration words), its time on the reel's clock and its box.
+// narration words), its time on the reel's clock and its box. A cue from a
+// caption line timed by seconds, not words, is Timed, with From and To -1.
 type Cue struct {
 	Scene string  `json:"scene"`
 	Text  string  `json:"text"`
@@ -90,6 +104,7 @@ type Cue struct {
 	End   float64 `json:"end"`
 	From  int     `json:"from_word"`
 	To    int     `json:"to_word"`
+	Timed bool    `json:"timed,omitempty"`
 	Box   Box     `json:"box"`
 }
 
@@ -129,8 +144,11 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 	p := &Plan{
 		Version: Version, Shape: s.Shape, Title: s.Title,
 		Format: f.Name, Width: f.Width, Height: f.Height, FPS: defaultFPS,
-		Brand: s.Brand, CTA: s.CTA,
-		Captions: PlanCaptions{Style: s.Captions.Style, Position: s.Captions.Position, FontSize: s.Captions.FontSize},
+		Brand: s.Brand, CTA: s.CTA, Layout: layoutFor(f, s.zone()),
+		Captions: PlanCaptions{Style: s.Captions.Style, Position: s.Captions.Position, FontSize: s.Captions.FontSize, Language: s.Captions.Language},
+	}
+	if p.Captions.Language == "" {
+		p.Captions.Language = s.Language
 	}
 	if p.Captions.Style == "" {
 		p.Captions.Style = "words"
@@ -140,6 +158,9 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 	}
 	if p.Captions.FontSize == 0 {
 		p.Captions.FontSize = defaultFont
+	}
+	if s.Label != "" {
+		p.Label = &PlanLabel{Text: s.Label, Box: labelBox(s.Label, p.Layout)}
 	}
 	if p.Brand.Logo != "" {
 		p.Brand.Logo = s.Resolve(p.Brand.Logo)
@@ -154,8 +175,10 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 	start := 0.0
 	for _, sc := range s.Scenes {
 		ps := PlanScene{ID: sc.ID, Role: sc.Role, Start: start, Duration: sc.Duration, Text: sc.Text}
+		var lens []float64
 		for _, c := range sc.Clips {
 			ps.Clips = append(ps.Clips, PlanClip{Source: c.Source, File: s.Resolve(c.Path), Src: c.Path, Start: c.Start, End: c.End, AIGenerated: c.AIGenerated})
+			lens = append(lens, clipLength(c))
 		}
 		if n := sc.Narration; n != nil && n.Audio != "" && n.Alignment != "" {
 			file := s.Resolve(n.Audio)
@@ -175,11 +198,28 @@ func BuildPlan(s *Storyboard, audio AudioSeconds) (*Plan, error) {
 			if need := secs + tailSeconds; need > ps.Duration {
 				ps.Duration = need
 			}
-			p.Cues = append(p.Cues, cues(sc.ID, on, maxWords, p.Captions, s.Captions.Box, f)...)
+			if len(sc.Captions) == 0 {
+				p.Cues = append(p.Cues, cues(sc.ID, on, maxWords, p.Captions, s.Captions.Box, f)...)
+			}
+		}
+		if len(sc.Captions) > 0 {
+			var on []Word
+			if ps.Narration != nil {
+				on = ps.Narration.Words
+			}
+			lc, err := lineCues(sc.ID, sc.Captions, on, start, sc.Duration, p.Captions, s.Captions.Box, f)
+			if err != nil {
+				return nil, err
+			}
+			p.Cues = append(p.Cues, lc...)
 		}
 		ps.Duration = round3(ps.Duration)
 		ps.From = int(math.Round(start * float64(p.FPS)))
 		ps.Frames = int(math.Round(ps.Duration * float64(p.FPS)))
+		splitClips(ps.Clips, lens, ps.Frames, p.FPS)
+		if sc.Stamp != nil {
+			planStamps(&ps, sc.Stamp, f, p.FPS)
+		}
 		p.Scenes = append(p.Scenes, ps)
 		start = round3(start + ps.Duration)
 	}

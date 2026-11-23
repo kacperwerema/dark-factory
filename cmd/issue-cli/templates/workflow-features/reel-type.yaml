@@ -1,5 +1,5 @@
 id: reel-type
-version: v0.65.0
+version: v0.66.0
 category: lifecycle
 propose: true
 templates: [video]
@@ -19,6 +19,11 @@ what: |
   `departments/<dept>/reel-legal.yaml` (department add video installs it).
   review → publish waits for the owner's approval on the shelf (the review) and
   an owner_only publish stamp; publish → done asks for no third approval.
+  A reel the owner shares privately goes review → done without publishing:
+  the same shelf approval and an owner_only done stamp (the owner's words).
+  The brief names where the reel's media come from (copied onto the work
+  branch), and render keeps each voice's spelling of the brand name in
+  reels/pronunciation.md.
 why: |
   The studio flow asks the owner six times per video; a reel needs one review
   of the finished video plus publishing (the reels epic's D-2). Reels advertise
@@ -53,6 +58,7 @@ snippet: |
         - name: "brief"
           prompt: |
             Write the brief under ## Reel brief (issue-cli append <slug> --section "Reel brief" --body "..."): the topic and the one message, the audience, the length (15-60 s), where it goes (Instagram Reels, TikTok, Shorts), the template shape (hook plus list, before/after, app demo), the voice, and the call to action.
+            Name where the reel's media come from (app recordings, the project's own clips, photos) under ## Reel brief, and copy each onto your work branch (e.g. reels/<name>/) before the storyboard names it: a gitignored media/ folder, another worktree or an unmerged branch is not a source, since the render, the QA and the next agent read only what the branch has.
             A reel another department asked for comes as a handoff: its ## Handoff section says who asked and why.
             Then move to script: it appends ## Legal check for you to fill in.
         - name: "script"
@@ -64,6 +70,7 @@ snippet: |
           prompt: |
             Make the storyboard JSON for the script and the template shape (the reel kit's schema; `issue-cli reel validate <storyboard.json>`), and name it under ## Legal check (`storyboard: <path>`): render → review checks its narration and captions too.
             Voice and paid clips come only through the department's connectors (`issue-cli connector exec <dept>/elevenlabs -- ...`, `issue-cli connector exec <dept>/kling -- ...`), which keep to the month's spend cap; real material first (app recordings, the project's own clips).
+            Brand pronunciation: listen to the brand and product names in the first take of each voice before you make the rest (a TTS voice can misread a made-up name). Keep the spelling each voice says right in the project's reel config, reels/pronunciation.md, one line per voice placement (`narrator: <Brand> → <spelling>, checked on <take>`); read it before every take and put the spelling only into the TTS text, never into the captions or the script.
             Heavy tools: where mem-guard is installed, run `mem-guard check` before anything that loads a model, starts a browser or a big server, or fetches many pages, and don't start while it says BLOCKED. One local model and one browser at a time; plain fetches first. A render starts a browser (Remotion's Chrome).
             Render (`issue-cli reel render <storyboard.json> --out <mp4>`), run the QA (`issue-cli reel qa <mp4> --storyboard <storyboard.json>`) until it is green, and put it on the shelf with its QA report (`issue-cli reel shelve <mp4> --storyboard <storyboard.json> --title "..." --issue <slug>`). Tick ## Render, then move to review.
         - name: "review"
@@ -71,9 +78,11 @@ snippet: |
             Nothing is published. Say in chat where the reel is on the shelf, that the owner approves or rejects it there (the review), and that publishing it needs `publish` approval in the issue viewer, the owner's even in YOLO. Then end your turn. Don't wait or poll.
             If the owner asks for changes, they leave a `revise:` comment (or reject it on the shelf with a note): go back to render (the picture, the voice, the timing) or to script (the words), and put the new version on the shelf (`issue-cli output revise <id> --file <mp4>`).
             Once the newest version is approved on the shelf and the owner stamped `publish`, move to publish.
+            Done without publishing: a reel the owner shares privately (sends to someone, never posts) skips publish. Once the newest version is approved on the shelf and the owner stamped `done` in the issue viewer (or the lead relayed their words: `issue-cli approve <slug> --to done --quote "<the owner's words>"`), move straight to done.
         - name: "publish"
           prompt: |
-            The owner approved this reel on the shelf and stamped publish. Post it where the brief says (or, when no connector posts there, say in chat that the owner posts it and end your turn) with the caption, the hashtags, the platform's AI label (when ## Legal check says ai_label: yes) and the disclaimer, exactly the approved version.
+            The owner approved this reel on the shelf and stamped publish. First name the route for each place the brief says it goes: `issue-cli reel routes <slug>` prints each channel, direct (a publish: connector) or through a social tool (Postiz), with its command; write them under ## Published. A channel with no route: say in chat that the owner posts it there and end your turn.
+            Post it with the caption, the hashtags, the platform's AI label (when ## Legal check says ai_label: yes) and the disclaimer, exactly the approved version. Direct: `issue-cli connector exec <dept>/<name> -- publish --file <mp4> --caption-file <txt> [--ai-label]` is a dry run that says what still holds it; add --send to publish. A token error: run `-- token check` and ask the owner to refresh it; never retry with another key.
             Mark it on the shelf (`issue-cli output publish <id> --url <link>`), tick ## Published with the link and move to done.
       transitions:
         - from: "brief"
@@ -159,8 +168,20 @@ snippet: |
             - type: "append_section"
               title: "Published"
               body: |
+                - [ ] Route named for each channel (issue-cli reel routes <slug>): direct or Postiz
                 - [ ] Caption, hashtags, the AI label and the disclaimer ready, as ## Legal check says
                 - [ ] Published: link to what went out, marked on the shelf (issue-cli output publish <id> --url <link>)
+        # Done without publishing: a reel the owner shares privately. The same
+        # shelf approval, and the owner's own words for done (approval: comment).
+        - from: "review"
+          to: "done"
+          actions:
+            - type: "validate"
+              rule: "outputs_approved: video"
+              hint: "the owner approves the newest version on the shelf first (/p/<project>/shelf, or issue-cli outputs --issue {{slug}})"
+            - type: "require_human_approval"
+              status: "done"
+              owner_only: true # done without publishing is the owner's word, even in YOLO
         - from: "publish"
           to: "done"
           replace: true

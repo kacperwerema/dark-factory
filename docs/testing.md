@@ -198,6 +198,12 @@ UI checks run as playtest sessions:
   every night (`ci.nightly`: the slow tier after 03:00 when mem-guard allows;
   `issue-cli ci status --tier slow` names each red `<session>/<step>`).
   Console `no_errors` (the default) also catches CSP violations.
+- ux-test runs `JOBS=` sessions side by side (default 3), each worker with its
+  own headless Chrome; every step already stages its own scenario (temp dir,
+  port, tmux socket). It runs one while `mem-guard check` says BLOCKED, and a
+  worker after the first stops taking sessions once it does; `-headed` runs
+  one. Each session's lines print together when it ends; the FAIL lines and
+  e2e.json keep the sessions' order.
 - `make shot URL=<page> [W=390] [FULL=1] [SCROLL=<sel>] [OUT=…]` takes one
   screenshot of one page (headless, waits for load, not network idle);
   FULL=1 on a page that only scrolls inside (the Workshop floor) unrolls its

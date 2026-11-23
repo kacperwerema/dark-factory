@@ -16,6 +16,7 @@ export const Captions: React.FC<{plan: Plan}> = ({plan}) => {
 	const {x, y, w, h} = cue.box;
 	return (
 		<div
+			lang={plan.captions.language || undefined}
 			style={{
 				position: 'absolute',
 				left: x,

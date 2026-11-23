@@ -163,7 +163,7 @@ func TestReportSummaryAndMarkdown(t *testing.T) {
 	r := &Report{File: "/x/reel.mp4", Checks: Judge(m, p, p, b), Bounds: b}
 	r.Pass = len(r.Failed()) == 0
 	s := r.Summary()
-	for _, want := range []string{"QA: FAIL (1 of 6 checks)", "✗ loudness: -10.0 LUFS integrated (bound: -14 LUFS ±2)", "    +4.0 LU off -14", "✓ duration:"} {
+	for _, want := range []string{"QA: FAIL (1 of 7 checks)", "✗ loudness: -10.0 LUFS integrated (bound: -14 LUFS ±2)", "    +4.0 LU off -14", "✓ duration:"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("summary lacks %q:\n%s", want, s)
 		}

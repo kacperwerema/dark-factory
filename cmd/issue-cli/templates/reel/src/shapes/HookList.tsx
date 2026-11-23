@@ -1,12 +1,15 @@
 import React from 'react';
 import {AbsoluteFill} from 'remotion';
-import {Media} from '../parts/Media';
+import {atY, belowLabel, showsPhone} from '../frame';
+import {Clips} from '../parts/Clips';
+import {Stamps} from '../parts/Stamps';
 import {Title} from '../parts/Title';
 import {Reel} from '../Reel';
 import {Plan} from '../types';
 
-// HookList: a hook, then 2-6 items, each numbered over its clip, then the
-// call to action ("3 things you...").
+// HookList: a hook, then 2-6 items, each numbered over its clips, then the
+// call to action ("3 things you..."). A scene's clips play one after
+// another; a scene with a stamp gets it on each cut.
 export const HookList: React.FC<Plan> = (plan) => {
 	const items = plan.scenes.filter((s) => s.role === 'item');
 	return (
@@ -16,12 +19,12 @@ export const HookList: React.FC<Plan> = (plan) => {
 				const n = items.indexOf(s) + 1;
 				return (
 					<AbsoluteFill>
-						<Media clip={s.clips?.[0]} background={plan.brand.colors.background} />
+						<Clips plan={plan} scene={s} />
 						{s.role === 'item' ? (
 							<div
 								style={{
 									position: 'absolute',
-									top: 260,
+									top: belowLabel(plan, 260),
 									left: 90,
 									width: 120,
 									height: 120,
@@ -39,7 +42,8 @@ export const HookList: React.FC<Plan> = (plan) => {
 								{n}
 							</div>
 						) : null}
-						<Title plan={plan} text={s.text} top={s.role === 'hook' ? 360 : 410} size={s.role === 'hook' ? 96 : 76} />
+						<Title plan={plan} text={showsPhone(s) ? undefined : s.text} top={s.role === 'hook' ? atY(plan, 360) : Math.max(atY(plan, 410), belowLabel(plan, 260) + 136)} size={s.role === 'hook' ? 96 : 76} />
+						<Stamps plan={plan} scene={s} />
 					</AbsoluteFill>
 				);
 			}}

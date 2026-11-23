@@ -257,6 +257,7 @@ func TestCandidateGitCalls(t *testing.T) {
 func stubReleaseBranch(t *testing.T, unpicked map[string]int) {
 	t.Helper()
 	origHas, origUn := gitHasBranch, gitUnpicked
+	stubNoRefs(t, nil)
 	gitHasBranch = func(_, branch string) bool { return branch == "release/v0.53" }
 	gitUnpicked = func(_, branch string, slugs []string) map[string]int {
 		if branch != "release/v0.53" {

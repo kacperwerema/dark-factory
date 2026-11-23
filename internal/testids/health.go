@@ -57,6 +57,7 @@ func init() {
 		"health.opinion.by",
 		"health.decided",
 		"health.decided.row",
+		"health.decided.status",
 		"health.lint.rest",
 		"health.lint.fix",
 		"health.departments",

@@ -83,7 +83,8 @@ func TestSpendTurnsCommand(t *testing.T) {
 	assertContains(t, s, "Only counts are kept")
 	assertContains(t, s, "DRY RUNS")
 	assertContains(t, s, "FOLLOW-ON READS")
-	assertContains(t, s, "Turns a batch would save: 0 dry runs (0.00 per issue), 0 follow-on reads (0.00 per issue).")
+	assertContains(t, s, "Turns a batch would save: 0 dry runs (0.00 per issue), 0 follow-on reads (0.00 per issue), 0 follow-on read-only turns (")
+	assertContains(t, s, "FOLLOW-ON READ-ONLY")
 
 	jctx, jout := goalsCtx(t, proj, true)
 	if err := runSpend(jctx, []string{"--turns", "seo-pass"}); err != nil {

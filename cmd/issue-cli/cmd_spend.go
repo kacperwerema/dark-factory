@@ -80,9 +80,12 @@ validate (make validate, or reading its log), read (one Read, or one
 cat/head/tail/nl/sed -n of one file), red round (any other turn while a
 check of the issue's rounds or the session's make validate is red),
 rest; with the context each cause's
-turns read. Two counts name turns a batch would save: dry runs
-(transition calls with --dry-run) and follow-on reads (a read turn
-straight after another read turn of the same session). Pass a slug for
+turns read. Three counts name turns a batch would save: dry runs
+(transition calls with --dry-run), follow-on reads (a read turn
+straight after another read turn of the same session) and follow-on
+read-only turns (one read-only call: Read, Grep, Glob, or a shell call
+of grep/ls/sed -n/cat, read-only git or issue-cli, straight after
+another; with the context they read). Pass a slug for
 one issue. Command text is read only to pick
 the cause; nothing of it is kept.
 

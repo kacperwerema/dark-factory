@@ -8,6 +8,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/agentrun"
 	"github.com/kacperwerema/dark-factory/internal/autostart"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/timeline"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
@@ -27,12 +28,44 @@ func isMemoryHold(kind autostart.HoldKind) bool { return kind.Memory() }
 func ownerWaitReason(proj *tracker.Project, issue *tracker.Issue) string {
 	comments := issue.Comments()
 	if gate := tracker.WaitingOnGate(proj.LoadWorkflowForIssue(issue), issue, comments); gate != "" {
+		if finishedBeforeItsGate(issue, comments) {
+			// 2026-11-23: report 541 did all its work at idea and never
+			// moved; "waits on the owner's approval" read as not started.
+			return fmt.Sprintf("finished at %s without moving: a report: comment and every criterion ticked; move it on: %s",
+				issue.Status, tracker.InjectProject(proj, "issue-cli transition "+issue.Slug+" --to "+shell.Quote(gate)))
+		}
 		return "waits on the owner's approval for " + gate
 	}
 	if n := len(comments); n > 0 && strings.HasPrefix(strings.ToLower(strings.TrimSpace(comments[n-1].Text)), "question:") {
 		return "an open question: comment"
 	}
 	return ""
+}
+
+// finishedBeforeItsGate reports whether the issue's worker says it is done
+// while its gate is still ahead: a worker's report: comment and every
+// Acceptance criteria box ticked (at least one).
+func finishedBeforeItsGate(issue *tracker.Issue, comments []tracker.Comment) bool {
+	reported := false
+	for _, c := range comments {
+		if _, ok := commentAfter(c, "report:"); ok && !askedByALead(tracker.CommentAuthor(c)) {
+			reported = true
+		}
+	}
+	if !reported {
+		return false
+	}
+	criteria := 0
+	for _, it := range tracker.ListCheckboxes(issue.BodyRaw) {
+		if !strings.EqualFold(strings.TrimSpace(it.Section), "Acceptance criteria") {
+			continue
+		}
+		if !it.Checked {
+			return false
+		}
+		criteria++
+	}
+	return criteria > 0
 }
 
 // reclaimableSessions lists the sessions a memory hold could free; a var so

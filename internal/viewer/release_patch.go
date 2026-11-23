@@ -127,6 +127,7 @@ func buildPatchRow(proj *tracker.Project, wf *tracker.WorkflowConfig, changelog 
 		}
 		ms.Checks = append(ms.Checks, c)
 	}
+	ms.NoRefs = gitNoRefs(root, branch, changelog)
 	ms.addCandidate(root, branch, changelog)
 	return ms
 }

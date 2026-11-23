@@ -1,12 +1,20 @@
 import React from 'react';
 import {AbsoluteFill, Img, OffthreadVideo, staticFile, useVideoConfig} from 'remotion';
-import {Clip} from '../types';
+import {Box, Clip} from '../types';
 
 const isImage = (src: string) => /\.(png|jpe?g|webp|gif|svg)$/i.test(src);
 
 // Media fills its box with one clip: a video (muted: the kit lays the
-// sound) or a still. With no clip it shows the brand background.
-export const Media: React.FC<{clip?: Clip; background: string; style?: React.CSSProperties}> = ({clip, background, style}) => {
+// sound) at playbackRate, or a still. With no clip it shows the brand
+// background. An AI-made clip gets the AI badge at aiLabel (the plan's
+// layout.label corner); Clips leaves it out when the reel has a label.
+export const Media: React.FC<{clip?: Clip; background: string; style?: React.CSSProperties; playbackRate?: number; aiLabel?: Box}> = ({
+	clip,
+	background,
+	style,
+	playbackRate,
+	aiLabel,
+}) => {
 	const {fps} = useVideoConfig();
 	if (!clip) {
 		return <AbsoluteFill style={{background, ...style}} />;
@@ -21,23 +29,24 @@ export const Media: React.FC<{clip?: Clip; background: string; style?: React.CSS
 					src={staticFile(clip.src)}
 					muted
 					style={fill}
+					playbackRate={playbackRate ?? 1}
 					startFrom={clip.start ? Math.round(clip.start * fps) : undefined}
 					endAt={clip.end ? Math.round(clip.end * fps) : undefined}
 				/>
 			)}
-			{clip.ai_generated ? <AiLabel /> : null}
+			{clip.ai_generated && aiLabel ? <AiLabel at={aiLabel} /> : null}
 		</AbsoluteFill>
 	);
 };
 
 // AiLabel marks AI-made footage on screen (the platforms' labels are set
 // when publishing; this one travels with the file).
-const AiLabel: React.FC = () => (
+export const AiLabel: React.FC<{at: Box}> = ({at}) => (
 	<div
 		style={{
 			position: 'absolute',
-			top: 240,
-			left: 70,
+			top: at.y,
+			left: at.x,
 			padding: '6px 14px',
 			borderRadius: 8,
 			background: 'rgba(0,0,0,0.55)',

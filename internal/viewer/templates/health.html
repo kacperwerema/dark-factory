@@ -97,7 +97,7 @@
                     {{range .Recs}}
                     <article class="health-rec{{if not .Proposed}} done{{end}}" data-testid="health.recommendation">
                         <div class="health-rec-head"><span class="mono stats-muted">{{.ID}}</span><span class="stats-chip">{{.Kind}}</span><span class="stats-chip">effort {{.Effort}}</span>
-                            {{if eq .State "filed"}}<span class="stats-chip ok">filed{{if .Issue}}: <a href="{{.IssueHref}}" class="mono">{{.Issue}}</a>{{end}}</span>{{end}}
+                            {{if eq .State "filed"}}<span class="stats-chip ok">filed{{if .Issue}}: <a href="{{.IssueHref}}" class="mono">{{.Issue}}</a>{{with .IssueStatus}} ({{.}}){{end}}{{end}}</span>{{end}}
                             {{if eq .State "dismissed"}}<span class="stats-chip">dismissed{{if .Reason}}: {{.Reason}}{{end}}</span>{{end}}
                         </div>
                         <strong class="health-rec-title">{{.Title}}</strong>

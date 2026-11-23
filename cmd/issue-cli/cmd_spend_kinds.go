@@ -222,11 +222,11 @@ func runSpendTurns(ctx *Context, w spendWindow, slug string) error {
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(out)
-	fmt.Fprintln(tw, "ISSUE\tSESSIONS\tTURNS\tTRANSITION (REFUSED)\tVALIDATE\tREAD\tRED ROUND\tREST\tRED ROUNDS\tDRY RUNS\tFOLLOW-ON READS\tCONTEXT READ\t")
+	fmt.Fprintln(tw, "ISSUE\tSESSIONS\tTURNS\tTRANSITION (REFUSED)\tVALIDATE\tREAD\tRED ROUND\tREST\tRED ROUNDS\tDRY RUNS\tFOLLOW-ON READS\tFOLLOW-ON READ-ONLY\tCONTEXT READ\t")
 	row := func(it spend.IssueTurns) {
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%d (%d)\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t\n", clipSlug(it.Slug), it.Sessions, it.Turns,
+		fmt.Fprintf(tw, "%s\t%d\t%d\t%d (%d)\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\t\n", clipSlug(it.Slug), it.Sessions, it.Turns,
 			it.By[spend.CauseTransition].Turns, it.Refused, it.By[spend.CauseValidate].Turns, it.By[spend.CauseRead].Turns,
-			it.By[spend.CauseRedRound].Turns, it.By[spend.CauseRest].Turns, it.RedRounds, it.DryRuns, it.FollowOnReads, tokens.Format(it.Context))
+			it.By[spend.CauseRedRound].Turns, it.By[spend.CauseRest].Turns, it.RedRounds, it.DryRuns, it.FollowOnReads, it.FollowOnReadOnly, tokens.Format(it.Context))
 	}
 	limit := len(rep.Issues)
 	if slug == "" && limit > 20 {
@@ -251,10 +251,11 @@ func runSpendTurns(ctx *Context, w spendWindow, slug string) error {
 		}
 		fmt.Fprintf(out, "\nAll issues: %s.\n", strings.Join(parts, "; "))
 		n := float64(len(rep.Issues))
-		fmt.Fprintf(out, "Turns a batch would save: %d dry runs (%.2f per issue), %d follow-on reads (%.2f per issue).\n",
-			t.DryRuns, float64(t.DryRuns)/n, t.FollowOnReads, float64(t.FollowOnReads)/n)
+		fmt.Fprintf(out, "Turns a batch would save: %d dry runs (%.2f per issue), %d follow-on reads (%.2f per issue), %d follow-on read-only turns (%s of turns, %s read).\n",
+			t.DryRuns, float64(t.DryRuns)/n, t.FollowOnReads, float64(t.FollowOnReads)/n,
+			t.FollowOnReadOnly, pct(float64(t.FollowOnReadOnly)/float64(t.Turns)), tokens.Format(t.FollowOnReadOnlyContext))
 	}
-	fmt.Fprintln(out, "Causes: transition = an issue-cli transition call (refused: its result was an error); validate = make validate or reading its log; read = one Read, or one cat/head/tail/nl/sed -n of one file; red round = any other turn while a check of the issue's rounds or the session's make validate is red; rest = the others; dry runs = transition calls with --dry-run; follow-on reads = read turns straight after another read turn. Only counts are kept: no command text.")
+	fmt.Fprintln(out, "Causes: transition = an issue-cli transition call (refused: its result was an error); validate = make validate or reading its log; read = one Read, or one cat/head/tail/nl/sed -n of one file; red round = any other turn while a check of the issue's rounds or the session's make validate is red; rest = the others; dry runs = transition calls with --dry-run; follow-on reads = read turns straight after another read turn; follow-on read-only = a turn of one read-only call (Read, Grep, Glob, or a shell call of grep/ls/sed -n/cat, read-only git or issue-cli) straight after another. Only counts are kept: no command text.")
 	return nil
 }
 

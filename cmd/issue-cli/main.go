@@ -16,6 +16,7 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/clilog"
 	"github.com/kacperwerema/dark-factory/internal/restrace"
+	"github.com/kacperwerema/dark-factory/internal/spend"
 	"github.com/kacperwerema/dark-factory/internal/telemetry"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 
@@ -289,6 +290,14 @@ func tailRecords(path string, n int64) []clilog.Record {
 }
 
 func main() {
+	// A worker's Claude Code hook (agentrun.ReadNudgeHooks) runs this after
+	// every tool call: it stays out of the command registry so it writes no
+	// clilog line or telemetry event each time, and prints only the hook's
+	// answer.
+	if len(os.Args) == 3 && os.Args[1] == "hook" && os.Args[2] == "read-nudge" {
+		_ = spend.ReadNudge(os.Stdin, os.Stdout, "")
+		return
+	}
 	start := time.Now()
 	args := expandGlobalFlagEquals(os.Args[1:])
 	log := newCallLog(args, start)

@@ -2,7 +2,7 @@ You are reviewing the health of the project {{project}} ({{languages}}). The own
 
 Read the evidence pack first: {{pack}}
 
-Then sample the code in {{root}}: open the 3 biggest hotspots, the 5 slowest tests and the 2 least-tested areas, and at least one test file per area you recommend changing. Don't edit anything, don't run the full suite, and don't create issues.
+Then sample the code in {{root}}: open the 3 biggest hotspots, the 5 slowest tests and the 2 least-tested areas, and at least one test file per area you recommend changing. Don't edit anything, don't run the full suite, and don't create issues before the review is recorded.
 
 Write a JSON file matching `issue-cli health review --schema` and record it with:
 
@@ -15,4 +15,4 @@ Include:
 
 Don't repeat a recommendation that is already filed or dismissed unless its evidence got worse; say so if it did. Prefer one precise recommendation ("these 12 tests in X assert the same Y and cost 30 s") over a general one ("improve tests").
 
-`record` refuses a file whose evidence points at a metric or path that doesn't exist, and lists each problem with its fix: correct the file and record it again. Nothing becomes an issue: the owner files recommendations from the Health view.
+`record` refuses a file whose evidence points at a metric or path that doesn't exist, and lists each problem with its fix: correct the file and record it again. Nothing becomes an issue by itself: the owner files recommendations from the Health view. If the task that started you asks you to file your findings as issues, create each with `issue-cli --project {{slug}} create` and then mark the recommendation filed with `issue-cli --project {{slug}} health review link <R#> <slug>`, so the Health view doesn't show it as still proposed.

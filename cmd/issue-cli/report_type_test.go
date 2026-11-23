@@ -131,3 +131,41 @@ func TestReportTypeDoneWaitsForTheOwner(t *testing.T) {
 		t.Fatal("the refused transition moved the issue")
 	}
 }
+
+// A report worker at idea under YOLO is told to move to in progress before
+// it writes, and output add refuses a report still at idea with that move
+// as the fix. 2026-11-23: report 541 wrote and shelved its report at idea
+// and never moved; its briefing carried only the design prompt.
+func TestAReportAtIdeaMovesBeforeItWrites(t *testing.T) {
+	proj, slug, issuePath := reportProject(t)
+	now := time.Now()
+	yoloOn(t, proj, now, time.Hour)
+
+	issues, err := tracker.LoadIssues(proj.IssueDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, _ := issueExists(issues, slug)
+	brief := tracker.BuildAgentPromptYOLO(proj, issue, proj.LoadWorkflowForIssue(issue), "", "", true)
+	guidance := brief[strings.Index(brief, "## Current status guidance"):strings.Index(brief, "## How to work")]
+	assertContains(t, guidance, "Report: move to `in progress` before you research or write anything: `issue-cli --project proj transition <slug> --to \"in progress\"`")
+	assertNotContains(t, guidance, "structured design")
+	assertNotContains(t, guidance, "end your turn")
+
+	report := filepath.Join(t.TempDir(), "report.md")
+	mustWrite(t, report, "# Benchmark pack\n\n12 tasks.\n")
+	ctx, _, _ := newTestContext(proj, false)
+	err = runOutput(ctx, []string{"add", "--kind", "report", "--title", "Benchmark pack", "--file", report})
+	if err == nil || err.Error() != `✗ `+slug+` is a report at idea: move it first, then add the report: issue-cli --project proj transition `+slug+` --to 'in progress'` {
+		t.Fatalf("output add at idea: %v", err)
+	}
+
+	if _, _, err := runYOLOTransition(t, proj, now, slug, "--to", "in progress"); err != nil {
+		t.Fatalf("idea → in progress: %v", err)
+	}
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runOutput(ctx, []string{"add", "--kind", "report", "--title", "Benchmark pack", "--file", report}); err != nil {
+		t.Fatalf("output add at in progress: %v", err)
+	}
+	assertContains(t, readFile(t, issuePath), "## Research")
+}

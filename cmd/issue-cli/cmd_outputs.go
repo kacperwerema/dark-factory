@@ -13,6 +13,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/connections"
 	"github.com/kacperwerema/dark-factory/internal/goals"
 	"github.com/kacperwerema/dark-factory/internal/outputs"
+	"github.com/kacperwerema/dark-factory/internal/shell"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -168,6 +169,9 @@ func runOutputAdd(ctx *Context, args []string) error {
 		if issue, _, err = findIssueOrErr(ctx, *slug); err != nil {
 			return err
 		}
+		if err := reportBeforeItsWork(p, issue); err != nil {
+			return err
+		}
 		in.Issue = issue.Slug
 		if *path != "" {
 			// A worker's file may be on its branch only: add looks there
@@ -201,6 +205,23 @@ func runOutputAdd(ctx *Context, args []string) error {
 	fmt.Fprintf(ctx.Stdout, "When another department uses it: issue-cli output use %s --by <department|issue>\n", shortID(o.ID))
 	fmt.Fprintf(ctx.Stdout, "file: %s\n", outputs.LogPath(p))
 	return nil
+}
+
+// reportBeforeItsWork refuses an output on a report issue still at the
+// first status of its path while the move out of it waits on an approval:
+// the research starts once it moves (that move adds the Research boxes).
+// 2026-11-23: report 541 shelved its report at idea and never moved.
+func reportBeforeItsWork(p *tracker.Project, issue *tracker.Issue) error {
+	wf := p.LoadWorkflowForIssue(issue)
+	if wf == nil || wf.ActiveType != "report" || wf.GetStatusIndex(issue.Status) != 0 {
+		return nil
+	}
+	order := wf.GetStatusOrder()
+	if len(order) < 2 || wf.RequiredHumanApproval(issue.Status, order[1]) == "" {
+		return nil
+	}
+	return fmt.Errorf("✗ %s is a report at %s: move it first, then add the report: %s",
+		issue.Slug, issue.Status, tracker.InjectProject(p, "issue-cli transition "+issue.Slug+" --to "+shell.Quote(order[1])))
 }
 
 // printSameTitle says what to do when add made a second output of something

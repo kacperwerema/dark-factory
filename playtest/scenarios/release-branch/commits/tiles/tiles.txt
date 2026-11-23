@@ -1,0 +1,1 @@
+offline tiles: cache by zoom level

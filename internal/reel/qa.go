@@ -19,10 +19,11 @@ const (
 	CheckBlack    = "black-frames"
 	CheckSafeZone = "safe-zone"
 	CheckSync     = "caption-sync"
+	CheckInScene  = "caption-scene"
 )
 
 // CheckNames are the checks in order.
-var CheckNames = []string{CheckDuration, CheckAspect, CheckLoudness, CheckBlack, CheckSafeZone, CheckSync}
+var CheckNames = []string{CheckDuration, CheckAspect, CheckLoudness, CheckBlack, CheckSafeZone, CheckSync, CheckInScene}
 
 // Check is one QA check's verdict.
 type Check struct {
@@ -226,6 +227,7 @@ func Judge(m Measured, drawn, fresh *Plan, b Bounds) []Check {
 		judgeBlack(m, b),
 		judgeSafeZone(drawn, b),
 		judgeSync(m, drawn, fresh, b),
+		judgeInScene(drawn),
 	}
 }
 
@@ -315,38 +317,60 @@ func judgeSafeZone(p *Plan, b Bounds) Check {
 			narrated = true
 		}
 	}
-	if len(p.Cues) == 0 {
-		if narrated {
-			c.Measured = "no caption cues in the plan"
-			c.Details = append(c.Details, "the reel has narration but its plan has no captions: re-render with issue-cli reel render")
-			return c
+	if len(p.Cues) == 0 && narrated {
+		c.Measured = "no caption cues in the plan"
+		c.Details = append(c.Details, "the reel has narration but its plan has no captions: re-render with issue-cli reel render")
+		return c
+	}
+	// The parts drawn over the footage: the label and every stamp.
+	type part struct {
+		what string
+		box  Box
+	}
+	var parts []part
+	if p.Label != nil {
+		parts = append(parts, part{fmt.Sprintf("label %q", p.Label.Text), p.Label.Box})
+	}
+	stamps := 0
+	for _, s := range p.Scenes {
+		for _, st := range s.Stamps {
+			stamps++
+			parts = append(parts, part{fmt.Sprintf("stamp %q in scene %s at %.2f s", st.Text, s.ID, st.Start), st.Box})
 		}
+	}
+	if len(p.Cues) == 0 && len(parts) == 0 {
 		c.OK, c.Measured = true, "no captions (no narration)"
 		return c
 	}
 	out := 0
 	for _, q := range p.Cues {
 		x := q.Box
-		var where []string
-		if x.Y < z.Top {
-			where = append(where, fmt.Sprintf("top %g px into the top %g", z.Top-x.Y, z.Top))
-		}
-		if x.Y+x.H > fh-z.Bottom {
-			where = append(where, fmt.Sprintf("bottom %g px into the bottom %g", x.Y+x.H-(fh-z.Bottom), z.Bottom))
-		}
-		if x.X < z.Left {
-			where = append(where, fmt.Sprintf("left %g px into the left %g", z.Left-x.X, z.Left))
-		}
-		if x.X+x.W > fw-z.Right {
-			where = append(where, fmt.Sprintf("right %g px into the right %g", x.X+x.W-(fw-z.Right), z.Right))
-		}
-		if len(where) > 0 {
+		if where := outside(x, z, fw, fh); len(where) > 0 {
 			out++
 			c.Details = append(c.Details, fmt.Sprintf("%q at %.2f s, box %gx%g at %g,%g: %s", q.Text, q.Start, x.W, x.H, x.X, x.Y, strings.Join(where, ", ")))
 		}
 	}
+	for _, pt := range parts {
+		x := pt.box
+		if where := outside(x, z, fw, fh); len(where) > 0 {
+			out++
+			c.Details = append(c.Details, fmt.Sprintf("%s, box %gx%g at %g,%g: %s", pt.what, x.W, x.H, x.X, x.Y, strings.Join(where, ", ")))
+		}
+	}
 	c.OK = out == 0
-	c.Measured = fmt.Sprintf("%d of %d caption boxes outside the safe zone", out, len(p.Cues))
+	if len(parts) == 0 {
+		c.Measured = fmt.Sprintf("%d of %d caption boxes outside the safe zone", out, len(p.Cues))
+		return c
+	}
+	var of []string
+	of = append(of, fmt.Sprintf("%d caption", len(p.Cues)))
+	if p.Label != nil {
+		of = append(of, "1 label")
+	}
+	if stamps > 0 {
+		of = append(of, fmt.Sprintf("%d stamp", stamps))
+	}
+	c.Measured = fmt.Sprintf("%d of %d boxes (%s) outside the safe zone", out, len(p.Cues)+len(parts), strings.Join(of, ", "))
 	return c
 }
 
@@ -364,6 +388,9 @@ func judgeSync(m Measured, drawn, fresh *Plan, b Bounds) Check {
 	}
 	worstCue := 0.0
 	for _, q := range drawn.Cues {
+		if q.Timed {
+			continue // timed by seconds, not words: caption-scene checks it
+		}
 		ws := words[q.Scene]
 		if q.From < 0 || q.To >= len(ws) || q.From > q.To {
 			c.Details = append(c.Details, fmt.Sprintf("cue %q names words %d-%d, but scene %s now has %d words: re-render after a new narration", q.Text, q.From, q.To, q.Scene, len(ws)))
@@ -416,6 +443,37 @@ func judgeSync(m Measured, drawn, fresh *Plan, b Bounds) Check {
 	}
 	c.OK = len(c.Details) == 0
 	c.Measured = fmt.Sprintf("cues off by %s s at most, speech by %s s, audio/video %+.2f s", fmtWorst(worstCue), fmtWorst(worstSpeech), av)
+	return c
+}
+
+// judgeInScene fails a cue that starts before its scene or runs past it:
+// a caption line timed past the scene's end, or a plan whose scenes moved.
+func judgeInScene(p *Plan) Check {
+	c := Check{Name: CheckInScene, Bound: "every caption inside its scene"}
+	scenes := map[string]PlanScene{}
+	for _, s := range p.Scenes {
+		scenes[s.ID] = s
+	}
+	if len(p.Cues) == 0 {
+		c.OK, c.Measured = true, "no captions"
+		return c
+	}
+	out := 0
+	for _, q := range p.Cues {
+		s, ok := scenes[q.Scene]
+		end := round3(s.Start + s.Duration)
+		switch {
+		case !ok:
+			c.Details = append(c.Details, fmt.Sprintf("cue %q names scene %s, which the plan doesn't have: re-render", q.Text, q.Scene))
+		case q.Start < s.Start-0.001 || q.End > end+0.001:
+			c.Details = append(c.Details, fmt.Sprintf("cue %q shows %.2f-%.2f s, its scene %s runs %.2f-%.2f s: shorten the line's end or lengthen the scene", q.Text, q.Start, q.End, s.ID, s.Start, end))
+		default:
+			continue
+		}
+		out++
+	}
+	c.OK = out == 0
+	c.Measured = fmt.Sprintf("%d of %d captions outside their scene", out, len(p.Cues))
 	return c
 }
 

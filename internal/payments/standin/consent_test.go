@@ -180,6 +180,11 @@ func TestWithdrawalTwoStep(t *testing.T) {
 	if code != 200 || !strings.Contains(step2, "Potwierdź odstąpienie od umowy") || !strings.Contains(step2, `method="post"`) {
 		t.Fatalf("step 2: %d, wants the confirm form:\n%s", code, step2)
 	}
+	// The form names the channel the receipt goes to: the email field and the
+	// intro line that says the acknowledgement is sent to that address.
+	if !strings.Contains(step2, `name="email"`) || !strings.Contains(step2, "adres e-mail") {
+		t.Errorf("step 2 does not name the receipt channel (the email):\n%s", step2)
+	}
 	if n := k.app.count(payments.EventWithdrawalRequested); n != 0 {
 		t.Fatalf("the two GET steps sent %d withdrawal event(s): only the POST may", n)
 	}
@@ -314,6 +319,9 @@ func TestConsentDocNamesTheLawAndReCheck(t *testing.T) {
 		"## Consent, withdrawal and cancel", "2023/2673", "two steps", "UC169", "print 2799",
 		"Re-check on 2027-04-01", "Odstąp od umowy tutaj", "Potwierdź odstąpienie od umowy",
 		"placeholder", "lawyer", "`withdrawal.requested`", "never refunds by itself",
+		"greenwashing", "poz. 1353", "RCL 12414453", "not yet adopted by the Council", "mid-2027",
+		"the RCL page and the Sejm API", "always and clearly visible", "whole withdrawal period",
+		"Partial withdrawal", "not built", "receipt-confirmation channel",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("docs/payments.md lacks %q", want)

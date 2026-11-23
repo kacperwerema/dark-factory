@@ -12,6 +12,7 @@
     "format": {"enum": ["9:16", "4:5", "1:1"], "description": "the frame: 9:16 1080x1920 (default; Reels, TikTok, Shorts), 4:5 1080x1350 (a feed post), 1:1 1080x1080. Plan, caption boxes, safe zone and the aspect check follow it."},
     "title": {"type": "string", "minLength": 1},
     "language": {"type": "string", "description": "BCP 47, e.g. pl"},
+    "label": {"type": "string", "description": "a disclosure shown over the whole reel in the reel's own words, e.g. 'Acted scene, AI voice and video'; it takes the place of the per-clip AI badge. The safe-zone check reads its box."},
     "brand": {
       "type": "object",
       "additionalProperties": false,
@@ -56,6 +57,11 @@
               "alignment": {"type": "string", "description": "word timings: ElevenLabs with-timestamps JSON or [{word,start,end}]"}
             }
           },
+          "captions": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/captionLine"},
+            "description": "caption lines in place of the voice's words (in captions.language, or the voice's words spelled for the screen): one cue each"
+          },
           "clips": {
             "type": "array",
             "items": {
@@ -72,6 +78,17 @@
                 "tool": {"type": "string", "description": "the tool that made an ai clip, e.g. kling"},
                 "licence": {"type": "string", "description": "required for stock"}
               }
+            },
+            "description": "all of them play, one after another: trimmed clips (end set on every one) share the scene by length, others evenly; an app-recording clip shows in the phone frame over the scene's other footage"
+          },
+          "stamp": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "description": "a big word stamped on each of the scene's cuts, in the brand's accent colour; not on the cta scene. The safe-zone check reads its box.",
+            "properties": {
+              "text": {"type": "string", "minLength": 1, "description": "the word drawn, e.g. NO: a short one, it is drawn at 170 px"},
+              "on": {"type": "string", "description": "the spoken word each stamp lands on when the narration says it once per cut (case and punctuation aside); default: text"}
             }
           }
         }
@@ -85,7 +102,8 @@
         "position": {"enum": ["lower", "middle", "upper", "custom"]},
         "max_words": {"type": "integer", "minimum": 0},
         "font_size": {"type": "integer", "minimum": 0},
-        "box": {"$ref": "#/$defs/box"}
+        "box": {"$ref": "#/$defs/box"},
+        "language": {"type": "string", "description": "the captions' language when it is not the voice's (language): every narrated scene then has its own captions lines"}
       }
     },
     "music": {
@@ -145,6 +163,18 @@
     }
   },
   "$defs": {
+    "captionLine": {
+      "type": ["string", "object"],
+      "description": "a string (shares the scene's voice words by its word count), or {text, words: [first, last]} (shows over those voice words), or {text, start, end} (seconds into the scene)",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "words": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2},
+        "start": {"type": "number", "minimum": 0},
+        "end": {"type": "number", "minimum": 0}
+      }
+    },
     "box": {
       "type": "object",
       "additionalProperties": false,

@@ -193,6 +193,12 @@ release flow reads the same on both pages.
         </div>
         {{end}}
     </div>
+    {{if .NoRefs}}
+    <div class="wb-rel-list" data-testid="status.release_wait.norefs">
+        <div class="wb-rsub" title="release pick &lt;slug&gt; finds an issue's commits by their Refs: line, so it never picks these. Pick one by sha if the release needs it">Not on <span class="wb-mono-inline">{{.Branch}}</span>, no Refs: line · {{len .NoRefs}}</div>
+        {{range .NoRefs}}<div class="wb-rel-stack" data-testid="status.release_wait.norefs.commit.{{.Short}}"><span><span class="wb-mono-inline">{{.Short}}</span> {{.Subject}}</span><span class="wb-rel-detail">{{.PickCommand}}</span></div>{{end}}
+    </div>
+    {{end}}
     {{with .Candidate}}
     {{$stale := or .ViewerStale .CLIStale}}
     <div class="wb-rel-list" data-testid="status.release_wait.candidate">
@@ -288,6 +294,12 @@ release flow reads the same on both pages.
         {{end}}
         {{if .Soaking}}<span class="wb-rel-meta">Publish only on the owner's ok: <code class="wb-code">cd {{.Worktree}} &amp;&amp; issue-cli release publish {{.Cut}}</code></span>{{end}}
     </div>
+    {{if .NoRefs}}
+    <div class="wb-rel-list" data-testid="status.release_wait.patch.norefs">
+        <div class="wb-rsub" title="release pick &lt;slug&gt; finds an issue's commits by their Refs: line, so it never picks these. Pick one by sha if the release needs it">Not on <span class="wb-mono-inline">{{.Branch}}</span>, no Refs: line · {{len .NoRefs}}</div>
+        {{range .NoRefs}}<div class="wb-rel-stack" data-testid="status.release_wait.patch.norefs.commit.{{.Short}}"><span><span class="wb-mono-inline">{{.Short}}</span> {{.Subject}}</span><span class="wb-rel-detail">{{.PickCommand}}</span></div>{{end}}
+    </div>
+    {{end}}
     {{end}}
     {{if .Changelog}}
     <div class="wb-rel-list" data-testid="status.release_wait.unreleased">
@@ -536,3 +548,4 @@ release flow reads the same on both pages.
     {{with .URL}}<a class="wb-rlink" href="{{.}}" data-testid="report.released.full">Full changelog</a>{{end}}
 </section>
 {{end}}
+

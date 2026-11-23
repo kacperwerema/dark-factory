@@ -418,6 +418,11 @@ type Department struct {
 	// Budget is what the department may spend, shown as "x of y" and never
 	// enforced (budget.go, docs/departments.md#spend-and-budgets).
 	Budget *Budget `yaml:"budget"`
+	// Publish is how each channel's finished work goes out: channel →
+	// connector (a name in this department or <dept>/<name>). A connector
+	// with publish: is the direct route, a per_run: tool: postiz one the
+	// Postiz route (internal/directpost, docs/reels.md#direct-publishing).
+	Publish map[string]string `yaml:"publish"`
 }
 
 // Job is one recurring job of a department: a schedule and the brief each

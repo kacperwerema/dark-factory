@@ -184,6 +184,11 @@ write from its worktree. The `report` type in the bundled `development` template
   research and writing, `human-testing` is the owner's review.
 - `idea → in progress`: body not empty, the owner's approval, an assignee; appends `## Research` (the questions listed
   in the body, the report on the shelf, code fixes filed as their own issues).
+- At `idea` the type's own prompt tells the worker to move to `in progress` before it researches or writes, and
+  `output add` refuses a report still at the first status of a path whose first move waits on an approval, with that
+  `transition` as the fix. On a memory hold the lead's tick names an idle worker whose issue sits before its gate with a
+  worker's `report:` comment and every Acceptance criteria box ticked as "finished at <status> without moving", with
+  the move to make, not as waiting on the owner (2026-11-23: a report shelved at idea read as not started).
 - `in progress → human-testing` (the type's own edge): Research ticked, `has_output: report`, a `report:` comment
   (the findings in a paragraph and the follow-ups); appends `## Owner Review` with one box marked `(owner)`.
 - `human-testing → done` (the type's own edge): the owner's approval only. No Shipping, no `commits_reference_issue`:

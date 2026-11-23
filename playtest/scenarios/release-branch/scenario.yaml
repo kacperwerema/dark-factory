@@ -6,7 +6,8 @@
 # lacks. A changelog commit follows on the branch and v1.5.0-rc.2 tags it.
 # work/ui/dark-map-style is done but not picked, so the Fixes picked check
 # names it. Nothing records a release check, so the candidate is not
-# validated.
+# validated. A last main commit (offline tiles, no Refs: line) is on no
+# branch: the card lists it with its pick command.
 title: Release branch release/v1.5 with rc.1 on a picked fix and rc.2 on its tip
 project:
   name: Atlas
@@ -19,19 +20,23 @@ commits:
     message: "Fix route export"
   - files: commits/changelog
     message: "Changelog: route export fix"
+  # A follow-up with no Refs: line: release pick <slug> never finds it, so
+  # the card lists it under "Not on release/v1.5, no Refs: line".
+  - files: commits/tiles
+    message: "Offline tiles cache by zoom level"
 branches:
   - name: work/cli/route-export-drops-waypoints
-    from: main~2
+    from: main~3
     commits:
       - files: commits/fix
         message: "Fix route export"
   - name: work/ui/dark-map-style
-    from: main~2
+    from: main~3
     commits:
       - files: branches/dark
         message: "Dark map style follows the system theme"
   - name: release/v1.5
-    from: main~2
+    from: main~3
     worktree: true
     commits:
       - files: commits/fix

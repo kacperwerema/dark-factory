@@ -205,30 +205,30 @@ func TestVideoTypesKeepTheStudioGates(t *testing.T) {
 		t.Errorf("studio path %v walks render", p)
 	}
 	reel := owners("reel")
-	if len(reel) != 1 || !reel["review → publish"] {
-		t.Errorf("reel owner_only gates %v, want only review → publish", reel)
+	if len(reel) != 2 || !reel["review → publish"] || !reel["review → done"] {
+		t.Errorf("reel owner_only gates %v, want review → publish and review → done (shared privately)", reel)
 	}
 	if strings.Join(wf.Types["reel"].Path, ",") != strings.Join(reelPath, ",") {
 		t.Errorf("reel path %v, want %v", wf.Types["reel"].Path, reelPath)
 	}
 	eff := wf.ForIssue(&tracker.Issue{Type: "reel", Status: "review"})
-	var shelf bool
+	shelf := map[string]bool{}
 	approvals := 0
 	for _, tr := range eff.Transitions {
 		for _, a := range tr.Actions {
 			if a.Type == "require_human_approval" {
 				approvals++
 			}
-			if tr.From == "review" && tr.To == "publish" {
-				shelf = shelf || a.Rule == "outputs_approved: video"
+			if tr.From == "review" && a.Rule == "outputs_approved: video" {
+				shelf[tr.To] = true
 			}
 		}
 	}
-	if !shelf {
-		t.Error("reel review → publish doesn't wait for outputs_approved: video")
+	if !shelf["publish"] || !shelf["done"] {
+		t.Errorf("reel review → publish and review → done must both wait for outputs_approved: video, got %v", shelf)
 	}
-	if approvals != 1 {
-		t.Errorf("reel has %d stamps, want 1 (the publish stamp) besides the shelf review", approvals)
+	if approvals != 2 {
+		t.Errorf("reel has %d stamps, want 2 (publish, or done without publishing) besides the shelf review", approvals)
 	}
 }
 
@@ -259,5 +259,85 @@ func TestVideoDocsDescribeTheReelType(t *testing.T) {
 		if !strings.Contains(sec, want) {
 			t.Errorf("#### Reels doesn't say %q", want)
 		}
+	}
+}
+
+// newReel installs Video and creates one reel issue in it.
+func newReel(t *testing.T, title string) (*tracker.Project, string, string) {
+	t.Helper()
+	proj := installVideo(t)
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runCreate(ctx, []string{"--department", "video", "--type", "reel", "--title", title}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	path := filepath.Join(proj.IssueDir, tracker.Slugify(title)+".md")
+	return proj, path, loadIssueByPath(t, proj.IssueDir, path).Slug
+}
+
+// TestReelBriefCarriesSourceMediaAndPronunciation is AC1: the briefing a
+// reel's worker gets at brief names where the media come from (copied onto
+// the work branch, never a gitignored media/ folder or an unmerged branch),
+// and at render the brand pronunciation per voice.
+func TestReelBriefCarriesSourceMediaAndPronunciation(t *testing.T) {
+	proj, path, slug := newReel(t, "Source media reel")
+	brief := func() string {
+		t.Helper()
+		ctx, out, _ := newTestContext(proj, false)
+		if err := runDispatchPrompt(ctx, []string{slug}); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	at := brief()
+	for _, want := range []string{"where the reel's media come from", "copy each onto your work branch", "a gitignored media/ folder", "an unmerged branch is not a source"} {
+		assertContains(t, at, want)
+	}
+	body, _ := os.ReadFile(path)
+	writeDeptFile(t, path, strings.Replace(string(body), "status: \"brief\"", "status: \"render\"", 1))
+	at = brief()
+	for _, want := range []string{"Brand pronunciation: listen to the brand and product names in the first take of each voice", "reels/pronunciation.md, one line per voice placement", "only into the TTS text"} {
+		assertContains(t, at, want)
+	}
+}
+
+// TestReelDoneWithoutPublishing is AC2: a reel the owner shares privately
+// goes review → done without publish, once the newest version is approved
+// on the shelf and the owner's words for done are recorded (owner_only:
+// YOLO never passes it; a lead relays them with approve --quote).
+func TestReelDoneWithoutPublishing(t *testing.T) {
+	proj, path, slug := newReel(t, "Private reel")
+	body, _ := os.ReadFile(path)
+	writeDeptFile(t, path, strings.Replace(string(body), "status: \"brief\"", "status: \"review\"", 1))
+	mp4 := filepath.Join(t.TempDir(), "reel.mp4")
+	mustWrite(t, mp4, "not really an mp4")
+	o, err := outputs.Add(proj, outputs.AddInput{Title: "Private reel", Kind: "video", File: mp4, Issue: slug, Department: "video", By: "agent"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, out, _ := newTestContext(proj, false)
+	if err := runTransition(ctx, []string{slug, "--to", "done"}); err == nil || !strings.Contains(err.Error(), "shelf") {
+		t.Fatalf("review → done before the owner approved the reel on the shelf: err = %v", err)
+	}
+	if _, err := outputs.Review(proj, o.ID, outputs.StateApproved, "good", "", "owner", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runTransition(ctx, []string{slug, "--to", "done"}); err == nil || !strings.Contains(err.Error(), "approv") {
+		t.Fatalf("review → done with the shelf approval but no owner's word for done: err = %v", err)
+	}
+	lctx, lout, _ := newTestContext(proj, false)
+	if err := runApprove(lctx, []string{slug, "--to", "done", "--quote", "I sent it to my sister, don't post it"}); err != nil {
+		t.Fatalf("lead relays the owner's done: %v\n%s", err, lout)
+	}
+	if err := runTransition(ctx, []string{slug, "--to", "done"}); err != nil {
+		t.Fatalf("review → done with the shelf approval and the owner's words: %v\n%s", err, out)
+	}
+	issue := loadIssueByPath(t, proj.IssueDir, path)
+	if issue.Status != "done" {
+		t.Fatalf("status %q, want done", issue.Status)
+	}
+	raw, _ := os.ReadFile(path)
+	assertContains(t, string(raw), "I sent it to my sister, don't post it")
+	if strings.Contains(issue.BodyRaw, "## Published") {
+		t.Error("a reel done without publishing got a ## Published section")
 	}
 }

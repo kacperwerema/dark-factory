@@ -147,3 +147,33 @@ func valueOr(s, def string) string {
 	}
 	return s
 }
+
+// LinkRecommendation marks a recommendation of the newest opinion filed as
+// an issue that already exists (one a review run created with issue-cli
+// create, say). It creates nothing and records no decision, so it needs no
+// owner's words. issueStatus answers the slug's status and whether it is on
+// the board. Linking the same slug again is a no-op.
+func LinkRecommendation(root, id, slug string, issueStatus func(string) (string, bool), now time.Time) (*Recommendation, error) {
+	o, path := LatestOpinion(root, time.Time{})
+	if o == nil {
+		return nil, errors.New("no health review yet: issue-cli health review")
+	}
+	r := o.Recommendation(id)
+	if r == nil {
+		return nil, fmt.Errorf("the review of %s has no %s (it has %s)", o.Date, id, recIDs(o))
+	}
+	if _, ok := issueStatus(slug); !ok {
+		return nil, fmt.Errorf("no issue %s on the board: give the slug of an existing issue (issue-cli list)", slug)
+	}
+	switch r.State {
+	case StateFiled:
+		if r.Issue == slug {
+			return r, nil
+		}
+		return nil, fmt.Errorf("%s is already filed as %s", r.ID, r.Issue)
+	case StateDismissed:
+		return nil, fmt.Errorf("%s was dismissed (%s); a new review can propose it again", r.ID, valueOr(r.Reason, "no reason given"))
+	}
+	r.State, r.Issue, r.Decided = StateFiled, slug, now.Local().Format(dateLayout)
+	return r, SaveOpinion(path, o)
+}

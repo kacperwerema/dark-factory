@@ -14,6 +14,7 @@ import (
 	"github.com/kacperwerema/dark-factory/internal/ci"
 	"github.com/kacperwerema/dark-factory/internal/gitdir"
 	"github.com/kacperwerema/dark-factory/internal/milestone"
+	"github.com/kacperwerema/dark-factory/internal/privacy"
 	"github.com/kacperwerema/dark-factory/internal/tracker"
 )
 
@@ -66,6 +67,11 @@ type MilestoneRow struct {
 	// Unpicked are the milestone's done issues whose commits the release
 	// branch lacks.
 	Unpicked []string
+	// NoRefs are main's commits since the branch point that the release
+	// branch lacks and that carry no Refs: line, so release pick <slug>
+	// never finds them (privacy.NoRefs). Listed, never a failing check:
+	// main also carries the next version's work.
+	NoRefs []privacy.NoRefsCommit
 	// Patch: a patch release on the existing branch (ReleaseWait.Patch).
 	Patch bool
 }
@@ -230,6 +236,7 @@ func buildReleaseWait(proj *tracker.Project, wf *tracker.WorkflowConfig, cs *can
 				ms.Branch, head = b, b
 				ms.Worktree = filepath.Join(ciRootFor(proj), ".worktrees", milestone.ReleaseWorktreeName(ms.Cut))
 				ms.addPicked(root, items, cs)
+				ms.NoRefs = gitNoRefs(root, b, changelog)
 			}
 			ms.addCandidate(root, head, changelog)
 		} else {
@@ -295,6 +302,7 @@ func releaseWaitMarkdown(b *strings.Builder, rw *ReleaseWait, now time.Time) {
 		if ms.Candidate != nil {
 			candidateMarkdown(b, ms.Candidate, now)
 		}
+		noRefsMarkdown(b, ms)
 	}
 	if p := rw.Patch; p != nil {
 		fmt.Fprintf(b, "- Patch %s on %s: ", p.Cut, p.Branch)
@@ -306,6 +314,7 @@ func releaseWaitMarkdown(b *strings.Builder, rw *ReleaseWait, now time.Time) {
 		default:
 			fmt.Fprintf(b, "not ready: %s\n", strings.Join(p.Reasons(), "; "))
 		}
+		noRefsMarkdown(b, p)
 	}
 	if rw.Changelog != "" {
 		if len(rw.Unreleased) == 0 {
@@ -328,6 +337,22 @@ func releaseWaitMarkdown(b *strings.Builder, rw *ReleaseWait, now time.Time) {
 			fmt.Fprintf(b, "- Not pushed: %s on %s not on %s, newest %s ago\n",
 				plural(u.Count, "commit", "commits"), u.Branch, u.Upstream, shortDuration(now.Sub(u.NewestAt)))
 		}
+	}
+}
+
+// noRefsMarkdown lists the row's main commits without a Refs: line that
+// its branch lacks, each with the command that picks it.
+func noRefsMarkdown(b *strings.Builder, ms *MilestoneRow) {
+	if len(ms.NoRefs) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "  - Not on %s, no Refs: line (release pick <slug> misses them; pick by sha if the release needs them): %d\n", ms.Branch, len(ms.NoRefs))
+	for i, c := range ms.NoRefs {
+		if i == capMDList {
+			fmt.Fprintf(b, "    - +%d more: issue-cli release publish %s --dry-run lists them all\n", len(ms.NoRefs)-i, ms.Cut)
+			break
+		}
+		fmt.Fprintf(b, "    - %s %s: %s\n", gitdir.ShortSHA(c.SHA), c.Subject, c.PickCommand())
 	}
 }
 

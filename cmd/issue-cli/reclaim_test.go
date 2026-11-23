@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -183,5 +184,37 @@ func TestReclaimSurvivesAHoldReworded(t *testing.T) {
 		if isMemoryHold(held.HoldKind) != c.kind.Memory() {
 			t.Fatalf("%q reworded: isMemoryHold changed", c.kind)
 		}
+	}
+}
+
+// A worker that did all its work at idea (a report: comment, every
+// criterion ticked) but never moved is named as finished at idea by the
+// tick's memory-hold line, with the move to make; an issue at idea with
+// nothing done still waits on the owner's approval. 2026-11-23: report 541
+// was closed as "waits on the owner's approval for in progress".
+func TestLeadTickNamesAReportFinishedAtIdea(t *testing.T) {
+	proj, _, closed := tickProject(t)
+	stubStart(t)
+	root := filepath.Dir(proj.IssueDir)
+	mustWrite(t, filepath.Join(root, "workflow.yaml"), "statuses:\n  - name: \"idea\"\n  - name: \"backlog\"\n  - name: \"in progress\"\n  - name: \"done\"\ntransitions:\n  - from: \"idea\"\n    to: \"backlog\"\n    actions:\n      - type: \"require_human_approval\"\n        status: \"backlog\"\n")
+	finished := filepath.Join(proj.IssueDir, "finished.md")
+	mustWrite(t, finished, "---\ntitle: \"Finished\"\nstatus: \"idea\"\n---\n\nMeasure it.\n\n## Acceptance criteria\n\n- [x] R1: the report lists the parts.\n- [x] R2: the report is on the shelf.\n")
+	if err := tracker.AddCommentBy(finished, 0, "report: on the shelf, output id f17c; follow-ups: none", "cli", "agent-finished"); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(proj.IssueDir, "fresh.md"), "---\ntitle: \"Fresh\"\nstatus: \"idea\"\n---\n\nMeasure it.\n\n## Acceptance criteria\n\n- [ ] R1: the report lists the parts.\n")
+	reclaimPanes(t, nil, "agent-finished", "agent-fresh")
+	origPause := leadTickPause
+	leadTickPause = func(time.Duration) {}
+	t.Cleanup(func() { leadTickPause = origPause })
+	mustQ(t, proj, "add", "high", "--quote", queueWords)
+	autostart.ReadMemory = func() autostart.Memory { return autostart.Memory{Found: true, Used: 60, CanStart: true} }
+
+	out := tick(t, proj)
+	assertContains(t, out, `agent-finished (idea, finished at idea without moving: a report: comment and every criterion ticked; move it on: issue-cli --project proj transition finished --to backlog)`)
+	assertContains(t, out, "agent-fresh (idea, waits on the owner's approval for backlog)")
+	assertNotContains(t, out, "agent-finished (idea, waits on the owner's approval")
+	if got := strings.Join(*closed, ","); !strings.Contains(got, "agent-finished") {
+		t.Fatalf("closed %v", *closed)
 	}
 }

@@ -44,6 +44,7 @@ func TestNewestPatchCut(t *testing.T) {
 func stubPatch(t *testing.T, proj tracker.Project, changelog, built string) {
 	t.Helper()
 	origCut, origHas, origFile, origTip, origBuilt := gitPatchCut, gitHasBranch, gitBranchFile, gitTip, releaseBuiltTip
+	stubNoRefs(t, nil)
 	gitPatchCut = func(string) string { return "v0.52.1" }
 	gitHasBranch = func(_, branch string) bool { return branch == "release/v0.52" }
 	gitBranchFile = func(_, branch, path string) string {

@@ -545,6 +545,8 @@ On 23 Oct 2026 issue-viewer scored 86–87 from 6 of 9 components. The `lint` co
 
    Either one creates an `idea` issue labelled `health`, with the evidence and the decision. Its type is `feature` for `add_e2e` and `tweak` for the rest, and its system comes from a `system=` label in the evidence. Dismiss works the same way.
 
+   An issue that already exists for a recommendation (a review run whose brief asked it to file its findings creates them with `issue-cli create`) is linked instead: `issue-cli health review link R2 <slug>` marks it filed as that issue. It creates nothing and records no decision, so any agent may run it. The Health view and `health review show` show a filed recommendation's issue with its status.
+
 The `opinion` family puts the newest review into every snapshot, so the line holds as a step between reviews. In backfill it returns `ErrNoPast`.
 
 | Metric | Labels | Value |

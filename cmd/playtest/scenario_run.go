@@ -225,13 +225,22 @@ func pickPort(want int) (port, taken int, err error) {
 	return port, taken, err
 }
 
+// freePort is a port nothing listens on and that this process has not
+// handed out before (claimPort): parallel ux-test workers stage scenarios
+// at the same time.
 func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+	for range 100 {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		if claimPort(port) {
+			return port, nil
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return 0, fmt.Errorf("no free port this run has not used already")
 }
 
 // boardReadyBudget is how long a scenario board gets to answer. It answers

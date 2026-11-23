@@ -72,6 +72,13 @@ type IssueTurns struct {
 	// same session: a one-file read that could have gone with the one
 	// before it.
 	FollowOnReads int `json:"follow_on_reads"`
+	// FollowOnReadOnly are turns of one read-only call (ReadOnlyCall: a
+	// Read, Grep or Glob, or a shell call of greps, ls, sed -n, cat,
+	// read-only git or issue-cli) straight after another such turn of the
+	// same session, and FollowOnReadOnlyContext the context they read: the
+	// turns one message of parallel calls or one command would have saved.
+	FollowOnReadOnly        int   `json:"follow_on_read_only"`
+	FollowOnReadOnlyContext int64 `json:"follow_on_read_only_context_tokens"`
 }
 
 // TurnsReport is spend --turns.
@@ -142,6 +149,8 @@ func LoadTurns(p *tracker.Project, issues []*tracker.Issue, slug string, since, 
 		rep.Total.RedRounds += it.RedRounds
 		rep.Total.DryRuns += it.DryRuns
 		rep.Total.FollowOnReads += it.FollowOnReads
+		rep.Total.FollowOnReadOnly += it.FollowOnReadOnly
+		rep.Total.FollowOnReadOnlyContext += it.FollowOnReadOnlyContext
 		for c, n := range it.By {
 			t := rep.Total.By[c]
 			t.Turns += n.Turns
@@ -246,7 +255,7 @@ func issueTurns(is *tracker.Issue, files []string, since, until time.Time) Issue
 			}
 		}
 		fileWs := append(append([]window(nil), ws...), vws...)
-		prevRead := false
+		prevRead, prevLook := false, false
 		for _, tn := range tr.turns {
 			if tn.id != "" && seen[tn.id] {
 				continue
@@ -260,6 +269,12 @@ func issueTurns(is *tracker.Issue, files []string, since, until time.Time) Issue
 				it.FollowOnReads++
 			}
 			prevRead = tn.cause == CauseRead
+			look := tn.calls == 1 && tn.looks
+			if look && prevLook {
+				it.FollowOnReadOnly++
+				it.FollowOnReadOnlyContext += tn.context
+			}
+			prevLook = look
 			it.DryRuns += tn.dryRuns
 			cause := tn.cause
 			if cause == CauseRest && inRed(fileWs, tn.at) {
@@ -291,6 +306,10 @@ type turn struct {
 	refused bool
 	// dryRuns are its transition calls with --dry-run.
 	dryRuns int
+	// calls are its tool calls; looks is whether each only reads
+	// (ReadOnlyCall).
+	calls int
+	looks bool
 }
 
 type turnsRead struct {
@@ -396,7 +415,7 @@ func scanTurns(path string) ([]turn, []verdict) {
 		}
 		tn := byID[id]
 		if tn == nil {
-			tn = &turn{id: line.Message.ID, cause: CauseRest}
+			tn = &turn{id: line.Message.ID, cause: CauseRest, looks: true}
 			if at, err := time.Parse(time.RFC3339Nano, line.Timestamp); err == nil {
 				tn.at = at
 			}
@@ -409,6 +428,10 @@ func scanTurns(path string) ([]turn, []verdict) {
 		for _, bl := range blocks {
 			if bl.Type != "tool_use" {
 				continue
+			}
+			tn.calls++
+			if !ReadOnlyCall(bl.Name, bl.Input.Command) {
+				tn.looks = false
 			}
 			c := toolCause(bl.Name, bl.Input.Command)
 			if rank(c) < rank(tn.cause) {

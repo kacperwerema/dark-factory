@@ -13,6 +13,8 @@ export type Cue = {
 	end: number;
 	from_word: number;
 	to_word: number;
+	// timed: a caption line timed by seconds, not words (from_word and to_word -1).
+	timed?: boolean;
 	box: Box;
 };
 
@@ -23,7 +25,16 @@ export type Clip = {
 	start?: number;
 	end?: number;
 	ai_generated?: boolean;
+	// from and frames are the clip's share of its scene; rate its speed
+	// (below 1 when it is shorter than its share).
+	from: number;
+	frames: number;
+	rate: number;
 };
+
+// Stamp is a word stamped on one cut of a scene: from and frames inside
+// the scene, box where it rests (QA's safe-zone checks it).
+export type Stamp = {text: string; from: number; frames: number; start: number; end: number; box: Box};
 
 export type Scene = {
 	id: string;
@@ -35,6 +46,7 @@ export type Scene = {
 	text?: string;
 	clips?: Clip[];
 	narration?: {text: string; voice: string; start: number; seconds: number; words: Word[]};
+	stamps?: Stamp[];
 };
 
 export type Plan = {
@@ -57,7 +69,13 @@ export type Plan = {
 		logo?: string;
 	};
 	cta: {text: string; url?: string; handle?: string};
-	captions: {style: 'words' | 'lines'; position: string; font_size: number};
+	// layout is where the parts sit on this frame: the label's corner and
+	// the phone frame's outer box (its screen is 16 px inside).
+	layout: {label: Box; phone: Box};
+	// label is the disclosure over the whole reel, when the storyboard has one.
+	label?: {text: string; box: Box};
+	// language is the captions' (captions.language, else the voice's).
+	captions: {style: 'words' | 'lines'; position: string; font_size: number; language?: string};
 	scenes: Scene[];
 	cues: Cue[] | null;
 };
@@ -91,6 +109,7 @@ export const samplePlan = (shape: Plan['shape']): Plan => {
 		frames: scenes.length * 75,
 		brand: {name: 'Brand', colors: {primary: '#2F6BFF', accent: '#FFB800', text: '#FFFFFF', background: '#101418'}},
 		cta: {text: 'Try it free', handle: '@brand'},
+		layout: {label: {x: 70, y: 240, w: 0, h: 61}, phone: {x: 254, y: 312, w: 572, h: 1201}},
 		captions: {style: 'words', position: 'lower', font_size: 64},
 		scenes,
 		cues: [],

@@ -92,7 +92,7 @@ func TestHealthReviewFlow(t *testing.T) {
 	if err := runHealth(ctx, []string{"review", "show"}); err != nil {
 		t.Fatal(err)
 	}
-	assertContains(t, stdout.String(), "R1 [config, effort S, filed → keep-the-workflow-small]")
+	assertContains(t, stdout.String(), "R1 [config, effort S, filed → keep-the-workflow-small (idea)]")
 
 	ctx, stdout, _ = newTestContext(proj, false)
 	if err := runHealth(ctx, nil); err != nil {
@@ -190,5 +190,75 @@ func TestHealthReviewSpawn(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runHealth(ctx, []string{"review", "bogus"}); err == nil || !strings.Contains(err.Error(), "unknown health review subcommand") {
 		t.Errorf("bogus subcommand: %v", err)
+	}
+}
+
+// A review run that created its findings with issue-cli create links each
+// one to its issue: link marks it filed, creates nothing and needs no
+// owner's words, so a worker may run it.
+func TestHealthReviewLink(t *testing.T) {
+	proj, _ := makeCIFixture(t, "")
+	ctx, _, _ := newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"snapshot"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := func(id, title string) health.Recommendation {
+		return health.Recommendation{ID: id, Kind: "config", Title: title, Effort: "S", ExpectedEffect: "nothing breaks",
+			Evidence: []health.Evidence{{Path: "workflow.yaml", Shows: "the config"}}}
+	}
+	data, _ := json.Marshal(health.Opinion{Score: 70, Assessment: strings.Repeat("fine ", 70),
+		Recommendations: []health.Recommendation{rec("R1", "Keep the workflow small"), rec("R2", "Split the store")}})
+	review := filepath.Join(t.TempDir(), "review.json")
+	os.WriteFile(review, data, 0o644)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"review", "record", review}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(proj.IssueDir, "CLI"), 0o755)
+	os.WriteFile(filepath.Join(proj.IssueDir, "CLI", "shrink-the-workflow.md"), []byte("---\ntitle: Shrink the workflow\nstatus: in progress\n---\n"), 0o644)
+	before, _ := tracker.LoadIssues(proj.IssueDir)
+
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "cli/shrink-the-workflow") // a worker
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"R9", "shrink-the-workflow"}, "has no R9 (it has R1, R2)"},
+		{[]string{"R1", "no-such-issue"}, "no issue no-such-issue on the " + proj.Slug + " board"},
+	} {
+		ctx, _, _ = newTestContext(proj, false)
+		err := runHealth(ctx, append([]string{"review", "link"}, c.args...))
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "\n") {
+			t.Errorf("link %v: err = %v, want one line with %q", c.args, err, c.want)
+		}
+	}
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"review", "link", "r1", "shrink-the-workflow"}); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, stdout.String(), "✓ Linked R1 to cli/shrink-the-workflow (in progress)")
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"review", "link", "R1", "CLI/shrink-the-workflow"}); err != nil {
+		t.Errorf("linking the same issue again: %v", err)
+	}
+	if after, _ := tracker.LoadIssues(proj.IssueDir); len(after) != len(before) {
+		t.Errorf("link created issues: %d before, %d after", len(before), len(after))
+	}
+
+	ctx, stdout, _ = newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"review", "show"}); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	assertContains(t, out, "R1 [config, effort S, filed → cli/shrink-the-workflow (in progress)] Keep the workflow small")
+	assertContains(t, out, "R2 [config, effort S, proposed] Split the store")
+	assertContains(t, out, "1 proposed:")
+	assertContains(t, out, "health review link <R#> <slug>")
+
+	os.WriteFile(filepath.Join(proj.IssueDir, "split-the-store.md"), []byte("---\ntitle: Split the store\nstatus: idea\n---\n"), 0o644)
+	ctx, _, _ = newTestContext(proj, false)
+	if err := runHealth(ctx, []string{"review", "link", "R1", "split-the-store"}); err == nil || !strings.Contains(err.Error(), "R1 is already filed as cli/shrink-the-workflow") {
+		t.Errorf("relink to another issue: %v", err)
 	}
 }

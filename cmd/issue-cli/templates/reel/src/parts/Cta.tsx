@@ -29,7 +29,7 @@ export const Cta: React.FC<{plan: Plan}> = ({plan}) => {
 			</div>
 			{plan.cta.handle || plan.cta.url ? (
 				<div style={{color: c.text, fontFamily: plan.brand.font ?? 'sans-serif', fontSize: 44, opacity: 0.9}}>
-					{plan.cta.handle ?? plan.cta.url}
+					{[plan.cta.handle, plan.cta.url].filter(Boolean).join(' · ')}
 				</div>
 			) : null}
 		</AbsoluteFill>

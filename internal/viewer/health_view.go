@@ -78,8 +78,10 @@ type ReviewView struct {
 // RecView is one recommendation.
 type RecView struct {
 	ID, Kind, Title, Effort, Effect, State, Issue, IssueHref, Reason string
-	Evidence                                                         []string
-	Proposed                                                         bool
+	// IssueStatus is the filed issue's status on the board ("" when it is not there).
+	IssueStatus string
+	Evidence    []string
+	Proposed    bool
 }
 
 // CountRuntime is the count-vs-runtime chart for one test kind: two aligned
@@ -140,7 +142,7 @@ func buildHealthPage(in healthIn) *HealthPage {
 	p.Derived = derivedGauge(latest, in.Root, in.Now)
 	o, _ := health.LatestOpinion(in.Root, time.Time{})
 	p.Opinion = opinionGauge(o, in.Now)
-	p.Review = reviewView(o, in.Prefix, in.Now)
+	p.Review = reviewView(o, in.Prefix, in.Now, issueStatuses(in.Proj, o))
 	if latest != nil {
 		p.Components, p.Coverage = healthComponents(latest, cfg)
 		p.Lists = healthLists(latest)
@@ -264,7 +266,32 @@ func reviewedAgo(o *health.Opinion, now time.Time) string {
 	return fmt.Sprintf("reviewed %.0f days ago", days)
 }
 
-func reviewView(o *health.Opinion, prefix string, now time.Time) *ReviewView {
+// issueStatuses maps each slug the opinion filed a recommendation as to its
+// status on the board; nil when none is filed, so the board isn't read.
+func issueStatuses(proj *tracker.Project, o *health.Opinion) map[string]string {
+	if proj == nil || o == nil {
+		return nil
+	}
+	want := map[string]bool{}
+	for _, r := range o.Recommendations {
+		if r.Issue != "" {
+			want[r.Issue] = true
+		}
+	}
+	if len(want) == 0 {
+		return nil
+	}
+	issues, _ := tracker.LoadIssues(proj.IssueDir)
+	out := map[string]string{}
+	for _, is := range issues {
+		if want[is.Slug] {
+			out[is.Slug] = is.Status
+		}
+	}
+	return out
+}
+
+func reviewView(o *health.Opinion, prefix string, now time.Time, statuses map[string]string) *ReviewView {
 	if o == nil {
 		return nil
 	}
@@ -279,6 +306,7 @@ func reviewView(o *health.Opinion, prefix string, now time.Time) *ReviewView {
 		rv.Proposed = rv.State == health.StateProposed
 		if r.Issue != "" {
 			rv.IssueHref = prefix + "/issue/" + r.Issue
+			rv.IssueStatus = statuses[r.Issue]
 		}
 		for _, e := range r.Evidence {
 			ref := e.Metric

@@ -45,7 +45,9 @@ On a work/<slug> branch whose workflow runs commits_reference_issue, an
 accepted message gets a note with the Refs: <slug> line until one commit on
 the branch references the issue. In a session dispatched for that issue
 (ISSUE_VIEWER_ISSUE_SLUG) the hook adds the line to the message itself
-instead, and says so; a merge commit is left as it is.
+instead, and says so, on every commit without one, not only the first:
+release pick <slug> finds an issue's commits by it. A merge commit is left
+as it is.
 In a checkout with make guard-check (scripts/guard-check.sh), a branch's
 first commit that touches cmd/ or internal/ gets a note to run it now.
 --install writes the repository's commit-msg hook (core.hooksPath, else the
@@ -166,12 +168,16 @@ func runCommitMsg(ctx *Context, args []string) error {
 				fmt.Fprintf(ctx.Stderr, "note: %s\n", n)
 			}
 		}
-		if issue != nil && needsRefsLine(root, proj, issue, msg) {
+		switch {
+		case issue == nil:
+		case needsRefsLine(root, proj, issue, msg):
 			if addRefsLine(root, fs.Arg(0), issue.Slug) {
 				fmt.Fprintf(ctx.Stderr, "note: added %s: %s to the message: no commit on %s referenced the issue yet, and the ship's commits_reference_issue wants one\n", proof.RefsKey, issue.Slug, branch)
 			} else {
 				fmt.Fprintf(ctx.Stderr, "note: %s\n", refsHint(branch, issue.Slug))
 			}
+		case !hasRefsLine(msg, issue.Slug) && addRefsLine(root, fs.Arg(0), issue.Slug):
+			fmt.Fprintf(ctx.Stderr, "note: added %s: %s to the message: release pick %s finds the issue's commits by that line\n", proof.RefsKey, issue.Slug, issue.Slug)
 		}
 		return nil
 	}
@@ -250,6 +256,19 @@ func needsRefsLine(root string, proj *tracker.Project, issue *tracker.Issue, msg
 	}
 	sha, _, err := proof.Reference(root, issue)
 	return err == nil && sha == ""
+}
+
+// hasRefsLine reports whether msg (git's comment lines left out) has a
+// Refs: line naming slug, in any paragraph: what release pick <slug> reads
+// (privacy.UnpickedIssues). A subject naming the slug is enough for the
+// ship's rule, not for the pick.
+func hasRefsLine(msg, slug string) bool {
+	for _, v := range proof.MessageLines(stripCommitComments(msg), proof.RefsKey) {
+		if strings.TrimSpace(v) == slug {
+			return true
+		}
+	}
+	return false
 }
 
 // addRefsLine writes the Refs: <slug> trailer into the message file

@@ -308,9 +308,11 @@ security-check:
 # Playtest sessions (playtest/sessions/*.yaml): an issue's manual checks run
 # against a throwaway scenario board in Chrome. See docs/patterns/playtest/.
 #   make playtest-check                       validate every session (no browser)
-#   make ux-test [ISSUE=slug] [S=session] [STEP=TP2,TP3] [REPEAT=2]
+#   make ux-test [ISSUE=slug] [S=session] [STEP=TP2,TP3] [REPEAT=2] [JOBS=3]
 #                                             machine checks, headless, desktop + phone
 #   make ux-test ALL=1                        every session, whatever the branch
+#                                             (JOBS=n sessions side by side, default 3;
+#                                             1 while mem-guard says BLOCKED)
 #                                             (local CI's nightly slow tier)
 #   make playtest [ISSUE=slug] [S=session]    the owner's judgement steps, in an overlay
 #   make playtest-report ISSUE=slug [APPLY=1] tick passed boxes, comment failures
@@ -339,7 +341,7 @@ playtest-check:
 	@$(PLAYTEST) check
 
 ux-test:
-	@$(PLAYTEST) ux-test $(PLAYTEST_SEL) $(if $(STEP),-step $(STEP)) $(if $(REPEAT),-repeat $(REPEAT))
+	@$(PLAYTEST) ux-test $(PLAYTEST_SEL) $(if $(STEP),-step $(STEP)) $(if $(REPEAT),-repeat $(REPEAT)) $(if $(JOBS),-jobs $(JOBS))
 
 playtest:
 	@$(PLAYTEST) playtest $(PLAYTEST_SEL)

@@ -205,6 +205,22 @@ var gitUnpicked = func(root, branch string, slugs []string) map[string]int {
 	})
 }
 
+// gitNoRefs is main's commits the release branch lacks that have no Refs:
+// line (privacy.NoRefs). A var so tests don't run git.
+var gitNoRefs = func(root, branch, changelog string) []privacy.NoRefsCommit {
+	return refsKept(root, []string{"no-refs", branch, changelog}, func() []privacy.NoRefsCommit {
+		mainBranch, err := tracker.MainBranch(root)
+		if err != nil || mainBranch == "" {
+			return nil
+		}
+		shas, err := privacy.NoRefs(root, branch, mainBranch, changelog)
+		if err != nil {
+			return nil
+		}
+		return shas
+	})
+}
+
 // addPicked adds the Fixes picked check: every done issue of the milestone
 // has its commits on the release branch. Fixes land on main and are
 // cherry-picked onto the branch (issue-cli release pick).
@@ -587,16 +603,19 @@ type releaseJSON struct {
 }
 
 type releaseJSONMilestone struct {
-	Version   string         `json:"version"`
-	Cut       string         `json:"cut"`
-	RC        bool           `json:"rc"`
-	Ready     bool           `json:"ready"`
-	CutNext   string         `json:"cut_next,omitempty"`
-	Soaking   bool           `json:"soaking"`
-	Candidate string         `json:"candidate,omitempty"`
-	Branch    string         `json:"branch,omitempty"`
-	Unpicked  []string       `json:"unpicked,omitempty"`
-	Checks    []ReleaseCheck `json:"checks"`
+	Version   string   `json:"version"`
+	Cut       string   `json:"cut"`
+	RC        bool     `json:"rc"`
+	Ready     bool     `json:"ready"`
+	CutNext   string   `json:"cut_next,omitempty"`
+	Soaking   bool     `json:"soaking"`
+	Candidate string   `json:"candidate,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	Unpicked  []string `json:"unpicked,omitempty"`
+	// NoRefs are main's commits the branch lacks that no release pick
+	// <slug> finds (MilestoneRow.NoRefs).
+	NoRefs []privacy.NoRefsCommit `json:"no_refs,omitempty"`
+	Checks []ReleaseCheck         `json:"checks"`
 }
 
 func buildReleaseJSON(m *StatusModel) releaseJSON {
@@ -614,7 +633,7 @@ func releaseJSONRow(ms *MilestoneRow) *releaseJSONMilestone {
 		return nil
 	}
 	row := &releaseJSONMilestone{Version: ms.Version, Cut: ms.Cut, RC: ms.RC, Ready: ms.Ready, CutNext: ms.CutNext,
-		Soaking: ms.Soaking, Branch: ms.Branch, Unpicked: ms.Unpicked, Checks: ms.Checks}
+		Soaking: ms.Soaking, Branch: ms.Branch, Unpicked: ms.Unpicked, NoRefs: ms.NoRefs, Checks: ms.Checks}
 	if ms.Candidate != nil {
 		row.Candidate = ms.Candidate.Tag
 	}

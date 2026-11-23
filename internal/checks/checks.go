@@ -6,7 +6,6 @@ package checks
 
 import (
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -17,11 +16,6 @@ import (
 
 	"github.com/kacperwerema/dark-factory/internal/shell"
 )
-
-// Lib is the helper library every check script sources ($CHECKS_LIB).
-//
-//go:embed lib.sh
-var Lib []byte
 
 // Dir is where an issue's scripts live, relative to its checkout.
 const Dir = "scripts/checks"

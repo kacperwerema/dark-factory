@@ -40,6 +40,7 @@ cached ./internal/connectors
 cached ./internal/critique
 cached ./internal/deptfamily
 cached ./internal/depttemplate
+cached ./internal/directpost
 cached ./internal/diskuse
 fresh ./internal/doclinks lists the checkout's markdown through git ls-files
 cached ./internal/docnumbers

@@ -307,6 +307,7 @@ workbench:
         - internal/connectors/connectortest
         - internal/leaks
         - internal/socials
+        - internal/directpost
         - internal/jobs
         - internal/queue
         - internal/routing
@@ -1102,6 +1103,10 @@ types:
     description: "Research or report only: the report goes on the outputs shelf for the owner's review; no code, no commit"
     path: [idea, in progress, human-testing, done, parked]
     statuses:
+      - name: "idea"
+        prompt: |
+          Report: move to `in progress` before you research or write anything: `issue-cli transition <slug> --to "in progress"`. That move adds the Research boxes the report is checked against, and `output add` refuses a report still at idea.
+          Say in chat that it needs `in progress` approval in the issue viewer, then end your turn; the lead (or the human) resumes you once it is approved.
       - name: "in progress"
         prompt: |
           Report: research what the body asks and write the report as one file (markdown is fine) anywhere outside the repo, for example your scratchpad. Nothing is built or committed on this issue, and there is no branch to ship.

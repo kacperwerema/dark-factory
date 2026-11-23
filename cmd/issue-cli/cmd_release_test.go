@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -185,6 +186,52 @@ func TestReleasePublishDryRunShowsThePublicCommit(t *testing.T) {
 	ctx, _, _ = newTestContext(proj, false)
 	if err := runRelease(ctx, []string{"publish", "v0.54.0"}); err == nil || !strings.Contains(err.Error(), "See what it would publish: issue-cli --project test release publish v0.54.0 --dry-run") {
 		t.Errorf("real publish = %v", err)
+	}
+}
+
+// The card's main commits without a Refs: line (release pick <slug> never
+// finds them) show in the dry run with each one's pick command.
+func TestReleasePublishDryRunListsMainCommitsWithoutRefs(t *testing.T) {
+	proj, root, _ := makePrivacyFixture(t, snapshotsBlock+"workbench:\n  changelog: CHANGELOG.md\n")
+	os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte("# Changelog\n\n## Unreleased\n\n- feature A\n"), 0o644)
+	gitIn(t, root, "add", "CHANGELOG.md")
+	gitIn(t, root, "commit", "-q", "-m", "docs: changelog")
+	public := filepath.Join(filepath.Dir(root), "public.git")
+	gitIn(t, filepath.Dir(root), "init", "-q", "--bare", "-b", "main", public)
+	gitIn(t, root, "remote", "add", "public", public)
+	gitIn(t, root, "push", "-q", "public", "main")
+	gitIn(t, root, "config", "issue-cli.publicbase", gitOut(t, root, "rev-parse", "main"))
+	cut, err := privacy.Cut(root, "v0.54.0", "main", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// On main after the cut: a .go fix without Refs:, and the changelog.
+	os.WriteFile(filepath.Join(root, "fix.go"), []byte("package main\n"), 0o644)
+	gitIn(t, root, "add", "fix.go")
+	gitIn(t, root, "commit", "-q", "-m", "fix(cli): a follow-up commit")
+	fix := gitOut(t, root, "rev-parse", "HEAD")
+	os.WriteFile(filepath.Join(root, "CHANGELOG.md"), []byte("# Changelog\n\n## Unreleased\n\n- fixed\n- feature A\n"), 0o644)
+	gitIn(t, root, "commit", "-q", "-am", "docs(changelog): fixed")
+	noRefs, err := privacy.NoRefs(root, "release/v0.54", "main", "CHANGELOG.md")
+	if err != nil || len(noRefs) != 1 || noRefs[0].SHA != fix {
+		t.Fatalf("NoRefs = %+v, %v; want only %s", noRefs, err, fix)
+	}
+	card, _ := json.Marshal(map[string]any{"milestone": map[string]any{"version": "0.54", "cut": "v0.54.0", "rc": true, "candidate": "v0.54.0-rc.1", "no_refs": noRefs, "checks": []any{}}})
+	proj.ViewerURL = releaseViewer(t, string(card))
+	prev, _ := os.Getwd()
+	if err := os.Chdir(cut.Worktree); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	ctx, stdout, _ := newTestContext(proj, false)
+	if err := runRelease(ctx, []string{"publish", "v0.54.0", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	short := fix[:7]
+	assertContains(t, stdout.String(), "On main, not on release/v0.54, with no Refs: line (release pick <slug> never finds them; pick one by sha if the release needs it):\n  "+short+" fix(cli): a follow-up commit\n    issue-cli release pick "+short+"\n")
+	if strings.Contains(stdout.String(), "docs(changelog): fixed") {
+		t.Errorf("the changelog-only commit is listed:\n%s", stdout)
 	}
 }
 

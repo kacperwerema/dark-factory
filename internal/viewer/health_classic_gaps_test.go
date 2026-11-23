@@ -27,7 +27,7 @@ func TestHealthWbCarriesTheClassicRows(t *testing.T) {
 	classic := buildHealthPage(in.healthIn)
 	classic.Review = &ReviewView{Date: "2026-10-30", Reviewer: "review-x", Recs: []RecView{
 		{ID: "R1", Title: "Split the store", Proposed: true},
-		{ID: "R2", Title: "Drop the old flag", State: "filed", Issue: "ui/flag", IssueHref: "/p/x/issue/ui/flag"},
+		{ID: "R2", Title: "Drop the old flag", State: "filed", Issue: "ui/flag", IssueHref: "/p/x/issue/ui/flag", IssueStatus: "in progress"},
 		{ID: "R3", Title: "Rename things", State: "dismissed", Reason: "not now"},
 	}}
 	classic.Lint = &LintPanel{Warnings: 60, Command: "issue-cli health lint"}
@@ -64,7 +64,7 @@ func TestHealthWbCarriesTheClassicRows(t *testing.T) {
 		return b.String()
 	}
 	p.Opinion.Age = "1 day ago"
-	assertContains(t, render("wb/health-recs", p.Opinion), `data-testid="health.decided"`, `filed: <a href="/p/x/issue/ui/flag"`, "dismissed: not now")
+	assertContains(t, render("wb/health-recs", p.Opinion), `data-testid="health.decided"`, `filed: <a href="/p/x/issue/ui/flag"`, `<span data-testid="health.decided.status">(in progress)</span>`, "dismissed: not now")
 	assertContains(t, render("wb/health-opinion", p.Opinion), `data-testid="health.opinion.by"`, "Reviewed 2026-10-30 by")
 	assertContains(t, render("wb/health-setup", p.Setup), `id="lint"`, `data-testid="health.lint.rest"`, "45 more warnings", `data-testid="health.lint.fix">· issue-cli set-meta`, "and 10 more warnings")
 	assertContains(t, render("wb/trend-card", *loc), `data-testid="health.trend.loc"`, `data-testid="health.chart_table"`)

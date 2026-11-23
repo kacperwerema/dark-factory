@@ -174,7 +174,10 @@ type releaseCard struct {
 	Candidate string   `json:"candidate"`
 	Branch    string   `json:"branch"`
 	Unpicked  []string `json:"unpicked"`
-	Checks    []struct {
+	// NoRefs are main's commits the branch lacks that carry no Refs: line:
+	// release pick <slug> never finds them.
+	NoRefs []privacy.NoRefsCommit `json:"no_refs"`
+	Checks []struct {
 		Key    string `json:"key"`
 		Text   string `json:"text"`
 		Detail string `json:"detail"`
@@ -543,6 +546,12 @@ func printPublishDryRun(ctx *Context, cut string, cfg *tracker.PrivacyConfig, re
 		}
 	}
 	rb := milestone.ReleaseBranch(cut)
+	if card != nil && len(card.NoRefs) > 0 {
+		fmt.Fprintf(out, "\nOn main, not on %s, with no Refs: line (release pick <slug> never finds them; pick one by sha if the release needs it):\n", rb)
+		for _, c := range card.NoRefs {
+			fmt.Fprintf(out, "  %s %s\n    %s\n", c.Short(), c.Subject, c.PickCommand())
+		}
+	}
 	fmt.Fprintf(out, "\nA real publish would:\n")
 	fmt.Fprintf(out, "  1. commit ## Unreleased renamed to ## %s on %s (its only direct commit)\n", cut, rb)
 	fmt.Fprintf(out, "  2. push that tree as the one commit above to %s/%s, signed when user.signingkey is set\n", remote, branch)

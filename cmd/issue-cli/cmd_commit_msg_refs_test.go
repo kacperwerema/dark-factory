@@ -88,7 +88,7 @@ func TestCommitMsgLeavesRefsAlone(t *testing.T) {
 	hint := "no commit on work/cli/sample references the issue yet"
 
 	same("has Refs:", "cli/sample", commitSubject+"Refs: cli/sample\n", false, "")
-	same("subject names the slug", "cli/sample", "chore(merge): main into cli/sample\n", false, "")
+	same("subject names the slug, outside the session", "", "fix: cli/sample's follow-up\n", false, "")
 	same("no session slug", "", commitSubject, false, hint)
 	same("another issue's session", "cli/other", commitSubject, false, hint)
 	same("refused message", "cli/sample", commitSubject+"Proves: AC1 internal/memory TestX\n", true, "")
@@ -107,7 +107,45 @@ func TestCommitMsgLeavesRefsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The branch has its Refs: commit: nothing left to add.
+	// The branch has its Refs: commit: outside the session, nothing to add
+	// and no note.
 	commitOnBranch(t, dir, "feat: more\n\nRefs: cli/sample")
-	same("branch already references it", "cli/sample", commitSubject, false, "")
+	same("branch already references it, no session", "", commitSubject, false, "")
+}
+
+// The 11 commits v0.65.3's pick by slug missed were follow-ups on a branch
+// whose first commit had Refs:. In the session dispatched for the issue,
+// every later commit gets the line too (release pick <slug> reads it), and
+// so does one whose subject alone names the slug; a merge still doesn't.
+func TestCommitMsgAddsRefsToEveryCommitInTheSession(t *testing.T) {
+	proj, _, _ := makeProofFixture(t, "2026-10-23")
+	requireCommitReference(t, proj)
+	dir := filepath.Dir(proj.WorkflowFile)
+	onWorkBranch(t, dir)
+	t.Setenv("ISSUE_VIEWER_ISSUE_SLUG", "cli/sample")
+	commitOnBranch(t, dir, "feat: first\n\nRefs: cli/sample")
+
+	after, out := runHookOn(t, proj, "test(cli): a follow-up\n", false)
+	if after != "test(cli): a follow-up\n\nRefs: cli/sample\n" {
+		t.Errorf("a follow-up commit became:\n%q", after)
+	}
+	assertContains(t, out, "note: added Refs: cli/sample to the message: release pick cli/sample finds the issue's commits by that line")
+	if after, _ := runHookOn(t, proj, "fix: cli/sample's follow-up\n", false); !strings.Contains(after, "\nRefs: cli/sample\n") {
+		t.Errorf("a subject naming the slug got no Refs: line:\n%q", after)
+	}
+	if after, _ := runHookOn(t, proj, commitSubject+"Refs: cli/sample\n", false); after != commitSubject+"Refs: cli/sample\n" {
+		t.Errorf("a message with the line changed:\n%q", after)
+	}
+	head, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeHead := filepath.Join(dir, ".git", "MERGE_HEAD")
+	if err := os.WriteFile(mergeHead, head, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(mergeHead)
+	if after, _ := runHookOn(t, proj, "chore(merge): main into cli/sample\n", false); after != "chore(merge): main into cli/sample\n" {
+		t.Errorf("a merge got a line:\n%q", after)
+	}
 }

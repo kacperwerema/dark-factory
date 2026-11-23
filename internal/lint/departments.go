@@ -178,6 +178,9 @@ func checkDepartments(env *Env) []Finding {
 		for _, f := range connectorFindings(d) {
 			add(d.Name, f, "")
 		}
+		for _, f := range publishRouteFindings(p, d) {
+			add(d.Name, f.Message, f.Fix)
+		}
 		for _, f := range restWideFindings(d) {
 			add(d.Name, f.Message, f.Fix)
 		}
@@ -494,8 +497,12 @@ func connectorFindings(d tracker.Department) []string {
 		isRest := c.Kind == tracker.ConnectorRest
 		// A meter: elevenlabs tool is called by issue-cli itself, at url:.
 		isTTS := c.Kind == tracker.ConnectorTool && c.Spend != nil && c.Spend.Meter == tracker.MeterElevenLabs
+		// A publish: connector too: url: only points it at a stand-in.
+		isPublish := strings.TrimSpace(c.Publish) != ""
 		out = append(out, spendFindings(label, c)...)
+		out = append(out, publishFindings(label, c)...)
 		switch {
+		case isPublish:
 		case isTTS && strings.TrimSpace(c.Command) != "":
 			out = append(out, label+": a meter: elevenlabs connector runs no command: (issue-cli makes its text-to-speech calls itself)")
 		case isTTS:
@@ -515,7 +522,7 @@ func connectorFindings(d tracker.Department) []string {
 			if err := tracker.CheckConnectorURL(c.URL); err != nil {
 				out = append(out, label+": "+err.Error())
 			}
-			if len(c.Secrets) > 0 {
+			if len(c.Secrets) > 0 && !isPublish {
 				out = append(out, label+": secrets: are unused with url: (no child process gets them): send them as headers:")
 			}
 		} else if len(c.Headers) > 0 {

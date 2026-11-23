@@ -16,6 +16,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +26,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kacperwerema/dark-factory/internal/liveboard"
@@ -38,9 +41,11 @@ const usage = `playtest — run issue-viewer playtest sessions (playtest/session
 Commands:
   check                        validate every session: schema, actions, checks,
                                targets (internal/testids), scenarios, step ids
-  ux-test  [-issue SLUG] [-s SESSION] [-step ID,…] [-repeat N] [-keep] [-headed] [-results FILE]
+  ux-test  [-issue SLUG] [-s SESSION] [-step ID,…] [-repeat N] [-jobs N] [-keep] [-headed] [-results FILE]
                                run the machine checks headless at every viewport;
                                exit 1 on any failure; -repeat N diffs N runs;
+                               -jobs N runs N sessions side by side (default 3;
+                               1 while mem-guard says BLOCKED or with -headed);
                                -results writes sessions, steps and times as JSON
                                (default $CI_RESULTS_DIR/e2e.json in local CI)
   playtest [-issue SLUG] [-s SESSION]
@@ -98,6 +103,7 @@ type opts struct {
 	url, scroll               string
 	scenario, baseRef, dir    string
 	repeat, width, height     int
+	jobs                      int
 	port                      int
 	keep, headed, apply, full bool
 	html                      bool
@@ -126,6 +132,7 @@ func run(args []string, out, errw io.Writer) int {
 	fs.StringVar(&o.project, "project", "", "check, report: the project of the real issue (default $PLAYTEST_PROJECT, $ISSUE_VIEWER_PROJECT, the configured project whose issues dir is this repo's; else issue-viewer)")
 	fs.StringVar(&o.results, "results", resultsDefault(), "ux-test: also write the e2e results (sessions, steps, times) here; default $CI_RESULTS_DIR/e2e.json in local CI")
 	fs.IntVar(&o.repeat, "repeat", 1, "run N times and fail if results differ")
+	fs.IntVar(&o.jobs, "jobs", defaultJobs, "ux-test: run N sessions side by side, each worker its own Chrome (1 while mem-guard says BLOCKED, or with -headed)")
 	fs.BoolVar(&o.keep, "keep", false, "keep scenario temp dirs")
 	fs.BoolVar(&o.headed, "headed", false, "show the browser during ux-test")
 	fs.BoolVar(&o.apply, "apply", false, "report: tick and comment through issue-cli")
@@ -291,67 +298,147 @@ func cmdUXTest(repo string, o opts, out, errw io.Writer) int {
 	if len(sel) == 0 {
 		return 1
 	}
-	b, err := NewBrowser(o.headed, 1440, 900)
-	if err != nil {
-		fmt.Fprintln(errw, "playtest:", err)
-		return 2
-	}
-	defer b.Close()
 	r := &Runner{Repo: repo, ScenarioDir: o.scenarios, RunsRoot: o.runs, Build: BuildID(repo), Keep: o.keep, Out: out, OwnIssue: OwnIssue(repo, o.issue), Named: o.session}
 	if o.runs == filepath.Join(repo, ".playtest", "runs") {
 		r.EvidenceRuns = EvidenceRunsDir(repo)
 	}
-	code := 0
-	var failed []string
-	e2e := testresults.Playtest{Started: time.Now()}
-	defer func() {
-		if note := r.ShotsNote(); note != "" {
-			fmt.Fprintln(out, note)
-		}
-	}()
+	started := time.Now()
+	e2e := testresults.Playtest{Started: started}
+	sessions := make([]uxSessionRun, len(sel))
 	defer func() {
 		if o.results == "" {
 			return
 		}
 		e2e.Finished = time.Now()
+		for _, s := range sessions {
+			e2e.Sessions = append(e2e.Sessions, s.e2e...)
+		}
 		if err := writeE2E(o.results, e2e); err != nil {
 			fmt.Fprintln(errw, "playtest: e2e results:", err)
 		}
 	}()
-	for _, s := range sel {
-		var first *Results
-		for i := range max(o.repeat, 1) {
-			start := time.Now()
-			res, dir, err := r.UXTest(b, s, stepFilter(o.steps))
-			if err != nil {
-				fmt.Fprintln(errw, "playtest:", err)
-				return 2
-			}
-			e2e.Sessions = append(e2e.Sessions, e2eSession(res, time.Since(start)))
-			fmt.Fprintf(out, "results: %s\n", filepath.Join(dir, "results.yaml"))
-			if f := failLines(res); len(f) > 0 {
-				code = 1
-				failed = append(failed, f...)
-			}
-			if i == 0 {
-				first = res
-			} else if d := Diff(first, res); d != "" {
-				fmt.Fprintf(errw, "✗ %s: run %d differs from run 1\n%s\n", s.Name, i+1, d)
-				code = 1
-			} else {
-				fmt.Fprintf(out, "✓ %s: run %d matches run 1\n", s.Name, i+1)
+	// Built once, before any worker needs them.
+	r.bins = uxTestBins
+	if _, err := r.binaries(); err != nil {
+		fmt.Fprintln(errw, "playtest:", err)
+		return 2
+	}
+	workers, note := uxWorkers(min(o.jobs, len(sel)), o.headed)
+	if note != "" {
+		fmt.Fprintln(out, note)
+	}
+	browsers := make([]*Browser, workers)
+	defer func() {
+		for _, b := range browsers {
+			if b != nil {
+				b.Close()
 			}
 		}
+	}()
+	var printMu sync.Mutex
+	var failedSetup atomic.Bool
+	runPool(workers, len(sel), memBlockedNot, failedSetup.Load, func(w, i int) {
+		if browsers[w] == nil {
+			b, err := NewBrowser(o.headed, 1440, 900)
+			if err != nil {
+				sessions[i].err = err
+				failedSetup.Store(true)
+				return
+			}
+			browsers[w] = b
+		}
+		sessions[i] = r.uxSession(browsers[w], sel[i], o)
+		if sessions[i].err != nil {
+			failedSetup.Store(true)
+		}
+		printMu.Lock()
+		defer printMu.Unlock()
+		_, _ = sessions[i].out.WriteTo(out)
+		_, _ = sessions[i].errOut.WriteTo(errw)
+	})
+	code := 0
+	var failed []string
+	for _, s := range sessions {
+		if s.shotsSkipped {
+			r.shotsSkipped = true
+		}
+		if s.err != nil {
+			fmt.Fprintln(errw, "playtest:", s.err)
+			code = 2
+		}
+		if s.failed && code == 0 {
+			code = 1
+		}
+		failed = append(failed, s.failLines...)
 	}
+	if note := r.ShotsNote(); note != "" {
+		fmt.Fprintln(out, note)
+	}
+	if code == 2 {
+		return 2
+	}
+	took := time.Since(started).Round(time.Second)
 	if code == 0 {
-		fmt.Fprintln(out, "✓ ux-test passed")
+		fmt.Fprintf(out, "✓ ux-test passed (%s)\n", uxSummary(len(sel), workers, took))
 	} else {
 		for _, l := range failed {
 			fmt.Fprintln(errw, l)
 		}
-		fmt.Fprintln(errw, "✗ ux-test failed")
+		fmt.Fprintf(errw, "✗ ux-test failed (%s)\n", uxSummary(len(sel), workers, took))
 	}
 	return code
+}
+
+// uxTestBins, set by a test, skips the build.
+var uxTestBins *Binaries
+
+// memBlockedNot: more work may start (mem-guard does not say BLOCKED).
+func memBlockedNot() bool { return !memBlocked() }
+
+// uxSessionRun is one session's -repeat runs: their e2e rows, FAIL lines,
+// and the output, printed whole once the session ends so parallel sessions
+// never interleave their lines.
+type uxSessionRun struct {
+	e2e          []testresults.PlaytestSession
+	failLines    []string
+	failed       bool
+	shotsSkipped bool
+	err          error
+	out, errOut  bytes.Buffer
+}
+
+// uxSession runs s (-repeat times) on its own copy of r, writing into the
+// run's buffers.
+func (r *Runner) uxSession(b *Browser, s *Session, o opts) uxSessionRun {
+	var run uxSessionRun
+	wr := *r
+	wr.Out = &run.out
+	wr.shotsSkipped = false
+	defer func() { run.shotsSkipped = wr.shotsSkipped }()
+	var first *Results
+	for i := range max(o.repeat, 1) {
+		start := time.Now()
+		res, dir, err := wr.UXTest(b, s, stepFilter(o.steps))
+		if err != nil {
+			run.err = err
+			return run
+		}
+		run.e2e = append(run.e2e, e2eSession(res, time.Since(start)))
+		fmt.Fprintf(&run.out, "results: %s\n", filepath.Join(dir, "results.yaml"))
+		if f := failLines(res); len(f) > 0 {
+			run.failed = true
+			run.failLines = append(run.failLines, f...)
+		}
+		if i == 0 {
+			first = res
+		} else if d := Diff(first, res); d != "" {
+			fmt.Fprintf(&run.errOut, "✗ %s: run %d differs from run 1\n%s\n", s.Name, i+1, d)
+			run.failed = true
+		} else {
+			fmt.Fprintf(&run.out, "✓ %s: run %d matches run 1\n", s.Name, i+1)
+		}
+	}
+	return run
 }
 
 // failLines is one line per failed step of a run, naming the session and

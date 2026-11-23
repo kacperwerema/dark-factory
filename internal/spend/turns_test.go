@@ -174,11 +174,16 @@ func TestLoadTurnsCountsDryRunsAndFollowOnReads(t *testing.T) {
 	if it.DryRuns != 2 || it.FollowOnReads != 2 {
 		t.Errorf("dry runs %d (want 2), follow-on reads %d (want 2): %+v", it.DryRuns, it.FollowOnReads, it)
 	}
+	// One-call read-only turns straight after another: r2 and r3; r1
+	// follows a transition, r4 a go test.
+	if it.FollowOnReadOnly != 2 || it.FollowOnReadOnlyContext != 200 {
+		t.Errorf("follow-on read-only %d / %d (want 2 / 200)", it.FollowOnReadOnly, it.FollowOnReadOnlyContext)
+	}
 	if rep.Total.DryRuns != 2 || rep.Total.FollowOnReads != 2 {
 		t.Errorf("total: %+v", rep.Total)
 	}
 	data, _ := json.Marshal(rep)
-	for _, s := range []string{`"dry_runs":2`, `"follow_on_reads":2`} {
+	for _, s := range []string{`"dry_runs":2`, `"follow_on_reads":2`, `"follow_on_read_only":2`} {
 		if !strings.Contains(string(data), s) {
 			t.Errorf("JSON lacks %s: %s", s, data)
 		}

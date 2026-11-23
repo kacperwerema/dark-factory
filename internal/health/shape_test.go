@@ -176,7 +176,7 @@ last() {
 // lib.sh's _ck_tmp_base has a */.worktrees/* glob: measured as 345 lines
 // while // and /* were comments in shell.
 func TestShellLibFuncLengths(t *testing.T) {
-	data, err := os.ReadFile("../checks/lib.sh")
+	data, err := os.ReadFile("../checks/lib/sandbox.sh")
 	if err != nil {
 		t.Fatal(err)
 	}

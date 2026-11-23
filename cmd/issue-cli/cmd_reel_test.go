@@ -38,7 +38,7 @@ func TestReelInitWritesTheTemplateAndNeverOverwrites(t *testing.T) {
 	assertContains(t, s, "✓ Wrote the reel template")
 	assertContains(t, s, "shapes hook-list, before-after, app-demo")
 	assertContains(t, s, "free for individuals and companies of up to 3 people")
-	for _, f := range []string{"reel.json", "package.json", "README.md", "src/Root.tsx", "src/shapes/HookList.tsx", "src/shapes/BeforeAfter.tsx", "src/shapes/AppDemo.tsx", "src/parts/Captions.tsx", "examples/hook-list.json"} {
+	for _, f := range []string{"reel.json", "package.json", "README.md", "src/Root.tsx", "src/shapes/HookList.tsx", "src/shapes/BeforeAfter.tsx", "src/shapes/AppDemo.tsx", "src/parts/Captions.tsx", "src/parts/Clips.tsx", "src/parts/Phone.tsx", "src/parts/SceneLabel.tsx", "src/parts/Stamps.tsx", "src/frame.ts", "examples/hook-list.json", "examples/parts.json"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
 			t.Errorf("%s: %v", f, err)
 		}
@@ -222,7 +222,7 @@ func TestReelShelveRefusesARedReelAndShelvesAGreenOne(t *testing.T) {
 	if reelExitCode(err) != 1 {
 		t.Fatalf("qa err = %v, want exit 1", err)
 	}
-	assertContains(t, out.String(), "QA: FAIL (1 of 6 checks)")
+	assertContains(t, out.String(), "QA: FAIL (1 of 7 checks)")
 	assertContains(t, out.String(), "✗ duration: 6.80 s (plan 6.80 s) (bound: 20-90 s")
 	if _, err := os.Stat(mp4 + ".qa.json"); err != nil {
 		t.Error(err)
@@ -249,7 +249,7 @@ func TestReelShelveRefusesARedReelAndShelvesAGreenOne(t *testing.T) {
 		t.Fatalf("shelf = %+v", list)
 	}
 	o := list[0]
-	if o.Kind != "video" || o.State != outputs.StateReview || !strings.HasPrefix(o.Note, "QA pass (6 checks) · duration 6.80 s") || o.Report == "" {
+	if o.Kind != "video" || o.State != outputs.StateReview || !strings.HasPrefix(o.Note, "QA pass (7 checks) · duration 6.80 s") || o.Report == "" {
 		t.Fatalf("output = %+v", o)
 	}
 	md := readText(t, filepath.Join(outputs.FilesDir(proj), o.Report))
@@ -293,7 +293,7 @@ func TestReelDocNamesEveryCommand(t *testing.T) {
 			t.Errorf("docs/reels.md does not name issue-cli reel %s", sub)
 		}
 	}
-	for _, c := range []string{"duration", "aspect", "loudness", "black-frames", "safe-zone", "caption-sync", "remotion.dev/license"} {
+	for _, c := range []string{"duration", "aspect", "loudness", "black-frames", "safe-zone", "caption-sync", "caption-scene", "remotion.dev/license"} {
 		if !strings.Contains(doc, c) {
 			t.Errorf("docs/reels.md does not name %s", c)
 		}

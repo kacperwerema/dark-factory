@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "shape": "hook-list",
+  "format": "4:5",
+  "title": "Three things the kids won't eat",
+  "language": "en",
+  "label": "Acted scene, AI voice and video",
+  "brand": {"name": "Brand", "colors": {"primary": "#2F6BFF", "accent": "#E63946", "text": "#FFFFFF", "background": "#101418"}},
+  "scenes": [
+    {"id": "hook", "role": "hook", "duration": 3, "text": "Fish, no. Carrots, no. Spinach, no.",
+      "narration": {"text": "Fish? No. Carrots? No. Spinach? No.", "voice": "narrator"},
+      "stamp": {"text": "NO"},
+      "clips": [
+        {"source": "ai", "path": "media/fish.mp4", "start": 0, "end": 1, "ai_generated": true, "tool": "kling", "prompt": "a child pushes away a plate of fish"},
+        {"source": "ai", "path": "media/carrots.mp4", "start": 0, "end": 1, "ai_generated": true, "tool": "kling", "prompt": "a child shakes their head at carrots"},
+        {"source": "ai", "path": "media/spinach.mp4", "start": 0, "end": 1, "ai_generated": true, "tool": "kling", "prompt": "a child covers their mouth at spinach"}
+      ]},
+    {"id": "app", "role": "item", "duration": 3.5, "text": "Mark what each one won't eat",
+      "narration": {"text": "Mark what each one won't eat.", "voice": "narrator"},
+      "clips": [
+        {"source": "app-recording", "path": "media/mark.mp4"},
+        {"source": "ai", "path": "media/kitchen.mp4", "ai_generated": true, "tool": "kling", "prompt": "a parent holds up a phone in a kitchen"}
+      ]},
+    {"id": "plan", "role": "item", "duration": 3, "text": "Get a week they will eat", "narration": {"text": "Get a week they will eat.", "voice": "narrator"},
+      "clips": [{"source": "owner", "path": "media/table.mp4"}]},
+    {"id": "cta", "role": "cta", "duration": 2.5, "narration": {"text": "Link in bio.", "voice": "narrator"}}
+  ],
+  "captions": {"style": "words", "position": "lower"},
+  "cta": {"text": "Link in bio", "handle": "@brand", "url": "example.com"}
+}
